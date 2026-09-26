@@ -76,6 +76,16 @@ type TaskActivity struct {
 	// own, and because the UI wants to say how long the wait has lasted. Any
 	// terminal status clears it.
 	WaitingSince *time.Time `json:"waitingSince,omitempty"`
+	// WaitingReason says why a run waits when it is not a question asked in
+	// its session: "repository" for a launch parked until its ticket is
+	// pinned to a repository. Empty otherwise.
+	WaitingReason string `json:"waitingReason,omitempty"`
+	// Concurrent marks a run allowed next to another active run on the same
+	// task: one started with "Launch anyway", one a client declared without a
+	// launcher, one an agent reported that the server did not create. Every
+	// other run is ordinary, and the database allows one ordinary active run per
+	// task.
+	Concurrent bool `json:"concurrent,omitempty"`
 	// UserID is the user who created the activity: the signed-in person for a
 	// launch from the interface, the key holder for a run reported over MCP, the
 	// agent's user for a run the agent owns. Empty on rows written before
@@ -84,6 +94,10 @@ type TaskActivity struct {
 	// UserName is the owner's display name or e-mail, resolved when the row is
 	// read. It is never stored: a rename must show everywhere at once.
 	UserName string `json:"userName,omitempty"`
+	// MacroKey names the macro a macro skill run belongs to. Such a run is a
+	// project activity with no task; the field is read by the macro run
+	// queries only and is empty everywhere else.
+	MacroKey string `json:"macroKey,omitempty"`
 }
 
 type ActivityStats struct {
@@ -100,19 +114,33 @@ type Project struct {
 	Name        string `json:"name"`
 	Slug        string `json:"slug"`
 	Description string `json:"description"`
-	Icon        string `json:"icon"`     // "Folder", "Terminal", "Flame", "Zap", "Layers", "Code2", "Box", "Cpu"
-	Color       string `json:"color"`    // "indigo", "emerald", "purple", "amber", "blue", "rose", "cyan", "orange", "neon-cyan", etc.
-	RepoPath    string `json:"repoPath"` // CWD for AI skills
+	Icon        string `json:"icon"`  // "Folder", "Terminal", "Flame", "Zap", "Layers", "Code2", "Box", "Cpu"
+	Color       string `json:"color"` // "indigo", "emerald", "purple", "amber", "blue", "rose", "cyan", "orange", "neon-cyan", etc.
+	RepoPath    string `json:"-"`     // CWD for AI skills
 	// RepoPaths is the list of working directories known for this project.
 	// It is fed automatically: whenever a ticket pins a new CWD, that path is
 	// registered here so the next ticket can pick it instead of retyping it.
-	RepoPaths []string `json:"repoPaths,omitempty"`
+	RepoPaths []string `json:"-"`
+	// Repositories are the repositories the project's tickets work in, the
+	// code remote first. A workstation maps each one to a local folder; the
+	// server keeps remotes only, never paths.
+	Repositories []ProjectRepository `json:"repositories"`
+	// RepositoriesMigration is empty until a local agent converted the legacy
+	// paths above to repositories, then the JSON report of that conversion.
+	RepositoriesMigration string `json:"repositoriesMigration,omitempty"`
+	// RoadmapProjects are other Jira project keys whose story keys the slicing
+	// attaches to a line. They are read, never written.
+	RoadmapProjects []string `json:"roadmapProjects,omitempty"`
 	// UseWorktrees decides whether each task gets its own isolated Git worktree
 	// under .tasks/worktrees, or whether the agent simply runs in the clone. A
 	// solo project rarely needs that isolation and pays the setup cost for
 	// nothing. Default true, which is the historical behaviour.
-	UseWorktrees    bool   `json:"useWorktrees"`
+	UseWorktrees    bool   `json:"-"`
 	PRCreationStage string `json:"prCreationStage"`
+	// SpecArtifacts says whether the clarification and specification files of
+	// the project's tasks are committed ("keep", the default) or left in the
+	// task worktree and ignored by Git ("drop"). A workstation may override it.
+	SpecArtifacts string `json:"specArtifacts"`
 	// DefaultSkillMode is the execution mode a skill run falls back to when
 	// neither the launch nor the skill itself pins one. Default "interactive",
 	// which is what the tool did before the setting existed.
@@ -136,6 +164,13 @@ type Project struct {
 	// its own type imports nothing without it: a feedback project may carry a
 	// single custom type, which the default list would match on no ticket.
 	IssueTypes []string `json:"issueTypes,omitempty"`
+	// EnabledViews names the optional workspace views this project shows, among
+	// OptionalViews. Empty, the default, means none of them: Triage, Roadmap
+	// and Timeline stay out of the sidebar until the project asks for them.
+	EnabledViews []string `json:"enabledViews,omitempty"`
+	// EpicColors paints each card with the colour of its epic. Off by default:
+	// a project asks for it in its settings.
+	EpicColors bool `json:"epicColors"`
 	// Sprints mirrors the board's sprints with their state, refreshed by the sync.
 	Sprints []TrackerSprint `json:"sprints,omitempty"`
 	// StageColumns assigns each agentic workflow stage to one or several of those
@@ -146,38 +181,36 @@ type Project struct {
 	JiraProject  string              `json:"jiraProject"`  // Jira project key, e.g. "PE"
 	// The connection parameters below override the user configuration for this
 	// project only. Empty means "use the user configuration", which is what
-	// every project-level override in this model does. The tokens are
-	// write-only, like the ones on Settings.
+	// every project-level override in this model does. A project carries no
+	// tracker token: the server credential of its provider serves every
+	// project (#464).
 	GithubApiUrl                string            `json:"githubApiUrl,omitempty"`
-	GithubToken                 string            `json:"githubToken,omitempty"`
-	GithubTokenSet              bool              `json:"githubTokenSet"`
 	GitlabUrl                   string            `json:"gitlabUrl,omitempty"`
 	GitlabProject               string            `json:"gitlabProject,omitempty"`
-	GitlabToken                 string            `json:"gitlabToken,omitempty"`
-	GitlabTokenSet              bool              `json:"gitlabTokenSet"`
-	IssueTracker                string            `json:"issueTracker"` // "github", "jira", "local"
+	IssueTracker                string            `json:"issueTracker"` // "github", "gitlab", "jira", "local"
 	TrackerUrl                  string            `json:"trackerUrl"`   // e.g. "https://acme.atlassian.net"
 	IsDefault                   bool              `json:"isDefault"`
 	Bookmarked                  bool              `json:"bookmarked"`
-	SkillOverrides              map[string]string `json:"skillOverrides,omitempty"`              // skillId -> custom skill name override
-	AIProvider                  string            `json:"aiProvider,omitempty"`                  // "agy", "claude", "codex", "vibe", "gemini", "cursor", "custom"
-	SetupProviders              []string          `json:"setupProviders"`                        // extra agents to install skills and MCP for
-	AICommandTemplate           string            `json:"aiCommandTemplate,omitempty"`           // interactive launches, e.g. 'claude "{prompt}"'
-	AICommandTemplateAutonomous string            `json:"aiCommandTemplateAutonomous,omitempty"` // headless launches; empty falls back to the interactive one
-	AIModel                     string            `json:"aiModel,omitempty"`                     // e.g. "claude-opus-5"; empty inherits the global setting
-	AISkillModels               map[string]string `json:"aiSkillModels,omitempty"`               // skillId -> model, for the skills that depart from AIModel
-	SpecFramework               string            `json:"specFramework,omitempty"`               // "speckit", "openspec"
-	AutoSyncEnabled             bool              `json:"autoSyncEnabled"`                       // Enable background sync for non-finished tickets
-	AutoSyncIntervalMin         int               `json:"autoSyncIntervalMin"`                   // Period in minutes (1 to 30)
+	SkillOverrides              map[string]string `json:"-"`                       // skillId -> custom skill name override
+	AIProvider                  string            `json:"-"`                       // "agy", "claude", "codex", "vibe", "gemini", "cursor", "custom"
+	SetupProviders              []string          `json:"-"`                       // extra agents to install skills and MCP for
+	AICommandTemplate           string            `json:"-"`                       // interactive launches, e.g. 'claude "{prompt}"'
+	AICommandTemplateAutonomous string            `json:"-"`                       // headless launches; empty falls back to the interactive one
+	AIModel                     string            `json:"-"`                       // e.g. "claude-opus-5"; empty inherits the global setting
+	AISkillModels               map[string]string `json:"-"`                       // skillId -> model, for the skills that depart from AIModel
+	SpecFramework               string            `json:"specFramework,omitempty"` // "speckit", "openspec"
+	AutoSyncEnabled             bool              `json:"autoSyncEnabled"`         // Enable background sync for non-finished tickets
+	AutoSyncIntervalMin         int               `json:"autoSyncIntervalMin"`     // Period in minutes (1 to 30)
 	// OwnerUserID is whoever owns this project: its creator, or whoever first
-	// saved it when it predates the field. The background synchronisation runs
-	// under that account, because on a tracker whose credential is personal
-	// there is no other one to run under: the owner is the person who turned
-	// the loop on, so it is their token the loop borrows. It is never read from
-	// a payload: a client naming its own owner would borrow anybody's token.
-	OwnerUserID             string    `json:"ownerUserId,omitempty"`
-	TtyMode                 string    `json:"ttyMode,omitempty"`                 // "integrated" or "external"
-	ExternalTerminalCommand string    `json:"externalTerminalCommand,omitempty"` // e.g. "Ghostty", "Terminal", "iTerm", "alacritty", "kitty"
+	// saved it when it predates the field. The background synchronisation no
+	// longer runs under that account: it reads with the server credential of
+	// the project's provider (#464). It is never read from a payload.
+	OwnerUserID string `json:"ownerUserId,omitempty"`
+	// ExternalTerminalCommand and the other fields tagged json:"-" above are
+	// execution settings (#305): the workstation owns them. The columns stay,
+	// read-only, for the one-time seed of each workstation (#492 drops them),
+	// and no answer carries them any more.
+	ExternalTerminalCommand string    `json:"-"` // e.g. "Ghostty", "Terminal", "iTerm", "alacritty", "kitty"
 	TaskCount               int       `json:"taskCount"`
 	CreatedAt               time.Time `json:"createdAt"`
 	UpdatedAt               time.Time `json:"updatedAt"`
@@ -198,7 +231,7 @@ type TaskComment struct {
 	UserID    string     `json:"userId,omitempty"`
 	Body      string     `json:"body"`
 	CreatedAt *time.Time `json:"createdAt,omitempty"`
-	Source    string     `json:"source"` // "jira", "github", "local"
+	Source    string     `json:"source"` // "jira", "github", "gitlab", "local"
 }
 
 type TrackerColumn struct {
@@ -224,6 +257,18 @@ type TrackerSprint struct {
 	EndDate   string `json:"endDate,omitempty"`
 }
 
+// SprintPatch changes a tracker sprint. A nil field is left as it is. Dates
+// are YYYY-MM-DD or RFC3339; State is "active", "future" or "closed".
+// MoveOpenTo only goes with closing: "next" moves the sprint's unfinished work
+// items to the following sprint first, "backlog" to the backlog.
+type SprintPatch struct {
+	Name       *string `json:"name,omitempty"`
+	Start      *string `json:"start,omitempty"`
+	End        *string `json:"end,omitempty"`
+	State      *string `json:"state,omitempty"`
+	MoveOpenTo *string `json:"moveOpenTo,omitempty"`
+}
+
 // MacroMeta is the macro-level data Sectile owns. Macros are containers referenced by their children
 // so their horizon, their framing notes and their todo list have nowhere else to live.
 type MacroMeta struct {
@@ -242,12 +287,49 @@ type MacroMeta struct {
 	UpdatedAt time.Time `json:"updatedAt"`
 }
 
+// Origine d'une ligne de découpe : l'artefact d'où elle a été importée.
+//
+// La chaîne vide vaut « saisie à la main », ce qui est la bonne réponse pour
+// toutes les lignes enregistrées avant ces champs, et la plus intéressante de
+// la liste : une ligne sans origine est un ajout que personne n'a spécifié.
+const (
+	// MacroTodoFromTasks : un groupe de tasks.md. Un groupe vaut une story ; les
+	// lignes « - [ ] N.N » qu'il contient sont le détail d'exécution et ne
+	// deviennent jamais des lignes de découpe.
+	MacroTodoFromTasks = "tasks"
+	// MacroTodoFromSpec : une exigence de spec.md, ou une user story priorisée
+	// sous Spec Kit. Plus proche du sens métier, mais pas toujours livrable seule.
+	MacroTodoFromSpec = "spec"
+	// MacroTodoFromStories : une story déjà créée sous la macro, reprise dans la
+	// découpe. La ligne arrive rattachée à son ticket, ce qui la distingue d'une
+	// ligne à faire et fait qu'une création en lot la passe.
+	MacroTodoFromStories = "stories"
+)
+
 // MacroTodo is one shaping item on a macro, before it becomes a story.
 type MacroTodo struct {
 	ID       string `json:"id"`
 	Text     string `json:"text"`
 	Done     bool   `json:"done"`
 	StoryKey string `json:"storyKey,omitempty"`
+	// TargetProjectID is the project this line's story is created in. Empty
+	// means the macro's own project, which keeps lines saved before the field
+	// valid. Story creation refuses a target that is not on the macro's tracker
+	// instance, where the macro could not be the story's parent.
+	TargetProjectID string `json:"targetProjectId,omitempty"`
+	// SourceKind dit de quel artefact la ligne a été importée, parmi les
+	// MacroTodoFrom* ci-dessus. Vide vaut « saisie à la main ».
+	//
+	// Sans lui la découpe ne voyage que dans un sens : une ligne renommée,
+	// ajoutée ou supprimée à la main laisse la spécification dire ce que
+	// l'équipe ne croit plus, et rien ne sait quelle entrée d'un fichier
+	// correspond à quelle ligne.
+	SourceKind string `json:"sourceKind,omitempty"`
+	// SourceEntry est le titre de l'entrée tel que l'artefact l'écrit, avant
+	// nettoyage. C'est lui qui permet de retrouver l'entrée dans le fichier :
+	// Text a perdu le préfixe de groupe, la clé et le renvoi final, et ne suffit
+	// donc plus à la désigner.
+	SourceEntry string `json:"sourceEntry,omitempty"`
 }
 
 // Backwards compatibility aliases
@@ -313,91 +395,79 @@ type TeamWorkload struct {
 	Outside []TeamMemberLoad `json:"outside"`
 }
 
+// CreateProjectRequest and UpdateProjectRequest carry no execution setting
+// (#305): the workstation owns them, and a request that still names one is
+// decoded without it, so an older client keeps saving the rest.
 type CreateProjectRequest struct {
 	// IssueTypes names the tracker work item types to import. Empty means the
 	// default list.
 	IssueTypes []string `json:"issueTypes,omitempty"`
+	// EnabledViews names the optional workspace views to show. Empty means none.
+	EnabledViews []string `json:"enabledViews,omitempty"`
+	// EpicColors paints each card with the colour of its epic. Off when absent.
+	EpicColors bool `json:"epicColors,omitempty"`
+	// RoadmapProjects are the Jira project keys the slicing also reads.
+	RoadmapProjects []string `json:"roadmapProjects,omitempty"`
 	// MonoRepo defaults to true when absent: a single repository is the common
 	// case, and it is what the tool did before the setting existed.
-	MonoRepo                    *bool             `json:"monoRepo,omitempty"`
-	Name                        string            `json:"name"`
-	Slug                        string            `json:"slug,omitempty"`
-	Description                 string            `json:"description,omitempty"`
-	Icon                        string            `json:"icon,omitempty"`
-	Color                       string            `json:"color,omitempty"`
-	RepoPath                    string            `json:"repoPath,omitempty"`
-	RepoPaths                   []string          `json:"repoPaths,omitempty"`
-	PRCreationStage             string            `json:"prCreationStage,omitempty"`
-	DefaultSkillMode            string            `json:"defaultSkillMode,omitempty"`
-	FullChainStopStage          string            `json:"fullChainStopStage,omitempty"`
-	UseWorktrees                *bool             `json:"useWorktrees,omitempty"`
-	BoardID                     string            `json:"boardId,omitempty"`
-	GitRemoteUrl                string            `json:"gitRemoteUrl,omitempty"`
-	GithubRepo                  string            `json:"githubRepo,omitempty"`
-	GithubApiUrl                string            `json:"githubApiUrl,omitempty"`
-	GithubToken                 string            `json:"githubToken,omitempty"`
-	GitlabUrl                   string            `json:"gitlabUrl,omitempty"`
-	GitlabProject               string            `json:"gitlabProject,omitempty"`
-	GitlabToken                 string            `json:"gitlabToken,omitempty"`
-	JiraProject                 string            `json:"jiraProject,omitempty"`
-	IssueTracker                string            `json:"issueTracker,omitempty"`
-	TrackerUrl                  string            `json:"trackerUrl,omitempty"`
-	IsDefault                   bool              `json:"isDefault,omitempty"`
-	SkillOverrides              map[string]string `json:"skillOverrides,omitempty"`
-	SetupProviders              []string          `json:"setupProviders,omitempty"`
-	AIProvider                  string            `json:"aiProvider,omitempty"`
-	AICommandTemplate           string            `json:"aiCommandTemplate,omitempty"`
-	AICommandTemplateAutonomous string            `json:"aiCommandTemplateAutonomous,omitempty"`
-	AIModel                     string            `json:"aiModel,omitempty"`
-	AISkillModels               map[string]string `json:"aiSkillModels,omitempty"`
-	SpecFramework               string            `json:"specFramework,omitempty"`
-	AutoSyncEnabled             *bool             `json:"autoSyncEnabled,omitempty"`
-	AutoSyncIntervalMin         *int              `json:"autoSyncIntervalMin,omitempty"`
-	TtyMode                     string            `json:"ttyMode,omitempty"`
-	ExternalTerminalCommand     string            `json:"externalTerminalCommand,omitempty"`
+	MonoRepo            *bool    `json:"monoRepo,omitempty"`
+	Name                string   `json:"name"`
+	Slug                string   `json:"slug,omitempty"`
+	Description         string   `json:"description,omitempty"`
+	Icon                string   `json:"icon,omitempty"`
+	Color               string   `json:"color,omitempty"`
+	Repositories        []string `json:"repositories,omitempty"`
+	PRCreationStage     string   `json:"prCreationStage,omitempty"`
+	SpecArtifacts       string   `json:"specArtifacts,omitempty"`
+	DefaultSkillMode    string   `json:"defaultSkillMode,omitempty"`
+	FullChainStopStage  string   `json:"fullChainStopStage,omitempty"`
+	BoardID             string   `json:"boardId,omitempty"`
+	GitRemoteUrl        string   `json:"gitRemoteUrl,omitempty"`
+	GithubRepo          string   `json:"githubRepo,omitempty"`
+	GithubApiUrl        string   `json:"githubApiUrl,omitempty"`
+	GitlabUrl           string   `json:"gitlabUrl,omitempty"`
+	GitlabProject       string   `json:"gitlabProject,omitempty"`
+	JiraProject         string   `json:"jiraProject,omitempty"`
+	IssueTracker        string   `json:"issueTracker,omitempty"`
+	TrackerUrl          string   `json:"trackerUrl,omitempty"`
+	IsDefault           bool     `json:"isDefault,omitempty"`
+	SpecFramework       string   `json:"specFramework,omitempty"`
+	AutoSyncEnabled     *bool    `json:"autoSyncEnabled,omitempty"`
+	AutoSyncIntervalMin *int     `json:"autoSyncIntervalMin,omitempty"`
 }
 
 type UpdateProjectRequest struct {
-	Name                        *string              `json:"name,omitempty"`
-	Slug                        *string              `json:"slug,omitempty"`
-	Description                 *string              `json:"description,omitempty"`
-	Icon                        *string              `json:"icon,omitempty"`
-	Color                       *string              `json:"color,omitempty"`
-	RepoPath                    *string              `json:"repoPath,omitempty"`
-	RepoPaths                   *[]string            `json:"repoPaths,omitempty"`
-	PRCreationStage             *string              `json:"prCreationStage,omitempty"`
-	DefaultSkillMode            *string              `json:"defaultSkillMode,omitempty"`
-	FullChainStopStage          *string              `json:"fullChainStopStage,omitempty"`
-	UseWorktrees                *bool                `json:"useWorktrees,omitempty"`
-	BoardID                     *string              `json:"boardId,omitempty"`
-	TrackerColumns              *[]TrackerColumn     `json:"trackerColumns,omitempty"`
-	Sprints                     *[]TrackerSprint     `json:"sprints,omitempty"`
-	IssueTypes                  *[]string            `json:"issueTypes,omitempty"`
-	MonoRepo                    *bool                `json:"monoRepo,omitempty"`
-	StageColumns                *map[string][]string `json:"stageColumns,omitempty"`
-	GitRemoteUrl                *string              `json:"gitRemoteUrl,omitempty"`
-	GithubRepo                  *string              `json:"githubRepo,omitempty"`
-	GithubApiUrl                *string              `json:"githubApiUrl,omitempty"`
-	GithubToken                 *string              `json:"githubToken,omitempty"`
-	GitlabUrl                   *string              `json:"gitlabUrl,omitempty"`
-	GitlabProject               *string              `json:"gitlabProject,omitempty"`
-	GitlabToken                 *string              `json:"gitlabToken,omitempty"`
-	JiraProject                 *string              `json:"jiraProject,omitempty"`
-	IssueTracker                *string              `json:"issueTracker,omitempty"`
-	TrackerUrl                  *string              `json:"trackerUrl,omitempty"`
-	IsDefault                   *bool                `json:"isDefault,omitempty"`
-	SkillOverrides              *map[string]string   `json:"skillOverrides,omitempty"`
-	SetupProviders              *[]string            `json:"setupProviders,omitempty"`
-	AIProvider                  *string              `json:"aiProvider,omitempty"`
-	AICommandTemplate           *string              `json:"aiCommandTemplate,omitempty"`
-	AICommandTemplateAutonomous *string              `json:"aiCommandTemplateAutonomous,omitempty"`
-	AIModel                     *string              `json:"aiModel,omitempty"`
-	AISkillModels               *map[string]string   `json:"aiSkillModels,omitempty"`
-	SpecFramework               *string              `json:"specFramework,omitempty"`
-	AutoSyncEnabled             *bool                `json:"autoSyncEnabled,omitempty"`
-	AutoSyncIntervalMin         *int                 `json:"autoSyncIntervalMin,omitempty"`
-	TtyMode                     *string              `json:"ttyMode,omitempty"`
-	ExternalTerminalCommand     *string              `json:"externalTerminalCommand,omitempty"`
+	Name                *string              `json:"name,omitempty"`
+	Slug                *string              `json:"slug,omitempty"`
+	Description         *string              `json:"description,omitempty"`
+	Icon                *string              `json:"icon,omitempty"`
+	Color               *string              `json:"color,omitempty"`
+	Repositories        *[]string            `json:"repositories,omitempty"`
+	RoadmapProjects     *[]string            `json:"roadmapProjects,omitempty"`
+	PRCreationStage     *string              `json:"prCreationStage,omitempty"`
+	SpecArtifacts       *string              `json:"specArtifacts,omitempty"`
+	DefaultSkillMode    *string              `json:"defaultSkillMode,omitempty"`
+	FullChainStopStage  *string              `json:"fullChainStopStage,omitempty"`
+	BoardID             *string              `json:"boardId,omitempty"`
+	TrackerColumns      *[]TrackerColumn     `json:"trackerColumns,omitempty"`
+	Sprints             *[]TrackerSprint     `json:"sprints,omitempty"`
+	IssueTypes          *[]string            `json:"issueTypes,omitempty"`
+	EnabledViews        *[]string            `json:"enabledViews,omitempty"`
+	EpicColors          *bool                `json:"epicColors,omitempty"`
+	MonoRepo            *bool                `json:"monoRepo,omitempty"`
+	StageColumns        *map[string][]string `json:"stageColumns,omitempty"`
+	GitRemoteUrl        *string              `json:"gitRemoteUrl,omitempty"`
+	GithubRepo          *string              `json:"githubRepo,omitempty"`
+	GithubApiUrl        *string              `json:"githubApiUrl,omitempty"`
+	GitlabUrl           *string              `json:"gitlabUrl,omitempty"`
+	GitlabProject       *string              `json:"gitlabProject,omitempty"`
+	JiraProject         *string              `json:"jiraProject,omitempty"`
+	IssueTracker        *string              `json:"issueTracker,omitempty"`
+	TrackerUrl          *string              `json:"trackerUrl,omitempty"`
+	IsDefault           *bool                `json:"isDefault,omitempty"`
+	SpecFramework       *string              `json:"specFramework,omitempty"`
+	AutoSyncEnabled     *bool                `json:"autoSyncEnabled,omitempty"`
+	AutoSyncIntervalMin *int                 `json:"autoSyncIntervalMin,omitempty"`
 }
 
 // NormalizeAutoSyncIntervalMin clamps the project background sync interval between 1 and 30 minutes (default 5).
@@ -495,6 +565,34 @@ const (
 	FullChainStopReviewed    = "reviewed"
 )
 
+// SpecArtifacts values: a project either commits its tasks' clarification and
+// specification files with the code, or keeps them out of the repository.
+const (
+	SpecArtifactsKeep = "keep"
+	SpecArtifactsDrop = "drop"
+)
+
+// NormalizeSpecArtifacts reads a stored or received value. Only "drop" drops:
+// anything else, the empty string included, keeps the artefacts, which is what
+// the tool did before the setting existed.
+func NormalizeSpecArtifacts(value string) string {
+	if strings.ToLower(strings.TrimSpace(value)) == SpecArtifactsDrop {
+		return SpecArtifactsDrop
+	}
+	return SpecArtifactsKeep
+}
+
+// ValidSpecArtifacts reports whether a value received from a client is one a
+// project may store. The empty string is valid: it means the default on
+// create, and is never sent on update by a client that means to change it.
+func ValidSpecArtifacts(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "", SpecArtifactsKeep, SpecArtifactsDrop:
+		return true
+	}
+	return false
+}
+
 // NormalizeFullChainStopStage reads a stored stop stage. Anything unrecognised
 // reads as reviewed, which is the historical behaviour, so a bad stored value
 // cannot wedge a board.
@@ -536,6 +634,9 @@ var SkillDirNames = map[string]string{
 	"rewrite_story": "rewrite-story",
 	"rewrite-story": "rewrite-story",
 	"rewrite":       "rewrite-story",
+	"realign_macro": "realign-macro",
+	"realign-macro": "realign-macro",
+	"realign":       "realign-macro",
 	"refine_macro":  "refine-macro",
 	"refine-macro":  "refine-macro",
 	"refine":        "refine-macro",
@@ -703,6 +804,12 @@ type Task struct {
 	// project's repoPath, for trackers where one epic spans several codebases.
 	// Empty means "inherit the project, then the global setting".
 	RepoPath *string `json:"repoPath,omitempty"`
+	// Repository pins the repository, by identity, this ticket works in on a
+	// multi-repo project. Empty means not pinned.
+	Repository string `json:"repository,omitempty"`
+	// ChangedRepositories are the other repositories, by identity, in which
+	// the ticket has a worktree on its branch. Each needs its pull request.
+	ChangedRepositories []string `json:"changedRepositories,omitempty"`
 	// TrackerStatus is the status name as the tracker spells it ("Dev Test", "To
 	// Merge"…). The internal Status folds those onto six values, which is too
 	// lossy to place a card in the tracker's own board columns.
@@ -715,7 +822,7 @@ type Task struct {
 	// used to read a team's members: the members endpoint is keyed by id, and
 	// two teams may carry the same name.
 	TeamID      string  `json:"teamId,omitempty"`
-	Source      string  `json:"source"` // "github", "jira", "local"
+	Source      string  `json:"source"` // "github", "gitlab", "jira", "local"
 	ExternalURL *string `json:"externalUrl,omitempty"`
 	// IssueType is the tracker's own work item type. Only "Task" and "Story"
 	// are imported; epics and other types stay out of the board.
@@ -745,6 +852,10 @@ type Task struct {
 }
 
 type Settings struct {
+	// The fields tagged json:"-" are execution settings (#305): the
+	// workstation owns them. The columns stay, read-only, for the one-time
+	// seed of each workstation; no request writes them and no answer carries
+	// them.
 	ID          int    `json:"id"`
 	Theme       string `json:"theme"`       // "dark", "light", "system"
 	AccentColor string `json:"accentColor"` // "indigo", "violet", "emerald", "amber", "rose", "cyan", "blue", "orange"
@@ -758,7 +869,8 @@ type Settings struct {
 	AutoSyncEnabled bool `json:"autoSyncEnabled"`
 	// AutoSyncIntervalSec is that loop's period, in seconds. Floored at 30.
 	AutoSyncIntervalSec int `json:"autoSyncIntervalSec"`
-	// UIScale is the interface zoom in percent (90, 100, 110, 125). Density only
+	// UIScale is the interface zoom in percent, on one of db.UIScaleOptions.
+	// Density only
 	// moves the root font size, which leaves every fixed pixel size untouched;
 	// the scale zooms the whole interface, which is what a large or a small
 	// screen actually needs.
@@ -770,22 +882,22 @@ type Settings struct {
 	// only authority on it.
 	UserEmail         string `json:"userEmail"`
 	UserAvatar        string `json:"userAvatar"`
-	AIProvider        string `json:"aiProvider"`        // "agy", "claude", "codex", "custom"
-	AICommandTemplate string `json:"aiCommandTemplate"` // interactive launches
+	AIProvider        string `json:"-"` // "agy", "claude", "codex", "custom"
+	AICommandTemplate string `json:"-"` // interactive launches
 	// AICommandTemplateAutonomous is the command a headless launch runs. Empty
 	// falls back to the one above, which then owns its own mode.
-	AICommandTemplateAutonomous string `json:"aiCommandTemplateAutonomous,omitempty"`
+	AICommandTemplateAutonomous string `json:"-"`
 	// AIModel is the model the engine runs against; empty keeps the CLI default.
 	// AISkillModels names the skills that depart from it, keyed by skill ID.
-	AIModel       string            `json:"aiModel"`
-	AISkillModels map[string]string `json:"aiSkillModels,omitempty"`
+	AIModel       string            `json:"-"`
+	AISkillModels map[string]string `json:"-"`
 	// AIProviderModels lists, per provider, the models that provider may run.
 	// It is what the launch surfaces offer, so a model absent from it cannot be
 	// picked when starting a skill. A provider with no list here falls back to
 	// the list Sectile ships for it.
-	AIProviderModels map[string][]string `json:"aiProviderModels,omitempty"`
-	RepoPath         string              `json:"repoPath"`     // e.g. '/path/to/project'
-	IssueTracker     string              `json:"issueTracker"` // "github", "jira", "local"
+	AIProviderModels map[string][]string `json:"-"`
+	RepoPath         string              `json:"-"`            // e.g. '/path/to/project'
+	IssueTracker     string              `json:"issueTracker"` // "github", "gitlab", "jira", "local"
 	GithubRepo       string              `json:"githubRepo"`   // e.g. "owner/repo"
 	JiraProject      string              `json:"jiraProject"`  // e.g. "PE"
 	JiraUrl          string              `json:"jiraUrl"`
@@ -793,9 +905,12 @@ type Settings struct {
 	// takes Basic auth over HTTPS, base64(email:token), so the e-mail is part
 	// of the credential and not a display name.
 	JiraEmail string `json:"jiraEmail"`
-	// JiraAPIToken never leaves the server: the API responses carry the two
-	// flags below instead, so the token cannot be read back by anything that
-	// can reach the settings endpoint.
+	// JiraEmail, JiraAPIToken, GithubToken and GitlabToken are the columns
+	// that held the server credentials in clear text before #464. The server
+	// only reads them to seal them into server_tracker_credentials, and never
+	// writes them from a payload nor returns them. The Set / FromEnv flags are
+	// what the API answers instead: Set when a server credential is stored,
+	// FromEnv when the environment supplies it.
 	JiraAPIToken        string `json:"jiraApiToken,omitempty"`
 	JiraAPITokenSet     bool   `json:"jiraApiTokenSet"`
 	JiraAPITokenFromEnv bool   `json:"jiraApiTokenFromEnv"` // e.g. "https://acme.atlassian.net"
@@ -805,9 +920,7 @@ type Settings struct {
 	GithubApiUrl  string `json:"githubApiUrl"`
 	GitlabUrl     string `json:"gitlabUrl"`
 	GitlabProject string `json:"gitlabProject"`
-	// The two tracker tokens follow JiraAPIToken exactly: never returned by the
-	// API, reported through the Set / FromEnv flags, an empty value on an update
-	// meaning "unchanged" and TrackerTokenClearSentinel meaning "delete".
+	// The two tracker tokens follow JiraAPIToken exactly (see above).
 	GithubToken             string    `json:"githubToken,omitempty"`
 	GithubTokenSet          bool      `json:"githubTokenSet"`
 	GithubTokenFromEnv      bool      `json:"githubTokenFromEnv"`
@@ -821,10 +934,46 @@ type Settings struct {
 	PromptHandoff           string    `json:"promptHandoff"`
 	PromptCreatePR          string    `json:"promptCreatePr,omitempty"`
 	PromptPick              string    `json:"promptPick"`
-	EditorCommand           string    `json:"editorCommand"`                     // "code", "cursor", "zed", "subl", etc.
-	ExternalTerminalCommand string    `json:"externalTerminalCommand,omitempty"` // e.g. "Terminal", "iTerm", "Ghostty", "alacritty", "kitty"
-	SpecFramework           string    `json:"specFramework"`                     // "speckit", "openspec"
+	EditorCommand           string    `json:"-"`             // "code", "cursor", "zed", "subl", etc.
+	ExternalTerminalCommand string    `json:"-"`             // e.g. "Terminal", "iTerm", "Ghostty", "alacritty", "kitty"
+	SpecFramework           string    `json:"specFramework"` // "speckit", "openspec"
 	UpdatedAt               time.Time `json:"updatedAt"`
+}
+
+// EngineReport is what a person's workstation reported it will run for a
+// project (#305), as the web reads it: the launch picker and the pre-run badge
+// use it instead of guessing from server values.
+type EngineReport struct {
+	State       string            `json:"state"`
+	Provider    string            `json:"provider,omitempty"`
+	Model       string            `json:"model,omitempty"`
+	SkillModels map[string]string `json:"skillModels,omitempty"`
+	Models      []string          `json:"models,omitempty"`
+	ModelSlot   bool              `json:"modelSlot,omitempty"`
+	Headless    bool              `json:"headless,omitempty"`
+	ReportedAt  time.Time         `json:"reportedAt,omitempty"`
+}
+
+// The states of an EngineReport.
+const (
+	EngineReported = "reported"
+	EngineUnknown  = "unknown"
+)
+
+// ModelFor is the model a skill runs with, per the report: its own entry,
+// else the report's model, else a one-off override when the command line has
+// a slot for it.
+func (r EngineReport) ModelFor(skillID, override string) string {
+	if r.State != EngineReported {
+		return ""
+	}
+	if override = strings.TrimSpace(override); override != "" && r.ModelSlot {
+		return override
+	}
+	if model := strings.TrimSpace(r.SkillModels[skillID]); model != "" {
+		return model
+	}
+	return r.Model
 }
 
 // SpecFrameworkInstallRequest asks Taskacao to bootstrap a Spec-Driven Design
@@ -936,6 +1085,7 @@ type UpdateTaskRequest struct {
 	// is how a human corrects a task that recorded the wrong pull request.
 	PrLinks       *[]TaskPullRequest `json:"prLinks,omitempty"`
 	RepoPath      *string            `json:"repoPath,omitempty"`
+	Repository    *string            `json:"repository,omitempty"`
 	TrackerStatus *string            `json:"trackerStatus,omitempty"`
 	Sprint        *string            `json:"sprint,omitempty"`
 	Source        *string            `json:"source,omitempty"`
@@ -990,6 +1140,7 @@ type CliStatus struct {
 // alongside the URL: it is what tells a follow-up PR on the same branch from a
 // PR silently swapped for an unrelated one.
 type TaskPullRequest struct {
+	State  string `json:"state,omitempty"`
 	URL    string `json:"url"`
 	Branch string `json:"branch,omitempty"`
 }
@@ -1000,17 +1151,20 @@ type ConvertTaskRequest struct {
 
 // TaskPostBackPayload represents an incoming update payload from local actions or background tracker operations.
 type TaskPostBackPayload struct {
-	TaskID           string     `json:"taskId"`
-	TaskKey          string     `json:"taskKey,omitempty"`
-	ProjectID        string     `json:"projectId,omitempty"`
-	Title            *string    `json:"title,omitempty"`
-	Description      *string    `json:"description,omitempty"`
-	Status           *Status    `json:"status,omitempty"`
-	Stage            *string    `json:"stage,omitempty"`
-	Assignee         *string    `json:"assignee,omitempty"`
-	AssigneeAvatar   *string    `json:"assigneeAvatar,omitempty"`
-	BranchName       *string    `json:"branchName,omitempty"`
-	PrURL            *string    `json:"prUrl,omitempty"`
+	TaskID         string  `json:"taskId"`
+	TaskKey        string  `json:"taskKey,omitempty"`
+	ProjectID      string  `json:"projectId,omitempty"`
+	Title          *string `json:"title,omitempty"`
+	Description    *string `json:"description,omitempty"`
+	Status         *Status `json:"status,omitempty"`
+	Stage          *string `json:"stage,omitempty"`
+	Assignee       *string `json:"assignee,omitempty"`
+	AssigneeAvatar *string `json:"assigneeAvatar,omitempty"`
+	BranchName     *string `json:"branchName,omitempty"`
+	PrURL          *string `json:"prUrl,omitempty"`
+	// PrURLs are the pull requests of the other repositories a ticket
+	// changed (#456), next to the primary repository's in PrURL.
+	PrURLs           []string   `json:"prUrls,omitempty"`
 	Labels           *[]string  `json:"labels,omitempty"`
 	TrackerStatus    *string    `json:"trackerStatus,omitempty"`
 	Sprint           *string    `json:"sprint,omitempty"`
@@ -1075,4 +1229,26 @@ func RunSilenceNote(silence time.Duration) string {
 	}
 	return fmt.Sprintf("%s%s: the client may be busy or waiting for input, and this run stays open",
 		RunSilencePrefix, rounded)
+}
+
+// BoardView is a saved, personal selection over the all-projects board: a
+// fixed list of projects and the labels a ticket must carry one of (#387). It
+// stores selection rules, never tickets, so a refresh always reflects the
+// current board. The owner is never serialized: a view is only ever returned
+// to the user who created it.
+type BoardView struct {
+	ID         string    `json:"id"`
+	Name       string    `json:"name"`
+	ProjectIDs []string  `json:"projectIds"`
+	Labels     []string  `json:"labels"`
+	CreatedAt  time.Time `json:"createdAt"`
+	UpdatedAt  time.Time `json:"updatedAt"`
+}
+
+// BoardViewRequest creates a view, or patches one: on an update, a nil field
+// is left as it is.
+type BoardViewRequest struct {
+	Name       *string   `json:"name,omitempty"`
+	ProjectIDs *[]string `json:"projectIds,omitempty"`
+	Labels     *[]string `json:"labels,omitempty"`
 }

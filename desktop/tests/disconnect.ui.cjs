@@ -45,13 +45,13 @@ test('desktop disconnects locally, preserves history, and explicitly reconnects'
  const env={...process.env,SECTILE_DESKTOP_DATA_DIR:root,SECTILE_DESKTOP_TEST:'1'};delete env.ELECTRON_RUN_AS_NODE
  let application
  try{
-  application=await electron.launch({executablePath:process.env.SECTILE_DESKTOP_EXECUTABLE,args:process.env.SECTILE_DESKTOP_EXECUTABLE?[]:[path.resolve(__dirname,'..')],env})
+  application=await electron.launch({executablePath:process.env.SECTILE_DESKTOP_EXECUTABLE,args:process.env.SECTILE_DESKTOP_EXECUTABLE?[]:[path.resolve(__dirname,'..')],env,colorScheme:'dark'})
   const page=await application.firstWindow()
   await page.getByText('#a · specify',{exact:true}).waitFor()
   await page.getByRole('button',{name:'Next: Specify',exact:true}).waitFor()
   const openRemoval=async(id='a')=>{
-   await page.getByRole('button',{name:'Configure Project '+id,exact:true}).click()
-   await page.getByRole('button',{name:'Remove from desktop',exact:true}).click()
+   await page.getByRole('button',{name:'Actions for Project '+id,exact:true}).click()
+   await page.getByRole('menuitem',{name:'Remove from desktop',exact:true}).click()
    await page.getByRole('heading',{name:'Remove Project '+id+' from desktop?',exact:true}).waitFor()
   }
   await openRemoval()
@@ -110,10 +110,10 @@ test('desktop disconnects locally, preserves history, and explicitly reconnects'
   await page.waitForFunction(()=>document.querySelectorAll('.project-group').length===0)
   assert.equal(await page.locator('#title').textContent(),'Select an execution')
   disconnected.delete('a');other=true
-  await page.getByRole('button',{name:'Configure Project a',exact:true}).waitFor()
+  await page.getByRole('button',{name:'Actions for Project a',exact:true}).waitFor()
   // Reload discovery so the second project's display name is available.
   await page.reload()
-  await page.getByRole('button',{name:'Configure Project b',exact:true}).waitFor()
+  await page.getByRole('button',{name:'Actions for Project b',exact:true}).waitFor()
   await page.locator('.run').filter({hasText:'specify'}).last().click()
   await page.getByText('#b · specify',{exact:true}).waitFor()
   const beforeOtherDetach=detached

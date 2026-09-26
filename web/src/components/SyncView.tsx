@@ -43,7 +43,6 @@ export const SyncView: React.FC = () => {
   // Local form state initialized from active project or fallback to global settings
   const [githubRepo, setGithubRepo] = useState(currentProject?.githubRepo || settings.githubRepo || '')
   const [jiraKey, setJiraKey] = useState(currentProject?.jiraProject || settings.jiraProject || '')
-  const [repoPath, setRepoPath] = useState(currentProject?.repoPath || settings.repoPath || '')
   const [issueTracker, setIssueTracker] = useState<IssueTracker>(activeTracker)
   const [isSaved, setIsSaved] = useState(false)
 
@@ -56,7 +55,6 @@ export const SyncView: React.FC = () => {
     if (currentProject) {
       setGithubRepo(currentProject.githubRepo || '')
       setJiraKey(currentProject.jiraProject || '')
-      setRepoPath(currentProject.repoPath || '')
       setIssueTracker(currentProject.issueTracker || 'local')
       setCustomGithubRepo(currentProject.githubRepo || '')
       setCustomJiraKey(currentProject.jiraProject || '')
@@ -69,14 +67,12 @@ export const SyncView: React.FC = () => {
       await updateProject(currentProject.id, {
         githubRepo: githubRepo.trim(),
         jiraProject: jiraKey.trim().toUpperCase(),
-        repoPath: repoPath.trim(),
         issueTracker,
       })
     }
     await updateSettings({
       githubRepo: githubRepo.trim(),
       jiraProject: jiraKey.trim().toUpperCase(),
-      repoPath: repoPath.trim(),
       issueTracker,
     })
     setIsSaved(true)
@@ -91,6 +87,7 @@ export const SyncView: React.FC = () => {
 
   const githubCount = tasks.filter(t => t.source === 'github').length
   const jiraCount = tasks.filter(t => t.source === 'jira').length
+  const gitlabCount = tasks.filter(t => t.source === 'gitlab').length
   const localCount = tasks.filter(t => !t.source || t.source === 'local').length
 
   const getStatusBadge = (status: string) => {
@@ -182,6 +179,8 @@ export const SyncView: React.FC = () => {
                   ? 'Synchroniser GitHub'
                   : activeTracker === 'jira'
                   ? 'Synchroniser Jira'
+                  : activeTracker === 'gitlab'
+                  ? 'Synchroniser GitLab'
                   : 'Recharger les tâches'}
               </span>
             </button>
@@ -209,18 +208,21 @@ export const SyncView: React.FC = () => {
                       ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30'
                       : activeTracker === 'jira'
                       ? 'bg-blue-500/20 text-blue-300 border border-blue-500/30'
+                      : activeTracker === 'gitlab'
+                      ? 'bg-orange-500/20 text-orange-300 border border-orange-500/30'
                       : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
                   }`}>
-                    {activeTracker === 'github' ? 'GitHub Issues' : activeTracker === 'jira' ? 'Jira' : 'Local SQLite'}
+                    {activeTracker === 'github' ? 'GitHub Issues' : activeTracker === 'jira' ? 'Jira' : activeTracker === 'gitlab' ? 'GitLab' : 'Local SQLite'}
                   </span>
                 </div>
                 <h3 className="text-sm font-bold text-[var(--text-primary)]">
                   {currentProject.name}
                 </h3>
                 <p className="text-xs text-[var(--text-muted)] font-mono truncate max-w-lg">
-                  {currentProject.repoPath || 'Dossier par défaut du projet'}
-                  {currentProject.githubRepo ? ` · GitHub: ${currentProject.githubRepo}` : ''}
-                  {currentProject.jiraProject ? ` · Jira: ${currentProject.jiraProject}` : ''}
+                  {[
+                    currentProject.githubRepo ? `GitHub: ${currentProject.githubRepo}` : '',
+                    currentProject.jiraProject ? `Jira: ${currentProject.jiraProject}` : '',
+                  ].filter(Boolean).join(' · ')}
                 </p>
               </div>
             </div>
@@ -291,6 +293,34 @@ export const SyncView: React.FC = () => {
 
             <p className="text-xs text-[var(--text-secondary)] leading-relaxed">
               Synchronise les tickets et anomalies de votre projet Jira via l'API REST Atlassian.
+            </p>
+          </div>
+        )}
+
+        {activeTracker === 'gitlab' && (
+          <div className="rounded-xl border border-orange-500/40 bg-[var(--bg-secondary)] p-6 shadow-sm space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-[var(--border-color)]">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-orange-500/15 border border-orange-500/30 flex items-center justify-center text-orange-400">
+                  <FolderGit2 size={20} />
+                </div>
+                <div>
+                  <h2 className="text-base font-bold text-[var(--text-primary)]">
+                    Synchronisation GitLab
+                  </h2>
+                  <span className="text-xs text-emerald-400 flex items-center gap-1.5 font-medium">
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                    Connecté à GitLab · Projet {currentProject?.gitlabProject || settings.gitlabProject || 'Non configuré'}
+                  </span>
+                </div>
+              </div>
+              <span className="text-xs px-2.5 py-1 rounded-md font-mono bg-orange-500/15 text-orange-300 font-bold border border-orange-500/30">
+                {gitlabCount} issues GitLab
+              </span>
+            </div>
+
+            <p className="text-xs text-[var(--text-secondary)] leading-relaxed">
+              Synchronise les issues du projet GitLab via son API REST, sur gitlab.com ou une instance auto-hébergée.
             </p>
           </div>
         )}
@@ -409,20 +439,6 @@ export const SyncView: React.FC = () => {
                   <span>Stockage SQLite autonome sans clé distante requise.</span>
                 </div>
               )}
-
-              {/* Repo Path */}
-              <div className="sm:col-span-2">
-                <label className="block text-xs font-semibold text-[var(--text-secondary)] mb-1.5">
-                  Dossier local du projet (repoPath)
-                </label>
-                <input
-                  type="text"
-                  value={repoPath}
-                  onChange={e => setRepoPath(e.target.value)}
-                  placeholder="Ex: /Users/username/Sources/my-project"
-                  className="w-full px-3 py-2 text-xs font-mono rounded-lg bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)]"
-                />
-              </div>
             </div>
 
             <div className="pt-3 flex justify-end">

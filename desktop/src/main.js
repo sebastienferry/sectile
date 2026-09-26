@@ -1,3 +1,6 @@
+import { currentPullRequest, renderPullRequestIndicator } from './pullRequests.mjs'
+import { installTooltips } from './tooltips.js'
+import {mcpSettings} from './mcp-settings.mjs'
 import { logText } from './log-text.mjs'
 import { createGitDiff } from './gitDiff.js'
 
@@ -6,23 +9,28 @@ import { orderedQueueRuns } from './queue.mjs'
 import { orderedTaskGroups } from './task-order.mjs'
 import { transitions, announce } from './notifications.mjs'
 import { runStateOf, runStateLabel, runStateSvg } from '../../shared/runStates.ts'
+import { isMacPlatform, sidebarShortcutAction, sidebarShortcutAria, sidebarShortcutLabel } from '../../shared/sidebarShortcut.mjs'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
 import './style.css'
-import { taskStage, nextTaskStep } from './workflow.mjs'
+import { taskStage, nextTaskStep, skillLabel } from './workflow.mjs'
 import { launchModeOverride, modeSelect } from './skill-mode.mjs'
 import { orderedTasks, nextSort, DEFAULT_SORT, SORTABLE_FIELDS } from './task-list-order.mjs'
 import { consoleNotice, needsConsoleNotice, readOnlyConsole } from './run-console.mjs'
 import { previewLines } from './command-preview.mjs'
+import { PROVIDERS, DEFAULT_PROVIDER, SETUP_PROVIDERS, projectFields, ownEntries, compact, parseModelList, sourceHint, describe, ipcMessage, agentUnreachable, validSkillCommand, workstationPayload } from './execution-fields.mjs'
 import { runEngine } from './run-engine.mjs'
+import { nextEngine, taskEngine, engineMark, engineTooltip, moveEngine, removalImpact, removalMessage } from './engines.mjs'
 import { pollAction } from './agent-poll.mjs'
+import { offerFor, initializedNotice } from './git-init.mjs'
 // The repository changelog, inlined by Vite at build time. The app reads it
 // with no network at all: the renderer's content security policy forbids any
 // outgoing connection, and the release notes have to stay readable with the
 // agent stopped.
 import changelogSource from '../../CHANGELOG.md?raw'
 import { parseChangelog, releaseNotesFor } from './changelog.mjs'
+import { APPEARANCE_CHOICES, terminalTheme } from './appearance.mjs'
 const api=window.localAgent
 // Concurrent execution workers ceiling per project, aligned with agentconfig.MaxParallelism.
 // Parallelism is a workstation setting: the server neither stores nor supplies it.
@@ -31,25 +39,30 @@ document.querySelector('#app').innerHTML=`
 <header><div><button id="toggle-sidebar" aria-expanded="true"></button><strong id="app-title">Sectile Desktop</strong><small>Execution consoles</small></div><button id="command-palette" title="Commands (⌘K / Ctrl+K)">⌘K</button></header>
 <section id="setup" hidden><div class="setup-toolbar"><button id="setup-logs" type="button" title="View local-agent diagnostics">Agent logs</button></div><div id="agent-offline" role="status" hidden><strong>Local agent is stopped</strong><p>Start the agent to run tasks and access your local consoles.</p></div><h1>Connect to Sectile</h1><p>In the Sectile web interface, under your profile, choose <strong>Pair a workstation</strong> and paste the code here. A code is single use and expires within ten minutes; this machine keeps the credential it receives, so the code is never needed again.</p>
 <form id="start"><label>Sectile server<input name="server" type="url" value="http://localhost:8090" required></label><label>Pairing code<input name="code" type="text" autocomplete="off" spellcheck="false" placeholder="Paste the code from the web interface"></label><button>Connect</button></form></section>
-<main id="workspace" hidden><aside><div class="sidebar-scroll"><div class="section">PROJECTS <button id="add-project" title="Add a remote project">+</button></div><div id="runs"></div><button id="clear-history" disabled>Clear finished consoles</button><p class="hint">Open an agent console from a project, or launch a task.</p></div><footer class="sidebar-footer"><span id="connection" data-state="off">Connecting…</span><nav aria-label="Local agent controls"><button id="shutdown" class="icon-button" aria-label="Stop agent" title="Stop agent" hidden></button><button id="restart" class="icon-button" aria-label="Restart agent" title="Restart agent" hidden></button></nav><button id="settings" class="icon-button" type="button" aria-label="Settings" title="Settings"></button></footer></aside><div id="sidebar-resizer" role="separator" aria-label="Resize sidebar" aria-orientation="vertical" tabindex="0"></div><article><div id="toolbar"><div class="toolbar-identity"><div class="terminal-title-line"><strong id="title">Select an execution</strong><span id="run-state" class="run-state header-state" hidden></span><span id="skill-result" role="status" hidden></span><span id="native-terminal-badge" class="native-terminal-badge" hidden></span></div><div class="worktree-line"><button id="worktree" class="worktree" type="button" title="Copy this path" hidden><svg class="worktree-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2z"/></svg><span id="directory"></span></button><span id="worktree-copied" class="worktree-copied" role="status"></span></div></div><div class="toolbar-actions"><select id="execution-history" aria-label="Execution history" hidden></select><div class="execution-views" role="group" aria-label="Execution view"><button id="view-console" class="icon-button" type="button" aria-label="Console" title="Console" aria-pressed="true" disabled></button><button id="view-changes" class="icon-button" type="button" aria-label="Changes" title="Changes" aria-pressed="false" disabled></button></div><button id="selected-pr" class="icon-button" type="button" hidden></button><button id="detach-terminal" class="icon-button" type="button" aria-label="Detach to native terminal" title="Detach to native terminal" hidden></button><button id="rerun" class="icon-button" type="button" aria-label="Relaunch" title="Relaunch" hidden></button><button id="save-log" class="icon-button" type="button" aria-label="Export log" title="Export log"></button><button id="stop" class="icon-button" type="button" aria-label="Stop execution" title="Stop execution" disabled></button><button id="next-step" type="button" hidden disabled></button><button id="mark-reviewed" type="button" class="secondary" hidden>Mark reviewed</button><button id="retry-next-step" type="button" title="Retry reading the task workflow" hidden>Retry</button><button id="force-next-step" type="button" class="secondary" title="Launch although a run is already active on this task" hidden>Launch anyway</button></div></div><section id="changes" aria-label="Worktree changes" hidden></section><div id="terminal"></div><footer id="task-status"><span id="next-step-status" role="status" aria-live="polite">Select a task to see its next step</span></footer></article><section id="tickets-pane" aria-label="Tickets" hidden></section></main>
-<dialog id="project-dialog"><button id="close-dialog" class="icon-button" type="button" aria-label="Close"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button><div id="dialog-body"></div><div class="dialog-footer" hidden></div></dialog><div id="error" role="alert"></div>`
+<main id="workspace" hidden><aside><div class="sidebar-scroll"><div class="section">PROJECTS <button id="add-project" title="Add a remote project">+</button></div><div id="runs"></div><button id="clear-history" class="icon-button" type="button" aria-label="Clear finished consoles" title="Clear finished consoles" disabled></button></div><footer class="sidebar-footer"><span id="connection" data-state="off">Connecting…</span><nav aria-label="Local agent controls"><button id="shutdown" class="icon-button" aria-label="Stop agent" title="Stop agent" hidden></button><button id="restart" class="icon-button" aria-label="Restart agent" title="Restart agent" hidden></button></nav><button id="settings" class="icon-button" type="button" aria-label="Settings" title="Settings"></button></footer></aside><div id="sidebar-resizer" role="separator" aria-label="Resize sidebar" aria-orientation="vertical" tabindex="0"></div><article><div id="toolbar"><div class="toolbar-identity"><div class="terminal-title-line"><span id="run-state" class="run-state header-state" hidden></span><strong id="title">Select an execution</strong><span id="skill-result" role="status" hidden></span><span id="native-terminal-badge" class="native-terminal-badge" hidden></span></div><div class="worktree-line"><button id="worktree" class="worktree" type="button" title="Copy this path" hidden><svg class="worktree-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2z"/></svg><span id="directory"></span></button><span id="worktree-copied" class="worktree-copied" role="status"></span></div></div><div class="toolbar-actions"><select id="execution-history" aria-label="Execution history" hidden></select><div class="execution-views" role="group" aria-label="Execution view"><button id="view-console" class="icon-button" type="button" aria-label="Console" title="Console" aria-pressed="true" disabled></button><button id="view-changes" class="icon-button" type="button" aria-label="Changes" title="Changes" aria-pressed="false" disabled></button></div><button id="selected-pr" class="icon-button" type="button" hidden></button><button id="detach-terminal" class="icon-button" type="button" aria-label="Detach to native terminal" title="Detach to native terminal" hidden></button><button id="rerun" class="icon-button" type="button" aria-label="Relaunch" title="Relaunch" hidden></button><button id="save-log" class="icon-button" type="button" aria-label="Export log" title="Export log"></button><button id="stop" class="icon-button" type="button" aria-label="Stop execution" title="Stop execution" disabled></button><button id="next-step" class="icon-button" type="button" hidden disabled></button><button id="pickup-chain" class="icon-button" type="button" aria-label="Pickup (full chain)" title="Pickup (full chain)" hidden disabled></button><span id="next-step-label" class="step-badge" aria-hidden="true" hidden></span><button id="mark-reviewed" type="button" class="secondary" hidden>Mark reviewed</button><button id="retry-next-step" type="button" title="Retry reading the task workflow" hidden>Retry</button><button id="force-next-step" type="button" class="secondary" title="Launch although a run is already active on this task" hidden>Launch anyway</button></div></div><section id="changes" aria-label="Worktree changes" hidden></section><div id="terminal"></div><footer id="task-status"><span id="next-step-status" role="status" aria-live="polite">Select a task to see its next step</span></footer></article><section id="tickets-pane" aria-label="Tickets" hidden></section></main>
+<dialog id="project-dialog"><button id="close-dialog" class="icon-button" type="button" aria-label="Close" title="Close"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button><div id="dialog-body"></div><div class="dialog-footer" hidden></div></dialog><div id="error" role="alert"></div>`
+installTooltips()
 // The console shows a prompt the user configured elsewhere - oh-my-posh, starship, powerlevel10k -
 // and those draw their separators and icons from the Private Use Area. Menlo is a macOS font, so on
 // Windows every one of those glyphs fell back to a replacement box. The Mono variants are the ones
 // that keep a glyph to a single cell, which is what the grid needs, and Symbols Nerd Font Mono sits
 // near the end as a per-glyph fallback: a host with no patched font still gets the icons.
 const TERMINAL_FONT='"FiraCode Nerd Font Mono", "JetBrainsMono Nerd Font Mono", "Hack Nerd Font Mono", "CaskaydiaCove Nerd Font Mono", "MesloLGS NF", Menlo, Consolas, "Symbols Nerd Font Mono", monospace'
-const terminal=new Terminal({cursorBlink:true,fontSize:13,fontFamily:TERMINAL_FONT,scrollback:20000,theme:{background:'#11151c',foreground:'#d8e0ec'}})
+// The main process sets the appearance through nativeTheme, which is what this
+// query answers: the terminal follows it like the stylesheet does, live.
+const darkScheme=window.matchMedia('(prefers-color-scheme: dark)')
+const terminal=new Terminal({cursorBlink:true,fontSize:13,fontFamily:TERMINAL_FONT,scrollback:20000,theme:terminalTheme(darkScheme.matches)})
+darkScheme.addEventListener('change',event=>{terminal.options.theme=terminalTheme(event.matches)})
 const fit=new FitAddon();terminal.loadAddon(fit)
 let nextStepData=null,nextStepGeneration=0,nextStepUpdated=0
-const submittingSteps=new Set()
+const submittingSteps=new Map()
 const submittedSteps=new Map()
 const nextStepErrors=new Map()
 // Task keys whose last launch was refused because a run is already active on
 // them. Only that refusal is forceable, so the offer is keyed on the marker the
 // server puts in its body, never on the 409 status alone: a finished task and a
 // disconnected agent answer 409 too, and neither is overridable.
-const forceableLaunches=new Set()
+const forceableLaunches=new Map()
 // The renderer sees the refusal as a message: the structured body crosses the
 // IPC bridge inside the error text. Reading the marker back means finding the
 // JSON object in it, and giving up quietly when there is none.
@@ -64,16 +77,15 @@ function refusedActiveRun(message){
 const taskTitles=new Map()
 const skillResults=new Map(),loadingSkillResults=new Set()
 const pullRequests=new Map()
-const PR_ICON='<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="6" cy="5" r="3"/><circle cx="6" cy="19" r="3"/><circle cx="18" cy="19" r="3"/><path d="M6 8v8M18 16V9a4 4 0 0 0-4-4h-2m3-3-3 3 3 3"/></svg>'
 let localTasks={}
 try{localTasks=JSON.parse(localStorage.getItem('localTasks')||'{}')}catch{}
 const freeConsole=run=>run?.kind==='console'
-// Le moteur d'un run de tâche accompagne la compétence : deux runs de la même
-// compétence peuvent tourner contre des modèles différents. Une console libre
-// garde son libellé, son moteur est déjà dans son nom.
-const runLabel=run=>freeConsole(run)?(run.provider==='claude'?'Claude':'Codex')+' console':(runEngine(run)?run.skill+' · '+runEngine(run):run.skill)
-const taskKey=run=>JSON.stringify([run.projectId,freeConsole(run)?run.id:run.taskId])
-const activeRun=run=>['running','queued','preparing'].includes(run.status)
+// Task runs show the skill and engine; project prompts show their engine name.
+const runLabel=run=>freeConsole(run)?(run.engineName||run.provider||'AI')+' · Project prompt':(runEngine(run)?run.skill+' · '+runEngine(run):run.skill)
+// A macro skill run has no task: its executions group under the macro.
+const macroRun=run=>!!run?.macroKey
+const taskKey=run=>JSON.stringify([run.projectId,freeConsole(run)?run.id:macroRun(run)?'macro:'+run.macroKey:run.taskId])
+const activeRun=run=>['running','queued','preparing','waiting'].includes(run.status)
 const taskState=run=>localTasks[taskKey(run)]||{}
 function formatTerminalName(term){
  if(!term)return 'terminal'
@@ -92,10 +104,21 @@ let pendingRender=false
 const sidebarList=()=>document.querySelector('#runs')
 // Only the task rows are held: project headings and the queue view keep
 // refreshing normally.
-const sidebarBusy=()=>!!document.querySelector('#runs .local-task:hover')||!!document.activeElement?.closest?.('#runs .local-task')
+// An open project menu counts too: a render would rebuild the row and drop it.
+const sidebarBusy=()=>!!document.querySelector('#runs .local-task:hover')||!!document.activeElement?.closest?.('#runs .local-task')||!!document.querySelector('#runs .project-menu:not([hidden])')
 const hiddenProject=id=>disconnectedProjects.has(id)
 const hiddenRun=run=>hiddenProject(run.projectId)||(taskState(run).archivedRuns||[]).includes(run.id)&&!activeRun(run)
 function saveLocalTasks(){localStorage.setItem('localTasks',JSON.stringify(localTasks))}
+// The name a task row shows: the local name, else the tracker title, else the run label.
+const displayedName=run=>taskState(run).name||taskTitles.get(run.taskId)||runLabel(run)
+// The task row whose title is edited inline (#513): its task key, what was typed so
+// far, the field's selection, and whether the edition has just started. It lives
+// outside the DOM because most render() calls rebuild the sidebar, not only the
+// deferrable refresh, and the edition must survive them.
+let renaming=null
+// Set while render() empties the sidebar: removing the focused field may fire a
+// blur, which must not be taken for the user leaving the field.
+let rebuildingSidebar=false
 const collapsedProjects=new Set(JSON.parse(localStorage.getItem('collapsedProjects')||'[]'))
 
 const queueProjects=new Set()
@@ -103,6 +126,7 @@ const queueProjects=new Set()
 let linksLoading=false,lastLinksRefresh=0
 let selectedProject=null
 let ticketsOpen=false,agentConnected=false
+let updateSettingsConnection=null
 let opened=false,selected=null,runs=[],last='',stopping=false,restarting=false,projects=[],projectsLoaded=false
 const changes=createGitDiff({api,container:document.querySelector('#changes'),terminal:document.querySelector('#terminal'),consoleButton:document.querySelector('#view-console'),changesButton:document.querySelector('#view-changes'),onConsole:()=>{resize();if(opened)terminal.focus()}})
 api.onOutput(data=>terminal.write(new Uint8Array(data)))
@@ -147,6 +171,7 @@ function connectionLabelled(container,text,href){
  if(container.firstChild!==body||container.childNodes.length!==1)container.replaceChildren(body)
 }
 function connectionStatus(status){
+ updateSettingsConnection?.(status)
  const container=document.querySelector('#connection')
  // A contract mismatch is not a dropped link: the server answers, but with a
  // build this agent cannot talk to. Reported as a plain disconnection it reads
@@ -203,24 +228,60 @@ function select(run,background=false,options){
  refreshSkillResult()
  refreshNextStep()
  showDirectory(run.directory)
- document.querySelector('#stop').disabled=!['running','queued','preparing'].includes(run.status)
+ document.querySelector('#stop').disabled=!activeRun(run)
  terminal.reset()
+ hideRepositoryChoice()
  if(needsConsoleNotice(run)){
   api.detach().catch(error)
   terminal.writeln(consoleNotice(run))
+  if(run.status==='waiting')showRepositoryChoice(run)
   render(options);return
  }
  api.attach(run.id).then(()=>{setTimeout(resize,150);if(!changes.active&&!ticketsOpen&&!readOnlyConsole(run))terminal.focus()}).catch(error)
  render(options)
 }
+// A launch the agent parked until its ticket is pinned to a repository (#456)
+// is resumed from here: choosing a repository pins the ticket, and a
+// repository not mapped yet is given its folder first. The agent resumes the
+// same execution once it reads the pin back.
+function showRepositoryChoice(run){
+ hideRepositoryChoice()
+ const bar=document.createElement('div');bar.id='repository-choice';bar.className='repository-choice'
+ bar.setAttribute('role','group');bar.setAttribute('aria-label','Repository of this task')
+ const label=document.createElement('span');label.textContent='Repository of '+(run.taskKey||run.taskId)
+ const choice=document.createElement('select');choice.setAttribute('aria-label','Repository')
+ const start=document.createElement('button');start.type='button';start.textContent='Start in this repository';start.disabled=true
+ const status=document.createElement('span');status.setAttribute('role','status')
+ bar.append(label,choice,start,status)
+ document.querySelector('#terminal').before(bar)
+ api.repositories(run.projectId).then(list=>{
+  for(const repository of list){
+   const option=document.createElement('option');option.value=repository.identity;option.dataset.path=repository.path||''
+   option.textContent=repository.identity+(repository.path?'':' · choose its folder');choice.append(option)
+  }
+  start.disabled=!list.length
+ }).catch(err=>{status.textContent=err.message})
+ start.onclick=async()=>{
+  const option=choice.selectedOptions[0];if(!option)return
+  start.disabled=true
+  try{
+   let path=''
+   if(!option.dataset.path){path=await api.chooseRepository();if(!path){start.disabled=false;return}}
+   await api.mapRepository({projectId:run.projectId,repository:option.value,taskId:run.taskId,...(path?{path}:{})})
+   status.textContent='Repository pinned · the execution starts shortly'
+  }catch(err){status.textContent=err.message;start.disabled=false}
+ }
+}
+function hideRepositoryChoice(){document.querySelector('#repository-choice')?.remove()}
 // The state the user reads, drawn from the shared definition so the row, the
 // execution queue and the banner the desktop raises cannot say three things.
 // The glyph is decorative: the label carries the state for anyone who cannot
-// resolve an amber hand, and the row tooltip repeats it.
+// resolve an amber hand, and the row tooltip repeats it. "Process:" tells it
+// apart from the skill badge beside it, which answers another question.
 function renderRunState(element,run){
  const state=runStateOf(run),label=runStateLabel(state)
  if(element.dataset.runState!==state){element.dataset.runState=state;element.innerHTML=runStateSvg(state,14)}
- element.title=label;element.setAttribute('aria-label',label)
+ element.title='Process: '+label;element.setAttribute('aria-label',element.title)
  return label
 }
 function renderQueue(project,group){
@@ -230,19 +291,20 @@ function renderQueue(project,group){
  const label=document.createElement('strong');label.textContent='Execution queue'
  const close=document.createElement('button');close.className='icon-button';close.type='button';close.title='Close queue';close.setAttribute('aria-label','Close queue for '+project.name)
  close.innerHTML='<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>'
- close.onclick=()=>{queueProjects.delete(project.id);render();document.querySelectorAll('.project-queue-toggle').forEach(button=>{if(button.dataset.projectId===project.id)button.focus()})}
+ close.onclick=()=>{queueProjects.delete(project.id);render();document.querySelector('.project-more[data-project-id="'+CSS.escape(project.id)+'"]')?.focus()}
  header.append(label,close);panel.append(header)
  const summary=document.createElement('p');summary.className='queue-summary';summary.setAttribute('role','status')
  const list=document.createElement('div');list.className='queue-list';panel.append(summary,list);group.append(panel)
  const active=runsForProject.filter(run=>['running','preparing'].includes(run.status)&&!run.cancelRequested)
  const stopping=runsForProject.filter(run=>activeRun(run)&&run.cancelRequested)
  const waiting=orderedQueueRuns(runsForProject)
- const text=active.length+' active · '+waiting.length+' waiting'+(stopping.length?' · '+stopping.length+' stopping':'')
+ const parked=runsForProject.filter(run=>run.status==='waiting'&&!run.cancelRequested)
+ const text=active.length+' active · '+waiting.length+' waiting'+(parked.length?' · '+parked.length+' waiting for a repository':'')+(stopping.length?' · '+stopping.length+' stopping':'')
  if(summary.textContent!==text)summary.textContent=text
- if(!active.length&&!waiting.length&&!stopping.length){
+ if(!active.length&&!waiting.length&&!stopping.length&&!parked.length){
   const empty=document.createElement('p');empty.textContent='No active or queued executions';list.append(empty);return
  }
- for(const [label,items] of [['Waiting · submission order',waiting],['Stopping / canceling',stopping],['Running / preparing',active]]){
+ for(const [label,items] of [['Waiting for a repository',parked],['Waiting · submission order',waiting],['Stopping / canceling',stopping],['Running / preparing',active]]){
   if(!items.length)continue
   const heading=document.createElement('h3');heading.textContent=label;list.append(heading)
   const entries=document.createElement('ul');list.append(entries)
@@ -259,7 +321,7 @@ function renderQueue(project,group){
 }
 async function refreshSkillResult(id=selected){
  const run=runs.find(item=>item.id===id)
- if(!run||freeConsole(run)||loadingSkillResults.has(run.id)||loadingSkillResults.size>=4)return
+ if(!run||freeConsole(run)||macroRun(run)||run.skill==='discuss'||loadingSkillResults.has(run.id)||loadingSkillResults.size>=4)return
  loadingSkillResults.add(run.id)
  try{
   const result=await api.runResult(run.id)
@@ -304,7 +366,7 @@ function renderTaskSkillStatuses(){
   if(!result){badge.className='status task-skill-status';badge.textContent='';badge.removeAttribute('title');badge.removeAttribute('aria-label');continue}
   badge.className='status task-skill-status '+result.kind
   if(badge.textContent!==result.icon)badge.textContent=result.icon
-  badge.title=runLabel(run)+' · '+result.label
+  badge.title='Skill: '+result.label
   badge.setAttribute('aria-label',badge.title)
  }
 }
@@ -336,7 +398,7 @@ document.querySelector('#worktree').onclick=async()=>{
   copiedNotice=setTimeout(clearCopiedNotice,2000)
  }catch(err){clearCopiedNotice();error(err)}
 }
-// The state beside the title is the one the sidebar row and the notification
+// The state before the title is the one the sidebar row and the notification
 // already show, drawn from the shared definition, with its label spelled out:
 // the header has the room the row does not.
 function renderHeaderState(run){
@@ -350,7 +412,77 @@ function renderHeaderState(run){
  }
  const text=element.querySelector('.run-state-label')
  if(text.textContent!==label)text.textContent=label
- element.title=label
+ element.title='Process: '+label
+}
+function toggleQueue(projectID){
+ selectedProject=projectID
+ if(queueProjects.has(projectID))queueProjects.delete(projectID);else queueProjects.add(projectID)
+ collapsedProjects.delete(projectID);localStorage.setItem('collapsedProjects',JSON.stringify([...collapsedProjects]));render()
+}
+// Every action of a project, in one context menu: a right click on the row
+// opens it at the pointer, the … button under itself. The row itself carries
+// nothing else, so the menu is the only place these actions live.
+let closeProjectMenu=null
+function projectMenu(project,waitingCount=0){
+ const more=document.createElement('button');more.type='button';more.className='project-more';more.textContent='…'
+ more.setAttribute('aria-haspopup','menu');more.setAttribute('aria-expanded','false')
+ more.setAttribute('aria-label','Actions for '+project.name);more.title=more.getAttribute('aria-label');more.dataset.projectId=project.id
+ // The queue button used to carry the waiting count; the opener does now.
+ if(waitingCount){const badge=document.createElement('span');badge.className='queue-count';badge.textContent=waitingCount;badge.setAttribute('aria-hidden','true');more.append(badge);more.title+=' · '+waitingCount+' waiting'}
+ const menu=document.createElement('div');menu.className='project-menu';menu.setAttribute('role','menu');menu.setAttribute('aria-label','Actions for '+project.name);menu.hidden=true
+ let dismiss=null
+ const close=(focusOpener=false)=>{
+  if(menu.hidden)return
+  menu.hidden=true;more.setAttribute('aria-expanded','false')
+  if(dismiss){document.removeEventListener('pointerdown',dismiss,true);window.removeEventListener('blur',dismiss);dismiss=null}
+  if(closeProjectMenu===close)closeProjectMenu=null
+  if(focusOpener)more.focus()
+  scheduleFlush()
+ }
+ const openAt=(x,y)=>{
+  closeProjectMenu?.()
+  menu.hidden=false;more.setAttribute('aria-expanded','true')
+  // Fixed to the viewport, and kept inside it, so neither the sidebar's
+  // scroll nor its width can clip it.
+  const {width,height}=menu.getBoundingClientRect()
+  menu.style.left=Math.max(4,Math.min(x,innerWidth-width-4))+'px'
+  menu.style.top=Math.max(4,Math.min(y,innerHeight-height-4))+'px'
+  dismiss=event=>{if(event.type==='blur'||!menu.contains(event.target)&&event.target!==more)close()}
+  document.addEventListener('pointerdown',dismiss,true);window.addEventListener('blur',dismiss)
+  closeProjectMenu=close
+  menu.querySelector('[role=menuitem]:not(:disabled)')?.focus()
+ }
+ // Measured once shown: a hidden menu has no width to align on.
+ const open=()=>{const box=more.getBoundingClientRect();menu.hidden=false;openAt(box.right-menu.offsetWidth,box.bottom+2)}
+ const queued=queueProjects.has(project.id)
+ const items=[
+  {label:'Open tasks',run:()=>openTickets(project.id)},
+  {label:(queued?'Show tasks':'Show execution queue')+(waitingCount?' · '+waitingCount+' waiting':''),run:()=>toggleQueue(project.id)},
+  {label:'New task…',run:()=>newProjectTask(project.id)},
+  {label:'Project prompt',disabled:!project.path,run:()=>openAgentConsole(project.id)},
+  null,
+  {label:'Project settings…',run:()=>openProject(project.id)},
+  {label:'Remove from desktop',danger:true,run:()=>requestRemoveProject(project.id,project.name)}
+ ]
+ for(const item of items){
+  if(!item){const line=document.createElement('div');line.setAttribute('role','separator');menu.append(line);continue}
+  const button=document.createElement('button');button.type='button';button.setAttribute('role','menuitem')
+  button.textContent=item.label;button.disabled=!!item.disabled;if(item.danger)button.className='danger'
+  button.onclick=()=>{close();item.run()}
+  menu.append(button)
+ }
+ more.onclick=()=>{menu.hidden?open():close()}
+ const keys=event=>{
+  if(event.key==='Escape'&&!menu.hidden){event.preventDefault();event.stopPropagation();close(true);return}
+  if(event.target===more&&event.key==='ArrowDown'&&menu.hidden){event.preventDefault();open();return}
+  if(menu.hidden||!['ArrowDown','ArrowUp'].includes(event.key))return
+  const enabled=[...menu.querySelectorAll('[role=menuitem]:not(:disabled)')]
+  const at=enabled.indexOf(document.activeElement)
+  event.preventDefault()
+  enabled[(at+(event.key==='ArrowDown'?1:-1)+enabled.length)%enabled.length]?.focus()
+ }
+ more.onkeydown=menu.onkeydown=keys
+ return {more,menu,openAt}
 }
 function renderHeader(){
  const run=runs.find(item=>item.id===selected)
@@ -365,14 +497,18 @@ function renderHeader(){
  renderHeaderState(run)
  const badge=document.querySelector('#skill-result'),result=skillResult(run,skillResults.get(run?.id))
  badge.hidden=!result
- if(result){badge.className='skill-result '+result.kind;if(badge.textContent!==result.icon+' '+result.label)badge.textContent=result.icon+' '+result.label;badge.title=result.label;badge.setAttribute('aria-label',result.label)}
+ if(result){badge.className='skill-result '+result.kind;if(badge.textContent!==result.icon+' '+result.label)badge.textContent=result.icon+' '+result.label;badge.title='Skill: '+result.label;badge.setAttribute('aria-label',badge.title)}
 }
 function render(options){
  if(options?.deferrable&&sidebarBusy()){pendingRender=true;renderHeader();renderTaskRowStates();renderTicketRows();return}
  pendingRender=false
  changes.select(selected)
  renderHeader()
- const list=document.querySelector('#runs');list.replaceChildren()
+ const list=document.querySelector('#runs'),editing=list.querySelector('.task-rename')
+ if(renaming&&editing)renaming.selection=[editing.selectionStart,editing.selectionEnd]
+ rebuildingSidebar=true
+ try{list.replaceChildren()}finally{rebuildingSidebar=false}
+ let renameField=null
 
  const groups=new Map(projects.filter(project=>project.path&&!hiddenProject(project.id)).map(project=>[project.id,project]))
  for(const run of runs)if(!hiddenProject(run.projectId)&&!groups.has(run.projectId))groups.set(run.projectId,{id:run.projectId,name:run.projectId})
@@ -391,21 +527,10 @@ function render(options){
   capacity.setAttribute('aria-label',capacity.title)
   heading.replaceChildren(name,capacity)
   heading.onclick=()=>{selectedProject=project.id;if(collapsedProjects.has(project.id))collapsedProjects.delete(project.id);else collapsedProjects.add(project.id);localStorage.setItem('collapsedProjects',JSON.stringify([...collapsedProjects]));render()}
-  const configure=document.createElement('button');configure.textContent='⚙';configure.setAttribute('aria-label','Configure '+project.name);configure.onclick=()=>openProject(project.id)
-  const browse=document.createElement('button');browse.textContent='+';browse.title='New task';browse.setAttribute('aria-label','New task in '+project.name);browse.onclick=()=>newProjectTask(project.id)
-  const openTasks=document.createElement('button');openTasks.className='project-open-tasks';openTasks.title='Open tasks in '+project.name;openTasks.setAttribute('aria-label',openTasks.title)
-  openTasks.innerHTML='<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M9 5h12M9 12h12M9 19h12M3 5h1M3 12h1M3 19h1"/></svg>'
-  openTasks.dataset.projectId=project.id
-  openTasks.onclick=()=>openTickets(project.id)
-  const queue=document.createElement('button');queue.className='project-queue-toggle icon-button';queue.dataset.projectId=project.id
-  const waitingCount=runs.filter(run=>run.projectId===project.id&&run.status==='queued'&&!run.cancelRequested).length
-  queue.setAttribute('aria-label','Queue view for '+project.name);queue.setAttribute('aria-pressed',String(queueProjects.has(project.id)))
-  queue.title=(queueProjects.has(project.id)?'Show tasks':'Show execution queue')+' · '+waitingCount+' waiting'
-  queue.innerHTML='<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M3 4h18l-7 8v7l-4 2v-9Z"/></svg>'
-  if(waitingCount){const badge=document.createElement('span');badge.className='queue-count';badge.textContent=waitingCount;badge.setAttribute('aria-hidden','true');queue.append(badge)}
-  queue.onclick=()=>{selectedProject=project.id;if(queueProjects.has(project.id))queueProjects.delete(project.id);else queueProjects.add(project.id);collapsedProjects.delete(project.id);localStorage.setItem('collapsedProjects',JSON.stringify([...collapsedProjects]));render()}
-  const consoleButton=document.createElement('button');consoleButton.textContent='>_';consoleButton.title='Open agent console';consoleButton.setAttribute('aria-label','Open agent console in '+project.name);consoleButton.disabled=!project.path;consoleButton.onclick=()=>openAgentConsole(project.id)
-  projectRow.append(heading,openTasks,queue,browse,consoleButton,configure);group.append(projectRow)
+  const waitingCount=runs.filter(run=>run.projectId===project.id&&['queued','waiting'].includes(run.status)&&!run.cancelRequested).length
+  const {more,menu,openAt}=projectMenu(project,waitingCount)
+  projectRow.oncontextmenu=event=>{event.preventDefault();openAt(event.clientX,event.clientY)}
+  projectRow.append(heading,more,menu);group.append(projectRow)
   const children=runs.filter(run=>run.projectId===project.id&&!hiddenRun(run))
   const taskGroups=new Map()
   for(const run of children){const key=taskKey(run);if(!taskGroups.has(key))taskGroups.set(key,[]);taskGroups.get(key).push(run)}
@@ -417,32 +542,75 @@ function render(options){
     const isSelected=executions.some(item=>item.id===selected)
     const row=document.createElement('div');row.className='local-task '+(isSelected?'selected':'')
     const button=document.createElement('button');button.className='run '+(isSelected?'selected':'')
-    const title=document.createElement('strong');title.textContent=taskState(run).name||taskTitles.get(run.taskId)||runLabel(run)
-    const context=document.createElement('button');context.textContent=run.taskKey||run.taskId;context.className='task-number';context.title='Open task in Sectile';context.setAttribute('aria-label','Open '+(run.taskKey||run.taskId)+' in Sectile');context.onclick=()=>api.openTask(run.taskId).catch(error)
+    const key=taskKey(run),title=document.createElement('strong')
+    const context=document.createElement('button');context.textContent=run.taskKey||run.taskId;context.className='task-number';context.title='Open task in Sectile';context.setAttribute('aria-label','Open '+(run.taskKey||run.taskId)+' in Sectile');context.disabled=macroRun(run);context.onclick=()=>api.openTask(run.taskId).catch(error)
     const status=document.createElement('span');status.className='status task-skill-status';status.dataset.runId=run.id
     const state=document.createElement('span');state.className='run-state';state.dataset.runId=run.id
     const stateLabel=renderRunState(state,run)
     // data-status stays the status the server reported: the UI tests select on it.
-    button.title=title.textContent+' · '+runLabel(run)+' · '+stateLabel+' · '+executions.length+' execution(s)';button.dataset.status=run.status;button.dataset.runId=run.id
-    button.append(title,state,status);button.onclick=()=>select(run)
-    const menu=document.createElement('button');menu.textContent='…';menu.className='task-menu';menu.setAttribute('aria-label','Actions for '+(taskState(run).name||run.taskKey||run.taskId||runLabel(run)));menu.onclick=()=>taskMenu(run)
+    button.dataset.status=run.status;button.dataset.runId=run.id
+    // The glyph leads the row, ahead of the key button it cannot nest inside, and still selects the run.
+    button.append(title,status);button.onclick=state.onclick=()=>select(run)
+    // The slot keeps the key column's width even for a free console, which has no key.
+    const keySlot=document.createElement('span');keySlot.className='task-key-slot'
+    if(!freeConsole(run))keySlot.append(context)
     const archive=document.createElement('button');archive.className='task-archive'
-    const archiveLabel=(executions.some(activeRun)?'Stop and archive ':'Archive ')+(taskState(run).name||run.taskKey||run.taskId||runLabel(run))
-    archive.title=archiveLabel;archive.setAttribute('aria-label',archiveLabel)
     archive.innerHTML='<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M4 8h16v12H4zM3 4h18v4H3zM9 12h6"/></svg>'
     archive.onclick=()=>requestArchive(run)
-    if(!freeConsole(run))row.append(context)
-    row.append(button)
+    const pencil=document.createElement('button');pencil.className='task-rename-button'
+    pencil.innerHTML='<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m13.5 6.5 4 4"/></svg>'
+    // Labels read the current name, so an edition ended in place relabels its row.
+    const label=()=>{
+     title.textContent=displayedName(run)
+     button.title=title.textContent+' · '+runLabel(run)+' · '+stateLabel+' · '+executions.length+' execution(s)'
+     const archiveLabel=(executions.some(activeRun)?'Stop and archive ':'Archive ')+(taskState(run).name||run.taskKey||run.taskId||runLabel(run))
+     archive.title=archiveLabel;archive.setAttribute('aria-label',archiveLabel)
+     pencil.title='Rename '+title.textContent;pencil.setAttribute('aria-label',pencil.title)
+    }
+    label()
+    // Pressing the pencil of another row first blurs the open field, which saves it.
+    pencil.onclick=()=>{renaming={key,draft:displayedName(run),fresh:true};render()}
+    let field=null
+    if(renaming?.key===key){
+     field=document.createElement('input');field.className='task-rename';field.value=renaming.draft;field.maxLength=120;field.setAttribute('aria-label','Local task name')
+     // The edition ends in place rather than through render(): rebuilding the
+     // sidebar under the pointer would swallow the click that took the focus away.
+     const finish=(commit,refocus)=>{
+      if(renaming?.key!==key)return
+      const value=renaming.draft.trim();renaming=null
+      if(commit&&value&&value!==displayedName(run)){localTasks[key]={...taskState(run),name:value};saveLocalTasks()}
+      label();field.replaceWith(button);renderHeader()
+      if(refocus)pencil.focus()
+      pendingRender=true;scheduleFlush()
+     }
+     field.oninput=()=>{if(renaming?.key===key)renaming.draft=field.value}
+     field.onkeydown=event=>{
+      if(event.key==='Enter'){event.preventDefault();finish(true,true)}
+      // Consumed here, so it does not also close the ticket pane.
+      else if(event.key==='Escape'){event.preventDefault();event.stopPropagation();finish(false,true)}
+     }
+     field.onblur=()=>{if(!rebuildingSidebar&&field.isConnected)finish(true,false)}
+     field.onclick=field.onpointerdown=event=>event.stopPropagation()
+     renameField=field
+    }
+    row.append(state,keySlot,field||button)
     const link=pullRequests.get(run.taskId)
     if(link){
-     const pr=document.createElement('button');pr.className='pr-indicator';pr.title=link;pr.setAttribute('aria-label','Open '+prLabel(link)+' for '+(run.taskKey||run.taskId))
-     pr.innerHTML=PR_ICON
-     pr.onclick=()=>api.openPR(link).catch(error);row.append(pr)
+     const pr=document.createElement('button');pr.className='pr-indicator'
+     renderPullRequestIndicator(pr,link,prLabel(link.url)+' for '+(run.taskKey||run.taskId))
+     pr.onclick=()=>api.openPR(link.url).catch(error);row.append(pr)
     }
-    row.append(archive,menu);group.append(row)
+    row.append(archive,pencil);group.append(row)
    }
   }
   list.append(group)
+ }
+ // An edited row no longer shown (archived, collapsed, project gone) drops its edition unsaved.
+ if(renaming&&!renameField)renaming=null
+ if(renameField){
+  renameField.focus()
+  if(renaming.fresh){renameField.select();renaming.fresh=false}
+  else if(renaming.selection)renameField.setSelectionRange(...renaming.selection)
  }
  renderTaskSkillStatuses()
  document.querySelector('#clear-history').disabled=!runs.some(run=>['completed','failed','canceled'].includes(run.status))
@@ -455,14 +623,14 @@ function render(options){
  const selectedPR=document.querySelector('#selected-pr'),link=current&&pullRequests.get(current.taskId)
  selectedPR.hidden=!link
  if(link){
-  if(!selectedPR.querySelector('.pr-label'))selectedPR.innerHTML=PR_ICON+'<span class="pr-label"></span>'
-  const label=prLabel(link),text=selectedPR.querySelector('.pr-label')
-  if(text.textContent!==label)text.textContent=label
-  selectedPR.title=link;selectedPR.setAttribute('aria-label','Open '+label)
-  selectedPR.onclick=()=>api.openPR(link).catch(error)
+  const label=prLabel(link.url)
+  renderPullRequestIndicator(selectedPR,link,label)
+  const text=document.createElement('span');text.className='pr-label';text.textContent=label;selectedPR.append(text)
+  selectedPR.onclick=()=>api.openPR(link.url).catch(error)
  }
- document.querySelector('#rerun').hidden=!current||!['completed','failed','canceled'].includes(current.status)
- document.querySelector('#stop').disabled=stopping||!current||!['running','queued','preparing'].includes(current.status)
+ // A macro run is relaunched from the macro panel: it has no task to relaunch here.
+ document.querySelector('#rerun').hidden=!current||macroRun(current)||!['completed','failed','canceled'].includes(current.status)
+ document.querySelector('#stop').disabled=stopping||!current||!activeRun(current)
  const detachBtn=document.querySelector('#detach-terminal')
  if(detachBtn){
   const canDetach=current&&current.status==='running'&&!current.externalTerminal
@@ -489,7 +657,7 @@ async function updateDisconnected(ids,force=false,deferrable=false){
  if(hiddenProject(selectedProject))selectedProject=null
  const current=runs.find(run=>run.id===selected)
  if(current&&hiddenProject(current.projectId)){
-  selected=null;terminal.reset()
+  selected=null;hideRepositoryChoice();terminal.reset()
   document.querySelector('#title').textContent='Select an execution'
   showDirectory('')
   await api.detach().catch(error)
@@ -520,11 +688,12 @@ async function refresh(){
  }catch{agentUnavailable()}
  finally{refreshing=false}
 }
-document.querySelector('#start').onsubmit=async event=>{
- event.preventDefault();const button=event.target.querySelector('button');button.disabled=true
- try{await api.start(Object.fromEntries(new FormData(event.target)));event.target.elements.code.value='';document.querySelector('#error').textContent='';ready();await refresh()}
+async function startLocalAgent(form){
+ const button=form.querySelector('button');button.disabled=true
+ try{await api.start(Object.fromEntries(new FormData(form)));form.elements.code.value='';document.querySelector('#error').textContent='';ready();await refresh()}
  catch(err){error(err)}finally{button.disabled=!document.querySelector('#shutdown').hidden}
 }
+document.querySelector('#start').onsubmit=event=>{event.preventDefault();return startLocalAgent(event.target)}
 document.querySelector('#stop').onclick=async()=>{
  if(!selected)return
  stopping=true;render()
@@ -595,11 +764,11 @@ document.querySelector('#save-log').onclick=()=>{
 }
 
 
-document.querySelector('#restart').onclick=async()=>{
+async function restartLocalAgent(){
  const button=document.querySelector('#restart');button.disabled=true;restarting=true
  try{
   if(await api.restart()){
-   selected=null;runs=[];last='';terminal.reset();render()
+   selected=null;runs=[];last='';hideRepositoryChoice();terminal.reset();render()
    renderHeader()
    showDirectory('')
    document.querySelector('#error').textContent=''
@@ -607,17 +776,19 @@ document.querySelector('#restart').onclick=async()=>{
  }catch(err){error(err)}finally{restarting=false;button.disabled=false;await refresh()}
 }
 
+document.querySelector('#restart').onclick=restartLocalAgent
+
 async function loadSettings(){
  const settings=await api.settings()
  if(settings.server)document.querySelector('#start').elements.server.value=settings.server
 }
 const settingsReady=loadSettings().catch(error)
 document.querySelector('#setup-logs').onclick=()=>openSettings('Logs')
-document.querySelector('#shutdown').onclick=async()=>{
+async function stopLocalAgent(){
  const button=document.querySelector('#shutdown');button.disabled=true;restarting=true
  try{
   if(await api.shutdown()){
-   selected=null;runs=[];last='';terminal.reset();render()
+   selected=null;runs=[];last='';hideRepositoryChoice();terminal.reset();render()
    document.querySelector('#setup').hidden=false;document.querySelector('#workspace').hidden=true
    document.querySelector('#restart').hidden=true;button.hidden=true
    document.querySelector('#start button').disabled=false
@@ -626,6 +797,8 @@ document.querySelector('#shutdown').onclick=async()=>{
   }
  }catch(err){error(err)}finally{restarting=false;button.disabled=false}
 }
+
+document.querySelector('#shutdown').onclick=stopLocalAgent
 
 document.querySelector('#clear-history').onclick=async()=>{
  const button=document.querySelector('#clear-history');button.disabled=true
@@ -636,7 +809,7 @@ document.querySelector('#clear-history').onclick=async()=>{
   runs=runs.filter(run=>!removed.includes(run.id))
   for(const id of removed)skillResults.delete(id)
   if(removed.includes(selected)){
-   selected=null;terminal.reset()
+   selected=null;hideRepositoryChoice();terminal.reset()
    renderHeader()
    showDirectory('')
   }
@@ -662,11 +835,14 @@ function clearDialogFooter(){
 // so a flow that reopens the dialog in the same task keeps its fresh content.
 dialog.addEventListener('close',()=>{
  if(dialog.open)return
+ updateSettingsConnection=null
  returnConnectForm()
  dialogBody.replaceChildren()
  clearDialogFooter()
 })
 function showDialog(title){
+ updateSettingsConnection=null
+ dialog.classList.remove('workstation-settings')
  returnConnectForm()
  // The footer is shared by every dialog, so a control one of them added there
  // must go before the next one opens.
@@ -717,17 +893,503 @@ function readOnlyRow(name,hint){
  return row
 }
 
+// The offer to make the folder of a field a Git repository (#481), shown under
+// it while the folder is a plain one or a repository with no commit. It is
+// examined when the settings open, when Browse returns and when a typed value
+// is committed. Initializing never saves: the field takes the repository's
+// top level and the user saves it as any other change.
+function attachGitOffer(input,row,label,onReady){
+ const box=document.createElement('div');box.className='git-offer';box.hidden=true
+ box.setAttribute('role','group');box.setAttribute('aria-label',label+' Git initialization')
+ const title=document.createElement('strong'),detail=document.createElement('p')
+ const initialize=document.createElement('button');initialize.type='button';initialize.className='git-offer-action'
+ const dismiss=document.createElement('button');dismiss.type='button'
+ const actions=document.createElement('div');actions.className='git-offer-actions';actions.append(initialize,dismiss)
+ box.append(title,detail,actions)
+ const status=document.createElement('p');status.className='git-offer-status';status.setAttribute('role','status')
+ status.setAttribute('aria-label',label+' Git initialization status')
+ row.control.append(box,status)
+ // "Not now" holds for the value it was said to; another value is examined.
+ const dismissed=new Set()
+ let shown=true,offered=''
+ async function examine(){
+  const value=input.value.trim()
+  if(!shown||!value||dismissed.has(value)){box.hidden=true;return}
+  let answer
+  try{answer=await api.gitState(value)}catch{box.hidden=true;return}
+  // The field changed while the agent answered: that answer is stale.
+  if(!shown||input.value.trim()!==value)return
+  const offer=offerFor(answer?.state)
+  box.hidden=!offer;offered=offer?value:''
+  if(offer){title.textContent=offer.title;detail.textContent=offer.detail;initialize.textContent=offer.action;dismiss.textContent=offer.dismiss}
+ }
+ initialize.onclick=async()=>{
+  // The explanation was given for one folder: another value typed since is
+  // examined first, never initialized unseen.
+  const value=input.value.trim()
+  if(value!==offered){await examine();return}
+  initialize.disabled=dismiss.disabled=true;status.textContent='';status.dataset.tone=''
+  try{
+   const result=await api.gitInit(value)
+   input.value=result?.path||value;box.hidden=true
+   status.textContent=initializedNotice(input.value)
+   onReady?.(input.value)
+  }catch(err){
+   // Git's own words, then what the folder is now: a repository whose commit
+   // failed is unborn, and its offer makes the commit alone.
+   status.textContent=String(err?.message||err).replace(/^Error invoking remote method '[^']*': (Error: )?/,'');status.dataset.tone='error'
+   await examine()
+  }finally{initialize.disabled=dismiss.disabled=false}
+ }
+ dismiss.onclick=()=>{dismissed.add(input.value.trim());box.hidden=true}
+ input.addEventListener('change',()=>{status.textContent='';examine()})
+ return {
+  examine(){status.textContent='';return examine()},
+  // A field that is not shown offers nothing.
+  show(value){shown=value;if(value)examine();else{box.hidden=true;status.textContent=''}}
+ }
+}
+
+const MODEL_REGEX=/^[A-Za-z0-9][A-Za-z0-9._:@/-]*$/
+function validateModel(val){
+ const trimmed=String(val||'').trim()
+ if(trimmed==='')return true
+ return MODEL_REGEX.test(trimmed)
+}
+
+// The terminals a launch may open, shared by the workstation panel and the
+// project dialog.
+const TERMINALS=[
+ {id:'',label:'Auto-detect (Ghostty, iTerm, Terminal)'},
+ {id:'ghostty',label:'Ghostty'},
+ {id:'terminal',label:'Terminal.app'},
+ {id:'iterm',label:'iTerm'},
+ {id:'custom',label:'Custom command…'}
+]
+const STANDARD_TERMINALS=['','ghostty','terminal','iterm']
+// terminalPicker is a select of the known terminals plus a free command.
+function terminalPicker(onChange){
+ const select=document.createElement('select');select.className='terminal-select';select.setAttribute('aria-label','Terminal emulator')
+ for(const t of TERMINALS){const opt=document.createElement('option');opt.value=t.id;opt.textContent=t.label;select.append(opt)}
+ const custom=document.createElement('input');custom.type='text';custom.className='custom-terminal-input'
+ custom.setAttribute('aria-label','Custom terminal command');custom.placeholder='e.g. alacritty -e {command}'
+ const picker={select,custom,
+  set(value){
+   value=String(value||'')
+   if(value&&!STANDARD_TERMINALS.includes(value.toLowerCase())){select.value='custom';custom.value=value}
+   else{select.value=value.toLowerCase();custom.value=''}
+   custom.hidden=select.value!=='custom'
+  },
+  get(){return select.value==='custom'?custom.value.trim():select.value}
+ }
+ select.onchange=()=>{custom.hidden=select.value!=='custom';onChange?.()}
+ custom.oninput=()=>onChange?.()
+ return picker
+}
+function providerOptions(select,extra){
+ select.replaceChildren()
+ const known=PROVIDERS.map(p=>p.id)
+ for(const p of PROVIDERS){const opt=document.createElement('option');opt.value=p.id;opt.textContent=p.label;select.append(opt)}
+ // A provider stored outside the list stays selectable instead of being lost.
+ for(const id of extra||[])if(id&&!known.includes(id)){const opt=document.createElement('option');opt.value=id;opt.textContent=id;select.append(opt);known.push(id)}
+}
+const CLI_PRESETS=[
+ {label:'AGY',provider:'agy',cmd:'agy --dangerously-skip-permissions --model {model} "{prompt}"',auto:'agy --dangerously-skip-permissions --model {model} -p "{prompt}"'},
+ {label:'Claude',provider:'claude',cmd:"claude --model {model} '{prompt}'",auto:"claude -p --permission-mode bypassPermissions --model {model} '{prompt}'"},
+ {label:'Codex',provider:'codex',cmd:"codex --model {model} '{prompt}'",auto:"codex exec --model {model} '{prompt}'"},
+ {label:'Clear to defaults',provider:'agy',cmd:'',auto:''}
+]
+const KNOWN_COMMANDS=['',"/path/to/custom-cli {mode:-p|-i} '{prompt}'","claude --model {model} '{prompt}'",'agy --dangerously-skip-permissions --model {model} "{prompt}"',"codex --model {model} '{prompt}'","gemini --model {model} '{prompt}'","vibe '{prompt}'"]
+const PLACEHOLDER_HELP='Required in a command: {prompt} (instructions). Also: {issueKey}, {issueTitle}, {issueDesc}, {branchName}, {repoPath} (local directory), {tracker}, {repo}, {model}, {mode:AUTONOMOUS|INTERACTIVE}, {addDirs} (the other folders of the task, as --add-dir options for Claude).'
+const INVALID_MODEL='Invalid model: must only contain letters, digits, and allowed punctuation (. _ - : @ /)'
+
+// A list of key/value rows (skill → model, skill → command) with its own add
+// and remove controls. `fixed` lists keys shown whether set or not.
+function entryList({keyLabel,valueLabel,addLabel,fixed,placeholder,onChange,validate}){
+ const box=document.createElement('div');box.className='entry-list'
+ const rows=document.createElement('div');rows.className='entry-rows'
+ const add=document.createElement('button');add.type='button';add.textContent=addLabel;add.hidden=!!fixed
+ box.append(rows,add)
+ const entries=[]
+ function addRow(key,value,locked){
+  const row=document.createElement('div');row.className='entry-row'
+  const keyInput=document.createElement('input');keyInput.type='text';keyInput.value=key||'';keyInput.setAttribute('aria-label',keyLabel);keyInput.readOnly=!!locked
+  const valueInput=document.createElement('input');valueInput.type='text';valueInput.value=value||''
+  valueInput.setAttribute('aria-label',valueLabel+(key?' '+key:''))
+  valueInput.placeholder=placeholder?.(key)||''
+  row.append(keyInput,valueInput)
+  if(!locked){
+   const remove=document.createElement('button');remove.type='button';remove.textContent='Remove';remove.setAttribute('aria-label','Remove '+valueLabel.toLowerCase()+(key?' '+key:''))
+   remove.onclick=()=>{row.remove();entries.splice(entries.indexOf(entry),1);onChange?.()}
+   row.append(remove)
+  }
+  const entry={keyInput,valueInput}
+  const changed=()=>{
+   const bad=validate&&!validate(valueInput.value)
+   if(bad)valueInput.setAttribute('aria-invalid','true');else valueInput.removeAttribute('aria-invalid')
+   onChange?.()
+  }
+  valueInput.oninput=changed;keyInput.oninput=changed
+  entries.push(entry);rows.append(row)
+  return entry
+ }
+ add.onclick=()=>{addRow('','',false).keyInput.focus();onChange?.()}
+ return {box,
+  set(map){
+   rows.replaceChildren();entries.length=0
+   const values=map||{}
+   for(const key of fixed||[])addRow(key,values[key]||'',true)
+   for(const [key,value] of Object.entries(values))if(!(fixed||[]).includes(key))addRow(key,value,false)
+  },
+  get(){const out={};for(const {keyInput,valueInput} of entries){const k=keyInput.value.trim(),v=valueInput.value.trim();if(k&&v)out[k]=v}return out},
+  invalid(){return entries.some(({valueInput})=>validate&&!validate(valueInput.value))},
+  refreshPlaceholders(){for(const {keyInput,valueInput} of entries)valueInput.placeholder=placeholder?.(keyInput.value.trim())||''}
+ }
+}
+
+// Whether the running agent keeps an engine catalogue and a per-task engine
+// (#510). An older agent answers neither, so the desktop hides what needs them.
+async function taskEnginesAvailable(){
+ try{return !!(await api.status()).capabilities?.includes('task-engines')}catch{return false}
+}
+
+// The engine catalogue (#510): each AI CLI profile of the workstation, named,
+// one of them the workstation default engine. The agent owns it; every change
+// is saved through it at once, so the list always shows what is stored.
+function enginesSection(){
+ const section=document.createElement('section');section.className='engines-section'
+ const heading=document.createElement('h3');heading.textContent='Engines'
+ const intro=document.createElement('p');intro.className='hint'
+ intro.textContent='A project runs the workstation default engine unless it picks another one; a task can be switched to any engine from the ticket list.'
+ const unavailable=document.createElement('p');unavailable.className='hint';unavailable.hidden=true
+ const list=document.createElement('ul');list.className='engine-list';list.setAttribute('aria-label','Engines')
+ const add=document.createElement('button');add.type='button';add.textContent='Add an engine'
+ const notice=document.createElement('p');notice.setAttribute('role','status');notice.className='engines-notice'
+ const editorBox=document.createElement('div');editorBox.className='engine-editor';editorBox.setAttribute('role','group');editorBox.setAttribute('aria-label','Engine editor');editorBox.hidden=true
+ section.append(heading,intro,unavailable,list,add,editorBox,notice)
+ let view=null,confirming=null
+ const say=(text,tone='')=>{notice.textContent=text;notice.dataset.tone=tone}
+
+ // The editor: name, provider, model, per-skill models and both templates.
+ const nameInput=document.createElement('input');nameInput.type='text';nameInput.className='model-input';nameInput.setAttribute('aria-label','Engine name');nameInput.maxLength=64
+ const nameRow=settingRow('Name',null,nameInput)
+ const providerSelect=document.createElement('select');providerSelect.className='provider-select';providerSelect.setAttribute('aria-label','AI Provider')
+ providerOptions(providerSelect)
+ const providerRow=settingRow('AI Provider',null,providerSelect)
+ const modelInput=document.createElement('input');modelInput.type='text';modelInput.className='model-input';modelInput.setAttribute('aria-label','AI Model')
+ modelInput.placeholder='Empty: use provider default model'
+ const modelRow=settingRow('AI Model',null,modelInput)
+ const skillModels=entryList({keyLabel:'Skill',valueLabel:'Model for skill',addLabel:'Add a skill model',validate:validateModel,onChange:()=>renderEditor()})
+ const skillModelsRow=settingRow('Per-skill models',{stacked:true},skillModels.box)
+ const command=document.createElement('textarea');command.className='cli-command';command.setAttribute('aria-label','Interactive CLI command')
+ command.placeholder='Provider default command'
+ const autonomousCommand=document.createElement('textarea');autonomousCommand.className='cli-command';autonomousCommand.setAttribute('aria-label','Autonomous CLI command')
+ autonomousCommand.placeholder='Empty: the interactive command serves headless launches too'
+ const previewBox=document.createElement('dl');previewBox.className='command-preview'
+ const help=document.createElement('details');help.className='placeholder-help'
+ const helpSummary=document.createElement('summary');helpSummary.textContent='Placeholders'
+ const helpText=document.createElement('p');helpText.textContent=PLACEHOLDER_HELP
+ help.append(helpSummary,helpText)
+ const presetsBar=document.createElement('div');presetsBar.className='cli-presets-bar'
+ for(const preset of CLI_PRESETS){
+  const button=document.createElement('button');button.type='button';button.textContent=preset.label
+  button.onclick=()=>{providerSelect.value=preset.provider;command.value=preset.cmd;autonomousCommand.value=preset.auto;renderEditor()}
+  presetsBar.append(button)
+ }
+ const commandRow=settingRow('Interactive CLI command',{stacked:true},command,help,presetsBar)
+ const autonomousRow=settingRow('Autonomous CLI command (headless)',{stacked:true},autonomousCommand,previewBox)
+ const saveEngine=document.createElement('button');saveEngine.type='button';saveEngine.className='dialog-action primary';saveEngine.textContent='Save engine'
+ const cancelEngine=document.createElement('button');cancelEngine.type='button';cancelEngine.textContent='Cancel'
+ const editorActions=document.createElement('div');editorActions.className='deployment-actions';editorActions.append(saveEngine,cancelEngine)
+ editorBox.append(nameRow.section,providerRow.section,modelRow.section,skillModelsRow.section,commandRow.section,autonomousRow.section,editorActions)
+ let editing=null
+ function renderEditor(){
+  if(!validateModel(modelInput.value)){modelRow.hint.textContent=INVALID_MODEL;modelInput.setAttribute('aria-invalid','true')}
+  else{modelInput.removeAttribute('aria-invalid');modelRow.hint.textContent=modelInput.value.trim()?'':'Provider default model'}
+  skillModelsRow.hint.textContent=skillModels.invalid()?INVALID_MODEL:'A model per skill beats the AI model above.'
+  commandRow.hint.textContent='Both empty runs the provider default for each mode.'
+  autonomousRow.hint.textContent='Command template used for autonomous runs. Empty falls back to interactive command.'
+  previewBox.replaceChildren()
+  for(const line of previewLines(providerSelect.value,command.value,modelInput.value,autonomousCommand.value)){
+   const term=document.createElement('dt');term.textContent=line.label
+   const detail=document.createElement('dd');detail.textContent=line.text
+   if(!line.ok)detail.className='command-preview-error'
+   previewBox.append(term,detail)
+  }
+ }
+ providerSelect.onchange=()=>{
+  // A command written for another provider does not follow the switch; a
+  // preset or an empty one does.
+  if(KNOWN_COMMANDS.includes(command.value.trim())){
+   command.value=providerSelect.value==='custom'?"/path/to/custom-cli {mode:-p|-i} '{prompt}'":''
+   autonomousCommand.value=''
+  }
+  renderEditor()
+ }
+ for(const input of [modelInput,command,autonomousCommand])input.addEventListener('input',renderEditor)
+ function openEditor(engine){
+  editing=engine||{id:'',name:'',provider:DEFAULT_PROVIDER}
+  confirming=null
+  providerOptions(providerSelect,[editing.provider])
+  nameInput.value=editing.name||'';providerSelect.value=editing.provider||DEFAULT_PROVIDER
+  modelInput.value=editing.model||'';skillModels.set(editing.skillModels||{})
+  command.value=editing.command||'';autonomousCommand.value=editing.commandAutonomous||''
+  editorBox.hidden=false;add.hidden=true;say('');renderEditor();renderList();nameInput.focus()
+ }
+ function closeEditor(){editing=null;editorBox.hidden=true;add.hidden=false;renderList()}
+ cancelEngine.onclick=closeEditor
+
+ // Each save sends the whole catalogue built from the stored one, so the
+ // actions wait for the previous answer: a second click would undo the first.
+ let pending=false
+ async function save(catalogue,defaultId,done){
+  if(pending)return
+  pending=true;saveEngine.disabled=true;say('Saving…');renderList()
+  try{
+   view=await api.saveEngines({catalogue,default:defaultId})
+   done?.();say(done?'Engine saved':'Engines saved')
+  }catch(err){
+   if(agentUnreachable(err))say('The local agent is stopped. Start it to edit engines.','error')
+   else say('Not saved: '+ipcMessage(err),'error')
+  }finally{pending=false;saveEngine.disabled=false;renderList()}
+ }
+ saveEngine.onclick=()=>{
+  const name=nameInput.value.trim()
+  if(!name){say('An engine needs a name','error');return}
+  if(!validateModel(modelInput.value)||skillModels.invalid()){say(INVALID_MODEL,'error');return}
+  if(providerSelect.value==='custom'&&!command.value.includes('{prompt}')){say('Custom provider requires a command template containing {prompt}','error');return}
+  const edited={...editing,name,provider:providerSelect.value,model:modelInput.value.trim(),skillModels:compact(skillModels.get()),command:command.value.trim(),commandAutonomous:autonomousCommand.value.trim()}
+  const catalogue=editing.id?view.catalogue.map(engine=>engine.id===editing.id?edited:engine):[...view.catalogue,edited]
+  save(catalogue,view.default,closeEditor)
+ }
+ add.onclick=()=>openEditor(null)
+
+ function button(text,label,onclick,disabled){
+  const b=document.createElement('button');b.type='button';b.textContent=text;b.setAttribute('aria-label',label);b.title=label
+  b.disabled=!!disabled;b.onclick=onclick;return b
+ }
+ function renderList(){
+  list.replaceChildren()
+  if(!view)return
+  const count=view.catalogue.length
+  view.catalogue.forEach((engine,index)=>{
+   const isDefault=engine.id===view.default
+   const item=document.createElement('li');item.className='engine-item';item.dataset.engineId=engine.id
+   const mark=document.createElement('span');mark.className='engine-mark';mark.setAttribute('aria-hidden','true');mark.textContent=engineMark(engine.provider)
+   const text=document.createElement('span');text.className='engine-text'
+   const title=document.createElement('strong');title.textContent=engine.name
+   const detail=document.createElement('small');detail.textContent=engine.provider+' · '+(engine.model||'provider default')
+   text.append(title,detail)
+   item.append(mark,text)
+   if(isDefault){const badge=document.createElement('span');badge.className='engine-default';badge.textContent='Default';item.append(badge)}
+   const actions=document.createElement('span');actions.className='engine-actions'
+   const busy=!!editing||pending
+   actions.append(
+    button('Edit','Edit '+engine.name,()=>openEditor(engine),busy),
+    button('↑','Move '+engine.name+' up',()=>save(moveEngine(view.catalogue,engine.id,-1),view.default),busy||index===0),
+    button('↓','Move '+engine.name+' down',()=>save(moveEngine(view.catalogue,engine.id,1),view.default),busy||index===count-1),
+   )
+   if(!isDefault)actions.append(button('Make default','Make '+engine.name+' the default engine',()=>save(view.catalogue,engine.id),busy))
+   // The default engine and the last one cannot go: mark another one first.
+   actions.append(button('Remove','Remove '+engine.name,()=>{confirming=engine.id;renderList()},busy||isDefault||count===1))
+   item.append(actions)
+   list.append(item)
+   if(confirming===engine.id){
+    const confirm=document.createElement('li');confirm.className='engine-confirm'
+    const names=Object.fromEntries((projects||[]).map(project=>[project.id,project.name]))
+    const message=document.createElement('span');message.textContent=removalMessage(engine.name,removalImpact(view,engine.id,names))
+    confirm.append(message,
+     button('Confirm removal','Confirm the removal of '+engine.name,()=>{confirming=null;save(view.catalogue.filter(e=>e.id!==engine.id),view.default)},pending),
+     button('Cancel','Keep '+engine.name,()=>{confirming=null;renderList()}))
+    list.append(confirm)
+   }
+  })
+ }
+ async function load(){
+  editing=null;confirming=null;editorBox.hidden=true
+  if(!await taskEnginesAvailable()){
+   view=null;list.replaceChildren();add.hidden=true
+   unavailable.textContent='Update and restart the local agent to manage engines.';unavailable.hidden=false
+   return
+  }
+  unavailable.hidden=true;add.hidden=false
+  try{view=await api.engines()}
+  catch(err){view=null;say('Unable to read engines: '+ipcMessage(err),'error')}
+  renderList()
+ }
+ return {section,load,defaultProvider:()=>view?.catalogue.find(engine=>engine.id===view.default)?.provider||''}
+}
+
+// The "Execution defaults" panel: the workstation level of every execution
+// setting, read from and written through the local agent (#305). The agent is
+// the only writer of these sections, so without it the panel says the settings
+// are unavailable rather than writing the file itself.
+function executionDefaultsPanel(panel){
+ const unavailable=document.createElement('p');unavailable.className='execution-unavailable';unavailable.setAttribute('role','status');unavailable.hidden=true
+ const body=document.createElement('div');body.className='execution-defaults';body.hidden=true
+ let view=null
+ // A field is "stated" when the workstation sets it; unset, it runs the default.
+ const stated={}
+ const changed=()=>{notice.textContent='';notice.dataset.tone=''}
+
+ // The engines (#510) come first: what a project runs unless it picks another.
+ const engines=enginesSection()
+ // The MCP configuration below is per provider: this picks which one.
+ const providerSelect=document.createElement('select');providerSelect.className='provider-select';providerSelect.setAttribute('aria-label','MCP provider')
+ providerOptions(providerSelect)
+
+ // The models a launch may pick, per provider. A provider without a list of
+ // its own offers the one Sectile ships; editing it creates the list.
+ const listsBox=document.createElement('div');listsBox.className='provider-model-lists'
+ const listInputs={}
+ const listsRow=settingRow('Models offered per provider',{stacked:true},listsBox)
+
+ const terminal=terminalPicker(()=>{changed();render()})
+ const terminalRow=settingRow('Terminal emulator',{resetLabel:'Reset terminal emulator to default',onReset:()=>{terminal.set('');render()}},terminal.select,terminal.custom)
+
+ const editorInput=document.createElement('input');editorInput.type='text';editorInput.className='model-input';editorInput.setAttribute('aria-label','Editor command')
+ editorInput.placeholder='code'
+ const editorRow=settingRow('Editor',{resetLabel:'Reset editor to default',onReset:()=>{editorInput.value='';render()}},editorInput)
+
+ let useWorktrees=null
+ const worktreeGroup=document.createElement('div');worktreeGroup.className='segmented'
+ worktreeGroup.setAttribute('role','group');worktreeGroup.setAttribute('aria-label','Worktrees')
+ const worktreeButtons=['Yes','No'].map(value=>{
+  const button=document.createElement('button');button.type='button';button.textContent=value
+  button.onclick=()=>{useWorktrees=value==='Yes';changed();render()}
+  worktreeGroup.append(button);return button
+ })
+ const worktreeRow=settingRow('Worktrees',{resetLabel:'Reset worktrees to default',onReset:()=>{useWorktrees=null;render()}},worktreeGroup)
+
+ let parallelism=0
+ const parallelInput=document.createElement('input');parallelInput.type='range'
+ parallelInput.min='1';parallelInput.max=String(MAX_PARALLELISM);parallelInput.step='1'
+ parallelInput.className='slider-input';parallelInput.setAttribute('aria-label','Parallel executions')
+ parallelInput.oninput=()=>{parallelism=Number(parallelInput.value);changed();render()}
+ const parallelReadout=document.createElement('span');parallelReadout.className='slider-value'
+ const parallelRow=settingRow('Parallel executions',{resetLabel:'Reset parallel executions to default',onReset:()=>{parallelism=0;render()}},parallelInput,parallelReadout)
+
+ let setupProviders=null
+ const setupBox=document.createElement('div');setupBox.className='setup-providers'
+ const setupChecks={}
+ const setupRow=settingRow('Extra setup providers',{resetLabel:'Reset setup providers to default',onReset:()=>{setupProviders=null;render()}},setupBox)
+ function renderSetupChoices(choices){
+  setupBox.replaceChildren()
+  for(const id of choices){
+   const label=document.createElement('label');label.className='checkbox-label'
+   const box=document.createElement('input');box.type='checkbox';box.setAttribute('aria-label','Set up '+id)
+   box.onchange=()=>{setupProviders=Object.entries(setupChecks).filter(([,input])=>input.checked).map(([key])=>key);changed();render()}
+   setupChecks[id]=box;label.append(box,document.createTextNode(' '+id));setupBox.append(label)
+  }
+ }
+
+ const notice=document.createElement('p');notice.setAttribute('role','status');notice.className='workstation-notice'
+ const save=document.createElement('button');save.type='button';save.className='dialog-action primary';save.textContent='Save execution defaults'
+ const actions=document.createElement('div');actions.className='deployment-actions';actions.style.marginTop='16px'
+ actions.append(save,notice)
+ body.append(engines.section,listsRow.section,terminalRow.section,editorRow.section,worktreeRow.section,parallelRow.section,setupRow.section,actions)
+
+ function hint(row,set,defaultText,setText){row.hint.textContent=set?(setText||'Workstation default'):'Default · '+defaultText}
+ function render(){
+  for(const [id,entry] of Object.entries(listInputs)){
+   entry.row.hint.textContent=stated['models:'+id]?'Custom list · Empty offers no model at launch.':'Shipped list'
+   if(!stated['models:'+id])entry.input.value=(view?.providerModels?.[id]||[]).join(', ')
+  }
+  hint(terminalRow,!!terminal.get(),'Auto-detect')
+  hint(editorRow,!!editorInput.value.trim(),'code')
+  const worktrees=useWorktrees??true
+  worktreeButtons.forEach((button,i)=>button.setAttribute('aria-pressed',String(worktrees===(i===0))))
+  hint(worktreeRow,useWorktrees!==null,'Yes')
+  const limit=parallelism||1
+  parallelInput.value=String(limit)
+  parallelReadout.textContent=limit+(limit===1?' execution':' executions')
+  hint(parallelRow,parallelism!==0,'1 execution')
+  for(const [id,box] of Object.entries(setupChecks))box.checked=!!setupProviders?.includes(id)
+  setupRow.hint.textContent=setupProviders===null?'Default · None beyond the provider':setupProviders.length?'Workstation default':'Workstation default · None'
+ }
+ for(const input of [editorInput])input.addEventListener('input',()=>{changed();render()})
+
+ function fill(){
+  const defaults=view.defaults||{}
+  // An agent that predates #510 names its provider directly.
+  const provider=view.effective?.defaultEngine?.provider||view.effective?.aiProvider||DEFAULT_PROVIDER
+  providerOptions(providerSelect,[provider])
+  providerSelect.value=provider
+  terminal.set(defaults.terminal||'')
+  editorInput.value=defaults.editorCommand||''
+  useWorktrees=typeof defaults.useWorktrees==='boolean'?defaults.useWorktrees:null
+  parallelism=Number(defaults.parallelism)||0
+  setupProviders=Array.isArray(defaults.setupProviders)?[...defaults.setupProviders]:null
+  renderSetupChoices(view.setupProviders?.length?view.setupProviders:SETUP_PROVIDERS)
+  listsBox.replaceChildren()
+  for(const key of Object.keys(listInputs))delete listInputs[key]
+  const providers=[...new Set([...Object.keys(view.providerModels||{}),...Object.keys(defaults.aiProviderModels||{})])].sort()
+  for(const id of providers){
+   const input=document.createElement('input');input.type='text';input.className='model-input';input.setAttribute('aria-label','Models offered for '+id)
+   const own=defaults.aiProviderModels&&Object.prototype.hasOwnProperty.call(defaults.aiProviderModels,id)
+   stated['models:'+id]=!!own
+   input.value=own?(defaults.aiProviderModels[id]||[]).join(', '):''
+   input.oninput=()=>{stated['models:'+id]=true;changed();render()}
+   const row=settingRow(id,{resetLabel:'Reset '+id+' models to the shipped list',onReset:()=>{stated['models:'+id]=false;render()}},input)
+   listInputs[id]={input,row};listsBox.append(row.section)
+  }
+  render()
+ }
+ function state(){
+  const lists={}
+  for(const [id,entry] of Object.entries(listInputs))if(stated['models:'+id])lists[id]=parseModelList(entry.input.value)
+  return {
+   terminal:terminal.get(),editorCommand:editorInput.value,useWorktrees,parallelism,setupProviders,aiProviderModels:lists
+  }
+ }
+ save.onclick=async()=>{
+  const invalidList=Object.entries(listInputs).find(([id,entry])=>stated['models:'+id]&&parseModelList(entry.input.value).some(model=>!validateModel(model)))
+  if(invalidList){notice.textContent='Invalid model in the list of '+invalidList[0];notice.dataset.tone='error';return}
+  save.disabled=true;notice.textContent='Saving…';notice.dataset.tone=''
+  try{
+   await api.saveWorkstationSettings(workstationPayload(state(),view.defaults))
+   notice.textContent='Execution defaults saved'
+   try{view=await api.workstationSettings();if(body.isConnected){fill();notice.textContent='Execution defaults saved'}}catch{}
+  }catch(err){
+   // The agent refused: its reason is shown as it gave it, and nothing changed.
+   if(agentUnreachable(err))showUnavailable(STOPPED_NOTICE)
+   else{notice.textContent='Not saved: '+ipcMessage(err);notice.dataset.tone='error'}
+  }finally{save.disabled=false}
+ }
+ const STOPPED_NOTICE='Execution settings are unavailable while the local agent is stopped. Start the agent to edit them.'
+ function showUnavailable(text){unavailable.textContent=text;unavailable.hidden=false;body.hidden=true}
+ async function load(){
+  if(!agentConnected){showUnavailable(STOPPED_NOTICE);return}
+  unavailable.hidden=true
+  try{view=await api.workstationSettings()}
+  catch(err){
+   if(!body.isConnected)return
+   const text=ipcMessage(err)
+   showUnavailable(agentUnreachable(err)?STOPPED_NOTICE:/404|not found/i.test(text)?'Update and restart the local agent to edit execution settings here.':'Unable to read execution settings: '+text)
+   return
+  }
+  if(!body.isConnected)return
+  body.hidden=false;fill()
+  await engines.load()
+ }
+ panel.append(unavailable,body)
+ return {providerSelect,load}
+}
+
 // The workstation's own settings, gathered where the project panel already puts
 // a project's: one dialog, a category per surface. The header carried three
 // unrelated controls for these; the sidebar now carries one.
 const SETTINGS_CATEGORIES=[
- {id:'General',label:'General',icon:'<circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 8h.01"/>'},
  {id:'Profile',label:'User profile',icon:'<circle cx="12" cy="8" r="4"/><path d="M4 21v-2a8 8 0 0 1 16 0v2"/>'},
+ {id:'Appearance',label:'Appearance',icon:'<circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 0 0 18Z" fill="currentColor"/>'},
  {id:'Connection',label:'Agent connection',icon:'<path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="3"/><circle cx="15" cy="17" r="3"/>'},
- {id:'Logs',label:'Agent logs',icon:'<path d="M14 3H7a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V7Z"/><path d="M14 3v4h4"/><path d="M9 13h6M9 17h6"/>'}
+ {id:'AgentCli',label:'Execution defaults',icon:'<rect x="3" y="4" width="18" height="16" rx="2"/><path d="m7 9 3 3-3 3M12 15h5"/>'},
+ {id:'Logs',label:'Agent logs',icon:'<path d="M14 3H7a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V7Z"/><path d="M14 3v4h4"/><path d="M9 13h6M9 17h6"/>'},
+ {id:'Changelog',label:'Changelog',icon:'<circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 8h.01"/>'}
 ]
-function openSettings(initial='General'){
+function openSettings(initial='Profile'){
  showDialog('Settings')
+ dialog.classList.add('workstation-settings')
  const layout=document.createElement('div');layout.className='settings-layout'
  const tabs=document.createElement('div');tabs.className='settings-nav';tabs.setAttribute('role','tablist')
  tabs.setAttribute('aria-orientation','vertical');tabs.setAttribute('aria-label','Settings categories')
@@ -735,7 +1397,7 @@ function openSettings(initial='General'){
  layout.append(tabs,content);dialogBody.append(layout)
  const panels={}
  for(const category of SETTINGS_CATEGORIES){
-  const tab=document.createElement('button');tab.type='button';tab.setAttribute('role','tab');tab.dataset.category=category.id
+  const tab=document.createElement('button');tab.type='button';tab.setAttribute('role','tab');tab.dataset.category=category.id;tab.title=category.label
   tab.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">'+category.icon+'</svg>'
   const text=document.createElement('span');text.className='settings-nav-label';text.textContent=category.label;tab.append(text)
   tab.id='settings-tab-'+category.id;tab.setAttribute('aria-controls','settings-panel-'+category.id)
@@ -755,21 +1417,69 @@ function openSettings(initial='General'){
  // and sends the rest to the web interface, which owns the profile itself.
  const account=readOnlyRow('Sectile server','The server this workstation is paired with.')
  const device=readOnlyRow('Workstation','The identifier this machine was paired under.')
- const credential=readOnlyRow('Credential','Where the pairing credential is kept.')
  const openWeb=document.createElement('button');openWeb.type='button';openWeb.textContent='Open the web interface'
  openWeb.onclick=()=>api.openBoard().catch(error)
  const web=settingRow('Profile and API keys',null,openWeb)
  web.hint.textContent='Display name, password and API keys live in the web interface.'
- panels.Profile.append(account.section,device.section,web.section,credential.section)
+ panels.Profile.append(account.section,device.section,web.section)
+
+ // Appearance: a workstation preference, applied as soon as it is pressed.
+ // The main process stores it and switches the whole window; the buttons only
+ // mirror what it answers.
+ const appearanceGroup=document.createElement('div');appearanceGroup.className='segmented'
+ appearanceGroup.setAttribute('role','group');appearanceGroup.setAttribute('aria-label','Appearance')
+ const markAppearance=value=>{for(const button of appearanceGroup.children)button.setAttribute('aria-pressed',String(button.dataset.value===value))}
+ for(const choice of APPEARANCE_CHOICES){
+  const button=document.createElement('button');button.type='button';button.textContent=choice.label;button.dataset.value=choice.value
+  button.onclick=()=>api.setAppearance(choice.value).then(markAppearance).catch(error)
+  appearanceGroup.append(button)
+ }
+ const appearance=settingRow('Theme',null,appearanceGroup)
+ appearance.hint.textContent='System follows the appearance of this computer. The web interface keeps its own theme.'
+ panels.Appearance.append(appearance.section)
+ markAppearance('system')
+ api.appearance().then(markAppearance).catch(()=>{})
+
+ // Execution defaults: the workstation level of every execution setting,
+ // owned by the local agent. The MCP connection choice follows its provider.
+ const execution=executionDefaultsPanel(panels.AgentCli)
+ const mcpPanel=mcpSettings(api,execution.providerSelect)
+ mcpPanel.section.insertBefore(settingRow('Provider',null,execution.providerSelect).section,mcpPanel.section.children[1])
+ panels.AgentCli.append(mcpPanel.section)
 
  const agentState=readOnlyRow('Local agent','The agent process this desktop talks to.')
+ const agentActions=document.createElement('span');agentActions.className='settings-agent-actions'
+ const agentButtons=[]
+ let agentActionPending=false
+ const renderAgentActions=()=>{
+  agentState.value.textContent=agentConnected?'Running':'Stopped'
+  for(const [button,needsRunning] of agentButtons)button.disabled=agentActionPending||restarting||agentConnected!==needsRunning
+ }
+ for(const [label,needsRunning,action] of [
+  ['Start agent',false,()=>startLocalAgent(connectForm)],
+  ['Stop agent',true,stopLocalAgent],
+  ['Restart agent',true,restartLocalAgent]
+ ]){
+  const button=document.createElement('button');button.type='button';button.textContent=label
+  button.onclick=async()=>{
+   if(agentActionPending||restarting)return
+   agentActionPending=true;renderAgentActions()
+   try{await action()}finally{agentActionPending=false;if(agentActions.isConnected){await fill();renderAgentActions()}}
+  }
+  agentButtons.push([button,needsRunning]);agentActions.append(button)
+ }
+ agentState.control.append(agentActions)
+ renderAgentActions()
  const link=readOnlyRow('Server link','Whether the local agent reaches the Sectile server.')
+ const linkDot=document.createElement('span');linkDot.className='connection-dot';linkDot.setAttribute('aria-hidden','true')
+ link.control.classList.add('settings-connection-status');link.control.dataset.state='off'
+ link.control.prepend(linkDot)
  const pairing=settingRow('Pairing',{stacked:true},connectForm)
  const pairingNote=document.createElement('p');pairingNote.setAttribute('role','status')
  pairing.control.append(pairingNote)
  panels.Connection.append(agentState.section,link.section,pairing.section)
 
- fillGeneralPanel(panels.General)
+ fillChangelogPanel(panels.Changelog)
 
  const logs=document.createElement('div');logs.className='settings-logs'
  const logHeading=document.createElement('h3');logHeading.textContent='Agent logs'
@@ -797,7 +1507,7 @@ function openSettings(initial='General'){
  }
  reload.onclick=loadLog
 
- selectCategory(SETTINGS_CATEGORIES.some(category=>category.id===initial)?initial:'General')
+ selectCategory(SETTINGS_CATEGORIES.some(category=>category.id===initial)?initial:'Profile')
  // The connection facts come from two sources the agent answers separately, and
  // a stopped agent still has a paired server to report: the stored settings fill
  // the panel first, the live status refines it when the agent answers.
@@ -807,25 +1517,35 @@ function openSettings(initial='General'){
   if(!account.value.isConnected)return
   account.value.textContent=stored.server||'Not paired'
   device.value.textContent=stored.deviceId||'Not paired'
-  credential.value.textContent=stored.token?'Stored on this machine':'None'
-  agentState.value.textContent=agentConnected?'Running':'Stopped'
+  renderAgentActions()
+  link.control.dataset.state='off'
   link.value.textContent=agentConnected?'Connecting…':'Unreachable'
   pairing.hint.textContent=stored.token
    ?'This workstation is paired. Pasting a new code re-pairs it.'
    :'In the web interface, under your profile, choose Pair a workstation and paste the code here.'
   pairingNote.textContent=agentConnected?'Stop the local agent before connecting it to another server.':''
+  // The agent answers for the execution defaults; a start or a stop from the
+  // connection panel reloads them, so the panel follows the agent's state.
+  if(execution.providerSelect.isConnected)execution.load().catch(()=>{}).finally(()=>{if(execution.providerSelect.isConnected)mcpPanel.load()})
   if(!agentConnected)return
   try{
    const status=await api.status()
    if(!link.value.isConnected)return
+   link.control.dataset.state=status.connected?'on':'off'
    link.value.textContent=status.connected?'Connected':status.contractError?'Server incompatible':'Server disconnected'
    if(status.contractError)link.hint.textContent=status.contractError
    if(status.server)account.value.textContent=status.server
   }catch{if(link.value.isConnected)link.value.textContent='Unreachable'}
  }
+ updateSettingsConnection=status=>{
+  renderAgentActions()
+  link.control.dataset.state=agentConnected&&status.connected?'on':'off'
+  link.value.textContent=!agentConnected?'Unreachable':status.connected?'Connected':status.contractError?'Server incompatible':'Server disconnected'
+  pairingNote.textContent=agentConnected?'Stop the local agent before connecting it to another server.':''
+ }
  fill()
 }
-document.querySelector('#settings').onclick=()=>openSettings('General')
+document.querySelector('#settings').onclick=()=>openSettings('Profile')
 
 async function loadProjects(){
  const version=projectStateVersion
@@ -844,18 +1564,20 @@ async function loadProjects(){
 // A control that looks the same either way says nothing: the chevron points where the next click
 // sends the panel, and the label names that click rather than the state it leaves behind.
 function renderSidebarToggle(hidden){
- const button=document.querySelector('#toggle-sidebar')
+ const button=document.querySelector('#toggle-sidebar'),mac=isMacPlatform(navigator)
  const chevron=hidden?'m13 9 3 3-3 3':'m16 9-3 3 3 3'
  button.setAttribute('aria-expanded',String(!hidden))
  button.setAttribute('aria-label',hidden?'Show projects':'Hide projects')
- button.title=hidden?'Show projects':'Hide projects'
+ button.setAttribute('aria-keyshortcuts',sidebarShortcutAria(mac))
+ button.title=(hidden?'Show projects':'Hide projects')+' ('+sidebarShortcutLabel(mac)+')'
  button.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/><path d="'+chevron+'"/></svg>'
 }
-document.querySelector('#toggle-sidebar').onclick=()=>{
+function toggleSidebar(){
  const hidden=document.querySelector('#workspace').classList.toggle('sidebar-hidden')
  renderSidebarToggle(hidden);localStorage.setItem('sidebarCollapsed',String(hidden));resize()
 }
-// The General pane: what is installed, and what changed. Both versions are
+document.querySelector('#toggle-sidebar').onclick=toggleSidebar
+// The Changelog pane: what is installed, and what changed. Both versions are
 // shown because the app and the agent are distributed separately, and a
 // workstation that upgraded one and not the other is exactly the case this
 // pane exists to make visible.
@@ -894,7 +1616,18 @@ function renderChangelog(container,releases){
 // The pane main built as the whole Settings dialog becomes one category of it:
 // what is installed sits beside the account, the connection and the logs
 // instead of replacing them.
-async function fillGeneralPanel(panel){
+// The mark stays until the running agent is the one this app bundles; the main
+// process says when that changes, which is what the listener is for.
+function showAgentOutdated(row,outdated){
+ let mark=row.querySelector('.version-outdated')
+ if(!outdated){mark?.remove();return}
+ if(!mark){
+  mark=document.createElement('span');mark.className='version-outdated'
+  mark.textContent='outdated: restart the local agent'
+  row.querySelector('.setting-control').append(mark)
+ }
+}
+async function fillChangelogPanel(panel){
  const versions=document.createElement('div');versions.className='settings-versions'
  const desktopRow=versionRow('Sectile Desktop','…','The application window and its consoles.')
  const agentRow=versionRow('Local agent','…','The workstation daemon that runs the tasks.')
@@ -917,6 +1650,11 @@ async function fillGeneralPanel(panel){
   // A stopped agent has no version to give. Saying so beats leaving an
   // ellipsis that reads as a load which never finishes.
   agentRow.querySelector('.version-value').textContent=reported.agent||'not running'
+  showAgentOutdated(agentRow,reported.outdated)
+  const unsubscribe=api.onAgentOutdated?.(value=>{
+   if(!agentRow.isConnected){unsubscribe?.();return}
+   showAgentOutdated(agentRow,value)
+  })
  }catch{
   if(!panel.isConnected)return
   desktopRow.querySelector('.version-value').textContent='unknown'
@@ -998,7 +1736,7 @@ async function openProject(id){
    for(const item of tabs.children)item.setAttribute('aria-selected',String(item.dataset.category===name))
   }
   for(const category of CATEGORIES){
-   const tab=document.createElement('button');tab.type='button';tab.setAttribute('role','tab');tab.dataset.category=category.id
+   const tab=document.createElement('button');tab.type='button';tab.setAttribute('role','tab');tab.dataset.category=category.id;tab.title=category.label
    tab.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">'+category.icon+'</svg>'
    const text=document.createElement('span');text.className='settings-nav-label';text.textContent=category.label;tab.append(text)
    tab.id='project-tab-'+category.id;tab.setAttribute('aria-controls','project-panel-'+category.id)
@@ -1015,11 +1753,110 @@ async function openProject(id){
   selectCategory('General')
   const path=document.createElement('input');path.value=info.path||'';path.required=true;path.placeholder='/path/to/repository';path.setAttribute('aria-label','Local repository')
   const browse=document.createElement('button');browse.type='button';browse.textContent='Choose folder…'
-  browse.onclick=async()=>{try{const selected=await api.chooseRepository();if(selected)path.value=selected}catch(err){error(err)}}
+  browse.onclick=async()=>{try{const selected=await api.chooseRepository();if(selected){path.value=selected;pathOffer.examine()}}catch(err){error(err)}}
   const picker=document.createElement('div');picker.className='repository-picker';picker.append(path,browse)
   const repository=settingRow('Local repository',{stacked:true},picker)
-  let useWorktrees=info.useWorktrees,inheritWorktrees=!info.worktreeOverride
-  let parallelism=info.parallelism||1
+  const pathOffer=attachGitOffer(path,repository,'Local repository')
+  // Macro operations read and write specifications here. Only an override is
+  // stored: a mono-repo project inherits its local repository, a multi-repo
+  // project needs one. The layout itself is a project setting held by the
+  // server, so it is stated here and changed in the web interface.
+  const layoutRow=readOnlyRow('Repository layout','Project setting · Change it in the project settings of the web interface.')
+  const specPath=document.createElement('input');specPath.value=info.specPath||'';specPath.setAttribute('aria-label','Specifications folder')
+  const specBrowse=document.createElement('button');specBrowse.type='button';specBrowse.textContent='Choose folder…';specBrowse.setAttribute('aria-label','Choose specifications folder…')
+  specBrowse.onclick=async()=>{try{const selected=await api.chooseRepository();if(selected){specPath.value=selected;renderSpec({...specData,specPath:selected});specOffer.examine()}}catch(err){error(err)}}
+  const specPicker=document.createElement('div');specPicker.className='repository-picker';specPicker.append(specPath,specBrowse)
+  // Mono-repo only: the specifications either share the code checkout or live
+  // in a folder of their own. Unticking reveals the folder; ticking drops the
+  // override so the folder follows the local repository again.
+  const sameRepo=document.createElement('input');sameRepo.type='checkbox';sameRepo.id='spec-same-repository'
+  const sameRepoLabel=document.createElement('label');sameRepoLabel.className='spec-same-repository';sameRepoLabel.htmlFor=sameRepo.id
+  sameRepoLabel.append(sameRepo,document.createTextNode(' Specifications live in the code repository'))
+  sameRepo.onchange=()=>{
+   if(sameRepo.checked)specPath.value=''
+   renderSpec({...specData,specPath:specPath.value},{separate:!sameRepo.checked})
+   if(!sameRepo.checked)specPath.focus()
+  }
+  specPath.oninput=()=>renderSpec({...specData,specPath:specPath.value},{separate:true})
+  const specKind=document.createElement('span');specKind.className='spec-kind';specKind.setAttribute('role','status');specKind.setAttribute('aria-label','Specifications folder kind')
+  const specRepository=settingRow('Specifications folder',{stacked:true},sameRepoLabel,specPicker,specKind)
+  const specOffer=attachGitOffer(specPath,specRepository,'Specifications folder',folder=>renderSpec({...specData,specPath:folder},{separate:true}))
+  let specData=info
+  function renderSpec(data,options){
+   specData=data
+   const mono=data.monoRepo!==false,override=!!(data.specPath||'').trim()
+   const separate=!mono||override||!!options?.separate
+   const required=!mono&&!override
+   layoutRow.value.textContent=mono?'Mono-repo':'Multi-repo'
+   sameRepoLabel.hidden=!mono;sameRepo.checked=mono&&!separate
+   // Following the local repository, the folder has no offer of its own.
+   if(specPicker.hidden!==!separate)specOffer.show(separate)
+   specPicker.hidden=!separate
+   specPath.placeholder=mono?'Folder holding the specifications':'Required for a multi-repo project'
+   specRepository.section.classList.toggle('required',required)
+   specPath.setAttribute('aria-invalid',required?'true':'false')
+   specRepository.hint.textContent=required?'Required · Macro operations of a multi-repo project need this folder. Settings can still be saved without it.'
+    :!separate?'Macro skills read and write specifications in the local repository.'
+    :mono?'A folder of its own · Tick the box to use the local repository again.'
+    :'Where macro skills read and write specifications.'
+   // The kind is detected on the folder the agent resolves, which is not
+   // always the one typed: name it, so the verdict says what it is about.
+   // A value typed but not saved yet has not been examined.
+   const stored=(data.specPath||'').trim()===(info.specPath||'').trim()
+   const examined=(stored?(data.specPath||'').trim():'')||(!override?data.specDefault:'')||''
+   const verdict={git:'Git repository',folder:'Folder, not a Git repository',missing:'Folder not found'}[stored?data.specKind:'']||''
+   specKind.textContent=verdict&&examined?verdict+' · '+examined:''
+   specKind.title=specKind.textContent
+   specKind.dataset.kind=stored?data.specKind||'':''
+  }
+  renderSpec(info)
+  pathOffer.examine();specOffer.show(!specPicker.hidden)
+  // The other repositories of a multi-repo project, each in a folder of this
+  // workstation (#456). The project's own repository is the local repository
+  // above; the list itself is a project setting of the web interface.
+  const repositoryList=document.createElement('div');repositoryList.className='repository-list'
+  const repositoriesRow=settingRow('Other repositories',{stacked:true},repositoryList)
+  repositoriesRow.hint.textContent='Tasks pinned to one of these repositories run in a worktree of its folder; the others are given to the agent as read-only context.'
+  repositoriesRow.section.hidden=true
+  const repositoryInputs=[]
+  if(info.monoRepo===false){
+   api.repositories(id).then(list=>{
+    for(const repository of list.filter(item=>!item.code)){
+     const input=document.createElement('input');input.value=repository.path||'';input.placeholder='Folder holding a checkout of '+repository.identity
+     input.setAttribute('aria-label','Folder of '+repository.identity)
+     const choose=document.createElement('button');choose.type='button';choose.textContent='Choose folder…';choose.setAttribute('aria-label','Choose the folder of '+repository.identity+'…')
+     choose.onclick=async()=>{try{const selected=await api.chooseRepository();if(selected)input.value=selected}catch(err){error(err)}}
+     const name=document.createElement('span');name.className='repository-name';name.textContent=repository.identity
+     const row=document.createElement('div');row.className='repository-picker';row.append(input,choose)
+     repositoryList.append(name,row)
+     repositoryInputs.push({repository,input})
+    }
+    repositoriesRow.section.hidden=!repositoryInputs.length
+   }).catch(error)
+  }
+  // Every execution field reads {value, inherited, source} from the agent: set
+  // for the project, or inherited from the workstation defaults, else the
+  // provider default. The server never supplies one (#305).
+  let fields=projectFields(info)
+  const skills=(info.skills||[]).map(skill=>skill.id).filter(Boolean)
+  // The workstation defaults tell, once a project value is reset, whether the
+  // inherited value comes from the workstation or from the provider default.
+  let wsView=null
+  try{wsView=await api.workstationSettings()}catch{}
+  const statedValue=value=>value!==undefined&&value!==null&&value!==''&&value!==0&&!(typeof value==='object'&&!Array.isArray(value)&&!Object.keys(value).length)
+  function inheritedSource(name){
+   const field=fields[name]
+   if(field.source!=='project')return field.source
+   const defaults=wsView?.defaults
+   if(!defaults)return 'workstation'
+   if(name==='skillCommands')return 'default'
+   return statedValue(defaults[name])?'workstation':'default'
+  }
+  const hintFor=(name,inherit,empty)=>sourceHint(inherit?inheritedSource(name):'project',fields[name].inherited,empty)
+  const inherits=name=>fields[name].source!=='project'
+
+  let useWorktrees=fields.useWorktrees.value??true,inheritWorktrees=inherits('useWorktrees')
+  let parallelism=Number(fields.parallelism.value)||1,inheritParallelism=inherits('parallelism')
   const controls={}
   const worktreeGroup=document.createElement('div');worktreeGroup.className='segmented'
   worktreeGroup.setAttribute('role','group');worktreeGroup.setAttribute('aria-label','Worktrees')
@@ -1028,213 +1865,149 @@ async function openProject(id){
    button.onclick=()=>{useWorktrees=value==='Yes';inheritWorktrees=false;update()}
    worktreeGroup.append(button);return button
   })
-  controls.worktrees=settingRow('Worktrees',{resetLabel:'Reset worktrees to server default',onReset:()=>{useWorktrees=!!config.useWorktrees;inheritWorktrees=true;update()}},worktreeGroup)
+  const resetWorktrees=()=>{useWorktrees=fields.useWorktrees.inherited??useWorktrees;inheritWorktrees=true;update()}
+  controls.worktrees=settingRow('Worktrees',{resetLabel:'Reset worktrees to workstation default',onReset:resetWorktrees},worktreeGroup)
   controls.worktrees.buttons=worktreeButtons
+  // Whether the tasks' clarifications and specifications are committed (#487).
+  // No override follows the server; the reset removes the override.
+  let specArtifacts=info.specArtifacts==='drop'?'drop':'keep',inheritSpecArtifacts=!info.specArtifactsOverride
+  const specArtifactsGroup=document.createElement('div');specArtifactsGroup.className='segmented'
+  specArtifactsGroup.setAttribute('role','group');specArtifactsGroup.setAttribute('aria-label','Specifications')
+  const specArtifactsButtons=['Keep','Drop'].map(value=>{
+   const button=document.createElement('button');button.type='button';button.textContent=value
+   button.onclick=()=>{specArtifacts=value.toLowerCase();inheritSpecArtifacts=false;update()}
+   specArtifactsGroup.append(button);return button
+  })
+  controls.specArtifacts=settingRow('Specifications',{resetLabel:'Reset specifications to server default',onReset:()=>{specArtifacts=config.specArtifacts==='drop'?'drop':'keep';inheritSpecArtifacts=true;update()}},specArtifactsGroup)
+  controls.specArtifacts.buttons=specArtifactsButtons
+  const specArtifactsWarning=document.createElement('p');specArtifactsWarning.className='setting-warning'
+  controls.specArtifacts.hint.after(specArtifactsWarning)
   // A magnitude between 1 and a ceiling, which a segmented control cannot show
   // without overflowing the row once the ceiling grows. The readout states the
   // value, so the slider needs no printed scale beneath it.
   const parallelInput=document.createElement('input');parallelInput.type='range'
   parallelInput.min='1';parallelInput.max=String(MAX_PARALLELISM);parallelInput.step='1'
   parallelInput.className='slider-input';parallelInput.setAttribute('aria-label','Parallel executions')
-  parallelInput.oninput=()=>{parallelism=Number(parallelInput.value);update()}
+  parallelInput.oninput=()=>{parallelism=Number(parallelInput.value);inheritParallelism=false;update()}
   const parallelReadout=document.createElement('span');parallelReadout.className='slider-value'
-  // Parallelism is workstation-owned: no server default, hence no reset control.
-  controls.parallel=settingRow('Parallel executions',null,parallelInput,parallelReadout)
+  const resetParallelism=()=>{parallelism=Number(fields.parallelism.inherited)||parallelism;inheritParallelism=true;update()}
+  controls.parallel=settingRow('Parallel executions',{resetLabel:'Reset parallel executions to workstation default',onReset:resetParallelism},parallelInput,parallelReadout)
   controls.parallel.input=parallelInput;controls.parallel.readout=parallelReadout
   function update(){
    controls.worktrees.buttons.forEach((button,i)=>button.setAttribute('aria-pressed',String(useWorktrees===(i===0))))
-   controls.worktrees.hint.textContent=(inheritWorktrees?'Inherited':'Local override')+' · Server default: '+(config.useWorktrees?'Yes':'No')
+   controls.worktrees.hint.textContent=hintFor('useWorktrees',inheritWorktrees)
+   controls.specArtifacts.buttons.forEach(button=>button.setAttribute('aria-pressed',String(specArtifacts===button.textContent.toLowerCase())))
+   controls.specArtifacts.hint.textContent=(inheritSpecArtifacts?'Inherited':'Local override')+' · Server default: '+(config.specArtifacts==='drop'?'Drop':'Keep')
+   const tracked=info.specArtifactsTracked||0
+   specArtifactsWarning.textContent=specArtifacts==='drop'&&tracked>0?'This repository already tracks '+tracked+' specification '+(tracked===1?'file':'files')+'. They stay in its history; only the next tasks\' specifications are dropped.':''
+   specArtifactsWarning.hidden=!specArtifactsWarning.textContent
    const effective=useWorktrees?parallelism:1
    controls.parallel.input.disabled=!useWorktrees
    controls.parallel.input.value=String(effective)
    controls.parallel.readout.textContent=effective+(effective===1?' execution':' executions')
-   controls.parallel.hint.textContent=useWorktrees?'Workstation setting · Extra executions queue locally.':'Without worktrees, executions are limited to one.'
+   controls.parallel.hint.textContent=useWorktrees?hintFor('parallelism',inheritParallelism)+' · Extra executions queue locally.':'Without worktrees, executions are limited to one.'
   }
   update()
-  let selectedProvider=info.aiProvider||config.aiProvider||'agy',inheritAiProvider=!info.aiProviderOverride
-  const providerSelect=document.createElement('select');providerSelect.className='provider-select';providerSelect.setAttribute('aria-label','AI Provider')
-  const PROVIDERS=[
-    {id:'agy',label:'AGY CLI (Google Antigravity)'},
-    {id:'claude',label:'Claude Code CLI'},
-    {id:'codex',label:'Codex CLI'},
-    {id:'gemini',label:'Gemini CLI'},
-    {id:'cursor',label:'Cursor CLI'},
-    {id:'vibe',label:'Mistral Vibe CLI'},
-    {id:'custom',label:'Custom Command'}
-  ]
-  for(const p of PROVIDERS){
-    const opt=document.createElement('option');opt.value=p.id;opt.textContent=p.label
-    providerSelect.append(opt)
-  }
-  providerSelect.value=selectedProvider
-  const providerRow=settingRow('AI Provider',{resetLabel:'Reset AI provider to server default'},providerSelect)
-  const providerReset=providerRow.reset,providerHint=providerRow.hint
-  function updateProvider(){
-    providerHint.textContent=(inheritAiProvider?'Inherited from server':'Local override')+' · Server default: '+(config.aiProvider||'agy')
-    renderCommandPreview()
-  }
-  providerReset.onclick=()=>{
-    selectedProvider=config.aiProvider||'agy'
-    providerSelect.value=selectedProvider
-    inheritAiProvider=true
-    updateProvider()
-  }
 
-  let selectedModel=info.aiModel??config.aiModel??'',inheritAiModel=!info.aiModelOverride
-  const modelInput=document.createElement('input');modelInput.type='text';modelInput.className='model-input';modelInput.setAttribute('aria-label','AI Model')
-  modelInput.value=selectedModel
-  modelInput.placeholder='Empty: use provider default model'
-  const modelRow=settingRow('AI Model',{resetLabel:'Reset AI model to server default'},modelInput)
-  const modelReset=modelRow.reset,modelHint=modelRow.hint
-
-  const MODEL_REGEX=/^[A-Za-z0-9][A-Za-z0-9._:@/-]*$/
-  function validateModel(val){
-    const trimmed=String(val||'').trim()
-    if(trimmed==='')return true
-    return MODEL_REGEX.test(trimmed)
+  // The providers set up beside the one that runs, when a project is
+  // initialized. An empty list is the statement "none".
+  let setupProviders=Array.isArray(fields.setupProviders.value)?[...fields.setupProviders.value]:[],inheritSetupProviders=inherits('setupProviders')
+  const setupBox=document.createElement('div');setupBox.className='setup-providers'
+  const setupChecks={}
+  for(const provider of wsView?.setupProviders?.length?wsView.setupProviders:SETUP_PROVIDERS){
+   const label=document.createElement('label');label.className='checkbox-label'
+   const box=document.createElement('input');box.type='checkbox';box.setAttribute('aria-label','Set up '+provider)
+   box.onchange=()=>{setupProviders=Object.entries(setupChecks).filter(([,input])=>input.checked).map(([key])=>key);inheritSetupProviders=false;updateSetup()}
+   setupChecks[provider]=box;label.append(box,document.createTextNode(' '+provider));setupBox.append(label)
   }
-
-  function updateModel(){
-    modelHint.textContent=(inheritAiModel?'Inherited from server':'Local override')+' · Server default: '+(config.aiModel||'(none)')
-    if(!validateModel(modelInput.value)){
-      modelHint.textContent='Invalid model: must only contain letters, digits, and allowed punctuation (. _ - : @ /)'
-      modelInput.setAttribute('aria-invalid','true')
-    }else{
-      modelInput.removeAttribute('aria-invalid')
-    }
-    renderCommandPreview()
+  const resetSetup=()=>{setupProviders=[...(fields.setupProviders.inherited||[])];inheritSetupProviders=true;updateSetup()}
+  const setupRow=settingRow('Extra setup providers',{resetLabel:'Reset setup providers to workstation default',onReset:resetSetup},setupBox)
+  function updateSetup(){
+   for(const [provider,box] of Object.entries(setupChecks))box.checked=setupProviders.includes(provider)
+   setupRow.hint.textContent=hintFor('setupProviders',inheritSetupProviders,'None')
   }
+  updateSetup()
 
-  modelInput.oninput=()=>{
-    selectedModel=modelInput.value
-    inheritAiModel=false
-    updateModel()
+  // The project default engine (#510): an engine of the workstation catalogue,
+  // or the workstation default engine. Engines themselves are edited in
+  // Settings; an agent without a catalogue shows no selector.
+  const selectedProvider=info.aiProvider||DEFAULT_PROVIDER
+  let engineView=null
+  if(await taskEnginesAvailable()){try{engineView=await api.engines()}catch{}}
+  let defaultEngine=fields.defaultEngine.source==='project'?fields.defaultEngine.value||'':'',inheritDefaultEngine=inherits('defaultEngine')
+  const engineSelect=document.createElement('select');engineSelect.className='provider-select';engineSelect.setAttribute('aria-label','Default engine')
+  const engineRow=settingRow('Default engine',{resetLabel:'Reset default engine to the workstation default'},engineSelect)
+  engineRow.section.hidden=!engineView
+  const engineById=engineId=>engineView?.catalogue.find(engine=>engine.id===engineId)
+  function fillEngines(){
+   engineSelect.replaceChildren()
+   const workstation=engineById(engineView?.default)
+   const inherit=document.createElement('option');inherit.value='';inherit.textContent='Inherit the workstation default ('+(workstation?.name||'none')+')'
+   engineSelect.append(inherit)
+   for(const engine of engineView?.catalogue||[]){const option=document.createElement('option');option.value=engine.id;option.textContent=engine.name;engineSelect.append(option)}
+   engineSelect.value=inheritDefaultEngine||!engineById(defaultEngine)?'':defaultEngine
   }
-  modelReset.onclick=()=>{
-    selectedModel=config.aiModel||''
-    modelInput.value=selectedModel
-    inheritAiModel=true
-    updateModel()
+  function updateEngine(){
+   const engine=engineById(inheritDefaultEngine?engineView?.default:defaultEngine)
+   const detail=engine?' · '+engine.provider+' · '+(engine.model||'provider default'):''
+   engineRow.hint.textContent=(inheritDefaultEngine?'Inherited from workstation':'Set for this project')+detail
   }
+  const resetEngine=()=>{defaultEngine='';inheritDefaultEngine=true;engineSelect.value='';updateEngine()}
+  engineRow.reset.onclick=resetEngine
+  engineSelect.onchange=()=>{defaultEngine=engineSelect.value;inheritDefaultEngine=!defaultEngine;updateEngine()}
+  fillEngines();updateEngine()
 
-  let inheritCommand=!info.commandOverride
-  // The two execution modes run different command lines, so they get one field
-  // each. Overriding only the interactive one would leave the server's headless
-  // command running beside it, which is not what an override means.
-  const command=document.createElement('textarea');command.className='cli-command';command.setAttribute('aria-label','Interactive CLI command')
-  command.value=info.aiCommandTemplate??config.aiCommandTemplate??''
-  command.placeholder='Server provider default command'
-  const autonomousCommand=document.createElement('textarea');autonomousCommand.className='cli-command';autonomousCommand.setAttribute('aria-label','Autonomous CLI command')
-  autonomousCommand.value=info.aiCommandTemplateAutonomous??config.aiCommandTemplateAutonomous??''
-  autonomousCommand.placeholder='Empty: the interactive command serves headless launches too'
-  const commandPreviewBox=document.createElement('dl');commandPreviewBox.className='command-preview'
-  function renderCommandPreview(){
-   commandPreviewBox.replaceChildren()
-   for(const line of previewLines(selectedProvider,command.value,modelInput.value,autonomousCommand.value)){
-    const term=document.createElement('dt');term.textContent=line.label
-    const detail=document.createElement('dd');detail.textContent=line.text
-    if(!line.ok)detail.className='command-preview-error'
-    commandPreviewBox.append(term,detail)
-   }
+  // The slash command each stage runs, when the local CLI installs it under
+  // another name. One word, an optional leading slash.
+  let inheritSkillCommands=inherits('skillCommands')
+  const skillCommands=entryList({keyLabel:'Skill',valueLabel:'Command for skill',addLabel:'Add a skill command',fixed:skills,validate:validSkillCommand,
+   placeholder:skill=>fields.skillCommands.inherited?.[skill]||'Standard command',onChange:()=>{inheritSkillCommands=false;updateSkillCommands()}})
+  skillCommands.set(ownEntries(fields.skillCommands))
+  const resetSkillCommands=()=>{skillCommands.set({});inheritSkillCommands=true;updateSkillCommands()}
+  const skillCommandsRow=settingRow('Skill command names',{stacked:true,resetLabel:'Reset skill command names to the standard ones',onReset:resetSkillCommands},skillCommands.box)
+  skillCommandsRow.section.hidden=!skills.length
+  function updateSkillCommands(){
+   skillCommands.refreshPlaceholders()
+   skillCommandsRow.hint.textContent=skillCommands.invalid()?'A skill command name is a single word, optionally led by /.':inheritSkillCommands?'Standard commands':'Set for this project · Empty entries run the standard command.'
   }
-  const placeholderHelp=document.createElement('details');placeholderHelp.className='placeholder-help'
-  const placeholderSummary=document.createElement('summary');placeholderSummary.textContent='Placeholders'
-  const placeholderText=document.createElement('p')
-  placeholderText.textContent='Required in a command: {prompt} (instructions). Also: {issueKey}, {issueTitle}, {issueDesc}, {branchName}, {repoPath} (local directory), {tracker}, {repo}, {model}, {mode:AUTONOMOUS|INTERACTIVE}.'
-  placeholderHelp.append(placeholderSummary,placeholderText)
-  function commandState(){commandHint.textContent=(inheritCommand?'Inherited from server':'Local override')+' · Both empty runs the provider default for each mode.';renderCommandPreview()}
-  command.oninput=()=>{inheritCommand=false;commandState()}
-  autonomousCommand.oninput=()=>{inheritCommand=false;commandState()}
-  const commandRow=settingRow('Interactive CLI command',{stacked:true,resetLabel:'Reset CLI commands to server defaults',onReset:()=>{command.value=config.aiCommandTemplate||'';autonomousCommand.value=config.aiCommandTemplateAutonomous||'';inheritCommand=true;commandState()}},command,placeholderHelp)
-  const commandHint=commandRow.hint
-  const autonomousRow=settingRow('Autonomous CLI command (headless)',{stacked:true},autonomousCommand,commandPreviewBox)
+  updateSkillCommands()
 
-  const KNOWN_PRESETS=['',"/path/to/custom-cli {mode:-p|-i} '{prompt}'","claude --model {model} '{prompt}'",'agy --dangerously-skip-permissions --model {model} "{prompt}"',"codex --model {model} '{prompt}'"]
-  providerSelect.onchange=()=>{
-    selectedProvider=providerSelect.value
-    inheritAiProvider=false
-    if(command.value.trim()===''||KNOWN_PRESETS.includes(command.value.trim())){
-      if(selectedProvider==='custom'){
-        command.value="/path/to/custom-cli {mode:-p|-i} '{prompt}'"
-      }else{
-        command.value=''
-      }
-      autonomousCommand.value=''
-    }
-    updateProvider()
-  }
-
-  updateProvider()
-  updateModel()
-  commandState()
-
-  let selectedTerminal=info.terminal??config.externalTerminalCommand??'',inheritTerminal=!info.terminalOverride
-  const terminalSelect=document.createElement('select');terminalSelect.className='terminal-select';terminalSelect.setAttribute('aria-label','Terminal emulator')
-  const TERMINALS=[
-    {id:'',label:'Auto-detect (Ghostty, iTerm, Terminal)'},
-    {id:'ghostty',label:'Ghostty'},
-    {id:'terminal',label:'Terminal.app'},
-    {id:'iterm',label:'iTerm'},
-    {id:'custom',label:'Custom command…'}
-  ]
-  for(const t of TERMINALS){
-    const opt=document.createElement('option');opt.value=t.id;opt.textContent=t.label
-    terminalSelect.append(opt)
-  }
-  const customTerminalInput=document.createElement('input');customTerminalInput.type='text';customTerminalInput.className='custom-terminal-input'
-  customTerminalInput.setAttribute('aria-label','Custom terminal command')
-  customTerminalInput.placeholder='e.g. alacritty -e {command}'
-
-  const standardTerminals=['','ghostty','terminal','iterm']
-  if(selectedTerminal&&!standardTerminals.includes(selectedTerminal.toLowerCase())){
-    terminalSelect.value='custom'
-    customTerminalInput.value=selectedTerminal
-    customTerminalInput.hidden=false
-  }else{
-    terminalSelect.value=selectedTerminal?selectedTerminal.toLowerCase():''
-    customTerminalInput.value=''
-    customTerminalInput.hidden=true
-  }
-
-  const terminalRow=settingRow('Terminal emulator',{resetLabel:'Reset terminal emulator to workstation default'},terminalSelect,customTerminalInput)
+  let inheritTerminal=inherits('terminal')
+  const terminal=terminalPicker(()=>{inheritTerminal=false;updateTerminal()})
+  terminal.set(fields.terminal.value||'')
+  const terminalRow=settingRow('Terminal emulator',{resetLabel:'Reset terminal emulator to workstation default'},terminal.select,terminal.custom)
   const terminalReset=terminalRow.reset,terminalHint=terminalRow.hint
-
   function updateTerminal(){
-    terminalHint.textContent=(inheritTerminal?'Inherited from workstation':'Local override')+' · Default: '+(config.externalTerminalCommand||'Auto-detect')
-    customTerminalInput.hidden=terminalSelect.value!=='custom'
+    terminalHint.textContent=hintFor('terminal',inheritTerminal,'Auto-detect')
   }
-
-  terminalSelect.onchange=()=>{
-    inheritTerminal=false
-    if(terminalSelect.value!=='custom'){
-      selectedTerminal=terminalSelect.value
-    }else{
-      selectedTerminal=customTerminalInput.value.trim()
-    }
-    updateTerminal()
-  }
-  customTerminalInput.oninput=()=>{
-    inheritTerminal=false
-    selectedTerminal=customTerminalInput.value.trim()
-  }
-  terminalReset.onclick=()=>{
-    selectedTerminal=config.externalTerminalCommand||''
-    inheritTerminal=true
-    if(selectedTerminal&&!standardTerminals.includes(selectedTerminal.toLowerCase())){
-      terminalSelect.value='custom'
-      customTerminalInput.value=selectedTerminal
-    }else{
-      terminalSelect.value=selectedTerminal?selectedTerminal.toLowerCase():''
-      customTerminalInput.value=''
-    }
-    updateTerminal()
-  }
+  const resetTerminal=()=>{terminal.set(fields.terminal.inherited||'');inheritTerminal=true;updateTerminal()}
+  terminalReset.onclick=resetTerminal
   updateTerminal()
+  // After a save, the agent's answer is the reference: sources and inherited
+  // values are read again, and inherited fields take the value they inherit
+  // now. A refresh keeps the dialog's own edits: only the fields still
+  // inheriting in the dialog take the refreshed inherited value.
+  function applyFields(fresh,keepEdits=false){
+   fields=projectFields(fresh)
+   if(!keepEdits){
+    inheritSpecArtifacts=!fresh.specArtifactsOverride
+    specArtifacts=fresh.specArtifacts==='drop'?'drop':'keep'
+    inheritWorktrees=inherits('useWorktrees');inheritParallelism=inherits('parallelism');inheritSetupProviders=inherits('setupProviders')
+    inheritDefaultEngine=inherits('defaultEngine');defaultEngine=inheritDefaultEngine?'':fields.defaultEngine.value||''
+    inheritSkillCommands=inherits('skillCommands');inheritTerminal=inherits('terminal')
+   }
+   if(inheritWorktrees)resetWorktrees()
+   if(inheritParallelism)resetParallelism()
+   if(inheritSetupProviders)resetSetup()
+   if(inheritTerminal)resetTerminal()
+   fillEngines()
+   update();updateSetup();updateEngine();updateSkillCommands();updateTerminal()
+  }
 
   const notice=document.createElement('p');notice.setAttribute('role','status')
-  panels.General.append(repository.section)
-  panels.Execution.append(controls.worktrees.section,controls.parallel.section,terminalRow.section)
-  panels.Agent.append(providerRow.section,modelRow.section,commandRow.section,autonomousRow.section)
+  panels.General.append(repository.section,layoutRow.section,specRepository.section,repositoriesRow.section)
+  panels.Execution.append(controls.worktrees.section,controls.specArtifacts.section,controls.parallel.section,terminalRow.section,setupRow.section)
+  panels.Agent.append(engineRow.section,skillCommandsRow.section)
   const remove=document.createElement('button');remove.type='button';remove.textContent='Remove from desktop';remove.className='remove-project'
   remove.onclick=()=>requestRemoveProject(id,config.projectName)
   if(info.configured||runs.some(run=>run.projectId===id))panels.General.append(remove)
@@ -1242,30 +2015,62 @@ async function openProject(id){
   const tools=document.createElement('div');tools.className='deployment-actions'
   form.onsubmit=async event=>{
    event.preventDefault()
-   if(!validateModel(modelInput.value)){
-    notice.textContent='Invalid AI model identifier: must only contain letters, digits, and allowed punctuation (. _ - : @ /)'
-    return
-   }
-   if(selectedProvider==='custom'&&!command.value.includes('{prompt}')){
-    notice.textContent='Custom provider requires a command template containing {prompt}'
+   if(skillCommands.invalid()){
+    notice.textContent='A skill command name is a single word, optionally led by /.'
     return
    }
    save.disabled=true
    try{
-    const termToSend=terminalSelect.value==='custom'?customTerminalInput.value.trim():terminalSelect.value
-    await api.mapProject({projectId:id,path:path.value,useWorktrees,inheritWorktrees,parallelism,aiProvider:selectedProvider,aiModel:modelInput.value.trim(),inheritAiProvider,inheritAiModel,aiCommandTemplate:command.value,aiCommandTemplateAutonomous:autonomousCommand.value,inheritCommand,terminal:termToSend,inheritTerminal})
+    await api.mapProject({projectId:id,path:path.value,specPath:specPath.value.trim(),
+     useWorktrees,inheritWorktrees,specArtifacts,inheritSpecArtifacts,parallelism,inheritParallelism,
+     ...(engineView?{defaultEngine,inheritDefaultEngine}:{}),
+     terminal:terminal.get(),inheritTerminal,
+     setupProviders:[...setupProviders],inheritSetupProviders,
+     skillCommands:compact(skillCommands.get()),inheritSkillCommands})
+    // Each repository folder is checked against its origin by the agent, so
+    // a wrong folder is refused by name rather than saved. The settings above
+    // are saved by then, which the notice says rather than hiding it.
+    const refused=[]
+    for(const entry of repositoryInputs){
+     const value=entry.input.value.trim()
+     if(value===(entry.repository.path||''))continue
+     try{await api.mapRepository({projectId:id,repository:entry.repository.identity,path:value});entry.repository.path=value}
+     catch(err){refused.push(entry.repository.identity+': '+err.message)}
+    }
     projectStateVersion++;disconnectedProjects.delete(id)
-    notice.textContent='Local configuration saved';await loadProjects()
+    notice.textContent=refused.length?'Local configuration saved, except the folder of '+refused.join('; '):'Local configuration saved'
+    // The agent normalised the folder and detected its kind: show what it
+    // stored, not what was typed.
+    try{const fresh=await api.project(id);info.specPath=fresh.specPath||'';specPath.value=info.specPath;renderSpec(fresh);applyFields(fresh)}catch(err){error(err)}
+    await loadProjects()
     for(const button of tools.querySelectorAll('button'))button.disabled=false
    }catch(err){notice.textContent=err.message}finally{save.disabled=false}
   }
-  for(const [action,title] of [['skills','Deploy server skills'],['framework','Deploy SDD framework']]){
+  const initProvider=document.createElement('select');initProvider.setAttribute('aria-label','Initialization provider')
+  for(const [value,label] of [['agy','Antigravity'],['claude','Claude'],['codex','Codex'],['cursor','Cursor'],['gemini','Gemini'],['vibe','Vibe']]){
+   const option=document.createElement('option');option.value=value;option.textContent=label;initProvider.append(option)
+  }
+  initProvider.value=[...initProvider.options].some(option=>option.value===selectedProvider)?selectedProvider:'agy'
+  const initRow=settingRow('Initialization provider',{},initProvider)
+  initRow.hint.textContent='Initialize this provider’s server skills and MCP connection. You can run this again at any time.'
+  const initResult=document.createElement('div');initResult.setAttribute('role','status');initResult.className='initialization-result'
+  panels.Deployment.append(initRow.section,initResult)
+  for(const [action,title] of [['initialize','Initialize'],['framework','Deploy SDD framework']]){
    const button=document.createElement('button');button.textContent=title;button.disabled=!info.configured
    button.onclick=async()=>{
     for(const item of tools.querySelectorAll('button'))item.disabled=true
-    notice.textContent='Deployment in progress…'
-    try{const result=await api.deployProject(id,action);notice.textContent=result.message||'Deployment complete'}
-    catch(err){notice.textContent=err.message}finally{for(const item of tools.querySelectorAll('button'))item.disabled=false}
+    initProvider.disabled=true
+    notice.textContent=action==='initialize'?'Initialization in progress…':'Deployment in progress…'
+    if(action==='initialize')initResult.replaceChildren()
+    try{
+     const result=await api.deployProject(id,action,action==='initialize'?initProvider.value:undefined)
+     notice.textContent=result.message||'Deployment complete'
+     if(action==='initialize'){
+      for(const [label,step] of [['MCP',result.mcp],['Skills',result.skills]]){
+       const line=document.createElement('p');line.textContent=label+': '+({success:'Success',failed:'Failed',skipped:'Skipped',not_run:'Not run'}[step.status]||step.status)+' - '+step.message;initResult.append(line)
+      }
+     }
+    }catch(err){notice.textContent=err.message}finally{initProvider.disabled=false;for(const item of tools.querySelectorAll('button'))item.disabled=false}
    };tools.append(button)
   }
   panels.Deployment.append(tools)
@@ -1293,20 +2098,8 @@ async function openProject(id){
     if(!reload.isConnected)return
     config=fresh.server
     dialogBody.querySelector('h2').textContent=config.projectName
-    if(inheritWorktrees)useWorktrees=!!config.useWorktrees
-    if(inheritCommand){command.value=config.aiCommandTemplate||'';autonomousCommand.value=config.aiCommandTemplateAutonomous||''}
-    if(inheritTerminal){
-     selectedTerminal=fresh.terminal||fresh.server?.externalTerminalCommand||''
-     if(selectedTerminal&&!standardTerminals.includes(selectedTerminal.toLowerCase())){
-      terminalSelect.value='custom'
-      customTerminalInput.value=selectedTerminal
-     }else{
-      terminalSelect.value=selectedTerminal?selectedTerminal.toLowerCase():''
-      customTerminalInput.value=''
-     }
-     updateTerminal()
-    }
-    update();commandState();renderServer(fresh.monoRepo)
+    if(inheritSpecArtifacts)specArtifacts=config.specArtifacts==='drop'?'drop':'keep'
+    applyFields(fresh,true);renderServer(fresh.monoRepo);renderSpec({...fresh,specPath:specPath.value})
     notice.textContent='Server settings refreshed. Local overrides preserved.'
    }catch(err){notice.textContent=err.message}finally{reload.disabled=false}
   }
@@ -1322,12 +2115,15 @@ async function openProject(id){
 }
 
 const iconPaths={
+ 'clear-history':'<path d="m15 3-6 9M7 11l7 5M8 12c-3 1-5 4-5 8h12c0-3-1-5-3-6M6 20l2-5M10 20l1-4"/>',
  'detach-terminal':'<path d="M17 13.5V18a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h4.5"/><path d="m7.5 11.5 2 2-2 2"/><path d="M15 4h5v5"/><path d="m13.5 10.5 6.5-6.5"/>',
  'view-console':'<rect x="3" y="4" width="18" height="16" rx="2"/><path d="m7.5 10 2.5 2.5-2.5 2.5"/><path d="M13 15h4"/>',
  'view-changes':'<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M12 11v5"/><path d="M9.5 13.5h5"/><path d="M9.5 18.5h5"/>',
  rerun:'<path d="M3.5 12a8.5 8.5 0 0 1 14.4-6.1L20.5 8"/><path d="M20.5 3.5V8h-4.5"/><path d="m10 9.4 5 2.9-5 2.9Z"/>',
  'save-log':'<path d="M12 3v11"/><path d="m7.5 10 4.5 4 4.5-4"/><path d="M5 20h14"/>',
  stop:'<circle cx="12" cy="12" r="9"/><path d="m8.2 12.4 2.6 2.6 5-5.4"/>',
+ 'next-step':'<path d="m9 18 6-6-6-6"/>',
+ 'pickup-chain':'<path d="m6 17 5-5-5-5"/><path d="m13 17 5-5-5-5"/>',
  shutdown:'<path d="M12 4v8"/><path d="M7.4 7.4a6.5 6.5 0 1 0 9.2 0"/>',
  restart:'<path d="M20 7v5h-5M20 12a8 8 0 1 0-2 5M20 7v5"/>',
  settings:'<circle cx="12" cy="12" r="3"/><path d="M19.4 14.5a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-1.8-.3 1.6 1.6 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.2a1.6 1.6 0 0 0-1-1.4 1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0 .3-1.8 1.6 1.6 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.2a1.6 1.6 0 0 0 1.4-1 1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 1.8.3H9a1.6 1.6 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.2a1.6 1.6 0 0 0 1 1.5 1.6 1.6 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8V9a1.6 1.6 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.2a1.6 1.6 0 0 0-1.4 1Z"/>'
@@ -1365,7 +2161,7 @@ function closeTickets(restoreFocus=true){
  // the app instead of dropping it on the body.
  if(!restoreFocus)return
  const reachable=element=>element?.isConnected&&element.offsetParent!==null
- const target=reachable(opener)?opener:document.querySelector('.project-open-tasks[data-project-id="'+projectID+'"]')||document.querySelector('#command-palette')
+ const target=reachable(opener)?opener:document.querySelector('.project-more[data-project-id="'+CSS.escape(projectID||'')+'"]')||document.querySelector('#command-palette')
  if(reachable(target))target.focus()
 }
 async function openTickets(projectID,initialQuery=''){
@@ -1395,9 +2191,12 @@ async function openTickets(projectID,initialQuery=''){
   const isCurrent=()=>current===view.generation&&ticketsView===view&&ticketsOpen
   list.textContent='Loading open tasks…';list.setAttribute('aria-busy','true');view.rows.clear();view.compose=null;status.textContent=''
   try{
-   const [tasks,info]=await Promise.all([api.serverTasks(projectID,searchText,true),api.project(projectID)])
+   // The engine of each task (#510), when the agent keeps one: an older agent
+   // answers nothing, and the table shows no engine column.
+   const engines=taskEnginesAvailable().then(ok=>ok?api.taskEngines(projectID):null).catch(()=>null)
+   const [tasks,info,taskEngines]=await Promise.all([api.serverTasks(projectID,searchText,true),api.project(projectID),engines])
    if(!isCurrent())return
-   view.tasks=tasks.filter(task=>!isFinishedTask(task));view.info=info;view.query=searchText
+   view.tasks=tasks.filter(task=>!isFinishedTask(task));view.info=info;view.query=searchText;view.engines=taskEngines
    renderTicketsTable(view)
   }catch(err){if(isCurrent()){const message=document.createElement('p');message.setAttribute('role','alert');message.textContent='Could not load open tasks: '+err.message+'. Use Search to retry.';list.replaceChildren(message)}}
   finally{if(isCurrent())list.setAttribute('aria-busy','false')}
@@ -1407,6 +2206,14 @@ async function openTickets(projectID,initialQuery=''){
  await load()
 }
 const TICKET_COLUMNS=[['state',''],['key','Key'],['title','Title'],['stage','Stage'],['priority','Priority'],['pr','PR'],['actions','Actions']]
+// The engine column sits before the PR one, and only with an agent that keeps
+// a per-task engine (#510).
+function ticketColumns(view){
+ if(!view.engines)return TICKET_COLUMNS
+ const columns=[...TICKET_COLUMNS]
+ columns.splice(columns.findIndex(([field])=>field==='pr'),0,['engine','Engine'])
+ return columns
+}
 function renderTicketsTable(view,focusField=null){
  const {list,tasks,info,sort}=view
  view.closeOpenMenu?.()
@@ -1419,7 +2226,7 @@ function renderTicketsTable(view,focusField=null){
  const table=document.createElement('table');table.className='tickets-table'
  const caption=document.createElement('caption');caption.className='visually-hidden';caption.textContent='Open tasks in '+view.projectName
  const head=document.createElement('thead'),headRow=document.createElement('tr')
- for(const [field,label] of TICKET_COLUMNS){
+ for(const [field,label] of ticketColumns(view)){
   const cell=document.createElement('th');cell.scope='col';cell.dataset.column=field
   if(SORTABLE_FIELDS.includes(field)){
    const active=sort.field===field
@@ -1452,11 +2259,12 @@ function ticketRow(view,task){
  const titleCell=cell('ticket-title',task.title||'');titleCell.title=task.title||''
  const priorityCell=cell('ticket-priority')
  const dot=document.createElement('span');dot.className='priority-dot';dot.dataset.priority=String(task.priority||'').toLowerCase();dot.setAttribute('aria-hidden','true')
- priorityCell.append(dot,document.createTextNode(task.priority||'—'))
+ priorityCell.append(dot,document.createTextNode(task.priority||'-'))
  const prCell=cell('ticket-pr')
  if(task.prUrl&&/^https?:\/\//i.test(task.prUrl)){
-  const pr=document.createElement('button');pr.type='button';pr.className='pr-indicator';pr.title=task.prUrl;pr.setAttribute('aria-label','Open '+prLabel(task.prUrl)+' for '+key)
-  pr.innerHTML=PR_ICON;pr.onclick=()=>api.openPR(task.prUrl).catch(error);prCell.append(pr)
+  const pr=document.createElement('button');pr.type='button';pr.className='pr-indicator'
+  const link=currentPullRequest(task);renderPullRequestIndicator(pr,link,prLabel(link.url)+' for '+key)
+  pr.onclick=()=>api.openPR(link.url).catch(error);prCell.append(pr)
  }
  const actions=cell('ticket-actions')
  const run=document.createElement('button');run.type='button';run.className='ticket-run'
@@ -1546,10 +2354,55 @@ function ticketRow(view,task){
  keyLink.title='Open task in Sectile';keyLink.setAttribute('aria-label','Open '+key+' in Sectile')
  keyLink.onclick=()=>api.openTask(task.id).catch(error)
  keyCell.append(keyLink)
- row.append(stateCell,keyCell,titleCell,stageCell,priorityCell,prCell,actions)
+ row.append(stateCell,keyCell,titleCell,stageCell,priorityCell)
+ if(view.engines){
+  const engineCell=cell('ticket-engine')
+  const toggle=document.createElement('button');toggle.type='button';toggle.className='engine-toggle'
+  toggle.onclick=()=>switchTaskEngine(view,entry)
+  entry.engine=toggle;engineCell.append(toggle);row.append(engineCell)
+  renderEngineToggle(view,entry)
+ }
+ row.append(prCell,actions)
  view.rows.set(task.id,entry)
  updateTicketRow(view,entry)
  return row
+}
+// The engine icon of a row: the monogram of its task engine, a tooltip naming
+// it, and a highlight when the task left its project default engine (#510).
+function renderEngineToggle(view,entry){
+ const {task,engine:toggle}=entry
+ if(!toggle)return
+ const key=task.key||task.id
+ const current=taskEngine(view.engines,task.id)
+ const onDefault=!current||current.id===view.engines.projectDefault
+ const tooltip=engineTooltip(current,onDefault)
+ toggle.textContent=engineMark(current?.provider)
+ toggle.title=tooltip;toggle.setAttribute('aria-label','Engine for '+key+': '+tooltip)
+ toggle.dataset.engineId=current?.id||''
+ if(onDefault)delete toggle.dataset.offDefault;else toggle.dataset.offDefault='true'
+}
+// A click moves the task to the next engine of the catalogue. The icon moves at
+// once; a refusal puts back what the agent stores and says why. A run already
+// going keeps its engine: the choice applies from the next launch.
+async function switchTaskEngine(view,entry){
+ const engines=view.engines
+ if(!engines||engines.catalogue.length<2)return
+ const taskId=entry.task.id
+ const previous=engines.tasks?.[taskId]
+ const next=nextEngine(engines.catalogue,taskEngine(engines,taskId)?.id,engines.projectDefault)
+ if(!next)return
+ engines.tasks={...engines.tasks,[taskId]:next.id}
+ if(next.id===engines.projectDefault)delete engines.tasks[taskId]
+ renderEngineToggle(view,entry)
+ try{
+  const stored=await api.setTaskEngine(view.projectID,taskId,next.id)
+  if(ticketsView===view&&stored)view.engines.tasks=stored.tasks||{}
+ }catch(err){
+  if(previous)engines.tasks[taskId]=previous;else delete engines.tasks[taskId]
+  view.status.textContent='Could not switch the engine of '+(entry.task.key||taskId)+': '+ipcMessage(err)
+  try{const fresh=await api.taskEngines(view.projectID);if(ticketsView===view)view.engines=fresh}catch{}
+ }
+ if(ticketsView===view)for(const row of view.rows.values())renderEngineToggle(view,row)
 }
 // Only the parts that depend on the polled runs are refreshed here: the row
 // itself stays, so a poll cannot move focus or close an open menu.
@@ -1589,7 +2442,7 @@ function openCompose(view,entry,initial=null,focusPrompt=true){
  closeCompose(view)
  const key=entry.task.key||entry.task.id
  const row=document.createElement('tr');row.className='ticket-compose'
- const cell=document.createElement('td');cell.colSpan=TICKET_COLUMNS.length
+ const cell=document.createElement('td');cell.colSpan=ticketColumns(view).length
  const prompt=document.createElement('textarea');prompt.placeholder='What should the agent do?';prompt.setAttribute('aria-label','Custom instructions')
  const mode=modeSelect(document,'Execution mode for '+key)
  const launch=document.createElement('button');launch.type='button';launch.textContent='Launch';launch.disabled=!view.info.configured
@@ -1640,7 +2493,7 @@ async function submitNativeDiscussion(view,entry){
 document.querySelector('#rerun').onclick=async()=>{
  const run=runs.find(item=>item.id===selected)
  if(!run||!['completed','failed','canceled'].includes(run.status))return
- if(freeConsole(run)){openAgentConsole(run.projectId,run.provider);return}
+ if(freeConsole(run)){openAgentConsole(run.projectId,run.engineId||run.provider);return}
  showDialog('Relaunch '+(run.taskKey||run.taskId))
  try{
   const info=await api.project(run.projectId)
@@ -1697,7 +2550,7 @@ async function refreshPRs(executions){
      const task=tasks.find(task=>task.id===run.taskId)
      if(task?.title?.trim())taskTitles.set(run.taskId,task.title.trim())
      else taskTitles.delete(run.taskId)
-     if(task?.prUrl&&/^https?:\/\//i.test(task.prUrl))pullRequests.set(run.taskId,task.prUrl)
+     if(task?.prUrl&&/^https?:\/\//i.test(task.prUrl))pullRequests.set(run.taskId,currentPullRequest(task))
      else pullRequests.delete(run.taskId)
     }
    }catch{}
@@ -1706,33 +2559,6 @@ async function refreshPRs(executions){
  }finally{linksLoading=false}
 }
 
-function taskMenu(run){
- showDialog(taskState(run).name||run.taskKey||run.taskId||runLabel(run))
- const related=()=>runs.filter(item=>taskKey(item)===taskKey(run))
- const relaunch=document.createElement('button');relaunch.textContent='Relaunch';relaunch.disabled=related().some(activeRun)
- relaunch.onclick=()=>{select(run);document.querySelector('#rerun').click()}
- const rename=document.createElement('form'),name=document.createElement('input'),save=document.createElement('button')
- name.setAttribute('aria-label','Local task name');name.value=taskState(run).name||run.taskKey||run.taskId||runLabel(run);name.maxLength=120;name.required=true
- save.textContent='Rename locally';rename.append(name,save)
- rename.onsubmit=event=>{event.preventDefault();if(!name.value.trim())return;localTasks[taskKey(run)]={...taskState(run),name:name.value.trim()};saveLocalTasks();dialog.close();render()}
- const archive=document.createElement('button');archive.textContent='Archive'
- archive.onclick=()=>requestArchive(run)
- dialogBody.append(relaunch)
- const active=related().find(item=>item.status==='running'&&!item.externalTerminal)
- if(active){
-  const detach=document.createElement('button');detach.textContent='Detach to native terminal'
-  detach.onclick=async()=>{
-   detach.disabled=true
-   try{
-    const res=await api.detachToNativeTerminal(active.id)
-    if(res?.terminal)active.externalTerminal=res.terminal
-    dialog.close();render();await refresh()
-   }catch(err){paragraph(err.message);detach.disabled=false}
-  }
-  dialogBody.append(detach)
- }
- dialogBody.append(rename,archive)
-}
 function requestArchive(run){
  const active=runs.filter(item=>taskKey(item)===taskKey(run)&&activeRun(item))
  if(active.length){
@@ -1750,7 +2576,7 @@ async function archiveTask(run){
  saveLocalTasks()
  const current=runs.find(item=>item.id===selected)
  if(current&&taskKey(current)===taskKey(run)){
-  selected=null;terminal.reset();await api.detach()
+  selected=null;hideRepositoryChoice();terminal.reset();await api.detach()
   renderHeader();showDirectory('')
  }
  runs=latest;last=JSON.stringify(latest);dialog.close();render()
@@ -1820,6 +2646,13 @@ document.querySelector('#command-palette').onclick=openCommandPalette
 window.addEventListener('keydown',event=>{
  if((event.metaKey||event.ctrlKey)&&event.key.toLowerCase()==='k'){event.preventDefault();event.stopPropagation();openCommandPalette()}
 },true)
+// Cmd+B / Ctrl+B toggles the projects sidebar (#474). In the capture phase, so
+// that on macOS Cmd+B never reaches the terminal; an ignored key is left
+// untouched, which is how Ctrl+B still reaches a focused terminal elsewhere.
+window.addEventListener('keydown',event=>{
+ const action=sidebarShortcutAction({key:event.key,metaKey:event.metaKey,ctrlKey:event.ctrlKey,shiftKey:event.shiftKey,altKey:event.altKey,repeat:event.repeat,defaultPrevented:event.defaultPrevented,mac:isMacPlatform(navigator),inTerminal:!!document.activeElement?.closest?.('.xterm'),modalOpen:dialog.open})
+ if(action==='toggle'){event.preventDefault();event.stopPropagation();toggleSidebar()}
+},true)
 async function quickAdd(projectID=selectedProject){
  showDialog('Quick add task')
  const form=document.createElement('form'),projectLabel=document.createElement('label'),project=document.createElement('select')
@@ -1853,26 +2686,41 @@ function isFinishedTask(task){
  return ['finished','done'].includes(task.status)||(task.labels||[]).some(label=>label.trim().replace(/^#/,'').toLowerCase()==='finished')
 }
 
+function pickupAvailable(project){
+ return Boolean(project?.configured&&project.server?.skills?.some(skill=>skill.id==='pickup'))
+}
+
 function currentTaskRun(){return runs.find(run=>run.id===selected)}
 function renderNextStep(){
- const run=currentTaskRun(),status=document.querySelector('#next-step-status'),button=document.querySelector('#next-step'),markReviewed=document.querySelector('#mark-reviewed'),retry=document.querySelector('#retry-next-step'),force=document.querySelector('#force-next-step')
- button.hidden=true;button.disabled=true;retry.hidden=true
+ const run=currentTaskRun(),status=document.querySelector('#next-step-status'),button=document.querySelector('#next-step'),chain=document.querySelector('#pickup-chain'),label=document.querySelector('#next-step-label'),markReviewed=document.querySelector('#mark-reviewed'),retry=document.querySelector('#retry-next-step'),force=document.querySelector('#force-next-step')
+ button.hidden=true;button.disabled=true;chain.hidden=true;chain.disabled=true;label.hidden=true;retry.hidden=true
+ function setStepLabel(text){
+  button.setAttribute('aria-label',text);button.title=text;label.textContent=text;label.hidden=button.hidden
+ }
  if(force){force.hidden=true;force.disabled=true}
  if(markReviewed){markReviewed.hidden=true;markReviewed.disabled=true}
  if(!run){status.textContent='Select a task to see its next step';return}
- if(freeConsole(run)){status.textContent='Free agent console · '+(run.cancelRequested?'Stopping':run.status);return}
+ if(freeConsole(run)){status.textContent='Project prompt · '+(run.cancelRequested?'Stopping':run.status);return}
  const key=taskKey(run)
  if(!nextStepData||nextStepData.key!==key){status.textContent='Loading task workflow…';return}
  if(nextStepData.error){status.textContent=nextStepData.error;retry.hidden=false;return}
  const step=nextStepData.step
  const busy=runs.some(item=>taskKey(item)===key&&activeRun(item))
  const submitted=submittedSteps.get(key)
- if(submitted&&(submitted.skillId!==step.skillId||runs.some(item=>taskKey(item)===key&&!submitted.runIds.includes(item.id))))submittedSteps.delete(key)
+ if(submitted&&((submitted.kind!=='pickup'&&submitted.skillId!==step.skillId)||runs.some(item=>taskKey(item)===key&&!submitted.runIds.includes(item.id))))submittedSteps.delete(key)
  const pending=submittingSteps.has(key)||submittedSteps.has(key)
  const message=submittingSteps.has(key)?'Submitting execution…':pending?'Execution submitted; waiting for its console':busy?'Execution in progress':nextStepErrors.get(key)||step.message
  status.textContent=(nextStepData.task.key||run.taskKey||run.taskId)+' · '+step.stage+' · '+message
- if(step.skillId){button.hidden=false;button.textContent='Next: '+step.label;button.disabled=busy||pending}
- if(force&&step.skillId&&forceableLaunches.has(key)){force.hidden=false;force.disabled=busy||pending}
+ if(pickupAvailable(nextStepData.project)&&taskStage(nextStepData.task)!=='finished'){chain.hidden=false;chain.disabled=busy||pending}
+ // The most recent active execution names the button, then the launch in
+ // flight; the stage step only reads once nothing runs on the task. An active
+ // run without a skill still counts, so it never leaves `Next:` enabled.
+ const active=runs.filter(item=>taskKey(item)===key&&activeRun(item)).sort((a,b)=>(b.createdAt||'').localeCompare(a.createdAt||''))[0]
+ const current=active?.skill||submittingSteps.get(key)||submittedSteps.get(key)?.skillId||''
+ if(busy||pending){button.hidden=false;button.disabled=true;setStepLabel(('Current: '+(skillLabel(current)||step.label||'')).trim())}
+ else if(step.skillId){button.hidden=false;button.disabled=false;setStepLabel('Next: '+step.label)}
+ const forcedKind=forceableLaunches.get(key)
+ if(force&&forceableLaunches.has(key)&&(forcedKind==='pickup'?!chain.hidden:Boolean(step.skillId))){force.hidden=false;force.disabled=busy||pending}
  if(markReviewed&&nextStepData?.task&&taskStage(nextStepData.task)==='implemented'){
   markReviewed.hidden=false
   markReviewed.disabled=busy||pending
@@ -1884,14 +2732,14 @@ async function readNextStep(run){
  const [tasks,project]=await Promise.all([api.serverTasks(run.projectId,run.taskKey||run.taskId),api.project(run.projectId)])
  const task=tasks.find(task=>task.id===run.taskId)
  if(!task)throw Error('Task workflow unavailable. Refresh to try again.')
- return {key:taskKey(run),task,step:nextTaskStep(task,project)}
+ return {key:taskKey(run),task,project,step:nextTaskStep(task,project)}
 }
 async function refreshNextStep(){
  const run=currentTaskRun()
  if(run&&submittingSteps.has(taskKey(run)))return
  const generation=++nextStepGeneration
  nextStepUpdated=Date.now()
- if(!run||freeConsole(run)){nextStepData=null;renderNextStep();return}
+ if(!run||freeConsole(run)||macroRun(run)){nextStepData=null;renderNextStep();return}
  if(nextStepData?.key!==taskKey(run))nextStepData=null
  renderNextStep()
  try{
@@ -1904,19 +2752,25 @@ document.querySelector('#retry-next-step').onclick=refreshNextStep
 // force re-sends the very same launch with the duplicate check waived. It is
 // the only difference between the two buttons: everything else, from the
 // freshness recheck to the local busy guard, applies identically.
-async function launchNextStep(force){
+async function launchTaskWork(kind,force){
  const run=currentTaskRun(),displayed=nextStepData
- if(!run||displayed?.key!==taskKey(run)||!displayed.step?.skillId)return
+ if(!run||displayed?.key!==taskKey(run))return
+ if(kind==='next'&&!displayed.step?.skillId)return
+ if(kind==='pickup'&&(!pickupAvailable(displayed.project)||taskStage(displayed.task)==='finished'))return
  const key=taskKey(run)
  if(submittingSteps.has(key)||submittedSteps.has(key)||runs.some(item=>taskKey(item)===key&&activeRun(item)))return
- nextStepGeneration++;nextStepErrors.delete(key);forceableLaunches.delete(key);submittingSteps.add(key);renderNextStep()
+ const skill=kind==='pickup'?'pickup':displayed.step.skillId
+ nextStepGeneration++;nextStepErrors.delete(key);forceableLaunches.delete(key);submittingSteps.set(key,skill);renderNextStep()
  try{
   const [fresh,latestRuns]=await Promise.all([readNextStep(run),api.runs()])
   if(taskKey(currentTaskRun()||{})!==key)return
   nextStepData=fresh
-  if(fresh.step.skillId!==displayed.step.skillId||latestRuns.some(item=>taskKey(item)===key&&activeRun(item))){await refresh();return}
-  await api.launchServerTask(run.projectId,run.taskId,fresh.step.skillId,'',undefined,force)
-  submittedSteps.set(key,{skillId:fresh.step.skillId,runIds:latestRuns.filter(item=>taskKey(item)===key).map(item=>item.id)})
+  const abandoned=latestRuns.some(item=>taskKey(item)===key&&activeRun(item))||(kind==='next'?fresh.step.skillId!==displayed.step.skillId:(!pickupAvailable(fresh.project)||taskStage(fresh.task)==='finished'))
+  if(abandoned){await refresh();return}
+  const launchSkill=kind==='pickup'?'pickup':fresh.step.skillId
+  submittingSteps.set(key,launchSkill)
+  await api.launchServerTask(run.projectId,run.taskId,launchSkill,'',kind==='pickup'?'autonomous':undefined,force)
+  submittedSteps.set(key,{skillId:launchSkill,kind,runIds:latestRuns.filter(item=>taskKey(item)===key).map(item=>item.id)})
   await refresh()
   if(taskKey(currentTaskRun()||{})===key){
    const launched=runs.find(item=>taskKey(item)===key&&!latestRuns.some(previous=>previous.id===item.id))
@@ -1924,12 +2778,13 @@ async function launchNextStep(force){
   }
  }catch(err){
   const refusal=refusedActiveRun(err.message)
-  if(refusal){nextStepErrors.set(key,refusal.error||'A run is already active on this task.');forceableLaunches.add(key)}
-  else nextStepErrors.set(key,'Could not launch next step: '+err.message)
+  if(refusal){nextStepErrors.set(key,refusal.error||'A run is already active on this task.');forceableLaunches.set(key,kind)}
+  else nextStepErrors.set(key,(kind==='pickup'?'Could not launch full chain: ':'Could not launch next step: ')+err.message)
  }finally{submittingSteps.delete(key);renderNextStep()}
 }
-document.querySelector('#next-step').onclick=()=>launchNextStep(false)
-document.querySelector('#force-next-step').onclick=()=>launchNextStep(true)
+document.querySelector('#next-step').onclick=()=>launchTaskWork('next',false)
+document.querySelector('#pickup-chain').onclick=()=>launchTaskWork('pickup',false)
+document.querySelector('#force-next-step').onclick=()=>{const run=currentTaskRun();launchTaskWork(run?forceableLaunches.get(taskKey(run))||'next':'next',true)}
 document.querySelector('#mark-reviewed').onclick=()=>{
  const run=currentTaskRun()
  if(run&&nextStepData?.task&&taskStage(nextStepData.task)==='implemented'){
@@ -1938,23 +2793,42 @@ document.querySelector('#mark-reviewed').onclick=()=>{
 }
 
 async function openAgentConsole(projectID,previousProvider){
- showDialog('Open agent console')
+ showDialog('Project prompt')
  paragraph('Start an interactive agent in this project’s local repository. Enter your instructions directly in its console.')
  const form=document.createElement('form'),label=document.createElement('label'),provider=document.createElement('select')
- label.textContent='Agent';provider.setAttribute('aria-label','Console agent')
+ label.textContent='AI engine';provider.setAttribute('aria-label','Console agent')
  for(const [value,text] of [['codex','Codex'],['claude','Claude']]){const option=document.createElement('option');option.value=value;option.textContent=text;provider.append(option)}
  label.append(provider)
  const location=document.createElement('p');location.textContent=projects.find(project=>project.id===projectID)?.path||''
  const launch=document.createElement('button');launch.textContent='Open console'
  const notice=document.createElement('p');notice.setAttribute('role','status')
  form.append(label,location,launch,notice);dialogBody.append(form)
- const pendingInfo=api.project(projectID).then(info=>{if(form.isConnected){const initial=previousProvider||info.aiProvider||info.server?.aiProvider;if(['codex','claude'].includes(initial))provider.value=initial}}).catch(()=>{})
- launch.disabled=true;await pendingInfo;launch.disabled=false
+ let catalogue=false
+ launch.disabled=true
+ try{
+  if(await taskEnginesAvailable()){
+   const view=await api.taskEngines(projectID)
+   if(!form.isConnected)return
+   provider.replaceChildren()
+   for(const engine of view.catalogue){
+    const option=document.createElement('option');option.value=engine.id
+    option.textContent=engineTooltip(engine,engine.id===view.projectDefault);provider.append(option)
+   }
+   catalogue=true
+   provider.value=view.catalogue.some(engine=>engine.id===previousProvider)?previousProvider:view.projectDefault
+   if(!provider.value&&provider.options.length)provider.selectedIndex=0
+  }else{
+   const info=await api.project(projectID)
+   const initial=previousProvider||info.aiProvider||info.server?.aiProvider
+   if(['codex','claude'].includes(initial))provider.value=initial
+  }
+  launch.disabled=!provider.value
+ }catch(err){notice.textContent=err.message}
  form.onsubmit=async event=>{
   event.preventDefault();if(launch.disabled)return
   launch.disabled=true;notice.textContent='Opening console…'
   try{
-   const run=await api.launchConsole(projectID,provider.value)
+   const run=await api.launchConsole(projectID,catalogue?undefined:provider.value,catalogue?provider.value:undefined)
    collapsedProjects.delete(projectID);queueProjects.delete(projectID)
    if(!runs.some(item=>item.id===run.id))runs.push(run)
    dialog.close();select(run);await refresh()

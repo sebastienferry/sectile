@@ -1,6 +1,9 @@
 package db
 
-import "database/sql"
+import (
+	"context"
+	"database/sql"
+)
 
 // sqlConn wraps the pool so every query passes through the dialect's Rebind on
 // its way out.
@@ -33,12 +36,42 @@ func (c *sqlConn) QueryRow(query string, args ...any) *sql.Row {
 	return c.db.QueryRow(c.dialect.Rebind(query), args...)
 }
 
+// QueryRowContext is QueryRow bounded by a context, for a probe that must not
+// hang on a database that stopped answering.
+func (c *sqlConn) QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row {
+	return c.db.QueryRowContext(ctx, c.dialect.Rebind(query), args...)
+}
+
 func (c *sqlConn) Begin() (*sqlTx, error) {
 	tx, err := c.db.Begin()
 	if err != nil {
 		return nil, err
 	}
 	return &sqlTx{tx: tx, dialect: c.dialect}, nil
+}
+
+// WithTx runs fn in a transaction: committed when fn returns nil, rolled back
+// when it returns an error or panics, the panic then carrying on. Queue pushes
+// belong after WithTx returns, never inside fn: a rolled-back transaction must
+// not leave a job behind.
+func (c *sqlConn) WithTx(fn func(tx *sqlTx) error) (err error) {
+	tx, err := c.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if rec := recover(); rec != nil {
+			_ = tx.Rollback()
+			panic(rec)
+		}
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
+	if err = fn(tx); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (c *sqlConn) Close() error       { return c.db.Close() }

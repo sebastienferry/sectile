@@ -1,6 +1,7 @@
 package db
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"tasks/internal/models"
+	"tasks/internal/tracker"
 )
 
 // PostBackListener defines a callback function invoked whenever a post-back occurs.
@@ -58,9 +60,19 @@ func (d *DB) PostBackTask(payload models.TaskPostBackPayload) (*models.Task, *mo
 			}
 			// A post-back names no user: it is the agent reporting, not a
 			// person acting, so the evidence lookup keeps the project credential.
-			verified, err := d.validateStagePR(task, "", skill, d.adjustmentCheckout(task), branch, url)
+			set, err := d.validateStagePRs(task, "", skill, d.adjustmentCheckout(task), branch, append([]string{url}, payload.PrURLs...))
 			if err != nil {
 				return nil, nil, err
+			}
+			verified, notice := set.primary(), set.notice
+			payload.PrURLs = nil
+			if len(set.urls) > 1 {
+				payload.PrURLs = set.urls[:len(set.urls)-1]
+			}
+			// A post-back carries no note: the weaker evidence is reported on the
+			// run it completes.
+			if notice != "" {
+				d.appendActivityStep(payload.ActivityID, "⚠️ "+notice)
 			}
 			if verified != "" {
 				payload.PrURL = &verified
@@ -100,9 +112,30 @@ func (d *DB) PostBackTask(payload models.TaskPostBackPayload) (*models.Task, *mo
 		d.notifyPostBackListeners(nil, nil, err)
 		return nil, nil, err
 	}
+	// The row is locked and read again, so the merge below starts from what a
+	// writer on another server instance committed, and the running-stage rule is
+	// checked on that same state.
+	tx, txErr := d.conn.Begin()
+	if txErr == nil {
+		var locked *models.Task
+		if locked, txErr = d.lockTaskUnsafe(tx, existing.ID); txErr == nil && locked == nil {
+			txErr = fmt.Errorf("task not found for post-back: %s", targetIdentifier)
+		}
+		if txErr != nil {
+			_ = tx.Rollback()
+		} else {
+			existing = locked
+		}
+	}
+	if txErr != nil {
+		d.mu.Unlock()
+		d.notifyPostBackListeners(existing, nil, txErr)
+		return nil, nil, txErr
+	}
 	if payload.Stage != nil || payload.Status != nil || payload.Labels != nil || payload.TrackerStatus != nil {
-		running, runErr := d.managedStageRunningUnsafe(existing.ID)
+		running, runErr := managedStageRunningOn(tx, existing.ID)
 		if runErr != nil || running {
+			_ = tx.Rollback()
 			d.mu.Unlock()
 			if runErr == nil {
 				runErr = fmt.Errorf("une étape Sectile est en cours : son résultat doit être vérifié avant le post-back d'état")
@@ -145,7 +178,13 @@ func (d *DB) PostBackTask(payload models.TaskPostBackPayload) (*models.Task, *mo
 		if existing.BranchName != nil {
 			branch = *existing.BranchName
 		}
+		for _, other := range payload.PrURLs {
+			existing.PrLinks = models.AppendPullRequestLink(existing.PrLinks, other, branch)
+		}
 		existing.PrLinks = models.AppendPullRequestLink(existing.PrLinks, *payload.PrURL, branch)
+		if len(payload.PrURLs) > 0 {
+			existing.PrLinks = pullRequestLinkLast(existing.PrLinks, *payload.PrURL)
+		}
 		existing.PrURL = pullRequestURLValue(existing.PrLinks)
 	}
 	if payload.Labels != nil {
@@ -185,12 +224,17 @@ func (d *DB) PostBackTask(payload models.TaskPostBackPayload) (*models.Task, *mo
 		pinnedVal = 1
 	}
 
-	_, updateErr := d.conn.Exec(`
+	_, updateErr := tx.Exec(`
 		UPDATE tasks
-		SET project_id = ?, title = ?, description = ?, status = ?, priority = ?, labels = ?, pinned = ?, assignee = ?, assignee_avatar = ?, position = ?, due_date = ?, branch_name = ?, pr_url = ?, pr_links = ?, repo_path = ?, tracker_status = ?, source = ?, external_url = ?, issue_type = ?, sprint = ?, team = ?, team_id = ?, parent_key = ?, parent_title = ?, parent_type = ?, tracker_updated_at = ?, updated_at = ?
+		SET project_id = ?, title = ?, description = ?, status = ?, priority = ?, labels = ?, pinned = ?, assignee = ?, assignee_avatar = ?, position = ?, due_date = ?, branch_name = ?, pr_url = ?, pr_links = ?, repo_path = ?, tracker_status = ?, source = CASE WHEN source = 'converting' THEN source ELSE ? END, external_url = ?, issue_type = ?, sprint = ?, team = ?, team_id = ?, parent_key = ?, parent_title = ?, parent_type = ?, tracker_updated_at = ?, updated_at = ?
 		WHERE id = ?
 	`, existing.ProjectID, existing.Title, existing.Description, string(existing.Status), string(existing.Priority), string(labelsJSON), pinnedVal, existing.Assignee, existing.AssigneeAvatar, existing.Position, existing.DueDate, existing.BranchName, existing.PrURL, encodePullRequestLinks(existing.PrLinks), repoPathValue(existing.RepoPath), existing.TrackerStatus, existing.Source, existing.ExternalURL, existing.IssueType, existing.Sprint, existing.Team, existing.TeamID, existing.ParentKey, existing.ParentTitle, existing.ParentType, existing.TrackerUpdatedAt, existing.UpdatedAt, existing.ID)
 
+	if updateErr == nil {
+		updateErr = tx.Commit()
+	} else {
+		_ = tx.Rollback()
+	}
 	if updateErr != nil {
 		log.Printf("[PostBackTask] error updating DB for task %s: %v", existing.Key, updateErr)
 	}
@@ -241,6 +285,14 @@ func (d *DB) PostBackTask(payload models.TaskPostBackPayload) (*models.Task, *mo
 		pbErr = fmt.Errorf("%s", *payload.Error)
 	}
 
+	if payload.Stage != nil || payload.PrURL != nil {
+		userID := ""
+		if activity != nil {
+			userID = activity.UserID
+		}
+		existing = d.refreshTaskPullRequestStates(tracker.WithActingUser(context.Background(), userID), existing)
+	}
+
 	// 3. Notify post-back listeners
 	d.notifyPostBackListeners(existing, activity, pbErr)
 
@@ -254,9 +306,9 @@ func (d *DB) getActivityByIDUnsafe(activityID string) *models.TaskActivity {
 	var startedAt, completedAt, waitingSince sql.NullTime
 
 	err := d.conn.QueryRow(`
-		SELECT id, COALESCE(task_id, ''), COALESCE(project_id, ''), skill_id, skill_name, action, status, summary, output, steps, prompt, started_at, completed_at, error, created_at, waiting_since, user_id, run_provider, run_model
+		SELECT id, COALESCE(task_id, ''), COALESCE(project_id, ''), skill_id, skill_name, action, status, summary, output, steps, prompt, started_at, completed_at, error, created_at, waiting_since, user_id, run_provider, run_model, concurrent
 		FROM task_activities WHERE id = ?
-	`, activityID).Scan(&a.ID, &a.TaskID, &a.ProjectID, &a.SkillID, &a.SkillName, &a.Action, &a.Status, &a.Summary, &a.Output, &stepsJSON, &prompt, &startedAt, &completedAt, &errStr, &a.CreatedAt, &waitingSince, &a.UserID, &runProvider, &runModel)
+	`, activityID).Scan(&a.ID, &a.TaskID, &a.ProjectID, &a.SkillID, &a.SkillName, &a.Action, &a.Status, &a.Summary, &a.Output, &stepsJSON, &prompt, &startedAt, &completedAt, &errStr, &a.CreatedAt, &waitingSince, &a.UserID, &runProvider, &runModel, &a.Concurrent)
 
 	if err != nil {
 		return nil

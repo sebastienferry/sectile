@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import {
   HelpCircle,
   FileCode,
@@ -11,14 +11,24 @@ import {
   Sparkles,
   Kanban,
   ListFilter,
-  List
+  List,
+  X
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { TaskCard } from './TaskCard'
 import { TaskFilters } from './TaskFilters'
-import type { Task, Status, WorkflowStage, Priority } from '../types'
+import type { Task, Status, WorkflowStage } from '../types'
 import { resolveTaskStage, stageFromLabels } from '../lib/workflow'
 import { BoardGroupingToggle } from './BoardGroupingToggle'
+import { BoardSortSelect } from './BoardSortSelect'
+import { sortTasks } from '../lib/boardSort'
+import {
+  isSelectableStage,
+  orderSelection,
+  pruneSelection,
+  shouldEscapeClearSelection,
+  toggleSelected,
+} from '../lib/boardSelection'
 
 interface WorkflowColumnConfig {
   id: WorkflowStage
@@ -57,6 +67,7 @@ export const BoardView: React.FC = () => {
     moveTask,
     moveTaskWorkflowStage,
     boardGrouping,
+    boardSort,
     boardCardDisplayMode,
     toggleBoardCardDisplayMode,
     hideDone,
@@ -65,6 +76,13 @@ export const BoardView: React.FC = () => {
     moveTaskToTrackerStatus,
     setIsQuickAddOpen,
     setQuickAddInitialStatus,
+    startBatchPickup,
+    selectedTask,
+    selectedActivity,
+    isQuickAddOpen,
+    isCommandPaletteOpen,
+    isProfileOpen,
+    searchQuery,
     t,
   } = useApp()
 
@@ -72,13 +90,15 @@ export const BoardView: React.FC = () => {
   const isCondensed = boardCardDisplayMode === 'condensed'
   const [dragOverColumn, setDragOverColumn] = useState<string | null>(null)
   const [draggingTaskId, setDraggingTaskId] = useState<string | null>(null)
+  // The cards selected for a batch pickup (#109). Local to the board: no other
+  // view reads it, and it never outlives the project it was made in.
+  const [selectedIds, setSelectedIds] = useState<ReadonlySet<string>>(() => new Set())
+  const [launchingBatch, setLaunchingBatch] = useState(false)
 
-  // Le plus urgent en haut de chaque colonne. Le glisser-déposer ne réordonne
-  // pas à l'intérieur d'une colonne — il change d'étape — donc trier ici
-  // n'écrase aucun ordre manuel.
-  const PRIORITY_RANK: Record<Priority, number> = { urgent: 4, high: 3, medium: 2, low: 1 }
-  const byPriorityDesc = (list: Task[]) =>
-    [...list].sort((a, b) => (PRIORITY_RANK[b.priority] || 0) - (PRIORITY_RANK[a.priority] || 0))
+  // Every column follows the sort chosen in the toolbar (#402). Drag and drop
+  // never reorders inside a column — it changes the stage — so sorting here
+  // overrides no manual order.
+  const sortColumn = (list: Task[]) => sortTasks(list, boardSort)
 
   // -------------------------------------------------------------
   // MODE 1: Workflow Labels Columns (Pipeline IA)
@@ -350,7 +370,7 @@ export const BoardView: React.FC = () => {
     if (statuses.length === 0) {
       statuses.push(col.title.toLowerCase())
     }
-    return byPriorityDesc(
+    return sortColumn(
       displayedTasks.filter(t => {
         const st = (t.trackerStatus || '').toLowerCase()
         if (statuses.includes(st)) return true
@@ -364,7 +384,7 @@ export const BoardView: React.FC = () => {
   // aucune colonne atterrissent dans une colonne dédiée, affichée seulement si
   // elle contient quelque chose.
   const unassignedTasks = useTrackerBoard
-    ? byPriorityDesc(
+    ? sortColumn(
         displayedTasks.filter(t => {
           const st = (t.trackerStatus || '').toLowerCase()
           if (!st) return true
@@ -374,6 +394,112 @@ export const BoardView: React.FC = () => {
         })
       )
     : []
+
+  // The cards of every column, computed once so that the columns render from
+  // the same lists the selection is ordered and pruned against.
+  const workflowColumnTasks = new Map<WorkflowStage, Task[]>(
+    boardGrouping === 'workflow'
+      ? workflowColumns.map(col => [col.id, sortColumn(displayedTasks.filter(t => resolveTaskStage(t, currentProject) === col.id))])
+      : [],
+  )
+  const statusColumnTasks = new Map<Status, Task[]>(
+    boardGrouping === 'status'
+      ? effectiveStatusColumns.map(col => [col.id, tasksForColumn(col)])
+      : [],
+  )
+
+  // The cards on screen, in board order: columns left to right, cards top to
+  // bottom. A collapsed column shows no card, so it contributes none. A task
+  // two tracker columns both claim keeps its first place only.
+  const boardCards: Task[] = boardGrouping === 'workflow'
+    ? workflowColumns
+        .filter(col => !(col.id === 'finished' && hideDone))
+        .flatMap(col => workflowColumnTasks.get(col.id) || [])
+    : [
+        ...effectiveStatusColumns
+          .filter(col => !(hideDone && isClosedColumn(col)))
+          .flatMap(col => statusColumnTasks.get(col.id) || []),
+        ...unassignedTasks,
+      ]
+  const boardOrder = Array.from(new Set(boardCards.map(task => task.id)))
+  const selectableIds = Array.from(new Set(
+    boardCards
+      .filter(task => isSelectableStage(resolveTaskStage(task, currentProject)))
+      .map(task => task.id),
+  ))
+  const selectableIdSet = new Set(selectableIds)
+
+  // Both adjustments happen while rendering, React's pattern for state that
+  // follows other state, rather than in an effect that would paint the stale
+  // selection first. A card that leaves the screen or moves past `clarified`
+  // leaves the selection for good: it does not come back selected when it
+  // reappears. pruneSelection returns the same Set when nothing drops out, so
+  // this settles in one pass.
+  const prunedIds = pruneSelection(selectedIds, selectableIds)
+  if (prunedIds !== selectedIds) setSelectedIds(prunedIds)
+
+  const [selectionProjectId, setSelectionProjectId] = useState(currentProject?.id)
+  if (selectionProjectId !== currentProject?.id) {
+    setSelectionProjectId(currentProject?.id)
+    setSelectedIds(new Set())
+  }
+
+  const hasSelection = selectedIds.size > 0
+
+  // Escape clears the selection only when nothing else would take the key.
+  // Listening on window lets the card menus, which handle it on document and
+  // call preventDefault, and the dialogs that stop it on the way down, spend
+  // it first. The surfaces AppContext closes on Escape are excluded by state.
+  const appSurfaceOpen = Boolean(
+    isCommandPaletteOpen || isQuickAddOpen || selectedTask || selectedActivity || isProfileOpen || searchQuery,
+  )
+  useEffect(() => {
+    if (!hasSelection) return
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const active = document.activeElement
+      const activeTag = (active?.tagName || '').toLowerCase()
+      const inTerminal = Boolean(active?.closest('.xterm') || active?.classList.contains('xterm-helper-textarea'))
+      const clear = shouldEscapeClearSelection({
+        key: e.key,
+        defaultPrevented: e.defaultPrevented,
+        appSurfaceOpen,
+        inputFocused: activeTag === 'input' || activeTag === 'textarea' || activeTag === 'select' || inTerminal,
+        modalOpen: Boolean(document.querySelector('[aria-modal="true"]')),
+      })
+      if (clear) setSelectedIds(new Set())
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [hasSelection, appSurfaceOpen])
+
+  const toggleCardSelection = (taskId: string) => setSelectedIds(prev => toggleSelected(prev, taskId))
+
+  // The selection is cleared only once the launch is accepted: after a
+  // failure, already reported by a toast, it stays so that it can be retried.
+  const launchSelectedBatch = async () => {
+    if (launchingBatch) return
+    setLaunchingBatch(true)
+    try {
+      const accepted = await startBatchPickup(orderSelection(selectedIds, boardOrder))
+      if (accepted) setSelectedIds(new Set())
+    } finally {
+      setLaunchingBatch(false)
+    }
+  }
+
+  const renderCard = (task: Task) => (
+    <TaskCard
+      key={task.id}
+      task={task}
+      compact={isCondensed}
+      isDragging={draggingTaskId === task.id}
+      onDragStart={() => setDraggingTaskId(task.id)}
+      selectable={selectableIdSet.has(task.id)}
+      selected={selectedIds.has(task.id)}
+      selectionActive={hasSelection}
+      onToggleSelect={() => toggleCardSelection(task.id)}
+    />
+  )
 
   // Déplacement sur un board de tracker : la colonne cible impose son premier
   // statut, et la transition part dans le tracker.
@@ -430,6 +556,7 @@ export const BoardView: React.FC = () => {
       <div className="flex items-center justify-between px-4 py-2 border-b border-[var(--border-color)] bg-[var(--bg-secondary)]/50 shrink-0">
         <div className="flex items-center gap-3">
           <BoardGroupingToggle size="md" />
+          <BoardSortSelect size="md" />
         </div>
 
         <div className="flex items-center gap-2">
@@ -504,7 +631,7 @@ export const BoardView: React.FC = () => {
           {/* ========================================================= */}
           {boardGrouping === 'workflow' &&
             workflowColumns.map(col => {
-              const colTasks = byPriorityDesc(displayedTasks.filter(t => resolveTaskStage(t, currentProject) === col.id))
+              const colTasks = workflowColumnTasks.get(col.id) || []
               const isOver = dragOverColumn === col.id
 
               // Collapsed Finished Column when hideDone is enabled
@@ -592,15 +719,7 @@ export const BoardView: React.FC = () => {
 
                   {/* Task Cards Column Body */}
                   <div className="flex-1 overflow-y-auto p-2.5 space-y-2.5">
-                    {colTasks.map(task => (
-                      <TaskCard
-                        key={task.id}
-                        task={task}
-                        compact={isCondensed}
-                        isDragging={draggingTaskId === task.id}
-                        onDragStart={() => setDraggingTaskId(task.id)}
-                      />
-                    ))}
+                    {colTasks.map(renderCard)}
 
                     {colTasks.length === 0 && (
                       <div className="h-32 flex flex-col items-center justify-center text-center p-4 border border-dashed border-[var(--border-color)]/60 rounded-xl">
@@ -619,7 +738,7 @@ export const BoardView: React.FC = () => {
           {/* ========================================================= */}
           {boardGrouping === 'status' &&
             effectiveStatusColumns.map(col => {
-              const colTasks = tasksForColumn(col)
+              const colTasks = statusColumnTasks.get(col.id) || []
               const isOver = dragOverColumn === col.id
               const onDropColumn = useTrackerBoard
                 ? (e: React.DragEvent) => handleDropTrackerColumn(e, col.title)
@@ -712,15 +831,7 @@ export const BoardView: React.FC = () => {
 
                   {/* Task Cards Column Body */}
                   <div className="flex-1 overflow-y-auto p-2.5 space-y-2.5">
-                    {colTasks.map(task => (
-                      <TaskCard
-                        key={task.id}
-                        task={task}
-                        compact={isCondensed}
-                        isDragging={draggingTaskId === task.id}
-                        onDragStart={() => setDraggingTaskId(task.id)}
-                      />
-                    ))}
+                    {colTasks.map(renderCard)}
 
                     {colTasks.length === 0 && (
                       <div className="h-32 flex flex-col items-center justify-center text-center p-4 border border-dashed border-[var(--border-color)]/60 rounded-xl">
@@ -753,20 +864,49 @@ export const BoardView: React.FC = () => {
                 Statuts non affectés à une colonne : {Array.from(new Set(unassignedTasks.map(t => t.trackerStatus || 'sans statut'))).join(', ')}
               </div>
               <div className="flex-1 overflow-y-auto p-2.5 space-y-2.5">
-                {unassignedTasks.map(task => (
-                  <TaskCard
-                    key={task.id}
-                    task={task}
-                    compact={isCondensed}
-                    isDragging={draggingTaskId === task.id}
-                    onDragStart={() => setDraggingTaskId(task.id)}
-                  />
-                ))}
+                {unassignedTasks.map(renderCard)}
               </div>
             </div>
           )}
         </div>
       </div>
+
+      {/* The selection bar: the batch pickup the other views offer, and a way
+          out. Nothing else, the board is not a bulk editor. */}
+      {hasSelection && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 animate-in slide-in-from-bottom-5 duration-200">
+          <div className="flex items-center gap-2.5 px-4 py-2.5 rounded-2xl bg-[var(--bg-secondary)]/95 backdrop-blur-md border border-[var(--border-color)] shadow-2xl text-xs max-w-[95vw] flex-wrap justify-center sm:justify-start">
+            <div className="flex items-center gap-2 pr-3 border-r border-[var(--border-color)]">
+              <span className="flex items-center justify-center min-w-[22px] h-[22px] px-1.5 rounded-full bg-[var(--accent-color)] text-white text-[11px] font-bold shadow-xs">
+                {selectedIds.size}
+              </span>
+              <span className="font-semibold text-[var(--text-primary)] whitespace-nowrap">
+                {selectedIds.size > 1 ? 'sélectionnées' : 'sélectionnée'}
+              </span>
+            </div>
+
+            <button
+              type="button"
+              onClick={launchSelectedBatch}
+              disabled={launchingBatch}
+              className="flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold cursor-pointer bg-[var(--bg-tertiary)] text-[var(--text-secondary)] border border-[var(--border-color)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-secondary)] transition-colors shrink-0 shadow-xs disabled:opacity-50 disabled:cursor-not-allowed"
+              title="Run the selected tasks on the local agent"
+            >
+              <Sparkles size={13} />
+              {t.batchLaunch}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setSelectedIds(new Set())}
+              className="flex items-center gap-1 text-xs font-bold text-[var(--text-muted)] hover:text-[var(--text-primary)] cursor-pointer"
+            >
+              <X size={13} />
+              Désélectionner tout
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

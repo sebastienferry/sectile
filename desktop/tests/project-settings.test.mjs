@@ -147,270 +147,6 @@ const doc = {
   createElement: tag => new MockElement(tag),
 }
 
-// DOM mock to verify openProject dialog rendering, reset controls, validation and mapProject payload
-test('project settings dialog renders AI provider and model controls and handles reset, validation, and submission', async () => {
-  // Simulate openProject data
-  const info = {
-    server: {
-      projectId: 'proj-1',
-      projectName: 'Test Project',
-      aiProvider: 'agy',
-      aiModel: 'server-base-model',
-      useWorktrees: true,
-      aiCommandTemplate: 'agy {prompt}',
-    },
-    path: '/path/to/repo',
-    useWorktrees: true,
-    worktreeOverride: false,
-    parallelism: 2,
-    aiProvider: 'claude',
-    aiModel: 'claude-opus-5',
-    aiProviderOverride: true,
-    aiModelOverride: true,
-    commandOverride: false,
-  }
-
-  let mappedPayload = null
-  const api = {
-    mapProject: async p => { mappedPayload = p },
-  }
-
-  // Build the dialog components matching main.js
-  const config = info.server
-  let useWorktrees = info.useWorktrees, inheritWorktrees = !info.worktreeOverride
-  let parallelism = info.parallelism || 1
-
-  let selectedProvider = info.aiProvider || config.aiProvider || 'agy'
-  let inheritAiProvider = !info.aiProviderOverride
-  const providerSection = doc.createElement('section')
-  const providerHeading = doc.createElement('div')
-  const providerTitle = doc.createElement('strong')
-  providerTitle.textContent = 'AI Provider'
-  const providerReset = doc.createElement('button')
-  providerReset.setAttribute('aria-label', 'Reset AI provider to server default')
-  providerHeading.append(providerTitle, providerReset)
-
-  const providerSelect = doc.createElement('select')
-  providerSelect.setAttribute('aria-label', 'AI Provider')
-  const PROVIDERS = [
-    { id: 'agy', label: 'AGY CLI (Google Antigravity)' },
-    { id: 'claude', label: 'Claude Code CLI' },
-    { id: 'codex', label: 'Codex CLI' },
-    { id: 'gemini', label: 'Gemini CLI' },
-    { id: 'cursor', label: 'Cursor CLI' },
-    { id: 'vibe', label: 'Mistral Vibe CLI' },
-    { id: 'custom', label: 'Custom Command' },
-  ]
-  for (const p of PROVIDERS) {
-    const opt = doc.createElement('option')
-    opt.value = p.id
-    opt.textContent = p.label
-    providerSelect.append(opt)
-  }
-  providerSelect.value = selectedProvider
-  const providerHint = doc.createElement('p')
-  providerSection.append(providerHeading, providerSelect, providerHint)
-
-  function updateProvider() {
-    providerHint.textContent = (inheritAiProvider ? 'Inherited from server' : 'Local override') + ' · Server default: ' + (config.aiProvider || 'agy')
-  }
-  providerReset.onclick = () => {
-    selectedProvider = config.aiProvider || 'agy'
-    providerSelect.value = selectedProvider
-    inheritAiProvider = true
-    updateProvider()
-  }
-
-  let selectedModel = info.aiModel ?? config.aiModel ?? ''
-  let inheritAiModel = !info.aiModelOverride
-  const modelSection = doc.createElement('section')
-  const modelHeading = doc.createElement('div')
-  const modelTitle = doc.createElement('strong')
-  modelTitle.textContent = 'AI Model'
-  const modelReset = doc.createElement('button')
-  modelReset.setAttribute('aria-label', 'Reset AI model to server default')
-  modelHeading.append(modelTitle, modelReset)
-
-  const modelInput = doc.createElement('input')
-  modelInput.setAttribute('aria-label', 'AI Model')
-  modelInput.value = selectedModel
-  const modelHint = doc.createElement('p')
-  modelSection.append(modelHeading, modelInput, modelHint)
-
-  const MODEL_REGEX = /^[A-Za-z0-9][A-Za-z0-9._:@/-]*$/
-  function validateModel(val) {
-    const trimmed = String(val || '').trim()
-    if (trimmed === '') return true
-    return MODEL_REGEX.test(trimmed)
-  }
-
-  function updateModel() {
-    modelHint.textContent = (inheritAiModel ? 'Inherited from server' : 'Local override') + ' · Server default: ' + (config.aiModel || '(none)')
-    if (!validateModel(modelInput.value)) {
-      modelHint.textContent = 'Invalid model: must only contain letters, digits, and allowed punctuation (. _ - : @ /)'
-      modelInput.setAttribute('aria-invalid', 'true')
-    } else {
-      modelInput.removeAttribute('aria-invalid')
-    }
-  }
-
-  modelInput.oninput = () => {
-    selectedModel = modelInput.value
-    inheritAiModel = false
-    updateModel()
-  }
-  modelReset.onclick = () => {
-    selectedModel = config.aiModel || ''
-    modelInput.value = selectedModel
-    inheritAiModel = true
-    updateModel()
-  }
-
-  const command = doc.createElement('textarea')
-  command.value = ''
-  const autonomousCommand = doc.createElement('textarea')
-  autonomousCommand.value = ''
-  let inheritCommand = true
-
-  const KNOWN_PRESETS = [
-    '',
-    "/path/to/custom-cli {mode:-p|-i} '{prompt}'",
-    "claude --model {model} '{prompt}'",
-    'agy --dangerously-skip-permissions --model {model} "{prompt}"',
-    "codex --model {model} '{prompt}'",
-  ]
-  providerSelect.onchange = () => {
-    selectedProvider = providerSelect.value
-    inheritAiProvider = false
-    if (command.value.trim() === '' || KNOWN_PRESETS.includes(command.value.trim())) {
-      if (selectedProvider === 'custom') {
-        command.value = "/path/to/custom-cli {mode:-p|-i} '{prompt}'"
-      } else {
-        command.value = ''
-      }
-      autonomousCommand.value = ''
-    }
-    updateProvider()
-  }
-
-  updateProvider()
-  updateModel()
-
-  const form = doc.createElement('form')
-  const notice = doc.createElement('p')
-  const save = doc.createElement('button')
-
-  form.onsubmit = async event => {
-    if (event?.preventDefault) event.preventDefault()
-    if (!validateModel(modelInput.value)) {
-      notice.textContent = 'Invalid AI model identifier: must only contain letters, digits, and allowed punctuation (. _ - : @ /)'
-      return
-    }
-    if (selectedProvider === 'custom' && !command.value.includes('{prompt}')) {
-      notice.textContent = 'Custom provider requires a command template containing {prompt}'
-      return
-    }
-    save.disabled = true
-    try {
-      await api.mapProject({
-        projectId: 'proj-1',
-        path: info.path,
-        useWorktrees,
-        inheritWorktrees,
-        parallelism,
-        aiProvider: selectedProvider,
-        aiModel: modelInput.value.trim(),
-        inheritAiProvider,
-        inheritAiModel,
-        aiCommandTemplate: command.value,
-        aiCommandTemplateAutonomous: autonomousCommand.value,
-        inheritCommand,
-      })
-      notice.textContent = 'Local configuration saved'
-    } catch (err) {
-      notice.textContent = err.message
-    } finally {
-      save.disabled = false
-    }
-  }
-
-  // 1. Verify UI initial rendering
-  assert.equal(providerSelect.children.length, 7)
-  assert.equal(providerSelect.value, 'claude')
-  assert.equal(providerHint.textContent, 'Local override · Server default: agy')
-  assert.equal(modelInput.value, 'claude-opus-5')
-  assert.equal(modelHint.textContent, 'Local override · Server default: server-base-model')
-
-  // 2. Verify submission with initial overrides
-  await form.onsubmit()
-  assert.deepEqual(mappedPayload, {
-    projectId: 'proj-1',
-    path: '/path/to/repo',
-    useWorktrees: true,
-    inheritWorktrees: true,
-    parallelism: 2,
-    aiProvider: 'claude',
-    aiModel: 'claude-opus-5',
-    inheritAiProvider: false,
-    inheritAiModel: false,
-    aiCommandTemplate: '',
-    aiCommandTemplateAutonomous: '',
-    inheritCommand: true,
-  })
-
-  // 3. Verify validation: invalid model
-  modelInput.value = 'invalid model with spaces'
-  modelInput.oninput()
-  assert.equal(modelHint.textContent, 'Invalid model: must only contain letters, digits, and allowed punctuation (. _ - : @ /)')
-  assert.equal(modelInput.getAttribute('aria-invalid'), 'true')
-  mappedPayload = null
-  await form.onsubmit()
-  assert.equal(mappedPayload, null)
-  assert.match(notice.textContent, /Invalid AI model identifier/)
-
-  // 4. Verify validation: custom provider without {prompt}
-  modelInput.value = 'valid-model'
-  modelInput.oninput()
-  providerSelect.value = 'custom'
-  providerSelect.onchange()
-  assert.equal(command.value, "/path/to/custom-cli {mode:-p|-i} '{prompt}'")
-  command.value = "custom without prompt"
-  mappedPayload = null
-  await form.onsubmit()
-  assert.equal(mappedPayload, null)
-  assert.match(notice.textContent, /Custom provider requires a command template containing \{prompt\}/)
-
-  // 5. Verify reset actions
-  providerReset.onclick()
-  assert.equal(selectedProvider, 'agy')
-  assert.equal(providerSelect.value, 'agy')
-  assert.equal(providerHint.textContent, 'Inherited from server · Server default: agy')
-
-  modelReset.onclick()
-  assert.equal(selectedModel, 'server-base-model')
-  assert.equal(modelInput.value, 'server-base-model')
-  assert.equal(modelHint.textContent, 'Inherited from server · Server default: server-base-model')
-
-  // 6. Submit after reset sends inheritAiProvider and inheritAiModel as true
-  command.value = ''
-  mappedPayload = null
-  await form.onsubmit()
-  assert.deepEqual(mappedPayload, {
-    projectId: 'proj-1',
-    path: '/path/to/repo',
-    useWorktrees: true,
-    inheritWorktrees: true,
-    parallelism: 2,
-    aiProvider: 'agy',
-    aiModel: 'server-base-model',
-    inheritAiProvider: true,
-    inheritAiModel: true,
-    aiCommandTemplate: '',
-    aiCommandTemplateAutonomous: '',
-    inheritCommand: true,
-  })
-})
-
 test('project settings dialog renders terminal emulator controls and handles reset, custom command, and submission', async () => {
   const info = {
     server: {
@@ -563,6 +299,201 @@ test('project settings dialog renders terminal emulator controls and handles res
     path: '/path/to/repo',
     terminal: 'terminal',
     inheritTerminal: true,
+  })
+})
+
+test('Agents CLI settings panel renders controls, presets, live preview, validation, and saves via saveSettings', async () => {
+  const stored = {
+    aiProvider: 'claude',
+    aiModel: 'claude-3-7-sonnet',
+    aiCommandTemplate: "claude --model {model} '{prompt}'",
+    aiCommandTemplateAutonomous: "claude -p --permission-mode bypassPermissions --model {model} '{prompt}'",
+  }
+
+  let savedSettings = null
+  const api = {
+    settings: async () => stored,
+    saveSettings: async s => { savedSettings = s; return s },
+  }
+
+  // Build the Agents CLI panel components matching openSettings() in main.js
+  const cliProviderSelect = doc.createElement('select')
+  cliProviderSelect.setAttribute('aria-label', 'AI Provider')
+  const CLI_PROVIDERS = [
+    { id: 'agy', label: 'AGY CLI (Google Antigravity)' },
+    { id: 'claude', label: 'Claude Code CLI' },
+    { id: 'codex', label: 'Codex CLI' },
+    { id: 'gemini', label: 'Gemini CLI' },
+    { id: 'cursor', label: 'Cursor CLI' },
+    { id: 'vibe', label: 'Mistral Vibe CLI' },
+    { id: 'custom', label: 'Custom Command' },
+  ]
+  for (const p of CLI_PROVIDERS) {
+    const opt = doc.createElement('option')
+    opt.value = p.id
+    opt.textContent = p.label
+    cliProviderSelect.append(opt)
+  }
+
+  const cliModelInput = doc.createElement('input')
+  cliModelInput.setAttribute('aria-label', 'AI Model')
+
+  const MODEL_REGEX = /^[A-Za-z0-9][A-Za-z0-9._:@/-]*$/
+  function validateModel(val) {
+    const trimmed = String(val || '').trim()
+    if (trimmed === '') return true
+    return MODEL_REGEX.test(trimmed)
+  }
+
+  const cliCommand = doc.createElement('textarea')
+  cliCommand.setAttribute('aria-label', 'Interactive CLI command')
+
+  const cliAutonomousCommand = doc.createElement('textarea')
+  cliAutonomousCommand.setAttribute('aria-label', 'Autonomous CLI command')
+
+  const cliPreviewBox = doc.createElement('dl')
+
+  function renderCliPreview() {
+    cliPreviewBox.replaceChildren()
+    for (const line of previewLines(cliProviderSelect.value, cliCommand.value, cliModelInput.value, cliAutonomousCommand.value)) {
+      const term = doc.createElement('dt'); term.textContent = line.label
+      const detail = doc.createElement('dd'); detail.textContent = line.text
+      if (!line.ok) detail.className = 'command-preview-error'
+      cliPreviewBox.append(term, detail)
+    }
+  }
+
+  cliModelInput.oninput = renderCliPreview
+  cliCommand.oninput = renderCliPreview
+  cliAutonomousCommand.oninput = renderCliPreview
+
+  const CLI_PRESETS = [
+    { label: 'AGY', provider: 'agy', cmd: 'agy --dangerously-skip-permissions --model {model} "{prompt}"', auto: 'agy --dangerously-skip-permissions --model {model} -p "{prompt}"' },
+    { label: 'Claude', provider: 'claude', cmd: "claude --model {model} '{prompt}'", auto: "claude -p --permission-mode bypassPermissions --model {model} '{prompt}'" },
+    { label: 'Codex', provider: 'codex', cmd: "codex --model {model} '{prompt}'", auto: "codex exec --model {model} '{prompt}'" },
+    { label: 'Gemini', provider: 'gemini', cmd: "gemini --model {model} '{prompt}'", auto: "gemini -y --model {model} -p '{prompt}'" },
+    { label: 'Vibe', provider: 'vibe', cmd: "vibe '{prompt}'", auto: "vibe -p --auto-approve '{prompt}'" },
+    { label: 'Custom', provider: 'custom', cmd: "/path/to/custom-cli {mode:-p|-i} '{prompt}'", auto: '' },
+    { label: 'Clear to defaults', provider: 'agy', cmd: '', auto: '' },
+  ]
+
+  const presetButtons = CLI_PRESETS.map(preset => {
+    const pBtn = doc.createElement('button')
+    pBtn.textContent = preset.label
+    pBtn.onclick = () => {
+      cliProviderSelect.value = preset.provider
+      cliCommand.value = preset.cmd
+      cliAutonomousCommand.value = preset.auto
+      renderCliPreview()
+    }
+    return pBtn
+  })
+
+  cliProviderSelect.onchange = () => {
+    const KNOWN = ['', "/path/to/custom-cli {mode:-p|-i} '{prompt}'", "claude --model {model} '{prompt}'", 'agy --dangerously-skip-permissions --model {model} "{prompt}"', "codex --model {model} '{prompt}'", "gemini --model {model} '{prompt}'", "vibe '{prompt}'"]
+    if (cliCommand.value.trim() === '' || KNOWN.includes(cliCommand.value.trim())) {
+      if (cliProviderSelect.value === 'custom') {
+        cliCommand.value = "/path/to/custom-cli {mode:-p|-i} '{prompt}'"
+      } else {
+        cliCommand.value = ''
+      }
+      cliAutonomousCommand.value = ''
+    }
+    renderCliPreview()
+  }
+
+  const cliNotice = doc.createElement('p')
+  const cliSaveBtn = doc.createElement('button')
+  cliSaveBtn.textContent = 'Save Agents CLI settings'
+  cliSaveBtn.onclick = async () => {
+    if (!validateModel(cliModelInput.value)) {
+      cliNotice.textContent = 'Invalid AI model identifier: must only contain letters, digits, and allowed punctuation (. _ - : @ /)'
+      return
+    }
+    if (cliProviderSelect.value === 'custom' && !cliCommand.value.includes('{prompt}')) {
+      cliNotice.textContent = 'Custom provider requires a command template containing {prompt}'
+      return
+    }
+    cliSaveBtn.disabled = true
+    cliNotice.textContent = 'Saving…'
+    try {
+      await api.saveSettings({
+        aiProvider: cliProviderSelect.value,
+        aiModel: cliModelInput.value.trim(),
+        aiCommandTemplate: cliCommand.value,
+        aiCommandTemplateAutonomous: cliAutonomousCommand.value,
+      })
+      cliNotice.textContent = 'Agents CLI settings saved'
+    } catch (err) {
+      cliNotice.textContent = 'Error saving settings: ' + (err.message || String(err))
+    } finally {
+      cliSaveBtn.disabled = false
+    }
+  }
+
+  // Populate from stored settings
+  cliProviderSelect.value = stored.aiProvider || 'agy'
+  cliModelInput.value = stored.aiModel || ''
+  cliCommand.value = stored.aiCommandTemplate || ''
+  cliAutonomousCommand.value = stored.aiCommandTemplateAutonomous || ''
+  renderCliPreview()
+
+  // 1. Initial values loaded
+  assert.equal(cliProviderSelect.value, 'claude')
+  assert.equal(cliModelInput.value, 'claude-3-7-sonnet')
+  assert.equal(cliCommand.value, "claude --model {model} '{prompt}'")
+  assert.equal(cliAutonomousCommand.value, "claude -p --permission-mode bypassPermissions --model {model} '{prompt}'")
+  assert.equal(cliPreviewBox.children.length, 4) // 2 terms + 2 details
+
+  // 2. Click preset: Codex
+  const codexPreset = presetButtons.find(b => b.textContent === 'Codex')
+  codexPreset.onclick()
+  assert.equal(cliProviderSelect.value, 'codex')
+  assert.equal(cliCommand.value, "codex --model {model} '{prompt}'")
+  assert.equal(cliAutonomousCommand.value, "codex exec --model {model} '{prompt}'")
+
+  // 3. Save after preset
+  await cliSaveBtn.onclick()
+  assert.equal(cliNotice.textContent, 'Agents CLI settings saved')
+  assert.deepEqual(savedSettings, {
+    aiProvider: 'codex',
+    aiModel: 'claude-3-7-sonnet',
+    aiCommandTemplate: "codex --model {model} '{prompt}'",
+    aiCommandTemplateAutonomous: "codex exec --model {model} '{prompt}'",
+  })
+
+  // 3b. Click preset: AGY
+  const agyPreset = presetButtons.find(b => b.textContent === 'AGY')
+  agyPreset.onclick()
+  assert.equal(cliProviderSelect.value, 'agy')
+  assert.equal(cliCommand.value, 'agy --dangerously-skip-permissions --model {model} "{prompt}"')
+  assert.equal(cliAutonomousCommand.value, 'agy --dangerously-skip-permissions --model {model} -p "{prompt}"')
+
+  // 4. Validation error: invalid model
+  cliModelInput.value = 'invalid model spaces'
+  savedSettings = null
+  await cliSaveBtn.onclick()
+  assert.equal(savedSettings, null)
+  assert.match(cliNotice.textContent, /Invalid AI model identifier/)
+
+  // 5. Validation error: custom provider without {prompt}
+  cliModelInput.value = 'valid-model'
+  cliProviderSelect.value = 'custom'
+  cliCommand.value = 'custom-cmd --no-prompt'
+  savedSettings = null
+  await cliSaveBtn.onclick()
+  assert.equal(savedSettings, null)
+  assert.match(cliNotice.textContent, /Custom provider requires a command template containing \{prompt\}/)
+
+  // 6. Fix custom command and save
+  cliCommand.value = 'custom-cmd {mode:-p|-i} {prompt}'
+  await cliSaveBtn.onclick()
+  assert.equal(cliNotice.textContent, 'Agents CLI settings saved')
+  assert.deepEqual(savedSettings, {
+    aiProvider: 'custom',
+    aiModel: 'valid-model',
+    aiCommandTemplate: 'custom-cmd {mode:-p|-i} {prompt}',
+    aiCommandTemplateAutonomous: 'agy --dangerously-skip-permissions --model {model} -p "{prompt}"',
   })
 })
 

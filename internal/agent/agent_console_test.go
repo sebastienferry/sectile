@@ -31,7 +31,7 @@ func TestMain(m *testing.M) {
 }
 
 func TestConsoleCommandsHaveNoPromptOrFlags(t *testing.T) {
-	for _, provider := range []string{"codex", "claude"} {
+	for _, provider := range []string{"codex", "claude", "agy", "gemini", "vibe"} {
 		command, err := consoleCommand(provider, "")
 		if err != nil || command != "exec "+provider {
 			t.Fatalf("%q: %q %v", provider, command, err)
@@ -221,6 +221,11 @@ func TestConsoleAdmissionUsesLocalMappingAndQueue(t *testing.T) {
 	testhome.Temp(t)
 	d, config := disconnectFixture(t)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v1/agent/execution-seed" {
+			// A server that predates #305: nothing to seed.
+			http.NotFound(w, r)
+			return
+		}
 		if r.Method != "GET" || r.URL.Path != "/api/v1/agent/config" {
 			t.Errorf("unexpected server request: %s %s", r.Method, r.URL)
 			http.NotFound(w, r)
@@ -263,6 +268,27 @@ func TestConsoleAdmissionUsesLocalMappingAndQueue(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	settings.Engines.Catalogue = append(settings.Engines.Catalogue,
+		agentconfig.Engine{ID: "e-custom", Name: "Custom prompt", Provider: "custom", Model: "local-model", Command: "my-cli {mode:--batch|--interactive} --model {model} --directory {repoPath} {prompt}"},
+		agentconfig.Engine{ID: "e-codex", Name: "Codex prompt", Provider: "codex", Model: "codex-model"})
+	if err = agentconfig.WriteSettings(settings); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"e-custom", "e-codex"} {
+		rec := disconnectRequest(d, "POST", "/desktop/consoles", `{"projectId":"p","engineId":"`+id+`"}`)
+		var entry desktopRun
+		if rec.Code != 202 || json.Unmarshal(rec.Body.Bytes(), &entry) != nil {
+			t.Fatalf("catalogue admission: %d %s", rec.Code, rec.Body.String())
+		}
+		engine, _ := settings.Engine(id)
+		if entry.EngineID != id || entry.EngineName != engine.Name || entry.Provider != engine.Provider || entry.Model != engine.Model {
+			t.Fatalf("engine profile lost: %+v", entry)
+		}
+		disconnectRequest(d, "POST", "/desktop/stop?id="+entry.ID, "")
+	}
+	if rec := disconnectRequest(d, "POST", "/desktop/consoles", `{"projectId":"p","engineId":"removed"}`); rec.Code != 404 {
+		t.Fatalf("removed engine accepted: %d %s", rec.Code, rec.Body.String())
+	}
 	settings.DisconnectedProjects = map[string]bool{"p": true}
 	if err = agentconfig.WriteSettings(settings); err != nil {
 		t.Fatal(err)
@@ -299,5 +325,19 @@ func TestFreeConsoleExitStatus(t *testing.T) {
 				t.Fatalf("%s: %s %s", tt.command, status, session)
 			}
 		})
+	}
+}
+
+func TestProjectPromptUsesCursorSubcommand(t *testing.T) {
+	command, err := consoleCommand("cursor", "M")
+	if err != nil || command != "exec cursor agent --model M" {
+		t.Fatalf("unexpected cursor command: %q %v", command, err)
+	}
+}
+
+func TestProjectPromptCustomTemplateKeepsInteractiveModeAndDirectory(t *testing.T) {
+	command, err := expandConfiguredTemplate("my-cli {mode:--batch|--interactive} --model {model} --directory {repoPath} {prompt}", "local-model", "", false, agentCommandContext{Directory: "/repo with spaces"})
+	if err != nil || command != "my-cli --interactive --model 'local-model' --directory '/repo with spaces' ''" {
+		t.Fatalf("unexpected interactive command: %q %v", command, err)
 	}
 }

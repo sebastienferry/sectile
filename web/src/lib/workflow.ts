@@ -121,6 +121,14 @@ export const skillForStage = (stage: WorkflowStage): string | null => {
 }
 
 /**
+ * Skills that act on a set of tickets rather than on one: the macro skills and
+ * the batch pickup. A ticket's detail view does not offer them.
+ */
+const NON_TASK_SKILLS = new Set(['refine_macro', 'realign_macro', 'pickup_issues'])
+
+export const isTaskScopedSkill = (skillId: string): boolean => !NON_TASK_SKILLS.has(skillId)
+
+/**
  * Étape du workflow et statut interne se répondent un pour un : c'est le même
  * découpage, nommé par le label côté tracker et par le statut côté application.
  * Le serveur tient la même table (internal/db/board.go).
@@ -269,3 +277,11 @@ export const getNextStepInfo = (task: Task, project?: Project | null): NextStepI
 
 export const prRecoverySkill = (project?: Project | null): 'specify' | 'implement' =>
   project?.prCreationStage === 'specified' ? 'specify' : 'implement'
+
+/**
+ * Le ticket est-il dans un état terminal ?
+ *
+ * Les deux statuts cohabitent : « finished » est celui du workflow agentique,
+ * « done » celui que portent les trackers et les bases antérieures.
+ */
+export const isTaskDone = (task: Task): boolean => task.status === 'finished' || task.status === 'done'

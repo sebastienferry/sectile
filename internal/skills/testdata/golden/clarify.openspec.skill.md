@@ -38,7 +38,8 @@ explicitly confirms that the clarification is satisfactory.
    c. Name critical dependencies: other services, migrations, missing data, third-party limits.
    d. Resolve reversible technical choices using existing code and project conventions.
    e. Formulate essential product questions that alter acceptance criteria, with your recommended option.
-   f. Write docs/clarifications/<n>.md, commit with docs(spec): clarify #<n> (round 1).
+   f. Write docs/clarifications/<n>.md, commit with docs(spec): clarify #<n> (round 1), unless the file
+      is ignored by Git (step 6).
    g. Ask the questions (interactively in-session if the owner is present; as a ticket discussion
       comment via add_comment when unattended).
 3. In Round N (follow-up after owner answers):
@@ -46,13 +47,18 @@ explicitly confirms that the clarification is satisfactory.
    b. Append a dated section: "## Round N - answers from the owner (<date>)" to docs/clarifications/<n>.md.
    c. Explicitly record settled choices and any reversed prior assumptions.
    d. Address newly surfaced ambiguities or dependencies.
-   e. Commit updates with docs(spec): clarify #<n> (round N).
+   e. Commit updates with docs(spec): clarify #<n> (round N), unless the file is ignored by Git (step 6).
    f. If follow-up product questions remain, ask them and stop without transitioning.
 4. Exit condition:
    Rounds continue until the owner confirms that the clarification is satisfactory (or zero open
    product questions remain in unattended pickup). Never transition new → clarified while product
    questions remain open.
 5. Persist the settled scope, decisions, and assumptions in the report before concluding.
+6. Dropped artefacts: `<n>` is the task key without its leading `#` (`487` for `#487`). Before
+   committing, run `git check-ignore -q docs/clarifications/<n>.md`. When it succeeds, the project
+   drops its specification artefacts on this workstation: write and update the file in the worktree,
+   never commit it, never force it with `git add -f`, and put the settled decisions in full in the
+   transition note, saying that the report file stays local to the worktree.
 
 ## Do not
 - Do not transition new → clarified while any product question or decision remains open.
@@ -62,7 +68,7 @@ explicitly confirms that the clarification is satisfactory.
 - Do not switch branches or create a new branch: reuse the assigned feat/<n> branch.
 
 ## Report
-- The report path: docs/clarifications/<n>.md.
+- The report path: docs/clarifications/<n>.md, and whether it is committed or local to the worktree (ignored by Git).
 - Current round number and whether the exit condition was met.
 - Settled decisions and reversed assumptions.
 - Numbered open questions (if any) and who is expected to answer them.
@@ -71,6 +77,7 @@ explicitly confirms that the clarification is satisfactory.
 ## Execution and ticket state
 - **Managed Sectile run**: When the invocation supplies a result-file contract, follow it. Sectile validates the result and owns transitions and tracker reports. Do not also call stage/postback APIs or edit tracker labels.
 - **Remote execution indicator (standalone only)**: Before doing work, call start_run with the full task primary key and skill name. If SECTILE_RUN_ID or a launch runId is supplied, reuse it. Keep the returned activity ID as runId. Nested skills reuse the outer run; only the owner finishes it. Call finish_run with taskKey, runId, status (completed, failed or canceled), and a note when the entire invocation ends, including errors or stopping for user input. Intermediate stage transitions do not finish an enclosing pickup run. A batch tracks each task separately. Never start a run merely to read a task.
+- **Waiting for the user (standalone only)**: Right before asking the user a question you cannot continue without, call report_waiting with taskKey, runId and waiting true, so the board and the owner's desktop show the run as waiting. Your next Sectile call ends the wait; call report_waiting with waiting false if you resume without one. A headless run is left unmarked, which the result says.
 - **Standalone invocation**: Read live context with `get_task` and `get_project_context`. After verifying each completed step, invoke `transition_stage` with the task key, completed stage, structured report note and actual branch. Check the tool result for errors before continuing.
 Transition new → clarified only when the exit condition is met: the owner confirms the clarification is satisfactory (or zero product questions remain open in unattended pickup). Never transition new → clarified while any product question or decision remains open.
 A task holds an ordered set of pull requests, `prUrl` being its current one. A pull request on a branch the task already used is a legitimate follow-up and is appended, even when the recorded one is merged; a pull request on an unrelated branch is refused, and its links are corrected from the task detail view rather than by forging evidence.

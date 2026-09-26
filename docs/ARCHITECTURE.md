@@ -34,7 +34,7 @@ flowchart TB
         Agent --> Repos
     end
 
-    Forges["GitHub · Jira"]
+    Forges["GitHub · GitLab · Jira"]
 
     UI -->|"REST + SSE"| Server
     Agent <-->|"authenticated WebSocket<br/>(dispatch, workspace operations)"| Server
@@ -72,7 +72,7 @@ sequenceDiagram
     participant A as sectile-agent
     participant C as Coding CLI
     participant M as MCP bridge
-    participant F as GitHub / Jira
+    participant F as GitHub / GitLab / Jira
 
     UI->>S: launch a skill on a task (mode: interactive or autonomous)
     S->>S: record the launch activity
@@ -186,6 +186,15 @@ The established database lookup order remains unchanged. `DB` uses an RWMutex;
 helpers suffixed `Unsafe` assume the caller already holds the appropriate lock.
 Avoid calling public locking methods while holding that lock.
 
+That mutex stops at the process boundary, so no invariant depends on it: several
+server processes may share one PostgreSQL database. A read-decide-write either
+runs as one statement, as a conditional update, or in a transaction that locks
+its row with `SELECT ... FOR UPDATE` (a no-op on SQLite, whose single writer
+already serialises). One ordinary active run per task is a partial unique index,
+and one server-side job per project a PostgreSQL advisory lock. Every section the
+mutex protects, and what makes it hold across processes, is listed in
+[the concurrency audit](db-concurrency-audit.md).
+
 Tracker jobs run on the server even when no agent is connected. GitHub repository
 identity is explicit configuration. Native HTTP clients
 paginate lists and follow redirects within the same origin while preserving the
@@ -209,8 +218,15 @@ The agent downloads fresh project configuration for each operation. Configuratio
 contains identity, effective skills and defaults, without server filesystem paths
 or tracker credentials. Local repositories are mapped by project primary key in
 `~/.config/sectile/settings.json`, with repository overrides supported under
-`.taskflow/agent.json`. Git remote identity can match the current repository.
-Repositories are never cloned implicitly.
+`.taskflow/agent.json`. The same file holds the workstation's engine catalogue
+(ADR 0033): named AI CLI profiles, one workstation default engine, a default
+engine per project and the engine each task was switched to from the desktop
+ticket table. The agent applies the task's engine at dispatch, so the server
+and the dispatch contract know nothing of it. Git remote identity can match the current repository.
+Repositories are never cloned implicitly. On a multi-repo project, each
+repository the project declares is mapped by its remote identity instead
+(`repositories`), and a task runs in a worktree of the repository it is pinned
+to; a launch that cannot tell which waits for the pin (ADR 0028).
 
 Task preparation reuses the assigned branch's existing checkout where possible.
 Otherwise it creates `.tasks/worktrees/<taskKey>` locally. Existing mismatched
@@ -249,9 +265,10 @@ restores eligibility for local execution.
 
 ## MCP and authentication
 
-The server's Streamable HTTP `/mcp` service exposes ten typed tools:
+The server's Streamable HTTP `/mcp` service exposes eleven typed tools:
 `list_projects`, `get_task`, `list_tasks`, `get_project_context`, `create_task`,
-`update_task`, `add_comment`, `transition_stage`, `start_run` and `finish_run`. The MCP server identity is
+`update_task`, `add_comment`, `transition_stage`, `start_run`, `finish_run` and
+`prepare_macro_worktree`. The MCP server identity is
 `sectile`. Native clients use `sectile-agent mcp --url <loopback-address>` as a
 stdio bridge. It never opens SQLite and uses the agent's upstream credential.
 

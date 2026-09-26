@@ -1,6 +1,8 @@
 # ADR 0018: The background synchronisation runs as the project's owner
 
-Status: Accepted
+Status: Superseded by
+[ADR 0028](0028-tracker-sync-uses-a-server-credential-per-provider.md): the
+synchronisation no longer borrows the owner's token.
 
 ## Context
 
@@ -85,3 +87,17 @@ not closed off by any of this: they would be an owner like another.
   on the activity rather than silent.
 - Deleting the owner's account, or their credential, returns the project to the
   server credential. The next person to save the project adopts it.
+- GitHub refuses a locked credential as Jira does (#312). Its adapter used to
+  turn a sealed token nobody unlocked into the project or server token, so a
+  pass read as the service account while its activity named the owner. That
+  refusal covers every call made through the GitHub tracker adapter with an
+  actor, a person's write as much as a background read. The calls resolved
+  through `trackerAs` (the branch pull request lookup and the GitHub GraphQL
+  reads) still fall back on the project or server token; they are out of scope
+  of #312.
+- Two fallbacks on the project or server GitHub token remain, and both are
+  decided rather than left over: an ownerless project, as above, and an actor
+  who stored no personal GitHub token at all. Unlike Jira, GitHub keeps the
+  second one, because a shared GitHub token (`SECTILE_GITHUB_TOKEN` or the
+  project's own) is how GitHub deployments run, and refusing it would stop work
+  that has nothing to do with attribution.

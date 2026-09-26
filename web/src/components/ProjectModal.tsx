@@ -22,34 +22,49 @@ import {
   Sliders,
   Globe,
   Key,
-  RotateCcw,
-  Bot,
   Info,
+  Inbox,
+  Map,
+  Clock,
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { useBackdropDismiss } from '../hooks/useBackdropDismiss'
+import { OPTIONAL_VIEWS, enabledOptionalViews } from '../lib/optionalViews'
 import { BoardColumnsEditor } from './BoardColumnsEditor'
-import { CommandModePreview } from './CommandModePreview'
 import type {
   AccentColor,
   IssueTracker,
   ProjectSkillsStatus,
   DetectedStatus,
-  AIProvider,
   TrackerColumn,
   SpecFramework,
   SpecFrameworkStatus,
   SpecFrameworkInstallResult,
   SkillMode,
+  OptionalViewMode,
 } from '../types'
 import { ACCENT_COLORS, accentBadgeStyle, normalizeAccentColor, DEFAULT_PROJECT_ACCENT } from '../lib/accents'
-import { AIModelField } from './AIModelField'
-import { isValidModel, providerModels } from '../lib/aiModels'
 import { PROJECT_TRACKERS, needsCredentialsFor } from '../lib/trackers'
-import { Antigravity, Claude, OpenAI } from './icons'
-import { MCPEngineConfig } from './MCPEngineConfig'
+import { formatProjectKeyList, parseProjectKeyList } from '../lib/roadmapProjects'
+import { declaredRepositories, droppedRepositoryPaths, duplicateRepository, repositoryIdentity } from '../lib/repositories'
 
-type ProjectTab = 'general' | 'tracker' | 'agent' | 'workflow' | 'skills'
+type ProjectTab = 'general' | 'tracker' | 'workflow' | 'skills'
+
+/**
+ * Vues optionnelles proposées dans les réglages du projet. Leur libellé dit ce
+ * que la vue montre : « Triage » seul ne dit pas de quoi il trie.
+ */
+const OPTIONAL_VIEW_CARDS: {
+  id: OptionalViewMode
+  label: string
+  hint: string
+  icon: React.FC<{ size?: number; className?: string }>
+  iconColor: string
+}[] = [
+  { id: 'triage', label: 'Triage', hint: 'Tickets sans sprint, macro, équipe ou assigné', icon: Inbox, iconColor: 'text-rose-400' },
+  { id: 'roadmap', label: 'Roadmap', hint: 'Macros par horizon : NOW / NEXT / FUTURE', icon: Map, iconColor: 'text-amber-400' },
+  { id: 'timeline', label: 'Timeline', hint: 'Calendrier des sprints passés et à venir', icon: Clock, iconColor: 'text-blue-400' },
+]
 
 const TABS: {
   id: ProjectTab
@@ -59,21 +74,9 @@ const TABS: {
 }[] = [
   { id: 'general', label: 'Général', icon: Folder, iconColor: 'text-amber-400' },
   { id: 'tracker', label: 'Tracker', icon: Sliders, iconColor: 'text-emerald-400' },
-  { id: 'agent', label: 'Agent settings', icon: Bot, iconColor: 'text-indigo-400' },
   { id: 'workflow', label: 'Agentic workflow', icon: Workflow, iconColor: 'text-blue-400' },
   { id: 'skills', label: 'Compétences IA & SDD', icon: Sparkles, iconColor: 'text-cyan-400' },
 ]
-
-// An empty template is the right default: the agent then runs the command line
-// it attests for each execution mode. Only a custom CLI must spell one out.
-const AI_PROVIDERS: { id: AIProvider; label: string; sub: string; defaultCmd: string; icon: React.ReactNode }[] = [
-  { id: 'agy', label: 'Antigravity', sub: 'Google Deepmind AGY CLI', defaultCmd: '', icon: <Antigravity size={16} /> },
-  { id: 'claude', label: 'Claude', sub: 'Anthropic Claude Code CLI', defaultCmd: '', icon: <Claude size={16} /> },
-  { id: 'codex', label: 'ChatGPT', sub: 'OpenAI Codex CLI', defaultCmd: '', icon: <OpenAI size={16} /> },
-  { id: 'custom', label: 'CLI Personnalisé', sub: 'Binaire ou script custom', defaultCmd: `/path/to/custom-cli {mode:-p|-i} '{prompt}'`, icon: <Terminal size={16} className="text-indigo-400" /> },
-]
-
-import { COMMAND_PRESETS } from '../lib/commandPresets'
 
 const AVAILABLE_ICONS = [
   { name: 'Folder', Icon: Folder, label: 'Dossier' },
@@ -132,31 +135,32 @@ export const ProjectModal: React.FC = () => {
   const [color, setColor] = useState<AccentColor>(DEFAULT_PROJECT_ACCENT)
   const [isDefault, setIsDefault] = useState(false)
 
-  // Section 2: Git (Local path, URL distante git@..., init git)
-  const [repoPath, setRepoPath] = useState('')
+  // Section 2: Git (remote URL, declared repositories)
   const [prCreationStage, setPRCreationStage] = useState<'specified' | 'implemented'>('implemented')
   const [defaultSkillMode, setDefaultSkillMode] = useState<SkillMode>('')
   const [fullChainStopStage, setFullChainStopStage] = useState<'implemented' | 'reviewed'>('reviewed')
-  // Mono-dépôt : conditionne tout ce qui parle de « la » branche courante.
+  // Mono-repo: decides whatever speaks of "the" current branch, and whether the
+  // specifications share the code repository on each workstation.
+  const [monoRepo, setMonoRepo] = useState(true)
   const [trackerColumns, setTrackerColumns] = useState<TrackerColumn[]>([])
   const [stageColumns, setStageColumns] = useState<Record<string, string[]>>({})
 
   const [gitRemoteUrl, setGitRemoteUrl] = useState('')
+  // Remotes declared besides the code remote, which the server always lists
+  // first and derives from gitRemoteUrl.
+  const [repositories, setRepositories] = useState<string[]>([])
+  const [newRepository, setNewRepository] = useState('')
+  const [repositoryError, setRepositoryError] = useState('')
 
-  // Section 3: Agent IA & CLI
-  const [aiProvider, setAiProvider] = useState<AIProvider | ''>('')
-  const [aiCommandTemplate, setAiCommandTemplate] = useState('')
-  const [aiCommandAutonomous, setAiCommandAutonomous] = useState('')
-  const [aiModel, setAiModel] = useState('')
-  const [aiSkillModels, setAiSkillModels] = useState<Record<string, string>>({})
-  const [useCustomAgent, setUseCustomAgent] = useState(false)
-  const [useWorktrees, setUseWorktrees] = useState(true)
+  // Section 3: background synchronisation
+  // Whether the tasks commit their specification artefacts (#487), a method
+  // setting the server keeps.
+  const [dropSpecArtifacts, setDropSpecArtifacts] = useState(false)
   const [autoSyncEnabled, setAutoSyncEnabled] = useState(false)
   const [autoSyncIntervalMin, setAutoSyncIntervalMin] = useState(5)
 
   // Section 4: Compétences IA & Framework SDD
   const [specFramework, setSpecFramework] = useState<SpecFramework>('speckit')
-  const [skillOverrides, setSkillOverrides] = useState<Record<string, string>>({})
   const [skillsStatus, setSkillsStatus] = useState<ProjectSkillsStatus | null>(null)
 
 
@@ -178,15 +182,24 @@ export const ProjectModal: React.FC = () => {
     void refreshUserCredentials()
   }, [refreshUserCredentials])
   const [githubRepo, setGithubRepo] = useState('')
-  // Paramètres de connexion propres au projet. Vides, ce sont ceux de la
-  // configuration utilisateur qui s'appliquent : un projet n'en a besoin que
-  // pour joindre une autre instance, ou une même instance avec un autre compte.
+  // The project's own instance URL. Empty, the user configuration applies. A
+  // project carries no token: the server credential of its provider serves
+  // every project (#464).
   const [githubApiUrl, setGithubApiUrl] = useState('')
-  const [githubToken, setGithubToken] = useState('')
+  // A GitLab project is named by its path (group/sub/project) on one instance.
+  // Both empty mean "those of the user configuration", like githubApiUrl.
+  const [gitlabUrl, setGitlabUrl] = useState('')
+  const [gitlabProject, setGitlabProject] = useState('')
   const [jiraProject, setJiraProject] = useState('')
+  const [roadmapProjects, setRoadmapProjects] = useState('')
   // Types de tickets importés. Vide vaut « les types par défaut » : c'est ce que
   // porte un projet qui n'a jamais eu besoin d'y toucher.
   const [issueTypes, setIssueTypes] = useState<string[]>([])
+  // Vues optionnelles affichées par le projet. Vide vaut « aucune », ce que
+  // porte un projet qui n'a jamais demandé Triage, Roadmap ou Timeline.
+  const [enabledViews, setEnabledViews] = useState<OptionalViewMode[]>([])
+  // Couleur par épic sur les cartes. Désactivée tant que le projet ne la demande pas.
+  const [epicColors, setEpicColors] = useState(false)
   const [availableIssueTypes, setAvailableIssueTypes] = useState<string[]>([])
   const [isLoadingIssueTypes, setIsLoadingIssueTypes] = useState(false)
   const [detectedStatuses, setDetectedStatuses] = useState<DetectedStatus[]>([])
@@ -223,23 +236,19 @@ export const ProjectModal: React.FC = () => {
       setColor(normalizeAccentColor(editingProject.color) ?? DEFAULT_PROJECT_ACCENT)
       setIsDefault(editingProject.isDefault || false)
 
-      setRepoPath(editingProject.repoPath || '')
       setPRCreationStage(editingProject.prCreationStage || 'implemented')
       setDefaultSkillMode(editingProject.defaultSkillMode || '')
       setFullChainStopStage(editingProject.fullChainStopStage || 'reviewed')
       setTrackerColumns(editingProject.trackerColumns || [])
       setStageColumns(editingProject.stageColumns || {})
       setGitRemoteUrl(editingProject.gitRemoteUrl || '')
+      setMonoRepo(editingProject.monoRepo !== false)
+      setRepositories(declaredRepositories(editingProject))
+      setNewRepository('')
+      setRepositoryError('')
 
-      const hasCustomAgent = Boolean(editingProject.aiProvider || editingProject.aiCommandTemplate)
-      setUseCustomAgent(hasCustomAgent)
-      setAiProvider(editingProject.aiProvider || '')
-      setAiCommandTemplate(editingProject.aiCommandTemplate || '')
-      setAiCommandAutonomous(editingProject.aiCommandTemplateAutonomous || '')
-      setAiModel(editingProject.aiModel || '')
-      setAiSkillModels(editingProject.aiSkillModels || {})
       setSpecFramework(editingProject.specFramework || settings.specFramework || 'speckit')
-      setUseWorktrees(editingProject.useWorktrees !== false)
+      setDropSpecArtifacts(editingProject.specArtifacts === 'drop')
       setAutoSyncEnabled(Boolean(editingProject.autoSyncEnabled))
       setAutoSyncIntervalMin(editingProject.autoSyncIntervalMin || 5)
 
@@ -247,12 +256,15 @@ export const ProjectModal: React.FC = () => {
       setTrackerUrl(editingProject.trackerUrl || '')
       setGithubRepo(editingProject.githubRepo || '')
       setGithubApiUrl(editingProject.githubApiUrl || '')
+      setGitlabUrl(editingProject.gitlabUrl || '')
+      setGitlabProject(editingProject.gitlabProject || '')
       // Le jeton n'est jamais renvoyé : le champ reste vide et le laisser vide
       // conserve celui qui est enregistré.
-      setGithubToken('')
       setJiraProject(editingProject.jiraProject || '')
+      setRoadmapProjects(formatProjectKeyList(editingProject.roadmapProjects))
       setIssueTypes(editingProject.issueTypes || [])
-      setSkillOverrides(editingProject.skillOverrides || {})
+      setEnabledViews(enabledOptionalViews(editingProject))
+      setEpicColors(editingProject.epicColors === true)
 
 
       fetchDetectedStatuses(editingProject.issueTracker, editingProject.githubRepo)
@@ -275,22 +287,25 @@ export const ProjectModal: React.FC = () => {
       setColor('indigo')
       setIsDefault(false)
 
-      setRepoPath('')
       setGitRemoteUrl('')
+      setMonoRepo(true)
+      setRepositories([])
+      setNewRepository('')
+      setRepositoryError('')
 
-      setUseCustomAgent(false)
-      setAiProvider('')
-      setAiCommandTemplate('')
       setSpecFramework(settings.specFramework || 'speckit')
-      setUseWorktrees(true)
+      setDropSpecArtifacts(false)
+      setEpicColors(false)
       setAutoSyncEnabled(false)
       setAutoSyncIntervalMin(5)
 
       setIssueTracker('local')
       setTrackerUrl('')
       setGithubRepo('')
+      setGitlabUrl('')
+      setGitlabProject('')
       setJiraProject('')
-      setSkillOverrides({})
+      setRoadmapProjects('')
       setSkillsStatus(null)
       setSddStatuses([])
       setSddResult(null)
@@ -331,36 +346,35 @@ export const ProjectModal: React.FC = () => {
   }
 
 
-  const handleSkillOverrideChange = (skillId: string, customName: string) => {
-    setSkillOverrides(prev => ({
-      ...prev,
-      [skillId]: customName,
-    }))
+  // The same identity rule as the server: a second spelling of one remote
+  // (SSH or HTTPS, case, ".git") is refused before it reaches the save.
+  const addRepository = () => {
+    const url = newRepository.trim()
+    if (!url) return
+    if (duplicateRepository(gitRemoteUrl, [...repositories, url])) {
+      setRepositoryError(`This repository is already listed (${repositoryIdentity(url)}).`)
+      return
+    }
+    setRepositories(prev => [...prev, url])
+    setNewRepository('')
+    setRepositoryError('')
   }
 
-  // Un modèle mal formé désactive l'enregistrement plutôt que de le laisser
-  // échouer en silence : l'entrée fautive peut être dans l'onglet Compétences,
-  // loin du bouton, et un clic sans effet n'indique rien.
-  const modelsAreValid =
-    isValidModel(aiModel) && Object.values(aiSkillModels).every(model => isValidModel(model))
-
-  // Une entrée vidée disparaît de la carte : elle signifie « hérite », et non
-  // « aucun modèle », ce qui est exactement ce que le serveur normalise.
-  const handleSkillModelChange = (skillId: string, model: string) => {
-    setAiSkillModels(prev => {
-      const next = { ...prev }
-      if (model.trim() === '') delete next[skillId]
-      else next[skillId] = model
-      return next
-    })
-  }
+  const droppedPaths = droppedRepositoryPaths(editingProject?.repositoriesMigration)
 
   const handleSubmit = async (e?: React.FormEvent) => {
     e?.preventDefault()
-    if (!name.trim() || isSubmitting || !modelsAreValid) return
+    if (!name.trim() || isSubmitting) return
 
     setIsSubmitting(true)
     try {
+      // A remote typed but not added yet is part of what is being saved.
+      const pending = newRepository.trim()
+      if (pending && duplicateRepository(gitRemoteUrl, [...repositories, pending])) {
+        setRepositoryError(`This repository is already listed (${repositoryIdentity(pending)}).`)
+        return
+      }
+      const savedRepositories = pending ? [...repositories, pending] : repositories
       const computedGithubRepo = githubRepo.trim() || extractGithubRepoFromGitUrl(gitRemoteUrl)
       const payload = {
         name: name.trim(),
@@ -369,40 +383,37 @@ export const ProjectModal: React.FC = () => {
         icon,
         color,
         isDefault,
-        repoPath: repoPath.trim(),
         prCreationStage,
         defaultSkillMode,
         fullChainStopStage,
         trackerColumns,
         stageColumns,
         gitRemoteUrl: gitRemoteUrl.trim(),
-        aiProvider: useCustomAgent && aiProvider ? (aiProvider as AIProvider) : undefined,
-        aiCommandTemplate: useCustomAgent && aiCommandTemplate.trim() ? aiCommandTemplate.trim() : undefined,
-        aiCommandTemplateAutonomous: useCustomAgent && aiCommandAutonomous.trim() ? aiCommandAutonomous.trim() : undefined,
-        // Toujours transmis, y compris vide : c'est ainsi qu'on efface une valeur
-        // au lieu de conserver silencieusement celle qui est enregistrée.
-        aiModel: useCustomAgent ? aiModel.trim() : '',
-        aiSkillModels,
-        setupProviders: [],
+        monoRepo,
+        repositories: savedRepositories,
         specFramework,
-        useWorktrees,
+        specArtifacts: dropSpecArtifacts ? 'drop' as const : 'keep' as const,
         autoSyncEnabled,
         autoSyncIntervalMin,
         issueTracker,
         trackerUrl: trackerUrl.trim(),
         githubRepo: computedGithubRepo,
         githubApiUrl: githubApiUrl.trim(),
-        githubToken: githubToken.trim(),
+        gitlabUrl: gitlabUrl.trim(),
+        gitlabProject: gitlabProject.trim().replace(/^\/+|\/+$/g, ''),
         jiraProject: jiraProject.trim().toUpperCase(),
+        roadmapProjects: issueTracker === 'jira' ? parseProjectKeyList(roadmapProjects, jiraProject) : [],
         issueTypes,
-        skillOverrides,
+        enabledViews,
+        epicColors,
       }
 
-      if (editingProject) {
-        await updateProject(editingProject.id, payload)
-      } else {
-        await createProject(payload)
-      }
+      const saved = editingProject
+        ? await updateProject(editingProject.id, payload)
+        : await createProject(payload)
+      // The error toast carries the server's reason, such as a repository
+      // declared twice; the form stays open so the entry can be corrected.
+      if (!saved) return
       setIsProjectModalOpen(false)
       setEditingProject(null)
 
@@ -504,12 +515,6 @@ export const ProjectModal: React.FC = () => {
                       <span
                         className={`w-2 h-2 rounded-full shrink-0 ${skillsStatus.isGitRepo ? 'bg-emerald-400' : 'bg-amber-400'}`}
                         title={skillsStatus.isGitRepo ? 'Dépôt Git valide' : 'Pas un dépôt Git'}
-                      />
-                    )}
-                    {tab.id === 'agent' && useCustomAgent && (
-                      <span
-                        className="w-2 h-2 rounded-full shrink-0 bg-[var(--accent-color)]"
-                        title="Agent personnalisé actif"
                       />
                     )}
                     {tab.id === 'skills' && skillsStatus && (
@@ -680,242 +685,162 @@ export const ProjectModal: React.FC = () => {
                     className="w-full px-3 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] font-mono focus:outline-none focus:border-[var(--accent-color)]"
                   />
                 </div>
+                <label className="flex items-start gap-2 text-xs text-[var(--text-secondary)] cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={monoRepo}
+                    onChange={e => setMonoRepo(e.target.checked)}
+                    className="mt-0.5 rounded border-[var(--border-color)] accent-[var(--accent-color)]"
+                  />
+                  <span>
+                    Mono-repo: the code and the specifications live in this repository
+                    <span className="block text-[10px] text-[var(--text-muted)] leading-relaxed">
+                      Untick when tickets span several repositories. Each workstation then declares its specifications folder in the desktop app.
+                    </span>
+                  </span>
+                </label>
+                {!monoRepo && (
+                  <div>
+                    <span className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1.5">
+                      Repositories
+                    </span>
+                    <ul className="space-y-1">
+                      {gitRemoteUrl.trim() && (
+                        <li
+                          className="flex items-center gap-2 px-3 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-muted)] font-mono"
+                          title="The code repository, from the remote URL above"
+                        >
+                          <span className="truncate flex-1">{gitRemoteUrl.trim()}</span>
+                          <span className="font-sans text-[10px] shrink-0">code</span>
+                        </li>
+                      )}
+                      {repositories.map(url => (
+                        <li
+                          key={url}
+                          className="flex items-center gap-2 px-3 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] font-mono"
+                        >
+                          <span className="truncate flex-1">{url}</span>
+                          <button
+                            type="button"
+                            onClick={() => setRepositories(prev => prev.filter(entry => entry !== url))}
+                            className="shrink-0 text-[var(--text-muted)] hover:text-red-500 cursor-pointer"
+                            title="Remove this repository"
+                            aria-label={`Remove ${url}`}
+                          >
+                            <X size={12} />
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                    <div className="flex gap-2 mt-1.5">
+                      <input
+                        type="text"
+                        value={newRepository}
+                        onChange={e => {
+                          setNewRepository(e.target.value)
+                          setRepositoryError('')
+                        }}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault()
+                            addRepository()
+                          }
+                        }}
+                        placeholder="git@github.com:owner/other-repository.git"
+                        aria-label="Remote URL of another repository"
+                        className="flex-1 min-w-0 px-3 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] font-mono focus:outline-none focus:border-[var(--accent-color)]"
+                      />
+                      <button
+                        type="button"
+                        onClick={addRepository}
+                        disabled={!newRepository.trim()}
+                        className="px-3 py-1.5 text-xs rounded-xl border border-[var(--border-color)] text-[var(--text-secondary)] hover:border-[var(--accent-color)] disabled:opacity-50 cursor-pointer"
+                      >
+                        Add
+                      </button>
+                    </div>
+                    {repositoryError && (
+                      <p role="alert" className="mt-1 text-[10px] text-red-500">{repositoryError}</p>
+                    )}
+                  </div>
+                )}
+                {droppedPaths.length > 0 && (
+                  <p className="text-[10px] text-amber-500 leading-relaxed">
+                    Paths not converted to repositories: {droppedPaths.map(entry => `${entry.path} (${entry.reason})`).join(', ')}
+                  </p>
+                )}
                 <p className="text-[10px] text-[var(--text-muted)] leading-relaxed">
                   Local repositories and execution consoles are managed in the desktop agent.
                 </p>
               </div>
-            </div>
-          )}
 
-          {/* ========================================================= */}
-          {/* SECTION 3: AGENT IA & CLI (Configuration du moteur/CLI)   */}
-          {/* ========================================================= */}
-          {activeTab === 'agent' && (
-            <div className="space-y-4 animate-in fade-in duration-150">
-              {/* Header card */}
-              <div className="p-3.5 rounded-xl bg-[var(--bg-tertiary)]/70 border border-[var(--border-color)]">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2.5">
-                    <div className="w-8 h-8 rounded-xl bg-[var(--accent-light)] accent-text flex items-center justify-center shrink-0 border border-[var(--accent-color)]/30">
-                      <Bot size={16} />
-                    </div>
-                    <div>
-                      <span className="text-xs font-bold text-[var(--text-primary)] block">
-                        Moteur IA & Ligne de Commande pour ce Projet
-                      </span>
-                      <span className="text-[10px] text-[var(--text-muted)] block">
-                        Personnalisez le CLI utilisé (AGY, Claude Code, Codex...) et les options de prompt pour ce dépôt.
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-1 bg-[var(--bg-secondary)] p-1 rounded-xl border border-[var(--border-color)]">
-                    <button
-                      type="button"
-                      onClick={() => setUseCustomAgent(false)}
-                      className={`px-2.5 py-1 text-[11px] font-bold rounded-lg transition-all cursor-pointer ${
-                        !useCustomAgent
-                          ? 'bg-[var(--accent-color)] text-white shadow-xs'
-                          : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
-                      }`}
-                    >
-                      Hériter du Global
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setUseCustomAgent(true)
-                        if (!aiProvider) setAiProvider(settings.aiProvider || 'agy')
-                        if (!aiCommandTemplate) setAiCommandTemplate(settings.aiCommandTemplate || '')
-                      }}
-                      className={`px-2.5 py-1 text-[11px] font-bold rounded-lg transition-all cursor-pointer ${
-                        useCustomAgent
-                          ? 'bg-[var(--accent-color)] text-white shadow-xs'
-                          : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
-                      }`}
-                    >
-                      Spécifique au Projet
-                    </button>
-                  </div>
+              {/* Vues optionnelles : masquées tant que le projet ne les demande pas */}
+              <div className="pt-3 border-t border-[var(--border-color)] space-y-2">
+                <div className="flex items-center gap-1.5">
+                  <Layers size={13} className="text-[var(--accent-color)]" />
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--text-primary)]">
+                    Vues de l'espace de travail
+                  </span>
                 </div>
-              </div>
-
-              {!useCustomAgent ? (
-                <div className="p-4 rounded-xl bg-[var(--bg-primary)] border border-dashed border-[var(--border-color)] flex items-center gap-3 text-[var(--text-secondary)]">
-                  <Info size={16} className="text-[var(--accent-color)] shrink-0" />
-                  <div className="text-xs">
-                    <span className="font-semibold text-[var(--text-primary)]">Configuration Globale Active : </span>
-                    <span className="font-mono text-[var(--accent-color)] font-bold">{settings.aiProvider.toUpperCase()}</span>
-                    <span className="text-[var(--text-muted)] block mt-0.5 font-mono text-[11px]">
-                      Modèle de commande : {settings.aiCommandTemplate || 'défaut du fournisseur'}
-                    </span>
-                    <CommandModePreview
-                      provider={settings.aiProvider}
-                      template={settings.aiCommandTemplate || ''}
-                      model={settings.aiModel || ''}
-                      autonomousTemplate={settings.aiCommandTemplateAutonomous || ''}
-                    />
-                  </div>
-                </div>
-              ) : (
-                <div className="space-y-4 animate-in fade-in duration-150">
-                  {/* Select AI Provider */}
-                  <div className="space-y-2">
-                    <label className="block text-[11px] font-bold uppercase tracking-wider text-[var(--text-muted)] flex items-center gap-1.5">
-                      <Bot size={14} className="text-indigo-400" />
-                      <span>{t?.profileModal?.ai?.defaultEngine || "Fournisseur de l'Agent IA"}</span>
-                    </label>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                      {AI_PROVIDERS.map(p => {
-                        const isSel = (aiProvider || settings.aiProvider) === p.id
-                        const label = p.id === 'custom' ? (t?.profileModal?.ai?.customProviderLabel || p.label) : p.label
-                        const sub = p.id === 'custom' ? (t?.profileModal?.ai?.customProviderSub || p.sub) : p.sub
-                        return (
-                          <button
-                            key={p.id}
-                            type="button"
-                            onClick={() => {
-                              setAiProvider(p.id)
-                              if (aiCommandTemplate.trim() === '' || COMMAND_PRESETS.some(preset => preset.cmd !== '' && preset.cmd === aiCommandTemplate)) {
-                                setAiCommandTemplate(p.defaultCmd)
-                                setAiCommandAutonomous('')
-                              }
-                            }}
-                            className={`px-3 py-2 rounded-xl border text-left transition-all cursor-pointer text-xs font-semibold flex items-center gap-2.5 truncate ${
-                              isSel
-                                ? 'bg-indigo-500/15 border-indigo-500 text-white ring-2 ring-indigo-500/30 shadow-xs'
-                                : 'bg-[var(--bg-tertiary)] border-[var(--border-color)] text-[var(--text-secondary)] hover:border-[var(--text-muted)] hover:text-[var(--text-primary)]'
-                            }`}
-                            title={sub}
-                          >
-                            <span className="shrink-0 flex items-center justify-center">{p.icon}</span>
-                            <span className="truncate">{label}</span>
-                          </button>
-                        )
-                      })}
-                    </div>
-                  </div>
-
-                  <AIModelField
-                    provider={aiProvider || settings.aiProvider}
-                    commandTemplate={aiCommandTemplate}
-                    value={aiModel}
-                    onChange={setAiModel}
-                    availableModels={providerModels(settings, aiProvider || settings.aiProvider)}
-                    placeholder={settings.aiModel ? `Hérite du global : ${settings.aiModel}` : (t?.profileModal?.ai?.defaultModelPlaceholder || 'Défaut du CLI')}
-                    label="Modèle du projet"
-                  />
-
-                  {/* Command Line / CLI Parameters Section */}
-                  <div className="space-y-2">
-                    <label className="block text-[11px] font-bold uppercase tracking-wider text-[var(--text-muted)] flex items-center gap-1.5">
-                      <Terminal size={14} className="text-indigo-400" />
-                      <span>
-                        {(t?.profileModal?.ai?.cliParametersTitle || 'CLI & Commandes : {provider}')
-                          .replace('{provider}', AI_PROVIDERS.find(p => p.id === (aiProvider || settings.aiProvider))?.label || (aiProvider || settings.aiProvider).toUpperCase())}
-                      </span>
-                    </label>
-
-                    <div className="space-y-3 p-4 rounded-xl bg-[var(--bg-tertiary)]/70 border border-[var(--border-color)]">
-                      <div className="space-y-1.5">
-                        <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
-                          {t?.profileModal?.ai?.cmdInteractive || 'Commande interactive'}
-                        </label>
-                        <input
-                          type="text"
-                          value={aiCommandTemplate}
-                          onChange={e => setAiCommandTemplate(e.target.value)}
-                          placeholder={`Ex : claude --model {model} '{prompt}'`}
-                          className="w-full px-3 py-2 text-xs font-mono rounded-xl bg-[var(--bg-primary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)] transition-all"
-                        />
-                        <label className="block pt-1 text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
-                          {t?.profileModal?.ai?.cmdAutonomous || 'Commande autonome (headless)'}
-                        </label>
-                        <input
-                          type="text"
-                          value={aiCommandAutonomous}
-                          onChange={e => setAiCommandAutonomous(e.target.value)}
-                          placeholder={`Ex : claude -p --permission-mode bypassPermissions --model {model} '{prompt}'`}
-                          className="w-full px-3 py-2 text-xs font-mono rounded-xl bg-[var(--bg-primary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)] transition-all"
-                        />
-                        <div className="flex flex-wrap items-center gap-1 text-[10.5px] text-[var(--text-muted)] leading-relaxed pt-1">
-                          <Info size={12} className="text-indigo-400 shrink-0" />
-                          <span className="font-semibold text-[var(--text-secondary)]">
-                            {t?.profileModal?.ai?.availableVariables || 'Variables disponibles :'}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  {OPTIONAL_VIEW_CARDS.map(view => {
+                    const Icon = view.icon
+                    const isActive = enabledViews.includes(view.id)
+                    return (
+                      <button
+                        key={view.id}
+                        type="button"
+                        onClick={() =>
+                          // Forme fonctionnelle : deux clics dans le même cycle
+                          // de rendu liraient sinon le même état, et le second
+                          // annulerait le premier.
+                          setEnabledViews(current =>
+                            OPTIONAL_VIEWS.filter(id =>
+                              id === view.id ? !current.includes(id) : current.includes(id)
+                            )
+                          )
+                        }
+                        aria-pressed={isActive}
+                        title={view.hint}
+                        className={`flex items-start gap-2 p-2.5 rounded-xl border text-left transition-all cursor-pointer ${
+                          isActive
+                            ? 'bg-[var(--accent-light)] border-[var(--accent-color)]/40 accent-text'
+                            : 'bg-[var(--bg-tertiary)] border-[var(--border-color)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                        }`}
+                      >
+                        <Icon size={14} className={`shrink-0 mt-0.5 ${isActive ? '' : view.iconColor}`} />
+                        <span className="min-w-0">
+                          <span className="block text-xs font-bold truncate">{view.label}</span>
+                          <span className="block text-[10px] text-[var(--text-muted)] leading-snug">
+                            {view.hint}
                           </span>
-                          {[
-                            '{prompt}',
-                            '{issueKey}',
-                            '{issueTitle}',
-                            '{branchName}',
-                            '{repoPath}',
-                            '{model}',
-                            '{mode:AUTONOMOUS|INTERACTIVE}',
-                          ].map(token => (
-                            <button
-                              key={token}
-                              type="button"
-                              onClick={() => {
-                                setAiCommandTemplate(prev => prev ? `${prev} ${token}` : token)
-                              }}
-                              title={`+ ${token}`}
-                              className="bg-[var(--bg-primary)] hover:bg-[var(--bg-tertiary)] text-indigo-400 hover:text-indigo-300 border border-[var(--border-color)] px-1.5 py-0.5 rounded text-[9.5px] font-mono cursor-pointer transition-colors"
-                            >
-                              {token}
-                            </button>
-                          ))}
-                        </div>
-                        <CommandModePreview
-                          provider={aiProvider || settings.aiProvider}
-                          template={aiCommandTemplate}
-                          model={aiModel || settings.aiModel || ''}
-                          autonomousTemplate={aiCommandAutonomous}
-                        />
-                      </div>
-
-                      {/* Fast Preset buttons */}
-                      <div className="pt-2 border-t border-[var(--border-color)]">
-                        <div className="text-[10px] text-[var(--text-muted)] uppercase tracking-wider font-bold mb-1.5">
-                          {t?.profileModal?.ai?.fastPresets || 'Modèles de commande rapides :'}
-                        </div>
-                        <div className="flex flex-wrap gap-1.5">
-                          {COMMAND_PRESETS.map(preset => (
-                            <button
-                              key={preset.label}
-                              type="button"
-                              onClick={() => { setAiCommandTemplate(preset.cmd); setAiCommandAutonomous(preset.autonomous) }}
-                              className="px-2 py-1 bg-[var(--bg-primary)] hover:bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[var(--accent-color)] text-[10.5px] rounded-lg font-mono transition-colors cursor-pointer"
-                            >
-                              {preset.label}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
+                        </span>
+                        {isActive && <Check size={12} className="shrink-0 mt-0.5" />}
+                      </button>
+                    )
+                  })}
                 </div>
-              )}
-
-              {/* Direct MCP Configuration without local agent */}
-              <MCPEngineConfig
-                selectedProvider={(aiProvider || settings.aiProvider) as AIProvider}
-              />
-
-              {/* Server execution defaults; local agents can override these values. */}
-              <div className="p-3.5 rounded-xl border border-[var(--border-color)] bg-[var(--bg-tertiary)]/70">
-                <h4 className="text-xs font-bold text-[var(--text-primary)]">Local agent execution defaults</h4>
-                <p className="text-[11px] text-[var(--text-muted)]">Inherited by local agents unless overridden in the companion app.</p>
-                <label className="flex items-center gap-2 mt-2.5 text-xs text-[var(--text-secondary)] cursor-pointer">
+                <p className="text-[10px] text-[var(--text-muted)] leading-relaxed">
+                  Ces vues sont masquées par défaut : elles n'apparaissent dans la barre
+                  latérale et dans la palette de commandes que pour les projets qui les
+                  activent ici.
+                </p>
+                <label className="flex items-start gap-2 pt-1 text-xs text-[var(--text-secondary)] cursor-pointer">
                   <input
                     type="checkbox"
-                    checked={useWorktrees}
-                    onChange={e => setUseWorktrees(e.target.checked)}
-                    className="rounded border-[var(--border-color)] accent-[var(--accent-color)]"
+                    checked={epicColors}
+                    onChange={e => setEpicColors(e.target.checked)}
+                    className="mt-0.5 rounded border-[var(--border-color)] accent-[var(--accent-color)]"
                   />
-                  <span>Use a worktree for each task</span>
+                  <span>
+                    <span className="block font-bold text-[var(--text-primary)]">Couleur par épic</span>
+                    <span className="block text-[10px] text-[var(--text-muted)] leading-snug">
+                      Une barre et une pastille de la couleur de l'épic sur les cartes du Board,
+                      du Backlog, de la Timeline et sur les macros du Roadmap
+                    </span>
+                  </span>
                 </label>
               </div>
-
             </div>
           )}
 
@@ -949,6 +874,21 @@ export const ProjectModal: React.FC = () => {
                   <option value="specified">Draft after specification</option>
                 </select>
               </div>
+
+              <label className="flex items-start gap-2 text-xs text-[var(--text-secondary)] cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={dropSpecArtifacts}
+                  onChange={e => setDropSpecArtifacts(e.target.checked)}
+                  className="mt-0.5 rounded border-[var(--border-color)] accent-[var(--accent-color)]"
+                />
+                <span>
+                  Keep specifications out of the repository
+                  <span className="block text-[11px] text-[var(--text-muted)]">
+                    Clarifications and specifications stay in the task worktree and are never committed. Those already committed stay in the history.
+                  </span>
+                </span>
+              </label>
 
               <div>
                 <label htmlFor="defaultSkillMode" className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1.5">
@@ -1017,6 +957,11 @@ export const ProjectModal: React.FC = () => {
                       const inherited = mine || settings.jiraUrl?.trim()
                       if (inherited) setTrackerUrl(inherited)
                     }
+                    // The project path starts from the default of the
+                    // settings; the instance stays empty, which follows them.
+                    if (newTrk === 'gitlab' && !gitlabProject.trim() && settings.gitlabProject?.trim()) {
+                      setGitlabProject(settings.gitlabProject.trim())
+                    }
                   }}
                   className="w-full px-3 py-2 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)] font-medium cursor-pointer"
                 >
@@ -1036,6 +981,7 @@ export const ProjectModal: React.FC = () => {
                     {issueTracker === 'local' && 'Sectile (Stockage Local)'}
                     {issueTracker === 'github' && 'GitHub Issues'}
                     {issueTracker === 'jira' && 'Jira'}
+                    {issueTracker === 'gitlab' && 'GitLab'}
                   </span>
                 </div>
 
@@ -1046,6 +992,8 @@ export const ProjectModal: React.FC = () => {
                     'Synchronisation bidirectionnelle via la CLI GitHub. Les statuts du workflow sont reflétés par des labels (#new, #clarified, #specified, etc.) et l’état Open/Closed.'}
                   {issueTracker === 'jira' &&
                     'Intégration avec les projets Jira Software via l’API Atlassian.'}
+                  {issueTracker === 'gitlab' &&
+                    'Intégration avec un projet GitLab, gitlab.com ou auto-hébergé, via son API. L’étape est portée par les labels #new, #clarified, #specified, etc., les colonnes du board sont ses listes, et les jalons comme les itérations (Premium) servent de sprints. L’équipe est un label team::<nom>.'}
                 </p>
 
                 {/* Grille des fonctionnalités supportées */}
@@ -1136,6 +1084,35 @@ export const ProjectModal: React.FC = () => {
                       </div>
                     </>
                   )}
+
+                  {issueTracker === 'gitlab' && (
+                    <>
+                      <div className="flex items-center gap-1 text-[10.5px] text-emerald-400 font-medium">
+                        <CheckCircle2 size={11} className="shrink-0" />
+                        <span>Sync Issues</span>
+                      </div>
+                      <div className="flex items-center gap-1 text-[10.5px] text-emerald-400 font-medium">
+                        <CheckCircle2 size={11} className="shrink-0" />
+                        <span>Labels d'étape (#new, etc.)</span>
+                      </div>
+                      <div className="flex items-center gap-1 text-[10.5px] text-emerald-400 font-medium">
+                        <CheckCircle2 size={11} className="shrink-0" />
+                        <span>Listes du board</span>
+                      </div>
+                      <div className="flex items-center gap-1 text-[10.5px] text-emerald-400 font-medium">
+                        <CheckCircle2 size={11} className="shrink-0" />
+                        <span>Jalons & Itérations</span>
+                      </div>
+                      <div className="flex items-center gap-1 text-[10.5px] text-emerald-400 font-medium">
+                        <CheckCircle2 size={11} className="shrink-0" />
+                        <span>Équipes (team::)</span>
+                      </div>
+                      <div className="flex items-center gap-1 text-[10.5px] text-emerald-400 font-medium">
+                        <CheckCircle2 size={11} className="shrink-0" />
+                        <span>Merge Requests liées</span>
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
 
@@ -1180,21 +1157,35 @@ export const ProjectModal: React.FC = () => {
                   </div>
                 )}
 
-                {issueTracker === 'github' && (
+                {issueTracker === 'gitlab' && (
                   <div>
                     <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
-                      Jeton GitHub (optionnel)
+                      Projet GitLab (groupe/projet)
                     </label>
                     <div className="relative">
                       <input
-                        type="password"
-                        value={githubToken}
-                        onChange={e => setGithubToken(e.target.value)}
-                        placeholder={
-                          editingProject?.githubTokenSet
-                            ? 'Déjà configuré, laissez vide pour le garder'
-                            : 'Celui de la configuration utilisateur'
-                        }
+                        type="text"
+                        value={gitlabProject}
+                        onChange={e => setGitlabProject(e.target.value)}
+                        placeholder={settings.gitlabProject?.trim() || 'groupe/sous-groupe/projet'}
+                        className="w-full pl-8 pr-3 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] font-mono focus:outline-none focus:border-[var(--accent-color)]"
+                      />
+                      <Globe size={14} className="absolute left-2.5 top-2.5 text-[var(--accent-color)]" />
+                    </div>
+                  </div>
+                )}
+
+                {issueTracker === 'gitlab' && (
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
+                      Instance GitLab (optionnel)
+                    </label>
+                    <div className="relative">
+                      <input
+                        type="text"
+                        value={gitlabUrl}
+                        onChange={e => setGitlabUrl(e.target.value)}
+                        placeholder={settings.gitlabUrl?.trim() || 'https://gitlab.com/api/v4'}
                         className="w-full pl-8 pr-3 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] font-mono focus:outline-none focus:border-[var(--accent-color)]"
                       />
                       <Globe size={14} className="absolute left-2.5 top-2.5 text-[var(--accent-color)]" />
@@ -1223,6 +1214,25 @@ export const ProjectModal: React.FC = () => {
                     </div>
                     <span className="text-[9px] text-[var(--text-muted)] mt-1 block">
                       Le projet interrogé par la synchronisation REST. Le site, l'e-mail et le jeton se configurent dans <em>Connecter votre tracker</em>.
+                    </span>
+                  </div>
+                )}
+
+                {issueTracker === 'jira' && (
+                  <div>
+                    <label htmlFor="project-roadmap-projects" className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
+                      Projets de roadmap
+                    </label>
+                    <input
+                      id="project-roadmap-projects"
+                      type="text"
+                      value={roadmapProjects}
+                      onChange={e => setRoadmapProjects(e.target.value.toUpperCase())}
+                      placeholder="Ex: DATA, OPS"
+                      className="w-full px-3 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] font-mono uppercase focus:outline-none focus:border-[var(--accent-color)]"
+                    />
+                    <span className="text-[9px] text-[var(--text-muted)] mt-1 block">
+                      Autres projets Jira dont les stories se rattachent aux lignes de découpe à l'import. Lus seulement : Sectile n'y écrit jamais.
                     </span>
                   </div>
                 )}
@@ -1295,7 +1305,7 @@ export const ProjectModal: React.FC = () => {
                       type="text"
                       value={trackerUrl}
                       onChange={e => setTrackerUrl(e.target.value)}
-                      placeholder={issueTracker === 'jira' ? 'https://mon-org.atlassian.net' : 'https://github.com/owner/repository'}
+                      placeholder={issueTracker === 'jira' ? 'https://mon-org.atlassian.net' : issueTracker === 'gitlab' ? 'https://gitlab.com/groupe/projet' : 'https://github.com/owner/repository'}
                       className="w-full pl-8 pr-3 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)]"
                     />
                     <Globe size={14} className="absolute left-2.5 top-2.5 text-[var(--accent-color)]" />
@@ -1371,7 +1381,6 @@ export const ProjectModal: React.FC = () => {
                   onStageColumnsChange={setStageColumns}
                   issueTracker={issueTracker}
                   githubRepo={githubRepo}
-                  repoPath={repoPath}
                 />
               </div>
             </div>
@@ -1451,10 +1460,10 @@ export const ProjectModal: React.FC = () => {
               <div className="p-3.5 rounded-xl bg-[var(--bg-tertiary)]/70 border border-[var(--border-color)] space-y-2.5">
                 <div className="flex items-center justify-between pb-1 border-b border-[var(--border-color)]">
                   <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--text-primary)]">
-                    Compétences du Workflow & Surcharge des Noms
+                    Compétences du Workflow
                   </span>
                   <span className="text-[10px] text-[var(--text-muted)]">
-                    Personnalisez le libellé de chaque compétence
+                    Noms de commande et modèles se règlent sur votre poste
                   </span>
                 </div>
 
@@ -1462,7 +1471,6 @@ export const ProjectModal: React.FC = () => {
                   {WORKFLOW_SKILLS.map(s => {
                     const isInst = (skillsStatus?.skills || []).find(sk => sk.id === s.id)?.installed || false
                     const SkillIcon = s.icon
-                    const customValue = skillOverrides[s.id] || ''
                     const displayDefaultName = s.id === 'specify'
                       ? (specFramework === 'openspec' ? 'Specify (OpenSpec)' : 'Specify (Spec Kit)')
                       : s.defaultName
@@ -1494,44 +1502,8 @@ export const ProjectModal: React.FC = () => {
                           </div>
                         </div>
 
-                        {/* Custom Name Override Input Right */}
+                        {/* Installation state */}
                         <div className="flex items-center gap-2 flex-1 justify-end">
-                          <div className="relative flex-1 max-w-[260px]">
-                            <input
-                              type="text"
-                              value={customValue}
-                              onChange={e => handleSkillOverrideChange(s.id, e.target.value)}
-                              placeholder={`Surcharge : ${displayDefaultName}`}
-                              className="w-full px-2.5 py-1 text-xs rounded-lg bg-[var(--bg-secondary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)] font-medium"
-                            />
-                            {customValue && (
-                              <button
-                                type="button"
-                                onClick={() => handleSkillOverrideChange(s.id, '')}
-                                className="absolute right-1.5 top-1.5 text-[var(--text-muted)] hover:text-rose-400 p-0.5"
-                                title="Réinitialiser au nom par défaut"
-                              >
-                                <RotateCcw size={11} />
-                              </button>
-                            )}
-                          </div>
-
-                          <div className="relative w-[150px] shrink-0">
-                            <input
-                              type="text"
-                              value={aiSkillModels[s.id] || ''}
-                              onChange={e => handleSkillModelChange(s.id, e.target.value)}
-                              placeholder="Modèle hérité"
-                              aria-label={`Modèle pour ${displayDefaultName}`}
-                              aria-invalid={!isValidModel(aiSkillModels[s.id] || '')}
-                              className={`w-full px-2.5 py-1 text-xs font-mono rounded-lg bg-[var(--bg-secondary)] border text-[var(--text-primary)] focus:outline-none ${
-                                isValidModel(aiSkillModels[s.id] || '')
-                                  ? 'border-[var(--border-color)] focus:border-[var(--accent-color)]'
-                                  : 'border-red-500'
-                              }`}
-                            />
-                          </div>
-
                           <div className="shrink-0 w-20 text-right">
                             {isInst ? (
                               <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-400">
@@ -1586,7 +1558,7 @@ export const ProjectModal: React.FC = () => {
             <button
               type="button"
               onClick={handleSubmit}
-              disabled={isSubmitting || !name.trim() || !modelsAreValid}
+              disabled={isSubmitting || !name.trim()}
               className="px-5 py-2 rounded-xl text-xs font-bold text-white accent-bg shadow-md hover:opacity-90 active:scale-95 flex items-center gap-1.5 transition-all disabled:opacity-50 cursor-pointer"
             >
               <Save size={14} />

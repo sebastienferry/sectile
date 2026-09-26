@@ -7,11 +7,13 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"tasks/internal/agentconfig"
 	"tasks/internal/db"
 	"tasks/internal/taskmcp"
 )
@@ -34,6 +36,55 @@ func mcpSilenceNotice() time.Duration {
 		return defaultMCPSilenceNotice
 	}
 	return timeout
+}
+
+// defaultMCPAbandonAfter is how long a client may say nothing before Sectile
+// gives up on it (#319): past it the session is closed and its runs are canceled
+// with the disconnect note, which their owner may still correct. Eight hours
+// covers a run waiting on its owner through a working day, while a client that
+// died no longer holds the board and its chain until the server restarts.
+const defaultMCPAbandonAfter = 8 * time.Hour
+
+// mcpAbandonAfter reads the deployment's override under the same rules as the
+// silence bound, and never returns less than that bound: a session is always
+// remarked upon before it is closed.
+func mcpAbandonAfter(silence time.Duration) time.Duration {
+	abandon := defaultMCPAbandonAfter
+	if raw := strings.TrimSpace(os.Getenv("SECTILE_MCP_SESSION_ABANDON_AFTER")); raw != "" {
+		if parsed, err := time.ParseDuration(raw); err == nil && parsed > 0 {
+			abandon = parsed
+		}
+	}
+	if abandon < silence {
+		return silence
+	}
+	return abandon
+}
+
+// mcpKeepaliveInterval reads how often the server pings each MCP session
+// (#517), under the same rules as the other bounds: unset, unparseable or
+// non-positive keeps the default.
+func mcpKeepaliveInterval() time.Duration {
+	raw := strings.TrimSpace(os.Getenv("SECTILE_MCP_KEEPALIVE_INTERVAL"))
+	if raw == "" {
+		return taskmcp.DefaultKeepaliveInterval
+	}
+	interval, err := time.ParseDuration(raw)
+	if err != nil || interval <= 0 {
+		return taskmcp.DefaultKeepaliveInterval
+	}
+	return interval
+}
+
+// mcpKeepaliveFailures reads how many pings in a row a session owning no run
+// may miss before it is closed. Unset, unparseable or non-positive keeps the
+// default.
+func mcpKeepaliveFailures() int {
+	failures, err := strconv.Atoi(strings.TrimSpace(os.Getenv("SECTILE_MCP_KEEPALIVE_FAILURES")))
+	if err != nil || failures <= 0 {
+		return taskmcp.DefaultKeepaliveFailures
+	}
+	return failures
 }
 
 // AgentAPIAuth shares the agent handshake's identity policy: every machine
@@ -183,15 +234,29 @@ func (h *Handler) HandleAgentIdentity(w http.ResponseWriter, r *http.Request) {
 // Statefulness is what makes a connection observable: a stateless endpoint
 // builds a throwaway session per request, so it can neither tell two clients
 // apart nor notice that one went away.
+//
+// A request for a session another instance holds is forwarded to it (see
+// mcpRouter).
 func (h *Handler) MCPHandler() http.Handler {
-	server := taskmcp.NewServerWithCallers(h.db, h.mcpSessions, h.mcpCaller)
-	return h.AgentAPIAuth(mcp.NewStreamableHTTPHandler(
-		func(*http.Request) *mcp.Server { return server },
-		// The transport is given no bound of its own: its timeout closes the
-		// session, which would cancel every run it adopted. Sectile owns the
-		// bound instead and only marks the silence (see SessionRegistry).
-		&mcp.StreamableHTTPOptions{JSONResponse: true, SessionTimeout: 0},
-	))
+	return h.AgentAPIAuth(h.mcpRouter(h.mcpStreamableHandler()))
+}
+
+// mcpStreamableHandler is the one transport handler of this instance. It holds
+// the sessions in memory, so the public and the internal routes share it, and
+// building it twice would split them.
+func (h *Handler) mcpStreamableHandler() http.Handler {
+	h.mcpOnce.Do(func() {
+		server := taskmcp.NewServerWithCallers(h.db, h.mcpSessions, h.mcpCaller)
+		h.mcpServer = server
+		h.mcpStreamable = mcp.NewStreamableHTTPHandler(
+			func(*http.Request) *mcp.Server { return server },
+			// The transport is given no bound of its own: its timeout closes the
+			// session, which would cancel every run it adopted. Sectile owns the
+			// bound instead and only marks the silence (see SessionRegistry).
+			&mcp.StreamableHTTPOptions{JSONResponse: true, SessionTimeout: 0},
+		)
+	})
+	return h.mcpStreamable
 }
 
 // mcpCaller names the user behind an MCP call from the bearer key of the HTTP
@@ -206,18 +271,32 @@ func (h *Handler) mcpCaller(header http.Header) (taskmcp.Caller, bool) {
 		return taskmcp.Caller{}, false
 	}
 	p := h.principalFor(credential.UserID)
-	return taskmcp.Caller{UserID: p.UserID, Name: p.Name, Role: p.Role}, true
+	// A key paired to no device is the shared server key: it names the
+	// implicit account, not a person, so its tracker writes are refused.
+	return taskmcp.Caller{UserID: p.UserID, Name: p.Name, Role: p.Role, Anonymous: credential.Device == nil}, true
 }
 
 // HandleMCPSessions reports the clients currently connected to the MCP
 // endpoint. It is a browser-facing status view, so it stays outside the
 // machine-API authentication that guards the endpoint itself.
+//
+// When several instances serve the deployment, the view lists the sessions of
+// every live one, and names in unreachable those that did not answer in time
+// rather than failing for them.
 func (h *Handler) HandleMCPSessions(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"sessions": h.mcpSessions.Snapshot()})
+	sessions := h.mcpSessions.Snapshot()
+	unreachable := []string{}
+	if peers := h.mcpCluster.peers(); len(peers) > 0 {
+		var remote []taskmcp.SessionView
+		remote, unreachable = h.mcpCluster.peerSessions(r.Context(), peers)
+		sessions = append(sessions, remote...)
+		taskmcp.SortSessions(sessions)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"sessions": sessions, "unreachable": unreachable})
 }
 
 func (h *Handler) HandleAgentConfig(w http.ResponseWriter, r *http.Request) {
@@ -233,6 +312,66 @@ func (h *Handler) HandleAgentConfig(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, config)
 }
 
+// HandleAgentExecutionSeed serves the execution values a server stored before
+// #305, read-only, so a workstation copies them once into its own file: the
+// deployment's with the caller's terminal and editor, and with projectId, what
+// the configuration used to compose for that project. Nothing is written.
+func (h *Handler) HandleAgentExecutionSeed(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+	credential, err := h.resolveAgentCredential(bearerToken(r))
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, agentAuthMessage(err))
+		return
+	}
+	defaults, err := h.db.LegacyWorkstationExecution(credential.UserID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	seed := agentconfig.Seed{SchemaVersion: agentconfig.Version, Defaults: defaults}
+	if projectID := strings.TrimSpace(r.URL.Query().Get("projectId")); projectID != "" {
+		project, err := h.db.LegacyProjectExecution(projectID)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		seed.Project = project
+	}
+	writeJSON(w, http.StatusOK, seed)
+}
+
+// HandleAgentCapabilities stores what the calling workstation reported it will
+// run, per project (#305). The report is the caller's own: its user comes from
+// the credential, never from the body.
+func (h *Handler) HandleAgentCapabilities(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPut {
+		writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+	credential, err := h.resolveAgentCredential(bearerToken(r))
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, agentAuthMessage(err))
+		return
+	}
+	var report agentconfig.CapabilityReport
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&report); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid capability report")
+		return
+	}
+	if report.SchemaVersion != agentconfig.Version {
+		writeError(w, http.StatusBadRequest, "Unsupported capability report version")
+		return
+	}
+	if err := h.db.SaveCapabilities(credential.UserID, report); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (h *Handler) HandleAgentProjects(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
@@ -240,6 +379,7 @@ func (h *Handler) HandleAgentProjects(w http.ResponseWriter, r *http.Request) {
 	}
 	projects, err := h.db.AgentProjects()
 	if err != nil {
+		log.Printf("[AgentAPI] cannot list projects: %v", err)
 		writeError(w, http.StatusInternalServerError, "Cannot list projects")
 		return
 	}

@@ -156,3 +156,13 @@ loop and the per-project limiter stay in-process.
   contradicts the convention stated at `NewDB`.
 - **An ORM.** It would rewrite all 342 queries to solve a problem that is six
   syntactic differences wide.
+
+## Amendment (#410, 2026-09-26): several instances are supported
+
+The consequence "Multi-instance is therefore not merely unsupported, it is
+unsafe" no longer holds. Macro #397 made every piece of state that lived in one
+process either shared through PostgreSQL or reached through the instance that
+holds it, and the queue no longer runs a job twice. Several server instances on
+one PostgreSQL database are the supported way to scale and to deploy without
+downtime; SQLite remains single-instance. See
+[ADR 0030](0030-several-server-replicas-share-one-postgresql.md).

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"tasks/internal/agentconfig"
 	"tasks/internal/db"
+	"tasks/internal/models"
 	"time"
 )
 
@@ -42,7 +43,15 @@ func (h *Handler) handleCancelRemoteRun(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 	run, err := h.db.GetActivityByID(input.RunID)
-	if err != nil || run == nil || run.TaskID != task.ID || run.SkillID != "remote_run" || run.Status != "running" || run.Action != db.RunActionAgent {
+	if err != nil || run == nil || run.TaskID != task.ID || run.SkillID != "remote_run" || run.Status != "running" {
+		writeError(w, 409, "Active remote execution not found")
+		return
+	}
+	if run.Action == db.RunActionClient {
+		h.closeClientRun(w, r, task, run)
+		return
+	}
+	if run.Action != db.RunActionAgent {
 		writeError(w, 409, "Active remote execution not found")
 		return
 	}
@@ -94,5 +103,31 @@ func (h *Handler) handleCancelRemoteRun(w http.ResponseWriter, r *http.Request, 
 		writeError(w, 409, err.Error())
 		return
 	}
+	writeJSON(w, 200, activity)
+}
+
+// closeClientRun closes a run a connected client created, from the board (#319).
+// No agent holds such a run, so there is nothing to stop: its client is an MCP
+// session, alive or long gone. The run is closed the way a disconnection closes
+// it, with the disconnect note, so its owner can still report the real outcome
+// through finish_run, and it goes through FinishRemoteRunAs so the workflow is
+// handed back exactly as a reported end would. Its session then forgets it,
+// rather than closing it a second time when it ends.
+func (h *Handler) closeClientRun(w http.ResponseWriter, r *http.Request, task *models.Task, run *models.TaskActivity) {
+	caller, ok := h.requireOwnerOrAdmin(w, r, run.UserID)
+	if !ok {
+		return
+	}
+	activity, err := h.db.FinishRemoteRunAs(caller.Actor(), caller.IsAdmin(), task.ID, run.ID, "canceled", models.RunDisconnectNote)
+	if errors.Is(err, db.ErrRunNotYours) {
+		writeError(w, http.StatusForbidden, msgNotOwner)
+		return
+	}
+	if err != nil {
+		writeError(w, 409, err.Error())
+		return
+	}
+	h.mcpSessions.ReleaseRun(run.ID)
+	log.Printf("[RemoteRun] Closed client run %s on task %s from the board", run.ID, task.ID)
 	writeJSON(w, 200, activity)
 }

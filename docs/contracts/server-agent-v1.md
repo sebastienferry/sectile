@@ -22,13 +22,17 @@ ambiguous tracker keys. A task lookup resolves the actual owning project.
 | `gitRemoteUrl` | Repository identity for automatic local matching, not a path to clone automatically. |
 | `githubRepo`, `issueTracker`, `trackerUrl`, `jiraProject` | Optional effective project-over-global repository and tracker metadata for local command placeholders. Missing fields use local directory basename and task source (then `github`) fallbacks. No credentials or server paths. |
 | `specFramework` | Specification framework used by the project skills. |
-| `useWorktrees` | Create/reuse task worktrees when true; validate the existing checkout when false. |
-| `aiProvider` | `codex`, `claude`, `agy`, `gemini`, `cursor`, `vibe`, or `custom`; empty uses the legacy `agy` default. |
-| `aiCommandTemplate` | Optional shell template containing `{prompt}`. Required for `custom`; argument placeholders are shell-safe: `{prompt}`, `{issueKey}`, `{issueTitle}`, `{issueDesc}`, `{branchName}`, `{repoPath}`, `{tracker}`, `{repo}`. Task values are fetched for each launch; branch/path identify local execution. See [desktop usage](../../desktop/README.md). Custom providers still require supported native MCP bootstrap. A template without `{prompt}` on a named provider is legacy data: the server serves it as empty and the provider default runs. |
-| `aiModel` | Optional model the engine runs against. Passed as `--model <value>` to `claude`, `codex`, `gemini` and `cursor`; ignored by `agy` and `vibe`. Empty keeps the CLI default. A command template supersedes it: no flag is injected, and the value reaches the template only through its optional `{model}` placeholder, and an unresolved placeholder is removed together with the option that introduces it. Validated on shape (`^[A-Za-z0-9][A-Za-z0-9._:@/-]*$`), never against a list of known models. |
-| `aiSkillModels` | Optional `skillId -> model` map for the skills that depart from `aiModel`. An absent or empty entry inherits; it never means "no model". Entries naming no configured skill are ignored. |
-| `externalTerminalCommand` | Terminal application/launcher selection. No silent fallback to a hidden PTY after launch failure. |
-| `skills` | Array of `{id, directory, command, content, commandContent}`. IDs and installation destinations must be unique and safe. |
+| `skills` | Array of `{id, directory, command, content, commandContent}`. IDs and installation destinations must be unique and safe. `command` is the stage's standard command; a workstation replaces it with its own command name (see *Execution defaults and local overrides*). |
+| `specArtifacts` | Optional, `keep` or `drop`. `drop` keeps the tasks' clarification and specification files out of the repository: before a task's session starts, the agent writes their ignore rules in a Sectile-managed block of the primary checkout's `.git/info/exclude`, and removes the block when the effective value is `keep`. Absent (an older server) reads as `keep`. A workstation may override it (see *Execution defaults and local overrides*). |
+| `monoRepo` | Optional repository layout. `true` lets the code checkout carry the macro specifications when no specifications folder is set on the workstation; `false` requires that folder for every macro operation. Absent (an older server) reads as `true`. |
+
+**No longer sent since #305** (ADR 0031): `useWorktrees`, `aiProvider`,
+`aiCommandTemplate`, `aiCommandTemplateAutonomous`, `aiModel`, `aiSkillModels`,
+`externalTerminalCommand` and `setupProviders`. They are workstation settings.
+An agent that still receives them from an older server discards them before
+resolving its own; an agent that predates #305 reads none of them from a new
+server and runs its local values over the provider defaults, which is why
+ADR 0006 asks to upgrade both together.
 
 An explicit project connection downloads, validates and installs configuration
 before registering its WebSocket. Every dispatch downloads it again, even when
@@ -43,27 +47,46 @@ Already running coding clients are not restarted or modified by a later download
 
 ## Precedence
 
-Server settings resolve project overrides over global defaults. On the workstation,
-`.taskflow/agent.json` supports repository mappings (`projects`), `aiProvider`,
-`aiCommandTemplate`, `aiModel`, `aiSkillModels`, `terminal` and skill content
-overrides (`skills`).
-These values are never uploaded. Changing the provider locally without a local
-command template clears the inherited provider's command template.
+The server resolves the method only: project metadata over the deployment's.
+Every execution setting is resolved by the agent from
+`~/.config/sectile/settings.json` (ADR 0031): the project section, then the
+workstation defaults, then the provider defaults (the shipped model list, the
+detected terminal, editor `code`, worktrees on, one execution at a time, no
+extra setup provider, the stage's standard command). These values are never
+uploaded, except as the capability report below.
 
-Model selection resolves level by level, most specific first: workstation, then
-project, then global. The most specific statement wins: naming a skill outranks a
-bare model, whatever level that bare model sits on, so a bare model governs only
-the skills no level singles out. Every level empty reproduces the command lines
-that predate model selection.
+The engine (provider, interactive and headless templates, model, per-skill
+models) is a catalogue entry since #510 (ADR 0033), resolved as a whole: the
+engine a task was switched to on this workstation, else its project's default
+engine, else the workstation default engine. Nothing is inherited from another
+engine; an empty template runs the provider's own command and an empty model
+the provider's own model. A resolution without a task (capability report,
+macro skills, project refresh, free console) uses the project default engine.
+A file stating no engine runs `agy` with its defaults.
 
-Execution parallelism has no server-side counterpart: the configuration payload
-carries no `parallelism` field, and the workstation value in
-`~/.config/sectile/settings.json` is the only source. An agent predating this
-removal reads no value and falls back to a single execution per project.
+Model selection within the engine: a per-skill model outranks the engine
+model. The launch's one-off model outranks both, but only when the task runs
+its project default engine, the one the capability report describes; on
+another engine it is ignored, and the run record says what ran.
 
-Terminal application selection is: explicit `--terminal`, explicit request
-`terminalOverride`, local overrides, project configuration, global configuration,
-then environment/platform detection. Selecting `pty` or `none` uses a local PTY;
+Skills and the Sectile MCP registration are set up for the running provider,
+the extra setup providers, and the provider of every catalogue engine that
+takes skills, so a task switched to any of them finds them in place.
+
+Parallelism is 1 to 10, from the project section, else the defaults, else 1,
+and 1 whenever worktrees are off. Extra setup providers from the project
+section replace the defaults' list rather than adding to it; an empty list is
+the decision "none".
+
+The checkout's legacy `.taskflow/agent.json` is still read as a fallback for
+the keys the workstation settings leave unset, and never written.
+
+Terminal application selection is: the terminal picked for the action itself,
+explicit `--terminal`, the project section, the workstation defaults, the
+agent's default terminal, then environment/platform detection. The server sends
+no terminal since #305 (`terminalOverride` is gone from the dispatch). The
+editor that `open_editor` runs is the workstation default `editorCommand`, else
+the `editor` an older server still sends, else `code`. Selecting `pty` or `none` uses a local PTY;
 the explicit `open_terminal` action requires an external window. Legacy
 `.taskflow/config.json` is not a second terminal-settings source.
 
@@ -115,6 +138,34 @@ agent ignores obsolete configuration/path fields and fetches current settings.
 Versionless legacy dispatches are accepted; other nonzero versions are rejected.
 Upgrade server and agent together for the initial v1 rollout.
 
+A macro-scoped skill (`realign_macro`, #426) is dispatched with the same
+message and no task: `taskId`, `taskKey` and the envelope's `taskId` are empty,
+`projectId` is set, and the payload names the macro:
+
+```json
+{
+  "schemaVersion": 1,
+  "taskId": "",
+  "taskKey": "",
+  "projectId": "actual-project-id",
+  "macroKey": "M-7",
+  "macroTitle": "Ux improvements and fixes",
+  "skillId": "realign_macro",
+  "action": "realign_macro",
+  "mode": "interactive",
+  "runId": "remote-run-id"
+}
+```
+
+The agent runs it interactively in the project's mapped checkout, after
+preparing the macro worktree (below), with `SECTILE_MACRO_KEY`,
+`SECTILE_MACRO_PROJECT_ID`, `SECTILE_SPEC_REPO`, `SECTILE_SPEC_BRANCH` and
+`SECTILE_SPEC_WORKTREE` in its environment and every `SECTILE_TASK_*` empty. On
+a specifications folder that is not a Git repository, `SECTILE_SPEC_BRANCH` is
+empty and `SECTILE_SPEC_WORKTREE` is `false`. It reads no task and records no
+branch. An agent that predates `macroKey` refuses
+the dispatch as a task dispatch without a task.
+
 `step_status` correlates with `msgId` and reports `running`, `completed` or
 `failed`, with a summary. `completed` acknowledges launch only, not completion of
 the requested workflow stage. Web launch requests wait up to 45 seconds. The
@@ -134,7 +185,7 @@ code does not import the server handlers, database or embedded UI.
 | Interface | Address and authentication | Ownership |
 | --- | --- | --- |
 | Server API | `http(s)://<server>:8090`; machine endpoints take the workstation API key as bearer credential | Tasks, project settings, tracker queues, `/api/v1/agent/*`, `/ws/agent-connect`, `/mcp` |
-| Agent Loopback | `http://127.0.0.1:8091` or a dynamically assigned loopback port; the `/mcp` and `/api/` proxies take the same API key, desktop/control calls use the private discovered desktop token | `/desktop/*`, `/control/*`, consoles, local repository mappings and MCP proxy |
+| Agent Loopback | `http://127.0.0.1:8091` or a dynamically assigned loopback port; the proxies take the same API key by default (`/mcp` alone permits explicit local no-auth opt-in), desktop/control calls use the private discovered desktop token | `/desktop/*`, `/control/*`, consoles, local repository mappings and MCP proxy |
 | MCP | Server `/mcp`, a stateful Streamable HTTP endpoint, addressed directly with the API key; the `mcp --url <server>` stdio bridge relays for clients without HTTP transport | Typed tools with server-owned state; no local SQLite; one server session per connected client; no agent required |
 
 The existing web REST API relies on the deployment's access-control boundary.
@@ -145,8 +196,8 @@ Cross-origin loopback requests are rejected. The private discovery file is
 The server pings each agent connection every 10 seconds and drops a connection
 that produces neither a frame nor a pong for 30. The agent answers these pings
 from its own read loop, which stays responsive because operations run
-concurrently. Without this, a connection lost without a close frame — a
-suspended machine, a dropped VPN, an expired NAT binding — stays registered and
+concurrently. Without this, a connection lost without a close frame (a
+suspended machine, a dropped VPN, an expired NAT binding) stays registered and
 every request routed to it waits out its full deadline. The agent keeps sending
 its own 30-second `heartbeat` message, which also refreshes the deadline.
 
@@ -168,6 +219,107 @@ branches, checkout, deletion, diff and evidence; worktree preparation/removal an
 inspection; editor opening; CLI/skill/SDD status and provisioning; skill reading;
 and LLM prompt execution. There is no arbitrary shell action or working-directory parameter. Explicit
 editor/provider settings retain their existing configuration behavior. Launches use the existing `dispatch_step` contract.
+
+`pr_evidence` reads the pull or merge request carrying a branch (`payload.branch`,
+else the task branch) with the forge CLI logged in on the workstation. The server
+asks for it when the project's code remote is not a GitHub one, since it cannot
+reach that forge itself. A forge that answered without a usable request returns
+a `refusal` value instead of an error; an error result always means the lookup
+itself failed and never that the request is absent:
+
+```json
+{"value":{"forge":"gitlab","url":"https://gitlab.example/g/app/-/merge_requests/9","branch":"feat/task","sha":"commit","open":true,"draft":false,"merged":false}}
+{"value":{"forge":"gitlab","refusal":"no matching open or merged merge request; recover through the configured creation owner"}}
+```
+
+Without `origin` in the task checkout, the lookup fails with
+`project checkout has no origin remote; ...` rather than a Git exit status.
+
+`macro_worktree` (`payload.macroKey`, `payload.macroTitle`, no task) prepares a
+macro's specification checkout on the workstation and answers
+`{"path", "branch", "worktree", "warning"}`. The specifications folder is the
+workstation's own setting for the project (`specRepos` in the local settings,
+edited as "Specifications folder" in the desktop project dialog), else, on a
+mono-repo project, the project's mapped checkout; a multi-repo project without
+one is refused with a message naming the setting. The server holds no
+specifications path (#443). On a Git folder the worktree is
+`.tasks/worktrees/<KEY>` in that repository, on the existing branch named after
+the key or a new `<KEY>-<slug>` from the fetched default branch; an existing tree
+is reused as is. With worktrees off, the checkout itself is returned with
+`worktree: false` and nothing is created. On a folder outside any Git checkout,
+nothing is created either: the answer is the folder itself, an empty `branch`,
+`worktree: false` and a `warning` saying nothing will be committed or pushed.
+The server adds `projectId`, `macroKey` and the macro's `todos` when it relays
+the answer through the `prepare_macro_worktree` MCP tool, so a skill invoked by
+hand, which holds no API token, reads its input from the same call.
+
+`macro_spec_file` (`payload.macroKey`, `payload.framework`, `payload.specFile`,
+no task) reads one file of a macro's specification for the server's slicing
+import: `specFile` is `tasks.md` or `spec.md`, looked for under `specs/` (or
+`openspec/changes/` for OpenSpec) in the same specifications folder as
+`macro_worktree`, in a folder named after the key. The working tree is read
+first; on a Git folder only, the macro's branch is read when the working tree
+does not carry the folder. It answers `{"content", "origin"}`, `origin` being
+the path read or `<branch>:<path>`. Refusals are written for the user, in
+French, and shown as they are. An agent that predates the action answers
+`unknown local operation "macro_spec_file"`, which the server turns into a
+request to update the desktop app; no agent connected for the requesting user
+is likewise reported as the desktop app to connect.
+
+`repository_worktree` (`payload.taskId`, `payload.repository`, `payload.branch`)
+prepares a task's worktree in a secondary repository of a multi-repo project
+(#456), with the logic of the primary worktree: the worktree that already has
+the task branch checked out is reused, else `.tasks/worktrees/<KEY>` is created
+in that repository's mapped folder. It answers `{"repository", "path", "branch"}`,
+`repository` echoing the request; the server reads a missing echo as an agent
+too old to answer. A repository outside the project, not mapped on the
+workstation, or on a mono-repo project is refused. `remove_workspace` with
+`payload.repositories` removes the task worktree in each of those repositories
+and answers `{"removed": [...], "failed": [{"repository", "error"}]}`.
+
+Each dispatch resolves the task's primary repository before anything starts:
+its pin (`task.repository`), else the project's only repository, else the code
+remote of a mono-repo project, else the only repository mapped on the
+workstation, which the agent then pins. When several are mapped and none is
+pinned, the agent parks the dispatch, marks the run through
+`POST /api/activities/{id}/awaiting-repository` `{"waiting": true}` (autonomous
+runs included), releases its run slot, and reads the task back every five
+seconds until it is pinned; it then clears the mark and resumes the same run.
+The launch receives the task's folder map as `SECTILE_REPOSITORIES`, a JSON
+array of `{"remote", "identity", "role", "path", "worktree"}` where `role` is
+`primary`, `changed`, `context` or `spec` and `path` is empty when the
+repository is not mapped here. The first agent to see a project whose
+`repositoriesMigration` is empty reads `GET /api/projects/{id}/legacy-repo-paths`,
+resolves each path's `origin` locally and posts the result to
+`POST /api/projects/{id}/repositories/convert`; the server applies the first
+report and answers 409 to the others.
+
+A macro run is stopped with `POST /api/projects/{id}/macros/{key}/cancel-run`
+`{runId, force}`, which dispatches `cancel_run` with no task to the owner's agent,
+under the same rules as a task run: an agent that no longer has the run closes it
+as orphaned, and an unreachable agent needs `force`.
+
+A pull request can live in a repository other than the project's (#392): a
+project without a code remote, or not mono-repo, may name one through `prUrl`.
+The server then sends `payload.repository`, the `host/path` identity of that
+repository. `pr_evidence` looks the branch up there (GitLab only: the server
+reads GitHub itself), using the task checkout, or the project root when there is
+none, only as a working directory. `git_evidence` answers for a verified
+checkout of that repository instead of the task checkout: the first of the
+workstation's mapping of that repository (#456), the
+task's `repoPath`, the project's `repoPath` and `repoPaths` whose own `origin`
+names the repository and which has the branch checked out. Server paths are
+hints; the local `origin` decides. Both answers echo `repository`; the server
+reads a missing echo as an agent too old to answer, never as evidence about the
+project checkout:
+
+```json
+{"value":{"repository":"gitlab.example/g/tools","found":true,"path":"/work/tools","sha":"commit","branch":"feat/task","clean":true}}
+{"value":{"repository":"gitlab.example/g/tools","found":false,"path":"","sha":"","branch":"","clean":false}}
+```
+
+`found: false` means no verified checkout; the stage then proceeds on the
+forge's evidence and its report says the head was not verified locally.
 
 Requests normally have a 45-second deadline; purely local read-only inspections
 (Git evidence, status and branches, worktree info, SDD/skill status, skill
@@ -277,7 +429,7 @@ already holds is not recorded twice, and omitting the argument preserves the set
 
 One ticket routinely produces several pull requests: a first one merged, then a
 follow-up pushed on the same branch. A pull request that shares a branch with a
-recorded link is that follow-up and is appended — a merged link never vetoes it.
+recorded link is that follow-up and is appended: a merged link never vetoes it.
 A pull request on a branch no recorded link mentions is a substitution and is
 refused, naming the branches the task actually recorded; correcting or detaching
 those links from the task detail view is how that refusal is resolved. For
@@ -297,17 +449,43 @@ Standalone skills call `start_run(taskKey, skill, runId?)`, retaining
 the returned activity ID. A supplied launcher run ID reuses the existing run.
 The invocation owner calls `finish_run(taskKey, runId, status, note)`
 with completed, failed or canceled when it ends, including a stop for user input.
+A macro skill run names `projectId` and `macroKey` instead of `taskKey`, in both
+calls; naming both forms, or a macro key without its project, is refused. Such a
+run is a project activity with no task, and its end hands nothing back to a
+workflow chain.
 Nested skills reuse their owner's run; intermediate transitions do not close it.
 These activities never acquire the managed-stage transition guard.
 
-Cards and list rows display a single run icon while a run is active — running takes
-precedence over queued, and a cancellation stays visible briefly — updated
+Cards and list rows display a single run icon while a run is active: running takes
+precedence over queued, and a cancellation stays visible briefly, updated
 through server events and polling. Reading a task alone never marks it running.
 A run started over MCP is owned by the session that started it, so an abrupt
 client termination closes it as canceled instead of leaving the task active; the
 note records that the client disconnected. Agent-dispatched runs keep their own
 reporting path. This indicator reports declared execution state, not process
 liveness.
+
+### Declaring a wait for the user
+
+A standalone skill calls `report_waiting(taskKey, runId, waiting)` with
+`waiting: true` right before it asks its user a question it cannot continue
+without. Ownership follows `finish_run`: the run's owner, an administrator, or
+anyone on a run with no recorded owner. The run keeps `running` and gains
+`waitingSince`; a repeated mark keeps the first instant. A headless run is left
+unmarked and the result says so (`applied: false`). The wait ends on the
+declaring session's next tool call other than `report_waiting` (a ping does not
+count), on `waiting: false`, on any terminal status, and when the declaring
+session ends. Tool permission prompts are not reported: only a question the model
+asks deliberately is.
+
+When a run an agent dispatched starts or stops waiting, the server sends the
+owner's agent a `run_waiting` message, `{"runId": "...", "waitingSince":
+"<RFC3339>"|null}`, locally or through another instance. An agent holding that
+run records `waitingSince` on its `/desktop/runs` entry, except for a headless
+run, and ignores a run it does not hold; the desktop raises its banner from that
+list. The message is additive: an agent that predates it logs the unknown type
+and carries on. A message sent while no agent is connected is lost, and the
+agent's list catches up on the next change.
 
 ## MCP session ownership
 
@@ -341,6 +519,32 @@ recoverable: its owner, or an administrator, may still report its outcome throug
 `finish_run`, which replays the hand-back on the corrected status. `SECTILE_MCP_CLIENT` names the
 bridge in the session list, defaulting to host and process id.
 
+`SECTILE_MCP_SESSION_ABANDON_AFTER` bounds how long a silence lasts before the
+session is taken for a client that died without closing its connection,
+defaulting to eight hours; a value below the silence bound is raised to it, and
+an unusable value keeps the default. Crossing it closes the session, the
+transport's included, and cancels the runs it owns with the disconnect note,
+after the silence sentence; their owner may still report the real outcome. The
+rewrite matches the disconnect note anywhere in the summary, so a run silenced
+and then closed stays recoverable.
+
+The server pings every session every `SECTILE_MCP_KEEPALIVE_INTERVAL` (25s by
+default) over the standalone `GET /mcp` stream, so a proxy never finds that
+stream idle. A session that owns no run is closed, transport included, once
+`SECTILE_MCP_KEEPALIVE_FAILURES` pings in a row (3 by default) got no answer and
+its client sent nothing in between. A session that owns a run is never closed by
+a missed ping: the silence and abandon bounds above still decide for it. A ping
+reply is not a client message and does not reset the silence. An unusable value
+of either setting keeps its default.
+
+A run a client created has no agent to stop. `POST /api/tasks/{id}/cancel-run`
+closes it instead, for its owner or an administrator only (an ownerless run is an
+administrator's), through the same path as `finish_run`: status `canceled`, the
+disconnect note, the hand-back, and the run released from its session. The
+activities view's `POST /api/activities/{id}/cancel` closes it the same way,
+with a note of its own that makes the cancellation final. Agent-dispatched runs
+are unchanged.
+
 A restart destroys every session at once, so startup closes the runs those
 sessions owned, with status `canceled` and a note naming the restart. A run's
 action records its owner and survives the restart: `Agent-owned remote execution`
@@ -371,6 +575,15 @@ skill commits and pushes validated specs, opens or reuses a draft PR/MR, and
 attaches its URL in the specified transition. Implementation and review update
 that same PR/MR; only completed review makes it ready. Opening the draft alone
 does not advance the task to reviewed. Tracker synchronization remains server-owned.
+
+A workstation that drops the specification artefacts (`specArtifacts`) has
+nothing to show on the branch at specification. When a `specified` transition
+of such a project names no pull request, the server asks the actor's agent
+with the `spec_artifacts` operation, which answers `{"mode":"keep"|"drop"}`
+with its effective value for the task. On `drop` the transition is accepted
+without a pull request and its note says that it is deferred to the
+implemented stage, which requires it as usual. Any other answer, including an
+error from an agent that predates the operation, keeps the requirement.
 
 ## Local console service
 
@@ -436,20 +649,108 @@ default file and its legacy private connection file.
 
 ### Execution defaults and local overrides
 
-The server project supplies the `useWorktrees` default, which **Inherit worktrees
-from server** restores in the desktop project settings. Parallel executions
-(1 to 5) are workstation-owned: the server neither stores nor supplies a value,
-the desktop app is the only surface that sets one, and a project without a local
-value runs a single execution at a time.
-Workstation settings are saved in `~/.config/sectile/settings.json` as project-ID maps:
+The workstation settings file is written in layout 3:
 
 ```json
 {
-  "projects": {"project-id": "/path/to/repository"},
-  "worktrees": {"project-id": true},
-  "parallelism": {"project-id": 2}
+  "server": "https://sectile.example", "deviceId": "laptop", "apiKey": "...",
+  "layout": 3,
+  "defaults": {
+    "aiProviderModels": {"claude": ["claude-opus-5", "claude-sonnet-5"]},
+    "terminal": "ghostty", "editorCommand": "cursor",
+    "useWorktrees": true, "parallelism": 2, "setupProviders": ["codex"]
+  },
+  "projectSettings": {
+    "project-id": {
+      "path": "/path/to/repository", "specPath": "/path/to/specs", "terminal": "iterm",
+      "useWorktrees": false, "parallelism": 1, "setupProviders": null,
+      "skillCommands": {"implement": "code-issue"}, "specArtifacts": "drop"
+    }
+  },
+  "engines": {
+    "catalogue": [
+      {"id": "e-1f3a9c20b7d4", "name": "Claude Opus", "provider": "claude",
+       "model": "claude-opus-5", "skillModels": {"implement": "claude-sonnet-5"},
+       "command": "", "commandAutonomous": ""},
+      {"id": "e-7c01d2e9aa51", "name": "Codex", "provider": "codex", "model": "gpt-5"}
+    ],
+    "default": "e-1f3a9c20b7d4",
+    "projects": {"project-id": "e-7c01d2e9aa51"},
+    "tasks": {"task-id": "e-1f3a9c20b7d4"}
+  },
+  "repositories": {"github.com/owner/other": "/path/to/other"},
+  "seeded": {"defaults": "https://sectile.example", "defaultEngine": "e-1f3a9c20b7d4",
+             "projects": {"project-id": "2026-09-25T00:00:00Z"}}
 }
 ```
+
+Every field is optional and an empty one inherits; `useWorktrees` absent,
+`parallelism` 0 and `setupProviders` null inherit. A present
+`aiProviderModels` key is a choice, even with an empty list; an absent one
+offers the shipped list. `skillCommands` replaces the slash command a stage
+runs, a single word with an optional leading `/`. `specArtifacts` overrides
+whether this workstation keeps or drops the tasks' specification artefacts
+(`keep` or `drop`, #487); absent follows the server. Saving the desktop project
+settings with an effective `keep` removes the project's block from every
+checkout the workstation maps for it; lines outside the block are never
+touched.
+
+`engines` (#510) holds the catalogue in its order (1 to 20 engines, names
+unique ignoring case, at most 64 characters), the workstation default engine,
+each project's default engine and each task's engine, by task primary key.
+Identities are the agent's: a choice naming no catalogue engine reads as none
+and is dropped on the next write, and removing an engine drops the choices
+pointing at it. The key sits outside the ones an agent of layout 2 replaces,
+so such an agent keeps it when it saves.
+
+The engine fields of layout 2 (`aiProvider`, `aiCommandTemplate`,
+`aiCommandTemplateAutonomous`, `aiModel`, `aiSkillModels` in `defaults` and in
+project sections) are converted into catalogue entries on every read, and the
+agent persists the conversion once at start, after copying the previous file
+to `settings.json.bak-layout<N>`. Each level becomes an entry equal to what it
+resolved, identical profiles share one entry, and a project that stated
+engine fields picks its entry. The conversion runs again, reusing identical
+entries and keeping the default engine, if an older agent writes engine fields
+back.
+
+A file written before #305 (flat `aiProvider`, `aiModel`, `terminal`... and the
+per-project maps `projects`, `specRepos`, `worktrees`, `parallelism`,
+`terminals`, `aiProviders`, `aiModels`, `commands`, `commandsAutonomous`,
+`specArtifacts`) is
+read with the same meaning and rewritten in the current layout on the next
+save. An emptied map or list leaves the file rather than keeping its previous
+content.
+
+The desktop edits both levels through the agent: `GET`/`PUT /desktop/workstation`
+for the defaults, `POST /desktop/projects` for a project section (each field
+with an `inherit…` flag), and `GET /desktop/project` answers, per execution
+field, `{value, inherited, source}` with `source` one of `project`,
+`workstation` or `default`. An invalid value is refused with its reason and the
+file is left unchanged. The Electron companion writes connection keys only.
+Both saves refuse the engine fields of layout 2 with a 400 naming the engine
+catalogue; a project save picks its engine with `defaultEngine` (an engine
+identity, unknown: 400) or `inheritDefaultEngine: true`.
+
+`GET /desktop/status` advertises `task-engines` when the agent keeps the
+catalogue. The desktop then uses:
+
+- `GET /desktop/engines`: `{catalogue, default, providers, providerModels,
+  projects, taskCounts}`, the last two saying what points at each engine;
+- `PUT /desktop/engines` with `{catalogue, default}`: the whole catalogue in
+  its new order, a new engine without `id`; 400 with the validation message,
+  409 when the default engine is left out, then a new capability report;
+- `GET /desktop/task-engines?projectId=<id>`: `{projectDefault, catalogue:
+  [{id, name, provider, model}], tasks: {taskId: engineId}}`;
+- `PUT /desktop/task-engines` with `{projectId, taskId, engineId}`: stores the
+  task's engine, none when it is the project default engine; 404 when the
+  engine is not in the catalogue. The capability report does not change.
+
+`repositories` maps each repository of a multi-repo project, by its
+`host/path` identity, to the folder holding its checkout on this workstation
+(#456). It is keyed by repository rather than by project, so one checkout
+serves every project that works in it; the desktop project settings write it,
+and refuse a folder whose `origin` is another repository. The project's own
+repository keeps its folder in its project section's `path`.
 
 Without effective worktrees, the agent enforces one execution and the UI
 disables parallelism selection. Requests are acknowledged when queued; their
@@ -466,7 +767,74 @@ console history are held in memory for the agent lifetime.
 Agent settings and project mappings live in
 `~/.config/sectile/settings.json`, shared by the CLI agent and companion.
 Writes preserve connection fields, use atomic replacement and mode 0600.
-Legacy repository mappings remain readable and are migrated on the next save.
+Legacy repository mappings and the pre-#305 layout remain readable and are
+migrated on the next save.
+
+### Execution seed
+
+`GET /api/v1/agent/execution-seed[?projectId=<ID>]`, agent bearer, serves the
+execution values a server stored before #305, read-only, for one release
+(#492 drops them):
+
+```json
+{
+  "schemaVersion": 1,
+  "defaults": {"aiProvider": "claude", "aiCommandTemplate": "...", "aiModel": "...",
+               "aiSkillModels": {}, "aiProviderModels": {}, "terminal": "...", "editorCommand": "..."},
+  "project": {"projectId": "...", "aiProvider": "...", "aiCommandTemplate": "...", "aiModel": "...",
+              "aiSkillModels": {}, "terminal": "...", "useWorktrees": true,
+              "setupProviders": [], "skillCommands": {}}
+}
+```
+
+`defaults` is the deployment row, with the caller's own terminal and editor
+(which fall back to the deployment's); the column default editor `code` is not
+sent. `project` is what the configuration composed for the project before
+#305, project row over deployment, its terminal being the project row's own.
+Empty values are omitted.
+
+The agent seeds its defaults after the first identity check of a connection,
+and a project the first time it resolves it, once each (`seeded`). It writes
+only the keys the file does not set, and only where they change the outcome of
+the local resolution, computed with the pre-#305 precedence so a launch
+resolves what it resolved before the upgrade. Since #510 the engine goes to
+the catalogue: the deployment's becomes the workstation default engine while
+the workstation states none (`seeded.defaultEngine`), and a project that
+resolves differently picks an entry, found or created, completing the pick it
+may already have. A fetch failure writes and marks
+nothing; the next connection or resolution retries. A disconnected project is
+not seeded, and pairing to another server does not seed the defaults again.
+
+### Capability report
+
+`PUT /api/v1/agent/capabilities`, agent bearer, answers `204`:
+
+```json
+{
+  "schemaVersion": 1,
+  "deviceId": "laptop",
+  "projects": [{"projectId": "...", "provider": "claude", "model": "claude-opus-5",
+                "skillModels": {"implement": "claude-sonnet-5"},
+                "models": ["claude-opus-5", "claude-sonnet-5"],
+                "modelSlot": true, "headless": true}]
+}
+```
+
+The agent sends it, for every project it serves, after registering its
+WebSocket and after each local save. It describes the project default engine;
+a task switched to another engine changes nothing in it. A model is reported only when it reaches
+the command line; `modelSlot` says whether a launch model can; `headless`
+whether an autonomous run is possible. The report belongs to the credential's
+user and to `deviceId`, the device the agent presents on its WebSocket; the
+server keeps the latest per user, device and project.
+
+`GET /api/projects/{id}/engine` (web session) returns the caller's own report
+for the workstation connected for that project,
+`{"state": "reported", ...the fields above..., "reportedAt": "..."}`, or
+`{"state": "unknown"}` when none of their agents is connected for it. A launch
+records its provider and model from that report; without one they stay empty
+until the agent posts the engine it actually launched
+(`POST /api/activities/{id}/engine`).
 
 | Command | Action |
 | --- | --- |
@@ -581,8 +949,8 @@ States remain `new`, `clarified`, `specified`, `implemented`, `reviewed`, `finis
 A reviewed task offers Handoff; repeat Adjust is explicit and requires an open PR.
 
 The `prCreationStage` policy assigns draft creation to specification or implementation
-(default). Adjustment requires an existing matching PR — open, or already merged by the
-human, in which case it reviews the merged state without pushing — performs full review
+(default). Adjustment requires an existing matching PR (open, or already merged by the
+human, in which case it reviews the merged state without pushing), performs full review
 and feedback disposition, checks the final code, updates the same PR and verifies
 readiness. Lookup failure is not absence. Creation-owner recovery retains an already
 implemented stage. Completion records the PR URL at the owning stage.
@@ -592,8 +960,8 @@ customizations until their legacy content has been reviewed and saved under Adju
 or reset in the skill editor. Legacy entries and divergent installed files remain
 available; custom adjustment content also receives the current built-in contract.
 
-Managed adjustment verifies the PR identity against the task's recorded set —
-the same PR, or a newer one on a branch the task already used — together with the
+Managed adjustment verifies the PR identity against the task's recorded set:
+the same PR, or a newer one on a branch the task already used, together with the
 branch, pushed commit, clean checkout and reported build/lint/test checks at
 completion. A branch carrying several merged pull requests and none open is
 evidenced by its most recent merge; several *open* pull requests on one branch
@@ -646,7 +1014,7 @@ Messages explain recovery without returning subprocess output or source contents
 HTTP and stdio initialize with server name `sectile`; managed native registrations
 use the same name. The catalog is exactly `get_task`, `transition_stage`,
 `add_comment`, `list_tasks`, `get_project_context`, `list_projects`, `start_run`,
-`finish_run`, `create_task` and `update_task`. The former `sectile_` names are unsupported on both
+`finish_run`, `create_task`, `update_task`, `report_waiting` and `prepare_macro_worktree`. The former `sectile_` names are unsupported on both
 transports.
 Tool schemas, return values, run ownership and managed-run validation are unchanged.
 
@@ -692,15 +1060,20 @@ receives the engine's final answer and any diagnostic printed beside the stream,
 never the stream's frames. A run that ends without an answer reports the reason
 its result frame carries, so a failure is not recorded as an empty entry.
 
-### Free desktop agent consoles
+### Desktop project prompts
 
-`GET /desktop/status` advertises `free-console`. Authenticated
-`POST /desktop/consoles` accepts `{"projectId":"...","provider":"codex"}` or
-`provider: "claude"` and returns HTTP 202 with the admitted local run. Browser
-Origin headers are rejected. Invalid input returns 400, unavailable server
-configuration returns 502, and local mapping or shutdown conflicts return 409.
+`GET /desktop/status` advertises `free-console` and `task-engines`.
+Authenticated `POST /desktop/consoles` accepts
+`{"projectId":"...","engineId":"..."}`. The engine must exist in the workstation
+catalogue; a removed identity returns 404. The desktop offers the catalogue
+from `GET /desktop/task-engines?projectId=...` and selects the project default.
+The engine's model and interactive template apply to this launch only.
+Templates receive an empty prompt and the mapped repository as `{repoPath}`.
+Built-in providers open an interactive session without a prompt argument.
+Legacy `{"projectId":"...","provider":"codex"}` requests remain supported
+for built-in providers. Custom commands must be selected by engine identity.
 
-The run has `kind: "console"`, a `provider`, a unique local ID, and empty task,
+The run has `kind: "console"`, a `provider`, the selected `engineId`, `engineName` and `model`, a unique local ID, and empty task,
 skill, and prompt fields. Its CLI receives no arguments. Project mappings and
 execution limits apply; the console reserves the mapped shared checkout through
 the existing queue. It does not scaffold tooling, create a worktree, or mutate
@@ -709,3 +1082,20 @@ remote tasks. The daemon owns the launch after admission even if the request end
 These runs use the usual runs, terminal, stop, restart protection, and history
 endpoints. Completion updates only local process status. Task result lookup
 returns 404, and clients must omit task workflow and PR controls for these runs.
+
+
+### Local MCP provider configuration
+
+The authenticated desktop API exposes `GET /desktop/mcp?provider=<provider>`
+and `POST /desktop/mcp?provider=<provider>`. Supported providers are `claude`,
+`agy`, `codex`, `cursor`, `gemini` and `vibe`. POST accepts
+`{"transport":"http|stdio","target":"remote|local"}` and updates the provider's
+user configuration plus the workstation's `mcpConnections` preference.
+Responses contain `choice`, `path`, `server` and `localURL`, never the API key.
+Invalid providers or choices return 400; a busy preparation returns 409.
+
+The local target enables no-auth access only to the loopback `/mcp` endpoint
+while at least one saved provider selects it. Origin and Host validation remain
+in force. `/api/`, desktop/control routes and remote surfaces keep their existing
+authentication. Agent restart refreshes saved registrations to the current local
+port; automatic task setup preserves the selected mode. See ADR 0023.

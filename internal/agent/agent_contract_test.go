@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 
 	"tasks/internal/agentconfig"
@@ -108,7 +109,9 @@ func TestStandingMismatchIsAnnouncedOnce(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(map[string]string{"error": "Route API non trouvée: " + r.URL.Path})
 	}))
 	defer srv.Close()
-	var announcements bytes.Buffer
+	// The logger is global: a PTY reader left by an earlier test may still
+	// write to it, so the capture has to be safe for concurrent use.
+	var announcements lockedBuffer
 	log.SetOutput(&announcements)
 	defer log.SetOutput(os.Stderr)
 
@@ -120,6 +123,24 @@ func TestStandingMismatchIsAnnouncedOnce(t *testing.T) {
 	if got := strings.Count(announcements.String(), "Server contract mismatch"); got != 1 {
 		t.Fatalf("announced %d times, want once:\n%s", got, announcements.String())
 	}
+}
+
+// lockedBuffer is a bytes.Buffer that several goroutines may write to.
+type lockedBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *lockedBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *lockedBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
 }
 
 // Updating and restarting the server is what clears the mismatch, so a contract

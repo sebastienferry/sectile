@@ -74,7 +74,6 @@ func TestCreateTaskWithCustomTrackerSource(t *testing.T) {
 		Slug:         "test-proj",
 		IssueTracker: "github",
 		GithubRepo:   "acme/app",
-		RepoPath:     filepath.Join(tempDir, "repo"),
 	})
 
 	// 1. Create a task with explicitly specified source="local"
@@ -119,8 +118,11 @@ func TestCreateTaskWithCustomTrackerSource(t *testing.T) {
 	if rr2.Code < 400 {
 		t.Fatalf("unconfigured remote creation succeeded: %d %s", rr2.Code, rr2.Body.String())
 	}
-	if !strings.Contains(rr2.Body.String(), "GitHub issue creation failed") {
-		t.Fatalf("remote error missing: %s", rr2.Body.String())
+	// The request carries no session: a remote creation that names nobody is
+	// refused by name before it reaches GitHub, rather than filed locally or
+	// signed by the server account (#482).
+	if rr2.Code != http.StatusForbidden || !strings.Contains(rr2.Body.String(), "not tied to a user") {
+		t.Fatalf("remote error missing: %d %s", rr2.Code, rr2.Body.String())
 	}
 
 }
@@ -139,7 +141,9 @@ func TestHandleOpenEditor(t *testing.T) {
 
 	// The server confirms only a successful agent response.
 	database.SetAgentOperations(func(ctx context.Context, op agentprotocol.Operation) (json.RawMessage, error) {
-		if op.Action != "open_editor" || op.Editor != "code" || op.ProjectID != "default" {
+		// The editor is the workstation's (#305): the server names none, even
+		// when an older interface still sends one.
+		if op.Action != "open_editor" || op.Editor != "" || op.ProjectID != "default" {
 			t.Fatalf("wrong request: %#v", op)
 		}
 		return json.RawMessage(`null`), nil
@@ -262,7 +266,6 @@ func TestHandleTaskStageTransition(t *testing.T) {
 		Name:         "Stage Handler Test",
 		Slug:         "stage-handler-test",
 		IssueTracker: "local",
-		RepoPath:     filepath.Join(tempDir, "repo"),
 	})
 
 	task, err := database.CreateTask(models.CreateTaskRequest{

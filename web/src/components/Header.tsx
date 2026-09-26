@@ -5,6 +5,7 @@ import {
   X,
   Settings,
   Target,
+  Bookmark,
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import type { Status, Priority } from '../types'
@@ -35,13 +36,17 @@ export const Header: React.FC = () => {
     setParentFilter,
     assigneeFilter,
     setAssigneeFilter,
+    myTasksOnly,
+    setMyTasksOnly,
     setIsQuickAddOpen,
+    currentBoardView,
+    openBoardViewModal,
     t,
   } = useApp()
 
   const searchInputRef = useRef<HTMLInputElement>(null)
 
-  const hasActiveFilters = Boolean(statusFilter || priorityFilter || labelFilter || sprintFilter || teamFilter || parentFilter || assigneeFilter || searchQuery || pinnedOnly || activeOnly)
+  const hasActiveFilters = Boolean(statusFilter || priorityFilter || labelFilter || sprintFilter || teamFilter || parentFilter || assigneeFilter || myTasksOnly || searchQuery || pinnedOnly || activeOnly)
 
   return (
     <header
@@ -63,6 +68,21 @@ export const Header: React.FC = () => {
         >
           <Settings size={16} className="group-hover:rotate-45 transition-transform duration-300" />
         </button>
+        {/* The open saved view, named so the board is never mistaken for a
+            project's; clicking it edits the view. */}
+        {currentBoardView && (
+          <button
+            type="button"
+            data-open-board-view={currentBoardView.id}
+            onClick={() => openBoardViewModal(currentBoardView)}
+            className="flex items-center gap-1.5 max-w-[12rem] px-2 py-1 rounded-lg text-xs font-semibold text-sky-300 bg-sky-400/10 border border-sky-400/30 hover:bg-sky-400/20 transition-colors cursor-pointer"
+            title={t.boardViews.editView}
+            aria-label={`${t.boardViews.editView} ${currentBoardView.name}`}
+          >
+            <Bookmark size={13} className="shrink-0" />
+            <span className="truncate">{currentBoardView.name}</span>
+          </button>
+        )}
       </div>
 
       {/* Center: Global Search Bar */}
@@ -166,6 +186,14 @@ export const Header: React.FC = () => {
             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shrink-0">
               {assigneeFilter}
               <button onClick={() => setAssigneeFilter(null)} className="hover:opacity-75 cursor-pointer">
+                <X size={11} />
+              </button>
+            </span>
+          )}
+          {myTasksOnly && (
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shrink-0">
+              {t.nav.myTasks}
+              <button onClick={() => setMyTasksOnly(false)} className="hover:opacity-75 cursor-pointer">
                 <X size={11} />
               </button>
             </span>

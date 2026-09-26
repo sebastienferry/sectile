@@ -268,8 +268,19 @@ func TestWorktreeDiffWorktreeAndShallowHistory(t *testing.T) {
 	// Clone only the advanced task tip, then provide a default ref with no history.
 	writeDiffTest(t, dir, "file.txt", "feature\n")
 	diffGitTest(t, dir, "commit", "-am", "feature")
+	// The source repository has to answer `main` for its own HEAD. A clone
+	// records the remote's HEAD as origin/HEAD, and git does so for a
+	// single-branch clone from some versions on: with the fixture left on
+	// feat/test, origin/HEAD would name the one branch the shallow clone did
+	// fetch and the baseline this test denies would exist after all.
+	diffGitTest(t, dir, "checkout", "main")
 	clone := filepath.Join(t.TempDir(), "shallow")
 	diffGitTest(t, dir, "clone", "--depth=1", "--branch", "feat/test", "file://"+dir, clone)
+	// The premise, stated rather than assumed: the default branch is absent
+	// from the clone, whether or not this git recorded a dangling origin/HEAD.
+	if out, err := exec.Command("git", "-C", clone, "rev-parse", "--verify", "--quiet", "refs/remotes/origin/main^{commit}").Output(); err == nil {
+		t.Fatalf("the shallow clone fetched the default branch after all: %s", out)
+	}
 	_, e = InspectWorktree(context.Background(), clone, "feat/test", clone)
 	if e == nil {
 		t.Fatal("missing shallow baseline accepted")

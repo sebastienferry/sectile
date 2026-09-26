@@ -1,6 +1,7 @@
 import { useState } from 'react'
-import { CircleStop } from 'lucide-react'
+import { CircleStop, CircleX } from 'lucide-react'
 import { useApp } from '../context/AppContext'
+import { useViewer } from '../hooks/useViewer'
 import { deriveRunIndicator, type RunIndicatorState } from '../lib/remoteRunIndicator'
 import { RunStateGlyph } from './RunStateGlyph'
 import { runState } from '../../../shared/runStates'
@@ -13,16 +14,20 @@ import { runEngineLabel } from '../lib/runEngine'
 // drift apart.
 const LABELS: Record<RunIndicatorState, string> = {
   waiting: 'Remote execution waiting for you',
+  silent: 'Remote execution silent: its client stopped making calls a while ago',
   running: 'Remote execution running',
   queued: 'Remote execution queued',
   canceled: 'Remote execution canceled',
 }
 
-/** The state glyph, at badge size, spinning or pulsing while the state lasts. */
-function StateGlyph({ state, spin }: { state: RunIndicatorState; spin: boolean }) {
+/** A launch parked until its ticket is pinned asks for a repository, not an answer. */
+const REPOSITORY_WAIT_LABEL = 'Remote execution waiting for the repository of its ticket'
+
+/** The state glyph, at badge size, pulsing while the state lasts. */
+function StateGlyph({ state, pulse }: { state: RunIndicatorState; pulse: boolean }) {
   return (
     <RunStateGlyph state={state} size={12}
-      className={spin ? 'animate-spin' : state === 'waiting' ? 'animate-pulse' : undefined} />
+      className={pulse ? 'motion-safe:animate-pulse' : state === 'waiting' ? 'animate-pulse' : undefined} />
   )
 }
 
@@ -48,11 +53,12 @@ export function RemoteRunBadge({ taskId }: { taskId: string }) {
   const [canceling, setCanceling] = useState(false)
   const [hovered, setHovered] = useState(false)
   const [unreachable, setUnreachable] = useState(false)
+  const viewer = useViewer()
 
-  const indicator = deriveRunIndicator(activities, taskId)
+  const indicator = deriveRunIndicator(activities, taskId, undefined, viewer ?? undefined)
   if (!indicator) return null
 
-  const { state, runs, cancelableRunIds, count, waitingSince } = indicator
+  const { state, runs, cancelableRunIds, closableRunIds, count, waitingSince, waitingReason } = indicator
   // Le moteur accompagne la compétence : c'est ce qui distingue deux runs de la
   // même compétence lancés contre des modèles différents.
   const skills = runs
@@ -66,11 +72,14 @@ export function RemoteRunBadge({ taskId }: { taskId: string }) {
   // what tells the difference between a button that will work and one that
   // answers that the execution is not yours.
   const owners = [...new Set(runs.map(run => run.userName).filter(Boolean))].join(', ')
-  const stateLabel = LABELS[state] + (waited ? ` for ${waited}` : '')
+  const baseLabel = state === 'waiting' && waitingReason === 'repository' ? REPOSITORY_WAIT_LABEL : LABELS[state]
+  const stateLabel = baseLabel + (waited ? ` for ${waited}` : '')
     + (count > 1 ? ` (${count})` : '') + (skills ? ` (${skills})` : '')
     + (owners ? ` started by ${owners}` : '')
 
-  async function cancelRuns(runIds: string[], force = false) {
+  // closing marks a client run being closed rather than an agent run being
+  // stopped: there is no agent to be unreachable, so no force is ever offered.
+  async function cancelRuns(runIds: string[], force = false, closing = false) {
     setCanceling(true)
     try {
       for (const runId of runIds) {
@@ -90,21 +99,38 @@ export function RemoteRunBadge({ taskId }: { taskId: string }) {
       // A refusal is different: forcing would not make the execution any more
       // ours, so the server's answer is simply shown.
       const refused = typeof error === 'object' && error !== null && (error as { status?: number }).status === 403
-      if (!force && !refused) setUnreachable(true)
-      addToast({ type: 'error', title: 'Cancellation failed', description: error instanceof Error ? error.message : String(error) })
+      if (!force && !refused && !closing) setUnreachable(true)
+      addToast({ type: 'error', title: closing ? 'Close failed' : 'Cancellation failed', description: error instanceof Error ? error.message : String(error) })
     } finally { setCanceling(false) }
   }
 
   const shape = 'inline-flex shrink-0 items-center justify-center rounded p-0.5 bg-transparent border-0'
   const interactive = ' cursor-pointer hover:brightness-125 disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-[var(--accent-color)]'
   const tint = { color: runState(state)?.color }
-  // The stop glyph replaces the state glyph only while the control is targeted.
-  const showStop = cancelableRunIds.length > 0 && hovered && !canceling
+  // A run to stop takes precedence over a run to close: stopping reaches a
+  // process, closing only records that nobody is left to report.
+  const closing = cancelableRunIds.length === 0 && closableRunIds.length > 0
+  // The action glyph replaces the state glyph only while the control is targeted.
+  const showAction = (cancelableRunIds.length > 0 || closing) && hovered && !canceling
   const glyph = canceling
-    ? <StateGlyph state="running" spin />
-    : showStop
-      ? <CircleStop size={12} aria-hidden="true" />
-      : <StateGlyph state={state} spin={state === 'running'} />
+    ? <StateGlyph state="running" pulse />
+    : showAction
+      ? closing ? <CircleX size={12} aria-hidden="true" /> : <CircleStop size={12} aria-hidden="true" />
+      : <StateGlyph state={state} pulse={state === 'running'} />
+
+  if (closing) {
+    const closeLabel = (canceling ? 'Closing ' : 'Close ') + skills
+      + ': its client made the run, no agent holds it. The owner can still report how it ended.'
+    return (
+      <button type="button" disabled={canceling} title={showAction || canceling ? closeLabel : stateLabel} aria-label={closeLabel}
+        onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}
+        onFocus={() => setHovered(true)} onBlur={() => setHovered(false)}
+        onClick={event => { event.stopPropagation(); void cancelRuns(closableRunIds, false, true) }}
+        className={shape + interactive} style={tint}>
+        {glyph}
+      </button>
+    )
+  }
 
   if (cancelableRunIds.length === 0) {
     return <span role="status" title={stateLabel} aria-label={stateLabel} className={shape} style={tint}>{glyph}</span>
@@ -118,12 +144,12 @@ export function RemoteRunBadge({ taskId }: { taskId: string }) {
         aria-label={'Force close ' + skills}
         onClick={event => { event.stopPropagation(); void cancelRuns(cancelableRunIds, true) }}
         className={shape + interactive} style={tint}>
-        <StateGlyph state="canceled" spin={false} />
+        <StateGlyph state="canceled" pulse={false} />
       </button>
     )
   }
   return (
-    <button type="button" disabled={canceling} title={showStop || canceling ? actionLabel : stateLabel} aria-label={actionLabel}
+    <button type="button" disabled={canceling} title={showAction || canceling ? actionLabel : stateLabel} aria-label={actionLabel}
       onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}
       onFocus={() => setHovered(true)} onBlur={() => setHovered(false)}
       onClick={event => { event.stopPropagation(); void cancelRuns(cancelableRunIds) }}

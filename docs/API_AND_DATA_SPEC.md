@@ -21,7 +21,9 @@ CREATE TABLE IF NOT EXISTS projects (
     icon TEXT DEFAULT 'folder',
     color TEXT DEFAULT 'indigo',
     repo_path TEXT NOT NULL DEFAULT '.',
-    repo_paths TEXT NOT NULL DEFAULT '[]',  -- known working directories, auto-fed when a ticket pins a new CWD
+    repo_paths TEXT NOT NULL DEFAULT '[]',  -- legacy working directories, converted to repositories once per project (#456)
+    repositories TEXT NOT NULL DEFAULT '[]',  -- remotes the project's tickets work in, besides the code remote (migration 17)
+    repositories_migration TEXT NOT NULL DEFAULT '',  -- JSON report of the legacy path conversion, empty until done (migration 18)
     git_remote_url TEXT DEFAULT '',
     github_repo TEXT DEFAULT '',
     -- Per-project connection overrides. Empty falls back to the settings row,
@@ -32,7 +34,7 @@ CREATE TABLE IF NOT EXISTS projects (
     gitlab_project TEXT NOT NULL DEFAULT '',
     gitlab_token TEXT NOT NULL DEFAULT '',
     jira_project TEXT DEFAULT '',      -- Legacy Jira project identifier
-    issue_tracker TEXT NOT NULL DEFAULT 'local',  -- 'github' | 'jira' | 'local'
+    issue_tracker TEXT NOT NULL DEFAULT 'local',  -- 'github' | 'gitlab' | 'jira' | 'local'
     tracker_url TEXT DEFAULT '',       -- tracker project URL, or the Jira base URL
     is_default INTEGER DEFAULT 0,
     stage_mapping TEXT DEFAULT '{}',  -- unused: kept so older binaries still open the base
@@ -66,7 +68,9 @@ CREATE TABLE IF NOT EXISTS tasks (
     branch_name TEXT,
     pr_url TEXT,                          -- the task's current pull request: always the last entry of pr_links
     pr_links TEXT NOT NULL DEFAULT '[]',  -- ordered set of [{url, branch}], oldest first; one ticket routinely produces several PRs
-    repo_path TEXT NOT NULL DEFAULT '',  -- per-ticket CWD override; empty means inherit the project, then the global setting
+    repo_path TEXT NOT NULL DEFAULT '',  -- legacy per-ticket CWD, ignored by the agent and converted once per project (#456)
+    repository TEXT NOT NULL DEFAULT '',  -- identity of the repository the ticket is pinned to, one of its project's (migration 19)
+    changed_repositories TEXT NOT NULL DEFAULT '[]',  -- secondary repositories the ticket has a worktree in (migration 20)
     worktree_path TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -125,6 +129,21 @@ CREATE TABLE IF NOT EXISTS settings (
     detail_mode TEXT DEFAULT 'panel',
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Saved board views (migration 4): a personal selection of projects and labels
+-- laid over the all-projects board. Both lists are JSON arrays; name_key is the
+-- trimmed, lower-cased name that keeps names unique per owner.
+CREATE TABLE IF NOT EXISTS board_views (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    name_key TEXT NOT NULL,
+    project_ids TEXT NOT NULL DEFAULT '[]',
+    labels TEXT NOT NULL DEFAULT '[]',
+    created_at DATETIME NOT NULL,
+    updated_at DATETIME NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_board_views_user_name ON board_views (user_id, name_key);
 ```
 
 ---
@@ -135,7 +154,8 @@ CREATE TABLE IF NOT EXISTS settings (
 
 | Method | Path | Description |
 | :--- | :--- | :--- |
-| `GET` | `/api/tasks` | Returns array of all tasks. Filters: `projectId`, `q`, `status`, `priority`, `label`, `sprint`, `team`, `assignee` (`__unassigned__` for the work items nobody owns), `pinned=1`. |
+| `GET` | `/api/tasks` | Returns array of all tasks. Filters: `projectId`, `q`, `status`, `priority`, `label`, `sprint`, `team`, `assignee` (`__unassigned__` for the work items nobody owns), `mine=1` (My Tasks: the tickets assigned to the caller, resolved on the server per tracker, see 2.3.1; combines with every other filter), `pinned=1`, `viewId` (one of the caller's saved views, see 2.3.0.2: it replaces `projectId`, and the other filters narrow it; `404` when the view is not the caller's). |
+| `GET` | `/api/tasks/facets` | Filter values and counts of the board. Scope: `projectId`, or `viewId` as above. |
 | `POST` | `/api/tasks` | Creates a new task bound strictly to `projectId`. |
 | `GET` | `/api/tasks/{id}` | Fetches task detail with its activities. |
 | `PUT` | `/api/tasks/{id}` | Updates task fields (status, title, description, priority, etc.). |
@@ -213,11 +233,13 @@ erased at the next visit. Every read of a user resolves
 
 The one part of the interface reserved to admins. Everything else on the board,
 projects included, is a member's to use; what stays here is the roster: who
-exists, what role they hold, and whether their account still opens.
+exists, what role they hold, and whether their account still opens, and the
+admin page's summary of what the board is doing.
 
 | Method | Path | Body | Description |
 | :--- | :--- | :--- | :--- |
-| `GET` | `/api/users` | (none) | Every account with its role, its last sign-in and whether it is blocked, plus `rolesFromProvider` when the identity provider supplies the roles. |
+| `GET` | `/api/users` | (none) | Every account with its role, its last sign-in, whether it is blocked, `lastActiveAt` (when one of its browser sessions last reached the server, absent when never) and `active` (seen within the active window, five minutes), plus `rolesFromProvider` when the identity provider supplies the roles. |
+| `GET` | `/api/admin/stats` | (none) | `{users: {total, admins, blocked, active}, runs: {active, byStatus: {running, queued, pending}}, activeWindowSeconds, generatedAt}`. `active` counts the accounts with an unexpired, unrevoked session seen within the window; runs are the activities `activeRunPredicate` selects. Read from the database, so every server sharing it answers the same. |
 | `PUT` | `/api/users/{id}` | `{role?, blocked?}` | Changes the role, the blocked state, or both. An absent field is left alone. `400` on neither field and on a role that is not `admin` or `member`; `404` on an unknown account; `409` on the last admin, on blocking or deleting your own account, and on the implicit account. |
 | `DELETE` | `/api/users/{id}` | (none) | Removes the account, its sessions and its workstation keys. Same refusals as above. The tasks, comments and executions it owns stay on the board and read as having no owner. |
 
@@ -225,6 +247,26 @@ Blocking keeps everything the account owns and only closes the door: the open
 sessions are revoked at once, the workstation keys stop authenticating, and the
 next sign-in answers `403`. Unblocking gives all three back. Deleting is the
 irreversible one, and is why the two are separate actions rather than a switch.
+
+### 2.3.0.2 Saved Board Views API
+
+A saved view is a named selection of projects and labels over the
+all-projects board, and belongs to the account that created it. A ticket
+belongs to a view when it sits in one of its projects and carries **at least
+one** of its labels, compared whole and regardless of case (`Backend` matches
+`backend`, not `backend-api`). A view without labels selects every ticket of
+its projects. Another account's view answers exactly as a missing one.
+
+| Method | Path | Body | Description |
+| :--- | :--- | :--- | :--- |
+| `GET` | `/api/me/board-views` | (none) | The caller's views, in creation order. |
+| `POST` | `/api/me/board-views` | `{name, projectIds, labels}` | Creates a view (`201`). `400` for an empty name, no project, an unknown project, a name over 80 characters or more than 50 labels; `409` when another of the caller's views has the same name, compared trimmed and case-insensitively. Labels are trimmed and deduplicated regardless of case. |
+| `GET` | `/api/me/board-views/{id}` | (none) | One view, or `404`. |
+| `PATCH` | `/api/me/board-views/{id}` | any of `{name, projectIds, labels}` | Changes the fields sent; same errors as the creation. |
+| `DELETE` | `/api/me/board-views/{id}` | (none) | Deletes the view (`204`); no ticket, label or project changes. |
+
+Deleting a project removes it from every view that selected it; a view left
+without project is kept and selects nothing until it is edited.
 
 ### 2.3.1 Personal Tracker Credentials API
 
@@ -234,11 +276,21 @@ session, never from the payload, and no answer ever carries a token.
 
 | Method | Path | Body | Description |
 | :--- | :--- | :--- | :--- |
-| `GET` | `/api/me/tracker-credentials` | (none) | What this person stored: tracker, site, e-mail, sealed, unlocked. |
-| `PUT` | `/api/me/tracker-credentials` | `{tracker, siteUrl, email, token, passphrase}` | Stores or replaces one. A passphrase seals it. An empty `token` keeps the stored one, so the site, the e-mail and the sealing can change on their own; a sealed credential must be unlocked for that. |
+| `GET` | `/api/me/tracker-credentials` | (none) | What this person stored: tracker, site, e-mail, `account`, sealed, unlocked. `account` is who the tracker confirmed the credential belongs to (a GitHub or GitLab login, a Jira display name), absent until it is confirmed. |
+| `PUT` | `/api/me/tracker-credentials` | `{tracker, siteUrl, email, token, passphrase}` | Stores or replaces one. A passphrase seals it. An empty `token` keeps the stored one, so the site, the e-mail and the sealing can change on their own; a sealed credential must be unlocked for that. Saving forgets the confirmed account, then asks the tracker for it again; a failed answer still saves the credential, with no account. |
 | `DELETE` | `/api/me/tracker-credentials?tracker=` | (none) | Forgets one. `404` when there is none to forget. |
 | `POST` | `/api/me/tracker-credentials/unlock` | `{tracker, passphrase}` | Supplies the sealing passphrase for this server's lifetime. `409` when the credential is not sealed. |
 | `POST` | `/api/me/tracker-credentials/lock` | `{tracker}` | Forgets the derived key. |
+| `GET` | `/api/me/assignee-identities?projectId=\|viewId=` | (none) | Who My Tasks takes the caller to be: `{signedIn, fallback, trackers}`. `fallback` is the account's name and e-mail (the local profile's when signed out); `trackers` lists each non-local tracker of the tickets in scope as `{tracker, identity?, known}`. Same scope rules as `/api/tasks`, `404` on a view that is not the caller's. Answers signed-out callers too, and never reaches a tracker. |
+
+**My Tasks (#468).** A ticket is the caller's when its assignee equals, trimmed
+and ignoring the case of A-Z, the confirmed `account` of the caller's personal
+credential for the ticket's tracker. On a tracker with no confirmed account,
+and on local tickets, it is compared with the account's name and e-mail
+instead. The account is learnt when the credential is saved, or when the stored
+one is checked with `POST /api/setup/tracker/check` and no typed token, on its
+own site (GitHub and Jira); it is stored in clear in
+`user_tracker_credentials.account`, so a sealed and locked credential keeps it.
 
 Stored in `user_tracker_credentials`, encrypted with AES-256-GCM and bound to
 `(user_id, tracker)` as additional authenticated data. The key is the server key
@@ -252,8 +304,9 @@ Argon2id. A wrong passphrase and a missing record answer the same way.
 | `POST` | `/api/sync/all` | (none) | Queues a sync of every configured project across all trackers. |
 | `POST` | `/api/sync/github` | `{repo, projectId}` | Queues a GitHub repository sync. |
 | `POST` | `/api/sync/jira` | `{projectKey, projectId}` | Queues a Jira project sync. |
+| `POST` | `/api/sync/gitlab` | `{projectId}` | Queues a GitLab project sync. |
 
-All four return `{message, activity}`; the work runs on the background job queue
+All of them return `{message, activity}`; the work runs on the background job queue
 and its progress is readable through the Activities API.
 
 ### 2.5 Spec-Driven Design Toolchain API

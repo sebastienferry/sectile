@@ -1,4 +1,4 @@
-- The report path: docs/clarifications/<n>.md.
+- The report path: docs/clarifications/<n>.md, and whether it is committed or local to the worktree (ignored by Git).
 - Current round number and whether the exit condition was met.
 - Settled decisions and reversed assumptions.
 - Numbered open questions (if any) and who is expected to answer them.

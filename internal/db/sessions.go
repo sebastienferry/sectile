@@ -133,15 +133,40 @@ func (d *DB) CreateWebSession(userID string) (string, time.Time, error) {
 
 // UserForWebSession resolves a session cookie to its user, or returns an empty
 // string. Revoked and expired sessions resolve to nothing.
+//
+// A resolved session is also marked as seen, which is what the active-user
+// count reads. The mark is written at most once per sessionTouchInterval: the
+// read happens on every request, several times on some, and a write on each
+// would turn every page load into a write lock on SQLite.
 func (d *DB) UserForWebSession(token string) string {
 	if strings.TrimSpace(token) == "" {
 		return ""
 	}
+	hash := hashSecret(token)
 	var userID string
 	var expires time.Time
-	err := d.conn.QueryRow(`SELECT user_id, expires_at FROM web_sessions
-		WHERE token_hash = ? AND revoked_at IS NULL`, hashSecret(token)).Scan(&userID, &expires)
-	if err != nil || time.Now().UTC().After(expires) {
+	var seen sql.NullTime
+	err := d.conn.QueryRow(`SELECT user_id, expires_at, last_seen_at FROM web_sessions
+		WHERE token_hash = ? AND revoked_at IS NULL`, hash).Scan(&userID, &expires, &seen)
+	now := time.Now().UTC()
+	if err != nil || now.After(expires) {
+		return ""
+	}
+	if !seen.Valid || now.Sub(seen.Time) >= sessionTouchInterval {
+		_, _ = d.conn.Exec(`UPDATE web_sessions SET last_seen_at = ? WHERE token_hash = ?`, now, hash)
+	}
+	return userID
+}
+
+// WebSessionOwner is the user a session cookie belongs to, revoked or expired
+// alike, or "". Unlike UserForWebSession it marks nothing as seen: sign-out
+// reads it to know whose presence just ended.
+func (d *DB) WebSessionOwner(token string) string {
+	if strings.TrimSpace(token) == "" {
+		return ""
+	}
+	var userID string
+	if err := d.conn.QueryRow(`SELECT user_id FROM web_sessions WHERE token_hash = ?`, hashSecret(token)).Scan(&userID); err != nil {
 		return ""
 	}
 	return userID

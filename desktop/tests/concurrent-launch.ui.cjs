@@ -25,13 +25,13 @@ test('a refused concurrent launch names the active run and offers a forced retry
  // treating a launch as pending once a run it had not seen appears.
  const runs=()=>[
   {id:'run-a',taskId:'task-a',taskKey:'#1',projectId:'project-a',skill:'clarify',status:'completed'},
-  ...Array.from({length:started},(_,index)=>({id:'run-new-'+index,taskId:'task-a',taskKey:'#1',projectId:'project-a',skill:'implement',status:'completed'}))
+  ...Array.from({length:started},(_,index)=>({id:'run-new-'+index,taskId:'task-a',taskKey:'#1',projectId:'project-a',skill:launches[index]?.skillID||'implement',status:'completed'}))
  ]
  const server=http.createServer((req,res)=>{
   res.setHeader('Content-Type','application/json')
   if(req.url==='/desktop/status'){res.end(JSON.stringify({connected:true,server:'http://example.test',capabilities:[]}));return}
   if(req.url==='/desktop/projects'){res.end(JSON.stringify([{id:'project-a',name:'Project A',path:'/tmp/project'}]));return}
-  if(req.url==='/desktop/project?id=project-a'){res.end(JSON.stringify({configured:true,server:{prCreationStage:'implemented',skills:['clarify','specify','implement','adjust','handoff'].map(id=>({id}))}}));return}
+  if(req.url==='/desktop/project?id=project-a'){res.end(JSON.stringify({configured:true,server:{prCreationStage:'implemented',skills:['clarify','specify','implement','adjust','handoff','pickup'].map(id=>({id}))}}));return}
   if(req.url==='/desktop/runs'){res.end(JSON.stringify(runs()));return}
   if(req.url.startsWith('/desktop/tasks?')){
    if(req.method==='POST'){
@@ -57,7 +57,7 @@ test('a refused concurrent launch names the active run and offers a forced retry
  try{
   app=await electron.launch({args:[path.resolve(__dirname,'..')],env})
   const page=await app.firstWindow();page.setDefaultTimeout(7000)
-  const button=page.locator('#next-step'),force=page.locator('#force-next-step'),status=page.locator('#next-step-status')
+  const button=page.locator('#next-step'),chain=page.locator('#pickup-chain'),force=page.locator('#force-next-step'),status=page.locator('#next-step-status')
   await page.getByRole('button',{name:'Next: Implement',exact:true}).waitFor()
   assert.equal(await force.isHidden(),true,'Nothing is offered before a refusal')
 
@@ -73,6 +73,24 @@ test('a refused concurrent launch names the active run and offers a forced retry
   await page.waitForFunction(()=>document.querySelector('#force-next-step').hidden)
   assert.equal(launches[1].force,true,'The forced retry re-sends the same launch with force')
   assert.equal(launches[1].skillID,launches[0].skillID)
+
+  // A refused pickup chain launch names the active run and offers a forced retry with mode: autonomous
+  await page.waitForFunction(()=>!document.querySelector('#pickup-chain').disabled)
+  await chain.click()
+  await page.waitForFunction(()=>document.querySelector('#next-step-status').textContent.includes('is still active on this task'))
+  assert.match(await status.textContent(),/A run of implement started at/)
+  await force.waitFor()
+  await until(()=>launches.length===3,'the plain pickup launch never reached the server')
+  assert.equal(launches[2].force,undefined,'A plain pickup launch carries no force')
+  assert.equal(launches[2].skillID,'pickup')
+  assert.equal(launches[2].mode,'autonomous')
+
+  await force.click()
+  await until(()=>launches.length===4,'the forced pickup launch never reached the server')
+  await page.waitForFunction(()=>document.querySelector('#force-next-step').hidden)
+  assert.equal(launches[3].force,true,'The forced retry re-sends pickup with force and autonomous mode')
+  assert.equal(launches[3].skillID,'pickup')
+  assert.equal(launches[3].mode,'autonomous')
 
   // A 409 with no active run is a plain failure: the message shows, the gesture does not.
   refusal='plain'

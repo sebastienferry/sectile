@@ -42,7 +42,7 @@ test('the custom-instructions form and the relaunch dialog carry a one-off execu
   const heading=page.getByRole('button',{name:'▾ Project A',exact:true})
   await heading.waitFor()
   await heading.hover()
-  await page.getByRole('button',{name:'Open tasks in Project A',exact:true}).click()
+  await page.getByRole('button',{name:'Actions for Project A',exact:true}).click();await page.getByRole('menuitem',{name:'Open tasks',exact:true}).click()
   const rows=page.locator('.ticket-row')
   await expect(rows).toHaveCount(1)
   const more=page.getByRole('button',{name:'More actions for #7',exact:true})

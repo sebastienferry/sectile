@@ -127,6 +127,60 @@ func TestCreatePRSkillIntegratesRemoteDefaultBranchBeforePublishing(t *testing.T
 	}
 }
 
+// A force push is only needed when published history was rewritten: forcing a branch the remote does not have yet
+// fails, so every skill that publishes must pick the push from the state of origin/<branch>.
+func TestPublishingSkillsForceOnlyWhenPublishedHistoryWasRewritten(t *testing.T) {
+	for _, id := range []string{"create_pr", "adjust", "pickup", "pickup_issues"} {
+		t.Run(id, func(t *testing.T) {
+			skill, ok := skills.StageSkillByID(id)
+			if !ok {
+				t.Fatalf("%s skill missing", id)
+			}
+			content := skills.RenderSkillContent(skill, "openspec")
+			for _, required := range []string{
+				"does not exist (first publication): run `git push -u origin <branch>`",
+				"Never force a branch the remote does not have.",
+				"`git merge-base --is-ancestor origin/<branch> HEAD` succeeds (fast-forward): run a plain `git push`",
+				"rewrote published history: run `git push --force-with-lease`",
+				"`git rebase origin/<branch>`",
+				"retry once with the same rule",
+				"Never run an unguarded `git push --force`.",
+			} {
+				if !strings.Contains(content, required) {
+					t.Fatalf("%s skill is missing %q", id, required)
+				}
+			}
+			if strings.Contains(content, "only when an authorized private-branch rebase requires it") {
+				t.Fatalf("%s skill still carries the vague force-with-lease condition", id)
+			}
+		})
+	}
+}
+
+// A project may drop its specification artefacts (#487). The skills cannot
+// know it from their text, which is shared by every project, so the stages that
+// write or read the artefacts ask Git, and never force an ignored one in.
+func TestStageSkillsDecideDroppedArtefactsFromGit(t *testing.T) {
+	for _, id := range []string{"clarify", "specify", "implement", "pickup", "pickup_issues"} {
+		for _, framework := range []string{"speckit", "openspec"} {
+			skill, ok := skills.StageSkillByID(id)
+			if !ok {
+				t.Fatalf("%s skill missing", id)
+			}
+			content := skills.RenderSkillContent(skill, framework)
+			for _, required := range []string{"git check-ignore -q", "git add -f"} {
+				if !strings.Contains(content, required) {
+					t.Errorf("%s (%s) is missing %q", id, framework, required)
+				}
+			}
+		}
+	}
+	adjust, _ := skills.StageSkillByID("adjust")
+	if !strings.Contains(skills.RenderSkillContent(adjust, "speckit"), "Never force-add a\n   specification artefact that Git ignores") {
+		t.Error("adjust must never force-add an ignored specification artefact")
+	}
+}
+
 func TestRewriteStorySkillTemplate(t *testing.T) {
 	// 1. Verify StageSkillByID lookup for rewrite_story and its aliases
 	aliases := []string{"rewrite_story", "rewrite-story", "rewrite"}
@@ -347,6 +401,50 @@ func TestSkillFragmentsIntegrity(t *testing.T) {
 			if err != nil || len(strings.TrimSpace(string(data))) == 0 {
 				t.Errorf("skill %s missing steps.md", s.ID)
 			}
+		}
+	}
+}
+
+// realign-macro is surgical: its body must say every rule that keeps it so,
+// in both frameworks, and must not offer a source the slicing no longer has.
+func TestRealignMacroSkillTemplate(t *testing.T) {
+	for _, alias := range []string{"realign_macro", "realign-macro", "realign"} {
+		skill, ok := skills.StageSkillByID(alias)
+		if !ok || skill.ID != "realign_macro" || skill.Scope != "macro" || skill.Mode != models.SkillModeInteractive || skill.Command != "/realign-macro" {
+			t.Fatalf("StageSkillByID(%q) = %+v, %v", alias, skill, ok)
+		}
+	}
+	if dir := models.SkillDirNames["realign_macro"]; dir != "realign-macro" {
+		t.Fatalf("SkillDirNames[realign_macro] = %q", dir)
+	}
+	skill, _ := skills.StageSkillByID("realign_macro")
+	common := []string{
+		"(to be removed: no longer in the slicing)",
+		"leave its body untouched",
+		"Do not delete an entry",
+		"do not write on the default branch",
+		"prepare_macro_worktree",
+		"Never `git add -A`",
+		"matches no entry any more",
+		"`macroKey`",
+		"Push nothing when you wrote nothing",
+	}
+	byFramework := map[string][]string{
+		"speckit":  {"# Realign Macro (Spec Kit SDD)", "specs/<MACRO-KEY>-<slug>/", "next free number", "Never renumber"},
+		"openspec": {"# Realign Macro (OpenSpec SDD)", "openspec/changes/<MACRO-KEY>-<slug>/", "openspec validate <change-id> --strict", "### Requirement:"},
+	}
+	for framework, specific := range byFramework {
+		content := skills.RenderSkillContent(skill, framework)
+		for _, want := range append(common, specific...) {
+			if !strings.Contains(content, want) {
+				t.Errorf("%s: the body must say %q", framework, want)
+			}
+		}
+		if strings.Contains(content, "`scenarios`") {
+			t.Errorf("%s: the body must not mention the removed scenarios source", framework)
+		}
+		if strings.Contains(content, "transition_stage") {
+			t.Errorf("%s: a macro skill moves no stage", framework)
 		}
 	}
 }

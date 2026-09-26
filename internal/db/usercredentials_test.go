@@ -75,8 +75,10 @@ func TestASealedTokenNeedsItsPassphrase(t *testing.T) {
 		t.Fatalf("just stored: %q %v", token, err)
 	}
 
-	// A restart forgets every derived key.
-	database.LockUserTrackerCredential("u1", "jira")
+	// Locking forgets the unlock.
+	if err := database.LockUserTrackerCredential("u1", "jira"); err != nil {
+		t.Fatal(err)
+	}
 	if _, _, _, err := database.userTrackerCredential("u1", "jira"); !errors.Is(err, ErrCredentialLocked) {
 		t.Fatalf("a sealed credential must be locked again: %v", err)
 	}
@@ -129,6 +131,9 @@ func TestReplacingACredentialRetiresTheKeyItWasSealedWith(t *testing.T) {
 	if _, _, token, err := database.userTrackerCredential("u1", "jira"); err != nil || token != "second" {
 		t.Fatalf("the replacement must be what is served: %q %v", token, err)
 	}
+	if n := unlockRows(t, database, "u1"); n != 0 {
+		t.Fatalf("the unlock of the old passphrase must go, %d left", n)
+	}
 }
 
 func TestListingCredentialsNeverCarriesAToken(t *testing.T) {
@@ -177,6 +182,9 @@ func TestClearingRemovesTheCredentialAndItsKey(t *testing.T) {
 	if err := database.UnlockUserTrackerCredential("u1", "jira", "phrase"); !errors.Is(err, ErrNoUserCredential) {
 		t.Fatalf("unlocking a credential that no longer exists: %v", err)
 	}
+	if n := unlockRows(t, database, "u1"); n != 0 {
+		t.Fatalf("the unlock must go with the credential, %d left", n)
+	}
 }
 
 func TestStoringRefusesWhatItCannotAttribute(t *testing.T) {
@@ -223,12 +231,17 @@ func TestAMissingServerKeyBlocksOnlyWhatNeedsIt(t *testing.T) {
 		t.Errorf("the refusal must name the way out: %v", err)
 	}
 
-	// Sealing derives its own key, so it still works.
+	// Sealing derives its own key, so storing still works. Keeping it
+	// unlocked needs the server key (#501): it is saved locked, and unlocking
+	// it says why.
 	if err := database.SetUserTrackerCredential("u1", "jira", "acme.atlassian.net", "ada@example.com", "token", "ma phrase"); err != nil {
 		t.Fatalf("a sealed credential needs no server key: %v", err)
 	}
-	if _, _, token, err := database.userTrackerCredential("u1", "jira"); err != nil || token != "token" {
-		t.Fatalf("a sealed credential must still open: %q %v", token, err)
+	if _, _, _, err := database.userTrackerCredential("u1", "jira"); !errors.Is(err, ErrCredentialLocked) {
+		t.Fatalf("with nowhere to keep its unlock, it must be saved locked: %v", err)
+	}
+	if err := database.UnlockUserTrackerCredential("u1", "jira", "ma phrase"); !errors.Is(err, ErrServerKeyUnavailable) {
+		t.Fatalf("unlocking must name the missing server key: %v", err)
 	}
 }
 
@@ -350,5 +363,137 @@ func TestSavingWithNoTokenKeepsTheStoredOne(t *testing.T) {
 	// And with nothing stored at all, the token really is required.
 	if err := database.SetUserTrackerCredential("u-bob", "jira", "https://acme.atlassian.net", "bob@example.com", "", ""); err == nil {
 		t.Fatal("a first credential needs its token")
+	}
+}
+
+// The account a credential belongs to is learnt when the tracker confirms it,
+// forgotten with it, and unconfirmed again whenever the credential changes
+// (#468).
+func TestTheConfirmedAccountOfAPersonalCredential(t *testing.T) {
+	database := testDB(t)
+	if err := database.SetUserTrackerCredentialAccount("u1", "github", "ada"); !errors.Is(err, ErrNoUserCredential) {
+		t.Fatalf("an account needs a credential to attach to: %v", err)
+	}
+	if err := database.SetUserTrackerCredential("u1", "github", "", "", "ghp-one", ""); err != nil {
+		t.Fatal(err)
+	}
+	if accounts, err := database.TrackerAccounts("u1"); err != nil || len(accounts) != 0 {
+		t.Fatalf("a credential nobody confirmed names no account: %v %v", accounts, err)
+	}
+	if err := database.SetUserTrackerCredentialAccount("u1", "GitHub ", "ada"); err != nil {
+		t.Fatal(err)
+	}
+	if accounts, _ := database.TrackerAccounts("u1"); accounts["github"] != "ada" {
+		t.Fatalf("accounts: %v", accounts)
+	}
+	if listed, _ := database.UserTrackerCredentials("u1"); len(listed) != 1 || listed[0].Account != "ada" {
+		t.Fatalf("the profile lists the account: %+v", listed)
+	}
+	if accounts, _ := database.TrackerAccounts("u2"); len(accounts) != 0 {
+		t.Fatalf("another user's accounts: %v", accounts)
+	}
+
+	// A new token may belong to somebody else.
+	if err := database.SetUserTrackerCredential("u1", "github", "", "", "ghp-two", ""); err != nil {
+		t.Fatal(err)
+	}
+	if accounts, _ := database.TrackerAccounts("u1"); len(accounts) != 0 {
+		t.Fatalf("saving again must forget the account: %v", accounts)
+	}
+
+	if err := database.SetUserTrackerCredentialAccount("u1", "github", "ada"); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.ClearUserTrackerCredential("u1", "github"); err != nil {
+		t.Fatal(err)
+	}
+	if accounts, _ := database.TrackerAccounts("u1"); len(accounts) != 0 {
+		t.Fatalf("deleting the credential must forget the account: %v", accounts)
+	}
+}
+
+// The account is a name, not the secret the seal protects: a sealed and
+// locked credential keeps it.
+func TestASealedLockedCredentialKeepsItsAccount(t *testing.T) {
+	database := testDB(t)
+	if err := database.SetUserTrackerCredential("u1", "jira", "https://acme.atlassian.net", "ada@example.com", "ATATT", "a long phrase"); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.SetUserTrackerCredentialAccount("u1", "jira", "Ada Lovelace"); err != nil {
+		t.Fatal(err)
+	}
+	database.LockUserTrackerCredential("u1", "jira")
+	if _, _, _, err := database.userTrackerCredential("u1", "jira"); !errors.Is(err, ErrCredentialLocked) {
+		t.Fatalf("the credential must be locked: %v", err)
+	}
+	if accounts, err := database.TrackerAccounts("u1"); err != nil || accounts["jira"] != "Ada Lovelace" {
+		t.Fatalf("accounts: %v %v", accounts, err)
+	}
+}
+
+// Confirming asks the tracker with the stored token and records its answer; a
+// check of the caller's own stored token records it too, a typed one does not.
+func TestTheAccountIsLearntFromTheTracker(t *testing.T) {
+	var calls int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		switch r.Header.Get("Authorization") {
+		case "Bearer ghp-mine":
+			_, _ = w.Write([]byte(`{"login":"ada"}`))
+		case "Bearer ghp-other":
+			_, _ = w.Write([]byte(`{"login":"bob"}`))
+		default:
+			w.WriteHeader(http.StatusUnauthorized)
+		}
+	}))
+	defer server.Close()
+
+	database := testDB(t)
+	database.trackers.GithubURL = server.URL
+	if err := database.SetUserTrackerCredential("u1", "github", server.URL, "", "ghp-mine", ""); err != nil {
+		t.Fatal(err)
+	}
+	account, err := database.ConfirmUserTrackerCredential(context.Background(), "u1", "github")
+	if err != nil || account != "ada" {
+		t.Fatalf("confirm: %q %v", account, err)
+	}
+	if accounts, _ := database.TrackerAccounts("u1"); accounts["github"] != "ada" {
+		t.Fatalf("accounts after confirming: %v", accounts)
+	}
+
+	ctx := tracker.WithActingUser(context.Background(), "u1")
+	if err := database.SetUserTrackerCredentialAccount("u1", "github", ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.CheckTrackerCredentials(ctx, "github", server.URL, "", "ghp-other"); err != nil {
+		t.Fatal(err)
+	}
+	if accounts, _ := database.TrackerAccounts("u1"); len(accounts) != 0 {
+		t.Fatalf("a typed token proves nothing about the caller: %v", accounts)
+	}
+	if _, err := database.CheckTrackerCredentials(ctx, "github", "https://elsewhere.example", "", ""); err == nil {
+		t.Fatal("another site must not answer")
+	}
+	if accounts, _ := database.TrackerAccounts("u1"); len(accounts) != 0 {
+		t.Fatalf("a check on another site proves nothing: %v", accounts)
+	}
+	if _, err := database.CheckTrackerCredentials(ctx, "github", server.URL+"/", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	if accounts, _ := database.TrackerAccounts("u1"); accounts["github"] != "ada" {
+		t.Fatalf("verifying the stored token records its account: %v", accounts)
+	}
+
+	if err := database.SetUserTrackerCredential("u1", "github", server.URL, "", "ghp-wrong", ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.ConfirmUserTrackerCredential(context.Background(), "u1", "github"); err == nil {
+		t.Fatal("a refused token must be reported")
+	}
+	if accounts, _ := database.TrackerAccounts("u1"); len(accounts) != 0 {
+		t.Fatalf("a refused token names no account: %v", accounts)
+	}
+	if calls == 0 {
+		t.Fatal("the fake tracker was never asked")
 	}
 }

@@ -6,12 +6,16 @@ const {WebSocketServer}=require('ws')
 
 test('desktop console reconnects, accepts input and stops the owned run',async()=>{
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'sectile-desktop-test-'))
- let stopped=false,input='',submitted=false,launches=[],available=true,extraRun=false,createdInput=null,serverCommand='codex {prompt}',withoutConsole=false,attachments=0
+ let stopped=false,input='',submitted=false,launches=[],available=true,extraRun=false,createdInput=null,withoutConsole=false,attachments=0
  const server=http.createServer((req,res)=>{
   if(req.headers.authorization!=='Bearer test-secret'){res.writeHead(401).end();return}
   res.setHeader('Content-Type','application/json')
   if(req.url==='/desktop/projects'){res.end(JSON.stringify([{id:'project-a',name:'Example project',path:'/tmp/spec-worktree'},{id:'project-b',name:'Other project',path:'/tmp/other-worktree'}]));return}
-  if(req.url==='/desktop/project?id=project-a'||req.url==='/desktop/project?id=project-b'){res.end(JSON.stringify({server:{projectName:'Example project',gitRemoteUrl:'https://example.test/repo.git',specFramework:'openspec',useWorktrees:true,aiCommandTemplate:serverCommand,aiCommandTemplateAutonomous:'codex exec {prompt}',skills:[{id:'specify',content:'Specification instructions'}]},monoRepo:true,path:'/tmp/spec-worktree',configured:true,useWorktrees:true}));return}
+  if(req.url==='/desktop/project?id=project-a'||req.url==='/desktop/project?id=project-b'){res.end(JSON.stringify({server:{projectName:'Example project',gitRemoteUrl:'https://example.test/repo.git',specFramework:'openspec',useWorktrees:true,skills:[{id:'specify',content:'Specification instructions'}]},monoRepo:true,path:'/tmp/spec-worktree',configured:true,useWorktrees:true,
+   // Since #305 the agent says where each execution value comes from; since
+   // #510 the project runs the workstation default engine unless it picks one.
+   fields:{defaultEngine:{value:'e-opus',inherited:'e-opus',source:'workstation'},
+    useWorktrees:{value:true,inherited:true,source:'default'},parallelism:{value:1,inherited:1,source:'default'}}}));return}
   if(req.url.startsWith('/desktop/tasks?')){
    if(req.method==='POST'){submitted=true;let raw='';req.on('data',chunk=>raw+=chunk);req.on('end',()=>{launches.push({...JSON.parse(raw),projectID:new URL(req.url,'http://localhost').searchParams.get('projectId')});res.end(JSON.stringify({status:'running'}))});return}
    if(createdInput&&new URL(req.url,'http://localhost').searchParams.get('q')==='#49'){res.end(JSON.stringify([{id:'created',key:'#49',projectId:createdInput.projectID,title:createdInput.title,status:'to_clarify'}]));return}
@@ -20,7 +24,8 @@ test('desktop console reconnects, accepts input and stops the owned run',async()
   if(req.url==='/desktop/create-task'){
    let raw='';req.on('data',chunk=>raw+=chunk);req.on('end',()=>{createdInput=JSON.parse(raw);res.writeHead(201);res.end(JSON.stringify({id:'created',key:'#49',projectId:createdInput.projectID,title:createdInput.title}))});return
   }
-  if(req.url==='/desktop/status'){res.end(JSON.stringify({connected:true,server:'http://example.test',capabilities:['create-task']}));return}
+  if(req.url==='/desktop/status'){res.end(JSON.stringify({connected:true,server:'http://example.test',capabilities:['create-task','task-engines']}));return}
+  if(req.url==='/desktop/engines'){res.end(JSON.stringify({catalogue:[{id:'e-opus',name:'Claude Opus',provider:'claude',model:'claude-opus-5'},{id:'e-codex',name:'Codex',provider:'codex'}],default:'e-opus',projects:{},taskCounts:{}}));return}
   if(req.url==='/desktop/runs'&&!available){res.writeHead(503).end();return}
   if(req.url==='/desktop/runs'){res.end(JSON.stringify([{id:'run-1',taskId:'task-1',taskKey:'#48',projectId:'project-a',skill:'specify',prompt:'Previous instructions',directory:'/tmp/spec-worktree',sessionId:withoutConsole?'':'run-1',status:withoutConsole?'failed':stopped?'canceled':'running'},...(extraRun?[{id:'run-0',taskId:'task-1',taskKey:'#48',projectId:'project-a',skill:'clarify',status:'completed',sessionId:'run-0'}]:[])]));return}
   if(req.url==='/desktop/stop?id=run-1'){stopped=true;res.writeHead(204).end();return}
@@ -41,7 +46,7 @@ test('desktop console reconnects, accepts input and stops the owned run',async()
  delete env.ELECTRON_RUN_AS_NODE
  let application
  try{
-  application=await electron.launch({executablePath:process.env.SECTILE_DESKTOP_EXECUTABLE,args:process.env.SECTILE_DESKTOP_EXECUTABLE?[]:[path.resolve(__dirname,'..')],env})
+  application=await electron.launch({executablePath:process.env.SECTILE_DESKTOP_EXECUTABLE,args:process.env.SECTILE_DESKTOP_EXECUTABLE?[]:[path.resolve(__dirname,'..')],env,colorScheme:'dark'})
   let page=await application.firstWindow()
   await page.getByText('#48 · Server specification task · specify',{exact:true}).waitFor()
   await page.locator('.xterm-screen').waitFor()
@@ -59,12 +64,14 @@ test('desktop console reconnects, accepts input and stops the owned run',async()
   await page.getByRole('separator',{name:'Resize sidebar'}).focus()
   await page.keyboard.press('ArrowRight')
   assert.equal(await page.locator('aside').evaluate(element=>element.getBoundingClientRect().width),before+20)
-  await page.getByRole('button',{name:'Open PR #48 for #48',exact:true}).waitFor()
+  await page.getByRole('button',{name:'Open PR #48 for #48 — State unknown',exact:true}).waitFor()
   assert.equal(await page.locator('#selected-pr').textContent(),'PR #48')
   // The connect form lives in the settings panel now, reached from the bottom of
   // the sidebar, and pairing is the only credential it asks for.
   await page.locator('#settings').click()
   await page.getByRole('tab',{name:'Agent connection',exact:true}).click()
+  await expect(page.locator('.settings-connection-status')).toHaveText('Connected')
+  await expect(page.locator('.settings-connection-status .connection-dot')).toHaveCSS('background-color','rgb(98, 211, 190)')
   await expect(page.locator('#project-dialog #start')).toBeVisible()
   assert.equal(await page.locator('#start input').count(),2)
   assert.equal(await page.getByLabel('API key',{exact:true}).count(),0)
@@ -79,7 +86,7 @@ test('desktop console reconnects, accepts input and stops the owned run',async()
   await page.locator('#add-project').click()
   assert.equal(await page.getByRole('button',{name:'Example project · Already added',exact:true}).isDisabled(),true)
   await page.getByRole('button',{name:'Close',exact:true}).click()
-  await page.getByRole('button',{name:'Configure Example project',exact:true}).click()
+  await page.getByRole('button',{name:'Actions for Example project',exact:true}).click();await page.getByRole('menuitem',{name:'Project settings…',exact:true}).click()
   await page.getByRole('tab',{name:'Server',exact:true}).click()
   await page.getByText('Server configuration · Read only',{exact:true}).waitFor()
   await page.getByRole('tab',{name:'General',exact:true}).click()
@@ -92,39 +99,27 @@ test('desktop console reconnects, accepts input and stops the owned run',async()
   const parallel=page.getByRole('slider',{name:'Parallel executions',exact:true})
   await page.getByRole('button',{name:'No',exact:true}).click()
   assert.equal(await parallel.isDisabled(),true)
-  await page.getByRole('button',{name:'Reset worktrees to server default',exact:true}).click()
+  await page.getByRole('button',{name:'Reset worktrees to workstation default',exact:true}).click()
   assert.equal(await parallel.isDisabled(),false)
   // The ceiling is the workstation's, not a five-way segmented control.
   assert.equal(await parallel.getAttribute('max'),'10')
   await parallel.fill('3')
   assert.equal(await parallel.inputValue(),'3')
-  // Parallelism is workstation-owned: no server default, hence no reset control.
-  assert.equal(await page.getByRole('button',{name:'Reset parallelism to server default',exact:true}).count(),0)
+  // Parallelism inherits the workstation default, which a reset brings back.
+  assert.equal(await page.getByRole('button',{name:'Reset parallel executions to workstation default',exact:true}).count(),1)
   await page.getByRole('tab',{name:'AI agent',exact:true}).click()
-  // The token reference sits behind a disclosure so the row stays one line.
-  await page.locator('.placeholder-help summary').click()
-  const placeholderHelp=await page.locator('.placeholder-help p').textContent()
-  for(const token of ['{prompt}','{issueKey}','{issueTitle}','{issueDesc}','{branchName}','{repoPath}','{tracker}','{repo}','{model}','{mode:AUTONOMOUS|INTERACTIVE}']){
-   assert.ok(placeholderHelp.includes(token),`Missing placeholder help: ${token}`)
-  }
-  await page.getByRole('textbox',{name:'Interactive CLI command',exact:true}).fill('claude {prompt}')
-  await page.getByRole('button',{name:'Reset CLI commands to server defaults',exact:true}).click()
-  assert.equal(await page.getByRole('textbox',{name:'Interactive CLI command',exact:true}).inputValue(),'codex {prompt}')
-  await page.getByRole('textbox',{name:'Interactive CLI command',exact:true}).fill('local {prompt}')
-  // Each mode has its own command; the override and the reset cover both fields.
-  const autonomous=page.getByRole('textbox',{name:'Autonomous CLI command',exact:true})
-  await autonomous.fill('local exec {prompt}')
-  serverCommand='updated {prompt}'
+  // The project picks a default engine from the workstation catalogue (#510);
+  // the engine itself, templates included, is edited in Settings.
+  const engine=page.getByRole('combobox',{name:'Default engine',exact:true})
+  assert.deepEqual(await engine.locator('option').allTextContents(),['Inherit the workstation default (Claude Opus)','Claude Opus','Codex'])
+  assert.equal(await engine.inputValue(),'')
+  assert.equal(await page.getByRole('textbox',{name:'Interactive CLI command',exact:true}).count(),0)
+  await engine.selectOption('e-codex')
+  await page.getByText('Set for this project · codex · provider default',{exact:true}).waitFor()
+  await page.getByRole('button',{name:'Reset default engine to the workstation default',exact:true}).click()
+  assert.equal(await engine.inputValue(),'')
   await page.getByRole('button',{name:'Refresh from server',exact:true}).click()
   await page.getByText('Server settings refreshed. Local overrides preserved.',{exact:true}).waitFor()
-  assert.equal(await page.getByRole('textbox',{name:'Interactive CLI command',exact:true}).inputValue(),'local {prompt}')
-  assert.equal(await autonomous.inputValue(),'local exec {prompt}')
-  await page.getByRole('button',{name:'Reset CLI commands to server defaults',exact:true}).click()
-  assert.equal(await page.getByRole('textbox',{name:'Interactive CLI command',exact:true}).inputValue(),'updated {prompt}')
-  assert.equal(await autonomous.inputValue(),'codex exec {prompt}')
-  serverCommand='latest {prompt}'
-  await page.getByRole('button',{name:'Refresh from server',exact:true}).click()
-  await page.waitForFunction(()=>document.querySelector('[aria-label="Interactive CLI command"]').value==='latest {prompt}')
 
 
   // The workstation parallelism selection survives a server refresh.
@@ -146,8 +141,8 @@ test('desktop console reconnects, accepts input and stops the owned run',async()
   assert.equal(await page.locator('.connection-label').isVisible(),true)
   await page.locator('#settings').click()
   await page.getByRole('heading',{name:'Settings',exact:true}).waitFor()
-  // General opens first: what is installed, with the release notes under it.
-  await expect(page.getByRole('tab',{name:'General',exact:true})).toHaveAttribute('aria-selected','true')
+  // User profile opens first; release notes remain available in Changelog.
+  await expect(page.getByRole('tab',{name:'User profile',exact:true})).toHaveAttribute('aria-selected','true')
   await expect(page.locator('.settings-versions .version-value')).toHaveCount(2)
   await page.getByRole('tab',{name:'User profile',exact:true}).click()
   await page.getByRole('button',{name:'Open the web interface',exact:true}).waitFor()
@@ -168,7 +163,7 @@ test('desktop console reconnects, accepts input and stops the owned run',async()
   await page.keyboard.press('Control+k')
   await page.getByRole('button',{name:'Quick add task',exact:true}).waitFor()
   await page.getByRole('button',{name:'Close',exact:true}).click()
-  await page.getByRole('button',{name:'New task in Example project',exact:true}).click()
+  await page.getByRole('button',{name:'Actions for Example project',exact:true}).click();await page.getByRole('menuitem',{name:'New task…',exact:true}).click()
   await page.getByRole('button',{name:'Run an existing ticket',exact:true}).click()
   await page.getByRole('textbox',{name:'Search server tasks'}).fill('48')
   await page.getByRole('button',{name:'Search',exact:true}).click()
@@ -188,7 +183,7 @@ test('desktop console reconnects, accepts input and stops the owned run',async()
 
   const launchCount=launches.length
   const previousCreated=createdInput
-  await page.getByRole('button',{name:'New task in Other project',exact:true}).click()
+  await page.getByRole('button',{name:'Actions for Other project',exact:true}).click();await page.getByRole('menuitem',{name:'New task…',exact:true}).click()
   await page.getByRole('button',{name:'Run an existing ticket',exact:true}).waitFor()
   await page.getByRole('button',{name:'Quick add task',exact:true}).waitFor()
   await page.screenshot({path:path.join(root,'new-task-choice.png')})
@@ -197,7 +192,7 @@ test('desktop console reconnects, accepts input and stops the owned run',async()
   assert.equal(launches.length,launchCount,'Dismissing the choice does not launch')
   assert.equal(createdInput,previousCreated,'Dismissing the choice does not create')
   await page.locator('.run[data-status=running]').click()
-  await page.getByRole('button',{name:'New task in Other project',exact:true}).click()
+  await page.getByRole('button',{name:'Actions for Other project',exact:true}).click();await page.getByRole('menuitem',{name:'New task…',exact:true}).click()
   await page.getByRole('button',{name:'Quick add task',exact:true}).click()
   assert.equal(await page.getByRole('combobox',{name:'Quick add project'}).inputValue(),'project-b')
   await page.getByRole('textbox',{name:'Task title',exact:true}).fill('Created in clicked project')
@@ -242,17 +237,14 @@ test('desktop console reconnects, accepts input and stops the owned run',async()
   await page.waitForFunction(()=>document.querySelector('#execution-history').options.length===2)
   assert.equal(await page.locator('.local-task').count(),1)
   assert.equal(await page.getByRole('combobox',{name:'Execution history'}).locator('option').count(),2)
-  await page.getByRole('button',{name:'Actions for #48',exact:true}).click()
+  await page.locator('.local-task').hover()
+  await page.getByRole('button',{name:'Rename Server specification task',exact:true}).click()
   await page.getByRole('textbox',{name:'Local task name'}).fill('Local review')
-  await page.getByRole('button',{name:'Rename locally',exact:true}).click()
-  await page.getByRole('button',{name:'Actions for Local review',exact:true}).waitFor()
+  await page.keyboard.press('Enter')
+  await page.getByRole('button',{name:'Rename Local review',exact:true}).waitFor()
   stopped=false
   await page.locator('.run[data-status=running]').waitFor()
   await expect(page.locator('#toolbar').getByRole('button',{name:'Detach to native terminal',exact:true})).toBeVisible()
-  await page.getByRole('button',{name:'Actions for Local review',exact:true}).click()
-  await expect(page.locator('#dialog-body').getByRole('button',{name:'Detach to native terminal',exact:true})).toBeVisible()
-  await page.keyboard.press('Escape')
-  await page.waitForFunction(()=>!document.querySelector('#project-dialog').open)
   await page.locator('.local-task').hover()
   await page.getByRole('button',{name:'Stop and archive Local review',exact:true}).click()
   await page.getByRole('button',{name:'Stop and archive',exact:true}).click()

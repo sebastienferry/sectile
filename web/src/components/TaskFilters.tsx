@@ -4,7 +4,8 @@ import { useApp } from '../context/AppContext'
 import { useClickOutside } from '../hooks/useClickOutside'
 import { LookupField, type LookupOption } from './LookupField'
 import { valueLookup } from '../lib/lookups'
-import type { Priority } from '../types'
+import { matchesSearch } from '../lib/searchFold'
+import { PRIORITY_COLORS, PRIORITY_LEVELS } from '../lib/priority'
 
 /**
  * Les filtres de tri transversaux, posés dans la barre d'outils de chaque vue
@@ -52,15 +53,6 @@ export const TaskFilters: React.FC = () => {
     t,
   } = useApp()
 
-  // Même palette que les cartes et la vue liste, du plus urgent au moins urgent.
-  const PRIORITY_ORDER: Priority[] = ['urgent', 'high', 'medium', 'low']
-  const PRIORITY_DOTS: Record<Priority, { color: string; label: string }> = {
-    urgent: { color: 'var(--status-danger)', label: t.priority.urgent },
-    high: { color: 'var(--status-warn)', label: t.priority.high },
-    medium: { color: 'var(--status-info)', label: t.priority.medium },
-    low: { color: 'var(--text-muted)', label: t.priority.low },
-  }
-
   const [isStatusMenuOpen, setIsStatusMenuOpen] = React.useState(false)
   const statusMenuRef = React.useRef<HTMLDivElement>(null)
   const [isTypeMenuOpen, setIsTypeMenuOpen] = React.useState(false)
@@ -84,7 +76,7 @@ export const TaskFilters: React.FC = () => {
       // « Non assigné » est une valeur de filtre à part entière, et c'est souvent
       // la plus utile : elle est proposée en tête tant qu'il y a de quoi la
       // remplir.
-      if (taskFacets.unassignedCount > 0 && (!query.trim() || 'non assigné'.includes(query.trim().toLowerCase()))) {
+      if (taskFacets.unassignedCount > 0 && matchesSearch(query, 'Non assigné')) {
         return [
           { id: unassignedFilterValue, label: 'Non assigné', sublabel: `${taskFacets.unassignedCount} ticket(s)` },
           ...people,
@@ -120,11 +112,8 @@ export const TaskFilters: React.FC = () => {
     }
 
     return async (query: string): Promise<LookupOption[]> => {
-      const q = query.trim().toLowerCase()
-      const filtered = macroList.filter(
-        m => !q || m.label.toLowerCase().includes(q) || m.id.toLowerCase().includes(q)
-      )
-      if (taskFacets.noMacroCount > 0 && (!q || 'sans macro'.includes(q) || 'sans milestone'.includes(q))) {
+      const filtered = macroList.filter(m => matchesSearch(query, m.label, m.id))
+      if (taskFacets.noMacroCount > 0 && matchesSearch(query, 'Sans macro', 'Sans milestone')) {
         return [
           { id: '__no_macro__', label: 'Sans macro', sublabel: `${taskFacets.noMacroCount} ticket(s)` },
           ...filtered,
@@ -209,14 +198,14 @@ export const TaskFilters: React.FC = () => {
       <div className="flex items-center gap-1">
         <Flame size={12} className={priorityFilter ? 'text-rose-400' : 'text-[var(--text-muted)]'} />
         <div className="flex items-center gap-1 px-1 py-0.5 rounded-md bg-[var(--bg-secondary)] border border-[var(--border-color)]">
-          {PRIORITY_ORDER.map(level => {
+          {PRIORITY_LEVELS.map(level => {
             const isActive = priorityFilter === level
             return (
               <button
                 key={level}
                 type="button"
                 onClick={() => setPriorityFilter(isActive ? null : level)}
-                title={isActive ? `Retirer le filtre ${PRIORITY_DOTS[level].label}` : `Filtrer : ${PRIORITY_DOTS[level].label}`}
+                title={isActive ? `Retirer le filtre ${t.priority[level]}` : `Filtrer : ${t.priority[level]}`}
                 aria-pressed={isActive}
                 className={`w-4 h-4 rounded-full flex items-center justify-center transition-all cursor-pointer ${
                   isActive
@@ -228,7 +217,7 @@ export const TaskFilters: React.FC = () => {
               >
                 <span
                   className="w-2.5 h-2.5 rounded-full ring-1 ring-black/10"
-                  style={{ backgroundColor: PRIORITY_DOTS[level].color }}
+                  style={{ backgroundColor: PRIORITY_COLORS[level] }}
                 />
               </button>
             )

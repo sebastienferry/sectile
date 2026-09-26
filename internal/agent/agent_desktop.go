@@ -2,7 +2,9 @@ package agent
 
 import (
 	"context"
+	"crypto/sha256"
 	"crypto/subtle"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"github.com/google/uuid"
@@ -30,8 +32,8 @@ type loopbackServer struct {
 	server *http.Server
 	port   int
 	url    string
-	// The proxied surfaces (/api/, /mcp) take the workstation API key held in
-	// serverLink.token; only the companion's own contract has a token here.
+	// Proxied requests use serverLink.token upstream. Local MCP may omit a
+	// client key only after explicit opt-in; the companion has its own token.
 	// desktopToken authenticates the companion; desktopInfo is the handshake
 	// file it reads to find this session.
 	desktopToken string
@@ -39,9 +41,46 @@ type loopbackServer struct {
 	// echoConsoles mirrors console output on the agent's own stdout. Off by
 	// default: it is a debugging aid, not a way to read runs.
 	echoConsoles bool
+	// binarySha256 fingerprints the executable this agent was started from,
+	// hashed at start: by the time the companion asks, the file on disk may
+	// already be a newer build. Empty when the executable could not be read.
+	binarySha256 string
+}
+
+// desktopVersion answers /desktop/version: the build, plus the fingerprint that
+// lets the companion tell a same-version rebuild from the binary it bundles.
+type desktopVersion struct {
+	version.Info
+	BinarySha256 string `json:"binarySha256,omitempty"`
+}
+
+// executableSha256 hashes the running executable's content, "" when it cannot
+// be read. The version and the commit do not change on a rebuild with
+// uncommitted changes; the content does.
+func executableSha256() string {
+	binary, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+	return fileSha256(binary)
+}
+
+func fileSha256(path string) string {
+	file, err := os.Open(path)
+	if err != nil {
+		return ""
+	}
+	defer file.Close()
+	hash := sha256.New()
+	if _, err := io.Copy(hash, file); err != nil {
+		return ""
+	}
+	return hex.EncodeToString(hash.Sum(nil))
 }
 
 type desktopRun struct {
+	EngineID        string    `json:"engineId,omitempty"`
+	EngineName      string    `json:"engineName,omitempty"`
 	Branch          string    `json:"branch,omitempty"`
 	Kind            string    `json:"kind,omitempty"`
 	Provider        string    `json:"provider,omitempty"`
@@ -54,11 +93,14 @@ type desktopRun struct {
 	ID              string    `json:"id"`
 	TaskID          string    `json:"taskId"`
 	TaskKey         string    `json:"taskKey"`
-	ProjectID       string    `json:"projectId"`
-	Skill           string    `json:"skill"`
-	SessionID       string    `json:"sessionId"`
-	Directory       string    `json:"directory"`
-	Status          string    `json:"status"`
+	// MacroKey is set on a macro skill run, which has no task. TaskKey then
+	// carries the macro key too, for the label.
+	MacroKey  string `json:"macroKey,omitempty"`
+	ProjectID string `json:"projectId"`
+	Skill     string `json:"skill"`
+	SessionID string `json:"sessionId"`
+	Directory string `json:"directory"`
+	Status    string `json:"status"`
 	// ExternalTerminal marks the terminal emulator currently attached to or running this session.
 	ExternalTerminal string `json:"externalTerminal,omitempty"`
 	// Headless marks a run that has no PTY on purpose. The desktop shows its
@@ -70,6 +112,10 @@ type desktopRun struct {
 	// An agent that cannot trace sends nothing here, and that notice is what its
 	// runs keep showing.
 	Trace bool `json:"trace,omitempty"`
+	// WaitingSince is set while the session is blocked on the user. The desktop
+	// reads it to raise its notification and to mark the run in its list. The
+	// server sends it, as the session declares it over MCP (#318).
+	WaitingSince time.Time `json:"waitingSince,omitzero"`
 }
 
 func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
@@ -83,7 +129,11 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 	// the version never changes while the process lives.
 	if r.URL.Path == "/desktop/version" && r.Method == http.MethodGet {
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(version.Current())
+		_ = json.NewEncoder(w).Encode(desktopVersion{Info: version.Current(), BinarySha256: d.loopback.binarySha256})
+		return
+	}
+	if r.URL.Path == "/desktop/mcp" {
+		d.desktopMCP(w, r)
 		return
 	}
 	if r.URL.Path == "/desktop/status" && r.Method == http.MethodGet {
@@ -105,7 +155,7 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 		// contractError separates a server that is merely unreachable from one
 		// that cannot be talked to at all. Without it the desktop reports both
 		// as a disconnection and the user has no reason to look at the build.
-		_ = json.NewEncoder(w).Encode(map[string]any{"connected": connected, "server": d.link.serverURL, "contractError": d.contract.current(), "capabilities": []string{"git-diff", "create-task", "remove-project", "free-console", "transition-stage"}, "disconnectedProjects": disconnected})
+		_ = json.NewEncoder(w).Encode(map[string]any{"connected": connected, "server": d.link.serverURL, "contractError": d.contract.current(), "capabilities": []string{"git-diff", "create-task", "remove-project", "free-console", "transition-stage", "repositories", "git-init", taskEnginesCapability}, "disconnectedProjects": disconnected})
 		return
 	}
 	if (r.URL.Path == "/desktop/restart" || r.URL.Path == "/desktop/shutdown") && r.Method == http.MethodPost {
@@ -166,12 +216,32 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 		d.desktopTasks(w, r)
 		return
 	}
+	if r.URL.Path == "/desktop/engines" {
+		d.desktopEngines(w, r)
+		return
+	}
+	if r.URL.Path == "/desktop/task-engines" {
+		d.desktopTaskEngines(w, r)
+		return
+	}
+	if r.URL.Path == "/desktop/workstation" {
+		d.desktopWorkstation(w, r)
+		return
+	}
 	if r.URL.Path == "/desktop/project" {
 		d.desktopProject(w, r)
 		return
 	}
 	if r.URL.Path == "/desktop/projects" {
 		d.desktopProjects(w, r)
+		return
+	}
+	if r.URL.Path == "/desktop/repositories" {
+		d.desktopRepositories(w, r)
+		return
+	}
+	if r.URL.Path == "/desktop/git-init" {
+		d.desktopGitInit(w, r)
 		return
 	}
 	if r.URL.Path == "/desktop/history" && r.Method == http.MethodDelete {
@@ -205,7 +275,7 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 			entry := run.desktop
 			entry.ID = key
 			entry.QueueSequence = run.sequence
-			entry.CancelRequested = run.canceled && (entry.Status == "queued" || entry.Status == "preparing" || entry.Status == "running")
+			entry.CancelRequested = run.canceled && (entry.Status == "queued" || entry.Status == "preparing" || entry.Status == "running" || entry.Status == "waiting")
 			if entry.Status != "" {
 				runs = append(runs, entry)
 			}
@@ -226,13 +296,27 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path == "/desktop/stop" && r.Method == http.MethodPost {
 		run.canceled = true
 		d.queue.mu.Unlock()
+		// A supervised PTY run normally closes exited through agent-exec. If the
+		// terminal has already vanished, there is no process left that can send
+		// that acknowledgement. Recover it here instead of making every Stop
+		// retry wait twelve seconds and return 504 forever.
+		if d.recoverOrphanedPTYRun(id, run) {
+			_ = d.finishDesktopRun(context.Background(), entry.TaskID, id, stoppedStatus(entry.Skill), stoppedNote(entry.Skill, true))
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
 		select {
 		case <-run.exited:
 			// The native client may have already reported completion via MCP.
-			_ = d.finishDesktopRun(context.Background(), entry.TaskID, id, "canceled", "Execution canceled")
+			_ = d.finishDesktopRun(context.Background(), entry.TaskID, id, stoppedStatus(entry.Skill), stoppedNote(entry.Skill, false))
 			w.WriteHeader(http.StatusNoContent)
 		case <-time.After(12 * time.Second):
-			http.Error(w, "Exit not confirmed", 504)
+			if d.recoverOrphanedPTYRun(id, run) {
+				_ = d.finishDesktopRun(context.Background(), entry.TaskID, id, stoppedStatus(entry.Skill), stoppedNote(entry.Skill, true))
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+			http.Error(w, "Exit not confirmed", http.StatusGatewayTimeout)
 		}
 		return
 	}
@@ -264,6 +348,40 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 	http.Error(w, "Not found", 404)
 }
 
+// recoverOrphanedPTYRun closes the local record only when the agent itself can
+// prove that the embedded terminal which owned it no longer exists. Headless
+// runs have no terminal by design and must still confirm their process exit.
+func (d *agentDaemon) recoverOrphanedPTYRun(id string, run *controlledRun) bool {
+	if d.terminal.manager == nil {
+		return false
+	}
+	d.queue.mu.Lock()
+	if d.queue.runs[id] != run || run.desktop.Headless || run.desktop.Status != "running" || run.desktop.SessionID == "" {
+		d.queue.mu.Unlock()
+		return false
+	}
+	sessionID := run.desktop.SessionID
+	d.queue.mu.Unlock()
+	for _, session := range d.terminal.manager.ListSessions() {
+		if session.ID == sessionID {
+			return false
+		}
+	}
+	d.queue.mu.Lock()
+	defer d.queue.mu.Unlock()
+	if d.queue.runs[id] != run {
+		return false
+	}
+	select {
+	case <-run.exited:
+		return false
+	default:
+	}
+	run.desktop.Status = stoppedStatus(run.desktop.Skill)
+	run.once.Do(func() { close(run.exited) })
+	return true
+}
+
 func (d *agentDaemon) writeDesktopInfo() error {
 	if d.loopback.desktopInfo == "" {
 		return nil
@@ -293,8 +411,15 @@ func (d *agentDaemon) writeDesktopInfo() error {
 // path always ends the same way; a headless run has a real result to carry,
 // including the error that stopped it.
 func (d *agentDaemon) finishDesktopRun(ctx context.Context, taskID, runID, status, note string) error {
+	// A run without a task is either a free console, which reports nothing, or
+	// a macro skill run, which reports under its macro.
+	arguments := map[string]string{"taskKey": taskID}
 	if taskID == "" {
-		return nil
+		projectID, macroKey := d.macroOfRun(runID)
+		if macroKey == "" {
+			return nil
+		}
+		arguments = map[string]string{"projectId": projectID, "macroKey": macroKey}
 	}
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
@@ -307,12 +432,16 @@ func (d *agentDaemon) finishDesktopRun(ctx context.Context, taskID, runID, statu
 	if strings.TrimSpace(note) == "" {
 		note = "Local console process exited"
 	}
-	result, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "finish_run", Arguments: map[string]string{"taskKey": taskID, "runId": runID, "status": status, "note": note}})
+	arguments["runId"], arguments["status"], arguments["note"] = runID, status, note
+	result, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "finish_run", Arguments: arguments})
 	if err != nil {
 		return err
 	}
 	if result.IsError {
 		return fmt.Errorf("remote run completion was rejected: %v", result.Content)
+	}
+	if taskID == "" {
+		d.forgetMacroRun(runID)
 	}
 	return nil
 }
@@ -351,7 +480,8 @@ func (d *agentDaemon) desktopProjects(w http.ResponseWriter, r *http.Request) {
 		}
 		for _, p := range projects.Projects {
 			root, _, _ := d.localProjectRoot(r.Context(), agentconfig.Config{ProjectID: p.ID, GitRemoteURL: p.GitRemoteURL})
-			mapped, configured := settings.Projects[p.ID]
+			mapped := settings.ProjectPath(p.ID)
+			configured := mapped != ""
 			if root == "" {
 				root = mapped
 			}
@@ -369,27 +499,13 @@ func (d *agentDaemon) desktopProjects(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method not allowed", 405)
 		return
 	}
-	var input struct {
-		ProjectID                   string  `json:"projectId"`
-		Path                        string  `json:"path"`
-		AIProvider                  *string `json:"aiProvider"`
-		AIModel                     *string `json:"aiModel"`
-		InheritAIProvider           bool    `json:"inheritAiProvider"`
-		InheritAIModel              bool    `json:"inheritAiModel"`
-		AICommandTemplate           *string `json:"aiCommandTemplate"`
-		AICommandTemplateAutonomous *string `json:"aiCommandTemplateAutonomous"`
-		InheritCommand              bool    `json:"inheritCommand"`
-		InheritWorktrees            bool    `json:"inheritWorktrees"`
-		Parallelism                 *int    `json:"parallelism"`
-		UseWorktrees                *bool   `json:"useWorktrees"`
-		Terminal                    *string `json:"terminal"`
-		InheritTerminal             bool    `json:"inheritTerminal"`
-	}
-	if json.NewDecoder(http.MaxBytesReader(w, r.Body, 8192)).Decode(&input) != nil || input.ProjectID == "" || !filepath.IsAbs(input.Path) {
+	var input projectSettingsInput
+	if json.NewDecoder(http.MaxBytesReader(w, r.Body, 65536)).Decode(&input) != nil || input.ProjectID == "" || !filepath.IsAbs(input.Path) {
 		http.Error(w, "Project and absolute repository path required", 400)
 		return
 	}
-	if _, err := d.fetchConfig(r.Context(), input.ProjectID, ""); err != nil {
+	config, err := d.fetchConfig(r.Context(), input.ProjectID, "")
+	if err != nil {
 		http.Error(w, err.Error(), 400)
 		return
 	}
@@ -397,136 +513,55 @@ func (d *agentDaemon) desktopProjects(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Select a local Git repository", 400)
 		return
 	}
+	if input.SpecArtifacts != nil && !input.InheritSpecArtifacts {
+		if value := *input.SpecArtifacts; value != models.SpecArtifactsKeep && value != models.SpecArtifactsDrop {
+			http.Error(w, "Specifications must be keep or drop", 400)
+			return
+		}
+	}
+	specPath := ""
+	if input.SpecPath != nil {
+		var err error
+		if specPath, err = normalizeSpecFolder(r.Context(), *input.SpecPath); err != nil {
+			http.Error(w, err.Error(), 400)
+			return
+		}
+	}
 	d.prepareMu.Lock()
 	defer d.prepareMu.Unlock()
-	root := d.repoRoot
-	if root == "" {
-		root, _ = os.Getwd()
-		root = findRepoRoot(root)
-	}
-	overrides, err := agentconfig.ReadSettings(root)
+	unlock := agentconfig.LockSettings()
+	defer unlock()
+	settings, err := agentconfig.ReadSettings(d.localSettingsRoot())
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
 	}
-	if input.AIProvider != nil && !input.InheritAIProvider {
-		provider := strings.TrimSpace(*input.AIProvider)
-		if err := agentconfig.ValidProvider(provider); err != nil {
-			http.Error(w, err.Error(), 400)
-			return
-		}
-		if provider == "custom" {
-			cmd := ""
-			if input.AICommandTemplate != nil && !input.InheritCommand {
-				cmd = strings.TrimSpace(*input.AICommandTemplate)
-			} else if !input.InheritCommand {
-				cmd = overrides.Commands[input.ProjectID]
-			}
-			if !strings.Contains(cmd, "{prompt}") {
-				http.Error(w, "Custom provider requires a command template containing {prompt}", 400)
-				return
-			}
-		}
+	if input.statesEngine() {
+		http.Error(w, agentconfig.ErrEngineFields.Error(), 400)
+		return
 	}
-	if input.AIModel != nil && !input.InheritAIModel {
-		if err := agentconfig.ValidModel(*input.AIModel); err != nil {
-			http.Error(w, err.Error(), 400)
-			return
-		}
+	project := input.apply(settings.Project(input.ProjectID))
+	project.Path = input.Path
+	if input.SpecPath != nil {
+		project.SpecPath = specPath
 	}
-	if overrides.Projects == nil {
-		overrides.Projects = map[string]string{}
+	if err := agentconfig.ValidateProject(project); err != nil {
+		http.Error(w, err.Error(), 400)
+		return
 	}
-	if input.InheritAIProvider {
-		delete(overrides.AIProviders, input.ProjectID)
-	} else if input.AIProvider != nil {
-		provider := strings.TrimSpace(*input.AIProvider)
-		if provider == "" {
-			delete(overrides.AIProviders, input.ProjectID)
-		} else {
-			if overrides.AIProviders == nil {
-				overrides.AIProviders = map[string]string{}
-			}
-			overrides.AIProviders[input.ProjectID] = provider
-		}
+	if err := input.applyEngine(&settings); err != nil {
+		http.Error(w, err.Error(), 400)
+		return
 	}
-	if input.InheritAIModel {
-		delete(overrides.AIModels, input.ProjectID)
-	} else if input.AIModel != nil {
-		model := strings.TrimSpace(*input.AIModel)
-		if model == "" {
-			delete(overrides.AIModels, input.ProjectID)
-		} else {
-			if overrides.AIModels == nil {
-				overrides.AIModels = map[string]string{}
-			}
-			overrides.AIModels[input.ProjectID] = model
-		}
-	}
-	// The two commands are overridden together: a workstation that pins only the
-	// interactive one would keep running the server's headless command beside it,
-	// which is the opposite of what an override is for.
-	if input.AICommandTemplate != nil || input.AICommandTemplateAutonomous != nil || input.InheritCommand {
-		if overrides.Commands == nil {
-			overrides.Commands = map[string]string{}
-		}
-		if overrides.CommandsAutonomous == nil {
-			overrides.CommandsAutonomous = map[string]string{}
-		}
-		command, autonomous := "", ""
-		if input.AICommandTemplate != nil {
-			command = strings.TrimSpace(*input.AICommandTemplate)
-		}
-		if input.AICommandTemplateAutonomous != nil {
-			autonomous = strings.TrimSpace(*input.AICommandTemplateAutonomous)
-		}
-		if len(command) > 4096 || len(autonomous) > 4096 {
-			http.Error(w, "CLI command is too long", 400)
-			return
-		}
-		if input.InheritCommand {
-			command, autonomous = "", ""
-		}
-		overrides.Commands[input.ProjectID] = command
-		overrides.CommandsAutonomous[input.ProjectID] = autonomous
-	}
-	if input.Parallelism != nil {
-		if *input.Parallelism < 1 || *input.Parallelism > agentconfig.MaxParallelism {
-			http.Error(w, fmt.Sprintf("Parallelism must be between 1 and %d", agentconfig.MaxParallelism), 400)
-			return
-		}
-		if overrides.Parallelism == nil {
-			overrides.Parallelism = map[string]int{}
-		}
-		overrides.Parallelism[input.ProjectID] = *input.Parallelism
-	}
-	overrides.Projects[input.ProjectID] = input.Path
-	if input.UseWorktrees != nil {
-		if overrides.Worktrees == nil {
-			overrides.Worktrees = map[string]bool{}
-		}
-		overrides.Worktrees[input.ProjectID] = *input.UseWorktrees
-	}
-	if input.InheritWorktrees {
-		delete(overrides.Worktrees, input.ProjectID)
-	}
-	if input.InheritTerminal {
-		delete(overrides.Terminals, input.ProjectID)
-	} else if input.Terminal != nil {
-		termChoice := strings.TrimSpace(*input.Terminal)
-		if termChoice == "" {
-			delete(overrides.Terminals, input.ProjectID)
-		} else {
-			if overrides.Terminals == nil {
-				overrides.Terminals = map[string]string{}
-			}
-			overrides.Terminals[input.ProjectID] = termChoice
-		}
-	}
-	delete(overrides.DisconnectedProjects, input.ProjectID)
-	if err := agentconfig.WriteSettings(overrides); err != nil {
+	settings.SetProject(input.ProjectID, project)
+	delete(settings.DisconnectedProjects, input.ProjectID)
+	if err := agentconfig.WriteSettings(settings); err != nil {
 		http.Error(w, err.Error(), 500)
 		return
+	}
+	d.reportCapabilitiesLater()
+	if !agentconfig.Resolve(config, settings).DropsSpecArtifacts() {
+		clearSpecExclusions(r.Context(), config, settings, input.Path)
 	}
 	w.WriteHeader(204)
 }
@@ -564,6 +599,8 @@ func (d *agentDaemon) disconnectProject(w http.ResponseWriter, r *http.Request) 
 			return
 		}
 	}
+	unlock := agentconfig.LockSettings()
+	defer unlock()
 	settings, err := agentconfig.ReadSettings(d.localSettingsRoot())
 	if err != nil {
 		http.Error(w, err.Error(), 500)
@@ -573,17 +610,16 @@ func (d *agentDaemon) disconnectProject(w http.ResponseWriter, r *http.Request) 
 		settings.DisconnectedProjects = map[string]bool{}
 	}
 	settings.DisconnectedProjects[id] = true
-	delete(settings.Projects, id)
-	delete(settings.Worktrees, id)
-	delete(settings.Parallelism, id)
-	delete(settings.Commands, id)
-	delete(settings.CommandsAutonomous, id)
-	delete(settings.AIProviders, id)
-	delete(settings.AIModels, id)
+	// The whole section goes with the project, the specifications folder
+	// included: a project added again starts from the inherited values, not
+	// from what was chosen before. Its seed marker stays, so the server values
+	// are not taken a second time.
+	delete(settings.ProjectSettings, id)
 	if err := agentconfig.WriteSettings(settings); err != nil {
 		http.Error(w, err.Error(), 500)
 		return
 	}
+	d.reportCapabilitiesLater()
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -618,6 +654,49 @@ func localAgentAvailable(file string) bool {
 	return response.StatusCode == http.StatusOK
 }
 
+// normalizeSpecFolder validates a specifications folder typed or chosen in the
+// desktop settings. It must be an absolute path to an existing directory. A
+// folder inside a Git checkout names that checkout: the macro worktree is
+// created at its root, where specs/ is looked for. A folder outside any
+// checkout is kept as it is. Empty clears the override.
+func normalizeSpecFolder(ctx context.Context, raw string) (string, error) {
+	folder := strings.TrimSpace(raw)
+	if folder == "" {
+		return "", nil
+	}
+	if !filepath.IsAbs(folder) {
+		return "", fmt.Errorf("The specifications folder must be an absolute path")
+	}
+	info, err := os.Stat(folder)
+	if err != nil {
+		return "", fmt.Errorf("The specifications folder %s does not exist", folder)
+	}
+	if !info.IsDir() {
+		return "", fmt.Errorf("The specifications folder %s is not a directory", folder)
+	}
+	if top, err := gitLocal(ctx, folder, "rev-parse", "--show-toplevel"); err == nil {
+		return filepath.Clean(top), nil
+	}
+	return filepath.Clean(folder), nil
+}
+
+// specFolderKind says what the effective specifications folder is, for the
+// desktop settings to show next to the field: "git" inside a Git checkout,
+// "folder" for a plain directory, "missing" when it no longer exists, and
+// "unset" when a multi-repo project has none.
+func specFolderKind(ctx context.Context, folder string) string {
+	if strings.TrimSpace(folder) == "" {
+		return "unset"
+	}
+	if info, err := os.Stat(folder); err != nil || !info.IsDir() {
+		return "missing"
+	}
+	if _, err := gitLocal(ctx, folder, "rev-parse", "--show-toplevel"); err == nil {
+		return "git"
+	}
+	return "folder"
+}
+
 // desktopProject exposes server metadata without allowing server configuration edits.
 func (d *agentDaemon) desktopProject(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet && r.Method != http.MethodPost {
@@ -643,26 +722,43 @@ func (d *agentDaemon) desktopProject(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), 502)
 			return
 		}
-		effective := agentconfig.ApplyOverrides(config, overrides)
-		_, worktreeOverride := overrides.Worktrees[id]
+		effective := agentconfig.Resolve(config, overrides)
+		section := overrides.Project(id)
+		// The inherited folder follows the code checkout: only an override is
+		// stored, so a later change of the local repository carries it along.
+		specDefault := ""
+		if project.MonoRepo && mappingErr == nil {
+			specDefault = root
+		}
+		specEffective := section.SpecPath
+		if strings.TrimSpace(specEffective) == "" {
+			specEffective = specDefault
+		}
+		fields := executionFields(config, overrides)
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"server":                      config,
+			"server":                      withoutExecution(config),
 			"monoRepo":                    project.MonoRepo,
 			"path":                        root,
+			"specPath":                    section.SpecPath,
+			"specDefault":                 specDefault,
+			"specKind":                    specFolderKind(r.Context(), specEffective),
 			"useWorktrees":                effective.UseWorktrees,
 			"configured":                  mappingErr == nil,
 			"aiCommandTemplate":           effective.AICommandTemplate,
 			"aiCommandTemplateAutonomous": effective.AICommandTemplateAutonomous,
-			"commandOverride":             overrides.Commands[id] != "" || overrides.CommandsAutonomous[id] != "",
-			"worktreeOverride":            worktreeOverride,
+			"defaultEngine":               summaryOf(overrides.ProjectEngine(id)),
+			"worktreeOverride":            section.UseWorktrees != nil,
+			"specArtifacts":               models.NormalizeSpecArtifacts(effective.SpecArtifacts),
+			"specArtifactsOverride":       section.SpecArtifacts != "",
+			"specArtifactsTracked":        trackedSpecArtifacts(r.Context(), root, mappingErr),
 			"parallelism":                 agentconfig.ExecutionLimit(id, effective.UseWorktrees, overrides),
 			"aiProvider":                  effective.AIProvider,
 			"aiModel":                     effective.AIModel,
-			"aiProviderOverride":          overrides.AIProviders[id] != "",
-			"aiModelOverride":             overrides.AIModels[id] != "",
 			"terminal":                    effective.ExternalTerminalCommand,
-			"terminalOverride":            overrides.Terminals[id] != "",
+			"terminalOverride":            section.Terminal != "",
+			"fields":                      fields,
+			"skills":                      skillNames(config),
 		})
 		return
 	}
@@ -688,6 +784,16 @@ func (d *agentDaemon) desktopProject(w http.ResponseWriter, r *http.Request) {
 	}
 	d.queue.mu.Unlock()
 	switch r.URL.Query().Get("action") {
+	case "initialize":
+		provider := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("provider")))
+		if _, err := agentconfig.ResolveLocations(provider); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		// Attempt failures are structured so the UI preserves partial success.
+		result, _ := d.initializeProvider(root, config, provider)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(result)
 	case "skills":
 		_, err = agentconfig.Scaffold(root, config)
 		if err != nil {
@@ -962,34 +1068,24 @@ func (d *agentDaemon) desktopRunResult(w http.ResponseWriter, r *http.Request) {
 }
 
 // resolveTerminalForProject determines the terminal emulator based on precedence:
-// 1. Explicit call override
-// 2. Project local override (overrides.Terminals[projectID])
-// 3. Workstation setting (overrides.Terminal)
-// 4. Server project configuration (config.ExternalTerminalCommand)
-// 5. Agent daemon flag (d.terminal.app)
+// 1. Explicit call override (the terminal picked for this very action)
+// 2. The agent's explicit --terminal flag
+// 3. Project section of the workstation settings
+// 4. Workstation defaults
+// 5. Agent daemon default (d.terminal.app)
 // 6. System auto-detection (detectDefaultTerminal())
+// The server holds no terminal any more (#305).
 func (d *agentDaemon) resolveTerminalForProject(ctx context.Context, projectID, override string) string {
 	override = strings.TrimSpace(override)
 	if override != "" {
 		return override
 	}
-	base := d.repoRoot
-	if base == "" {
-		base, _ = os.Getwd()
-		base = findRepoRoot(base)
+	if d.terminal.explicit && d.terminal.app != "" {
+		return d.terminal.app
 	}
-	overrides, err := agentconfig.ReadSettings(base)
-	if err == nil {
-		if projectID != "" && overrides.Terminals[projectID] != "" {
-			return overrides.Terminals[projectID]
-		}
-		if overrides.Terminal != "" {
-			return overrides.Terminal
-		}
-	}
-	if projectID != "" {
-		if config, err := d.fetchConfig(ctx, projectID, ""); err == nil && config.ExternalTerminalCommand != "" {
-			return config.ExternalTerminalCommand
+	if settings, err := agentconfig.ReadSettings(d.localSettingsRoot()); err == nil {
+		if terminal := settings.Terminal(projectID); terminal != "" {
+			return terminal
 		}
 	}
 	if d.terminal.app != "" {

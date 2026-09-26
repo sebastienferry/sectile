@@ -318,6 +318,9 @@ type PullRequest struct {
 	// CreatedAt orders a set of pull requests the way the task recorded them:
 	// oldest first, so the newest ends up being the current one.
 	CreatedAt time.Time
+	// Forge is "gitlab" for a merge request the local agent read from GitLab;
+	// empty means GitHub, the only forge this client reads.
+	Forge string
 }
 
 func (c *Client) BranchPullRequest(repo, branch string) (PullRequest, error) {
@@ -396,7 +399,7 @@ func (c *Client) IssuePullRequests(repo string, issueNumber int) ([]PullRequest,
 		return nil, fmt.Errorf("issue number is required")
 	}
 	if c.GithubToken == "" {
-		return nil, fmt.Errorf("%s", missingCredential("GitHub"))
+		return nil, c.missingCredential("GitHub")
 	}
 	parts := strings.Split(repo, "/")
 	var res struct {

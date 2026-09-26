@@ -18,6 +18,7 @@ import {
 import { useApp } from '../context/AppContext'
 import { LookupField, type LookupOption } from './LookupField'
 import { macroLookup, sprintLookup } from '../lib/lookups'
+import { matchesSearch } from '../lib/searchFold'
 import type { MacroMeta, Task } from '../types'
 
 type Dimension = 'sprint' | 'macro' | 'team' | 'assignee'
@@ -53,6 +54,7 @@ export const TriageView: React.FC = () => {
     projects,
     migrateTasks,
     startBatchPickup,
+    t,
   } = useApp()
 
   const [macros, setMacros] = useState<MacroMeta[]>([])
@@ -137,15 +139,8 @@ export const TriageView: React.FC = () => {
 
     // Search query
     if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase().trim()
-      list = list.filter(
-        t =>
-          t.key.toLowerCase().includes(q) ||
-          t.title.toLowerCase().includes(q) ||
-          (t.sprint && t.sprint.toLowerCase().includes(q)) ||
-          (t.parentKey && t.parentKey.toLowerCase().includes(q)) ||
-          (t.parentTitle && t.parentTitle.toLowerCase().includes(q)) ||
-          (t.assignee && t.assignee.toLowerCase().includes(q))
+      list = list.filter(t =>
+        matchesSearch(searchQuery, t.key, t.title, t.sprint, t.parentKey, t.parentTitle, t.assignee)
       )
     }
 
@@ -470,11 +465,11 @@ export const TriageView: React.FC = () => {
           <button
             type="button"
             onClick={() => startBatchPickup(selectedIds)}
-            className="flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold cursor-pointer text-purple-300 bg-purple-950/60 hover:bg-purple-900/80 border border-purple-700/50 shrink-0 shadow-xs"
+            className="flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold cursor-pointer bg-[var(--bg-tertiary)] text-[var(--text-secondary)] border border-[var(--border-color)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-secondary)] transition-colors shrink-0 shadow-xs"
             title="Run the selected tasks on the local agent"
           >
-            <Sparkles size={13} className="text-purple-400 animate-pulse" />
-            Lancer le lot (Git tree + Auto-pilot)
+            <Sparkles size={13} />
+            {t.batchLaunch}
           </button>
 
           <button

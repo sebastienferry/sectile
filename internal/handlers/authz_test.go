@@ -40,6 +40,7 @@ func guardedServer(t *testing.T, h *Handler) *httptest.Server {
 	mux.HandleFunc("/api/settings", h.HandleSettings)
 	mux.HandleFunc("/api/users", h.HandleUsers)
 	mux.HandleFunc("/api/users/", h.HandleUsers)
+	mux.HandleFunc(AdminStatsPath, h.HandleAdminStats)
 	mux.HandleFunc("/api/devices", h.HandleDeviceCredentials)
 	mux.HandleFunc("/api/pairing-codes", h.HandlePairingCode)
 	mux.HandleFunc("/api/me", h.HandleCurrentUser)
@@ -106,6 +107,7 @@ func connectAgentAs(t *testing.T, server *httptest.Server, key, projectID string
 func TestAdminOnlyRoutesAreExactlyTheseMutations(t *testing.T) {
 	adminOnly := []struct{ method, path string }{
 		{http.MethodGet, "/api/users"}, {http.MethodPut, "/api/users/u1"}, {http.MethodDelete, "/api/users/u1"},
+		{http.MethodGet, "/api/admin/stats"},
 	}
 	for _, route := range adminOnly {
 		if !adminOnlyRoute(route.method, route.path) {
@@ -223,19 +225,20 @@ func TestMembersOnlyChangeTheirPreferencesInSettings(t *testing.T) {
 	if status, body := call(t, server, bob, http.MethodPost, "/api/settings", string(payload)); status != http.StatusOK {
 		t.Fatalf("member changing the theme: %d %s", status, body)
 	}
-	current.AIProvider = "codex"
 	current.AutoSyncEnabled = !current.AutoSyncEnabled
 	payload, _ = json.Marshal(current)
+	// An execution setting in the payload is ignored, not refused (#305).
+	payload = []byte(strings.Replace(string(payload), "{", `{"aiProvider":"codex",`, 1))
 	status, body := call(t, server, bob, http.MethodPost, "/api/settings", string(payload))
-	if status != http.StatusForbidden || !strings.Contains(body, "aiProvider") || !strings.Contains(body, "autoSyncEnabled") {
-		t.Fatalf("member changing the provider: %d %s", status, body)
+	if status != http.StatusForbidden || strings.Contains(body, "aiProvider") || !strings.Contains(body, "autoSyncEnabled") {
+		t.Fatalf("member changing the sync loop: %d %s", status, body)
 	}
 	if status, body = call(t, server, alice, http.MethodPost, "/api/settings", string(payload)); status != http.StatusOK {
-		t.Fatalf("admin changing the provider: %d %s", status, body)
+		t.Fatalf("admin changing the sync loop: %d %s", status, body)
 	}
 	saved, _ := database.GetSettings()
-	if saved.AIProvider != "codex" {
-		t.Fatalf("the deployment provider = %q, want codex", saved.AIProvider)
+	if saved.AutoSyncEnabled != current.AutoSyncEnabled || saved.AIProvider == "codex" {
+		t.Fatalf("the deployment row = %+v", saved)
 	}
 
 	// The theme each of them saved is their own, and the deployment row is not
@@ -280,6 +283,27 @@ func TestMembersOnlyChangeTheirPreferencesInSettings(t *testing.T) {
 	status, body = call(t, server, bob, http.MethodGet, "/api/settings", "")
 	if status != http.StatusOK || !strings.Contains(body, `"userEmail":"bob@example.com"`) {
 		t.Fatalf("settings read back = %d %s, want bob's own address", status, body)
+	}
+
+	// userName is the account's name and is not writable either. The post is
+	// ignored rather than refused, so a whole-row payload from the interface
+	// still answers 200, and the preferences it carries alongside are saved.
+	if _, err := database.SetDisplayName(bobID, "Bob Martin"); err != nil {
+		t.Fatal(err)
+	}
+	if status, body = call(t, server, bob, http.MethodPost, "/api/settings", `{"userName":"someone else","density":"compact"}`); status != http.StatusOK {
+		t.Fatalf("member posting a name: %d %s", status, body)
+	}
+	status, body = call(t, server, bob, http.MethodGet, "/api/settings", "")
+	if status != http.StatusOK || !strings.Contains(body, `"userName":"Bob Martin"`) {
+		t.Fatalf("settings read back = %d %s, want bob's own name", status, body)
+	}
+	if strings.Contains(body, "someone else") {
+		t.Fatalf("a written userName reached the answer: %s", body)
+	}
+	bobSettings, _ = database.UserSettings(bobID)
+	if bobSettings.Density != "compact" {
+		t.Fatalf("ignoring userName dropped the rest of the payload: density %q", bobSettings.Density)
 	}
 }
 

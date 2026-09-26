@@ -142,121 +142,54 @@ func gitLocal(ctx context.Context, root string, args ...string) (string, error) 
 	return strings.TrimSpace(string(raw)), nil
 }
 
-func repositoryIdentity(remote string) string {
-	remote = strings.TrimSuffix(strings.TrimSpace(remote), ".git")
-	if parsed, err := url.Parse(remote); err == nil && parsed.Host != "" {
-		return strings.ToLower(parsed.Host) + strings.TrimRight(parsed.Path, "/")
-	}
-	remote = strings.TrimPrefix(remote, "git@")
-	return strings.Replace(remote, ":", "/", 1)
-}
-
 // localProjectRoot resolves workstation mappings. Remote filesystem paths are
 // deliberately absent from the contract and never used as local working dirs.
-func (d *agentDaemon) localProjectRoot(ctx context.Context, c agentconfig.Config, allowUninitialized ...bool) (string, agentconfig.Overrides, error) {
+func (d *agentDaemon) localProjectRoot(ctx context.Context, c agentconfig.Config, allowUninitialized ...bool) (string, agentconfig.Settings, error) {
 	root := d.repoRoot
 	if root == "" {
 		root, _ = os.Getwd()
 		root = findRepoRoot(root)
 	}
-	overrides, err := agentconfig.ReadSettings(root)
+	settings, err := agentconfig.ReadSettings(root)
 	if err != nil {
-		return "", overrides, err
+		return "", settings, err
 	}
-	if overrides.DisconnectedProjects[c.ProjectID] {
-		return "", overrides, fmt.Errorf("project %s is disconnected; add it again in the desktop before launching", c.ProjectID)
+	if settings.DisconnectedProjects[c.ProjectID] {
+		return "", settings, fmt.Errorf("project %s is disconnected; add it again in the desktop before launching", c.ProjectID)
 	}
-	if mapped := overrides.Projects[c.ProjectID]; mapped != "" {
+	if mapped := settings.ProjectPath(c.ProjectID); mapped != "" {
 		if !filepath.IsAbs(mapped) {
 			mapped = filepath.Join(root, mapped)
 		}
 		root = mapped
 	} else if d.link.projectID != c.ProjectID {
 		remote, err := gitLocal(ctx, root, "remote", "get-url", "origin")
-		if err != nil || c.GitRemoteURL == "" || repositoryIdentity(remote) != repositoryIdentity(c.GitRemoteURL) {
-			return "", overrides, fmt.Errorf("no local repository mapping for project %s; configure ~/.config/taskflow/settings.json projects", c.ProjectID)
+		if err != nil || c.GitRemoteURL == "" || models.RepositoryIdentity(remote) != models.RepositoryIdentity(c.GitRemoteURL) {
+			return "", settings, fmt.Errorf("no local repository mapping for project %s; set its folder in the desktop app", c.ProjectID)
 		}
 	}
 	root, err = filepath.Abs(root)
 	if err != nil {
-		return "", overrides, err
+		return "", settings, err
 	}
 	if _, err := gitLocal(ctx, root, "rev-parse", "--show-toplevel"); err != nil && !(len(allowUninitialized) > 0 && allowUninitialized[0]) {
-		return "", overrides, err
+		return "", settings, err
 	}
-	local, err := agentconfig.ReadOverrides(root)
+	// A project this workstation serves takes over the server's former values
+	// the first time it is resolved (#305).
+	if !settings.HasSeededProject(c.ProjectID) {
+		d.seedSettings(ctx, c)
+		if seeded, err := agentconfig.ReadSettings(d.localSettingsRoot()); err == nil {
+			settings = seeded
+		}
+	}
+	// The checkout's legacy .taskflow/agent.json fills what the workstation
+	// settings leave unset, as it always did.
+	local, err := agentconfig.WithRepositoryFile(settings, root)
 	if err != nil {
-		return "", overrides, err
+		return "", settings, err
 	}
-	if value, ok := overrides.Worktrees[c.ProjectID]; ok {
-		if local.Worktrees == nil {
-			local.Worktrees = map[string]bool{}
-		}
-		local.Worktrees[c.ProjectID] = value
-	}
-	if value, ok := overrides.Parallelism[c.ProjectID]; ok {
-		if local.Parallelism == nil {
-			local.Parallelism = map[string]int{}
-		}
-		local.Parallelism[c.ProjectID] = value
-	}
-	if local.Commands == nil {
-		local.Commands = map[string]string{}
-	}
-	for id, command := range overrides.Commands {
-		local.Commands[id] = command
-	}
-	if local.CommandsAutonomous == nil {
-		local.CommandsAutonomous = map[string]string{}
-	}
-	for id, command := range overrides.CommandsAutonomous {
-		local.CommandsAutonomous[id] = command
-	}
-	if local.AIProviders == nil {
-		local.AIProviders = map[string]string{}
-	}
-	for id, provider := range overrides.AIProviders {
-		local.AIProviders[id] = provider
-	}
-	if local.AIModels == nil {
-		local.AIModels = map[string]string{}
-	}
-	for id, model := range overrides.AIModels {
-		local.AIModels[id] = model
-	}
-	if overrides.AIProvider != "" {
-		local.AIProvider = overrides.AIProvider
-	}
-	if overrides.AICommandTemplate != "" {
-		local.AICommandTemplate = overrides.AICommandTemplate
-	}
-	if overrides.AICommandTemplateAutonomous != "" {
-		local.AICommandTemplateAutonomous = overrides.AICommandTemplateAutonomous
-	}
-	if overrides.AIModel != "" {
-		local.AIModel = overrides.AIModel
-	}
-	if local.AISkillModels == nil {
-		local.AISkillModels = map[string]string{}
-	}
-	for id, model := range overrides.AISkillModels {
-		local.AISkillModels[id] = model
-	}
-	if overrides.Terminal != "" {
-		local.Terminal = overrides.Terminal
-	}
-	if local.Terminals == nil {
-		local.Terminals = map[string]string{}
-	}
-	for id, terminal := range overrides.Terminals {
-		local.Terminals[id] = terminal
-	}
-	if local.Skills == nil {
-		local.Skills = map[string]string{}
-	}
-	for id, content := range overrides.Skills {
-		local.Skills[id] = content
-	}
+	local.DisconnectedProjects, local.MCPConnections = settings.DisconnectedProjects, settings.MCPConnections
 	return root, local, nil
 }
 
@@ -374,44 +307,92 @@ func ensureLocalWorktree(ctx context.Context, root string, task models.Task, use
 	return target, branch, nil
 }
 
+// prepareDispatch resolves the task's workspace, then provisions its
+// dependencies. The install can take minutes, so it runs once prepareMu is
+// released: holding the mutex through it would stall every other preparation on
+// the agent behind one npm ci. The launch path waits for the install, so the
+// session starts with its dependencies in place.
 func (d *agentDaemon) prepareDispatch(ctx context.Context, taskKey string, useWorktrees ...bool) (agentconfig.Config, string, string, models.Task, error) {
+	config, root, workDir, branch, task, err := d.prepareWorkspace(ctx, taskKey, useWorktrees...)
+	if err == nil {
+		provisionWorktree(ctx, root, workDir)
+		// A multi-repo ticket may work in another checkout than the one it
+		// was admitted against: the queue compares checkouts through this.
+		d.queue.mu.Lock()
+		for _, run := range d.queue.runs {
+			if run.taskID == taskKey && run.desktop.Status == "preparing" {
+				run.root = root
+			}
+		}
+		d.queue.mu.Unlock()
+	}
+	return config, workDir, branch, task, err
+}
+
+// prepareWorkspace resolves the task's workspace under prepareMu without
+// provisioning it, and returns the project root beside the working directory.
+func (d *agentDaemon) prepareWorkspace(ctx context.Context, taskKey string, useWorktrees ...bool) (agentconfig.Config, string, string, string, models.Task, error) {
 	d.prepareMu.Lock()
 	defer d.prepareMu.Unlock()
+	return d.prepareDispatchLocked(ctx, taskKey, useWorktrees...)
+}
+
+// prepareDispatchLocked is the part of prepareDispatch that runs under
+// prepareMu. It also returns the project root, so the caller can tell a linked
+// worktree from the main checkout.
+func (d *agentDaemon) prepareDispatchLocked(ctx context.Context, taskKey string, useWorktrees ...bool) (agentconfig.Config, string, string, string, models.Task, error) {
 	var task models.Task
 	config, err := d.fetchConfig(ctx, "", taskKey)
 	if err != nil {
-		return config, "", "", task, err
+		return config, "", "", "", task, err
 	}
 	root, overrides, err := d.localProjectRoot(ctx, config)
 	if err != nil {
-		return config, "", "", task, err
+		return config, "", "", "", task, err
 	}
 	if err := d.readAPI(ctx, "/api/tasks/"+url.PathEscape(taskKey), &task); err != nil {
-		return config, "", "", task, err
+		return config, "", "", "", task, err
 	}
 	if task.ProjectID != config.ProjectID {
-		return config, "", "", task, fmt.Errorf("task project changed during configuration sync")
+		return config, "", "", "", task, fmt.Errorf("task project changed during configuration sync")
 	}
-	config = agentconfig.ApplyOverrides(config, overrides)
+	config = agentconfig.ResolveTask(config, overrides, task.ID)
 	if len(useWorktrees) > 0 {
 		config.UseWorktrees = useWorktrees[0]
 	}
 	if err := config.Validate(); err != nil {
-		return config, "", "", task, err
+		return config, "", "", "", task, err
 	}
+	// The worktree lives in the ticket's own repository, which on a multi-repo
+	// project is not necessarily the project root (#456).
+	primary, _, pin, err := primaryRoot(ctx, config, overrides, root, task)
+	if err != nil {
+		return config, "", "", "", task, err
+	}
+	if pin != "" {
+		// The only repository mapped here: later stages must stay in it.
+		if patchErr := d.patchTask(ctx, taskKey, map[string]string{"repository": pin}); patchErr != nil {
+			log.Printf("[Agent] Could not pin task %s to %s: %v", taskKey, pin, patchErr)
+		}
+		task.Repository = pin
+	}
+	root = primary
 	workDir, branch, err := ensureLocalWorktree(ctx, root, task, config.UseWorktrees)
 	if err != nil {
-		return config, "", "", task, err
+		return config, "", "", "", task, err
+	}
+	if err := applySpecArtifacts(ctx, &config, root, task.Key); err != nil {
+		return config, "", "", "", task, err
 	}
 	preserved, err := agentconfig.Scaffold(workDir, config)
 	for _, path := range preserved {
 		log.Printf("[Agent] Saved previous skill content: %s", path)
 	}
 	if err != nil {
-		return config, workDir, branch, task, err
+		return config, root, workDir, branch, task, err
 	}
 	err = d.bootstrapLocalMCP(&config)
-	return config, workDir, branch, task, err
+	return config, root, workDir, branch, task, err
 }
 
 // bootstrapLocalMCP registers the Sectile MCP server for every agent the project
@@ -442,8 +423,22 @@ func (d *agentDaemon) bootstrapLocalMCP(config *agentconfig.Config) error {
 	if err != nil {
 		return err
 	}
+	settings, err := agentconfig.ReadSettings(d.localSettingsRoot())
+	if err != nil {
+		return err
+	}
 	for _, provider := range providers {
-		path, err := agentconfig.BootstrapMCP(provider, executable, d.link.serverURL, d.link.token)
+		choice, selected := settings.MCPConnections[provider]
+		var path string
+		if selected {
+			server := d.link.serverURL
+			if choice.Target == "local" {
+				server = d.loopback.url
+			}
+			path, err = agentconfig.ConfigureMCP(provider, executable, server, d.link.token, choice.Transport, choice.Target == "local")
+		} else {
+			path, err = agentconfig.BootstrapMCP(provider, executable, d.link.serverURL, d.link.token)
+		}
 		if err != nil {
 			return fmt.Errorf("register the Sectile MCP server for provider %q: %w", provider, err)
 		}
@@ -484,15 +479,16 @@ func agentCommandLine(provider, template, model, prompt string, contexts ...agen
 // report the run and move the stage, so the run ends having only printed why it
 // could not work and the board never moves. Only an attested flag is passed, for
 // the same reason the provider list itself is attested.
-func headlessCommandLine(provider, model, prompt string) (string, error) {
+func headlessCommandLine(provider, model, prompt string, addDirs ...string) (string, error) {
 	modelFlag := strings.Join(agentconfig.ModelArgs(provider, model), " ")
+	dirFlags := addDirArgs(provider, addDirs)
 	reasoning := ""
 	if engineStreamsReasoning(provider) {
 		reasoning = strings.Join(reasoningOptions, " ")
 	}
 	switch provider {
 	case "claude":
-		return words("claude", "-p", "--permission-mode", "bypassPermissions", reasoning, modelFlag, quoteShell(prompt)), nil
+		return words("claude", "-p", "--permission-mode", "bypassPermissions", reasoning, modelFlag, quoteShell(prompt), dirFlags), nil
 	case "codex":
 		// codex exec is non-interactive, but its approval bypass flag is not
 		// attested here: it is left to a custom template until it is verified.
@@ -505,9 +501,41 @@ func headlessCommandLine(provider, model, prompt string) (string, error) {
 	}
 }
 
+// addDirArgs passes the task's other folders to a provider whose option for it
+// is attested: Claude Code's --add-dir. Every other provider gets nothing,
+// which is what headlessCommandLine does for any unattested flag; the folder
+// map in the prompt still names the folders.
+//
+// --add-dir takes several values: written "--add-dir <path>", it goes on
+// swallowing every argument that follows, the prompt included. The
+// "--add-dir=<path>" form takes exactly one, wherever a template places it,
+// and the built-in lines also put the options after the prompt.
+func addDirArgs(provider string, dirs []string) string {
+	if !strings.EqualFold(strings.TrimSpace(provider), "claude") {
+		return ""
+	}
+	var args []string
+	for _, dir := range dirs {
+		if dir = strings.TrimSpace(dir); dir != "" {
+			args = append(args, "--add-dir="+quoteShell(dir))
+		}
+	}
+	return strings.Join(args, " ")
+}
+
+// templateProvider is the CLI a command template starts: its first word,
+// without a directory.
+func templateProvider(template string) string {
+	fields := strings.Fields(template)
+	if len(fields) == 0 {
+		return ""
+	}
+	return filepath.Base(fields[0])
+}
+
 // reasoningOptions make an engine print what it is doing as it does it: one
-// JSON object per line — the prose, the tool calls, then a final result message
-// carrying the answer — instead of the answer alone. They are only ever added to
+// JSON object per line (the prose, the tool calls, then a final result message
+// carrying the answer) instead of the answer alone. They are only ever added to
 // a headless launch: an interactive session already shows all of this to the
 // human watching it.
 var reasoningOptions = []string{"--output-format", "stream-json", "--verbose"}
@@ -515,7 +543,7 @@ var reasoningOptions = []string{"--output-format", "stream-json", "--verbose"}
 // engineStreamsReasoning says whether an engine can be asked for that stream.
 // Only an engine that can is ever handed the options, so nothing is passed a
 // flag it does not have, and adding an engine here is a one-line change once its
-// stream format is attested — the reader in internal/runner is Claude's shape.
+// stream format is attested: the reader in internal/runner is Claude's shape.
 func engineStreamsReasoning(provider string) bool {
 	return strings.EqualFold(strings.TrimSpace(provider), "claude")
 }
@@ -529,7 +557,7 @@ func engineStreamsReasoning(provider string) bool {
 // configured template and a dedicated autonomous command leave early, and asking
 // the provider again at the far end would answer for a branch that was not
 // taken. A template asking for the stream itself is read as one, which is
-// exactly right — its output is that stream.
+// exactly right: its output is that stream.
 func commandReadsReasoning(commandLine string) bool {
 	return strings.Contains(commandLine, strings.Join(reasoningOptions, " "))
 }
@@ -560,14 +588,20 @@ func modeCommandLine(provider, template, model, prompt, mode string, contexts ..
 		}
 		return expandConfiguredTemplate(template, model, prompt, autonomous, contexts...)
 	}
+	var addDirs []string
+	if len(contexts) > 0 {
+		addDirs = contexts[0].AddDirs
+	}
 	if autonomous {
-		return headlessCommandLine(provider, model, prompt)
+		return headlessCommandLine(provider, model, prompt, addDirs...)
 	}
 	modelFlag := strings.Join(agentconfig.ModelArgs(provider, model), " ")
 	switch provider {
 	case "agy":
 		return words("agy", "-i", quoteShell(prompt)), nil
-	case "claude", "codex", "gemini":
+	case "claude":
+		return words(provider, modelFlag, quoteShell(prompt), addDirArgs(provider, addDirs)), nil
+	case "codex", "gemini":
 		return words(provider, modelFlag, quoteShell(prompt)), nil
 	case "vibe":
 		return words("vibe", "-p", quoteShell(prompt)), nil
@@ -588,6 +622,11 @@ func expandConfiguredTemplate(template, model, prompt string, autonomous bool, c
 	}
 	values := launch.values(prompt)
 	resolved := resolveTemplateMode(template, autonomous)
+	// {addDirs} is several options, already quoted, rather than one value: it
+	// is spliced in before the quoting pass, and is empty for a provider whose
+	// flag is not attested. It needs the provider the template runs, which is
+	// the first word of the command it starts.
+	resolved = strings.ReplaceAll(resolved, "{addDirs}", addDirArgs(templateProvider(resolved), launch.AddDirs))
 	if configured := strings.TrimSpace(model); configured != "" {
 		values["model"] = configured
 	} else {
@@ -614,6 +653,22 @@ func launchCommandLine(config agentconfig.Config, model, prompt, mode string, co
 	return modeCommandLine(config.AIProvider, config.AICommandTemplate, model, prompt, mode, contexts...)
 }
 
+// engineError names the engine a refused launch runs, so an owner who switched
+// a task to it knows which engine to fix (#510).
+func engineError(config agentconfig.Config, err error) error {
+	if strings.TrimSpace(config.EngineName) == "" {
+		return err
+	}
+	return fmt.Errorf("engine %q: %w", config.EngineName, err)
+}
+
+// logIgnoredModel says once per launch that its one-off model does not apply.
+func logIgnoredModel(config agentconfig.Config, taskRef, model string) {
+	if config.OffProjectDefaultEngine && strings.TrimSpace(model) != "" {
+		log.Printf("[Agent] One-off model %q ignored: task %s runs on engine %q", model, taskRef, config.EngineName)
+	}
+}
+
 func sameDirectory(a, b string) bool {
 	first, err := os.Stat(a)
 	if err != nil {
@@ -631,7 +686,14 @@ func sameDirectory(a, b string) bool {
 // An identifier the shape rule rejects is refused here rather than resolved:
 // the value is about to be placed on a command line this process runs through
 // sh -c, so the agent checks it even though the server already did.
+//
+// A task switched to another engine than its project default one ignores the
+// launch model (#510): the web offers the models of the project default
+// engine, which may not even be the same provider's.
 func LaunchModel(config agentconfig.Config, skillID, override string) (string, error) {
+	if config.OffProjectDefaultEngine {
+		override = ""
+	}
 	if override = strings.TrimSpace(override); override != "" {
 		if err := agentconfig.ValidModel(override); err != nil {
 			return "", err
@@ -752,7 +814,7 @@ func (d *agentDaemon) syncLocalProject(ctx context.Context, config agentconfig.C
 	if err != nil {
 		return err
 	}
-	config = agentconfig.ApplyOverrides(config, overrides)
+	config = agentconfig.Resolve(config, overrides)
 	if err := config.Validate(); err != nil {
 		return err
 	}

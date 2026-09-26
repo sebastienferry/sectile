@@ -4,6 +4,8 @@ import (
 	"path/filepath"
 	"slices"
 	"testing"
+
+	"tasks/internal/models"
 )
 
 // forgetSchemaVersion makes a database look like one written before versions
@@ -23,6 +25,71 @@ func forgetSchemaVersion(t *testing.T, d *DB) {
 	// migrations. Drop columns added by migrations so that reopen can replay them.
 	_, _ = d.conn.Exec("ALTER TABLE tasks DROP COLUMN creator")
 	_, _ = d.conn.Exec("ALTER TABLE tasks DROP COLUMN creator_avatar")
+	_, _ = d.conn.Exec("ALTER TABLE projects DROP COLUMN epic_colors")
+	_, _ = d.conn.Exec("ALTER TABLE projects DROP COLUMN enabled_views")
+	_, _ = d.conn.Exec("ALTER TABLE task_activities DROP COLUMN instance_id")
+	_, _ = d.conn.Exec("DROP TABLE server_instances")
+	_, _ = d.conn.Exec("DROP TABLE auto_sync_projects")
+	_, _ = d.conn.Exec("DROP TABLE auto_sync_state")
+	_, _ = d.conn.Exec("DROP TABLE agent_presence")
+	_, _ = d.conn.Exec("ALTER TABLE server_instances DROP COLUMN address")
+	_, _ = d.conn.Exec("DROP INDEX idx_activities_one_active_run")
+	_, _ = d.conn.Exec("ALTER TABLE task_activities DROP COLUMN concurrent")
+	_, _ = d.conn.Exec("DROP INDEX IF EXISTS idx_task_activities_macro_running")
+	_, _ = d.conn.Exec("DROP INDEX IF EXISTS idx_task_activities_macro")
+	_, _ = d.conn.Exec("ALTER TABLE task_activities DROP COLUMN macro_key")
+	_, _ = d.conn.Exec("ALTER TABLE projects DROP COLUMN roadmap_projects")
+	_, _ = d.conn.Exec("ALTER TABLE web_sessions DROP COLUMN last_seen_at")
+	_, _ = d.conn.Exec("DROP TABLE server_tracker_credentials")
+	// And it still carries the columns a migration since dropped.
+	_, _ = d.conn.Exec("ALTER TABLE projects ADD COLUMN github_token TEXT NOT NULL DEFAULT ''")
+	_, _ = d.conn.Exec("ALTER TABLE projects ADD COLUMN gitlab_token TEXT NOT NULL DEFAULT ''")
+	dropRepositoryColumns(d)
+}
+
+// dropRepositoryColumns removes what migrations 17 to 21 and 23 add, for the
+// tests that put a database back before them and reopen it.
+func dropRepositoryColumns(d *DB) {
+	_, _ = d.conn.Exec("ALTER TABLE projects DROP COLUMN repositories")
+	_, _ = d.conn.Exec("ALTER TABLE projects DROP COLUMN repositories_migration")
+	_, _ = d.conn.Exec("ALTER TABLE tasks DROP COLUMN repository")
+	_, _ = d.conn.Exec("ALTER TABLE tasks DROP COLUMN changed_repositories")
+	_, _ = d.conn.Exec("ALTER TABLE task_activities DROP COLUMN waiting_reason")
+	_, _ = d.conn.Exec("ALTER TABLE task_activities DROP COLUMN waiting_session")
+	dropCredentialAccountColumn(d)
+}
+
+// dropCredentialAccountColumn undoes what migrations 24 to 29 change. It runs
+// with dropRepositoryColumns, since every fixture that rewinds before 21 also
+// rewinds before 24.
+func dropCredentialAccountColumn(d *DB) {
+	_, _ = d.conn.Exec("ALTER TABLE user_tracker_credentials DROP COLUMN account")
+	_, _ = d.conn.Exec("ALTER TABLE projects DROP COLUMN spec_artifacts")
+	_, _ = d.conn.Exec("ALTER TABLE user_tracker_credentials DROP COLUMN unlock_generation")
+	_, _ = d.conn.Exec("DROP TABLE user_credential_unlocks")
+	undoWorkstationMigrations(d)
+}
+
+// undoWorkstationMigrations puts back the schema migrations 26 and 27 change
+// (#305): the capability table goes, and the dropped project column returns.
+func undoWorkstationMigrations(d *DB) {
+	_, _ = d.conn.Exec("DROP TABLE agent_capabilities")
+	_, _ = d.conn.Exec("ALTER TABLE projects ADD COLUMN tty_mode TEXT NOT NULL DEFAULT 'integrated'")
+}
+
+// undoServerCredentialsMigration puts back the schema migration 22 changed, for the
+// fixtures that forget the versions after one before it and replay them.
+func undoServerCredentialsMigration(t *testing.T, d *DB) {
+	t.Helper()
+	for _, stmt := range []string{
+		"DROP TABLE server_tracker_credentials",
+		"ALTER TABLE projects ADD COLUMN github_token TEXT NOT NULL DEFAULT ''",
+		"ALTER TABLE projects ADD COLUMN gitlab_token TEXT NOT NULL DEFAULT ''",
+	} {
+		if _, err := d.conn.Exec(stmt); err != nil {
+			t.Fatalf("%s: %v", stmt, err)
+		}
+	}
 }
 
 // appliedVersions is what the database says it has applied, in order.
@@ -246,5 +313,101 @@ func TestRestartRecoveryRunsOnEveryStart(t *testing.T) {
 		if status != "failed" {
 			t.Fatalf("pass %d: status = %q after a restart, want %q", pass, status, "failed")
 		}
+	}
+}
+
+// TestAStampedDatabaseStillGainsALaterColumn covers what shipped broken: a
+// column added to the baseline CREATE TABLE instead of to a numbered migration
+// reaches a database created from nothing and no other, because the baseline
+// runs only while the database carries no version. Every database stamped
+// beforehand went on without projects.enabled_views, and answered an error to
+// every project read, and so broke the whole interface, which lists projects first.
+//
+// The check is the read the interface makes, not the column list: a column the
+// schema has and the query does not name would pass a column check and fail
+// here, which is the way round that matters.
+func TestAStampedDatabaseStillGainsALaterColumn(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "stamped.db")
+	d, err := NewDB(path)
+	if err != nil {
+		t.Fatalf("creating the database: %v", err)
+	}
+	if _, err := d.conn.Exec(
+		`INSERT INTO projects (id, name, slug) VALUES ('p1', 'Kept', 'kept')`); err != nil {
+		t.Fatalf("seeding a project: %v", err)
+	}
+	// The database as an earlier binary left it: stamped, and short of the
+	// column that binary knew nothing about.
+	if _, err := d.conn.Exec("ALTER TABLE projects DROP COLUMN enabled_views"); err != nil {
+		t.Fatalf("removing the column: %v", err)
+	}
+	// Nor anything the migrations after it add, which reopening replays.
+	_, _ = d.conn.Exec("ALTER TABLE task_activities DROP COLUMN instance_id")
+	_, _ = d.conn.Exec("DROP TABLE server_instances")
+	_, _ = d.conn.Exec("DROP TABLE auto_sync_projects")
+	_, _ = d.conn.Exec("DROP TABLE auto_sync_state")
+	_, _ = d.conn.Exec("DROP TABLE agent_presence")
+	_, _ = d.conn.Exec("DROP INDEX idx_activities_one_active_run")
+	_, _ = d.conn.Exec("ALTER TABLE task_activities DROP COLUMN concurrent")
+	_, _ = d.conn.Exec("DROP INDEX IF EXISTS idx_task_activities_macro_running")
+	_, _ = d.conn.Exec("DROP INDEX IF EXISTS idx_task_activities_macro")
+	_, _ = d.conn.Exec("ALTER TABLE task_activities DROP COLUMN macro_key")
+	_, _ = d.conn.Exec("ALTER TABLE projects DROP COLUMN roadmap_projects")
+	_, _ = d.conn.Exec("ALTER TABLE web_sessions DROP COLUMN last_seen_at")
+	dropRepositoryColumns(d)
+	undoServerCredentialsMigration(t, d)
+	if _, err := d.conn.Exec("DELETE FROM schema_migrations WHERE version >= ?", 5); err != nil {
+		t.Fatalf("forgetting the migration: %v", err)
+	}
+	d.Close()
+
+	reopened, err := NewDB(path)
+	if err != nil {
+		t.Fatalf("reopening: %v", err)
+	}
+	defer reopened.Close()
+
+	projects, err := reopened.GetProjects()
+	if err != nil {
+		t.Fatalf("reading the projects back: %v", err)
+	}
+	if !slices.ContainsFunc(projects, func(p models.Project) bool { return p.ID == "p1" }) {
+		t.Fatalf("the seeded project did not survive: %d project(s) read, none of them p1", len(projects))
+	}
+}
+
+// A database from before #443 carries a server specifications path. The
+// upgrade drops the column with its values, which named a directory on the
+// server, and the project reads back without it.
+func TestMigrationSixteenDropsTheServerSpecificationsPath(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "spec.db")
+	d, err := NewDB(path)
+	if err != nil {
+		t.Fatalf("creating the database: %v", err)
+	}
+	dropRepositoryColumns(d)
+	for _, stmt := range []string{
+		"ALTER TABLE projects ADD COLUMN spec_repo_path TEXT NOT NULL DEFAULT ''",
+		`INSERT INTO projects (id, name, slug, spec_repo_path) VALUES ('p1', 'Kept', 'kept', '/server/wiki')`,
+		"DELETE FROM schema_migrations WHERE version >= 16",
+	} {
+		if _, err := d.conn.Exec(stmt); err != nil {
+			t.Fatalf("%s: %v", stmt, err)
+		}
+	}
+	undoServerCredentialsMigration(t, d)
+	d.Close()
+
+	reopened, err := NewDB(path)
+	if err != nil {
+		t.Fatalf("upgrading: %v", err)
+	}
+	defer reopened.Close()
+	if _, err := reopened.conn.Exec("SELECT spec_repo_path FROM projects"); err == nil {
+		t.Fatal("the column must be gone")
+	}
+	project, err := reopened.GetProjectByID("p1")
+	if err != nil || project == nil || project.Name != "Kept" {
+		t.Fatalf("the project must survive the upgrade: %+v %v", project, err)
 	}
 }

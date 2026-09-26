@@ -70,7 +70,9 @@ const (
 	saltLength   = 16
 )
 
-// Key is a 32-byte AEAD key. It never leaves the process.
+// Key is a 32-byte AEAD key. It never leaves the process in clear: a key derived
+// from a passphrase that another server instance needs travels wrapped, see
+// WrapKey.
 type Key [keyLength]byte
 
 // ServerKey loads the server key: the environment first, then the file beside
@@ -150,9 +152,19 @@ func DeriveKey(passphrase string, salt []byte) Key {
 // Binding is what a record belongs to. It travels as additional authenticated
 // data rather than as plaintext: it is not hidden, it is pinned. A ciphertext
 // copied into another user's row no longer opens.
+//
+// Server marks the credential Sectile itself uses for a tracker, which belongs
+// to no user. It serialises under a prefix of its own, so a server record never
+// opens as somebody's personal one, nor the other way round.
 type Binding struct {
 	UserID  string
 	Tracker string
+	Server  bool
+}
+
+// ServerBinding is the binding of the server credential of one tracker.
+func ServerBinding(tracker string) Binding {
+	return Binding{Tracker: tracker, Server: true}
 }
 
 // The parts are length-prefixed rather than merely joined: concatenation alone
@@ -163,13 +175,16 @@ type Binding struct {
 func (b Binding) bytes() []byte {
 	user := strings.TrimSpace(b.UserID)
 	name := strings.ToLower(strings.TrimSpace(b.Tracker))
+	if b.Server {
+		return fmt.Appendf(nil, "sectile:v1:server:tracker:%d:%s", len(name), name)
+	}
 	return fmt.Appendf(nil, "sectile:v1:user:%d:%s:tracker:%d:%s", len(user), user, len(name), name)
 }
 
 // Seal encrypts a credential for one owner. The nonce is random and prepended,
 // so two identical tokens never produce the same record.
 func Seal(key Key, binding Binding, plaintext string) ([]byte, error) {
-	if binding.UserID == "" || binding.Tracker == "" {
+	if (binding.UserID == "" && !binding.Server) || binding.Tracker == "" {
 		return nil, fmt.Errorf("a credential must name its owner and its tracker")
 	}
 	aead, err := newAEAD(key)
@@ -199,6 +214,53 @@ func Open(key Key, binding Binding, record []byte) (string, error) {
 		return "", ErrWrongKey
 	}
 	return string(plaintext), nil
+}
+
+// A key derived from a passphrase lives in memory only. When several server
+// instances share one database, the ones that did not receive the passphrase
+// need the key too, and it crosses the network between them. WrapKey seals it
+// under the server key every instance holds, bound to its owner, so the network
+// only ever carries ciphertext. Its associated data has a prefix of its own: a
+// wrapped key never opens as a credential record, nor a record as a key.
+
+// WrapKey seals a derived key under a wrapping key, for one owner.
+func WrapKey(wrapping Key, owner Binding, key Key) ([]byte, error) {
+	if owner.UserID == "" || owner.Tracker == "" {
+		return nil, fmt.Errorf("a wrapped key must name its owner and its tracker")
+	}
+	aead, err := newAEAD(wrapping)
+	if err != nil {
+		return nil, err
+	}
+	nonce := make([]byte, aead.NonceSize())
+	if _, err := rand.Read(nonce); err != nil {
+		return nil, err
+	}
+	return aead.Seal(nonce, nonce, key[:], wrappedKeyData(owner)), nil
+}
+
+// UnwrapKey opens what WrapKey sealed. A wrong wrapping key, another owner and
+// tampered bytes all answer ErrWrongKey.
+func UnwrapKey(wrapping Key, owner Binding, wrapped []byte) (Key, error) {
+	var key Key
+	aead, err := newAEAD(wrapping)
+	if err != nil {
+		return key, err
+	}
+	if len(wrapped) < aead.NonceSize() {
+		return key, ErrWrongKey
+	}
+	nonce, ciphertext := wrapped[:aead.NonceSize()], wrapped[aead.NonceSize():]
+	plaintext, err := aead.Open(nil, nonce, ciphertext, wrappedKeyData(owner))
+	if err != nil || len(plaintext) != keyLength {
+		return key, ErrWrongKey
+	}
+	copy(key[:], plaintext)
+	return key, nil
+}
+
+func wrappedKeyData(owner Binding) []byte {
+	return append([]byte("sectile:v1:unlocked-key:"), owner.bytes()...)
 }
 
 func newAEAD(key Key) (cipher.AEAD, error) {

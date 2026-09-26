@@ -37,8 +37,13 @@ test('the discussion header carries identity, state, a copyable worktree and ico
   // Identity and state share one line; the state is the shared vocabulary.
   await expect(page.locator('#title')).toHaveText('#82 · Rework the discussion header · implement')
   await expect(page.locator('#run-state')).toHaveText('Running')
-  await expect(page.locator('#run-state')).toHaveAttribute('title','Running')
+  await expect(page.locator('#run-state')).toHaveAttribute('title','Process: Running')
   assert.equal(await page.locator('#run-state svg').count(),1,'The state keeps the shared glyph beside its label')
+  // The state comes first, in the header as in the sidebar row and the tickets pane.
+  assert.ok(await page.evaluate(()=>document.querySelector('#run-state').compareDocumentPosition(document.querySelector('#title'))&Node.DOCUMENT_POSITION_FOLLOWING),'The header state precedes the title')
+  const row=page.locator('.local-task').first()
+  assert.ok(await row.evaluate(el=>el.querySelector('.run-state').compareDocumentPosition(el.querySelector('strong'))&Node.DOCUMENT_POSITION_FOLLOWING),'The row state precedes the title')
+  await expect(row.locator('.run-state')).toHaveAttribute('title',/^Process: /)
 
   // The worktree is a control: it says what it holds and what a click does.
   const worktreeButton=page.getByRole('button',{name:worktree,exact:true})
@@ -55,7 +60,7 @@ test('the discussion header carries identity, state, a copyable worktree and ico
 
   // The utility controls are icons, and keep their wording for hover and
   // assistive technology. The workflow action keeps its label.
-  for(const [selector,name] of [['#save-log','Export log'],['#rerun','Relaunch'],['#view-console','Console'],['#view-changes','Changes'],['#selected-pr','Open PR #82']]){
+  for(const [selector,name] of [['#save-log','Export log'],['#rerun','Relaunch'],['#view-console','Console'],['#view-changes','Changes'],['#selected-pr','Open PR #82 — State unknown']]){
    const control=page.locator(selector)
    await expect(control).toHaveAttribute('title',/.+/)
    assert.equal(await control.getAttribute('aria-label'),name)

@@ -3,6 +3,7 @@ import { Check, ExternalLink, Layers, Target, User, CalendarRange, Inbox, Eye, E
 import { useApp } from '../context/AppContext'
 import { LookupField, type LookupOption } from './LookupField'
 import { macroLookup, sprintLookup } from '../lib/lookups'
+import { trackerHas } from '../lib/trackers'
 import { resolveTaskStage } from '../lib/workflow'
 import type { MacroMeta, Task } from '../types'
 
@@ -47,6 +48,7 @@ export const CurationTable: React.FC = () => {
     hideDone,
     toggleHideDone,
     startBatchPickup,
+    t,
   } = useApp()
 
   const [macros, setMacros] = useState<MacroMeta[]>([])
@@ -291,11 +293,11 @@ export const CurationTable: React.FC = () => {
           <button
             type="button"
             onClick={() => startBatchPickup(selectedIds)}
-            className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold cursor-pointer text-purple-300 bg-purple-950/60 hover:bg-purple-900/80 border border-purple-700/50 shrink-0 shadow-xs"
+            className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold cursor-pointer bg-[var(--bg-tertiary)] text-[var(--text-secondary)] border border-[var(--border-color)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-secondary)] transition-colors shrink-0 shadow-xs"
             title="Run the selected tasks on the local agent"
           >
-            <Sparkles size={12} className="text-purple-400 animate-pulse" />
-            Lancer le lot (Git tree + Auto-pilot)
+            <Sparkles size={12} />
+            {t.batchLaunch}
           </button>
 
           <button
@@ -428,7 +430,7 @@ export const CurationTable: React.FC = () => {
 
                     {/* Équipe */}
                     <td className="py-1.5 px-2">
-                      {task.source === 'jira' ? (
+                      {trackerHas(task.source, 'team') ? (
                         <LookupField
                           value={task.team || ''}
                           icon={<Layers size={10} />}
@@ -444,7 +446,7 @@ export const CurationTable: React.FC = () => {
 
                     {/* Assigné */}
                     <td className="py-1.5 px-2">
-                      {task.source === 'jira' ? (
+                      {trackerHas(task.source, 'assigneeLookup') ? (
                         <LookupField
                           value={task.assignee || ''}
                           icon={<User size={10} />}

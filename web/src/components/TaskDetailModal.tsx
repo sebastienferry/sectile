@@ -1,6 +1,7 @@
+import { PullRequestStateIcon } from './PullRequestStateIcon'
 import { RemoteRunBadge } from './RemoteRunBadge'
 import { CopyTaskSkillMenu } from './CopyTaskSkillMenu'
-import React, { useState, useEffect, useMemo, useCallback } from 'react'
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import {
   X,
   Trash2,
@@ -38,22 +39,24 @@ import {
   Minimize2,
   RefreshCw,
   Target,
-  GitPullRequest,
   Plus,
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
+import { useProjectEngine } from '../hooks/useProjectEngine'
 import { useBackdropDismiss } from '../hooks/useBackdropDismiss'
 import type { TeamMember, Status, Priority, DetailMode, SpecFramework, WorkflowStage, MacroMeta, SkillMode, PullRequestLink } from '../types'
-import { WORKFLOW_ORDER, prRecoverySkill, resolveTaskStage } from '../lib/workflow'
+import { WORKFLOW_ORDER, isTaskScopedSkill, prRecoverySkill, resolveTaskStage } from '../lib/workflow'
 import { addPullRequestLink, taskPullRequestLinks } from '../lib/pullRequests'
 import { TaskComments } from './TaskComments'
 import { Avatar } from './Avatar'
 import { LookupField, type LookupOption } from './LookupField'
+import { PrioritySelect } from './PrioritySelect'
 import { MarkdownEditor } from './Markdown'
 import { sprintLookup, macroLookup, isProjectCompatible } from '../lib/lookups'
+import { trackerHas } from '../lib/trackers'
 import { issueTypeStyle } from '../lib/issueTypes'
-import { providerModels, providerTakesModel, resolveConfiguredModel, templateGovernsCommand } from '../lib/aiModels'
 import { runEngineLabel } from '../lib/runEngine'
+import { copyText } from '../lib/clipboard'
 
 export const TaskDetailModal: React.FC = () => {
   const {
@@ -136,31 +139,11 @@ export const TaskDetailModal: React.FC = () => {
     [projects, selectedTask?.projectId]
   )
 
-  // Resolved once for the whole modal: every label and every command must name
-  // the same CLI, otherwise the badge says AGY while the command runs Claude.
-  const activeProvider = taskProject?.aiProvider || settings.aiProvider || 'agy'
-
-  // Les modèles proposés au lancement sont ceux configurés pour le moteur de ce
-  // projet : rien n'est saisi à la main ici, contrairement aux réglages. Le
-  // premier choix est le modèle que la précédence résout, et il n'envoie aucune
-  // surcharge, donc un lancement non touché reproduit la commande d'avant.
-  const launchModels = providerModels(settings, activeProvider)
-  // Le sélecteur vaut pour toutes les compétences de la vue, alors que la
-  // résolution dépend de la compétence lancée : on nomme donc le modèle de base,
-  // celui qu'appliquent les compétences qu'aucun niveau ne singularise. Il est
-  // retiré des autres choix, sinon le reprendre enverrait une surcharge là où le
-  // premier choix n'en envoie aucune.
-  const configuredLaunchModel = resolveConfiguredModel(taskProject || undefined, settings)
-  const activeTemplate = taskProject?.aiCommandTemplate || settings.aiCommandTemplate || ''
-  const launchModelNotice = templateGovernsCommand(activeProvider, activeTemplate)
-    ? (t?.profileModal?.ai?.modelTemplatePlaceholderNotice || "Le modèle est appliqué via le marqueur {model} dans la commande.")
-    : !providerTakesModel(activeProvider)
-      ? (t?.profileModal?.ai?.providerIgnoresModel
-          ? t.profileModal.ai.providerIgnoresModel.replace('{provider}', activeProvider.toUpperCase())
-          : `${activeProvider.toUpperCase()} n'accepte pas de sélection de modèle : la valeur est ignorée.`)
-      : ''
-
-
+  // The provider the caller's workstation reported for this project (#305),
+  // the one a launch from here would run. Unknown when no agent of theirs
+  // serves the project: the server no longer knows it.
+  const engine = useProjectEngine(taskProject?.id)
+  const activeProvider = engine?.state === 'reported' && engine.provider ? engine.provider : t.compactCard.engineUnknown
 
   const [isSyncingTask, setIsSyncingTask] = useState(false)
 
@@ -174,7 +157,7 @@ export const TaskDetailModal: React.FC = () => {
   // lien : le serveur le recalcule, la fiche n'édite que l'ensemble.
   const [prLinks, setPrLinks] = useState<PullRequestLink[]>([])
   const [newPrUrl, setNewPrUrl] = useState('')
-  const [repoPath, setRepoPath] = useState('')
+  const [repository, setRepository] = useState('')
   const [trackerStatus, setTrackerStatus] = useState('')
   const [sprint, setSprint] = useState('')
   const [labels, setLabels] = useState<string[]>([])
@@ -187,23 +170,15 @@ export const TaskDetailModal: React.FC = () => {
   const [assigneeAccountId, setAssigneeAccountId] = useState('')
   const [dueDate, setDueDate] = useState('')
   const [isSaving, setIsSaving] = useState(false)
-  const [activeTab, setActiveTab] = useState<'details' | 'comments' | 'skills' | 'git' | 'cadrage' | 'history'>('details')
-  const [customPrompt, setCustomPrompt] = useState('')
-  // Surcharge ponctuelle du mode d'exécution. Vide veut dire « mode configuré » :
-  // aucune surcharge n'est envoyée et la précédence s'applique normalement.
-  const [launchMode, setLaunchMode] = useState<SkillMode>('')
-  // Le modèle choisi pour les lancements de cette vue. Vide veut dire « le
-  // modèle configuré », donc aucune surcharge envoyée.
-  const [launchModel, setLaunchModel] = useState('')
-  // Le choix ne vaut que pour la liste devant lui : ouvrir une tâche d'un projet
-  // dont le moteur diffère ne doit pas lancer le modèle retenu pour le projet
-  // précédent. Dériver la valeur plutôt que la remettre à zéro dans un effet
-  // évite aussi qu'un rendu intermédiaire l'envoie encore.
-  const effectiveLaunchModel = launchModels.includes(launchModel) ? launchModel : ''
-
+  const [activeTab, setActiveTab] = useState<'details' | 'comments' | 'skills' | 'git' | 'history'>('details')
   const [specFramework, setSpecFramework] = useState<SpecFramework>(settings.specFramework || 'speckit')
   const [isExpandedSpec, setIsExpandedSpec] = useState(false)
   const [copiedSpec, setCopiedSpec] = useState(false)
+  // The key whose copy button shows the check mark, with the ticket it was
+  // copied from so that it never carries over to another one, and the timer
+  // that reverts it.
+  const [copiedKey, setCopiedKey] = useState<{ taskId: string; key: string } | null>(null)
+  const copiedKeyTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [withComments, setWithComments] = useState(false)
   const [dismissedRewriteId, setDismissedRewriteId] = useState<string | null>(null)
   const [isMaximized, setIsMaximized] = useState(false)
@@ -229,16 +204,18 @@ export const TaskDetailModal: React.FC = () => {
 
   const detailMode: DetailMode = settings.detailMode || 'panel'
 
-  // CWD hérité (projet, puis réglage global) et CWD réellement utilisé, le
-  // ticket pouvant épingler son propre dépôt.
-  const inheritedRepoPath = taskProject?.repoPath || settings.repoPath || ''
-  const effectiveRepoPath = repoPath.trim() || inheritedRepoPath
-  // Répertoires proposés : celui du projet, puis ceux enregistrés sur le projet
-  // (alimentés automatiquement dès qu'un ticket en épingle un nouveau).
   // Statuts du projet, groupés par colonne, et étape du workflow associée. Les
   // deux sélecteurs de la fiche sont deux vues du même mapping : changer l'un
   // met l'autre à jour, et le serveur refait la même dérivation de son côté.
   const projectColumns = taskProject?.trackerColumns || []
+  // Pinning a repository only means something when the ticket has a choice:
+  // a mono-repo or a single repository leaves the agent nothing to decide.
+  const projectRepositories = taskProject?.repositories || []
+  const canPinRepository = taskProject?.monoRepo === false && projectRepositories.length > 1
+  // The pin is sent only when it changed: an unchanged stale pin, one the
+  // project no longer lists, would make the server refuse the whole save.
+  const repositoryUpdate = () =>
+    repository !== (selectedTask?.repository || '') ? { repository } : {}
   const projectStageColumns = taskProject?.stageColumns || {}
   const hasProjectStatuses = projectColumns.some(c => c.statuses.length > 0)
 
@@ -299,7 +276,7 @@ export const TaskDetailModal: React.FC = () => {
       setBranchName(selectedTask.branchName || '')
       setPrLinks(taskPullRequestLinks(selectedTask))
       setNewPrUrl('')
-      setRepoPath(selectedTask.repoPath || '')
+      setRepository(selectedTask.repository || '')
       setTrackerStatus(selectedTask.trackerStatus || '')
       setSprint(selectedTask.sprint || '')
       setLabels(selectedTask.labels || [])
@@ -423,7 +400,7 @@ export const TaskDetailModal: React.FC = () => {
         taskProjectId !== (selectedTask.projectId || '') ||
         branchName.trim() !== (selectedTask.branchName || '').trim() ||
         JSON.stringify(prLinks) !== JSON.stringify(taskPullRequestLinks(selectedTask)) ||
-        repoPath.trim() !== (selectedTask.repoPath || '').trim() ||
+        repository !== (selectedTask.repository || '') ||
         trackerStatus.trim() !== (selectedTask.trackerStatus || '').trim() ||
         sprint.trim() !== (selectedTask.sprint || '').trim() ||
         assignee.trim() !== (selectedTask.assignee || '').trim() ||
@@ -444,7 +421,7 @@ export const TaskDetailModal: React.FC = () => {
           dueDate: dueDate || null,
           branchName: branchName.trim() || undefined,
           prLinks,
-          repoPath: repoPath.trim(),
+          ...repositoryUpdate(),
           trackerStatus: trackerStatus.trim(),
         })
       }
@@ -467,7 +444,7 @@ export const TaskDetailModal: React.FC = () => {
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [selectedTask, isTtyExpanded, isExpandedSpec, title, description, status, priority, taskProjectId, branchName, prLinks, repoPath, assignee, dueDate, labels])
+  }, [selectedTask, isTtyExpanded, isExpandedSpec, title, description, status, priority, taskProjectId, branchName, prLinks, repository, assignee, dueDate, labels])
 
   // Le clic à côté ferme comme la croix : handleClose pour la fiche, qui
   // enregistre en sortant, et le seul lecteur de spécification pour sa propre
@@ -475,6 +452,10 @@ export const TaskDetailModal: React.FC = () => {
   const backdrop = useBackdropDismiss(handleClose)
   const closeExpandedSpec = useCallback(() => setIsExpandedSpec(false), [setIsExpandedSpec])
   const expandedSpecBackdrop = useBackdropDismiss(closeExpandedSpec)
+
+  useEffect(() => () => {
+    if (copiedKeyTimer.current) clearTimeout(copiedKeyTimer.current)
+  }, [])
 
   if (!selectedTask) return null
 
@@ -504,8 +485,45 @@ export const TaskDetailModal: React.FC = () => {
   const parentUrl = trackerUrlForKey(selectedTask.parentKey)
   const trackerName =
     selectedTask.source === 'github' ? 'GitHub'
+    : selectedTask.source === 'gitlab' ? 'GitLab'
     : selectedTask.source === 'jira' ? 'Jira'
     : 'le tracker'
+
+  const handleCopyKey = async (key: string) => {
+    if (!(await copyText(key))) {
+      addToast({
+        type: 'error',
+        title: 'Copie impossible',
+        description: "Le presse-papiers n'est pas accessible depuis ce navigateur.",
+      })
+      return
+    }
+    setCopiedKey({ taskId: selectedTask.id, key })
+    if (copiedKeyTimer.current) clearTimeout(copiedKeyTimer.current)
+    copiedKeyTimer.current = setTimeout(() => {
+      setCopiedKey(null)
+      copiedKeyTimer.current = null
+    }, 2000)
+    addToast({
+      type: 'success',
+      title: 'Identifiant copié',
+      description: `${key} a été copié dans le presse-papiers.`,
+    })
+  }
+
+  // Sits beside a key, never inside its link, so a click copies without
+  // opening the tracker.
+  const renderCopyKeyButton = (key: string) => (
+    <button
+      type="button"
+      onClick={() => handleCopyKey(key)}
+      title={`Copier ${key}`}
+      aria-label={`Copier ${key}`}
+      className="ml-1 inline-flex items-center self-center rounded p-0.5 opacity-60 hover:opacity-100 hover:bg-[var(--bg-tertiary)] focus-visible:opacity-100"
+    >
+      {copiedKey?.taskId === selectedTask.id && copiedKey.key === key ? <Check size={11} className="text-emerald-400" /> : <Copy size={11} />}
+    </button>
+  )
 
   /**
    * The reference badge: ParentKey / TaskKey, each opening its own tracker
@@ -515,6 +533,7 @@ export const TaskDetailModal: React.FC = () => {
     <span className="font-mono text-sm font-bold text-[var(--accent-color)] bg-[var(--accent-light)] px-2.5 py-1 rounded-lg flex items-center gap-1.5 shrink-0">
       {selectedTask.source === 'github' && <FolderGit2 size={13} className="text-purple-400" />}
       {selectedTask.source === 'jira' && <span className="text-blue-400 font-sans font-black text-xs">J</span>}
+      {selectedTask.source === 'gitlab' && <FolderGit2 size={13} className="text-orange-400" />}
       {(!selectedTask.source || selectedTask.source === 'local') && <Folder size={13} className="text-emerald-400" />}
 
       <span className="inline-flex items-baseline min-w-0">
@@ -538,6 +557,7 @@ export const TaskDetailModal: React.FC = () => {
                 {selectedTask.parentKey}
               </span>
             )}
+            {renderCopyKeyButton(selectedTask.parentKey)}
             <span className="mx-1 text-[var(--text-muted)] opacity-50">/</span>
           </>
         )}
@@ -555,6 +575,7 @@ export const TaskDetailModal: React.FC = () => {
         ) : (
           <span>{selectedTask.key}</span>
         )}
+        {renderCopyKeyButton(selectedTask.key)}
       </span>
     </span>
   )
@@ -605,7 +626,7 @@ export const TaskDetailModal: React.FC = () => {
       dueDate: dueDate || null,
       branchName: branchName.trim() || undefined,
       prLinks,
-      repoPath: repoPath.trim(),
+      ...repositoryUpdate(),
       trackerStatus: trackerStatus.trim(),
     })
     setIsSaving(false)
@@ -688,11 +709,7 @@ export const TaskDetailModal: React.FC = () => {
   // (skill, puis défaut du projet, puis interactif) qui décide.
   const handleTriggerSkill = async (skillId: string, overridePrompt?: string, modeOverride?: SkillMode) => {
     if (!selectedTask || isSkillRunning) return
-    const promptToUse = overridePrompt || customPrompt
-    const activity = await runSkill(selectedTask.id, skillId, promptToUse, { mode: modeOverride ?? launchMode, model: effectiveLaunchModel })
-    if (activity && !overridePrompt) {
-      setCustomPrompt('')
-    }
+    await runSkill(selectedTask.id, skillId, overridePrompt || '', { mode: modeOverride })
   }
 
   const nextSkill = getNextRecommendedSkill()
@@ -820,27 +837,51 @@ export const TaskDetailModal: React.FC = () => {
   // -------------------------------------------------------------
   // Séparé de la Story : ces champs ne servent qu'au moment de coder, et ils
   // occupaient un tiers de l'onglet pour tous les autres moments.
-  // -------------------------------------------------------------
-  // DEDICATED TAB: Cadrage & Spécifications
-  // -------------------------------------------------------------
-  const renderCadrageSection = () => (
-    <div className="space-y-5">
-      <RemoteRunBadge taskId={selectedTask.id} />
-      <CopyTaskSkillMenu key={selectedTask.id} task={selectedTask} />
-      <div className="rounded-xl border border-[var(--border-color)] p-4 space-y-3">
-        <h3 className="font-semibold">Clarification and specification</h3>
-        <p className="text-xs text-[var(--text-muted)]">Launch a skill on your local agent. Follow its execution in Sectile Desktop.</p>
-        <div className="flex gap-2">
-          <button type="button" disabled={isSkillRunning} onClick={()=>handleTriggerSkill('clarify')} className="rounded-lg bg-amber-500/15 text-amber-400 px-3 py-2">Clarify</button>
-          <button type="button" disabled={isSkillRunning} onClick={()=>handleTriggerSkill('specify')} className="rounded-lg bg-blue-500/15 text-blue-400 px-3 py-2">Specify</button>
+  // The next workflow step, first thing the ticket shows: its description and
+  // its launch button.
+  const renderRecommendedStep = () => (
+    <>
+      {selectedTask && !selectedTask.prUrl && resolveTaskStage(selectedTask, taskProject) === 'implemented' && <button type="button" onClick={() => handleTriggerSkill(prRecoverySkill(taskProject), 'PR recovery: preserve accepted work and attained stage; complete owner checks and create/reuse/link the PR. Do not advance to reviewed.')} className="px-4 py-2 text-purple-400 text-sm">Complete PR setup through {prRecoverySkill(taskProject)}</button>}
+      {nextSkill && (
+        <div className="flex flex-wrap items-center justify-between gap-3 p-3 rounded-xl bg-linear-to-r from-[var(--accent-light)] to-[var(--bg-tertiary)] border border-[var(--accent-color)]/40 shadow-xs">
+          <div className="flex items-center gap-2">
+            <span className="text-amber-400 animate-bounce">⚡</span>
+            <div>
+              <div className="text-xs font-bold text-[var(--text-primary)]">
+                Étape recommandée : {nextSkill.name}
+              </div>
+              <div className="text-[10px] text-[var(--text-muted)]">
+                {nextSkill.description}
+              </div>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 flex-wrap">
+            <button
+              onClick={() => handleTriggerSkill(nextSkill.id)}
+              disabled={isSkillRunning}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold text-white accent-bg shadow-md hover:opacity-90 active:scale-95 transition-all disabled:opacity-50"
+            >
+              {isSkillRunning && runningSkillId === nextSkill.id ? (
+                <>
+                  <Loader2 size={13} className="animate-spin" />
+                  <span>Exécution {activeProvider}...</span>
+                </>
+              ) : (
+                <>
+                  <Sparkles size={13} className="text-amber-300" />
+                  <span>Lancer {nextSkill.name}</span>
+                </>
+              )}
+            </button>
+          </div>
         </div>
-      </div>
-      {renderSpecificationSection()}
-    </div>
+      )}
+    </>
   )
 
   const renderStoryInfoSection = () => (
     <div className="space-y-5">
+      {renderRecommendedStep()}
       {/* Title Input */}
       <div>
         <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
@@ -855,318 +896,462 @@ export const TaskDetailModal: React.FC = () => {
         />
       </div>
 
-      {/* Deux lignes de quatre champs. Première ligne : ce qui pilote le workflow
-          (statut, étape, priorité, projet). Seconde ligne, ci-dessous : qui porte
-          le ticket, pour quand et pour quelle équipe. Les six colonnes d'avant
-          écrasaient chaque champ sur un écran ordinaire. */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        {/* Status */}
-        <div>
-          <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
-            {t.taskModal.status}
-          </label>
-          {hasProjectStatuses ? (
-            <select
-              value={trackerStatus}
-              onChange={e => applyTrackerStatus(e.target.value)}
-              className="w-full px-2.5 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)]"
-              title="Statuts du projet, tels que le tracker les nomme"
-            >
-              <option value="">— non défini —</option>
-              {projectColumns.map(col => (
-                <optgroup key={col.name} label={col.name}>
-                  {col.statuses.map(st => (
-                    <option key={st} value={st}>{st}</option>
-                  ))}
-                </optgroup>
-              ))}
-            </select>
-          ) : (
-            <select
-              value={status}
-              onChange={e => handleStatusChange(e.target.value as Status)}
-              className="w-full px-2.5 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)]"
-            >
-              <option value="to_clarify">{t.status.to_clarify} (#new)</option>
-              <option value="clarified">{t.status.clarified} (#clarified)</option>
-              <option value="to_implement">{t.status.to_implement} (#specified)</option>
-              <option value="to_test">{t.status.to_test} (#implemented)</option>
-              <option value="to_close">{t.status.to_close} (#reviewed)</option>
-              <option value="finished">{t.status.finished} (#finished)</option>
-            </select>
-          )}
-        </div>
-
-        {/* Étape du workflow agentique, couplée au statut par le mapping */}
-        <div>
-          <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
-            Étape agentique
-          </label>
-          <select
-            value={currentStage}
-            onChange={e => applyStage(e.target.value as WorkflowStage)}
-            className="w-full px-2.5 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)]"
-            title="Label du workflow agentique. Le statut suit selon le mapping du projet."
-          >
-            {WORKFLOW_ORDER.map(stage => (
-              <option key={stage} value={stage}>#{stage}</option>
-            ))}
-          </select>
-        </div>
-
-        {/* Priority */}
-        <div>
-          <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
-            {t.taskModal.priority}
-          </label>
-          <select
-            value={priority}
-            onChange={e => handlePriorityChange(e.target.value as Priority)}
-            className="w-full px-2.5 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)]"
-          >
-            <option value="urgent">{t.priority.urgent}</option>
-            <option value="high">{t.priority.high}</option>
-            <option value="medium">{t.priority.medium}</option>
-            <option value="low">{t.priority.low}</option>
-          </select>
-        </div>
-
-        {/* Project */}
-        <div>
-          <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
-            Projet
-          </label>
-          <select
-            value={taskProjectId}
-            onChange={async (e) => {
-              const val = e.target.value
-              if (!val || val === taskProjectId) return
-              const sourceProj = projects.find(p => p.id === (selectedTask?.projectId || taskProjectId))
-              const targetProj = projects.find(p => p.id === val)
-              if (selectedTask) {
-                if (sourceProj && targetProj && !isProjectCompatible(sourceProj, targetProj)) {
-                  if (!confirm(`Attention: Le projet "${targetProj.name}" a un tracker différent de "${sourceProj.name}". Déplacer ce ticket vers ce projet quand même ?`)) {
-                    return
-                  }
-                }
-                setTaskProjectId(val)
-                const res = await migrateTasks([selectedTask.id], val)
-                if (res.success) {
-                  const updated = tasks.find(t => t.id === selectedTask.id)
-                  if (updated) setSelectedTask(updated)
-                }
-              } else {
-                setTaskProjectId(val)
-              }
-            }}
-            className="w-full px-2.5 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)] font-medium"
-          >
-            {(() => {
-              const bookmarked = projects.filter(p => p.bookmarked)
-              const others = projects.filter(p => !p.bookmarked)
-              if (bookmarked.length > 0 && others.length > 0) {
-                return (
-                  <>
-                    <optgroup label="Favoris">
-                      {bookmarked.map(p => (
-                        <option key={p.id} value={p.id}>
-                          {p.name} ({p.issueTracker || 'local'})
-                        </option>
-                      ))}
-                    </optgroup>
-                    <optgroup label="Autres projets">
-                      {others.map(p => (
-                        <option key={p.id} value={p.id}>
-                          {p.name} ({p.issueTracker || 'local'})
-                        </option>
-                      ))}
-                    </optgroup>
-                  </>
-                )
-              }
-              return projects.map(p => (
-                <option key={p.id} value={p.id}>
-                  {p.name} ({p.issueTracker || 'local'})
-                </option>
-              ))
-            })()}
-          </select>
-        </div>
-
-      </div>
-
-      {/* Ligne dédiée : assigné, sprint, équipe, échéance. Ces quatre champs sont
-          ceux qu'on change en planifiant, et trois d'entre eux sont des écritures
-          tracker à part entière. */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        {/* Assignee : les membres de l'équipe du ticket sans frappe, puis toute
-            l'instance dès qu'on tape. Un assigné hors équipe reste proposé pour
-            ne pas effacer silencieusement ce que porte le ticket. */}
-        <div>
-          <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
-            {t.taskModal.assignee}
-            {selectedTask.team && (
-              <span className="ml-1 font-normal normal-case tracking-normal text-[var(--text-muted)]">
-                · {selectedTask.team}
-              </span>
-            )}
-          </label>
-          {selectedTask.source === 'jira' ? (
-            <LookupField
-              value={assignee}
-              icon={<User size={12} />}
-              placeholder="Chercher une personne…"
-              clearLabel="Non assigné"
-              emptyHint="Personne trouvée. Tapez un nom ou un e-mail."
-              onSearch={searchAssignee}
-              onPick={option => {
-                setAssignee(option?.label || '')
-                setAssigneeAccountId(option?.id || '')
-              }}
-            />
-          ) : (
-            <div className="relative">
-              <input
-                type="text"
-                value={assignee}
-                onChange={e => setAssignee(e.target.value)}
-                placeholder="Assigné à..."
-                className="w-full pl-7 pr-2.5 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)]"
-              />
-              <User size={12} className="absolute left-2.5 top-2.5 text-[var(--text-muted)]" />
-            </div>
-          )}
-
-        </div>
-
-        {/* Creator (read-only authorship from tracker or local creation) */}
-        {selectedTask.creator && (
-          <div>
-            <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
-              Créé par
+      {/* Content comes first in both the visual and keyboard reading order. */}
+      <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] gap-5 items-start">
+        {/* Description / Acceptance criteria */}
+        <div className="min-w-0 space-y-2">
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
+              Description & Contexte Technique
             </label>
-            <div className="flex items-center gap-2 px-2.5 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-secondary)] h-[34px]">
-              <Avatar
-                name={selectedTask.creator}
-                url={selectedTask.creatorAvatar}
-                size={18}
-                title={`Créateur : ${selectedTask.creator}`}
-              />
-              <span className="truncate font-medium text-[var(--text-primary)]" title={selectedTask.creator}>
-                {selectedTask.creator}
-              </span>
+            <div className="flex flex-wrap items-center gap-3">
+              <label className="inline-flex items-center gap-1.5 text-xs text-[var(--text-secondary)] cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={withComments}
+                  onChange={e => setWithComments(e.target.checked)}
+                  className="rounded border-[var(--border-color)] text-[var(--accent-color)] focus:ring-0 cursor-pointer"
+                />
+                <span>Inclure les commentaires</span>
+              </label>
+              <button
+                type="button"
+                onClick={() => runSkill(selectedTask.id, 'rewrite_story', '', { withComments })}
+                disabled={isSkillRunning}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-cyan-500/10 text-cyan-400 border border-cyan-500/30 hover:bg-cyan-500/20 disabled:opacity-50 transition-colors"
+                title="Reformuler la description en User Story structurée GFM"
+              >
+                {isSkillRunning && runningSkillId === 'rewrite_story' ? (
+                  <Loader2 size={13} className="animate-spin" />
+                ) : (
+                  <Sparkles size={13} />
+                )}
+                <span>Reformuler la story</span>
+              </button>
             </div>
           </div>
-        )}
 
-        {/* Sprint : sélection ou recherche de sprint pour le ticket */}
-        <div>
-          <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
-            Sprint
-          </label>
-          <LookupField
-            value={sprint}
-            icon={<CalendarRange size={12} />}
-            placeholder="Chercher ou nommer un sprint…"
-            clearLabel="Backlog (aucun sprint)"
-            emptyHint="Aucun sprint trouvé. Tapez un nom pour créer."
-            onSearch={async (query: string) => {
-              const res = await searchSprint(query)
-              if (query.trim() && !res.some(o => o.label.toLowerCase() === query.trim().toLowerCase())) {
-                res.unshift({ id: query.trim(), label: query.trim(), sublabel: 'Nouveau sprint' })
-              }
-              return res
-            }}
-            onPick={option => {
-              const val = option?.label || ''
-              setSprint(val)
-              if (selectedTask && selectedTask.source === 'jira') {
-                setTaskSprint(selectedTask.id, option?.id || '', val)
-              }
-            }}
+          {rewriteActivity?.output && rewriteActivity.id !== dismissedRewriteId && (
+            <div className="p-3.5 rounded-xl bg-cyan-950/20 border border-cyan-500/30 space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs font-semibold text-cyan-300 flex items-center gap-1.5">
+                  <Sparkles size={14} />
+                  Aperçu de la story reformulée
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      if (rewriteActivity.output) {
+                        setDescription(rewriteActivity.output)
+                        await updateTask(selectedTask.id, { description: rewriteActivity.output })
+                        setDismissedRewriteId(rewriteActivity.id)
+                        addToast({
+                          type: 'success',
+                          title: 'Description mise à jour',
+                          description: 'La description de la tâche a été remplacée par la version reformulée.',
+                        })
+                      }
+                    }}
+                    className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-cyan-500 text-slate-950 hover:bg-cyan-400 transition-colors flex items-center gap-1"
+                  >
+                    <Check size={13} />
+                    Appliquer à la description
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDismissedRewriteId(rewriteActivity.id)}
+                    className="px-2 py-1 rounded-lg text-xs font-medium text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
+                  >
+                    Masquer
+                  </button>
+                </div>
+              </div>
+              <div className="p-3 rounded-lg bg-[var(--bg-secondary)] border border-[var(--border-color)] max-h-60 overflow-y-auto">
+                <MarkdownEditor value={rewriteActivity.output} onChange={() => {}} minHeight={120} />
+              </div>
+            </div>
+          )}
+
+          <MarkdownEditor
+            value={description}
+            onChange={setDescription}
+            placeholder={t.taskModal.descPlaceholder}
+            minHeight={320}
+            maxHeight={window.innerHeight * 0.6}
           />
         </div>
 
-        {/* Équipe : le champ Team du tracker, modifiable. L'écriture part tout de
-            suite dans la file, contrairement aux champs texte qui attendent
-            l'enregistrement de la fiche : c'est une opération à part côté Jira. */}
-        {selectedTask.source === 'jira' && (
-          <div>
-            <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
-              Équipe
-            </label>
+        <div className="min-w-0 space-y-5">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {/* Status */}
+            <div>
+              <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
+                {t.taskModal.status}
+              </label>
+              {hasProjectStatuses ? (
+                <select
+                  value={trackerStatus}
+                  onChange={e => applyTrackerStatus(e.target.value)}
+                  className="w-full px-2.5 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)]"
+                  title="Statuts du projet, tels que le tracker les nomme"
+                >
+                  <option value="">— non défini —</option>
+                  {projectColumns.map(col => (
+                    <optgroup key={col.name} label={col.name}>
+                      {col.statuses.map(st => (
+                        <option key={st} value={st}>{st}</option>
+                      ))}
+                    </optgroup>
+                  ))}
+                </select>
+              ) : (
+                <select
+                  value={status}
+                  onChange={e => handleStatusChange(e.target.value as Status)}
+                  className="w-full px-2.5 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)]"
+                >
+                  <option value="to_clarify">{t.status.to_clarify} (#new)</option>
+                  <option value="clarified">{t.status.clarified} (#clarified)</option>
+                  <option value="to_implement">{t.status.to_implement} (#specified)</option>
+                  <option value="to_test">{t.status.to_test} (#implemented)</option>
+                  <option value="to_close">{t.status.to_close} (#reviewed)</option>
+                  <option value="finished">{t.status.finished} (#finished)</option>
+                </select>
+              )}
+            </div>
+
+            {/* Étape du workflow agentique, couplée au statut par le mapping */}
+            <div>
+              <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
+                Étape agentique
+              </label>
+              <select
+                value={currentStage}
+                onChange={e => applyStage(e.target.value as WorkflowStage)}
+                className="w-full px-2.5 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)]"
+                title="Label du workflow agentique. Le statut suit selon le mapping du projet."
+              >
+                {WORKFLOW_ORDER.map(stage => (
+                  <option key={stage} value={stage}>#{stage}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Priority */}
+            <div>
+              <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
+                {t.taskModal.priority}
+              </label>
+              <PrioritySelect
+                value={priority}
+                onChange={handlePriorityChange}
+                className="w-full px-2.5 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)]"
+              />
+            </div>
+
+            {/* Project */}
+            <div>
+              <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
+                Projet
+              </label>
+              <select
+                value={taskProjectId}
+                onChange={async (e) => {
+                  const val = e.target.value
+                  if (!val || val === taskProjectId) return
+                  const sourceProj = projects.find(p => p.id === (selectedTask?.projectId || taskProjectId))
+                  const targetProj = projects.find(p => p.id === val)
+                  if (selectedTask) {
+                    if (sourceProj && targetProj && !isProjectCompatible(sourceProj, targetProj)) {
+                      if (!confirm(`Attention: Le projet "${targetProj.name}" a un tracker différent de "${sourceProj.name}". Déplacer ce ticket vers ce projet quand même ?`)) {
+                        return
+                      }
+                    }
+                    setTaskProjectId(val)
+                    const res = await migrateTasks([selectedTask.id], val)
+                    if (res.success) {
+                      const updated = tasks.find(t => t.id === selectedTask.id)
+                      if (updated) setSelectedTask(updated)
+                    }
+                  } else {
+                    setTaskProjectId(val)
+                  }
+                }}
+                className="w-full px-2.5 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)] font-medium"
+              >
+                {(() => {
+                  const bookmarked = projects.filter(p => p.bookmarked)
+                  const others = projects.filter(p => !p.bookmarked)
+                  if (bookmarked.length > 0 && others.length > 0) {
+                    return (
+                      <>
+                        <optgroup label="Favoris">
+                          {bookmarked.map(p => (
+                            <option key={p.id} value={p.id}>
+                              {p.name} ({p.issueTracker || 'local'})
+                            </option>
+                          ))}
+                        </optgroup>
+                        <optgroup label="Autres projets">
+                          {others.map(p => (
+                            <option key={p.id} value={p.id}>
+                              {p.name} ({p.issueTracker || 'local'})
+                            </option>
+                          ))}
+                        </optgroup>
+                      </>
+                    )
+                  }
+                  return projects.map(p => (
+                    <option key={p.id} value={p.id}>
+                      {p.name} ({p.issueTracker || 'local'})
+                    </option>
+                  ))
+                })()}
+              </select>
+            </div>
+
+            {/* Repository the ticket works in, among the project's repositories */}
+            {canPinRepository && (
+              <div>
+                <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
+                  Dépôt
+                </label>
+                <select
+                  value={repository}
+                  onChange={e => setRepository(e.target.value)}
+                  className="w-full px-2.5 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)] font-mono"
+                  title="Dépôt dans lequel l'agent travaille ce ticket, les autres servant de contexte"
+                >
+                  <option value="">— non épinglé —</option>
+                  {projectRepositories.map(repo => (
+                    <option key={repo.identity} value={repo.identity}>{repo.identity}</option>
+                  ))}
+                  {repository && !projectRepositories.some(repo => repo.identity === repository) && (
+                    <option value={repository}>{repository} (hors du projet)</option>
+                  )}
+                </select>
+              </div>
+            )}
+
+          </div>
+
+          {/* Planning metadata retains its existing tracker-specific controls. */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {/* Assignee: retain the current value alongside team and search results. */}
+            <div>
+              <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
+                {t.taskModal.assignee}
+                {selectedTask.team && (
+                  <span className="ml-1 font-normal normal-case tracking-normal text-[var(--text-muted)]">
+                    · {selectedTask.team}
+                  </span>
+                )}
+              </label>
+              {trackerHas(selectedTask.source, 'assigneeLookup') ? (
+                <LookupField
+                  value={assignee}
+                  icon={<User size={12} />}
+                  placeholder="Chercher une personne…"
+                  clearLabel="Non assigné"
+                  emptyHint="Personne trouvée. Tapez un nom ou un e-mail."
+                  onSearch={searchAssignee}
+                  onPick={option => {
+                    setAssignee(option?.label || '')
+                    setAssigneeAccountId(option?.id || '')
+                  }}
+                />
+              ) : (
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={assignee}
+                    onChange={e => setAssignee(e.target.value)}
+                    placeholder="Assigné à..."
+                    className="w-full pl-7 pr-2.5 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)]"
+                  />
+                  <User size={12} className="absolute left-2.5 top-2.5 text-[var(--text-muted)]" />
+                </div>
+              )}
+
+            </div>
+
+            {/* Creator (read-only authorship from tracker or local creation) */}
+            {selectedTask.creator && (
+              <div>
+                <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
+                  Créé par
+                </label>
+                <div className="flex items-center gap-2 px-2.5 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-secondary)] h-[34px]">
+                  <Avatar
+                    name={selectedTask.creator}
+                    url={selectedTask.creatorAvatar}
+                    size={18}
+                    title={`Créateur : ${selectedTask.creator}`}
+                  />
+                  <span className="truncate font-medium text-[var(--text-primary)]" title={selectedTask.creator}>
+                    {selectedTask.creator}
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* Sprint selection and lookup */}
+            <div>
+              <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
+                Sprint
+              </label>
               <LookupField
-                value={selectedTask.team || ''}
-                icon={<Users size={12} />}
-                placeholder="Chercher une équipe…"
-                clearLabel="Aucune équipe"
-                emptyHint="Aucune équipe trouvée pour cette recherche."
-                onSearch={searchTeam}
+                value={sprint}
+                icon={<CalendarRange size={12} />}
+                placeholder="Chercher ou nommer un sprint…"
+                clearLabel="Backlog (aucun sprint)"
+                emptyHint="Aucun sprint trouvé. Tapez un nom pour créer."
+                onSearch={async (query: string) => {
+                  const res = await searchSprint(query)
+                  if (query.trim() && !res.some(o => o.label.toLowerCase() === query.trim().toLowerCase())) {
+                    res.unshift({ id: query.trim(), label: query.trim(), sublabel: 'Nouveau sprint' })
+                  }
+                  return res
+                }}
                 onPick={option => {
-                  setTaskTeam(selectedTask.id, option?.id || '', option?.label)
+                  const val = option?.label || ''
+                  setSprint(val)
+                  if (selectedTask && trackerHas(selectedTask.source, 'sprint')) {
+                    setTaskSprint(selectedTask.id, option?.id || '', val)
+                  }
                 }}
               />
+            </div>
+
+            {/* Team updates are queued immediately through the tracker operation. */}
+            {trackerHas(selectedTask.source, 'team') && (
+              <div>
+                <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
+                  Équipe
+                </label>
+                  <LookupField
+                    value={selectedTask.team || ''}
+                    icon={<Users size={12} />}
+                    placeholder="Chercher une équipe…"
+                    clearLabel="Aucune équipe"
+                    emptyHint="Aucune équipe trouvée pour cette recherche."
+                    onSearch={searchTeam}
+                    onPick={option => {
+                      setTaskTeam(selectedTask.id, option?.id || '', option?.label)
+                    }}
+                  />
+              </div>
+            )}
+
+            {/* Select or create a macro / GitHub milestone. */}
+            <div>
+              <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
+                Macro (Milestone)
+              </label>
+              <LookupField
+                value={selectedTask.parentKey || selectedTask.parentTitle || ''}
+                icon={<Target size={12} />}
+                placeholder="Assigner ou nommer une macro…"
+                clearLabel="Détacher de la macro"
+                emptyHint="Aucune macro trouvée. Tapez un nom pour créer."
+                onSearch={async (query: string) => {
+                  const res = await searchMacro(query)
+                  if (query.trim() && !res.some(o => o.label.toLowerCase() === query.trim().toLowerCase() || o.id.toLowerCase() === query.trim().toLowerCase())) {
+                    res.unshift({ id: `__create__:${query.trim()}`, label: query.trim(), sublabel: 'Créer ce milestone GitHub' })
+                  }
+                  return res
+                }}
+                onPick={async (option) => {
+                  if (!selectedTask) return
+                  if (!option?.id) {
+                    await setTaskMacro(selectedTask.id, '')
+                    return
+                  }
+                  if (option.id.startsWith('__create__:')) {
+                    const title = option.id.replace('__create__:', '')
+                    const created = await createMacro(selectedTask.projectId || projects[0]?.id || 'default', title)
+                    if (created) {
+                      await setTaskMacro(selectedTask.id, created.key)
+                    }
+                  } else {
+                    await setTaskMacro(selectedTask.id, option.id)
+                  }
+                }}
+              />
+            </div>
+
+            {/* Due Date */}
+            <div>
+              <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
+                {t.taskModal.dueDate}
+              </label>
+              <div className="relative">
+                <input
+                  type="date"
+                  value={dueDate}
+                  onChange={e => setDueDate(e.target.value)}
+                  className="w-full pl-7 pr-2 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)]"
+                />
+                <Calendar size={12} className="absolute left-2.5 top-2.5 text-[var(--text-muted)] pointer-events-none" />
+              </div>
+            </div>
           </div>
-        )}
 
-        {/* Macro (Milestone) : sélection ou création de macro / milestone GitHub */}
-        <div>
-          <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
-            Macro (Milestone)
-          </label>
-          <LookupField
-            value={selectedTask.parentKey || selectedTask.parentTitle || ''}
-            icon={<Target size={12} />}
-            placeholder="Assigner ou nommer une macro…"
-            clearLabel="Détacher de la macro"
-            emptyHint="Aucune macro trouvée. Tapez un nom pour créer."
-            onSearch={async (query: string) => {
-              const res = await searchMacro(query)
-              if (query.trim() && !res.some(o => o.label.toLowerCase() === query.trim().toLowerCase() || o.id.toLowerCase() === query.trim().toLowerCase())) {
-                res.unshift({ id: `__create__:${query.trim()}`, label: query.trim(), sublabel: 'Créer ce milestone GitHub' })
-              }
-              return res
-            }}
-            onPick={async (option) => {
-              if (!selectedTask) return
-              if (!option?.id) {
-                await setTaskMacro(selectedTask.id, '')
-                return
-              }
-              if (option.id.startsWith('__create__:')) {
-                const title = option.id.replace('__create__:', '')
-                const created = await createMacro(selectedTask.projectId || projects[0]?.id || 'default', title)
-                if (created) {
-                  await setTaskMacro(selectedTask.id, created.key)
-                }
-              } else {
-                await setTaskMacro(selectedTask.id, option.id)
-              }
-            }}
-          />
-        </div>
+          {/* Labels */}
+          <div>
+            <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
+              {t.taskModal.labels}
+            </label>
+            <div className="flex flex-wrap items-center gap-1.5 p-2 rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)]">
+              {labels.map(lbl => {
+                const lower = lbl.toLowerCase()
+                let badgeStyle = 'bg-[var(--accent-light)] accent-text'
+                if (lower === 'new' || lower === 'untouched') badgeStyle = 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 font-bold'
+                else if (lower === 'clarified') badgeStyle = 'bg-amber-500/20 text-amber-300 border border-amber-500/40 font-bold'
+                else if (lower === 'specified') badgeStyle = 'bg-blue-500/20 text-blue-300 border border-blue-500/40 font-bold'
+                else if (lower === 'implemented') badgeStyle = 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 font-bold'
+                else if (lower === 'reviewed') badgeStyle = 'bg-purple-500/20 text-purple-300 border border-purple-500/40 font-bold'
+                else if (lower === 'finished' || lower === 'closed') badgeStyle = 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-bold'
 
-        {/* Due Date */}
-        <div>
-          <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
-            {t.taskModal.dueDate}
-          </label>
-          <div className="relative">
-            <input
-              type="date"
-              value={dueDate}
-              onChange={e => setDueDate(e.target.value)}
-              className="w-full pl-7 pr-2 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)]"
-            />
-            <Calendar size={12} className="absolute left-2.5 top-2.5 text-[var(--text-muted)] pointer-events-none" />
+                return (
+                  <span
+                    key={lbl}
+                    className={`inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-md ${badgeStyle}`}
+                  >
+                    #{lbl.replace(/^#+/, '')}
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveLabel(lbl)}
+                      className="hover:opacity-75 ml-0.5"
+                    >
+                      <X size={11} />
+                    </button>
+                  </span>
+                )
+              })}
+              <div className="flex items-center gap-1 min-w-[120px] flex-1">
+                <input
+                  type="text"
+                  value={newLabelInput}
+                  onChange={e => setNewLabelInput(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter' || e.key === ',') {
+                      e.preventDefault()
+                      handleAddLabel()
+                    }
+                  }}
+                  placeholder={t.taskModal.addLabel}
+                  className="w-full text-xs bg-transparent border-none text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none px-1"
+                />
+              </div>
+            </div>
           </div>
         </div>
       </div>
 
-      {/* Pull Requests : l'ensemble ordonné des PR du ticket. Un ticket en produit
-          couramment plusieurs — une première fusionnée, puis une suite poussée sur
-          la même branche. La dernière est la PR courante. Corriger ou détacher un
-          lien ici est la seule issue quand une PR a été enregistrée à tort. */}
+      {/* Pull requests span the full width below both columns. */}
       <div className="space-y-1.5">
         <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
           Pull Requests
@@ -1183,7 +1368,7 @@ export const TaskDetailModal: React.FC = () => {
               className="shrink-0 p-1.5 rounded-lg text-purple-400 hover:bg-purple-500/10 transition-colors"
               title={t.skills.viewPr}
             >
-              <GitPullRequest size={13} />
+              <PullRequestStateIcon link={link} size={13} />
             </a>
             <input
               type="url"
@@ -1234,163 +1419,15 @@ export const TaskDetailModal: React.FC = () => {
         </div>
       </div>
 
-      {/* Description / Acceptance criteria */}
-      <div className="space-y-2">
-        <div className="flex items-center justify-between gap-2 flex-wrap">
-          <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
-            Description & Contexte Technique
-          </label>
-          <div className="flex items-center gap-3">
-            <label className="inline-flex items-center gap-1.5 text-xs text-[var(--text-secondary)] cursor-pointer select-none">
-              <input
-                type="checkbox"
-                checked={withComments}
-                onChange={e => setWithComments(e.target.checked)}
-                className="rounded border-[var(--border-color)] text-[var(--accent-color)] focus:ring-0 cursor-pointer"
-              />
-              <span>Inclure les commentaires</span>
-            </label>
-            <button
-              type="button"
-              onClick={() => runSkill(selectedTask.id, 'rewrite_story', '', { withComments })}
-              disabled={isSkillRunning}
-              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-cyan-500/10 text-cyan-400 border border-cyan-500/30 hover:bg-cyan-500/20 disabled:opacity-50 transition-colors"
-              title="Reformuler la description en User Story structurée GFM"
-            >
-              {isSkillRunning && runningSkillId === 'rewrite_story' ? (
-                <Loader2 size={13} className="animate-spin" />
-              ) : (
-                <Sparkles size={13} />
-              )}
-              <span>Reformuler la story</span>
-            </button>
-          </div>
-        </div>
-
-        {rewriteActivity?.output && rewriteActivity.id !== dismissedRewriteId && (
-          <div className="p-3.5 rounded-xl bg-cyan-950/20 border border-cyan-500/30 space-y-2">
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-xs font-semibold text-cyan-300 flex items-center gap-1.5">
-                <Sparkles size={14} />
-                Aperçu de la story reformulée
-              </span>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={async () => {
-                    if (rewriteActivity.output) {
-                      setDescription(rewriteActivity.output)
-                      await updateTask(selectedTask.id, { description: rewriteActivity.output })
-                      setDismissedRewriteId(rewriteActivity.id)
-                      addToast({
-                        type: 'success',
-                        title: 'Description mise à jour',
-                        description: 'La description de la tâche a été remplacée par la version reformulée.',
-                      })
-                    }
-                  }}
-                  className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-cyan-500 text-slate-950 hover:bg-cyan-400 transition-colors flex items-center gap-1"
-                >
-                  <Check size={13} />
-                  Appliquer à la description
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setDismissedRewriteId(rewriteActivity.id)}
-                  className="px-2 py-1 rounded-lg text-xs font-medium text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
-                >
-                  Masquer
-                </button>
-              </div>
-            </div>
-            <div className="p-3 rounded-lg bg-[var(--bg-secondary)] border border-[var(--border-color)] max-h-60 overflow-y-auto">
-              <MarkdownEditor value={rewriteActivity.output} onChange={() => {}} minHeight={120} />
-            </div>
-          </div>
-        )}
-
-        <MarkdownEditor
-          value={description}
-          onChange={setDescription}
-          placeholder={t.taskModal.descPlaceholder}
-          minHeight={320}
-          maxHeight={window.innerHeight * 0.6}
-        />
-      </div>
-
-      {/* Labels */}
-      <div>
-        <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
-          {t.taskModal.labels}
-        </label>
-        <div className="flex flex-wrap items-center gap-1.5 p-2 rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)]">
-          {labels.map(lbl => {
-            const lower = lbl.toLowerCase()
-            let badgeStyle = 'bg-[var(--accent-light)] accent-text'
-            if (lower === 'new' || lower === 'untouched') badgeStyle = 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 font-bold'
-            else if (lower === 'clarified') badgeStyle = 'bg-amber-500/20 text-amber-300 border border-amber-500/40 font-bold'
-            else if (lower === 'specified') badgeStyle = 'bg-blue-500/20 text-blue-300 border border-blue-500/40 font-bold'
-            else if (lower === 'implemented') badgeStyle = 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 font-bold'
-            else if (lower === 'reviewed') badgeStyle = 'bg-purple-500/20 text-purple-300 border border-purple-500/40 font-bold'
-            else if (lower === 'finished' || lower === 'closed') badgeStyle = 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-bold'
-
-            return (
-              <span
-                key={lbl}
-                className={`inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-md ${badgeStyle}`}
-              >
-                #{lbl.replace(/^#+/, '')}
-                <button
-                  type="button"
-                  onClick={() => handleRemoveLabel(lbl)}
-                  className="hover:opacity-75 ml-0.5"
-                >
-                  <X size={11} />
-                </button>
-              </span>
-            )
-          })}
-          <div className="flex items-center gap-1 min-w-[120px] flex-1">
-            <input
-              type="text"
-              value={newLabelInput}
-              onChange={e => setNewLabelInput(e.target.value)}
-              onKeyDown={e => {
-                if (e.key === 'Enter' || e.key === ',') {
-                  e.preventDefault()
-                  handleAddLabel()
-                }
-              }}
-              placeholder={t.taskModal.addLabel}
-              className="w-full text-xs bg-transparent border-none text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none px-1"
-            />
-          </div>
-        </div>
-      </div>
     </div>
   )
 
-  // SHARED: Skills & Agent Copilot Section Content
-  const renderSkillsCopilotSection = () => (
+  // SHARED: Skills & AI section content (workflow skills, prompts, clarification and specification)
+  const renderSkillsSection = () => (
     <div className="space-y-4 pt-4 border-t border-[var(--border-color)]">
-      {/* Copilot Header / Engine Banner */}
-      <div className="flex items-center justify-between bg-[var(--bg-tertiary)]/50 p-3 rounded-xl border border-[var(--border-color)]">
-        <div className="flex items-center gap-2">
-          <div className="w-7 h-7 rounded-lg accent-bg text-white flex items-center justify-center font-bold">
-            <Bot size={15} />
-          </div>
-          <div>
-            <div className="text-xs font-bold text-[var(--text-primary)] flex items-center gap-1.5">
-              <span>Agent Copilot ({activeProvider.toUpperCase()})</span>
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-            </div>
-            <div className="text-[10px] text-[var(--text-muted)] font-mono truncate max-w-[280px]">
-              {effectiveRepoPath || 'Workspace standard'}
-            </div>
-          </div>
-        </div>
-
-      </div>
+      <RemoteRunBadge taskId={selectedTask.id} />
+      {/* Les prompts à coller dans son assistant : l'étape suivante et le pickup autonome, comme le menu de la carte. */}
+      <CopyTaskSkillMenu key={selectedTask.id} task={selectedTask} />
 
       {/* Les cinq pas du workflow, dans l'ordre : clarify, specify, implement, PR, handoff */}
       <div className="space-y-2">
@@ -1398,7 +1435,7 @@ export const TaskDetailModal: React.FC = () => {
           Pipeline d'Avancement des Skills
         </label>
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
-          {skills.map((s, index) => {
+          {skills.filter(s => isTaskScopedSkill(s.id)).map((s, index) => {
               const isRecommended = nextSkill?.id === s.id
               const isCurrentRunning = isSkillRunning && runningSkillId === s.id
 
@@ -1477,116 +1514,12 @@ export const TaskDetailModal: React.FC = () => {
           onClick={() => runSkill(selectedTask.id, 'discuss')}
           disabled={isSkillRunning}
           title="Ouvrir une session avec l'agent sur cette tâche, sans lancer de skill"
-          className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold border border-[var(--border-color)] bg-[var(--bg-tertiary)] text-[var(--text-primary)] hover:border-[var(--accent-color)]/60 transition-all disabled:opacity-50"
+          className="w-full flex items-center justify-center gap-1.5 p-3 rounded-xl text-xs font-bold border border-[var(--border-color)] bg-[var(--bg-tertiary)] text-[var(--text-primary)] hover:border-[var(--accent-color)]/60 transition-all disabled:opacity-50"
         >
           {isSkillRunning && runningSkillId === 'discuss' ? <Loader2 size={13} className="animate-spin" /> : <MessageCircle size={13} className="text-cyan-400" />}
           <span>Discuter de la tâche</span>
         </button>
       )}
-
-      {/* Main Recommended Action Callout */}
-      {selectedTask && !selectedTask.prUrl && resolveTaskStage(selectedTask, taskProject) === 'implemented' && <button type="button" onClick={() => handleTriggerSkill(prRecoverySkill(taskProject), 'PR recovery: preserve accepted work and attained stage; complete owner checks and create/reuse/link the PR. Do not advance to reviewed.')} className="px-4 py-2 text-purple-400 text-sm">Complete PR setup through {prRecoverySkill(taskProject)}</button>}
-      {nextSkill && (
-        <div className="flex flex-wrap items-center justify-between gap-3 p-3 rounded-xl bg-linear-to-r from-[var(--accent-light)] to-[var(--bg-tertiary)] border border-[var(--accent-color)]/40 shadow-xs">
-          <div className="flex items-center gap-2">
-            <span className="text-amber-400 animate-bounce">⚡</span>
-            <div>
-              <div className="text-xs font-bold text-[var(--text-primary)]">
-                Étape recommandée : {nextSkill.name}
-              </div>
-              <div className="text-[10px] text-[var(--text-muted)]">
-                {nextSkill.description}
-              </div>
-            </div>
-          </div>
-          <div className="flex items-center gap-2 flex-wrap">
-            {(status === 'to_clarify' || status === 'backlog' || status === 'clarified' || status === 'specified') && (
-              <button
-                type="button"
-                onClick={() => handleTriggerSkill('implement')}
-                disabled={isSkillRunning}
-                className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold text-white bg-linear-to-r from-blue-600 to-indigo-600 shadow hover:opacity-90 active:scale-95 transition-all disabled:opacity-50"
-                title="Sauter directement le cadrage et lancer l'implémentation du code"
-              >
-                <Flame size={13} className="text-amber-300" />
-                <span>🚀 Passer direct au Code</span>
-              </button>
-            )}
-
-            <button
-              onClick={() => handleTriggerSkill(nextSkill.id)}
-              disabled={isSkillRunning}
-              className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold text-white accent-bg shadow-md hover:opacity-90 active:scale-95 transition-all disabled:opacity-50"
-            >
-              {isSkillRunning && runningSkillId === nextSkill.id ? (
-                <>
-                  <Loader2 size={13} className="animate-spin" />
-                  <span>Exécution {activeProvider}...</span>
-                </>
-              ) : (
-                <>
-                  <Sparkles size={13} className="text-amber-300" />
-                  <span>Lancer {nextSkill.name}</span>
-                </>
-              )}
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Optional Prompt Refinement */}
-      <div>
-        <div className="flex items-center justify-between mb-1 gap-2 flex-wrap">
-          <label className="text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
-            Instruction / Contexte additionnel pour l'IA (Optionnel)
-          </label>
-          <label className="flex items-center gap-1 text-[10px] text-[var(--text-secondary)]">
-            <span>Mode</span>
-            <select
-              value={launchMode}
-              onChange={e => setLaunchMode(e.target.value as SkillMode)}
-              className="px-1.5 py-1 rounded-lg text-[10px] bg-[var(--bg-tertiary)] text-[var(--text-primary)] border border-[var(--border-color)] focus:outline-none focus:border-[var(--accent-color)] cursor-pointer"
-              title="Mode d'exécution pour ce lancement seulement. Aucun réglage enregistré n'est modifié."
-            >
-              <option value="">Mode configuré</option>
-              <option value="interactive">Interactif</option>
-              <option value="autonomous">Autonome</option>
-            </select>
-          </label>
-          {launchModels.length > 0 && (
-            <label className="flex items-center gap-1 text-[10px] text-[var(--text-secondary)]">
-              <span>Modèle</span>
-              <select
-                value={effectiveLaunchModel}
-                onChange={e => setLaunchModel(e.target.value)}
-                className="px-1.5 py-1 rounded-lg text-[10px] bg-[var(--bg-tertiary)] text-[var(--text-primary)] border border-[var(--border-color)] focus:outline-none focus:border-[var(--accent-color)] cursor-pointer"
-                title="Modèle pour ce lancement seulement. Aucun réglage enregistré n'est modifié ; une surcharge poste de travail peut encore s'appliquer."
-              >
-                <option value="">
-                  {configuredLaunchModel ? `Modèle configuré (${configuredLaunchModel})` : 'Modèle configuré'}
-                </option>
-                {launchModels
-                  .filter(model => model !== configuredLaunchModel)
-                  .map(model => (
-                    <option key={model} value={model}>
-                      {model}
-                    </option>
-                  ))}
-              </select>
-            </label>
-          )}
-        </div>
-        {launchModels.length > 0 && launchModelNotice && (
-          <p className="mb-1 text-[10px] text-[var(--text-muted)] leading-relaxed">{launchModelNotice}</p>
-        )}
-        <input
-          type="text"
-          value={customPrompt}
-          onChange={e => setCustomPrompt(e.target.value)}
-          placeholder="Ex: Utilise Tailwind v4, ajoute des tests Go avec testify..."
-          className="w-full px-3 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)] font-mono text-[11px]"
-        />
-      </div>
 
       {/* Latest Output / Console Display */}
       {latestActivity && (
@@ -1665,12 +1598,14 @@ export const TaskDetailModal: React.FC = () => {
           </div>
         </div>
       )}
+
+      {renderSpecificationSection()}
     </div>
   )
 
   // -------------------------------------------------------------
   // MODE 1: RIGHT SLIDING PANEL (DRAWER)
-  // Layout: Story infos on top, Skills & Copilot underneath!
+  // Layout: Story infos on top, Skills & AI underneath!
   // -------------------------------------------------------------
   if (detailMode === 'panel') {
     return (
@@ -1683,7 +1618,7 @@ export const TaskDetailModal: React.FC = () => {
 
         {/* Sliding Panel */}
         <div className="absolute inset-y-0 right-0 max-w-full flex pl-2 sm:pl-6">
-          <div className="w-[var(--app-w)] max-w-5xl 2xl:max-w-[1500px] bg-[var(--bg-secondary)] border-l border-[var(--border-color)] shadow-2xl flex flex-col h-full animate-in slide-in-from-right duration-200">
+          <div className="min-w-0 w-[var(--app-w)] max-w-5xl 2xl:max-w-[1500px] bg-[var(--bg-secondary)] border-l border-[var(--border-color)] shadow-2xl flex flex-col h-full animate-in slide-in-from-right duration-200">
             {/* Panel Header */}
             <div className="flex items-center justify-between px-6 py-3.5 border-b border-[var(--border-color)] bg-[var(--bg-tertiary)]/40 shrink-0">
               {/* Left: Référence ParentKey / TaskKey (chacune ouvre le tracker) */}
@@ -1745,7 +1680,7 @@ export const TaskDetailModal: React.FC = () => {
                     className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold text-purple-400 bg-purple-500/10 hover:bg-purple-500/20 border border-purple-500/30 transition-colors"
                     title={t.skills.viewPr}
                   >
-                    <ExternalLink size={12} />
+                    <PullRequestStateIcon task={selectedTask} size={12} />
                     <span>PR</span>
                   </a>
                 )}
@@ -1826,21 +1761,7 @@ export const TaskDetailModal: React.FC = () => {
                 }`}
               >
                 <Sparkles size={13} className="text-purple-400" />
-                <span>Skills & Copilot</span>
-              </button>
-
-
-              <button
-                type="button"
-                onClick={() => setActiveTab('cadrage')}
-                className={`pb-2 flex items-center gap-1.5 border-b-2 transition-all cursor-pointer ${
-                  activeTab === 'cadrage'
-                    ? 'border-amber-400 text-amber-400 font-bold'
-                    : 'border-transparent text-[var(--text-muted)] hover:text-[var(--text-primary)]'
-                }`}
-              >
-                <HelpCircle size={13} className="text-amber-400" />
-                <span>Cadrage & Specs</span>
+                <span>Skills & IA</span>
                 {Boolean(clarifyActivity || specifyActivity) && (
                   <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
                 )}
@@ -1851,9 +1772,7 @@ export const TaskDetailModal: React.FC = () => {
             <div className="p-6 overflow-y-auto space-y-6 flex-1 text-xs">
               {activeTab === 'details' && renderStoryInfoSection()}
               {activeTab === 'comments' && <TaskComments task={selectedTask} />}
-              {activeTab === 'skills' && renderSkillsCopilotSection()}
-
-              {activeTab === 'cadrage' && renderCadrageSection()}
+              {activeTab === 'skills' && renderSkillsSection()}
             </div>
 
             {/* Panel Sticky Footer */}
@@ -1907,7 +1826,7 @@ export const TaskDetailModal: React.FC = () => {
   return (
     <div className="fixed top-0 left-0 h-[var(--app-h)] w-[var(--app-w)] z-50 flex items-center justify-center p-2 sm:p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200 select-none" {...backdrop}>
       <div
-        className={`relative w-full transition-all duration-200 bg-[var(--bg-secondary)] border border-[var(--border-color)] shadow-2xl overflow-hidden flex flex-col ${
+        className={`relative min-w-0 w-full transition-all duration-200 bg-[var(--bg-secondary)] border border-[var(--border-color)] shadow-2xl overflow-hidden flex flex-col ${
           isMaximized
             ? 'w-full h-full max-w-none max-h-none rounded-2xl'
             : 'max-w-[calc(var(--app-w)*0.95)] xl:max-w-[1400px] 2xl:max-w-[1700px] h-[calc(var(--app-h)*0.94)] max-h-[calc(var(--app-h)*0.94)] rounded-2xl'
@@ -1972,7 +1891,7 @@ export const TaskDetailModal: React.FC = () => {
                 className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold text-purple-400 bg-purple-500/10 hover:bg-purple-500/20 border border-purple-500/30 transition-colors"
                 title={t.skills.viewPr}
               >
-                <ExternalLink size={13} />
+                <PullRequestStateIcon task={selectedTask} size={13} />
                 <span>PR</span>
               </a>
             )}
@@ -2064,21 +1983,7 @@ export const TaskDetailModal: React.FC = () => {
               }`}
             >
               <Sparkles size={14} className="text-purple-400" />
-              <span>Skills & Agent Copilot</span>
-            </button>
-
-
-            <button
-              type="button"
-              onClick={() => setActiveTab('cadrage')}
-              className={`pb-2.5 flex items-center gap-1.5 border-b-2 transition-all cursor-pointer ${
-                activeTab === 'cadrage'
-                  ? 'border-amber-400 text-amber-400 font-bold'
-                  : 'border-transparent text-[var(--text-muted)] hover:text-[var(--text-primary)]'
-              }`}
-            >
-              <HelpCircle size={14} className="text-amber-400" />
-              <span>Cadrage & Spécifications</span>
+              <span>Skills & IA</span>
               {Boolean(clarifyActivity || specifyActivity) && (
                 <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse ml-0.5" />
               )}
@@ -2090,9 +1995,7 @@ export const TaskDetailModal: React.FC = () => {
         <div className="p-6 overflow-y-auto space-y-6 flex-1 text-xs">
           {activeTab === 'details' && renderStoryInfoSection()}
           {activeTab === 'comments' && <TaskComments task={selectedTask} />}
-          {activeTab === 'skills' && renderSkillsCopilotSection()}
-
-          {activeTab === 'cadrage' && renderCadrageSection()}
+          {activeTab === 'skills' && renderSkillsSection()}
         </div>
 
         {/* Modal Footer */}

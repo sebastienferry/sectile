@@ -68,3 +68,18 @@ export const pickBoardId = (boards: TrackerBoard[], current?: string): string =>
   if (current && boards.some(b => b.id === current)) return current
   return boards.find(b => b.type?.toLowerCase() === 'scrum')?.id || boards[0]?.id || ''
 }
+
+/** The board recorded on the project, or '' when none is, or when the tracker no longer lists it. */
+export const recordedBoardId = (boards: TrackerBoard[], current?: string): string =>
+  current && boards.some(b => b.id === current) ? current : ''
+
+/** The board offered as the default while none is recorded; '' once one is. */
+export const suggestedBoardId = (boards: TrackerBoard[], recorded: string): string =>
+  recorded ? '' : pickBoardId(boards)
+
+/**
+ * A choice is imported unless it is the board already recorded: comparing with the
+ * displayed selection would ignore the suggested board while nothing is recorded.
+ */
+export const shouldImportBoard = (next: string, recorded: string): boolean =>
+  next !== '' && next !== recorded

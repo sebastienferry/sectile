@@ -23,18 +23,35 @@ project scope. Subsequent launches reconnect to the application's existing agent
 
 ## Use
 
-### Free agent console
+### MCP connections
 
-Click **>_ Open agent console** in a configured project's heading, choose **Codex**
-or **Claude**, and click **Open console**. The app launches `codex` or `claude`
-with no arguments in that project's mapped local repository. Type your first
-instructions directly in the TTY. The selected CLI must be installed locally;
-its own sign-in and permission prompts remain available in the console.
+Open **Settings → Execution defaults**, pick the provider in **MCP configuration**, then use it.
+Choose **Remote HTTP** (default), **Local HTTP proxy**, or **STDIO**. Remote
+HTTP uses the pairing key without requiring a running agent. Local HTTP calls
+the running no-auth proxy directly. STDIO starts a bridge to the remote server
+with the pairing key; it requires the installed binary but no running daemon.
+Only the selected mode’s explanation and copyable configuration are displayed.
+The local option allows native processes on this workstation to call MCP as the
+paired user. Browser requests and other unauthenticated API routes are refused.
+Click **Update provider configuration** to save the chosen transport and target
+into the provider's user configuration, preserving other servers and permissions.
+Restart the AI engine afterward. This action is separate from saving CLI defaults.
+Custom providers require manual configuration.
+
+
+### Project prompt
+
+Click **Project prompt** in a configured project's menu, choose any engine from
+the workstation catalogue, and click **Open console**. The project default engine
+is selected initially. Codex, Claude, Antigravity, Gemini, Cursor, Vibe and custom
+engines use their configured model and interactive command in the project's mapped
+repository. Type instructions directly in the TTY. The CLI must be installed
+locally; its sign-in and permission prompts remain available.
 
 Each launch is a separate local console. It uses no task, skill, initial prompt,
-or workflow command template. It does not create a tracker activity or change a
+or workflow stage command. Custom interactive engine templates receive an empty prompt. It does not create a tracker activity or change a
 workflow stage. The sidebar shows process status, and the toolbar supports stop,
-export, and relaunch. Rename and archive are available through the console menu.
+export, and relaunch. The console's sidebar row renames it locally and archives it.
 Closing and reopening the app reconnects while the daemon remains running.
 
 Free consoles use the existing execution queue and reserve the project's shared
@@ -53,15 +70,20 @@ remains visible. The project directory browser discovers server projects and
 saves local Git repository mappings.
 
 Closing the window or quitting Electron keeps the detached agent and tasks alive.
+If a terminal supervisor receives a hangup or termination signal, it stops and
+waits for its child process before reporting the execution outcome. A transient
+failure to deliver that report is retried.
 Reopening restores the connection. The gear at the bottom of the project sidebar
-opens **Settings**, the workstation-wide panel: **General** (the installed
-versions and the release notes, opened first), **User profile**, **Agent
-connection** and **Agent logs**. Stop and restart sit in that same footer, and
+opens **Settings**, the workstation-wide panel: **User profile** (opened first), **Appearance**, **Agent connection**, **Execution defaults**,
+**Agent logs** and **Changelog** (installed versions and release notes, pinned
+to the bottom of the sidebar). The larger settings dialog adapts to the window. Stop and restart sit in that same footer, and
 the connection state leads it: a green dot reading **Connected**, an orange one
 reading **Not connected** or **Server incompatible**. The server address is the
 tooltip, and **Connected** is the link that opens the board. One corner of the
 window owns the workstation, the footer glyphs carry no frame, and the header is
-a title bar again. **Hide projects** collapses the sidebar to that footer alone,
+a title bar again. The broom icon clears finished consoles; task toolbar icons
+are unboxed and show tooltips on hover or keyboard focus, including disabled
+actions. Keyboard focus indicators remain visible. **Hide projects** collapses the sidebar to that footer alone,
 a narrow rail: the list goes, the controls and the dot stay, and the dot still
 opens the board once the words are dropped. Starting the agent belongs to the connection screen's own
 **Start local agent** button, because the sidebar is hidden exactly while the
@@ -257,9 +279,14 @@ directory. Local worktree preferences are stored per project in
 content remain server-owned and read-only. Explicit deployment buttons install
 the server skills or initialize its SDD framework in the mapped directory.
 **Settings → User profile** states what this workstation knows about the
-account: the paired server, the workstation identifier, and whether a pairing
-credential is stored here. Display name, password and API keys stay server-owned;
+account: the paired server and the workstation identifier. Display name,
+password and API keys stay server-owned;
 **Open the web interface** goes there.
+**Settings → Appearance** chooses the desktop's theme: **System** (the
+default) follows the computer's light or dark appearance, **Dark** and
+**Light** force one. The choice applies at once to the whole window, the
+console included, and is kept as `appearance` in the workstation
+`settings.json`. It is independent of the theme of the web interface.
 
 ### Remove a local project
 
@@ -280,20 +307,36 @@ and restarted before this action is available.
 
 ### Execution defaults and local overrides
 
-The server project supplies the `useWorktrees` default, which **Inherit worktrees
-from server** restores in the desktop project settings. Parallel executions
-(1 to 5) are workstation-owned: the server neither stores nor supplies a value,
-this app is the only surface that sets one, and a project without a local value
-runs a single execution at a time.
-Workstation settings are saved in `~/.config/sectile/settings.json` as project-ID maps:
+Every execution setting belongs to the workstation (ADR 0031): the engines,
+the model list of each provider, the terminal, the editor, worktrees, parallel
+executions (1 to 10), the extra agents that get the skills and MCP, and the
+command name each stage runs. The web interface offers none of them and the
+server neither stores nor uses them.
 
-```json
-{
-  "projects": {"project-id": "/path/to/repository"},
-  "worktrees": {"project-id": true},
-  "parallelism": {"project-id": 2}
-}
-```
+An engine (ADR 0033) is a named AI CLI profile: provider, model, per-skill
+models, interactive and headless commands. **Settings → Execution defaults**
+opens with the **Engines** list, in the order a task cycles through them, the
+workstation default engine marked **Default**. **Add an engine** and **Edit**
+open the engine editor, with the provider presets and a preview of the command
+lines; the arrows reorder, **Make default** moves the mark, and **Remove** asks
+first, naming the projects and counting the tasks that use the engine. The
+default engine and the last one cannot be removed. Every change is saved at
+once. Existing provider, model and command settings became engines on the
+first start of the upgraded agent, which kept a copy of the previous file
+beside it.
+
+The rest of **Settings → Execution defaults** edits the workstation level,
+applied to every project without a value of its own. The project settings edit one project:
+each field says whether it is set for the project or inherited, shows the
+inherited value (the workstation default, else the provider default) and has a
+reset that brings the inheritance back. Both go through the local agent, which
+validates them and alone writes the execution sections of
+`~/.config/sectile/settings.json`; a refused value is reported with its reason
+and nothing is written. Without a running agent the settings are shown as
+unavailable. On its first connection after the upgrade, the agent copies the
+values the server used to hold, once, so an existing setup keeps running what
+it ran. See the [server/agent contract](../docs/contracts/server-agent-v1.md)
+for the file layout.
 
 Without effective worktrees, the agent enforces one execution and the UI
 disables parallelism selection. Requests are acknowledged when queued; their
@@ -304,6 +347,50 @@ can be canceled from either UI. Tasks sharing an unisolated repository, or the
 same task worktree, cannot execute concurrently. Settings are resolved at
 admission into the queue; changes apply to subsequent submissions. Queue and
 console history are held in memory for the agent lifetime.
+
+### Specifications folder
+
+**General → Specifications folder** is where macro operations read and write a
+project's specifications: the slicing imported from the web, the macro worktree
+and `realign-macro`. It is set on the workstation only; the server stores no
+such path. Only a folder you choose is saved, under `specRepos` in the
+workstation settings. Without one, a mono-repo project inherits its local
+repository, shown as the placeholder, and keeps following it; a multi-repo
+project has none, the field is flagged, and macro operations refuse to run until
+it is set. Clearing the field removes the override.
+
+The folder must be an absolute path to an existing directory. A folder inside a
+Git repository is saved as that repository's top level; any other folder is
+saved as typed. Next to the field, the settings show what the folder in effect
+is: *Git repository*, *Folder (not a Git repository)*, or *Not found* when it
+was deleted since. In a plain folder, macro skills write in place, with no
+worktree, branch, commit or push.
+A plain folder can also be made a Git repository from the settings; see
+below.
+
+### Initializing a Git repository for a project folder
+
+When **General → Local repository**, or a Specifications folder of its own,
+names a folder that is not a Git repository, the settings offer to initialize
+one: *Initialize a Git repository* creates it in that folder, on `main`, with
+an empty first commit, and *Not now* leaves the folder as it is. The offer is
+examined when the settings open, when *Choose folder…* returns and when a typed
+value is committed. A Git folder with no commit yet is offered the first commit
+alone, on the branch its `HEAD` already names.
+
+The repository stays on the workstation: no remote is added and nothing is
+pushed. It only exists so Sectile can create worktrees from it. Nothing in the
+folder is staged, so worktrees start without the files already there. `.tasks/`
+is excluded through the repository's `info/exclude`, and no `.gitignore` is
+created. The commit uses the workstation's Git identity; when Git refuses it,
+its message is shown under the field and the repository stays without a commit,
+so the offer shown again makes the commit alone. The filesystem root and the
+home directory are never initialized.
+
+Initializing does not save the settings. Declining keeps today's behaviour: the
+Local repository still refuses a folder outside any Git checkout, and a
+Specifications folder is saved and written in place as a plain folder. The
+offer needs a local agent that supports it; an older agent shows none.
 
 ### User configuration and commands
 
@@ -329,9 +416,9 @@ arguments with, for example, `make start ARGS="--url http://localhost:8090"`; pr
 authentication through `TOKEN`.
 
 Workstation settings open from the gear at the bottom of the project sidebar and
-use the same side navigation: **User profile**, **Agent connection** and **Agent
-logs**, with **User profile** first. **Agent connection** reports the local
-agent, the server link, and the connect form itself: the same form the
+use the same side navigation: **User profile**, **Agent connection**, **Execution defaults**, **Agent logs** and
+**Changelog**, with **User profile** first. **Agent connection** reports the local
+agent with Start, Stop, and Restart controls, the server link (green when connected, orange otherwise), and the connect form itself: the same form the
 connection screen shows, borrowed while the category is open and returned when
 the panel closes. Pairing is the only credential the desktop asks for — paste a
 code from **Pair a workstation** in the web interface. There is no API key field;
@@ -341,13 +428,15 @@ until the agent is stopped, and the panel says so.
 
 Project configuration lists its categories in a side navigation, one panel at a
 time: **General** (local repository, removal from the desktop), **Execution**
-(worktrees, parallel executions, terminal emulator), **AI agent** (provider,
-model, command templates), **Deployment** and **Server**. **General** opens
+(worktrees, parallel executions, terminal emulator, extra setup providers),
+**AI agent** (the project's **Default engine**, picked from the engines or
+inherited from the workstation default one, and skill command names),
+**Deployment** and **Server**. **General** opens
 first. Use **Choose folder…** to select a repository through the native directory
 dialog. Worktrees use Yes/No buttons; parallel executions use a 1 to 10 slider.
 Each setting is one row: its name with the inherited value in small type on the
-left, its control on the right. Reset icons restore inheritance from server
-defaults, and parallelism has none because it never inherits. The placeholder
+left, its control on the right. Reset icons restore inheritance from the
+workstation defaults. The placeholder
 reference sits behind the **Placeholders** disclosure under the interactive
 command. The three storing categories share one form, so
 **Save local configuration** in the dialog footer writes them all at once,
@@ -367,7 +456,16 @@ even when the project is collapsed. Search by title or task key to narrow it;
 submit an empty search to restore all open tasks. Finished tasks are excluded.
 
 The pane is a table with one row per task: execution state, **Key**, **Title**,
-**Stage**, **Priority**, a pull request icon when one is linked, and actions.
+**Stage**, **Priority**, **Engine**, a pull request icon when one is linked, and
+actions. The **Engine** button shows the letters of the provider the task's
+next run uses; its tooltip names the engine, its provider and its model, and
+says when it is the project default engine, and it is highlighted when it is
+not. Activating it (click, Enter or Space) moves the task to the next engine of
+the catalogue, the last one wrapping to the first. The choice stays with the
+task on this workstation, for every launch of it, from the desktop or the web,
+until the next click; a run already going keeps its engine. A one-off launch
+model applies only on the project default engine. The column is hidden with an
+agent that does not keep engines.
 Activate a row's key to open that task in Sectile, the same gesture the sidebar
 task number offers.
 Rows are ordered by priority descending (urgent, high, medium, low, then
@@ -393,10 +491,9 @@ repository mapping, otherwise every launch control is disabled with a notice.
 Loading, empty and error states are shown in the pane; use **Search** to
 retry a failed request. Opening the pane does not start an execution.
 
-The **AI agent** category includes the effective **CLI command**. Edit it to save a
-per-project override under `commands` in user settings; the reset icon restores
-the server template (or provider default when empty or lacking `{prompt}`). Save to apply to subsequent
-executions. Command templates execute on the local agent and support these placeholders:
+An engine's commands are edited in its engine editor; empty ones run the
+provider default. Command templates execute on the local agent and support
+these placeholders:
 
 | Placeholder | Value |
 | --- | --- |
@@ -421,8 +518,8 @@ Values are refreshed for every launch, including relaunches and custom instructi
 Saving or resetting settings stores the template, never the expanded task values.
 
 **Refresh from server** reloads project metadata, skills and inherited execution
-settings in the open dialog. Local overrides and unsaved local edits remain
-intact. Reset buttons then use the refreshed server values. Refresh does not
+settings in the open dialog. Local values and unsaved local edits remain
+intact. Refresh does not
 deploy tooling or modify running executions.
 
 Select a completed, failed or canceled execution and choose **Relaunch**.
@@ -442,8 +539,11 @@ Linked pull requests appear as an icon on the same task row, after the title and
 status. Hover for the URL or activate the icon to open the PR externally without
 changing the selected console. Long titles truncate to keep controls inline.
 Projects can be collapsed;
-their **+** button opens the task launcher. A task's **…** menu provides relaunch,
-local rename and archive actions. Archiving hides its existing executions without
+their **+** button opens the task launcher. A task row carries an archive button
+and a pencil that turns its title into a field for a local rename: Enter or
+leaving the field saves, Escape cancels, and the local name, kept on this
+workstation only, takes precedence over the tracker title. Relaunch and detach to
+a native terminal are toolbar buttons of the selected task. Archiving hides its existing executions without
 changing the server task. Active executions require explicit confirmation and
 confirmed stop before archiving. A new execution makes the task visible again.
 The TTY toolbar's execution selector provides access to previous runs of the

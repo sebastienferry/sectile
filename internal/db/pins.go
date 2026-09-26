@@ -184,86 +184,97 @@ func (d *DB) SetTaskPinned(taskID string, pinned bool) error {
 // SetTaskPinnedBy pins on behalf of whoever asked: the label it writes on the
 // tracker goes out under their credential.
 func (d *DB) SetTaskPinnedBy(actor Actor, taskID string, pinned bool) error {
+	_, err := d.setTaskPinned(actor, taskID, func(bool) bool { return pinned })
+	return err
+}
+
+// setTaskPinned applies the pin state decide chooses from the current one, and
+// returns it. The current state is read on the locked task row, so a toggle
+// racing another one on a second server instance flips what that one wrote
+// instead of both flipping the same snapshot. The tracker label goes out once
+// the task is committed.
+func (d *DB) setTaskPinned(actor Actor, taskID string, decide func(currentlyPinned bool) bool) (bool, error) {
 	taskID = strings.TrimSpace(taskID)
 	if taskID == "" {
-		return fmt.Errorf("identifiant de tâche manquant")
+		return false, fmt.Errorf("identifiant de tâche manquant")
 	}
 	d.ensurePinsTable()
 
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
-	task, err := d.getTaskByIDUnsafe(taskID)
-	if err != nil {
-		return err
-	}
-	if task == nil {
-		return fmt.Errorf("tâche non trouvée: %s", taskID)
-	}
-
-	oldLabels := task.Labels
-	hasPin := HasPinnedLabel(task.Labels)
+	var task *models.Task
+	var oldLabels []string
+	var hasPin, pinned bool
 	now := time.Now()
-
-	if pinned {
-		if !hasPin {
-			task.Labels = AddPinnedLabel(task.Labels)
-		}
-		task.Pinned = true
-		task.UpdatedAt = now
-
-		_, _ = d.conn.Exec(`
-			INSERT INTO pinned_tasks (task_id, pinned_at) VALUES (?, ?)
-			ON CONFLICT(task_id) DO UPDATE SET pinned_at = excluded.pinned_at
-		`, task.ID, now.Format(time.RFC3339))
-
-		labelsJSON, _ := json.Marshal(task.Labels)
-		_, err = d.conn.Exec(`
-			UPDATE tasks
-			SET labels = ?, pinned = 1, updated_at = ?
-			WHERE id = ?
-		`, string(labelsJSON), now, task.ID)
+	err := d.conn.WithTx(func(tx *sqlTx) error {
+		var err error
+		task, err = d.lockTaskUnsafe(tx, taskID)
 		if err != nil {
 			return err
 		}
-
-		if !hasPin {
-			d.enqueueTrackerUpdateAsUnsafe(actor.ID, task, nil, task.Labels, nil, TrackerFieldChanges{})
+		if task == nil {
+			return fmt.Errorf("tâche non trouvée: %s", taskID)
 		}
-	} else {
-		if hasPin {
-			task.Labels = RemovePinnedLabel(task.Labels)
+		oldLabels = task.Labels
+		hasPin = HasPinnedLabel(task.Labels)
+		currentlyPinned := hasPin
+		if !currentlyPinned {
+			var existing string
+			_ = tx.QueryRow(`SELECT task_id FROM pinned_tasks WHERE task_id = ? OR task_id = ?`, task.ID, task.Key).Scan(&existing)
+			currentlyPinned = existing != ""
 		}
-		task.Pinned = false
+		pinned = decide(currentlyPinned)
+		task.Pinned = pinned
 		task.UpdatedAt = now
 
-		_, _ = d.conn.Exec(`DELETE FROM pinned_tasks WHERE task_id = ?`, task.ID)
-
+		if pinned {
+			if !hasPin {
+				task.Labels = AddPinnedLabel(task.Labels)
+			}
+			if _, err := tx.Exec(`
+				INSERT INTO pinned_tasks (task_id, pinned_at) VALUES (?, ?)
+				ON CONFLICT(task_id) DO UPDATE SET pinned_at = excluded.pinned_at
+			`, task.ID, now.Format(time.RFC3339)); err != nil {
+				return err
+			}
+		} else {
+			if hasPin {
+				task.Labels = RemovePinnedLabel(task.Labels)
+			}
+			if _, err := tx.Exec(`DELETE FROM pinned_tasks WHERE task_id = ?`, task.ID); err != nil {
+				return err
+			}
+		}
 		labelsJSON, _ := json.Marshal(task.Labels)
-		_, err = d.conn.Exec(`
+		_, err = tx.Exec(`
 			UPDATE tasks
-			SET labels = ?, pinned = 0, updated_at = ?
+			SET labels = ?, pinned = ?, updated_at = ?
 			WHERE id = ?
-		`, string(labelsJSON), now, task.ID)
-		if err != nil {
-			return err
-		}
-
-		if hasPin {
-			var actualRemoved []string
-			for _, ol := range oldLabels {
-				clean := strings.ToLower(strings.TrimSpace(strings.TrimPrefix(ol, "#")))
-				if clean == PinnedLabel {
-					actualRemoved = append(actualRemoved, ol)
-				}
-			}
-			if len(actualRemoved) == 0 {
-				actualRemoved = []string{PinnedLabel}
-			}
-			d.enqueueTrackerUpdateAsUnsafe(actor.ID, task, nil, task.Labels, actualRemoved, TrackerFieldChanges{})
-		}
+		`, string(labelsJSON), boolToInt(pinned), now, task.ID)
+		return err
+	})
+	if err != nil {
+		return false, err
 	}
-	return nil
+
+	if pinned && !hasPin {
+		d.enqueueTrackerUpdateAsUnsafe(actor.ID, task, nil, task.Labels, nil, TrackerFieldChanges{})
+	}
+	if !pinned && hasPin {
+		var actualRemoved []string
+		for _, ol := range oldLabels {
+			clean := strings.ToLower(strings.TrimSpace(strings.TrimPrefix(ol, "#")))
+			if clean == PinnedLabel {
+				actualRemoved = append(actualRemoved, ol)
+			}
+		}
+		if len(actualRemoved) == 0 {
+			actualRemoved = []string{PinnedLabel}
+		}
+		d.enqueueTrackerUpdateAsUnsafe(actor.ID, task, nil, task.Labels, actualRemoved, TrackerFieldChanges{})
+	}
+	return pinned, nil
 }
 
 // ToggleTaskPinned flips the pin and says what the new state is.
@@ -272,36 +283,8 @@ func (d *DB) ToggleTaskPinned(taskID string) (bool, error) {
 	return d.ToggleTaskPinnedBy(Actor{}, taskID)
 }
 
-// ToggleTaskPinnedBy flips it on behalf of whoever asked.
+// ToggleTaskPinnedBy flips it on behalf of whoever asked. A task pinned either
+// by its label or by a row of its own counts as pinned.
 func (d *DB) ToggleTaskPinnedBy(actor Actor, taskID string) (bool, error) {
-	taskID = strings.TrimSpace(taskID)
-	if taskID == "" {
-		return false, fmt.Errorf("identifiant de tâche manquant")
-	}
-	d.mu.RLock()
-	task, err := d.getTaskByIDUnsafe(taskID)
-	d.mu.RUnlock()
-	if err != nil {
-		return false, err
-	}
-	if task == nil {
-		return false, fmt.Errorf("tâche %s non trouvée", taskID)
-	}
-
-	isCurrentlyPinned := HasPinnedLabel(task.Labels)
-	if !isCurrentlyPinned {
-		d.mu.RLock()
-		var existing string
-		_ = d.conn.QueryRow(`SELECT task_id FROM pinned_tasks WHERE task_id = ? OR task_id = ?`, task.ID, task.Key).Scan(&existing)
-		d.mu.RUnlock()
-		if existing != "" {
-			isCurrentlyPinned = true
-		}
-	}
-
-	newPinned := !isCurrentlyPinned
-	if err := d.SetTaskPinned(task.ID, newPinned); err != nil {
-		return false, err
-	}
-	return newPinned, nil
+	return d.setTaskPinned(actor, taskID, func(currentlyPinned bool) bool { return !currentlyPinned })
 }

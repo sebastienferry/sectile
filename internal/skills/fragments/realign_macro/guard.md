@@ -1,0 +1,7 @@
+- Do not rewrite the body of an entry that exists. Its scenarios, its acceptance criteria and its prose are not in the slicing, and regenerating them from a one-line todo would destroy them. A renamed line changes a title, not a body.
+- Do not delete an entry. Mark it, so a human decides: the line may have been dropped from the slicing for this iteration and still be worth specifying.
+- Do not regenerate the file, and do not renumber it.
+- Do not write the macro's todos. They are your input, and the call that writes them replaces the whole list.
+- Do not create stories, and do not open a pull request.
+- Do not switch a checkout's branch, and do not write on the default branch.
+- On a plain folder (empty `branch`), do not run `git`: no branch check, no commit, no push.

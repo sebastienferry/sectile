@@ -3,6 +3,7 @@ package taskmcp
 
 import (
 	"context"
+	"crypto/rand"
 	"fmt"
 	"net/http"
 	"strings"
@@ -11,6 +12,7 @@ import (
 	"tasks/internal/agentconfig"
 	"tasks/internal/db"
 	"tasks/internal/models"
+	"tasks/internal/tracker"
 )
 
 type taskInput struct {
@@ -22,6 +24,8 @@ type transitionInput struct {
 	Note    string `json:"note"`
 	Branch  string `json:"branch,omitempty"`
 	PRURL   string `json:"prUrl,omitempty"`
+	// PRURLs are the pull requests of the other repositories the task changed.
+	PRURLs []string `json:"prUrls,omitempty"`
 }
 type commentInput struct {
 	TaskKey string `json:"taskKey"`
@@ -61,15 +65,67 @@ type updateTaskInput struct {
 }
 
 type startRunInput struct {
-	TaskKey string `json:"taskKey"`
+	TaskKey string `json:"taskKey,omitempty" jsonschema:"task key or ID; omit for a macro run"`
 	Skill   string `json:"skill"`
 	RunID   string `json:"runId,omitempty"`
+	// ProjectID and MacroKey name a macro skill run instead of a task run.
+	ProjectID string `json:"projectId,omitempty" jsonschema:"project primary key of a macro run"`
+	MacroKey  string `json:"macroKey,omitempty" jsonschema:"macro key of a macro run, with projectId instead of taskKey"`
 }
 type finishRunInput struct {
-	TaskKey string `json:"taskKey"`
-	RunID   string `json:"runId"`
-	Status  string `json:"status" jsonschema:"completed, failed or canceled"`
-	Note    string `json:"note"`
+	TaskKey   string `json:"taskKey,omitempty" jsonschema:"task key or ID; omit for a macro run"`
+	RunID     string `json:"runId"`
+	Status    string `json:"status" jsonschema:"completed, failed or canceled"`
+	Note      string `json:"note"`
+	ProjectID string `json:"projectId,omitempty" jsonschema:"project primary key of a macro run"`
+	MacroKey  string `json:"macroKey,omitempty" jsonschema:"macro key of a macro run, with projectId instead of taskKey"`
+}
+type reportWaitingInput struct {
+	TaskKey string `json:"taskKey" jsonschema:"task key or ID of the run"`
+	RunID   string `json:"runId" jsonschema:"the runId start_run returned"`
+	Waiting bool   `json:"waiting" jsonschema:"true before asking the user a blocking question, false once answered"`
+}
+
+// reportWaitingTool is the one call that must not end a wait: reporting the same
+// wait twice, or clearing it, is not a sign that the session moved on.
+const reportWaitingTool = "report_waiting"
+
+// resumesWaits says whether a message proves its session is no longer blocked on
+// the user. Only a tool call does: a keepalive ping arrives every minute from
+// the stdio bridge whatever the model is doing.
+func resumesWaits(method string, req mcp.Request) bool {
+	if method != "tools/call" {
+		return false
+	}
+	call, ok := req.(*mcp.CallToolRequest)
+	return ok && call.Params != nil && call.Params.Name != reportWaitingTool
+}
+
+type repositoryWorktreeInput struct {
+	TaskKey    string `json:"taskKey" jsonschema:"task key or ID"`
+	Repository string `json:"repository" jsonschema:"one of the project's repositories, as a remote URL or a host/path identity"`
+}
+
+type macroWorktreeInput struct {
+	ProjectID string `json:"projectId" jsonschema:"project primary key"`
+	MacroKey  string `json:"macroKey" jsonschema:"macro key, for example M-7"`
+}
+
+// runTarget says whether a run input names a task or a macro, and refuses one
+// that names both or neither: a macro key alone can match another project's
+// macro, and a task key with a macro key is ambiguous.
+func runTarget(taskKey, projectID, macroKey string) (macro bool, err error) {
+	task := strings.TrimSpace(taskKey) != ""
+	hasMacro := strings.TrimSpace(macroKey) != ""
+	switch {
+	case task && hasMacro:
+		return false, fmt.Errorf("name either taskKey or projectId with macroKey, not both")
+	case hasMacro && strings.TrimSpace(projectID) == "":
+		return false, fmt.Errorf("a macro run needs projectId as well as macroKey")
+	case !task && !hasMacro:
+		return false, fmt.Errorf("taskKey, or projectId with macroKey, is required")
+	}
+	return hasMacro, nil
 }
 
 // skillReference names a skill without carrying its body. A launched session
@@ -82,7 +138,8 @@ type skillReference struct {
 }
 
 // sessionContext projects the execution contract down to what a skill session
-// consumes. Inlining every skill and command body made this payload exceed what
+// consumes. It names no worktree setting, provider or model: those are the
+// workstation's (#305), and the server cannot know what a session runs with. Inlining every skill and command body made this payload exceed what
 // a session can read, which left the documented interface unusable.
 func sessionContext(config *agentconfig.Config) map[string]any {
 	if config == nil {
@@ -98,7 +155,6 @@ func sessionContext(config *agentconfig.Config) map[string]any {
 		"trackerUrl": config.TrackerURL, "githubRepo": config.GithubRepo,
 		"jiraProject": config.JiraProject, "specFramework": config.SpecFramework, "prCreationStage": config.PRCreationStage,
 		"defaultSkillMode": config.DefaultSkillMode, "fullChainStopStage": config.FullChainStopStage,
-		"useWorktrees": config.UseWorktrees, "aiProvider": config.AIProvider, "aiModel": config.AIModel,
 		"skills": skills, "skillDirectories": []string{".agents/skills", ".claude/skills", ".gemini/skills", ".agy/skills", ".skills"},
 	}
 }
@@ -109,6 +165,23 @@ type Caller struct {
 	UserID string
 	Name   string
 	Role   string
+	// Anonymous says the credential names no person, like the shared server
+	// key: the call may read and report runs, never write to a tracker.
+	Anonymous bool
+}
+
+// AnonymousWriteRefusal refuses a tracker write from a caller Sectile cannot
+// tie to a person: signing it with the server account would make a user action
+// anonymous on the tracker (#482). The REST handlers answer with it too.
+const AnonymousWriteRefusal = "tracker write refused: this key is not tied to a user; pair the desktop app or use a personal API key"
+
+// requireCaller refuses a write tool called by nobody in particular, before
+// anything is written.
+func requireCaller(caller Caller) error {
+	if caller.Anonymous || strings.TrimSpace(caller.UserID) == "" {
+		return fmt.Errorf("%s", AnonymousWriteRefusal)
+	}
+	return nil
 }
 
 // CallerResolver maps the headers of an MCP request to its caller. It returns
@@ -133,16 +206,28 @@ func NewServer(database *db.DB, sessions *SessionRegistry) *mcp.Server {
 	return NewServerWithCallers(database, sessions, nil)
 }
 
+// sessionIDFor makes the session ids of an instance: the instance id, a dot,
+// then the SDK's own random part. Any instance that receives a request can then
+// tell which one holds the session (see SessionOwner). Instance ids are UUIDs,
+// so the id stays a header-safe token.
+func sessionIDFor(instanceID string) func() string {
+	return func() string { return instanceID + "." + rand.Text() }
+}
+
 // NewServerWithCallers is NewServer with the host's caller resolver, so a run,
 // a transition or a comment records the user whose key made the call.
 func NewServerWithCallers(database *db.DB, sessions *SessionRegistry, resolve CallerResolver) *mcp.Server {
-	s := mcp.NewServer(&mcp.Implementation{Name: "sectile", Version: "1.0.0"}, &mcp.ServerOptions{
+	options := &mcp.ServerOptions{
 		// A session begins when its client finishes initializing, which is the
 		// first moment the server knows who connected.
 		InitializedHandler: func(_ context.Context, req *mcp.InitializedRequest) {
 			sessions.Watch(req.Session)
 		},
-	})
+	}
+	if database != nil {
+		options.GetSessionID = sessionIDFor(database.InstanceID())
+	}
+	s := mcp.NewServer(&mcp.Implementation{Name: "sectile", Version: "1.0.0"}, options)
 	// Any message proves the client is alive, whichever tool or protocol method
 	// it invoked, so activity is observed in the one place they all pass
 	// through rather than tool by tool.
@@ -150,6 +235,9 @@ func NewServerWithCallers(database *db.DB, sessions *SessionRegistry, resolve Ca
 		return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
 			if session := req.GetSession(); session != nil {
 				sessions.Touch(session.ID())
+				if resumesWaits(method, req) {
+					sessions.Resume(session.ID())
+				}
 			}
 			return next(ctx, method, req)
 		}
@@ -168,9 +256,11 @@ func NewServerWithCallers(database *db.DB, sessions *SessionRegistry, resolve Ca
 			}
 			// The task is already read. A tracker that cannot be reached costs the
 			// session its comments, not its ticket, so the failure is reported as a
-			// field and never as an empty discussion.
+			// field and never as an empty discussion. Comments are read as the
+			// caller, with their own tracker account, as the web detail view reads
+			// them for its viewer.
 			result := map[string]any{"task": task}
-			comments, err := database.GetTaskComments(task.ID)
+			comments, err := database.GetTaskCommentsAs(tracker.WithActingUser(ctx, callerOf(resolve, req).UserID), task.ID)
 			if err != nil {
 				result["commentsError"] = err.Error()
 			} else {
@@ -184,12 +274,17 @@ func NewServerWithCallers(database *db.DB, sessions *SessionRegistry, resolve Ca
 			"taskKey": map[string]any{"type": "string", "minLength": 1},
 			"stage":   map[string]any{"type": "string", "enum": []string{"clarified", "specified", "implemented", "reviewed", "finished"}},
 			"note":    map[string]any{"type": "string", "minLength": 1}, "branch": map[string]any{"type": "string"}, "prUrl": map[string]any{"type": "string", "description": "Pull request or merge request URL to persist on the task. Omit to preserve its existing link."},
+			"prUrls": map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "On a task that changed several repositories: the pull requests of the other repositories, one per repository. prUrl names the primary repository's."},
 		},
 	}}, func(ctx context.Context, req *mcp.CallToolRequest, in transitionInput) (*mcp.CallToolResult, any, error) {
 		if strings.TrimSpace(in.Note) == "" {
 			return nil, nil, fmt.Errorf("note is required")
 		}
-		task, activity, err := database.TransitionTaskStageBy(callerOf(resolve, req).UserID, in.TaskKey, in.Stage, in.Note, in.PRURL, in.Branch)
+		caller := callerOf(resolve, req)
+		if err := requireCaller(caller); err != nil {
+			return nil, nil, err
+		}
+		task, activity, err := database.TransitionTaskStageWithPRs(caller.UserID, in.TaskKey, in.Stage, in.Note, append([]string{in.PRURL}, in.PRURLs...), in.Branch)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -201,6 +296,9 @@ func NewServerWithCallers(database *db.DB, sessions *SessionRegistry, resolve Ca
 				return nil, nil, fmt.Errorf("taskKey and body are required")
 			}
 			caller := callerOf(resolve, req)
+			if err := requireCaller(caller); err != nil {
+				return nil, nil, err
+			}
 			comments, err := database.PostTaskCommentBy(db.Actor{ID: caller.UserID, Name: caller.Name}, in.TaskKey, in.Body)
 			return nil, map[string]any{"comments": comments}, err
 		})
@@ -224,7 +322,16 @@ func NewServerWithCallers(database *db.DB, sessions *SessionRegistry, resolve Ca
 		})
 	mcp.AddTool(s, &mcp.Tool{Name: "start_run", Description: "Report the start of a remote skill execution so the task displays an active indicator. Save the returned activity ID as runId. Supply SECTILE_RUN_ID when provided by a launcher to reuse its run. Reads and transitions do not implicitly start or finish runs. A run this session creates is owned by it: if this client disconnects without finishing it, the server closes the run as canceled. A long silence does not: a quiet run stays open and is only remarked upon. A run reused from a launcher keeps the ownership of that launcher."},
 		func(ctx context.Context, req *mcp.CallToolRequest, in startRunInput) (*mcp.CallToolResult, any, error) {
-			activity, err := database.StartRemoteRunBy(callerOf(resolve, req).UserID, in.TaskKey, in.Skill, in.RunID)
+			macro, err := runTarget(in.TaskKey, in.ProjectID, in.MacroKey)
+			if err != nil {
+				return nil, nil, err
+			}
+			var activity *models.TaskActivity
+			if macro {
+				activity, err = database.StartMacroRunBy(callerOf(resolve, req).UserID, in.ProjectID, in.MacroKey, in.Skill, in.RunID)
+			} else {
+				activity, err = database.StartRemoteRunBy(callerOf(resolve, req).UserID, in.TaskKey, in.Skill, in.RunID)
+			}
 			if err != nil {
 				return nil, nil, err
 			}
@@ -240,13 +347,53 @@ func NewServerWithCallers(database *db.DB, sessions *SessionRegistry, resolve Ca
 	mcp.AddTool(s, &mcp.Tool{Name: "finish_run", Description: "Finish the specified remote execution with completed, failed or canceled status. Call when the entire invoked skill ends, including when stopping for user input. This is how a run reports its own outcome; a run left open when the session ends is closed as canceled instead, and such a run may still be reported here afterwards by its owner. Does not transition the task."},
 		func(ctx context.Context, req *mcp.CallToolRequest, in finishRunInput) (*mcp.CallToolResult, any, error) {
 			caller := callerOf(resolve, req)
-			activity, err := database.FinishRemoteRunAs(db.Actor{ID: caller.UserID, Name: caller.Name},
-				caller.Role == db.RoleAdmin, in.TaskKey, in.RunID, in.Status, in.Note)
+			macro, err := runTarget(in.TaskKey, in.ProjectID, in.MacroKey)
+			if err != nil {
+				return nil, nil, err
+			}
+			actor := db.Actor{ID: caller.UserID, Name: caller.Name}
+			var activity *models.TaskActivity
+			if macro {
+				activity, err = database.FinishMacroRunAs(actor, caller.Role == db.RoleAdmin, in.ProjectID, in.MacroKey, in.RunID, in.Status, in.Note)
+			} else {
+				activity, err = database.FinishRemoteRunAs(actor, caller.Role == db.RoleAdmin, in.TaskKey, in.RunID, in.Status, in.Note)
+			}
 			if err != nil {
 				return nil, nil, err
 			}
 			sessions.Release(sessionID(req.Session), in.RunID)
 			return nil, activity, nil
+		})
+	mcp.AddTool(s, &mcp.Tool{Name: reportWaitingTool, Description: "Declare that a run is blocked on its user, so the board and the owner's desktop show it as waiting. Call it with waiting true right before asking the user a question you cannot continue without. The wait ends by itself on this session's next Sectile call, when the owner presses Enter in the run's console, when the run finishes, or with waiting false. A headless run has nobody to answer and is left unmarked. Tool permission prompts are not reported this way."},
+		func(ctx context.Context, req *mcp.CallToolRequest, in reportWaitingInput) (*mcp.CallToolResult, any, error) {
+			caller := callerOf(resolve, req)
+			// The wait is recorded with the declaring session, whose next call
+			// ends it on whichever instance serves that call.
+			activity, applied, err := database.ReportSessionRunWaitingAs(db.Actor{ID: caller.UserID, Name: caller.Name}, caller.Role == db.RoleAdmin, sessionID(req.Session), in.TaskKey, in.RunID, in.Waiting)
+			if err != nil {
+				return nil, nil, err
+			}
+			result := map[string]any{"activity": activity, "applied": applied}
+			if !applied {
+				result["reason"] = "headless run: nobody can answer it, so it is not shown as waiting"
+			}
+			return nil, result, nil
+		})
+	mcp.AddTool(s, &mcp.Tool{Name: "prepare_macro_worktree", Description: "Prepare the checkout a macro's specification is written in, on the caller's local agent, in the project's specifications folder (the desktop \"Specifications folder\" setting, else the code checkout of a mono-repo project): on a Git folder, the macro's own worktree on the macro branch, created from the up-to-date default branch or reused as is; on a plain folder, the folder itself with an empty branch, where nothing is committed or pushed. Returns path, branch, whether it is a dedicated worktree, any warning, and the macro's slicing lines (todos) to align on. Call it before a macro skill reads or writes; it reuses the worktree a launch already prepared."},
+		func(ctx context.Context, req *mcp.CallToolRequest, in macroWorktreeInput) (*mcp.CallToolResult, any, error) {
+			workspace, err := database.PrepareMacroWorktree(ctx, callerOf(resolve, req).UserID, in.ProjectID, in.MacroKey)
+			if err != nil {
+				return nil, nil, err
+			}
+			return nil, workspace, nil
+		})
+	mcp.AddTool(s, &mcp.Tool{Name: "prepare_repository_worktree", Description: "On a multi-repo project, prepare the task's worktree in another of the project's repositories, on the caller's local agent, on the task's branch: reused wherever that branch is already checked out, else created from the remote branch when it exists, else from the checkout's current HEAD. The repository must be mapped to a folder on that workstation. Call it before changing a context folder (SECTILE_REPOSITORIES role \"context\"): context folders are read-only. The repository then needs its own pull request, given in transition_stage prUrls. Returns repository, path and branch."},
+		func(ctx context.Context, req *mcp.CallToolRequest, in repositoryWorktreeInput) (*mcp.CallToolResult, any, error) {
+			worktree, err := database.PrepareRepositoryWorktree(ctx, callerOf(resolve, req).UserID, in.TaskKey, in.Repository)
+			if err != nil {
+				return nil, nil, err
+			}
+			return nil, worktree, nil
 		})
 	mcp.AddTool(s, &mcp.Tool{Name: "create_task", Description: "Create a task on an explicitly named project and return it with its key and external URL. Creation is remote whenever the project's tracker supports it, and fails rather than leaving a ticket that exists only on the local board. The new task enters the workflow at its first stage; it cannot be created at a later one.", InputSchema: map[string]any{
 		"type": "object", "additionalProperties": false, "required": []string{"projectId", "title"},
@@ -260,6 +407,10 @@ func NewServerWithCallers(database *db.DB, sessions *SessionRegistry, resolve Ca
 			"parentKey":   map[string]any{"type": "string", "description": "Key of the parent macro or epic."},
 		},
 	}}, func(ctx context.Context, req *mcp.CallToolRequest, in createTaskInput) (*mcp.CallToolResult, any, error) {
+		caller := callerOf(resolve, req)
+		if err := requireCaller(caller); err != nil {
+			return nil, nil, err
+		}
 		projectID := strings.TrimSpace(in.ProjectID)
 		if projectID == "" {
 			return nil, nil, fmt.Errorf("projectId is required: name the project explicitly, list_projects reports the available primary keys")
@@ -277,7 +428,9 @@ func NewServerWithCallers(database *db.DB, sessions *SessionRegistry, resolve Ca
 		if project == nil {
 			return nil, nil, fmt.Errorf("project not found: %s", projectID)
 		}
-		task, err := database.CreateTask(models.CreateTaskRequest{
+		// The issue is created as the caller, exactly as from the web: under
+		// their own tracker credential, never the server's.
+		task, err := database.CreateTaskAs(tracker.WithActingUser(ctx, caller.UserID), models.CreateTaskRequest{
 			// Remote creation is required, not preferred: a ticket an agent files
 			// has to exist where a human will see it.
 			RequireRemoteCreation: true,
@@ -305,6 +458,10 @@ func NewServerWithCallers(database *db.DB, sessions *SessionRegistry, resolve Ca
 			"labels":      map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Custom labels. The task's workflow stage label is preserved."},
 		},
 	}}, func(ctx context.Context, req *mcp.CallToolRequest, in updateTaskInput) (*mcp.CallToolResult, any, error) {
+		caller := callerOf(resolve, req)
+		if err := requireCaller(caller); err != nil {
+			return nil, nil, err
+		}
 		taskKey := strings.TrimSpace(in.TaskKey)
 		if taskKey == "" {
 			return nil, nil, fmt.Errorf("taskKey is required")
@@ -364,7 +521,6 @@ func NewServerWithCallers(database *db.DB, sessions *SessionRegistry, resolve Ca
 			labels = &sanitized
 		}
 
-		caller := callerOf(resolve, req)
 		actor := db.Actor{ID: caller.UserID, Name: caller.Name}
 		task, err := database.UpdateTaskBy(actor, existing.ID, models.UpdateTaskRequest{
 			Title:       title,

@@ -22,22 +22,37 @@ func (d *AgentDispatcher) CallOperation(ctx context.Context, op agentprotocol.Op
 	if userID == "" {
 		userID = ImplicitUser
 	}
-	ac := d.WaitForAgent(ctx, userID, op.ProjectID, defaultAgentReconnectGrace)
-	if ac == nil {
+	route := d.waitForRoute(ctx, userID, op.ProjectID, defaultAgentReconnectGrace)
+	if route == nil {
 		if d.agentWasRecentlyConnected(userID, op.ProjectID) {
 			// Saying only "no local agent connected" reads as a configuration
 			// problem, when the agent was there moments ago and will be again.
-			return nil, fmt.Errorf("no local agent connected for project %s: the local agent is reconnecting, retry in a few seconds", op.ProjectID)
+			return nil, fmt.Errorf("%w for project %s: the local agent is reconnecting, retry in a few seconds", ErrNoAgentConnected, op.ProjectID)
 		}
-		return nil, fmt.Errorf("no local agent connected for project %s", op.ProjectID)
+		return nil, fmt.Errorf("%w for project %s", ErrNoAgentConnected, op.ProjectID)
 	}
+	if route.remote != nil {
+		return d.cluster.operation(ctx, *route.remote, op)
+	}
+	return d.callOperationLocal(ctx, route.local, op)
+}
+
+// callOperationLocal runs an operation on a connection held here.
+func (d *AgentDispatcher) callOperationLocal(ctx context.Context, ac *AgentConn, op agentprotocol.Operation) (json.RawMessage, error) {
 	if op.Action == "execute_skill" || op.Action == "open_terminal" {
 		action := op.SkillID
 		if op.Action == "open_terminal" {
 			action = "open_terminal"
 		}
-		err := d.DispatchAndWait(ctx, ac.UserID, ac.ProjectID, op.TaskID, agentconfig.Dispatch{SchemaVersion: agentconfig.Version, TaskID: op.TaskID, TaskKey: op.TaskID, ProjectID: op.ProjectID, SkillID: op.SkillID, Action: action, Prompt: op.Prompt, RunID: op.RunID, Mode: op.Mode, Model: op.Model})
+		// On the connection already resolved: an operation forwarded here must
+		// not be forwarded again if the slot changes hands meanwhile.
+		err := d.dispatchAndWaitLocal(ctx, ac, ac.UserID, op.TaskID, agentconfig.Dispatch{SchemaVersion: agentconfig.Version, TaskID: op.TaskID, TaskKey: op.TaskID, ProjectID: op.ProjectID, SkillID: op.SkillID, Action: action, Prompt: op.Prompt, RunID: op.RunID, Mode: op.Mode, Model: op.Model})
 		return json.RawMessage("null"), err
+	}
+	// Refused here rather than relayed: an agent too old for the operation
+	// would only answer an error that names neither the cause nor the fix.
+	if !ac.Build.Supports(op.Action) {
+		return nil, ac.unsupported(op.Action)
 	}
 	raw, err := json.Marshal(op)
 	if err != nil {
@@ -59,6 +74,10 @@ func (d *AgentDispatcher) CallOperation(ctx context.Context, op agentprotocol.Op
 	select {
 	case res := <-pending.result:
 		if res.Error != "" {
+			// An agent that announced nothing can only say so after the fact.
+			if !ac.Build.Announced && agentprotocol.IsUnknownOperationReply(res.Error, op.Action) {
+				return nil, ac.unsupported(op.Action)
+			}
 			return nil, fmt.Errorf("local agent: %s", res.Error)
 		}
 		return res.Value, nil
@@ -72,6 +91,12 @@ func (d *AgentDispatcher) CallOperation(ctx context.Context, op agentprotocol.Op
 			op.Action, waited(started), ac.DeviceID, ctx.Err())
 	}
 }
+
+// unsupported names this agent as too old for action.
+func (ac *AgentConn) unsupported(action string) error {
+	return &agentprotocol.UnsupportedOperationError{Device: ac.DeviceID, Build: ac.Build.Describe(), Operation: action}
+}
+
 func (d *AgentDispatcher) ReportOperation(ac *AgentConn, msg AgentMessage) {
 	var res agentprotocol.Result
 	if json.Unmarshal(msg.Payload, &res) != nil || (res.Error == "" && len(res.Value) == 0) {

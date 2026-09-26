@@ -26,8 +26,13 @@ Publish the current task branch as a reviewable pull request. This is a standalo
 
 ## Steps
 1. Reuse the assigned worktree and branch. Inspect the complete diff and verify the target repository and base branch.
-2. Run git fetch origin and reconcile the remote default branch (for example origin/main). Do not publish while behind the remote default branch. Preserve shared history; prefer rebase when the branch is private, and use git push --force-with-lease only when an authorized private-branch rebase requires it. Run the repository's required build, lint and tests. Fix findings before publishing and record the results.
-3. Commit and push the authorized changes. Look up the matching open PR for this branch before creating one; reuse it if present.
+2. Run git fetch origin and reconcile the remote default branch (for example origin/main). Do not publish while behind the remote default branch. Preserve shared history; prefer rebase when the branch is private. Run the repository's required build, lint and tests. Fix findings before publishing and record the results.
+3. Commit the authorized changes, run `git fetch origin`, then choose the push from the state of `origin/<branch>`:
+   - `origin/<branch>` does not exist (first publication): run `git push -u origin <branch>`. Never force a branch the remote does not have.
+   - `git merge-base --is-ancestor origin/<branch> HEAD` succeeds (fast-forward): run a plain `git push`.
+   - Otherwise an authorized rebase rewrote published history: run `git push --force-with-lease`.
+   If the push is refused because commits landed on `origin/<branch>` in between (stale lease or non-fast-forward), run `git fetch origin`, replay the local commits with `git rebase origin/<branch>` so the remote commits are kept (merge instead if the conflicts cannot be resolved safely), re-run the required checks if new commits came in, and retry once with the same rule. If it is refused again, or for another cause (branch protection, permissions, authentication), stop, keep the work and report the blocker. Never run an unguarded `git push --force`.
+   Look up the matching open PR for this branch before creating one; reuse it if present.
 4. Create a draft PR if none exists, or update the existing PR description with the final scope and validation. Preserve its existing draft/ready state.
 5. Verify the remote PR URL and head commit. Report the PR URL and evidence without transitioning the task.
 
@@ -43,6 +48,7 @@ Publish the current task branch as a reviewable pull request. This is a standalo
 ## Execution and ticket state
 - **Managed Sectile run**: When the invocation supplies a result-file contract, follow it. Sectile validates the result and owns transitions and tracker reports. Do not also call stage/postback APIs or edit tracker labels.
 - **Remote execution indicator (standalone only)**: Before doing work, call start_run with the full task primary key and skill name. If SECTILE_RUN_ID or a launch runId is supplied, reuse it. Keep the returned activity ID as runId. Nested skills reuse the outer run; only the owner finishes it. Call finish_run with taskKey, runId, status (completed, failed or canceled), and a note when the entire invocation ends, including errors or stopping for user input. Intermediate stage transitions do not finish an enclosing pickup run. A batch tracks each task separately. Never start a run merely to read a task.
+- **Waiting for the user (standalone only)**: Right before asking the user a question you cannot continue without, call report_waiting with taskKey, runId and waiting true, so the board and the owner's desktop show the run as waiting. Your next Sectile call ends the wait; call report_waiting with waiting false if you resume without one. A headless run is left unmarked, which the result says.
 
 ## Ticket
 $ARGUMENTS

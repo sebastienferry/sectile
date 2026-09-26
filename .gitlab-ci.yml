@@ -125,29 +125,32 @@ test:go:
   stage: test
   extends: [.go-test, .go-cache]
   needs: []
-  # Non-blocking for now: main carries four failures that predate this
-  # pipeline and are unrelated to it (internal/agent
-  # TestProjectDisconnectionPersistenceAndReadd and
-  # TestProjectDisconnectionErrorsPreserveSettings, internal/handlers
-  # TestKeepaliveTimeoutSendsTheReasonToTheAgent, internal/runner
-  # TestWorktreeDiffWorktreeAndShallowHistory). The junit report still shows
-  # them on every pipeline; drop this line once they are fixed so the suite
-  # gates the image again.
-  allow_failure: true
+  # Blocking, like every other test job. It was allow_failure while main
+  # carried six failures. Four were about this runner and reproduced on no
+  # workstation: the suite runs as root, where a directory chmodded 0500 is
+  # still writable; the image has no `claude` on PATH; a container's loopback
+  # resets a socket sooner than a laptop's; and the runner's git records
+  # origin/HEAD for a single-branch clone where Apple git does not. The fifth
+  # was a data race in a test fixture, and the sixth the accented view label,
+  # a real bug fixed in #424. All six are fixed, so the suite gates the image
+  # again rather than reporting into a junit nobody reads.
   variables:
     # The race detector needs cgo; the build jobs keep CGO_ENABLED=0.
     CGO_ENABLED: "1"
+  # -timeout is per package binary. Under -race with coverage, internal/db takes
+  # about 490s of go test's default 600s on a healthy runner, and a slower K8S
+  # pod pushed it past the limit (job 16736343583) with no test hung.
   script:
     - go install gotest.tools/gotestsum@v1.13.0
-    - $GOPATH/bin/gotestsum --junitfile ${TEST_RESULT_PATH_XML} --jsonfile ${TEST_RESULT_PATH} --format testname -- -race -covermode=atomic -coverprofile="${COVERAGE_RESULT_PATH}" ${GOLANG_TEST_PATH}
+    - $GOPATH/bin/gotestsum --junitfile ${TEST_RESULT_PATH_XML} --jsonfile ${TEST_RESULT_PATH} --format testname -- -race -timeout 30m -covermode=atomic -coverprofile="${COVERAGE_RESULT_PATH}" ${GOLANG_TEST_PATH}
 
 test:postgres:
   stage: test
   extends: [.go-test, .go-cache]
   needs: []
-  # Deliberately not allow_failure, unlike test:go above: this job is new, it
-  # starts green, and the whole point of it is to gate. The moment it is allowed
-  # to fail it stops being evidence that PostgreSQL still works.
+  # Deliberately not allow_failure: the whole point of this job is to gate. The
+  # moment it is allowed to fail it stops being evidence that PostgreSQL still
+  # works.
   services:
     - name: postgres:16
       alias: postgres
@@ -164,7 +167,36 @@ test:postgres:
     # The subset is chosen for what breaks silently rather than for what is easy
     # to test: schema creation from empty, a CRUD round trip, an upsert, the
     # timestamp round trip that #294 was about, and a migration round trip.
-    - go test ./internal/db/ -run 'TestPostgres|TestMigrate' -v
+    # The handlers subset is two instances sharing one database (#408), and
+    # cmd/server's is the multi-replica harness: two real server processes on
+    # that database, one of them killed, one drained (#410). The packages empty
+    # the same database, hence -p 1.
+    - go test -p 1 ./internal/db/ ./internal/handlers/ ./cmd/server/ -run 'TestPostgres|TestMigrate' -v
+
+# The server-side half of `make fmt-check`, which until now only ran for whoever
+# ran `make test` before pushing. It gates like test:postgres: the repository is
+# gofmt-clean, so a red run means a commit broke it. It stays out of the
+# publish jobs' needs; failing the pipeline is what blocks the merge.
+lint:gofmt:
+  stage: test
+  needs: []
+  # `gofmt -l .` walks every directory under the checkout, dot-directories
+  # included. The template restores the module cache into
+  # ${CI_PROJECT_DIR}/.go-mod-cache, and that cache holds the dependencies and
+  # the whole Go toolchain source tree test:go downloads, whose testdata is
+  # unformatted on purpose. So no cache is restored, and the toolchain fetched
+  # below goes to the image's module directory, outside the checkout. gofmt
+  # needs no module anyway.
+  cache: []
+  variables:
+    GOMODCACHE: "/go/pkg/mod"
+  script:
+    # GOTOOLCHAIN=auto switches the go command to the version go.mod asks for,
+    # but not the gofmt binary: the one on PATH is the image's. Putting the
+    # selected toolchain first makes CI format with the go.mod version.
+    - export PATH="$(go env GOROOT)/bin:${PATH}"
+    - go version && command -v gofmt
+    - make fmt-check
 
 test:web:
   stage: test

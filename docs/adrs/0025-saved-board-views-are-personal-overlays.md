@@ -1,0 +1,90 @@
+# ADR 0025: Saved board views are personal overlays on the all-projects board
+
+Status: Accepted
+
+## Context
+
+People follow work that spans several Sectile projects: a platform effort
+tagged `platform` in three repositories, a customer's tickets spread over two
+Jira projects. Rebuilding that selection by hand, filter by filter, every time
+is what #349 asked to avoid.
+
+PR #354 answered with one membership label per project: synchronisation keeps
+every ticket, and the board hides those that do not carry the project's label.
+It solved a different problem, and it could not solve this one. When several
+Sectile projects synchronise the same tracker scope, each keeps its own local
+record of a remote story, because a local identity includes its project. Hiding
+records by label leaves that duplication in place, and a project still selects
+only itself. #349 and #354 were closed in favour of #387 (clarified 2026-09-23).
+
+A shared cross-project board also raises questions a first version cannot
+settle: which columns when projects map tracker statuses differently, which
+transition a drop requests, which project owns a card that stands for two
+records.
+
+## Decision
+
+**A saved view is a personal selection laid over the existing all-projects
+board**, and nothing more. It stores a name, a fixed list of projects and a list
+of labels, in one table, `board_views`, owned by the account that created it.
+
+- **Selection.** A ticket belongs to a view when it sits in one of its projects
+  and carries at least one of its labels, compared whole and regardless of ASCII
+  case. No label selects every ticket of the projects. There is no ALL-of
+  matching, exclusion or nested expression.
+- **The case fold is ASCII, and the same on both engines.** A-Z is folded, every
+  other character has to match its own spelling. The fold cannot be the engine's
+  own: SQLite's `LOWER` leaves accents alone, and PostgreSQL's follows the
+  *cluster's* collation, so `É` folds to `é` on a server created with an ICU
+  or builtin `C.UTF-8` locale and not on one created with `initdb --locale=C`.
+  The same view would then select differently on two deployments of the same
+  release. The column is lowered under an explicit collation
+  (`dialect.LowerASCII`, which is `LOWER(labels COLLATE "C")` under PostgreSQL)
+  and the view's label with `asciiLower` in Go, so both sides fold the same
+  characters everywhere. `NormalizeViewLabels` deduplicates on that same fold.
+- **Resolved by the server.** The task list and its facets take `viewId`, which
+  replaces the project scope; every other filter narrows the view further. The
+  interface never sends the view's projects or labels itself, so a direct link
+  (`?view=<id>`) works from a cold load and ownership is enforced in one place.
+- **The label predicate is SQL.** `tasks.labels` is a JSON array written by
+  `json.Marshal`, so a whole label is exactly its quoted JSON token:
+  `LOWER(labels) LIKE '%"backend"%'`, lowered as above and with LIKE wildcards
+  escaped. The facets
+  run a dozen queries over one scope condition; expressing the view as that
+  condition keeps their counts consistent with the list without rewriting them.
+  An SQL JSON function (`json_each`, `jsonb_array_elements_text`) was rejected
+  for needing one variant per engine and a cast of a TEXT column.
+- **Presentation is the all-projects board's.** Columns, grouping, drag and drop
+  and card actions are exactly what the all-projects board already does. No
+  cross-project column mapping or swimlane is introduced. Only what is built
+  from the ticket list follows the view: the activity, statistics, team and
+  synchronisation screens keep the all-projects scope in this version.
+- **Duplicates are shown, not merged.** Each local record is its own card, and
+  every card in a view names its project. Collapsing records would require
+  choosing which project owns actions and activities, and would hide the
+  duplication rather than resolve it.
+- **Personal only.** Another account's view answers exactly like a missing one.
+  Sharing, and the permission model it would need, is out of scope.
+- **Filters are remembered per view**, in the browser, beside the per-project
+  memory that already exists. They are not part of the view's definition.
+
+## Consequences
+
+A view never owns data: deleting one changes no ticket, label or project, and
+deleting a project removes it from the views that selected it, which remain and
+select nothing until edited.
+
+A label always matches its own spelling, on either engine and whatever the
+server's collation: `Équipe` finds `Équipe` everywhere. Case is ignored for ASCII
+letters only, so `EQUIPE` finds `equipe` but `équipe` never finds `Équipe` —
+the price of a selection that does not change when the same database is served
+by another engine, or restored onto a cluster built with a different locale.
+Someone who wants `équipe` and `Équipe` in one view adds both labels to it.
+
+A remote story synchronised by two projects of a view shows twice. That is the
+honest picture of the board; a fix belongs to how projects share a tracker
+scope, not to the view.
+
+Creating a ticket from a view asks for its project among the view's, and
+prefills the label only for a single-label view, the one case where the label
+that makes the ticket appear in the view is unambiguous.

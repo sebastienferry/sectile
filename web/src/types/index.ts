@@ -13,7 +13,7 @@ export type Status =
   | 'to_validate'
   | 'done'
 
-export type TaskSource = 'github' | 'jira' | 'local'
+export type TaskSource = 'github' | 'gitlab' | 'jira' | 'local'
 
 export type TerminalDockPosition = 'bottom' | 'left' | 'right'
 
@@ -40,6 +40,11 @@ export interface TaskActivity {
   duration?: string
   /** Set while a running session is blocked on the user. Cleared when it resumes or ends. */
   waitingSince?: string
+  /**
+   * Why a run waits when it is not a question asked in its session:
+   * "repository" for a launch parked until its ticket is pinned to a repository.
+   */
+  waitingReason?: string
   /** Who started the execution. Empty on records written before ownership existed. */
   userId?: string
   /** That person's display name or e-mail, resolved server side. */
@@ -112,12 +117,30 @@ export interface TrackerSprint {
 export type MacroHorizon = 'now' | 'next' | 'later' | 'hidden'
 export type EpicHorizon = MacroHorizon
 
+/**
+ * Artefact d'où une ligne de découpe a été importée.
+ *
+ * L'absence de valeur vaut « saisie à la main », et c'est le cas le plus
+ * intéressant de la liste : une ligne sans origine est un ajout que personne
+ * n'a spécifié.
+ *
+ * « stories » est la seule qui ne décrive pas du travail à faire : la ligne
+ * reprend un ticket qui existe déjà, et arrive donc rattachée.
+ */
+export type MacroTodoSource = 'tasks' | 'spec' | 'stories'
+
 export interface MacroTodo {
   id: string
   text: string
   done: boolean
   /** Ticket créé depuis cette ligne de TODO, s'il existe. */
   storyKey?: string
+  /** Projet où créer la story. Absent vaut « le projet de la macro ». */
+  targetProjectId?: string
+  /** Artefact d'origine. Absent vaut « saisie à la main ». */
+  sourceKind?: MacroTodoSource
+  /** Titre de l'entrée tel que l'artefact l'écrit, avant nettoyage. */
+  sourceEntry?: string
 }
 export type EpicTodo = MacroTodo
 
@@ -178,7 +201,25 @@ export interface TrackerBoard {
   type: string
 }
 
-export type TtyMode = 'integrated' | 'external'
+/**
+ * A saved board view (#387): a personal, named selection of projects and
+ * labels over the all-projects board. The server resolves it; the interface
+ * only sends its id.
+ */
+export interface BoardView {
+  id: string
+  name: string
+  projectIds: string[]
+  labels: string[]
+  createdAt: string
+  updatedAt: string
+}
+
+export interface BoardViewPayload {
+  name?: string
+  projectIds?: string[]
+  labels?: string[]
+}
 
 export interface Project {
   id: string
@@ -187,18 +228,16 @@ export interface Project {
   description: string
   icon: string
   color: AccentColor | string
-  repoPath: string
-  /**
-   * Répertoires de travail connus du projet. Alimentée automatiquement :
-   * dès qu'un ticket épingle un nouveau CWD, le chemin est enregistré ici.
-   */
-  repoPaths?: string[]
-  /**
-   * Chaque tâche travaille dans son propre worktree Git isolé, ou directement
-   * dans le clone si l'option est désactivée. Vrai par défaut.
-   */
+  /** Other Jira project keys whose story keys the slicing attaches. Read, never written. */
+  roadmapProjects?: string[]
+  /** Stage at which the workflow opens the pull request. */
   prCreationStage?: 'specified' | 'implemented'
-  useWorktrees?: boolean
+  /**
+   * Whether the tasks' clarification and specification files are committed
+   * with the code ("keep", the default) or left in the task worktree and
+   * ignored by Git ("drop"). A workstation may override it.
+   */
+  specArtifacts?: 'keep' | 'drop'
   /**
    * Mode d'exécution des skills quand ni le lancement ni la skill n'en fixe un.
    * Vide vaut « interactif », le comportement historique.
@@ -222,6 +261,17 @@ export interface Project {
    */
   issueTypes?: string[]
   /**
+   * Vues optionnelles que le projet affiche, parmi `OPTIONAL_VIEWS`. Vide, la
+   * valeur par défaut, veut dire « aucune » : Triage, Roadmap et Timeline
+   * restent hors de la barre latérale tant que le projet ne les demande pas.
+   */
+  enabledViews?: OptionalViewMode[]
+  /**
+   * Les cartes portent la couleur de leur épic. Absent ou faux, la valeur par
+   * défaut, elles restent telles qu'avant : le projet doit la demander.
+   */
+  epicColors?: boolean
+  /**
    * Le projet tient dans un seul dépôt. La branche courante, son sélecteur et la
    * branche affichée sur une carte n'ont de sens que dans ce cas.
    */
@@ -229,19 +279,25 @@ export interface Project {
   /** Étape du workflow agentique -> colonnes concernées (une ou plusieurs). */
   stageColumns?: Record<string, string[]>
   gitRemoteUrl?: string
+  /**
+   * The repositories the project's tickets work in, the code remote
+   * (gitRemoteUrl) always first. Derived server side, never stored as such.
+   */
+  repositories?: ProjectRepository[]
+  /**
+   * JSON report of the conversion of the legacy working directories into
+   * repositories. Empty until that conversion ran.
+   */
+  repositoriesMigration?: string
   githubRepo: string
   /**
-   * Paramètres de connexion propres au projet. Vide veut dire « ceux de la
-   * configuration utilisateur ». Les jetons ne sont jamais renvoyés : seul le
-   * drapeau `...TokenSet` dit qu'il y en a un.
+   * The project's own connection parameters. Empty means "those of the user
+   * configuration". A project carries no token: the server credential of its
+   * provider serves every project (#464).
    */
   githubApiUrl?: string
-  githubToken?: string
-  githubTokenSet?: boolean
   gitlabUrl?: string
   gitlabProject?: string
-  gitlabToken?: string
-  gitlabTokenSet?: boolean
   /** Jira project key the sync queries on, e.g. "PE". */
   jiraProject?: string
   issueTracker: IssueTracker
@@ -250,15 +306,6 @@ export interface Project {
   isDefault: boolean
   bookmarked?: boolean
   taskCount?: number
-  skillOverrides?: Record<string, string>
-  setupProviders?: string[]
-  aiProvider?: AIProvider
-  aiCommandTemplate?: string
-  aiCommandTemplateAutonomous?: string
-  /** Modèle du moteur pour ce projet. Vide : le réglage global s'applique. */
-  aiModel?: string
-  /** Modèle par compétence (skillId -> modèle) pour celles qui s'écartent d'aiModel. */
-  aiSkillModels?: Record<string, string>
   specFramework?: SpecFramework
   /** Synchronisation automatique en arrière-plan activée pour ce projet. */
   autoSyncEnabled?: boolean
@@ -270,12 +317,24 @@ export interface Project {
    * client : le propriétaire décide du jeton emprunté (ADR 0018).
    */
   ownerUserId?: string
-  /** Mode d'exécution des terminaux : 'integrated' (web xterm) ou 'external' (vrai terminal OS). */
-  ttyMode?: TtyMode
-  /** Commande ou application de terminal externe spécifique à ce projet (ex: 'Ghostty', 'iTerm', 'Terminal'). */
-  externalTerminalCommand?: string
   createdAt: string
   updatedAt: string
+}
+
+/**
+ * Project fields accepted by the create and update endpoints. Execution
+ * settings (provider, model, templates, checkout, terminal) are not among
+ * them: the workstation's local file owns them (#305).
+ */
+export type ProjectSavePayload = Omit<Partial<Project>, 'repositories'> & {
+  /** Remote URLs of the full declared list; the code remote may be included or not. */
+  repositories?: string[]
+}
+
+/** One repository of a project: its remote URL and its host/path identity. */
+export interface ProjectRepository {
+  url: string
+  identity: string
 }
 
 /**
@@ -336,7 +395,10 @@ export interface DetectedStatus {
  * l'URL : c'est elle qui distingue une PR de suite sur la même branche d'une PR
  * substituée à une autre, sans rapport.
  */
+export type PullRequestState = 'open' | 'conflicting' | 'merged' | 'closed'
+
 export interface PullRequestLink {
+  state?: PullRequestState
   url: string
   branch?: string
 }
@@ -361,8 +423,12 @@ export interface Task {
   prUrl?: string
   /** Ensemble ordonné des pull requests du ticket, de la plus ancienne à la courante. */
   prLinks?: PullRequestLink[]
-  /** Répertoire de travail propre au ticket. Vide = hérite du projet, puis du réglage global. */
+  /** Legacy free-text working directory, ignored by the agent. Superseded by `repository`. */
   repoPath?: string
+  /** Identity of the repository the ticket is pinned to, e.g. "github.com/o/b". Empty = not pinned. */
+  repository?: string
+  /** Identities of the repositories the ticket's work changed. */
+  changedRepositories?: string[]
   /** Statut brut du tracker, tel qu'il l'écrit (« Dev Test », « To Merge »…). */
   trackerStatus?: string
   /** Sprint / itération du tracker (champ Sprint côté Jira). */
@@ -385,7 +451,7 @@ export interface Task {
   /** Tracker work item type. Only "Task" and "Story" are imported. */
   issueType?: string
   /**
-   * Parent work item — an epic, or a parent story for a sub-task — carried as a
+   * Parent work item - an epic, or a parent story for a sub-task - carried as a
    * property of the task rather than as a card of its own.
    */
   parentKey?: string
@@ -493,7 +559,15 @@ export type Language = 'fr' | 'en'
 
 export type Density = 'compact' | 'standard' | 'comfortable'
 
-export type ViewMode = 'board' | 'list' | 'triage' | 'roadmap' | 'timeline' | 'activities' | 'sync' | 'skills' | 'team'
+export type ViewMode = 'board' | 'list' | 'triage' | 'roadmap' | 'timeline' | 'activities' | 'sync' | 'skills' | 'team' | 'admin'
+
+/**
+ * Vues de planification qu'un projet active à la demande. Elles répondent à un
+ * besoin (trier ce qui n'est pas classé, poser les macros sur des horizons,
+ * lire le calendrier des sprints) qu'un projet suivant un seul flux de tickets
+ * n'a jamais, et une entrée vide dans la barre coûte plus qu'elle ne rapporte.
+ */
+export type OptionalViewMode = 'triage' | 'roadmap' | 'timeline'
 
 export type BoardGroupingMode = 'workflow' | 'status'
 
@@ -505,7 +579,7 @@ export type DetailMode = 'modal' | 'panel'
 
 export type AIProvider = 'agy' | 'vibe' | 'claude' | 'gemini' | 'codex' | 'cursor' | 'custom'
 
-export type IssueTracker = 'github' | 'jira' | 'local'
+export type IssueTracker = 'github' | 'gitlab' | 'jira' | 'local'
 
 /**
  * Spec-Driven Design frameworks Sectile can scaffold into a project.
@@ -554,7 +628,8 @@ export interface UserSettings {
   language: Language
   density: Density
   /**
-   * Zoom de l'interface en pourcentage (90, 100, 112, 125). La densité ne bouge
+   * Zoom de l'interface en pourcentage, sur un des crans de lib/uiScale.
+   * La densité ne bouge
    * que la taille de police racine, ce qui laisse intactes toutes les tailles
    * fixées en pixels : l'échelle, elle, zoome toute l'interface.
    */
@@ -572,47 +647,28 @@ export interface UserSettings {
   userName: string
   userEmail: string
   userAvatar: string
-  aiProvider: AIProvider
-  aiCommandTemplate: string
-  aiCommandTemplateAutonomous?: string
-  /** Modèle du moteur. Vide : le CLI garde son défaut. */
-  aiModel?: string
-  /** Modèle par compétence (skillId -> modèle). */
-  aiSkillModels?: Record<string, string>
-  /**
-   * Modèles proposés par moteur (provider -> liste ordonnée). C'est ce que les
-   * surfaces de lancement offrent : un modèle absent d'ici ne peut pas être
-   * choisi au lancement. Un moteur sans liste retombe sur celle livrée.
-   */
-  aiProviderModels?: Record<string, string[]>
-  repoPath: string
   issueTracker: IssueTracker
   githubRepo: string
   jiraProject?: string
   jiraUrl?: string
-  /** Identifiants de l'API Jira, requis pour importer Sprint et Team. */
-  jiraEmail?: string
   /**
-   * Jamais renvoyé par l'API. En écriture, une chaîne vide conserve le jeton
-   * existant et la sentinelle `__clear__` l'efface.
+   * Never returned: the server credentials live in the Administration page
+   * (#464). The flags below are what the API answers instead.
    */
+  jiraEmail?: string
   jiraApiToken?: string
-  /** Un jeton est configuré, en base ou par variable d'environnement. */
+  /** A Jira server credential is stored. */
   jiraApiTokenSet?: boolean
-  /** Le jeton vient de SECTILE_JIRA_API_TOKEN et prime sur la base. */
+  /** None is stored, but the server environment provides one. */
   jiraApiTokenFromEnv?: boolean
   /** Instance GitHub, vide pour api.github.com. */
   githubApiUrl?: string
   /** Instance GitLab et projet par défaut, l'équivalent de githubRepo. */
   gitlabUrl?: string
   gitlabProject?: string
-  /**
-   * Jetons GitHub et GitLab : mêmes règles que jiraApiToken, jamais renvoyés,
-   * vide conserve, `__clear__` efface.
-   */
+  /** GitHub and GitLab server credentials: the same flags as Jira's. */
   githubToken?: string
   githubTokenSet?: boolean
-  /** Aucun jeton en base, mais l'environnement du serveur en fournit un. */
   githubTokenFromEnv?: boolean
   gitlabToken?: string
   gitlabTokenSet?: boolean
@@ -624,11 +680,30 @@ export interface UserSettings {
   promptHandoff: string
   promptCreatePr?: string
   promptPick: string
-  editorCommand: string
-  /** Commande ou nom de l'application de terminal externe (ex: "Terminal", "iTerm", "Ghostty"). */
-  externalTerminalCommand?: string
   specFramework?: SpecFramework
   updatedAt: string
+}
+
+/**
+ * What the caller's own workstation reported for a project (#305): the engine
+ * and models its next run would use. `unknown` means no agent of the caller is
+ * connected for the project, or it predates the report; the web then names no
+ * model and offers no picker. Empty values may be omitted by the server.
+ */
+export interface EngineReport {
+  state: 'reported' | 'unknown'
+  provider?: AIProvider | string
+  /** Project-wide model, used by skills without their own entry. */
+  model?: string
+  /** Per-skill models (skillId -> model), outranking `model`. */
+  skillModels?: Record<string, string>
+  /** The models the workstation offers at launch. */
+  models?: string[]
+  /** Whether the reported command line carries a model at all. */
+  modelSlot?: boolean
+  /** Whether a headless run is possible on that workstation. */
+  headless?: boolean
+  reportedAt?: string
 }
 
 export interface TaskFacetValue {
@@ -642,12 +717,8 @@ export interface TaskFacetValue {
  * projet et jeton pour GitLab.
  */
 export interface TrackerCredentials {
-  /**
-   * GitLab n'est pas dans `IssueTracker` : ses paramètres se configurent, mais
-   * aucun adaptateur GitLab n'est enregistré, donc un projet ne peut pas encore
-   * le choisir comme tracker. Jira et GitHub, eux, en ont un.
-   */
-  tracker: IssueTracker | 'gitlab'
+  /** A tracker a credential can be stored for: every remote one. */
+  tracker: Exclude<IssueTracker, 'local'>
   siteUrl: string
   /** Dépôt GitHub (`owner/repo`) ou projet GitLab (`groupe/projet`). */
   project?: string
@@ -685,12 +756,21 @@ export interface CliStatus {
   details: string
 }
 
+// A link a toast offers to the thing it announces: opened in the app, and on
+// its tracker page when it has one.
+export interface ToastLink {
+  label: string
+  onOpen: () => void
+  externalUrl?: string
+}
+
 export interface ToastMessage {
   id: string
   type: 'success' | 'info' | 'warning' | 'error'
   title: string
   description?: string
   duration?: number
+  link?: ToastLink
 }
 
 export interface InstalledSkillInfo {

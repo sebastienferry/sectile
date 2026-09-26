@@ -6,6 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net/url"
+	"slices"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -59,11 +62,70 @@ type AgentConn struct {
 	DeviceID    string
 	Conn        *websocket.Conn
 	ConnectedAt time.Time
+	// Build is what the agent announced when it connected. It is set once at
+	// registration and never changes; a rebind builds a new AgentConn.
+	Build AgentBuild
 	// lastSeen holds the Unix nanoseconds of the last frame received from the
 	// agent. The read loop writes it while status handlers read it, so it is
 	// atomic rather than guarded by mu, which Send may hold for seconds.
 	lastSeen atomic.Int64
 	mu       sync.Mutex
+}
+
+// AgentBuild is what an agent announced on its connection URL. An agent that
+// predates the announcement leaves Announced false: it is still sent every
+// operation, and its refusal of an unknown one is converted afterwards.
+type AgentBuild struct {
+	Announced  bool
+	Version    string
+	Commit     string
+	Operations map[string]bool
+}
+
+// ParseAgentBuild reads the announcement parameters of an agent connection.
+// The presence of operations, even empty, is what marks an announcing agent.
+func ParseAgentBuild(query url.Values) AgentBuild {
+	build := AgentBuild{Version: query.Get("agentVersion"), Commit: query.Get("agentCommit")}
+	if !query.Has("operations") {
+		return build
+	}
+	build.Announced = true
+	build.Operations = map[string]bool{}
+	for _, op := range strings.Split(query.Get("operations"), ",") {
+		if op = strings.TrimSpace(op); op != "" {
+			build.Operations[op] = true
+		}
+	}
+	return build
+}
+
+// Supports reports whether the agent can run action. A legacy agent is given
+// the benefit of the doubt, and so is an action this server does not list.
+func (b AgentBuild) Supports(action string) bool {
+	return !b.Announced || b.Operations[action] || !slices.Contains(agentprotocol.Operations, action)
+}
+
+// Outdated reports whether the agent lacks an operation this server may ask
+// for. A legacy agent cannot say, and counts as outdated.
+func (b AgentBuild) Outdated() bool {
+	if !b.Announced {
+		return true
+	}
+	for _, op := range agentprotocol.Operations {
+		if !b.Operations[op] {
+			return true
+		}
+	}
+	return false
+}
+
+// Describe renders the build for an UnsupportedOperationError, "" when the
+// agent announced none.
+func (b AgentBuild) Describe() string {
+	if !b.Announced {
+		return ""
+	}
+	return agentprotocol.DescribeBuild(b.Version, b.Commit)
 }
 
 // Touch records that a frame just arrived from the agent.
@@ -142,6 +204,9 @@ type AgentDispatcher struct {
 	// can be told apart from a project that never had one.
 	lastConnected map[agentKey]time.Time
 	mu            sync.RWMutex
+	// cluster forwards work for agents other server instances hold; nil when
+	// this instance shares its store with nobody. See agent_cluster.go.
+	cluster *agentCluster
 }
 
 // NewAgentDispatcher creates a dispatcher ready to accept agent connections.
@@ -158,6 +223,17 @@ func NewAgentDispatcher() *AgentDispatcher {
 // existing connection occupies the slot, it is terminated with close code 4001
 // (Session Rebound) and replaced by the new connection.
 func (d *AgentDispatcher) Register(userID, projectID, deviceID string, conn *websocket.Conn) *AgentConn {
+	return d.RegisterBuild(userID, projectID, deviceID, AgentBuild{}, conn)
+}
+
+// RegisterBuild is Register for an agent whose announced build is known.
+func (d *AgentDispatcher) RegisterBuild(userID, projectID, deviceID string, build AgentBuild, conn *websocket.Conn) *AgentConn {
+	ac := d.registerLocal(userID, projectID, deviceID, build, conn)
+	d.cluster.agentConnected(ac)
+	return ac
+}
+
+func (d *AgentDispatcher) registerLocal(userID, projectID, deviceID string, build AgentBuild, conn *websocket.Conn) *AgentConn {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
@@ -176,6 +252,7 @@ func (d *AgentDispatcher) Register(userID, projectID, deviceID string, conn *web
 		DeviceID:    deviceID,
 		Conn:        conn,
 		ConnectedAt: time.Now(),
+		Build:       build,
 	}
 	ac.Touch()
 	d.agents[key] = ac
@@ -192,13 +269,17 @@ func (d *AgentDispatcher) Register(userID, projectID, deviceID string, conn *web
 // stored connection matches, to avoid racing with a rebind.
 func (d *AgentDispatcher) Unregister(userID, projectID string, conn *websocket.Conn) {
 	d.mu.Lock()
-	defer d.mu.Unlock()
-
 	key := agentKey{UserID: userID, ProjectID: projectID}
-	if existing, ok := d.agents[key]; ok && existing.Conn == conn {
+	existing, ok := d.agents[key]
+	removed := ok && existing.Conn == conn
+	if removed {
 		existing.closeOnce.Do(func() { close(existing.done) })
 		delete(d.agents, key)
 		log.Printf("[AgentDispatcher] Agent unregistered: user=%s project=%s", userID, projectID)
+	}
+	d.mu.Unlock()
+	if removed {
+		d.cluster.agentDisconnected(userID, projectID, existing.DeviceID)
 	}
 }
 
@@ -278,7 +359,8 @@ func (d *AgentDispatcher) agentWasRecentlyConnected(userID, projectID string) bo
 			return true
 		}
 	}
-	return false
+	// The agent may have been, or be reconnecting, on another instance.
+	return d.cluster.recentlyConnected(userID, projectID)
 }
 
 // Dispatch sends a command message to the user's connected local agent. It
@@ -286,9 +368,16 @@ func (d *AgentDispatcher) agentWasRecentlyConnected(userID, projectID string) bo
 func (d *AgentDispatcher) Dispatch(userID, projectID string, msgType string, taskID string, payload interface{}) error {
 	ac := d.Lookup(userID, projectID)
 	if ac == nil {
+		if location, ok := d.cluster.owner(userID, projectID); ok {
+			return d.cluster.dispatch(location, userID, projectID, msgType, taskID, payload)
+		}
 		return fmt.Errorf("no local agent connected for user %s on project %s", userID, projectID)
 	}
+	return d.dispatchLocal(ac, userID, msgType, taskID, payload)
+}
 
+// dispatchLocal sends a command to a connection held here.
+func (d *AgentDispatcher) dispatchLocal(ac *AgentConn, userID, msgType, taskID string, payload interface{}) error {
 	raw, err := json.Marshal(payload)
 	if err != nil {
 		return fmt.Errorf("failed to marshal dispatch payload: %w", err)
@@ -313,18 +402,23 @@ func (d *AgentDispatcher) Dispatch(userID, projectID string, msgType string, tas
 // ConnectedAgents returns a snapshot of all currently connected agents for
 // status reporting (e.g. the Web UI connection indicator).
 func (d *AgentDispatcher) ConnectedAgents() []AgentConnInfo {
+	if d.cluster != nil {
+		return d.clusterAgents()
+	}
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 
 	out := make([]AgentConnInfo, 0, len(d.agents))
 	for _, ac := range d.agents {
-		out = append(out, AgentConnInfo{
+		info := AgentConnInfo{
 			UserID:      ac.UserID,
 			ProjectID:   ac.ProjectID,
 			DeviceID:    ac.DeviceID,
 			ConnectedAt: ac.ConnectedAt,
 			LastPingAt:  ac.LastSeen(),
-		})
+		}
+		info.describeBuild(ac.Build)
+		out = append(out, info)
 	}
 	return out
 }
@@ -349,6 +443,46 @@ type AgentConnInfo struct {
 	DeviceID    string    `json:"deviceId"`
 	ConnectedAt time.Time `json:"connectedAt"`
 	LastPingAt  time.Time `json:"lastPingAt"`
+	// InstanceID names the server instance holding the connection, when
+	// several share the database.
+	InstanceID string `json:"instanceId,omitempty"`
+	// The build the agent announced, known only on the instance holding the
+	// connection: an entry held elsewhere leaves them empty and Outdated nil.
+	AgentVersion string   `json:"agentVersion,omitempty"`
+	AgentCommit  string   `json:"agentCommit,omitempty"`
+	Operations   []string `json:"operations,omitempty"`
+	Outdated     *bool    `json:"outdated,omitempty"`
+}
+
+func (info *AgentConnInfo) describeBuild(build AgentBuild) {
+	outdated := build.Outdated()
+	info.Outdated = &outdated
+	if !build.Announced {
+		return
+	}
+	info.AgentVersion, info.AgentCommit = build.Version, build.Commit
+	for op := range build.Operations {
+		info.Operations = append(info.Operations, op)
+	}
+	sort.Strings(info.Operations)
+}
+
+// clusterAgents lists the agents of every live instance. A connection held
+// here reports its last ping; one held elsewhere reports when it connected.
+func (d *AgentDispatcher) clusterAgents() []AgentConnInfo {
+	locations := d.cluster.directory.ConnectedAgentLocations()
+	out := make([]AgentConnInfo, 0, len(locations))
+	for _, l := range locations {
+		info := AgentConnInfo{UserID: l.UserID, ProjectID: l.ProjectID, DeviceID: l.DeviceID, ConnectedAt: l.ConnectedAt, LastPingAt: l.ConnectedAt, InstanceID: l.InstanceID}
+		d.mu.RLock()
+		if ac, ok := d.agents[agentKey{UserID: l.UserID, ProjectID: l.ProjectID}]; ok {
+			info.LastPingAt = ac.LastSeen()
+			info.describeBuild(ac.Build)
+		}
+		d.mu.RUnlock()
+		out = append(out, info)
+	}
+	return out
 }
 
 type agentLaunchStatus struct {
@@ -379,8 +513,16 @@ var ErrNoAgentConnected = errors.New("no local agent connected")
 func (d *AgentDispatcher) DispatchAndWait(ctx context.Context, userID, projectID, taskID string, payload any) error {
 	ac := d.Lookup(userID, projectID)
 	if ac == nil {
+		if location, ok := d.cluster.owner(userID, projectID); ok {
+			return d.cluster.dispatchAndWait(ctx, location, userID, projectID, taskID, payload)
+		}
 		return ErrNoAgentConnected
 	}
+	return d.dispatchAndWaitLocal(ctx, ac, userID, taskID, payload)
+}
+
+// dispatchAndWaitLocal confirms a launch on a connection held here.
+func (d *AgentDispatcher) dispatchAndWaitLocal(ctx context.Context, ac *AgentConn, userID, taskID string, payload any) error {
 	raw, err := json.Marshal(payload)
 	if err != nil {
 		return err

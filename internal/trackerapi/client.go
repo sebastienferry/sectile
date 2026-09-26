@@ -13,11 +13,50 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"tasks/internal/tracker"
 )
 
-// genericTokenVar names the tracker-agnostic server credential. The
-// provider-specific variables remain supported as overrides.
-const genericTokenVar = "SECTILE_TRACKER_TOKEN"
+// The server credential of each provider comes from exactly one variable, so a
+// deployment driving several trackers can never hand one provider's credential
+// to another (#464). Jira authenticates a pair, hence its e-mail.
+const (
+	GithubTokenVar = "SECTILE_GITHUB_TOKEN"
+	GitlabTokenVar = "SECTILE_GITLAB_TOKEN"
+	JiraEmailVar   = "SECTILE_JIRA_EMAIL"
+	JiraTokenVar   = "SECTILE_JIRA_TOKEN"
+)
+
+// RemovedTokenVariable is an environment variable Sectile used to read as a
+// tracker credential and no longer does, with what replaces it.
+type RemovedTokenVariable struct {
+	Name, Replacement string
+}
+
+// RemovedTokenVariables lists them, in the order a warning names them. They are
+// not unset: the processes Sectile starts keep inheriting them, for the tools
+// that read them on their own.
+var RemovedTokenVariables = []RemovedTokenVariable{
+	{"SECTILE_TRACKER_TOKEN", GithubTokenVar + ", " + JiraTokenVar + " ou " + GitlabTokenVar},
+	{"GH_TOKEN", GithubTokenVar},
+	{"GITHUB_TOKEN", GithubTokenVar},
+	{"JIRA_API_TOKEN", JiraTokenVar},
+	{"GITLAB_TOKEN", GitlabTokenVar},
+}
+
+// RemovedTokenVariableWarnings names each removed variable the environment still
+// sets, one line apiece, for the server to log at startup: a deployment that
+// relied on one keeps starting, and its first failed sync already says what to
+// set, but the log says it before anybody waits for that.
+func RemovedTokenVariableWarnings(getenv func(string) string) []string {
+	var warnings []string
+	for _, variable := range RemovedTokenVariables {
+		if strings.TrimSpace(getenv(variable.Name)) != "" {
+			warnings = append(warnings, fmt.Sprintf("%s n'est plus lu comme accès tracker : utilisez %s, ou enregistrez l'accès dans Administration", variable.Name, variable.Replacement))
+		}
+	}
+	return warnings
+}
 
 // DefaultGithubURL and DefaultGitlabURL are the public instances, used when
 // neither the stored configuration nor the environment names one.
@@ -36,6 +75,11 @@ type Credentials struct {
 	// is the site itself (https://acme.atlassian.net), the API prefixes are
 	// added per call.
 	JiraURL, JiraEmail, JiraToken string
+	// A server credential stored for a provider but that the server key does
+	// not open. The call must fail on it rather than use the environment
+	// credential the client still holds: the admin believes the stored one is
+	// in use, and another account would put its name on the writes.
+	GithubUnreadable, GitlabUnreadable, JiraUnreadable bool
 }
 
 type Client struct {
@@ -55,6 +99,13 @@ type Client struct {
 	// server account while somebody believes they act as themselves would
 	// misattribute the work, so the caller has to fail instead.
 	ResolveUser func(userID, tracker string) (siteURL string, email string, token string, err error)
+
+	// actingUser is set on a client resolved for somebody's request, so a
+	// missing credential is reported as theirs to add rather than the server's.
+	actingUser string
+	// unreadable marks the providers whose stored server credential could not
+	// be decrypted; see Credentials.
+	unreadable struct{ github, gitlab, jira bool }
 }
 
 // ForActingUser is For, with the acting user's own credentials substituted
@@ -70,10 +121,12 @@ func (c *Client) ForActingUser(userID, tracker, projectID string) (*Client, bool
 	if err != nil {
 		return nil, false, err
 	}
-	if token == "" {
-		return resolved, false, nil
-	}
+	// A copy either way: For may have answered the shared client itself.
 	personal := *resolved
+	personal.actingUser = strings.TrimSpace(userID)
+	if token == "" {
+		return &personal, false, nil
+	}
 	switch strings.ToLower(strings.TrimSpace(tracker)) {
 	case "jira":
 		personal.JiraToken = token
@@ -95,6 +148,61 @@ func (c *Client) ForActingUser(userID, tracker, projectID string) (*Client, bool
 	return &personal, true, nil
 }
 
+// MissingPersonalCredentialError refuses a write somebody asked for when they
+// stored no credential of their own for the provider. The write never falls
+// back to the server credential: the tracker would attribute it to the server
+// account, a name nobody chose (#482). It reads the same on every provider.
+type MissingPersonalCredentialError struct {
+	// Tracker is the provider, as the registry names it: "jira", "github" or
+	// "gitlab".
+	Tracker string
+}
+
+func (e *MissingPersonalCredentialError) Error() string {
+	return fmt.Sprintf("no personal %s token for this user: add one in Profile → Tracker credentials, or the work would be attributed to the server account", providerName(e.Tracker))
+}
+
+// ErrNoActingUser refuses a write whose context names nobody and is not marked
+// as unattended work. It is a caller that lost its author on the way, a
+// programming error to surface rather than a write to sign with the server
+// credential.
+var ErrNoActingUser = errors.New("tracker write with no acting user and not marked unattended")
+
+// providerName is how a message spells a provider.
+func providerName(tracker string) string {
+	switch strings.ToLower(strings.TrimSpace(tracker)) {
+	case "jira":
+		return "Jira"
+	case "github":
+		return "GitHub"
+	case "gitlab":
+		return "GitLab"
+	}
+	return tracker
+}
+
+// ForWrite resolves the client for a tracker write. A named user gets their
+// personal credential or an error, never the server's; an unattended context
+// gets the server credential; a context naming neither is refused. Reads keep
+// ForActingUser and its fallback: a read attributes nothing.
+func (c *Client) ForWrite(ctx context.Context, trackerName, projectID string) (*Client, error) {
+	user := tracker.ActingUser(ctx)
+	if user == "" {
+		if tracker.Unattended(ctx) {
+			return c.For(projectID), nil
+		}
+		return nil, ErrNoActingUser
+	}
+	client, personal, err := c.ForActingUser(user, trackerName, projectID)
+	if err != nil {
+		return nil, err
+	}
+	if !personal {
+		return nil, &MissingPersonalCredentialError{Tracker: strings.ToLower(strings.TrimSpace(trackerName))}
+	}
+	return client, nil
+}
+
 func NewClient() *Client {
 	gh := os.Getenv("SECTILE_GITHUB_API_URL")
 	if gh == "" {
@@ -107,13 +215,13 @@ func NewClient() *Client {
 	return &Client{
 		HTTP:          &http.Client{Timeout: 60 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }},
 		GithubURL:     strings.TrimRight(gh, "/"),
-		GithubToken:   trackerToken("SECTILE_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN"),
+		GithubToken:   os.Getenv(GithubTokenVar),
 		GitlabURL:     strings.TrimRight(gl, "/"),
 		GitlabProject: os.Getenv("SECTILE_GITLAB_PROJECT"),
-		GitlabToken:   trackerToken("SECTILE_GITLAB_TOKEN", "GITLAB_TOKEN"),
+		GitlabToken:   os.Getenv(GitlabTokenVar),
 		JiraURL:       jiraBaseURL(os.Getenv("SECTILE_JIRA_URL")),
-		JiraEmail:     strings.TrimSpace(os.Getenv("SECTILE_JIRA_EMAIL")),
-		JiraToken:     trackerToken("SECTILE_JIRA_TOKEN", "JIRA_API_TOKEN"),
+		JiraEmail:     strings.TrimSpace(os.Getenv(JiraEmailVar)),
+		JiraToken:     os.Getenv(JiraTokenVar),
 	}
 }
 
@@ -155,6 +263,18 @@ func (c *Client) For(projectID string) *Client {
 	if cred.JiraToken != "" {
 		resolved.JiraToken = cred.JiraToken
 	}
+	if cred.GithubUnreadable {
+		resolved.GithubToken = ""
+		resolved.unreadable.github = true
+	}
+	if cred.GitlabUnreadable {
+		resolved.GitlabToken = ""
+		resolved.unreadable.gitlab = true
+	}
+	if cred.JiraUnreadable {
+		resolved.JiraEmail, resolved.JiraToken = "", ""
+		resolved.unreadable.jira = true
+	}
 	return &resolved
 }
 
@@ -175,31 +295,40 @@ func IsRateLimited(err error) bool {
 	return errors.As(err, &httpErr) && httpErr.Status == http.StatusTooManyRequests
 }
 
-// missingCredential says what to do when no token could be resolved.
+// missingCredential says what to do when no token could be resolved, which
+// depends on whose credential the call was looking for.
 //
-// It names the personal credential, because that is how this product is meant
-// to be used: a tracker write is attributed to whoever made it, so each person
-// stores their own token (ADR 0014). The server-wide environment variable still
-// exists as a last resort for work no one asked for — the automatic
-// synchronisation timer has no acting user to resolve — but pointing a person
-// at it when their own credential is what is missing sends them to change a
-// deployment they usually cannot reach, to fix something they can.
-func missingCredential(tracker string) string {
-	return "no " + tracker + " credential: add yours in Profile → Tracker credentials"
-}
-
-// trackerToken resolves one provider's credential. The provider-specific variable
-// comes first so a deployment serving two trackers cannot hand one provider's
-// credential to another; the tracker-agnostic name covers the common
-// single-tracker setup, and the remaining names are the providers' own
-// environment conventions.
-func trackerToken(specific string, fallbacks ...string) string {
-	for _, name := range append([]string{specific, genericTokenVar}, fallbacks...) {
-		if value := os.Getenv(name); value != "" {
-			return value
+// A call made for somebody names the personal credential, because a tracker
+// write is attributed to whoever made it and each person stores their own token
+// (ADR 0014); pointing them at the deployment would send them to change
+// something they usually cannot reach. A call made for nobody, the
+// synchronisation, only ever uses the server credential (#464), so it names the
+// variable and the Administration page instead.
+func (c *Client) missingCredential(tracker string) error {
+	name := strings.ToLower(tracker)
+	if c != nil {
+		unreadable := map[string]bool{"github": c.unreadable.github, "gitlab": c.unreadable.gitlab, "jira": c.unreadable.jira}
+		if unreadable[name] {
+			return fmt.Errorf("the stored %s server credential cannot be decrypted with the server key: save it again in Administration", tracker)
+		}
+		if c.actingUser != "" {
+			return fmt.Errorf("no %s credential: add yours in Profile → Tracker credentials", tracker)
 		}
 	}
-	return ""
+	return fmt.Errorf("no %s server credential: set %s or save one in Administration", tracker, serverCredentialVariables(name))
+}
+
+// serverCredentialVariables names the environment variables of one provider's
+// server credential.
+func serverCredentialVariables(tracker string) string {
+	switch tracker {
+	case "jira":
+		return JiraEmailVar + " and " + JiraTokenVar
+	case "gitlab":
+		return GitlabTokenVar
+	default:
+		return GithubTokenVar
+	}
 }
 
 func (c *Client) request(ctx context.Context, method, endpoint, token string, payload any) ([]byte, http.Header, error) {
@@ -251,7 +380,7 @@ func (c *Client) request(ctx context.Context, method, endpoint, token string, pa
 
 func (c *Client) github(ctx context.Context, method, path string, payload, result any) error {
 	if c.GithubToken == "" {
-		return fmt.Errorf("%s", missingCredential("GitHub"))
+		return c.missingCredential("GitHub")
 	}
 	raw, _, err := c.request(ctx, method, c.GithubURL+"/"+strings.TrimLeft(path, "/"), "Bearer "+c.GithubToken, payload)
 	if err != nil {
@@ -265,7 +394,7 @@ func (c *Client) github(ctx context.Context, method, path string, payload, resul
 
 func (c *Client) githubPages(ctx context.Context, path string) ([]json.RawMessage, error) {
 	if c.GithubToken == "" {
-		return nil, fmt.Errorf("%s", missingCredential("GitHub"))
+		return nil, c.missingCredential("GitHub")
 	}
 	next := c.GithubURL + "/" + path
 	origin, err := url.Parse(c.GithubURL)
@@ -311,6 +440,19 @@ func (c *Client) githubPages(ctx context.Context, path string) ([]json.RawMessag
 }
 
 func (c *Client) graphql(ctx context.Context, endpoint, token, query string, variables map[string]any, result any) error {
+	return c.graphqlRequest(ctx, endpoint, token, query, variables, result, false)
+}
+
+// graphqlPartial decodes the data a response carries even when some of its
+// fields failed. A batch of independent aliases must keep the ones that
+// resolved: GitHub answers one deleted or hidden repository with an entry in
+// errors next to the data of every other alias. The failures come back as the
+// returned error, after result has been filled.
+func (c *Client) graphqlPartial(ctx context.Context, endpoint, token, query string, variables map[string]any, result any) error {
+	return c.graphqlRequest(ctx, endpoint, token, query, variables, result, true)
+}
+
+func (c *Client) graphqlRequest(ctx context.Context, endpoint, token, query string, variables map[string]any, result any, partial bool) error {
 	raw, _, err := c.request(ctx, http.MethodPost, endpoint, token, map[string]any{"query": query, "variables": variables})
 	if err != nil {
 		return err
@@ -324,13 +466,23 @@ func (c *Client) graphql(ctx context.Context, endpoint, token, query string, var
 	if err = json.Unmarshal(raw, &envelope); err != nil {
 		return err
 	}
-	if len(envelope.Errors) > 0 {
+	failed := len(envelope.Errors) > 0
+	if failed && !partial {
 		return fmt.Errorf("tracker GraphQL request failed (%d errors)", len(envelope.Errors))
 	}
 	if len(envelope.Data) == 0 || string(envelope.Data) == "null" {
+		if failed {
+			return fmt.Errorf("tracker GraphQL request failed (%d errors)", len(envelope.Errors))
+		}
 		return fmt.Errorf("tracker returned no GraphQL data")
 	}
-	return json.Unmarshal(envelope.Data, result)
+	if err = json.Unmarshal(envelope.Data, result); err != nil {
+		return err
+	}
+	if failed {
+		return fmt.Errorf("tracker GraphQL request partly failed (%d errors)", len(envelope.Errors))
+	}
+	return nil
 }
 
 func repository(repo string) (string, error) {
@@ -353,7 +505,7 @@ func (c *Client) githubGraphQLEndpoint() string {
 
 func (c *Client) GithubGraphQL(query string) ([]byte, error) {
 	if c.GithubToken == "" {
-		return nil, fmt.Errorf("%s", missingCredential("GitHub"))
+		return nil, c.missingCredential("GitHub")
 	}
 	endpoint := c.githubGraphQLEndpoint()
 	var data json.RawMessage

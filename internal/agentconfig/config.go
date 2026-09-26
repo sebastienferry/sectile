@@ -40,30 +40,63 @@ type Config struct {
 	AISkillModels           map[string]string `json:"aiSkillModels,omitempty"`
 	ExternalTerminalCommand string            `json:"externalTerminalCommand"`
 	Skills                  []Skill           `json:"skills"`
+	// MonoRepo says the project lives in a single repository, which decides
+	// whether the code checkout also carries the specifications. Absent (a
+	// server that predates it) reads as mono-repo, the server's own default,
+	// so a newer agent never starts refusing what used to work.
+	MonoRepo *bool `json:"monoRepo,omitempty"`
+	// Repositories are the remotes the project's tickets work in, the code
+	// remote first (#456). Remotes only: the workstation maps them to folders.
+	// Absent (an older server) means the code remote alone, as before.
+	Repositories []string `json:"repositories,omitempty"`
+	// SpecArtifacts is "drop" when the project keeps its tasks' clarification
+	// and specification files out of the repository (#487), else empty or
+	// "keep". After ApplyOverrides it holds this workstation's effective value.
+	SpecArtifacts string `json:"specArtifacts,omitempty"`
+	// EngineID and EngineName name the catalogue engine Resolve picked (#510).
+	// OffProjectDefaultEngine is true when a task runs another engine than its
+	// project default one, which is when a one-off launch model is ignored; its
+	// zero value keeps a configuration built by hand on today's behaviour.
+	// None of them is part of the contract.
+	EngineID                string `json:"-"`
+	EngineName              string `json:"-"`
+	OffProjectDefaultEngine bool   `json:"-"`
 }
+
+// DropsSpecArtifacts reads SpecArtifacts with its default: keep.
+func (c Config) DropsSpecArtifacts() bool { return c.SpecArtifacts == "drop" }
+
+// IsMonoRepo reads MonoRepo with its default.
+func (c Config) IsMonoRepo() bool { return c.MonoRepo == nil || *c.MonoRepo }
 
 // Dispatch carries launch intent only. Execution settings are fetched separately.
 // A zero version is accepted for legacy senders; new senders always emit Version.
 type Dispatch struct {
-	RunID            string `json:"runId,omitempty"`
-	SchemaVersion    int    `json:"schemaVersion,omitempty"`
-	TaskID           string `json:"taskId"`
-	TaskKey          string `json:"taskKey"`
-	ProjectID        string `json:"projectId,omitempty"`
-	SkillID          string `json:"skillId,omitempty"`
-	Action           string `json:"action"`
-	Prompt           string `json:"prompt,omitempty"`
-	Command          string `json:"command,omitempty"`
-	TerminalOverride string `json:"terminalOverride,omitempty"`
+	RunID         string `json:"runId,omitempty"`
+	SchemaVersion int    `json:"schemaVersion,omitempty"`
+	TaskID        string `json:"taskId"`
+	TaskKey       string `json:"taskKey"`
+	ProjectID     string `json:"projectId,omitempty"`
+	SkillID       string `json:"skillId,omitempty"`
+	Action        string `json:"action"`
+	Prompt        string `json:"prompt,omitempty"`
+	Command       string `json:"command,omitempty"`
 	// Mode is the execution mode resolved by the server: "interactive" opens a
 	// terminal the user answers, "autonomous" runs the CLI headless. Empty is
 	// read as interactive, which keeps an older server working.
 	Mode string `json:"mode,omitempty"`
 	// Model is the one-off model this launch runs against. It outranks every
-	// configured level, the workstation override included, for this run only.
+	// configured level of the workstation settings, for this run only.
 	// Empty means no override; an agent that predates the field ignores it and
 	// runs the configured model.
 	Model string `json:"model,omitempty"`
+	// MacroKey names the macro a macro-scoped skill runs for. A dispatch that
+	// carries it has no task: TaskID and TaskKey are empty, ProjectID is set.
+	// An agent that predates the field reads it as a task dispatch without a
+	// task and refuses it, which is the failure a server wants to see.
+	MacroKey string `json:"macroKey,omitempty"`
+	// MacroTitle is the macro's title, used to name a new macro branch.
+	MacroTitle string `json:"macroTitle,omitempty"`
 }
 
 // Project is a discovery record. ID is the server primary key, not a display name.

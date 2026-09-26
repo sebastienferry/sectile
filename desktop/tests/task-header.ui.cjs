@@ -49,22 +49,22 @@ test('TTY header follows metadata and selection without disturbing the console',
   const beforeStatus=[attachments,disconnections]
   reported={activity:{id:'other',taskId:'full-task-id',skillId:'specify',status:'completed'},task:{labels:['specified']}}
   await expect(otherBadge).toHaveText('✓')
-  await expect(otherBadge).toHaveAttribute('title','specify · Skill completed')
+  await expect(otherBadge).toHaveAttribute('title','Skill: Skill completed')
   await expect(page.locator('.task-skill-status[data-run-id="current"]')).not.toHaveText('✓')
   await expect(header()).toHaveText('#82 · implement')
   await expect(page.locator('#save-log')).toBeFocused()
   assert.deepEqual([attachments,disconnections],beforeStatus)
   // An exited process alone never confirms the skill; the server must report the launched skill.
   const currentBadge=page.locator('.task-skill-status[data-run-id="current"]')
-  await expect(currentBadge).toHaveAttribute('title','implement · Execution ended · skill completion unconfirmed')
+  await expect(currentBadge).toHaveAttribute('title','Skill: Execution ended · skill completion unconfirmed')
   const settled=async()=>{const before=resultRequests;await expect.poll(()=>resultRequests).toBeGreaterThanOrEqual(before+3)}
   // The activity record kind is not the launched skill and must not be accepted as a match.
   reported={activity:{id:'current',taskId:'a',skillId:'remote_run',status:'completed'},task:{labels:['implemented']}}
   await settled()
-  await expect(currentBadge).toHaveAttribute('title','implement · Execution ended · skill completion unconfirmed')
+  await expect(currentBadge).toHaveAttribute('title','Skill: Execution ended · skill completion unconfirmed')
   reported={activity:{id:'current',taskId:'a',skillId:'implement',status:'completed'},task:{labels:['implemented']}}
   await expect(currentBadge).toHaveText('✓')
-  await expect(currentBadge).toHaveAttribute('title','implement · Skill completed')
+  await expect(currentBadge).toHaveAttribute('title','Skill: Skill completed')
   // A withdrawn verdict leaves a still-running execution with nothing to report.
   reported=null
   await expect(otherBadge).toHaveText('')
@@ -119,9 +119,10 @@ test('TTY header follows metadata and selection without disturbing the console',
   await page.locator('#rerun').focus();await page.keyboard.press('Tab');await expect(page.locator('#save-log')).toBeFocused()
   await page.screenshot({path:path.join(root,'task-header-narrow.png')})
   console.log('Header screenshot: '+path.join(root,'task-header-narrow.png'))
-  await page.getByRole('button',{name:'Actions for #82',exact:true}).click()
+  const tracked=page.locator('.local-task').filter({has:page.getByRole('button',{name:'Open #82 in Sectile',exact:true})})
+  await tracked.hover();await tracked.locator('.task-rename-button').click()
   await page.getByRole('textbox',{name:'Local task name'}).fill('Local title')
-  await page.getByRole('button',{name:'Rename locally',exact:true}).click()
+  await page.keyboard.press('Enter')
   await expect(header()).toHaveText('#82 · Local title · clarify')
   tasks[0].title='Changed tracker title';await advance()
   await expect(header()).toHaveText('#82 · Local title · clarify')

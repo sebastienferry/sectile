@@ -156,3 +156,49 @@ func TestForceWaivesTheDuplicateCheckOnly(t *testing.T) {
 		t.Fatalf("the active run was disturbed: %+v %v", active, err)
 	}
 }
+
+// A queued run makes the task busy too (#407), and every path that records a
+// run answers the same 409 once the database refuses a second one: the queued
+// launch, the next step, the full chain and a retry. None records anything.
+func TestEveryLaunchPathRefusesABusyTask(t *testing.T) {
+	h, database, cleanup := setupTestHandler(t)
+	defer cleanup()
+	server := runSkillServer(t, h)
+	activities := httptest.NewServer(http.HandlerFunc(h.HandleActivityDetail))
+	defer activities.Close()
+	_, alice := account(t, database, "alice@example.com")
+
+	task := guardTask(t, database, "Queued task")
+	now := time.Now()
+	if err := database.AddTaskActivity(models.TaskActivity{
+		ID: "queued-1", TaskID: task.ID, SkillID: "clarify", SkillName: "clarify",
+		Action: "Clarification", Status: "queued", CreatedAt: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.AddTaskActivity(models.TaskActivity{
+		ID: "failed-1", TaskID: task.ID, SkillID: "clarify", SkillName: "clarify",
+		Action: "Clarification", Status: "failed", CreatedAt: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	before := activityCount(t, database, task.ID)
+
+	for _, tc := range []struct {
+		name, method, url, body string
+		server                  *httptest.Server
+	}{
+		{"launch", http.MethodPost, "/api/tasks/" + task.ID + "/run-skill", `{"skillId":"clarify"}`, server},
+		{"next step", http.MethodPost, "/api/tasks/" + task.ID + "/advance", `{}`, server},
+		{"full chain", http.MethodPost, "/api/tasks/" + task.ID + "/advance", `{"auto":true}`, server},
+		{"retry", http.MethodPost, "/api/activities/failed-1/retry", ``, activities},
+	} {
+		status, body := call(t, tc.server, alice, tc.method, tc.url, tc.body)
+		if status != http.StatusConflict || !strings.Contains(body, `"activeRunId":"queued-1"`) || !strings.Contains(body, "is queued on this task") {
+			t.Fatalf("%s on a task with a queued run: %d %s", tc.name, status, body)
+		}
+	}
+	if after := activityCount(t, database, task.ID); after != before {
+		t.Fatalf("the refusals recorded %d activities", after-before)
+	}
+}

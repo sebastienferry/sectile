@@ -26,13 +26,13 @@ func TestHeadlessTrackerReadsWithoutAgentOrCLI(t *testing.T) {
 	}))
 	defer srv.Close()
 	t.Setenv("SECTILE_GITHUB_API_URL", srv.URL)
-	t.Setenv("SECTILE_TRACKER_TOKEN", "server-secret")
+	t.Setenv("SECTILE_GITHUB_TOKEN", "server-secret")
 	d, err := NewDB(filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer d.Close()
-	p, err := d.CreateProject(models.CreateProjectRequest{Name: "Headless", IssueTracker: "github", GithubRepo: "acme/app", RepoPath: "/no/server/checkout"})
+	p, err := d.CreateProject(models.CreateProjectRequest{Name: "Headless", IssueTracker: "github", GithubRepo: "acme/app"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -329,7 +329,9 @@ func TestSyncRemoteRunStatus(t *testing.T) {
 		t.Fatalf("expected running status with startedAt, got: %#v", actRunning)
 	}
 
-	// 3. Mark an activity as failed (simulating restart failure or timeout), then recover via sync
+	// 3. A run that ended stays ended: a late "running" from the agent does not
+	// reopen it (#407). Before, it cleared the error and revived the run, which
+	// also undid a cancellation the owner had just made.
 	if _, err := d.conn.Exec("UPDATE task_activities SET status='failed', error='timeout' WHERE id='run-1'"); err != nil {
 		t.Fatal(err)
 	}
@@ -337,8 +339,8 @@ func TestSyncRemoteRunStatus(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if actRecovered.Status != "running" || actRecovered.Error != "" {
-		t.Fatalf("expected error cleared and status running, got: %#v", actRecovered)
+	if actRecovered.Status != "failed" || actRecovered.Error != "timeout" {
+		t.Fatalf("expected the failed run to stay failed, got: %#v", actRecovered)
 	}
 	select {
 	case notified := <-notifications:

@@ -4,8 +4,10 @@ import { useApp } from '../context/AppContext'
 import type { Project, TrackerBoard, TrackerColumn, WorkflowStage } from '../types'
 import {
   mergeDetectedColumns,
-  pickBoardId,
   pruneStageColumns,
+  recordedBoardId,
+  shouldImportBoard,
+  suggestedBoardId,
   type DetectedColumn,
 } from '../lib/boardColumns'
 
@@ -34,7 +36,6 @@ interface Props {
   onStageColumnsChange: (mapping: Record<string, string[]>) => void
   issueTracker?: string
   githubRepo?: string
-  repoPath?: string
 }
 
 type DragPayload =
@@ -50,7 +51,6 @@ export const BoardColumnsEditor: React.FC<Props> = ({
   onStageColumnsChange,
   issueTracker,
   githubRepo,
-  repoPath,
 }) => {
   const { fetchProjectTrackerStatuses, listProjectBoards, importProjectBoardColumns, addToast } = useApp()
 
@@ -60,6 +60,9 @@ export const BoardColumnsEditor: React.FC<Props> = ({
   const [dropTarget, setDropTarget] = useState<string | null>(null)
   const [boards, setBoards] = useState<TrackerBoard[]>([])
   const [boardId, setBoardId] = useState('')
+  // The board the server holds for the project: the modal's project is a snapshot
+  // that an import does not refresh, so the editor follows it on its own.
+  const [recordedBoard, setRecordedBoard] = useState('')
   const [isImporting, setIsImporting] = useState(false)
 
   useEffect(() => {
@@ -80,24 +83,30 @@ export const BoardColumnsEditor: React.FC<Props> = ({
     let cancelled = false
     listProjectBoards(project.id).then(found => {
       if (cancelled) return
+      const recorded = recordedBoardId(found, project.boardId)
       setBoards(found)
-      setBoardId(pickBoardId(found, project.boardId))
+      setRecordedBoard(recorded)
+      setBoardId(recorded)
     })
     return () => { cancelled = true }
   }, [project?.id])
 
-  // Retenir un board l'enregistre sur le projet et ramène ses colonnes : c'est
-  // le même import que « Détecter », côté serveur.
+  // Choosing a board records it on the project and brings its columns back: the
+  // server runs the same import as "Détecter". The suggested board counts as a
+  // choice while no board is recorded.
   const handleBoardChange = async (nextBoardId: string) => {
-    if (!project?.id || !nextBoardId || nextBoardId === boardId) return
+    if (!project?.id || !shouldImportBoard(nextBoardId, recordedBoard)) return
     setBoardId(nextBoardId)
     setIsImporting(true)
     try {
       const updated = await importProjectBoardColumns(project.id, nextBoardId)
       if (!updated) {
-        setBoardId(pickBoardId(boards, project.boardId))
+        setBoardId(recordedBoard)
         return
       }
+      const recorded = updated.boardId || nextBoardId
+      setRecordedBoard(recorded)
+      setBoardId(recorded)
       onColumnsChange(updated.trackerColumns || [])
       onStageColumnsChange(updated.stageColumns || {})
       setStatuses(await fetchProjectTrackerStatuses(project.id))
@@ -111,6 +120,7 @@ export const BoardColumnsEditor: React.FC<Props> = ({
     [columns]
   )
   const freeStatuses = statuses.filter(st => !assignedStatuses.has(st.toLowerCase()))
+  const suggestedBoard = suggestedBoardId(boards, recordedBoard)
 
   // ...
   const [isDetecting, setIsDetecting] = useState(false)
@@ -122,7 +132,6 @@ export const BoardColumnsEditor: React.FC<Props> = ({
       if (project?.id) params.append('projectId', project.id)
       if (issueTracker) params.append('tracker', issueTracker)
       if (githubRepo) params.append('repo', githubRepo)
-      if (repoPath) params.append('repoPath', repoPath)
 
       let detectedList: string[] = []
       let detectedColumns: DetectedColumn[] = []
@@ -375,9 +384,14 @@ export const BoardColumnsEditor: React.FC<Props> = ({
             className="flex-1 px-2 py-1 text-xs rounded-lg bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)] disabled:opacity-50 cursor-pointer"
             title="Board dont les colonnes sont reprises"
           >
+            {!recordedBoard && (
+              <option value="" disabled>
+                Choisir un board…
+              </option>
+            )}
             {boards.map(b => (
               <option key={b.id} value={b.id}>
-                {b.name}{b.type ? ` (${b.type})` : ''}
+                {b.name}{b.type ? ` (${b.type})` : ''}{b.id === suggestedBoard ? ' (suggéré)' : ''}
               </option>
             ))}
           </select>

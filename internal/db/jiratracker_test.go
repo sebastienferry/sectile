@@ -47,13 +47,17 @@ type fakeTracker struct {
 	calls      []string
 	// syncedAs and readAs record who the work ran as, which is what decides
 	// whether a personal tracker credential can be resolved at all.
-	syncedAs    string
-	readAs      string
-	commentedAs string
-	updatedAs   string
-	sprintedAs  string
-	sprintedOn  string
-	comments    []models.TaskComment
+	syncedAs string
+	// syncedUnattended records whether the synchronisation ran marked as work
+	// nobody asked for, the only kind allowed to write with the server
+	// credential (#482).
+	syncedUnattended bool
+	readAs           string
+	commentedAs      string
+	updatedAs        string
+	sprintedAs       string
+	sprintedOn       string
+	comments         []models.TaskComment
 }
 
 func newFakeTracker() *fakeTracker {
@@ -90,6 +94,7 @@ func (f *fakeTracker) SyncIssues(ctx context.Context, req tracker.SyncRequest) (
 	defer f.mu.Unlock()
 	f.calls = append(f.calls, "sync")
 	f.syncedAs = tracker.ActingUser(ctx)
+	f.syncedUnattended = tracker.Unattended(ctx)
 	f.syncWindow = req.UpdatedWithinMin
 	f.syncs++
 	if f.syncErr != nil {
@@ -398,36 +403,6 @@ func TestATrackerWithoutBoardsAnswersAnUnsupportedCapability(t *testing.T) {
 		if err != nil && !strings.Contains(strings.ToLower(err.Error()), "github") {
 			t.Errorf("%s: the refusal must name the tracker: %v", name, err)
 		}
-	}
-}
-
-// A personal tracker credential belongs to a person, and a synchronisation runs
-// in a queue that outlives their request. So whoever asked has to travel with
-// the job, or the sync resolves the server credential and fails on a
-// deployment where only personal tokens exist.
-func TestASyncRunsAsWhoeverAskedForIt(t *testing.T) {
-	fake := newFakeTracker()
-	fake.tasks = []models.Task{{Key: "PE-1", Title: "One", Status: models.StatusToClarify, Source: "jira", CreatedAt: time.Now(), UpdatedAt: time.Now()}}
-	database, project := jiraTestDB(t, fake)
-
-	// The job is run here rather than queued: the worker would run it in
-	// parallel and overwrite what this test is watching.
-	activity := models.TaskActivity{ID: "sync-as", ProjectID: project.ID, SkillID: "sync_jira", Status: "running", CreatedAt: time.Now()}
-	if err := database.AddTaskActivity(activity); err != nil {
-		t.Fatal(err)
-	}
-	settings, _ := database.GetSettings()
-
-	database.processSyncJob(context.Background(), SkillJob{SkillID: "sync_jira", ActivityID: activity.ID, ProjectID: project.ID, ActingUser: "u-ada"}, settings)
-	if fake.syncedAs != "u-ada" {
-		t.Fatalf("the sync must run as the person who asked, got %q", fake.syncedAs)
-	}
-
-	// A timer asks on nobody's behalf, and resolves the server credential.
-	fake.syncedAs = "sentinel"
-	database.processSyncJob(context.Background(), SkillJob{SkillID: "sync_jira", ActivityID: activity.ID, ProjectID: project.ID}, settings)
-	if fake.syncedAs != "" {
-		t.Fatalf("an unattended sync must name nobody, got %q", fake.syncedAs)
 	}
 }
 

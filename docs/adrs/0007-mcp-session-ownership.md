@@ -103,3 +103,81 @@ its owner through `finish_run`, so an accident no longer costs a chain.
 
 The decision itself — a run belongs to the session that started it, and a session
 ending closes it — is unchanged.
+
+## Second amendment (2026-09-24, #319)
+
+The first amendment left one case open on purpose: a client that died without
+closing its connection kept its run `running` for as long as the server lived,
+holding the board and the chain behind it. That consequence is now bounded, with
+two bounds rather than one.
+
+- **The silence bound still only observes.** `SECTILE_MCP_SESSION_TIMEOUT`, four
+  hours, appends its sentence, and the board shows the run as *silent*, read off
+  that sentence. No column is added; the state lasts until the run ends, even if
+  the client speaks again, which is the price of needing no migration.
+- **The abandon bound decides.** Past `SECTILE_MCP_SESSION_ABANDON_AFTER`, eight
+  hours by default and never less than the silence bound, the session is taken
+  for dead: the registry closes it, which cancels its runs with the disconnect
+  note, and closes the transport's session so a client that comes back is told
+  so. Eight hours was preferred to the 24 first proposed: a run waiting on its
+  owner through a working day survives it, and a dead client no longer holds the
+  board overnight.
+- **The server pings, and a missed ping only closes what owns nothing (#517).**
+  A proxy cut the silent `GET /mcp` stream after 50 seconds, and clients then
+  opened a new session every ~152 seconds, each orphan held until the abandon
+  bound. The registry now pings every session (`SECTILE_MCP_KEEPALIVE_INTERVAL`,
+  25s) and closes one that owns no run after `SECTILE_MCP_KEEPALIVE_FAILURES`
+  (3) unanswered pings with no client message in between. A session owning a
+  run is left to the bounds above, and a ping reply is not the client speaking.
+  go-sdk's own `ServerOptions.KeepAlive` was rejected: the session it closes
+  goes through `Close`, which cancels adopted runs.
+- **The verdict stays reversible.** The owner may still report the real outcome
+  through `finish_run`, as for any disconnection. The rewrite now matches the
+  disconnect note anywhere in the summary: matched as a prefix, it missed every
+  run that had been silenced first, which is exactly the run this bound closes.
+- **A human may close one sooner.** A client-created run can be closed from the
+  board by its owner or an admin, the way a disconnection would close it, and the
+  activities view's cancel goes through the same ownership and hand-back path.
+
+Agent-dispatched runs are out of this: their supervisor reports the real process
+exit, as ADR 0006 established.
+
+## Third amendment (2026-09-25, #408)
+
+The decision assumed one server process. Several instances may now share one
+PostgreSQL database behind a load balancer (ADR 0021, #403), and a session still
+lives in the memory of the instance that created it. The decision is kept as it
+stands, and extended to say where a session lives and what becomes of it.
+
+- **A session is owned by one instance, and its id names it.** Every session id
+  is the instance id, a dot, and a random part, on every engine. No table
+  records sessions: the id is the only thing a request carries, and it is
+  enough.
+- **Any instance finds the owner.** A request whose session id names another
+  live instance is forwarded, unchanged, to that instance's internal listener
+  (#406), which serves it as if it had received it and never forwards it again.
+  The owner checks both the deployment's internal credential, carried in
+  `X-Sectile-Internal-Authorization`, and the client's own bearer, so a
+  forwarded call acts for the same user. Runs are therefore always adopted,
+  released and closed by the owner, whichever instance carried the call.
+- **A session dies with its instance.** It is not moved: a request for the
+  session of an instance that is no longer live is answered `404`, and the
+  client initializes a new session. An owner still listed as live but that does
+  not answer gets `503` naming it, without a retry. So does one whose liveness
+  cannot be read: a `404` there would make the client drop a session that may
+  still be alive.
+- **A run lost with a server is recoverable.** The runs such a session owned are
+  canceled by the reclaim of #403, or by the restart of a single-process engine,
+  with a summary that carries the disconnect note, so their owner may still
+  report the real outcome through `finish_run`, as after any disconnection. A
+  cancellation someone typed stays final.
+- **The sessions view is the deployment's.** Each instance lists the sessions of
+  every live instance, asking each for at most two seconds, and names those that
+  did not answer instead of failing.
+
+Without a server key, or on an engine that serves one process, nothing is
+forwarded and the view is local, as before. Balancer affinity on
+`Mcp-Session-Id` and stateless MCP were rejected (#408 Q1): the first depends on
+a balancer hashing a header and still needs the aggregated view, the second
+reverses this ADR, since runs would end on a heartbeat timeout instead of a
+disconnection.

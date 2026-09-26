@@ -47,7 +47,9 @@ test('the tickets pane lists, sorts and launches a project\'s open tasks',async(
   app=await electron.launch({args:[path.resolve(__dirname,'..')],env})
   await app.evaluate(({shell})=>{globalThis.opened=[];shell.openExternal=async url=>{globalThis.opened.push(url)}})
   const page=await app.firstWindow();page.setDefaultTimeout(7000)
-  const open=name=>page.getByRole('button',{name:'Open tasks in Project '+name,exact:true})
+  // The row's only control is its menu opener; the tasks list is one of its items.
+  const actions=name=>page.getByRole('button',{name:'Actions for Project '+name,exact:true})
+  const open=name=>({click:async()=>{await actions(name).click();await page.getByRole('menuitem',{name:'Open tasks',exact:true}).click()}})
   const pane=page.locator('#tickets-pane'),rows=page.locator('.ticket-row'),query=page.getByRole('textbox',{name:'Search server tasks'})
   const search=page.getByRole('button',{name:'Search',exact:true})
   const close=()=>page.getByRole('button',{name:'Close tickets',exact:true}).click()
@@ -64,14 +66,16 @@ test('the tickets pane lists, sorts and launches a project\'s open tasks',async(
   await page.getByRole('button',{name:'Project B',exact:true}).click()
   await expect(page.getByRole('heading',{name:'Tickets · Project B',exact:true})).toBeVisible()
   await page.getByRole('button',{name:'Close tickets',exact:true}).click()
-  await expect(open('B')).toBeFocused()
+  await expect(actions('B')).toBeFocused()
   await page.mouse.move(700,400)
-  await expect(open('A')).toHaveCSS('opacity','0')
+  await expect(actions('A')).toHaveCSS('opacity','0')
   await heading.hover()
-  await expect(open('A')).toHaveCSS('opacity','1')
+  await expect(actions('A')).toHaveCSS('opacity','1')
   await heading.click()
   await page.getByRole('button',{name:'▸ Project A',exact:true}).focus();await page.keyboard.press('Tab')
-  await expect(open('A')).toBeFocused();await expect(open('A')).toHaveCSS('opacity','1')
+  await expect(actions('A')).toBeFocused();await expect(actions('A')).toHaveCSS('opacity','1')
+  // Enter opens the menu on its first item, Open tasks; Enter again runs it.
+  await page.keyboard.press('Enter');await expect(page.getByRole('menuitem',{name:'Open tasks',exact:true})).toBeFocused()
   await page.keyboard.press('Enter')
   // The pane takes the console's place, the project stays collapsed, nothing launches.
   await expect(pane).toBeVisible()
@@ -87,7 +91,7 @@ test('the tickets pane lists, sorts and launches a project\'s open tasks',async(
   assert.deepEqual(await keys(),['#2','#1','#9','#100'])
   assert.equal(await sortOf('priority'),'descending');assert.equal(await sortOf('key'),'none')
   await expect(rows.nth(0).locator('.ticket-stage')).toHaveText('specified')
-  await expect(rows.nth(0).getByRole('button',{name:'Open PR #42 for #2',exact:true})).toBeVisible()
+  await expect(rows.nth(0).getByRole('button',{name:'Open PR #42 for #2 — State unknown',exact:true})).toBeVisible()
   await expect(rows.nth(1).locator('.ticket-title')).toHaveText('First open task')
   // The key opens that task in Sectile, like the sidebar task number.
   await page.getByRole('button',{name:'Open #1 in Sectile',exact:true}).click()
@@ -117,8 +121,8 @@ test('the tickets pane lists, sorts and launches a project\'s open tasks',async(
   assert.equal(await sortOf('priority'),'descending')
   // The sort lasts for the pane only.
   await titleHeader.click();assert.deepEqual(await keys(),['#1','#100','#9','#2'])
-  await close();await expect(pane).toBeHidden();await expect(open('A')).toBeFocused()
-  await page.keyboard.press('Enter');await expect(rows).toHaveCount(4)
+  await close();await expect(pane).toBeHidden();await expect(actions('A')).toBeFocused()
+  await page.keyboard.press('Enter');await page.keyboard.press('Enter');await expect(rows).toHaveCount(4)
   assert.deepEqual(await keys(),['#2','#1','#9','#100'])
   // Search narrows and restores.
   await query.fill('Second');await search.click();await expect(rows).toHaveCount(1)
@@ -192,12 +196,12 @@ test('the tickets pane lists, sorts and launches a project\'s open tasks',async(
   await run.focus()
   runs=[{id:'run-b1',taskId:'b1',taskKey:'#1',projectId:'project-b',skill:'clarify',status:'running',directory:'/tmp/B',createdAt:new Date().toISOString()}]
   const state=rows.first().locator('.run-state')
-  await expect(state).toHaveAttribute('aria-label','Running')
+  await expect(state).toHaveAttribute('aria-label','Process: Running')
   await expect(run).toBeDisabled();await expect(run).toHaveAttribute('title','An execution is active on this task')
   // Disabling the focused control hands focus to the row's menu, never to the body.
   await expect(more).toBeFocused();await expect(more).toBeEnabled()
   runs=[{...runs[0],status:'completed'}]
-  await expect(state).toHaveAttribute('aria-label','Finished')
+  await expect(state).toHaveAttribute('aria-label','Process: Finished')
   await expect(run).toBeEnabled()
   // A control the refresh does not touch keeps focus.
   await expect(more).toBeFocused()
@@ -207,7 +211,7 @@ test('the tickets pane lists, sorts and launches a project\'s open tasks',async(
   await expect(state).toBeEmpty()
   // Selecting an execution leaves the pane instead of changing it behind a hidden view.
   runs=[{...runs[0],status:'running'}]
-  await expect(state).toHaveAttribute('aria-label','Running')
+  await expect(state).toHaveAttribute('aria-label','Process: Running')
   await page.locator('#runs .local-task .run').first().click()
   await expect(pane).toBeHidden()
   await expect(page.locator('#workspace article')).toBeVisible()

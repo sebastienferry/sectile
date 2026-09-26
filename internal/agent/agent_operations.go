@@ -3,10 +3,12 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/gorilla/websocket"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"tasks/internal/agentconfig"
@@ -90,10 +92,23 @@ func (d *agentDaemon) executeOperation(ctx context.Context, op agentprotocol.Ope
 	if op.ProjectID == "" {
 		return nil, fmt.Errorf("project primary key is required")
 	}
-	switch op.Action {
-	case "git_status", "git_branches", "git_checkout", "git_clean", "git_delete", "open_editor", "cli_status", "prepare_workspace", "remove_workspace", "workspace_info", "git_diff", "git_evidence", "run_prompt", "skills_status", "skill_files", "sync_config", "read_skill", "spec_status", "spec_install", "init_git":
-	default:
-		return nil, fmt.Errorf("unknown local operation %q", op.Action)
+	// The macro operations have no task and resolve their own folders, so
+	// they answer before the task-shaped preparation below.
+	if op.Action == "macro_worktree" {
+		if strings.TrimSpace(op.MacroKey) == "" {
+			return nil, fmt.Errorf("macro key is required")
+		}
+		return d.macroWorkspaceFor(ctx, op.ProjectID, op.MacroKey, op.MacroTitle)
+	}
+	if op.Action == "macro_spec_file" {
+		if strings.TrimSpace(op.MacroKey) == "" {
+			return nil, fmt.Errorf("macro key is required")
+		}
+		return d.macroSpecFileFor(ctx, op.ProjectID, op.MacroKey, op.Framework, op.SpecFile)
+	}
+	// The list the agent announces is the one it dispatches on.
+	if !slices.Contains(agentprotocol.Operations, op.Action) {
+		return nil, errors.New(agentprotocol.UnknownOperationReply(op.Action))
 	}
 	config, err := d.fetchConfig(ctx, op.ProjectID, op.TaskID, op.Framework)
 	if err != nil {
@@ -106,9 +121,14 @@ func (d *agentDaemon) executeOperation(ctx context.Context, op agentprotocol.Ope
 	if err != nil {
 		return nil, err
 	}
-	config = agentconfig.ApplyOverrides(config, overrides)
+	// An operation on a task runs the task's engine; without one, the project
+	// default engine.
+	config = agentconfig.ResolveTask(config, overrides, op.TaskID)
 	if err := config.Validate(); err != nil {
 		return nil, err
+	}
+	if op.Action == "spec_artifacts" && op.TaskID == "" {
+		return specArtifactsMode(config, ""), nil
 	}
 	var task models.Task
 	target := root
@@ -119,11 +139,36 @@ func (d *agentDaemon) executeOperation(ctx context.Context, op agentprotocol.Ope
 		if task.ID != op.TaskID || task.ProjectID != op.ProjectID {
 			return nil, fmt.Errorf("task identity mismatch")
 		}
+		if op.Action == "spec_artifacts" {
+			return specArtifactsMode(config, task.Key), nil
+		}
+		if op.Action == "repository_worktree" {
+			return repositoryWorktree(ctx, config, overrides, root, task, op.Repository)
+		}
+		if op.Action == "remove_workspace" && len(op.Repositories) > 0 {
+			return removeRepositoryWorktrees(ctx, config, overrides, root, task, op.Repositories), nil
+		}
+		// A ticket pinned to another repository has its worktree there.
+		taskRoot := root
+		if strings.TrimSpace(task.Repository) != "" {
+			pinned, _, _, err := primaryRoot(ctx, config, overrides, root, task)
+			if err != nil && !errors.Is(err, errRepositoryAmbiguous) {
+				// Reporting on the project root would describe another
+				// repository's checkout as this ticket's.
+				return nil, err
+			}
+			if err == nil {
+				taskRoot = pinned
+			}
+		}
 		if config.UseWorktrees {
 			if !filepath.IsLocal(task.Key) || strings.ContainsAny(task.Key, "/\\") {
 				return nil, fmt.Errorf("invalid task key")
 			}
-			target, err = localTaskPath(ctx, root, task)
+			target, err = localTaskPath(ctx, taskRoot, task)
+			if op.Repository != "" {
+				target, err = foreignWorkDir(target, root, err), nil
+			}
 			if err != nil && op.Action != "prepare_workspace" {
 				return nil, err
 			}
@@ -248,12 +293,19 @@ func (d *agentDaemon) executeOperation(ctx context.Context, op agentprotocol.Ope
 		if op.TaskID == "" {
 			return nil, fmt.Errorf("task is required")
 		}
-		d.prepareMu.Lock()
-		defer d.prepareMu.Unlock()
-		_, dir, branch, t, err := d.prepareDispatch(ctx, op.TaskID)
+		// prepareWorkspace takes prepareMu itself; locking it here as well made
+		// the operation wait on its own lock forever.
+		_, projectRoot, dir, branch, t, err := d.prepareWorkspace(ctx, op.TaskID)
 		if err != nil {
 			return nil, err
 		}
+		// The server sends this operation for a branch checkout from the board,
+		// which waits on it synchronously. The answer goes back as soon as the
+		// worktree exists, and the install runs behind it: the per-worktree lock
+		// makes a launch that follows wait for it instead of installing twice.
+		// The operation's context is cancelled once it answers, so the install
+		// keeps only its own timeouts.
+		go provisionWorktree(context.WithoutCancel(ctx), projectRoot, dir)
 		return models.WorktreeInfo{TaskKey: t.Key, Branch: branch, WorktreePath: dir, MainRepoPath: root, Exists: config.UseWorktrees}, nil
 	case "workspace_info":
 		branch := ""
@@ -275,6 +327,25 @@ func (d *agentDaemon) executeOperation(ctx context.Context, op agentprotocol.Ope
 		}
 		return r.GetGitDiff(target, branch, task.Key, task.PrURL)
 	case "git_evidence":
+		if repository := strings.TrimSpace(op.Repository); repository != "" {
+			// The pull request lives in another repository: the project checkout
+			// cannot vouch for its head, a verified checkout of that repository can.
+			// The echo tells the server this agent understood the question.
+			candidates, err := d.checkoutCandidates(ctx, task, op.ProjectID)
+			if err != nil {
+				return nil, err
+			}
+			// This workstation's own mapping of that repository is the first
+			// place to look (#456); the legacy paths stay hints behind it.
+			if mapped, ok := repositoryRoot(overrides, root, codeIdentity(config), models.RepositoryIdentity(repository)); ok {
+				candidates = append([]string{mapped}, candidates...)
+			}
+			checkout, found, err := verifiedCheckout(ctx, repository, strings.TrimSpace(op.Branch), candidates)
+			if err != nil {
+				return nil, err
+			}
+			return map[string]any{"repository": repository, "found": found, "path": checkout.Path, "sha": checkout.SHA, "branch": checkout.Branch, "clean": checkout.Clean}, nil
+		}
 		sha, err := gitLocal(ctx, target, "rev-parse", "HEAD")
 		if err != nil {
 			return nil, err
@@ -285,6 +356,32 @@ func (d *agentDaemon) executeOperation(ctx context.Context, op agentprotocol.Ope
 		}
 		branch, err := gitLocal(ctx, target, "branch", "--show-current")
 		return map[string]any{"sha": strings.TrimSpace(sha), "branch": strings.TrimSpace(branch), "clean": strings.TrimSpace(status) == ""}, err
+	case "pr_evidence":
+		// The server verifies stage evidence on forges it cannot reach itself, with
+		// the CLI login this workstation already has. A forge that answered without
+		// a usable request is a refusal, carried as data; anything else is a failed
+		// lookup, so the server can never mistake an outage for absence.
+		branch := strings.TrimSpace(op.Branch)
+		if branch == "" && task.BranchName != nil {
+			branch = strings.TrimSpace(*task.BranchName)
+		}
+		// A repository names a merge request in another GitLab repository; the
+		// server reads GitHub itself, so only GitLab is ever asked for here. The
+		// checkout is then only the CLI's working directory.
+		repository := strings.TrimSpace(op.Repository)
+		var pr runner.PullRequestEvidence
+		if repository != "" {
+			pr, err = r.RepositoryPullRequest(target, "gitlab", repository, branch)
+		} else {
+			pr, err = r.BranchPullRequest(target, branch)
+		}
+		if errors.Is(err, runner.ErrNoMatchingPullRequest) || errors.Is(err, runner.ErrAmbiguousPullRequest) {
+			return map[string]any{"forge": pr.Forge, "refusal": err.Error(), "repository": repository}, nil
+		}
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"forge": pr.Forge, "url": pr.URL, "branch": pr.Branch, "sha": pr.SHA, "open": pr.Open, "draft": pr.Draft, "merged": pr.Merged, "repository": repository}, nil
 	case "run_prompt":
 		output, steps, err := r.RunAgentPrompt(ctx, &models.Settings{RepoPath: root, AIProvider: config.AIProvider, AICommandTemplate: config.AICommandTemplate, AIModel: agentconfig.ResolveModel(config, "")}, op.Prompt)
 		return map[string]any{"output": output, "steps": steps}, err
@@ -299,7 +396,7 @@ func (d *agentDaemon) executeOperation(ctx context.Context, op agentprotocol.Ope
 	case "git_delete":
 		return nil, local.DeleteGitBranch(root, op.Branch, op.DeleteRemote)
 	case "open_editor":
-		return nil, r.OpenInEditor(op.Editor, target)
+		return nil, r.OpenInEditor(editorFor(overrides, op.Editor), target)
 	case "cli_status":
 		return r.CheckCliTools(root), nil
 	}
@@ -336,4 +433,17 @@ func localTaskPath(ctx context.Context, root string, task models.Task) (string, 
 		}
 	}
 	return target, nil
+}
+
+// editorFor picks the editor an open_editor operation runs: the workstation's
+// own (#305), else the one an older server still resolves and sends, else
+// the default.
+func editorFor(settings agentconfig.Settings, sent string) string {
+	if editor := settings.Editor(); editor != "" {
+		return editor
+	}
+	if sent = strings.TrimSpace(sent); sent != "" {
+		return sent
+	}
+	return agentconfig.DefaultEditor
 }

@@ -3,6 +3,7 @@ package handlers
 import (
 	"encoding/json"
 	"errors"
+	"log"
 	"net/http"
 	"strings"
 
@@ -60,6 +61,12 @@ func (h *Handler) HandleUserTrackerCredentials(w http.ResponseWriter, r *http.Re
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
+		// The tracker is asked whom the credential belongs to, which is who
+		// "me" is on it for My Tasks (#468). A failed answer keeps the save:
+		// the form already checked it, and the profile can verify it again.
+		if _, err := h.db.ConfirmUserTrackerCredential(r.Context(), userID, req.Tracker); err != nil {
+			log.Printf("[TrackerCredentials] compte %s non confirmé : %v", req.Tracker, err)
+		}
 		h.listUserCredentials(w, r, userID)
 
 	case action == "" && r.Method == http.MethodDelete:
@@ -96,6 +103,10 @@ func (h *Handler) HandleUserTrackerCredentials(w http.ResponseWriter, r *http.Re
 							writeError(w, http.StatusForbidden, "Phrase de scellement refusée.")
 							return
 						}
+						if errors.Is(err, db.ErrServerKeyUnavailable) {
+							writeError(w, http.StatusServiceUnavailable, err.Error())
+							return
+						}
 						writeError(w, http.StatusInternalServerError, err.Error())
 						return
 					}
@@ -116,6 +127,9 @@ func (h *Handler) HandleUserTrackerCredentials(w http.ResponseWriter, r *http.Re
 			return
 		case errors.Is(err, db.ErrNotSealed):
 			writeError(w, http.StatusConflict, "Ce jeton n'est pas scellé : il n'y a rien à desceller.")
+			return
+		case errors.Is(err, db.ErrServerKeyUnavailable):
+			writeError(w, http.StatusServiceUnavailable, err.Error())
 			return
 		case err != nil:
 			writeError(w, http.StatusInternalServerError, err.Error())
@@ -149,13 +163,23 @@ func (h *Handler) HandleUserTrackerCredentials(w http.ResponseWriter, r *http.Re
 			Tracker string `json:"tracker"`
 		}
 		_ = json.NewDecoder(r.Body).Decode(&req)
+		trackers := []string{req.Tracker}
 		if strings.TrimSpace(req.Tracker) == "" || req.Tracker == "*" {
-			creds, _ := h.db.UserTrackerCredentials(userID)
-			for _, c := range creds {
-				h.db.LockUserTrackerCredential(userID, c.Tracker)
+			creds, err := h.db.UserTrackerCredentials(userID)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
 			}
-		} else {
-			h.db.LockUserTrackerCredential(userID, req.Tracker)
+			trackers = trackers[:0]
+			for _, c := range creds {
+				trackers = append(trackers, c.Tracker)
+			}
+		}
+		for _, tracker := range trackers {
+			if err := h.db.LockUserTrackerCredential(userID, tracker); err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
 		}
 		h.listUserCredentials(w, r, userID)
 

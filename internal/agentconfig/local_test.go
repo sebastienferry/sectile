@@ -68,14 +68,6 @@ func TestScaffoldRejectsEscapeAndUnknownVersion(t *testing.T) {
 	}
 }
 
-func TestOverridesDoNotMutateContract(t *testing.T) {
-	c := Config{AIProvider: "agy", AICommandTemplate: "agy {prompt}", Skills: []Skill{{ID: "implement", Content: "remote"}}}
-	effective := ApplyOverrides(c, Overrides{AIProvider: "claude", Terminal: "ghostty", Skills: map[string]string{"implement": "local"}})
-	if c.Skills[0].Content != "remote" || effective.Skills[0].Content != "local" || effective.AIProvider != "claude" || effective.AICommandTemplate != "" {
-		t.Fatal("override precedence or isolation failed")
-	}
-}
-
 func TestScaffoldValidatesAllSkillsBeforeWriting(t *testing.T) {
 	root, home := t.TempDir(), t.TempDir()
 	testhome.Set(t, home)
@@ -139,57 +131,6 @@ func TestScaffoldRejectsUnsafeManifest(t *testing.T) {
 	}
 }
 
-func TestWorktreeOverrideIsScopedToProject(t *testing.T) {
-	overrides := Overrides{Worktrees: map[string]bool{"a": false}}
-	if ApplyOverrides(Config{ProjectID: "a", UseWorktrees: true}, overrides).UseWorktrees {
-		t.Fatal("local worktree setting ignored")
-	}
-	if !ApplyOverrides(Config{ProjectID: "b", UseWorktrees: true}, overrides).UseWorktrees {
-		t.Fatal("override leaked to another project")
-	}
-}
-
-func TestExecutionLimitDefaultsAndOverrides(t *testing.T) {
-	o := Overrides{Parallelism: map[string]int{"a": 3}}
-	if ExecutionLimit("b", true, o) != 1 {
-		t.Fatal("a project without a local override must run a single execution")
-	}
-	if ExecutionLimit("a", true, o) != 3 {
-		t.Fatal("local override ignored")
-	}
-	if ExecutionLimit("a", false, o) != 1 {
-		t.Fatal("shared checkout must be serialized")
-	}
-	bounds := Overrides{Parallelism: map[string]int{"low": 0, "high": MaxParallelism + 4, "max": MaxParallelism}}
-	if ExecutionLimit("low", true, bounds) != 1 {
-		t.Fatal("limit below the range must clamp to one")
-	}
-	if ExecutionLimit("high", true, bounds) != MaxParallelism {
-		t.Fatal("limit above the range must clamp to the ceiling")
-	}
-	if ExecutionLimit("max", true, bounds) != MaxParallelism {
-		t.Fatal("ceiling must be selectable")
-	}
-}
-
-func TestProjectCommandOverrideAndServerReset(t *testing.T) {
-	config := Config{ProjectID: "p", AICommandTemplate: "server {prompt}"}
-	overrides := Overrides{Commands: map[string]string{"p": "local {prompt}"}}
-	if got := ApplyOverrides(config, overrides).AICommandTemplate; got != "local {prompt}" {
-		t.Fatal(got)
-	}
-	config.ProjectID = "other"
-	if got := ApplyOverrides(config, overrides).AICommandTemplate; got != "server {prompt}" {
-		t.Fatal("override leaked", got)
-	}
-	config.ProjectID = "p"
-	overrides.Commands["p"] = ""
-	overrides.AICommandTemplate = "legacy {prompt}"
-	if got := ApplyOverrides(config, overrides).AICommandTemplate; got != "server {prompt}" {
-		t.Fatal("server reset failed", got)
-	}
-}
-
 func TestAdjustmentScaffoldPreservesLegacyEdits(t *testing.T) {
 	root, home := t.TempDir(), t.TempDir()
 	testhome.Set(t, home)
@@ -211,7 +152,7 @@ func TestAdjustmentScaffoldPreservesLegacyEdits(t *testing.T) {
 	if string(raw) != "personal legacy edits" {
 		t.Fatal("legacy edits overwritten")
 	}
-	c = ApplyOverrides(c, Overrides{Skills: map[string]string{"review": "old review"}})
+	c = Resolve(c, Settings{Skills: map[string]string{"review": "old review"}})
 	if !c.Skills[0].RequiresReconciliation {
 		t.Fatal("legacy local override not flagged")
 	}
@@ -233,110 +174,8 @@ func TestScaffoldInstallsSeparatePRSkills(t *testing.T) {
 			t.Fatalf("%s: %s %v", skill.ID, raw, err)
 		}
 	}
-	got := ApplyOverrides(c, Overrides{Skills: map[string]string{"create_pr": "Custom creation"}})
+	got := Resolve(c, Settings{Skills: map[string]string{"create_pr": "Custom creation"}})
 	if got.Skills[0].RequiresReconciliation || got.Skills[0].Content != c.Skills[0].Content {
 		t.Fatal("creation override changed Adjust")
-	}
-}
-
-func TestProjectAIProviderAndModelOverrides(t *testing.T) {
-	c1 := Config{
-		ProjectID:         "p1",
-		AIProvider:        "agy",
-		AIModel:           "server-base-model",
-		AICommandTemplate: "agy {prompt}",
-	}
-	c2 := Config{
-		ProjectID:         "p2",
-		AIProvider:        "agy",
-		AIModel:           "server-base-model",
-		AICommandTemplate: "agy {prompt}",
-	}
-	overrides := Overrides{
-		AIProvider: "gemini",
-		AIModel:    "gemini-pro",
-		AIProviders: map[string]string{
-			"p1": "claude",
-		},
-		AIModels: map[string]string{
-			"p1": "claude-opus-5",
-		},
-	}
-
-	// p1 should take the per-project overrides over global and server defaults
-	effective1 := ApplyOverrides(c1, overrides)
-	if effective1.AIProvider != "claude" {
-		t.Fatalf("expected provider 'claude', got %q", effective1.AIProvider)
-	}
-	if effective1.AIModel != "claude-opus-5" {
-		t.Fatalf("expected model 'claude-opus-5', got %q", effective1.AIModel)
-	}
-	// Provider changed from server ("agy") and no command provided for p1: commands dropped
-	if effective1.AICommandTemplate != "" {
-		t.Fatalf("expected empty command template, got %q", effective1.AICommandTemplate)
-	}
-
-	// p2 has no project override, so it should fall back to global overrides
-	effective2 := ApplyOverrides(c2, overrides)
-	if effective2.AIProvider != "gemini" {
-		t.Fatalf("expected provider 'gemini', got %q", effective2.AIProvider)
-	}
-	if effective2.AIModel != "gemini-pro" {
-		t.Fatalf("expected model 'gemini-pro', got %q", effective2.AIModel)
-	}
-
-	// When neither project nor global overrides are set, fall back to server defaults
-	effectiveReset := ApplyOverrides(c1, Overrides{})
-	if effectiveReset.AIProvider != "agy" {
-		t.Fatalf("expected provider 'agy', got %q", effectiveReset.AIProvider)
-	}
-	if effectiveReset.AIModel != "server-base-model" {
-		t.Fatalf("expected model 'server-base-model', got %q", effectiveReset.AIModel)
-	}
-	if effectiveReset.AICommandTemplate != "agy {prompt}" {
-		t.Fatalf("expected 'agy {prompt}', got %q", effectiveReset.AICommandTemplate)
-	}
-
-	// Project command override is preserved when project provider changes
-	overridesWithCmd := overrides
-	overridesWithCmd.Commands = map[string]string{"p1": "my-claude {prompt}"}
-	effectiveWithCmd := ApplyOverrides(c1, overridesWithCmd)
-	if effectiveWithCmd.AIProvider != "claude" || effectiveWithCmd.AICommandTemplate != "my-claude {prompt}" {
-		t.Fatalf("expected claude with custom command, got provider=%q cmd=%q", effectiveWithCmd.AIProvider, effectiveWithCmd.AICommandTemplate)
-	}
-}
-
-func TestTerminalOverridesPrecedence(t *testing.T) {
-	c1 := Config{ProjectID: "proj-1", ExternalTerminalCommand: "pty"}
-	c2 := Config{ProjectID: "proj-2", ExternalTerminalCommand: "pty"}
-
-	// Fallback to server setting when overrides are empty
-	base := ApplyOverrides(c1, Overrides{})
-	if base.ExternalTerminalCommand != "pty" {
-		t.Fatalf("expected 'pty', got %q", base.ExternalTerminalCommand)
-	}
-
-	// Workstation terminal override takes effect
-	withGlobal := ApplyOverrides(c1, Overrides{Terminal: "terminal"})
-	if withGlobal.ExternalTerminalCommand != "terminal" {
-		t.Fatalf("expected 'terminal', got %q", withGlobal.ExternalTerminalCommand)
-	}
-
-	// Project terminal override takes precedence over workstation terminal override
-	withProject := ApplyOverrides(c1, Overrides{
-		Terminal:  "terminal",
-		Terminals: map[string]string{"proj-1": "ghostty"},
-	})
-	if withProject.ExternalTerminalCommand != "ghostty" {
-		t.Fatalf("expected 'ghostty', got %q", withProject.ExternalTerminalCommand)
-	}
-
-	// Another project without override falls back to workstation terminal
-	withOtherProject := ApplyOverrides(c2, Overrides{
-		Terminal:  "terminal",
-		Terminals: map[string]string{"proj-1": "ghostty"},
-	})
-	if withOtherProject.ExternalTerminalCommand != "terminal" {
-		t.Fatalf("expected 'terminal', got %q", withOtherProject.ExternalTerminalCommand)
 	}
 }

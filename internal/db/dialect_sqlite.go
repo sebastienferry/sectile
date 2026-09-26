@@ -15,6 +15,14 @@ type sqliteDialect struct{}
 
 func (sqliteDialect) Name() string { return "SQLite" }
 
+// LowerASCII is SQLite's own LOWER: it lowers A-Z and leaves every other
+// character untouched, on every build of the engine.
+func (sqliteDialect) LowerASCII(expr string) string { return "LOWER(" + expr + ")" }
+
+// FoldSearch is LOWER alone: SQLite has no unaccent, so its search ignores the
+// case of A-Z and nothing else, as it always has.
+func (sqliteDialect) FoldSearch(expr string) string { return "LOWER(" + expr + ")" }
+
 func (sqliteDialect) Open(cfg Config) (*sql.DB, error) {
 	// _time_format=sqlite: without it the driver stores a time.Time as
 	// time.Time.String(), which prints the zone abbreviation last. A date parsed
@@ -24,7 +32,13 @@ func (sqliteDialect) Open(cfg Config) (*sql.DB, error) {
 	// read back, so the Scan fails and the endpoint answers 500. The requested
 	// format ends with the offset itself and round trips in any zone. See
 	// repairNumericZoneTimestamps for the rows written before this was set.
-	conn, err := sql.Open("sqlite", cfg.Path+"?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_time_format=sqlite")
+	//
+	// _txlock=immediate: a transaction takes the write lock when it begins. A
+	// deferred one that reads a row, then writes it, fails at once with
+	// SQLITE_BUSY when another connection wrote in between, busy_timeout
+	// notwithstanding; the read-decide-write transactions of #407 are exactly
+	// that shape. Taken up front, the lock is waited for like any other.
+	conn, err := sql.Open("sqlite", cfg.Path+"?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_time_format=sqlite&_txlock=immediate")
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
@@ -59,6 +73,22 @@ func (sqliteDialect) LockForMigration(*sqlConn) (func(), error) { return func() 
 // RunsLegacyMigrations is true: a SQLite file may have been created by any
 // earlier version, and the additive migrations are what bring it up to date.
 func (sqliteDialect) RunsLegacyMigrations() bool { return true }
+
+// ServesOneProcess is true: a SQLite file belongs to one server process. Nothing
+// enforces it; it is the assumption the deployment makes, and the one the
+// restart recovery relies on.
+func (sqliteDialect) ServesOneProcess() bool { return true }
+
+// ForUpdate is empty: SQLite has no row locks, and its single writer plus DB.mu
+// already serialise every read-decide-write sequence of the one process that
+// holds the file.
+func (sqliteDialect) ForUpdate() string { return "" }
+
+// AcquireProjectWorker has nothing to take, for the reason ServesOneProcess
+// gives.
+func (sqliteDialect) AcquireProjectWorker(*sqlConn, string) (func(), error) {
+	return func() {}, nil
+}
 
 // MigrateActivityAttachment rebuilds task_activities: SQLite can neither relax
 // a NOT NULL, nor add a foreign key, nor add a CHECK through ALTER TABLE.

@@ -1,3 +1,4 @@
+import { PullRequestStateIcon } from './PullRequestStateIcon'
 import { RemoteRunBadge } from './RemoteRunBadge'
 import { CopyTaskSkillMenu } from './CopyTaskSkillMenu'
 import React, { useState, useRef, useEffect } from 'react'
@@ -31,20 +32,39 @@ import {
 import type { Task, Priority, SkillMode } from '../types'
 import { useApp } from '../context/AppContext'
 import { issueTypeStyle } from '../lib/issueTypes'
+import { PRIORITY_LEVELS, priorityColor } from '../lib/priority'
 import { Avatar } from './Avatar'
+import { EpicBar, useEpicColors } from './EpicMarker'
 import { shortElapsed, isElapsedStale } from '../lib/elapsed'
 import { resolveTaskStage, getNextStepInfo, prRecoverySkill, skillForStage } from '../lib/workflow'
-import { providerModels, resolveConfiguredModel, shortModelLabel, taskProvider } from '../lib/aiModels'
+import { reportedModel, reportedPickerModels, shortModelLabel } from '../lib/aiModels'
+import { useProjectEngine } from '../hooks/useProjectEngine'
 import { loadLaunchModel, saveLaunchModel } from '../lib/launchModel'
+import { isSelectionClick } from '../lib/boardSelection'
 
 interface TaskCardProps {
   task: Task
   isDragging?: boolean
   onDragStart?: (e: React.DragEvent) => void
   compact?: boolean
+  /** The board may select this card for a batch: it shows a checkbox and answers Ctrl/Cmd+click. */
+  selectable?: boolean
+  selected?: boolean
+  /** At least one card is selected, so the checkbox shows without hovering the card. */
+  selectionActive?: boolean
+  onToggleSelect?: () => void
 }
 
-export const TaskCard: React.FC<TaskCardProps> = ({ task, isDragging, onDragStart, compact = false }) => {
+export const TaskCard: React.FC<TaskCardProps> = ({
+  task,
+  isDragging,
+  onDragStart,
+  compact = false,
+  selectable = false,
+  selected = false,
+  selectionActive = false,
+  onToggleSelect,
+}) => {
   const {
     setSelectedTask,
     advanceTask,
@@ -57,6 +77,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task, isDragging, onDragStar
     openCloneModal,
     deleteTask,
     projects,
+    selectedViewId,
     settings,
     parentFilter,
     setParentFilter,
@@ -65,6 +86,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task, isDragging, onDragStar
     addToast,
     setTaskSprint,
   } = useApp()
+  const showsEpicColors = useEpicColors()
 
   // Le menu est rendu dans un portail avec un positionnement fixe : les colonnes
   // du board défilent en overflow-y-auto, ce qui découpait un menu en position
@@ -135,6 +157,21 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task, isDragging, onDragStar
   }
 
   const taskProject = projects.find(p => p.id === task.projectId)
+  // A saved view spans projects, and one remote story synchronised by two of
+  // them shows as two cards: the project name is what tells them apart (#387).
+  // tasks.project_id may hold the project's slug rather than its id.
+  const badgeProject = selectedViewId
+    ? taskProject || projects.find(p => p.slug === task.projectId)
+    : undefined
+  const projectBadge = badgeProject ? (
+    <span
+      data-card-project={badgeProject.id}
+      title={badgeProject.name}
+      className="shrink-0 max-w-[8rem] truncate px-1.5 py-px rounded text-[9px] font-semibold text-sky-300 bg-sky-400/10 border border-sky-400/30"
+    >
+      {badgeProject.name}
+    </span>
+  ) : null
   const targetGithubRepo = (taskProject?.githubRepo || settings.githubRepo || '').replace(/^https?:\/\/github\.com\//, '').replace(/\.git$/, '')
   const externalUrl = task.externalUrl || (
     task.source === 'github' && targetGithubRepo && task.key?.startsWith('#')
@@ -216,21 +253,13 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task, isDragging, onDragStar
   }, [activities, task.id])
 
   // Priorité : simple pastille de couleur (le libellé reste en infobulle)
-  const PRIORITY_DOTS: Record<Priority, { color: string; label: string }> = {
-    urgent: { color: 'var(--status-danger)', label: t.priority.urgent },
-    high: { color: 'var(--status-warn)', label: t.priority.high },
-    medium: { color: 'var(--status-info)', label: t.priority.medium },
-    low: { color: 'var(--text-muted)', label: t.priority.low },
-  }
-
   const getPriorityBadge = (priority: Priority) => {
-    const dot = PRIORITY_DOTS[priority]
-    if (!dot) return null
+    if (!PRIORITY_LEVELS.includes(priority)) return null
     return (
       <span
         className="w-2 h-2 rounded-full shrink-0 ring-1 ring-black/10"
-        style={{ backgroundColor: dot.color }}
-        title={`${t.taskModal.priority} : ${dot.label}`}
+        style={{ backgroundColor: priorityColor(priority) }}
+        title={`${t.taskModal.priority} : ${t.priority[priority]}`}
       />
     )
   }
@@ -359,22 +388,26 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task, isDragging, onDragStar
   const isQueued = latestActivity?.status === 'queued' || latestActivity?.status === 'pending'
 
   const isCondensed = compact
+  // Barre de la couleur de l'épic, sur les projets qui la demandent.
+  const showsEpicBar = showsEpicColors(task.projectId) && Boolean(task.parentKey?.trim())
   const compactActionClass = 'w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[11px] text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] focus-visible:outline-2 focus-visible:outline-[var(--accent-color)] transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed'
   // The one-off mode override for the next step. Both card shapes offer it: on a
   // condensed card the chevrons live in this menu, on a full card they sit on
   // the card itself and carry no mode, so without these entries there is no way
   // to depart from the configured mode without opening the project settings.
-  // Les modèles proposés pour le moteur de ce projet, celui que la précédence
-  // résout en tête. Le retenir n'envoie aucune surcharge : c'est déjà ce que
-  // ferait un lancement non touché. Aucune saisie libre ici, c'est une liste.
-  const cardProvider = taskProvider(taskProject || undefined, settings)
-  const cardModels = providerModels(settings, cardProvider)
+  // The models offered come from what the caller's workstation reported for
+  // this project (#305): its list, minus the model the run would use anyway.
+  // Picking that one sends no override. No report, or a command line without a
+  // model slot, offers nothing.
+  const engine = useProjectEngine(task.projectId)
+  const engineUnknown = engine?.state === 'unknown'
+  const cardModels = engine?.state === 'reported' && engine.modelSlot ? engine.models || [] : []
   // La compétence réellement lancée par « Avancer », pas celle affichée : à
   // l'étape reviewed le pas suivant n'en nomme aucune alors que le lancement
   // exécute handoff, et une entrée par compétence sur handoff serait ignorée.
   const cardSkillId = skillForStage(resolveTaskStage(task, taskProject)) || undefined
-  const configuredCardModel = resolveConfiguredModel(taskProject || undefined, settings, cardSkillId)
-  const offeredModels = cardModels.filter(model => model !== configuredCardModel)
+  const configuredCardModel = reportedModel(engine, cardSkillId)
+  const offeredModels = reportedPickerModels(engine, cardSkillId)
   // Une sélection que le moteur du projet ne propose plus ne peut pas être
   // lancée : le projet a pu changer de moteur, ou sa liste a pu être retouchée.
   const effectiveLaunchModel = cardModels.includes(launchModel) ? launchModel : ''
@@ -385,6 +418,42 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task, isDragging, onDragStar
     setIsModelMenuOpen(false)
     setIsMenuOpen(false)
   }
+
+  // Ctrl/Cmd+click toggles a selectable card instead of opening it. Every
+  // other click, and any click on a card the board cannot select, opens the
+  // detail as before.
+  const openOrToggle = (e: React.MouseEvent) => {
+    if (selectable && isSelectionClick(e)) {
+      e.preventDefault()
+      onToggleSelect?.()
+      return
+    }
+    setSelectedTask(task)
+  }
+
+  // The checkbox stays in the layout while hidden, so that hovering a card
+  // never shifts its content. It sits on the right of the card, where it takes
+  // room from the title rather than pushing the key.
+  const selectionBox = selectable ? (
+    <button
+      type="button"
+      role="checkbox"
+      aria-checked={selected}
+      aria-label={selected ? `Retirer ${task.key} de la sélection` : `Sélectionner ${task.key}`}
+      title={selected ? 'Retirer de la sélection' : 'Sélectionner pour un lot (Ctrl/Cmd+clic)'}
+      onClick={e => {
+        e.stopPropagation()
+        onToggleSelect?.()
+      }}
+      className={`shrink-0 w-3.5 h-3.5 flex items-center justify-center rounded border transition-opacity cursor-pointer focus-visible:outline-2 focus-visible:outline-[var(--accent-color)] ${
+        selected
+          ? 'bg-[var(--accent-color)] border-[var(--accent-color)] text-white'
+          : `bg-[var(--bg-primary)] border-[var(--text-muted)] ${selectionActive ? '' : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100'}`
+      }`}
+    >
+      {selected && <Check size={10} strokeWidth={3} />}
+    </button>
+  ) : null
 
   // Choisir ne lance rien : la sélection change, la carte l'annonce, et le
   // prochain bouton d'action s'en sert.
@@ -409,6 +478,11 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task, isDragging, onDragStar
       }
     >
       {shortModelLabel(launchedModel)}
+    </span>
+  ) : engineUnknown ? (
+    // No agent of the caller serves this project: what would run is unknown.
+    <span className="ml-auto shrink-0 text-[9px] font-mono tracking-wide text-[var(--text-muted)]" title={t.compactCard.engineUnknown}>
+      {t.compactCard.engineUnknownShort}
     </span>
   ) : null
 
@@ -539,7 +613,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task, isDragging, onDragStar
               )}
               {task.prUrl && (
                 <a className={compactActionClass} href={task.prUrl} target="_blank" rel="noreferrer" onClick={() => setIsMenuOpen(false)}>
-                  <GitPullRequest size={12} /><span>{t.compactCard.openPr}</span>
+                  <PullRequestStateIcon task={task} size={12} /><span>{t.compactCard.openPr}</span>
                 </a>
               )}
               <div className="h-px bg-[var(--border-color)] my-1" />
@@ -716,17 +790,20 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task, isDragging, onDragStar
     <div
       draggable
       onDragStart={handleDragStartInternal}
-      onClick={() => setSelectedTask(task)}
+      onClick={openOrToggle}
       className={`task-card ${isCondensed ? 'task-card-condensed' : ''} group relative border bg-[var(--bg-secondary)] ${isCondensed ? 'rounded-none px-1.5 py-1' : 'p-3'} hover:shadow-md transition-all duration-150 cursor-grab active:cursor-grabbing select-none ${
         isRunning
-          ? 'border-indigo-500/60 shadow-md shadow-indigo-500/10 ring-1 ring-indigo-500/20'
+          ? `border-indigo-500/60 shadow-md shadow-indigo-500/10 ${selected ? '' : 'ring-1 ring-indigo-500/20'}`
           : isQueued
-          ? 'border-amber-500/50 shadow-md shadow-amber-500/10 ring-1 ring-amber-500/20'
+          ? `border-amber-500/50 shadow-md shadow-amber-500/10 ${selected ? '' : 'ring-1 ring-amber-500/20'}`
+          : selected
+          ? 'border-[var(--accent-color)]'
           : 'border-[var(--border-color)] hover:border-[var(--accent-color)]/60'
-      } ${
+      } ${selected ? 'ring-2 ring-[var(--accent-color)]' : ''} ${
         isDragging ? 'opacity-40 scale-95 ring-2 ring-[var(--accent-color)] ring-dashed' : ''
       }`}
     >
+      {showsEpicBar && <EpicBar parentKey={task.parentKey} />}
       {isCondensed ? (
         <div className="flex items-center gap-1 min-w-0">
           {externalUrl ? (
@@ -734,9 +811,11 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task, isDragging, onDragStar
               {task.key}
             </a>
           ) : <span className="shrink-0 whitespace-nowrap text-[10px] font-mono font-bold text-[var(--accent-color)]">{task.key}</span>}
-          <button type="button" title={task.title} onClick={e => { e.stopPropagation(); setSelectedTask(task) }} className="min-w-0 flex-1 truncate text-left text-[11px] font-semibold text-[var(--text-primary)] leading-none cursor-pointer focus-visible:outline-2 focus-visible:outline-[var(--accent-color)]">
+          {projectBadge}
+          <button type="button" title={task.title} onClick={e => { e.stopPropagation(); openOrToggle(e) }} className="min-w-0 flex-1 truncate text-left text-[11px] font-semibold text-[var(--text-primary)] leading-none cursor-pointer focus-visible:outline-2 focus-visible:outline-[var(--accent-color)]">
             {task.title}
           </button>
+          {selectionBox}
           <RemoteRunBadge taskId={task.id} />
           {modelIndicator}
           {actionsMenu}
@@ -784,8 +863,11 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task, isDragging, onDragStar
           )}
         </span>
 
-        {/* Pastille de priorité */}
-        {getPriorityBadge(task.priority)}
+        <div className="flex items-center gap-2 shrink-0">
+          {projectBadge}
+          {getPriorityBadge(task.priority)}
+          {selectionBox}
+        </div>
       </div>
 
       {/* Ligne 1b : Titre, sous la référence */}
@@ -829,7 +911,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task, isDragging, onDragStar
               className="p-1 rounded text-purple-300 bg-purple-500/10 hover:bg-purple-500/25 border border-purple-500/30 transition-all hover:scale-105"
               title={task.prUrl.includes('gitlab') ? `GitLab MR: ${task.prUrl}` : `GitHub PR: ${task.prUrl}`}
             >
-              <GitPullRequest size={12} className="text-purple-400" />
+              <PullRequestStateIcon task={task} size={12} />
             </a>
           )}
 

@@ -257,3 +257,177 @@ func TestSilenceToleratesSessionsWithoutRuns(t *testing.T) {
 	nilRegistry.markSilentSessions()
 	nilRegistry.Stop()
 }
+
+// recordingWaiter stands in for the database's waiting marks, which name the
+// session that declared them.
+type recordingWaiter struct {
+	mu      sync.Mutex
+	marks   map[string][]string
+	cleared []string
+}
+
+func (w *recordingWaiter) mark(sessionID, runID string) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.marks == nil {
+		w.marks = make(map[string][]string)
+	}
+	w.marks[sessionID] = append(w.marks[sessionID], runID)
+}
+
+func (w *recordingWaiter) ResumeWaits(sessionID string) ([]string, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	runs := w.marks[sessionID]
+	delete(w.marks, sessionID)
+	w.cleared = append(w.cleared, runs...)
+	return runs, nil
+}
+
+func (w *recordingWaiter) recorded() []string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return append([]string(nil), w.cleared...)
+}
+
+// A session that speaks again is no longer blocked: Resume clears every wait it
+// declared, once, and leaves other sessions' waits alone.
+func TestResumeClearsOnlyTheSessionsOwnWaits(t *testing.T) {
+	waits := &recordingWaiter{}
+	registry := silentRegistry(t, &recordingCloser{}, nil, time.Hour)
+	registry.SetWaiter(waits)
+	registry.open("session-1", nil)
+	registry.open("session-2", nil)
+	waits.mark("session-1", "run-1")
+	waits.mark("session-2", "run-2")
+
+	if cleared := registry.Resume("session-1"); cleared != 1 {
+		t.Fatalf("cleared = %d, want 1", cleared)
+	}
+	if cleared := registry.Resume("session-1"); cleared != 0 {
+		t.Fatalf("a second resume cleared %d waits, want none", cleared)
+	}
+	if got := waits.recorded(); len(got) != 1 || got[0] != "run-1" {
+		t.Fatalf("cleared = %v, want only run-1", got)
+	}
+}
+
+// The registry holds no wait of its own: a session it never watched, such as
+// one declared before a restart or served by another instance, has its wait
+// ended by its call all the same (#475).
+func TestResumeClearsTheWaitOfASessionTheRegistryNeverSaw(t *testing.T) {
+	waits := &recordingWaiter{}
+	registry := silentRegistry(t, &recordingCloser{}, nil, time.Hour)
+	registry.SetWaiter(waits)
+	waits.mark("other-instance.session-9", "run-9")
+
+	if cleared := registry.Resume("other-instance.session-9"); cleared != 1 {
+		t.Fatalf("cleared = %d, want the wait of the unknown session", cleared)
+	}
+}
+
+// Closing a session clears the waits it declared; the runs it owns are closed.
+func TestCloseClearsTheSessionsWaits(t *testing.T) {
+	waits, closer := &recordingWaiter{}, &recordingCloser{}
+	registry := silentRegistry(t, closer, nil, time.Hour)
+	registry.SetWaiter(waits)
+	registry.open("session-1", nil)
+	registry.Adopt("session-1", "owned", "TASK-1", "clarify")
+	waits.mark("session-1", "launched")
+
+	registry.Close("session-1")
+	if got := waits.recorded(); len(got) != 1 || got[0] != "launched" {
+		t.Fatalf("cleared = %v, want the run the session waited on", got)
+	}
+	if got := closer.recorded(); len(got) != 1 || got[0] != "TASK-1/owned/"+disconnectStatus {
+		t.Fatalf("closed = %v, want the owned run", got)
+	}
+}
+
+// A run closed from the board is no longer the session's to close.
+func TestReleasedRunIsNotClosedByItsSession(t *testing.T) {
+	closer := &recordingCloser{}
+	registry := silentRegistry(t, closer, nil, time.Hour)
+	registry.open("session-1", nil)
+	registry.Adopt("session-1", "run-1", "TASK-1", "clarify")
+	registry.ReleaseRun("run-1")
+	registry.ReleaseRun("")
+
+	if closed := registry.Close("session-1"); closed != 0 {
+		t.Fatalf("closed = %d, want 0 for a released run", closed)
+	}
+	var nilRegistry *SessionRegistry
+	nilRegistry.ReleaseRun("run-1")
+	nilRegistry.Resume("session-1")
+}
+
+// A session silent past the abandon bound stands for a client that died without
+// a word: its runs are closed with the disconnect note, after the silence
+// sentence, and the session is forgotten (#319).
+func TestAbandonedSessionClosesItsRuns(t *testing.T) {
+	closer, notes := &recordingCloser{}, &recordingNoter{}
+	registry := NewSessionRegistryBounded(closer, notes, time.Hour, 3*time.Hour)
+	registry.Stop()
+	base := time.Unix(1700000000, 0)
+	registry.now = func() time.Time { return base }
+	registry.open("session-1", nil)
+	registry.Adopt("session-1", "run-1", "TASK-1", "implement")
+
+	registry.now = func() time.Time { return base.Add(2 * time.Hour) }
+	registry.markSilentSessions()
+	if calls := closer.recorded(); len(calls) != 0 {
+		t.Fatalf("a session below the abandon bound was closed: %v", calls)
+	}
+
+	registry.now = func() time.Time { return base.Add(3 * time.Hour) }
+	registry.markSilentSessions()
+	if calls := closer.recorded(); len(calls) != 1 || calls[0] != "TASK-1/run-1/"+disconnectStatus {
+		t.Fatalf("finish calls = %v, want the run canceled on abandonment", calls)
+	}
+	if len(notes.recorded()) != 1 {
+		t.Fatalf("notes = %v, want the one silence sentence before the closure", notes.recorded())
+	}
+	if snapshot := registry.Snapshot(); len(snapshot) != 0 {
+		t.Fatalf("snapshot = %v, want the abandoned session gone", snapshot)
+	}
+}
+
+// A message resets the clock, so a session that speaks now and then is never
+// abandoned, however long it lives.
+func TestSpeakingSessionIsNeverAbandoned(t *testing.T) {
+	closer := &recordingCloser{}
+	registry := NewSessionRegistryBounded(closer, &recordingNoter{}, time.Hour, 3*time.Hour)
+	registry.Stop()
+	base := time.Unix(1700000000, 0)
+	registry.now = func() time.Time { return base }
+	registry.open("session-1", nil)
+	registry.Adopt("session-1", "run-1", "TASK-1", "implement")
+	for hour := 2; hour <= 20; hour += 2 {
+		registry.now = func() time.Time { return base.Add(time.Duration(hour) * time.Hour) }
+		registry.Touch("session-1")
+		registry.markSilentSessions()
+	}
+	if calls := closer.recorded(); len(calls) != 0 {
+		t.Fatalf("a session that kept speaking was abandoned: %v", calls)
+	}
+}
+
+// No session is closed before its silence was remarked upon: an abandon bound
+// below the silence bound is raised to it, and invalid values take defaults.
+func TestAbandonBoundIsNeverBelowTheSilenceBound(t *testing.T) {
+	for _, tc := range []struct {
+		silence, abandon, want time.Duration
+	}{
+		{time.Hour, 30 * time.Minute, time.Hour},
+		{time.Hour, 0, defaultAbandonAfter},
+		{0, -time.Minute, defaultAbandonAfter},
+		{10 * time.Hour, 0, 10 * time.Hour},
+		{time.Hour, 2 * time.Hour, 2 * time.Hour},
+	} {
+		registry := NewSessionRegistryBounded(nil, nil, tc.silence, tc.abandon)
+		registry.Stop()
+		if registry.abandon != tc.want {
+			t.Errorf("silence %s, abandon %s: got %s, want %s", tc.silence, tc.abandon, registry.abandon, tc.want)
+		}
+	}
+}

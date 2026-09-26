@@ -7,8 +7,14 @@ import (
 )
 
 func (d *DB) managedStageRunningUnsafe(taskID string) (bool, error) {
+	return managedStageRunningOn(d.conn, taskID)
+}
+
+// managedStageRunningOn is the running-stage rule read through q, so a
+// transaction that locked the task can check it on the state it holds.
+func managedStageRunningOn(q rowQuerier, taskID string) (bool, error) {
 	var running bool
-	err := d.conn.QueryRow(`SELECT EXISTS (
+	err := q.QueryRow(`SELECT EXISTS (
 		SELECT 1 FROM task_activities WHERE task_id = ? AND status = 'running'
 		AND action != ('Exécution de ' || skill_id || ' sur l''agent local')
 		AND skill_id IN ('clarify', 'specify', 'implement', 'adjust', 'create_pr', 'review', 'pickup', 'pick', 'handoff')
@@ -17,10 +23,13 @@ func (d *DB) managedStageRunningUnsafe(taskID string) (bool, error) {
 }
 
 // ActiveRunOnTask reports the run that makes a task busy for a new launch, or
-// nil when none does. A run waiting for user input is active: the session that
-// owns it is still there, and waiting keeps the row in status 'running'. An
-// agent_launch record is a launch, not a run, and is excluded the same way
-// managedStageRunningUnsafe excludes it.
+// nil when none does. Every active run counts, ordinary or concurrent: the
+// database only refuses a second ordinary one, but a launch must still see a
+// forced run it would sit next to. A queued run is active, since it will start
+// an agent on the task; so is a run waiting for user input, whose row stays
+// 'running'. An agent_launch record is a launch, not a run.
+//
+// A running run is reported before a queued one, the oldest first.
 //
 // This is deliberately not managedStageRunningUnsafe: that helper guards stage
 // transitions and postbacks, and its skill list omits 'remote_run' on purpose.
@@ -31,12 +40,10 @@ func (d *DB) ActiveRunOnTask(taskID string) (*models.TaskActivity, error) {
 	var a models.TaskActivity
 	var startedAt, waitingSince sql.NullTime
 	err := d.conn.QueryRow(`
-		SELECT id, task_id, skill_id, skill_name, action, status, started_at, waiting_since, user_id
+		SELECT id, task_id, skill_id, skill_name, action, status, started_at, waiting_since, user_id, concurrent
 		FROM task_activities
-		WHERE task_id = ? AND status = 'running'
-		AND action != ('Exécution de ' || skill_id || ' sur l''agent local')
-		AND skill_id IN ('remote_run', 'clarify', 'specify', 'implement', 'adjust', 'create_pr', 'review', 'pickup', 'pick', 'handoff')
-		ORDER BY started_at ASC, created_at ASC
+		WHERE task_id = ? AND `+activeRunPredicate()+`
+		ORDER BY started_at IS NULL, started_at ASC, created_at ASC
 		LIMIT 1
 	`, taskID).Scan(
 		&a.ID,
@@ -48,6 +55,7 @@ func (d *DB) ActiveRunOnTask(taskID string) (*models.TaskActivity, error) {
 		&startedAt,
 		&waitingSince,
 		&a.UserID,
+		&a.Concurrent,
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {

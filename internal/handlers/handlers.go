@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"tasks/internal/tracker"
 	"tasks/internal/trackerapi"
 	"time"
@@ -28,6 +29,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 type Event struct {
@@ -50,6 +52,18 @@ type Handler struct {
 	// mcpSessions owns the lifecycle of MCP client sessions and of the runs
 	// they start, so a client that disappears cannot leave a task active.
 	mcpSessions *taskmcp.SessionRegistry
+	// The MCP server and its transport are built once, by
+	// mcpStreamableHandler: the transport holds the sessions, which the public
+	// and internal routes share.
+	mcpOnce       sync.Once
+	mcpServer     *mcp.Server
+	mcpStreamable http.Handler
+	// mcpCluster forwards MCP requests to the instance holding their session.
+	// Nil when this instance shares its store with nobody.
+	mcpCluster *mcpCluster
+	// internalServing and draining feed the readiness probe (#410).
+	internalServing atomic.Bool
+	draining        atomic.Bool
 	// identityProvider is nil when no OpenID Connect provider is configured,
 	// which leaves the interface on its single implicit user.
 	identityProvider *auth.Provider
@@ -76,12 +90,16 @@ func NewHandler(database *db.DB) *Handler {
 		db:                database,
 		subscribers:       make(map[chan Event]bool),
 		agentDispatcher:   NewAgentDispatcher(),
-		mcpSessions:       taskmcp.NewSessionRegistryWith(runs, notes, mcpSilenceNotice()),
+		mcpSessions:       taskmcp.NewSessionRegistryBounded(runs, notes, mcpSilenceNotice(), mcpAbandonAfter(mcpSilenceNotice())),
 		agentPingInterval: defaultAgentPingInterval,
 		agentReadTimeout:  defaultAgentReadTimeout,
 	}
+	h.mcpSessions.SetKeepalive(mcpKeepaliveInterval(), mcpKeepaliveFailures())
 	if database != nil {
 		database.SetAgentOperations(h.agentDispatcher.CallOperation)
+		h.mcpSessions.SetWaiter(database)
+		h.mcpSessions.SetInstance(database.InstanceID())
+		database.RegisterWaitListener(h.pushRunWaiting)
 		database.RegisterPostBackListener(func(task *models.Task, activity *models.TaskActivity, err error) {
 			errStr := ""
 			if err != nil {
@@ -94,8 +112,71 @@ func NewHandler(database *db.DB) *Handler {
 				Error:    errStr,
 			})
 		})
+		database.OnRelayedEvent(h.deliverRelayedEvent)
 	}
 	return h
+}
+
+// pushRunWaiting tells the owner's agent that a live run started or stopped
+// waiting, since the desktop banner reads the agent's run list and a wait is
+// declared on the server, over MCP. It hears the changes of the mark alone, so
+// every one is sent, whichever instance or process set the mark it clears
+// (#475). A finished run is not sent, because the agent sees the exit itself.
+// An agent that is not connected misses it, and is sent the run's state when it
+// reconnects (resendRunWaits).
+func (h *Handler) pushRunWaiting(task *models.Task, activity *models.TaskActivity) {
+	if task == nil || activity == nil {
+		return
+	}
+	// Listeners run concurrently, so a mark and the clear that follows it may be
+	// delivered out of order. Sending the run as it is now, rather than as it was
+	// when this notification was raised, makes the last message the true one.
+	if current, err := h.db.GetActivityByID(activity.ID); err == nil && current != nil {
+		activity = current
+	}
+	h.sendRunWaiting(task, activity)
+}
+
+// sendRunWaiting sends a live agent run's waiting state, set or clear, to its
+// owner's agent. Only a run an agent dispatched can be on an agent's list.
+func (h *Handler) sendRunWaiting(task *models.Task, activity *models.TaskActivity) {
+	if activity.SkillID != "remote_run" || activity.Action != db.RunActionAgent || activity.UserID == "" || activity.Status != "running" {
+		return
+	}
+	_ = h.agentDispatcher.Dispatch(activity.UserID, task.ProjectID, agentprotocol.RunWaitingType, task.ID,
+		agentprotocol.RunWaiting{RunID: activity.ID, WaitingSince: activity.WaitingSince})
+}
+
+// resendRunWaits sends a reconnected agent the waiting state of every live run
+// it reported, so a mark set or cleared while it was away reaches the desktop.
+func (h *Handler) resendRunWaits(ownerID string, tasks []agentprotocol.RunningTask) {
+	for _, t := range tasks {
+		if t.Status != "running" {
+			continue
+		}
+		activity, err := h.db.GetActivityByID(t.ID)
+		if err != nil || activity == nil || activity.UserID != ownerID {
+			continue
+		}
+		task, err := h.db.GetTaskByID(activity.TaskID)
+		if err != nil || task == nil {
+			continue
+		}
+		h.sendRunWaiting(task, activity)
+	}
+}
+
+// answerRunWait ends the wait an agent reports its owner answered in the run's
+// console. The connection's user is the only one it may answer for.
+func (h *Handler) answerRunWait(ac *AgentConn, msg AgentMessage) {
+	var payload agentprotocol.RunAnswered
+	if err := json.Unmarshal(msg.Payload, &payload); err != nil {
+		log.Printf("[AgentConnect] Invalid run_answered payload from %s: %v", ac.DeviceID, err)
+		return
+	}
+	if _, err := h.db.AnswerRemoteRunWait(ac.UserID, payload.RunID, payload.WaitingSince); err != nil {
+		log.Printf("[AgentConnect] Cannot end the answered wait of run %s: %v", payload.RunID, err)
+	}
 }
 
 func (h *Handler) SubscribeEvents() chan Event {
@@ -115,7 +196,28 @@ func (h *Handler) UnsubscribeEvents(ch chan Event) {
 	}
 }
 
+// localOnlyEvents are delivered to this instance's browsers and never relayed:
+// terminal output is emitted per chunk, and nothing in another instance reads it.
+var localOnlyEvents = map[string]bool{"agent_pty_output": true}
+
+// BroadcastEvent delivers an event to this instance's browsers, then relays it
+// to the other instances sharing the database, which deliver it to theirs.
 func (h *Handler) BroadcastEvent(event Event) {
+	h.broadcastLocal(event)
+	if h.db == nil || localOnlyEvents[event.Type] {
+		return
+	}
+	taskID, activityID := "", ""
+	if event.Task != nil {
+		taskID = event.Task.ID
+	}
+	if event.Activity != nil {
+		activityID = event.Activity.ID
+	}
+	h.db.PublishEvent(event.Type, taskID, activityID, event.Error)
+}
+
+func (h *Handler) broadcastLocal(event Event) {
 	h.subMu.RLock()
 	defer h.subMu.RUnlock()
 	for ch := range h.subscribers {
@@ -124,6 +226,24 @@ func (h *Handler) BroadcastEvent(event Event) {
 		default:
 		}
 	}
+}
+
+// deliverRelayedEvent turns what another instance published back into the
+// event its browsers received, with the task and activity as they now stand,
+// and delivers it here only: relaying it again would echo it between instances.
+func (h *Handler) deliverRelayedEvent(msg db.BusMessage) {
+	event := Event{Type: msg.Type, Error: msg.Error}
+	if msg.TaskID != "" {
+		if task, err := h.db.GetTaskByID(msg.TaskID); err == nil {
+			event.Task = task
+		}
+	}
+	if msg.ActivityID != "" {
+		if activity, err := h.db.GetActivityByID(msg.ActivityID); err == nil {
+			event.Activity = activity
+		}
+	}
+	h.broadcastLocal(event)
 }
 
 // SetDataDir tells the handler where the application's own files live.
@@ -156,12 +276,41 @@ func writeError(w http.ResponseWriter, status int, message string) {
 	writeJSON(w, status, map[string]string{"error": message})
 }
 
+// writeTrackerError answers a failed request whose tracker write may have been
+// refused for want of the caller's own credential (#482). That refusal is a
+// 403 with its message: the caller has something to add, a personal credential
+// or a key tied to a user, and a 500 would say the server broke. Any other
+// error keeps the status the handler chose.
+func writeTrackerError(w http.ResponseWriter, status int, err error) {
+	var missing *trackerapi.MissingPersonalCredentialError
+	switch {
+	case errors.As(err, &missing):
+		writeError(w, http.StatusForbidden, err.Error())
+	case errors.Is(err, trackerapi.ErrNoActingUser):
+		// Over REST, a write that names nobody comes from a key tied to no
+		// user: say so, rather than name an internal invariant.
+		writeError(w, http.StatusForbidden, taskmcp.AnonymousWriteRefusal)
+	default:
+		writeError(w, status, err.Error())
+	}
+}
+
+// trackerWriteRefused reports an error writeTrackerError answers with a 403.
+func trackerWriteRefused(err error) bool {
+	var missing *trackerapi.MissingPersonalCredentialError
+	return errors.As(err, &missing) || errors.Is(err, trackerapi.ErrNoActingUser)
+}
+
 // describeActiveRun names the run that blocks a launch, and when it started,
 // so the refusal says what is already happening rather than that something is.
 func describeActiveRun(a *models.TaskActivity) string {
 	name := a.SkillName
 	if strings.TrimSpace(name) == "" {
 		name = a.SkillID
+	}
+	// A queued run has not started, so it has no time to name.
+	if a.Status == string(models.ActivityStatusQueued) || a.Status == string(models.ActivityStatusPending) {
+		return fmt.Sprintf("A run of %s is queued on this task.", name)
 	}
 	started := "an unknown time"
 	if a.StartedAt != nil {
@@ -171,6 +320,22 @@ func describeActiveRun(a *models.TaskActivity) string {
 		return fmt.Sprintf("A run of %s started at %s is still active on this task, waiting for user input.", name, started)
 	}
 	return fmt.Sprintf("A run of %s started at %s is still active on this task.", name, started)
+}
+
+// writeTaskBusy answers a launch the database refused because the task already
+// carries an active run, with the body the busy check answers, and reports
+// whether it did. Any other error is left to the caller.
+func writeTaskBusy(w http.ResponseWriter, err error) bool {
+	var busy *db.TaskBusyError
+	if !errors.As(err, &busy) {
+		return false
+	}
+	body := map[string]string{"error": "Another run is active on this task."}
+	if busy.Active != nil {
+		body = map[string]string{"error": describeActiveRun(busy.Active), "activeRunId": busy.Active.ID}
+	}
+	writeJSON(w, http.StatusConflict, body)
+	return true
 }
 
 func (h *Handler) HandleHealth(w http.ResponseWriter, r *http.Request) {
@@ -424,6 +589,32 @@ func (h *Handler) HandleSyncJira(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// HandleSyncGitlab queues a GitLab synchronisation of one project: the job
+// resolves the project's GitLab adapter, instance and project path.
+//
+//	POST /api/sync/gitlab {projectId}
+func (h *Handler) HandleSyncGitlab(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+	var req struct {
+		ProjectID string `json:"projectId"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&req)
+
+	activity, err := h.db.EnqueueSyncAs(h.webSessionUser(r), "gitlab", "", req.ProjectID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"message":  "Synchronisation GitLab ajoutée à la file d'attente",
+		"activity": activity,
+	})
+}
+
 // HandleSpecFrameworkStatus reports whether GitHub Spec Kit / OpenSpec are
 // installed on the host and initialized in a project working directory.
 // GET /api/spec-framework/status?projectId=…&repoPath=…&framework=speckit|openspec
@@ -500,17 +691,13 @@ func (h *Handler) HandleProjects(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "Le nom du projet est obligatoire")
 			return
 		}
-		if err := agentconfig.ValidModelConfig(agentconfig.ModelConfig{Model: req.AIModel, SkillModels: req.AISkillModels}); err != nil {
-			writeError(w, http.StatusBadRequest, err.Error())
-			return
-		}
 
 		// The creator owns the project: the background synchronisation has no
 		// acting user of its own and reads under that account.
 		userID := h.webSessionUser(r)
 		project, err := h.db.CreateProjectAs(userID, req)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
+			writeError(w, repositoryErrorStatus(err), err.Error())
 			return
 		}
 		if userID != "" && project != nil {
@@ -710,9 +897,9 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "Invalid payload: "+err.Error())
 			return
 		}
-		meta, err := h.db.CreateEpic(id, req.Title, req.Horizon, req.Fields)
+		meta, err := h.db.CreateEpic(h.actingContext(r), id, req.Title, req.Horizon, req.Fields)
 		if err != nil {
-			writeError(w, http.StatusBadRequest, err.Error())
+			writeTrackerError(w, http.StatusBadRequest, err)
 			return
 		}
 		writeJSON(w, http.StatusOK, meta)
@@ -754,6 +941,48 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Sub-action: /api/projects/{id}/legacy-repo-paths: what a local agent
+	// converts to repositories, once per project (#456).
+	if len(parts) >= 2 && parts[1] == "legacy-repo-paths" && r.Method == http.MethodGet {
+		legacy, err := h.db.LegacyRepoPaths(id)
+		if err != nil {
+			writeError(w, http.StatusNotFound, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, legacy)
+		return
+	}
+
+	// Sub-action: /api/projects/{id}/repositories/convert: a local agent's
+	// conversion of the legacy paths. The first one applies, the others get 409.
+	if len(parts) >= 3 && parts[1] == "repositories" && parts[2] == "convert" && r.Method == http.MethodPost {
+		var report models.RepositoryConversion
+		if err := json.NewDecoder(r.Body).Decode(&report); err != nil {
+			writeError(w, http.StatusBadRequest, "Payload invalide: "+err.Error())
+			return
+		}
+		project, err := h.db.ApplyRepositoryConversion(h.webSessionUser(r), id, report)
+		if errors.Is(err, db.ErrRepositoriesConverted) {
+			writeError(w, http.StatusConflict, err.Error())
+			return
+		}
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, project)
+		return
+	}
+
+	// Sub-action: /api/projects/{id}/engine: what the caller's own workstation
+	// reported it will run for this project (#305), for the launch picker and
+	// the pre-run badge. Unknown when no agent of theirs is connected for it:
+	// a report left by a workstation that went away is not what would run.
+	if len(parts) >= 2 && parts[1] == "engine" && r.Method == http.MethodGet {
+		writeJSON(w, http.StatusOK, h.projectEngine(h.webSessionUser(r), id))
+		return
+	}
+
 	// Sub-action: /api/projects/{id}/issue-types: the work item types the
 	// project's tracker exposes, for the picker in the project settings.
 	if len(parts) >= 2 && parts[1] == "issue-types" && r.Method == http.MethodGet {
@@ -788,6 +1017,13 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 			"activity": activity,
 			"count":    len(req.TaskIDs),
 		})
+		return
+	}
+
+	// Sub-action: /api/projects/{id}/sprints[/{sprintId}]: manage the tracker's
+	// sprints (create a batch, rename, re-date, close, delete).
+	if len(parts) >= 2 && parts[1] == "sprints" {
+		h.handleProjectSprints(w, r, id, parts)
 		return
 	}
 
@@ -875,9 +1111,9 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "Invalid payload: "+err.Error())
 			return
 		}
-		meta, count, err := h.db.MigrateMacro(id, macroKey, req.TargetProjectID, req.MigrateTasks)
+		meta, count, err := h.db.MigrateMacro(h.actingContext(r), id, macroKey, req.TargetProjectID, req.MigrateTasks)
 		if err != nil {
-			writeError(w, http.StatusBadRequest, err.Error())
+			writeTrackerError(w, http.StatusBadRequest, err)
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]interface{}{
@@ -905,20 +1141,20 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if strings.TrimSpace(req.TodoID) == "" {
-			task, err := h.db.CreateStoryUnderMacro(id, macroKey, req.Title)
+			task, notice, err := h.db.CreateStoryUnderMacro(h.actingContext(r), id, macroKey, req.Title)
 			if err != nil {
-				writeError(w, http.StatusBadRequest, err.Error())
+				writeTrackerError(w, http.StatusBadRequest, err)
 				return
 			}
-			writeJSON(w, http.StatusOK, map[string]interface{}{"task": task, "storyKey": task.Key})
+			writeJSON(w, http.StatusOK, map[string]interface{}{"task": task, "storyKey": task.Key, "notice": notice})
 			return
 		}
-		meta, key, err := h.db.CreateStoryFromMacroTodo(id, macroKey, req.TodoID)
+		meta, task, notice, err := h.db.CreateStoryFromMacroTodo(h.actingContext(r), id, macroKey, req.TodoID)
 		if err != nil {
-			writeError(w, http.StatusBadRequest, err.Error())
+			writeTrackerError(w, http.StatusBadRequest, err)
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]interface{}{"macro": meta, "epic": meta, "storyKey": key})
+		writeJSON(w, http.StatusOK, map[string]interface{}{"macro": meta, "epic": meta, "storyKey": task.Key, "task": task, "notice": notice})
 		return
 	}
 
@@ -936,12 +1172,32 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 				writeError(w, http.StatusBadRequest, "Invalid macro payload: "+err.Error())
 				return
 			}
-			created, err := h.db.CreateMacro(id, req.Title, req.Horizon, req.Fields)
+			created, err := h.db.CreateMacro(h.actingContext(r), id, req.Title, req.Horizon, req.Fields)
 			if err != nil {
-				writeError(w, http.StatusBadRequest, err.Error())
+				writeTrackerError(w, http.StatusBadRequest, err)
 				return
 			}
 			writeJSON(w, http.StatusOK, created)
+			return
+		}
+
+		// Macro skill runs: /api/projects/{id}/macros/{key}/run-skill launches a
+		// macro-scoped skill on the local agent; .../runs lists the recent ones.
+		if len(parts) >= 4 && (parts[3] == "run-skill" || parts[3] == "runs" || parts[3] == "cancel-run") {
+			key := parts[2]
+			if decoded, err := url.PathUnescape(parts[2]); err == nil {
+				key = decoded
+			}
+			switch {
+			case parts[3] == "run-skill" && r.Method == http.MethodPost:
+				h.handleMacroRunSkill(w, r, id, key)
+			case parts[3] == "runs" && r.Method == http.MethodGet:
+				h.handleMacroRuns(w, id, key)
+			case parts[3] == "cancel-run" && r.Method == http.MethodPost:
+				h.handleMacroCancelRun(w, r, id, key)
+			default:
+				writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
+			}
 			return
 		}
 
@@ -961,6 +1217,47 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 				"todos":         todos,
 				"proposedTasks": proposed,
 				"specFramework": framework,
+			})
+			return
+		}
+
+		// Slicing: /api/projects/{id}/macros/{key}/slicing produces the macro's
+		// todo lines from the SDD artefacts, read by the requesting user's local
+		// agent in the specifications folder of their workstation.
+		//
+		// Rien n'est écrit dans le dépôt ni sur le tracker, et aucune story
+		// n'est créée : c'est une lecture, et la découpe reste modifiable.
+		if len(parts) >= 4 && parts[3] == "slicing" && r.Method == http.MethodPost {
+			key := parts[2]
+			if decoded, err := url.PathUnescape(parts[2]); err == nil {
+				key = decoded
+			}
+			var req struct {
+				Source string `json:"source"`
+			}
+			// Un corps absent vaut la source par défaut : le geste courant ne
+			// doit pas exiger une charge utile pour être appelable.
+			_ = json.NewDecoder(r.Body).Decode(&req)
+			// Les stories déjà créées ne sont pas une source de fichier : elles
+			// sont routées avant la normalisation, qui ne connaît que le dépôt
+			// et ferait retomber « stories » sur tasks.md en silence.
+			var meta *models.MacroMeta
+			var origin string
+			var err error
+			if strings.EqualFold(strings.TrimSpace(req.Source), models.MacroTodoFromStories) {
+				meta, origin, err = h.db.TodosFromMacroStories(id, key)
+			} else {
+				meta, origin, err = h.db.TodosFromSDD(r.Context(), h.webSessionUser(r), id, key, db.NormalizeSlicingSource(req.Source))
+				err = slicingReadError(err)
+			}
+			if err != nil {
+				writeError(w, http.StatusBadRequest, err.Error())
+				return
+			}
+			writeJSON(w, http.StatusOK, map[string]interface{}{
+				"macro":  meta,
+				"epic":   meta,
+				"origin": origin,
 			})
 			return
 		}
@@ -994,9 +1291,9 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 					key = decoded
 				}
 			}
-			saved, err := h.db.UpdateMacro(id, key, req.Title, req.Horizon, req.Description, req.FramingComment, req.Todos, req.Closed)
+			saved, err := h.db.UpdateMacro(h.actingContext(r), id, key, req.Title, req.Horizon, req.Description, req.FramingComment, req.Todos, req.Closed)
 			if err != nil {
-				writeError(w, http.StatusBadRequest, err.Error())
+				writeTrackerError(w, http.StatusBadRequest, err)
 				return
 			}
 			labelNote := ""
@@ -1026,8 +1323,8 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 				writeError(w, http.StatusBadRequest, "Clé de macro obligatoire")
 				return
 			}
-			if err := h.db.DeleteMacro(id, key); err != nil {
-				writeError(w, http.StatusInternalServerError, err.Error())
+			if err := h.db.DeleteMacro(h.actingContext(r), id, key); err != nil {
+				writeTrackerError(w, http.StatusInternalServerError, err)
 				return
 			}
 			writeJSON(w, http.StatusOK, map[string]interface{}{"status": "deleted", "key": key})
@@ -1318,23 +1615,11 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "Payload invalide: "+err.Error())
 			return
 		}
-		var requested agentconfig.ModelConfig
-		if req.AIModel != nil {
-			requested.Model = *req.AIModel
-		}
-		if req.AISkillModels != nil {
-			requested.SkillModels = *req.AISkillModels
-		}
-		if err := agentconfig.ValidModelConfig(requested); err != nil {
-			writeError(w, http.StatusBadRequest, err.Error())
-			return
-		}
-
 		// Saving an ownerless project adopts the person saving it, so its
 		// background synchronisation stops running as the server.
 		project, err := h.db.UpdateProjectAs(h.webSessionUser(r), id, req)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
+			writeError(w, repositoryErrorStatus(err), err.Error())
 			return
 		}
 		writeJSON(w, http.StatusOK, project)
@@ -1423,9 +1708,9 @@ func (h *Handler) HandleTasks(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "Invalid payload: "+err.Error())
 			return
 		}
-		count, err := h.db.MigrateTasks(req.TaskIDs, req.TargetProjectID)
+		count, err := h.db.MigrateTasks(h.actingContext(r), req.TaskIDs, req.TargetProjectID)
 		if err != nil {
-			writeError(w, http.StatusBadRequest, err.Error())
+			writeTrackerError(w, http.StatusBadRequest, err)
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]interface{}{
@@ -1469,6 +1754,12 @@ func (h *Handler) HandleTasks(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 			t, err := h.db.CreateTaskAs(h.actingContext(r), req)
+			// A refusal for want of the caller's credential refuses every
+			// line alike: it is answered rather than dropped with the rest.
+			if err != nil && len(created) == 0 && trackerWriteRefused(err) {
+				writeTrackerError(w, http.StatusBadRequest, err)
+				return
+			}
 			if err == nil && t != nil {
 				created = append(created, *t)
 			}
@@ -1499,7 +1790,24 @@ func (h *Handler) HandleTasks(w http.ResponseWriter, r *http.Request) {
 		// en cours quand le board en porte trois cents.
 		pinnedOnly := r.URL.Query().Get("pinned") == "1" || r.URL.Query().Get("pinned") == "true"
 
-		tasks, err := h.db.GetTasksForUser(h.webSessionUser(r), q, status, priority, label, projectID, sprint, team, assignee, macro, trackerStatuses, issueTypes, pinnedOnly)
+		// viewId: a saved view replaces the project with its own selection,
+		// and the other filters narrow it further (#387).
+		scope := db.TaskScope{UserID: h.webSessionUser(r), ProjectID: projectID, ViewID: r.URL.Query().Get("viewId")}
+		// mine=1: the tickets assigned to the caller, whoever they are on
+		// each ticket's tracker (#468). Resolved here, never sent by name.
+		if mine := r.URL.Query().Get("mine"); mine == "1" || mine == "true" {
+			identities, err := h.myTasks(r)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			scope.Mine = identities
+		}
+		tasks, err := h.db.GetTasksInScope(scope, q, status, priority, label, sprint, team, assignee, macro, trackerStatuses, issueTypes, pinnedOnly)
+		if errors.Is(err, db.ErrBoardViewNotFound) {
+			writeError(w, http.StatusNotFound, err.Error())
+			return
+		}
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -1537,11 +1845,12 @@ func (h *Handler) HandleTasks(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		// The creation carries whoever asked for it, so a tracker that
-		// attributes it to an account uses theirs when they stored one.
+		// The creation carries whoever asked for it: the tracker attributes
+		// it to their own account, and refuses it when they stored no
+		// credential of their own (#482).
 		task, err := h.db.CreateTaskAs(h.actingContext(r), req)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
+			writeTrackerError(w, http.StatusInternalServerError, err)
 			return
 		}
 		writeJSON(w, http.StatusCreated, task)
@@ -1561,8 +1870,13 @@ func (h *Handler) HandleTasks(w http.ResponseWriter, r *http.Request) {
 // reaches the settings, and the answer names what is wrong instead of leaving a
 // sync to fail later with nothing to show. `tracker` selects the fields that
 // matter: GitHub, GitLab and Jira are checked against the instance and
-// persisted here. storeTokenInFile is accepted for older clients and ignored:
-// no file store exists, the token goes to the user configuration.
+// persisted here. storeTokenInFile is accepted for older clients and ignored.
+//
+// A token (or a Jira e-mail) in a save is a server credential, which is an
+// admin's to set (#464): a member is refused, an admin's is checked as the
+// server's, never against their own personal token, and sealed with the
+// server credentials. The check alone stays open to everybody: the personal
+// credential form uses it.
 func (h *Handler) HandleTrackerSetup(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
@@ -1585,7 +1899,10 @@ func (h *Handler) HandleTrackerSetup(w http.ResponseWriter, r *http.Request) {
 	trackerName := strings.ToLower(strings.TrimSpace(req.Tracker))
 	checkOnly := strings.HasSuffix(strings.TrimSuffix(r.URL.Path, "/"), "/check")
 	verified := ""
-	if trackerName == "github" || trackerName == "gitlab" || trackerName == "jira" {
+	known := trackerName == "github" || trackerName == "gitlab" || trackerName == "jira"
+	serverCredential := !checkOnly && known &&
+		(strings.TrimSpace(req.Token) != "" || (trackerName == "jira" && strings.TrimSpace(req.Email) != ""))
+	if known && !serverCredential {
 		// A check is the one call somebody waits in front of, so how long it
 		// actually took is worth knowing: it separates a slow instance from a
 		// slow screen, which look identical from a chair.
@@ -1607,7 +1924,26 @@ func (h *Handler) HandleTrackerSetup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if trackerName == "github" || trackerName == "gitlab" || trackerName == "jira" {
-		settings, err := h.db.SaveTrackerCredentials(trackerName, req.SiteURL, req.Project, req.Email, req.Token)
+		if serverCredential {
+			caller, ok := h.requireSession(w, r)
+			if !ok {
+				return
+			}
+			if !caller.IsAdmin() {
+				writeError(w, http.StatusForbidden, msgServerCredentialAdminOnly)
+				return
+			}
+			account, err := h.db.CheckServerTrackerCredentials(r.Context(), trackerName, req.SiteURL, req.Email, req.Token)
+			if err != nil {
+				writeError(w, http.StatusBadRequest, err.Error())
+				return
+			}
+			if err := h.db.SaveServerTrackerCredential(trackerName, req.Email, req.Token, account, caller.UserID); err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+		}
+		settings, err := h.db.SaveTrackerCredentials(trackerName, req.SiteURL, req.Project)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -1643,7 +1979,15 @@ func (h *Handler) HandleTaskFacets(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
 		return
 	}
-	facets, err := h.db.GetTaskFacetsForUser(h.webSessionUser(r), r.URL.Query().Get("projectId"))
+	facets, err := h.db.GetTaskFacetsInScope(db.TaskScope{
+		UserID:    h.webSessionUser(r),
+		ProjectID: r.URL.Query().Get("projectId"),
+		ViewID:    r.URL.Query().Get("viewId"),
+	})
+	if errors.Is(err, db.ErrBoardViewNotFound) {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -1887,7 +2231,7 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "Invalid move payload: "+err.Error())
 			return
 		}
-		task, err := h.db.MoveTask(id, req.Status, req.Position)
+		task, err := h.db.MoveTaskBy(h.webPrincipal(r).Actor(), id, req.Status, req.Position)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -1944,6 +2288,7 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 		// anything is recorded, so a refused launch leaves no trace at all.
 		active, activeErr := h.db.ActiveRunOnTask(task.ID)
 		if activeErr != nil {
+			log.Printf("[Dispatch] cannot check task %s for an active run: %v", task.Key, activeErr)
 			writeError(w, http.StatusInternalServerError, "Cannot check the task for an active run")
 			return
 		}
@@ -1968,11 +2313,29 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 			projectID = task.ProjectID
 		}
 		userID := h.webSessionUser(r)
-		ac := h.agentDispatcher.Lookup(userID, projectID)
+		ac := h.agentDispatcher.Route(userID, projectID)
 
 		// 1. If a local agent daemon is connected, delegate the execution directly to it!
 		if ac != nil {
 			log.Printf("🚀 [Dispatch] Delegating skill %s on task %s (%s) to connected local agent (device=%s)", req.SkillID, task.Key, task.ID, ac.DeviceID)
+
+			// The mode is resolved before the run is recorded: it is what tells,
+			// once the run is over, whether anything was supposed to come back
+			// from it without a user closing a session.
+			mode := h.db.ResolveTaskSkillMode(projectID, req.SkillID, req.Mode)
+			// The engine the workstation reported is what the run shows until the
+			// agent reports the one it really built its command line with.
+			provider, model := h.db.ResolveTaskEngine(projectID, userID, ac.DeviceID, req.SkillID, req.Model)
+			// The run is recorded before the launch record, and its insert is the
+			// busy check that holds across server instances: a launch that lost
+			// the race to another one is refused here and leaves no trace.
+			// "Launch anyway" records a concurrent run, which the database lets
+			// sit next to the active one; with nothing active it is an ordinary
+			// launch.
+			remoteRun, runErr := h.db.StartAgentRun(task.ID, req.SkillID, db.RunLaunch{Mode: mode, Provider: provider, Model: model, UserID: userID, Force: req.Force && active != nil})
+			if writeTaskBusy(w, runErr) {
+				return
+			}
 
 			activityID := uuid.New().String()
 			now := time.Now()
@@ -1996,20 +2359,13 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 			}
 			_ = h.db.AddTaskActivity(act)
 
-			// The mode is resolved before the run is recorded: it is what tells,
-			// once the run is over, whether anything was supposed to come back
-			// from it without a user closing a session.
-			mode := h.db.ResolveTaskSkillMode(projectID, req.SkillID, req.Mode)
-			// The engine the server resolves is what the run shows until the
-			// agent reports the one it really built its command line with.
-			provider, model := h.db.ResolveTaskEngine(projectID, req.SkillID, req.Model)
-			remoteRun, runErr := h.db.StartAgentRun(task.ID, req.SkillID, db.RunLaunch{Mode: mode, Provider: provider, Model: model, UserID: userID})
 			if runErr != nil {
 				act.Status = "failed"
 				act.Error = runErr.Error()
 				finished := time.Now()
 				act.CompletedAt = &finished
 				_ = h.db.FinishAgentLaunch(act)
+				log.Printf("[Dispatch] cannot track remote execution on task %s: %v", task.Key, runErr)
 				writeError(w, http.StatusInternalServerError, "Cannot track remote execution")
 				return
 			}
@@ -2098,9 +2454,9 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "Target tracker is required ('github')")
 			return
 		}
-		task, err := h.db.ConvertTaskToRemote(id, req.Target)
+		task, err := h.db.ConvertTaskToRemote(h.actingContext(r), id, req.Target)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
+			writeTrackerError(w, http.StatusInternalServerError, err)
 			return
 		}
 		writeJSON(w, http.StatusOK, task)
@@ -2191,7 +2547,7 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 		}
 		if task, err := h.db.GetTaskByID(id); err == nil && task != nil {
 			userID := h.webSessionUser(r)
-			if ac := h.agentDispatcher.Lookup(userID, task.ProjectID); ac != nil {
+			if ac := h.agentDispatcher.Route(userID, task.ProjectID); ac != nil {
 				err := h.agentDispatcher.Dispatch(userID, task.ProjectID, "dispatch_step", task.ID, map[string]string{
 					"taskKey": task.Key, "taskId": task.ID, "projectId": task.ProjectID, "skillId": req.SkillID, "action": req.SkillID,
 				})
@@ -2216,14 +2572,13 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 	// Sub-action: /api/tasks/{id}/tty-external: open a native external terminal for the task
 	if (subAction == "tty-external" || subAction == "terminal-external") && r.Method == http.MethodPost {
 		var req struct {
-			Command         string `json:"command"`
-			SkillID         string `json:"skillId"`
-			TerminalCommand string `json:"terminalCommand"`
+			Command string `json:"command"`
+			SkillID string `json:"skillId"`
 		}
 		if r.Body != nil {
 			_ = json.NewDecoder(r.Body).Decode(&req)
 		}
-		res, err := h.launchTaskExternalTerminal(r.Context(), h.webSessionUser(r), id, req.Command, req.SkillID, req.TerminalCommand)
+		res, err := h.launchTaskExternalTerminal(r.Context(), h.webSessionUser(r), id, req.Command, req.SkillID)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
@@ -2246,7 +2601,7 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "skillId manquant")
 			return
 		}
-		task, act, err := h.db.CompleteInteractiveStep(id, req.SkillID, req.Note)
+		task, act, err := h.db.CompleteInteractiveStep(h.webSessionUser(r), id, req.SkillID, req.Note)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
@@ -2378,6 +2733,9 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 
 		if req.Auto {
 			_, act, err := h.db.EnqueueFullChainRun(task.ID)
+			if writeTaskBusy(w, err) {
+				return
+			}
 			if err != nil {
 				writeError(w, http.StatusBadRequest, err.Error())
 				return
@@ -2393,6 +2751,9 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		_, act, err := h.db.EnqueueSkillOnTaskWithOverrides(task.ID, step.SkillID, "", req.Mode, req.Model)
+		if writeTaskBusy(w, err) {
+			return
+		}
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
@@ -2504,7 +2865,7 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 			}
 			comments, err := h.db.PostTaskCommentAs(r.Context(), h.webPrincipal(r).Actor(), id, req.Body)
 			if err != nil {
-				writeError(w, http.StatusBadRequest, err.Error())
+				writeTrackerError(w, http.StatusBadRequest, err)
 				return
 			}
 			writeJSON(w, http.StatusOK, comments)
@@ -2588,9 +2949,9 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "Invalid payload: "+err.Error())
 			return
 		}
-		count, err := h.db.MigrateTasks([]string{id}, req.TargetProjectID)
+		count, err := h.db.MigrateTasks(h.actingContext(r), []string{id}, req.TargetProjectID)
 		if err != nil {
-			writeError(w, http.StatusBadRequest, err.Error())
+			writeTrackerError(w, http.StatusBadRequest, err)
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]interface{}{
@@ -2610,9 +2971,9 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 		if r.Body != nil && r.Body != http.NoBody {
 			_ = json.NewDecoder(r.Body).Decode(&req)
 		}
-		cloned, err := h.db.CloneTask(id, req)
+		cloned, err := h.db.CloneTask(h.actingContext(r), id, req)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
+			writeTrackerError(w, http.StatusInternalServerError, err)
 			return
 		}
 		writeJSON(w, http.StatusCreated, cloned)
@@ -2640,7 +3001,7 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 		}
 		task, err := h.db.UpdateTaskBy(h.webPrincipal(r).Actor(), id, req)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
+			writeError(w, repositoryErrorStatus(err), err.Error())
 			return
 		}
 		writeJSON(w, http.StatusOK, task)
@@ -2659,8 +3020,8 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 
 // composedSettings is what /api/settings answers: the deployment row for the
 // shared configuration, the caller's own row for the preferences, and the
-// account's e-mail for userEmail, which is a projection of the identity rather
-// than a field anyone types (ADR 0015).
+// account's own identity for userName and userEmail, which are projections of
+// that identity rather than fields anyone types (ADR 0015).
 func (h *Handler) composedSettings(userID string) (*models.Settings, error) {
 	deployment, err := h.db.GetSettings()
 	if err != nil {
@@ -2681,10 +3042,16 @@ func (h *Handler) composedSettings(userID string) (*models.Settings, error) {
 	composed.UserName = personal.UserName
 	composed.UserEmail = personal.UserEmail
 	composed.UserAvatar = personal.UserAvatar
-	composed.EditorCommand = personal.EditorCommand
-	composed.ExternalTerminalCommand = personal.ExternalTerminalCommand
-	if user, err := h.db.GetUser(userID); err == nil && user != nil && user.Email != "" {
-		composed.UserEmail = user.Email
+	if user, err := h.db.GetUser(userID); err == nil && user != nil {
+		// Name() is the chain the rest of the application already shows: the
+		// chosen name, then the one the sign-in supplied, then the address,
+		// then the id. It never answers empty, so it is taken as is; the
+		// address is only taken when the account has one, since a personal row
+		// may hold something the identity does not.
+		composed.UserName = user.Name()
+		if user.Email != "" {
+			composed.UserEmail = user.Email
+		}
 	}
 	return &composed, nil
 }
@@ -2715,22 +3082,20 @@ func (h *Handler) HandleSettings(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "Invalid settings payload: "+err.Error())
 			return
 		}
-		if err := agentconfig.ValidModelConfig(agentconfig.ModelConfig{Model: req.AIModel, SkillModels: req.AISkillModels}); err != nil {
-			writeError(w, http.StatusBadRequest, err.Error())
-			return
-		}
-		if err := agentconfig.ValidProviderModels(req.AIProviderModels); err != nil {
-			writeError(w, http.StatusBadRequest, err.Error())
-			return
-		}
-		// An empty command template is a value, not an omission: it hands both
-		// execution modes back to the provider. Only the raw payload tells the
-		// two apart, so presence of the key is what carries the intent.
 		var sent map[string]json.RawMessage
 		_ = json.Unmarshal(body, &sent)
-		// userEmail is a projection of the account's identity: it is answered
-		// on a read and ignored on a write.
+		// userName and userEmail are projections of the account's identity:
+		// they are answered on a read and ignored on a write. Dropping them
+		// here, rather than from personalSettingsKeys, keeps a member's
+		// whole-row post a silent ignore instead of an admin-only refusal.
 		delete(sent, "userEmail")
+		delete(sent, "userName")
+		// The execution settings are the workstation's (#305): an older
+		// interface still posts them, and they are ignored rather than
+		// refused, so the rest of its save goes through.
+		for _, key := range executionSettingsKeys {
+			delete(sent, key)
+		}
 		current, err := h.db.GetSettings()
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
@@ -2774,15 +3139,7 @@ func (h *Handler) HandleSettings(w http.ResponseWriter, r *http.Request) {
 				writeError(w, http.StatusInternalServerError, err.Error())
 				return
 			}
-			var clear []string
-			if caller.IsAdmin() {
-				for _, name := range []string{"aiCommandTemplate", "aiCommandTemplateAutonomous"} {
-					if _, ok := sent[name]; ok {
-						clear = append(clear, name)
-					}
-				}
-			}
-			if _, err := h.db.UpdateSettings(deploymentReq, clear...); err != nil {
+			if _, err := h.db.UpdateSettings(deploymentReq); err != nil {
 				writeError(w, http.StatusInternalServerError, err.Error())
 				return
 			}
@@ -2888,6 +3245,9 @@ func (h *Handler) HandleActivityDetail(w http.ResponseWriter, r *http.Request) {
 	// Sub-action: /api/activities/{id}/retry
 	if len(parts) >= 2 && parts[1] == "retry" && r.Method == http.MethodPost {
 		act, err := h.db.RetryActivity(id)
+		if writeTaskBusy(w, err) {
+			return
+		}
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -2898,6 +3258,29 @@ func (h *Handler) HandleActivityDetail(w http.ResponseWriter, r *http.Request) {
 
 	// Sub-action: /api/activities/{id}/cancel
 	if len(parts) >= 2 && parts[1] == "cancel" && r.Method == http.MethodPost {
+		// A run a client created is closed like a reported end (#319): only its
+		// owner or an admin may, the workflow is handed back, and its MCP
+		// session forgets it. Cancelling it as a plain activity skipped all
+		// three.
+		if act, err := h.db.GetActivityByID(id); err == nil && act != nil && act.SkillID == "remote_run" &&
+			act.Action == db.RunActionClient && act.TaskID != "" && act.Status == "running" {
+			caller, ok := h.requireOwnerOrAdmin(w, r, act.UserID)
+			if !ok {
+				return
+			}
+			_, err := h.db.FinishRemoteRunAs(caller.Actor(), caller.IsAdmin(), act.TaskID, id, "canceled", "Execution canceled from the activities view")
+			if errors.Is(err, db.ErrRunNotYours) {
+				writeError(w, http.StatusForbidden, msgNotOwner)
+				return
+			}
+			if err != nil {
+				writeError(w, http.StatusConflict, err.Error())
+				return
+			}
+			h.mcpSessions.ReleaseRun(id)
+			writeJSON(w, http.StatusOK, map[string]string{"message": "Activité annulée avec succès"})
+			return
+		}
 		if err := h.db.CancelActivity(id); err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -2907,8 +3290,8 @@ func (h *Handler) HandleActivityDetail(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Sub-action: /api/activities/{id}/waiting
-	// Reported by a Claude Code hook through the local agent loopback when the
-	// session blocks on the user, and again when it resumes.
+	// Sets or clears the mark by hand. A session declares its own wait through
+	// the report_waiting MCP tool, which ends by itself on its next call.
 	if len(parts) >= 2 && parts[1] == "waiting" && r.Method == http.MethodPost {
 		var body struct {
 			Waiting *bool `json:"waiting"`
@@ -2922,6 +3305,34 @@ func (h *Handler) HandleActivityDetail(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]bool{"waiting": *body.Waiting})
+		return
+	}
+
+	// Sub-action: /api/activities/{id}/awaiting-repository
+	// The local agent parks a launch until its ticket is pinned to a
+	// repository (#456), autonomous runs included: the answer is a pin on the
+	// ticket, not a reply in the session. Like the engine report below, it is
+	// sent by the local agent with its own credential, which the middleware
+	// has authenticated; an identified caller must own the run or be an admin.
+	if len(parts) >= 2 && parts[1] == "awaiting-repository" && r.Method == http.MethodPost {
+		var body struct {
+			Waiting *bool `json:"waiting"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Waiting == nil {
+			writeError(w, http.StatusBadRequest, "Body must be {\"waiting\": true|false}")
+			return
+		}
+		caller := h.webPrincipal(r)
+		activity, err := h.db.MarkRunAwaitingRepository(caller.Actor(), caller.IsAdmin() || caller.Anonymous(), id, *body.Waiting)
+		if errors.Is(err, db.ErrRunNotYours) {
+			writeError(w, http.StatusForbidden, err.Error())
+			return
+		}
+		if err != nil {
+			writeError(w, http.StatusNotFound, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, activity)
 		return
 	}
 
@@ -3048,7 +3459,7 @@ func (h *Handler) HandleAgentConnect(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Register the agent, potentially rebinding an existing session.
-	ac := h.agentDispatcher.Register(userID, projectID, deviceID, conn)
+	ac := h.agentDispatcher.RegisterBuild(userID, projectID, deviceID, ParseAgentBuild(r.URL.Query()), conn)
 
 	// Keepalive: without a read deadline a silently dropped connection stays
 	// registered forever, and every operation routed to it stalls for its full
@@ -3134,6 +3545,11 @@ func (h *Handler) HandleAgentConnect(w http.ResponseWriter, r *http.Request) {
 			})
 		case "running_tasks":
 			h.agentDispatcher.ReportRunningTasks(ac, msg)
+		case agentprotocol.RunAnsweredType:
+			// Handled in the read loop, in order: an answer sent on reconnection
+			// lands before the pull's reply, so the state resent after the pull
+			// already has it.
+			h.answerRunWait(ac, msg)
 		default:
 			log.Printf("[AgentConnect] Unknown message type from agent: %s", msg.Type)
 		}
@@ -3196,7 +3612,7 @@ func (h *Handler) HandleAgentDispatch(w http.ResponseWriter, r *http.Request) {
 		req.ProjectID = "default"
 	}
 
-	ac := h.agentDispatcher.Lookup(req.UserID, req.ProjectID)
+	ac := h.agentDispatcher.Route(req.UserID, req.ProjectID)
 	if ac == nil {
 		writeError(w, http.StatusPreconditionRequired, "No local agent connected. Start 'sectile-agent' on your workstation.")
 		return
@@ -3220,6 +3636,37 @@ func (h *Handler) pullAndApplyAgentTasks(ac *AgentConn) {
 	}
 	log.Printf("[AgentConnect] Pulled %d running/queued tasks from agent %s", len(tasks), ac.DeviceID)
 	h.ApplyAgentRunningTasksFor(ac.UserID, tasks)
+	h.resendRunWaits(ac.UserID, tasks)
+}
+
+func (h *Handler) pullAndApplyRemoteAgentTasks(location db.AgentLocation) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	tasks, err := h.agentDispatcher.PullRemoteTasks(ctx, location)
+	if err != nil {
+		log.Printf("[AgentConnect] Could not pull running tasks from %s on instance %s: %v", location.DeviceID, location.InstanceID, err)
+		return
+	}
+	h.ApplyAgentRunningTasksFor(location.UserID, tasks)
+	h.resendRunWaits(location.UserID, tasks)
+}
+
+// EnableAgentCluster makes this instance record its agents in the shared
+// store and forward work for agents other instances hold, and MCP requests for
+// sessions other instances hold. Without a server key the instances cannot
+// authenticate each other: agents and MCP sessions held here keep working,
+// agent forwarding refuses with the reason, and MCP requests are served here.
+func (h *Handler) EnableAgentCluster() error {
+	token, err := h.db.InternalToken()
+	h.agentDispatcher.SetCluster(h.db, token, err)
+	h.setMCPCluster(h.db, token, err)
+	return err
+}
+
+// InternalHandler serves the endpoints other instances forward agent work to.
+// It belongs on the internal listener, never on the public one.
+func (h *Handler) InternalHandler() http.Handler {
+	return h.agentDispatcher.InternalHandler()
 }
 
 // ApplyAgentRunningTasks syncs a set of agent tasks to the database and broadcasts updates.
@@ -3319,23 +3766,48 @@ func (h *Handler) HandleAgentPull(w http.ResponseWriter, r *http.Request) {
 	for _, ac := range activeConns {
 		go h.pullAndApplyAgentTasks(ac)
 	}
+	// Agents connected to other instances sharing the database report through
+	// the instance holding them.
+	remote := h.agentDispatcher.RemoteAgents()
+	for _, location := range remote {
+		go h.pullAndApplyRemoteAgentTasks(location)
+	}
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"status":          "ok",
-		"connectedAgents": len(activeConns),
+		"connectedAgents": len(activeConns) + len(remote),
 	})
 }
 
-// HandleOpenEditor opens a workspace, worktree, or path in the user's code editor (default: code)
+// projectEngine reads the report of the workstation a launch by userID on
+// projectID would go to.
+func (h *Handler) projectEngine(userID, projectID string) models.EngineReport {
+	unknown := models.EngineReport{State: models.EngineUnknown}
+	if userID == "" {
+		userID = ImplicitUser
+	}
+	route := h.agentDispatcher.Route(userID, projectID)
+	if route == nil {
+		return unknown
+	}
+	report, ok := h.db.EngineReport(userID, projectID, route.DeviceID)
+	if !ok {
+		return unknown
+	}
+	return report
+}
+
+// HandleOpenEditor opens a task or a project in the editor of the workstation
+// that serves it. The editor is the workstation's own setting (#305): the
+// server names none.
 func (h *Handler) HandleOpenEditor(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
 		return
 	}
 	var req struct {
-		TaskID        string `json:"taskId"`
-		ProjectID     string `json:"projectId"`
-		EditorCommand string `json:"editorCommand"`
+		TaskID    string `json:"taskId"`
+		ProjectID string `json:"projectId"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
@@ -3349,15 +3821,7 @@ func (h *Handler) HandleOpenEditor(w http.ResponseWriter, r *http.Request) {
 		}
 		req.ProjectID = task.ProjectID
 	}
-	if req.EditorCommand == "" {
-		// The editor is a personal command too, so it is the caller's own,
-		// falling back to the deployment default through UserSettings.
-		settings, _ := h.db.UserSettings(h.webSessionUser(r))
-		if settings != nil {
-			req.EditorCommand = settings.EditorCommand
-		}
-	}
-	if err := h.db.AgentOperation(agentprotocol.Operation{ProjectID: req.ProjectID, TaskID: req.TaskID, Action: "open_editor", Editor: req.EditorCommand}, nil); err != nil {
+	if err := h.db.AgentOperation(agentprotocol.Operation{ProjectID: req.ProjectID, TaskID: req.TaskID, Action: "open_editor"}, nil); err != nil {
 		writeError(w, http.StatusConflict, err.Error())
 		return
 	}
@@ -3370,10 +3834,9 @@ func (h *Handler) HandleOpenExternalTerminal(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	var req struct {
-		TaskID          string `json:"taskId"`
-		SkillID         string `json:"skillId"`
-		Command         string `json:"command"`
-		TerminalCommand string `json:"terminalCommand"`
+		TaskID  string `json:"taskId"`
+		SkillID string `json:"skillId"`
+		Command string `json:"command"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
@@ -3383,7 +3846,7 @@ func (h *Handler) HandleOpenExternalTerminal(w http.ResponseWriter, r *http.Requ
 		writeError(w, http.StatusBadRequest, "Select a task to open an agent console")
 		return
 	}
-	result, err := h.launchTaskExternalTerminal(r.Context(), h.webSessionUser(r), req.TaskID, req.Command, req.SkillID, req.TerminalCommand)
+	result, err := h.launchTaskExternalTerminal(r.Context(), h.webSessionUser(r), req.TaskID, req.Command, req.SkillID)
 	if err != nil {
 		writeError(w, http.StatusConflict, err.Error())
 		return
@@ -3393,38 +3856,18 @@ func (h *Handler) HandleOpenExternalTerminal(w http.ResponseWriter, r *http.Requ
 
 // LaunchTaskExternalTerminal serves callers with no HTTP request of their own,
 // which is why it names the implicit user rather than resolving one.
-func (h *Handler) LaunchTaskExternalTerminal(taskID, command, skillID, customTermCmd string) (map[string]interface{}, error) {
-	return h.launchTaskExternalTerminal(context.Background(), ImplicitUser, taskID, command, skillID, customTermCmd)
+func (h *Handler) LaunchTaskExternalTerminal(taskID, command, skillID string) (map[string]interface{}, error) {
+	return h.launchTaskExternalTerminal(context.Background(), ImplicitUser, taskID, command, skillID)
 }
 
-func (h *Handler) launchTaskExternalTerminal(ctx context.Context, userID, taskID, command, skillID, customTermCmd string) (map[string]interface{}, error) {
+func (h *Handler) launchTaskExternalTerminal(ctx context.Context, userID, taskID, command, skillID string) (map[string]interface{}, error) {
 	task, err := h.db.GetTaskByID(taskID)
 	if err != nil || task == nil {
 		return nil, fmt.Errorf("task not found: %s", taskID)
 	}
 
-	// The workstation commands are personal (ADR 0015): the terminal that
-	// opens is the one of whoever owns this execution, not the deployment's.
-	// The project's own override still comes first, the deployment default last.
-	settings, _ := h.db.UserSettings(userID)
-	var proj *models.Project
-	if task.ProjectID != "" {
-		proj, _ = h.db.GetProjectByID(task.ProjectID)
-	}
-
-	// Precedence: what the call asked for, then the project's own terminal,
-	// then the owner's. The resolved value is what travels to the agent, so a
-	// personal terminal command is honoured on a launch, not only in the
-	// profile screen.
-	customTermCmd = strings.TrimSpace(customTermCmd)
-	if customTermCmd == "" && proj != nil && proj.ExternalTerminalCommand != "" {
-		customTermCmd = proj.ExternalTerminalCommand
-	}
-	if customTermCmd == "" && settings != nil && settings.ExternalTerminalCommand != "" {
-		customTermCmd = settings.ExternalTerminalCommand
-	}
-	terminalOverride := customTermCmd
-
+	// The terminal is the workstation's own setting (#305): the agent resolves
+	// it, and the server sends none.
 	projectID := "default"
 	if task.ProjectID != "" {
 		projectID = task.ProjectID
@@ -3432,13 +3875,13 @@ func (h *Handler) launchTaskExternalTerminal(ctx context.Context, userID, taskID
 	if userID == "" {
 		userID = ImplicitUser
 	}
-	if ac := h.agentDispatcher.Lookup(userID, projectID); ac != nil {
+	if ac := h.agentDispatcher.Route(userID, projectID); ac != nil {
 		log.Printf("🚀 [LaunchTaskExternalTerminal] Delegating external terminal launch to connected agent (%s)", ac.DeviceID)
 		launchCtx, cancel := context.WithTimeout(ctx, 45*time.Second)
 		defer cancel()
 		err := h.agentDispatcher.DispatchAndWait(launchCtx, userID, projectID, task.ID, agentconfig.Dispatch{
 			SchemaVersion: agentconfig.Version, TaskKey: task.Key, TaskID: task.ID, ProjectID: projectID,
-			SkillID: skillID, Action: "open_terminal", Command: command, Prompt: command, TerminalOverride: terminalOverride,
+			SkillID: skillID, Action: "open_terminal", Command: command, Prompt: command,
 		})
 		if err != nil {
 			return nil, err
@@ -3560,10 +4003,18 @@ func (h *Handler) HandleEventsSSE(w http.ResponseWriter, r *http.Request) {
 	ch := h.SubscribeEvents()
 	defer h.UnsubscribeEvents(ch)
 
+	// An open tab may go minutes without another request: the stream keeps its
+	// session marked as seen, or the person reading the board would drop out of
+	// the active users while still looking at it.
+	touch := time.NewTicker(time.Minute)
+	defer touch.Stop()
+
 	for {
 		select {
 		case <-r.Context().Done():
 			return
+		case <-touch.C:
+			h.webSessionUser(r)
 		case event, open := <-ch:
 			if !open {
 				return
@@ -3573,4 +4024,13 @@ func (h *Handler) HandleEventsSSE(w http.ResponseWriter, r *http.Request) {
 			flusher.Flush()
 		}
 	}
+}
+
+// repositoryErrorStatus answers 400 for a refused repository declaration or
+// pin (#456), and 500 for anything else.
+func repositoryErrorStatus(err error) int {
+	if errors.Is(err, db.ErrDuplicateRepository) || errors.Is(err, db.ErrRepositoryNotInProject) || errors.Is(err, db.ErrInvalidSpecArtifacts) {
+		return http.StatusBadRequest
+	}
+	return http.StatusInternalServerError
 }

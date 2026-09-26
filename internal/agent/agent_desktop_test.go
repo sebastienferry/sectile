@@ -87,6 +87,77 @@ func TestDesktopConsoleAuthenticationAndReplay(t *testing.T) {
 	}
 }
 
+func TestStopRecoversRunWhosePTYAlreadyClosed(t *testing.T) {
+	run := &controlledRun{
+		desktop: desktopRun{ID: "orphan", SessionID: "missing", Status: "running"},
+		exited:  make(chan struct{}),
+	}
+	d := &agentDaemon{
+		terminal: terminalChoice{manager: terminal.NewManager()},
+		loopback: loopbackServer{desktopToken: "private"},
+		queue:    runQueue{runs: map[string]*controlledRun{"orphan": run}},
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/desktop/stop?id=orphan", nil)
+	req.Header.Set("Authorization", "Bearer private")
+	rec := httptest.NewRecorder()
+	d.desktopHandler(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("stop returned %d: %s", rec.Code, rec.Body.String())
+	}
+	if run.desktop.Status != "canceled" {
+		t.Fatalf("status = %q, want canceled", run.desktop.Status)
+	}
+	select {
+	case <-run.exited:
+	default:
+		t.Fatal("orphaned run was not closed")
+	}
+}
+
+// A discussion whose console already closed is ended, not canceled, when the
+// user stops it.
+func TestStopRecoversDiscussionWhosePTYAlreadyClosedAsCompleted(t *testing.T) {
+	run := &controlledRun{
+		desktop: desktopRun{ID: "orphan", Skill: "discuss", SessionID: "missing", Status: "running"},
+		exited:  make(chan struct{}),
+	}
+	d := &agentDaemon{
+		terminal: terminalChoice{manager: terminal.NewManager()},
+		loopback: loopbackServer{desktopToken: "private"},
+		queue:    runQueue{runs: map[string]*controlledRun{"orphan": run}},
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/desktop/stop?id=orphan", nil)
+	req.Header.Set("Authorization", "Bearer private")
+	rec := httptest.NewRecorder()
+	d.desktopHandler(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("stop returned %d: %s", rec.Code, rec.Body.String())
+	}
+	if run.desktop.Status != "completed" {
+		t.Fatalf("status = %q, want completed", run.desktop.Status)
+	}
+}
+
+func TestStopDoesNotRecoverHeadlessRunWithoutTerminal(t *testing.T) {
+	run := &controlledRun{
+		desktop: desktopRun{ID: "headless", Status: "running", Headless: true},
+		exited:  make(chan struct{}),
+	}
+	d := &agentDaemon{terminal: terminalChoice{manager: terminal.NewManager()}, queue: runQueue{runs: map[string]*controlledRun{"headless": run}}}
+	if d.recoverOrphanedPTYRun("headless", run) {
+		t.Fatal("headless run was mistaken for a missing PTY")
+	}
+	select {
+	case <-run.exited:
+		t.Fatal("headless run was closed")
+	default:
+	}
+}
+
 func TestDesktopRestartRequiresConfirmedExit(t *testing.T) {
 	restarted := false
 	run := &controlledRun{exited: make(chan struct{})}
@@ -256,7 +327,11 @@ func TestDesktopRunStartTimestampLifecycle(t *testing.T) {
 		t.Fatalf("timestamps changed through completion/reuse: %+v", runs[0])
 	}
 
+	// handleRunControl's finishDesktopRun goroutine may still be reading the
+	// queue, so the map is only touched under its lock from here on.
+	d.queue.mu.Lock()
 	d.queue.runs["failed"] = &controlledRun{desktop: desktopRun{CreatedAt: created, Status: "preparing"}}
+	d.queue.mu.Unlock()
 	invalidDir := filepath.Join(t.TempDir(), "file")
 	if err := os.WriteFile(invalidDir, []byte("not a directory"), 0600); err != nil {
 		t.Fatal(err)
@@ -264,7 +339,10 @@ func TestDesktopRunStartTimestampLifecycle(t *testing.T) {
 	if err := d.runInPty("failed", invalidDir, nil, "true"); err == nil {
 		t.Fatal("launch with a file as working directory succeeded")
 	}
-	if !d.queue.runs["failed"].desktop.StartedAt.IsZero() {
+	d.queue.mu.Lock()
+	failedStart := d.queue.runs["failed"].desktop.StartedAt
+	d.queue.mu.Unlock()
+	if !failedStart.IsZero() {
 		t.Fatal("failed launch recorded a start")
 	}
 }
@@ -308,7 +386,7 @@ func TestLaunchAdmissionOfReservedSkills(t *testing.T) {
 	}
 }
 
-func TestDesktopProjectAIProviderAndModelOverrides(t *testing.T) {
+func TestDesktopProjectDefaultEngine(t *testing.T) {
 	testhome.Temp(t)
 	root := t.TempDir()
 	for _, args := range [][]string{{"init"}, {"remote", "add", "origin", "https://example.test/project.git"}} {
@@ -316,7 +394,12 @@ func TestDesktopProjectAIProviderAndModelOverrides(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	settings := agentconfig.Overrides{Projects: map[string]string{"p": root}}
+	// The workstation defaults name the model; the server's values are
+	// ignored whatever they say (#305).
+	settings := agentconfig.Settings{
+		ProjectSettings: map[string]agentconfig.ProjectSettings{"p": {Path: root}},
+		Defaults:        agentconfig.Defaults{Execution: agentconfig.Execution{AIModel: "workstation-model"}},
+	}
 	if err := agentconfig.WriteSettings(settings); err != nil {
 		t.Fatal(err)
 	}
@@ -365,7 +448,7 @@ func TestDesktopProjectAIProviderAndModelOverrides(t *testing.T) {
 		return w
 	}
 
-	// 1. Initial GET /desktop/project?id=p should return server defaults and false override flags
+	// 1. The project runs the workstation default engine, never the server's values.
 	w := doReq("GET", "/desktop/project?id=p", nil)
 	if w.Code != 200 {
 		t.Fatalf("GET /desktop/project returned %d: %s", w.Code, w.Body.String())
@@ -374,114 +457,72 @@ func TestDesktopProjectAIProviderAndModelOverrides(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &projResp); err != nil {
 		t.Fatal(err)
 	}
-	if projResp["aiProvider"] != "agy" || projResp["aiModel"] != "server-model" {
-		t.Fatalf("unexpected provider/model: %v / %v", projResp["aiProvider"], projResp["aiModel"])
+	if projResp["aiProvider"] != "agy" || projResp["aiModel"] != "workstation-model" || projResp["aiCommandTemplate"] != "" {
+		t.Fatalf("unexpected provider/model: %v / %v / %v", projResp["aiProvider"], projResp["aiModel"], projResp["aiCommandTemplate"])
 	}
-	if projResp["aiProviderOverride"] != false || projResp["aiModelOverride"] != false {
-		t.Fatalf("expected false override flags: %v / %v", projResp["aiProviderOverride"], projResp["aiModelOverride"])
+	if server, _ := projResp["server"].(map[string]any); server["aiModel"] != nil || server["aiCommandTemplate"] != "" {
+		t.Fatalf("a server execution value reached the desktop: %v", server)
 	}
-
-	// 2. Validation rejections
-	// 2a. Invalid model
-	w = doReq("POST", "/desktop/projects", map[string]any{
-		"projectId":  "p",
-		"path":       root,
-		"aiModel":    "invalid model; rm -rf /",
-		"aiProvider": "claude",
-	})
-	if w.Code != 400 {
-		t.Fatalf("expected 400 for invalid model, got %d: %s", w.Code, w.Body.String())
+	stored, _ := agentconfig.ReadSettings(root)
+	workstation := stored.DefaultEngine().ID
+	field, _ := projResp["fields"].(map[string]any)["defaultEngine"].(map[string]any)
+	if field["source"] != "workstation" || field["value"] != workstation || field["inherited"] != workstation {
+		t.Fatalf("default engine source: %v", field)
+	}
+	if _, ok := projResp["fields"].(map[string]any)["aiModel"]; ok {
+		t.Fatal("the project settings still describe an engine field")
 	}
 
-	// 2b. Invalid provider
-	w = doReq("POST", "/desktop/projects", map[string]any{
-		"projectId":  "p",
-		"path":       root,
-		"aiProvider": "unknown-provider",
-	})
-	if w.Code != 400 {
-		t.Fatalf("expected 400 for invalid provider, got %d: %s", w.Code, w.Body.String())
+	// 2. The engine fields of #305 and an unknown engine are refused.
+	for name, body := range map[string]map[string]any{
+		"model":          {"aiModel": "claude-opus-5"},
+		"provider":       {"aiProvider": "claude"},
+		"template":       {"aiCommandTemplate": "custom {prompt}"},
+		"unknown engine": {"defaultEngine": "e-forged"},
+	} {
+		body["projectId"], body["path"] = "p", root
+		if w := doReq("POST", "/desktop/projects", body); w.Code != 400 {
+			t.Errorf("%s: expected 400, got %d: %s", name, w.Code, w.Body.String())
+		}
 	}
-
-	// 2c. Custom provider without {prompt} in command
-	w = doReq("POST", "/desktop/projects", map[string]any{
-		"projectId":         "p",
-		"path":              root,
-		"aiProvider":        "custom",
-		"aiCommandTemplate": "custom command without prompt slot",
-	})
-	if w.Code != 400 {
-		t.Fatalf("expected 400 for custom provider without prompt, got %d: %s", w.Code, w.Body.String())
-	}
-
-	// Verify disk settings untouched after validation failures
-	s, _ := agentconfig.ReadSettings(root)
-	if len(s.AIProviders) != 0 || len(s.AIModels) != 0 {
+	if s, _ := agentconfig.ReadSettings(root); s.Engines.Projects != nil || s.Project("p").StatesEngine() {
 		t.Fatalf("settings mutated after validation failure: %+v", s)
 	}
 
-	// 3. Valid POST /desktop/projects sets overrides
-	w = doReq("POST", "/desktop/projects", map[string]any{
-		"projectId":  "p",
-		"path":       root,
-		"aiProvider": "claude",
-		"aiModel":    "claude-opus-5",
-	})
-	if w.Code != 204 {
+	// 3. The project picks another catalogue engine.
+	catalogue := append(stored.Engines.Catalogue, agentconfig.Engine{Name: "Claude Opus", Provider: "claude", Model: "claude-opus-5"})
+	if w := doReq("PUT", "/desktop/engines", map[string]any{"catalogue": catalogue, "default": workstation}); w.Code != 200 {
+		t.Fatalf("PUT /desktop/engines returned %d: %s", w.Code, w.Body.String())
+	}
+	stored, _ = agentconfig.ReadSettings(root)
+	opus := stored.Engines.Catalogue[len(stored.Engines.Catalogue)-1].ID
+	if w := doReq("POST", "/desktop/projects", map[string]any{"projectId": "p", "path": root, "defaultEngine": opus}); w.Code != 204 {
 		t.Fatalf("POST /desktop/projects returned %d: %s", w.Code, w.Body.String())
 	}
-
-	s, _ = agentconfig.ReadSettings(root)
-	if s.AIProviders["p"] != "claude" || s.AIModels["p"] != "claude-opus-5" {
-		t.Fatalf("overrides not persisted: %+v", s)
+	if s, _ := agentconfig.ReadSettings(root); s.ProjectEngine("p").ID != opus {
+		t.Fatalf("project default engine not persisted: %+v", s.Engines)
 	}
-
-	// GET /desktop/project?id=p should reflect overrides
 	w = doReq("GET", "/desktop/project?id=p", nil)
-	if w.Code != 200 {
-		t.Fatalf("GET /desktop/project returned %d: %s", w.Code, w.Body.String())
-	}
 	projResp = nil
 	if err := json.Unmarshal(w.Body.Bytes(), &projResp); err != nil {
 		t.Fatal(err)
 	}
 	if projResp["aiProvider"] != "claude" || projResp["aiModel"] != "claude-opus-5" {
-		t.Fatalf("unexpected provider/model after override: %v / %v", projResp["aiProvider"], projResp["aiModel"])
+		t.Fatalf("unexpected provider/model after the pick: %v / %v", projResp["aiProvider"], projResp["aiModel"])
 	}
-	if projResp["aiProviderOverride"] != true || projResp["aiModelOverride"] != true {
-		t.Fatalf("expected true override flags: %v / %v", projResp["aiProviderOverride"], projResp["aiModelOverride"])
+	if field, _ := projResp["fields"].(map[string]any)["defaultEngine"].(map[string]any); field["source"] != "project" || field["value"] != opus {
+		t.Fatalf("default engine after the pick: %v", field)
+	}
+	if engine, _ := projResp["defaultEngine"].(map[string]any); engine["name"] != "Claude Opus" {
+		t.Fatalf("default engine summary: %v", projResp["defaultEngine"])
 	}
 
-	// 4. Inherit resets provider and model to server defaults
-	w = doReq("POST", "/desktop/projects", map[string]any{
-		"projectId":         "p",
-		"path":              root,
-		"inheritAiProvider": true,
-		"inheritAiModel":    true,
-	})
-	if w.Code != 204 {
+	// 4. Inherit follows the workstation default engine again.
+	if w := doReq("POST", "/desktop/projects", map[string]any{"projectId": "p", "path": root, "inheritDefaultEngine": true}); w.Code != 204 {
 		t.Fatalf("POST /desktop/projects inherit returned %d: %s", w.Code, w.Body.String())
 	}
-
-	s, _ = agentconfig.ReadSettings(root)
-	if len(s.AIProviders) != 0 || len(s.AIModels) != 0 {
-		t.Fatalf("overrides not deleted after inherit: %+v", s)
-	}
-
-	// GET /desktop/project?id=p should reflect server defaults again
-	w = doReq("GET", "/desktop/project?id=p", nil)
-	if w.Code != 200 {
-		t.Fatalf("GET /desktop/project returned %d: %s", w.Code, w.Body.String())
-	}
-	projResp = nil
-	if err := json.Unmarshal(w.Body.Bytes(), &projResp); err != nil {
-		t.Fatal(err)
-	}
-	if projResp["aiProvider"] != "agy" || projResp["aiModel"] != "server-model" {
-		t.Fatalf("unexpected provider/model after reset: %v / %v", projResp["aiProvider"], projResp["aiModel"])
-	}
-	if projResp["aiProviderOverride"] != false || projResp["aiModelOverride"] != false {
-		t.Fatalf("expected false override flags after reset: %v / %v", projResp["aiProviderOverride"], projResp["aiModelOverride"])
+	if s, _ := agentconfig.ReadSettings(root); s.Engines.Projects != nil || s.ProjectEngine("p").ID != workstation {
+		t.Fatalf("pick not cleared after inherit: %+v", s.Engines)
 	}
 }
 
@@ -603,6 +644,9 @@ func TestDesktopProjectTerminalSettings(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	if err := agentconfig.WriteSettings(agentconfig.Settings{Defaults: agentconfig.Defaults{Execution: agentconfig.Execution{Terminal: "wezterm"}}}); err != nil {
+		t.Fatal(err)
+	}
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(r.URL.Path, "/api/v1/agent/config") {
@@ -645,7 +689,7 @@ func TestDesktopProjectTerminalSettings(t *testing.T) {
 		return w
 	}
 
-	// 1. Initial GET returns server default terminal and false override
+	// 1. Initial GET returns the workstation terminal, not the server's, and false override
 	w := doReq("GET", "/desktop/project?id=p", nil)
 	if w.Code != 200 {
 		t.Fatalf("GET /desktop/project returned %d: %s", w.Code, w.Body.String())
@@ -654,7 +698,7 @@ func TestDesktopProjectTerminalSettings(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &projResp); err != nil {
 		t.Fatal(err)
 	}
-	if projResp["terminal"] != "terminal" || projResp["terminalOverride"] != false {
+	if projResp["terminal"] != "wezterm" || projResp["terminalOverride"] != false {
 		t.Fatalf("unexpected terminal response: %+v", projResp)
 	}
 
@@ -669,8 +713,8 @@ func TestDesktopProjectTerminalSettings(t *testing.T) {
 	}
 
 	s, _ := agentconfig.ReadSettings(root)
-	if s.Terminals["p"] != "ghostty" {
-		t.Fatalf("expected Terminals[p] to be ghostty, got %+v", s.Terminals)
+	if s.Project("p").Terminal != "ghostty" {
+		t.Fatalf("expected the project terminal to be ghostty, got %+v", s.Project("p"))
 	}
 
 	// 3. GET /desktop/project?id=p should reflect new terminal override
@@ -704,7 +748,7 @@ func TestDesktopProjectTerminalSettings(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &projResp); err != nil {
 		t.Fatal(err)
 	}
-	if projResp["terminal"] != "terminal" || projResp["terminalOverride"] != false {
+	if projResp["terminal"] != "wezterm" || projResp["terminalOverride"] != false {
 		t.Fatalf("expected reset terminal: %v / %v", projResp["terminal"], projResp["terminalOverride"])
 	}
 }
@@ -856,5 +900,180 @@ func TestDesktopTasksTerminalExternal(t *testing.T) {
 	runID := res["runId"].(string)
 	if launchedApp != "ghostty" || launchedSess != runID {
 		t.Fatalf("unexpected launch: app=%s sess=%s wantSess=%s", launchedApp, launchedSess, runID)
+	}
+}
+
+func TestAdmitProjectRunValidatesAutonomousPreflight(t *testing.T) {
+	d, config := disconnectFixture(t)
+	config.AIProvider = "agy"
+	config.AICommandTemplate = ""
+	config.AICommandTemplateAutonomous = ""
+
+	_ = agentconfig.WriteSettings(agentconfig.Settings{
+		ProjectSettings: map[string]agentconfig.ProjectSettings{"p": {Path: d.repoRoot}},
+		Defaults:        agentconfig.Defaults{Execution: agentconfig.Execution{AIProvider: "agy"}},
+	})
+
+	payload := agentconfig.Dispatch{
+		RunID:   "run-auto-fail",
+		SkillID: "implement",
+		Mode:    models.SkillModeAutonomous,
+	}
+	run, err := d.admitProjectRun(context.Background(), "task-1", payload, config)
+	if err == nil {
+		t.Fatalf("expected autonomous execution to be rejected for provider %q", config.AIProvider)
+	}
+	if run != nil {
+		t.Fatalf("expected run to be nil on rejection, got %+v", run)
+	}
+	if !strings.Contains(err.Error(), "headless mode") && !strings.Contains(err.Error(), "execution mode") {
+		t.Fatalf("expected headless capability error, got: %v", err)
+	}
+
+	// When provider supports autonomous mode (e.g. claude), admission succeeds
+	_ = agentconfig.WriteSettings(agentconfig.Settings{
+		ProjectSettings: map[string]agentconfig.ProjectSettings{"p": {Path: d.repoRoot}},
+		Defaults:        agentconfig.Defaults{Execution: agentconfig.Execution{AIProvider: "claude"}},
+	})
+	config.AIProvider = "claude"
+	payload.RunID = "run-auto-pass"
+	runPass, err := d.admitProjectRun(context.Background(), "task-1", payload, config)
+	if err != nil {
+		t.Fatalf("expected claude autonomous run to be admitted: %v", err)
+	}
+	if runPass == nil {
+		t.Fatal("expected run to be non-nil on admission")
+	}
+}
+
+// The specifications folder may be a Git checkout, normalised to its top
+// level, or a plain folder kept as typed. The project info says which one is
+// in effect, and what a mono-repo project inherits.
+func TestDesktopProjectSpecificationsFolder(t *testing.T) {
+	testhome.Temp(t)
+	root := t.TempDir()
+	for _, args := range [][]string{{"init"}, {"remote", "add", "origin", "https://example.test/project.git"}} {
+		if _, err := gitLocal(context.Background(), root, args...); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := agentconfig.WriteSettings(agentconfig.Settings{ProjectSettings: map[string]agentconfig.ProjectSettings{"p": {Path: root}}}); err != nil {
+		t.Fatal(err)
+	}
+	monoRepo := true
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasPrefix(r.URL.Path, "/api/v1/agent/config"):
+			json.NewEncoder(w).Encode(agentconfig.Config{SchemaVersion: agentconfig.Version, ProjectID: "p", GitRemoteURL: "https://example.test/project.git", AIProvider: "claude"})
+		case strings.HasPrefix(r.URL.Path, "/api/projects/"):
+			json.NewEncoder(w).Encode(models.Project{ID: "p", Name: "Project P", MonoRepo: monoRepo})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	d := &agentDaemon{repoRoot: root, loopback: loopbackServer{desktopToken: "private"}, link: serverLink{serverURL: srv.URL, projectID: "p"}}
+	do := func(method, path string, body any) *httptest.ResponseRecorder {
+		var reader io.Reader
+		if body != nil {
+			raw, _ := json.Marshal(body)
+			reader = bytes.NewReader(raw)
+		}
+		r := httptest.NewRequest(method, path, reader)
+		r.Header.Set("Authorization", "Bearer private")
+		w := httptest.NewRecorder()
+		d.desktopHandler(w, r)
+		return w
+	}
+	// A saved mapping answers 204 No Content; save reports 200 for it so the
+	// checks below read as success or refusal.
+	save := func(specPath string) *httptest.ResponseRecorder {
+		w := do("POST", "/desktop/projects", map[string]any{"projectId": "p", "path": root, "specPath": specPath})
+		if w.Code == http.StatusNoContent {
+			w.Code = http.StatusOK
+		}
+		return w
+	}
+	info := func() map[string]any {
+		t.Helper()
+		w := do("GET", "/desktop/project?id=p", nil)
+		if w.Code != 200 {
+			t.Fatalf("GET /desktop/project returned %d: %s", w.Code, w.Body.String())
+		}
+		var out map[string]any
+		if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil {
+			t.Fatal(err)
+		}
+		return out
+	}
+	stored := func() string {
+		t.Helper()
+		settings, err := agentconfig.ReadSettings(root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return settings.SpecPath("p")
+	}
+
+	// Mono-repo without an override: the code checkout is inherited, and it is
+	// a Git repository.
+	got := info()
+	if got["specPath"] != "" || !samePath(t, got["specDefault"].(string), root) || got["specKind"] != "git" {
+		t.Fatalf("a mono-repo project inherits its checkout: %v", got)
+	}
+
+	// A plain folder is accepted as typed, and shown as such.
+	plain := t.TempDir()
+	if w := save(plain + string(filepath.Separator)); w.Code != 200 {
+		t.Fatalf("a plain folder must be accepted: %d %s", w.Code, w.Body.String())
+	}
+	if stored() != plain || info()["specKind"] != "folder" {
+		t.Fatalf("the plain folder must be stored cleaned and shown as a folder: %q %v", stored(), info())
+	}
+
+	// A folder inside a Git checkout is stored as that checkout's top level.
+	wiki := t.TempDir()
+	if _, err := gitLocal(context.Background(), wiki, "init"); err != nil {
+		t.Fatal(err)
+	}
+	inside := filepath.Join(wiki, "specs")
+	if err := os.MkdirAll(inside, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if w := save(inside); w.Code != 200 || !samePath(t, stored(), wiki) || info()["specKind"] != "git" {
+		t.Fatalf("a Git subfolder must be normalised to its top level: %d %q %v", w.Code, stored(), info())
+	}
+
+	// Relative, missing and non-directory paths are refused, saying why.
+	file := filepath.Join(plain, "notes.txt")
+	if err := os.WriteFile(file, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for path, why := range map[string]string{"specs": "absolute", filepath.Join(plain, "gone"): "does not exist", file: "not a directory"} {
+		if w := save(path); w.Code != 400 || !strings.Contains(w.Body.String(), why) {
+			t.Fatalf("%s must be refused with %q, got %d %s", path, why, w.Code, w.Body.String())
+		}
+	}
+
+	// A stored folder deleted since reads as missing.
+	gone := t.TempDir()
+	if w := save(gone); w.Code != 200 {
+		t.Fatalf("saving: %d %s", w.Code, w.Body.String())
+	}
+	if err := os.Remove(gone); err != nil {
+		t.Fatal(err)
+	}
+	if info()["specKind"] != "missing" {
+		t.Fatalf("a deleted folder must read as missing: %v", info())
+	}
+
+	// Clearing removes the override; a multi-repo project then has nothing to
+	// inherit, and says so.
+	if w := save(""); w.Code != 200 || stored() != "" {
+		t.Fatalf("clearing must remove the override: %d %q", w.Code, stored())
+	}
+	monoRepo = false
+	if got := info(); got["specDefault"] != "" || got["specKind"] != "unset" {
+		t.Fatalf("a multi-repo project inherits nothing: %v", got)
 	}
 }

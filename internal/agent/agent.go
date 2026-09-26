@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/subtle"
@@ -83,6 +84,8 @@ type agentDaemon struct {
 	done             chan struct{}
 	contract         contractState
 	launchTerminalFn func(terminalApp, sessionID string) error
+	// capabilities serializes the engine reports sent to the server (#305).
+	capabilities capabilityReporter
 }
 
 // serverLink is the agent's attachment to the server: the identity it presents
@@ -324,10 +327,22 @@ func Run(args []string) {
 
 	log.Printf("🚀 Sectile Agent starting (server=%s, project=%s, device=%s)", daemon.link.serverURL, daemon.link.projectID, daemon.link.deviceID)
 
+	daemon.loopback.binarySha256 = executableSha256()
+	// The engine settings of #305 become the engine catalogue once, before the
+	// first project sync and capability report (#510). A failure leaves the
+	// file alone: every read converts it in memory anyway.
+	if migrated, err := agentconfig.MigrateSettings(daemon.localSettingsRoot()); err != nil {
+		log.Printf("[Agent] Engine settings not converted to the engine catalogue: %v", err)
+	} else if migrated {
+		log.Printf("[Agent] Engine settings converted to the engine catalogue; the previous file is kept beside it")
+	}
 	// Start local agent HTTP reverse proxy gateway
 	if err := daemon.startLocalProxy(ctx); err != nil {
 		log.Printf("[Agent] Cannot bootstrap MCP without the local gateway: %v", err)
 		return
+	}
+	if err := daemon.refreshMCPConnections(); err != nil {
+		log.Printf("[Agent] MCP configuration refresh failed: %v", err)
 	}
 	if err := daemon.writeDesktopInfo(); err != nil {
 		log.Printf("Desktop connection: %v", err)
@@ -427,10 +442,9 @@ func (d *agentDaemon) startLocalProxy(ctx context.Context) error {
 			http.Error(w, "Browser origins are not allowed", http.StatusForbidden)
 			return
 		}
-		// Loopback alone is not an authorization: every local process can
-		// reach this port. Require the workstation's API key, the same
-		// credential the server itself would ask for.
-		if !d.validLoopbackRequest(r) {
+		// API routes always require the workstation key. MCP alone can use
+		// the explicitly selected local mode; browser and Host checks still apply.
+		if !d.validLoopbackRequest(r) && !(r.URL.Path == "/mcp" && d.localMCPEnabled()) {
 			http.Error(w, "Valid API key required", http.StatusUnauthorized)
 			return
 		}
@@ -476,6 +490,8 @@ func (d *agentDaemon) connect(ctx context.Context) error {
 	if err := d.checkIdentity(ctx); err != nil {
 		return err
 	}
+	// The workstation defaults take over the server's values once (#305).
+	d.seedSettings(ctx, agentconfig.Config{})
 	if d.link.projectID == "all" {
 		projects, err := d.discoverProjects(ctx)
 		if err != nil {
@@ -527,6 +543,8 @@ func (d *agentDaemon) connect(ctx context.Context) error {
 
 	stopClose := context.AfterFunc(ctx, func() { _ = conn.Close() })
 	defer stopClose()
+	d.resendAnswers(conn)
+	d.reportCapabilitiesLater()
 	log.Printf("[Agent] Connected to remote server")
 	fmt.Printf("\n✅ [Agent] Connecté avec succès au serveur Sectile (%s)\n", d.link.serverURL)
 	fmt.Printf("   Projet: [%s] | Machine: [%s]\n", d.link.projectID, d.link.deviceID)
@@ -585,6 +603,15 @@ func (d *agentDaemon) buildWSURL() (string, error) {
 	q := u.Query()
 	q.Set("projectId", d.link.projectID)
 	q.Set("deviceId", d.link.deviceID)
+	// The build and the operations this agent dispatches, so the server can
+	// name an agent too old for what it asks instead of relaying blindly. A
+	// server that predates them ignores the parameters.
+	build := version.Current()
+	q.Set("agentVersion", build.Version)
+	if build.Commit != "" {
+		q.Set("agentCommit", build.Commit)
+	}
+	q.Set("operations", strings.Join(agentprotocol.Operations, ","))
 	u.RawQuery = q.Encode()
 
 	return u.String(), nil
@@ -700,7 +727,7 @@ func (d *agentDaemon) handleMessage(ctx context.Context, conn *websocket.Conn, m
 			log.Printf("[Agent] Invalid pty_input payload: %v", err)
 			return
 		}
-		if err := d.terminal.manager.SendInput(payload.SessionID, payload.Data); err != nil {
+		if err := d.terminal.manager.SendViewerInput(payload.SessionID, payload.Data); err != nil {
 			log.Printf("[Agent] Failed to send PTY input: %v", err)
 		}
 
@@ -713,8 +740,130 @@ func (d *agentDaemon) handleMessage(ctx context.Context, conn *websocket.Conn, m
 	case "pull_tasks":
 		d.handlePullTasks(ctx, conn, msg)
 
+	case agentprotocol.RunWaitingType:
+		d.handleRunWaiting(msg)
+
 	default:
 		log.Printf("[Agent] Unknown message type: %s", msg.Type)
+	}
+}
+
+// handleRunWaiting records on a run this agent holds whether its session is
+// blocked on the user, which is what the desktop banner is raised from. A run
+// the agent does not hold is someone else's business and is ignored, and a
+// headless run has nobody to wait for: a mark there would raise a false
+// "waiting for you" banner in the poll before the exit is observed. A mark the
+// owner already answered is the echo of a push that crossed the answer: the
+// answer is sent again instead of the glyph coming back.
+func (d *agentDaemon) handleRunWaiting(msg agentprotocol.Message) {
+	var payload agentprotocol.RunWaiting
+	if err := json.Unmarshal(msg.Payload, &payload); err != nil {
+		log.Printf("[Agent] Invalid run_waiting payload: %v", err)
+		return
+	}
+	d.queue.mu.Lock()
+	defer d.queue.mu.Unlock()
+	run := d.queue.runs[payload.RunID]
+	if run == nil {
+		return
+	}
+	if payload.WaitingSince == nil || run.desktop.Headless {
+		run.desktop.WaitingSince = time.Time{}
+		run.answeredAt = time.Time{}
+		return
+	}
+	since := payload.WaitingSince.UTC()
+	if !run.answeredAt.IsZero() && run.answeredAt.Equal(since) {
+		go d.sendAnswered(payload.RunID, since)
+		return
+	}
+	run.answeredAt = time.Time{}
+	run.desktop.WaitingSince = since
+}
+
+// watchAnswers observes what the owner types in a run's console, so that the
+// Enter answering its question ends the wait at once rather than on the
+// session's next Sectile call (#475). It is registered once per run.
+func (d *agentDaemon) watchAnswers(runID string) {
+	if d.terminal.manager == nil {
+		return
+	}
+	watch := false
+	d.queue.read(runID, func(run *controlledRun) {
+		watch = !run.answerWatched && !run.desktop.Headless
+		run.answerWatched = true
+	})
+	if !watch {
+		return
+	}
+	// Registered outside the queue lock: the listener takes it, under the
+	// session's listener lock.
+	d.terminal.manager.AddInputListener(runID, func(data []byte) {
+		if bytes.ContainsAny(data, "\r\n") {
+			d.answerRun(runID)
+		}
+	})
+}
+
+// answerRun ends, on the desktop and on the server, the wait of a run whose
+// owner pressed Enter in its console. Any other key leaves it: arrows, Escape
+// or Ctrl-C do not answer a question.
+func (d *agentDaemon) answerRun(runID string) {
+	d.queue.mu.Lock()
+	run := d.queue.runs[runID]
+	if run == nil || run.desktop.Headless || run.desktop.WaitingSince.IsZero() {
+		d.queue.mu.Unlock()
+		return
+	}
+	since := run.desktop.WaitingSince
+	run.desktop.WaitingSince = time.Time{}
+	run.answeredAt = since
+	d.queue.mu.Unlock()
+	// The listener runs on the console's read path, which must not wait on the
+	// server.
+	go d.sendAnswered(runID, since)
+}
+
+// sendAnswered tells the server the owner answered a run's wait. Without a
+// connection the answer stays on the run and is sent on reconnection.
+func (d *agentDaemon) sendAnswered(runID string, since time.Time) {
+	d.link.mu.Lock()
+	conn := d.link.conn
+	d.link.mu.Unlock()
+	if conn == nil {
+		return
+	}
+	d.writeAnswered(conn, runID, since)
+}
+
+func (d *agentDaemon) writeAnswered(conn *websocket.Conn, runID string, since time.Time) {
+	raw, err := json.Marshal(agentprotocol.RunAnswered{RunID: runID, WaitingSince: since})
+	if err != nil {
+		return
+	}
+	if err := d.link.write(conn, agentprotocol.Message{Type: agentprotocol.RunAnsweredType, Payload: raw}); err != nil {
+		log.Printf("[Agent] Cannot report the answered wait of run %s: %v", runID, err)
+	}
+}
+
+// resendAnswers sends the answers the server has not confirmed yet, on a new
+// connection, before any message is read from it: the server then records them
+// before it pulls the running tasks and sends back their waiting state.
+func (d *agentDaemon) resendAnswers(conn *websocket.Conn) {
+	type answer struct {
+		runID string
+		since time.Time
+	}
+	var pending []answer
+	d.queue.mu.Lock()
+	for id, run := range d.queue.runs {
+		if !run.answeredAt.IsZero() {
+			pending = append(pending, answer{id, run.answeredAt})
+		}
+	}
+	d.queue.mu.Unlock()
+	for _, a := range pending {
+		d.writeAnswered(conn, a.runID, a.since)
 	}
 }
 
@@ -829,6 +978,10 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 		d.cancelRun(ctx, conn, msg, payload)
 		return
 	}
+	if strings.TrimSpace(payload.MacroKey) != "" {
+		d.handleMacroDispatch(ctx, conn, msg, payload)
+		return
+	}
 	log.Printf("🚀 [Agent] Received job dispatch for task %s (id=%s): action=%s skill=%s", payload.TaskKey, msg.TaskID, payload.Action, payload.SkillID)
 	fmt.Printf("\n⚡ ========================================================\n")
 	fmt.Printf("🚀 [Agent] Received job dispatch for task %s\n", payload.TaskKey)
@@ -893,7 +1046,17 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 	if err := d.awaitRunSlot(ctx, run); err != nil {
 		return
 	}
+	d.convertLegacyRepoPaths(ctx, queueConfig)
 	config, workDir, branch, task, err := d.prepareDispatch(ctx, taskRef, run.isolated)
+	// A ticket whose repository cannot be chosen here waits to be pinned, on
+	// the same run, instead of starting in a guessed repository (#456).
+	for errors.Is(err, errRepositoryAmbiguous) {
+		if waitErr := d.awaitRepository(ctx, queueConfig, run, taskRef, payload.RunID); waitErr != nil {
+			err = waitErr
+			break
+		}
+		config, workDir, branch, task, err = d.prepareDispatch(ctx, taskRef, run.isolated)
+	}
 	if err != nil {
 		launchFailure = err
 		d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", err.Error())
@@ -918,13 +1081,13 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 		payload.SkillID = "adjust"
 	}
 	if payload.SkillID == "adjust" {
-		pr, verifyErr := runner.NewRunner().BranchPullRequest(workDir, branch)
-		if verifyErr != nil {
+		var task models.Task
+		if verifyErr := d.readAPI(ctx, "/api/tasks/"+url.PathEscape(taskRef), &task); verifyErr != nil {
 			d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", verifyErr.Error())
 			return
 		}
-		var task models.Task
-		if verifyErr = d.readAPI(ctx, "/api/tasks/"+url.PathEscape(taskRef), &task); verifyErr != nil {
+		pr, verifyErr := adjustmentPullRequest(ctx, workDir, branch, models.CurrentPullRequest(task.PrLinks))
+		if verifyErr != nil {
 			d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", verifyErr.Error())
 			return
 		}
@@ -947,13 +1110,35 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 	if payload.SkillID == "specify" || payload.SkillID == "implement" {
 		payload.Prompt += "\nPreserve accepted artifacts and code on retry. If this is PR recovery, retain the attained task stage and complete the configured creation owner checks without advancing to reviewed."
 	}
+	payload.Prompt += specArtifactsNotice(config, payload.SkillID)
 
 	if payload.RunID != "" {
 		payload.Prompt += fmt.Sprintf("\nRemote execution runId: %s. Reuse this ID with start_run and finish it using finish_run when the entire skill ends.", payload.RunID)
 	}
 	payload.Mode = liveSessionMode(payload.SkillID, payload.Action, payload.Mode)
-	fullLine, err := dispatchCommand(config, taskRef, payload.SkillID, payload.Action, payload.Prompt, payload.Command, payload.Mode, payload.Model, agentCommandContext{Task: task, Branch: branch, Directory: workDir, Tracker: config.IssueTracker, Repo: config.GithubRepo})
+	autonomous := models.NormalizeSkillMode(payload.Mode) == models.SkillModeAutonomous
+	if autonomous && !models.SupportsAutonomousRun(config.AIProvider, config.AICommandTemplate, config.AICommandTemplateAutonomous) {
+		provider := strings.TrimSpace(config.AIProvider)
+		if provider == "" {
+			provider = "agy"
+		}
+		var preflightErr error
+		if strings.TrimSpace(config.AICommandTemplate) != "" {
+			preflightErr = fmt.Errorf("the configured AI command template decides the execution mode: add a {mode:AUTONOMOUS|INTERACTIVE} placeholder to it, or run this skill interactively")
+		} else {
+			preflightErr = fmt.Errorf("provider %q has no headless mode: run this skill interactively, or configure an AI command template carrying a {mode:AUTONOMOUS|INTERACTIVE} placeholder", provider)
+		}
+		preflightErr = engineError(config, preflightErr)
+		launchFailure = preflightErr
+		d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", preflightErr.Error())
+		return
+	}
+	logIgnoredModel(config, taskRef, payload.Model)
+	folders := d.taskFolderMap(ctx, config, task, workDir)
+	payload.Prompt += folderMapPrompt(folders)
+	fullLine, err := dispatchCommand(config, taskRef, payload.SkillID, payload.Action, payload.Prompt, payload.Command, payload.Mode, payload.Model, agentCommandContext{Task: task, Branch: branch, Directory: workDir, Tracker: config.IssueTracker, Repo: config.GithubRepo, AddDirs: folderMapDirs(folders)})
 	if err != nil {
+		launchFailure = err
 		d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", err.Error())
 		return
 	}
@@ -967,7 +1152,7 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 		go d.postRunEngine(payload.RunID, runProvider, runModel)
 	}
 
-	autonomous := models.NormalizeSkillMode(payload.Mode) == models.SkillModeAutonomous
+	autonomous = models.NormalizeSkillMode(payload.Mode) == models.SkillModeAutonomous
 	if payload.RunID != "" && !autonomous {
 		fullLine, err = d.wrapRun(taskRef, payload.RunID, fullLine)
 		if err != nil {
@@ -997,6 +1182,9 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 	}
 	if payload.ProjectID != "" {
 		envVars["SECTILE_PROJECT_ID"] = payload.ProjectID
+	}
+	if raw, err := json.Marshal(folders); err == nil && len(folders) > 0 {
+		envVars["SECTILE_REPOSITORIES"] = string(raw)
 	}
 
 	// An autonomous run forks here, before any terminal exists: no PTY session,
@@ -1039,6 +1227,8 @@ func (d *agentDaemon) runInPty(sessionID, workDir string, envVars map[string]str
 		log.Printf("[Agent] Failed to create PTY session: %v", err)
 		return err
 	}
+
+	d.watchAnswers(sessionID)
 
 	// The console output already reaches the desktop over the WebSocket and is
 	// kept in the session history. Echoing it here as well buries the agent's
@@ -1085,22 +1275,6 @@ func (d *agentDaemon) sendStatus(conn *websocket.Conn, msgID, taskID, status, su
 	}
 
 	_ = d.link.write(conn, msg)
-}
-
-func (d *agentDaemon) dispatchTerminal(config agentconfig.Config, override string) string {
-	if d.terminal.explicit {
-		return d.terminal.app
-	}
-	if override != "" {
-		return override
-	}
-	if config.ExternalTerminalCommand != "" {
-		return config.ExternalTerminalCommand
-	}
-	if d.terminal.app != "" {
-		return d.terminal.app
-	}
-	return detectDefaultTerminal()
 }
 
 // derivedBranchToRecord returns the branch to write onto the task, or "" when

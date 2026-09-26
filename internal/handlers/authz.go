@@ -40,8 +40,11 @@ func (p principal) Actor() db.Actor { return db.Actor{ID: p.UserID, Name: p.Name
 const (
 	msgSignIn    = "Sign in to use this interface"
 	msgAdminOnly = "This action is reserved to admins"
-	msgNotOwner  = "Only the owner of this execution or an admin can act on it"
-	msgBlocked   = "This account is blocked: ask an admin to open it again"
+	// A member who sends a token to the tracker setup meant well: say where the
+	// server credential is set, and where their own goes.
+	msgServerCredentialAdminOnly = "Only an admin can set a tracker's server credential, from Administration. Your own goes in Profile → Tracker credentials."
+	msgNotOwner                  = "Only the owner of this execution or an admin can act on it"
+	msgBlocked                   = "This account is blocked: ask an admin to open it again"
 )
 
 // signInMode is the deployment's mode. A configured provider is the only
@@ -131,9 +134,13 @@ func (h *Handler) requireOwnerOrAdmin(w http.ResponseWriter, r *http.Request, ow
 // member creates, renames and deletes a project and configures the tracker it
 // reads from, because a board where only an admin can open a project is a board
 // that waits on one person. What stays an admin's is the roster, who exists,
-// what role they hold, and whether their account still opens.
+// what role they hold, and whether their account still opens, the admin page
+// that watches over it, and the server credentials the deployment reaches its
+// trackers with (#464).
 func adminOnlyRoute(_ string, path string) bool {
-	return path == "/api/users" || strings.HasPrefix(path, "/api/users/")
+	return path == "/api/users" || strings.HasPrefix(path, "/api/users/") ||
+		path == AdminStatsPath ||
+		path == ServerTrackerCredentialsPath || strings.HasPrefix(path, ServerTrackerCredentialsPath+"/")
 }
 
 // personalSettingsKeys is the routing table between the two settings stores
@@ -145,28 +152,37 @@ var personalSettingsKeys = map[string]bool{
 	"theme": true, "accentColor": true, "language": true, "density": true,
 	"defaultView": true, "uiScale": true, "detailMode": true,
 	"userName": true, "userEmail": true, "userAvatar": true,
-	"editorCommand": true, "externalTerminalCommand": true,
+}
+
+// executionSettingsKeys are the settings the workstation owns since #305. No
+// request writes them any more; a payload that still names them is saved
+// without them.
+var executionSettingsKeys = []string{
+	"aiProvider", "aiCommandTemplate", "aiCommandTemplateAutonomous", "aiModel", "aiSkillModels",
+	"aiProviderModels", "repoPath", "editorCommand", "externalTerminalCommand",
 }
 
 // trackerSettingsKeys are deployment keys a member may nonetheless write. They
-// describe which tracker the board reads from and the credential it reads with,
-// and they are the settings half of the same rule as the route table: opening a
-// project and pointing it at its tracker are one act, so refusing the second to
-// a member who may do the first would only make the board unusable in a
-// different place. They stay in the shared row: there is one tracker per
-// deployment, not one per person (a *personal* credential is another mechanism,
-// ADR 0014). The token fields are included because a credential is what makes
-// the configuration work; the Set / FromEnv flags are projections the API
-// answers rather than values anyone writes, and are listed so a whole-row post
-// carrying them is not read as an offence.
+// describe which tracker the board reads from, and they are the settings half of
+// the same rule as the route table: opening a project and pointing it at its
+// tracker are one act, so refusing the second to a member who may do the first
+// would only make the board unusable in a different place. They stay in the
+// shared row: there is one tracker per deployment, not one per person.
+//
+// The credential is not among them. The server credential of a provider is an
+// admin's, set from Administration (#464), and a personal one is another
+// mechanism (ADR 0014); UpdateSettings writes neither, whoever sends them. The
+// Set / FromEnv flags are projections the API answers rather than values
+// anyone writes, and are listed so a whole-row post carrying them is not read
+// as an offence.
 var trackerSettingsKeys = map[string]bool{
 	"issueTracker": true,
 	"githubRepo":   true, "githubApiUrl": true,
-	"githubToken": true, "githubTokenSet": true, "githubTokenFromEnv": true,
+	"githubTokenSet": true, "githubTokenFromEnv": true,
 	"gitlabUrl": true, "gitlabProject": true,
-	"gitlabToken": true, "gitlabTokenSet": true, "gitlabTokenFromEnv": true,
-	"jiraUrl": true, "jiraProject": true, "jiraEmail": true,
-	"jiraApiToken": true, "jiraApiTokenSet": true, "jiraApiTokenFromEnv": true,
+	"gitlabTokenSet": true, "gitlabTokenFromEnv": true,
+	"jiraUrl": true, "jiraProject": true,
+	"jiraApiTokenSet": true, "jiraApiTokenFromEnv": true,
 }
 
 // memberSettingsKeys is the authorization rule: what a member may change, in

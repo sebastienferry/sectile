@@ -7,6 +7,7 @@ import {
   Activity,
   Map,
   Clock,
+  Inbox,
   Sun,
   Moon,
   Globe,
@@ -21,11 +22,14 @@ import {
   Layers,
   Download,
   Shield,
+  PanelLeft,
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { useCurrentUser } from '../hooks/useCurrentUser'
 import { accentTextStyle } from '../lib/accents'
+import { enabledOptionalViews } from '../lib/optionalViews'
 import { useBackdropDismiss } from '../hooks/useBackdropDismiss'
+import { isMacPlatform, sidebarShortcutLabel } from '../../../shared/sidebarShortcut.mjs'
 
 export const CommandPalette: React.FC = () => {
   const {
@@ -38,8 +42,8 @@ export const CommandPalette: React.FC = () => {
     setEditingProject,
     setActiveView,
     setIsQuickAddOpen,
+    setSidebarCollapsed,
     setIsProfileOpen,
-    setIsAdminOpen,
     setSelectedTask,
     settings,
     updateSettings,
@@ -87,36 +91,24 @@ export const CommandPalette: React.FC = () => {
 
   /**
    * Installs a Spec-Driven Design toolchain (Spec Kit or OpenSpec) into the
-   * active project's working directory, reporting the outcome as a toast.
+   * selected project, reporting the outcome as a toast. Only the project is
+   * named: the workstation's agent picks its own checkout and provider.
    */
   const installSpecFrameworkFromPalette = async (framework: 'speckit' | 'openspec') => {
     const label = framework === 'openspec' ? 'OpenSpec' : 'GitHub Spec Kit'
-    const repoPath = currentProject?.repoPath || settings.repoPath
-    if (!repoPath) {
-      addToast({
-        type: 'warning',
-        title: 'Aucun répertoire de travail',
-        description: `Configurez le CWD d'un projet avant d'installer ${label}.`,
-      })
-      return
-    }
+    if (!currentProject) return
 
     addToast({
       type: 'info',
       title: `Installation de ${label}...`,
-      description: `Répertoire : ${repoPath}`,
+      description: currentProject.name,
     })
 
     try {
-      const res = await fetch('/api/spec-framework/install', {
+      const res = await fetch(`/api/projects/${encodeURIComponent(currentProject.id)}/install-spec-framework`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          framework,
-          repoPath,
-          projectId: currentProject?.id || '',
-          aiAgent: currentProject?.aiProvider || settings.aiProvider || '',
-        }),
+        body: JSON.stringify({ framework }),
       })
       const result = await res.json()
       if (!res.ok) {
@@ -151,6 +143,10 @@ export const CommandPalette: React.FC = () => {
     }
   }
 
+  // Vues de planification que ce projet affiche. La palette ne propose pas une
+  // vue absente de la barre latérale : la commande mènerait à un écran mort.
+  const optionalViews = enabledOptionalViews(currentProject)
+
   // Built-in actions list
   const generalActions = [
     {
@@ -162,6 +158,17 @@ export const CommandPalette: React.FC = () => {
       action: () => {
         setIsCommandPaletteOpen(false)
         setIsQuickAddOpen(true)
+      },
+    },
+    {
+      id: 'toggle_sidebar',
+      title: t.nav.toggleSidebar,
+      icon: <PanelLeft size={16} className="text-sky-400" />,
+      shortcut: sidebarShortcutLabel(isMacPlatform(navigator)),
+      keywords: ['sidebar', 'menu', 'barre', 'laterale', 'replier', 'deplier', 'toggle', 'collapse', 'expand'],
+      action: () => {
+        setSidebarCollapsed(prev => !prev)
+        setIsCommandPaletteOpen(false)
       },
     },
     {
@@ -186,7 +193,18 @@ export const CommandPalette: React.FC = () => {
         setIsCommandPaletteOpen(false)
       },
     },
-    {
+    ...(optionalViews.includes('triage') ? [{
+      id: 'switch_triage',
+      title: '🗂️ Vue Triage (tickets non classés)',
+      icon: <Inbox size={16} className="text-rose-400" />,
+      shortcut: 'TR',
+      keywords: ['triage', 'trier', 'non classe', 'sans sprint', 'sans macro', 'sans equipe', 'orphelin', 'vue'],
+      action: () => {
+        setActiveView('triage')
+        setIsCommandPaletteOpen(false)
+      },
+    }] : []),
+    ...(optionalViews.includes('roadmap') ? [{
       id: 'switch_roadmap',
       title: '🗺️ Vue Roadmap (Macros : NOW / NEXT / FUTURE)',
       icon: <Map size={16} className="text-emerald-400" />,
@@ -196,8 +214,8 @@ export const CommandPalette: React.FC = () => {
         setActiveView('roadmap')
         setIsCommandPaletteOpen(false)
       },
-    },
-    {
+    }] : []),
+    ...(optionalViews.includes('timeline') ? [{
       id: 'switch_timeline',
       title: '⏱️ Vue Timeline Sprints',
       icon: <Clock size={16} className="text-blue-400" />,
@@ -207,7 +225,7 @@ export const CommandPalette: React.FC = () => {
         setActiveView('timeline')
         setIsCommandPaletteOpen(false)
       },
-    },
+    }] : []),
     {
       id: 'switch_activities',
       title: '⚡ Vue Activités (File d\'exécution & IA)',
@@ -237,7 +255,7 @@ export const CommandPalette: React.FC = () => {
       keywords: ['admin', 'administration', 'utilisateurs', 'roles', 'users'],
       action: () => {
         setIsCommandPaletteOpen(false)
-        setIsAdminOpen(true)
+        setActiveView('admin')
       },
     }] : []),
     {
@@ -262,28 +280,31 @@ export const CommandPalette: React.FC = () => {
         syncJira(currentProject?.jiraProject)
       },
     },
-    {
-      id: 'install_speckit',
-      title: '📑 Installer GitHub Spec Kit dans le projet actif',
-      icon: <Download size={16} className="text-blue-400" />,
-      shortcut: 'K',
-      keywords: ['speckit', 'spec kit', 'specify', 'sdd', 'installer', 'install', 'scaffold', 'uv', 'uvx'],
-      action: () => {
-        setIsCommandPaletteOpen(false)
-        void installSpecFrameworkFromPalette('speckit')
+    // Offered whenever a project is selected: the agent resolves the checkout.
+    ...(currentProject ? [
+      {
+        id: 'install_speckit',
+        title: '📑 Installer GitHub Spec Kit dans le projet actif',
+        icon: <Download size={16} className="text-blue-400" />,
+        shortcut: 'K',
+        keywords: ['speckit', 'spec kit', 'specify', 'sdd', 'installer', 'install', 'scaffold', 'uv', 'uvx'],
+        action: () => {
+          setIsCommandPaletteOpen(false)
+          void installSpecFrameworkFromPalette('speckit')
+        },
       },
-    },
-    {
-      id: 'install_openspec',
-      title: '🧭 Installer OpenSpec dans le projet actif',
-      icon: <Download size={16} className="text-emerald-400" />,
-      shortcut: 'Shift+K',
-      keywords: ['openspec', 'open spec', 'sdd', 'installer', 'install', 'scaffold', 'npx', 'npm'],
-      action: () => {
-        setIsCommandPaletteOpen(false)
-        void installSpecFrameworkFromPalette('openspec')
+      {
+        id: 'install_openspec',
+        title: '🧭 Installer OpenSpec dans le projet actif',
+        icon: <Download size={16} className="text-emerald-400" />,
+        shortcut: 'Shift+K',
+        keywords: ['openspec', 'open spec', 'sdd', 'installer', 'install', 'scaffold', 'npx', 'npm'],
+        action: () => {
+          setIsCommandPaletteOpen(false)
+          void installSpecFrameworkFromPalette('openspec')
+        },
       },
-    },
+    ] : []),
     ...[],
     ...[],
     {
@@ -363,7 +384,7 @@ export const CommandPalette: React.FC = () => {
             keywords: ['admin', 'administration', 'users', 'utilisateurs', 'roles', 'membres', 'comptes'],
             action: () => {
               setIsCommandPaletteOpen(false)
-              setIsAdminOpen(true)
+              setActiveView('admin')
             },
           },
         ]

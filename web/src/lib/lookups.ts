@@ -1,5 +1,6 @@
 import type { LookupOption } from '../components/LookupField'
 import type { EpicMeta, TrackerSprint, Project } from '../types'
+import { foldForSearch } from './searchFold.ts'
 
 export const isProjectCompatible = (
   p1: Project | null | undefined,
@@ -10,9 +11,70 @@ export const isProjectCompatible = (
   const t1 = (p1.issueTracker || 'local').toLowerCase().trim()
   const t2 = (p2.issueTracker || 'local').toLowerCase().trim()
   if (t1 === t2 || t1 === 'local' || t2 === 'local') return true
-  if ((p1.githubRepo || t1 === 'github') && (p2.githubRepo || t2 === 'github')) return true
+  const githubMilestones = (p: Project, t: string) => t !== 'gitlab' && (!!p.githubRepo || t === 'github')
+  if (githubMilestones(p1, t1) && githubMilestones(p2, t2)) return true
   return false
 }
+
+/** What an empty tracker address of a project falls back to. */
+export interface TrackerDefaults {
+  jiraUrl?: string
+  githubApiUrl?: string
+  gitlabUrl?: string
+  gitlabProject?: string
+}
+
+const DEFAULT_GITHUB_API = 'https://api.github.com'
+const DEFAULT_GITLAB_API = 'https://gitlab.com/api/v4'
+
+/** The tracker a project writes to, by the server's rule (Registry.ForProject). */
+export const trackerKindOf = (p: Project): string => {
+  const kind = (p.issueTracker || '').toLowerCase().trim()
+  if (kind === '' || kind === 'local') return p.githubRepo?.trim() ? 'github' : 'local'
+  return kind
+}
+
+/** A tracker URL reduced to what tells two sites apart, as the server does. */
+export const trackerAddress = (raw: string | undefined): string => {
+  let address = (raw || '').trim()
+  const scheme = address.indexOf('://')
+  if (scheme >= 0) address = address.slice(scheme + 3)
+  address = address.replace(/\/+$/, '')
+  const slash = address.indexOf('/')
+  return slash >= 0 ? address.slice(0, slash).toLowerCase() + address.slice(slash) : address.toLowerCase()
+}
+
+/**
+ * Whether a story created in target can take a macro of macroProject as its
+ * parent: the same Jira site, the same GitHub repository, the same GitLab
+ * project, or the local board on both sides. The server applies the same rule and has the last word; this
+ * one only decides what the target picker offers.
+ */
+export const sameTrackerInstance = (macroProject: Project, target: Project, defaults: TrackerDefaults = {}): boolean => {
+  if (macroProject.id === target.id) return true
+  const kind = trackerKindOf(macroProject)
+  if (kind !== trackerKindOf(target)) return false
+  if (kind === 'local') return true
+  if (kind === 'jira') {
+    const site = (p: Project) => trackerAddress(p.trackerUrl?.trim() ? p.trackerUrl : defaults.jiraUrl)
+    return site(macroProject) !== '' && site(macroProject) === site(target)
+  }
+  if (kind === 'github') {
+    const api = (p: Project) => trackerAddress(p.githubApiUrl?.trim() || defaults.githubApiUrl?.trim() || DEFAULT_GITHUB_API)
+    return api(macroProject) === api(target)
+      && (macroProject.githubRepo || '').trim().toLowerCase() === (target.githubRepo || '').trim().toLowerCase()
+  }
+  if (kind === 'gitlab') {
+    const api = (p: Project) => trackerAddress(p.gitlabUrl?.trim() || defaults.gitlabUrl?.trim() || DEFAULT_GITLAB_API)
+    const path = (p: Project) => (p.gitlabProject?.trim() || defaults.gitlabProject?.trim() || '').replace(/^\/+|\/+$/g, '').toLowerCase()
+    return api(macroProject) === api(target) && path(macroProject) === path(target)
+  }
+  return false
+}
+
+/** The other projects a slicing line's story may be created in. */
+export const targetProjectOptions = (macroProject: Project, projects: Project[], defaults: TrackerDefaults = {}): Project[] =>
+  projects.filter(p => p.id !== macroProject.id && sameTrackerInstance(macroProject, p, defaults))
 
 /**
  * Sources de recherche pour les champs de type lookup.
@@ -32,7 +94,7 @@ export const isProjectCompatible = (
 const DEFAULT_LIMIT = 40
 
 const matches = (haystack: string, query: string): boolean =>
-  haystack.toLowerCase().includes(query.trim().toLowerCase())
+  foldForSearch(haystack).includes(foldForSearch(query.trim()))
 
 /**
  * Macros du projet, cherchées par clé ou par titre. Les macros terminées sont exclues
@@ -66,12 +128,26 @@ export const sprintLookup =
   async (query: string): Promise<LookupOption[]> => {
     const pool = sprints.filter(sprint => sprint.id && sprint.state !== 'closed')
     const found = pool.filter(sprint => (query.trim() ? matches(sprint.name, query) : true))
-    return found.slice(0, DEFAULT_LIMIT).map(sprint => ({
-      id: sprint.id as string,
-      label: sprint.name,
-      sublabel: sprint.state === 'active' ? 'sprint en cours' : undefined,
-    }))
+    return found.slice(0, DEFAULT_LIMIT).map(sprint => {
+      const parts = [sprintKindLabel(sprint.id), sprint.state === 'active' ? 'sprint en cours' : ''].filter(Boolean)
+      return {
+        id: sprint.id as string,
+        label: sprint.name,
+        sublabel: parts.length ? parts.join(' · ') : undefined,
+      }
+    })
   }
+
+/**
+ * The kind of a GitLab sprint, which its id carries (milestone:<id> or
+ * iteration:<id>): both are sprints there, and the picker says which. Any
+ * other tracker's sprint has one kind and no label.
+ */
+export const sprintKindLabel = (id: string | undefined): string => {
+  if (id?.startsWith('milestone:')) return 'Jalon'
+  if (id?.startsWith('iteration:')) return 'Itération'
+  return ''
+}
 
 /**
  * Valeurs déjà présentes sur les tickets, pour les filtres : un sprint, une

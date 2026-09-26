@@ -1,4 +1,19 @@
 export interface TranslationSchema {
+  batchLaunch: string
+  batchDialog: {
+    title: string
+    worktree: string
+    worktreeHint: string
+    invalidName: string
+    order: string
+    orderHint: string
+    moveUp: string
+    moveDown: string
+    cancel: string
+    launch: string
+    launching: string
+    failed: string
+  }
   app: {
     title: string
     tagline: string
@@ -16,12 +31,17 @@ export interface TranslationSchema {
     list: string
     roadmap: string
     timeline: string
+    triage: string
     roadmapTooltip: string
     timelineTooltip: string
+    triageTooltip: string
     activities: string
     sync: string
     filters: string
     myTasks: string
+    /** Names the trackers on which My Tasks uses the account's name and e-mail, with `{trackers}`. */
+    myTasksFallback: string
+    myTasksSignedOut: string
     urgentHigh: string
     labels: string
     sources: string
@@ -94,6 +114,12 @@ export interface TranslationSchema {
       workflowTooltip: string
       status: string
       statusTooltip: string
+    }
+    sort: {
+      label: string
+      ascending: string
+      descending: string
+      fields: { priority: string; epic: string; key: string; updated: string }
     }
   }
   list: {
@@ -184,7 +210,15 @@ export interface TranslationSchema {
     hint: string
     status: string
     priority: string
-    tracker: string
+    macro: string
+    noMacro: string
+    macroLoading: string
+    followUp: string
+    followUpNone: string
+    followUpRewrite: string
+    followUpClarify: string
+    /** Warning title when the new ticket could not be attached; {macro} is the key. */
+    attachFailed: string
   }
   commandPalette: {
     searchPlaceholder: string
@@ -304,6 +338,7 @@ export interface TranslationSchema {
       cmdAutonomous?: string
       fastPresets?: string
       engineDesc: string
+      mcpClient?: string
       cmdTemplate: string
       repoPath: string
       repoPathDesc: string
@@ -569,10 +604,13 @@ export interface TranslationSchema {
   activities: {
     title: string
     subtitle: string
+    /** Badge of a launch parked until its ticket is pinned to a repository. */
+    waitingRepository: string
     stats: {
       total: string
       running: string
       waiting: string
+      silent: string
       queued: string
       completed: string
       failed: string
@@ -631,6 +669,8 @@ export interface TranslationSchema {
     advanceInteractive: string
     advanceWithModel: string
     currentModel: string
+    engineUnknown: string
+    engineUnknownShort: string
     advanceAutonomous: string
     filterParent: string
     clearParent: string
@@ -655,20 +695,97 @@ export interface TranslationSchema {
     branchCopied: string
     viewDiff: string
   }
-  mcp: {
-    panelTitle: string
-    client: string
-    clients: string
-    noClient: string
-    run: string
-    runs: string
-    noRuns: string
-    connected: string
+  admin: {
+    title: string
+    subtitle: string
+    refresh: string
+    updatedAt: string
+    activeUsers: string
+    activeUsersHint: string
+    activeRuns: string
+    running: string
+    queued: string
+    pending: string
+    totalUsers: string
+    admins: string
+    blocked: string
+    users: string
+    statsUnavailable: string
+    adminOnly: string
+    activity: string
+    online: string
+    lastActive: string
+    never: string
+    serverCredentials: {
+      title: string
+      intro: string
+      stored: string
+      storedUnreadable: string
+      environment: string
+      none: string
+      account: string
+      checkedAt: string
+      notChecked: string
+      updatedAt: string
+      email: string
+      token: string
+      tokenPlaceholder: string
+      check: string
+      checkCurrent: string
+      save: string
+      clear: string
+      confirmClear: string
+      checked: string
+      saved: string
+      cleared: string
+      saveNeedsCheck: string
+      loadFailed: string
+    }
+  }
+  boardViews: {
+    newView: string
+    editView: string
+    createTitle: string
+    editTitle: string
+    name: string
+    namePlaceholder: string
+    projects: string
+    labels: string
+    labelsHint: string
+    labelPlaceholder: string
+    create: string
+    save: string
+    cancel: string
+    delete: string
+    deleteConfirm: string
+    errorName: string
+    errorDuplicate: string
+    errorProjects: string
     unavailable: string
-    ownership: string
+    unavailableDescription: string
+    deleted: string
+    emptyTitle: string
+    emptyDescription: string
+    projectForNewTicket: string
+    chooseProject: string
+  }
+  reads: {
+    failedTitle: string
+    failedDescription: string
+    bannerTitle: string
+    bannerDescription: string
+    retry: string
+    resources: {
+      projects: string
+      tasks: string
+      settings: string
+      boardViews: string
+    }
   }
   toasts: {
     taskCreated: string
+    openCreated: string
+    openInTracker: string
     taskUpdated: string
     taskMoved: string
     taskDeleted: string
@@ -688,6 +805,21 @@ export interface TranslationSchema {
 
 export const translations: Record<'fr' | 'en', TranslationSchema> = {
   fr: {
+    batchLaunch: 'Lot',
+    batchDialog: {
+      title: "Préparer le lot",
+      worktree: "Nom du worktree",
+      worktreeHint: "Un worktree dédié pour l’ensemble du lot.",
+      invalidName: "Utilisez 1 à 80 lettres, chiffres, tirets ou underscores, en commençant par une lettre ou un chiffre.",
+      order: "Ordre d’exécution",
+      orderHint: "Les tickets seront traités du haut vers le bas. Utilisez les flèches pour changer leur ordre.",
+      moveUp: "Monter",
+      moveDown: "Descendre",
+      cancel: "Annuler",
+      launch: "Lancer le lot",
+      launching: "Lancement…",
+      failed: "Le lancement a échoué. Votre ordre et le nom du worktree sont conservés ; vous pouvez réessayer.",
+    },
     app: {
       title: 'Sectile',
       tagline: 'Gestionnaire de tâches agentique',
@@ -705,12 +837,16 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
       list: 'Backlog',
       roadmap: 'Roadmap',
       timeline: 'Timeline',
+      triage: 'Triage',
       roadmapTooltip: 'Roadmap : NOW / NEXT / FUTURE',
       timelineTooltip: 'Timeline Sprints',
+      triageTooltip: 'Triage : tickets sans sprint, macro, équipe ou assigné',
       activities: 'Activités',
       sync: 'Synchro',
       filters: 'Filtres rapides',
       myTasks: 'Mes tâches',
+      myTasksFallback: 'Sur {trackers}, votre nom et votre e-mail sont utilisés : enregistrez ou vérifiez un accès personnel dans votre profil.',
+      myTasksSignedOut: "Hors connexion : le nom et l'e-mail du profil local sont utilisés.",
       urgentHigh: 'Priorité Haute',
       labels: 'Étiquettes',
       sources: 'Sources',
@@ -782,6 +918,12 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
         workflowTooltip: 'Workflow agentique (étapes : new ➔ clarified ➔ specified ➔ implemented ➔ reviewed ➔ finished)',
         status: 'Statuts',
         statusTooltip: 'Vue classique par statuts, de gauche à droite',
+      },
+      sort: {
+        label: 'Trier par',
+        ascending: 'Croissant',
+        descending: 'Décroissant',
+        fields: { priority: 'Priorité', epic: 'Epic', key: 'Clé', updated: 'Dernière mise à jour' },
       },
     },
     list: {
@@ -872,7 +1014,14 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
       hint: 'Appuyez sur Entrée pour créer immédiatement',
       status: 'Statut initial',
       priority: 'Priorité',
-      tracker: 'Destination / Tracker',
+      macro: 'Macro',
+      noMacro: 'Aucune macro',
+      macroLoading: 'Chargement des macros…',
+      followUp: 'Après la création',
+      followUpNone: 'Rien',
+      followUpRewrite: 'Reformuler en user story',
+      followUpClarify: 'Clarifier',
+      attachFailed: 'Ticket créé, mais non rattaché à {macro}',
     },
     commandPalette: {
       searchPlaceholder: 'Tapez une commande, skill ou tâche...',
@@ -899,7 +1048,7 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
         account: 'Compte',
         appearance: 'Apparence',
         trackers: 'Identifiants Trackers',
-        aiEngine: 'Paramètres de l\'agent',
+        aiEngine: 'Connexion MCP',
         sdd: 'Compétences & SDD',
         workstations: 'Workstations & Agent',
         aiConfig: 'Moteur IA & Prompts',
@@ -991,7 +1140,8 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
         cmdInteractive: 'Commande interactive',
         cmdAutonomous: 'Commande autonome (headless)',
         fastPresets: 'Modèles de commande rapides :',
-        engineDesc: 'Configurez le moteur d\'intelligence artificielle par défaut, les modèles et les commandes CLI d\'exécution des skills.',
+        engineDesc: 'Connectez directement un CLI ou un IDE au serveur MCP Sectile. Le moteur, les modèles et les commandes d\'exécution se règlent sur votre poste, dans l\'application desktop.',
+        mcpClient: 'Client MCP à configurer',
         cmdTemplate: 'Template de commande Shell CLI',
         repoPath: 'Répertoire du projet cible (CWD)',
         repoPathDesc: 'Emplacement du repo dans lequel l\'agent exécutera les commandes',
@@ -1257,10 +1407,12 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
     activities: {
       title: 'Activités & File d\'attente',
       subtitle: 'Suivi en temps réel des exécutions de skills agentiques, logs CLI et artefacts générés.',
+      waitingRepository: 'En attente du dépôt de la tâche',
       stats: {
         total: 'Total exécutions',
         running: 'En cours',
         waiting: 'En attente de vous',
+        silent: 'Silencieuses',
         queued: 'En attente',
         completed: 'Terminées',
         failed: 'Échouées',
@@ -1319,6 +1471,8 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
       advanceInteractive: 'Avancer en interactif',
       advanceWithModel: 'Modèle des lancements',
       currentModel: '(modèle configuré)',
+      engineUnknown: 'Moteur inconnu : aucun de vos agents ne sert ce projet',
+      engineUnknownShort: '?',
       advanceAutonomous: 'Avancer en autonome',
       filterParent: 'Filtrer par parent',
       clearParent: 'Retirer le filtre parent',
@@ -1343,20 +1497,97 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
       branchCopied: 'Nom de la branche copié !',
       viewDiff: 'Voir le Git Diff',
     },
-    mcp: {
-      panelTitle: 'Clients MCP connectés',
-      client: 'client MCP',
-      clients: 'clients MCP',
-      noClient: 'Aucun client MCP',
-      run: 'exécution',
-      runs: 'exécutions',
-      noRuns: 'aucune exécution',
-      connected: 'connecté depuis',
-      unavailable: 'Statut MCP indisponible',
-      ownership: 'Les exécutions listées se ferment si leur client se déconnecte.',
+    admin: {
+      title: 'Administration',
+      subtitle: 'Les comptes, leurs rôles, et ce que fait le board en ce moment',
+      refresh: 'Actualiser',
+      updatedAt: 'Mis à jour à',
+      activeUsers: 'Utilisateurs connectés',
+      activeUsersHint: 'Session utilisée ces {minutes} dernières minutes',
+      activeRuns: 'Exécutions actives',
+      running: 'en cours',
+      queued: 'en file',
+      pending: 'en attente',
+      totalUsers: 'Comptes',
+      admins: 'admin(s)',
+      blocked: 'bloqué(s)',
+      users: 'Utilisateurs',
+      statsUnavailable: 'Statistiques indisponibles',
+      adminOnly: 'Cette page est réservée aux administrateurs.',
+      activity: 'Activité',
+      online: 'En ligne',
+      lastActive: 'Vu',
+      never: 'jamais',
+      serverCredentials: {
+        title: 'Accès trackers du serveur',
+        intro: 'Le compte avec lequel Sectile synchronise chaque tracker. Il sert à toutes les synchronisations, même celles lancées à la main ; les écritures faites par quelqu\'un restent faites avec son propre accès.',
+        stored: 'Enregistré',
+        storedUnreadable: 'Enregistré, illisible avec la clé du serveur : enregistrez-le à nouveau',
+        environment: 'Fourni par l\'environnement ({variables})',
+        none: 'Non configuré : définissez {variables} ou enregistrez un accès ici',
+        account: 'Compte',
+        checkedAt: 'vérifié',
+        notChecked: 'pas encore vérifié',
+        updatedAt: 'Enregistré',
+        email: 'E-mail du compte Jira',
+        token: 'Jeton',
+        tokenPlaceholder: 'Nouveau jeton',
+        check: 'Vérifier',
+        checkCurrent: 'Vérifier l\'accès en place',
+        save: 'Enregistrer',
+        clear: 'Effacer',
+        confirmClear: 'Effacer l\'accès serveur {tracker} ? Les synchronisations utiliseront l\'environnement s\'il en fournit un, sinon elles échoueront.',
+        checked: 'Connecté en tant que {account}',
+        saved: 'Accès serveur {tracker} enregistré',
+        cleared: 'Accès serveur {tracker} effacé',
+        saveNeedsCheck: 'Vérifiez le jeton avant de l\'enregistrer',
+        loadFailed: 'Accès serveur indisponibles',
+      },
+    },
+    boardViews: {
+      newView: 'Nouvelle vue',
+      editView: 'Modifier la vue',
+      createTitle: 'Nouvelle vue',
+      editTitle: 'Modifier la vue',
+      name: 'Nom',
+      namePlaceholder: 'Ex. Plateforme',
+      projects: 'Projets',
+      labels: 'Labels',
+      labelsHint: 'Un ticket apparaît s\'il porte au moins un de ces labels. Sans label, la vue montre tous les tickets des projets choisis.',
+      labelPlaceholder: 'Ajouter un label puis Entrée',
+      create: 'Créer la vue',
+      save: 'Enregistrer',
+      cancel: 'Annuler',
+      delete: 'Supprimer la vue',
+      deleteConfirm: 'Supprimer la vue « {name} » ? Aucun ticket, label ni projet n\'est modifié.',
+      errorName: 'Donnez un nom à la vue.',
+      errorDuplicate: 'Une autre de vos vues porte déjà ce nom.',
+      errorProjects: 'Choisissez au moins un projet.',
+      unavailable: 'Vue indisponible',
+      unavailableDescription: 'Cette vue n\'existe pas ou ne vous appartient pas.',
+      deleted: 'Vue supprimée',
+      emptyTitle: 'Cette vue ne sélectionne plus aucun projet',
+      emptyDescription: 'Ses projets ont été supprimés. Modifiez la vue pour en choisir d\'autres, ou supprimez-la.',
+      projectForNewTicket: 'Projet du ticket',
+      chooseProject: 'Choisir un projet…',
+    },
+    reads: {
+      failedTitle: 'Lecture impossible',
+      failedDescription: '{resource} : le serveur a répondu {detail}. Ce que vous voyez est incomplet.',
+      bannerTitle: 'Interface dégradée',
+      bannerDescription: 'Ces lectures échouent : {detail}. Rien n\'est vide, rien n\'a été supprimé — le serveur ne répond pas.',
+      retry: 'Réessayer',
+      resources: {
+        projects: 'Projets',
+        tasks: 'Tickets',
+        settings: 'Paramètres',
+        boardViews: 'Vues du board',
+      },
     },
     toasts: {
       taskCreated: 'Tâche créée avec succès !',
+      openCreated: 'Ouvrir',
+      openInTracker: 'Ouvrir dans le tracker',
       taskUpdated: 'Tâche mise à jour !',
       taskMoved: 'Statut de la tâche mis à jour',
       taskDeleted: 'Tâche supprimée',
@@ -1374,6 +1605,21 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
     },
   },
   en: {
+    batchLaunch: 'Batch',
+    batchDialog: {
+      title: "Prepare batch",
+      worktree: "Worktree name",
+      worktreeHint: "One dedicated worktree for the entire batch.",
+      invalidName: "Use 1–80 letters, digits, hyphens or underscores, starting with a letter or digit.",
+      order: "Execution order",
+      orderHint: "Tickets will run from top to bottom. Use the arrows to change their order.",
+      moveUp: "Move up",
+      moveDown: "Move down",
+      cancel: "Cancel",
+      launch: "Launch batch",
+      launching: "Launching…",
+      failed: "Launch failed. Your order and worktree name are preserved; you can retry.",
+    },
     app: {
       title: 'Sectile',
       tagline: 'Agentic Task Workflow Manager',
@@ -1391,12 +1637,16 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
       list: 'Backlog',
       roadmap: 'Roadmap',
       timeline: 'Timeline',
+      triage: 'Triage',
       roadmapTooltip: 'Roadmap: NOW / NEXT / FUTURE',
       timelineTooltip: 'Sprint Timeline',
+      triageTooltip: 'Triage: tickets with no sprint, macro, team or assignee',
       activities: 'Activities',
       sync: 'Sync',
       filters: 'Quick Filters',
       myTasks: 'My Tasks',
+      myTasksFallback: 'On {trackers}, your name and e-mail are used: save or verify a personal credential in your profile.',
+      myTasksSignedOut: 'Signed out: the name and e-mail of the local profile are used.',
       urgentHigh: 'High Priority',
       labels: 'Labels',
       sources: 'Sources',
@@ -1468,6 +1718,12 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
         workflowTooltip: 'Agentic workflow (stages: new ➔ clarified ➔ specified ➔ implemented ➔ reviewed ➔ finished)',
         status: 'Statuses',
         statusTooltip: 'Classic status based view, from left to right',
+      },
+      sort: {
+        label: 'Sort by',
+        ascending: 'Ascending',
+        descending: 'Descending',
+        fields: { priority: 'Priority', epic: 'Epic', key: 'Key', updated: 'Last updated' },
       },
     },
     list: {
@@ -1558,7 +1814,14 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
       hint: 'Press Enter to create immediately',
       status: 'Initial status',
       priority: 'Priority',
-      tracker: 'Destination / Tracker',
+      macro: 'Macro',
+      noMacro: 'No macro',
+      macroLoading: 'Loading macros…',
+      followUp: 'After saving',
+      followUpNone: 'Nothing',
+      followUpRewrite: 'Rewrite as a user story',
+      followUpClarify: 'Clarify',
+      attachFailed: 'Ticket created, but not attached to {macro}',
     },
     commandPalette: {
       searchPlaceholder: 'Type a command, skill or task...',
@@ -1585,7 +1848,7 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
         account: 'Account',
         appearance: 'Appearance',
         trackers: 'Tracker Credentials',
-        aiEngine: 'Agent settings',
+        aiEngine: 'MCP connection',
         sdd: 'Skills & SDD',
         workstations: 'Workstations & Agent',
         aiConfig: 'AI Engine & Prompts',
@@ -1677,7 +1940,8 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
         cmdInteractive: 'Interactive command',
         cmdAutonomous: 'Autonomous command (headless)',
         fastPresets: 'Quick command presets:',
-        engineDesc: 'Configure the default artificial intelligence engine, models, and CLI command execution for skills.',
+        engineDesc: 'Connect a CLI or an IDE directly to the Sectile MCP server. The engine, models and execution commands are set on your workstation, in the desktop app.',
+        mcpClient: 'MCP client to configure',
         cmdTemplate: 'Shell CLI Command Template',
         repoPath: 'Target Project Directory (CWD)',
         repoPathDesc: 'Workspace directory where the agent will run commands',
@@ -1943,10 +2207,12 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
     activities: {
       title: 'Activities & Execution Queue',
       subtitle: 'Real-time tracking of agentic skill executions, CLI logs, and generated artifacts.',
+      waitingRepository: "Waiting for the ticket's repository",
       stats: {
         total: 'Total Runs',
         running: 'Running',
         waiting: 'Waiting for you',
+        silent: 'Silent',
         queued: 'Queued',
         completed: 'Completed',
         failed: 'Failed',
@@ -2005,6 +2271,8 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
       advanceInteractive: 'Advance interactively',
       advanceWithModel: 'Model used by launches',
       currentModel: '(configured model)',
+      engineUnknown: 'Engine unknown: none of your agents serves this project',
+      engineUnknownShort: '?',
       advanceAutonomous: 'Advance autonomously',
       filterParent: 'Filter by parent',
       clearParent: 'Clear parent filter',
@@ -2029,20 +2297,97 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
       branchCopied: 'Branch name copied!',
       viewDiff: 'View Git Diff',
     },
-    mcp: {
-      panelTitle: 'Connected MCP clients',
-      client: 'MCP client',
-      clients: 'MCP clients',
-      noClient: 'No MCP client',
-      run: 'run',
-      runs: 'runs',
-      noRuns: 'no run',
-      connected: 'connected for',
-      unavailable: 'MCP status unavailable',
-      ownership: 'The runs listed here close if their client disconnects.',
+    admin: {
+      title: 'Administration',
+      subtitle: 'Accounts, their roles, and what the board is doing right now',
+      refresh: 'Refresh',
+      updatedAt: 'Updated at',
+      activeUsers: 'Connected users',
+      activeUsersHint: 'Session used within the last {minutes} minutes',
+      activeRuns: 'Active runs',
+      running: 'running',
+      queued: 'queued',
+      pending: 'pending',
+      totalUsers: 'Accounts',
+      admins: 'admin(s)',
+      blocked: 'blocked',
+      users: 'Users',
+      statsUnavailable: 'Statistics unavailable',
+      adminOnly: 'This page is reserved to admins.',
+      activity: 'Activity',
+      online: 'Online',
+      lastActive: 'Seen',
+      never: 'never',
+      serverCredentials: {
+        title: 'Server tracker credentials',
+        intro: 'The account Sectile synchronises each tracker with. It serves every synchronisation, those started by hand included; a write somebody makes still goes with their own credential.',
+        stored: 'Stored',
+        storedUnreadable: 'Stored, unreadable with the server key: save it again',
+        environment: 'Provided by the environment ({variables})',
+        none: 'Not configured: set {variables} or save a credential here',
+        account: 'Account',
+        checkedAt: 'checked',
+        notChecked: 'not checked yet',
+        updatedAt: 'Saved',
+        email: 'Jira account e-mail',
+        token: 'Token',
+        tokenPlaceholder: 'New token',
+        check: 'Check',
+        checkCurrent: 'Check the credential in use',
+        save: 'Save',
+        clear: 'Clear',
+        confirmClear: 'Clear the {tracker} server credential? Synchronisations will use the environment if it provides one, and fail otherwise.',
+        checked: 'Connected as {account}',
+        saved: '{tracker} server credential saved',
+        cleared: '{tracker} server credential cleared',
+        saveNeedsCheck: 'Check the token before saving it',
+        loadFailed: 'Server credentials unavailable',
+      },
+    },
+    boardViews: {
+      newView: 'New view',
+      editView: 'Edit view',
+      createTitle: 'New view',
+      editTitle: 'Edit view',
+      name: 'Name',
+      namePlaceholder: 'e.g. Platform',
+      projects: 'Projects',
+      labels: 'Labels',
+      labelsHint: 'A ticket appears when it carries at least one of these labels. With no label, the view shows every ticket of the chosen projects.',
+      labelPlaceholder: 'Add a label, then Enter',
+      create: 'Create view',
+      save: 'Save',
+      cancel: 'Cancel',
+      delete: 'Delete view',
+      deleteConfirm: 'Delete the view “{name}”? No ticket, label or project is changed.',
+      errorName: 'Give the view a name.',
+      errorDuplicate: 'Another of your views already has this name.',
+      errorProjects: 'Choose at least one project.',
+      unavailable: 'View unavailable',
+      unavailableDescription: 'This view does not exist or is not yours.',
+      deleted: 'View deleted',
+      emptyTitle: 'This view no longer selects any project',
+      emptyDescription: 'Its projects were deleted. Edit the view to choose others, or delete it.',
+      projectForNewTicket: 'Ticket project',
+      chooseProject: 'Choose a project…',
+    },
+    reads: {
+      failedTitle: 'Read failed',
+      failedDescription: '{resource}: the server answered {detail}. What you see is incomplete.',
+      bannerTitle: 'Degraded interface',
+      bannerDescription: 'These reads are failing: {detail}. Nothing is empty and nothing was deleted — the server is not answering.',
+      retry: 'Retry',
+      resources: {
+        projects: 'Projects',
+        tasks: 'Issues',
+        settings: 'Settings',
+        boardViews: 'Board views',
+      },
     },
     toasts: {
       taskCreated: 'Task created successfully!',
+      openCreated: 'Open',
+      openInTracker: 'Open in the tracker',
       taskUpdated: 'Task updated successfully!',
       taskMoved: 'Task status updated',
       taskDeleted: 'Task deleted',

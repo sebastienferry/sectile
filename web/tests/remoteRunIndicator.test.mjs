@@ -136,3 +136,45 @@ test('the active set does not depend on the order the activities arrive in', () 
   assert.equal(one, other)
   assert.equal(one, 'task-1,task-2')
 })
+
+const CLIENT = 'Remote skill execution'
+const SILENCE = 'Execution reported - No MCP call for 4h0m0s: the client may be busy or waiting for input, and this run stays open'
+
+test('a silent run outranks a working one, and a waiting run outranks both (#319)', () => {
+  const silent = run({ id: 'a', summary: SILENCE })
+  assert.equal(deriveRunIndicator([silent, run({ id: 'b' })], 'task-1', NOW).state, 'silent')
+  assert.equal(deriveRunIndicator([silent, run({ id: 'b', waitingSince: WAITED })], 'task-1', NOW).state, 'waiting')
+  // A silence that has since become a wait is shown as the wait.
+  assert.equal(deriveRunIndicator([run({ summary: SILENCE, waitingSince: WAITED })], 'task-1', NOW).state, 'waiting')
+})
+
+test('a client run is closable by its owner and by an admin only', () => {
+  const clientRun = run({ id: 'c', action: CLIENT, userId: 'carol' })
+  assert.deepEqual(deriveRunIndicator([clientRun], 'task-1', NOW, { userId: 'carol', role: 'member' }).closableRunIds, ['c'])
+  assert.deepEqual(deriveRunIndicator([clientRun], 'task-1', NOW, { userId: 'bob', role: 'member' }).closableRunIds, [])
+  assert.deepEqual(deriveRunIndicator([clientRun], 'task-1', NOW, { userId: 'alice', role: 'admin' }).closableRunIds, ['c'])
+  // Nobody known yet, nothing offered.
+  assert.deepEqual(deriveRunIndicator([clientRun], 'task-1', NOW).closableRunIds, [])
+  // An ownerless run is an admin's.
+  const legacy = run({ id: 'l', action: CLIENT })
+  assert.deepEqual(deriveRunIndicator([legacy], 'task-1', NOW, { userId: 'bob', role: 'member' }).closableRunIds, [])
+  assert.deepEqual(deriveRunIndicator([legacy], 'task-1', NOW, { userId: 'alice', role: 'admin' }).closableRunIds, ['l'])
+})
+
+test('an agent run is stoppable, never closable, and a cancelled run offers neither', () => {
+  const indicator = deriveRunIndicator([run({ userId: 'carol' })], 'task-1', NOW, { userId: 'carol', role: 'admin' })
+  assert.deepEqual(indicator.closableRunIds, [])
+  assert.deepEqual(indicator.cancelableRunIds, ['run-1'])
+  const canceled = run({ action: CLIENT, userId: 'carol', status: 'canceled', completedAt: new Date(NOW).toISOString() })
+  assert.deepEqual(deriveRunIndicator([canceled], 'task-1', NOW, { userId: 'carol' }).closableRunIds, [])
+})
+
+test('the longest wait carries its reason onto the indicator', () => {
+  const parked = run({ id: 'a', waitingSince: '2026-01-01T11:00:00Z', waitingReason: 'repository' })
+  const asking = run({ id: 'b', waitingSince: '2026-01-01T11:30:00Z' })
+  const indicator = deriveRunIndicator([asking, parked], 'task-1', NOW)
+  assert.equal(indicator.state, 'waiting')
+  assert.equal(indicator.waitingSince, '2026-01-01T11:00:00Z')
+  assert.equal(indicator.waitingReason, 'repository')
+  assert.equal(deriveRunIndicator([asking], 'task-1', NOW).waitingReason, undefined)
+})

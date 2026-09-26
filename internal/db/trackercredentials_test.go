@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"tasks/internal/models"
+	"tasks/internal/secrets"
 	"tasks/internal/trackerapi"
 )
 
@@ -25,9 +26,9 @@ func testDB(t *testing.T) *DB {
 	return database
 }
 
-// The resolution order is the whole point of the feature: what the user typed
-// for this project wins over what they typed globally, which wins over what the
-// server's shell exports.
+// The URLs still resolve project override, then user configuration, then
+// environment; the token only ever comes from the server credential, stored
+// first, then the environment (#464).
 func TestTrackerCredentialsResolutionOrder(t *testing.T) {
 	database := testDB(t)
 	database.trackers.GithubURL = "https://env.example/api"
@@ -43,23 +44,30 @@ func TestTrackerCredentialsResolutionOrder(t *testing.T) {
 		t.Fatalf("environment fallback: %q %q", got.GithubToken, got.GithubURL)
 	}
 
-	if _, err = database.UpdateSettings(models.Settings{GithubApiUrl: "https://settings.example/api", GithubToken: "settings-token"}); err != nil {
+	if _, err = database.UpdateSettings(models.Settings{GithubApiUrl: "https://settings.example/api"}); err != nil {
 		t.Fatal(err)
 	}
-	if got := database.tracker(project.ID); got.GithubToken != "settings-token" || got.GithubURL != "https://settings.example/api" {
-		t.Fatalf("settings win over environment: %q %q", got.GithubToken, got.GithubURL)
+	if err = database.SaveServerTrackerCredential("github", "", "stored-token", "octocat", "usr_admin"); err != nil {
+		t.Fatal(err)
+	}
+	if got := database.tracker(project.ID); got.GithubToken != "stored-token" || got.GithubURL != "https://settings.example/api" {
+		t.Fatalf("the stored credential and the settings URL win: %q %q", got.GithubToken, got.GithubURL)
 	}
 
-	override, url := "project-token", "https://project.example/api"
-	if _, err = database.UpdateProject(project.ID, models.UpdateProjectRequest{GithubToken: &override, GithubApiUrl: &url}); err != nil {
+	url := "https://project.example/api"
+	if _, err = database.UpdateProject(project.ID, models.UpdateProjectRequest{GithubApiUrl: &url}); err != nil {
 		t.Fatal(err)
 	}
-	if got := database.tracker(project.ID); got.GithubToken != "project-token" || got.GithubURL != "https://project.example/api" {
-		t.Fatalf("project override wins: %q %q", got.GithubToken, got.GithubURL)
+	if got := database.tracker(project.ID); got.GithubToken != "stored-token" || got.GithubURL != "https://project.example/api" {
+		t.Fatalf("a project overrides its URL, never the credential: %q %q", got.GithubToken, got.GithubURL)
 	}
-	// A project with no override of its own still reads the user configuration.
-	if got := database.tracker(""); got.GithubToken != "settings-token" {
-		t.Fatalf("no project: %q", got.GithubToken)
+
+	// Clearing the stored credential hands the provider back to the environment.
+	if err = database.ClearServerTrackerCredential("github"); err != nil {
+		t.Fatal(err)
+	}
+	if got := database.tracker(project.ID); got.GithubToken != "env-token" {
+		t.Fatalf("clear falls back to the environment: %q", got.GithubToken)
 	}
 }
 
@@ -67,7 +75,7 @@ func TestTrackerCredentialsResolutionOrder(t *testing.T) {
 // request path, exactly as NewClient guarantees for the environment value.
 func TestTrackerCredentialsTrimStoredURL(t *testing.T) {
 	database := testDB(t)
-	if _, err := database.UpdateSettings(models.Settings{GitlabUrl: "https://gitlab.example/api/v4/", GitlabToken: "t"}); err != nil {
+	if _, err := database.UpdateSettings(models.Settings{GitlabUrl: "https://gitlab.example/api/v4/"}); err != nil {
 		t.Fatal(err)
 	}
 	if got := database.tracker("").GitlabURL; got != "https://gitlab.example/api/v4" {
@@ -75,95 +83,150 @@ func TestTrackerCredentialsTrimStoredURL(t *testing.T) {
 	}
 }
 
-func TestTrackerTokensAreWriteOnly(t *testing.T) {
+// The settings payload writes no credential, whoever sends it: the server
+// credentials are an admin's, through SaveServerTrackerCredential.
+func TestSettingsWriteNoTrackerCredential(t *testing.T) {
 	database := testDB(t)
-	saved, err := database.UpdateSettings(models.Settings{GithubToken: "gh-secret", GitlabToken: "gl-secret", JiraAPIToken: "jira-secret"})
+	saved, err := database.UpdateSettings(models.Settings{GithubToken: "gh-secret", GitlabToken: "gl-secret", JiraAPIToken: "jira-secret", JiraEmail: "ada@example.com"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if saved.GithubToken != "" || saved.GitlabToken != "" || saved.JiraAPIToken != "" {
-		t.Fatalf("a token was returned to the client: %+v", saved)
+	if saved.GithubToken != "" || saved.GitlabToken != "" || saved.JiraAPIToken != "" || saved.JiraEmail != "" {
+		t.Fatalf("a credential was returned to the client: %+v", saved)
 	}
-	if !saved.GithubTokenSet || !saved.GitlabTokenSet || !saved.JiraAPITokenSet {
-		t.Fatalf("the Set flags do not report the stored tokens: %+v", saved)
+	if saved.GithubTokenSet || saved.GitlabTokenSet || saved.JiraAPITokenSet {
+		t.Fatalf("a settings payload stored a credential: %+v", saved)
 	}
-	if saved.GithubTokenFromEnv || saved.GitlabTokenFromEnv {
-		t.Fatalf("a stored token must not be reported as coming from the environment: %+v", saved)
+	if got := database.tracker(""); got.GithubToken != "" || got.GitlabToken != "" || got.JiraToken != "" || got.JiraEmail != "" {
+		t.Fatalf("a settings payload reached the tracker client: %+v", got)
 	}
-
-	// An empty token keeps the stored one: the interface never received it back
-	// and cannot resend it.
-	if _, err = database.UpdateSettings(models.Settings{Theme: "light"}); err != nil {
+	var raw string
+	if err := database.conn.QueryRow(`SELECT github_token || gitlab_token || jira_api_token || jira_email FROM settings WHERE id = 1`).Scan(&raw); err != nil {
 		t.Fatal(err)
 	}
-	if got := database.tracker("").GithubToken; got != "gh-secret" {
-		t.Fatalf("empty token did not keep the stored one: %q", got)
-	}
-
-	if _, err = database.UpdateSettings(models.Settings{GithubToken: TrackerTokenClearSentinel}); err != nil {
-		t.Fatal(err)
-	}
-	read, err := database.GetSettings()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if read.GithubTokenSet || database.tracker("").GithubToken != "" {
-		t.Fatalf("the clear sentinel did not delete the token: %+v", read)
-	}
-	if !read.GitlabTokenSet {
-		t.Fatalf("clearing one token cleared another: %+v", read)
+	if raw != "" {
+		t.Fatalf("the settings columns were written: %q", raw)
 	}
 }
 
-func TestSettingsReportATokenSuppliedByTheEnvironment(t *testing.T) {
+// The settings answer says whether each provider is configured, and where
+// from, and nothing else: that is all a member may know of it.
+func TestSettingsReportWhereTheServerCredentialComesFrom(t *testing.T) {
 	database := testDB(t)
 	database.trackers.GithubToken = "env-token"
+	database.trackers.JiraToken = "env-jira" // no e-mail: half a pair is none
+	if err := database.SaveServerTrackerCredential("gitlab", "", "gl-stored", "", ""); err != nil {
+		t.Fatal(err)
+	}
 	read, err := database.GetSettings()
 	if err != nil {
 		t.Fatal(err)
 	}
 	if read.GithubTokenSet || !read.GithubTokenFromEnv {
-		t.Fatalf("an environment token must be reported as such: %+v", read)
+		t.Fatalf("an environment credential must be reported as such: %+v", read)
+	}
+	if !read.GitlabTokenSet || read.GitlabTokenFromEnv {
+		t.Fatalf("a stored credential must be reported as such: %+v", read)
+	}
+	if read.JiraAPITokenSet || read.JiraAPITokenFromEnv {
+		t.Fatalf("a Jira token without its e-mail is no credential: %+v", read)
+	}
+	if read.GitlabToken != "" || read.GithubToken != "" {
+		t.Fatalf("a token was returned: %+v", read)
 	}
 }
 
-func TestProjectTokensAreWriteOnly(t *testing.T) {
+// A stored Jira credential wins as a whole: its e-mail is never replaced by
+// the environment's, and an environment e-mail never completes it.
+func TestAStoredJiraCredentialIsNeverMixedWithTheEnvironment(t *testing.T) {
 	database := testDB(t)
-	project, err := database.CreateProject(models.CreateProjectRequest{Name: "Write only", GithubToken: "project-secret"})
+	database.trackers.JiraEmail, database.trackers.JiraToken = "env@example.com", "env-jira"
+	if err := database.SaveServerTrackerCredential("jira", "sync@example.com", "stored-jira", "Sync", "usr_admin"); err != nil {
+		t.Fatal(err)
+	}
+	got := database.tracker("")
+	if got.JiraEmail != "sync@example.com" || got.JiraToken != "stored-jira" {
+		t.Fatalf("the stored pair must win whole: %q %q", got.JiraEmail, got.JiraToken)
+	}
+	if err := database.SaveServerTrackerCredential("jira", "", "no-email", "", ""); err == nil {
+		t.Fatal("a Jira server credential without its e-mail must be refused")
+	}
+}
+
+// A stored credential the key does not open fails the call rather than reach
+// the tracker under the environment's account.
+func TestAnUnreadableServerCredentialDoesNotFallBackToTheEnvironment(t *testing.T) {
+	database := testDB(t)
+	database.trackers.GithubToken = "env-token"
+	if err := database.SaveServerTrackerCredential("github", "", "stored-token", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	other, err := secrets.ServerKey(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if project.GithubToken != "" || !project.GithubTokenSet {
-		t.Fatalf("create leaked or lost the token: %+v", project)
+	database.serverKey = other
+
+	if got := database.tracker(""); got.GithubToken != "" {
+		t.Fatalf("the environment token replaced an unreadable stored one: %q", got.GithubToken)
 	}
-	read, err := database.GetProjectByID(project.ID)
+	_, err = database.tracker("").GithubGraphQL("{viewer{login}}")
+	if err == nil || !strings.Contains(err.Error(), "cannot be decrypted") {
+		t.Fatalf("the call must say the stored credential cannot be read: %v", err)
+	}
+	state, err := database.ServerTrackerCredentialState("github")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if read.GithubToken != "" || !read.GithubTokenSet {
-		t.Fatalf("read leaked or lost the token: %+v", read)
+	if state.Source != ServerCredentialStored || !state.Unreadable {
+		t.Fatalf("the page must show it stored and unreadable: %+v", state)
 	}
-	// Saving an unrelated field must not wipe the credential.
-	name := "Renamed"
-	if _, err = database.UpdateProject(project.ID, models.UpdateProjectRequest{Name: &name}); err != nil {
+	// It can still be replaced.
+	if err := database.SaveServerTrackerCredential("github", "", "new-token", "", ""); err != nil {
 		t.Fatal(err)
 	}
-	if got := database.tracker(project.ID).GithubToken; got != "project-secret" {
-		t.Fatalf("update dropped the stored project token: %q", got)
+	if got := database.tracker(""); got.GithubToken != "new-token" {
+		t.Fatalf("replacing it must work: %q", got.GithubToken)
 	}
-	empty := ""
-	if _, err = database.UpdateProject(project.ID, models.UpdateProjectRequest{GithubToken: &empty}); err != nil {
+}
+
+// A credential saved through one handle is used by another on the same
+// database without a restart: nothing caches it, so every replica sees it.
+func TestAServerCredentialTakesEffectOnEveryInstance(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "tasks.db")
+	first, err := NewDB(path)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if got := database.tracker(project.ID).GithubToken; got != "project-secret" {
-		t.Fatalf("an empty token must mean unchanged: %q", got)
-	}
-	sentinel := TrackerTokenClearSentinel
-	if _, err = database.UpdateProject(project.ID, models.UpdateProjectRequest{GithubToken: &sentinel}); err != nil {
+	defer first.Close()
+	second, err := NewDB(path)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if got := database.tracker(project.ID).GithubToken; got != "" {
-		t.Fatalf("the clear sentinel must delete the project token: %q", got)
+	defer second.Close()
+	if err := first.SaveServerTrackerCredential("github", "", "shared-token", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	if got := second.tracker("").GithubToken; got != "shared-token" {
+		t.Fatalf("the second instance does not see the credential: %q", got)
+	}
+}
+
+// The token is sealed at rest: the row holds no clear text.
+func TestAServerCredentialIsSealedAtRest(t *testing.T) {
+	database := testDB(t)
+	if err := database.SaveServerTrackerCredential("github", "", "ghp-clear-text", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	var record []byte
+	if err := database.conn.QueryRow(`SELECT record FROM server_tracker_credentials WHERE tracker = 'github'`).Scan(&record); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(record), "ghp-clear-text") {
+		t.Fatal("the token is stored in clear text")
+	}
+	if _, err := secrets.Open(database.serverKey, secrets.Binding{UserID: "usr_admin", Tracker: "github"}, record); err == nil {
+		t.Fatal("a server record opened as a personal one")
 	}
 }
 
@@ -209,48 +272,50 @@ func TestCheckTrackerCredentials(t *testing.T) {
 	}
 }
 
-// A refused check leaves the user configuration untouched: that is what
-// "check before save" buys.
+// Saving a tracker's connection parameters keeps the rest of the
+// configuration, and stores no credential.
 func TestSaveTrackerCredentialsKeepsTheRestOfTheConfiguration(t *testing.T) {
 	database := testDB(t)
-	if _, err := database.UpdateSettings(models.Settings{Theme: "light", JiraAPIToken: "jira-secret"}); err != nil {
+	if _, err := database.UpdateSettings(models.Settings{Theme: "light"}); err != nil {
 		t.Fatal(err)
 	}
-	saved, err := database.SaveTrackerCredentials("gitlab", "https://gitlab.example/api/v4", "group/app", "", "gl-token")
+	saved, err := database.SaveTrackerCredentials("gitlab", "https://gitlab.example/api/v4", "group/app")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if saved.GitlabProject != "group/app" || saved.GitlabUrl != "https://gitlab.example/api/v4" || !saved.GitlabTokenSet {
-		t.Fatalf("parameters not persisted: %+v", saved)
+	if saved.GitlabProject != "group/app" || saved.GitlabUrl != "https://gitlab.example/api/v4" || saved.GitlabTokenSet {
+		t.Fatalf("parameters not persisted, or a credential appeared: %+v", saved)
 	}
 	if saved.Theme != "light" {
 		t.Fatalf("an unrelated preference was overwritten: %+v", saved)
 	}
-	if !saved.JiraAPITokenSet {
-		t.Fatal("saving GitLab parameters dropped the Jira token")
-	}
-	jira, err := database.SaveTrackerCredentials("jira", "https://acme.atlassian.net", "pe", "ada@example.com", "jira-token")
+	jira, err := database.SaveTrackerCredentials("jira", "https://acme.atlassian.net", "pe")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if jira.JiraUrl != "https://acme.atlassian.net" || jira.JiraEmail != "ada@example.com" || jira.JiraProject != "PE" || !jira.JiraAPITokenSet {
-		t.Fatalf("jira parameters not persisted: %+v", jira)
-	}
-	if !jira.GitlabTokenSet || jira.Theme != "light" {
-		t.Fatalf("saving Jira parameters touched the rest: %+v", jira)
+	if jira.JiraUrl != "https://acme.atlassian.net" || jira.JiraProject != "PE" || jira.GitlabProject != "group/app" || jira.Theme != "light" {
+		t.Fatalf("jira parameters not persisted, or the rest touched: %+v", jira)
 	}
 }
 
-// GitLab parameters are configuration, not a tracker: the registry still has no
-// gitlab adapter, and saying so is more honest than half a synchronisation.
-func TestStoredGitlabParametersDoNotRegisterATracker(t *testing.T) {
+// A GitLab project resolves to the GitLab adapter (#398), and the stored
+// parameters are the ones its calls carry: the instance and project of the
+// settings, the server credential.
+func TestStoredGitlabParametersReachTheGitlabAdapter(t *testing.T) {
 	database := testDB(t)
-	if _, err := database.UpdateSettings(models.Settings{GitlabUrl: "https://gitlab.example/api/v4", GitlabProject: "group/app", GitlabToken: "gl-token"}); err != nil {
+	if _, err := database.UpdateSettings(models.Settings{GitlabUrl: "https://gitlab.example/api/v4", GitlabProject: "group/app"}); err != nil {
 		t.Fatal(err)
 	}
-	_, err := database.trackerRegistry.ForProject(&models.Project{ID: "p", IssueTracker: "gitlab"})
-	if err == nil || !strings.Contains(err.Error(), "aucun tracker distant configuré") {
-		t.Fatalf("expected the registry's unconfigured-tracker error, got %v", err)
+	if err := database.SaveServerTrackerCredential("gitlab", "", "gl-token", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	ts, err := database.trackerRegistry.ForProject(&models.Project{ID: "p", IssueTracker: "gitlab"})
+	if err != nil || ts.Name() != "gitlab" {
+		t.Fatalf("a GitLab project resolves to the GitLab adapter: %v %v", ts, err)
+	}
+	cred := database.trackerCredentials("")
+	if cred.GitlabURL != "https://gitlab.example/api/v4" || cred.GitlabProject != "group/app" || cred.GitlabToken != "gl-token" {
+		t.Fatalf("stored parameters: %+v", cred)
 	}
 }
 
@@ -258,10 +323,18 @@ func TestStoredGitlabParametersDoNotRegisterATracker(t *testing.T) {
 // not be what breaks it.
 func TestAgentConfigCarriesNoTrackerToken(t *testing.T) {
 	database := testDB(t)
-	if _, err := database.UpdateSettings(models.Settings{GithubToken: "gh-secret", GitlabToken: "gl-secret", JiraAPIToken: "jira-secret", IssueTracker: "github"}); err != nil {
+	if _, err := database.UpdateSettings(models.Settings{IssueTracker: "github"}); err != nil {
 		t.Fatal(err)
 	}
-	project, err := database.CreateProject(models.CreateProjectRequest{Name: "Secret free", GithubRepo: "acme/app", GithubToken: "project-gh-secret", GitlabToken: "project-gl-secret"})
+	for tracker, token := range map[string]string{"github": "gh-secret", "gitlab": "gl-secret"} {
+		if err := database.SaveServerTrackerCredential(tracker, "", token, "", ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := database.SaveServerTrackerCredential("jira", "ada@example.com", "jira-secret", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	project, err := database.CreateProject(models.CreateProjectRequest{Name: "Secret free", GithubRepo: "acme/app"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -273,7 +346,7 @@ func TestAgentConfigCarriesNoTrackerToken(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, secret := range []string{"gh-secret", "gl-secret", "jira-secret", "project-gh-secret", "project-gl-secret"} {
+	for _, secret := range []string{"gh-secret", "gl-secret", "jira-secret"} {
 		if strings.Contains(string(raw), secret) {
 			t.Fatalf("the agent configuration leaked %s: %s", secret, raw)
 		}
@@ -339,17 +412,16 @@ func TestStagePRLookupUsesTheCallersOwnToken(t *testing.T) {
 	if got := database.trackerAs("usr_alice", "github", project.ID); got.GithubToken != "alice-pat" {
 		t.Fatalf("the caller's own token is used: %q", got.GithubToken)
 	}
-	// Unattended work names nobody and keeps the project credential.
-	override := "project-token"
-	if _, err = database.UpdateProject(project.ID, models.UpdateProjectRequest{GithubToken: &override}); err != nil {
+	// Unattended work names nobody and uses the server credential.
+	if err = database.SaveServerTrackerCredential("github", "", "server-token", "", ""); err != nil {
 		t.Fatal(err)
 	}
-	if got := database.trackerAs("", "github", project.ID); got.GithubToken != "project-token" {
-		t.Fatalf("no caller falls back to the project: %q", got.GithubToken)
+	if got := database.trackerAs("", "github", project.ID); got.GithubToken != "server-token" {
+		t.Fatalf("no caller uses the server credential: %q", got.GithubToken)
 	}
-	// A person without a stored credential is not refused: the project's own
-	// still answers, as it did before personal credentials existed.
-	if got := database.trackerAs("usr_bob", "github", project.ID); got.GithubToken != "project-token" {
+	// A person without a stored credential is not refused on GitHub: the
+	// server's still answers, as it did before personal credentials existed.
+	if got := database.trackerAs("usr_bob", "github", project.ID); got.GithubToken != "server-token" {
 		t.Fatalf("a caller without a credential falls back: %q", got.GithubToken)
 	}
 }

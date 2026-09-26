@@ -12,28 +12,16 @@ const context = await read('context/AppContext.tsx')
 const card = await read('components/TaskCard.tsx')
 const modal = await read('components/TaskDetailModal.tsx')
 const profile = await read('components/ProfileModal.tsx')
-const providerField = await read('components/ProviderModelsField.tsx')
-const modelField = await read('components/AIModelField.tsx')
 const activities = await read('components/ActivitiesView.tsx')
 const launchModel = await read('lib/launchModel.ts')
 
-test('the models offered come from the settings, with the shipped list as fallback', () => {
-  assert.match(models, /export function providerModels\(/)
-  assert.match(models, /settings\?\.aiProviderModels\?\.\[provider\]/)
-  // An emptied list is a decision, not an absence: only a missing key falls back.
-  assert.match(models, /const configured = settings\?\.aiProviderModels\?\.\[provider\]\s*\n\s*if \(configured\) return configured/)
-  assert.match(models, /return DEFAULT_PROVIDER_MODELS\[provider as AIProvider\] \|\| \[\]/)
-  // The hardcoded suggestion map is gone: one list now feeds every surface.
-  assert.doesNotMatch(models, /AI_MODEL_SUGGESTIONS/)
-  assert.doesNotMatch(modelField, /AI_MODEL_SUGGESTIONS/)
-  assert.match(modelField, /providerModels\(settings, provider\)/)
-})
-
-test('the configured model follows the most specific statement', () => {
-  // Per-skill entries first, project before global, exactly as the server.
-  assert.match(models, /const fromProject = \(project\?\.aiSkillModels\?\.\[skill\] \|\| ''\)\.trim\(\)/)
-  assert.match(models, /const fromSettings = \(settings\?\.aiSkillModels\?\.\[skill\] \|\| ''\)\.trim\(\)/)
-  assert.match(models, /return \(project\?\.aiModel \|\| ''\)\.trim\(\) \|\| \(settings\?\.aiModel \|\| ''\)\.trim\(\)/)
+test('the models offered come from the workstation report', () => {
+  // The server holds no model list any more (#305): the report of the caller's
+  // own workstation is the only source, and no shipped list lives in the web.
+  assert.match(models, /export function reportedPickerModels\(/)
+  assert.match(models, /export function reportedModel\(/)
+  assert.doesNotMatch(models, /DEFAULT_PROVIDER_MODELS/)
+  assert.doesNotMatch(models, /aiProviderModels/)
 })
 
 test('the launch request carries the model, and an untouched choice sends none', () => {
@@ -45,29 +33,21 @@ test('the launch request carries the model, and an untouched choice sends none',
   assert.match(context, /\{mode:auto \? 'autonomous' : mode, model\}/)
 })
 
-test('the detail launcher offers a list, never a free-text model', () => {
-  assert.match(modal, /const \[launchModel, setLaunchModel\] = useState\(''\)/)
-  assert.match(modal, /const launchModels = providerModels\(settings, activeProvider\)/)
-  // A select, beside the existing mode select; no text input for the model.
-  assert.match(modal, /value=\{effectiveLaunchModel\}[\s\S]{0,200}onChange=\{e => setLaunchModel\(e\.target\.value\)\}/)
-  assert.match(modal, /<option value="">\s*\{configuredLaunchModel \? `Modèle configuré/)
-  // Every launch control of the view carries it.
-  assert.match(modal, /runSkill\(selectedTask\.id, skillId, promptToUse, \{ mode: modeOverride \?\? launchMode, model: effectiveLaunchModel \}\)/)
-  // Nothing is offered when the provider has no configured model.
-  assert.match(modal, /\{launchModels\.length > 0 && \(/)
-  // A choice left over from another task, whose project may run another
-  // provider, cannot be launched: the value sent is derived from the list.
-  assert.match(modal, /const effectiveLaunchModel = launchModels\.includes\(launchModel\) \? launchModel : ''/)
-  assert.match(modal, /model: effectiveLaunchModel/)
+test('the detail view offers no model selector', () => {
+  // The model is chosen from the card submenu or the settings; the detail view
+  // launches with whatever the precedence resolves.
+  assert.doesNotMatch(modal, /launchModel/)
+  assert.doesNotMatch(modal, /providerModels/)
 })
 
 test('the card submenu selects a model and launches nothing', () => {
-  assert.match(card, /const cardModels = providerModels\(settings, cardProvider\)/)
+  assert.match(card, /const engine = useProjectEngine\(task\.projectId\)/)
+  assert.match(card, /const cardModels = engine\?\.state === 'reported' && engine\.modelSlot \? engine\.models \|\| \[\] : \[\]/)
   // The model is resolved for the skill the card actually launches, not for the
   // one the next-step label names: at stage reviewed they differ.
   assert.match(card, /const cardSkillId = skillForStage\(resolveTaskStage\(task, taskProject\)\) \|\| undefined/)
-  assert.match(card, /const configuredCardModel = resolveConfiguredModel\(taskProject \|\| undefined, settings, cardSkillId\)/)
-  assert.match(card, /const offeredModels = cardModels\.filter\(model => model !== configuredCardModel\)/)
+  assert.match(card, /const configuredCardModel = reportedModel\(engine, cardSkillId\)/)
+  assert.match(card, /const offeredModels = reportedPickerModels\(engine, cardSkillId\)/)
   // Picking a row only changes the selection: no row launches anything.
   assert.match(card, /onClick=\{\(\) => chooseModel\(''\)\}/)
   assert.match(card, /onClick=\{\(\) => chooseModel\(model\)\}/)
@@ -87,7 +67,7 @@ test('the card submenu selects a model and launches nothing', () => {
   // that, which is why the outer handler owns the decision.
   assert.match(card, /if \(isModelMenuOpen\) \{\s*\n\s*setIsModelMenuOpen\(false\)/)
   assert.match(card, /\}, \[isMenuOpen, isModelMenuOpen\]\)/)
-  // Hidden when the provider has nothing to offer.
+  // Hidden when the workstation offers nothing: no report, or no model slot.
   assert.match(card, /\{cardModels\.length > 0 && \(/)
 })
 
@@ -145,16 +125,15 @@ test('both card shapes share the model entry', () => {
   assert.match(expanded[0], /\{modeActions\}/)
 })
 
-test('the profile edits the per-provider model list', () => {
-  assert.match(profile, /<ProviderModelsField[\s\S]{0,160}providers=\{AI_PROVIDERS\.map\(p => p\.id\)\}/)
-  // Every engine is reachable, not only the one the profile itself runs: a
-  // project may run another, and its list has to be editable.
-  assert.match(providerField, /providers\.map\(id => \(/)
-  assert.match(providerField, /const \[edited, setEdited\] = useState<AIProvider \| ''>\(provider\)/)
-  assert.match(profile, /aiProviderModels,/)
-  // A malformed entry blocks the save, like the model field already does.
-  assert.match(profile, /Object\.values\(aiProviderModels\)\.every\(list => list\.every\(model => isValidModel\(model\)\)\)/)
-  assert.match(providerField, /isValidModel\(draft\)/)
+test('the profile edits no execution setting', () => {
+  // The engine settings are the workstation's, edited in the desktop app (#305).
+  assert.doesNotMatch(profile, /ProviderModelsField|AIModelField|aiProviderModels|aiSkillModels/)
+})
+
+test('the card says when the engine is unknown', () => {
+  assert.match(card, /const engineUnknown = engine\?\.state === 'unknown'/)
+  assert.match(card, /engineUnknown \? \(/)
+  assert.match(card, /t\.compactCard\.engineUnknownShort/)
 })
 
 test('a run says which engine it ran against', () => {

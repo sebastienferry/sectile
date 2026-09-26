@@ -18,6 +18,7 @@ import (
 	"tasks/internal/agentconfig"
 	"tasks/internal/agenthttp"
 	"tasks/internal/agentprotocol"
+	"tasks/internal/models"
 	"tasks/internal/runner"
 )
 
@@ -59,6 +60,28 @@ func (q *runQueue) canceled(run *controlledRun) bool {
 	return run.canceled
 }
 
+// stoppedStatus is how a run the user stopped ends. A discussion has no work to
+// interrupt: stopping it is the ordinary way it ends, so it completes, where a
+// skill run stopped midway is canceled.
+func stoppedStatus(skill string) string {
+	if models.NormalizeSkillID(skill) == "discuss" {
+		return "completed"
+	}
+	return "canceled"
+}
+
+// stoppedNote is the note finish_run records alongside stoppedStatus.
+func stoppedNote(skill string, terminalClosed bool) string {
+	note := "Execution canceled"
+	if stoppedStatus(skill) == "completed" {
+		note = "Discussion ended"
+	}
+	if terminalClosed {
+		note += " after its local terminal closed"
+	}
+	return note
+}
+
 type controlledRun struct {
 	sequence uint64
 	limit    int
@@ -75,6 +98,13 @@ type controlledRun struct {
 	// reasoning stream, which is every interactive run and every engine whose
 	// stream format is not attested.
 	trace *runTrace
+	// answeredAt is the wait the owner answered in the console, until the
+	// server confirms it ended: it is re-sent on reconnection, and a push that
+	// still carries it is an echo that must not raise the glyph again (#475).
+	answeredAt time.Time
+	// answerWatched says the console's input is already observed, since a run
+	// may be given its console more than once.
+	answerWatched bool
 }
 
 func (d *agentDaemon) wrapRun(taskID, runID, command string) (string, error) {
@@ -140,7 +170,7 @@ func (d *agentDaemon) handleRunControl(w http.ResponseWriter, r *http.Request) {
 			result.Status = "failed"
 		}
 		if run.canceled {
-			result.Status = "canceled"
+			result.Status = stoppedStatus(run.desktop.Skill)
 		}
 		run.desktop.Status = result.Status
 		go func() { _ = d.finishDesktopRun(context.Background(), run.taskID, id, result.Status, "") }()
@@ -156,8 +186,9 @@ func (d *agentDaemon) handleRunControl(w http.ResponseWriter, r *http.Request) {
 }
 
 // postRunEngine tells the server which engine this run was actually launched
-// with. The launcher recorded its own resolution, but the workstation override
-// lives here, so this is the report that makes the run record true.
+// with. The launcher recorded the capability report, which may be missing or
+// stale; the resolution happens here, so this is the report that makes the run
+// record true.
 func (d *agentDaemon) postRunEngine(runID, provider, model string) {
 	if strings.TrimSpace(runID) == "" {
 		return
@@ -209,7 +240,21 @@ func (d *agentDaemon) admitProjectRun(ctx context.Context, taskID string, payloa
 	if err != nil {
 		return nil, err
 	}
-	config = agentconfig.ApplyOverrides(config, overrides)
+	// A macro run has no task and runs the project default engine.
+	config = agentconfig.ResolveTask(config, overrides, taskID)
+	mode := liveSessionMode(payload.SkillID, payload.Action, payload.Mode)
+	if models.NormalizeSkillMode(mode) == models.SkillModeAutonomous {
+		if !models.SupportsAutonomousRun(config.AIProvider, config.AICommandTemplate, config.AICommandTemplateAutonomous) {
+			provider := strings.TrimSpace(config.AIProvider)
+			if provider == "" {
+				provider = "agy"
+			}
+			if strings.TrimSpace(config.AICommandTemplate) != "" {
+				return nil, engineError(config, fmt.Errorf("the configured AI command template decides the execution mode: add a {mode:AUTONOMOUS|INTERACTIVE} placeholder to it, or run this skill interactively"))
+			}
+			return nil, engineError(config, fmt.Errorf("provider %q has no headless mode: run this skill interactively, or configure an AI command template carrying a {mode:AUTONOMOUS|INTERACTIVE} placeholder", provider))
+		}
+	}
 	return d.enqueueRun(taskID, payload, config.ProjectID, root, agentconfig.ExecutionLimit(config.ProjectID, config.UseWorktrees, overrides), config.UseWorktrees)
 }
 
@@ -232,8 +277,11 @@ func (d *agentDaemon) enqueueRunLocked(taskID string, payload agentconfig.Dispat
 	}
 	d.queue.sequence++
 	run := &controlledRun{taskID: taskID, exited: make(chan struct{}), sequence: d.queue.sequence, limit: limit, root: root, isolated: isolated,
-		desktop: desktopRun{CreatedAt: time.Now().UTC(), Prompt: payload.Prompt, ID: payload.RunID, TaskID: taskID, TaskKey: payload.TaskKey, ProjectID: projectID, Skill: payload.SkillID, Directory: root, Status: "queued"}}
+		desktop: desktopRun{CreatedAt: time.Now().UTC(), Prompt: payload.Prompt, ID: payload.RunID, TaskID: taskID, TaskKey: payload.TaskKey, MacroKey: payload.MacroKey, ProjectID: projectID, Skill: payload.SkillID, Directory: root, Status: "queued"}}
 	d.queue.runs[payload.RunID] = run
+	if payload.MacroKey != "" {
+		d.rememberMacroRun(payload.RunID, projectID, payload.MacroKey)
+	}
 	return run, nil
 }
 
@@ -256,7 +304,18 @@ func sharesCheckout(other, run *controlledRun) bool {
 	if run.isConsole() {
 		return !other.isolated
 	}
-	return !other.isolated || !run.isolated || other.taskID == run.taskID
+	return !other.isolated || !run.isolated || sameWork(other, run)
+}
+
+// sameWork reports whether two runs work on the same item: the same task, or
+// the same macro. Macro runs carry no task, so their empty task ids are equal
+// for every pair of them and would serialise two macros that each have their
+// own worktree.
+func sameWork(a, b *controlledRun) bool {
+	if a.desktop.MacroKey != "" || b.desktop.MacroKey != "" {
+		return a.desktop.ProjectID == b.desktop.ProjectID && a.desktop.MacroKey == b.desktop.MacroKey
+	}
+	return a.taskID == b.taskID
 }
 
 func (d *agentDaemon) awaitRunSlot(ctx context.Context, run *controlledRun) error {
@@ -271,6 +330,11 @@ func (d *agentDaemon) awaitRunSlot(ctx context.Context, run *controlledRun) erro
 		active, blocked := 0, false
 		for _, other := range d.queue.runs {
 			if other == run {
+				continue
+			}
+			// A launch waiting for its ticket's repository holds no slot and
+			// no checkout until it is resumed (#456).
+			if other.desktop.Status == "waiting" {
 				continue
 			}
 			select {

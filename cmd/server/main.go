@@ -7,8 +7,10 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
 
 	"io"
 	"io/fs"
@@ -18,6 +20,8 @@ import (
 	"tasks/internal/auth"
 	"tasks/internal/db"
 	"tasks/internal/handlers"
+	"tasks/internal/metrics"
+	"tasks/internal/trackerapi"
 	"tasks/internal/version"
 	"tasks/internal/webui"
 )
@@ -35,7 +39,7 @@ func isVersionArgument(arg string) bool {
 
 // loadDotEnv reads KEY=VALUE lines from a .env file next to the binary's working
 // directory. A real environment variable always wins, so exporting a value in
-// the shell overrides the file. Secrets such as SECTILE_TRACKER_TOKEN can then
+// the shell overrides the file. Secrets such as SECTILE_GITHUB_TOKEN can then
 // live outside the database and outside git, .env being already gitignored.
 func loadDotEnv(paths ...string) {
 	for _, path := range paths {
@@ -152,6 +156,9 @@ func main() {
 	// répertoire courant qui lui appartienne. La première valeur trouvée gagne,
 	// donc un développeur garde la main depuis son dépôt.
 	loadDotEnv(".env", ".env.local", filepath.Join(appDataDir(), ".env"))
+	for _, warning := range trackerapi.RemovedTokenVariableWarnings(os.Getenv) {
+		log.Printf("⚠️  %s", warning)
+	}
 
 	port := os.Getenv("PORT")
 	if port == "" {
@@ -186,7 +193,38 @@ func main() {
 	}
 	defer database.Close()
 
+	// Where the other instances reach this one's internal endpoints, when the
+	// store can be shared. See internal/db/presence.go.
+	internalPort := internalPortFromEnv(osGetenv)
+	if database.Shared() {
+		database.SetInstanceAddress(internalURL(osGetenv, internalPort))
+	}
+
+	// This process is one serving instance among those that may share the
+	// database: it keeps its row fresh and reclaims the work of instances that
+	// went away. See internal/db/instances.go.
+	if err := applyInstanceTiming(osGetenv); err != nil {
+		log.Fatalf("Configuration: %v", err)
+	}
+	shutdownGrace, err := shutdownGraceFromEnv(osGetenv)
+	if err != nil {
+		log.Fatalf("Configuration: %v", err)
+	}
+	stopInstance, err := database.StartInstance()
+	if err != nil {
+		log.Fatalf("Fatal database error: %v", err)
+	}
+	log.Printf("   instance : %s", database.InstanceID())
+	// Live updates and cancellations made through another instance reach this
+	// one's browsers and jobs. See internal/db/bus.go.
+	if _, err := database.StartEventBus(); err != nil {
+		log.Fatalf("Fatal database error: %v", err)
+	}
+
 	h := handlers.NewHandler(database)
+	if database.Shared() {
+		startInternalListener(h, internalPort)
+	}
 	h.SetDataDir(appDataDir())
 	h.SetPullOnConnect(true)
 	if os.Getenv("SECTILE_SERVER_TOKEN") != "" {
@@ -216,6 +254,7 @@ func main() {
 
 	// API Routes
 	mux.HandleFunc(handlers.HealthPath, h.HandleHealth)
+	mux.HandleFunc(handlers.ReadyPath, h.HandleReady)
 	mux.HandleFunc(handlers.VersionPath, h.HandleVersion)
 	mux.HandleFunc(handlers.ChangelogPath, h.HandleChangelog)
 	mux.HandleFunc("/api/cli-status", h.HandleCliStatus)
@@ -230,6 +269,7 @@ func main() {
 	mux.HandleFunc("/api/sync/all", h.HandleSyncAll)
 	mux.HandleFunc("/api/sync/github", h.HandleSyncGithub)
 	mux.HandleFunc("/api/sync/jira", h.HandleSyncJira)
+	mux.HandleFunc("/api/sync/gitlab", h.HandleSyncGitlab)
 	mux.HandleFunc("/api/sync/auto", h.HandleAutoSyncStatus)
 	mux.HandleFunc("/api/setup/tracker", h.HandleTrackerSetup)
 	mux.HandleFunc("/api/setup/tracker/check", h.HandleTrackerSetup)
@@ -275,11 +315,24 @@ func main() {
 	mux.HandleFunc("/api/me", h.HandleCurrentUser)
 	mux.HandleFunc("/api/me/tracker-credentials", h.HandleUserTrackerCredentials)
 	mux.HandleFunc("/api/me/tracker-credentials/", h.HandleUserTrackerCredentials)
+	mux.HandleFunc("/api/me/assignee-identities", h.HandleAssigneeIdentities)
 	mux.HandleFunc("/api/me/project-bookmarks", h.HandleUserProjectBookmarks)
 	mux.HandleFunc("/api/me/project-bookmarks/", h.HandleUserProjectBookmarks)
+	mux.HandleFunc("/api/me/board-views", h.HandleBoardViews)
+	mux.HandleFunc("/api/me/board-views/", h.HandleBoardViews)
 	// The admin's users view: list accounts and change roles.
 	mux.HandleFunc("/api/users", h.HandleUsers)
 	mux.HandleFunc("/api/users/", h.HandleUsers)
+	mux.HandleFunc(handlers.AdminStatsPath, h.HandleAdminStats)
+	// The server credential of each tracker provider, an admin's to set.
+	mux.HandleFunc(handlers.ServerTrackerCredentialsPath, h.HandleServerTrackerCredentials)
+	mux.HandleFunc(handlers.ServerTrackerCredentialsPath+"/", h.HandleServerTrackerCredentials)
+
+	// Prometheus metrics. Outside /api/, so the session guard leaves them
+	// public; registered before the interface's catch-all.
+	build := version.Current()
+	serverMetrics := metrics.New(database, db.ActiveUserWindow, metrics.Build{Version: build.Version, Commit: build.Commit})
+	mux.Handle(metrics.Path, serverMetrics.Handler())
 
 	mux.Handle("/mcp", h.MCPHandler())
 	mux.HandleFunc("/api/mcp/sessions", h.HandleMCPSessions)
@@ -291,6 +344,8 @@ func main() {
 	mux.Handle("/api/v1/agent/identity", h.AgentAPIAuth(http.HandlerFunc(h.HandleAgentIdentity)))
 	mux.Handle("/api/v1/agent/config", h.AgentAPIAuth(http.HandlerFunc(h.HandleAgentConfig)))
 	mux.Handle("/api/v1/agent/projects", h.AgentAPIAuth(http.HandlerFunc(h.HandleAgentProjects)))
+	mux.Handle("/api/v1/agent/execution-seed", h.AgentAPIAuth(http.HandlerFunc(h.HandleAgentExecutionSeed)))
+	mux.Handle("/api/v1/agent/capabilities", h.AgentAPIAuth(http.HandlerFunc(h.HandleAgentCapabilities)))
 	mux.Handle("/api/v1/agent/run-output", h.AgentAPIAuth(http.HandlerFunc(h.HandleAgentRunOutput)))
 
 	// Remote Agent WebSocket & Dispatch Routes
@@ -371,7 +426,10 @@ func main() {
 		})
 	}
 
-	handlerWithCORS := h.EnableCORS(h.RequireSession(mux))
+	// The instrumentation wraps the whole chain, so a request the session
+	// guard refuses is counted as the 401 or 403 it received.
+
+	handlerWithCORS := serverMetrics.Instrument(h.EnableCORS(h.RequireSession(mux)), routeOf(mux))
 
 	addr := ":" + port
 	url := fmt.Sprintf("http://localhost%s", addr)
@@ -388,7 +446,18 @@ func main() {
 	log.Printf("🚀 Sectile Server listening on %s", url)
 	log.Printf("   base : %s — %s (%s)", database.EngineName(), dbTarget, dbOrigin)
 
-	if err := http.Serve(listener, handlerWithCORS); err != nil {
+	// A stop asked by the orchestrator, or by Ctrl+C, drains the instance
+	// rather than dropping it: see drain.
+	server := &http.Server{Handler: handlerWithCORS}
+	stopping, stopSignals := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
+	defer stopSignals()
+	served := make(chan error, 1)
+	go func() { served <- server.Serve(listener) }()
+	select {
+	case err := <-served:
 		log.Fatalf("Server failed: %v", err)
+	case <-stopping.Done():
+		stopSignals()
+		drain(h, stopInstance, server, shutdownGrace)
 	}
 }

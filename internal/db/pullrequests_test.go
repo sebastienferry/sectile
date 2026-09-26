@@ -38,7 +38,7 @@ func TestPullRequestSetOrderAndDeduplication(t *testing.T) {
 func TestFollowUpPullRequestOnTheSameBranchIsAccepted(t *testing.T) {
 	d, task := taskWithMergedPullRequest(t)
 	followUp := trackerapi.PullRequest{URL: "https://forge/pull/2", Branch: "ticket", SHA: "agent-commit", Open: true}
-	d.prEvidenceLookup = func(string, string) (trackerapi.PullRequest, error) { return followUp, nil }
+	d.prEvidenceLookup = func(string, string, string) (trackerapi.PullRequest, error) { return followUp, nil }
 
 	got, _, err := d.TransitionTaskStage(task.ID, "implemented", "follow-up work", followUp.URL, "ticket")
 	if err != nil {
@@ -70,7 +70,7 @@ func TestFollowUpPullRequestOnTheSameBranchIsAccepted(t *testing.T) {
 func TestPullRequestOnAnUnrelatedBranchIsRefused(t *testing.T) {
 	d, task := taskWithMergedPullRequest(t)
 	unrelated := trackerapi.PullRequest{URL: "https://forge/pull/9", Branch: "other-ticket", SHA: "agent-commit", Open: true}
-	d.prEvidenceLookup = func(string, string) (trackerapi.PullRequest, error) { return unrelated, nil }
+	d.prEvidenceLookup = func(string, string, string) (trackerapi.PullRequest, error) { return unrelated, nil }
 
 	_, _, err := d.TransitionTaskStage(task.ID, "implemented", "swapped PR", unrelated.URL, "other-ticket")
 	if err == nil {
@@ -120,8 +120,7 @@ func TestExistingPullRequestURLIsMigratedOnce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	no := false
-	p, err := d.CreateProject(models.CreateProjectRequest{Name: "Migrate", RepoPath: "/not-mounted-on-server", IssueTracker: "local", UseWorktrees: &no})
+	p, err := d.CreateProject(models.CreateProjectRequest{Name: "Migrate", IssueTracker: "local"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -168,8 +167,7 @@ func taskWithMergedPullRequest(t *testing.T) (*DB, *models.Task) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = d.Close() })
-	no := false
-	p, err := d.CreateProject(models.CreateProjectRequest{Name: "Follow-up", RepoPath: "/not-mounted-on-server", IssueTracker: "local", UseWorktrees: &no})
+	p, err := d.CreateProject(models.CreateProjectRequest{Name: "Follow-up", IssueTracker: "local"})
 	if err != nil {
 		t.Fatal(err)
 	}

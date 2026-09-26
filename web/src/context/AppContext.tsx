@@ -1,3 +1,5 @@
+import { BatchPickupModal } from '../components/BatchPickupModal'
+import { buildBatchPickupPrompt } from '../lib/batchPickup'
 import { sameTask, tasksInProject } from '../lib/taskIdentity'
 import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef, type ReactNode } from 'react'
 import {
@@ -5,7 +7,10 @@ import {
   saveBoardCardDisplayMode,
   toggleBoardCardDisplayMode as toggleDisplayModeValue,
 } from '../lib/boardDisplayMode'
+import { loadBoardSort, saveBoardSort, type BoardSort } from '../lib/boardSort'
 import type {
+  BoardView,
+  BoardViewPayload,
   MacroRequiredField,
   SkillEditorEntry,
   SkillMode,
@@ -19,17 +24,20 @@ import type {
   BoardCardDisplayMode,
   WorkflowStage,
   ToastMessage,
+  ToastLink,
   Skill,
   TaskActivity,
   ActivityStats,
   CliStatus,
   TaskSource,
   Project,
+  ProjectSavePayload,
   TrackerBoard,
   TaskComment,
   MacroMeta,
   MacroHorizon,
   MacroTodo,
+  MacroTodoSource,
   TrackerTeam,
   TeamMember,
   TeamWorkload,
@@ -45,6 +53,20 @@ import { resolveAccentAttribute } from '../lib/accents'
 import type { StoredUserCredential, OrphanedCredentialReport } from '../lib/trackers'
 import { NO_ORPHANED_CREDENTIALS, orphanedCredentialsFrom } from '../lib/trackers'
 import { activeTaskIds } from '../lib/remoteRunIndicator'
+import { isViewAvailable } from '../lib/optionalViews'
+import { isMacPlatform, sidebarShortcutAction } from '../../../shared/sidebarShortcut.mjs'
+import {
+  coreFailures,
+  failureDetail,
+  formatReadFailure,
+  readJson,
+  withOutcome,
+  type ReadFailure,
+  type ReadOutcome,
+  type ReadResource,
+} from '../lib/apiRead'
+import { filterScopeKey, readViewParam, withViewParam } from '../lib/boardViews'
+import { ASSIGNEE_IDENTITIES_PATH, type AssigneeIdentities } from '../lib/myTasks'
 import {
   INTERNAL_STATUS_BY_STAGE,
   resolveTaskStage, skillForStage,
@@ -58,11 +80,23 @@ interface AppContextType {
   selectedProjectId: string | 'all'
   setSelectedProjectId: (id: string | 'all') => void
   currentProject: Project | null
-  createProject: (data: Partial<Project>) => Promise<Project | null>
-  updateProject: (id: string, updates: Partial<Project>) => Promise<Project | null>
+  createProject: (data: ProjectSavePayload) => Promise<Project | null>
+  updateProject: (id: string, updates: ProjectSavePayload) => Promise<Project | null>
   deleteProject: (id: string) => Promise<boolean>
   toggleProjectBookmark: (projectId: string) => Promise<boolean>
   fetchProjects: () => Promise<void>
+  // Saved board views (#387): personal selections of projects and labels.
+  boardViews: BoardView[]
+  selectedViewId: string | null
+  currentBoardView: BoardView | null
+  openBoardView: (id: string) => void
+  createBoardView: (payload: BoardViewPayload) => Promise<BoardView | null>
+  updateBoardView: (id: string, payload: BoardViewPayload) => Promise<BoardView | null>
+  deleteBoardView: (id: string) => Promise<boolean>
+  isBoardViewModalOpen: boolean
+  editingBoardView: BoardView | null
+  openBoardViewModal: (view: BoardView | null) => void
+  closeBoardViewModal: () => void
   isProjectModalOpen: boolean
   setIsProjectModalOpen: (open: boolean) => void
   editingProject: Project | null
@@ -79,6 +113,11 @@ interface AppContextType {
   isSyncing: boolean
   runningSkillId: string | null
   error: string | null
+  // Les lectures qui n'aboutissent pas, pour que l'interface dise « le serveur
+  // n'a pas répondu » au lieu de laisser croire qu'il n'y a rien à montrer.
+  readFailures: ReadFailure[]
+  coreReadFailures: ReadFailure[]
+  retryFailedReads: () => void
   activeView: ViewMode
   setActiveView: (view: ViewMode) => void
   boardGrouping: BoardGroupingMode
@@ -86,6 +125,9 @@ interface AppContextType {
   boardCardDisplayMode: BoardCardDisplayMode
   setBoardCardDisplayMode: (mode: BoardCardDisplayMode) => void
   toggleBoardCardDisplayMode: () => void
+  /** The card order shared by the Board and the Backlog (#402). */
+  boardSort: BoardSort
+  setBoardSort: (sort: BoardSort) => void
   searchQuery: string
   setSearchQuery: (query: string) => void
   statusFilter: Status | null
@@ -133,8 +175,6 @@ interface AppContextType {
   clearUserCredential: (tracker: string) => Promise<boolean>
   /** Supprime une ligne orpheline. Réservée aux admins, refusée par le serveur sinon. */
   discardOrphanedCredential: (userId: string, tracker: string) => Promise<boolean>
-  /** Enregistre des accès déjà vérifiés, jeton en base ou dans un fichier à part. */
-  saveTrackerCredentials: (params: TrackerCredentials) => Promise<boolean>
   /**
    * Statuts du tracker affichés. Vide veut dire « tous » : c'est le choix
    * explicite de ce qu'on regarde, board comme liste, et il remplace le
@@ -179,6 +219,15 @@ interface AppContextType {
   setLabelFilter: (label: string | null) => void
   assigneeFilter: string | null
   setAssigneeFilter: (assignee: string | null) => void
+  /**
+   * My Tasks (#468): the tickets assigned to me, whoever I am on each ticket's
+   * tracker. The server resolves "me"; turning it on clears the person filter,
+   * and choosing a person turns it off.
+   */
+  myTasksOnly: boolean
+  setMyTasksOnly: (value: boolean) => void
+  /** Who "me" is on each tracker of the current scope, for the button's tooltip. */
+  myTasksIdentities: AssigneeIdentities | null
   sourceFilter: 'all' | TaskSource
   setSourceFilter: (source: 'all' | TaskSource) => void
   /** Filters the board on a parent work item key (epic, or parent story). */
@@ -187,15 +236,13 @@ interface AppContextType {
   /** Distinct parents present in the loaded tasks, most populated first. */
   availableParents: { key: string; title: string; type: string; count: number }[]
   /**
-   * Resolves the display name of a workflow skill, honouring the project's
-   * `skillOverrides`. Pass `projectId` to resolve against a specific project —
-   * a task's project is not necessarily the one selected in the sidebar.
+   * Resolves the display name of a workflow skill. Command names renamed on
+   * the workstation are not visible to the web, so this is the default name.
    */
   skillLabel: (skillId: string, fallback?: string, projectId?: string) => string
   /**
-   * Resolves the slash command of a workflow skill. A project override is
-   * treated as the command to invoke, normalised with a leading slash, so
-   * renaming a skill also changes the command shown and run.
+   * Resolves the slash command of a workflow skill: the default command, the
+   * workstation applying its own renames when it runs the skill.
    */
   skillCommand: (skillId: string, fallback: string, projectId?: string) => string
   /** Docked workspace terminal on the right side of the app. */
@@ -226,19 +273,22 @@ interface AppContextType {
   setIsCommandPaletteOpen: (open: boolean) => void
   isProfileOpen: boolean
   setIsProfileOpen: (open: boolean) => void
-  isAdminOpen: boolean
-  setIsAdminOpen: (open: boolean) => void
   settings: UserSettings
   /**
    * `silent` évite le toast de confirmation : un basculement de thème ou
    * d'échelle se voit à l'écran, l'annoncer à chaque clic ne fait que du bruit.
    */
   updateSettings: (newSettings: Partial<UserSettings>, options?: { silent?: boolean }) => Promise<void>
+  /**
+   * Re-reads `/api/settings`. `userName` and `userEmail` are projections of the
+   * account, so a change made through `/api/me` only reaches the chrome this way.
+   */
+  reloadSettings: () => Promise<void>
   t: TranslationSchema
   toasts: ToastMessage[]
   addToast: (toast: Omit<ToastMessage, 'id'>) => void
   removeToast: (id: string) => void
-  createTask: (task: { title: string; description?: string; status?: Status; priority?: Priority; labels?: string[]; assignee?: string; dueDate?: string | null; sprint?: string; source?: TaskSource; externalUrl?: string; projectId?: string; issueType?: string }) => Promise<Task | null>
+  createTask: (task: { title: string; description?: string; status?: Status; priority?: Priority; labels?: string[]; assignee?: string; dueDate?: string | null; sprint?: string; source?: TaskSource; externalUrl?: string; projectId?: string; issueType?: string; macroKey?: string }) => Promise<Task | null>
   cloneTask: (taskId: string, req?: CloneTaskRequest, openAfterClone?: boolean) => Promise<Task | null>
   isCloneModalOpen: boolean
   setIsCloneModalOpen: (open: boolean) => void
@@ -268,6 +318,8 @@ interface AppContextType {
   saveMacroMeta: (projectId: string, key: string, patch: { title?: string; horizon?: MacroHorizon | ''; description?: string; framingComment?: string; todos?: MacroTodo[]; closed?: boolean }) => Promise<MacroMeta | null>
   saveEpicMeta: (projectId: string, key: string, patch: { title?: string; horizon?: MacroHorizon | ''; description?: string; framingComment?: string; todos?: MacroTodo[]; closed?: boolean }) => Promise<MacroMeta | null>
   createStoryFromMacroTodo: (projectId: string, macroKey: string, todoId: string) => Promise<{ macro: MacroMeta | null; epic: MacroMeta | null; storyKey: string } | null>
+  /** Produit la découpe d'une macro depuis les artefacts SDD du dépôt. */
+  produceMacroSlicing: (projectId: string, macroKey: string, source: MacroTodoSource) => Promise<MacroMeta | null>
   createStoryFromEpicTodo: (projectId: string, epicKey: string, todoId: string) => Promise<{ macro: MacroMeta | null; epic: MacroMeta | null; storyKey: string } | null>
   pendingHorizonPushes: (projectId: string) => Promise<MacroMeta[]>
   /** Met la poussée des labels d'horizon en file d'activités. Retourne true si la file a accepté. */
@@ -347,14 +399,14 @@ interface AppContextType {
   unassignedFilterValue: string
 
 
-  startBatchPickup: (taskIds: string[]) => Promise<void>
+  startBatchPickup: (taskIds: string[]) => Promise<boolean>
 }
 
 /**
  * Vues connues. Ce qui sort du stockage local n'est pas fiable : une vue retirée
  * d'une version à l'autre laisserait un écran vide au démarrage.
  */
-const VIEW_MODES: ViewMode[] = ['board', 'list', 'triage', 'roadmap', 'timeline', 'activities', 'sync', 'skills', 'team']
+const VIEW_MODES: ViewMode[] = ['board', 'list', 'triage', 'roadmap', 'timeline', 'activities', 'sync', 'skills', 'team', 'admin']
 
 const defaultSettings: UserSettings = {
   id: 1,
@@ -365,13 +417,9 @@ const defaultSettings: UserSettings = {
   uiScale: 100,
   defaultView: 'board',
   detailMode: 'panel',
-  userName: 'Developer',
+  userName: '',
   userEmail: 'dev@example.com',
   userAvatar: '',
-  aiProvider: 'agy',
-  aiCommandTemplate: 'agy -p "{prompt}"',
-  aiModel: '',
-  repoPath: '',
   issueTracker: 'local',
   githubRepo: '',
   jiraProject: '',
@@ -384,8 +432,6 @@ const defaultSettings: UserSettings = {
   promptHandoff: '',
   promptCreatePr: '',
   promptPick: '',
-  editorCommand: 'code',
-  externalTerminalCommand: '',
   updatedAt: new Date().toISOString(),
 }
 
@@ -394,18 +440,23 @@ const AppContext = createContext<AppContextType | undefined>(undefined)
 const API_BASE = '/api'
 
 /**
- * Les quatre niveaux de zoom de l'interface, dans l'ordre du commutateur de la
- * barre d'état. Quatre crans est ce qu'un réglage rapide peut porter : un nombre
- * libre demanderait un écran de réglages, ce qui n'est pas ce que demande « c'est
- * trop petit, tout de suite ». La même liste borne la valeur côté serveur.
+ * Les crans de zoom de l'interface, réexportés depuis leur module.
+ *
+ * Ils y vivent avec le pas et le bornage, testables sans monter un rendu. La
+ * réexportation garde valides les imports déjà écrits sur ce contexte.
  */
-export const UI_SCALE_OPTIONS = [90, 100, 112, 125]
+export { UI_SCALE_OPTIONS } from '../lib/uiScale'
+import { normalizeUIScale } from '../lib/uiScale'
+import { toastDuration } from '../lib/toastTimer'
 
 // Le filtre « non assigné » a besoin d'une valeur : une chaîne vide voudrait dire
 // « aucun filtre ». La même sentinelle est reconnue côté serveur.
 const UNASSIGNED_FILTER_VALUE = '__unassigned__'
 
 export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
+  const [batchPickupTasks, setBatchPickupTasks] = useState<Task[] | null>(null)
+  const batchPickupResult = useRef<((accepted: boolean) => void) | null>(null)
+
   const [tasks, setTasks] = useState<Task[]>([])
   const [skills, setSkills] = useState<Skill[]>([])
   const [cliStatuses, setCliStatuses] = useState<CliStatus[]>([])
@@ -414,6 +465,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [isSyncing, setIsSyncing] = useState(false)
   const [runningSkillId, setRunningSkillId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  // Les lectures en échec, et le souvenir de celles déjà signalées : les
+  // fetchers sont sondés en boucle, un toast par tour noierait l'information
+  // qu'il porte. Le bandeau, lui, reste tant que la lecture ne revient pas.
+  const [readFailures, setReadFailures] = useState<ReadFailure[]>([])
+  const reportedReadsRef = useRef<Set<ReadResource>>(new Set())
   /**
    * L'écran affiché survit au rechargement.
    *
@@ -491,6 +547,13 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       return next
     })
   }, [])
+
+  const [boardSort, setBoardSortState] = useState<BoardSort>(loadBoardSort)
+
+  const setBoardSort = useCallback((sort: BoardSort) => {
+    setBoardSortState(sort)
+    saveBoardSort(sort)
+  }, [])
   const [searchQuery, setSearchQuery] = useState('')
   const [statusFilter, setStatusFilterState] = useState<Status | null>(null)
   const [priorityFilter, setPriorityFilterState] = useState<Priority | null>(null)
@@ -532,9 +595,28 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [activeOnly, setActiveOnlyState] = useState<boolean>(false)
   const [teamFilter, setTeamFilterState] = useState<string | null>(null)
   const [assigneeFilter, setAssigneeFilterState] = useState<string | null>(null)
+  const [myTasksOnly, setMyTasksOnlyState] = useState<boolean>(false)
+  const [myTasksIdentities, setMyTasksIdentities] = useState<AssigneeIdentities | null>(null)
   const [sourceFilter, setSourceFilter] = useState<'all' | TaskSource>('all')
   const [parentFilter, setParentFilterState] = useState<string | null>(null)
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+  // Remembered per browser, as the desktop app already does (#474).
+  const [sidebarCollapsed, setSidebarCollapsedState] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('sectile_sidebar_collapsed') === 'true'
+    } catch {
+      return false
+    }
+  })
+
+  const setSidebarCollapsed = useCallback((val: boolean | ((prev: boolean) => boolean)) => {
+    setSidebarCollapsedState(prev => {
+      const next = typeof val === 'function' ? val(prev) : val
+      try {
+        localStorage.setItem('sectile_sidebar_collapsed', String(next))
+      } catch {}
+      return next
+    })
+  }, [])
   const [selectedTask, setSelectedTask] = useState<Task | null>(null)
   // chatTask désigne la tâche dont le PTY est affiché. Il vit dans le panneau
   // latéral ancré, pas dans une modale : on garde le board visible à côté du
@@ -592,25 +674,82 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false)
   const [isProfileOpen, setIsProfileOpen] = useState(false)
-  const [isAdminOpen, setIsAdminOpen] = useState(false)
   const [settings, setSettings] = useState<UserSettings>(defaultSettings)
   const [toasts, setToasts] = useState<ToastMessage[]>([])
 
   // Projects State
   const [projects, setProjects] = useState<Project[]>([])
+
+  // The open saved view, if any. The address names it first, so a bookmarked
+  // link opens the view; the last one opened comes back on a plain reload. An
+  // open view reads the board as "all projects", which is why the project
+  // selection starts from 'all' whenever a view is open.
+  const [boardViews, setBoardViews] = useState<BoardView[]>([])
+  const [selectedViewId, setSelectedViewIdState] = useState<string | null>(() => {
+    try {
+      return readViewParam(window.location.search) || localStorage.getItem('sectile_selected_view_id') || null
+    } catch {
+      return null
+    }
+  })
+  const setSelectedViewId = useCallback((id: string | null) => {
+    setSelectedViewIdState(id)
+    try {
+      if (id) localStorage.setItem('sectile_selected_view_id', id)
+      else localStorage.removeItem('sectile_selected_view_id')
+    } catch {}
+  }, [])
+
   const [selectedProjectId, setSelectedProjectIdState] = useState<string | 'all'>(() => {
+    if (selectedViewId) return 'all'
     try {
       return localStorage.getItem('sectile_selected_project_id') || localStorage.getItem('taskacao_selected_project_id') || 'all'
     } catch {
       return 'all'
     }
   })
+  // Choosing a project, or "all projects", leaves the open view.
   const setSelectedProjectId = useCallback((id: string | 'all') => {
+    setSelectedViewId(null)
     setSelectedProjectIdState(id)
     try {
       localStorage.setItem('sectile_selected_project_id', id)
     } catch {}
-  }, [])
+  }, [setSelectedViewId])
+
+  // Opening a view keeps the stored project selection untouched, so leaving an
+  // unavailable view can fall back to it.
+  const openBoardView = useCallback((id: string) => {
+    setSelectedViewId(id)
+    setSelectedProjectIdState('all')
+  }, [setSelectedViewId])
+
+  const leaveUnavailableView = useCallback(() => {
+    setSelectedViewId(null)
+    try {
+      setSelectedProjectIdState(localStorage.getItem('sectile_selected_project_id') || 'all')
+    } catch {
+      setSelectedProjectIdState('all')
+    }
+  }, [setSelectedViewId])
+
+  const currentBoardView = useMemo(
+    () => (selectedViewId ? boardViews.find(v => v.id === selectedViewId) || null : null),
+    [boardViews, selectedViewId]
+  )
+
+  // The address follows the open view, other parameters left as they are.
+  useEffect(() => {
+    try {
+      const next = withViewParam(window.location.href, selectedViewId)
+      if (next !== window.location.pathname + window.location.search + window.location.hash) {
+        window.history.replaceState(window.history.state, '', next)
+      }
+    } catch {}
+  }, [selectedViewId])
+
+  // Filters are remembered per project and per view alike: see filterScopeKey.
+  const filterScope = filterScopeKey(selectedProjectId, selectedViewId)
 
   // Les filtres sont mémorisés par projet : sprint et équipe n'ont de sens que
   // dans le projet où ils ont été choisis, et on retrouve son contexte de
@@ -631,13 +770,13 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   // écrirait sous la clé du nouveau.
   const persistFilter = useCallback((patch: Record<string, string | null>) => {
     try {
-      const current = readStoredFilters(selectedProjectId)
+      const current = readStoredFilters(filterScope)
       const merged = { ...current, ...patch }
-      localStorage.setItem(filterStorageKey(selectedProjectId), JSON.stringify(merged))
+      localStorage.setItem(filterStorageKey(filterScope), JSON.stringify(merged))
     } catch {
       // stockage indisponible : les filtres restent simplement non mémorisés
     }
-  }, [selectedProjectId])
+  }, [filterScope])
 
   const setStatusFilter = useCallback((value: Status | null) => {
     setStatusFilterState(value)
@@ -685,9 +824,18 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     persistFilter({ issueTypes: values.length > 0 ? JSON.stringify(values) : null })
   }, [persistFilter])
 
+  // Choosing a person and My Tasks exclude each other: one answers "whose
+  // tickets", the other "mine", and both at once would mean nothing.
   const setAssigneeFilter = useCallback((value: string | null) => {
     setAssigneeFilterState(value)
-    persistFilter({ assignee: value })
+    if (value) setMyTasksOnlyState(false)
+    persistFilter(value ? { assignee: value, mine: null } : { assignee: null })
+  }, [persistFilter])
+
+  const setMyTasksOnly = useCallback((value: boolean) => {
+    setMyTasksOnlyState(value)
+    if (value) setAssigneeFilterState(null)
+    persistFilter(value ? { mine: '1', assignee: null } : { mine: null })
   }, [persistFilter])
 
   const setParentFilter = useCallback((value: string | null) => {
@@ -696,12 +844,37 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   }, [persistFilter])
 
   const [isProjectModalOpen, setIsProjectModalOpen] = useState(false)
+  const [isBoardViewModalOpen, setIsBoardViewModalOpen] = useState(false)
+  const [editingBoardView, setEditingBoardView] = useState<BoardView | null>(null)
+  const openBoardViewModal = useCallback((view: BoardView | null) => {
+    setEditingBoardView(view)
+    setIsBoardViewModalOpen(true)
+  }, [])
+  const closeBoardViewModal = useCallback(() => {
+    setIsBoardViewModalOpen(false)
+    setEditingBoardView(null)
+  }, [])
   const [editingProject, setEditingProject] = useState<Project | null>(null)
 
   const currentProject = useMemo(() => {
     if (selectedProjectId === 'all') return null
     return projects.find(p => p.id === selectedProjectId || p.slug === selectedProjectId) || null
   }, [projects, selectedProjectId])
+
+  /**
+   * Une vue optionnelle ouverte sur un projet qui ne l'affiche pas laisse un
+   * écran mort : le cas arrive en changeant de projet, ou au démarrage quand la
+   * vue mémorisée vient d'un autre projet. On retombe alors sur le board.
+   *
+   * L'attente du chargement des projets est nécessaire : tant que la liste est
+   * vide, tout projet a l'air de n'afficher aucune vue, et le repli chasserait
+   * une vue pourtant activée.
+   */
+  useEffect(() => {
+    if (projects.length === 0) return
+    if (isViewAvailable(currentProject, activeView)) return
+    setActiveView('board')
+  }, [projects.length, currentProject, activeView, setActiveView])
 
   /**
    * Changer de mode d'affichage convertit le filtre en cours plutôt que de le
@@ -788,7 +961,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   const addToast = useCallback((toast: Omit<ToastMessage, 'id'>) => {
     const id = Math.random().toString(36).substring(2, 9)
-    const newToast: ToastMessage = { ...toast, id, duration: toast.duration || 3500 }
+    const newToast: ToastMessage = { ...toast, id, duration: toastDuration(toast) }
     setToasts(prev => [...prev, newToast])
   }, [])
 
@@ -797,6 +970,43 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   }, [])
 
   const t = useMemo(() => translations[settings.language] || translations.fr, [settings.language])
+
+  // The link a creation toast offers: the new ticket in the detail view, and
+  // its tracker page when it has one.
+  const createdTaskLink = useCallback((task: Task): ToastLink => ({
+    label: `${t.toasts.openCreated} ${task.key}`,
+    onOpen: () => setSelectedTask(task),
+    externalUrl: task.externalUrl || undefined,
+  }), [t])
+
+  /**
+   * Le seul endroit où une lecture ratée devient visible. Un 401 se tait : la
+   * redirection vers la connexion s'en charge déjà. Tout le reste nomme la
+   * ressource et ce que le serveur a répondu, une fois par passage à l'échec,
+   * et laisse la trace que le bandeau lit.
+   */
+  const trackRead = useCallback(<T,>(resource: ReadResource, outcome: ReadOutcome<T>) => {
+    if (outcome.kind === 'silent') return
+    setReadFailures(previous => withOutcome(previous, resource, outcome))
+    if (outcome.kind === 'ok') {
+      reportedReadsRef.current.delete(resource)
+      return
+    }
+    if (reportedReadsRef.current.has(resource)) return
+    reportedReadsRef.current.add(resource)
+    addToast({
+      type: 'error',
+      title: t.reads.failedTitle,
+      description: formatReadFailure(
+        t.reads.failedDescription,
+        t.reads.resources[resource],
+        failureDetail(outcome),
+      ),
+      duration: 8000,
+    })
+  }, [addToast, t])
+
+  const coreReadFailures = useMemo(() => coreFailures(readFailures), [readFailures])
 
   useEffect(() => {
     const root = document.documentElement
@@ -830,7 +1040,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     // tailles de cette interface sont en pixels et qu'une taille de police
     // racine ne les touche pas. Le zoom est appliqué au document entier, donc
     // les panneaux, la barre latérale et les modales suivent ensemble.
-    const scale = UI_SCALE_OPTIONS.includes(settings.uiScale || 100) ? settings.uiScale || 100 : 100
+    const scale = normalizeUIScale(settings.uiScale)
     root.style.zoom = scale === 100 ? '' : String(scale / 100)
     // --ui-zoom accompagne le zoom : les hauteurs d'écran s'en servent pour rester
     // dans la fenêtre, sinon la barre d'état passe sous le bord bas.
@@ -847,25 +1057,21 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   }, [settings.theme, settings.density, settings.uiScale, currentProject?.color])
 
   const fetchSettings = useCallback(async () => {
-    try {
-      const res = await fetch(`${API_BASE}/settings`)
-      if (res.ok) {
-        const data: UserSettings = await res.json()
-        setSettings(data)
-        // Premier lancement : aucune vue mémorisée, la vue par défaut des
-        // réglages s'applique ici et nulle part ailleurs. C'est le seul moment
-        // où l'on tient la valeur du serveur plutôt que celle de repli.
-        if (defaultViewPending.current) {
-          defaultViewPending.current = false
-          if (data.defaultView && VIEW_MODES.includes(data.defaultView)) {
-            setActiveView(data.defaultView)
-          }
-        }
+    const outcome = await readJson<UserSettings>(`${API_BASE}/settings`)
+    trackRead('settings', outcome)
+    if (outcome.kind !== 'ok') return
+    const data = outcome.data
+    setSettings(data)
+    // Premier lancement : aucune vue mémorisée, la vue par défaut des
+    // réglages s'applique ici et nulle part ailleurs. C'est le seul moment
+    // où l'on tient la valeur du serveur plutôt que celle de repli.
+    if (defaultViewPending.current) {
+      defaultViewPending.current = false
+      if (data.defaultView && VIEW_MODES.includes(data.defaultView)) {
+        setActiveView(data.defaultView)
       }
-    } catch (err) {
-      console.warn('Failed to load settings from server', err)
     }
-  }, [setActiveView])
+  }, [setActiveView, trackRead])
 
   const fetchSkills = useCallback(async () => {
     try {
@@ -892,51 +1098,46 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   }, [])
 
   const fetchProjects = useCallback(async () => {
-    try {
-      const res = await fetch(`${API_BASE}/projects`)
-      if (res.ok) {
-        const data: Project[] = await res.json()
-        const projectList = data || []
-        setProjects(projectList)
+    const outcome = await readJson<Project[]>(`${API_BASE}/projects`)
+    trackRead('projects', outcome)
+    if (outcome.kind !== 'ok') return
+    const projectList = outcome.data || []
+    setProjects(projectList)
 
-        // Ensure a valid project is actively selected, preserving 'all' or active bookmarked project
-        setSelectedProjectIdState(prev => {
-          if (prev === 'all') {
-            return 'all'
-          }
-          if (prev && projectList.some(p => (p.id === prev || p.slug === prev) && p.bookmarked)) {
-            return prev
-          }
-          try {
-            const stored = localStorage.getItem('sectile_selected_project_id') || localStorage.getItem('taskacao_selected_project_id')
-            if (stored === 'all') return 'all'
-            if (stored && projectList.some(p => (p.id === stored || p.slug === stored) && p.bookmarked)) {
-              return stored
-            }
-          } catch {}
-
-          // Prioritize bookmarked project with tasks, or any bookmarked project, or 'all'
-          const bookmarkedWithTasks = projectList.find(p => p.bookmarked && (p.taskCount || 0) > 0)
-          if (bookmarkedWithTasks) {
-            try {
-              localStorage.setItem('sectile_selected_project_id', bookmarkedWithTasks.id)
-            } catch {}
-            return bookmarkedWithTasks.id
-          }
-          const anyBookmarked = projectList.find(p => p.bookmarked)
-          if (anyBookmarked) {
-            try {
-              localStorage.setItem('sectile_selected_project_id', anyBookmarked.id)
-            } catch {}
-            return anyBookmarked.id
-          }
-          return 'all'
-        })
+    // Ensure a valid project is actively selected, preserving 'all' or active bookmarked project
+    setSelectedProjectIdState(prev => {
+      if (prev === 'all') {
+        return 'all'
       }
-    } catch (err) {
-      console.warn('Failed to load projects', err)
-    }
-  }, [])
+      if (prev && projectList.some(p => (p.id === prev || p.slug === prev) && p.bookmarked)) {
+        return prev
+      }
+      try {
+        const stored = localStorage.getItem('sectile_selected_project_id') || localStorage.getItem('taskacao_selected_project_id')
+        if (stored === 'all') return 'all'
+        if (stored && projectList.some(p => (p.id === stored || p.slug === stored) && p.bookmarked)) {
+          return stored
+        }
+      } catch {}
+
+      // Prioritize bookmarked project with tasks, or any bookmarked project, or 'all'
+      const bookmarkedWithTasks = projectList.find(p => p.bookmarked && (p.taskCount || 0) > 0)
+      if (bookmarkedWithTasks) {
+        try {
+          localStorage.setItem('sectile_selected_project_id', bookmarkedWithTasks.id)
+        } catch {}
+        return bookmarkedWithTasks.id
+      }
+      const anyBookmarked = projectList.find(p => p.bookmarked)
+      if (anyBookmarked) {
+        try {
+          localStorage.setItem('sectile_selected_project_id', anyBookmarked.id)
+        } catch {}
+        return anyBookmarked.id
+      }
+      return 'all'
+    })
+  }, [trackRead])
 
   const fetchActivities = useCallback(async () => {
     try {
@@ -976,7 +1177,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   // sinon il ramène tout le board et perd le contexte de travail.
   const buildTaskQuery = useCallback(() => {
     const params = new URLSearchParams()
-    if (selectedProjectId && selectedProjectId !== 'all') {
+    if (selectedViewId) {
+      params.append('viewId', selectedViewId)
+    } else if (selectedProjectId && selectedProjectId !== 'all') {
       params.append('projectId', selectedProjectId)
     }
     // La roadmap se cherche par épic, pas par ticket. Envoyer la recherche au
@@ -994,11 +1197,13 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     // L'assigné se filtre côté serveur comme le reste : il n'était appliqué
     // nulle part, ce qui laissait « Mes tâches » sans effet.
     if (assigneeFilter) params.append('assignee', assigneeFilter)
+    // My Tasks sends no name: the server knows who "me" is on each tracker.
+    if (myTasksOnly) params.append('mine', '1')
     trackerStatusFilters.forEach(status => params.append('trackerStatus', status))
     issueTypeFilters.forEach(type => params.append('issueType', type))
     if (pinnedOnly) params.append('pinned', '1')
     return params.toString()
-  }, [selectedProjectId, searchQuery, activeView, statusFilter, priorityFilter, labelFilter, sprintFilter, teamFilter, parentFilter, assigneeFilter, trackerStatusFilters, issueTypeFilters, pinnedOnly])
+  }, [selectedProjectId, selectedViewId, searchQuery, activeView, statusFilter, priorityFilter, labelFilter, sprintFilter, teamFilter, parentFilter, assigneeFilter, myTasksOnly, trackerStatusFilters, issueTypeFilters, pinnedOnly])
 
   // Resolve desktop deep links independently of board filters and pagination.
   useEffect(() => {
@@ -1010,7 +1215,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         if (!response.ok) throw new Error(`Unable to open task (HTTP ${response.status})`)
         const task: Task = await response.json()
         if (controller.signal.aborted) return
-        if (task.projectId) setSelectedProjectId(task.projectId)
+        // A link naming a view as well keeps that view open around the task;
+        // only a bare task link switches to the task's project.
+        if (task.projectId && !readViewParam(window.location.search)) setSelectedProjectId(task.projectId)
         setSelectedTask(task)
       })
       .catch(error => {
@@ -1022,29 +1229,41 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const fetchTasks = useCallback(async () => {
     try {
       setIsLoading(true)
-      const res = await fetch(`${API_BASE}/tasks?${buildTaskQuery()}`)
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      const data: Task[] = await res.json()
-      setTasks(data)
+      const outcome = await readJson<Task[]>(`${API_BASE}/tasks?${buildTaskQuery()}`)
+      // A view that is gone, or someone else's, answers 404: the board falls
+      // back to what it would show without it, and says why. It is not a
+      // degraded read, so it never reaches the banner.
+      if (outcome.kind === 'failed' && outcome.status === 404 && selectedViewId) {
+        leaveUnavailableView()
+        addToast({ type: 'error', title: t.boardViews.unavailable, description: t.boardViews.unavailableDescription })
+        return
+      }
+      trackRead('tasks', outcome)
+      if (outcome.kind === 'silent') return
+      if (outcome.kind === 'failed') {
+        setError(failureDetail(outcome))
+        return
+      }
+      setTasks(outcome.data)
       setError(null)
-    } catch (err: any) {
-      setError(err.message || 'Failed to fetch tasks')
     } finally {
       setIsLoading(false)
     }
-  }, [buildTaskQuery])
+  }, [buildTaskQuery, selectedViewId, leaveUnavailableView, addToast, trackRead, t])
 
   // Restauration à l'ouverture et à chaque changement de projet. Les setters
   // bruts sont utilisés ici : réécrire ce qu'on vient de lire serait inutile.
   useEffect(() => {
-    const stored = readStoredFilters(selectedProjectId)
+    const stored = readStoredFilters(filterScope)
     setStatusFilterState((stored.status as Status | null) ?? null)
     setPriorityFilterState((stored.priority as Priority | null) ?? null)
     setLabelFilterState(stored.label ?? null)
     setSprintFilterState(stored.sprint ?? null)
     setTeamFilterState(stored.team ?? null)
     setParentFilterState(stored.parent ?? null)
+    // A name remembered by an earlier version stays a person filter (#468).
     setAssigneeFilterState(stored.assignee ?? null)
+    setMyTasksOnlyState(stored.mine === '1')
     try {
       const raw = stored.trackerStatuses
       setTrackerStatusFiltersState(raw ? JSON.parse(raw) : [])
@@ -1059,12 +1278,14 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
     setPinnedOnlyState(stored.pinnedOnly === '1')
     setActiveOnlyState(stored.activeOnly === '1')
-  }, [selectedProjectId])
+  }, [filterScope])
 
   const fetchTaskFacets = useCallback(async () => {
     try {
       const params = new URLSearchParams()
-      if (selectedProjectId && selectedProjectId !== 'all') {
+      if (selectedViewId) {
+        params.append('viewId', selectedViewId)
+      } else if (selectedProjectId && selectedProjectId !== 'all') {
         params.append('projectId', selectedProjectId)
       }
       const res = await fetch(`${API_BASE}/tasks/facets?${params.toString()}`)
@@ -1087,7 +1308,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     } catch {
       // A tracker that feeds neither field simply leaves the filters hidden.
     }
-  }, [selectedProjectId])
+  }, [selectedProjectId, selectedViewId])
 
   useEffect(() => {
     fetchTaskFacets()
@@ -1240,33 +1461,36 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         })
         const data = await res.json().catch(() => ({}))
         if (!res.ok) return { ok: false, error: data.error || 'Vérification impossible' }
+        // Verifying a stored personal credential teaches the server whose it
+        // is, which My Tasks and the profile then show.
+        refreshUserCredentials()
         return data
       } catch (err: any) {
         return { ok: false, error: err.message || 'Serveur injoignable' }
       }
     },
-    []
+    [refreshUserCredentials]
   )
 
-  const saveTrackerCredentials = useCallback(
-    async (params: TrackerCredentials): Promise<boolean> => {
-      try {
-        const res = await fetch(`${API_BASE}/setup/tracker`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(params),
-        })
-        const data = await res.json().catch(() => ({}))
-        if (!res.ok) throw new Error(data.error || 'Enregistrement refusé')
-        setSettings(data)
-        return true
-      } catch (err: any) {
-        addToast({ type: 'error', title: 'Accès non enregistrés', description: err.message })
-        return false
-      }
-    },
-    []
-  )
+  // Who "me" is on each tracker of the scope, for the My Tasks tooltip. Read
+  // again whenever the scope or the personal credentials change: saving,
+  // verifying or deleting one is what teaches or forgets an identity.
+  useEffect(() => {
+    const params = new URLSearchParams()
+    if (selectedViewId) params.append('viewId', selectedViewId)
+    else if (selectedProjectId && selectedProjectId !== 'all') params.append('projectId', selectedProjectId)
+    const controller = new AbortController()
+    fetch(`${ASSIGNEE_IDENTITIES_PATH}?${params.toString()}`, { signal: controller.signal })
+      .then(res => (res.ok ? res.json() : null))
+      .then(data => {
+        if (controller.signal.aborted) return
+        setMyTasksIdentities(data && Array.isArray(data.trackers) ? data : null)
+      })
+      .catch(() => {
+        // Unreachable server: the tooltip falls back on the label alone.
+      })
+    return () => controller.abort()
+  }, [selectedProjectId, selectedViewId, userCredentials, settings.userName, settings.userEmail])
 
   const fetchAutoSyncStatus = useCallback(async () => {
     try {
@@ -1411,13 +1635,97 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   }, [taskFacets, sprintFilter, teamFilter, assigneeFilter, setSprintFilter, setTeamFilter, setAssigneeFilter])
 
+  const fetchBoardViews = useCallback(async () => {
+    const outcome = await readJson<BoardView[]>(`${API_BASE}/me/board-views`)
+    trackRead('boardViews', outcome)
+    if (outcome.kind !== 'ok') return
+    setBoardViews(outcome.data || [])
+  }, [trackRead])
+
+  /**
+   * Relance les lectures en échec, et elles seules : le bandeau propose le
+   * geste sans recharger la page. La marque « déjà signalé » est levée avant,
+   * pour qu'un échec qui persiste réponde quelque chose à une demande
+   * explicite plutôt que de rester muet.
+   */
+  const retryFailedReads = useCallback(() => {
+    const retries: Record<ReadResource, () => Promise<void>> = {
+      projects: fetchProjects,
+      tasks: fetchTasks,
+      settings: fetchSettings,
+      boardViews: fetchBoardViews,
+    }
+    for (const failure of readFailures) {
+      reportedReadsRef.current.delete(failure.resource)
+      void retries[failure.resource]()
+    }
+  }, [readFailures, fetchProjects, fetchTasks, fetchSettings, fetchBoardViews])
+
+  // The server answers with the message the interface shows as it is.
+  const boardViewRequest = useCallback(async (path: string, method: string, payload?: BoardViewPayload): Promise<Response> => {
+    const res = await fetch(`${API_BASE}/me/board-views${path}`, {
+      method,
+      headers: payload ? { 'Content-Type': 'application/json' } : undefined,
+      body: payload ? JSON.stringify(payload) : undefined,
+    })
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}))
+      throw new Error(data.error || `HTTP ${res.status}`)
+    }
+    return res
+  }, [])
+
+  const createBoardView = useCallback(async (payload: BoardViewPayload): Promise<BoardView | null> => {
+    try {
+      const res = await boardViewRequest('', 'POST', payload)
+      const created: BoardView = await res.json()
+      setBoardViews(prev => [...prev, created])
+      openBoardView(created.id)
+      return created
+    } catch (err: any) {
+      addToast({ type: 'error', title: t.toasts.error, description: err.message })
+      return null
+    }
+  }, [boardViewRequest, openBoardView, addToast, t])
+
+  const updateBoardView = useCallback(async (id: string, payload: BoardViewPayload): Promise<BoardView | null> => {
+    try {
+      const res = await boardViewRequest(`/${encodeURIComponent(id)}`, 'PATCH', payload)
+      const updated: BoardView = await res.json()
+      setBoardViews(prev => prev.map(v => (v.id === updated.id ? updated : v)))
+      // The open view keeps its id, so nothing else would reload its board.
+      if (updated.id === selectedViewId) {
+        fetchTasks()
+        fetchTaskFacets()
+      }
+      return updated
+    } catch (err: any) {
+      addToast({ type: 'error', title: t.toasts.error, description: err.message })
+      return null
+    }
+  }, [boardViewRequest, selectedViewId, fetchTasks, fetchTaskFacets, addToast, t])
+
+  const deleteBoardView = useCallback(async (id: string): Promise<boolean> => {
+    try {
+      await boardViewRequest(`/${encodeURIComponent(id)}`, 'DELETE')
+      setBoardViews(prev => prev.filter(v => v.id !== id))
+      if (selectedViewId === id) setSelectedProjectId('all')
+      addToast({ type: 'success', title: t.boardViews.deleted })
+      return true
+    } catch (err: any) {
+      addToast({ type: 'error', title: t.toasts.error, description: err.message })
+      return false
+    }
+  }, [boardViewRequest, selectedViewId, setSelectedProjectId, addToast, t])
+
   // Initial load on mount
   useEffect(() => {
     fetchSettings()
     fetchSkills()
     fetchCliStatus()
     fetchProjects()
-  }, [fetchSettings, fetchSkills, fetchCliStatus, fetchProjects])
+    fetchBoardViews()
+  }, [fetchSettings, fetchSkills, fetchCliStatus, fetchProjects, fetchBoardViews])
 
   // Data reload on filter / project change
   useEffect(() => {
@@ -1617,7 +1925,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       addToast({
         type: 'info',
         title: 'Synchronisation globale lancée',
-        description: activeProj ? `Projet ${activeProj.name} — Suivi dans Activités.` : 'La tâche a été ajoutée à la file d\'attente.',
+        description: activeProj ? `Projet ${activeProj.name} - Suivi dans Activités.` : 'La tâche a été ajoutée à la file d\'attente.',
       })
     } catch (err: any) {
       addToast({
@@ -1652,7 +1960,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       addToast({
         type: 'info',
         title: 'Synchronisation GitHub lancée',
-        description: targetRepo ? `Dépôt ${targetRepo} (${activeProj?.name || ''}) — Suivi dans Activités.` : 'Synchronisation GitHub en cours...',
+        description: targetRepo ? `Dépôt ${targetRepo} (${activeProj?.name || ''}) - Suivi dans Activités.` : 'Synchronisation GitHub en cours...',
       })
     } catch (err: any) {
       addToast({
@@ -1687,7 +1995,44 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       addToast({
         type: 'info',
         title: 'Synchronisation Jira lancée',
-        description: targetKey ? `Projet Jira ${targetKey} (${activeProj?.name || ''}) — Suivi dans Activités.` : 'Synchronisation Jira en cours...',
+        description: targetKey ? `Projet Jira ${targetKey} (${activeProj?.name || ''}) - Suivi dans Activités.` : 'Synchronisation Jira en cours...',
+      })
+    } catch (err: any) {
+      addToast({
+        type: 'error',
+        title: t.toasts.error,
+        description: err.message,
+      })
+    } finally {
+      setIsSyncing(false)
+    }
+  }
+
+  const syncGitlab = async (projectId?: string) => {
+    setIsSyncing(true)
+    try {
+      const activeProj = projectId
+        ? projects.find(p => p.id === projectId)
+        : selectedProjectId !== 'all' ? projects.find(p => p.id === selectedProjectId) : (projects.find(p => p.isDefault) || projects[0])
+      const res = await fetch(`${API_BASE}/sync/gitlab`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectId: activeProj?.id }),
+      })
+      if (!res.ok) {
+        const errData = await res.json()
+        throw new Error(errData.error || 'GitLab sync failed')
+      }
+      const data = await res.json()
+      if (data.activity) {
+        setActivities(prev => [data.activity, ...prev.filter(a => a.id !== data.activity.id)])
+      }
+      fetchActivityStats()
+      const path = activeProj?.gitlabProject || settings.gitlabProject || ''
+      addToast({
+        type: 'info',
+        title: 'Synchronisation GitLab lancée',
+        description: path ? `Projet GitLab ${path} (${activeProj?.name || ''}) - Suivi dans Activités.` : 'Synchronisation GitLab en cours...',
       })
     } catch (err: any) {
       addToast({
@@ -1707,6 +2052,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       await syncGithub(activeProj?.githubRepo)
     } else if (tracker === 'jira') {
       await syncJira(activeProj?.jiraProject)
+    } else if (tracker === 'gitlab') {
+      await syncGitlab(activeProj?.id)
     } else {
       await fetchTasks()
       addToast({
@@ -1717,7 +2064,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   }
 
-  const createProject = async (data: Partial<Project>): Promise<Project | null> => {
+  const createProject = async (data: ProjectSavePayload): Promise<Project | null> => {
     try {
       const res = await fetch(`${API_BASE}/projects`, {
         method: 'POST',
@@ -1747,7 +2094,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   }
 
-  const updateProject = async (id: string, updates: Partial<Project>): Promise<Project | null> => {
+  const updateProject = async (id: string, updates: ProjectSavePayload): Promise<Project | null> => {
     try {
       const res = await fetch(`${API_BASE}/projects/${encodeURIComponent(id)}`, {
         method: 'PUT',
@@ -1789,6 +2136,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         setSelectedProjectId('all')
       }
       await fetchProjects()
+      await fetchBoardViews()
       await fetchTasks()
       addToast({
         type: 'warning',
@@ -1819,26 +2167,59 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     externalUrl?: string
     projectId?: string
     issueType?: string
+    /** Macro to attach the new ticket to, on the tracker as well (#445). */
+    macroKey?: string
   }): Promise<Task | null> => {
     try {
-      const defaultProj = taskData.projectId || (selectedProjectId !== 'all' ? selectedProjectId : (projects[0]?.id || 'default'))
+      const { macroKey, ...fields } = taskData
+      const defaultProj = fields.projectId || (selectedProjectId !== 'all' ? selectedProjectId : (projects[0]?.id || 'default'))
       const res = await fetch(`${API_BASE}/tasks`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          ...taskData,
+          ...fields,
           projectId: defaultProj,
         }),
       })
       if (!res.ok) throw new Error('Creation failed')
-      const created: Task = await res.json()
-      setTasks(prev => [created, ...prev])
+      let created: Task = await res.json()
+      // A parentKey on the creation would only be stored locally: the tracker
+      // receives the parent through the attachment, as from the detail modal.
+      // A refused attachment leaves the ticket created and says so.
+      let attachError = ''
+      if (macroKey) {
+        try {
+          const attach = await fetch(`${API_BASE}/tasks/${encodeURIComponent(created.id)}/macro`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ macroKey }),
+          })
+          const data = await attach.json().catch(() => ({}))
+          if (!attach.ok) throw new Error(data.error || attach.statusText)
+          if (data.task) created = data.task
+          fetchActivities()
+        } catch (err: any) {
+          attachError = err.message || 'error'
+        }
+      }
+      // Inside a saved view the new ticket belongs on the board only if it
+      // matches the view, which the server decides: reload rather than guess.
+      if (selectedViewId) fetchTasks()
+      else setTasks(prev => [created, ...prev])
       fetchProjects()
       addToast({
         type: 'success',
         title: t.toasts.taskCreated,
         description: `${created.key}: ${created.title} (${(created.source || 'local').toUpperCase()})`,
+        link: createdTaskLink(created),
       })
+      if (macroKey && attachError) {
+        addToast({
+          type: 'warning',
+          title: t.quickAdd.attachFailed.replace('{macro}', macroKey),
+          description: attachError,
+        })
+      }
       return created
     } catch (err: any) {
       addToast({
@@ -1894,7 +2275,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(updates),
       })
-      if (!res.ok) throw new Error('Update failed')
+      if (!res.ok) {
+        // The server's reason, such as a repository the project does not list.
+        const errData = await res.json().catch(() => ({}))
+        throw new Error(errData.error || 'Update failed')
+      }
       const updated: Task = await res.json()
       setTasks(prev => prev.map(t => (sameTask(t, updated) ? updated : t)))
       if (selectedTask && (sameTask(selectedTask, updated))) {
@@ -2221,7 +2606,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         type: 'success',
         title: 'Story créée',
         description: `${data.storyKey} rattachée à ${macroKey}`,
+        link: data.task ? createdTaskLink(data.task) : undefined,
       })
+      // The story exists; what the tracker refused is said, not hidden.
+      if (data.notice) addToast({ type: 'warning', title: 'Parent non écrit sur le tracker', description: data.notice })
       fetchTasks()
       const m = data.macro || data.epic || null
       return { macro: m, epic: m, storyKey: data.storyKey || '' }
@@ -2231,6 +2619,45 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   }
   const createStoryFromEpicTodo = createStoryFromMacroTodo
+
+  // Produire la découpe depuis les artefacts SDD du dépôt.
+  //
+  // Un geste, jamais un effet de bord de la synchro : produire à chaque passe
+  // se battrait contre les lignes modifiées à la main, et une ligne supprimée
+  // exprès reviendrait. Rien n'est écrit dans le dépôt ni sur le tracker.
+  //
+  // L'origine lue est remontée telle quelle dans le message : la découpe peut
+  // venir de l'arbre de travail ou de la branche de la macro, et ne pas dire
+  // lequel laisse deviner pourquoi elle ne correspond pas à ce qu'on a sous les
+  // yeux.
+  const produceMacroSlicing = async (
+    projectId: string,
+    macroKey: string,
+    source: MacroTodoSource
+  ): Promise<MacroMeta | null> => {
+    try {
+      const res = await fetch(
+        `${API_BASE}/projects/${encodeURIComponent(projectId)}/macros/${encodeURIComponent(macroKey)}/slicing`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ source }),
+        }
+      )
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.error || 'Découpe refusée')
+      const macro: MacroMeta | null = data.macro || data.epic || null
+      addToast({
+        type: 'success',
+        title: `Découpe produite pour ${macroKey}`,
+        description: data.origin || '',
+      })
+      return macro
+    } catch (err: any) {
+      addToast({ type: 'error', title: 'Découpe non produite', description: err.message })
+      return null
+    }
+  }
 
   // Rattrapage : les épics classés avant que le miroir en label existe, et ceux
   // dont la poussée a échoué, restent invisibles dans Jira jusqu'à ce qu'on les
@@ -2393,7 +2820,13 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       )
       const data = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(data.error || 'Création refusée')
-      addToast({ type: 'success', title: 'Story créée', description: `${data.storyKey} sous ${macroKey}` })
+      addToast({
+        type: 'success',
+        title: 'Story créée',
+        description: `${data.storyKey} sous ${macroKey}`,
+        link: data.task ? createdTaskLink(data.task) : undefined,
+      })
+      if (data.notice) addToast({ type: 'warning', title: 'Parent non écrit sur le tracker', description: data.notice })
       fetchTasks()
       return data.storyKey || ''
     } catch (err: any) {
@@ -2969,7 +3402,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     addToast({
       type: 'info',
       title: t.toasts.skillQueued,
-      description: `Moteur: ${settings.aiProvider.toUpperCase()} (${skillId}) - Poussée en file d'attente`,
+      description: `${skillId} - Poussée en file d'attente`,
     })
 
     try {
@@ -2997,9 +3430,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       const activity: TaskActivity = data.activity
 
       setTasks(prev => prev.map(t => (t.id === taskId ? updatedTask : t)))
-      if (selectedTask && selectedTask.id === taskId) {
-        setSelectedTask(updatedTask)
-      }
+      // Read the current selection, not this render's: the quick add opens the
+      // new ticket right before launching its rewrite (#445).
+      setSelectedTask(curr => (curr && curr.id === taskId ? updatedTask : curr))
       setActivities(prev => [activity, ...prev.filter(a => a.id !== activity.id)])
       await fetchActivityStats()
 
@@ -3039,7 +3472,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const cancelActivity = async (id: string) => {
     try {
       const res = await fetch(`${API_BASE}/activities/${id}/cancel`, { method: 'POST' })
-      if (!res.ok) throw new Error('Cancel failed')
+      // A refusal says why: somebody else's run is theirs to cancel.
+      if (!res.ok) throw new Error((await res.json().catch(() => null))?.error || 'Cancel failed')
       addToast({
         type: 'warning',
         title: t.toasts.activityCanceled,
@@ -3135,9 +3569,13 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   // Filter tasks by active source filter (all / github / jira / local)
   // then by the active parent (epic or parent story), when one is selected.
   const filteredTasks = React.useMemo(() => {
+    // A saved view picks its own projects, bookmarked or not: the server has
+    // already scoped the list, and the bookmark filter of "all projects" would
+    // drop every ticket of a view project the user never bookmarked (#387).
+    const scoped = selectedViewId ? tasks : tasksInProject(tasks, selectedProjectId, bookmarkedProjectIds)
     let out = sourceFilter === 'all'
-      ? tasksInProject(tasks, selectedProjectId, bookmarkedProjectIds)
-      : tasksInProject(tasks, selectedProjectId, bookmarkedProjectIds).filter(t => (t.source || 'local') === sourceFilter)
+      ? scoped
+      : scoped.filter(t => (t.source || 'local') === sourceFilter)
     if (parentFilter) {
       if (parentFilter === '__no_macro__' || parentFilter === 'none') {
         out = out.filter(t => !t.parentKey && !t.parentTitle)
@@ -3146,42 +3584,23 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       }
     }
     return out
-  }, [tasks, sourceFilter, parentFilter, selectedProjectId, bookmarkedProjectIds])
+  }, [tasks, sourceFilter, parentFilter, selectedProjectId, selectedViewId, bookmarkedProjectIds])
 
-  // A project can rename any workflow skill through `skillOverrides`
-  // (skillId -> custom label). Every place that shows a skill name goes through
-  // this resolver, otherwise the setting would be write-only.
-  const resolveSkillOverride = useCallback(
-    (skillId: string, projectId?: string): string => {
-      const proj = projectId
-        ? projects.find(p => p.id === projectId) || currentProject
-        : currentProject
-      return (proj?.skillOverrides?.[skillId] || '').trim()
-    },
-    [projects, currentProject]
-  )
-
+  // Skill command names are a workstation setting since #305: the local file
+  // renames a skill, the server never sees it, so the web shows the defaults.
+  // The projectId parameter stays so callers keep a single signature.
   const skillLabel = useCallback(
-    (skillId: string, fallback?: string, projectId?: string): string => {
-      const override = resolveSkillOverride(skillId, projectId)
-      // An override written as a command ("/clarify-workitem") reads badly as a
-      // label, so strip the slash for display purposes.
-      if (override) return override.replace(/^\//, '')
+    (skillId: string, fallback?: string, _projectId?: string): string => {
       if (fallback && fallback.trim() !== '') return fallback
       const known = skills.find(s => s.id === skillId)
       return known?.name || skillId
     },
-    [resolveSkillOverride, skills]
+    [skills]
   )
 
   const skillCommand = useCallback(
-    (skillId: string, fallback: string, projectId?: string): string => {
-      const override = resolveSkillOverride(skillId, projectId)
-      if (!override) return fallback
-      // Accept both "clarify-workitem" and "/clarify-workitem".
-      return '/' + override.replace(/^\//, '')
-    },
-    [resolveSkillOverride]
+    (_skillId: string, fallback: string, _projectId?: string): string => fallback,
+    []
   )
 
   // Distinct parents across the loaded tasks, ordered by how much work hangs
@@ -3239,14 +3658,41 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   }, [teams, teamFilter, taskFacets.assignees, tasks])
 
 
-  const startBatchPickup = async (taskIds: string[]): Promise<void> => {
-    const batch = tasks.filter(task => taskIds.includes(task.id))
-    if (!batch.length) return
+  // Callers keep their selection while the shared dialog collects the order
+  // and workspace name. Only a confirmed, accepted launch resolves true.
+  const finishBatchPickup = (accepted: boolean) => {
+    batchPickupResult.current?.(accepted)
+    batchPickupResult.current = null
+    setBatchPickupTasks(null)
+  }
+
+  const startBatchPickup = async (taskIds: string[]): Promise<boolean> => {
+    if (batchPickupResult.current) return false
+    const ids = [...new Set(taskIds)]
+    const batch = ids.map(id => tasks.find(task => task.id === id)).filter((task): task is Task => Boolean(task))
+    if (!batch.length || batch.length !== ids.length) return false
     if (batch.some(task => task.projectId !== batch[0].projectId)) {
-      addToast({type:'error',title:'Select tasks from one project for a batch'})
-      return
+      addToast({type:'error',title:'Sélectionnez des tâches d’un seul projet pour le lot'})
+      return false
     }
-    await runSkill(batch[0].id,'pickup_issues','/pickup-issues '+batch.map(task=>task.id).join(' '))
+    return new Promise<boolean>(resolve => {
+      batchPickupResult.current = resolve
+      setBatchPickupTasks(batch)
+    })
+  }
+
+  const confirmBatchPickup = async (taskIds: string[], worktreeName: string): Promise<boolean> => {
+    // Resolve against current data: a deleted or migrated ticket must not be
+    // dispatched under the stale project shown when the dialog opened.
+    const batch = taskIds.map(id => tasks.find(task => task.id === id))
+    if (!batchPickupTasks || batch.length !== batchPickupTasks.length ||
+        new Set(taskIds).size !== taskIds.length ||
+        batch.some(task => !task || task.projectId !== batchPickupTasks[0].projectId) ||
+        taskIds.some(id => !batchPickupTasks.some(task => task.id === id))) return false
+    const activity = await runSkill(taskIds[0], 'pickup_issues', buildBatchPickupPrompt(taskIds, worktreeName))
+    if (!activity) return false
+    finishBatchPickup(true)
+    return true
   }
 
   // Global Keyboard Shortcuts
@@ -3261,6 +3707,29 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       const activeTag = (document.activeElement?.tagName || '').toLowerCase()
       const isXterm = Boolean(document.activeElement?.closest('.xterm') || document.activeElement?.classList.contains('xterm-helper-textarea'))
       const isInputActive = activeTag === 'input' || activeTag === 'textarea' || activeTag === 'select' || isXterm
+
+      // Cmd+B / Ctrl+B toggles the sidebar, from a plain field too. The Markdown
+      // editor spends it on bold first, which leaves it defaultPrevented here.
+      const sidebarAction = sidebarShortcutAction({
+        key: e.key,
+        metaKey: e.metaKey,
+        ctrlKey: e.ctrlKey,
+        shiftKey: e.shiftKey,
+        altKey: e.altKey,
+        repeat: e.repeat,
+        defaultPrevented: e.defaultPrevented,
+        mac: isMacPlatform(navigator),
+        inTerminal: isXterm,
+        modalOpen: Boolean(
+          isCommandPaletteOpen || isQuickAddOpen || isCloneModalOpen || selectedTask || selectedActivity || isProfileOpen
+          || document.querySelector('[aria-modal="true"]'),
+        ),
+      })
+      if (sidebarAction === 'toggle') {
+        e.preventDefault()
+        setSidebarCollapsed(prev => !prev)
+        return
+      }
 
       if (e.key === '/' && !isInputActive) {
         e.preventDefault()
@@ -3312,8 +3781,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           setSelectedTask(null)
         } else if (selectedActivity) {
           setSelectedActivity(null)
-        } else if (isAdminOpen) {
-          setIsAdminOpen(false)
         } else if (isProfileOpen) {
           setIsProfileOpen(false)
         } else if (searchQuery) {
@@ -3324,7 +3791,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [isCommandPaletteOpen, isQuickAddOpen, selectedTask, selectedActivity, isProfileOpen, isAdminOpen, searchQuery, setActiveView])
+  }, [isCommandPaletteOpen, isQuickAddOpen, isCloneModalOpen, selectedTask, selectedActivity, isProfileOpen, searchQuery, setActiveView, setSidebarCollapsed])
 
   return (
     <AppContext.Provider
@@ -3338,6 +3805,17 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         deleteProject,
         toggleProjectBookmark,
         fetchProjects,
+        boardViews,
+        selectedViewId,
+        currentBoardView,
+        openBoardView,
+        createBoardView,
+        updateBoardView,
+        deleteBoardView,
+        isBoardViewModalOpen,
+        editingBoardView,
+        openBoardViewModal,
+        closeBoardViewModal,
         isProjectModalOpen,
         setIsProjectModalOpen,
         editingProject,
@@ -3354,6 +3832,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         isSyncing,
         runningSkillId,
         error,
+        readFailures,
+        coreReadFailures,
+        retryFailedReads,
         activeView,
         setActiveView,
         boardGrouping,
@@ -3361,6 +3842,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         boardCardDisplayMode,
         setBoardCardDisplayMode,
         toggleBoardCardDisplayMode,
+        boardSort,
+        setBoardSort,
         moveTaskWorkflowStage,
         searchQuery,
         setSearchQuery,
@@ -3382,6 +3865,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         setLabelFilter,
         assigneeFilter,
         setAssigneeFilter,
+        myTasksOnly,
+        setMyTasksOnly,
+        myTasksIdentities,
         trackerStatusFilters,
         setTrackerStatusFilters,
         issueTypeFilters,
@@ -3399,7 +3885,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         unlockAllUserCredentials,
         lockAllUserCredentials,
         clearUserCredential,
-        saveTrackerCredentials,
         sourceFilter,
         setSourceFilter,
         parentFilter,
@@ -3433,10 +3918,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         setIsCommandPaletteOpen,
         isProfileOpen,
         setIsProfileOpen,
-        isAdminOpen,
-        setIsAdminOpen,
         settings,
         updateSettings,
+        reloadSettings: fetchSettings,
         t,
         toasts,
         addToast,
@@ -3461,6 +3945,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         saveMacroMeta,
         saveEpicMeta,
         createStoryFromMacroTodo,
+        produceMacroSlicing,
         createStoryFromEpicTodo,
         pendingHorizonPushes,
         pushPendingHorizons,
@@ -3539,6 +4024,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       }}
     >
       {children}
+      {batchPickupTasks && <BatchPickupModal
+        tasks={batchPickupTasks}
+        labels={t.batchDialog}
+        onCancel={() => finishBatchPickup(false)}
+        onConfirm={confirmBatchPickup}
+      />}
     </AppContext.Provider>
   )
 }
@@ -3554,4 +4045,3 @@ export const useApp = () => {
 export const useOptionalApp = () => {
   return useContext(AppContext)
 }
-

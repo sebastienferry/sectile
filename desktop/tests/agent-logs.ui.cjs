@@ -9,7 +9,7 @@ test('agent logs work offline, render literal snapshots and recover from read fa
  const env={...process.env,SECTILE_DESKTOP_DATA_DIR:root,SECTILE_DESKTOP_TEST:'1'};delete env.ELECTRON_RUN_AS_NODE
  let application
  try{
-  application=await electron.launch({args:[path.resolve(__dirname,'..')],env})
+  application=await electron.launch({args:[path.resolve(__dirname,'..')],env,colorScheme:'dark'})
   const page=await application.firstWindow();page.setDefaultTimeout(7000)
   await page.locator('#setup').waitFor()
   // A stopped agent hides the sidebar, so the connection screen carries the one
@@ -17,6 +17,11 @@ test('agent logs work offline, render literal snapshots and recover from read fa
   const button=page.getByRole('button',{name:'Agent logs',exact:true})
   await button.focus();await page.keyboard.press('Enter')
   await expect(page.getByRole('tab',{name:'Agent logs',exact:true})).toHaveAttribute('aria-selected','true')
+  await page.getByText('No desktop agent log exists yet.',{exact:true}).waitFor()
+  await page.getByRole('tab',{name:'Agent connection',exact:true}).click()
+  await expect(page.locator('.settings-connection-status')).toHaveText('Unreachable')
+  await expect(page.locator('.settings-connection-status .connection-dot')).toHaveCSS('background-color','rgb(255, 155, 0)')
+  await page.getByRole('tab',{name:'Agent logs',exact:true}).click()
   await page.getByText('No desktop agent log exists yet.',{exact:true}).waitFor()
   assert.equal(await page.locator('.agent-log-source').textContent(),file)
   const refresh=page.getByRole('button',{name:'Refresh',exact:true})
@@ -112,7 +117,7 @@ test('agent logs leave the console alone and ignore late reads after the panel m
   await page.locator('#settings').click()
   await application.evaluate(()=>globalThis.completeLog())
   await expect(page.locator('#dialog-body h2')).toHaveText('Settings')
-  await expect(page.getByRole('tab',{name:'General',exact:true})).toHaveAttribute('aria-selected','true')
+  await expect(page.getByRole('tab',{name:'User profile',exact:true})).toHaveAttribute('aria-selected','true')
   assert.equal(await page.getByText('Late result',{exact:false}).count(),0)
   await expect(page.getByLabel('Agent log contents')).toHaveText('')
   assert.equal(mutations,0)

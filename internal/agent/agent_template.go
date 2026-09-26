@@ -15,6 +15,10 @@ type agentCommandContext struct {
 	Directory string
 	Tracker   string
 	Repo      string
+	// AddDirs are the other folders of the task the CLI may read (#456): its
+	// context repositories, its secondary worktrees and its specifications
+	// folder. Only a provider whose flag is attested receives them.
+	AddDirs []string
 }
 
 func (c agentCommandContext) values(prompt string) map[string]string {
