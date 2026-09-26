@@ -44,7 +44,7 @@ test('PR icons stay inline and open independently with mouse and keyboard',async
   assert.equal(await pr.evaluate(el=>getComputedStyle(el).opacity),'1')
   const bounds=await row('1').boundingBox(),plain=await row('2').boundingBox()
   assert.equal(bounds.height,plain.height,'The PR must not add row height')
-  for(const selector of ['.run','.pr-indicator','.task-archive','.task-menu']){
+  for(const selector of ['.run','.pr-indicator','.task-archive','.task-rename-button']){
    const control=await row('1').locator(selector).boundingBox()
    assert.ok(control.x>=bounds.x&&control.x+control.width<=bounds.x+bounds.width+1,selector+' stays within the row')
    assert.ok(control.y>=bounds.y&&control.y+control.height<=bounds.y+bounds.height+1,selector+' stays on the same line')
