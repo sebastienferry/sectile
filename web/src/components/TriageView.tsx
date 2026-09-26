@@ -423,7 +423,7 @@ export const TriageView: React.FC = () => {
               type="button"
               disabled={!batchTeam.name || batchBusy === 'team'}
               onClick={() =>
-                runBatch('team', () => setTasksTeam(currentProject.id, selectedIds, batchTeam.id, batchTeam.name))
+                runBatch('team', () => setTasksTeam(currentProject.id, selectedIds, batchTeam.id, batchTeam.id ? batchTeam.name : ''))
               }
               className="px-2 py-1 rounded-lg text-xs font-bold cursor-pointer disabled:opacity-40 text-[var(--text-primary)] bg-[var(--bg-primary)] border border-[var(--border-color)] shrink-0 hover:bg-[var(--bg-tertiary)]"
             >

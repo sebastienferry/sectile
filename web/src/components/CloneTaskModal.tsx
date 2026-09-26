@@ -71,9 +71,16 @@ export const CloneTaskModal: React.FC = () => {
 
   const searchSprint = useMemo(() => sprintLookup(availableSprints, t.taskDetail.lookups.sprintKinds), [availableSprints, t])
 
+  // Read through a ref so a language change while the dialog is open does not
+  // reset what was typed: the default title is only set when it opens.
+  const copyTitleRef = useRef(strings.copyTitle)
+  useEffect(() => {
+    copyTitleRef.current = strings.copyTitle
+  }, [strings.copyTitle])
+
   useEffect(() => {
     if (isCloneModalOpen && cloneSourceTask) {
-      setTitle(format(strings.copyTitle, { title: cloneSourceTask.title }))
+      setTitle(format(copyTitleRef.current, { title: cloneSourceTask.title }))
       setTaskProjectId(cloneSourceTask.projectId || 'default')
       setStatus('to_clarify')
       setPriority(cloneSourceTask.priority || 'medium')
@@ -92,7 +99,7 @@ export const CloneTaskModal: React.FC = () => {
         titleInputRef.current?.select()
       }, 50)
     }
-  }, [isCloneModalOpen, cloneSourceTask, strings.copyTitle])
+  }, [isCloneModalOpen, cloneSourceTask])
 
   const handleClose = () => {
     setIsCloneModalOpen(false)
