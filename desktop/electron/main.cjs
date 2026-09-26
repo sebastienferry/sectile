@@ -316,6 +316,23 @@ ipcMain.handle('save-workstation-settings',(_,defaults)=>{
  if(!defaults||typeof defaults!=='object'||Array.isArray(defaults))throw Error('Invalid workstation settings')
  return api('/desktop/workstation','PUT',defaults)
 })
+// The engine catalogue and the per-task engine (#510). An agent that predates
+// them answers nothing useful, so a write names the update it needs.
+async function requireTaskEngines(){
+ const status=await api('/desktop/status')
+ if(!status.capabilities?.includes('task-engines'))throw Error('Update and restart the local agent to manage engines.')
+}
+ipcMain.handle('engines',()=>api('/desktop/engines'))
+ipcMain.handle('save-engines',async(_,input)=>{
+ if(!input||!Array.isArray(input.catalogue))throw Error('Invalid engine catalogue')
+ await requireTaskEngines()
+ return api('/desktop/engines','PUT',{catalogue:input.catalogue,default:input.default||''})
+})
+ipcMain.handle('task-engines',(_,projectId)=>api('/desktop/task-engines?projectId='+encodeURIComponent(projectId)))
+ipcMain.handle('set-task-engine',async(_,{projectId,taskId,engineId}={})=>{
+ await requireTaskEngines()
+ return api('/desktop/task-engines','PUT',{projectId,taskId,engineId})
+})
 ipcMain.handle('choose-repository',async()=>{
  const result=await dialog.showOpenDialog(window,{title:'Select local repository',properties:['openDirectory']})
  return result.canceled?null:result.filePaths[0]

@@ -3,13 +3,16 @@ import { test } from 'node:test'
 import { projectFields, ownEntries, compact, parseModelList, sourceHint, workstationPayload, validSkillCommand } from '../src/execution-fields.mjs'
 
 test('project fields come from the agent, with their source', () => {
-  const fields = projectFields({ fields: { aiProvider: { value: 'codex', inherited: 'claude', source: 'project' } }, aiModel: 'opus' })
-  assert.deepEqual(fields.aiProvider, { value: 'codex', inherited: 'claude', source: 'project' })
+  const fields = projectFields({ fields: { defaultEngine: { value: 'e-codex', inherited: 'e-opus', source: 'project' } }, terminal: 'iterm', terminalOverride: true })
+  assert.deepEqual(fields.defaultEngine, { value: 'e-codex', inherited: 'e-opus', source: 'project' })
   // An agent that predates #305 answers flat keys: they read as inherited
   // from the workstation unless their override flag says otherwise.
-  assert.equal(fields.aiModel.value, 'opus')
-  assert.equal(fields.aiModel.source, 'workstation')
+  assert.equal(fields.terminal.value, 'iterm')
+  assert.equal(fields.terminal.source, 'project')
   assert.equal(fields.skillCommands.source, 'default')
+  // The engine fields left the project settings with the catalogue (#510).
+  assert.equal(fields.aiProvider, undefined)
+  assert.equal(projectFields({}).defaultEngine.source, 'default')
 })
 
 test('a map field states only what differs from the inherited one', () => {
@@ -27,11 +30,12 @@ test('hints say where a value comes from', () => {
 
 test('the workstation payload omits what inherits and keeps an emptied list as a choice', () => {
   const payload = workstationPayload({
-    aiProvider: 'claude', aiModel: ' ', aiSkillModels: { implement: 'sonnet', clarify: '' },
+    aiProvider: 'claude', aiModel: 'opus', aiSkillModels: { implement: 'sonnet' }, editorCommand: ' zed ',
     useWorktrees: false, parallelism: 0, setupProviders: [], aiProviderModels: { claude: [], codex: ['gpt-5'] },
   })
+  // The engine fields are the catalogue's (#510): the agent refuses them here.
   assert.deepEqual(payload, {
-    aiProvider: 'claude', aiSkillModels: { implement: 'sonnet' }, useWorktrees: false,
+    editorCommand: 'zed', useWorktrees: false,
     setupProviders: [], aiProviderModels: { claude: [], codex: ['gpt-5'] },
   })
   assert.equal(workstationPayload({ setupProviders: null }).setupProviders, null)

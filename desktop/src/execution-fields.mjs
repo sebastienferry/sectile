@@ -22,17 +22,14 @@ export function validSkillCommand(value){
 }
 
 // The flat keys and override flags an agent older than #305 answers with, used
-// when its answer carries no `fields`.
+// when its answer carries no `fields`. The engine fields left the project
+// settings with the engine catalogue (#510): a project picks a default engine.
 const LEGACY={
- aiProvider:['aiProvider','aiProviderOverride'],
- aiModel:['aiModel','aiModelOverride'],
- aiCommandTemplate:['aiCommandTemplate','commandOverride'],
- aiCommandTemplateAutonomous:['aiCommandTemplateAutonomous','commandOverride'],
  terminal:['terminal','terminalOverride'],
  useWorktrees:['useWorktrees','worktreeOverride'],
  parallelism:['parallelism',null],
 }
-const EMPTY={aiSkillModels:{},setupProviders:[],skillCommands:{}}
+const EMPTY={defaultEngine:'',setupProviders:[],skillCommands:{}}
 
 // projectFields returns, per execution field, {value, inherited, source}.
 // source is "project", "workstation" or "default".
@@ -120,12 +117,11 @@ export function agentUnreachable(err){
 // the panel's state. A field left unset is absent, so it inherits.
 export function workstationPayload(state){
  const out={}
- for(const key of ['aiProvider','aiModel','aiCommandTemplate','aiCommandTemplateAutonomous','terminal','editorCommand']){
+ // The engine lives in the engine catalogue (#510): the defaults carry none.
+ for(const key of ['terminal','editorCommand']){
   const value=String(state[key]??'').trim()
-  if(value)out[key]=key.startsWith('aiCommand')?String(state[key]):value
+  if(value)out[key]=value
  }
- const skills=compact(state.aiSkillModels)
- if(Object.keys(skills).length)out.aiSkillModels=skills
  if(typeof state.useWorktrees==='boolean')out.useWorktrees=state.useWorktrees
  if(Number.isInteger(state.parallelism)&&state.parallelism!==0)out.parallelism=state.parallelism
  out.setupProviders=Array.isArray(state.setupProviders)?[...state.setupProviders]:null
