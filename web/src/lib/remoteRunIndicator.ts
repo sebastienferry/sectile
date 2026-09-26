@@ -24,8 +24,6 @@ export interface RunIndicator {
   count: number
   /** When the displayed wait started, for the state 'waiting' alone. */
   waitingSince?: string
-  /** Why the displayed run waits, when it is not a question: "repository". */
-  waitingReason?: string
 }
 
 /**
@@ -111,14 +109,12 @@ export function deriveRunIndicator(
 
   // The earliest wait is the one reported: it is the longest, and the one the
   // user has been keeping waiting.
-  // Its reason travels with it, so the badge names what the wait is for.
   const longest = waiting
     .filter(run => !Number.isNaN(Date.parse(run.waitingSince as string)))
     .sort((a, b) => (a.waitingSince as string).localeCompare(b.waitingSince as string))[0]
   const waitingSince = longest?.waitingSince
-  const waitingReason = longest?.waitingReason || undefined
 
-  return { state, runs: selectedRuns, cancelableRunIds, closableRunIds, count: selectedRuns.length, waitingSince, waitingReason }
+  return { state, runs: selectedRuns, cancelableRunIds, closableRunIds, count: selectedRuns.length, waitingSince }
 }
 
 /**

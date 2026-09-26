@@ -124,11 +124,9 @@ export const ActivitiesView: React.FC = () => {
   // that reported itself blocked, and the filter beside this badge already knows
   // that. The wording comes from the localised table when it has an entry for
   // the state, and from the shared definition when it does not.
-  const getStatusBadge = (activity: Pick<TaskActivity, 'status' | 'waitingSince' | 'waitingReason' | 'summary'>) => {
+  const getStatusBadge = (activity: Pick<TaskActivity, 'status' | 'waitingSince' | 'summary'>) => {
     const state = runStateOf(activity)
-    const wording = state === 'waiting' && activity.waitingReason === 'repository'
-      ? t.activities.waitingRepository
-      : (t.activities.stats as Record<string, string>)[state] || runStateLabel(state)
+    const wording = (t.activities.stats as Record<string, string>)[state] || runStateLabel(state)
     return (
       <span className={'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border '
         + (STATE_CLASSES[state] || NEUTRAL_CLASSES)}>

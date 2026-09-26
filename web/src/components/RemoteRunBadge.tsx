@@ -52,7 +52,7 @@ export function RemoteRunBadge({ taskId }: { taskId: string }) {
   const indicator = deriveRunIndicator(activities, taskId, undefined, viewer ?? undefined)
   if (!indicator) return null
 
-  const { state, runs, cancelableRunIds, closableRunIds, count, waitingSince, waitingReason } = indicator
+  const { state, runs, cancelableRunIds, closableRunIds, count, waitingSince } = indicator
   // Le moteur accompagne la compétence : c'est ce qui distingue deux runs de la
   // même compétence lancés contre des modèles différents.
   const skills = runs
@@ -67,8 +67,7 @@ export function RemoteRunBadge({ taskId }: { taskId: string }) {
   // what tells the difference between a button that will work and one that
   // answers that the execution is not yours.
   const owners = [...new Set(runs.map(run => run.userName).filter(Boolean))].join(', ')
-  const baseLabel = state === 'waiting' && waitingReason === 'repository' ? strings.repositoryWait : strings.states[state]
-  const stateLabel = baseLabel + (waited ? format(strings.waitedFor, { duration: waited }) : '')
+  const stateLabel = strings.states[state] + (waited ? format(strings.waitedFor, { duration: waited }) : '')
     + (count > 1 ? ` (${count})` : '') + (skills ? ` (${skills})` : '')
     + (owners ? format(strings.startedBy, { owners }) : '')
 

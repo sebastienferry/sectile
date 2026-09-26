@@ -160,9 +160,6 @@ export const ProjectModal: React.FC = () => {
   const [prCreationStage, setPRCreationStage] = useState<'specified' | 'implemented'>('implemented')
   const [defaultSkillMode, setDefaultSkillMode] = useState<SkillMode>('')
   const [fullChainStopStage, setFullChainStopStage] = useState<'implemented' | 'reviewed'>('reviewed')
-  // Mono-repo: decides whatever speaks of "the" current branch, and whether the
-  // specifications share the code repository on each workstation.
-  const [monoRepo, setMonoRepo] = useState(true)
   const [trackerColumns, setTrackerColumns] = useState<TrackerColumn[]>([])
   const [stageColumns, setStageColumns] = useState<Record<string, string[]>>({})
 
@@ -263,7 +260,6 @@ export const ProjectModal: React.FC = () => {
       setTrackerColumns(editingProject.trackerColumns || [])
       setStageColumns(editingProject.stageColumns || {})
       setGitRemoteUrl(editingProject.gitRemoteUrl || '')
-      setMonoRepo(editingProject.monoRepo !== false)
       setRepositories(declaredRepositories(editingProject))
       setNewRepository('')
       setRepositoryError('')
@@ -309,7 +305,6 @@ export const ProjectModal: React.FC = () => {
       setIsDefault(false)
 
       setGitRemoteUrl('')
-      setMonoRepo(true)
       setRepositories([])
       setNewRepository('')
       setRepositoryError('')
@@ -410,7 +405,6 @@ export const ProjectModal: React.FC = () => {
         trackerColumns,
         stageColumns,
         gitRemoteUrl: gitRemoteUrl.trim(),
-        monoRepo,
         repositories: savedRepositories,
         specFramework,
         specArtifacts: dropSpecArtifacts ? 'drop' as const : 'keep' as const,
@@ -715,85 +709,69 @@ export const ProjectModal: React.FC = () => {
                     className="w-full px-3 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] font-mono focus:outline-none focus:border-[var(--accent-color)]"
                   />
                 </div>
-                <label className="flex items-start gap-2 text-xs text-[var(--text-secondary)] cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={monoRepo}
-                    onChange={e => setMonoRepo(e.target.checked)}
-                    className="mt-0.5 rounded border-[var(--border-color)] accent-[var(--accent-color)]"
-                  />
-                  <span>
-                    {ps.repositories.monoRepo}
-                    <span className="block text-[10px] text-[var(--text-muted)] leading-relaxed">
-                      {ps.repositories.monoRepoHelp}
-                    </span>
+                <div>
+                  <span className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1.5">
+                    {ps.repositories.listLabel}
                   </span>
-                </label>
-                {!monoRepo && (
-                  <div>
-                    <span className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1.5">
-                      {ps.repositories.listLabel}
-                    </span>
-                    <ul className="space-y-1">
-                      {gitRemoteUrl.trim() && (
-                        <li
-                          className="flex items-center gap-2 px-3 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-muted)] font-mono"
-                          title={ps.repositories.codeRepositoryTitle}
-                        >
-                          <span className="truncate flex-1">{gitRemoteUrl.trim()}</span>
-                          <span className="font-sans text-[10px] shrink-0">{ps.repositories.codeBadge}</span>
-                        </li>
-                      )}
-                      {repositories.map(url => (
-                        <li
-                          key={url}
-                          className="flex items-center gap-2 px-3 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] font-mono"
-                        >
-                          <span className="truncate flex-1">{url}</span>
-                          <button
-                            type="button"
-                            onClick={() => setRepositories(prev => prev.filter(entry => entry !== url))}
-                            className="shrink-0 text-[var(--text-muted)] hover:text-red-500 cursor-pointer"
-                            title={ps.repositories.removeTitle}
-                            aria-label={format(ps.repositories.removeAria, { url })}
-                          >
-                            <X size={12} />
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
-                    <div className="flex gap-2 mt-1.5">
-                      <input
-                        type="text"
-                        value={newRepository}
-                        onChange={e => {
-                          setNewRepository(e.target.value)
-                          setRepositoryError('')
-                        }}
-                        onKeyDown={e => {
-                          if (e.key === 'Enter') {
-                            e.preventDefault()
-                            addRepository()
-                          }
-                        }}
-                        placeholder="git@github.com:owner/other-repository.git"
-                        aria-label={ps.repositories.otherRepositoryAria}
-                        className="flex-1 min-w-0 px-3 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] font-mono focus:outline-none focus:border-[var(--accent-color)]"
-                      />
-                      <button
-                        type="button"
-                        onClick={addRepository}
-                        disabled={!newRepository.trim()}
-                        className="px-3 py-1.5 text-xs rounded-xl border border-[var(--border-color)] text-[var(--text-secondary)] hover:border-[var(--accent-color)] disabled:opacity-50 cursor-pointer"
+                  <ul className="space-y-1">
+                    {gitRemoteUrl.trim() && (
+                      <li
+                        className="flex items-center gap-2 px-3 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-muted)] font-mono"
+                        title={ps.repositories.codeRepositoryTitle}
                       >
-                        {ps.repositories.add}
-                      </button>
-                    </div>
-                    {repositoryError && (
-                      <p role="alert" className="mt-1 text-[10px] text-red-500">{repositoryError}</p>
+                        <span className="truncate flex-1">{gitRemoteUrl.trim()}</span>
+                        <span className="font-sans text-[10px] shrink-0">{ps.repositories.codeBadge}</span>
+                      </li>
                     )}
+                    {repositories.map(url => (
+                      <li
+                        key={url}
+                        className="flex items-center gap-2 px-3 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] font-mono"
+                      >
+                        <span className="truncate flex-1">{url}</span>
+                        <button
+                          type="button"
+                          onClick={() => setRepositories(prev => prev.filter(entry => entry !== url))}
+                          className="shrink-0 text-[var(--text-muted)] hover:text-red-500 cursor-pointer"
+                          title={ps.repositories.removeTitle}
+                          aria-label={format(ps.repositories.removeAria, { url })}
+                        >
+                          <X size={12} />
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                  <div className="flex gap-2 mt-1.5">
+                    <input
+                      type="text"
+                      value={newRepository}
+                      onChange={e => {
+                        setNewRepository(e.target.value)
+                        setRepositoryError('')
+                      }}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault()
+                          addRepository()
+                        }
+                      }}
+                      placeholder="git@github.com:owner/other-repository.git"
+                      aria-label={ps.repositories.otherRepositoryAria}
+                      className="flex-1 min-w-0 px-3 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] font-mono focus:outline-none focus:border-[var(--accent-color)]"
+                    />
+                    <button
+                      type="button"
+                      onClick={addRepository}
+                      disabled={!newRepository.trim()}
+                      className="px-3 py-1.5 text-xs rounded-xl border border-[var(--border-color)] text-[var(--text-secondary)] hover:border-[var(--accent-color)] disabled:opacity-50 cursor-pointer"
+                    >
+                      {ps.repositories.add}
+                    </button>
                   </div>
-                )}
+                  {repositoryError && (
+                    <p role="alert" className="mt-1 text-[10px] text-red-500">{repositoryError}</p>
+                  )}
+                </div>
                 {droppedPaths.length > 0 && (
                   <p className="text-[10px] text-amber-500 leading-relaxed">
                     {format(ps.repositories.droppedPaths, { paths: droppedPaths.map(entry => `${entry.path} (${entry.reason})`).join(', ') })}

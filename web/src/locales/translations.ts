@@ -635,7 +635,6 @@ export interface TranslationSchema {
     title: string
     subtitle: string
     /** Badge of a launch parked until its ticket is pinned to a repository. */
-    waitingRepository: string
     stats: {
       total: string
       running: string
@@ -1452,7 +1451,6 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
     activities: {
       title: 'Activités & File d\'attente',
       subtitle: 'Suivi en temps réel des exécutions de skills agentiques, logs CLI et artefacts générés.',
-      waitingRepository: 'En attente du dépôt de la tâche',
       stats: {
         total: 'Total exécutions',
         running: 'En cours',
@@ -2267,7 +2265,6 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
     activities: {
       title: 'Activities & Execution Queue',
       subtitle: 'Real-time tracking of agentic skill executions, CLI logs, and generated artifacts.',
-      waitingRepository: "Waiting for the ticket's repository",
       stats: {
         total: 'Total Runs',
         running: 'Running',
