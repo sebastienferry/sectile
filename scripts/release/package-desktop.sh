@@ -65,6 +65,8 @@ test -f "${work}/${app}/${bundled}" || { echo "the package has no agent at ${app
 # where the Linux archive is built.
 if [ "$platform" = linux ] && [ "$(uname -s)" = Linux ] && [ "$(uname -m)" = x86_64 ] && [ "$electron_arch" = x64 ]; then
   "${work}/${app}/${bundled}" --version | grep -F "$tag" || { echo "the bundled agent does not report ${tag}" >&2; exit 1; }
+elif [ "$platform" = linux ]; then
+  echo "not a linux/amd64 host, the bundled agent's --version is not checked"
 fi
 
 rm -f "${outdir}/${archive}"

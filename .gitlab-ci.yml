@@ -21,7 +21,16 @@
 #     for every supported OS/arch and uploaded to this project's Generic
 #     Package Registry under the package `sectile`, version <tag>.
 #     `sectile-agent-*` is the local app; `sectile-server-*` is the same server
-#     as the image, for bare-metal installs.
+#     as the image, for bare-metal installs. On a vX.Y.Z tag the same package
+#     also gets Sectile Desktop, `sectile-desktop-<os>-<arch>.zip|.tar.gz` for
+#     darwin-arm64, darwin-amd64, linux-amd64 and windows-amd64, each bundling
+#     its agent, and SHA256SUMS covers every file of the package.
+#
+#     This is one of two release streams. The public repository builds the same
+#     tag again with GitHub Actions (.github/workflows/release.yml) and
+#     publishes it as a GitHub Release. The two share scripts/release/ and no
+#     credential; neither waits on the other. See
+#     docs/adrs/0034-a-release-is-published-on-both-forges.md.
 #
 #     They are tag-only because a binary that somebody installs is a release:
 #     an artefact named after a pipeline number is one nobody can report a bug
@@ -267,10 +276,56 @@ build:binaries:
     - HOST_ARCH=$(go env GOARCH)
     - ./dist/sectile-server-linux-${HOST_ARCH} --version | grep -F "${CI_COMMIT_TAG}"
     - ./dist/sectile-agent-linux-${HOST_ARCH} --version | grep -F "${CI_COMMIT_TAG}"
-    - cd dist && sha256sum * > SHA256SUMS && cat SHA256SUMS
   artifacts:
     paths:
       - dist/
+    expire_in: 1 week
+
+# Sectile Desktop for download: one archive per target, each bundling the agent
+# build:binaries compiled for that target, so the app starts with nothing else
+# installed. All four are cross-packaged on this Linux runner: packager edits
+# the Windows resources in JavaScript, and off macOS it leaves the Electron
+# Framework's shipped ad-hoc signature intact, which is what Apple Silicon needs
+# to launch an unsigned app (docs/adrs/0034-a-release-is-published-on-both-forges.md).
+#
+# Release tags only (vX.Y.Z): a desktop package is a release like the
+# binaries, and a suffixed tag is not one. packager downloads each target's
+# Electron itself, whatever ELECTRON_SKIP_BINARY_DOWNLOAD says, so the zips are
+# cached under their own key rather than bloating test:desktop's.
+build:desktop:
+  stage: build
+  image: ${NODE_IMAGE}
+  needs:
+    - job: build:binaries
+      artifacts: true
+  rules:
+    - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/
+  variables:
+    ELECTRON_CACHE: "${CI_PROJECT_DIR}/.electron-cache"
+  cache:
+    key:
+      prefix: desktop-package
+      files:
+        - desktop/package-lock.json
+    paths:
+      - ${npm_config_cache}
+      - ${ELECTRON_CACHE}
+  script:
+    # An archive whose settings would show another version than its tag is not
+    # published; the release procedure bumps desktop/package.json first.
+    - sh scripts/release/check-desktop-version.sh "${CI_COMMIT_TAG}"
+    - apt-get update -qq && apt-get install -y -qq zip > /dev/null
+    - (cd desktop && npm ci --prefer-offline --no-audit --no-fund && npm run build)
+    - |
+      for target in darwin/arm64 darwin/amd64 linux/amd64 windows/amd64; do
+        os=${target%/*}; arch=${target#*/}
+        agent=dist/sectile-agent-${os}-${arch}
+        if [ "$os" = "windows" ]; then agent=${agent}.exe; fi
+        sh scripts/release/package-desktop.sh "${CI_COMMIT_TAG}" "$os" "$arch" "$agent" dist-desktop || exit 1
+      done
+  artifacts:
+    paths:
+      - dist-desktop/
     expire_in: 1 week
 
 # ── Publish ───────────────────────────────────────────────────────────────────
@@ -319,7 +374,15 @@ publish:binaries:
       artifacts: false
     - job: build:binaries
       artifacts: true
+    # Absent on a tag that is not vX.Y.Z, which publishes the binaries alone.
+    - job: build:desktop
+      artifacts: true
+      optional: true
   script:
+    # SHA256SUMS is written here, over everything about to be uploaded, so it
+    # vouches for the desktop archives as well as for the binaries.
+    - if [ -d dist-desktop ]; then mv dist-desktop/* dist/; fi
+    - (cd dist && rm -f SHA256SUMS && sha256sum * > SHA256SUMS && cat SHA256SUMS)
     - PACKAGE_URL="${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/sectile/${SECTILE_VERSION}"
     - echo "Uploading to ${PACKAGE_URL}"
     - |
