@@ -456,6 +456,15 @@ workflow chain.
 Nested skills reuse their owner's run; intermediate transitions do not close it.
 These activities never acquire the managed-stage transition guard.
 
+A batch pickup (`pickup_issues`) is one run on the batch's first ticket, whose
+other tickets the server records as its members (ADR 0034). The agent reuses the
+launch run ID on every ticket: `start_run(taskKey, skill, runId)` on a member
+with the batch run's ID returns the batch run, creates no run, and marks that
+member as the one being processed, the previous one becoming done. The same call
+on a ticket outside the batch, or with a batch run that ended, is refused as any
+unmatched `runId` is. `finish_run` is called once, on the first ticket, when the
+whole batch ends; every member stops showing the batch then.
+
 Cards and list rows display a single run icon while a run is active: running takes
 precedence over queued, and a cancellation stays visible briefly, updated
 through server events and polling. Reading a task alone never marks it running.

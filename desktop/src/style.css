@@ -394,6 +394,14 @@ dialog.workstation-settings{width:min(1100px,94vw);max-height:90vh}
 #clear-history:hover:not(:disabled),#toolbar .icon-button:hover:not(:disabled){color:var(--accent-text);background:transparent}
 #toolbar .execution-views{background:transparent}
 #toolbar .execution-views [aria-pressed="true"]{color:var(--accent-text)}
+/* The execution history reads as a ghost control like its icon neighbours. The
+   chevron is two gradient triangles so it follows the theme colour; hover only
+   changes background-color, which keeps the chevron. */
+#toolbar #execution-history{-webkit-appearance:none;appearance:none;color:var(--text);background-color:transparent;background-image:linear-gradient(45deg,transparent 50%,var(--text-muted) 50%),linear-gradient(135deg,var(--text-muted) 50%,transparent 50%);background-position:calc(100% - 13px) 50%,calc(100% - 8px) 50%;background-size:5px 5px;background-repeat:no-repeat;border:0;border-radius:7px;padding:8px 24px 8px 10px;text-overflow:ellipsis;white-space:nowrap;overflow:hidden;cursor:pointer}
+#toolbar #execution-history:hover:not(:disabled){background-color:var(--hover-bg)}
+#toolbar #execution-history:focus{outline:0}
+#toolbar #execution-history:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+#toolbar #execution-history option{color:var(--text);background-color:var(--surface)}
 
 .action-tooltip{position:fixed;inset:auto;margin:0;max-width:min(360px,calc(100vw - 16px));padding:7px 10px;border:1px solid var(--tooltip-border);border-radius:6px;background:var(--tooltip-bg);color:var(--tooltip-text);box-shadow:0 4px 16px var(--tooltip-shadow);font:12px/1.4 system-ui;overflow-wrap:anywhere;pointer-events:none}
 .mcp-settings { margin-top: 24px; border-top: 1px solid var(--border-subtle); padding-top: 16px; }

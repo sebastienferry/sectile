@@ -1,5 +1,6 @@
 import { PullRequestStateIcon } from './PullRequestStateIcon'
 import { RemoteRunBadge } from './RemoteRunBadge'
+import { BatchBadge } from './BatchBadge'
 import React, { useState, useMemo, useRef, useCallback } from "react"
 import {
   Flame,
@@ -574,6 +575,7 @@ export const ListView: React.FC = () => {
           )}
 
           <RemoteRunBadge taskId={task.id} />
+          <BatchBadge task={task} />
           {/* Activity badge if exists */}
 
 
