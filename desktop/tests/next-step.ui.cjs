@@ -231,8 +231,15 @@ test('console next step rechecks task state, guards active history and handles f
   assert.equal(await page.evaluate(()=>document.querySelector('#stop').nextElementSibling.id),'next-step','The closing control precedes the next action')
   assert.equal(await page.evaluate(()=>document.querySelector('#stop').previousElementSibling.id),'save-log')
   assert.equal(await page.evaluate(()=>!!document.querySelector('#stop').querySelector('path[d*="M7 7 17 17"]')),false,'The closing control drops the cross glyph')
-  await page.screenshot({path:path.join(root,'next-step.png')})
-  console.log('Next-step screenshot: '+path.join(root,'next-step.png'))
+  const screenshotDir=process.env.SECTILE_SCREENSHOT_DIR||root
+  await page.emulateMedia({colorScheme:'light'})
+  await page.screenshot({path:path.join(screenshotDir,'next-step-light.png')})
+  console.log('Next-step screenshot (light): '+path.join(screenshotDir,'next-step-light.png'))
+  await page.emulateMedia({colorScheme:'dark'})
+  await page.screenshot({path:path.join(screenshotDir,'next-step-dark.png')})
+  console.log('Next-step screenshot (dark): '+path.join(screenshotDir,'next-step-dark.png'))
+  await page.screenshot({path:path.join(screenshotDir,'next-step.png')})
+  console.log('Next-step screenshot: '+path.join(screenshotDir,'next-step.png'))
  }finally{
   if(app)await app.close()
   await new Promise(resolve=>server.close(resolve))

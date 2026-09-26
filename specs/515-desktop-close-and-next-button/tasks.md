@@ -73,9 +73,9 @@ pushed: merge, do not rebase).
 
 ## 4. Verification
 
-- [ ] T4.1 `cd desktop && npm test`.
-- [ ] T4.2 `cd desktop && npx vite build && npm run test:ui` (whole suite;
+- [x] T4.1 `cd desktop && npm test`.
+- [x] T4.2 `cd desktop && npx vite build && npm run test:ui` (whole suite;
   restore `internal/webui/dist/.gitkeep` if a build removed it).
-- [ ] T4.3 Screenshot of the toolbar (the `next-step.ui.cjs` screenshot) in
+- [x] T4.3 Screenshot of the toolbar (the `next-step.ui.cjs` screenshot) in
   the dark and light appearances, checked for layout and contrast.
-- [ ] T4.4 `git status` clean before the `implemented` transition.
+- [x] T4.4 `git status` clean before the `implemented` transition.
