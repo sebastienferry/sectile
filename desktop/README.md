@@ -2,6 +2,62 @@
 
 Local task execution consoles without a separate chatbot UI.
 
+## Install a release
+
+Every release `vX.Y.Z` publishes a Sectile Desktop archive per platform. Each
+one holds the app and the Sectile agent built for the same platform, so nothing
+else needs installing: no Node, no Go, no clone of this repository.
+
+| Platform | Archive |
+| --- | --- |
+| macOS, Apple Silicon | `sectile-desktop-darwin-arm64.zip` |
+| macOS, Intel | `sectile-desktop-darwin-amd64.zip` |
+| Linux, x86-64 | `sectile-desktop-linux-amd64.tar.gz` |
+| Windows, 64-bit | `sectile-desktop-windows-amd64.zip` |
+
+Download it from either place, they carry the same release:
+
+- the GitHub Release of the tag, on the repository's **Releases** page;
+- the GitLab mirror's package registry, package `sectile`, version `vX.Y.Z`,
+  next to the `sectile-agent-*` and `sectile-server-*` binaries.
+
+Take the `SHA256SUMS` file from the same place as the archive (each place
+builds its own files and vouches for those only), and check the archive
+against it in the download directory:
+
+```sh
+shasum -a 256 -c --ignore-missing SHA256SUMS      # macOS
+sha256sum -c --ignore-missing SHA256SUMS          # Linux
+```
+
+On Windows, compare `Get-FileHash .\sectile-desktop-windows-amd64.zip` in
+PowerShell with the archive's line in `SHA256SUMS`.
+
+The packages are not signed with a publisher identity, so each system warns
+once before opening them:
+
+- **macOS.** Extract the zip (double-click it in Finder, or `unzip`), move
+  `Sectile.app` where you want it, then remove the quarantine mark macOS put
+  on the download, once, before the first launch:
+
+  ```sh
+  xattr -dr com.apple.quarantine /path/to/Sectile.app
+  ```
+
+  Then open `Sectile.app`. Without that command, macOS reports the app as
+  damaged or from an unidentified developer and refuses to open it.
+- **Linux.** Extract with `tar -xzf sectile-desktop-linux-amd64.tar.gz` and run
+  `Sectile-linux-x64/Sectile`. The archive keeps the executable bits: no
+  `chmod` is needed.
+- **Windows.** Extract the zip with Explorer (**Extract All**) and run
+  `Sectile-win32-x64\Sectile.exe`. SmartScreen warns that the publisher is
+  unknown: click **More info**, then **Run anyway**. Windows supervision is
+  not supported yet (see
+  [ADR 0003](../docs/adrs/0003-local-desktop-consoles.md)).
+
+The app starts its bundled agent. **Settings → General** shows the desktop
+version (`X.Y.Z`) and the agent's (`vX.Y.Z`): both come from the release.
+
 ## Start
 
 From the repository root:
@@ -210,8 +266,17 @@ cd desktop
 npm run test:ui
 ```
 
-The unsigned package is in desktop/release. Tests use an isolated temporary
-profile and mock agent. Go tests exercise real PTY replay and supervision.
+The unsigned package is in desktop/release, for the host platform only. Tests
+use an isolated temporary profile and mock agent. Go tests exercise real PTY
+replay and supervision.
+
+The release archives are built by the release pipelines, never from a branch.
+To reproduce one locally, build the agent for the target and package it:
+
+```sh
+cd desktop && npm run build && cd ..
+scripts/release/package-desktop.sh v0.0.0 linux amd64 path/to/sectile-agent-linux-amd64 dist-desktop
+```
 
 ### Restarting the agent
 

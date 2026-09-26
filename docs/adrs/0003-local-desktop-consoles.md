@@ -22,5 +22,8 @@ and the in-memory run index. Console replay is bounded by the existing PTY
 history buffer; users can export visible scrollback.
 
 One binary still provides server, agent, MCP bridge and supervisor commands.
-macOS/Linux supervision is supported; Windows remains unsupported. Development
-packages are unsigned and not notarized.
+macOS/Linux supervision is supported; Windows remains unsupported. Packages
+are unsigned and not notarized, development and release packages alike: the
+archives published on every release tag carry an ad-hoc signature on macOS and
+none on Windows, and the install guide explains how to open them
+([ADR 0034](0034-a-release-is-published-on-both-forges.md)).
