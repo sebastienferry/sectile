@@ -29,4 +29,4 @@ Ordered checklist. One commit, leaving the tree buildable.
 
 ## 5. Verification
 
-- [ ] T5.1 `go test ./internal/taskmcp/ ./internal/handlers/ -count=1`, `go vet ./...`.
+- [x] T5.1 `go test ./internal/taskmcp/ ./internal/handlers/ -count=1`, `go vet ./...`.

@@ -16,4 +16,4 @@ Ordered checklist. One commit, leaving the tree buildable.
 
 - [x] T3.1 `go test ./internal/db/ -run 'Baseline|Migration|Stamped' -count=1`.
 - [x] T3.2 By hand: add a column to a baseline `CREATE TABLE`, see the guard fail, revert.
-- [ ] T3.3 `go vet ./internal/db/` and the full `go test ./internal/db/`.
+- [x] T3.3 `go vet ./internal/db/` and the full `go test ./internal/db/`.
