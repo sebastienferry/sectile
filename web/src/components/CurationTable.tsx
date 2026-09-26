@@ -5,6 +5,7 @@ import { LookupField, type LookupOption } from './LookupField'
 import { macroLookup, sprintLookup } from '../lib/lookups'
 import { trackerHas } from '../lib/trackers'
 import { resolveTaskStage } from '../lib/workflow'
+import { format, plural } from '../lib/i18n'
 import type { MacroMeta, Task } from '../types'
 
 /**
@@ -22,12 +23,8 @@ import type { MacroMeta, Task } from '../types'
 
 type Dimension = 'sprint' | 'team' | 'macro' | 'assignee'
 
-const DIMENSION_LABELS: Record<Dimension, string> = {
-  sprint: 'sans sprint',
-  team: 'sans équipe',
-  macro: 'sans macro',
-  assignee: 'sans assigné',
-}
+/** The dimensions in the order the counters show them; their labels come from the catalog. */
+const DIMENSIONS: Dimension[] = ['sprint', 'team', 'macro', 'assignee']
 
 export const CurationTable: React.FC = () => {
   const {
@@ -49,7 +46,11 @@ export const CurationTable: React.FC = () => {
     toggleHideDone,
     startBatchPickup,
     t,
+    settings,
   } = useApp()
+  const strings = t.planning.curation
+  const shared = t.planning.triage
+  const language = settings.language
 
   const [macros, setMacros] = useState<MacroMeta[]>([])
   const [dimensions, setDimensions] = useState<Dimension[]>(['sprint', 'team', 'macro'])
@@ -133,7 +134,11 @@ export const CurationTable: React.FC = () => {
 
   // Les macros et les sprints sont cherchés au clavier
   const searchMacro = useMemo(() => macroLookup(macros), [macros])
-  const searchSprint = useMemo(() => sprintLookup(currentProject?.sprints || []), [currentProject?.sprints])
+  const sprintKinds = t.taskDetail.lookups.sprintKinds
+  const searchSprint = useMemo(
+    () => sprintLookup(currentProject?.sprints || [], sprintKinds),
+    [currentProject?.sprints, sprintKinds]
+  )
 
   const searchTeamOptions = async (query: string): Promise<LookupOption[]> => {
     const found = await searchTrackerTeams(query)
@@ -154,11 +159,8 @@ export const CurationTable: React.FC = () => {
     return (
       <div className="flex flex-col items-center justify-center h-full gap-2 text-center px-6">
         <Inbox size={26} className="text-[var(--text-muted)]" />
-        <p className="text-sm font-bold">Choisissez un projet</p>
-        <p className="text-xs text-[var(--text-secondary)] max-w-md">
-          Le triage travaille sur les sprints, les équipes et les épics d'un projet : il a besoin de
-          savoir lequel.
-        </p>
+        <p className="text-sm font-bold">{strings.noProjectTitle}</p>
+        <p className="text-xs text-[var(--text-secondary)] max-w-md">{strings.noProjectBody}</p>
       </div>
     )
   }
@@ -167,7 +169,7 @@ export const CurationTable: React.FC = () => {
     <div className="flex flex-col gap-3">
       {/* Ce qui manque, et combien. Chaque compteur est un filtre. */}
       <div className="flex flex-wrap items-center gap-2">
-        {(Object.keys(DIMENSION_LABELS) as Dimension[]).map(dimension => {
+        {DIMENSIONS.map(dimension => {
           const isActive = dimensions.includes(dimension)
           return (
             <button
@@ -180,9 +182,9 @@ export const CurationTable: React.FC = () => {
                 background: isActive ? 'var(--accent-light)' : 'var(--bg-tertiary)',
                 borderColor: isActive ? 'rgb(var(--accent-rgb) / 0.4)' : 'var(--border-color)',
               }}
-              title={`${counts[dimension]} ticket(s) ${DIMENSION_LABELS[dimension]}`}
+              title={plural(language, counts[dimension], strings.missingCountTitle, { missing: strings.missing[dimension] })}
             >
-              {DIMENSION_LABELS[dimension]}
+              {strings.missing[dimension]}
               <span className="font-mono">{counts[dimension]}</span>
             </button>
           )
@@ -196,15 +198,15 @@ export const CurationTable: React.FC = () => {
             background: hideDone ? 'rgb(var(--status-ok-rgb) / 0.12)' : 'var(--bg-tertiary)',
             borderColor: hideDone ? 'rgb(var(--status-ok-rgb) / 0.32)' : 'var(--border-color)',
           }}
-          title="Un ticket terminé n'a plus rien à trier : ce raccourci le sort de la liste"
+          title={strings.hideDoneTitle}
         >
           {hideDone ? <EyeOff size={11} /> : <Eye size={11} />}
-          {hideDone ? 'terminés exclus' : 'terminés inclus'}
+          {hideDone ? strings.doneExcluded : strings.doneIncluded}
         </button>
 
         <span className="text-[10px] text-[var(--text-muted)]">
-          {rows.length} ticket(s) à trier
-          {dimensions.length === 0 && ' (aucun critère : tout est affiché)'}
+          {plural(language, rows.length, strings.toSortCount)}
+          {dimensions.length === 0 && strings.noCriteria}
         </span>
       </div>
 
@@ -212,7 +214,7 @@ export const CurationTable: React.FC = () => {
       {selectedIds.length > 0 && (
         <div className="flex flex-wrap items-center gap-2 p-2.5 rounded-xl border" style={{ background: 'var(--accent-light)', borderColor: 'rgb(var(--accent-rgb) / 0.4)' }}>
           <span className="text-[11px] font-bold" style={{ color: 'var(--accent-color)' }}>
-            {selectedIds.length} sélectionné(s)
+            {plural(language, selectedIds.length, shared.selectedCount)}
           </span>
 
           {sprintOptions.length > 0 && (
@@ -221,10 +223,10 @@ export const CurationTable: React.FC = () => {
                 <LookupField
                   value={batchSprint.name}
                   icon={<CalendarRange size={11} />}
-                  placeholder="sprint..."
-                  clearLabel="Backlog (aucun sprint)"
+                  placeholder={strings.sprintPlaceholder}
+                  clearLabel={shared.backlogNoSprint}
                   onSearch={searchSprint}
-                  onPick={option => setBatchSprint({ id: option?.id || '', name: option?.label || 'Backlog' })}
+                  onPick={option => setBatchSprint({ id: option?.id || '', name: option?.label || shared.backlog })}
                 />
               </div>
               <button
@@ -237,7 +239,7 @@ export const CurationTable: React.FC = () => {
                 }
                 className="px-2 py-1 rounded-lg text-[11px] font-bold cursor-pointer disabled:opacity-40 text-[var(--text-primary)] bg-[var(--bg-tertiary)] border border-[var(--border-color)] shrink-0"
               >
-                {batchBusy === 'sprint' ? '…' : 'OK'}
+                {batchBusy === 'sprint' ? '…' : shared.confirm}
               </button>
             </div>
           )}
@@ -247,10 +249,10 @@ export const CurationTable: React.FC = () => {
               <LookupField
                 value={batchTeam.name}
                 icon={<Layers size={11} />}
-                placeholder="équipe..."
-                clearLabel="Aucune équipe"
+                placeholder={strings.teamPlaceholder}
+                clearLabel={shared.noTeam}
                 onSearch={searchTeamOptions}
-                onPick={option => setBatchTeam({ id: option?.id || '', name: option?.label || 'Aucune équipe' })}
+                onPick={option => setBatchTeam({ id: option?.id || '', name: option?.label || shared.noTeam })}
               />
             </div>
             <button
@@ -261,7 +263,7 @@ export const CurationTable: React.FC = () => {
               }
               className="px-2 py-1 rounded-lg text-[11px] font-bold cursor-pointer disabled:opacity-40 text-[var(--text-primary)] bg-[var(--bg-tertiary)] border border-[var(--border-color)] shrink-0"
             >
-              {batchBusy === 'team' ? '…' : 'OK'}
+              {batchBusy === 'team' ? '…' : shared.confirm}
             </button>
           </div>
 
@@ -271,7 +273,7 @@ export const CurationTable: React.FC = () => {
                 <LookupField
                   value={batchMacro}
                   icon={<Target size={11} />}
-                  placeholder="macro..."
+                  placeholder={strings.macroPlaceholder}
                   allowClear={false}
                   onSearch={searchMacro}
                   onPick={option => setBatchMacro(option?.id || '')}
@@ -285,7 +287,7 @@ export const CurationTable: React.FC = () => {
                 }
                 className="px-2 py-1 rounded-lg text-[11px] font-bold cursor-pointer disabled:opacity-40 text-[var(--text-primary)] bg-[var(--bg-tertiary)] border border-[var(--border-color)] shrink-0"
               >
-                {batchBusy === 'macro' ? '…' : 'OK'}
+                {batchBusy === 'macro' ? '…' : shared.confirm}
               </button>
             </div>
           )}
@@ -294,7 +296,7 @@ export const CurationTable: React.FC = () => {
             type="button"
             onClick={() => startBatchPickup(selectedIds)}
             className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold cursor-pointer bg-[var(--bg-tertiary)] text-[var(--text-secondary)] border border-[var(--border-color)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-secondary)] transition-colors shrink-0 shadow-xs"
-            title="Run the selected tasks on the local agent"
+            title={shared.runSelectedTitle}
           >
             <Sparkles size={12} />
             {t.batchLaunch}
@@ -305,7 +307,7 @@ export const CurationTable: React.FC = () => {
             onClick={() => setChecked({})}
             className="ml-auto text-[10.5px] font-bold text-[var(--text-muted)] hover:text-[var(--text-primary)] cursor-pointer"
           >
-            Vider la sélection
+            {strings.clearSelection}
           </button>
         </div>
       )}
@@ -334,24 +336,24 @@ export const CurationTable: React.FC = () => {
                       background: rows.length > 0 && rows.every(t => checked[t.id]) ? 'var(--accent-color)' : 'transparent',
                       border: '1px solid var(--border-color)',
                     }}
-                    title="Tout sélectionner ou tout désélectionner"
+                    title={strings.toggleAllTitle}
                   >
                     {rows.length > 0 && rows.every(t => checked[t.id]) && <Check size={9} className="text-white" />}
                   </button>
                 </th>
-                <th className="py-2 px-2">Ticket</th>
-                <th className="py-2 px-2">Titre</th>
-                <th className="py-2 px-2 w-[190px]">Macro</th>
-                <th className="py-2 px-2 w-[170px]">Sprint</th>
-                <th className="py-2 px-2 w-[190px]">Équipe</th>
-                <th className="py-2 px-2 w-[190px]">Assigné</th>
+                <th className="py-2 px-2">{strings.columns.ticket}</th>
+                <th className="py-2 px-2">{strings.columns.title}</th>
+                <th className="py-2 px-2 w-[190px]">{strings.columns.macro}</th>
+                <th className="py-2 px-2 w-[170px]">{strings.columns.sprint}</th>
+                <th className="py-2 px-2 w-[190px]">{strings.columns.team}</th>
+                <th className="py-2 px-2 w-[190px]">{strings.columns.assignee}</th>
               </tr>
             </thead>
             <tbody>
               {rows.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="py-6 px-3 text-center text-[11px] text-[var(--text-muted)]">
-                    Rien à trier avec ces critères. Tout est rattaché.
+                    {strings.empty}
                   </td>
                 </tr>
               ) : (
@@ -379,7 +381,7 @@ export const CurationTable: React.FC = () => {
                           rel="noreferrer"
                           className="inline-flex items-center gap-1 text-[10.5px] font-mono font-bold hover:underline"
                           style={{ color: 'var(--status-info)' }}
-                          title={`Ouvrir ${task.key} sur le tracker`}
+                          title={format(strings.openOnTracker, { key: task.key })}
                         >
                           {task.key}
                           <ExternalLink size={9} />
@@ -394,7 +396,7 @@ export const CurationTable: React.FC = () => {
                         type="button"
                         onClick={() => setSelectedTask(task)}
                         className="text-[11.5px] text-left text-[var(--text-secondary)] hover:text-[var(--text-primary)] truncate block w-full cursor-pointer"
-                        title={`${task.title} (ouvrir la fiche)`}
+                        title={format(strings.openCard, { title: task.title })}
                       >
                         {task.title}
                       </button>
@@ -405,9 +407,9 @@ export const CurationTable: React.FC = () => {
                       <LookupField
                         value={task.parentKey || ''}
                         icon={<Target size={10} />}
-                        placeholder="macro..."
-                        clearLabel="Aucune macro"
-                        emptyHint="Aucune macro ne correspond."
+                        placeholder={strings.macroPlaceholder}
+                        clearLabel={strings.noMacro}
+                        emptyHint={shared.noMacroMatch}
                         disabled={task.source !== 'jira'}
                         onSearch={searchMacro}
                         onPick={option => setTaskMacro(task.id, option?.id || '')}
@@ -419,9 +421,9 @@ export const CurationTable: React.FC = () => {
                       <LookupField
                         value={task.sprint || ''}
                         icon={<CalendarRange size={10} />}
-                        placeholder="sprint..."
-                        clearLabel="Backlog (aucun sprint)"
-                        emptyHint="Aucun sprint ne correspond."
+                        placeholder={strings.sprintPlaceholder}
+                        clearLabel={shared.backlogNoSprint}
+                        emptyHint={shared.noSprintMatch}
                         disabled={task.source !== 'jira' || sprintOptions.length === 0}
                         onSearch={searchSprint}
                         onPick={option => setTaskSprint(task.id, option?.id || '', option?.label)}
@@ -434,8 +436,8 @@ export const CurationTable: React.FC = () => {
                         <LookupField
                           value={task.team || ''}
                           icon={<Layers size={10} />}
-                          placeholder="équipe…"
-                          clearLabel="Aucune équipe"
+                          placeholder={strings.teamRowPlaceholder}
+                          clearLabel={shared.noTeam}
                           onSearch={searchTeamOptions}
                           onPick={option => setTaskTeam(task.id, option?.id || '', option?.label)}
                         />
@@ -450,8 +452,8 @@ export const CurationTable: React.FC = () => {
                         <LookupField
                           value={task.assignee || ''}
                           icon={<User size={10} />}
-                          placeholder="personne…"
-                          clearLabel="Non assigné"
+                          placeholder={strings.personPlaceholder}
+                          clearLabel={shared.unassigned}
                           onSearch={async query => {
                             const people = await searchAssignableUsers(task.id, query)
                             return people.map(m => ({
