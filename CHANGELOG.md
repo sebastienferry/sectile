@@ -15,6 +15,10 @@ test fixtures or internal plumbing.
 
 ### Added
 
+- **Attach folders to a project in Sectile Desktop.** Project settings → General → *Attached folders* adds any other folder of your workstation to a project: another repository, a library, notes, a Git checkout or a plain folder. Every execution of the project is then told where they are and what each one is. An attached Git repository with a remote is changed through a worktree on the ticket's branch and needs its own pull request before the ticket can be marked implemented; a folder without a remote is changed in place. The folders stay on your workstation and are never sent to the server. Update the local agent together with the server: an older agent cannot prepare a worktree in an attached repository. (#484)
+
+- **Codex sees the task's other folders.** Like Claude, Codex now receives the task's other folders (project repositories, attached folders and the specifications folder) as additional directories, through its `--add-dir` option. (#484)
+
 - **Open a worktree in your editor from the desktop.** Choose VS Code, Cursor, Zed, Sublime Text or a custom command under Settings → Execution defaults → Editor, and a code icon next to the selected execution's path opens its worktree in that editor. With no editor chosen, the path shows alone as before. (#535)
 
 - **Download Sectile Desktop from every release.** Each release now publishes a ready-to-run Sectile Desktop for macOS (Apple Silicon and Intel), Linux x86-64 and Windows, with the Sectile agent included, so you no longer need to build it from the repository. The archives are on the release's GitHub Release page and in the GitLab package, next to the agent and server binaries, with checksums; the desktop README's "Install a release" section explains how to open the unsigned app on each system. (#428)
@@ -91,6 +95,8 @@ test fixtures or internal plumbing.
 - Web and desktop PR indicators show the current GitHub or GitLab request as open, conflicting, merged, or closed without merge. State refresh uses grouped forge reads without synchronizing stories individually.
 
 ### Changed
+
+- **The specifications folder defaults to the code checkout on every project.** Macro skills no longer refuse to run on a project that sets no specifications folder: they read and write the specifications in the project's local repository, unless the desktop settings name another folder. (#484)
 
 - **Lighter execution history in the desktop toolbar.** The drop-down that switches between a task's executions in Sectile Desktop no longer looks like a boxed form field: it sits unboxed next to the toolbar icons, with a discreet chevron, a background on hover and the accent ring on keyboard focus, in both themes. (#525)
 
@@ -266,6 +272,8 @@ test fixtures or internal plumbing.
   off the high level on the next synchronisation.
 
 ### Removed
+
+- **The Mono-repo project setting.** Every project now works the same way: its list of other repositories is always available in the web project settings, a ticket runs in the repository it is pinned to or else in the code repository, and an execution never waits for somebody to choose a repository. The Repository layout row and the repository picker of the desktop console are gone with it. (#484)
 
 - **The web editors for execution settings**: the AI engine tab of the profile (its MCP configuration stays), the "Agent settings" category of the project settings (the PR creation stage moves to "Agentic workflow"), the local folder and per-skill command name fields. Also the project "TTY mode", which nothing used. (#305)
 

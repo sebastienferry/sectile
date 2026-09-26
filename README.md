@@ -636,7 +636,7 @@ Sectile exposes twelve typed tools at the Streamable HTTP endpoint `/mcp`:
 - `finish_run`: finish that run without advancing the task stage.
 - `report_waiting`: mark a task run as waiting for its user before a blocking question, so the board and the owner's desktop show it; the session's next call ends the wait.
 - `prepare_macro_worktree`: prepare a macro's specification checkout on the caller's local agent, in the desktop *Specifications folder*, and return its path and branch (empty for a folder that is not a Git repository).
-- `prepare_repository_worktree`: on a multi-repo project, prepare the task's worktree in another of the project's repositories, on the caller's local agent and on the task branch, before a skill changes it; that repository then needs its own pull request, given to `transition_stage` in `prUrls`.
+- `prepare_repository_worktree`: prepare the task's worktree in another repository (one of the project's repositories, or a Git folder attached to the project on the caller's workstation), on the caller's local agent and on the task branch, before a skill changes it; that repository then needs its own pull request, given to `transition_stage` in `prUrls`. A folder without a remote is changed in place, without it.
 
 HTTP and stdio both identify the server as `sectile`. Tool arguments, results,
 authentication and workflow validation retain their existing contracts.
@@ -1229,7 +1229,8 @@ for the desktop development assets. On Apple Silicon the app is produced at
 The optional companion groups local executions under projects in a collapsible
 sidebar. Add projects by discovering the server catalog and mapping a local Git
 directory. Execution settings are stored per workstation and per project in
-`~/.config/sectile/settings.json`. Repository layout, remote URL, SDD selection and skill
+`~/.config/sectile/settings.json`, and so are the folders attached to a
+project. The remote URL, the project's repositories, SDD selection and skill
 content remain server-owned and read-only. Explicit deployment buttons install
 the server skills or initialize its SDD framework in the mapped directory.
 The profile is a placeholder for future account management.
@@ -1329,12 +1330,26 @@ agent then reports to the server what it will run for each project; the web
 model picker and the engine badge of a card show that report, and show the
 engine as unknown when none of your agents is connected for the project.
 
-`repositories` maps each repository of a multi-repo project, by its
-`host/path` identity, to the folder holding its checkout on this workstation
-(#456). It is keyed by repository rather than by project, so one checkout
-serves every project that works in it; the desktop project settings write it,
-and refuse a folder whose `origin` is another repository. The project's own
-repository keeps its folder in its project section's `path`.
+`repositories` maps each repository a project declares, by its `host/path`
+identity, to the folder holding its checkout on this workstation (#456). It is
+keyed by repository rather than by project, so one checkout serves every
+project that works in it; the desktop project settings write it, and refuse a
+folder whose `origin` is another repository. The project's own repository
+keeps its folder in its project section's `path`, and its specifications
+folder defaults to that checkout.
+
+`projectSettings.<id>.folders` lists the folders attached to a project on this
+workstation, in the order they were added (#484): other code, libraries or
+notes a ticket depends on, Git checkouts or plain folders. The desktop project
+settings edit them under *Attached folders*, and they are never sent to the
+server. Every launch of the project receives them in `SECTILE_REPOSITORIES`
+and in the folder block of the prompt, each with its `kind` (`git`, `folder`,
+or `missing` for a folder gone since) and `attached: true`; Claude and Codex
+also receive the existing ones as `--add-dir`. An attached Git repository with
+a remote is `context` until the task calls `prepare_repository_worktree` for
+it, then `changed`, and needs its own pull request; a folder without a remote
+has the role `local` and is changed in place, with no worktree and no pull
+request.
 
 Without effective worktrees, the agent enforces one execution and the UI
 disables parallelism selection. Requests are acknowledged when queued; their
