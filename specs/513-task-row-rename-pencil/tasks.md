@@ -48,4 +48,5 @@ Ordered checklist. Each group leaves the desktop buildable. Before starting,
 ## 4. Documentation (FR-11) - `docs`
 
 - [ ] T4.1 `CHANGELOG.md`: one `Changed` line under `[Unreleased]` (#513).
-- [ ] T4.2 `desktop/README.md`: update any mention of the task "…" menu.
+- [ ] T4.2 `desktop/README.md`: rewrite lines 53 and 521, which describe the
+  removed task "…" menu.

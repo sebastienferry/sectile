@@ -182,8 +182,11 @@ Run: `npx vite build` then `npm run test:ui` in `desktop/`, and `npm test`
   by a pencil that edits the task's local name in place: Enter or clicking
   away saves, Escape cancels. Relaunch and Detach stay in the toolbar of the
   selected task, Archive on the row. (#513)"
-- `desktop/README.md`: check for a mention of the task "…" menu or its
-  actions and update it if present.
+- `desktop/README.md`: line 53 ("Rename and archive are available through
+  the console menu") and line 521 ("A task's **…** menu provides relaunch,
+  local rename and archive actions") describe the removed menu; rewrite both
+  to say that a task row has a pencil for the inline local rename and an
+  archive button, relaunch and detach being toolbar buttons.
 
 ## Rejected alternatives
 
