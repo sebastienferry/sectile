@@ -87,10 +87,10 @@ func (d *DB) startRemoteRun(taskKey, skill, runID string, agentOwned bool, launc
 		if err != nil {
 			return nil, err
 		}
-		if activity == nil || activity.TaskID != task.ID || activity.SkillID != "remote_run" || activity.Status != "running" {
-			return nil, fmt.Errorf("remote run does not match an active execution on this task")
+		if activity == nil || activity.TaskID != task.ID || activity.SkillID != "remote_run" {
+			return nil, adoptionRefusal(nil, "task")
 		}
-		return activity, nil
+		return d.adoptRun(activity, "task")
 	}
 	if strings.TrimSpace(skill) == "" {
 		return nil, fmt.Errorf("skill is required")
@@ -126,6 +126,48 @@ func (d *DB) startRemoteRun(taskKey, skill, runID string, agentOwned bool, launc
 	}
 	d.notifyPostBackListeners(task, activity, nil)
 	return activity, nil
+}
+
+// adoptRun hands a session the run its launcher created. The agent may have
+// reported that run as queued while it waited for a slot, although the session
+// it launched is already doing the work: the session's own start is the better
+// signal, so a queued run becomes running here (#499). A run already running is
+// returned as it is, which makes two adoptions in the same instant both succeed.
+func (d *DB) adoptRun(activity *models.TaskActivity, scope string) (*models.TaskActivity, error) {
+	switch activity.Status {
+	case "running":
+		return activity, nil
+	case "queued":
+	default:
+		return nil, adoptionRefusal(activity, scope)
+	}
+	d.mu.Lock()
+	_, err := d.conn.Exec(`UPDATE task_activities SET status='running', started_at=COALESCE(started_at, ?)
+		WHERE id=? AND skill_id='remote_run' AND status='queued'`, time.Now(), activity.ID)
+	d.mu.Unlock()
+	if err != nil {
+		return nil, err
+	}
+	adopted, err := d.GetActivityByID(activity.ID)
+	if err != nil {
+		return nil, err
+	}
+	// Another caller may have ended it between the read and the update.
+	if adopted == nil || adopted.Status != "running" {
+		return nil, adoptionRefusal(adopted, scope)
+	}
+	return adopted, nil
+}
+
+// adoptionRefusal says why a runId cannot be adopted and what the session should
+// do instead. The unmatched case keeps the wording it always had, so a search
+// for it still finds it.
+func adoptionRefusal(activity *models.TaskActivity, scope string) error {
+	const instead = "call start_run without a runId to report a new execution"
+	if activity != nil && activity.Status != "running" && activity.Status != "queued" {
+		return fmt.Errorf("remote run %s already ended as %s; %s", activity.ID, activity.Status, instead)
+	}
+	return fmt.Errorf("remote run does not match an active execution on this %s; %s", scope, instead)
 }
 
 // NoteRemoteRun appends one sentence to a remote run that is still running. It
@@ -213,10 +255,14 @@ func (d *DB) finishRemoteRun(taskKey, runID, status, note string, authorize func
 	// sentence after it, and a silence sentence comes before it on a run that
 	// fell quiet before it was closed (#319). A cancellation someone typed never
 	// carries that sentence and stays final.
-	closable := "status='running'"
+	//
+	// A run still queued is closable too: the agent calls a launcher run queued
+	// while it waits for a slot, and the session holding its runId may be the
+	// one reporting how it ended (#499).
+	closable := "status IN ('running', 'queued')"
 	args := []any{status, "%" + models.RunSilencePrefix + "%", " \u2014 ", note, note, time.Now(), runID, task.ID}
 	if authorize != nil {
-		closable = "(status='running' OR (status='canceled' AND summary LIKE ?))"
+		closable = "(status IN ('running', 'queued') OR (status='canceled' AND summary LIKE ?))"
 		args = append(args, "%"+models.RunDisconnectNote+"%")
 	}
 	result, err := d.conn.Exec("UPDATE task_activities SET status=?, summary="+summaryExpr+", completed_at=?, waiting_since=NULL, waiting_session='' WHERE id=? AND task_id=? AND skill_id='remote_run' AND "+closable, args...)
