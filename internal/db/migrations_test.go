@@ -59,13 +59,14 @@ func dropRepositoryColumns(d *DB) {
 	dropCredentialAccountColumn(d)
 }
 
-// dropCredentialAccountColumn undoes what migrations 24 to 28 change. It runs
+// dropCredentialAccountColumn undoes what migrations 24 to 29 change. It runs
 // with dropRepositoryColumns, since every fixture that rewinds before 21 also
 // rewinds before 24.
 func dropCredentialAccountColumn(d *DB) {
 	_, _ = d.conn.Exec("ALTER TABLE user_tracker_credentials DROP COLUMN account")
 	_, _ = d.conn.Exec("ALTER TABLE projects DROP COLUMN spec_artifacts")
 	_, _ = d.conn.Exec("ALTER TABLE user_tracker_credentials DROP COLUMN unlock_generation")
+	_, _ = d.conn.Exec("DROP TABLE user_credential_unlocks")
 	undoWorkstationMigrations(d)
 }
 

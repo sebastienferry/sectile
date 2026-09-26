@@ -103,6 +103,10 @@ func (h *Handler) HandleUserTrackerCredentials(w http.ResponseWriter, r *http.Re
 							writeError(w, http.StatusForbidden, "Phrase de scellement refusée.")
 							return
 						}
+						if errors.Is(err, db.ErrServerKeyUnavailable) {
+							writeError(w, http.StatusServiceUnavailable, err.Error())
+							return
+						}
 						writeError(w, http.StatusInternalServerError, err.Error())
 						return
 					}
@@ -123,6 +127,9 @@ func (h *Handler) HandleUserTrackerCredentials(w http.ResponseWriter, r *http.Re
 			return
 		case errors.Is(err, db.ErrNotSealed):
 			writeError(w, http.StatusConflict, "Ce jeton n'est pas scellé : il n'y a rien à desceller.")
+			return
+		case errors.Is(err, db.ErrServerKeyUnavailable):
+			writeError(w, http.StatusServiceUnavailable, err.Error())
 			return
 		case err != nil:
 			writeError(w, http.StatusInternalServerError, err.Error())
@@ -158,15 +165,17 @@ func (h *Handler) HandleUserTrackerCredentials(w http.ResponseWriter, r *http.Re
 		_ = json.NewDecoder(r.Body).Decode(&req)
 		trackers := []string{req.Tracker}
 		if strings.TrimSpace(req.Tracker) == "" || req.Tracker == "*" {
-			creds, _ := h.db.UserTrackerCredentials(userID)
+			creds, err := h.db.UserTrackerCredentials(userID)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
 			trackers = trackers[:0]
 			for _, c := range creds {
 				trackers = append(trackers, c.Tracker)
 			}
 		}
 		for _, tracker := range trackers {
-			// A lock that did not reach the database holds on this instance
-			// only, and the person must not be told it holds everywhere.
 			if err := h.db.LockUserTrackerCredential(userID, tracker); err != nil {
 				writeError(w, http.StatusInternalServerError, err.Error())
 				return

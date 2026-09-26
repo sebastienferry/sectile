@@ -158,6 +158,7 @@ func TestMigrationNineKeepsSurplusRunsAsConcurrent(t *testing.T) {
 		"ALTER TABLE user_tracker_credentials DROP COLUMN unlock_generation",
 		"DROP TABLE agent_capabilities",
 		"ALTER TABLE projects ADD COLUMN tty_mode TEXT NOT NULL DEFAULT 'integrated'",
+		"DROP TABLE user_credential_unlocks",
 		"DELETE FROM schema_migrations WHERE version >= 9",
 		`INSERT INTO task_activities (id, task_id, skill_id, skill_name, action, status, created_at) VALUES
 			('old-skill', 't1', 'clarify', 'clarify', 'run', 'running', '2026-09-01 10:00:00'),

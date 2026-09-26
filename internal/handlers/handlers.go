@@ -61,9 +61,6 @@ type Handler struct {
 	// mcpCluster forwards MCP requests to the instance holding their session.
 	// Nil when this instance shares its store with nobody.
 	mcpCluster *mcpCluster
-	// credentialCluster shares the keys derived from sealing passphrases with
-	// the other instances of a shared store (#409). nil otherwise.
-	credentialCluster *credentialCluster
 	// internalServing and draining feed the readiness probe (#410).
 	internalServing atomic.Bool
 	draining        atomic.Bool
@@ -3662,7 +3659,6 @@ func (h *Handler) EnableAgentCluster() error {
 	token, err := h.db.InternalToken()
 	h.agentDispatcher.SetCluster(h.db, token, err)
 	h.setMCPCluster(h.db, token, err)
-	h.setCredentialCluster(h.db, token, err)
 	return err
 }
 

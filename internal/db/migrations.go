@@ -429,11 +429,32 @@ var migrations = []migration{
 		// Which unlock of a sealed credential a held key belongs to (#409). A
 		// lock or a new record moves it on, so a key another server instance
 		// still holds from before stops opening anything, whether or not that
-		// instance heard of the lock. It is a counter, not a secret.
+		// instance heard of the lock. It is a counter, not a secret. Unused
+		// since #501 keeps unlocks in user_credential_unlocks (ADR 0032).
 		version: 28,
 		name:    "user_tracker_credentials.unlock_generation",
 		statements: []string{
 			"ALTER TABLE user_tracker_credentials ADD COLUMN unlock_generation INTEGER NOT NULL DEFAULT 0;",
+		},
+	},
+	{
+		// The unlock of a sealed personal credential (#501, ADR 0032): the key
+		// its passphrase derived, sealed under the server key, so the unlock
+		// survives a restart and holds on every instance. It lasts while its
+		// owner is present (web sessions, agent_presence) and is forgotten 30
+		// minutes after. agent_seen_at keeps the last presence of an agent
+		// whose agent_presence row was dropped with its instance.
+		version: 29,
+		name:    "user_credential_unlocks",
+		statements: []string{
+			`CREATE TABLE user_credential_unlocks (
+				user_id TEXT NOT NULL,
+				tracker TEXT NOT NULL,
+				wrapped_key BLOB NOT NULL,
+				unlocked_at DATETIME NOT NULL,
+				agent_seen_at DATETIME,
+				PRIMARY KEY (user_id, tracker)
+			);`,
 		},
 	},
 }
