@@ -271,13 +271,14 @@ func (h *Handler) renameCurrentUser(w http.ResponseWriter, r *http.Request) bool
 // own device credential, sign-in cannot require being signed in, and the
 // interface itself must load in order to offer the sign-in button.
 func publicPath(path string) bool {
-	// Two probes have to answer before anyone is signed in: /api/me, which the
-	// interface asks to know who it is talking to, and /api/health, which is
-	// what a load balancer polls and which holds no session. What hangs below
+	// Three probes have to answer before anyone is signed in: /api/me, which the
+	// interface asks to know who it is talking to, and /api/health and
+	// /api/ready, which are what an orchestrator and a load balancer poll and
+	// which hold no session. What hangs below
 	// either is not public, personal tracker credentials least of all, so both
 	// are matched exactly rather than as a prefix.
 	switch strings.TrimSuffix(path, "/") {
-	case "/api/me", HealthPath:
+	case "/api/me", HealthPath, ReadyPath:
 		return true
 	}
 	// "/health" is not listed here: it is the agent's own route, on the agent's

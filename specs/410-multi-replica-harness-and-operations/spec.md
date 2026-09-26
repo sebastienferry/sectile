@@ -27,9 +27,10 @@ rolling deploy, and no single place listing what the deployment must provide.
   **when** its next calls reach B,
   **then** they are served by A's session and succeed.
 - **Given** A is killed (SIGKILL) while it holds the agent and an MCP session,
-  **then** the agent reconnects to B, an operation through B reaches it again, the
-  session's client gets a `404` and initializes a new session that works, and the runs
-  A owned are reclaimed by B.
+  **then** the agent reconnects to B, an operation through B reaches it again, and the
+  session's client gets a `404` and initializes a new session that works. (The runs a
+  dead replica's sessions owned are reclaimed and stay recoverable: proven for #408 by
+  `TestPostgresMCPSessionAcrossTwoInstances`, not repeated here.)
 
 ### US2 (P1): a readiness probe distinct from liveness
 

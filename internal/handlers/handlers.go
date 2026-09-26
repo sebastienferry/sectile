@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"tasks/internal/tracker"
 	"tasks/internal/trackerapi"
 	"time"
@@ -63,6 +64,9 @@ type Handler struct {
 	// credentialCluster shares the keys derived from sealing passphrases with
 	// the other instances of a shared store (#409). nil otherwise.
 	credentialCluster *credentialCluster
+	// internalServing and draining feed the readiness probe (#410).
+	internalServing atomic.Bool
+	draining        atomic.Bool
 	// identityProvider is nil when no OpenID Connect provider is configured,
 	// which leaves the interface on its single implicit user.
 	identityProvider *auth.Provider
