@@ -10,6 +10,14 @@ function implementedStep(task,project){
  return [project?.server?.prCreationStage==='specified'?'specify':'implement','Create PR']
 }
 
+// A launched skill reads as the workflow names it; any other id, such as a
+// pickup or a discussion, is shown with its first letter capitalized.
+const skillLabels={clarify:'Clarify',specify:'Specify',implement:'Implement',adjust:'Adjust',handoff:'Handoff',create_pr:'Create PR'}
+export function skillLabel(skillId){
+ const id=String(skillId||'').trim()
+ return skillLabels[id]||(id?id[0].toUpperCase()+id.slice(1):'')
+}
+
 export function taskStage(task){
  const labels=(task.labels||[]).map(label=>label.trim().replace(/^#+/,'').toLowerCase())
  if(['finished','done'].includes(task.status)||labels.some(label=>['finished','closed','done'].includes(label)))return 'finished'
