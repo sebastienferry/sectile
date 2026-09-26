@@ -1,6 +1,7 @@
 package db
 
 import (
+	"bytes"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -105,7 +106,7 @@ func (d *DB) SetUserTrackerCredential(userID, tracker, siteURL, email, token, pa
 	if token == "" {
 		// The screen says "already configured, leave empty to keep it", and
 		// that has to be true: the token is never sent back, so demanding it
-		// again made every other change — the site, the e-mail, the sealing —
+		// again made every other change (the site, the e-mail, the sealing)
 		// impossible to save without retyping a secret the person may not have
 		// kept. A sealed credential has to be open for this: re-storing it
 		// re-encrypts it, and a locked one cannot be read to be re-encrypted.
@@ -308,10 +309,31 @@ func (d *DB) UnlockUserTrackerCredential(userID, tracker, passphrase string) err
 	}
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	_, err = d.conn.Exec(`INSERT INTO user_credential_unlocks (user_id, tracker, wrapped_key, unlocked_at) VALUES (?, ?, ?, ?)
+	tx, err := d.conn.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	// A delete or a new record that landed since the read above leaves this key
+	// opening nothing: kept, it would show the credential unlocked while every
+	// use of it fails. The row lock holds the record still until the commit.
+	var current []byte
+	err = tx.QueryRow(`SELECT record FROM user_tracker_credentials WHERE user_id = ? AND tracker = ?`+d.forUpdate(), userID, tracker).Scan(&current)
+	if err == sql.ErrNoRows {
+		return ErrNoUserCredential
+	}
+	if err != nil {
+		return err
+	}
+	if !bytes.Equal(current, record) {
+		return secrets.ErrWrongKey
+	}
+	if _, err := tx.Exec(`INSERT INTO user_credential_unlocks (user_id, tracker, wrapped_key, unlocked_at) VALUES (?, ?, ?, ?)
 		ON CONFLICT (user_id, tracker) DO UPDATE SET wrapped_key = excluded.wrapped_key, unlocked_at = excluded.unlocked_at`,
-		userID, tracker, wrapped, time.Now().UTC())
-	return err
+		userID, tracker, wrapped, time.Now().UTC()); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // LockUserTrackerCredential forgets the unlock, on every instance, so the

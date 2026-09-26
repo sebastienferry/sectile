@@ -7,7 +7,7 @@ import (
 )
 
 // An unlock of a sealed credential lasts while its owner is connected, then the
-// idle window (#501, ADR 0031). Connected is read from what the store already
+// idle window (#501, ADR 0032). Connected is read from what the store already
 // records, so every instance reaches the same answer without keeping a clock of
 // its own: a browser session that is open and was seen recently, or a local
 // agent held by a live instance.
