@@ -50,7 +50,7 @@ its own sign-in and permission prompts remain available in the console.
 Each launch is a separate local console. It uses no task, skill, initial prompt,
 or workflow command template. It does not create a tracker activity or change a
 workflow stage. The sidebar shows process status, and the toolbar supports stop,
-export, and relaunch. Rename and archive are available through the console menu.
+export, and relaunch. The console's sidebar row renames it locally and archives it.
 Closing and reopening the app reconnects while the daemon remains running.
 
 Free consoles use the existing execution queue and reserve the project's shared
@@ -538,8 +538,11 @@ Linked pull requests appear as an icon on the same task row, after the title and
 status. Hover for the URL or activate the icon to open the PR externally without
 changing the selected console. Long titles truncate to keep controls inline.
 Projects can be collapsed;
-their **+** button opens the task launcher. A task's **…** menu provides relaunch,
-local rename and archive actions. Archiving hides its existing executions without
+their **+** button opens the task launcher. A task row carries an archive button
+and a pencil that turns its title into a field for a local rename: Enter or
+leaving the field saves, Escape cancels, and the local name, kept on this
+workstation only, takes precedence over the tracker title. Relaunch and detach to
+a native terminal are toolbar buttons of the selected task. Archiving hides its existing executions without
 changing the server task. Active executions require explicit confirmation and
 confirmed stop before archiving. A new execution makes the task visible again.
 The TTY toolbar's execution selector provides access to previous runs of the

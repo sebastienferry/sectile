@@ -111,6 +111,16 @@ const sidebarBusy=()=>!!document.querySelector('#runs .local-task:hover')||!!doc
 const hiddenProject=id=>disconnectedProjects.has(id)
 const hiddenRun=run=>hiddenProject(run.projectId)||(taskState(run).archivedRuns||[]).includes(run.id)&&!activeRun(run)
 function saveLocalTasks(){localStorage.setItem('localTasks',JSON.stringify(localTasks))}
+// The name a task row shows: the local name, else the tracker title, else the run label.
+const displayedName=run=>taskState(run).name||taskTitles.get(run.taskId)||runLabel(run)
+// The task row whose title is edited inline (#513): its task key, what was typed so
+// far, the field's selection, and whether the edition has just started. It lives
+// outside the DOM because most render() calls rebuild the sidebar, not only the
+// deferrable refresh, and the edition must survive them.
+let renaming=null
+// Set while render() empties the sidebar: removing the focused field may fire a
+// blur, which must not be taken for the user leaving the field.
+let rebuildingSidebar=false
 const collapsedProjects=new Set(JSON.parse(localStorage.getItem('collapsedProjects')||'[]'))
 
 const queueProjects=new Set()
@@ -496,7 +506,11 @@ function render(options){
  pendingRender=false
  changes.select(selected)
  renderHeader()
- const list=document.querySelector('#runs');list.replaceChildren()
+ const list=document.querySelector('#runs'),editing=list.querySelector('.task-rename')
+ if(renaming&&editing)renaming.selection=[editing.selectionStart,editing.selectionEnd]
+ rebuildingSidebar=true
+ try{list.replaceChildren()}finally{rebuildingSidebar=false}
+ let renameField=null
 
  const groups=new Map(projects.filter(project=>project.path&&!hiddenProject(project.id)).map(project=>[project.id,project]))
  for(const run of runs)if(!hiddenProject(run.projectId)&&!groups.has(run.projectId))groups.set(run.projectId,{id:run.projectId,name:run.projectId})
@@ -530,35 +544,75 @@ function render(options){
     const isSelected=executions.some(item=>item.id===selected)
     const row=document.createElement('div');row.className='local-task '+(isSelected?'selected':'')
     const button=document.createElement('button');button.className='run '+(isSelected?'selected':'')
-    const title=document.createElement('strong');title.textContent=taskState(run).name||taskTitles.get(run.taskId)||runLabel(run)
+    const key=taskKey(run),title=document.createElement('strong')
     const context=document.createElement('button');context.textContent=run.taskKey||run.taskId;context.className='task-number';context.title='Open task in Sectile';context.setAttribute('aria-label','Open '+(run.taskKey||run.taskId)+' in Sectile');context.disabled=macroRun(run);context.onclick=()=>api.openTask(run.taskId).catch(error)
     const status=document.createElement('span');status.className='status task-skill-status';status.dataset.runId=run.id
     const state=document.createElement('span');state.className='run-state';state.dataset.runId=run.id
     const stateLabel=renderRunState(state,run)
     // data-status stays the status the server reported: the UI tests select on it.
-    button.title=title.textContent+' · '+runLabel(run)+' · '+stateLabel+' · '+executions.length+' execution(s)';button.dataset.status=run.status;button.dataset.runId=run.id
+    button.dataset.status=run.status;button.dataset.runId=run.id
     // The glyph leads the row, ahead of the key button it cannot nest inside, and still selects the run.
     button.append(title,status);button.onclick=state.onclick=()=>select(run)
     // The slot keeps the key column's width even for a free console, which has no key.
     const keySlot=document.createElement('span');keySlot.className='task-key-slot'
     if(!freeConsole(run))keySlot.append(context)
-    const menu=document.createElement('button');menu.textContent='…';menu.className='task-menu';menu.setAttribute('aria-label','Actions for '+(taskState(run).name||run.taskKey||run.taskId||runLabel(run)));menu.title=menu.getAttribute('aria-label');menu.onclick=()=>taskMenu(run)
     const archive=document.createElement('button');archive.className='task-archive'
-    const archiveLabel=(executions.some(activeRun)?'Stop and archive ':'Archive ')+(taskState(run).name||run.taskKey||run.taskId||runLabel(run))
-    archive.title=archiveLabel;archive.setAttribute('aria-label',archiveLabel)
     archive.innerHTML='<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M4 8h16v12H4zM3 4h18v4H3zM9 12h6"/></svg>'
     archive.onclick=()=>requestArchive(run)
-    row.append(state,keySlot,button)
+    const pencil=document.createElement('button');pencil.className='task-rename-button'
+    pencil.innerHTML='<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m13.5 6.5 4 4"/></svg>'
+    // Labels read the current name, so an edition ended in place relabels its row.
+    const label=()=>{
+     title.textContent=displayedName(run)
+     button.title=title.textContent+' · '+runLabel(run)+' · '+stateLabel+' · '+executions.length+' execution(s)'
+     const archiveLabel=(executions.some(activeRun)?'Stop and archive ':'Archive ')+(taskState(run).name||run.taskKey||run.taskId||runLabel(run))
+     archive.title=archiveLabel;archive.setAttribute('aria-label',archiveLabel)
+     pencil.title='Rename '+title.textContent;pencil.setAttribute('aria-label',pencil.title)
+    }
+    label()
+    // Pressing the pencil of another row first blurs the open field, which saves it.
+    pencil.onclick=()=>{renaming={key,draft:displayedName(run),fresh:true};render()}
+    let field=null
+    if(renaming?.key===key){
+     field=document.createElement('input');field.className='task-rename';field.value=renaming.draft;field.maxLength=120;field.setAttribute('aria-label','Local task name')
+     // The edition ends in place rather than through render(): rebuilding the
+     // sidebar under the pointer would swallow the click that took the focus away.
+     const finish=(commit,refocus)=>{
+      if(renaming?.key!==key)return
+      const value=renaming.draft.trim();renaming=null
+      if(commit&&value&&value!==displayedName(run)){localTasks[key]={...taskState(run),name:value};saveLocalTasks()}
+      label();field.replaceWith(button);renderHeader()
+      if(refocus)pencil.focus()
+      pendingRender=true;scheduleFlush()
+     }
+     field.oninput=()=>{if(renaming?.key===key)renaming.draft=field.value}
+     field.onkeydown=event=>{
+      if(event.key==='Enter'){event.preventDefault();finish(true,true)}
+      // Consumed here, so it does not also close the ticket pane.
+      else if(event.key==='Escape'){event.preventDefault();event.stopPropagation();finish(false,true)}
+     }
+     field.onblur=()=>{if(!rebuildingSidebar&&field.isConnected)finish(true,false)}
+     field.onclick=field.onpointerdown=event=>event.stopPropagation()
+     renameField=field
+    }
+    row.append(state,keySlot,field||button)
     const link=pullRequests.get(run.taskId)
     if(link){
      const pr=document.createElement('button');pr.className='pr-indicator'
      renderPullRequestIndicator(pr,link,prLabel(link.url)+' for '+(run.taskKey||run.taskId))
      pr.onclick=()=>api.openPR(link.url).catch(error);row.append(pr)
     }
-    row.append(archive,menu);group.append(row)
+    row.append(archive,pencil);group.append(row)
    }
   }
   list.append(group)
+ }
+ // An edited row no longer shown (archived, collapsed, project gone) drops its edition unsaved.
+ if(renaming&&!renameField)renaming=null
+ if(renameField){
+  renameField.focus()
+  if(renaming.fresh){renameField.select();renaming.fresh=false}
+  else if(renaming.selection)renameField.setSelectionRange(...renaming.selection)
  }
  renderTaskSkillStatuses()
  document.querySelector('#clear-history').disabled=!runs.some(run=>['completed','failed','canceled'].includes(run.status))
@@ -2505,33 +2559,6 @@ async function refreshPRs(executions){
  }finally{linksLoading=false}
 }
 
-function taskMenu(run){
- showDialog(taskState(run).name||run.taskKey||run.taskId||runLabel(run))
- const related=()=>runs.filter(item=>taskKey(item)===taskKey(run))
- const relaunch=document.createElement('button');relaunch.textContent='Relaunch';relaunch.disabled=macroRun(run)||related().some(activeRun)
- relaunch.onclick=()=>{select(run);document.querySelector('#rerun').click()}
- const rename=document.createElement('form'),name=document.createElement('input'),save=document.createElement('button')
- name.setAttribute('aria-label','Local task name');name.value=taskState(run).name||run.taskKey||run.taskId||runLabel(run);name.maxLength=120;name.required=true
- save.textContent='Rename locally';rename.append(name,save)
- rename.onsubmit=event=>{event.preventDefault();if(!name.value.trim())return;localTasks[taskKey(run)]={...taskState(run),name:name.value.trim()};saveLocalTasks();dialog.close();render()}
- const archive=document.createElement('button');archive.textContent='Archive'
- archive.onclick=()=>requestArchive(run)
- dialogBody.append(relaunch)
- const active=related().find(item=>item.status==='running'&&!item.externalTerminal)
- if(active){
-  const detach=document.createElement('button');detach.textContent='Detach to native terminal'
-  detach.onclick=async()=>{
-   detach.disabled=true
-   try{
-    const res=await api.detachToNativeTerminal(active.id)
-    if(res?.terminal)active.externalTerminal=res.terminal
-    dialog.close();render();await refresh()
-   }catch(err){paragraph(err.message);detach.disabled=false}
-  }
-  dialogBody.append(detach)
- }
- dialogBody.append(rename,archive)
-}
 function requestArchive(run){
  const active=runs.filter(item=>taskKey(item)===taskKey(run)&&activeRun(item))
  if(active.length){
