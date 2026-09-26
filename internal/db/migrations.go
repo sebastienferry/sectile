@@ -385,11 +385,21 @@ var migrations = []migration{
 		},
 	},
 	{
+		// Whether the project's tasks commit their clarification and
+		// specification files ("keep") or leave them ignored in the worktree
+		// ("drop", #487). Every existing project keeps them.
+		version: 25,
+		name:    "projects.spec_artifacts",
+		statements: []string{
+			"ALTER TABLE projects ADD COLUMN spec_artifacts TEXT NOT NULL DEFAULT 'keep';",
+		},
+	},
+	{
 		// What each workstation will run, per project (#305): the engine a web
 		// launch announces before the run, and the models it may pick. Kept in
 		// the database rather than in the memory of the instance holding the
 		// agent's socket, since the web request may land on another instance.
-		version: 25,
+		version: 26,
 		name:    "agent_capabilities",
 		statements: []string{
 			`CREATE TABLE agent_capabilities (
@@ -409,7 +419,7 @@ var migrations = []migration{
 	},
 	{
 		// The project TTY mode was stored and never read (#305).
-		version: 26,
+		version: 27,
 		name:    "projects.tty_mode dropped",
 		statements: []string{
 			"ALTER TABLE projects DROP COLUMN tty_mode;",

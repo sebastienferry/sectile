@@ -43,6 +43,7 @@ type legacySettings struct {
 	CommandsAutonomous          map[string]string `json:"commandsAutonomous,omitempty"`
 	Parallelism                 map[string]int    `json:"parallelism,omitempty"`
 	Worktrees                   map[string]bool   `json:"worktrees,omitempty"`
+	SpecArtifacts               map[string]string `json:"specArtifacts,omitempty"`
 	Projects                    map[string]string `json:"projects"`
 	SpecRepos                   map[string]string `json:"specRepos,omitempty"`
 	AIProviders                 map[string]string `json:"aiProviders,omitempty"`
@@ -58,7 +59,7 @@ type legacySettings struct {
 
 // legacyKeys are the keys of legacySettings, removed from the file when it is
 // rewritten in the current layout.
-var legacyKeys = []string{"projects", "worktrees", "parallelism", "commands", "commandsAutonomous", "specRepos", "aiProviders", "aiModels", "aiProvider", "aiCommandTemplate", "aiCommandTemplateAutonomous", "aiModel", "aiSkillModels", "terminal", "terminals"}
+var legacyKeys = []string{"specArtifacts", "projects", "worktrees", "parallelism", "commands", "commandsAutonomous", "specRepos", "aiProviders", "aiModels", "aiProvider", "aiCommandTemplate", "aiCommandTemplateAutonomous", "aiModel", "aiSkillModels", "terminal", "terminals"}
 
 // fold maps the legacy keys onto the current layout, with the same meaning.
 func (l legacySettings) fold() Settings {
@@ -102,6 +103,9 @@ func (l legacySettings) fold() Settings {
 	for id, value := range l.CommandsAutonomous {
 		edit(id, func(p *ProjectSettings) { p.AICommandTemplateAutonomous = value })
 	}
+	for id, value := range l.SpecArtifacts {
+		edit(id, func(p *ProjectSettings) { p.SpecArtifacts = value })
+	}
 	return s
 }
 
@@ -128,6 +132,7 @@ func overlay(base, top Settings) Settings {
 			SpecPath:      firstSet(p.SpecPath, b.SpecPath),
 			Execution:     overlayExecution(b.Execution, p.Execution),
 			SkillCommands: mergeStrings(b.SkillCommands, p.SkillCommands),
+			SpecArtifacts: firstSet(p.SpecArtifacts, b.SpecArtifacts),
 		})
 	}
 	out.Repositories = mergeStrings(base.Repositories, top.Repositories)

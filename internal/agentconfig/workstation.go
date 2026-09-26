@@ -64,6 +64,10 @@ type ProjectSettings struct {
 	// SkillCommands replaces the slash command a stage runs, by skill ID. The
 	// name depends on what is installed in the local CLI.
 	SkillCommands map[string]string `json:"skillCommands,omitempty"`
+	// SpecArtifacts overrides whether this workstation keeps or drops the
+	// tasks' specification artefacts (#487): "keep" or "drop"; empty follows
+	// the server.
+	SpecArtifacts string `json:"specArtifacts,omitempty"`
 }
 
 // Seeded records the one-time copies of the server values (US6), so they are
@@ -92,7 +96,8 @@ func (e Execution) isZero() bool {
 
 // IsZero reports a project section that states nothing and can be dropped.
 func (p ProjectSettings) IsZero() bool {
-	return strings.TrimSpace(p.Path) == "" && strings.TrimSpace(p.SpecPath) == "" && p.Execution.isZero() && len(p.SkillCommands) == 0
+	return strings.TrimSpace(p.Path) == "" && strings.TrimSpace(p.SpecPath) == "" && p.Execution.isZero() && len(p.SkillCommands) == 0 &&
+		strings.TrimSpace(p.SpecArtifacts) == ""
 }
 
 // Project returns the project's section, empty when it has none.
@@ -200,6 +205,9 @@ func Resolve(c Config, s Settings) Config {
 		c.SetupProviders = nil
 	}
 	c.ExternalTerminalCommand = s.Terminal(c.ProjectID)
+	if value := project.SpecArtifacts; value == "keep" || value == "drop" {
+		c.SpecArtifacts = value
+	}
 
 	for i := range c.Skills {
 		id := c.Skills[i].ID
@@ -303,6 +311,11 @@ func ValidateProject(p ProjectSettings) error {
 		if name = strings.TrimSpace(name); name != "" && !skillCommandName.MatchString(name) {
 			return fmt.Errorf("skill %q: command %q must be a single word", skill, name)
 		}
+	}
+	switch p.SpecArtifacts {
+	case "", "keep", "drop":
+	default:
+		return fmt.Errorf("specArtifacts must be keep or drop")
 	}
 	return nil
 }

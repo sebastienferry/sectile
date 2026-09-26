@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"tasks/internal/testhome"
 	"testing"
 )
@@ -202,5 +203,47 @@ func TestSeededMarkersRoundTrip(t *testing.T) {
 	got, err := ReadSettings(t.TempDir())
 	if err != nil || !got.Seeded.hasSeededDefaults() || got.Seeded.Projects["p"] == "" {
 		t.Fatalf("markers lost: %+v %v", got.Seeded, err)
+	}
+}
+
+// The specification artefacts override (#487) lives in the project section:
+// no key until one is saved, none once it is cleared, and a legacy
+// per-project map is folded into it.
+func TestSettingsSpecArtifactsAddNoKeyUntilUsed(t *testing.T) {
+	testhome.Temp(t)
+	path, _ := SettingsPath()
+	hasKey := func() bool {
+		t.Helper()
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return strings.Contains(string(raw), `"specArtifacts"`)
+	}
+	if err := WriteSettings(Settings{ProjectSettings: map[string]ProjectSettings{"p": {Path: "/repo"}}}); err != nil {
+		t.Fatal(err)
+	}
+	if hasKey() {
+		t.Fatal("a workstation that never overrode the setting must not gain the key")
+	}
+	if err := WriteSettings(Settings{ProjectSettings: map[string]ProjectSettings{"p": {Path: "/repo", SpecArtifacts: "drop"}}}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := ReadSettings(t.TempDir())
+	if err != nil || got.Project("p").SpecArtifacts != "drop" {
+		t.Fatalf("the override must be stored: %+v %v", got.Project("p"), err)
+	}
+	if resolved := Resolve(Config{ProjectID: "p", SpecArtifacts: "keep"}, got); !resolved.DropsSpecArtifacts() {
+		t.Fatal("the workstation override must win over the server value")
+	}
+	if err := WriteSettings(Settings{ProjectSettings: map[string]ProjectSettings{"p": {Path: "/repo"}}}); err != nil {
+		t.Fatal(err)
+	}
+	if hasKey() {
+		t.Fatal("removing the last override must remove the key")
+	}
+	os.WriteFile(path, []byte(`{"specArtifacts":{"p":"drop"},"projects":{"p":"/repo"}}`), 0600)
+	if got, err := ReadSettings(t.TempDir()); err != nil || got.Project("p").SpecArtifacts != "drop" || got.ProjectPath("p") != "/repo" {
+		t.Fatalf("the legacy map must be folded: %+v %v", got.Project("p"), err)
 	}
 }

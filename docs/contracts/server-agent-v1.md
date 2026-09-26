@@ -23,9 +23,10 @@ ambiguous tracker keys. A task lookup resolves the actual owning project.
 | `githubRepo`, `issueTracker`, `trackerUrl`, `jiraProject` | Optional effective project-over-global repository and tracker metadata for local command placeholders. Missing fields use local directory basename and task source (then `github`) fallbacks. No credentials or server paths. |
 | `specFramework` | Specification framework used by the project skills. |
 | `skills` | Array of `{id, directory, command, content, commandContent}`. IDs and installation destinations must be unique and safe. `command` is the stage's standard command; a workstation replaces it with its own command name (see *Execution defaults and local overrides*). |
+| `specArtifacts` | Optional, `keep` or `drop`. `drop` keeps the tasks' clarification and specification files out of the repository: before a task's session starts, the agent writes their ignore rules in a Sectile-managed block of the primary checkout's `.git/info/exclude`, and removes the block when the effective value is `keep`. Absent (an older server) reads as `keep`. A workstation may override it (see *Execution defaults and local overrides*). |
 | `monoRepo` | Optional repository layout. `true` lets the code checkout carry the macro specifications when no specifications folder is set on the workstation; `false` requires that folder for every macro operation. Absent (an older server) reads as `true`. |
 
-**No longer sent since #305** (ADR 0030): `useWorktrees`, `aiProvider`,
+**No longer sent since #305** (ADR 0031): `useWorktrees`, `aiProvider`,
 `aiCommandTemplate`, `aiCommandTemplateAutonomous`, `aiModel`, `aiSkillModels`,
 `externalTerminalCommand` and `setupProviders`. They are workstation settings.
 An agent that still receives them from an older server discards them before
@@ -48,7 +49,7 @@ Already running coding clients are not restarted or modified by a later download
 
 The server resolves the method only: project metadata over the deployment's.
 Every execution setting is resolved by the agent from
-`~/.config/sectile/settings.json` (ADR 0030): the project section, then the
+`~/.config/sectile/settings.json` (ADR 0031): the project section, then the
 workstation defaults, then the provider defaults (provider `agy`, the
 provider's own command, no model flag, the shipped model list, the detected
 terminal, editor `code`, worktrees on, one execution at a time, no extra setup
@@ -558,6 +559,15 @@ attaches its URL in the specified transition. Implementation and review update
 that same PR/MR; only completed review makes it ready. Opening the draft alone
 does not advance the task to reviewed. Tracker synchronization remains server-owned.
 
+A workstation that drops the specification artefacts (`specArtifacts`) has
+nothing to show on the branch at specification. When a `specified` transition
+of such a project names no pull request, the server asks the actor's agent
+with the `spec_artifacts` operation, which answers `{"mode":"keep"|"drop"}`
+with its effective value for the task. On `drop` the transition is accepted
+without a pull request and its note says that it is deferred to the
+implemented stage, which requires it as usual. Any other answer, including an
+error from an agent that predates the operation, keeps the requirement.
+
 ## Local console service
 
 The agent always hosts task consoles in local PTYs regardless of the
@@ -640,7 +650,7 @@ The workstation settings file is written in layout 2:
       "path": "/path/to/repository", "specPath": "/path/to/specs",
       "aiProvider": "codex", "aiModel": "gpt-5", "terminal": "iterm",
       "useWorktrees": false, "parallelism": 1, "setupProviders": null,
-      "skillCommands": {"implement": "code-issue"}
+      "skillCommands": {"implement": "code-issue"}, "specArtifacts": "drop"
     }
   },
   "repositories": {"github.com/owner/other": "/path/to/other"},
@@ -652,11 +662,17 @@ Every field is optional and an empty one inherits; `useWorktrees` absent,
 `parallelism` 0 and `setupProviders` null inherit. A present
 `aiProviderModels` key is a choice, even with an empty list; an absent one
 offers the shipped list. `skillCommands` replaces the slash command a stage
-runs, a single word with an optional leading `/`.
+runs, a single word with an optional leading `/`. `specArtifacts` overrides
+whether this workstation keeps or drops the tasks' specification artefacts
+(`keep` or `drop`, #487); absent follows the server. Saving the desktop project
+settings with an effective `keep` removes the project's block from every
+checkout the workstation maps for it; lines outside the block are never
+touched.
 
 A file written before #305 (flat `aiProvider`, `aiModel`, `terminal`... and the
 per-project maps `projects`, `specRepos`, `worktrees`, `parallelism`,
-`terminals`, `aiProviders`, `aiModels`, `commands`, `commandsAutonomous`) is
+`terminals`, `aiProviders`, `aiModels`, `commands`, `commandsAutonomous`,
+`specArtifacts`) is
 read with the same meaning and rewritten in layout 2 on the next save. An
 emptied map or list leaves the file rather than keeping its previous content.
 

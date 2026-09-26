@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strings"
 
+	"tasks/internal/agentprotocol"
 	"tasks/internal/models"
 )
 
@@ -50,6 +51,9 @@ func (d *DB) validateStagePRs(task *models.Task, actorID, skillID, repoPath, bra
 		given = append(slices.Clone(given[1:]), given[0])
 	}
 	given = cleanURLs(given)
+	if len(given) == 0 && d.prDeferredBySpecArtifacts(task, actorID, skillID) {
+		return stagePRSet{notice: prDeferredNotice}, nil
+	}
 	project, err := d.GetProjectByID(task.ProjectID)
 	if err != nil {
 		return stagePRSet{}, fmt.Errorf("read project for the stage PR lookup: %w", err)
@@ -195,4 +199,28 @@ func pullRequestLinkLast(links []models.TaskPullRequest, url string) []models.Ta
 		}
 	}
 	return links
+}
+
+// prDeferredNotice is added to the specified report of a project whose pull
+// request would open at specification, when the workstation drops its
+// specification artefacts and the branch therefore has nothing to show yet.
+const prDeferredNotice = "Pull request deferred to the implemented stage: the specification artefacts are dropped on this workstation."
+
+// prDeferredBySpecArtifacts says whether a specified transition may go without
+// its pull request (#487): the project opens it at specification, and the
+// agent of the reporting workstation says it drops the task's artefacts. Any
+// other answer, an agent too old to know the question included, keeps the
+// requirement as it was.
+func (d *DB) prDeferredBySpecArtifacts(task *models.Task, actorID, skillID string) bool {
+	if models.NormalizeSkillID(skillID) != "specify" || d.prCreationOwner(task) != "specify" {
+		return false
+	}
+	var answer struct {
+		Mode string `json:"mode"`
+	}
+	op := agentprotocol.Operation{ProjectID: task.ProjectID, TaskID: task.ID, Action: "spec_artifacts", UserID: actorID}
+	if err := d.callAgent(op, &answer); err != nil {
+		return false
+	}
+	return answer.Mode == models.SpecArtifactsDrop
 }

@@ -34,7 +34,7 @@ CREATE TABLE IF NOT EXISTS projects (
     gitlab_project TEXT NOT NULL DEFAULT '',
     gitlab_token TEXT NOT NULL DEFAULT '',
     jira_project TEXT DEFAULT '',      -- Legacy Jira project identifier
-    issue_tracker TEXT NOT NULL DEFAULT 'local',  -- 'github' | 'jira' | 'local'
+    issue_tracker TEXT NOT NULL DEFAULT 'local',  -- 'github' | 'gitlab' | 'jira' | 'local'
     tracker_url TEXT DEFAULT '',       -- tracker project URL, or the Jira base URL
     is_default INTEGER DEFAULT 0,
     stage_mapping TEXT DEFAULT '{}',  -- unused: kept so older binaries still open the base
@@ -304,8 +304,9 @@ Argon2id. A wrong passphrase and a missing record answer the same way.
 | `POST` | `/api/sync/all` | (none) | Queues a sync of every configured project across all trackers. |
 | `POST` | `/api/sync/github` | `{repo, projectId}` | Queues a GitHub repository sync. |
 | `POST` | `/api/sync/jira` | `{projectKey, projectId}` | Queues a Jira project sync. |
+| `POST` | `/api/sync/gitlab` | `{projectId}` | Queues a GitLab project sync. |
 
-All four return `{message, activity}`; the work runs on the background job queue
+All of them return `{message, activity}`; the work runs on the background job queue
 and its progress is readable through the Activities API.
 
 ### 2.5 Spec-Driven Design Toolchain API

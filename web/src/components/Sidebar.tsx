@@ -246,12 +246,14 @@ export const Sidebar: React.FC = () => {
         all: totalCount,
         github: facetCount(taskFacets.sources, 'github'),
         jira: facetCount(taskFacets.sources, 'jira'),
+        gitlab: facetCount(taskFacets.sources, 'gitlab'),
         local: facetCount(taskFacets.sources, 'local'),
       }
     : {
         all: tasks.length,
         github: tasks.filter(t => t.source === 'github').length,
         jira: tasks.filter(t => t.source === 'jira').length,
+        gitlab: tasks.filter(t => t.source === 'gitlab').length,
         local: tasks.filter(t => !t.source || t.source === 'local').length,
       }
 
@@ -259,6 +261,7 @@ export const Sidebar: React.FC = () => {
     { id: 'all', label: t.nav.allSources, icon: '◎', color: 'text-slate-400' },
     { id: 'github', label: 'GitHub', icon: '⑄', color: 'text-slate-300' },
     { id: 'jira', label: 'Jira', icon: '◆', color: 'text-blue-400' },
+    { id: 'gitlab', label: 'GitLab', icon: '⑂', color: 'text-orange-400' },
     { id: 'local', label: t.nav.localSource, icon: '▤', color: 'text-emerald-400' },
   ]
 

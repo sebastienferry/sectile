@@ -2008,6 +2008,43 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   }
 
+  const syncGitlab = async (projectId?: string) => {
+    setIsSyncing(true)
+    try {
+      const activeProj = projectId
+        ? projects.find(p => p.id === projectId)
+        : selectedProjectId !== 'all' ? projects.find(p => p.id === selectedProjectId) : (projects.find(p => p.isDefault) || projects[0])
+      const res = await fetch(`${API_BASE}/sync/gitlab`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectId: activeProj?.id }),
+      })
+      if (!res.ok) {
+        const errData = await res.json()
+        throw new Error(errData.error || 'GitLab sync failed')
+      }
+      const data = await res.json()
+      if (data.activity) {
+        setActivities(prev => [data.activity, ...prev.filter(a => a.id !== data.activity.id)])
+      }
+      fetchActivityStats()
+      const path = activeProj?.gitlabProject || settings.gitlabProject || ''
+      addToast({
+        type: 'info',
+        title: 'Synchronisation GitLab lancée',
+        description: path ? `Projet GitLab ${path} (${activeProj?.name || ''}) - Suivi dans Activités.` : 'Synchronisation GitLab en cours...',
+      })
+    } catch (err: any) {
+      addToast({
+        type: 'error',
+        title: t.toasts.error,
+        description: err.message,
+      })
+    } finally {
+      setIsSyncing(false)
+    }
+  }
+
   const syncCurrentProject = async () => {
     const activeProj = currentProject || (projects.find(p => p.isDefault) || projects[0])
     const tracker = activeProj?.issueTracker || 'local'
@@ -2015,6 +2052,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       await syncGithub(activeProj?.githubRepo)
     } else if (tracker === 'jira') {
       await syncJira(activeProj?.jiraProject)
+    } else if (tracker === 'gitlab') {
+      await syncGitlab(activeProj?.id)
     } else {
       await fetchTasks()
       addToast({

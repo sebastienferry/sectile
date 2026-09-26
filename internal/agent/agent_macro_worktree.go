@@ -238,14 +238,10 @@ func clearStaleMacroPath(ctx context.Context, repo, target string) error {
 // excludeTaskWorktrees keeps .tasks/ out of the repository's status through its
 // info/exclude file, so the repository's own .gitignore is never edited.
 func excludeTaskWorktrees(ctx context.Context, repo string) error {
-	common, err := gitLocal(ctx, repo, "rev-parse", "--git-common-dir")
+	path, err := excludeFilePath(ctx, repo)
 	if err != nil {
 		return err
 	}
-	if !filepath.IsAbs(common) {
-		common = filepath.Join(repo, common)
-	}
-	path := filepath.Join(common, "info", "exclude")
 	raw, err := os.ReadFile(path)
 	if err != nil && !os.IsNotExist(err) {
 		return err

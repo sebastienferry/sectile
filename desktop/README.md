@@ -301,7 +301,7 @@ and restarted before this action is available.
 
 ### Execution defaults and local overrides
 
-Every execution setting belongs to the workstation (ADR 0030): the AI
+Every execution setting belongs to the workstation (ADR 0031): the AI
 provider, the model and per-skill models, the model list of each provider, the
 interactive and headless commands, the terminal, the editor, worktrees,
 parallel executions (1 to 10), the extra agents that get the skills and MCP,

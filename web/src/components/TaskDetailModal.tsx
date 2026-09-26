@@ -53,6 +53,7 @@ import { LookupField, type LookupOption } from './LookupField'
 import { PrioritySelect } from './PrioritySelect'
 import { MarkdownEditor } from './Markdown'
 import { sprintLookup, macroLookup, isProjectCompatible } from '../lib/lookups'
+import { trackerHas } from '../lib/trackers'
 import { issueTypeStyle } from '../lib/issueTypes'
 import { runEngineLabel } from '../lib/runEngine'
 import { copyText } from '../lib/clipboard'
@@ -484,6 +485,7 @@ export const TaskDetailModal: React.FC = () => {
   const parentUrl = trackerUrlForKey(selectedTask.parentKey)
   const trackerName =
     selectedTask.source === 'github' ? 'GitHub'
+    : selectedTask.source === 'gitlab' ? 'GitLab'
     : selectedTask.source === 'jira' ? 'Jira'
     : 'le tracker'
 
@@ -531,6 +533,7 @@ export const TaskDetailModal: React.FC = () => {
     <span className="font-mono text-sm font-bold text-[var(--accent-color)] bg-[var(--accent-light)] px-2.5 py-1 rounded-lg flex items-center gap-1.5 shrink-0">
       {selectedTask.source === 'github' && <FolderGit2 size={13} className="text-purple-400" />}
       {selectedTask.source === 'jira' && <span className="text-blue-400 font-sans font-black text-xs">J</span>}
+      {selectedTask.source === 'gitlab' && <FolderGit2 size={13} className="text-orange-400" />}
       {(!selectedTask.source || selectedTask.source === 'local') && <Folder size={13} className="text-emerald-400" />}
 
       <span className="inline-flex items-baseline min-w-0">
@@ -1146,7 +1149,7 @@ export const TaskDetailModal: React.FC = () => {
                   </span>
                 )}
               </label>
-              {selectedTask.source === 'jira' ? (
+              {trackerHas(selectedTask.source, 'assigneeLookup') ? (
                 <LookupField
                   value={assignee}
                   icon={<User size={12} />}
@@ -1215,15 +1218,15 @@ export const TaskDetailModal: React.FC = () => {
                 onPick={option => {
                   const val = option?.label || ''
                   setSprint(val)
-                  if (selectedTask && selectedTask.source === 'jira') {
+                  if (selectedTask && trackerHas(selectedTask.source, 'sprint')) {
                     setTaskSprint(selectedTask.id, option?.id || '', val)
                   }
                 }}
               />
             </div>
 
-            {/* Team updates are queued immediately through the Jira operation. */}
-            {selectedTask.source === 'jira' && (
+            {/* Team updates are queued immediately through the tracker operation. */}
+            {trackerHas(selectedTask.source, 'team') && (
               <div>
                 <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
                   Équipe

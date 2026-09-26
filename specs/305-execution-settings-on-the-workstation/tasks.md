@@ -6,7 +6,7 @@ as 23 and 24) and the next ADR number (written as 0029); renumber if main
 landed one. Merge `origin/main` rather than rebasing the pushed spec branch
 (memory *Force push refused after rebase*).
 
-Migrations landed as 25 and 26 and the ADR as 0030 (see plan, *Implementation
+Migrations landed as 26 and 27 and the ADR as 0031 (see plan, *Implementation
 notes*). T13.2 (manual check on a copy of the dev database) is left to the
 reviewer.
 

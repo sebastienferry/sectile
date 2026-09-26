@@ -517,16 +517,19 @@ ProviderModelsField}.tsx`, `web/src/lib/{aiModels,projectAgentSettings}.ts`,
 `web/src/hooks/useProjectEngine.ts`, `web/src/types/index.ts`,
 `web/src/locales/translations.ts`.
 
-Docs: `docs/adrs/0029-workstation-owns-the-invocation.md` (number checked
+Docs: `docs/adrs/0031-the-workstation-owns-the-invocation.md` (number checked
 against `origin/main`), `docs/adrs/0015-*.md` (superseded note),
 `docs/contracts/server-agent-v1.md`, `desktop/README.md`, `CHANGELOG.md`.
 
 ## Implementation notes (deviations recorded during implementation)
 
-- **Numbers.** `origin/main` had landed migrations 23 and 24 and ADR 0029:
-  the capability table is migration **25**, the `tty_mode` drop migration
-  **26**, and the ADR is **0030**. The rewind helpers undo both
-  (`undoWorkstationMigrations`).
+- **Numbers.** `origin/main` landed migrations 23, 24 and 25 and ADRs 0029
+  and 0030 while this branch was open: the capability table is migration
+  **26**, the `tty_mode` drop migration **27**, and the ADR is **0031**. The
+  rewind helpers undo both (`undoWorkstationMigrations`).
+- **Specification artefacts (#487).** Merged from `main` meanwhile: its
+  per-project workstation override (`keep`/`drop`) moves into the project
+  section as `specArtifacts`, folded from the legacy map like the other keys.
 - **Seed algorithm.** Writing "every server value that differs from the local
   resolution" would break a workstation whose global override hid a server
   value (a global `aiProvider` over a project row's). The agent instead

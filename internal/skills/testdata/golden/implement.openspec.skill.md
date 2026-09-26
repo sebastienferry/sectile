@@ -24,6 +24,11 @@ already there, with the project's checks green.
 
 ## Read first
 - The specification and its task checklist. It is the contract, follow its order.
+  Its files may be ignored by Git (`git check-ignore -q` succeeds on them): the project drops its
+  specification artefacts on this workstation. Read them from the worktree, never commit them and
+  never force them with `git add -f`. When the project drops its artefacts (the launch prompt says so,
+  or the paths are ignored) and the specification is missing from the worktree, stop and report that
+  it is not available on this workstation: never rewrite it.
 - The surrounding code: naming, error handling, comment density, test style. Match it.
 - How this project builds and tests. Find the real commands, do not assume them.
 
@@ -33,7 +38,8 @@ already there, with the project's checks green.
    primary worktree; the other repositories are read-only context. To change one, call
    `prepare_repository_worktree` for it first and work in the worktree it returns: each
    changed repository then needs its own pull request, given to `transition_stage` in `prUrls`.
-3. Work through the checklist in small steps, each one leaving the tree buildable.
+3. Work through the checklist in small steps, each one leaving the tree buildable. When the
+   specification artefacts are ignored by Git, commit the code only and never force-add them.
 4. Add the tests that cover the new behaviour and its edge cases, not just the
    happy path. A change with no test needs a stated reason.
 5. Run build, static analysis and tests. Fix until green, and quote the real output.

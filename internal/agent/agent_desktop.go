@@ -503,6 +503,12 @@ func (d *agentDaemon) desktopProjects(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Select a local Git repository", 400)
 		return
 	}
+	if input.SpecArtifacts != nil && !input.InheritSpecArtifacts {
+		if value := *input.SpecArtifacts; value != models.SpecArtifactsKeep && value != models.SpecArtifactsDrop {
+			http.Error(w, "Specifications must be keep or drop", 400)
+			return
+		}
+	}
 	specPath := ""
 	if input.SpecPath != nil {
 		var err error
@@ -540,6 +546,9 @@ func (d *agentDaemon) desktopProjects(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	d.reportCapabilitiesLater()
+	if !agentconfig.Resolve(config, settings).DropsSpecArtifacts() {
+		clearSpecExclusions(r.Context(), config, settings, input.Path)
+	}
 	w.WriteHeader(204)
 }
 
@@ -726,6 +735,9 @@ func (d *agentDaemon) desktopProject(w http.ResponseWriter, r *http.Request) {
 			"aiCommandTemplateAutonomous": effective.AICommandTemplateAutonomous,
 			"commandOverride":             section.AICommandTemplate != "" || section.AICommandTemplateAutonomous != "",
 			"worktreeOverride":            section.UseWorktrees != nil,
+			"specArtifacts":               models.NormalizeSpecArtifacts(effective.SpecArtifacts),
+			"specArtifactsOverride":       section.SpecArtifacts != "",
+			"specArtifactsTracked":        trackedSpecArtifacts(r.Context(), root, mappingErr),
 			"parallelism":                 agentconfig.ExecutionLimit(id, effective.UseWorktrees, overrides),
 			"aiProvider":                  effective.AIProvider,
 			"aiModel":                     effective.AIModel,

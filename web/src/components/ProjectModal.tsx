@@ -153,6 +153,9 @@ export const ProjectModal: React.FC = () => {
   const [repositoryError, setRepositoryError] = useState('')
 
   // Section 3: background synchronisation
+  // Whether the tasks commit their specification artefacts (#487), a method
+  // setting the server keeps.
+  const [dropSpecArtifacts, setDropSpecArtifacts] = useState(false)
   const [autoSyncEnabled, setAutoSyncEnabled] = useState(false)
   const [autoSyncIntervalMin, setAutoSyncIntervalMin] = useState(5)
 
@@ -183,6 +186,10 @@ export const ProjectModal: React.FC = () => {
   // project carries no token: the server credential of its provider serves
   // every project (#464).
   const [githubApiUrl, setGithubApiUrl] = useState('')
+  // A GitLab project is named by its path (group/sub/project) on one instance.
+  // Both empty mean "those of the user configuration", like githubApiUrl.
+  const [gitlabUrl, setGitlabUrl] = useState('')
+  const [gitlabProject, setGitlabProject] = useState('')
   const [jiraProject, setJiraProject] = useState('')
   const [roadmapProjects, setRoadmapProjects] = useState('')
   // Types de tickets importés. Vide vaut « les types par défaut » : c'est ce que
@@ -241,6 +248,7 @@ export const ProjectModal: React.FC = () => {
       setRepositoryError('')
 
       setSpecFramework(editingProject.specFramework || settings.specFramework || 'speckit')
+      setDropSpecArtifacts(editingProject.specArtifacts === 'drop')
       setAutoSyncEnabled(Boolean(editingProject.autoSyncEnabled))
       setAutoSyncIntervalMin(editingProject.autoSyncIntervalMin || 5)
 
@@ -248,6 +256,8 @@ export const ProjectModal: React.FC = () => {
       setTrackerUrl(editingProject.trackerUrl || '')
       setGithubRepo(editingProject.githubRepo || '')
       setGithubApiUrl(editingProject.githubApiUrl || '')
+      setGitlabUrl(editingProject.gitlabUrl || '')
+      setGitlabProject(editingProject.gitlabProject || '')
       // Le jeton n'est jamais renvoyé : le champ reste vide et le laisser vide
       // conserve celui qui est enregistré.
       setJiraProject(editingProject.jiraProject || '')
@@ -284,6 +294,7 @@ export const ProjectModal: React.FC = () => {
       setRepositoryError('')
 
       setSpecFramework(settings.specFramework || 'speckit')
+      setDropSpecArtifacts(false)
       setEpicColors(false)
       setAutoSyncEnabled(false)
       setAutoSyncIntervalMin(5)
@@ -291,6 +302,8 @@ export const ProjectModal: React.FC = () => {
       setIssueTracker('local')
       setTrackerUrl('')
       setGithubRepo('')
+      setGitlabUrl('')
+      setGitlabProject('')
       setJiraProject('')
       setRoadmapProjects('')
       setSkillsStatus(null)
@@ -379,12 +392,15 @@ export const ProjectModal: React.FC = () => {
         monoRepo,
         repositories: savedRepositories,
         specFramework,
+        specArtifacts: dropSpecArtifacts ? 'drop' as const : 'keep' as const,
         autoSyncEnabled,
         autoSyncIntervalMin,
         issueTracker,
         trackerUrl: trackerUrl.trim(),
         githubRepo: computedGithubRepo,
         githubApiUrl: githubApiUrl.trim(),
+        gitlabUrl: gitlabUrl.trim(),
+        gitlabProject: gitlabProject.trim().replace(/^\/+|\/+$/g, ''),
         jiraProject: jiraProject.trim().toUpperCase(),
         roadmapProjects: issueTracker === 'jira' ? parseProjectKeyList(roadmapProjects, jiraProject) : [],
         issueTypes,
@@ -859,6 +875,21 @@ export const ProjectModal: React.FC = () => {
                 </select>
               </div>
 
+              <label className="flex items-start gap-2 text-xs text-[var(--text-secondary)] cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={dropSpecArtifacts}
+                  onChange={e => setDropSpecArtifacts(e.target.checked)}
+                  className="mt-0.5 rounded border-[var(--border-color)] accent-[var(--accent-color)]"
+                />
+                <span>
+                  Keep specifications out of the repository
+                  <span className="block text-[11px] text-[var(--text-muted)]">
+                    Clarifications and specifications stay in the task worktree and are never committed. Those already committed stay in the history.
+                  </span>
+                </span>
+              </label>
+
               <div>
                 <label htmlFor="defaultSkillMode" className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1.5">
                   Mode d'exécution par défaut
@@ -926,6 +957,11 @@ export const ProjectModal: React.FC = () => {
                       const inherited = mine || settings.jiraUrl?.trim()
                       if (inherited) setTrackerUrl(inherited)
                     }
+                    // The project path starts from the default of the
+                    // settings; the instance stays empty, which follows them.
+                    if (newTrk === 'gitlab' && !gitlabProject.trim() && settings.gitlabProject?.trim()) {
+                      setGitlabProject(settings.gitlabProject.trim())
+                    }
                   }}
                   className="w-full px-3 py-2 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)] font-medium cursor-pointer"
                 >
@@ -945,6 +981,7 @@ export const ProjectModal: React.FC = () => {
                     {issueTracker === 'local' && 'Sectile (Stockage Local)'}
                     {issueTracker === 'github' && 'GitHub Issues'}
                     {issueTracker === 'jira' && 'Jira'}
+                    {issueTracker === 'gitlab' && 'GitLab'}
                   </span>
                 </div>
 
@@ -955,6 +992,8 @@ export const ProjectModal: React.FC = () => {
                     'Synchronisation bidirectionnelle via la CLI GitHub. Les statuts du workflow sont reflétés par des labels (#new, #clarified, #specified, etc.) et l’état Open/Closed.'}
                   {issueTracker === 'jira' &&
                     'Intégration avec les projets Jira Software via l’API Atlassian.'}
+                  {issueTracker === 'gitlab' &&
+                    'Intégration avec un projet GitLab, gitlab.com ou auto-hébergé, via son API. L’étape est portée par les labels #new, #clarified, #specified, etc., les colonnes du board sont ses listes, et les jalons comme les itérations (Premium) servent de sprints. L’équipe est un label team::<nom>.'}
                 </p>
 
                 {/* Grille des fonctionnalités supportées */}
@@ -1045,6 +1084,35 @@ export const ProjectModal: React.FC = () => {
                       </div>
                     </>
                   )}
+
+                  {issueTracker === 'gitlab' && (
+                    <>
+                      <div className="flex items-center gap-1 text-[10.5px] text-emerald-400 font-medium">
+                        <CheckCircle2 size={11} className="shrink-0" />
+                        <span>Sync Issues</span>
+                      </div>
+                      <div className="flex items-center gap-1 text-[10.5px] text-emerald-400 font-medium">
+                        <CheckCircle2 size={11} className="shrink-0" />
+                        <span>Labels d'étape (#new, etc.)</span>
+                      </div>
+                      <div className="flex items-center gap-1 text-[10.5px] text-emerald-400 font-medium">
+                        <CheckCircle2 size={11} className="shrink-0" />
+                        <span>Listes du board</span>
+                      </div>
+                      <div className="flex items-center gap-1 text-[10.5px] text-emerald-400 font-medium">
+                        <CheckCircle2 size={11} className="shrink-0" />
+                        <span>Jalons & Itérations</span>
+                      </div>
+                      <div className="flex items-center gap-1 text-[10.5px] text-emerald-400 font-medium">
+                        <CheckCircle2 size={11} className="shrink-0" />
+                        <span>Équipes (team::)</span>
+                      </div>
+                      <div className="flex items-center gap-1 text-[10.5px] text-emerald-400 font-medium">
+                        <CheckCircle2 size={11} className="shrink-0" />
+                        <span>Merge Requests liées</span>
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
 
@@ -1082,6 +1150,42 @@ export const ProjectModal: React.FC = () => {
                         value={githubApiUrl}
                         onChange={e => setGithubApiUrl(e.target.value)}
                         placeholder="Celle de la configuration utilisateur"
+                        className="w-full pl-8 pr-3 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] font-mono focus:outline-none focus:border-[var(--accent-color)]"
+                      />
+                      <Globe size={14} className="absolute left-2.5 top-2.5 text-[var(--accent-color)]" />
+                    </div>
+                  </div>
+                )}
+
+                {issueTracker === 'gitlab' && (
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
+                      Projet GitLab (groupe/projet)
+                    </label>
+                    <div className="relative">
+                      <input
+                        type="text"
+                        value={gitlabProject}
+                        onChange={e => setGitlabProject(e.target.value)}
+                        placeholder={settings.gitlabProject?.trim() || 'groupe/sous-groupe/projet'}
+                        className="w-full pl-8 pr-3 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] font-mono focus:outline-none focus:border-[var(--accent-color)]"
+                      />
+                      <Globe size={14} className="absolute left-2.5 top-2.5 text-[var(--accent-color)]" />
+                    </div>
+                  </div>
+                )}
+
+                {issueTracker === 'gitlab' && (
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
+                      Instance GitLab (optionnel)
+                    </label>
+                    <div className="relative">
+                      <input
+                        type="text"
+                        value={gitlabUrl}
+                        onChange={e => setGitlabUrl(e.target.value)}
+                        placeholder={settings.gitlabUrl?.trim() || 'https://gitlab.com/api/v4'}
                         className="w-full pl-8 pr-3 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] font-mono focus:outline-none focus:border-[var(--accent-color)]"
                       />
                       <Globe size={14} className="absolute left-2.5 top-2.5 text-[var(--accent-color)]" />
@@ -1201,7 +1305,7 @@ export const ProjectModal: React.FC = () => {
                       type="text"
                       value={trackerUrl}
                       onChange={e => setTrackerUrl(e.target.value)}
-                      placeholder={issueTracker === 'jira' ? 'https://mon-org.atlassian.net' : 'https://github.com/owner/repository'}
+                      placeholder={issueTracker === 'jira' ? 'https://mon-org.atlassian.net' : issueTracker === 'gitlab' ? 'https://gitlab.com/groupe/projet' : 'https://github.com/owner/repository'}
                       className="w-full pl-8 pr-3 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)]"
                     />
                     <Globe size={14} className="absolute left-2.5 top-2.5 text-[var(--accent-color)]" />

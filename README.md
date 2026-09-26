@@ -66,7 +66,7 @@ Modern, agentic task workflow manager for developers and engineering teams, buil
     5. ⚡ **Auto-Pilot** (`/pickup-issue`): Intelligent router that automatically sequences the next optimal workflow stage.
   - **CLI status panel**: Real-time verification of installation and authentication for `git`, `gh`, `agy`, `claude`, `codex`, as well as the SDD tools `uv`, `specify` and `openspec`.
 
-- 🗂 **Comprehensive Sidebar & Workflow Stages**:
+- 🗂 **Sidebar & Workflow Stages**:
   - `Backlog` ➔ `To Clarify` ➔ `Specified` ➔ `In Progress` ➔ `To Validate` ➔ `Done` with real-time counters.
   - View toggle (`Kanban Board` / `List View`).
   - Quick filters (`My Tasks`, `High Priority`, `Labels / Tags`) and source filter (`GitHub`, `Jira`, `Local`).
@@ -159,7 +159,7 @@ eval "$(scripts/set-env.sh dev --export)"
 
 One variable is deliberately absent from every profile.
 `SECTILE_TEST_POSTGRES_DSN` feeds the PostgreSQL suite, and that suite empties
-the database it is given — it truncates every table before each test. It belongs
+the database it is given: it truncates every table before each test. It belongs
 to a throwaway server and nothing else:
 
 ```sh
@@ -199,9 +199,9 @@ backups, point-in-time recovery and the ops tooling that comes with them:
 ```sh
 export DB_DRIVER=postgres
 export DATABASE_URL='postgres://sectile:password@db.internal:5432/sectile?sslmode=require'
-# Or, when the username and the password arrive as two separate secrets — which
+# Or, when the username and the password arrive as two separate secrets (which
 # is what a Kubernetes deployment gets, since a secret cannot be interpolated
-# into a string — leave DATABASE_URL empty and set the standard variables
+# into a string), leave DATABASE_URL empty and set the standard variables
 # instead: PGHOST, PGPORT, PGDATABASE, PGUSER, PGPASSWORD, PGSSLMODE.
 # The only source of the encryption key under PostgreSQL. There is no database
 # file to generate one beside, and a key invented on each restart would silently
@@ -211,8 +211,8 @@ export SECTILE_SECRET_KEY='<64 hex characters>'
 ```
 
 `DB_PATH` is ignored in this mode. `DATABASE_URL` wins when both it and the
-standard variables are set. A PostgreSQL configuration that cannot be opened —
-or that names neither source — stops the server rather than falling back to
+standard variables are set. A PostgreSQL configuration that cannot be opened,
+or that names neither source, stops the server rather than falling back to
 SQLite: falling back would serve an empty board out of an unexpected store,
 which reads as data loss.
 
@@ -312,7 +312,7 @@ Tracker Credentials* therefore holds one zone per tracker Sectile can drive.
 Writing needs a personal credential on Jira, GitHub and GitLab alike; reads
 still use the server credential when you stored none. A personal token is encrypted with AES-256-GCM,
 bound to its owner and to its tracker, with the key held outside the database
-(`SECTILE_SECRET_KEY`, or a 0600 file beside it — `secret.key`, which belongs
+(`SECTILE_SECRET_KEY`, or a 0600 file beside it: `secret.key`, which belongs
 in no backup the database is in). A row moved from one user to another stops
 opening. The server starts without the key and refuses only what would need it.
 
@@ -336,9 +336,21 @@ fallbacks are `SECTILE_JIRA_URL`, and the pair `SECTILE_JIRA_EMAIL` +
 through its `trackerUrl`; the server credential stays global, one Atlassian
 token being valid on every site of the account.
 
-GitLab parameters and a GitLab server credential can be stored, but no GitLab
-ticketing adapter is registered yet: a project whose tracker is GitLab still fails with the tracker registry's
-unconfigured-tracker error. That adapter is a separate piece of work.
+GitLab works on gitlab.com and on a self-managed instance, named by its REST
+API URL (`https://gitlab.example.org/api/v4`, `https://gitlab.com/api/v4` when
+empty). A GitLab project names its GitLab project by path (`group/sub/project`,
+or a numeric id), else the default of the settings. Every token, the server
+credential as the personal ones, is a personal access token with the `api`
+scope; a personal token makes the issues, notes and label changes someone asks
+for appear under their own GitLab account. The mapping follows GitHub's where
+the two share a notion ([ADR 0030](./docs/adrs/0030-gitlab-tracker-mapping.md)):
+the stage is a `#<stage>` label and a closed issue is finished; a macro is a
+pair of `macro:<title>` / `parent:<key>` labels; the team is a `team::<name>`
+scoped label; a board column is a list of the GitLab board, plus Open and
+Closed; a sprint is a project milestone or, on Premium, a group iteration. What
+a Free instance lacks, iterations, is simply absent from the sprint list, and
+moving a ticket into an iteration there is refused. Group epics and issue
+weights are not read.
 
 The environment variables below stay supported, as the fallback for headless and
 CI deployments where no one opens the interface. **Stored configuration wins**:
@@ -359,7 +371,7 @@ one set logs a warning at startup naming its replacement.
 Environment variables are read from the environment of the **server process
 itself**, at startup only. `make serve`, `go run ./cmd/server` and
 `./bin/server` inherit the shell they are launched from, so exporting a
-variable in another terminal — or after the server is already running — has no
+variable in another terminal (or after the server is already running) has no
 effect: restart the server, or, better, type the value in the interface, which
 takes effect on the next request. A `gh` login on the same machine is not picked
 up either; for GitHub only `SECTILE_GITHUB_TOKEN` is consulted. Each provider
@@ -383,7 +395,7 @@ SECTILE_GITHUB_TOKEN or save one in Administration` (and its Jira and GitLab
 equivalents), and a write somebody asks for without a credential of their own
 fails too: task comments do not load and workflow stage transitions do not reach
 the ticket. Verify the server picked the credential up by opening a task and
-checking that its comments load — that read goes through the tracker API.
+checking that its comments load: that read goes through the tracker API.
 
 Environment credentials are read at server startup, stored ones on every call;
 both are excluded from agent configuration.
@@ -447,7 +459,7 @@ automerge template and merges that change; ArgoCD deploys from the resulting
 commit, so the pipeline never talks to a cluster. What it pins is the same
 version string the image carries, never a number retyped by hand. Production
 is not promoted: there is none yet. Pinning an older tag by hand in argocd-sp
-therefore only holds until the next merge into `main` — to hold dev back,
+therefore only holds until the next merge into `main`. To hold dev back,
 revert here. See
 [ADR 0016](docs/adrs/0016-promotion-automatique-en-dev.md).
 
@@ -542,7 +554,7 @@ curl -s http://localhost:8090/api/version   # {"version":"v0.1.0","commit":"…"
 
 In the interfaces: the version sits in the web footer, and clicking it opens
 the release notes; the desktop app shows them in its settings, next to its own
-version and the local agent's — the two are distributed separately, so a
+version and the local agent's: the two are distributed separately, so a
 workstation may have upgraded only one of them.
 
 The release notes live in [`CHANGELOG.md`](./CHANGELOG.md), in
@@ -560,15 +572,15 @@ What a pipeline produces depends on its ref:
 | merge into `main` | `server:<iid>-main` + `latest` | none |
 | any other branch | `server:<iid>-<slug>` + `preview-<sha>` | none |
 
-The procedure for cutting a tag — deriving the number, writing the changelog
-entries, bumping the manifests, committing, creating the annotated tag — is
+The procedure for cutting a tag (deriving the number, writing the changelog
+entries, bumping the manifests, committing, creating the annotated tag) is
 written in [`AGENTS.md`](./AGENTS.md) and is meant to be executed as written
 whenever somebody asks for a release. See
 [ADR 0018](docs/adrs/0018-semver-tags-and-changelog.md).
 
-## 📚 Comprehensive Technical Documentation
+## 📚 Technical Documentation
 
-A comprehensive documentation suite for developers and LLMs is available in the [`/docs`](./docs) folder:
+A documentation suite for developers and LLMs is available in the [`/docs`](./docs) folder:
 
 - 🏛️ [**Architecture & System Design** (`docs/ARCHITECTURE.md`)](./docs/ARCHITECTURE.md): Concurrency model, SQLite persistence, Git worktree isolation, and agent console protocols.
 - ⚡ [**Core Capabilities & Workflows** (`docs/CAPABILITIES.md`)](./docs/CAPABILITIES.md): Multi-project management, 5-skill autonomous pipeline, Auto-Pilot, and GitHub / Jira synchronization.
@@ -612,8 +624,8 @@ authentication and workflow validation retain their existing contracts.
 `/mcp` is stateful: every connected client holds one server session, so two
 clients sharing the same credential stay distinct and a client that goes away is
 noticed. A run started with `start_run` belongs to the session that started it.
-When that session ends — the client quits, its process is killed, or its
-connection breaks — the server closes the runs it still owns as canceled, with a
+When that session ends (the client quits, its process is killed, or its
+connection breaks), the server closes the runs it still owns as canceled, with a
 note saying the client disconnected. A short silence ends nothing: a client that
 says nothing past `SECTILE_MCP_SESSION_TIMEOUT` (four hours by default) gets one
 sentence appended to its runs, which keep running and show as *silent* on the
@@ -916,7 +928,7 @@ only for remote connections. Reload the AI engine after applying a change.
 
 Execution settings (provider, models, command templates, terminal, editor,
 worktrees, parallelism, setup providers, skill command names) belong to the
-workstation and live in `~/.config/sectile/settings.json` (ADR 0030); set them
+workstation and live in `~/.config/sectile/settings.json` (ADR 0031); set them
 in the desktop app rather than by hand. See *Execution defaults and local
 overrides* below for the layout. Skill content overrides stay in the same file:
 
@@ -1168,7 +1180,17 @@ it closes having advanced the stage, until the stop stage. Merging stays manual.
 
 ### Execution defaults and local overrides
 
-Every execution setting is the workstation's (ADR 0030): the web interface
+The server project supplies `specArtifacts` (`keep`, the default, or
+`drop`), set with **Keep specifications out of the repository** in the web
+project settings (#487). With `drop`, each launch writes the task's
+clarification and specification paths (`/specs/<K>-*/`,
+`/openspec/changes/<K>-*/`, `/docs/clarifications/<K>.md`, `<K>` being the key
+without `#`) into a marked block of the checkout's `.git/info/exclude`: the
+stages leave those files in the worktree, never commit them, and carry their
+substance in the stage reports. Switching back to `keep` removes only that
+block. The desktop **Specifications** row overrides the value per workstation
+(`specArtifacts` in the project section) and warns when the repository already tracks specifications.
+Every execution setting is the workstation's (ADR 0031): the web interface
 offers none, and the server neither stores nor serves a value it uses. The
 desktop app edits them at two levels, **Execution defaults** for the
 workstation and the project settings for one project, where each field says
@@ -1187,7 +1209,8 @@ saved in `~/.config/sectile/settings.json`, which the agent alone writes:
   "projectSettings": {
     "project-id": {
       "path": "/path/to/repository", "aiProvider": "codex",
-      "parallelism": 1, "skillCommands": {"implement": "code-issue"}
+      "parallelism": 1, "skillCommands": {"implement": "code-issue"},
+      "specArtifacts": "drop"
     }
   },
   "repositories": {"github.com/owner/other": "/path/to/other"}

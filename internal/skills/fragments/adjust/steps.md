@@ -8,7 +8,8 @@
 3. Update documentation affected by the change. Fix what the review finds, now. A known defect belongs in the code, not in the
    description of the merge request.
 4. Re-run build, static analysis and tests after integrating the default branch and on the final state.
-5. Commit with a conventional message: type, scope, and why the change exists.
+5. Commit with a conventional message: type, scope, and why the change exists. Never force-add a
+   specification artefact that Git ignores (`git add -f`): the project drops them on this workstation.
 6. Push the branch and update the same existing merge request: summary, test plan, and the specific
    places where you want a reviewer's eyes.
    Run `git fetch origin`, then choose the push from the state of `origin/<branch>`:

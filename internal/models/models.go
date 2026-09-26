@@ -137,6 +137,10 @@ type Project struct {
 	// nothing. Default true, which is the historical behaviour.
 	UseWorktrees    bool   `json:"-"`
 	PRCreationStage string `json:"prCreationStage"`
+	// SpecArtifacts says whether the clarification and specification files of
+	// the project's tasks are committed ("keep", the default) or left in the
+	// task worktree and ignored by Git ("drop"). A workstation may override it.
+	SpecArtifacts string `json:"specArtifacts"`
 	// DefaultSkillMode is the execution mode a skill run falls back to when
 	// neither the launch nor the skill itself pins one. Default "interactive",
 	// which is what the tool did before the setting existed.
@@ -183,7 +187,7 @@ type Project struct {
 	GithubApiUrl                string            `json:"githubApiUrl,omitempty"`
 	GitlabUrl                   string            `json:"gitlabUrl,omitempty"`
 	GitlabProject               string            `json:"gitlabProject,omitempty"`
-	IssueTracker                string            `json:"issueTracker"` // "github", "jira", "local"
+	IssueTracker                string            `json:"issueTracker"` // "github", "gitlab", "jira", "local"
 	TrackerUrl                  string            `json:"trackerUrl"`   // e.g. "https://acme.atlassian.net"
 	IsDefault                   bool              `json:"isDefault"`
 	Bookmarked                  bool              `json:"bookmarked"`
@@ -227,7 +231,7 @@ type TaskComment struct {
 	UserID    string     `json:"userId,omitempty"`
 	Body      string     `json:"body"`
 	CreatedAt *time.Time `json:"createdAt,omitempty"`
-	Source    string     `json:"source"` // "jira", "github", "local"
+	Source    string     `json:"source"` // "jira", "github", "gitlab", "local"
 }
 
 type TrackerColumn struct {
@@ -414,6 +418,7 @@ type CreateProjectRequest struct {
 	Color               string   `json:"color,omitempty"`
 	Repositories        []string `json:"repositories,omitempty"`
 	PRCreationStage     string   `json:"prCreationStage,omitempty"`
+	SpecArtifacts       string   `json:"specArtifacts,omitempty"`
 	DefaultSkillMode    string   `json:"defaultSkillMode,omitempty"`
 	FullChainStopStage  string   `json:"fullChainStopStage,omitempty"`
 	BoardID             string   `json:"boardId,omitempty"`
@@ -440,6 +445,7 @@ type UpdateProjectRequest struct {
 	Repositories        *[]string            `json:"repositories,omitempty"`
 	RoadmapProjects     *[]string            `json:"roadmapProjects,omitempty"`
 	PRCreationStage     *string              `json:"prCreationStage,omitempty"`
+	SpecArtifacts       *string              `json:"specArtifacts,omitempty"`
 	DefaultSkillMode    *string              `json:"defaultSkillMode,omitempty"`
 	FullChainStopStage  *string              `json:"fullChainStopStage,omitempty"`
 	BoardID             *string              `json:"boardId,omitempty"`
@@ -558,6 +564,34 @@ const (
 	FullChainStopImplemented = "implemented"
 	FullChainStopReviewed    = "reviewed"
 )
+
+// SpecArtifacts values: a project either commits its tasks' clarification and
+// specification files with the code, or keeps them out of the repository.
+const (
+	SpecArtifactsKeep = "keep"
+	SpecArtifactsDrop = "drop"
+)
+
+// NormalizeSpecArtifacts reads a stored or received value. Only "drop" drops:
+// anything else, the empty string included, keeps the artefacts, which is what
+// the tool did before the setting existed.
+func NormalizeSpecArtifacts(value string) string {
+	if strings.ToLower(strings.TrimSpace(value)) == SpecArtifactsDrop {
+		return SpecArtifactsDrop
+	}
+	return SpecArtifactsKeep
+}
+
+// ValidSpecArtifacts reports whether a value received from a client is one a
+// project may store. The empty string is valid: it means the default on
+// create, and is never sent on update by a client that means to change it.
+func ValidSpecArtifacts(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "", SpecArtifactsKeep, SpecArtifactsDrop:
+		return true
+	}
+	return false
+}
 
 // NormalizeFullChainStopStage reads a stored stop stage. Anything unrecognised
 // reads as reviewed, which is the historical behaviour, so a bad stored value
@@ -788,7 +822,7 @@ type Task struct {
 	// used to read a team's members: the members endpoint is keyed by id, and
 	// two teams may carry the same name.
 	TeamID      string  `json:"teamId,omitempty"`
-	Source      string  `json:"source"` // "github", "jira", "local"
+	Source      string  `json:"source"` // "github", "gitlab", "jira", "local"
 	ExternalURL *string `json:"externalUrl,omitempty"`
 	// IssueType is the tracker's own work item type. Only "Task" and "Story"
 	// are imported; epics and other types stay out of the board.
@@ -863,7 +897,7 @@ type Settings struct {
 	// the list Sectile ships for it.
 	AIProviderModels map[string][]string `json:"-"`
 	RepoPath         string              `json:"-"`            // e.g. '/path/to/project'
-	IssueTracker     string              `json:"issueTracker"` // "github", "jira", "local"
+	IssueTracker     string              `json:"issueTracker"` // "github", "gitlab", "jira", "local"
 	GithubRepo       string              `json:"githubRepo"`   // e.g. "owner/repo"
 	JiraProject      string              `json:"jiraProject"`  // e.g. "PE"
 	JiraUrl          string              `json:"jiraUrl"`

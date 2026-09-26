@@ -37,6 +37,11 @@ type projectSettingsInput struct {
 	InheritSetupProviders       bool              `json:"inheritSetupProviders"`
 	SkillCommands               map[string]string `json:"skillCommands"`
 	InheritSkillCommands        bool              `json:"inheritSkillCommands"`
+	// SpecArtifacts overrides the project's choice to keep or drop the tasks'
+	// specification artefacts on this workstation (#487);
+	// InheritSpecArtifacts removes the override.
+	SpecArtifacts        *string `json:"specArtifacts"`
+	InheritSpecArtifacts bool    `json:"inheritSpecArtifacts"`
 	// SpecPath is the specifications folder on this workstation; empty
 	// clears the override, so a mono-repo checkout carries the
 	// specifications again.
@@ -55,6 +60,7 @@ func (in projectSettingsInput) apply(p agentconfig.ProjectSettings) agentconfig.
 	text(&p.AIProvider, in.AIProvider, in.InheritAIProvider)
 	text(&p.AIModel, in.AIModel, in.InheritAIModel)
 	text(&p.Terminal, in.Terminal, in.InheritTerminal)
+	text(&p.SpecArtifacts, in.SpecArtifacts, in.InheritSpecArtifacts)
 	// The two commands are set together: a workstation that pins only the
 	// interactive one would keep running an inherited headless command beside
 	// it, which is the opposite of what a project command is for.

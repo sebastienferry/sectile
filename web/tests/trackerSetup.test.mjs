@@ -4,6 +4,7 @@ import { translations } from '../src/locales/translations.ts'
 import {
   PERSONAL_TRACKERS,
   PROJECT_TRACKERS,
+  trackerHas,
   prefillFromCredential,
   TRACKERS,
   canCheck,
@@ -99,9 +100,8 @@ test('every tracker with a server adapter can be set on a project', () => {
   // The two selectors (project card, sync view) share this list because they
   // drifted once: Jira left the project card and stayed in the sync view, so no
   // project could be put on the tracker the server knew how to drive.
-  assert.deepEqual(PROJECT_TRACKERS.map(t => t.id), ['local', 'github', 'jira'])
-  // GitLab parameters are storable, but no adapter is registered for it.
-  assert.equal(PROJECT_TRACKERS.some(t => t.id === 'gitlab'), false)
+  // GitLab joined them once its adapter was registered (#398).
+  assert.deepEqual(PROJECT_TRACKERS.map(t => t.id), ['local', 'github', 'jira', 'gitlab'])
   assert.equal(PROJECT_TRACKERS.every(t => t.label.trim().length > 0), true)
 })
 
@@ -138,10 +138,9 @@ test('a stored credential puts its site and e-mail back in the form', () => {
 })
 
 test('only a tracker the server can drive offers a personal credential', () => {
-  // A personal GitLab token was storable and shown as active while no adapter
-  // was registered for GitLab at all: nothing could ever have used it.
-  assert.deepEqual(PERSONAL_TRACKERS.map(t => t.id), ['jira', 'github'])
-  assert.equal(TRACKERS.some(t => t.id === 'gitlab'), true)
+  // A personal GitLab token was once storable while no adapter could use it;
+  // GitLab has one now (#398), so its personal credential is offered again.
+  assert.deepEqual(PERSONAL_TRACKERS.map(t => t.id), ['jira', 'github', 'gitlab'])
   // And every tracker a project can be put on can hold a personal credential.
   for (const t of PROJECT_TRACKERS) {
     if (t.id === 'local') continue
@@ -254,3 +253,15 @@ test('profile AI and MCP configuration translations are complete in French and E
   assert.match(enAi.mcpConnectDirectlyDesc || '', /To connect your CLI or IDE directly/)
 })
 
+
+test('the ticket panel writes an assignee, a sprint and a team where the tracker has them', () => {
+  for (const source of ['jira', 'gitlab']) {
+    for (const feature of ['assigneeLookup', 'sprint', 'team']) {
+      assert.equal(trackerHas(source, feature), true, `${source} ${feature}`)
+    }
+  }
+  for (const source of ['github', 'local', '', undefined]) {
+    assert.equal(trackerHas(source, 'team'), false, `${source} has no team`)
+    assert.equal(trackerHas(source, 'sprint'), false, `${source} has no sprint`)
+  }
+})
