@@ -27,7 +27,7 @@ so two sessions adopting at once both succeed and see `running`. This matches
 
 A helper `adoptionRefusal(activity, scope)` builds the error:
 - ended: `remote run <id> already ended as <status>; call start_run without a runId to report a new execution`
-- otherwise: `remote run does not match an execution on this <task|macro>; call start_run without a runId to report a new execution`
+- otherwise: `remote run does not match an active execution on this <task|macro>; call start_run without a runId to report a new execution`
 
 The first words of the second message stay as they are, so a log search for the
 old text still finds it.
@@ -37,11 +37,13 @@ old text still finds it.
 `closable` becomes `status IN ('running','queued')` (plus the existing
 disconnect-rewrite clause) in both finish paths.
 
-### 4. No demotion
+### 4. No change to the agent's report
 
-The `queued` branch of `SyncRemoteRunStatusFor` adds `AND status <> 'running'`.
-A run the agent really queued first is inserted as `queued` by the INSERT branch,
-which is untouched.
+The first plan added `AND status <> 'running'` to the `queued` branch of
+`SyncRemoteRunStatusFor`. It was dropped: `StartAgentRun` records every
+launched run as `running`, so that clause would also have hidden the runs the
+agent really keeps waiting for a slot. Decisions 1 and 3 already make a run
+re-queued after adoption adoptable and closable again.
 
 ## Rejected alternatives
 
@@ -55,8 +57,8 @@ which is untouched.
 
 | File | Change |
 | --- | --- |
-| `internal/db/remoterun.go` | adoption, messages, closable, no demotion |
+| `internal/db/remoterun.go` | adoption, messages, closable |
 | `internal/db/macroruns.go` | adoption, messages, closable |
-| `internal/db/remoterun_test.go` (or the existing run tests) | db-level tests |
-| `internal/taskmcp/*_test.go` | MCP queued → running → completed |
+| `internal/db/launcherrun_test.go` | db-level tests |
+| `internal/taskmcp/launcherrun_test.go` | MCP queued → running → completed |
 | `CHANGELOG.md` | `Fixed` line |

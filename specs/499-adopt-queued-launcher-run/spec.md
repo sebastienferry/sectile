@@ -53,13 +53,17 @@ the launch endpoints.
   **when** its owner calls `finish_run`,
   **then** the outcome is recorded all the same.
 
-### US3 - The agent does not undo the adoption (P2)
+### US3 - An agent report after adoption (P2)
 
-- **Given** a run in `running`,
-  **when** the agent reports it `queued`,
-  **then** it stays `running`.
-- **Given** a run the agent reports for the first time as `queued`,
-  **then** it is recorded `queued`, as today.
+- **Given** a run adopted as in US1,
+  **when** the agent later reports it `queued` on a task pull,
+  **then** the board may show it queued again, and a second `start_run` or a
+  `finish_run` with its runId still succeeds.
+
+Blocking the report instead (a `running` run never going back to `queued`) was
+considered and rejected during implementation: the launcher records every run
+as `running`, so the rule would also hide the runs genuinely waiting for a slot
+on the agent.
 
 ### US4 - Macro runs behave the same (P2)
 
@@ -73,13 +77,13 @@ The three stories above hold for a run on a macro (`start_run` and
 | FR1 | `start_run` with a runId accepts a `running` or `queued` remote run of the named task or macro; a `queued` one becomes `running`, with `started_at` set when empty. |
 | FR2 | The refusals of FR1 distinguish "already ended (status)" from "not an execution of this task/macro", and both tell the session to call `start_run` without a runId. |
 | FR3 | `finish_run` closes a `running` or `queued` remote run, under the existing ownership rules. |
-| FR4 | An agent report of `queued` never moves a `running` run back to `queued`. |
+| FR4 | An agent report of `queued` keeps its current effect; adoption and finishing stay possible after it (US3). |
 | FR5 | `CHANGELOG.md` gets a `Fixed` line under `[Unreleased]`. |
 
 ## Success criteria
 
 - A test covers queued → running → completed for a launcher run through the MCP tools.
-- Tests cover each refusal message, finishing a queued run, the macro path and the non-demotion.
+- Tests cover each refusal message, finishing a queued run, the macro path and a run re-queued after adoption.
 
 ## Open questions
 

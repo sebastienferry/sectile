@@ -4,20 +4,20 @@ Ordered checklist. One commit, leaving the tree buildable.
 
 ## 1. Task runs (US1-US3, FR1-FR4)
 
-- [ ] T1.1 `startRemoteRun`: adopt `queued` (plan decision 1) and the two messages (decision 2).
-- [ ] T1.2 `finishRemoteRun`: close `queued` too (decision 3).
-- [ ] T1.3 `SyncRemoteRunStatusFor`: no demotion of `running` (decision 4).
-- [ ] T1.4 DB tests: queued adopted and returned running; ended and foreign runs refused with their messages; queued finished directly; queued report after adoption keeps running; first queued report still inserted queued.
+- [x] T1.1 `startRemoteRun`: adopt `queued` (plan decision 1) and the two messages (decision 2).
+- [x] T1.2 `finishRemoteRun`: close `queued` too (decision 3).
+- [x] T1.3 ~~`SyncRemoteRunStatusFor`: no demotion of `running`~~ dropped (plan decision 4).
+- [x] T1.4 DB tests: queued adopted and returned running; ended and foreign runs refused with their messages; queued finished directly, ownership kept; second adoption idempotent.
 
 ## 2. Macro runs (US4)
 
-- [ ] T2.1 `startMacroRun` and `FinishMacroRunAs`: same rules.
-- [ ] T2.2 DB test: queued macro run adopted then finished.
+- [x] T2.1 `startMacroRun` and `FinishMacroRunAs`: same rules.
+- [x] T2.2 DB test: queued macro run adopted then finished.
 
 ## 3. End to end and changelog
 
-- [ ] T3.1 MCP test: launcher run queued by an agent report → `start_run(runId)` → `finish_run(completed)`.
-- [ ] T3.2 `CHANGELOG.md` `Fixed` line (FR5).
+- [x] T3.1 MCP test: launcher run queued by an agent report → `start_run(runId)` → `finish_run(completed)`.
+- [x] T3.2 `CHANGELOG.md` `Fixed` line (FR5).
 
 ## 4. Verification
 
