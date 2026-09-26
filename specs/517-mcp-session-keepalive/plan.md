@@ -34,8 +34,9 @@ which reaches `SessionRegistry.Close` and cancels adopted runs.
 
 `liveSession.pingFailures int`. A successful ping resets it to 0, and so does
 `Touch`. A failure increments it. When it reaches the threshold and
-`len(entry.runs) == 0`, the session is closed exactly as an abandoned one is:
-`r.Close(id)`, then `session.Close()`. With runs, one log line is written when
+`len(entry.runs) == 0`, the session is forgotten under the same lock that saw
+it own nothing (so a run adopted a moment later is never canceled by this
+closure), its waits are cleared, and `session.Close()` releases the transport. With runs, one log line is written when
 the threshold is first crossed, and the count keeps growing without closing.
 
 ### 3. What counts as an answer

@@ -16,7 +16,7 @@ Ordered checklist. One commit, leaving the tree buildable.
 ## 3. Tests
 
 - [x] T3.1 US1: real client over `httptest`, 50 ms interval, silent for several intervals: one session, same id.
-- [x] T3.2 US2: session whose client stops answering (transport closed without DELETE): closed after the threshold; registry empty; goroutine count back to baseline.
+- [x] T3.2 US2: session whose client opens no stream and answers nothing (raw HTTP client): closed after the threshold; registry empty; goroutine count back to baseline.
 - [x] T3.3 US2 bis: pings failing but `Touch` in between: kept.
 - [x] T3.4 US3: session with an adopted run and failing pings: kept, run not closed.
 - [x] T3.5 US4: pings answered, `lastSeen` unchanged.
