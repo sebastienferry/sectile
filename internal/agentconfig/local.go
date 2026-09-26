@@ -116,9 +116,14 @@ func (l legacySettings) fold() Settings {
 func overlay(base, top Settings) Settings {
 	out := top
 	out.Defaults = Defaults{
-		Execution:        overlayExecution(base.Defaults.Execution, top.Defaults.Execution),
-		AIProviderModels: top.Defaults.AIProviderModels,
-		EditorCommand:    firstSet(top.Defaults.EditorCommand, base.Defaults.EditorCommand),
+		InitializationProvider: firstSet(top.Defaults.InitializationProvider, base.Defaults.InitializationProvider),
+		SkillCommands:          top.Defaults.SkillCommands,
+		Execution:              overlayExecution(base.Defaults.Execution, top.Defaults.Execution),
+		AIProviderModels:       top.Defaults.AIProviderModels,
+		EditorCommand:          firstSet(top.Defaults.EditorCommand, base.Defaults.EditorCommand),
+	}
+	if out.Defaults.SkillCommands == nil {
+		out.Defaults.SkillCommands = base.Defaults.SkillCommands
 	}
 	if out.Defaults.AIProviderModels == nil {
 		out.Defaults.AIProviderModels = base.Defaults.AIProviderModels

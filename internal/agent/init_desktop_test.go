@@ -22,7 +22,7 @@ func TestDesktopInitialization(t *testing.T) {
 		{"success and retry", "claude", "", 200, "success", "success"},
 		{"MCP only", "cursor", "", 200, "success", "skipped"},
 		{"invalid provider", "custom", "", 400, "", ""},
-		{"missing provider", "", "", 400, "", ""},
+		{"workstation provider", "", "", 200, "success", "success"},
 		{"busy", "claude", "busy", 409, "", ""},
 		{"unmapped", "claude", "unmapped", 400, "", ""},
 		{"MCP failure", "claude", "mcp", 200, "failed", "not_run"},
@@ -37,6 +37,12 @@ func TestDesktopInitialization(t *testing.T) {
 			skills := []agentconfig.Skill{{ID: "implement", Directory: "code-issue", Content: "Fresh server skill"}}
 			server := initMockServer(t, "project", skills)
 			d := &agentDaemon{repoRoot: root, link: serverLink{serverURL: server.URL, token: "test-token", projectID: "project"}, loopback: loopbackServer{desktopToken: "private"}}
+			if tc.provider == "" {
+				_, err := agentconfig.UpdateSettings(d.localSettingsRoot(), func(s *agentconfig.Settings) error { s.Defaults.InitializationProvider = "claude"; return nil })
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
 			if tc.fault == "unmapped" {
 				d.link.projectID = "other"
 			}

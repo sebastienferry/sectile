@@ -789,6 +789,17 @@ func (d *agentDaemon) desktopProject(w http.ResponseWriter, r *http.Request) {
 	switch r.URL.Query().Get("action") {
 	case "initialize":
 		provider := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("provider")))
+		if provider == "" {
+			settings, err := agentconfig.ReadSettings(d.localSettingsRoot())
+			if err != nil {
+				http.Error(w, err.Error(), 500)
+				return
+			}
+			provider = settings.Defaults.InitializationProvider
+			if provider == "" {
+				provider = agentconfig.DefaultProvider
+			}
+		}
 		if _, err := agentconfig.ResolveLocations(provider); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return

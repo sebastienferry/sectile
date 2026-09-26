@@ -224,11 +224,12 @@ func withoutExecution(c agentconfig.Config) agentconfig.Config {
 
 // workstationView is what the desktop's workstation screen reads.
 type workstationView struct {
-	Defaults       agentconfig.Defaults `json:"defaults"`
-	Effective      workstationEffective `json:"effective"`
-	ProviderModels map[string][]string  `json:"providerModels"`
-	SetupProviders []string             `json:"setupProviders"`
-	Seeded         agentconfig.Seeded   `json:"seeded"`
+	GlobalConfiguration bool                 `json:"globalConfiguration"`
+	Defaults            agentconfig.Defaults `json:"defaults"`
+	Effective           workstationEffective `json:"effective"`
+	ProviderModels      map[string][]string  `json:"providerModels"`
+	SetupProviders      []string             `json:"setupProviders"`
+	Seeded              agentconfig.Seeded   `json:"seeded"`
 }
 
 // workstationEffective is what a project without a section of its own runs.
@@ -269,6 +270,17 @@ func (d *agentDaemon) desktopWorkstation(w http.ResponseWriter, r *http.Request)
 		}
 		d.prepareMu.Lock()
 		_, err := agentconfig.UpdateSettings(d.localSettingsRoot(), func(settings *agentconfig.Settings) error {
+			if input.SkillCommands == nil {
+				input.SkillCommands = settings.Defaults.SkillCommands
+			} else {
+				for id, project := range settings.ProjectSettings {
+					project.SkillCommands = nil
+					settings.ProjectSettings[id] = project
+				}
+			}
+			if input.InitializationProvider == "" {
+				input.InitializationProvider = settings.Defaults.InitializationProvider
+			}
 			settings.Defaults = input
 			return nil
 		})
@@ -306,7 +318,8 @@ func (d *agentDaemon) workstationViewOf(settings agentconfig.Settings) workstati
 		terminal = d.resolveTerminalForProject(context.Background(), "", "")
 	}
 	return workstationView{
-		Defaults: settings.Defaults,
+		GlobalConfiguration: true,
+		Defaults:            settings.Defaults,
 		Effective: workstationEffective{
 			DefaultEngine: summaryOf(settings.DefaultEngine()),
 			Terminal:      terminal, EditorCommand: editor, UseWorktrees: effective.UseWorktrees,
@@ -320,6 +333,13 @@ func (d *agentDaemon) workstationViewOf(settings agentconfig.Settings) workstati
 
 // normalizeDefaults trims what a form sends.
 func normalizeDefaults(in agentconfig.Defaults) agentconfig.Defaults {
+	in.InitializationProvider = strings.ToLower(strings.TrimSpace(in.InitializationProvider))
+	if in.SkillCommands != nil {
+		in.SkillCommands = compactStrings(in.SkillCommands)
+		if in.SkillCommands == nil {
+			in.SkillCommands = map[string]string{}
+		}
+	}
 	in.AIProvider = strings.TrimSpace(in.AIProvider)
 	in.AICommandTemplate = strings.TrimSpace(in.AICommandTemplate)
 	in.AICommandTemplateAutonomous = strings.TrimSpace(in.AICommandTemplateAutonomous)
