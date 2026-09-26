@@ -11,7 +11,8 @@ export const isProjectCompatible = (
   const t1 = (p1.issueTracker || 'local').toLowerCase().trim()
   const t2 = (p2.issueTracker || 'local').toLowerCase().trim()
   if (t1 === t2 || t1 === 'local' || t2 === 'local') return true
-  if ((p1.githubRepo || t1 === 'github') && (p2.githubRepo || t2 === 'github')) return true
+  const githubMilestones = (p: Project, t: string) => t !== 'gitlab' && (!!p.githubRepo || t === 'github')
+  if (githubMilestones(p1, t1) && githubMilestones(p2, t2)) return true
   return false
 }
 
@@ -19,9 +20,12 @@ export const isProjectCompatible = (
 export interface TrackerDefaults {
   jiraUrl?: string
   githubApiUrl?: string
+  gitlabUrl?: string
+  gitlabProject?: string
 }
 
 const DEFAULT_GITHUB_API = 'https://api.github.com'
+const DEFAULT_GITLAB_API = 'https://gitlab.com/api/v4'
 
 /** The tracker a project writes to, by the server's rule (Registry.ForProject). */
 export const trackerKindOf = (p: Project): string => {
@@ -42,8 +46,8 @@ export const trackerAddress = (raw: string | undefined): string => {
 
 /**
  * Whether a story created in target can take a macro of macroProject as its
- * parent: the same Jira site, the same GitHub repository, or the local board
- * on both sides. The server applies the same rule and has the last word; this
+ * parent: the same Jira site, the same GitHub repository, the same GitLab
+ * project, or the local board on both sides. The server applies the same rule and has the last word; this
  * one only decides what the target picker offers.
  */
 export const sameTrackerInstance = (macroProject: Project, target: Project, defaults: TrackerDefaults = {}): boolean => {
@@ -59,6 +63,11 @@ export const sameTrackerInstance = (macroProject: Project, target: Project, defa
     const api = (p: Project) => trackerAddress(p.githubApiUrl?.trim() || defaults.githubApiUrl?.trim() || DEFAULT_GITHUB_API)
     return api(macroProject) === api(target)
       && (macroProject.githubRepo || '').trim().toLowerCase() === (target.githubRepo || '').trim().toLowerCase()
+  }
+  if (kind === 'gitlab') {
+    const api = (p: Project) => trackerAddress(p.gitlabUrl?.trim() || defaults.gitlabUrl?.trim() || DEFAULT_GITLAB_API)
+    const path = (p: Project) => (p.gitlabProject?.trim() || defaults.gitlabProject?.trim() || '').replace(/^\/+|\/+$/g, '').toLowerCase()
+    return api(macroProject) === api(target) && path(macroProject) === path(target)
   }
   return false
 }
@@ -119,12 +128,26 @@ export const sprintLookup =
   async (query: string): Promise<LookupOption[]> => {
     const pool = sprints.filter(sprint => sprint.id && sprint.state !== 'closed')
     const found = pool.filter(sprint => (query.trim() ? matches(sprint.name, query) : true))
-    return found.slice(0, DEFAULT_LIMIT).map(sprint => ({
-      id: sprint.id as string,
-      label: sprint.name,
-      sublabel: sprint.state === 'active' ? 'sprint en cours' : undefined,
-    }))
+    return found.slice(0, DEFAULT_LIMIT).map(sprint => {
+      const parts = [sprintKindLabel(sprint.id), sprint.state === 'active' ? 'sprint en cours' : ''].filter(Boolean)
+      return {
+        id: sprint.id as string,
+        label: sprint.name,
+        sublabel: parts.length ? parts.join(' · ') : undefined,
+      }
+    })
   }
+
+/**
+ * The kind of a GitLab sprint, which its id carries (milestone:<id> or
+ * iteration:<id>): both are sprints there, and the picker says which. Any
+ * other tracker's sprint has one kind and no label.
+ */
+export const sprintKindLabel = (id: string | undefined): string => {
+  if (id?.startsWith('milestone:')) return 'Jalon'
+  if (id?.startsWith('iteration:')) return 'Itération'
+  return ''
+}
 
 /**
  * Valeurs déjà présentes sur les tickets, pour les filtres : un sprint, une

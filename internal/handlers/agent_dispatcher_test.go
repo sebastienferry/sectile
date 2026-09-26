@@ -595,3 +595,68 @@ func TestTryPullLocalAgentTasks(t *testing.T) {
 		t.Fatalf("unexpected activity status: %#v", act)
 	}
 }
+
+// The build an agent announces on its connection URL is kept with the
+// connection and reported by /api/agent/status; an agent that announces
+// nothing is listed as outdated with no build.
+func TestHandleAgentConnectKeepsTheAnnouncedBuild(t *testing.T) {
+	database, err := db.NewDB(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatalf("db error: %v", err)
+	}
+	defer database.Close()
+	h := handlers.NewHandler(database)
+	server := httptest.NewServer(http.HandlerFunc(h.HandleAgentConnect))
+	defer server.Close()
+	key := defaultAgentKey(t, database)
+
+	// The server registers the agent after the upgrade answer the client
+	// returns on, so the status is polled until it shows what is expected.
+	status := func(ready func(handlers.AgentConnInfo) bool) handlers.AgentConnInfo {
+		t.Helper()
+		var last string
+		for deadline := time.Now().Add(2 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+			rr := httptest.NewRecorder()
+			h.HandleAgentStatus(rr, httptest.NewRequest(http.MethodGet, "/api/agent/status", nil))
+			var res struct {
+				Agents []handlers.AgentConnInfo `json:"agents"`
+			}
+			_ = json.Unmarshal(rr.Body.Bytes(), &res)
+			if len(res.Agents) == 1 && ready(res.Agents[0]) {
+				return res.Agents[0]
+			}
+			last = rr.Body.String()
+		}
+		t.Fatalf("status never became ready: %s", last)
+		return handlers.AgentConnInfo{}
+	}
+	dial := func(query url.Values) *websocket.Conn {
+		t.Helper()
+		u, _ := url.Parse(server.URL)
+		u.Scheme = "ws"
+		query.Set("token", key)
+		query.Set("projectId", "default")
+		query.Set("deviceId", "laptop")
+		u.RawQuery = query.Encode()
+		conn, _, err := websocket.DefaultDialer.Dial(u.String(), nil)
+		if err != nil {
+			t.Fatalf("dial: %v", err)
+		}
+		return conn
+	}
+
+	announced := dial(url.Values{"agentVersion": {"v1.0.0"}, "agentCommit": {"abc"}, "operations": {"git_status,pr_evidence"}})
+	got := status(func(info handlers.AgentConnInfo) bool { return info.AgentVersion != "" })
+	if got.AgentVersion != "v1.0.0" || got.AgentCommit != "abc" || strings.Join(got.Operations, ",") != "git_status,pr_evidence" || got.Outdated == nil || !*got.Outdated {
+		t.Fatalf("announced agent = %+v", got)
+	}
+	announced.Close()
+
+	// A rebind replaces the announcement with the new agent's.
+	legacy := dial(url.Values{})
+	defer legacy.Close()
+	got = status(func(info handlers.AgentConnInfo) bool { return info.AgentVersion == "" })
+	if got.AgentVersion != "" || got.Operations != nil || got.Outdated == nil || !*got.Outdated {
+		t.Fatalf("legacy agent = %+v", got)
+	}
+}

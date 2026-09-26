@@ -86,6 +86,9 @@ func TestSameTrackerInstanceFixtures(t *testing.T) {
 	github := func(id, repo, api string) *models.Project {
 		return &models.Project{ID: id, Name: id, IssueTracker: "github", GithubRepo: repo, GithubApiUrl: api}
 	}
+	gitlab := func(id, project, api string) *models.Project {
+		return &models.Project{ID: id, Name: id, IssueTracker: "gitlab", GitlabProject: project, GitlabUrl: api}
+	}
 	local := func(id string) *models.Project { return &models.Project{ID: id, Name: id, IssueTracker: "local"} }
 	// The same fixtures as web/tests/targetProject.test.mjs.
 	cases := []struct {
@@ -101,6 +104,10 @@ func TestSameTrackerInstanceFixtures(t *testing.T) {
 		{"two local boards", local("a"), local("b"), true},
 		{"local and Jira", local("a"), jira("b", "https://x.atlassian.net"), false},
 		{"GitHub and Jira", github("a", "org/repo", ""), jira("b", "https://x.atlassian.net"), false},
+		{"one GitLab project", gitlab("a", "acme/app", ""), gitlab("b", "ACME/app/", "https://gitlab.com/api/v4"), true},
+		{"two GitLab projects", gitlab("a", "acme/app", ""), gitlab("b", "acme/other", ""), false},
+		{"another GitLab instance", gitlab("a", "acme/app", ""), gitlab("b", "acme/app", "https://gitlab.example.org/api/v4"), false},
+		{"GitLab and GitHub", gitlab("a", "org/repo", ""), github("b", "org/repo", ""), false},
 	}
 	for _, c := range cases {
 		got, reason := database.sameTrackerInstance(c.macro, c.other)

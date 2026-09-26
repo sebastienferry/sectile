@@ -43,5 +43,6 @@ contextBridge.exposeInMainWorld('localAgent',{
  attach:id=>ipcRenderer.invoke('attach',id),
  input:data=>ipcRenderer.send('terminal-input',data),
  resize:(cols,rows)=>ipcRenderer.send('terminal-resize',{cols,rows}),
+ onAgentOutdated:callback=>{const fn=(_,value)=>callback(Boolean(value));ipcRenderer.on('agent-outdated',fn);return()=>ipcRenderer.removeListener('agent-outdated',fn)},
  onOutput:callback=>{const fn=(_,data)=>callback(data);ipcRenderer.on('terminal-output',fn);return()=>ipcRenderer.removeListener('terminal-output',fn)},
 })

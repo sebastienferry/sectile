@@ -40,7 +40,11 @@ func TestSlicingImportExplainsAgentFailures(t *testing.T) {
 		failure error
 		want    string
 	}{
-		{"outdated agent", errors.New(`local agent: unknown local operation "macro_spec_file"`), "trop ancienne"},
+		{"outdated agent", &agentprotocol.UnsupportedOperationError{Device: "laptop", Build: "v0.3.0", Operation: "macro_spec_file"}, "trop ancienne"},
+		{"legacy agent", &agentprotocol.UnsupportedOperationError{Device: "laptop", Operation: "macro_spec_file"}, "trop ancienne"},
+		// The type decides, not the text: an agent's reply quoting the words is
+		// a refusal of its own.
+		{"refusal quoting the text", errors.New(`local agent: unknown local operation "macro_spec_file"`), "unknown local operation"},
 		{"no agent", fmt.Errorf("%w for project %s", handlers.ErrNoAgentConnected, project.ID), "connectez l'app desktop"},
 		{"agent refusal", errors.New("local agent: aucun dossier de spécification pour M-7 dans /x"), `"aucun dossier de spécification pour M-7 dans /x"`},
 	} {

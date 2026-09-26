@@ -49,7 +49,14 @@ type Config struct {
 	// remote first (#456). Remotes only: the workstation maps them to folders.
 	// Absent (an older server) means the code remote alone, as before.
 	Repositories []string `json:"repositories,omitempty"`
+	// SpecArtifacts is "drop" when the project keeps its tasks' clarification
+	// and specification files out of the repository (#487), else empty or
+	// "keep". After ApplyOverrides it holds this workstation's effective value.
+	SpecArtifacts string `json:"specArtifacts,omitempty"`
 }
+
+// DropsSpecArtifacts reads SpecArtifacts with its default: keep.
+func (c Config) DropsSpecArtifacts() bool { return c.SpecArtifacts == "drop" }
 
 // IsMonoRepo reads MonoRepo with its default.
 func (c Config) IsMonoRepo() bool { return c.MonoRepo == nil || *c.MonoRepo }

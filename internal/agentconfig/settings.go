@@ -86,6 +86,12 @@ func WriteSettings(settings Overrides) error {
 			updates[key] = json.RawMessage("null")
 		}
 	}
+	// A workstation that never overrode the specification artefacts keeps a
+	// file without the key, and clearing the last override removes it rather
+	// than leaving a null behind.
+	if _, ok := updates["specArtifacts"]; !ok {
+		delete(fields, "specArtifacts")
+	}
 	for key, value := range updates {
 		fields[key] = value
 	}

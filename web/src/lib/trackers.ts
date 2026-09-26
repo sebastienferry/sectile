@@ -30,12 +30,6 @@ export interface TrackerFields {
    * à un site, donc la personne, son instance et son jeton voyagent ensemble.
    */
   siteIsPersonal?: boolean
-  /**
-   * Faux tant qu'aucun adaptateur n'est enregistré côté serveur pour ce
-   * tracker : ses paramètres restent enregistrables, mais un accès personnel
-   * n'y mènerait nulle part.
-   */
-  hasAdapter?: boolean
 }
 
 export const TRACKER_CONFIGS: {
@@ -44,7 +38,6 @@ export const TRACKER_CONFIGS: {
   wantsEmail: boolean
   personalOnly?: boolean
   siteIsPersonal?: boolean
-  hasAdapter?: boolean
 }[] = [
   {
     id: 'jira',
@@ -64,7 +57,6 @@ export const TRACKER_CONFIGS: {
     label: 'GitLab',
     wantsEmail: false,
     personalOnly: true,
-    hasAdapter: false,
   },
 ]
 
@@ -86,23 +78,20 @@ export function getTrackers(t: TranslationSchema = translations.fr): TrackerFiel
 }
 
 export function personalTrackers(t: TranslationSchema = translations.fr): TrackerFields[] {
-  return getTrackers(t).filter(item => item.hasAdapter !== false)
+  return getTrackers(t)
 }
 
 export const TRACKERS: TrackerFields[] = getTrackers(translations.fr)
 
 /**
- * Les trackers dont un accès personnel sert à quelque chose : ceux que le
- * serveur sait piloter. GitLab n'a pas d'adaptateur enregistré, donc un jeton
- * personnel GitLab n'a aucun chemin d'exécution — l'écran le proposait, le
- * stockait et l'affichait comme actif pendant que rien ne s'en servait.
+ * The trackers a personal credential is useful for: the ones the server can
+ * drive. Every tracker of the list has an adapter since GitLab got one (#398).
  */
 export const PERSONAL_TRACKERS: TrackerFields[] = personalTrackers(translations.fr)
 
 /**
- * Les trackers qu'un projet peut réellement porter : ceux dont un adaptateur est
- * enregistré côté serveur (`trackerapi.NewDefaultRegistry`). GitLab n'y est pas,
- * ses paramètres se configurent sans qu'aucun projet puisse le choisir.
+ * The trackers a project can actually use: the ones with an adapter registered
+ * on the server (`trackerapi.NewDefaultRegistry`).
  *
  * Cette liste est partagée par la fiche projet et la vue de synchronisation.
  * Les deux avaient leur propre énumération, et elles ont divergé : Jira a
@@ -113,7 +102,26 @@ export const PROJECT_TRACKERS: { id: IssueTracker; label: string }[] = [
   { id: 'local', label: 'Sectile (Local)' },
   { id: 'github', label: 'GitHub Issues' },
   { id: 'jira', label: 'Jira' },
+  { id: 'gitlab', label: 'GitLab' },
 ]
+
+/**
+ * What the ticket panel and the triage table can write on a task's tracker: a
+ * person picked from the tracker's own list, a sprint, a team. It mirrors the
+ * capabilities the server adapters declare (assign, sprint, team) for the
+ * sources that have them, so the rule lives here once rather than as a
+ * `source === 'jira'` test in every component.
+ */
+export type TrackerFeature = 'assigneeLookup' | 'sprint' | 'team'
+
+const TRACKER_FEATURES: Record<string, TrackerFeature[]> = {
+  jira: ['assigneeLookup', 'sprint', 'team'],
+  gitlab: ['assigneeLookup', 'sprint', 'team'],
+}
+
+export function trackerHas(source: string | undefined, feature: TrackerFeature): boolean {
+  return (TRACKER_FEATURES[(source || '').toLowerCase()] || []).includes(feature)
+}
 
 /** Le tracker proposé à l'ouverture : celui que le projet utilise déjà. */
 export function initialTracker(issueTracker?: IssueTracker | string): TrackerKind {

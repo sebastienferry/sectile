@@ -6,6 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net/url"
+	"slices"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -59,11 +62,70 @@ type AgentConn struct {
 	DeviceID    string
 	Conn        *websocket.Conn
 	ConnectedAt time.Time
+	// Build is what the agent announced when it connected. It is set once at
+	// registration and never changes; a rebind builds a new AgentConn.
+	Build AgentBuild
 	// lastSeen holds the Unix nanoseconds of the last frame received from the
 	// agent. The read loop writes it while status handlers read it, so it is
 	// atomic rather than guarded by mu, which Send may hold for seconds.
 	lastSeen atomic.Int64
 	mu       sync.Mutex
+}
+
+// AgentBuild is what an agent announced on its connection URL. An agent that
+// predates the announcement leaves Announced false: it is still sent every
+// operation, and its refusal of an unknown one is converted afterwards.
+type AgentBuild struct {
+	Announced  bool
+	Version    string
+	Commit     string
+	Operations map[string]bool
+}
+
+// ParseAgentBuild reads the announcement parameters of an agent connection.
+// The presence of operations, even empty, is what marks an announcing agent.
+func ParseAgentBuild(query url.Values) AgentBuild {
+	build := AgentBuild{Version: query.Get("agentVersion"), Commit: query.Get("agentCommit")}
+	if !query.Has("operations") {
+		return build
+	}
+	build.Announced = true
+	build.Operations = map[string]bool{}
+	for _, op := range strings.Split(query.Get("operations"), ",") {
+		if op = strings.TrimSpace(op); op != "" {
+			build.Operations[op] = true
+		}
+	}
+	return build
+}
+
+// Supports reports whether the agent can run action. A legacy agent is given
+// the benefit of the doubt, and so is an action this server does not list.
+func (b AgentBuild) Supports(action string) bool {
+	return !b.Announced || b.Operations[action] || !slices.Contains(agentprotocol.Operations, action)
+}
+
+// Outdated reports whether the agent lacks an operation this server may ask
+// for. A legacy agent cannot say, and counts as outdated.
+func (b AgentBuild) Outdated() bool {
+	if !b.Announced {
+		return true
+	}
+	for _, op := range agentprotocol.Operations {
+		if !b.Operations[op] {
+			return true
+		}
+	}
+	return false
+}
+
+// Describe renders the build for an UnsupportedOperationError, "" when the
+// agent announced none.
+func (b AgentBuild) Describe() string {
+	if !b.Announced {
+		return ""
+	}
+	return agentprotocol.DescribeBuild(b.Version, b.Commit)
 }
 
 // Touch records that a frame just arrived from the agent.
@@ -161,12 +223,17 @@ func NewAgentDispatcher() *AgentDispatcher {
 // existing connection occupies the slot, it is terminated with close code 4001
 // (Session Rebound) and replaced by the new connection.
 func (d *AgentDispatcher) Register(userID, projectID, deviceID string, conn *websocket.Conn) *AgentConn {
-	ac := d.registerLocal(userID, projectID, deviceID, conn)
+	return d.RegisterBuild(userID, projectID, deviceID, AgentBuild{}, conn)
+}
+
+// RegisterBuild is Register for an agent whose announced build is known.
+func (d *AgentDispatcher) RegisterBuild(userID, projectID, deviceID string, build AgentBuild, conn *websocket.Conn) *AgentConn {
+	ac := d.registerLocal(userID, projectID, deviceID, build, conn)
 	d.cluster.agentConnected(ac)
 	return ac
 }
 
-func (d *AgentDispatcher) registerLocal(userID, projectID, deviceID string, conn *websocket.Conn) *AgentConn {
+func (d *AgentDispatcher) registerLocal(userID, projectID, deviceID string, build AgentBuild, conn *websocket.Conn) *AgentConn {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
@@ -185,6 +252,7 @@ func (d *AgentDispatcher) registerLocal(userID, projectID, deviceID string, conn
 		DeviceID:    deviceID,
 		Conn:        conn,
 		ConnectedAt: time.Now(),
+		Build:       build,
 	}
 	ac.Touch()
 	d.agents[key] = ac
@@ -342,13 +410,15 @@ func (d *AgentDispatcher) ConnectedAgents() []AgentConnInfo {
 
 	out := make([]AgentConnInfo, 0, len(d.agents))
 	for _, ac := range d.agents {
-		out = append(out, AgentConnInfo{
+		info := AgentConnInfo{
 			UserID:      ac.UserID,
 			ProjectID:   ac.ProjectID,
 			DeviceID:    ac.DeviceID,
 			ConnectedAt: ac.ConnectedAt,
 			LastPingAt:  ac.LastSeen(),
-		})
+		}
+		info.describeBuild(ac.Build)
+		out = append(out, info)
 	}
 	return out
 }
@@ -376,6 +446,25 @@ type AgentConnInfo struct {
 	// InstanceID names the server instance holding the connection, when
 	// several share the database.
 	InstanceID string `json:"instanceId,omitempty"`
+	// The build the agent announced, known only on the instance holding the
+	// connection: an entry held elsewhere leaves them empty and Outdated nil.
+	AgentVersion string   `json:"agentVersion,omitempty"`
+	AgentCommit  string   `json:"agentCommit,omitempty"`
+	Operations   []string `json:"operations,omitempty"`
+	Outdated     *bool    `json:"outdated,omitempty"`
+}
+
+func (info *AgentConnInfo) describeBuild(build AgentBuild) {
+	outdated := build.Outdated()
+	info.Outdated = &outdated
+	if !build.Announced {
+		return
+	}
+	info.AgentVersion, info.AgentCommit = build.Version, build.Commit
+	for op := range build.Operations {
+		info.Operations = append(info.Operations, op)
+	}
+	sort.Strings(info.Operations)
 }
 
 // clusterAgents lists the agents of every live instance. A connection held
@@ -388,6 +477,7 @@ func (d *AgentDispatcher) clusterAgents() []AgentConnInfo {
 		d.mu.RLock()
 		if ac, ok := d.agents[agentKey{UserID: l.UserID, ProjectID: l.ProjectID}]; ok {
 			info.LastPingAt = ac.LastSeen()
+			info.describeBuild(ac.Build)
 		}
 		d.mu.RUnlock()
 		out = append(out, info)

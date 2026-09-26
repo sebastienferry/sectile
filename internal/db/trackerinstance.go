@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"tasks/internal/models"
+	"tasks/internal/trackerapi"
 )
 
 // defaultGithubAPI is what an empty GitHub API URL resolves to.
@@ -71,6 +72,19 @@ func (d *DB) sameTrackerInstance(macroProject, target *models.Project) (bool, st
 			return false, fmt.Sprintf("le projet cible « %s » est un autre dépôt GitHub (%s) : un milestone de %s ne peut pas y rattacher la story", target.Name, target.GithubRepo, macroProject.GithubRepo)
 		}
 		return true, ""
+	case "gitlab":
+		// The macro is a pair of labels, which any project of the instance
+		// could carry; the rule stays GitHub's until the owner widens it
+		// (spec #398, open point O2).
+		macroAPI, targetAPI := trackerAddress(d.gitlabAPIOf(macroProject)), trackerAddress(d.gitlabAPIOf(target))
+		if macroAPI != targetAPI {
+			return false, fmt.Sprintf("le projet cible « %s » est sur une autre instance GitLab (%s, la macro sur %s)", target.Name, targetAPI, macroAPI)
+		}
+		macroPath, targetPath := d.gitlabProjectOf(macroProject), d.gitlabProjectOf(target)
+		if !strings.EqualFold(macroPath, targetPath) {
+			return false, fmt.Sprintf("le projet cible « %s » est un autre projet GitLab (%s) : une macro de %s ne peut pas y rattacher la story", target.Name, orUnknown(targetPath), orUnknown(macroPath))
+		}
+		return true, ""
 	}
 	return false, fmt.Sprintf("le projet cible « %s » utilise le tracker %s, qui ne permet pas de rattacher la story à la macro", target.Name, targetKind)
 }
@@ -96,6 +110,28 @@ func (d *DB) githubAPIOf(p *models.Project) string {
 		}
 	}
 	return orDefault(api, defaultGithubAPI)
+}
+
+// gitlabAPIOf and gitlabProjectOf resolve a project's GitLab instance and
+// project path the same way.
+func (d *DB) gitlabAPIOf(p *models.Project) string {
+	api := strings.TrimSpace(p.GitlabUrl)
+	if api == "" {
+		if settings, err := d.getSettingsUnsafe(); err == nil && settings != nil {
+			api = strings.TrimSpace(settings.GitlabUrl)
+		}
+	}
+	return orDefault(api, trackerapi.DefaultGitlabURL)
+}
+
+func (d *DB) gitlabProjectOf(p *models.Project) string {
+	path := strings.TrimSpace(p.GitlabProject)
+	if path == "" {
+		if settings, err := d.getSettingsUnsafe(); err == nil && settings != nil {
+			path = strings.TrimSpace(settings.GitlabProject)
+		}
+	}
+	return strings.Trim(path, "/")
 }
 
 func orDefault(value, fallback string) string {

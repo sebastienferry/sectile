@@ -26,7 +26,11 @@ type Overrides struct {
 	CommandsAutonomous map[string]string `json:"commandsAutonomous,omitempty"`
 	Parallelism        map[string]int    `json:"parallelism,omitempty"`
 	Worktrees          map[string]bool   `json:"worktrees,omitempty"`
-	Projects           map[string]string `json:"projects"`
+	// SpecArtifacts overrides, per project, whether this workstation keeps or
+	// drops the tasks' specification artefacts (#487): "keep" or "drop". No
+	// entry follows the server.
+	SpecArtifacts map[string]string `json:"specArtifacts,omitempty"`
+	Projects      map[string]string `json:"projects"`
 	// SpecRepos maps a project to its specifications folder on this
 	// workstation, a Git checkout or a plain folder. Only overrides are
 	// stored: without one, a mono-repo project uses its code checkout and a
@@ -67,6 +71,9 @@ func ReadOverrides(root string) (Overrides, error) {
 func ApplyOverrides(c Config, overrides Overrides) Config {
 	if value, ok := overrides.Worktrees[c.ProjectID]; ok {
 		c.UseWorktrees = value
+	}
+	if value, ok := overrides.SpecArtifacts[c.ProjectID]; ok && (value == "keep" || value == "drop") {
+		c.SpecArtifacts = value
 	}
 	serverCommand := c.AICommandTemplate
 	serverAutonomous := c.AICommandTemplateAutonomous

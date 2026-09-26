@@ -325,6 +325,7 @@ func Run(args []string) {
 
 	log.Printf("🚀 Sectile Agent starting (server=%s, project=%s, device=%s)", daemon.link.serverURL, daemon.link.projectID, daemon.link.deviceID)
 
+	daemon.loopback.binarySha256 = executableSha256()
 	// Start local agent HTTP reverse proxy gateway
 	if err := daemon.startLocalProxy(ctx); err != nil {
 		log.Printf("[Agent] Cannot bootstrap MCP without the local gateway: %v", err)
@@ -589,6 +590,15 @@ func (d *agentDaemon) buildWSURL() (string, error) {
 	q := u.Query()
 	q.Set("projectId", d.link.projectID)
 	q.Set("deviceId", d.link.deviceID)
+	// The build and the operations this agent dispatches, so the server can
+	// name an agent too old for what it asks instead of relaying blindly. A
+	// server that predates them ignores the parameters.
+	build := version.Current()
+	q.Set("agentVersion", build.Version)
+	if build.Commit != "" {
+		q.Set("agentCommit", build.Commit)
+	}
+	q.Set("operations", strings.Join(agentprotocol.Operations, ","))
 	u.RawQuery = q.Encode()
 
 	return u.String(), nil
@@ -1087,6 +1097,7 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 	if payload.SkillID == "specify" || payload.SkillID == "implement" {
 		payload.Prompt += "\nPreserve accepted artifacts and code on retry. If this is PR recovery, retain the attained task stage and complete the configured creation owner checks without advancing to reviewed."
 	}
+	payload.Prompt += specArtifactsNotice(config, payload.SkillID)
 
 	if payload.RunID != "" {
 		payload.Prompt += fmt.Sprintf("\nRemote execution runId: %s. Reuse this ID with start_run and finish it using finish_run when the entire skill ends.", payload.RunID)

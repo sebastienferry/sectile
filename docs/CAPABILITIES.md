@@ -21,7 +21,7 @@ Sectile supports multiple concurrent software repositories and projects from a s
 - **Isolated Project Configurations**:
   - `repo_path`: Local filesystem path to the project repository.
   - `git_remote_url`: Remote Git repository URL.
-  - `issue_tracker`: Tracker provider (`github`, `jira`, or `local`).
+  - `issue_tracker`: Tracker provider (`github`, `gitlab`, `jira`, or `local`).
   - `tracker_columns` / `stage_columns`: Board columns, the tracker statuses they group, and the workflow stage each column carries. This is what maps a Sectile stage onto an external tracker state.
   - `skill_overrides`: Project-specific prompt template overrides.
   - `repositories`: On a multi-repo project, the remotes its tickets work in, the code remote first. A ticket is pinned to one of them and runs in a worktree of it; the others are context the agent is told not to change (an instruction, not enforced), and a skill asks for a worktree in one before changing it, which then needs its own pull request (#456, ADR 0028).
@@ -72,7 +72,8 @@ See [ADR 0013](adrs/0013-roles-owned-executions-and-local-sign-in.md) and
 
 ## 2. Issue Tracker Abstraction Layer
 
-The server owns native GitHub REST/GraphQL and Jira Cloud REST adapters. It
+The server owns native GitHub REST/GraphQL, GitLab REST/GraphQL and Jira Cloud
+REST adapters. It
 synchronizes, creates and updates issues and comments using explicit
 credentials, even with all local agents offline. A credential may belong to the
 person who asked for the operation rather than to the server, and it travels
@@ -84,8 +85,19 @@ operations and issue transfer. Jira additionally exposes what a board is made of
 read side of the ticketing abstraction, and writes sprint, team and epic. Local
 tasks stay in SQLite.
 
+GitLab, on gitlab.com or a self-managed instance, has the Jira adapter's reach
+without its epics: issues created, read, updated, closed or deleted, full and
+incremental synchronisation, notes, labels, assignee, board lists as columns,
+sprints read and managed, teams, and the merge requests related to an issue.
+Its mapping stays on labels wherever GitHub already uses them: the stage is a
+`#<stage>` label, the macro a `macro:` / `parent:` pair, and the team the one
+scoped label Sectile writes, `team::<name>`. A sprint is a project milestone or,
+on Premium, a group iteration, and its id says which (`milestone:<id>`,
+`iteration:<id>`); a Free instance simply lists no iteration. See
+[ADR 0030](adrs/0030-gitlab-tracker-mapping.md).
+
 GitHub also answers which pull requests belong to an issue, through its closing
-references. A full synchronisation uses it to **rediscover pull requests** a
+references, and GitLab through the merge requests it relates to the issue. A full synchronisation uses it to **rediscover pull requests** a
 local store never recorded, which is what lets a project recreated on a second
 instance come back with its links instead of empty ones. The read is a declared
 capability, so a tracker that cannot answer is skipped silently; discovery is
@@ -96,8 +108,9 @@ failures. Detaching every link from a task suppresses automatic rediscovery for
 it; a synchronisation triggered on that single task rediscovers anyway. See
 [ADR 0017](adrs/0017-pull-requests-are-rediscovered-on-sync.md).
 
-Projects specify `githubRepo` (`owner/repository`) or `jiraProject` (the Jira
-project key) with `trackerUrl` (the site).
+Projects specify `githubRepo` (`owner/repository`), `gitlabProject`
+(`group/sub/project`) with an optional `gitlabUrl` (the instance's REST API), or
+`jiraProject` (the Jira project key) with `trackerUrl` (the site).
 Workstation CLI credentials and local repository paths are never used by the
 server. Remote writes remain queued and their actual HTTP/API failures appear
 in Activities. See [server credential configuration](../README.md#server-tracker-credentials).
