@@ -122,6 +122,15 @@ two bounds rather than one.
   so. Eight hours was preferred to the 24 first proposed: a run waiting on its
   owner through a working day survives it, and a dead client no longer holds the
   board overnight.
+- **The server pings, and a missed ping only closes what owns nothing (#517).**
+  A proxy cut the silent `GET /mcp` stream after 50 seconds, and clients then
+  opened a new session every ~152 seconds, each orphan held until the abandon
+  bound. The registry now pings every session (`SECTILE_MCP_KEEPALIVE_INTERVAL`,
+  25s) and closes one that owns no run after `SECTILE_MCP_KEEPALIVE_FAILURES`
+  (3) unanswered pings with no client message in between. A session owning a
+  run is left to the bounds above, and a ping reply is not the client speaking.
+  go-sdk's own `ServerOptions.KeepAlive` was rejected: the session it closes
+  goes through `Close`, which cancels adopted runs.
 - **The verdict stays reversible.** The owner may still report the real outcome
   through `finish_run`, as for any disconnection. The rewrite now matches the
   disconnect note anywhere in the summary: matched as a prefix, it missed every

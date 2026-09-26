@@ -644,6 +644,15 @@ disconnection canceled can still be reported by its owner afterwards. A run reus
 a launcher keeps its dispatching agent as owner, since that agent already watches
 the real process.
 
+The server also pings every session, every `SECTILE_MCP_KEEPALIVE_INTERVAL`
+(25 seconds by default), so that a proxy in front of it never cuts a client's
+idle event stream and makes the client start over with a new session. A session
+that owns no run and whose client neither answers
+`SECTILE_MCP_KEEPALIVE_FAILURES` pings in a row (3 by default) nor sends
+anything in between is closed at once. A session that owns a run is only ever
+closed by the two bounds above. Answering a ping does not count as the client
+speaking, so it does not delay the silence note.
+
 `GET /api/mcp/sessions` lists the live sessions, what each client calls itself,
 and the runs it owns, and how long each client has been attached.
 `SECTILE_MCP_CLIENT` names a bridge in that list. A run a
