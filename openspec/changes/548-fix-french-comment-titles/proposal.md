@@ -8,11 +8,11 @@ English. This gives two adjacent report types inconsistent titles.
 
 ## What Changes
 
-- Translate the generated tracker-comment heading for the `clarified` stage.
-- Translate the generated tracker-comment heading for the `specified` stage.
-- Cover both generated headings with focused automated tests.
+- Translate the generated tracker-comment headings for the `clarified`,
+  `specified`, `implemented`, and `reviewed` stages.
+- Cover all generated English headings with focused automated tests.
 
 ## Scope
 
-Only the two headings change. Report bodies, other workflow-stage headings,
+Only these four headings change. Report bodies, other workflow-stage headings,
 workflow transitions, and existing French runtime strings do not change.

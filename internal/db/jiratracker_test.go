@@ -263,12 +263,14 @@ func jiraTestDB(t *testing.T, fake *fakeTracker) (*DB, *models.Project) {
 	return database, project
 }
 
-func TestStageReportsUseEnglishClarificationAndSpecificationTitles(t *testing.T) {
+func TestStageReportsUseEnglishTitles(t *testing.T) {
 	for _, test := range []struct {
 		name, stage, heading string
 	}{
 		{"clarification", "clarified", "### 💬 [Sectile] Clarification Report"},
 		{"specification", "specified", "### 📋 [Sectile] Technical Specification & Implementation Plan"},
+		{"implementation", "implemented", "### ⚡ [Sectile] Implementation Report"},
+		{"review", "reviewed", "### 🚀 [Sectile] Code Review & PR Preparation"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			fake := newFakeTracker()
