@@ -528,6 +528,15 @@ after the silence sentence; their owner may still report the real outcome. The
 rewrite matches the disconnect note anywhere in the summary, so a run silenced
 and then closed stays recoverable.
 
+The server pings every session every `SECTILE_MCP_KEEPALIVE_INTERVAL` (25s by
+default) over the standalone `GET /mcp` stream, so a proxy never finds that
+stream idle. A session that owns no run is closed, transport included, once
+`SECTILE_MCP_KEEPALIVE_FAILURES` pings in a row (3 by default) got no answer and
+its client sent nothing in between. A session that owns a run is never closed by
+a missed ping: the silence and abandon bounds above still decide for it. A ping
+reply is not a client message and does not reset the silence. An unusable value
+of either setting keeps its default.
+
 A run a client created has no agent to stop. `POST /api/tasks/{id}/cancel-run`
 closes it instead, for its owner or an administrator only (an ownerless run is an
 administrator's), through the same path as `finish_run`: status `canceled`, the

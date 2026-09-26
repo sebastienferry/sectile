@@ -73,11 +73,15 @@ func (d *DB) startMacroRun(projectID, macroKey, skill, runID string, agentOwned 
 			return nil, err
 		}
 		if activity == nil || activity.ProjectID != project.ID || activity.TaskID != "" || activity.SkillID != "remote_run" ||
-			activity.Status != "running" || !strings.EqualFold(d.macroKeyOfActivity(runID), macro.Key) {
-			return nil, fmt.Errorf("remote run does not match an active execution on this macro")
+			!strings.EqualFold(d.macroKeyOfActivity(runID), macro.Key) {
+			return nil, adoptionRefusal(nil, "macro")
 		}
-		activity.MacroKey = macro.Key
-		return activity, nil
+		adopted, err := d.adoptRun(activity, "macro")
+		if err != nil {
+			return nil, err
+		}
+		adopted.MacroKey = macro.Key
+		return adopted, nil
 	}
 	if strings.TrimSpace(skill) == "" {
 		return nil, fmt.Errorf("skill is required")
@@ -222,10 +226,11 @@ func (d *DB) FinishMacroRunAs(caller Actor, admin bool, projectID, macroKey, run
 	// stays correctable by the identified owner, and only by them: the
 	// server's own closure names nobody and must never rewrite an outcome it
 	// just recorded.
-	closable := "status='running'"
+	// A queued run is closable as well, as for a task run (#499).
+	closable := "status IN ('running', 'queued')"
 	args := []any{status, summary, time.Now(), runID, project.ID}
 	if strings.TrimSpace(caller.ID) != "" {
-		closable = "(status='running' OR (status='canceled' AND summary LIKE ?))"
+		closable = "(status IN ('running', 'queued') OR (status='canceled' AND summary LIKE ?))"
 		args = append(args, "%"+models.RunDisconnectNote+"%")
 	}
 	d.mu.Lock()

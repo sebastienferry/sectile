@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -58,6 +59,32 @@ func mcpAbandonAfter(silence time.Duration) time.Duration {
 		return silence
 	}
 	return abandon
+}
+
+// mcpKeepaliveInterval reads how often the server pings each MCP session
+// (#517), under the same rules as the other bounds: unset, unparseable or
+// non-positive keeps the default.
+func mcpKeepaliveInterval() time.Duration {
+	raw := strings.TrimSpace(os.Getenv("SECTILE_MCP_KEEPALIVE_INTERVAL"))
+	if raw == "" {
+		return taskmcp.DefaultKeepaliveInterval
+	}
+	interval, err := time.ParseDuration(raw)
+	if err != nil || interval <= 0 {
+		return taskmcp.DefaultKeepaliveInterval
+	}
+	return interval
+}
+
+// mcpKeepaliveFailures reads how many pings in a row a session owning no run
+// may miss before it is closed. Unset, unparseable or non-positive keeps the
+// default.
+func mcpKeepaliveFailures() int {
+	failures, err := strconv.Atoi(strings.TrimSpace(os.Getenv("SECTILE_MCP_KEEPALIVE_FAILURES")))
+	if err != nil || failures <= 0 {
+		return taskmcp.DefaultKeepaliveFailures
+	}
+	return failures
 }
 
 // AgentAPIAuth shares the agent handshake's identity policy: every machine

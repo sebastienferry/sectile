@@ -94,6 +94,7 @@ func NewHandler(database *db.DB) *Handler {
 		agentPingInterval: defaultAgentPingInterval,
 		agentReadTimeout:  defaultAgentReadTimeout,
 	}
+	h.mcpSessions.SetKeepalive(mcpKeepaliveInterval(), mcpKeepaliveFailures())
 	if database != nil {
 		database.SetAgentOperations(h.agentDispatcher.CallOperation)
 		h.mcpSessions.SetWaiter(database)
