@@ -1,5 +1,6 @@
 import { PullRequestStateIcon } from './PullRequestStateIcon'
 import { RemoteRunBadge } from './RemoteRunBadge'
+import { BatchBadge } from './BatchBadge'
 import { CopyTaskSkillMenu } from './CopyTaskSkillMenu'
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import {
@@ -591,6 +592,13 @@ export const TaskDetailModal: React.FC = () => {
         {renderCopyKeyButton(selectedTask.key)}
       </span>
     </span>
+  )
+
+  // The board's copy of the ticket is refetched on every event, where the
+  // selection keeps the task of the event that last named it: a batch that
+  // ended through another ticket would otherwise stay shown here (#522).
+  const renderBatchBadge = () => (
+    <BatchBadge task={tasks.find(task => task.id === selectedTask.id) ?? selectedTask} />
   )
 
   const renderIssueTypeSelector = () => {
@@ -1638,6 +1646,7 @@ export const TaskDetailModal: React.FC = () => {
               <div className="flex items-center gap-2.5 min-w-0">
                 {renderTaskRef()}
                 {renderIssueTypeSelector()}
+                {renderBatchBadge()}
               </div>
 
               {/* Right: Quick switcher to Modal, PR Link, Delete, Close */}
@@ -1850,6 +1859,7 @@ export const TaskDetailModal: React.FC = () => {
           <div className="flex items-center gap-3">
             {renderTaskRef()}
             {renderIssueTypeSelector()}
+            {renderBatchBadge()}
           </div>
 
           <div className="flex items-center gap-2">

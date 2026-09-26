@@ -375,7 +375,10 @@ and restarted before this action is available.
 Every execution setting belongs to the workstation (ADR 0031): the engines,
 the model list of each provider, the terminal, the editor, worktrees, parallel
 executions (1 to 10), the extra agents that get the skills and MCP, and the
-command name each stage runs. The web interface offers none of them and the
+command name each stage runs. The editor is picked from **None**, **VS Code**,
+**Cursor**, **Zed**, **Sublime Text** or **Custom command…**, whose text is
+run with the folder appended; **None**, the default, hides the toolbar's
+editor button. The web interface offers none of them and the
 server neither stores nor uses them.
 
 An engine (ADR 0033) is a named AI CLI profile: provider, model, per-skill
@@ -624,6 +627,13 @@ same glyph and wording as the sidebar row and the desktop notification. Below
 it, the execution's checkout path is a control: click it to copy the path to
 the clipboard, confirmed by a short **Copied**; the text also stays selectable
 for a manual copy.
+
+When an editor is chosen in **Settings → Execution defaults**, a code icon
+follows the path: **Open in <editor>** opens the execution's checkout in that
+editor. The desktop only names the execution; the local agent looks up its
+folder and refuses, with its reason, when the folder is gone or no editor is
+set. Without a chosen editor, or with an agent that predates the button, the
+path stands alone.
 
 The controls whose action does not depend on the workflow stage — relaunch, log
 export, the **Console** / **Changes** switch, and the linked pull request — are

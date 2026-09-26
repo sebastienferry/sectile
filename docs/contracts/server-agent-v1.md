@@ -456,6 +456,15 @@ workflow chain.
 Nested skills reuse their owner's run; intermediate transitions do not close it.
 These activities never acquire the managed-stage transition guard.
 
+A batch pickup (`pickup_issues`) is one run on the batch's first ticket, whose
+other tickets the server records as its members (ADR 0034). The agent reuses the
+launch run ID on every ticket: `start_run(taskKey, skill, runId)` on a member
+with the batch run's ID returns the batch run, creates no run, and marks that
+member as the one being processed, the previous one becoming done. The same call
+on a ticket outside the batch, or with a batch run that ended, is refused as any
+unmatched `runId` is. `finish_run` is called once, on the first ticket, when the
+whole batch ends; every member stops showing the batch then.
+
 Cards and list rows display a single run icon while a run is active: running takes
 precedence over queued, and a cancellation stays visible briefly, updated
 through server events and polling. Reading a task alone never marks it running.
@@ -744,6 +753,15 @@ catalogue. The desktop then uses:
 - `PUT /desktop/task-engines` with `{projectId, taskId, engineId}`: stores the
   task's engine, none when it is the project default engine; 404 when the
   engine is not in the catalogue. The capability report does not change.
+
+`GET /desktop/status` advertises `open-editor` when the agent opens an
+execution's folder in the workstation editor (#535). `POST
+/desktop/open-editor` with `{runId}` takes the folder from the run, never from
+the request, and starts `defaults.editorCommand` on it the way the
+`open_editor` operation does. It answers `{editor, directory}`; 400 without a
+run ID, 404 for an unknown run, 409 when the run has no folder or no editor is
+set (it never falls back to `code`), 410 when the folder no longer exists, and
+500 with the launch error.
 
 `repositories` maps each repository of a multi-repo project, by its
 `host/path` identity, to the folder holding its checkout on this workstation
