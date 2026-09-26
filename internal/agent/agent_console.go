@@ -14,14 +14,15 @@ import (
 // consoleRunKind marks a free console run, which holds no background worker capacity.
 const consoleRunKind = "console"
 
-// consoleCommand opens the picked engine against the model the project resolves,
-// so a free console runs on the same model as the project's skills.
+// consoleCommand opens a built-in provider without an initial prompt.
 func consoleCommand(provider, model string) (string, error) {
 	switch provider {
-	case "codex", "claude":
+	case "codex", "claude", "agy", "gemini", "vibe":
 		return strings.TrimRight("exec "+provider+" "+strings.Join(agentconfig.ModelArgs(provider, model), " "), " "), nil
+	case "cursor":
+		return strings.TrimSpace("exec cursor agent " + strings.Join(agentconfig.ModelArgs(provider, model), " ")), nil
 	default:
-		return "", fmt.Errorf("select Codex or Claude")
+		return "", fmt.Errorf("select a supported AI engine")
 	}
 }
 
@@ -34,14 +35,15 @@ func (d *agentDaemon) desktopConsole(w http.ResponseWriter, r *http.Request) {
 	var input struct {
 		ProjectID string `json:"projectId"`
 		Provider  string `json:"provider"`
+		EngineID  string `json:"engineId"`
 	}
 	if json.NewDecoder(http.MaxBytesReader(w, r.Body, 8192)).Decode(&input) != nil || strings.TrimSpace(input.ProjectID) == "" {
-		http.Error(w, "Project and provider required", http.StatusBadRequest)
+		http.Error(w, "Project and AI engine required", http.StatusBadRequest)
 		return
 	}
 	// The provider is checked before anything is fetched; the command itself is
 	// built once the overrides are applied and the model is known.
-	if _, err := consoleCommand(input.Provider, ""); err != nil {
+	if _, err := consoleCommand(input.Provider, ""); input.EngineID == "" && err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -58,8 +60,26 @@ func (d *agentDaemon) desktopConsole(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := uuid.NewString()
+	var engine agentconfig.Engine
+	if input.EngineID != "" {
+		var found bool
+		engine, found = overrides.Engine(input.EngineID)
+		if !found {
+			http.Error(w, "This engine is no longer in the catalogue", http.StatusNotFound)
+			return
+		}
+		// This choice applies to this launch only.
+		overrides.SetProjectEngine(input.ProjectID, engine.ID)
+	}
 	config = agentconfig.Resolve(config, overrides)
-	command, err := consoleCommand(input.Provider, agentconfig.ResolveModel(config, ""))
+	provider := input.Provider
+	if input.EngineID != "" {
+		provider = config.AIProvider
+	}
+	command, err := consoleCommand(provider, agentconfig.ResolveModel(config, ""))
+	if input.EngineID != "" && config.AICommandTemplate != "" {
+		command, err = expandConfiguredTemplate(config.AICommandTemplate, config.AIModel, "", false, agentCommandContext{Directory: root})
+	}
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -71,7 +91,9 @@ func (d *agentDaemon) desktopConsole(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusConflict)
 		return
 	}
-	run.desktop.Kind, run.desktop.Provider = consoleRunKind, input.Provider
+	run.desktop.Kind, run.desktop.Provider = consoleRunKind, provider
+	run.desktop.EngineID, run.desktop.EngineName = engine.ID, engine.Name
+	run.desktop.Model = config.AIModel
 	entry := run.desktop
 	d.queue.mu.Unlock()
 	// The daemon owns the execution after admission, independently of the request.

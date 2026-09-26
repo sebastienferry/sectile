@@ -15,6 +15,8 @@ test fixtures or internal plumbing.
 
 ### Added
 
+- **Project prompt for every desktop AI engine.** The former Open agent console action now offers the workstation engine catalogue, including Codex and custom engines, starts with the project default, and preserves the selected engine’s model and interactive command when launching or relaunching.
+
 - **Several AI engines, switched per task from the desktop.** Sectile Desktop keeps a catalogue of named engines on your workstation, each a full AI CLI profile (provider, model, per-skill models, interactive and headless commands), edited under **Settings → Execution defaults → Engines**, one of them the default. The ticket list shows each task's engine as an icon; clicking it hands the task to the next engine, and every launch of that task on this workstation uses it, whether started from the desktop, the web, a relaunch or a full chain. A one-off launch model applies only on the project's default engine. (#510)
 
 - **Light mode for Sectile Desktop.** The desktop app now has a light appearance next to its dark one. A new **Appearance** category in the desktop settings offers System, Dark and Light; System, the default, follows your computer's appearance, so a desktop on a light system turns light after the update. The whole window follows the choice at once, the console included, without a restart. The web interface keeps its own theme. (#507)
