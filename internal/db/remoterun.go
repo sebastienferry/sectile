@@ -87,10 +87,18 @@ func (d *DB) startRemoteRun(taskKey, skill, runID string, agentOwned bool, launc
 		if err != nil {
 			return nil, err
 		}
-		if activity == nil || activity.TaskID != task.ID || activity.SkillID != "remote_run" {
+		if activity == nil || activity.SkillID != "remote_run" {
 			return nil, adoptionRefusal(nil, "task")
 		}
-		return d.adoptRun(activity, "task")
+		if activity.TaskID != task.ID {
+			return d.reportBatchMember(activity, task)
+		}
+		adopted, err := d.adoptRun(activity, "task")
+		if err == nil {
+			// The lead of a batch reported again takes the mark back.
+			d.markBatchMember(adopted, task)
+		}
+		return adopted, err
 	}
 	if strings.TrimSpace(skill) == "" {
 		return nil, fmt.Errorf("skill is required")
@@ -115,7 +123,7 @@ func (d *DB) startRemoteRun(taskKey, skill, runID string, agentOwned bool, launc
 		activity.Concurrent = true
 	}
 	if err := d.AddTaskActivity(*activity); err != nil {
-		return nil, d.taskBusy(task.ID, err)
+		return nil, d.taskBusy(task, err)
 	}
 	launch.Stage = d.StageOfTask(task)
 	if launch.Mode != "" || launch.Stage != "" || launch.ChainStop != "" {
@@ -126,6 +134,49 @@ func (d *DB) startRemoteRun(taskKey, skill, runID string, agentOwned bool, launc
 	}
 	d.notifyPostBackListeners(task, activity, nil)
 	return activity, nil
+}
+
+// reportBatchMember is start_run with a batch run's id on another ticket of that
+// batch: the agent says it starts working on that ticket (#522). The batch run
+// is returned as it is and no run is created. A ticket outside the batch, or a
+// batch run that already ended, is refused as any unmatched runId is.
+func (d *DB) reportBatchMember(batchRun *models.TaskActivity, task *models.Task) (*models.TaskActivity, error) {
+	if batchRun.Status != "running" && batchRun.Status != "queued" {
+		return nil, adoptionRefusal(batchRun, "task")
+	}
+	member, previous, err := d.MarkBatchMemberProcessing(batchRun.ID, task.ID)
+	if err != nil {
+		return nil, err
+	}
+	if !member {
+		return nil, adoptionRefusal(nil, "task")
+	}
+	adopted, err := d.adoptRun(batchRun, "task")
+	if err != nil {
+		return nil, err
+	}
+	d.notifyBatchMembers(batchRun.ID, nonEmpty(task.ID, previous)...)
+	return adopted, nil
+}
+
+// markBatchMember moves the processing mark of the batch run to task, when the
+// run is a batch and task one of its members, and announces what changed.
+func (d *DB) markBatchMember(batchRun *models.TaskActivity, task *models.Task) {
+	member, previous, err := d.MarkBatchMemberProcessing(batchRun.ID, task.ID)
+	if err != nil || !member || previous == "" {
+		return
+	}
+	d.notifyBatchMembers(batchRun.ID, task.ID, previous)
+}
+
+func nonEmpty(values ...string) []string {
+	out := values[:0:0]
+	for _, v := range values {
+		if v != "" {
+			out = append(out, v)
+		}
+	}
+	return out
 }
 
 // adoptRun hands a session the run its launcher created. The agent may have
@@ -278,6 +329,14 @@ func (d *DB) finishRemoteRun(taskKey, runID, status, note string, authorize func
 	// idempotent, and a second report must not enqueue a second chain step.
 	if count == 1 {
 		d.handBackRun(task.ID, runID, status)
+		// The tickets of a batch stop showing it. The lead is read again as
+		// well, so the task this notification carries has no batch left.
+		if members := d.batchMemberIDs(runID); len(members) > 0 {
+			if fresh, err := d.GetTaskByID(task.ID); err == nil && fresh != nil {
+				task = fresh
+			}
+			d.notifyBatchMembers(runID, members[1:]...)
+		}
 	}
 	activity, err := d.GetActivityByID(runID)
 	if err != nil {
