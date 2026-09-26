@@ -240,7 +240,8 @@ func (d *agentDaemon) admitProjectRun(ctx context.Context, taskID string, payloa
 	if err != nil {
 		return nil, err
 	}
-	config = agentconfig.Resolve(config, overrides)
+	// A macro run has no task and runs the project default engine.
+	config = agentconfig.ResolveTask(config, overrides, taskID)
 	mode := liveSessionMode(payload.SkillID, payload.Action, payload.Mode)
 	if models.NormalizeSkillMode(mode) == models.SkillModeAutonomous {
 		if !models.SupportsAutonomousRun(config.AIProvider, config.AICommandTemplate, config.AICommandTemplateAutonomous) {
@@ -249,9 +250,9 @@ func (d *agentDaemon) admitProjectRun(ctx context.Context, taskID string, payloa
 				provider = "agy"
 			}
 			if strings.TrimSpace(config.AICommandTemplate) != "" {
-				return nil, fmt.Errorf("the configured AI command template decides the execution mode: add a {mode:AUTONOMOUS|INTERACTIVE} placeholder to it, or run this skill interactively")
+				return nil, engineError(config, fmt.Errorf("the configured AI command template decides the execution mode: add a {mode:AUTONOMOUS|INTERACTIVE} placeholder to it, or run this skill interactively"))
 			}
-			return nil, fmt.Errorf("provider %q has no headless mode: run this skill interactively, or configure an AI command template carrying a {mode:AUTONOMOUS|INTERACTIVE} placeholder", provider)
+			return nil, engineError(config, fmt.Errorf("provider %q has no headless mode: run this skill interactively, or configure an AI command template carrying a {mode:AUTONOMOUS|INTERACTIVE} placeholder", provider))
 		}
 	}
 	return d.enqueueRun(taskID, payload, config.ProjectID, root, agentconfig.ExecutionLimit(config.ProjectID, config.UseWorktrees, overrides), config.UseWorktrees)
