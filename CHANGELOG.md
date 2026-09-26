@@ -84,6 +84,8 @@ test fixtures or internal plumbing.
 
 ### Changed
 
+- **Rename a task from its sidebar row.** In Sectile Desktop, the **…** button of a task row gives way to a pencil that turns the task's title into a field: Enter or clicking away saves the local name, Escape cancels. Relaunch and Detach to native terminal stay in the toolbar of the selected task, and Archive on the row. (#513)
+
 - **The desktop workflow button says what is running.** While an execution of the selected task is active or being launched, the console toolbar button reads `Current: <skill>` (for example `Current: Pickup`) instead of a greyed-out `Next:`, including on a finished task; it proposes `Next: <step>` again once the execution ends. (#500)
 
 - **Execution settings belong to each workstation.** The AI provider, the models and per-skill models, the model list of each provider, the interactive and headless commands, the terminal, the editor, worktrees, parallelism, the extra agents that get the skills, and the command name each stage runs are now set in the desktop app, for the workstation and per project, and no longer in the web interface; the server stops storing or using them. An existing workstation takes over the values the server held, once, on its first connection, and keeps running what it ran before. The web model picker and the engine badge of a card now show what your connected workstation will run, and say "Engine unknown" when none of your agents is connected for the project. Upgrade the local agent together with the server: an older agent receives no execution setting from the new server and falls back to its own defaults. (#305)
