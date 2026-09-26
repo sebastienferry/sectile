@@ -1,0 +1,257 @@
+device_credentials.created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+device_credentials.expires_at DATETIME
+device_credentials.id TEXT PRIMARY KEY
+device_credentials.label TEXT NOT NULL DEFAULT ''
+device_credentials.last_seen DATETIME
+device_credentials.revoked_at DATETIME
+device_credentials.token_hash TEXT NOT NULL
+device_credentials.user_id TEXT NOT NULL
+index idx_activities_created on task_activities
+index idx_activities_project on task_activities
+index idx_activities_status on task_activities
+index idx_activities_task on task_activities
+index idx_device_credentials_user on device_credentials
+index idx_macros_project on macros
+index idx_task_comments_task on task_comments
+index idx_tasks_assignee on tasks
+index idx_tasks_parent on tasks
+index idx_tasks_pinned on tasks
+index idx_tasks_position on tasks
+index idx_tasks_project on tasks
+index idx_tasks_sprint on tasks
+index idx_tasks_status on tasks
+index idx_tasks_team on tasks
+index idx_team_members_name on team_members
+index idx_teams_project on teams
+index idx_user_project_bookmarks_project on user_project_bookmarks
+index idx_user_project_bookmarks_user on user_project_bookmarks
+index idx_web_sessions_user on web_sessions
+login_flows.code_verifier TEXT NOT NULL
+login_flows.consumed_at DATETIME
+login_flows.created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+login_flows.expires_at DATETIME NOT NULL
+login_flows.nonce TEXT NOT NULL
+login_flows.redirect TEXT NOT NULL DEFAULT '/'
+login_flows.state_hash TEXT PRIMARY KEY
+macros.closed INTEGER NOT NULL DEFAULT 0
+macros.description TEXT NOT NULL DEFAULT ''
+macros.framing_comment TEXT NOT NULL DEFAULT ''
+macros.horizon TEXT NOT NULL DEFAULT ''
+macros.key TEXT NOT NULL PRIMARY KEY
+macros.project_id TEXT NOT NULL PRIMARY KEY
+macros.status TEXT NOT NULL DEFAULT ''
+macros.title TEXT NOT NULL DEFAULT ''
+macros.todos TEXT NOT NULL DEFAULT '[]'
+macros.updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+pairing_codes.code_hash TEXT PRIMARY KEY
+pairing_codes.consumed_at DATETIME
+pairing_codes.created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+pairing_codes.expires_at DATETIME NOT NULL
+pairing_codes.user_id TEXT NOT NULL
+pinned_tasks.pinned_at TEXT NOT NULL
+pinned_tasks.task_id TEXT PRIMARY KEY
+project_skills.content TEXT NOT NULL
+project_skills.mode TEXT NOT NULL DEFAULT ''
+project_skills.project_id TEXT NOT NULL PRIMARY KEY
+project_skills.skill_id TEXT NOT NULL PRIMARY KEY
+project_skills.updated_at TEXT NOT NULL
+projects.ai_command_template TEXT NOT NULL DEFAULT ''
+projects.ai_command_template_autonomous TEXT NOT NULL DEFAULT ''
+projects.ai_model TEXT NOT NULL DEFAULT ''
+projects.ai_provider TEXT NOT NULL DEFAULT ''
+projects.ai_skill_models TEXT NOT NULL DEFAULT '{}'
+projects.auto_sync_enabled INTEGER NOT NULL DEFAULT 0
+projects.auto_sync_interval_min INTEGER NOT NULL DEFAULT 5
+projects.board_id TEXT NOT NULL DEFAULT ''
+projects.color TEXT NOT NULL DEFAULT 'indigo'
+projects.created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+projects.default_skill_mode TEXT NOT NULL DEFAULT ''
+projects.description TEXT NOT NULL DEFAULT ''
+projects.external_terminal_command TEXT NOT NULL DEFAULT ''
+projects.full_chain_stop_stage TEXT NOT NULL DEFAULT 'reviewed'
+projects.git_remote_url TEXT NOT NULL DEFAULT ''
+projects.github_api_url TEXT NOT NULL DEFAULT ''
+projects.github_repo TEXT NOT NULL DEFAULT ''
+projects.github_token TEXT NOT NULL DEFAULT ''
+projects.gitlab_project TEXT NOT NULL DEFAULT ''
+projects.gitlab_token TEXT NOT NULL DEFAULT ''
+projects.gitlab_url TEXT NOT NULL DEFAULT ''
+projects.icon TEXT NOT NULL DEFAULT 'Folder'
+projects.id TEXT PRIMARY KEY
+projects.is_default INTEGER NOT NULL DEFAULT 0
+projects.issue_tracker TEXT NOT NULL DEFAULT 'local'
+projects.issue_types TEXT NOT NULL DEFAULT '[]'
+projects.jira_project TEXT NOT NULL DEFAULT ''
+projects.mono_repo INTEGER NOT NULL DEFAULT 1
+projects.name TEXT NOT NULL
+projects.owner_user_id TEXT NOT NULL DEFAULT ''
+projects.pr_creation_stage TEXT NOT NULL DEFAULT 'implemented'
+projects.repo_path TEXT NOT NULL DEFAULT ''
+projects.repo_paths TEXT NOT NULL DEFAULT '[]'
+projects.setup_providers TEXT NOT NULL DEFAULT '[]'
+projects.skill_overrides TEXT NOT NULL DEFAULT '{}'
+projects.slug TEXT NOT NULL
+projects.spec_framework TEXT NOT NULL DEFAULT ''
+projects.sprints TEXT NOT NULL DEFAULT '[]'
+projects.stage_columns TEXT NOT NULL DEFAULT '{}'
+projects.stage_mapping TEXT NOT NULL DEFAULT '{}'
+projects.tracker_columns TEXT NOT NULL DEFAULT '[]'
+projects.tracker_url TEXT NOT NULL DEFAULT ''
+projects.tty_mode TEXT NOT NULL DEFAULT 'integrated'
+projects.updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+projects.use_worktrees INTEGER NOT NULL DEFAULT 1
+settings.accent_color TEXT NOT NULL DEFAULT 'indigo'
+settings.ai_command_template TEXT NOT NULL DEFAULT 'agy -p "{prompt}"'
+settings.ai_command_template_autonomous TEXT NOT NULL DEFAULT ''
+settings.ai_model TEXT NOT NULL DEFAULT ''
+settings.ai_provider TEXT NOT NULL DEFAULT 'agy'
+settings.ai_provider_models TEXT NOT NULL DEFAULT '{}'
+settings.ai_skill_models TEXT NOT NULL DEFAULT '{}'
+settings.auto_sync_enabled INTEGER NOT NULL DEFAULT 0
+settings.auto_sync_interval_sec INTEGER NOT NULL DEFAULT 60
+settings.default_view TEXT NOT NULL DEFAULT 'board'
+settings.density TEXT NOT NULL DEFAULT 'standard'
+settings.detail_mode TEXT NOT NULL DEFAULT 'panel'
+settings.editor_command TEXT NOT NULL DEFAULT 'code'
+settings.external_terminal_command TEXT NOT NULL DEFAULT ''
+settings.github_api_url TEXT NOT NULL DEFAULT ''
+settings.github_repo TEXT NOT NULL DEFAULT ''
+settings.github_token TEXT NOT NULL DEFAULT ''
+settings.gitlab_project TEXT NOT NULL DEFAULT ''
+settings.gitlab_token TEXT NOT NULL DEFAULT ''
+settings.gitlab_url TEXT NOT NULL DEFAULT ''
+settings.id INTEGER PRIMARY KEY
+settings.issue_tracker TEXT NOT NULL DEFAULT 'local'
+settings.jira_api_token TEXT NOT NULL DEFAULT ''
+settings.jira_email TEXT NOT NULL DEFAULT ''
+settings.jira_project TEXT NOT NULL DEFAULT ''
+settings.jira_url TEXT NOT NULL DEFAULT ''
+settings.language TEXT NOT NULL DEFAULT 'fr'
+settings.prompt_adjust TEXT NOT NULL DEFAULT ''
+settings.prompt_clarify TEXT NOT NULL DEFAULT ''
+settings.prompt_create_pr TEXT NOT NULL DEFAULT ''
+settings.prompt_handoff TEXT NOT NULL DEFAULT ''
+settings.prompt_implement TEXT NOT NULL DEFAULT ''
+settings.prompt_pick TEXT NOT NULL DEFAULT ''
+settings.prompt_specify TEXT NOT NULL DEFAULT ''
+settings.repo_path TEXT NOT NULL DEFAULT '.'
+settings.spec_framework TEXT NOT NULL DEFAULT 'speckit'
+settings.theme TEXT NOT NULL DEFAULT 'dark'
+settings.ui_scale INTEGER NOT NULL DEFAULT 100
+settings.updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+settings.user_avatar TEXT NOT NULL DEFAULT ''
+settings.user_email TEXT NOT NULL DEFAULT 'dev@example.com'
+settings.user_name TEXT NOT NULL DEFAULT 'Developer'
+task_activities.action TEXT NOT NULL
+task_activities.chain_stop_stage TEXT NOT NULL DEFAULT ''
+task_activities.completed_at DATETIME
+task_activities.created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+task_activities.error TEXT NOT NULL DEFAULT ''
+task_activities.id TEXT PRIMARY KEY
+task_activities.launch_stage TEXT NOT NULL DEFAULT ''
+task_activities.output TEXT NOT NULL DEFAULT ''
+task_activities.project_id TEXT
+task_activities.prompt TEXT NOT NULL DEFAULT ''
+task_activities.run_mode TEXT NOT NULL DEFAULT ''
+task_activities.run_model TEXT NOT NULL DEFAULT ''
+task_activities.run_provider TEXT NOT NULL DEFAULT ''
+task_activities.skill_id TEXT NOT NULL
+task_activities.skill_name TEXT NOT NULL
+task_activities.started_at DATETIME
+task_activities.status TEXT NOT NULL DEFAULT 'completed'
+task_activities.steps TEXT NOT NULL DEFAULT '[]'
+task_activities.summary TEXT NOT NULL DEFAULT ''
+task_activities.task_id TEXT
+task_activities.user_id TEXT NOT NULL DEFAULT ''
+task_activities.waiting_since DATETIME
+task_comments.author TEXT NOT NULL DEFAULT ''
+task_comments.body TEXT NOT NULL
+task_comments.created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+task_comments.id TEXT PRIMARY KEY
+task_comments.task_id TEXT NOT NULL
+task_comments.user_id TEXT NOT NULL DEFAULT ''
+tasks.assignee TEXT NOT NULL DEFAULT ''
+tasks.assignee_avatar TEXT NOT NULL DEFAULT ''
+tasks.branch_name TEXT
+tasks.created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+tasks.description TEXT NOT NULL DEFAULT ''
+tasks.due_date TEXT
+tasks.external_url TEXT
+tasks.id TEXT PRIMARY KEY
+tasks.issue_type TEXT NOT NULL DEFAULT ''
+tasks.key TEXT NOT NULL
+tasks.labels TEXT NOT NULL DEFAULT '[]'
+tasks.parent_key TEXT NOT NULL DEFAULT ''
+tasks.parent_title TEXT NOT NULL DEFAULT ''
+tasks.parent_type TEXT NOT NULL DEFAULT ''
+tasks.pinned INTEGER NOT NULL DEFAULT 0
+tasks.position INTEGER NOT NULL DEFAULT 0
+tasks.pr_links TEXT NOT NULL DEFAULT '[]'
+tasks.pr_links_detached INTEGER NOT NULL DEFAULT 0
+tasks.pr_url TEXT
+tasks.priority TEXT NOT NULL DEFAULT 'medium'
+tasks.project_id TEXT NOT NULL DEFAULT 'default'
+tasks.repo_path TEXT NOT NULL DEFAULT ''
+tasks.source TEXT NOT NULL DEFAULT 'local'
+tasks.sprint TEXT NOT NULL DEFAULT ''
+tasks.status TEXT NOT NULL DEFAULT 'backlog'
+tasks.status_changed_at DATETIME
+tasks.team TEXT NOT NULL DEFAULT ''
+tasks.team_id TEXT NOT NULL DEFAULT ''
+tasks.title TEXT NOT NULL
+tasks.tracker_created_at DATETIME
+tasks.tracker_status TEXT NOT NULL DEFAULT ''
+tasks.tracker_updated_at DATETIME
+tasks.updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+team_members.account_id TEXT NOT NULL PRIMARY KEY
+team_members.active INTEGER NOT NULL DEFAULT 1
+team_members.avatar_url TEXT NOT NULL DEFAULT ''
+team_members.display_name TEXT NOT NULL DEFAULT ''
+team_members.email TEXT NOT NULL DEFAULT ''
+team_members.team_id TEXT NOT NULL PRIMARY KEY
+team_members.updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+teams.id TEXT PRIMARY KEY
+teams.members_synced_at DATETIME
+teams.name TEXT NOT NULL DEFAULT ''
+teams.project_id TEXT NOT NULL DEFAULT ''
+teams.updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+user_project_bookmarks.created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+user_project_bookmarks.project_id TEXT NOT NULL PRIMARY KEY
+user_project_bookmarks.user_id TEXT NOT NULL PRIMARY KEY
+user_settings.accent_color TEXT NOT NULL DEFAULT 'indigo'
+user_settings.default_view TEXT NOT NULL DEFAULT 'board'
+user_settings.density TEXT NOT NULL DEFAULT 'standard'
+user_settings.detail_mode TEXT NOT NULL DEFAULT 'panel'
+user_settings.editor_command TEXT NOT NULL DEFAULT ''
+user_settings.external_terminal_command TEXT NOT NULL DEFAULT ''
+user_settings.language TEXT NOT NULL DEFAULT 'fr'
+user_settings.theme TEXT NOT NULL DEFAULT 'dark'
+user_settings.ui_scale INTEGER NOT NULL DEFAULT 100
+user_settings.updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+user_settings.user_avatar TEXT NOT NULL DEFAULT ''
+user_settings.user_email TEXT NOT NULL DEFAULT ''
+user_settings.user_id TEXT PRIMARY KEY
+user_settings.user_name TEXT NOT NULL DEFAULT ''
+user_tracker_credentials.created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+user_tracker_credentials.email TEXT NOT NULL DEFAULT ''
+user_tracker_credentials.record BLOB NOT NULL
+user_tracker_credentials.salt BLOB
+user_tracker_credentials.sealed INTEGER NOT NULL DEFAULT 0
+user_tracker_credentials.site_url TEXT NOT NULL DEFAULT ''
+user_tracker_credentials.tracker TEXT NOT NULL PRIMARY KEY
+user_tracker_credentials.updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+user_tracker_credentials.user_id TEXT NOT NULL PRIMARY KEY
+users.blocked_at DATETIME
+users.chosen_name TEXT NOT NULL DEFAULT ''
+users.created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+users.display_name TEXT NOT NULL DEFAULT ''
+users.email TEXT NOT NULL DEFAULT ''
+users.id TEXT PRIMARY KEY
+users.last_sign_in DATETIME
+users.role TEXT NOT NULL DEFAULT 'member'
+users.subject TEXT NOT NULL
+web_sessions.created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+web_sessions.expires_at DATETIME NOT NULL
+web_sessions.revoked_at DATETIME
+web_sessions.token_hash TEXT PRIMARY KEY
+web_sessions.user_id TEXT NOT NULL

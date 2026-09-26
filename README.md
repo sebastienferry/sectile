@@ -454,9 +454,10 @@ The GitHub repository is pull-mirrored into GitLab, where `.gitlab-ci.yml`
 runs the Go, web and desktop test suites on every mirrored branch and tag,
 then publishes two things: the server image
 (`<registry>/server:<pipeline>-<ref-slug>`, plus `latest` on `main` and the
-tag name on a tag) and the cross-compiled `sectile-server-*` /
-`sectile-agent-*` binaries, uploaded to the project's Generic Package Registry
-under the package `sectile` with the same version string. The agent is never
+tag name on a tag) and, on a tag only, the cross-compiled `sectile-server-*` /
+`sectile-agent-*` binaries, joined by the Sectile Desktop archives on a
+`vX.Y.Z` release tag, uploaded to the project's Generic Package Registry under
+the package `sectile` with the tag as version. The agent is never
 part of the image: it runs on workstations, next to the coding CLIs.
 
 A merge into `main` promotes itself to dev. Once the image is published, the
@@ -573,11 +574,23 @@ that section.
 
 What a pipeline produces depends on its ref:
 
-| Ref | Server image | Workstation binaries |
+| Ref | Server image | Workstation binaries and desktop archives |
 |---|---|---|
 | tag `vX.Y.Z` | `server:vX.Y.Z` | published under version `vX.Y.Z` |
 | merge into `main` | `server:<iid>-main` + `latest` | none |
 | any other branch | `server:<iid>-<slug>` + `preview-<sha>` | none |
+
+A release is published twice, by two independent builds of the same tag: the
+GitLab tag pipeline uploads it to the mirror's package registry (package
+`sectile`, version `vX.Y.Z`), and a GitHub Actions workflow
+(`.github/workflows/release.yml`) creates the GitHub Release of the tag, with
+the tag's changelog section as its notes. Both carry the same fifteen files:
+the `sectile-agent-*` and `sectile-server-*` binaries, a Sectile Desktop
+archive for macOS (Apple Silicon and Intel), Linux x86-64 and Windows, each
+bundling its agent, and a `SHA256SUMS` over that stream's own files. How to
+install the desktop app from an archive, unsigned packages included, is in
+[Install a release](desktop/README.md#install-a-release). See
+[ADR 0034](docs/adrs/0034-a-release-is-published-on-both-forges.md).
 
 The procedure for cutting a tag (deriving the number, writing the changelog
 entries, bumping the manifests, committing, creating the annotated tag) is
@@ -643,6 +656,15 @@ reports its own outcome and always wins over that fallback, and a run a
 disconnection canceled can still be reported by its owner afterwards. A run reused from
 a launcher keeps its dispatching agent as owner, since that agent already watches
 the real process.
+
+The server also pings every session, every `SECTILE_MCP_KEEPALIVE_INTERVAL`
+(25 seconds by default), so that a proxy in front of it never cuts a client's
+idle event stream and makes the client start over with a new session. A session
+that owns no run and whose client neither answers
+`SECTILE_MCP_KEEPALIVE_FAILURES` pings in a row (3 by default) nor sends
+anything in between is closed at once. A session that owns a run is only ever
+closed by the two bounds above. Answering a ping does not count as the client
+speaking, so it does not delay the silence note.
 
 `GET /api/mcp/sessions` lists the live sessions, what each client calls itself,
 and the runs it owns, and how long each client has been attached.

@@ -78,6 +78,10 @@ nothing else is a release.**
 - **`CHANGELOG.md` is compiled in, so it cannot be removed from the build
   context.** `.dockerignore` excludes `*.md` and now carries an explicit
   exception; dropping it breaks the build rather than shipping a blank panel.
+- **A release is published on both forges.** The GitLab package and a GitHub
+  Release each carry the binaries and the Sectile Desktop archives, built by
+  two independent streams of the same tag; see
+  [ADR 0034](0034-a-release-is-published-on-both-forges.md).
 - **The desktop app's version comes from its own manifest**, which the release
   procedure bumps. A workstation that upgraded the app and not the agent sees
   two different numbers side by side, which is the point of showing both.
