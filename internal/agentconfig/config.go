@@ -58,8 +58,8 @@ type Config struct {
 	// project default one, which is when a one-off launch model is ignored; its
 	// zero value keeps a configuration built by hand on today's behaviour.
 	// None of them is part of the contract.
-	EngineID               string `json:"-"`
-	EngineName             string `json:"-"`
+	EngineID                string `json:"-"`
+	EngineName              string `json:"-"`
 	OffProjectDefaultEngine bool   `json:"-"`
 }
 
