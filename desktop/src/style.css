@@ -188,11 +188,12 @@ aside{flex-shrink:0}.sidebar-hidden #sidebar-resizer{display:none}#sidebar-resiz
 
 #task-status{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;flex-shrink:0}
 #next-step-status{flex:1;min-width:160px;overflow-wrap:anywhere}
-#next-step{color:var(--next-step-text);background:var(--next-step-bg);border-color:var(--next-step-border)}#next-step,#mark-reviewed,#retry-next-step,#force-next-step{flex-shrink:0}
+#next-step,#pickup-chain{color:var(--next-step-text);background:var(--next-step-bg);border-color:var(--next-step-border)}#next-step,#pickup-chain,#mark-reviewed,#retry-next-step,#force-next-step{flex-shrink:0}
+.step-badge{font-size:11px;color:var(--text-muted);border:1px solid var(--border);border-radius:999px;padding:2px 8px;white-space:nowrap;flex-shrink:0}
 /* Closing the current step and launching the next one are adjacent controls:
    the green/blue split keeps them from reading as the same action. */
 #stop{color:var(--accent-text);background:var(--accent-button-bg);border-color:var(--accent-border)}
-#next-step:focus-visible,#mark-reviewed:focus-visible,#retry-next-step:focus-visible,#force-next-step:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+#next-step:focus-visible,#pickup-chain:focus-visible,#mark-reviewed:focus-visible,#retry-next-step:focus-visible,#force-next-step:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 #workspace{overflow:hidden}
 #toolbar{flex-shrink:0;overflow-x:auto;gap:8px}
 
