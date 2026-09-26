@@ -133,6 +133,12 @@ test('console next step rechecks task state, guards active history and handles f
   assert.equal(await button.isDisabled(),true)
   stage='new';extra=[{...extra[0],status:'completed'}];await selectB();await selectA()
   await page.getByRole('button',{name:'Next: Clarify',exact:true}).waitFor()
+  // An active execution without a skill never leaves the next step enabled: the stage step names it.
+  extra=[...extra,{id:'blank',skill:'',status:'running',createdAt:'2026-09-26T10:15:00Z'}]
+  await page.getByRole('button',{name:'Current: Clarify',exact:true}).waitFor()
+  assert.equal(await button.isDisabled(),true)
+  extra=[extra[0],{...extra[1],status:'completed'}]
+  await page.getByRole('button',{name:'Next: Clarify',exact:true}).waitFor()
   await page.setViewportSize({width:720,height:600})
   const bounds=await page.locator('#task-status').boundingBox(),terminal=await page.locator('#terminal').boundingBox()
   assert.ok(bounds.y>=terminal.y+terminal.height-1)

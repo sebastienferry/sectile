@@ -1754,7 +1754,7 @@ async function openProject(id){
      notice.textContent=result.message||'Deployment complete'
      if(action==='initialize'){
       for(const [label,step] of [['MCP',result.mcp],['Skills',result.skills]]){
-       const line=document.createElement('p');line.textContent=label+': '+({success:'Success',failed:'Failed',skipped:'Skipped',not_run:'Not run'}[step.status]||step.status)+' — '+step.message;initResult.append(line)
+       const line=document.createElement('p');line.textContent=label+': '+({success:'Success',failed:'Failed',skipped:'Skipped',not_run:'Not run'}[step.status]||step.status)+' - '+step.message;initResult.append(line)
       }
      }
     }catch(err){notice.textContent=err.message}finally{initProvider.disabled=false;for(const item of tools.querySelectorAll('button'))item.disabled=false}
@@ -1946,7 +1946,7 @@ function ticketRow(view,task){
  const titleCell=cell('ticket-title',task.title||'');titleCell.title=task.title||''
  const priorityCell=cell('ticket-priority')
  const dot=document.createElement('span');dot.className='priority-dot';dot.dataset.priority=String(task.priority||'').toLowerCase();dot.setAttribute('aria-hidden','true')
- priorityCell.append(dot,document.createTextNode(task.priority||'—'))
+ priorityCell.append(dot,document.createTextNode(task.priority||'-'))
  const prCell=cell('ticket-pr')
  if(task.prUrl&&/^https?:\/\//i.test(task.prUrl)){
   const pr=document.createElement('button');pr.type='button';pr.className='pr-indicator'
@@ -2374,10 +2374,11 @@ function renderNextStep(){
  const message=submittingSteps.has(key)?'Submitting execution…':pending?'Execution submitted; waiting for its console':busy?'Execution in progress':nextStepErrors.get(key)||step.message
  status.textContent=(nextStepData.task.key||run.taskKey||run.taskId)+' · '+step.stage+' · '+message
  // The most recent active execution names the button, then the launch in
- // flight; the stage step only reads once nothing runs on the task.
+ // flight; the stage step only reads once nothing runs on the task. An active
+ // run without a skill still counts, so it never leaves `Next:` enabled.
  const active=runs.filter(item=>taskKey(item)===key&&activeRun(item)).sort((a,b)=>(b.createdAt||'').localeCompare(a.createdAt||''))[0]
  const current=active?.skill||submittingSteps.get(key)||submittedSteps.get(key)?.skillId||''
- if(current){button.hidden=false;button.textContent='Current: '+(skillLabel(current)||step.label||'');button.disabled=true}
+ if(busy||pending){button.hidden=false;button.textContent=('Current: '+(skillLabel(current)||step.label||'')).trim();button.disabled=true}
  else if(step.skillId){button.hidden=false;button.textContent='Next: '+step.label;button.disabled=false}
  if(force&&step.skillId&&forceableLaunches.has(key)){force.hidden=false;force.disabled=busy||pending}
  if(markReviewed&&nextStepData?.task&&taskStage(nextStepData.task)==='implemented'){
