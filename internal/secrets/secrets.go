@@ -70,7 +70,9 @@ const (
 	saltLength   = 16
 )
 
-// Key is a 32-byte AEAD key. It never leaves the process.
+// Key is a 32-byte AEAD key. It never leaves the process in clear: a key derived
+// from a passphrase that another server instance needs travels wrapped, see
+// WrapKey.
 type Key [keyLength]byte
 
 // ServerKey loads the server key: the environment first, then the file beside
@@ -212,6 +214,53 @@ func Open(key Key, binding Binding, record []byte) (string, error) {
 		return "", ErrWrongKey
 	}
 	return string(plaintext), nil
+}
+
+// A key derived from a passphrase lives in memory only. When several server
+// instances share one database, the ones that did not receive the passphrase
+// need the key too, and it crosses the network between them. WrapKey seals it
+// under the server key every instance holds, bound to its owner, so the network
+// only ever carries ciphertext. Its associated data has a prefix of its own: a
+// wrapped key never opens as a credential record, nor a record as a key.
+
+// WrapKey seals a derived key under a wrapping key, for one owner.
+func WrapKey(wrapping Key, owner Binding, key Key) ([]byte, error) {
+	if owner.UserID == "" || owner.Tracker == "" {
+		return nil, fmt.Errorf("a wrapped key must name its owner and its tracker")
+	}
+	aead, err := newAEAD(wrapping)
+	if err != nil {
+		return nil, err
+	}
+	nonce := make([]byte, aead.NonceSize())
+	if _, err := rand.Read(nonce); err != nil {
+		return nil, err
+	}
+	return aead.Seal(nonce, nonce, key[:], wrappedKeyData(owner)), nil
+}
+
+// UnwrapKey opens what WrapKey sealed. A wrong wrapping key, another owner and
+// tampered bytes all answer ErrWrongKey.
+func UnwrapKey(wrapping Key, owner Binding, wrapped []byte) (Key, error) {
+	var key Key
+	aead, err := newAEAD(wrapping)
+	if err != nil {
+		return key, err
+	}
+	if len(wrapped) < aead.NonceSize() {
+		return key, ErrWrongKey
+	}
+	nonce, ciphertext := wrapped[:aead.NonceSize()], wrapped[aead.NonceSize():]
+	plaintext, err := aead.Open(nil, nonce, ciphertext, wrappedKeyData(owner))
+	if err != nil || len(plaintext) != keyLength {
+		return key, ErrWrongKey
+	}
+	copy(key[:], plaintext)
+	return key, nil
+}
+
+func wrappedKeyData(owner Binding) []byte {
+	return append([]byte("sectile:v1:unlocked-key:"), owner.bytes()...)
 }
 
 func newAEAD(key Key) (cipher.AEAD, error) {

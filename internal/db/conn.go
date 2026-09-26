@@ -1,6 +1,9 @@
 package db
 
-import "database/sql"
+import (
+	"context"
+	"database/sql"
+)
 
 // sqlConn wraps the pool so every query passes through the dialect's Rebind on
 // its way out.
@@ -31,6 +34,12 @@ func (c *sqlConn) Query(query string, args ...any) (*sql.Rows, error) {
 
 func (c *sqlConn) QueryRow(query string, args ...any) *sql.Row {
 	return c.db.QueryRow(c.dialect.Rebind(query), args...)
+}
+
+// QueryRowContext is QueryRow bounded by a context, for a probe that must not
+// hang on a database that stopped answering.
+func (c *sqlConn) QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row {
+	return c.db.QueryRowContext(ctx, c.dialect.Rebind(query), args...)
 }
 
 func (c *sqlConn) Begin() (*sqlTx, error) {

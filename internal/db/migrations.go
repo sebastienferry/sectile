@@ -425,6 +425,17 @@ var migrations = []migration{
 			"ALTER TABLE projects DROP COLUMN tty_mode;",
 		},
 	},
+	{
+		// Which unlock of a sealed credential a held key belongs to (#409). A
+		// lock or a new record moves it on, so a key another server instance
+		// still holds from before stops opening anything, whether or not that
+		// instance heard of the lock. It is a counter, not a secret.
+		version: 28,
+		name:    "user_tracker_credentials.unlock_generation",
+		statements: []string{
+			"ALTER TABLE user_tracker_credentials ADD COLUMN unlock_generation INTEGER NOT NULL DEFAULT 0;",
+		},
+	},
 }
 
 // migrateSchema brings the database to the schema this binary expects, and is

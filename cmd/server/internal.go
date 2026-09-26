@@ -55,15 +55,25 @@ func startInternalListener(h *handlers.Handler, port string) {
 	mux.Handle("/internal/agent/", h.InternalHandler())
 	mux.Handle("/internal/mcp", h.InternalMCPHandler())
 	mux.Handle("/internal/mcp/sessions", h.InternalMCPSessionsHandler())
+	mux.Handle("/internal/credentials/keys", h.InternalCredentialsHandler())
 	listener, err := net.Listen("tcp", ":"+port)
 	if err != nil {
 		log.Printf("⚠️  Port interne %s indisponible, relais d'agents entre instances impossible : %v", port, err)
 		return
 	}
 	log.Printf("   interne : :%s", port)
+	h.SetInternalServing(true)
 	go func() {
+		defer h.SetInternalServing(false)
 		if err := http.Serve(listener, mux); err != nil {
 			log.Printf("⚠️  Serveur interne arrêté : %v", err)
+		}
+	}()
+	// The instance is registered and now reachable: a key unlocked elsewhere
+	// from here on is pushed to it, and one unlocked before is pulled (#409).
+	go func() {
+		if adopted := h.PullUnlockedKeys(); adopted > 0 {
+			log.Printf("%d clé(s) descellée(s) reprise(s) des autres instances", adopted)
 		}
 	}()
 }
