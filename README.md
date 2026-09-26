@@ -324,6 +324,13 @@ unusable there until its owner unlocks it. A locked credential fails the
 operation rather than falling back to the server token, which would write under
 a name nobody chose. See [ADR 0014](./docs/adrs/0014-personal-tracker-credentials-are-sealed.md).
 
+An unlock survives server restarts and holds on every instance: it lasts while
+its owner is connected, through an open tab or a running local agent, and 30
+minutes after they leave, or ends at once when they sign out with nothing else
+connected. It is kept in the database under the server key, so unlocking needs
+that key, and during that window a copy of the database together with the key
+opens the token. See [ADR 0031](./docs/adrs/0031-unlocked-sealed-credentials-live-with-their-owners-presence.md).
+
 The background queue carries whoever asked a write: a field update and every
 tracker operation record the acting user on the job, and the worker puts them
 back before resolving a credential. A synchronisation is the exception: it
@@ -742,7 +749,8 @@ account created is the admin, and everyone after that is a member.
 
 The form also takes an optional sealing passphrase, the one protecting your own
 tracker tokens. It is never a login password: a wrong one signs you in anyway
-and leaves those tokens locked until you unlock them from your profile.
+and leaves those tokens locked until you unlock them from your profile. A right
+one keeps them unlocked while you are connected, then 30 minutes.
 
 It identifies people; it does not authenticate them. Anyone who types a
 colleague's address is that colleague, so keep it to a trusted network and treat
