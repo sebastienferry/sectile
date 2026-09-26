@@ -52,7 +52,7 @@ technical choices.
      GitLab's `build:binaries` calls it, so both streams cannot drift.
    - `check-desktop-version.sh <tag>`: fails unless
      `v$(node -p "require('./desktop/package.json').version")` equals the tag.
-   - `package-desktop.sh <os> <arch> <agent> <outdir>`: maps Go tokens to
+   - `package-desktop.sh <tag> <os> <arch> <agent> <outdir>`: maps Go tokens to
      Electron ones (`amd64`→`x64`, `windows`→`win32`), runs
      `node electron/package.cjs` with decision 1's arguments, then archives
      the packager directory as `sectile-desktop-<os>-<arch>.<ext>` (decision
@@ -100,11 +100,10 @@ technical choices.
      `web` `npm ci` + `npm run build`; `desktop` `npm ci` + `npm test`;
      `build-binaries.sh "$GITHUB_REF_NAME" "$GITHUB_SHA" dist`; the same
      `--version` checks as GitLab; upload `dist/` as artifact `binaries`.
-   - `desktop-linux` (`ubuntu-latest`, needs `binaries`): packages
-     `linux amd64` and `windows amd64`.
-   - `desktop-macos` (`macos-latest`, needs `binaries`): packages
-     `darwin arm64` and `darwin amd64` natively, so packager writes the
-     integrity digest and re-signs ad-hoc with `codesign`.
+   - `desktop` (needs `binaries`), a two-entry matrix: on `ubuntu-latest` it
+     packages `linux amd64` and `windows amd64`; on `macos-latest` it
+     packages `darwin arm64` and `darwin amd64` natively, so packager writes
+     the integrity digest and re-signs ad-hoc with `codesign`.
    - Both desktop jobs `chmod +x` the downloaded agents first
      (`actions/download-artifact` drops file modes), run `npm ci` and
      `npm run build` in `desktop/`, and upload their archives as artifacts.
@@ -161,7 +160,7 @@ technical choices.
 - `package.cjs` CLI: `node electron/package.cjs [--platform P] [--arch A]
   [--agent PATH] [--out DIR]`; prints the packager output directory; exit
   code 1 on any error, including a missing agent file.
-- `package-desktop.sh` output: exactly one file
+- `package-desktop.sh <tag> <os> <arch> <agent> <outdir>` output: exactly one file
   `<outdir>/sectile-desktop-<os>-<arch>.<zip|tar.gz>`.
 - `changelog-section.mjs` output: the section body on stdout, UTF-8, no
   heading; exit 1 and a message on stderr when missing.
