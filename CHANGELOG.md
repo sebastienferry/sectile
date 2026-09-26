@@ -15,6 +15,8 @@ test fixtures or internal plumbing.
 
 ### Added
 
+- **Light mode for Sectile Desktop.** The desktop app now has a light appearance next to its dark one. A new **Appearance** category in the desktop settings offers System, Dark and Light; System, the default, follows your computer's appearance, so a desktop on a light system turns light after the update. The whole window follows the choice at once, the console included, without a restart. The web interface keeps its own theme. (#507)
+
 - **Run the server as several replicas.** Several servers can now share one PostgreSQL database behind a load balancer, with no sticky sessions. A new readiness probe, `GET /api/ready`, tells the balancer when a replica can take traffic. A replica asked to stop drains first: it reports not ready, keeps serving for `SECTILE_SHUTDOWN_GRACE` (5 seconds by default), then hands its agents over to the other replicas. The README's "Several replicas" section lists what the deployment must provide. (#410)
 
 - **Sealed tracker credentials unlock on every server.** When several servers share a PostgreSQL database, a credential unlocked through one of them can be used through all of them, including servers started afterwards, and locking it holds on all of them at once. The passphrase is still never stored. (#409, #501)

@@ -45,7 +45,7 @@ test('desktop disconnects locally, preserves history, and explicitly reconnects'
  const env={...process.env,SECTILE_DESKTOP_DATA_DIR:root,SECTILE_DESKTOP_TEST:'1'};delete env.ELECTRON_RUN_AS_NODE
  let application
  try{
-  application=await electron.launch({executablePath:process.env.SECTILE_DESKTOP_EXECUTABLE,args:process.env.SECTILE_DESKTOP_EXECUTABLE?[]:[path.resolve(__dirname,'..')],env})
+  application=await electron.launch({executablePath:process.env.SECTILE_DESKTOP_EXECUTABLE,args:process.env.SECTILE_DESKTOP_EXECUTABLE?[]:[path.resolve(__dirname,'..')],env,colorScheme:'dark'})
   const page=await application.firstWindow()
   await page.getByText('#a · specify',{exact:true}).waitFor()
   await page.getByRole('button',{name:'Next: Specify',exact:true}).waitFor()

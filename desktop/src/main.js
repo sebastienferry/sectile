@@ -29,6 +29,7 @@ import { offerFor, initializedNotice } from './git-init.mjs'
 // agent stopped.
 import changelogSource from '../../CHANGELOG.md?raw'
 import { parseChangelog, releaseNotesFor } from './changelog.mjs'
+import { APPEARANCE_CHOICES, terminalTheme } from './appearance.mjs'
 const api=window.localAgent
 // Concurrent execution workers ceiling per project, aligned with agentconfig.MaxParallelism.
 // Parallelism is a workstation setting: the server neither stores nor supplies it.
@@ -46,7 +47,11 @@ installTooltips()
 // that keep a glyph to a single cell, which is what the grid needs, and Symbols Nerd Font Mono sits
 // near the end as a per-glyph fallback: a host with no patched font still gets the icons.
 const TERMINAL_FONT='"FiraCode Nerd Font Mono", "JetBrainsMono Nerd Font Mono", "Hack Nerd Font Mono", "CaskaydiaCove Nerd Font Mono", "MesloLGS NF", Menlo, Consolas, "Symbols Nerd Font Mono", monospace'
-const terminal=new Terminal({cursorBlink:true,fontSize:13,fontFamily:TERMINAL_FONT,scrollback:20000,theme:{background:'#11151c',foreground:'#d8e0ec'}})
+// The main process sets the appearance through nativeTheme, which is what this
+// query answers: the terminal follows it like the stylesheet does, live.
+const darkScheme=window.matchMedia('(prefers-color-scheme: dark)')
+const terminal=new Terminal({cursorBlink:true,fontSize:13,fontFamily:TERMINAL_FONT,scrollback:20000,theme:terminalTheme(darkScheme.matches)})
+darkScheme.addEventListener('change',event=>{terminal.options.theme=terminalTheme(event.matches)})
 const fit=new FitAddon();terminal.loadAddon(fit)
 let nextStepData=null,nextStepGeneration=0,nextStepUpdated=0
 const submittingSteps=new Map()
@@ -1211,6 +1216,7 @@ function executionDefaultsPanel(panel){
 // unrelated controls for these; the sidebar now carries one.
 const SETTINGS_CATEGORIES=[
  {id:'Profile',label:'User profile',icon:'<circle cx="12" cy="8" r="4"/><path d="M4 21v-2a8 8 0 0 1 16 0v2"/>'},
+ {id:'Appearance',label:'Appearance',icon:'<circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 0 0 18Z" fill="currentColor"/>'},
  {id:'Connection',label:'Agent connection',icon:'<path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="3"/><circle cx="15" cy="17" r="3"/>'},
  {id:'AgentCli',label:'Execution defaults',icon:'<rect x="3" y="4" width="18" height="16" rx="2"/><path d="m7 9 3 3-3 3M12 15h5"/>'},
  {id:'Logs',label:'Agent logs',icon:'<path d="M14 3H7a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V7Z"/><path d="M14 3v4h4"/><path d="M9 13h6M9 17h6"/>'},
@@ -1251,6 +1257,23 @@ function openSettings(initial='Profile'){
  const web=settingRow('Profile and API keys',null,openWeb)
  web.hint.textContent='Display name, password and API keys live in the web interface.'
  panels.Profile.append(account.section,device.section,web.section)
+
+ // Appearance: a workstation preference, applied as soon as it is pressed.
+ // The main process stores it and switches the whole window; the buttons only
+ // mirror what it answers.
+ const appearanceGroup=document.createElement('div');appearanceGroup.className='segmented'
+ appearanceGroup.setAttribute('role','group');appearanceGroup.setAttribute('aria-label','Appearance')
+ const markAppearance=value=>{for(const button of appearanceGroup.children)button.setAttribute('aria-pressed',String(button.dataset.value===value))}
+ for(const choice of APPEARANCE_CHOICES){
+  const button=document.createElement('button');button.type='button';button.textContent=choice.label;button.dataset.value=choice.value
+  button.onclick=()=>api.setAppearance(choice.value).then(markAppearance).catch(error)
+  appearanceGroup.append(button)
+ }
+ const appearance=settingRow('Theme',null,appearanceGroup)
+ appearance.hint.textContent='System follows the appearance of this computer. The web interface keeps its own theme.'
+ panels.Appearance.append(appearance.section)
+ markAppearance('system')
+ api.appearance().then(markAppearance).catch(()=>{})
 
  // Execution defaults: the workstation level of every execution setting,
  // owned by the local agent. The MCP connection choice follows its provider.

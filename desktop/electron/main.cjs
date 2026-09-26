@@ -1,4 +1,4 @@
-const {app,BrowserWindow,Menu,ipcMain,dialog,safeStorage,shell,clipboard}=require('electron')
+const {app,BrowserWindow,Menu,ipcMain,dialog,nativeTheme,safeStorage,shell,clipboard}=require('electron')
 const path=require('node:path'),fs=require('node:fs'),crypto=require('node:crypto')
 const {spawn}=require('node:child_process')
 const WebSocket=require('ws')
@@ -10,6 +10,7 @@ const storedKey=saved=>credentials.storedKey(saved,safeStorage)
 const {carryOverDataDirectory}=require('./datadir.cjs')
 const {readAgentLog}=require('./agent-log.cjs')
 const {fileSha256,agentOutdated}=require('./agent-identity.cjs')
+const {normalizeAppearance,windowColors}=require('./appearance.cjs')
 const {connectionUpdates,connectionView}=require('./connection-settings.cjs')
 if(process.env.SECTILE_DESKTOP_DATA_DIR)app.setPath('userData',process.env.SECTILE_DESKTOP_DATA_DIR)
 // The app kept its data under the previous package name; carry it over once.
@@ -128,6 +129,35 @@ ipcMain.handle('save-settings',async(_,updates)=>{
  fs.writeFileSync(settingsPath()+'.tmp',JSON.stringify(saved,null,2),{mode:0o600})
  fs.renameSync(settingsPath()+'.tmp',settingsPath())
  return connectionView(saved,storedKey(saved))
+})
+// The appearance is applied here rather than in the renderer: themeSource
+// moves prefers-color-scheme and the native widgets together, and the window
+// is painted from it before the page has loaded anything.
+function applyAppearance(value){nativeTheme.themeSource=normalizeAppearance(value)}
+// The appearance is read on its own: the settings view the renderer gets is
+// limited to the connection facts.
+ipcMain.handle('appearance',()=>{
+ try{return normalizeAppearance(readSettings().appearance)}catch{return normalizeAppearance()}
+})
+ipcMain.handle('set-appearance',(_,value)=>{
+ let previous={}
+ try{previous=readSettings()}catch{}
+ const appearance=normalizeAppearance(value)
+ const saved={...previous,appearance}
+ fs.mkdirSync(path.dirname(settingsPath()),{recursive:true,mode:0o700})
+ fs.writeFileSync(settingsPath()+'.tmp',JSON.stringify(saved,null,2),{mode:0o600})
+ fs.renameSync(settingsPath()+'.tmp',settingsPath())
+ applyAppearance(appearance)
+ return appearance
+})
+// A change of the setting, or of the OS appearance while it follows the
+// system, repaints what the stylesheet cannot reach. macOS draws its own
+// traffic lights and has no overlay colours to set.
+nativeTheme.on('updated',()=>{
+ if(!window||window.isDestroyed())return
+ const colors=windowColors(nativeTheme.shouldUseDarkColors)
+ window.setBackgroundColor(colors.background)
+ if(process.platform!=='darwin')window.setTitleBarOverlay({color:colors.background,symbolColor:colors.symbol})
 })
 // What this installation is running. The desktop's own version comes from the
 // package the app was built from; the agent's comes from the agent itself,
@@ -404,7 +434,11 @@ function openWindow(){
  // painted over it in the app's colours. macOS keeps its traffic lights, positioned to sit centred
  // in that 68px header. The renderer asks the overlay itself where the buttons ended up, so the
  // header can keep their strip clear whatever the platform draws.
- window=new BrowserWindow({show:process.env.SECTILE_DESKTOP_TEST!=='1',width:1240,height:820,minWidth:800,minHeight:500,backgroundColor:'#11151c',title:'Sectile Desktop',titleBarStyle:'hidden',titleBarOverlay:{color:'#11151c',symbolColor:'#d8e0ec',height:68},trafficLightPosition:{x:18,y:25},icon:path.join(__dirname,'../assets/icon.png'),webPreferences:{preload:path.join(__dirname,'preload.cjs'),nodeIntegration:false,contextIsolation:true,sandbox:true}})
+ let stored={}
+ try{stored=readSettings()}catch{}
+ applyAppearance(stored.appearance)
+ const colors=windowColors(nativeTheme.shouldUseDarkColors)
+ window=new BrowserWindow({show:process.env.SECTILE_DESKTOP_TEST!=='1',width:1240,height:820,minWidth:800,minHeight:500,backgroundColor:colors.background,title:'Sectile Desktop',titleBarStyle:'hidden',titleBarOverlay:{color:colors.background,symbolColor:colors.symbol,height:68},trafficLightPosition:{x:18,y:25},icon:path.join(__dirname,'../assets/icon.png'),webPreferences:{preload:path.join(__dirname,'preload.cjs'),nodeIntegration:false,contextIsolation:true,sandbox:true}})
  window.webContents.setWindowOpenHandler(()=>({action:'deny'}))
  window.webContents.on('will-navigate',event=>event.preventDefault())
  window.loadFile(path.join(__dirname,'../dist/index.html'))
