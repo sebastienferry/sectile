@@ -22,21 +22,21 @@ pushed: merge, do not rebase).
 
 ## 2. Full-chain button (US2, US3, FR4-FR10)
 
-- [ ] T2.1 Markup `#pickup-chain` (`icon-button`, `aria-label` / `title`
+- [x] T2.1 Markup `#pickup-chain` (`icon-button`, `aria-label` / `title`
   `Pickup (full chain)`, `hidden disabled`) between `#next-step` and
   `#next-step-label`; `iconPaths['pickup-chain']` double chevron.
-- [ ] T2.2 `readNextStep()` returns the project (plan decision 4);
+- [x] T2.2 `readNextStep()` returns the project (plan decision 4);
   `pickupAvailable(project)` helper.
-- [ ] T2.3 `renderNextStep()`: `>>` visibility and enablement (plan decision
+- [x] T2.3 `renderNextStep()`: `>>` visibility and enablement (plan decision
   3; FR5, FR6, FR10).
-- [ ] T2.4 `launchNextStep(force)` becomes `launchTaskWork(kind, force)`;
+- [x] T2.4 `launchNextStep(force)` becomes `launchTaskWork(kind, force)`;
   `>>` sends `pickup` with mode `autonomous`; kind-aware recheck; `kind`
   stored in `submittedSteps` so a pickup in flight is not dropped by the
   stage-step comparison (plan decision 5).
-- [ ] T2.5 `forceableLaunches` becomes a `Map` key -> kind; "Launch anyway"
+- [x] T2.5 `forceableLaunches` becomes a `Map` key -> kind; "Launch anyway"
   re-sends the refused kind (plan decision 6).
-- [ ] T2.6 `#pickup-chain` joins the `#next-step` style rules.
-- [ ] T2.7 Extend `desktop/tests/next-step.ui.cjs` (add `pickup` to the stub
+- [x] T2.6 `#pickup-chain` joins the `#next-step` style rules.
+- [x] T2.7 Extend `desktop/tests/next-step.ui.cjs` (add `pickup` to the stub
   project's skills where needed):
   - `>>` visible and enabled on an idle task at `new`, named
     `Pickup (full chain)` (US2.1);
@@ -54,10 +54,10 @@ pushed: merge, do not rebase).
     (US3.3), and on a finished task with an active `discuss` run while `>`
     reads `Current: Discuss` (FR10);
   - `>` still posts no `mode` (FR7).
-- [ ] T2.8 Update the DOM order assertions of `next-step.ui.cjs` to
+- [x] T2.8 Update the DOM order assertions of `next-step.ui.cjs` to
   `#stop, #next-step, #pickup-chain, #next-step-label, #mark-reviewed,
   #retry-next-step, #force-next-step`.
-- [ ] T2.9 `desktop/tests/concurrent-launch.ui.cjs`: a `>>` launch refused
+- [x] T2.9 `desktop/tests/concurrent-launch.ui.cjs`: a `>>` launch refused
   with the duplicate error reveals "Launch anyway", which posts `pickup` with
   `mode:'autonomous'` and `force:true` (US2.4, FR9); the existing next-step
   refusal case still re-sends the next step.
