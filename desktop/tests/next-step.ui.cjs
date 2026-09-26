@@ -5,12 +5,14 @@ const http=require('node:http'),fs=require('node:fs'),os=require('node:os'),path
 
 test('console next step rechecks task state, guards active history and handles failures',async()=>{
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'sectile-next-step-'))
- let stage='clarified',prUrl=null,active=false,failRead=false,failLaunch=false,delayRead=0,launches=[],transitions=[]
+ let stage='clarified',prUrl=null,active=false,failRead=false,failLaunch=false,delayRead=0,launches=[],transitions=[],extra=[]
  const runs=()=>[
   {id:'old',taskId:'task-a',taskKey:'#1',projectId:'project-a',skill:'clarify',status:'completed'},
   {id:'other',taskId:'task-b',taskKey:'#2',projectId:'project-a',skill:'clarify',status:'completed'},
   // One run per launch, each with its own id: the renderer only treats a launch as started once a run it had not seen appears.
-  ...launches.map((launch,index)=>({id:'new-'+index,taskId:'task-a',taskKey:'#1',projectId:'project-a',skill:launch.skillID,status:active&&index===launches.length-1?'queued':'completed'}))
+  ...launches.map((launch,index)=>({id:'new-'+index,taskId:'task-a',taskKey:'#1',projectId:'project-a',skill:launch.skillID,status:active&&index===launches.length-1?'queued':'completed'})),
+  // Executions launched elsewhere, such as a pickup chain or the Tickets pane menu.
+  ...extra.map(run=>({taskId:'task-a',taskKey:'#1',projectId:'project-a',...run}))
  ]
  const server=http.createServer((req,res)=>{
   res.setHeader('Content-Type','application/json')
@@ -62,20 +64,25 @@ test('console next step rechecks task state, guards active history and handles f
   // Ending the execution and launching the next step never apply at the same time.
   assert.equal(await page.locator('#stop').isEnabled(),true,'A running execution can be ended')
   assert.equal(await button.isDisabled(),true,'The next step waits for the execution to end')
+  assert.equal(await button.textContent(),'Current: Implement','The button names the running skill')
   await page.locator('#execution-history').selectOption('old')
   assert.equal(await button.isDisabled(),true,'An older console cannot bypass an active run')
-  active=false
+  assert.equal(await button.textContent(),'Current: Implement','An older console still names the active run')
+  // The execution completes and moves the stage: the button proposes the step that follows.
+  stage='implemented';active=false
   await page.waitForFunction(()=>document.querySelector('#stop').disabled)
   // Ending the execution is what makes the next step available again.
-  await page.waitForFunction(()=>!document.querySelector('#next-step').disabled)
   // After implementation, a task without a pull request recovers it through the creation owner...
-  stage='implemented';await selectB();await selectA()
   await page.getByRole('button',{name:'Next: Create PR',exact:true}).waitFor()
+  await page.waitForFunction(()=>!document.querySelector('#next-step').disabled)
   await button.click()
   await page.waitForFunction(()=>document.querySelector('#next-step-status').textContent.includes('Execution in progress'))
   assert.equal(launches.length,2)
   assert.deepEqual(launches[1],{taskID:'task-a',skillID:'implement',prompt:''},'The missing pull request is recovered by the creation owner, never by create_pr')
+  assert.equal(await button.textContent(),'Current: Implement','The button names the skill launched, not the step label')
+  // An execution that ends without moving the stage proposes the same step again.
   active=false
+  await page.getByRole('button',{name:'Next: Create PR',exact:true}).waitFor()
   await page.waitForFunction(()=>!document.querySelector('#next-step').disabled)
   // ...and once the task records one, the next step is to adjust it, and mark-reviewed is available.
   prUrl='https://example.test/pull/1';await selectB();await selectA()
@@ -110,6 +117,22 @@ test('console next step rechecks task state, guards active history and handles f
   assert.match(await status.textContent(),/#2.*reviewed.*Ready for the next step/)
   assert.equal(await page.getByRole('button',{name:'Next: Handoff',exact:true}).isVisible(),true,'Late task A metadata cannot change task B action')
   await selectA();await page.getByRole('button',{name:'Next: Clarify',exact:true}).waitFor()
+  // A skill other than the stage step names the button, without any reselection.
+  extra=[{id:'pickup',skill:'pickup',status:'queued',createdAt:'2026-09-26T10:00:00Z'}]
+  await page.getByRole('button',{name:'Current: Pickup',exact:true}).waitFor()
+  assert.equal(await button.isDisabled(),true)
+  // Several active executions: the most recent one names the button.
+  extra=[extra[0],{id:'adjust',skill:'adjust',status:'waiting',createdAt:'2026-09-26T10:05:00Z'}]
+  await page.getByRole('button',{name:'Current: Adjust',exact:true}).waitFor()
+  extra=[{id:'pickup',skill:'pickup',status:'completed',createdAt:'2026-09-26T10:00:00Z'}]
+  await page.getByRole('button',{name:'Next: Clarify',exact:true}).waitFor()
+  assert.equal(await button.isEnabled(),true)
+  // A finished task proposes no step, yet still names what runs on it.
+  stage='finished';extra=[{id:'discuss',skill:'discuss',status:'running',createdAt:'2026-09-26T10:10:00Z'}];await selectA()
+  await page.getByRole('button',{name:'Current: Discuss',exact:true}).waitFor()
+  assert.equal(await button.isDisabled(),true)
+  stage='new';extra=[{...extra[0],status:'completed'}];await selectB();await selectA()
+  await page.getByRole('button',{name:'Next: Clarify',exact:true}).waitFor()
   await page.setViewportSize({width:720,height:600})
   const bounds=await page.locator('#task-status').boundingBox(),terminal=await page.locator('#terminal').boundingBox()
   assert.ok(bounds.y>=terminal.y+terminal.height-1)

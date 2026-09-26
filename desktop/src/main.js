@@ -14,7 +14,7 @@ import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
 import './style.css'
-import { taskStage, nextTaskStep } from './workflow.mjs'
+import { taskStage, nextTaskStep, skillLabel } from './workflow.mjs'
 import { launchModeOverride, modeSelect } from './skill-mode.mjs'
 import { orderedTasks, nextSort, DEFAULT_SORT, SORTABLE_FIELDS } from './task-list-order.mjs'
 import { consoleNotice, needsConsoleNotice, readOnlyConsole } from './run-console.mjs'
@@ -48,7 +48,7 @@ const TERMINAL_FONT='"FiraCode Nerd Font Mono", "JetBrainsMono Nerd Font Mono", 
 const terminal=new Terminal({cursorBlink:true,fontSize:13,fontFamily:TERMINAL_FONT,scrollback:20000,theme:{background:'#11151c',foreground:'#d8e0ec'}})
 const fit=new FitAddon();terminal.loadAddon(fit)
 let nextStepData=null,nextStepGeneration=0,nextStepUpdated=0
-const submittingSteps=new Set()
+const submittingSteps=new Map()
 const submittedSteps=new Map()
 const nextStepErrors=new Map()
 // Task keys whose last launch was refused because a run is already active on
@@ -2373,7 +2373,12 @@ function renderNextStep(){
  const pending=submittingSteps.has(key)||submittedSteps.has(key)
  const message=submittingSteps.has(key)?'Submitting execution…':pending?'Execution submitted; waiting for its console':busy?'Execution in progress':nextStepErrors.get(key)||step.message
  status.textContent=(nextStepData.task.key||run.taskKey||run.taskId)+' · '+step.stage+' · '+message
- if(step.skillId){button.hidden=false;button.textContent='Next: '+step.label;button.disabled=busy||pending}
+ // The most recent active execution names the button, then the launch in
+ // flight; the stage step only reads once nothing runs on the task.
+ const active=runs.filter(item=>taskKey(item)===key&&activeRun(item)).sort((a,b)=>(b.createdAt||'').localeCompare(a.createdAt||''))[0]
+ const current=active?.skill||submittingSteps.get(key)||submittedSteps.get(key)?.skillId||''
+ if(current){button.hidden=false;button.textContent='Current: '+(skillLabel(current)||step.label||'');button.disabled=true}
+ else if(step.skillId){button.hidden=false;button.textContent='Next: '+step.label;button.disabled=false}
  if(force&&step.skillId&&forceableLaunches.has(key)){force.hidden=false;force.disabled=busy||pending}
  if(markReviewed&&nextStepData?.task&&taskStage(nextStepData.task)==='implemented'){
   markReviewed.hidden=false
@@ -2411,12 +2416,13 @@ async function launchNextStep(force){
  if(!run||displayed?.key!==taskKey(run)||!displayed.step?.skillId)return
  const key=taskKey(run)
  if(submittingSteps.has(key)||submittedSteps.has(key)||runs.some(item=>taskKey(item)===key&&activeRun(item)))return
- nextStepGeneration++;nextStepErrors.delete(key);forceableLaunches.delete(key);submittingSteps.add(key);renderNextStep()
+ nextStepGeneration++;nextStepErrors.delete(key);forceableLaunches.delete(key);submittingSteps.set(key,displayed.step.skillId);renderNextStep()
  try{
   const [fresh,latestRuns]=await Promise.all([readNextStep(run),api.runs()])
   if(taskKey(currentTaskRun()||{})!==key)return
   nextStepData=fresh
   if(fresh.step.skillId!==displayed.step.skillId||latestRuns.some(item=>taskKey(item)===key&&activeRun(item))){await refresh();return}
+  submittingSteps.set(key,fresh.step.skillId)
   await api.launchServerTask(run.projectId,run.taskId,fresh.step.skillId,'',undefined,force)
   submittedSteps.set(key,{skillId:fresh.step.skillId,runIds:latestRuns.filter(item=>taskKey(item)===key).map(item=>item.id)})
   await refresh()
