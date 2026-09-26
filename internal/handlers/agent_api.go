@@ -248,13 +248,19 @@ func (h *Handler) mcpStreamableHandler() http.Handler {
 	h.mcpOnce.Do(func() {
 		server := taskmcp.NewServerWithCallers(h.db, h.mcpSessions, h.mcpCaller)
 		h.mcpServer = server
-		h.mcpStreamable = mcp.NewStreamableHTTPHandler(
+		h.mcpStreamable = mcpHostProtection(mcp.NewStreamableHTTPHandler(
 			func(*http.Request) *mcp.Server { return server },
 			// The transport is given no bound of its own: its timeout closes the
 			// session, which would cancel every run it adopted. Sectile owns the
 			// bound instead and only marks the silence (see SessionRegistry).
-			&mcp.StreamableHTTPOptions{JSONResponse: true, SessionTimeout: 0},
-		)
+			&mcp.StreamableHTTPOptions{
+				JSONResponse:   true,
+				SessionTimeout: 0,
+				// Sectile preserves the SDK's loopback guard in mcpHostProtection,
+				// adding only the deployment's explicitly allowed ingress hosts.
+				DisableLocalhostProtection: true,
+			},
+		))
 	})
 	return h.mcpStreamable
 }

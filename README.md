@@ -108,6 +108,31 @@ The server reads `.env` at startup. Its most common settings are `PORT`,
 `DB_PATH`, and server tracker credentials such as `SECTILE_GITHUB_TOKEN`.
 See [`.env.sample`](./.env.sample) for the complete reference.
 
+### MCP behind a hosting proxy
+
+If MCP returns `403 Forbidden: invalid Host header` while the workstation agent
+connects successfully, the hosting ingress may be forwarding to the server over
+loopback while keeping its public hostname. The MCP loopback protection rejects
+that combination unless the server explicitly trusts the public Host:
+
+```sh
+export SECTILE_MCP_ALLOWED_HOSTS='sectile.example.com'
+```
+
+Use the hostname from the server's public URL, including a generated hosting
+domain. Set this variable on every **server** instance and restart/redeploy it;
+the workstation agent and Codex MCP URL do not need to change. Multiple hosts
+are comma-separated and matched exactly, ignoring case. Include `:port` if it
+appears in the forwarded Host; do not include a scheme, path or wildcard.
+
+With no setting, loopback requests still require a loopback Host. Configuring a
+public Host adds only that authority to the loopback check; other hosts remain
+blocked there, and connections to non-loopback interfaces retain their existing
+behavior. Bearer authentication and rejection of browser origins always apply.
+An unauthenticated `401` does not test Host acceptance: authenticate an MCP
+initialization and verify `tools/list` after deployment. See
+[ADR 0037](docs/adrs/0037-explicit-mcp-ingress-hosts.md).
+
 ### PostgreSQL
 
 SQLite is the default and is what the desktop application ships with. A server
