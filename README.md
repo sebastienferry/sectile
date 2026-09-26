@@ -1139,8 +1139,9 @@ To initialize a native provider from the desktop app, open the project gear menu
 
 ### Desktop console host
 
-Use **Open agent console** on a configured project to start Codex or Claude in a
-local TTY without a task or initial prompt. See [Free agent console](desktop/README.md#free-agent-console).
+Use **Project prompt** on a configured project to start any catalogue AI engine,
+including Codex, in a local TTY without a task or initial prompt. The selected engine
+keeps its model and interactive command. See [Project prompt](desktop/README.md#project-prompt).
 
 The desktop **Agent logs** toolbar action shows recent local-agent diagnostics even
 when disconnected, with a bounded snapshot and Refresh. Logs fill the workspace

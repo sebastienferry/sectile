@@ -1051,15 +1051,20 @@ receives the engine's final answer and any diagnostic printed beside the stream,
 never the stream's frames. A run that ends without an answer reports the reason
 its result frame carries, so a failure is not recorded as an empty entry.
 
-### Free desktop agent consoles
+### Desktop project prompts
 
-`GET /desktop/status` advertises `free-console`. Authenticated
-`POST /desktop/consoles` accepts `{"projectId":"...","provider":"codex"}` or
-`provider: "claude"` and returns HTTP 202 with the admitted local run. Browser
-Origin headers are rejected. Invalid input returns 400, unavailable server
-configuration returns 502, and local mapping or shutdown conflicts return 409.
+`GET /desktop/status` advertises `free-console` and `task-engines`.
+Authenticated `POST /desktop/consoles` accepts
+`{"projectId":"...","engineId":"..."}`. The engine must exist in the workstation
+catalogue; a removed identity returns 404. The desktop offers the catalogue
+from `GET /desktop/task-engines?projectId=...` and selects the project default.
+The engine's model and interactive template apply to this launch only.
+Templates receive an empty prompt and the mapped repository as `{repoPath}`.
+Built-in providers open an interactive session without a prompt argument.
+Legacy `{"projectId":"...","provider":"codex"}` requests remain supported
+for built-in providers. Custom commands must be selected by engine identity.
 
-The run has `kind: "console"`, a `provider`, a unique local ID, and empty task,
+The run has `kind: "console"`, a `provider`, the selected `engineId`, `engineName` and `model`, a unique local ID, and empty task,
 skill, and prompt fields. Its CLI receives no arguments. Project mappings and
 execution limits apply; the console reserves the mapped shared checkout through
 the existing queue. It does not scaffold tooling, create a worktree, or mutate
