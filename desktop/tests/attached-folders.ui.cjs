@@ -50,6 +50,7 @@ test('desktop project settings attach and remove folders',async()=>{
   const open=async()=>{
    await page.getByRole('button',{name:'Actions for Test project',exact:true}).click()
    await page.getByRole('menuitem',{name:'Project settings…',exact:true}).click()
+   await page.getByRole('tab',{name:'Folders',exact:true}).click()
   }
   const list=page.getByRole('list',{name:'Attached folders',exact:true})
   const status=page.locator('.attached-folder-status')

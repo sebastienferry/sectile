@@ -204,8 +204,8 @@ function agentUnavailable(){
  document.querySelector('#restart').hidden=true
  document.querySelector('#agent-offline').hidden=false
  closeTickets(false)
- document.querySelector('#setup').hidden=false
- document.querySelector('#workspace').hidden=true
+ document.querySelector('#setup').hidden=configurationActive()
+ document.querySelector('#workspace').hidden=!configurationActive()
  connectionStatus({text:'Local agent stopped'})
  projectsLoaded=false
  openEditorAvailable=false;renderOpenEditor()
@@ -828,7 +828,7 @@ function clearDialogFooter(){
 // closes writes into a detached node and is dropped. The close event is queued,
 // so a flow that reopens the dialog in the same task keeps its fresh content.
 dialog.addEventListener('close',()=>{
- if(dialog.open)return
+ if(dialog.open||configurationActive())return
  updateSettingsConnection=null
  returnConnectForm()
  dialogBody.replaceChildren()
@@ -862,9 +862,11 @@ function showConfiguration(title){
  updateSettingsConnection=null
  if(dialog.open)dialog.close()
  const page=document.createElement('section');page.className='configuration-page';page.setAttribute('aria-label','Configuration')
+ page.returnFocus=document.activeElement
  const back=document.createElement('button');back.type='button';back.className='configuration-back';back.textContent='←';back.setAttribute('aria-label','Back');back.title='Back';back.onclick=closeConfiguration
  const content=document.createElement('div');content.className='configuration-body'
  const workspace=document.querySelector('#workspace')
+ workspace.hidden=false;document.querySelector('#setup').hidden=true
  configurationHidden=new Map([...workspace.children].map(child=>[child,child.hidden]))
  for(const child of configurationHidden.keys())child.hidden=true
  workspace.append(page);page.append(content)
@@ -888,11 +890,15 @@ function closeConfiguration(){
  page.remove()
  for(const [child,hidden] of configurationHidden||[])child.hidden=hidden
  configurationHidden=null
+ document.querySelector('#workspace').hidden=!agentConnected
+ document.querySelector('#setup').hidden=agentConnected
  resize()
+ if(page.returnFocus?.isConnected)page.returnFocus.focus()
 }
 const configurationActive=()=>!!configurationPage
 function paragraph(text){const p=document.createElement('p');p.textContent=text;dialogBody.append(p);return p}
 window.addEventListener('keydown',event=>{
+ if(event.key==='Escape'&&!dialog.open&&configurationActive()){event.preventDefault();closeConfiguration();return}
  if(event.key==='Escape'&&!dialog.open&&ticketsOpen){event.preventDefault();closeTickets()}
 })
 

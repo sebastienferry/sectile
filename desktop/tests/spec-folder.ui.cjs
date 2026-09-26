@@ -38,6 +38,7 @@ test('desktop specifications folder shares the code repository and names what it
   const page=await app.firstWindow();page.setDefaultTimeout(10000)
   const open=async()=>{
    await page.getByRole('button',{name:'Actions for Test project',exact:true}).click();await page.getByRole('menuitem',{name:'Project settings…',exact:true}).click()
+   await page.getByRole('tab',{name:'Folders',exact:true}).click()
    return {
     field:page.getByRole('textbox',{name:'Specifications folder',exact:true}),
     same:page.getByRole('checkbox',{name:'Specifications live in the code repository',exact:true}),

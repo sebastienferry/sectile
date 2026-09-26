@@ -52,6 +52,7 @@ test('desktop offers to initialize a project folder as a Git repository',async()
   const page=await app.firstWindow();page.setDefaultTimeout(10000)
   const open=async()=>{
    await page.getByRole('button',{name:'Actions for Test project',exact:true}).click();await page.getByRole('menuitem',{name:'Project settings…',exact:true}).click()
+   await page.getByRole('tab',{name:'Folders',exact:true}).click()
    const offer=name=>page.getByRole('group',{name:name+' Git initialization',exact:true})
    return {
     local:page.getByRole('textbox',{name:'Local repository',exact:true}),

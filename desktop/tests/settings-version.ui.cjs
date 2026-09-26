@@ -31,10 +31,10 @@ test('changelog settings report both versions and the release notes',async()=>{
 
   await page.locator('#settings').click()
   await expect(page.getByRole('tab',{name:'User profile',exact:true})).toHaveAttribute('aria-selected','true')
-  await expect(page.getByRole('tab')).toHaveText(['User profile','Appearance','Agent connection','Execution defaults','Agent logs','Changelog'])
+  await expect(page.getByRole('tab')).toHaveText(['User profile','Appearance','Agent connection','Execution defaults','AI engines','Deployment','Agent logs','Changelog'])
   await expect(page.locator('#settings-panel-Profile .setting-name')).toHaveText(['Sectile server','Workstation','Profile and API keys'])
-  const bounds=await page.locator('#project-dialog').boundingBox()
-  assert.ok(bounds.width>840,'Workstation settings use the enlarged dialog')
+  const bounds=await page.locator('.configuration-page').boundingBox()
+  assert.ok(bounds.width>840,'Workstation settings use the full workspace')
   await page.screenshot({path:path.join(root,'settings-profile.png')})
   console.log('Settings screenshot: '+path.join(root,'settings-profile.png'))
   await page.getByRole('tab',{name:'Agent connection',exact:true}).click()
@@ -72,10 +72,9 @@ test('changelog settings report both versions and the release notes',async()=>{
   await expect(page.locator('.changelog-heading')).toContainText('Release notes')
   await expect(page.locator('.changelog').first()).toContainText('Versioning and releases')
 
-  // The panel's only way out is the cross: nothing is saved here, so the
-  // footer stays hidden rather than repeating that cross as a bar of its own.
+  // Back leaves configuration; read-only panels keep the action footer hidden.
   await expect(page.locator('.dialog-footer')).toBeHidden()
-  await page.locator('#close-dialog').click()
+  await page.getByRole('button',{name:'Back',exact:true}).click()
 
   // An agent that is not answering has no version to give. Saying so beats an
   // ellipsis that reads as a load which never finishes.
@@ -129,7 +128,7 @@ test('an agent that is not the bundled binary is marked outdated',async()=>{
   assert.equal(restarts,0,'a refused restart restarted the agent')
 
   // Reconnecting to the same agent does not ask again.
-  await page.locator('#close-dialog').click()
+  await page.getByRole('button',{name:'Back',exact:true}).click()
   await page.evaluate(()=>window.localAgent.connect())
   await page.waitForTimeout(300)
   assert.equal(await app.evaluate(()=>globalThis.restartOffers.length),1,'the refused restart was offered again')
