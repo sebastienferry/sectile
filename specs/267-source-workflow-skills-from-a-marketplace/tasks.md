@@ -1,171 +1,121 @@
-# #267 — Implementation checklist
+# #267: Implementation checklist
 
-Ordered so the format parser exists before anything calls it, the resolution layer is
-coherent before the interface can pin a pack, and nothing writes on a project until the
-preview it is built from is proven read-only.
+Ordered so the branch is clean before anything is added, the plugin exists before the
+dispatch can look for it, and the writes are removed only once the dispatch can resolve a
+skill without them. `make test` (`go test ./...`, then `npm test`, `tsc --noEmit`, `oxlint`)
+is the gate at the end of each section. The round-3 checklist is in the history of this file
+(`a9406ffa`).
 
-`make test` (`go test ./...`, then `npm test`, `tsc --noEmit`, `oxlint`) is the gate at the
-end of each section.
+## 0. The branch
 
-## 1. The format — `internal/marketplace`
+- [ ] **T0** Check that PR #350 is closed; if not, stop and ask the owner.
+- [ ] **T1** Revert the round-3 commits (`6a79d266`..`a9406ffa`, code only, not the
+      clarification or this specification) in one `revert(267): drop the third-party skill
+      packs` commit, then merge `origin/main` (plan, "Starting point"). `go build ./...`
+      and `make test` pass on the result before T2.
 
-- [x] **T1** Create `internal/marketplace/marketplace.go` with `ParseMarketplace`,
-      `ResolvePlugin` and `WorkflowDirNames()` (D1). `WorkflowDirNames` is derived from the
-      values of `models.SkillDirNames`, never re-typed.
-- [x] **T2** Implement the validation of D9: manifest shape, plugin `source` confined to the
-      marketplace root, frontmatter + non-empty body, 256 KiB cap, unknown directories
-      reported as `Ignored`, zero accepted entries as an error naming what was found.
-- [x] **T3** `internal/marketplace/testdata/`: one marketplace carrying a good plugin (four
-      workflow skills), a plugin mixing workflow and non-workflow directories, a plugin with
-      a `SKILL.md` without frontmatter, a plugin with none of the ten, and a plugin whose
-      `source` points outside the root.
-- [x] **T4** `internal/marketplace/marketplace_test.go`: one case per fixture, plus
-      `plugin.json` read at the plugin root and under `.claude-plugin/`, and the
-      `"skills"` key overriding the default `./skills/`.
+## 1. The plugin
 
-## 2. The agent — fetch and resolve on the workstation
+- [ ] **T2** `RenderGenericSkillContent` in `internal/skills/catalog.go` (D2): framework
+      subsections derived from the embedded fragment names, generic pull-request policy
+      section, contracts appended.
+- [ ] **T3** `internal/skills/plugin.go`: `RenderPlugin(version)` and
+      `RenderMarketplace(version)` (D1), version validation.
+- [ ] **T4** `cmd/sectile-plugin/main.go` and the `make plugin` target.
+- [ ] **T5** Tests, `internal/skills/plugin_test.go`:
+      - golden output under `testdata/plugin/` for version `0.0.0-test`, with an
+        `-update` flag; running twice gives byte-identical files (FR1);
+      - one `SKILL.md` per catalogue entry, frontmatter `name` equal to the directory;
+      - `.mcp.json` URL and header reference `user_config.server_url` / `user_config.api_key`,
+        `api_key` is `sensitive` and `required` (FR3);
+      - no generated file contains `http://`, `https://` other than the `example.com`
+        help text, a key, or a host name (FR3);
+      - D2 assertions: each framework-specific fragment appears only inside its subsection,
+        and every fragment `RenderSkillContent` uses for `openspec` and for `speckit` is in
+        the generic output (FR2);
+      - empty or `v`-prefixed version refused.
 
-- [x] **T5** Add `Marketplace`, `Plugin`, `Kind`, `Locator` and `Commit` to
-      `agentprotocol.Operation` (`internal/agentprotocol/operations.go`), `omitempty`, with
-      the comment saying the server never dereferences them itself.
-- [x] **T6** In `internal/agent/agent_operations.go`, add `marketplace_catalog` and
-      `marketplace_pack` to the action allow-list (line 94) and implement them: ensure the
-      cache under `~/.taskflow/marketplaces/<sanitized-name>/`, clone or fetch for
-      `github`/`git`, read a `path` kind in place, check out `Commit` when given, then call
-      `internal/marketplace` and resolve the commit with `git rev-parse HEAD` (D2).
-- [x] **T7** `internal/db/agentoperations.go`: give both actions a 3-minute budget in
-      `operationTimeout`, beside the `spec_install` case, and leave them out of
-      `localInspections`.
-- [x] **T8** Agent tests: a `path` marketplace resolved end to end from the T3 fixtures, a
-      name with a path separator refused before it reaches the cache path, and a second call
-      re-using the cache without a network call.
+## 2. Knowing what is custom, and the settings
 
-## 3. Storage and resolution
+- [ ] **T6** `agentconfig.Skill.Custom`; set in `db.AgentConfig` from non-empty
+      `project_skills.content` and in `Resolve` from `Settings.Skills` (D4). Record
+      `CommandOverridden` in `Resolve`.
+- [ ] **T7** `Defaults.CustomSkillsWin` and `Defaults.InstalledSkillSource`, validation,
+      `GET|PUT /desktop/workstation` (D5).
+- [ ] **T8** Namespaced command validation in `workstation.go`, `validation.go` and
+      `desktop/src/execution-fields.mjs` (D10).
+- [ ] **T9** Tests: `db.AgentConfig` marks an edited skill custom and leaves a mode-only
+      row and the PR-policy suffix non-custom; `Resolve` marks a `Settings.Skills`
+      override custom; settings round-trip with both fields absent, set and invalid;
+      `sectile:clarify-issue` accepted as a command and refused as an ID or directory;
+      the desktop field test for `SKILL_COMMAND`.
 
-- [x] **T9** Add the `skill_marketplaces` and `project_skill_packs` DDL of `plan.md` to the
-      schema list in `internal/db/db.go` (near line 314).
-- [x] **T10** In `ensureProjectSkillsTable` (`internal/db/projectskills.go:21`), add the
-      `pack_content` and `pack_origin` columns with the same `ALTER TABLE … ADD COLUMN`
-      idiom as `mode`, and read them in `projectSkillOverrides`.
-- [x] **T11** Add `RenderSkillWithBody` to `internal/db/skilltemplates.go` (D4): Sectile's
-      header, the pack body under `## Project instructions` with its own frontmatter
-      stripped, then the generated contracts.
-- [x] **T12** Make `renderPickupSteps` compose from the resolved bodies passed to it instead
-      of reading `StageSkillByID` directly, so a pack that updates `clarify` updates
-      `pickup` and `pickup_issues` too (FR8).
-- [x] **T13** Add `resolvedSkillBaselines(projectID, framework)` (D5) and start
-      `EffectiveProjectSkills` from it; a pack body for `specify` or `refine_macro` applies
-      to both frameworks, an absent one keeps the built-in variant (US8).
-- [x] **T14** `ListProjectSkillEditor`: `DefaultContent` becomes the resolved baseline, and
-      the entry carries `Origin` / `PackOrigin`. Check that `IsCustom`, `Diverged` and the
-      reset path keep their meaning (US4).
-- [x] **T15** `internal/db/skilltemplates_test.go`: an arbitrary pack body still renders the
-      frontmatter, the stage line, the task-access, session-title and transition contracts;
-      a pack body carrying its own frontmatter produces exactly one; `pickup` embeds the
-      pack's `clarify` body.
-- [x] **T16** `internal/db/projectskills_test.go`: precedence built-in → pack → edit;
-      resetting an edited skill lands on the pack body; resetting with no pack lands on the
-      built-in; a pack-supplied, never-edited skill is not `isCustom`.
+## 3. Resolving the skill at dispatch
 
-## 4. Registry, preview and apply
+- [ ] **T10** `internal/agent/skillsource.go`: `chooseSkill`, `claudePluginSkill`, direct
+      copy probe (D6).
+- [ ] **T11** Run-private file: write under `~/.config/sectile/runs/<runID>/`, remove at run
+      end, sweep directories older than 7 days at start, validate the run ID (D7).
+- [ ] **T12** `dispatchCommand` takes the choice for task and macro dispatches; `custom`
+      prompt and `--add-dir` for Claude (D6).
+- [ ] **T13** `errSkillNotInstalled` through the existing launch-failure path, message of D8.
+- [ ] **T14** Tests, `internal/agent/skillsource_test.go`, with a fake home through
+      `testhome`:
+      - resolution table: custom × setting on/off × direct present/absent × plugin
+        present/absent/disabled/project-scoped elsewhere × preference direct/plugin ×
+        provider claude/codex/gemini × explicit `SkillCommands` (US4, US5, US6);
+      - malformed `installed_plugins.json` reads as not installed;
+      - two projects with different custom content get two files and two prompts (FR6);
+      - the run file is gone after success, failure and cancel; the sweep removes an old
+        directory and keeps a recent one;
+      - a run ID with a path separator is refused;
+      - the custom prompt names the file and carries the payload prompt; for `adjust` the
+        adjustment contract is still appended;
+      - nothing found fails before any PTY is opened, with the D8 message per provider.
 
-- [x] **T17** Create `internal/db/skillmarketplace.go` with the registry CRUD
-      (`ListSkillMarketplaces`, `AddSkillMarketplace`, `RemoveSkillMarketplace`), the add
-      path resolving the marketplace once through the agent before it stores anything (US1).
-- [x] **T18** `MarketplaceCatalog(name)`: call `marketplace_catalog`, refresh `last_commit`
-      and `last_fetched_at`, write nothing on any project.
-- [x] **T19** `PreviewSkillPack(projectID, marketplace, plugin)`: call `marketplace_pack`,
-      render each body through `RenderSkillWithBody` against the project's framework, return
-      `models.SkillPackPreview` with per-skill current/proposed, ignored, rejected and
-      missing. No write at all (US3).
-- [x] **T20** `ApplySkillPack(projectID, marketplace, plugin, commit)`: re-resolve at the
-      previewed commit, write `pack_content` / `pack_origin`, clear the bodies the new pack
-      does not supply (US7), upsert `project_skill_packs`, then
-      `WriteAllProjectSkillsToRepo`.
-- [x] **T21** `UnpinSkillPack(projectID)`: drop the pin, clear every `pack_content`, keep
-      every `content`, reinstall.
-- [x] **T22** `recordSkillPackActivity`, modelled on `recordSpecFrameworkActivity`
-      (`internal/db/specframework.go:100`), `skillId: apply_skill_pack`, output carrying the
-      applied skills, the ignored directories and the rejections (D9).
-- [x] **T23** `RemoveSkillMarketplace` reports the projects that pin it and leaves their
-      applied bodies alone; `GET .../skill-pack` marks such a pin `orphaned` (US1).
-- [x] **T24** `internal/db/skillmarketplace_test.go`: preview writes nothing (row count and
-      content unchanged, no `sync_config` call), apply then unpin round-trips, a pack that
-      drops a skill returns it to the built-in body, an offline agent surfaces the
-      `callAgent` error and changes nothing (US8).
+## 4. Removing the writes
 
-## 5. HTTP API
+- [ ] **T15** Remove the `Scaffold` / `bootstrapLocalMCP` calls from `prepareDispatchLocked`
+      and `prepareMacroSkills`; delete `syncLocalProject` and its call in `connect` (D3).
+- [ ] **T16** Remove the start-up `refreshMCPConnections` call, after the check D3 describes;
+      record its outcome in the pull request.
+- [ ] **T17** Remove `WriteProjectSkillToRepo` from save and reset; delete the functions left
+      without callers; keep `sync_config` and `install-skills` (D3).
+- [ ] **T18** Tests (FR4, US2): with a fake home, a task dispatch, a macro dispatch, an agent
+      connect on a single project and a skills-editor save leave the fake home's
+      `.claude`, `.claude.json`, `.agents`, `.codex`, `.gemini`, `.config/sectile` (except
+      `runs/`) byte-identical, compared by a tree hash before and after; a dispatch whose
+      MCP file is read-only still launches; `initializeProvider` still writes skills and MCP
+      (regression guard for US3). Update or delete the existing tests that asserted the
+      writes at dispatch and at connect, saying which in the commit message.
 
-- [x] **T25** Add the `/api/skill-marketplaces` routes of D8 in `internal/handlers` and
-      register them in `cmd/server/main.go` beside `/api/spec-framework/...`; writes go
-      through `h.requireAdmin`, reads do not.
-- [x] **T26** Add the `skill-pack` sub-actions (`GET`, `POST`, `POST /preview`, `DELETE`) to
-      `HandleProjectDetail`, next to the `skill-editor` block
-      (`internal/handlers/handlers.go:1007`).
-- [x] **T27** Handler tests: a member refused on a registry write and allowed on a read, an
-      unknown marketplace answering 404, a preview leaving the project untouched, an apply
-      answering the new pin.
+## 5. Passive signal and wording
 
-## 6. Interface
+- [ ] **T19** `customSkillUse` in the dispatcher, `customSkillsUsed` on
+      `GET /desktop/workstation`, the activity step (D9).
+- [ ] **T20** Desktop: the two settings in "Execution defaults", the warning badge on the
+      settings button, the "Custom skills used" notice (D5, D9). `npx vite build` before the
+      desktop UI tests, then restore `webui/.gitkeep` if the build removed it.
+- [ ] **T21** Optional-setup wording in `init` and in the desktop Deployment tab (D11); the
+      skills editor badge says "direct copy" (D3).
+- [ ] **T22** Tests: `customSkillsUsed` filled by a custom dispatch only, not by a direct or
+      plugin one, and not after the setting is turned off; desktop UI test for the badge and
+      the notice appearing from a stubbed `/desktop/workstation` response and absent when
+      the list is empty; desktop UI test for the two settings saving through
+      `saveWorkstationSettings`.
 
-- [x] **T28** Mirror the new models in `web/src/types/index.ts` and add
-      `fetchSkillMarketplaces`, `fetchMarketplaceCatalog`, `previewSkillPack`,
-      `applySkillPack` and `unpinSkillPack` to `web/src/context/AppContext.tsx`.
-- [x] **T29** `SkillsView.tsx`: the pack strip (pinned coordinates and applied date, or "no
-      pack") with Choose / Update / Unpin, and the `Marketplace` badge on each entry fed by
-      `origin` (D10).
-- [x] **T30** The preview panel on the same screen: per-skill diff, ignored directories,
-      rejected entries with their reason, skills the pack does not supply, and an Apply
-      button that is the only thing that writes.
-- [x] **T31** The registry editor in the deployment section of the settings surface, next to
-      the SDD framework, hidden from a member the way the other deployment settings are.
-- [x] **T32** `web/src/locales/translations.ts`: every new label in `fr` and `en`.
-- [x] **T33** `web/tests/skillPack.test.mjs`: the badge and the strip render from a pinned
-      entry, and the preview panel lists ignored and missing skills.
+## 6. Documentation
 
-## 7. Documentation
+- [ ] **T23** ADR 0034, `docs/contracts/server-agent-v1.md`, `README.md`, `CHANGELOG.md`
+      `[Unreleased]` (plan, "Documentation"). No internal host, project or secret name in any
+      of them: the repository is public.
 
-- [x] **T34** `docs/adrs/0016-skills-can-come-from-a-marketplace.md`: the Claude plugin
-      marketplace format, why Sectile parses it rather than driving the CLI, the
-      built-in → pack → edit precedence, and why `autoUpdate` is refused.
-- [x] **T35** Update `docs/CAPABILITIES.md` and `docs/API_AND_DATA_SPEC.md` with the new
-      routes, tables and vocabulary (marketplace, plugin, pack, apply) shared with #106.
+## Test plan by level
 
-## Test plan
-
-| Level | What it proves |
-|---|---|
-| `internal/marketplace` unit tests (T4) | the format is read as specified, and a malformed pack is reported per entry rather than dropped |
-| `skilltemplates` tests (T15) | FR7 and US5: no pack body can remove a generated contract, and composition follows the pack |
-| `projectskills` tests (T16) | FR6 and US4: precedence, reset target, `isCustom` |
-| `skillmarketplace` tests (T24) | US3 and US6: preview is read-only, apply is the only write, offline changes nothing |
-| handler tests (T27) | D8: admin-only registry writes, project-scoped pack actions |
-| agent tests (T8) | D2: cache re-use, path confinement, a `path` marketplace end to end |
-| web tests (T33) | D10: origin badge and preview contents |
-| manual | register a local-directory marketplace built from the T3 fixture, apply it to a scratch project, run `/clarify-issue` on a ticket and check the rendered file still carries the transition contract |
-
-## Implementation notes
-
-Three deviations from `plan.md`, taken while implementing and kept deliberate:
-
-- **`SkillPack.Bodies` is keyed by skill *directory* name**, not by skill id. The
-  directory name is what the format carries and the only thing the agent can
-  match without the server's catalogue; the server maps it to the skill id with
-  `StageSkillByDirName`.
-- **`RenderSkillWithBody` takes the resolved baselines as a fourth argument.**
-  `pickup` and `pickup_issues` compose their stage sections from them (FR8), and
-  the renderer cannot read the database.
-- **`marketplace_forget` is a third agent action.** FR11 asks that removing a
-  marketplace remove its cache; the cache lives on the workstation, so removal
-  needs an action. It is best-effort: an unreachable agent does not keep a
-  registry row alive.
-
-`resolvedSkillBaselines` composes the batch skills from the **pack** bodies, not
-from the project's own edits. That is what the function's contract says — "the
-content a project would get without its own edits" — and it leaves a project
-that edited a stage and pinned no pack exactly as it was before this change.
-
-Not implemented, and not part of the checklist: **D7**, the deployment-level
-default *selection* (`skillPackMarketplace` / `skillPackPlugin` settings keys).
-No task covers it, and it only pre-selects what the picker opens on; the feature
-is complete without it.
+| Level | What | Where |
+| --- | --- | --- |
+| Unit, pure | generic rendering, plugin files, validation patterns | `internal/skills`, `internal/agentconfig` |
+| Unit, fake home | skill resolution, plugin detection, run file lifecycle, no-write guarantee | `internal/agent` with `testhome` |
+| Integration, DB | `custom` flag in the agent config; save no longer calls the agent | `internal/db` (SQLite, and PostgreSQL when `SECTILE_TEST_POSTGRES_DSN` names a throwaway database) |
+| Desktop UI | settings fields, badge, notice | `desktop` UI tests after `npx vite build` |
+| Manual, once | `go run ./cmd/sectile-plugin -version 0.0.0 -out $TMPDIR/p -marketplace`, `claude plugin marketplace add $TMPDIR/p`, `claude plugin install sectile@sectile`, answer the two prompts, check `/sectile:clarify-issue` is listed and the `sectile` MCP server connects; set "installed skills source" to plugin, remove the direct copies of a throwaway home, dispatch a task step and read the prompt in the run log | a throwaway `HOME`, never the dev database |

@@ -1,247 +1,260 @@
-# #267 — Source the workflow skills from a marketplace
+# #267: Sectile distributed as a Claude plugin, the direct setup made optional
+
+This file replaces the round-3 specification ("a project pins a third-party pack whose
+bodies replace Sectile's built-in ones"). That feature left the ticket in round 4 of the
+clarification; its specification and its code stay in the history of `feat/267`
+(last at `a9406ffa`) as material for a possible separate ticket. The decisions applied here
+are the section "Settled design (round 4)" of `docs/clarifications/267.md`. Behaviour only;
+the technical choices are in `plan.md`.
 
 ## Context
 
-The ten workflow skills are a catalogue compiled into the binary: `StageSkills`
-(`internal/db/skilltemplates.go:52`) holds both their metadata and their prose, and
-`RenderSkillContent` assembles a `SKILL.md` out of it. A project may already edit any of
-them — `project_skills` stores the edited body, `EffectiveProjectSkills`
-(`internal/db/projectskills.go:139`) resolves built-in template → project edit, and the
-result is installed into the agent conventions.
+Today the local agent installs Sectile into the AI CLI by itself, every time: each task
+dispatch, each macro dispatch, each agent start on a single project, and each save in the
+skills editor writes the workflow skills into the CLI's user-level folder
+(`~/.claude/skills`, `~/.agents/skills`, `~/.gemini/config/skills`) and writes the
+`sectile` MCP registration (`~/.claude.json`, `~/.codex/config.toml`, ...). A write that
+fails aborts the dispatch. Because the folders are user-level, two projects that edit the
+same skill overwrite each other's copy: the last project dispatched wins.
 
-Nothing today lets a team share a set of skill bodies. Improving the prompts means either
-patching Sectile or re-typing the same edit in every project.
+Claude Code has its own distribution channel for exactly this: a plugin, installed from a
+marketplace, carrying skills and MCP server declarations.
 
-This ticket adds a third source underneath the project's own edits: a **Claude plugin
-marketplace**, read directly by Sectile. The clarification (`docs/clarifications/267.md`)
-settled the format, what a pack may contain, where it is configured and when it becomes
-effective; this file describes the resulting behaviour, and `plan.md` the technical
-choices.
+## What changes
 
-## Decision being specified
+1. Sectile's workflow skills and its MCP server declaration are published as a **Claude
+   plugin** named `sectile`, generic across projects: a skill reads the project specifics
+   (specification framework, pull-request creation stage) from `get_project_context` at run
+   time.
+2. The agent **never writes** skills or an MCP registration on its own any more. The direct
+   setup stays available, **on request only**, from the agent's `init` command and from the
+   desktop. It stays the only route for codex, agy, gemini, cursor and vibe.
+3. At dispatch the agent **uses what it finds**, without comparing versions, checksums or
+   dates:
+   1. the project's **custom skill** held by the server, when the workstation setting
+      "custom project skills win" is on (default **on**) and the project has one;
+   2. otherwise the **installed skill** from the source preferred by the workstation setting
+      "installed skills source" (default **direct copy**), falling back to the other one;
+   3. otherwise the dispatch fails, says what is missing and how to install it, and writes
+      nothing.
+4. Signals are **passive**: when a custom skill was used, the desktop shows a warning icon
+   next to its settings entry and a "Custom skills used" notice inside the settings. Nothing
+   interrupts, prompts or nags.
 
-A deployment registers marketplaces. A project picks **one plugin** from one of them, sees
-the diff, and applies it. From then on the pack bodies are the project's baseline, the
-project's own edits still win over them, and Sectile keeps generating the contracts that
-attach an agent to the workflow protocol. Nothing ever re-resolves on its own.
-
-Vocabulary, shared with #106: a **marketplace** is the repository, a **plugin** is the unit
-a project selects, a **pack** is that plugin's skill bodies as resolved at one commit, and
-**applying** is the explicit action that makes a pack the project's baseline.
+Vocabulary: a **direct copy** is a skill the agent's direct setup wrote into the CLI's
+user-level folder, run as `/<dir>` (for example `/clarify-issue`); a **plugin skill** is the
+same skill installed through the Claude plugin, run as `/sectile:<dir>`; a **custom skill**
+is a skill the project edited in the skills editor, stored on the server.
 
 ## User stories
 
-### US1 — Register a marketplace once for the deployment (P1)
+### US1: Install Sectile in Claude as a plugin (P1)
 
-As the person who administers a Sectile deployment, I want to register the marketplaces my
-team uses once, so that every project can pick from them without re-typing a URL.
+As a Claude Code user, I want to install Sectile with Claude's own plugin commands, so that
+Sectile's skills and its MCP server arrive and update the way my other plugins do.
 
-- **Given** I administer the deployment
-- **When** I register a marketplace by GitHub repository (`owner/repo`), by git URL, or by
-  local directory path
-- **Then** it appears in the registry with its name, its owner and the date it was last
-  fetched, and every project of the deployment can select from it.
-- **Given** a locator that does not resolve, or a repository without
-  `.claude-plugin/marketplace.json` at its root
-- **When** I try to register it
-- **Then** registration is refused with the reason, and nothing is stored.
-- **Given** I am a member and not an administrator
-- **When** I try to add, edit or remove a marketplace
-- **Then** the call is refused the way a deployment setting is refused today, and the
-  registry stays readable.
-- **Given** a registered marketplace
-- **When** I remove it while a project still pins one of its plugins
-- **Then** I am told which projects pin it; removal keeps those projects working on the
-  bodies they already applied, and their pin is reported as orphaned rather than silently
-  reverted.
+- **Given** the Sectile marketplace is added to Claude (`claude plugin marketplace add ...`)
+- **When** I install the `sectile` plugin
+- **Then** Claude asks me for the Sectile server URL and my workstation API key, stores the
+  key in its secure storage rather than in a plain file, and afterwards lists the workflow
+  skills as `/sectile:clarify-issue`, `/sectile:specify-issue`, ... and the `sectile` MCP
+  server as connected to that URL with that key.
+- **Given** the plugin is installed and I open a session on any project of that server
+- **When** I run `/sectile:specify-issue <task>`
+- **Then** the skill reads the project's specification framework and pull-request creation
+  stage from `get_project_context` and follows them, with the same steps and contracts as
+  the skill the direct setup would have written for that project.
+- **Given** two projects using different specification frameworks
+- **When** each runs the same plugin skill
+- **Then** each follows its own framework; one installation serves both.
 
-### US2 — Pick a plugin for a project (P1)
+### US2: The agent no longer writes behind my back (P1)
 
-As the owner of a project, I want to browse a registered marketplace and choose the plugin
-whose skills my project should run, so that my workflow uses my team's prompts.
+As a workstation user, I want the agent to leave my CLI configuration alone unless I ask,
+so that what I installed, including the plugin, is what runs.
 
-- **Given** a registered marketplace
-- **When** I open the skills screen of a project and choose that marketplace
-- **Then** I see its plugins with their name, description and version, and for each the
-  workflow skills it supplies.
-- **Given** a plugin I selected
-- **When** Sectile resolves it
-- **Then** it reads `skills/<name>/SKILL.md` under the plugin directory — the path named by
-  `"skills"` in `plugin.json` when present, `./skills/` otherwise — and matches each skill
-  directory name against the ten workflow directories: `clarify-issue`, `specify-issue`,
-  `code-issue`, `adjust-issue`, `handoff-issue`, `create-pr`, `pickup-issue`,
-  `pickup-issues`, `rewrite-story`, `refine-macro`.
-- **Given** the plugin also ships skills, commands, agents or hooks that are not among the
-  ten
-- **When** the pack is resolved
-- **Then** each one is **listed as ignored with its directory name**, and none of them is
-  installed anywhere.
-- **Given** a plugin that supplies none of the ten
-- **When** I try to resolve it
-- **Then** it is an error naming what was found, not an empty success, and nothing is
-  applied.
+- **Given** any provider, and the agent started on one project or on all of them
+- **When** the agent starts, dispatches a task step, dispatches a macro step, or a project is
+  re-synchronised after a reconnection
+- **Then** no file in the CLI's skill folders, no MCP registration, no Claude hook setting
+  and no Sectile manifest is created, rewritten or removed.
+- **Given** a project member saves, resets or imports a skill in the skills editor
+- **When** the save completes
+- **Then** the custom skill is stored on the server and nothing is written on any
+  workstation; the next dispatch of that skill picks it up (US4).
+- **Given** a workstation where writing an MCP registration would fail (read-only file,
+  ambiguous legacy entry)
+- **When** a task is dispatched
+- **Then** the dispatch is not aborted by it, since nothing is written.
 
-### US3 — See the diff before anything becomes effective (P1)
+### US3: Set up a CLI directly, when I ask (P1)
 
-As the owner of a project, I want to read what a pack would change before it changes
-anything, so that I never run a prompt I have not seen.
+As a user of codex, agy, gemini, cursor or vibe, or a Claude user who prefers not to use the
+plugin, I want to install the skills and the MCP registration myself in one action.
 
-- **Given** a plugin I selected
-- **When** Sectile has resolved it
-- **Then** I see, per workflow skill, the current resolved content against what the pack
-  would make it, plus the list of ignored directories and of skills the pack does not
-  supply — and **nothing is written yet**: the project's skills, its files on disk and its
-  runs are untouched.
-- **Given** that preview
-- **When** I close it without applying
-- **Then** the project is exactly as it was, including the fetch having left no pin behind.
-- **Given** that preview
-- **When** I apply it
-- **Then** the pack bodies become the project's baseline, the pin records the marketplace,
-  the plugin, the plugin `version` and the **resolved commit SHA**, and the skills are
-  re-installed into the agent conventions exactly as an edit does today.
+- **Given** the agent's `init` command, run with a provider
+- **When** it completes
+- **Then** it writes that provider's skills and MCP registration exactly as today, and
+  reports each step as succeeded, failed, skipped or not run.
+- **Given** the desktop project settings, Deployment tab
+- **When** I choose a provider and press "Initialize"
+- **Then** the same happens for that provider, and the result is shown step by step as
+  today.
+- **Given** the desktop and the agent's `init`
+- **When** I read the text around the initialize action
+- **Then** it says the step is optional and that Claude users can install the `sectile`
+  plugin instead.
 
-### US4 — My own edits still win (P1)
+### US4: A project's custom skill runs by default (P1)
 
-As someone who has hand-edited a skill for my project, I want applying a pack never to
-destroy that edit, so that adopting a team pack is not a choice between two customisations.
+As the owner of a project that edited a skill, I want that edit to run on every
+workstation, without anybody reinstalling anything.
 
-- **Given** a skill I edited for this project
-- **When** a pack that also supplies that skill is applied
-- **Then** my edited body stays effective, and the pack body becomes the baseline behind it.
-- **Given** that same skill
-- **When** I reset it
-- **Then** it falls back to the **pack** body, not to the built-in one, and only falls back
-  to the built-in one when no pack supplies it or no pack is pinned.
-- **Given** a skill the pack supplies and I never edited
-- **When** the pack is applied
-- **Then** the skill is no longer reported as custom: it matches what this project would
-  otherwise get, and its origin is shown as the marketplace with the plugin name and
-  version.
+- **Given** the workstation setting "custom project skills win" is on (the default) and the
+  project has a custom version of the skill being dispatched
+- **When** the skill is dispatched, as a task step or a macro step, interactive or headless
+- **Then** the CLI runs the project's custom version as stored on the server at dispatch
+  time, whatever is installed as a direct copy or as a plugin skill, and nothing is written
+  into the CLI's user-level folders.
+- **Given** two projects with different custom versions of the same skill
+- **When** each is dispatched on the same workstation, one after the other or at the same
+  time
+- **Then** each runs its own version.
+- **Given** the setting is off
+- **When** a skill the project customised is dispatched
+- **Then** the installed skill runs (US5), as if the project had no custom version.
+- **Given** a skill the project did not customise
+- **When** it is dispatched
+- **Then** the installed skill runs (US5), whatever the setting.
 
-### US5 — The protocol survives any pack (P1)
+### US5: Choose which installed source runs (P2)
 
-As the person responsible for a board, I want a third-party body never to be able to detach
-an agent from the workflow protocol, so that a pack cannot leave tickets stuck.
+As a Claude user who has both old direct copies and the plugin, I want to decide which one
+runs.
 
-- **Given** any pack body, including one that mentions no tool at all
-- **When** the skill is rendered
-- **Then** the rendered file still carries the frontmatter, the stage line, the task-access
-  contract, the session-title contract, the ticket-transition contract and the project's
-  pull request policy, all generated by Sectile.
-- **Given** a pack body that contains its own frontmatter block
-- **When** the skill is rendered
-- **Then** that block is stripped and Sectile's frontmatter is the only one in the file.
-- **Given** a pack that supplies `pickup-issue` or `pickup-issues`
-- **When** those skills are rendered
-- **Then** their embedded stage sections are still composed from the project's **resolved**
-  `clarify`, `specify`, `implement` and `adjust` bodies, so a batch run cannot lag behind a
-  stage the pack updated.
-- **Given** any pack
-- **When** a run is dispatched
-- **Then** the slash command is unchanged — `/clarify-issue`, `/specify-issue`, … — because
-  ids, directory names and stages stay Sectile's and a pack carries none of them.
+- **Given** the workstation setting "installed skills source" is "direct copy" (the default)
+- **When** a skill without an applicable custom version is dispatched to Claude
+- **Then** `/<dir>` runs when the direct copy is installed, otherwise `/sectile:<dir>` runs
+  when the plugin is installed and enabled.
+- **Given** the setting is "Claude plugin"
+- **When** the same dispatch happens
+- **Then** `/sectile:<dir>` runs when the plugin is installed and enabled, otherwise `/<dir>`
+  runs when the direct copy is installed.
+- **Given** the plugin is installed only for another project folder (Claude "project"
+  scope), or is disabled
+- **When** a dispatch looks for it
+- **Then** it is treated as not installed for this dispatch.
+- **Given** a provider other than Claude
+- **When** a skill is dispatched
+- **Then** the setting has no effect: only the direct copy exists for that provider.
+- **Given** a project section that sets an explicit slash command for a skill
+  ("skill commands" in the project settings)
+- **When** that skill is dispatched without an applicable custom version
+- **Then** that command runs as written, including a namespaced one such as
+  `/sectile:clarify-issue`, without looking for either source.
 
-### US6 — A pinned pack is reproducible and works offline (P1)
+### US6: Nothing found is said, not repaired (P1)
 
-As someone re-running a ticket a month later, I want the same pack bodies as the first run,
-so that a remote edit cannot change my workflow without me knowing.
+As a workstation user, I want a dispatch that has no skill to run to fail with a message
+that tells me what to do.
 
-- **Given** a project with a pinned pack
-- **When** the marketplace repository receives new commits
-- **Then** nothing changes for the project: the bodies stay as applied and the pinned commit
-  stays the pinned commit.
-- **Given** a project with a pinned pack and no network
-- **When** skills are installed or a run starts
-- **Then** everything works from what was already applied; no fetch is attempted.
-- **Given** a pinned pack
-- **When** I ask for an update
-- **Then** Sectile re-resolves the plugin at the marketplace head, shows the diff as in US3,
-  and changes nothing until I apply it — the marketplace's own `autoUpdate` flag is read as
-  information and never acted upon.
+- **Given** a provider that has a skill folder (claude, codex, agy), no applicable custom
+  version, no direct copy and, for Claude, no installed and enabled plugin
+- **When** the skill is dispatched
+- **Then** the dispatch fails before any CLI is launched, the run is recorded as failed with
+  a message naming the skill and the provider and pointing at the three ways out: install
+  the `sectile` plugin (Claude only), run the agent's `init` with that provider, or press
+  "Initialize" in the desktop project settings; and nothing is written.
+- **Given** a provider without a skill folder (gemini, cursor, vibe)
+- **When** a skill without an applicable custom version is dispatched
+- **Then** the dispatch behaves as today: the slash command is sent, no check is made.
 
-### US7 — Stop using a pack (P2)
+### US7: Know when custom skills are in use (P2)
 
-As the owner of a project, I want to go back to Sectile's own skills, so that adopting a
-pack is reversible.
+As a workstation user, I want to see, without being interrupted, that a project's custom
+skill ran instead of the installed one.
 
-- **Given** a project with a pinned pack
-- **When** I unpin it
-- **Then** the baseline is the built-in catalogue again, my own edited skills are untouched,
-  and the files are re-installed from the new resolution.
-- **Given** a project whose newer pack no longer supplies a skill the previous one did
-- **When** that newer pack is applied
-- **Then** the skill returns to the built-in body rather than keeping an orphaned pack body.
-
-### US8 — Framework variants, and a fetch that fails (P2)
-
-As the owner of an OpenSpec project, I want a pack written for Spec Kit not to silently
-break my specification step, so that the framework choice stays mine.
-
-- **Given** a pack supplying a single `specify-issue` (or `refine-macro`)
-- **When** it is applied to a project on either framework
-- **Then** that one body is used for both, and the preview says so.
-- **Given** a pack supplying neither
-- **When** it is applied
-- **Then** the built-in framework-specific body is kept for that skill.
-- **Given** a project whose local agent is offline
-- **When** I try to resolve, preview or apply a pack
-- **Then** the action fails with the agent error the other agent operations already report,
-  and the project keeps the bodies it had.
+- **Given** a dispatch on this workstation ran a project's custom skill since the agent
+  started
+- **When** I look at the desktop
+- **Then** a warning icon sits next to the settings entry, and the settings show a "Custom
+  skills used" notice listing the project, the skill and when it last ran, next to the
+  "custom project skills win" setting.
+- **Given** a plugin update or a new direct copy is installed while a custom skill exists
+- **When** the next dispatch happens
+- **Then** the custom skill keeps running, with no prompt, dialog or blocking notice.
+- **Given** the setting is turned off
+- **When** the next dispatches run
+- **Then** the notice keeps what was used before, and no new entry is added.
+- **Given** a dispatch ran a custom skill
+- **When** I read the run's activity steps
+- **Then** one step says the project's custom skill was used.
 
 ## Functional requirements
 
-- **FR1 — Registry.** The deployment holds a set of marketplaces, each with a unique name,
-  a kind (`github`, `git`, `path`), a locator, an owner, a description, the last resolved
-  commit and the date last fetched. Writes are administrator-only; reads are not.
-- **FR2 — Format.** Sectile parses `.claude-plugin/marketplace.json`
-  (`{name, owner, metadata, plugins[]}`, each plugin `{name, source, description, version}`)
-  and, per plugin, `plugin.json` at the plugin root or under its `.claude-plugin/`. It never
-  invokes the `claude` CLI, so a project on `codex`, `agy`, `gemini`, `cursor` or `vibe`
-  uses a marketplace exactly as a `claude` project does.
-- **FR3 — Mapping.** A pack entry is accepted only when its skill directory name equals one
-  of the ten workflow directory names. Anything else is reported as ignored. A plugin whose
-  `source` escapes the marketplace directory is rejected.
-- **FR4 — Validation.** An accepted `SKILL.md` has a parsable frontmatter block, a non-empty
-  body after it, and a size within the accepted limit. A failed entry is reported with its
-  reason and does not take part in the pack; a plugin with zero accepted entries is an error.
-- **FR5 — Pin.** A project pins at most one plugin: marketplace name, plugin name, plugin
-  version, resolved commit, applied date, and the list of skills the pack supplied.
-- **FR6 — Precedence.** Resolution is built-in default → pack body → project edit. The
-  editor's default content is the resolved baseline, so "custom" keeps meaning "differs from
-  what this project would otherwise get", and each entry carries its origin (`builtin` or
-  `marketplace`) with the pack coordinates.
-- **FR7 — Generated contracts.** The frontmatter, the title, the stage line, the task-access
-  contract, the session-title contract, the ticket-transition contract and the pull request
-  policy are always Sectile's and are never taken from a pack.
-- **FR8 — Composition.** `pickup` and `pickup_issues` are composed from resolved bodies.
-- **FR9 — Explicit application.** Fetching and previewing write nothing. Applying is a
-  distinct action, per project, and triggers the same installation as an edit.
-- **FR10 — Agent-side fetch.** All repository access happens on the workstation through the
-  local agent, beside `sync_config` and `spec_install`, and each fetch or apply is recorded
-  as an activity the way `recordSpecFrameworkActivity` records an installation. The server
-  never reaches the network itself.
-- **FR11 — Cache.** A fetched marketplace is cached on the workstation and re-used; a pinned
-  project reads its cache and never refetches without an explicit action. Removing a
-  marketplace from the registry removes its cache.
+- **FR1** A generator in the sectile repository produces the Claude plugin from the built-in
+  catalogue: a manifest named `sectile` with a version given at generation time, one
+  `skills/<dir>/SKILL.md` per workflow skill, and an MCP declaration for a server named
+  `sectile`. The same catalogue revision and version always produce byte-identical output.
+- **FR2** Plugin skills carry no project-specific value: where the direct setup embeds the
+  framework variant or the pull-request creation stage, the plugin skill carries every
+  variant and tells the agent to read the project's value from `get_project_context`.
+- **FR3** The plugin's MCP declaration takes the server URL and the workstation API key from
+  values the user supplies at install time; the key is declared sensitive. No URL, key,
+  host name or internal project name is present in the generated files.
+- **FR4** No agent start, task dispatch, macro dispatch, project re-synchronisation or
+  skills-editor save writes, rewrites or removes a skill file, an MCP registration, a Claude
+  hook setting or a Sectile manifest. The agent's `init`, the desktop "Initialize" action,
+  the desktop MCP connection settings and an explicit install request are the only writers.
+- **FR5** Each dispatched skill is resolved in the order: custom skill (when the setting is
+  on and one exists) → preferred installed source → other installed source → failure.
+- **FR6** A custom skill reaches the CLI through the dispatch itself and is private to that
+  run: another run, another project or the CLI's user-level folders never see it.
+- **FR7** Two workstation settings, both in the desktop "Execution defaults": "custom
+  project skills win" (on/off, default on) and "installed skills source" (direct copy /
+  Claude plugin, default direct copy). An agent upgraded without either setting behaves as
+  if they held their defaults.
+- **FR8** No version, checksum or timestamp comparison is made between installed skills and
+  the server's skills, and none is shown.
+- **FR9** When nothing is found, the dispatch fails with the message of US6 and writes
+  nothing.
+- **FR10** The agent keeps, per project and skill, when a custom skill last ran on this
+  workstation since it started, and the desktop shows it as described in US7.
+- **FR11** A namespaced command (`<plugin>:<dir>`) is accepted wherever a workstation user
+  can set a skill command.
+- **FR12** The user-facing messages added on the agent's run path (activity step, failure)
+  are in French, like the surfaces they appear on; the desktop strings are in English, like
+  the rest of the desktop.
+
+## Edge cases
+
+- A Claude user who installs the plugin and keeps an older `sectile` entry in `~/.claude.json`
+  gets two MCP servers pointing at Sectile. Nothing removes the older one automatically; the
+  "Initialize" help text says so.
+- A user who installs the plugin while old direct copies remain keeps running the direct
+  copies until they switch "installed skills source" to "Claude plugin". This trade-off was
+  accepted in the clarification.
+- A custom skill saved while a run of the same skill is in progress does not change that
+  run; the next dispatch uses it.
+- A custom skill that is empty on the server (only a mode is stored) is not a custom skill.
+- A plugin older than the server keeps being used as it is; no compatibility check is made
+  (FR8).
 
 ## Out of scope
 
-- Adding a workflow step: a pack replaces bodies, it cannot create a stage (clarification
-  round 3, question 2).
-- Publishing Sectile's own skills to a marketplace, and distributing them to the agent's
-  global folder — that is #106, which shares this vocabulary.
-- Changing the stage graph, the ids, the directory names or the slash commands.
-- Changing where rendered skills are installed (#106 / `ResolveLocations`).
-- Any use of the `claude` CLI, and any adoption of the format's `autoUpdate`.
+- Third-party packs replacing built-in skill bodies (round 3, PR #350).
+- How the separate marketplace repository is created, versioned, fed and published, and who
+  may publish to it (Q11). This ticket produces the plugin directory and nothing more.
+- Any reconciliation between installed and server-side skills.
+- Plugins for other CLIs than Claude.
+- Removing existing direct copies or MCP registrations from workstations.
+- Adding workflow steps.
 
-## Still open
+## Open points
 
-Nothing blocks implementation. Two items are known and deliberately left outside:
+None blocks the specification. Two need the owner's hand, not a decision:
 
-- **Where Sectile publishes its own catalogue, and who may publish to it**, remains a
-  product question. Any git repository or local directory is a valid source, and a local
-  path is enough to test and to ship this ticket.
-- **#239 (round-based clarification)** edits the body of `clarify`, a skill a pack may
-  replace. Whichever of the two lands second inherits a textual conflict in the built-in
-  catalogue; neither blocks the other.
+- The owner closes PR #350 (said in round 4) before a pull request for this design is
+  opened on `feat/267`.
+- The owner rewrites the ticket description and title (said in round 4); the specification
+  folder keeps its current name.
