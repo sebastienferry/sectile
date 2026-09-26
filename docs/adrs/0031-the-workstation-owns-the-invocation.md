@@ -1,6 +1,7 @@
 # ADR 0031: The workstation owns the invocation
 
-Status: Accepted
+Status: Accepted; amended by [ADR 0033](0033-engines-are-a-workstation-catalogue.md)
+for the engine fields, which became a workstation engine catalogue (#510)
 
 Supersedes: the sentence of [ADR 0015](0015-sign-in-is-mandatory-and-settings-are-personal.md)
 saying "The AI configuration is untouched and keeps reading the deployment

@@ -1,6 +1,7 @@
 package agentconfig
 
 import (
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
@@ -9,8 +10,9 @@ import (
 
 // SettingsLayout is the layout WriteSettings emits. A file without a layout
 // predates #305: its flat keys and per-project maps are folded on read and
-// rewritten in this layout on the next save.
-const SettingsLayout = 2
+// rewritten in this layout on the next save. Layout 3 (#510) moves the engine
+// settings into the engine catalogue.
+const SettingsLayout = 3
 
 // DefaultProvider is the provider a workstation runs when neither its defaults
 // nor the project section name one.
@@ -79,6 +81,9 @@ type Seeded struct {
 	// needs to tell them from what the workstation had set itself, which
 	// outranked the server before #305 while a seeded value did not.
 	DefaultValues *Defaults `json:"defaultValues,omitempty"`
+	// DefaultEngine is the catalogue engine the defaults seed created (#510):
+	// the server's choice, not the workstation's own statement.
+	DefaultEngine string `json:"defaultEngine,omitempty"`
 	// Projects maps a project to the time its section was seeded.
 	Projects map[string]string `json:"projects,omitempty"`
 }
@@ -147,44 +152,34 @@ func (s Settings) Terminal(projectID string) string {
 // execution field the server may still send, an older server does, is
 // discarded first: the local file is the only source (#305).
 //
-// The rules are the ones the server and the local override applied together
-// before: the project section speaks over the workstation defaults, which speak
-// over the provider defaults; a provider change without a command of its own
-// drops the inherited command, each template independently, since a command
-// written for one CLI never serves another; the most specific model statement
-// wins.
+// Without a task, the invocation is the project default engine (#510): the
+// project's pick from the engine catalogue, else the workstation default
+// engine. The other settings follow the #305 levels: the project section
+// speaks over the workstation defaults.
 func Resolve(c Config, s Settings) Config {
+	return resolve(c, s, s.ProjectEngine(c.ProjectID))
+}
+
+// ResolveTask builds the configuration a task runs: the engine it was switched
+// to in the desktop ticket table, else its project default engine (#510).
+func ResolveTask(c Config, s Settings, taskID string) Config {
+	return resolve(c, s, s.TaskEngine(c.ProjectID, taskID))
+}
+
+func resolve(c Config, s Settings, engine Engine) Config {
 	c.Skills = append([]Skill{}, c.Skills...)
 	defaults := s.Defaults
 	project := s.ProjectSettings[c.ProjectID]
 
-	provider := strings.TrimSpace(defaults.AIProvider)
-	if provider == "" {
-		provider = DefaultProvider
-	}
-	command, autonomous := defaults.AICommandTemplate, defaults.AICommandTemplateAutonomous
-	if own := strings.TrimSpace(project.AIProvider); own != "" {
-		if own != provider {
-			command, autonomous = "", ""
-		}
-		provider = own
-	}
-	if strings.TrimSpace(project.AICommandTemplate) != "" {
-		command = project.AICommandTemplate
-	}
-	if strings.TrimSpace(project.AICommandTemplateAutonomous) != "" {
-		autonomous = project.AICommandTemplateAutonomous
-	}
+	provider := engine.provider()
 	c.AIProvider = provider
 	// Legacy values hold a bare CLI name here; the runner never used it.
-	c.AICommandTemplate = EffectiveCommandTemplate(provider, command)
-	c.AICommandTemplateAutonomous = EffectiveCommandTemplate(provider, autonomous)
-
-	merged := MergeModels(
-		ModelConfig{Model: project.AIModel, SkillModels: project.AISkillModels},
-		ModelConfig{Model: defaults.AIModel, SkillModels: defaults.AISkillModels},
-	)
-	c.AIModel, c.AISkillModels = merged.Model, merged.SkillModels
+	c.AICommandTemplate = EffectiveCommandTemplate(provider, engine.Command)
+	c.AICommandTemplateAutonomous = EffectiveCommandTemplate(provider, engine.CommandAutonomous)
+	profile := normalizeProfile(engine)
+	c.AIModel, c.AISkillModels = profile.Model, profile.SkillModels
+	c.EngineID, c.EngineName = engine.ID, engine.Name
+	c.OffProjectDefaultEngine = engine.ID != s.ProjectEngine(c.ProjectID).ID
 
 	c.UseWorktrees = true
 	if defaults.UseWorktrees != nil {
@@ -201,9 +196,7 @@ func Resolve(c Config, s Settings) Config {
 	if project.SetupProviders != nil {
 		c.SetupProviders = models.NormalizeSetupProviders(project.SetupProviders)
 	}
-	if len(c.SetupProviders) == 0 {
-		c.SetupProviders = nil
-	}
+	c.SetupProviders = withCatalogueProviders(c, s)
 	c.ExternalTerminalCommand = s.Terminal(c.ProjectID)
 	if value := project.SpecArtifacts; value == "keep" || value == "drop" {
 		c.SpecArtifacts = value
@@ -230,6 +223,33 @@ func Resolve(c Config, s Settings) Config {
 		}
 	}
 	return c
+}
+
+// withCatalogueProviders extends the configured setup providers with the
+// provider of every catalogue engine that takes Sectile's skills, so a task
+// switched to any of them finds its skills and MCP registration in place
+// (#510). The configured order comes first; the running provider is set up
+// anyway and is not repeated.
+func withCatalogueProviders(c Config, s Settings) []string {
+	out := append([]string{}, c.SetupProviders...)
+	seen := map[string]bool{EffectiveProvider(c.AIProvider, c.AICommandTemplate): true}
+	for _, provider := range out {
+		seen[provider] = true
+	}
+	for _, engine := range s.Engines.Catalogue {
+		provider := engine.provider()
+		if seen[provider] {
+			continue
+		}
+		seen[provider] = true
+		if loc, err := ResolveLocations(provider); err == nil && loc.InstallsSkills() {
+			out = append(out, provider)
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 // DefaultProviderModels is the list Sectile ships per provider, offered at
@@ -288,8 +308,15 @@ func ValidateExecution(e Execution) error {
 	return nil
 }
 
+// ErrEngineFields refuses a level still carrying the engine settings of #305,
+// which live in the engine catalogue since #510.
+var ErrEngineFields = errors.New("engine settings moved to the engine catalogue; update the desktop app")
+
 // ValidateDefaults checks the workstation level.
 func ValidateDefaults(d Defaults) error {
+	if d.statesEngine() {
+		return ErrEngineFields
+	}
 	if err := ValidateExecution(d.Execution); err != nil {
 		return err
 	}
@@ -304,6 +331,9 @@ func ValidateDefaults(d Defaults) error {
 
 // ValidateProject checks a project section.
 func ValidateProject(p ProjectSettings) error {
+	if p.statesEngine() {
+		return ErrEngineFields
+	}
 	if err := ValidateExecution(p.Execution); err != nil {
 		return err
 	}

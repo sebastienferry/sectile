@@ -33,7 +33,7 @@ test('MCP settings explain both transports and apply the selected provider and t
   const section=page.locator('.mcp-settings')
   await expect(section.getByRole('button',{name:'Remote HTTP (default)',exact:true})).toHaveAttribute('aria-pressed','true')
   await expect(section.locator('pre').first()).toContainText('serverUrl')
-  await page.getByRole('combobox',{name:'AI Provider',exact:true}).selectOption('codex')
+  await page.getByRole('combobox',{name:'MCP provider',exact:true}).selectOption('codex')
   await expect(section.locator('pre').first()).toContainText('http_headers')
   await section.getByRole('button',{name:'Local HTTP proxy',exact:true}).click()
   await expect(section.locator('pre').first()).toContainText('127.0.0.1:4567')
@@ -56,7 +56,7 @@ test('MCP settings explain both transports and apply the selected provider and t
   await section.getByRole('button',{name:'Update provider configuration'}).click()
   await expect(section.getByRole('status')).toContainText('Updated /test/codex')
   assert.deepEqual(writes[2],{provider:'codex',target:'remote',transport:'http'})
-  assert.deepEqual(await page.getByRole('combobox',{name:'AI Provider',exact:true}).locator('option').evaluateAll(options=>options.map(option=>option.value)),['agy','claude','codex'])
+  assert.deepEqual(await page.getByRole('combobox',{name:'MCP provider',exact:true}).locator('option').evaluateAll(options=>options.map(option=>option.value)),['agy','claude','codex'])
  } finally {
   if(app)await app.close()
   await new Promise(resolve=>server.close(resolve))

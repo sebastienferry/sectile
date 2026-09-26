@@ -18,9 +18,29 @@ func SettingsPath() (string, error) {
 
 // ReadSettings reads the workstation settings, and falls back to the legacy
 // repository file until they are saved. A file in the layout that predates
-// #305 is folded into the current one with the same meaning; the next
+// #305 is folded into the current one with the same meaning, and the engine
+// settings of #305 are converted into the engine catalogue (#510); the next
 // WriteSettings rewrites it.
 func ReadSettings(legacyRoot string) (Settings, error) {
+	settings, _, err := readConverted(legacyRoot)
+	return settings, err
+}
+
+// readConverted also reports whether the engine conversion changed anything.
+func readConverted(legacyRoot string) (Settings, bool, error) {
+	settings, err := readFolded(legacyRoot)
+	if err != nil {
+		return settings, false, err
+	}
+	changed := convertEngines(&settings)
+	return settings, changed, nil
+}
+
+// layoutWorkstation is the layout #305 introduced, from which the file no
+// longer borrows the checkout's legacy repository file.
+const layoutWorkstation = 2
+
+func readFolded(legacyRoot string) (Settings, error) {
 	path, err := SettingsPath()
 	if err != nil {
 		return Settings{}, err
@@ -44,7 +64,7 @@ func ReadSettings(legacyRoot string) (Settings, error) {
 		return settings, err
 	}
 	settings = overlay(legacy.fold(), settings)
-	if settings.Layout >= SettingsLayout {
+	if settings.Layout >= layoutWorkstation {
 		return settings, nil
 	}
 	var fields map[string]json.RawMessage
@@ -76,7 +96,7 @@ func ReadSettings(legacyRoot string) (Settings, error) {
 
 // ownedKeys are the keys WriteSettings replaces as a whole. Any other key
 // (server, deviceId, apiKey and what the desktop stores beside them) is kept.
-var ownedKeys = []string{"layout", "defaults", "projectSettings", "repositories", "disconnectedProjects", "mcpConnections", "skills", "seeded"}
+var ownedKeys = []string{"layout", "defaults", "projectSettings", "repositories", "disconnectedProjects", "mcpConnections", "skills", "seeded", "engines"}
 
 // WriteSettings preserves the connection fields while replacing the settings
 // it owns. The legacy keys are removed and the file is written in the current
@@ -98,6 +118,11 @@ func WriteSettings(settings Settings) error {
 		return err
 	}
 	settings.Layout = SettingsLayout
+	if len(settings.Engines.Catalogue) == 0 {
+		// A file saved for the first time states the engine it runs.
+		convertEngines(&settings)
+	}
+	settings.pruneEngines()
 	raw, err = json.Marshal(settings)
 	if err != nil {
 		return err

@@ -127,17 +127,20 @@ func TestSeedReproducesThePreUpgradeResolution(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			want := oldApply(oldServerConfig("p", tc.project, tc.deployment), tc.global, tc.local)
+			// The workstation states its own values before the seed, as #305 wrote
+			// them, and the conversion of #510 already ran.
 			settings := Settings{Defaults: Defaults{Execution: tc.global}}
 			if !tc.local.isZero() {
 				settings.ProjectSettings = map[string]ProjectSettings{"p": {Path: "/repo", Execution: tc.local}}
 			}
+			settings = converted(settings)
 			defaults, project := seedsOf("p", tc.project, tc.deployment)
 			ApplyWorkstationSeed(&settings, defaults, "https://server")
 			ApplyProjectSeed(&settings, Config{ProjectID: "p", Skills: stageSkills}, project, "2026-09-25T00:00:00Z")
 			got := Resolve(Config{ProjectID: "p", Skills: stageSkills}, settings)
 			same := got.AIProvider == want.AIProvider && got.AICommandTemplate == want.AICommandTemplate &&
 				got.AICommandTemplateAutonomous == want.AICommandTemplateAutonomous && got.ExternalTerminalCommand == want.ExternalTerminalCommand &&
-				got.UseWorktrees == want.UseWorktrees && reflect.DeepEqual(got.SetupProviders, want.SetupProviders) &&
+				got.UseWorktrees == want.UseWorktrees && reflect.DeepEqual(configuredSetupProviders(settings, settings.Project("p")), want.SetupProviders) &&
 				reflect.DeepEqual(got.Skills, want.Skills)
 			for _, skill := range []string{"", "clarify", "implement", "specify"} {
 				same = same && ResolveModel(got, skill) == ResolveModel(want, skill)
@@ -146,11 +149,16 @@ func TestSeedReproducesThePreUpgradeResolution(t *testing.T) {
 				t.Fatalf("after the seed:\n got  %+v\n want %+v\n settings %+v", got, want, settings)
 			}
 			// Local statements are never overwritten.
-			if tc.local.AIProvider != "" && settings.Project("p").AIProvider != tc.local.AIProvider {
+			if tc.local.AIProvider != "" && settings.ProjectEngine("p").Provider != tc.local.AIProvider {
 				t.Fatal("a local project value was overwritten")
 			}
-			if tc.global.AIProvider != "" && settings.Defaults.AIProvider != tc.global.AIProvider {
+			if tc.global.AIProvider != "" && settings.DefaultEngine().Provider != tc.global.AIProvider {
 				t.Fatal("a local default was overwritten")
+			}
+			for _, engine := range settings.Engines.Catalogue {
+				if err := ValidateEngines(Engines{Catalogue: []Engine{engine}, Default: engine.ID}); err != nil {
+					t.Fatalf("the seed wrote an invalid engine: %v", err)
+				}
 			}
 		})
 	}
@@ -159,8 +167,8 @@ func TestSeedReproducesThePreUpgradeResolution(t *testing.T) {
 func TestSeedMarksAndWritesOnlyWhatChangesTheOutcome(t *testing.T) {
 	settings := Settings{}
 	ApplyWorkstationSeed(&settings, SeedDefaults{AIProvider: "agy", EditorCommand: "cursor", AIProviderModels: map[string][]string{"claude": {"x"}}}, "https://server")
-	if settings.Defaults.AIProvider != "" {
-		t.Fatal("the provider default needs no seed")
+	if settings.Seeded.DefaultEngine != "" || len(settings.Engines.Catalogue) != 0 {
+		t.Fatalf("the provider default needs no seed: %+v", settings.Engines)
 	}
 	if settings.Defaults.EditorCommand != "cursor" || !reflect.DeepEqual(settings.Defaults.AIProviderModels["claude"], []string{"x"}) {
 		t.Fatalf("editor or model lists not seeded: %+v", settings.Defaults)
@@ -169,8 +177,8 @@ func TestSeedMarksAndWritesOnlyWhatChangesTheOutcome(t *testing.T) {
 		t.Fatal("defaults not marked")
 	}
 	ApplyProjectSeed(&settings, Config{ProjectID: "p"}, SeedProject{ProjectID: "p", AIProvider: "agy"}, "now")
-	if _, ok := settings.ProjectSettings["p"]; ok {
-		t.Fatalf("a project seed that changes nothing must write nothing: %+v", settings.ProjectSettings["p"])
+	if _, ok := settings.ProjectSettings["p"]; ok || settings.Engines.Projects != nil {
+		t.Fatalf("a project seed that changes nothing must write nothing: %+v %+v", settings.ProjectSettings["p"], settings.Engines)
 	}
 	if !settings.HasSeededProject("p") {
 		t.Fatal("project not marked")
@@ -178,19 +186,24 @@ func TestSeedMarksAndWritesOnlyWhatChangesTheOutcome(t *testing.T) {
 }
 
 func TestSeedDoesNotTreatAChangedSeededDefaultAsTheServers(t *testing.T) {
-	settings := Settings{}
+	settings := converted(Settings{})
 	ApplyWorkstationSeed(&settings, SeedDefaults{AIProvider: "claude"}, "https://server")
-	if settings.Defaults.AIProvider != "claude" {
-		t.Fatal("deployment provider not seeded")
+	seeded := settings.DefaultEngine()
+	if seeded.Provider != "claude" || settings.Seeded.DefaultEngine != seeded.ID || len(settings.Engines.Catalogue) != 1 {
+		t.Fatalf("deployment provider not seeded as the default engine: %+v", settings.Engines)
 	}
-	// The user picks codex later: it now outranks the server, as a local choice did before.
-	settings.Defaults.AIProvider = "codex"
+	// The user moves that engine to codex later: it now outranks the server, as
+	// a local choice did before.
+	seeded.Provider = "codex"
+	if err := settings.ReplaceCatalogue([]Engine{seeded}, seeded.ID); err != nil {
+		t.Fatal(err)
+	}
 	ApplyProjectSeed(&settings, Config{ProjectID: "p"}, SeedProject{ProjectID: "p", AIProvider: "gemini"}, "now")
 	if got := Resolve(Config{ProjectID: "p"}, settings).AIProvider; got != "codex" {
 		t.Fatalf("a local choice lost against a server value: %q", got)
 	}
 	// While an untouched seeded default is the server's, and a project row outranks it.
-	other := Settings{}
+	other := converted(Settings{})
 	ApplyWorkstationSeed(&other, SeedDefaults{AIProvider: "claude"}, "https://server")
 	ApplyProjectSeed(&other, Config{ProjectID: "p"}, SeedProject{ProjectID: "p", AIProvider: "gemini"}, "now")
 	if got := Resolve(Config{ProjectID: "p"}, other).AIProvider; got != "gemini" {
@@ -206,5 +219,40 @@ func TestSeedSkipsInvalidSkillCommands(t *testing.T) {
 	}
 	if !strings.Contains(settings.Seeded.Projects["p"], "now") {
 		t.Fatal("not marked")
+	}
+}
+
+func TestWorkstationSeedLeavesAStatedCatalogueAlone(t *testing.T) {
+	// A workstation that states an engine, even the default provider's, keeps it.
+	settings := converted(Settings{Defaults: Defaults{Execution: Execution{AIProvider: "agy"}}})
+	before := append([]Engine{}, settings.Engines.Catalogue...)
+	ApplyWorkstationSeed(&settings, SeedDefaults{AIProvider: "claude", AIModel: "opus"}, "https://server")
+	if !reflect.DeepEqual(settings.Engines.Catalogue, before) || settings.Seeded.DefaultEngine != "" {
+		t.Fatalf("the seed wrote into a stated catalogue: %+v", settings.Engines)
+	}
+	// A fresh workstation gets the server's engine in place of the implicit one.
+	fresh := converted(Settings{})
+	ApplyWorkstationSeed(&fresh, SeedDefaults{AIProvider: "claude", AIModel: "opus"}, "https://server")
+	if len(fresh.Engines.Catalogue) != 1 || fresh.DefaultEngine().Provider != "claude" || fresh.DefaultEngine().Model != "opus" {
+		t.Fatalf("fresh workstation not seeded: %+v", fresh.Engines)
+	}
+}
+
+func TestProjectSeedReusesAnEntryAndKeepsAPick(t *testing.T) {
+	settings := converted(Settings{})
+	ApplyProjectSeed(&settings, Config{ProjectID: "a"}, SeedProject{ProjectID: "a", AIProvider: "codex"}, "now")
+	ApplyProjectSeed(&settings, Config{ProjectID: "b"}, SeedProject{ProjectID: "b", AIProvider: "codex"}, "now")
+	if settings.Engines.Projects["a"] == "" || settings.Engines.Projects["a"] != settings.Engines.Projects["b"] || len(settings.Engines.Catalogue) != 2 {
+		t.Fatalf("identical project engines must share one entry: %+v", settings.Engines)
+	}
+	// A pick the seed completes becomes another entry; the picked one is not edited.
+	picked := settings.Engines.Projects["a"]
+	settings.SetProjectEngine("c", picked)
+	ApplyProjectSeed(&settings, Config{ProjectID: "c"}, SeedProject{ProjectID: "c", AIProvider: "codex", AIModel: "gpt-5"}, "now")
+	if got := settings.ProjectEngine("c"); got.ID == picked || got.Provider != "codex" || got.Model != "gpt-5" {
+		t.Fatalf("project pick not completed: %+v", got)
+	}
+	if engine, _ := settings.Engine(picked); engine.Model != "" {
+		t.Fatalf("the seed edited an existing engine: %+v", engine)
 	}
 }

@@ -25,7 +25,7 @@ project scope. Subsequent launches reconnect to the application's existing agent
 
 ### MCP connections
 
-Open **Settings → Agents CLI**, select an AI provider, then use **MCP configuration**.
+Open **Settings → Execution defaults**, pick the provider in **MCP configuration**, then use it.
 Choose **Remote HTTP** (default), **Local HTTP proxy**, or **STDIO**. Remote
 HTTP uses the pairing key without requiring a running agent. Local HTTP calls
 the running no-auth proxy directly. STDIO starts a bridge to the remote server
@@ -50,7 +50,7 @@ its own sign-in and permission prompts remain available in the console.
 Each launch is a separate local console. It uses no task, skill, initial prompt,
 or workflow command template. It does not create a tracker activity or change a
 workflow stage. The sidebar shows process status, and the toolbar supports stop,
-export, and relaunch. Rename and archive are available through the console menu.
+export, and relaunch. The console's sidebar row renames it locally and archives it.
 Closing and reopening the app reconnects while the daemon remains running.
 
 Free consoles use the existing execution queue and reserve the project's shared
@@ -306,15 +306,26 @@ and restarted before this action is available.
 
 ### Execution defaults and local overrides
 
-Every execution setting belongs to the workstation (ADR 0031): the AI
-provider, the model and per-skill models, the model list of each provider, the
-interactive and headless commands, the terminal, the editor, worktrees,
-parallel executions (1 to 10), the extra agents that get the skills and MCP,
-and the command name each stage runs. The web interface offers none of them
-and the server neither stores nor uses them.
+Every execution setting belongs to the workstation (ADR 0031): the engines,
+the model list of each provider, the terminal, the editor, worktrees, parallel
+executions (1 to 10), the extra agents that get the skills and MCP, and the
+command name each stage runs. The web interface offers none of them and the
+server neither stores nor uses them.
 
-**Settings → Execution defaults** edits the workstation level, applied to every
-project without a value of its own. The project settings edit one project:
+An engine (ADR 0033) is a named AI CLI profile: provider, model, per-skill
+models, interactive and headless commands. **Settings → Execution defaults**
+opens with the **Engines** list, in the order a task cycles through them, the
+workstation default engine marked **Default**. **Add an engine** and **Edit**
+open the engine editor, with the provider presets and a preview of the command
+lines; the arrows reorder, **Make default** moves the mark, and **Remove** asks
+first, naming the projects and counting the tasks that use the engine. The
+default engine and the last one cannot be removed. Every change is saved at
+once. Existing provider, model and command settings became engines on the
+first start of the upgraded agent, which kept a copy of the previous file
+beside it.
+
+The rest of **Settings → Execution defaults** edits the workstation level,
+applied to every project without a value of its own. The project settings edit one project:
 each field says whether it is set for the project or inherited, shows the
 inherited value (the workstation default, else the provider default) and has a
 reset that brings the inheritance back. Both go through the local agent, which
@@ -417,8 +428,9 @@ until the agent is stopped, and the panel says so.
 Project configuration lists its categories in a side navigation, one panel at a
 time: **General** (local repository, removal from the desktop), **Execution**
 (worktrees, parallel executions, terminal emulator, extra setup providers),
-**AI agent** (provider, model, per-skill models, command templates, skill
-command names), **Deployment** and **Server**. **General** opens
+**AI agent** (the project's **Default engine**, picked from the engines or
+inherited from the workstation default one, and skill command names),
+**Deployment** and **Server**. **General** opens
 first. Use **Choose folder…** to select a repository through the native directory
 dialog. Worktrees use Yes/No buttons; parallel executions use a 1 to 10 slider.
 Each setting is one row: its name with the inherited value in small type on the
@@ -443,7 +455,16 @@ even when the project is collapsed. Search by title or task key to narrow it;
 submit an empty search to restore all open tasks. Finished tasks are excluded.
 
 The pane is a table with one row per task: execution state, **Key**, **Title**,
-**Stage**, **Priority**, a pull request icon when one is linked, and actions.
+**Stage**, **Priority**, **Engine**, a pull request icon when one is linked, and
+actions. The **Engine** button shows the letters of the provider the task's
+next run uses; its tooltip names the engine, its provider and its model, and
+says when it is the project default engine, and it is highlighted when it is
+not. Activating it (click, Enter or Space) moves the task to the next engine of
+the catalogue, the last one wrapping to the first. The choice stays with the
+task on this workstation, for every launch of it, from the desktop or the web,
+until the next click; a run already going keeps its engine. A one-off launch
+model applies only on the project default engine. The column is hidden with an
+agent that does not keep engines.
 Activate a row's key to open that task in Sectile, the same gesture the sidebar
 task number offers.
 Rows are ordered by priority descending (urgent, high, medium, low, then
@@ -469,10 +490,9 @@ repository mapping, otherwise every launch control is disabled with a notice.
 Loading, empty and error states are shown in the pane; use **Search** to
 retry a failed request. Opening the pane does not start an execution.
 
-The **AI agent** category includes the effective **CLI command**. Edit it to save a
-per-project override under `commands` in user settings; the reset icon restores
-the server template (or provider default when empty or lacking `{prompt}`). Save to apply to subsequent
-executions. Command templates execute on the local agent and support these placeholders:
+An engine's commands are edited in its engine editor; empty ones run the
+provider default. Command templates execute on the local agent and support
+these placeholders:
 
 | Placeholder | Value |
 | --- | --- |
@@ -518,8 +538,11 @@ Linked pull requests appear as an icon on the same task row, after the title and
 status. Hover for the URL or activate the icon to open the PR externally without
 changing the selected console. Long titles truncate to keep controls inline.
 Projects can be collapsed;
-their **+** button opens the task launcher. A task's **…** menu provides relaunch,
-local rename and archive actions. Archiving hides its existing executions without
+their **+** button opens the task launcher. A task row carries an archive button
+and a pencil that turns its title into a field for a local rename: Enter or
+leaving the field saves, Escape cancels, and the local name, kept on this
+workstation only, takes precedence over the tracker title. Relaunch and detach to
+a native terminal are toolbar buttons of the selected task. Archiving hides its existing executions without
 changing the server task. Active executions require explicit confirmation and
 confirmed stop before archiving. A new execution makes the task visible again.
 The TTY toolbar's execution selector provides access to previous runs of the
