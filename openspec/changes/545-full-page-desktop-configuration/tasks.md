@@ -37,5 +37,10 @@
       it does not overwrite the main page.
 - [x] 3.5 Cover at least one unrelated modal flow to prove it remains a modal
       dialog with its existing close behavior.
-- [ ] 3.6 Run `cd desktop && npm test`, then build and run
+- [x] 3.6 Run `cd desktop && npm test`, then build and run
       `npm run test:ui`.
+
+Final validation: 142 desktop unit tests passed; the full UI run passed 58 of
+59 tests, then the outdated modal tooltip assertion was updated and its focused
+rerun passed. Agent/config Go tests, Go vet, desktop build and strict OpenSpec
+validation passed. See accepted-ui-refinements.md for owner-approved scope changes.
