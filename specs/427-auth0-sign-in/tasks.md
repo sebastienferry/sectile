@@ -6,7 +6,7 @@
 - [x] T4: Add generic Auth0 application registration, configuration and verification instructions to the README; document logout and account-migration limits. Add a changelog entry only for a user-visible behavior change.
 - [x] T5: Run `go test ./internal/auth ./internal/handlers ./internal/db` and formatting checks for modified Go files. Review public changes and commit history for internal references or secrets.
 - [ ] T6: Through private deployment records, select the target deployment, register/configure the application, inject credentials and validate successful sign-in, access role and logout. Requires private environment inputs and actual live evidence.
-- [x] T7: Report repository checks and live rollout results separately. Create or reuse the implementation PR under the project policy, then record the verified workflow outcome through Sectile.
+- [ ] T7: Report repository checks and live rollout results separately. Create or reuse the implementation PR under the project policy, then record the verified workflow outcome through Sectile.
 
 T1-T5 are repository implementation work. T6 is a deployment dependency and cannot be marked done from fixture tests. Public PRs and tracker reports must contain only generic results, never private infrastructure references.
 
@@ -16,4 +16,4 @@ The OIDC integration tests live together in `internal/handlers/auth_oidc_integra
 
 Validation: `go test ./internal/auth ./internal/handlers ./internal/db`, `go vet ./internal/auth ./internal/handlers ./internal/db`, `go build -o /tmp/sectile-427-server ./cmd/server`, and `make fmt-check` passed. The targeted race check `go test -race ./internal/handlers -run TestOIDC -count=1` also passed. Live deployment (T6) remains pending and was not attempted without private deployment inputs.
 
-Repository implementation is published as draft PR [#521](https://github.com/sebastienferry/sectile/pull/521), and the implemented stage was recorded through Sectile. T6 remains pending as private rollout work.
+Repository implementation is published as draft PR [#521](https://github.com/sebastienferry/sectile/pull/521), but recording the implemented stage through Sectile returned a connection error. A subsequent task read also failed, so the remote transition is unverified and must be reconciled before retrying. T6 remains pending as private rollout work.
