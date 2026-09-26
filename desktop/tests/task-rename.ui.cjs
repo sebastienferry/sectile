@@ -42,7 +42,7 @@ test('a task row is renamed in place through its pencil',async()=>{
   assert.equal(await page.locator('#runs .task-menu').count(),0)
   assert.equal(await rows.getByRole('button',{name:/^Actions for /}).count(),0)
   await page.locator('#terminal').hover()
-  for(const [id,name] of [['run-42','Tracker title'],['run-macro','refine'],['console','Claude console']]){
+  for(const [id,name] of [['run-42','Tracker title'],['run-macro','refine'],['console','claude · Project prompt']]){
    const pencil=row(id).getByRole('button',{name:'Rename '+name,exact:true})
    await expect(pencil).toHaveAttribute('title','Rename '+name)
    assert.equal(await pencil.evaluate(el=>getComputedStyle(el).opacity),'0')
@@ -90,14 +90,14 @@ test('a task row is renamed in place through its pencil',async()=>{
   await field.fill('   ')
   await page.keyboard.press('Enter')
   await expect(row('run-42').locator('strong')).toHaveText('Blurred name')
-  await rename('console','Claude console')
+  await rename('console','claude · Project prompt')
   await page.keyboard.press('Enter')
-  await expect(row('console').locator('strong')).toHaveText('Claude console')
+  await expect(row('console').locator('strong')).toHaveText('claude · Project prompt')
   assert.deepEqual(await localNames(),['Blurred name'])
   await expect(row('console')).not.toHaveClass(/selected/)
 
   // Pressing another row's pencil saves the open field and edits the other row.
-  await rename('console','Claude console')
+  await rename('console','claude · Project prompt')
   await field.fill('My console')
   await row('run-macro').hover()
   await page.getByRole('button',{name:'Rename refine',exact:true}).click()
