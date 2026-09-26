@@ -1,7 +1,9 @@
 <!-- sectile:project-context:start -->
 ## Sectile workflow
 
-Sectile operates the development workflow for this repository. Use `.taskflow/config.json` as the source of truth for the project and remote tracker context.
+Sectile operates the development workflow for this repository. Project and
+remote tracker context is supplied through the authenticated Sectile MCP
+connection and dispatch context.
 
 - Tracker: `github`
 - GitHub repository: `sebastienferry/sectile`

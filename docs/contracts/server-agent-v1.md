@@ -91,8 +91,7 @@ agent's default terminal, then environment/platform detection. The server sends
 no terminal since #305 (`terminalOverride` is gone from the dispatch). The
 editor that `open_editor` runs is the workstation default `editorCommand`, else
 the `editor` an older server still sends, else `code`. Selecting `pty` or `none` uses a local PTY;
-the explicit `open_terminal` action requires an external window. Legacy
-`.taskflow/config.json` is not a second terminal-settings source.
+the explicit `open_terminal` action requires an external window.
 
 ## Skill ownership and recovery
 
@@ -425,8 +424,8 @@ framework, pull-request creation stage and skill references (`id`, `directory`,
 `command`), plus `skillDirectories`, the directories the agent writes skill files
 into. Skill and command bodies are not inlined: a caller that needs one opens
 `<skill directory>/SKILL.md` under one of those directories in its checkout. The
-`.taskflow/config.json` and `AGENTS.md` writers keep using the full agent
-configuration, which is unchanged.
+agent uses its full configuration when it installs skills or updates the marked
+section of `AGENTS.md`; that configuration is unchanged.
 
 `transition_stage` accepts `prUrl` for either a pull request or a merge
 request. A task holds an ordered set of such links, oldest first, each keeping
