@@ -2,8 +2,8 @@
 
 The stage report publisher already selects a Markdown heading from the completed
 stage before appending the stage note. Replace only the string constants for
-`clarified`, `specified`, `implemented`, and `reviewed`, preserving the existing
-emoji, Sectile attribution, and Markdown formatting.
+`clarified`, `specified`, `implemented`, `reviewed`, and `finished`, preserving
+the existing emoji, Sectile attribution, and Markdown formatting.
 
 Tests will exercise the report-publishing path with a non-local tracker and
 assert the exact generated headings. This protects the externally visible

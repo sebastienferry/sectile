@@ -271,6 +271,7 @@ func TestStageReportsUseEnglishTitles(t *testing.T) {
 		{"specification", "specified", "### 📋 [Sectile] Technical Specification & Implementation Plan"},
 		{"implementation", "implemented", "### ⚡ [Sectile] Implementation Report"},
 		{"review", "reviewed", "### 🚀 [Sectile] Code Review & PR Preparation"},
+		{"closure", "finished", "### 🏁 [Sectile] Closure & Handoff Report"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			fake := newFakeTracker()

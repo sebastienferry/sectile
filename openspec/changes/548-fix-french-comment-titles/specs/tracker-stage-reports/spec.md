@@ -52,3 +52,16 @@ the report SHALL use the English heading
 - **WHEN** Sectile posts the generated stage report comment
 - **THEN** the comment begins with `### 🚀 [Sectile] Code Review & PR Preparation`
 - **AND** the report note follows the heading unchanged.
+
+### Requirement: English closure report title
+
+When Sectile posts a tracker report after a task reaches the finished stage,
+the report SHALL use the English heading
+`### 🏁 [Sectile] Closure & Handoff Report`.
+
+#### Scenario: Finished stage note is posted
+
+- **GIVEN** a tracker-backed task transitions to `finished` with a report note
+- **WHEN** Sectile posts the generated stage report comment
+- **THEN** the comment begins with `### 🏁 [Sectile] Closure & Handoff Report`
+- **AND** the report note follows the heading unchanged.

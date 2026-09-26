@@ -800,7 +800,7 @@ func (d *DB) runStageOp(ctx context.Context, op TrackerOp, steps *[]string) (str
 		case "reviewed":
 			header = "### 🚀 [Sectile] Code Review & PR Preparation\n\n"
 		case "finished":
-			header = "### 🏁 [Sectile] Rapport de Clôture & Handoff\n\n"
+			header = "### 🏁 [Sectile] Closure & Handoff Report\n\n"
 		default:
 			header = fmt.Sprintf("### 🤖 [Sectile] Étape : %s\n\n", cleanStage)
 		}
