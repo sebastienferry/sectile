@@ -151,15 +151,13 @@ func (d *agentDaemon) executeOperation(ctx context.Context, op agentprotocol.Ope
 		// A ticket pinned to another repository has its worktree there.
 		taskRoot := root
 		if strings.TrimSpace(task.Repository) != "" {
-			pinned, _, _, err := primaryRoot(ctx, config, overrides, root, task)
-			if err != nil && !errors.Is(err, errRepositoryAmbiguous) {
+			pinned, _, err := primaryRoot(ctx, config, overrides, root, task)
+			if err != nil {
 				// Reporting on the project root would describe another
 				// repository's checkout as this ticket's.
 				return nil, err
 			}
-			if err == nil {
-				taskRoot = pinned
-			}
+			taskRoot = pinned
 		}
 		if config.UseWorktrees {
 			if !filepath.IsLocal(task.Key) || strings.ContainsAny(task.Key, "/\\") {
@@ -335,9 +333,10 @@ func (d *agentDaemon) executeOperation(ctx context.Context, op agentprotocol.Ope
 			if err != nil {
 				return nil, err
 			}
-			// This workstation's own mapping of that repository is the first
-			// place to look (#456); the legacy paths stay hints behind it.
-			if mapped, ok := repositoryRoot(overrides, root, codeIdentity(config), models.RepositoryIdentity(repository)); ok {
+			// This workstation's own mapping of that repository, or the folder
+			// attached for it (#484), is the first place to look (#456); the
+			// legacy paths stay hints behind it.
+			if mapped, _, ok := repositoryFolder(ctx, overrides, config.ProjectID, root, codeIdentity(config), models.RepositoryIdentity(repository)); ok {
 				candidates = append([]string{mapped}, candidates...)
 			}
 			checkout, found, err := verifiedCheckout(ctx, repository, strings.TrimSpace(op.Branch), candidates)

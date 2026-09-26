@@ -2,26 +2,19 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
-	"errors"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"testing"
-	"time"
 
 	"tasks/internal/agentconfig"
 	"tasks/internal/models"
 	"tasks/internal/testhome"
 )
 
-// A multi-repo project: o/a is the code remote, o/b and o/c are declared.
+// A project whose code remote is o/a, and which declares o/b and o/c.
 func multiRepoConfig() agentconfig.Config {
-	no := false
-	return agentconfig.Config{ProjectID: "p", ProjectName: "Multi", GitRemoteURL: "git@github.com:o/a.git", MonoRepo: &no,
+	return agentconfig.Config{ProjectID: "p", ProjectName: "Multi", GitRemoteURL: "git@github.com:o/a.git",
 		Repositories: []string{"git@github.com:o/a.git", "git@github.com:o/b.git", "git@github.com:o/c.git"}}
 }
 
@@ -33,9 +26,9 @@ func TestPrimaryRootFollowsThePin(t *testing.T) {
 	b := checkoutOf(t, "git@github.com:o/b.git")
 	overrides := agentconfig.Settings{Repositories: map[string]string{"github.com/o/b": b}}
 
-	root, identity, pin, err := primaryRoot(ctx, multiRepoConfig(), overrides, projectRoot, models.Task{Key: "#1", Repository: "github.com/o/b"})
-	if err != nil || root != b || identity != "github.com/o/b" || pin != "" {
-		t.Fatalf("pinned: %q %q %q %v", root, identity, pin, err)
+	root, identity, err := primaryRoot(ctx, multiRepoConfig(), overrides, projectRoot, models.Task{Key: "#1", Repository: "github.com/o/b"})
+	if err != nil || root != b || identity != "github.com/o/b" {
+		t.Fatalf("pinned: %q %q %v", root, identity, err)
 	}
 	// Another repository keeps .tasks/ out of its status by itself.
 	exclude, _ := os.ReadFile(filepath.Join(b, ".git", "info", "exclude"))
@@ -43,23 +36,20 @@ func TestPrimaryRootFollowsThePin(t *testing.T) {
 		t.Errorf("info/exclude = %q", exclude)
 	}
 
-	if _, _, _, err := primaryRoot(ctx, multiRepoConfig(), overrides, projectRoot, models.Task{Key: "#1", Repository: "github.com/o/c"}); err == nil || !strings.Contains(err.Error(), "github.com/o/c") {
+	if _, _, err := primaryRoot(ctx, multiRepoConfig(), overrides, projectRoot, models.Task{Key: "#1", Repository: "github.com/o/c"}); err == nil || !strings.Contains(err.Error(), "github.com/o/c") {
 		t.Errorf("unmapped pin: %v", err)
 	}
-	if _, _, _, err := primaryRoot(ctx, multiRepoConfig(), overrides, projectRoot, models.Task{Key: "#1"}); !errors.Is(err, errRepositoryAmbiguous) {
-		t.Errorf("unpinned with a and b mapped: %v, want ambiguous", err)
+	// An unpinned ticket runs in the code repository, whatever else is mapped
+	// here (#484): it never waits for a choice.
+	if root, identity, err := primaryRoot(ctx, multiRepoConfig(), overrides, projectRoot, models.Task{Key: "#1"}); err != nil || root != projectRoot || identity != "github.com/o/a" {
+		t.Errorf("unpinned with a and b mapped: %q %q %v", root, identity, err)
 	}
-	// Only the code remote is mapped here (through the project root): it is
-	// the task's, and the task gets pinned to it.
-	root, _, pin, err = primaryRoot(ctx, multiRepoConfig(), agentconfig.Settings{}, projectRoot, models.Task{Key: "#1"})
-	if err != nil || root != projectRoot || pin != "github.com/o/a" {
-		t.Errorf("single candidate: %q %q %v", root, pin, err)
+	if root, _, err := primaryRoot(ctx, multiRepoConfig(), agentconfig.Settings{}, projectRoot, models.Task{Key: "#1"}); err != nil || root != projectRoot {
+		t.Errorf("only the code repository mapped: %q %v", root, err)
 	}
-	yes := true
-	mono := multiRepoConfig()
-	mono.MonoRepo = &yes
-	if root, _, pin, err := primaryRoot(ctx, mono, overrides, projectRoot, models.Task{Key: "#1"}); err != nil || root != projectRoot || pin != "" {
-		t.Errorf("mono-repo keeps the project root: %q %q %v", root, pin, err)
+	// A pin to a repository the project no longer declares reads as none.
+	if root, _, err := primaryRoot(ctx, multiRepoConfig(), overrides, projectRoot, models.Task{Key: "#1", Repository: "github.com/o/gone"}); err != nil || root != projectRoot {
+		t.Errorf("stale pin: %q %v", root, err)
 	}
 }
 
@@ -107,7 +97,7 @@ func TestFolderMapDescribesEveryFolder(t *testing.T) {
 	}
 }
 
-func TestContextFoldersReachOnlyClaude(t *testing.T) {
+func TestContextFoldersReachClaudeAndCodex(t *testing.T) {
 	launch := agentCommandContext{AddDirs: []string{"/src/b", "/src/it's"}}
 	headless, err := modeCommandLine("claude", "", "", "go", models.SkillModeAutonomous, launch)
 	// --add-dir takes several values: the prompt must come before it, and
@@ -125,7 +115,18 @@ func TestContextFoldersReachOnlyClaude(t *testing.T) {
 	if argv := shellArguments(t, "sh", echoed); len(argv) != 3 || argv[0] != "go" || argv[1] != "--add-dir=/src/b" || argv[2] != "--add-dir=/src/it's" {
 		t.Errorf("claude receives %q", argv)
 	}
-	for _, provider := range []string{"codex", "vibe", "gemini"} {
+	// Codex repeats --add-dir once per folder, interactive and headless.
+	codexInteractive, _ := modeCommandLine("codex", "", "", "go", models.SkillModeInteractive, launch)
+	if codexInteractive != `codex 'go' --add-dir='/src/b' --add-dir='/src/it'\''s'` {
+		t.Errorf("codex interactive = %q", codexInteractive)
+	}
+	if argv := shellArguments(t, "sh", "printf '%s\\0'"+strings.TrimPrefix(codexInteractive, "codex")); len(argv) != 3 || argv[1] != "--add-dir=/src/b" || argv[2] != "--add-dir=/src/it's" {
+		t.Errorf("codex receives %q", argv)
+	}
+	if codexHeadless, err := modeCommandLine("codex", "", "", "go", models.SkillModeAutonomous, launch); err != nil || !strings.HasPrefix(codexHeadless, "codex exec") || !strings.HasSuffix(codexHeadless, `'go' --add-dir='/src/b' --add-dir='/src/it'\''s'`) {
+		t.Errorf("codex headless = %q, %v", codexHeadless, err)
+	}
+	for _, provider := range []string{"vibe", "gemini"} {
 		for _, mode := range []string{models.SkillModeInteractive, models.SkillModeAutonomous} {
 			if line, _ := modeCommandLine(provider, "", "", "go", mode, launch); strings.Contains(line, "add-dir") || strings.Contains(line, "/src/b") {
 				t.Errorf("%s %s guessed a flag: %q", provider, mode, line)
@@ -135,8 +136,11 @@ func TestContextFoldersReachOnlyClaude(t *testing.T) {
 	if line, _ := modeCommandLine("claude", "claude {addDirs} '{prompt}'", "", "go", models.SkillModeInteractive, launch); !strings.HasPrefix(line, "claude --add-dir='/src/b'") {
 		t.Errorf("template {addDirs} = %q", line)
 	}
-	if line, _ := modeCommandLine("codex", "codex {addDirs} '{prompt}'", "", "go", models.SkillModeInteractive, launch); strings.Contains(line, "add-dir") {
-		t.Errorf("template for codex = %q", line)
+	if line, _ := modeCommandLine("codex", "codex {addDirs} '{prompt}'", "", "go", models.SkillModeInteractive, launch); !strings.HasPrefix(line, "codex --add-dir='/src/b' --add-dir=") {
+		t.Errorf("template {addDirs} for codex = %q", line)
+	}
+	if line, _ := modeCommandLine("vibe", "vibe {addDirs} '{prompt}'", "", "go", models.SkillModeInteractive, launch); strings.Contains(line, "add-dir") {
+		t.Errorf("template for vibe = %q", line)
 	}
 	if line, _ := modeCommandLine("claude", "", "", "go", models.SkillModeAutonomous); strings.Contains(line, "add-dir") {
 		t.Errorf("no context folder, no flag: %q", line)
@@ -169,7 +173,7 @@ func TestRepositoryWorktreeReusesTheTaskBranch(t *testing.T) {
 		t.Errorf("unmapped: %v", err)
 	}
 	if _, err := repositoryWorktree(ctx, multiRepoConfig(), overrides, projectRoot, task, "github.com/o/elsewhere"); err == nil {
-		t.Error("a repository outside the project was accepted")
+		t.Error("a repository neither mapped nor attached was accepted")
 	}
 
 	removal := removeRepositoryWorktrees(ctx, multiRepoConfig(), overrides, projectRoot, task, []string{"github.com/o/a", "github.com/o/b", "github.com/o/c"})
@@ -202,117 +206,6 @@ func TestLegacyRepoPathsResolveOnThisWorkstation(t *testing.T) {
 	}
 }
 
-// repositoryWaitServer is the server side of a parked launch: it records the
-// waiting marks and answers the ticket, pinned once pin is called.
-type repositoryWaitServer struct {
-	mu     sync.Mutex
-	marks  []bool
-	pinned string
-}
-
-func (s *repositoryWaitServer) handler(w http.ResponseWriter, r *http.Request) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	switch {
-	case strings.HasSuffix(r.URL.Path, "/awaiting-repository"):
-		var body struct{ Waiting bool }
-		_ = json.NewDecoder(r.Body).Decode(&body)
-		s.marks = append(s.marks, body.Waiting)
-		_, _ = w.Write([]byte(`{}`))
-	case strings.HasPrefix(r.URL.Path, "/api/tasks/"):
-		_ = json.NewEncoder(w).Encode(models.Task{ID: "t1", Key: "#1", Repository: s.pinned})
-	default:
-		http.NotFound(w, r)
-	}
-}
-
-func TestAParkedLaunchResumesOnceTheTicketIsPinned(t *testing.T) {
-	previous := repositoryPollInterval
-	repositoryPollInterval = 10 * time.Millisecond
-	t.Cleanup(func() { repositoryPollInterval = previous })
-	server := &repositoryWaitServer{}
-	srv := httptest.NewServer(http.HandlerFunc(server.handler))
-	t.Cleanup(srv.Close)
-	d := &agentDaemon{link: serverLink{serverURL: srv.URL, token: "token"}}
-	run := &controlledRun{limit: 1, exited: make(chan struct{}), desktop: desktopRun{ID: "run-1", ProjectID: "p", Status: "preparing"}}
-
-	done := make(chan error, 1)
-	go func() { done <- d.awaitRepository(context.Background(), multiRepoConfig(), run, "t1", "run-1") }()
-	time.Sleep(50 * time.Millisecond)
-	d.queue.mu.Lock()
-	status := run.desktop.Status
-	d.queue.mu.Unlock()
-	if status != "waiting" {
-		t.Errorf("status while parked = %q, want waiting", status)
-	}
-	// A pin to a repository the project does not declare is no pin: the
-	// launch keeps waiting instead of parking again in a loop.
-	server.mu.Lock()
-	server.pinned = "github.com/o/gone"
-	server.mu.Unlock()
-	time.Sleep(60 * time.Millisecond)
-	select {
-	case <-done:
-		t.Fatal("a pin outside the project resumed the launch")
-	default:
-	}
-	server.mu.Lock()
-	server.pinned = "github.com/o/b"
-	server.mu.Unlock()
-	select {
-	case err := <-done:
-		if err != nil {
-			t.Fatal(err)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("the launch never resumed")
-	}
-	server.mu.Lock()
-	defer server.mu.Unlock()
-	if len(server.marks) != 2 || !server.marks[0] || server.marks[1] {
-		t.Errorf("waiting marks = %v, want set then cleared", server.marks)
-	}
-	if run.desktop.Status != "preparing" {
-		t.Errorf("status on resume = %q, want the slot taken again", run.desktop.Status)
-	}
-}
-
-func TestAParkedLaunchEndsWhenCanceled(t *testing.T) {
-	previous := repositoryPollInterval
-	repositoryPollInterval = 10 * time.Millisecond
-	t.Cleanup(func() { repositoryPollInterval = previous })
-	srv := httptest.NewServer(http.HandlerFunc((&repositoryWaitServer{}).handler))
-	t.Cleanup(srv.Close)
-	d := &agentDaemon{link: serverLink{serverURL: srv.URL, token: "token"}}
-	run := &controlledRun{limit: 1, exited: make(chan struct{})}
-	done := make(chan error, 1)
-	go func() { done <- d.awaitRepository(context.Background(), multiRepoConfig(), run, "t1", "run-1") }()
-	time.Sleep(30 * time.Millisecond)
-	d.queue.mu.Lock()
-	run.canceled = true
-	d.queue.mu.Unlock()
-	select {
-	case err := <-done:
-		if err == nil {
-			t.Fatal("a canceled wait resumed")
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("the canceled wait never ended")
-	}
-}
-
-func TestAWaitingRunHoldsNoSlot(t *testing.T) {
-	d := &agentDaemon{}
-	waiting := &controlledRun{sequence: 1, limit: 1, exited: make(chan struct{}), desktop: desktopRun{ID: "w", ProjectID: "p", Status: "waiting"}}
-	next := &controlledRun{sequence: 2, limit: 1, exited: make(chan struct{}), desktop: desktopRun{ID: "n", ProjectID: "p", Status: "queued"}}
-	d.queue.runs = map[string]*controlledRun{"w": waiting, "n": next}
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	if err := d.awaitRunSlot(ctx, next); err != nil {
-		t.Fatalf("a run queued behind a waiting one did not start: %v", err)
-	}
-}
-
 func TestConvertedFoldersAreKeptOnThisWorkstation(t *testing.T) {
 	testhome.Temp(t)
 	root := checkoutOf(t, "git@github.com:o/a.git")
@@ -327,5 +220,223 @@ func TestConvertedFoldersAreKeptOnThisWorkstation(t *testing.T) {
 	settings, _ := agentconfig.ReadSettings(root)
 	if len(settings.Repositories) != 1 || !samePath(t, settings.Repositories["github.com/o/b"], b) {
 		t.Errorf("mappings = %v, want o/b only (o/a is the project's own)", settings.Repositories)
+	}
+}
+
+// attachedTo attaches folders to project p in settings.
+func attachedTo(settings agentconfig.Settings, folders ...string) agentconfig.Settings {
+	if settings.ProjectSettings == nil {
+		settings.ProjectSettings = map[string]agentconfig.ProjectSettings{}
+	}
+	section := settings.ProjectSettings["p"]
+	section.Folders = folders
+	settings.ProjectSettings["p"] = section
+	return settings
+}
+
+// An attached folder is read from the disk at each use (#484): a Git checkout
+// at its top level with its origin, one without origin, a plain folder, or a
+// folder gone since it was attached.
+func TestAttachedFoldersAreReadFromTheDisk(t *testing.T) {
+	ctx := context.Background()
+	lib := checkoutOf(t, "git@github.com:o/lib.git")
+	inside := filepath.Join(lib, "docs")
+	if err := os.MkdirAll(inside, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	noOrigin := t.TempDir()
+	gitTest(t, noOrigin, "init", "-q")
+	plain := t.TempDir()
+	missing := filepath.Join(t.TempDir(), "gone")
+
+	folders := attachedFolders(ctx, attachedTo(agentconfig.Settings{}, inside, noOrigin, plain, missing, "  "), "p")
+	if len(folders) != 4 {
+		t.Fatalf("folders = %+v", folders)
+	}
+	if f := folders[0]; f.Kind != folderKindGit || f.Stored != inside || !samePath(t, f.Path, lib) || f.Identity != "github.com/o/lib" || f.Remote != "git@github.com:o/lib.git" {
+		t.Errorf("subfolder of a checkout = %+v", f)
+	}
+	if f := folders[1]; f.Kind != folderKindGit || f.Identity != "" || f.Remote != "" {
+		t.Errorf("checkout without origin = %+v", f)
+	}
+	if f := folders[2]; f.Kind != folderKindFolder || f.Path != plain {
+		t.Errorf("plain folder = %+v", f)
+	}
+	if f := folders[3]; f.Kind != folderKindMissing || f.Path != missing {
+		t.Errorf("missing folder = %+v", f)
+	}
+	if other := attachedFolders(ctx, attachedTo(agentconfig.Settings{}, plain), "q"); len(other) != 0 {
+		t.Errorf("another project's folders leaked: %+v", other)
+	}
+}
+
+func TestRepositoryFolderPrefersTheMapping(t *testing.T) {
+	ctx := context.Background()
+	projectRoot := checkoutOf(t, "git@github.com:o/a.git")
+	attached := checkoutOf(t, "git@github.com:o/lib.git")
+	mapped := checkoutOf(t, "git@github.com:o/lib.git")
+	overrides := attachedTo(agentconfig.Settings{}, attached)
+
+	if root, isAttached, ok := repositoryFolder(ctx, overrides, "p", projectRoot, "github.com/o/a", "github.com/o/lib"); !ok || !isAttached || !samePath(t, root, attached) {
+		t.Errorf("attached: %q %v %v", root, isAttached, ok)
+	}
+	if root, isAttached, ok := repositoryFolder(ctx, overrides, "p", projectRoot, "github.com/o/a", "github.com/o/a"); !ok || isAttached || root != projectRoot {
+		t.Errorf("code repository: %q %v %v", root, isAttached, ok)
+	}
+	overrides.Repositories = map[string]string{"github.com/o/lib": mapped}
+	if root, isAttached, ok := repositoryFolder(ctx, overrides, "p", projectRoot, "github.com/o/a", "github.com/o/lib"); !ok || isAttached || root != mapped {
+		t.Errorf("the mapping must win over the attached folder: %q %v %v", root, isAttached, ok)
+	}
+	for _, identity := range []string{"github.com/o/elsewhere", ""} {
+		if _, _, ok := repositoryFolder(ctx, overrides, "p", projectRoot, "github.com/o/a", identity); ok {
+			t.Errorf("%q found", identity)
+		}
+	}
+}
+
+func TestFolderMapListsAttachedFolders(t *testing.T) {
+	ctx := context.Background()
+	projectRoot := checkoutOf(t, "git@github.com:o/a.git")
+	b := checkoutOf(t, "git@github.com:o/b.git")
+	ui := checkoutOf(t, "git@github.com:o/ui.git")
+	lib := checkoutOf(t, "git@github.com:o/lib.git")
+	gitTest(t, lib, "branch", "feat/1")
+	libWorktree := filepath.Join(t.TempDir(), "lib-wt")
+	gitTest(t, lib, "worktree", "add", "-q", libWorktree, "feat/1")
+	bAgain := checkoutOf(t, "git@github.com:o/b.git")
+	notes := t.TempDir()
+	missing := filepath.Join(t.TempDir(), "gone")
+	spec := t.TempDir()
+	overrides := attachedTo(agentconfig.Settings{Repositories: map[string]string{"github.com/o/b": b}}, ui, lib, bAgain, notes, missing, projectRoot, spec, notes)
+	overrides.ProjectSettings["p"] = func(section agentconfig.ProjectSettings) agentconfig.ProjectSettings {
+		section.SpecPath = spec
+		return section
+	}(overrides.ProjectSettings["p"])
+	task := models.Task{Key: "#1", BranchName: branchOf("feat/1"), ChangedRepositories: []string{"github.com/o/lib"}}
+
+	entries := buildFolderMap(ctx, multiRepoConfig(), overrides, projectRoot, "github.com/o/a", "/work/a", task)
+	byPath := map[string]models.FolderMapEntry{}
+	var attached []models.FolderMapEntry
+	for _, entry := range entries {
+		if entry.Attached {
+			attached = append(attached, entry)
+		}
+		byPath[entry.Role+":"+entry.Identity] = entry
+	}
+	// o/ui as context, o/lib as changed, the notes as local, the missing
+	// folder; o/b is a project repository already listed with its mapping,
+	// and the project root, the specifications folder and a folder attached
+	// twice are not listed again.
+	if len(attached) != 4 {
+		t.Fatalf("attached entries = %+v", attached)
+	}
+	if e := byPath["context:github.com/o/ui"]; !e.Attached || e.Kind != folderKindGit || !samePath(t, e.Path, ui) || e.Remote != "git@github.com:o/ui.git" {
+		t.Errorf("attached context = %+v", e)
+	}
+	if e := byPath["changed:github.com/o/lib"]; !e.Attached || !samePath(t, e.Worktree, libWorktree) {
+		t.Errorf("attached changed = %+v", e)
+	}
+	if e := byPath["local:"]; !e.Attached || e.Kind != folderKindFolder || e.Path != notes {
+		t.Errorf("local folder = %+v", e)
+	}
+	if e := attached[3]; e.Kind != folderKindMissing || e.Role != models.FolderRoleContext || e.Path != missing {
+		t.Errorf("missing folder = %+v", e)
+	}
+	if e := byPath["context:github.com/o/b"]; e.Attached || e.Path != b {
+		t.Errorf("a project repository must keep its mapping: %+v", e)
+	}
+	if e := byPath["spec:"]; e.Path != spec {
+		t.Errorf("spec = %+v", e)
+	}
+
+	dirs := folderMapDirs(entries)
+	for _, want := range []string{b, ui, libWorktree, notes, spec} {
+		if !containsPath(t, dirs, want) {
+			t.Errorf("add-dirs %v miss %s", dirs, want)
+		}
+	}
+	if containsPath(t, dirs, missing) || strings.Contains(strings.Join(dirs, " "), missing) {
+		t.Errorf("a missing folder must not reach the CLI: %v", dirs)
+	}
+
+	prompt := folderMapPrompt(entries)
+	for _, want := range []string{
+		"github.com/o/ui (context, attached Git repository): ",
+		"github.com/o/lib (changed, attached Git repository): ",
+		notes + " (local, attached plain folder): " + notes,
+		missing + " (context, attached folder): not found on this workstation",
+		"Local folders have no remote: change them in place, with no worktree and no pull request.",
+		"prepare_repository_worktree", "prUrls",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Errorf("prompt misses %q:\n%s", want, prompt)
+		}
+	}
+
+	// A single folder still needs no map, and a folder attached to it
+	// makes the block appear.
+	single := agentconfig.Config{ProjectID: "p", GitRemoteURL: "git@github.com:o/a.git"}
+	if entries := buildFolderMap(ctx, single, agentconfig.Settings{}, projectRoot, "github.com/o/a", projectRoot, models.Task{Key: "#1"}); len(entries) != 1 || folderMapPrompt(entries) != "" {
+		t.Errorf("a single checkout needs no map in the prompt: %+v", entries)
+	}
+	if entries := buildFolderMap(ctx, single, attachedTo(agentconfig.Settings{}, notes), projectRoot, "github.com/o/a", projectRoot, models.Task{Key: "#1"}); len(entries) != 2 || folderMapPrompt(entries) == "" {
+		t.Errorf("an attached folder must be listed: %+v", entries)
+	}
+}
+
+func containsPath(t *testing.T, list []string, want string) bool {
+	t.Helper()
+	for _, path := range list {
+		if samePath(t, path, want) {
+			return true
+		}
+	}
+	return false
+}
+
+// A ticket changes an attached Git folder through a worktree on its branch,
+// and changes a folder without a remote in place (#484).
+func TestRepositoryWorktreeInAnAttachedFolder(t *testing.T) {
+	ctx := context.Background()
+	projectRoot := checkoutOf(t, "git@github.com:o/a.git")
+	lib := checkoutOf(t, "git@github.com:o/lib.git")
+	gitTest(t, lib, "branch", "feat/1")
+	noOrigin := t.TempDir()
+	gitTest(t, noOrigin, "init", "-q")
+	missing := filepath.Join(t.TempDir(), "gone")
+	overrides := attachedTo(agentconfig.Settings{}, lib, noOrigin)
+	task := models.Task{Key: "#1", BranchName: branchOf("feat/1")}
+
+	first, err := repositoryWorktree(ctx, multiRepoConfig(), overrides, projectRoot, task, "git@github.com:o/lib.git")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Repository != "github.com/o/lib" || first.Branch != "feat/1" || !strings.Contains(first.Path, filepath.Join(".tasks", "worktrees", "#1")) {
+		t.Fatalf("worktree = %+v", first)
+	}
+	if got := gitTest(t, first.Path, "branch", "--show-current"); got != "feat/1" {
+		t.Errorf("worktree branch = %q", got)
+	}
+	exclude, _ := os.ReadFile(filepath.Join(lib, ".git", "info", "exclude"))
+	if !strings.Contains(string(exclude), "/.tasks/") {
+		t.Errorf("the attached checkout does not ignore .tasks/: %q", exclude)
+	}
+	if again, err := repositoryWorktree(ctx, multiRepoConfig(), overrides, projectRoot, task, "https://github.com/o/lib"); err != nil || !samePath(t, again.Path, first.Path) {
+		t.Errorf("second request = %+v, %v", again, err)
+	}
+
+	if _, err := repositoryWorktree(ctx, multiRepoConfig(), overrides, projectRoot, task, noOrigin); err == nil || !strings.Contains(err.Error(), "change it in place") {
+		t.Errorf("folder without a remote: %v", err)
+	}
+	if _, err := repositoryWorktree(ctx, multiRepoConfig(), overrides, projectRoot, task, "github.com/o/elsewhere"); err == nil || !strings.Contains(err.Error(), "attachez") {
+		t.Errorf("neither mapped nor attached: %v", err)
+	}
+
+	removal := removeRepositoryWorktrees(ctx, multiRepoConfig(), attachedTo(overrides, lib, missing), projectRoot, task, []string{"github.com/o/lib", "github.com/o/gone"})
+	if strings.Join(removal.Removed, " ") != "github.com/o/lib" || len(removal.Failed) != 1 || removal.Failed[0].Repository != "github.com/o/gone" || removal.Failed[0].Error != "not found on this workstation" {
+		t.Errorf("removal = %+v", removal)
+	}
+	if _, err := os.Stat(first.Path); !os.IsNotExist(err) {
+		t.Errorf("the attached worktree is still there: %v", err)
 	}
 }

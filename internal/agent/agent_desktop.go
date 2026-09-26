@@ -279,7 +279,7 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 			entry := run.desktop
 			entry.ID = key
 			entry.QueueSequence = run.sequence
-			entry.CancelRequested = run.canceled && (entry.Status == "queued" || entry.Status == "preparing" || entry.Status == "running" || entry.Status == "waiting")
+			entry.CancelRequested = run.canceled && (entry.Status == "queued" || entry.Status == "preparing" || entry.Status == "running")
 			if entry.Status != "" {
 				runs = append(runs, entry)
 			}
@@ -687,7 +687,7 @@ func normalizeSpecFolder(ctx context.Context, raw string) (string, error) {
 // specFolderKind says what the effective specifications folder is, for the
 // desktop settings to show next to the field: "git" inside a Git checkout,
 // "folder" for a plain directory, "missing" when it no longer exists, and
-// "unset" when a multi-repo project has none.
+// "unset" when the project folder itself is not mapped here.
 func specFolderKind(ctx context.Context, folder string) string {
 	if strings.TrimSpace(folder) == "" {
 		return "unset"
@@ -721,17 +721,13 @@ func (d *agentDaemon) desktopProject(w http.ResponseWriter, r *http.Request) {
 	defer d.prepareMu.Unlock()
 	root, overrides, mappingErr := d.localProjectRoot(r.Context(), config)
 	if r.Method == http.MethodGet {
-		var project models.Project
-		if err := d.readAPI(r.Context(), "/api/projects/"+url.PathEscape(id), &project); err != nil {
-			http.Error(w, err.Error(), 502)
-			return
-		}
 		effective := agentconfig.Resolve(config, overrides)
 		section := overrides.Project(id)
-		// The inherited folder follows the code checkout: only an override is
-		// stored, so a later change of the local repository carries it along.
+		// The inherited folder follows the code checkout, on every project
+		// (#484): only an override is stored, so a later change of the local
+		// repository carries it along.
 		specDefault := ""
-		if project.MonoRepo && mappingErr == nil {
+		if mappingErr == nil {
 			specDefault = root
 		}
 		specEffective := section.SpecPath
@@ -742,7 +738,6 @@ func (d *agentDaemon) desktopProject(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"server":                      withoutExecution(config),
-			"monoRepo":                    project.MonoRepo,
 			"path":                        root,
 			"specPath":                    section.SpecPath,
 			"specDefault":                 specDefault,

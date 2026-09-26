@@ -162,25 +162,6 @@ func TestAnAnswerFromAnotherUserIsRefused(t *testing.T) {
 	}
 }
 
-// A launch parked on a repository is answered by a pin on the ticket, never by
-// a key in the console.
-func TestAnAnswerLeavesARepositoryWait(t *testing.T) {
-	database, run := startedRun(t)
-	if _, err := database.conn.Exec("UPDATE task_activities SET user_id = 'owner' WHERE id = ?", run.ID); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := database.MarkRunAwaitingRepository(Actor{ID: "owner"}, false, run.ID, true); err != nil {
-		t.Fatal(err)
-	}
-	since := waitingSinceOf(t, database, run.ID)
-	if since == nil {
-		t.Fatal("setup: the run is not parked")
-	}
-	if cleared, err := database.AnswerRemoteRunWait("owner", run.ID, *since); err != nil || cleared {
-		t.Fatalf("a console answer released a repository wait: %v (%v)", cleared, err)
-	}
-}
-
 // The wait listeners hear the changes of the mark, and nothing else: a
 // repeated declaration keeps the mark and is not relayed.
 func TestWaitListenersHearOnlyRealChanges(t *testing.T) {

@@ -46,7 +46,6 @@ func (d *DB) AgentConfig(projectID, taskKey string, framework ...string) (*agent
 		TrackerURL: p.TrackerUrl, JiraProject: p.JiraProject, GitRemoteURL: p.GitRemoteUrl, GithubRepo: p.GithubRepo, IssueTracker: p.IssueTracker,
 		SpecFramework: p.SpecFramework, PRCreationStage: p.PRCreationStage, SpecArtifacts: models.NormalizeSpecArtifacts(p.SpecArtifacts),
 		DefaultSkillMode: models.NormalizeSkillMode(p.DefaultSkillMode), FullChainStopStage: models.NormalizeFullChainStopStage(p.FullChainStopStage),
-		MonoRepo: &p.MonoRepo,
 	}
 	for _, repository := range p.Repositories {
 		c.Repositories = append(c.Repositories, repository.URL)

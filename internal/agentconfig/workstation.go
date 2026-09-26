@@ -59,9 +59,14 @@ type ProjectSettings struct {
 	// Path is the project's checkout on this workstation.
 	Path string `json:"path,omitempty"`
 	// SpecPath is the project's specifications folder, a Git checkout or a
-	// plain folder. Without one, a mono-repo project uses its code checkout and
-	// a multi-repo project has none.
+	// plain folder. Without one, the project uses its code checkout.
 	SpecPath string `json:"specPath,omitempty"`
+	// Folders are the folders attached to the project on this workstation
+	// (#484): absolute, cleaned paths in the order they were added. Only the
+	// paths are kept: what each one is, and its remote, are read from the
+	// folder at each use, so a remote changed since is followed. They never
+	// leave the workstation.
+	Folders []string `json:"folders,omitempty"`
 	Execution
 	// SkillCommands replaces the slash command a stage runs, by skill ID. The
 	// name depends on what is installed in the local CLI.
@@ -102,7 +107,7 @@ func (e Execution) isZero() bool {
 // IsZero reports a project section that states nothing and can be dropped.
 func (p ProjectSettings) IsZero() bool {
 	return strings.TrimSpace(p.Path) == "" && strings.TrimSpace(p.SpecPath) == "" && p.Execution.isZero() && len(p.SkillCommands) == 0 &&
-		strings.TrimSpace(p.SpecArtifacts) == ""
+		strings.TrimSpace(p.SpecArtifacts) == "" && len(p.Folders) == 0
 }
 
 // Project returns the project's section, empty when it has none.

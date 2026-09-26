@@ -259,8 +259,8 @@ func TestDispatchAppliesTheSpecArtifactsSetting(t *testing.T) {
 	}
 }
 
-// On a multi-repo project the rules go to the checkout of the task's primary
-// repository, where the stages write, and nowhere else.
+// On a project with several repositories the rules go to the checkout of the
+// task's primary repository, where the stages write, and nowhere else.
 func TestDispatchExcludesInThePrimaryRepositoryOnly(t *testing.T) {
 	ctx := context.Background()
 	testhome.Temp(t)

@@ -132,6 +132,7 @@ func overlay(base, top Settings) Settings {
 		out.SetProject(id, ProjectSettings{
 			Path:          firstSet(p.Path, b.Path),
 			SpecPath:      firstSet(p.SpecPath, b.SpecPath),
+			Folders:       firstList(p.Folders, b.Folders),
 			Execution:     overlayExecution(b.Execution, p.Execution),
 			SkillCommands: mergeStrings(b.SkillCommands, p.SkillCommands),
 			SpecArtifacts: firstSet(p.SpecArtifacts, b.SpecArtifacts),
@@ -173,6 +174,17 @@ func firstSet(values ...string) string {
 		}
 	}
 	return ""
+}
+
+// firstList is the first list that has an entry: a list is stated whole, never
+// merged entry by entry.
+func firstList(lists ...[]string) []string {
+	for _, list := range lists {
+		if len(list) > 0 {
+			return list
+		}
+	}
+	return nil
 }
 
 func mergeStrings(base, top map[string]string) map[string]string {

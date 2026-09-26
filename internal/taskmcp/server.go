@@ -103,7 +103,7 @@ func resumesWaits(method string, req mcp.Request) bool {
 
 type repositoryWorktreeInput struct {
 	TaskKey    string `json:"taskKey" jsonschema:"task key or ID"`
-	Repository string `json:"repository" jsonschema:"one of the project's repositories, as a remote URL or a host/path identity"`
+	Repository string `json:"repository" jsonschema:"one of the project's repositories or the remote of a Git folder attached to the project on the caller's workstation, as a remote URL or a host/path identity"`
 }
 
 type macroWorktreeInput struct {
@@ -379,7 +379,7 @@ func NewServerWithCallers(database *db.DB, sessions *SessionRegistry, resolve Ca
 			}
 			return nil, result, nil
 		})
-	mcp.AddTool(s, &mcp.Tool{Name: "prepare_macro_worktree", Description: "Prepare the checkout a macro's specification is written in, on the caller's local agent, in the project's specifications folder (the desktop \"Specifications folder\" setting, else the code checkout of a mono-repo project): on a Git folder, the macro's own worktree on the macro branch, created from the up-to-date default branch or reused as is; on a plain folder, the folder itself with an empty branch, where nothing is committed or pushed. Returns path, branch, whether it is a dedicated worktree, any warning, and the macro's slicing lines (todos) to align on. Call it before a macro skill reads or writes; it reuses the worktree a launch already prepared."},
+	mcp.AddTool(s, &mcp.Tool{Name: "prepare_macro_worktree", Description: "Prepare the checkout a macro's specification is written in, on the caller's local agent, in the project's specifications folder (the desktop \"Specifications folder\" setting, else the code checkout): on a Git folder, the macro's own worktree on the macro branch, created from the up-to-date default branch or reused as is; on a plain folder, the folder itself with an empty branch, where nothing is committed or pushed. Returns path, branch, whether it is a dedicated worktree, any warning, and the macro's slicing lines (todos) to align on. Call it before a macro skill reads or writes; it reuses the worktree a launch already prepared."},
 		func(ctx context.Context, req *mcp.CallToolRequest, in macroWorktreeInput) (*mcp.CallToolResult, any, error) {
 			workspace, err := database.PrepareMacroWorktree(ctx, callerOf(resolve, req).UserID, in.ProjectID, in.MacroKey)
 			if err != nil {
@@ -387,7 +387,7 @@ func NewServerWithCallers(database *db.DB, sessions *SessionRegistry, resolve Ca
 			}
 			return nil, workspace, nil
 		})
-	mcp.AddTool(s, &mcp.Tool{Name: "prepare_repository_worktree", Description: "On a multi-repo project, prepare the task's worktree in another of the project's repositories, on the caller's local agent, on the task's branch: reused wherever that branch is already checked out, else created from the remote branch when it exists, else from the checkout's current HEAD. The repository must be mapped to a folder on that workstation. Call it before changing a context folder (SECTILE_REPOSITORIES role \"context\"): context folders are read-only. The repository then needs its own pull request, given in transition_stage prUrls. Returns repository, path and branch."},
+	mcp.AddTool(s, &mcp.Tool{Name: "prepare_repository_worktree", Description: "Prepare the task's worktree in another repository than its primary one, on the caller's local agent, on the task's branch: reused wherever that branch is already checked out, else created from the remote branch when it exists, else from the checkout's current HEAD. The repository is one of the project's repositories, or a Git folder attached to the project on the caller's workstation, given by its remote URL or host/path; it must have a folder on that workstation. Call it before changing a context folder (SECTILE_REPOSITORIES role \"context\"): context folders are read-only. A local folder (role \"local\", no remote) is changed in place without it, with no worktree and no pull request. The repository then needs its own pull request, given in transition_stage prUrls. Returns repository, path and branch."},
 		func(ctx context.Context, req *mcp.CallToolRequest, in repositoryWorktreeInput) (*mcp.CallToolResult, any, error) {
 			worktree, err := database.PrepareRepositoryWorktree(ctx, callerOf(resolve, req).UserID, in.TaskKey, in.Repository)
 			if err != nil {

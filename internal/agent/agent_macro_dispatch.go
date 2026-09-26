@@ -2,7 +2,6 @@ package agent
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -18,16 +17,12 @@ import (
 )
 
 // localSpecRepo is the folder carrying a project's specifications on this
-// workstation: the workstation's own override when there is one; else, on a
-// mono-repo project, the project's checkout; else none, and the refusal names
-// the setting. The server holds no specifications path: it would name a
-// directory on another machine.
-func localSpecRepo(overrides agentconfig.Settings, projectID, root string, monoRepo bool) (string, error) {
+// workstation: the workstation's own override when there is one, else the
+// project's checkout (#484). The server holds no specifications path: it would
+// name a directory on another machine.
+func localSpecRepo(overrides agentconfig.Settings, projectID, root string) (string, error) {
 	mapped := strings.TrimSpace(overrides.ProjectSettings[projectID].SpecPath)
 	if mapped == "" {
-		if !monoRepo {
-			return "", errNoSpecFolder
-		}
 		return root, nil
 	}
 	if !filepath.IsAbs(mapped) {
@@ -38,11 +33,6 @@ func localSpecRepo(overrides agentconfig.Settings, projectID, root string, monoR
 	}
 	return mapped, nil
 }
-
-// errNoSpecFolder refuses a macro operation on a multi-repo project whose
-// specifications folder is not set: falling back on the code checkout would
-// write the specification in the wrong repository without a word.
-var errNoSpecFolder = errors.New("Aucun dossier des spécifications déclaré sur ce poste pour ce projet multi-dépôt : renseignez « Specifications folder » dans les réglages du projet de l'app desktop.")
 
 // handleMacroDispatch runs a macro-scoped skill. It follows a task dispatch
 // where it can (admission, queue slot, skills, MCP, supervised console) and
@@ -198,7 +188,7 @@ func (d *agentDaemon) prepareMacroSkills(ctx context.Context, config agentconfig
 	if err := d.bootstrapLocalMCP(&config); err != nil {
 		return config, "", "", err
 	}
-	spec, err := localSpecRepo(overrides, config.ProjectID, root, config.IsMonoRepo())
+	spec, err := localSpecRepo(overrides, config.ProjectID, root)
 	return config, root, spec, err
 }
 
@@ -216,7 +206,7 @@ func (d *agentDaemon) macroWorkspaceFor(ctx context.Context, projectID, macroKey
 		return macroWorkspace{}, err
 	}
 	config = agentconfig.Resolve(config, overrides)
-	spec, err := localSpecRepo(overrides, config.ProjectID, root, config.IsMonoRepo())
+	spec, err := localSpecRepo(overrides, config.ProjectID, root)
 	if err != nil {
 		return macroWorkspace{}, err
 	}
@@ -237,7 +227,7 @@ func (d *agentDaemon) macroSpecFileFor(ctx context.Context, projectID, macroKey,
 	if err != nil {
 		return agentprotocol.MacroSpecFile{}, err
 	}
-	folder, err := localSpecRepo(overrides, config.ProjectID, root, config.IsMonoRepo())
+	folder, err := localSpecRepo(overrides, config.ProjectID, root)
 	if err != nil {
 		return agentprotocol.MacroSpecFile{}, err
 	}

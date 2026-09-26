@@ -120,6 +120,7 @@ func TestMigrationTwentyFiveKeepsExistingProjectsArtefacts(t *testing.T) {
 		"ALTER TABLE user_tracker_credentials DROP COLUMN unlock_generation",
 		"DROP TABLE user_credential_unlocks",
 		"DROP TABLE batch_members",
+		"ALTER TABLE projects ADD COLUMN mono_repo INTEGER NOT NULL DEFAULT 1",
 		`INSERT INTO projects (id, name, slug) VALUES ('p1', 'Old', 'old')`,
 		"DELETE FROM schema_migrations WHERE version >= 25",
 	} {

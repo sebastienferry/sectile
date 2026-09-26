@@ -59,10 +59,11 @@ func dropRepositoryColumns(d *DB) {
 	dropCredentialAccountColumn(d)
 }
 
-// dropCredentialAccountColumn undoes what migrations 24 to 30 change. It runs
+// dropCredentialAccountColumn undoes what migrations 24 to 31 change. It runs
 // with dropRepositoryColumns, since every fixture that rewinds before 21 also
 // rewinds before 24.
 func dropCredentialAccountColumn(d *DB) {
+	_, _ = d.conn.Exec("ALTER TABLE projects ADD COLUMN mono_repo INTEGER NOT NULL DEFAULT 1")
 	_, _ = d.conn.Exec("ALTER TABLE user_tracker_credentials DROP COLUMN account")
 	_, _ = d.conn.Exec("ALTER TABLE projects DROP COLUMN spec_artifacts")
 	_, _ = d.conn.Exec("ALTER TABLE user_tracker_credentials DROP COLUMN unlock_generation")
@@ -410,5 +411,54 @@ func TestMigrationSixteenDropsTheServerSpecificationsPath(t *testing.T) {
 	project, err := reopened.GetProjectByID("p1")
 	if err != nil || project == nil || project.Name != "Kept" {
 		t.Fatalf("the project must survive the upgrade: %+v %v", project, err)
+	}
+}
+
+// A database from before #484 carries the mono-repo setting, and may hold a
+// launch parked on a repository choice nobody will make any more. The upgrade
+// drops the column, clears that wait, and leaves a session's wait alone.
+func TestMigrationThirtyOneRemovesTheRepositoryLayout(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "layout.db")
+	d, err := NewDB(path)
+	if err != nil {
+		t.Fatalf("creating the database: %v", err)
+	}
+	for _, stmt := range []string{
+		"ALTER TABLE projects ADD COLUMN mono_repo INTEGER NOT NULL DEFAULT 1",
+		`INSERT INTO projects (id, name, slug, mono_repo) VALUES ('p1', 'Multi', 'multi', 0)`,
+		// Finished rows, which the restart leaves alone: only the migration
+		// decides what happens to their marks.
+		`INSERT INTO task_activities (id, task_id, skill_id, skill_name, action, status, created_at, waiting_since, waiting_reason) VALUES
+			('parked', 't1', 'remote_run', 'implement', 'run', 'completed', '2026-09-01 10:00:00', '2026-09-01 10:01:00', 'repository'),
+			('asking', 't2', 'remote_run', 'clarify', 'run', 'completed', '2026-09-01 11:00:00', '2026-09-01 11:01:00', '')`,
+		"DELETE FROM schema_migrations WHERE version >= 31",
+	} {
+		if _, err := d.conn.Exec(stmt); err != nil {
+			t.Fatalf("%s: %v", stmt, err)
+		}
+	}
+	d.Close()
+
+	reopened, err := NewDB(path)
+	if err != nil {
+		t.Fatalf("upgrading: %v", err)
+	}
+	defer reopened.Close()
+	if _, err := reopened.conn.Exec("SELECT mono_repo FROM projects"); err == nil {
+		t.Fatal("the column must be gone")
+	}
+	if project, err := reopened.GetProjectByID("p1"); err != nil || project == nil || project.Name != "Multi" {
+		t.Fatalf("the project did not survive: %+v %v", project, err)
+	}
+	parked, _ := reopened.GetActivityByID("parked")
+	if parked == nil || parked.WaitingSince != nil || parked.WaitingReason != "" {
+		t.Errorf("the repository wait is still set: %+v", parked)
+	}
+	asking, _ := reopened.GetActivityByID("asking")
+	if asking == nil || asking.WaitingSince == nil {
+		t.Errorf("a session's wait was cleared: %+v", asking)
+	}
+	if got := appliedVersions(t, reopened); got[len(got)-1] != migrations[len(migrations)-1].version {
+		t.Errorf("applied versions = %v", got)
 	}
 }

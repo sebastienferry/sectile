@@ -12,21 +12,11 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"tasks/internal/agentconfig"
 	"tasks/internal/agenthttp"
 	"tasks/internal/models"
 )
-
-// errRepositoryAmbiguous stops a launch before anything starts: the ticket
-// belongs to a multi-repo project, is pinned to no repository, and several of
-// the project's repositories are mapped on this workstation (#456). The
-// dispatch then waits for the ticket to be pinned instead of guessing.
-var errRepositoryAmbiguous = errors.New("Plusieurs dépôts du projet sont associés à un dossier sur ce poste : choisissez le dépôt de la tâche pour la lancer.")
-
-// repositoryPollInterval is how often a parked launch reads its ticket back.
-var repositoryPollInterval = 5 * time.Second
 
 // projectRepositories are the project's repositories as the configuration
 // names them, the code remote first. An older server sends none: the code
@@ -67,28 +57,21 @@ func repositoryRoot(overrides agentconfig.Settings, projectRoot, code, identity 
 }
 
 // primaryRoot decides which checkout a ticket's worktree lives in, before
-// anything is launched: the project root, unchanged, for a mono-repo project
-// or a ticket of the project's own repository; the checkout of the pinned
-// repository otherwise. It returns the repository to pin when the choice came
-// from this workstation, errRepositoryAmbiguous when it cannot be made here,
-// and an error naming the repository when its folder is not mapped.
-func primaryRoot(ctx context.Context, config agentconfig.Config, overrides agentconfig.Settings, projectRoot string, task models.Task) (root, identity, pin string, err error) {
+// anything is launched: the checkout of the repository the ticket is pinned
+// to, else the project root, the code repository (#484). It fails, naming the
+// repository, when the pinned one has no folder here.
+func primaryRoot(ctx context.Context, config agentconfig.Config, overrides agentconfig.Settings, projectRoot string, task models.Task) (root, identity string, err error) {
 	code := codeIdentity(config)
 	mapped := func(identity string) bool {
 		_, ok := repositoryRoot(overrides, projectRoot, code, identity)
 		return ok
 	}
-	repository, outcome, shouldPin := models.ResolvePrimaryRepository(task.Repository, projectRepositories(config), config.IsMonoRepo(), mapped)
+	repository, outcome := models.ResolvePrimaryRepository(task.Repository, projectRepositories(config), mapped)
 	switch outcome {
 	case models.PrimaryDefault:
-		return projectRoot, code, "", nil
-	case models.PrimaryAmbiguous:
-		return "", "", "", errRepositoryAmbiguous
+		return projectRoot, code, nil
 	case models.PrimaryUnmapped:
-		if repository.Identity == "" {
-			return "", "", "", fmt.Errorf("Aucun dépôt du projet n'est associé à un dossier sur ce poste : associez-les dans les réglages du projet de l'app desktop.")
-		}
-		return "", "", "", fmt.Errorf("Le dépôt %s de la tâche n'est associé à aucun dossier sur ce poste : choisissez son dossier dans les réglages du projet de l'app desktop.", repository.Identity)
+		return "", "", fmt.Errorf("Le dépôt %s de la tâche n'est associé à aucun dossier sur ce poste : choisissez son dossier dans les réglages du projet de l'app desktop.", repository.Identity)
 	}
 	root, _ = repositoryRoot(overrides, projectRoot, code, repository.Identity)
 	if repository.Identity != code {
@@ -96,18 +79,16 @@ func primaryRoot(ctx context.Context, config agentconfig.Config, overrides agent
 		// another repository has no reason to, so its status is kept clean
 		// through info/exclude, as the specifications checkout is.
 		if err := excludeTaskWorktrees(ctx, root); err != nil {
-			return "", "", "", err
+			return "", "", err
 		}
 	}
-	if shouldPin {
-		pin = repository.Identity
-	}
-	return root, repository.Identity, pin, nil
+	return root, repository.Identity, nil
 }
 
 // buildFolderMap describes every folder of a ticket to the agent: each project
 // repository with its role, its folder here and the ticket's worktree in it,
-// then the specifications folder when it is a folder of its own.
+// then each folder attached to the project on this workstation (#484), then
+// the specifications folder when it is a folder of its own.
 func buildFolderMap(ctx context.Context, config agentconfig.Config, overrides agentconfig.Settings, projectRoot, primary, workDir string, task models.Task) []models.FolderMapEntry {
 	code := codeIdentity(config)
 	branch := ""
@@ -118,8 +99,16 @@ func buildFolderMap(ctx context.Context, config agentconfig.Config, overrides ag
 	for _, identity := range task.ChangedRepositories {
 		changed[identity] = true
 	}
+	changedWorktree := func(root string) string {
+		if root == "" || branch == "" {
+			return ""
+		}
+		worktree, _ := worktreeForBranch(ctx, root, branch)
+		return worktree
+	}
 	var entries []models.FolderMapEntry
 	seen := map[string]bool{}
+	listed := map[string]bool{}
 	for _, repository := range projectRepositories(config) {
 		root, _ := repositoryRoot(overrides, projectRoot, code, repository.Identity)
 		entry := models.FolderMapEntry{Remote: repository.URL, Identity: repository.Identity, Role: models.FolderRoleContext, Path: root}
@@ -127,30 +116,75 @@ func buildFolderMap(ctx context.Context, config agentconfig.Config, overrides ag
 		case repository.Identity == primary:
 			entry.Role, entry.Worktree = models.FolderRolePrimary, workDir
 		case changed[repository.Identity]:
-			entry.Role = models.FolderRoleChanged
-			if root != "" && branch != "" {
-				entry.Worktree, _ = worktreeForBranch(ctx, root, branch)
-			}
+			entry.Role, entry.Worktree = models.FolderRoleChanged, changedWorktree(root)
 		}
 		if root != "" {
 			seen[filepath.Clean(root)] = true
 		}
+		listed[repository.Identity] = true
 		entries = append(entries, entry)
 	}
-	if spec, err := localSpecRepo(overrides, config.ProjectID, projectRoot, config.IsMonoRepo()); err == nil && spec != "" && !seen[filepath.Clean(spec)] {
+	spec, err := localSpecRepo(overrides, config.ProjectID, projectRoot)
+	if err != nil {
+		spec = ""
+	}
+	// Folders compare as directories: an attached checkout is described at
+	// its top level, which Git reports with its symbolic links resolved.
+	taken := []string{projectRoot, spec}
+	for root := range seen {
+		taken = append(taken, root)
+	}
+	isTaken := func(folder string) bool {
+		for _, other := range taken {
+			if other != "" && (filepath.Clean(other) == filepath.Clean(folder) || sameDirectory(other, folder)) {
+				return true
+			}
+		}
+		return false
+	}
+	for _, folder := range attachedFolders(ctx, overrides, config.ProjectID) {
+		// A project repository is already listed with its mapping, which wins
+		// over an attached checkout of it; the project root, the
+		// specifications folder and a folder already listed are not listed
+		// again.
+		if (folder.Identity != "" && (listed[folder.Identity] || folder.Identity == primary)) || isTaken(folder.Path) {
+			continue
+		}
+		taken = append(taken, folder.Path)
+		entry := models.FolderMapEntry{Remote: folder.Remote, Identity: folder.Identity, Path: folder.Path, Kind: folder.Kind, Attached: true}
+		switch {
+		case folder.Kind == folderKindMissing:
+			entry.Role = models.FolderRoleContext
+		case folder.Identity == "":
+			entry.Role = models.FolderRoleLocal
+		case changed[folder.Identity]:
+			entry.Role, entry.Worktree = models.FolderRoleChanged, changedWorktree(folder.Path)
+		default:
+			entry.Role = models.FolderRoleContext
+		}
+		if folder.Identity != "" {
+			listed[folder.Identity] = true
+		}
+		entries = append(entries, entry)
+	}
+	if spec != "" && !seen[filepath.Clean(spec)] {
 		entries = append(entries, models.FolderMapEntry{Role: models.FolderRoleSpec, Path: spec})
 	}
 	return entries
 }
 
 // folderMapDirs are the folders a CLI is given beside its working directory:
-// the context folders and the specifications folder where they are, and the
-// ticket's worktrees in its other changed repositories.
+// the context, local and specifications folders where they are, and the
+// ticket's worktrees in its other changed repositories. A missing attached
+// folder is named in the prompt only.
 func folderMapDirs(entries []models.FolderMapEntry) []string {
 	var dirs []string
 	for _, entry := range entries {
+		if entry.Kind == folderKindMissing {
+			continue
+		}
 		switch entry.Role {
-		case models.FolderRoleContext, models.FolderRoleSpec:
+		case models.FolderRoleContext, models.FolderRoleSpec, models.FolderRoleLocal:
 			if entry.Path != "" {
 				dirs = append(dirs, entry.Path)
 			}
@@ -165,6 +199,13 @@ func folderMapDirs(entries []models.FolderMapEntry) []string {
 	return dirs
 }
 
+// folderKindLabels says what an attached folder is, in the prompt.
+var folderKindLabels = map[string]string{
+	folderKindGit:     "attached Git repository",
+	folderKindFolder:  "attached plain folder",
+	folderKindMissing: "attached folder",
+}
+
 // folderMapPrompt is the folder map as the prompt states it. It is only
 // written for a ticket with more than one folder: a single checkout needs no
 // map.
@@ -176,64 +217,35 @@ func folderMapPrompt(entries []models.FolderMapEntry) string {
 	b.WriteString("\nFolders of this task (also in $SECTILE_REPOSITORIES):")
 	for _, entry := range entries {
 		name := entry.Identity
-		if name == "" {
+		switch {
+		case name != "":
+		case entry.Role == models.FolderRoleSpec:
 			name = "specifications"
+		default:
+			name = entry.Path
 		}
 		where := entry.Path
 		if entry.Worktree != "" {
 			where = entry.Worktree
 		}
-		if where == "" {
+		switch {
+		case entry.Kind == folderKindMissing:
+			where = "not found on this workstation"
+		case where == "":
 			where = "not mapped on this workstation"
 		}
-		fmt.Fprintf(&b, "\n- %s (%s): %s", name, entry.Role, where)
-	}
-	b.WriteString("\nWork in the primary worktree. Context folders are read-only: to change one, call prepare_repository_worktree for its repository first and work in the worktree it returns. Each changed repository needs its own pull request, given to transition_stage in prUrls.")
-	return b.String()
-}
-
-// awaitRepository parks a launch until its ticket is pinned to a repository.
-// The run shows it is waiting, whatever its mode, and holds no run slot
-// meanwhile; the ticket is read back over REST, since an MCP call from the
-// session would clear a wait. It returns once the ticket is pinned, or with
-// the context's error when the run is canceled.
-func (d *agentDaemon) awaitRepository(ctx context.Context, config agentconfig.Config, run *controlledRun, taskRef, runID string) error {
-	d.queue.mu.Lock()
-	run.desktop.Status = "waiting"
-	d.queue.mu.Unlock()
-	if err := d.postAPI(ctx, "/api/activities/"+url.PathEscape(runID)+"/awaiting-repository", map[string]bool{"waiting": true}, nil); err != nil {
-		log.Printf("[Agent] Could not mark run %s as waiting for its repository: %v", runID, err)
-	}
-	release := func() {
-		if err := d.postAPI(context.Background(), "/api/activities/"+url.PathEscape(runID)+"/awaiting-repository", map[string]bool{"waiting": false}, nil); err != nil {
-			log.Printf("[Agent] Could not clear the repository wait of run %s: %v", runID, err)
-		}
-	}
-	ticker := time.NewTicker(repositoryPollInterval)
-	defer ticker.Stop()
-	for {
-		d.queue.mu.Lock()
-		canceled := run.canceled || d.queue.shuttingDown
-		d.queue.mu.Unlock()
-		if canceled {
-			return fmt.Errorf("execution canceled")
-		}
-		// A pin that names no repository of the project, one removed since,
-		// reads as no pin at all: resuming on it would park the launch again
-		// at once, in a loop.
-		var task models.Task
-		if err := d.readAPI(ctx, "/api/tasks/"+url.PathEscape(taskRef), &task); err == nil {
-			if _, pinned := models.FindProjectRepository(projectRepositories(config), task.Repository); pinned {
-				release()
-				return d.awaitRunSlot(ctx, run)
+		role := entry.Role
+		if entry.Attached {
+			if entry.Kind == folderKindGit && entry.Identity == "" {
+				role += ", attached Git repository without a remote"
+			} else {
+				role += ", " + folderKindLabels[entry.Kind]
 			}
 		}
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-ticker.C:
-		}
+		fmt.Fprintf(&b, "\n- %s (%s): %s", name, role, where)
 	}
+	b.WriteString("\nWork in the primary worktree. Context folders are read-only: to change one, call prepare_repository_worktree for its repository first and work in the worktree it returns. Local folders have no remote: change them in place, with no worktree and no pull request. Each changed repository needs its own pull request, given to transition_stage in prUrls.")
+	return b.String()
 }
 
 // postAPI sends a JSON body to the server and decodes its answer into result
@@ -336,21 +348,26 @@ func resolveLegacyRepoPaths(ctx context.Context, paths []models.LegacyRepoPath) 
 }
 
 // repositoryWorktree answers repository_worktree: the ticket's worktree in a
-// secondary repository of a multi-repo project, on the ticket's branch,
-// created or reused like the primary one. The repository is echoed so the
+// secondary repository, on the ticket's branch, created or reused like the
+// primary one. The repository is one of the project's, or a Git folder
+// attached to the project here (#484). The repository is echoed so the
 // server can tell this agent from one that ignored the question.
 func repositoryWorktree(ctx context.Context, config agentconfig.Config, overrides agentconfig.Settings, projectRoot string, task models.Task, repository string) (models.RepositoryWorktree, error) {
-	if config.IsMonoRepo() {
-		return models.RepositoryWorktree{}, fmt.Errorf("project %s is mono-repo: its tickets work in a single repository", config.ProjectName)
+	repository = strings.TrimSpace(repository)
+	for _, folder := range attachedFolders(ctx, overrides, config.ProjectID) {
+		if folder.Identity == "" && filepath.IsAbs(repository) && (sameDirectory(folder.Stored, repository) || sameDirectory(folder.Path, repository)) {
+			return models.RepositoryWorktree{}, fmt.Errorf("%s has no remote: change it in place, with no worktree and no pull request", folder.Stored)
+		}
 	}
-	target, ok := models.FindProjectRepository(projectRepositories(config), repository)
-	if !ok {
-		return models.RepositoryWorktree{}, fmt.Errorf("%s is not one of the project's repositories", strings.TrimSpace(repository))
+	identity := models.RepositoryIdentity(repository)
+	if target, ok := models.FindProjectRepository(projectRepositories(config), repository); ok {
+		identity = target.Identity
 	}
-	root, ok := repositoryRoot(overrides, projectRoot, codeIdentity(config), target.Identity)
-	if !ok {
-		return models.RepositoryWorktree{}, fmt.Errorf("Le dépôt %s n'est associé à aucun dossier sur ce poste : choisissez son dossier dans les réglages du projet de l'app desktop.", target.Identity)
+	root, _, ok := repositoryFolder(ctx, overrides, config.ProjectID, projectRoot, codeIdentity(config), identity)
+	if !ok || identity == "" {
+		return models.RepositoryWorktree{}, fmt.Errorf("Le dépôt %s n'est ni associé ni attaché à ce projet sur ce poste : attachez son dossier dans les réglages du projet de l'app desktop.", repository)
 	}
+	target := models.ProjectRepository{URL: repository, Identity: identity}
 	if target.Identity != codeIdentity(config) {
 		if err := excludeTaskWorktrees(ctx, root); err != nil {
 			return models.RepositoryWorktree{}, err
@@ -364,8 +381,9 @@ func repositoryWorktree(ctx context.Context, config agentconfig.Config, override
 }
 
 // removeRepositoryWorktrees answers remove_workspace for a ticket with
-// worktrees in several repositories: each is removed where it is mapped, and a
-// repository that could not be cleaned is named rather than failing the rest.
+// worktrees in several repositories: each is removed where it is mapped or
+// attached, and a repository that could not be cleaned is named rather than
+// failing the rest.
 func removeRepositoryWorktrees(ctx context.Context, config agentconfig.Config, overrides agentconfig.Settings, projectRoot string, task models.Task, repositories []string) models.WorktreeRemoval {
 	result := models.WorktreeRemoval{Removed: []string{}}
 	branch := ""
@@ -374,9 +392,9 @@ func removeRepositoryWorktrees(ctx context.Context, config agentconfig.Config, o
 	}
 	code := codeIdentity(config)
 	for _, identity := range repositories {
-		root, ok := repositoryRoot(overrides, projectRoot, code, identity)
+		root, _, ok := repositoryFolder(ctx, overrides, config.ProjectID, projectRoot, code, identity)
 		if !ok {
-			result.Failed = append(result.Failed, models.WorktreeRemovalFailed{Repository: identity, Error: "not mapped on this workstation"})
+			result.Failed = append(result.Failed, models.WorktreeRemovalFailed{Repository: identity, Error: "not found on this workstation"})
 			continue
 		}
 		worktree, err := worktreeForBranch(ctx, root, branch)
@@ -407,7 +425,7 @@ func (d *agentDaemon) taskFolderMap(ctx context.Context, config agentconfig.Conf
 	if err != nil {
 		return nil
 	}
-	_, primary, _, err := primaryRoot(ctx, config, overrides, root, task)
+	_, primary, err := primaryRoot(ctx, config, overrides, root, task)
 	if err != nil {
 		return nil
 	}
