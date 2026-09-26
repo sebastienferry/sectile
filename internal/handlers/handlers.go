@@ -2378,8 +2378,13 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		// A batch cannot take in a busy ticket: it would then carry two active
-		// runs, which the busy rule exists to prevent. The first one is named.
-		for _, memberID := range batchIDs[min(1, len(batchIDs)):] {
+		// runs, which the busy rule exists to prevent. The first one is named;
+		// the lead was checked above.
+		var joining []string
+		if len(batchIDs) > 1 {
+			joining = batchIDs[1:]
+		}
+		for _, memberID := range joining {
 			memberActive, memberBatch, err := h.db.ActiveBusyCause(memberID)
 			if err != nil {
 				log.Printf("[Dispatch] cannot check batch member %s for an active run: %v", memberID, err)

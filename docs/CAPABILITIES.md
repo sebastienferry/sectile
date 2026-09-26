@@ -144,7 +144,10 @@ flowchart LR
 Local skills execute on the agent. Background jobs dispatch the same native skill
 contract and track launch acknowledgement separately from remote completion.
 Skills call MCP `start_run`, submit verified stages through `transition_stage`,
-and call `finish_run` when the invocation ends. A process exit or launch
+and call `finish_run` when the invocation ends. A batch pickup reuses its launch
+run on every ticket, calling `start_run` with that run's ID when it begins a
+ticket, which is how the web board shows which ticket of a running batch is being
+processed and which ones wait their turn (ADR 0034). A process exit or launch
 acknowledgement alone never advances the ticket. The former server-side result-file
 worker is retired; the server does not open an agent checkout or receipt file.
 
