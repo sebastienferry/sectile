@@ -2,13 +2,13 @@
 
 Needs #534 T1 and T2.
 
-- [ ] T1 `TaskDetailModal.tsx`: header, fields, lookups, type fallback,
+- [x] T1 `TaskDetailModal.tsx`: header, fields, lookups, type fallback,
   copy feedback, move confirmation, PR actions.
-- [ ] T2 `TaskDetailModal.tsx`: specification report, full screen view,
+- [x] T2 `TaskDetailModal.tsx`: specification report, full screen view,
   recommended step, rewrite preview, workflow launch controls, toasts, dates.
-- [ ] T3 `TaskComments.tsx` (chrome and dates), `CloneTaskModal.tsx`,
+- [x] T3 `TaskComments.tsx` (chrome and dates), `CloneTaskModal.tsx`,
   `CopyTaskSkillMenu.tsx`.
-- [ ] T4 `LookupField.tsx`, `PrioritySelect.tsx`, `PullRequestStateIcon.tsx`,
+- [x] T4 `LookupField.tsx`, `PrioritySelect.tsx`, `PullRequestStateIcon.tsx`,
   `Markdown.tsx`.
-- [ ] T5 `web/tests/taskDetailCatalog.test.mjs`.
-- [ ] T6 `npm run build`, `npm run lint`, `npm test`.
+- [x] T5 `web/tests/taskDetailCatalog.test.mjs`.
+- [x] T6 `npm run build`, `npm run lint`, `npm test`.

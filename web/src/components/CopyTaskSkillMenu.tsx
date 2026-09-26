@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Copy } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { resolveTaskStage, skillForStage } from '../lib/workflow'
+import { format } from '../lib/i18n'
 import type { Task } from '../types'
 
 /** Default command of each workflow skill, before any project override. */
@@ -17,7 +18,8 @@ const PICKUP_SKILL = 'pickup'
 const PICKUP_COMMAND = '/pickup-issue'
 
 export function CopyTaskSkillMenu({ task }: { task: Task }) {
-  const { skillCommand, projects, currentProject } = useApp()
+  const { skillCommand, projects, currentProject, t } = useApp()
+  const strings = t.taskDetail.copySkill
   const [copied, setCopied] = useState('')
   // What the clipboard refused, so it can still be selected by hand.
   const [fallback, setFallback] = useState('')
@@ -55,24 +57,24 @@ export function CopyTaskSkillMenu({ task }: { task: Task }) {
         <button
           type="button"
           className={itemClass}
-          title={`Copy ${skillCommand(stageSkill, SKILL_COMMANDS[stageSkill], task.projectId)} for this task`}
+          title={format(strings.copyStageTitle, { command: skillCommand(stageSkill, SKILL_COMMANDS[stageSkill], task.projectId) })}
           onClick={() => copy('column', stageSkill, SKILL_COMMANDS[stageSkill])}
         >
           <Copy size={12} />
-          <span>Copy {skillCommand(stageSkill, SKILL_COMMANDS[stageSkill], task.projectId)}</span>
+          <span>{format(strings.copyCommand, { command: skillCommand(stageSkill, SKILL_COMMANDS[stageSkill], task.projectId) })}</span>
         </button>
       )}
       <button
         type="button"
         className={itemClass}
-        title="Copy the autonomous chain command for this task"
+        title={strings.copyPickupTitle}
         onClick={() => copy('pickup', PICKUP_SKILL, PICKUP_COMMAND)}
       >
         <Copy size={12} />
-        <span>Copy {skillCommand(PICKUP_SKILL, PICKUP_COMMAND, task.projectId)}</span>
+        <span>{format(strings.copyCommand, { command: skillCommand(PICKUP_SKILL, PICKUP_COMMAND, task.projectId) })}</span>
       </button>
       <p role="status" className="px-2.5 text-[10px] text-[var(--text-muted)]">
-        {fallback ? 'Clipboard blocked. Select the command below.' : copied ? 'Copied. Paste it into your assistant.' : ''}
+        {fallback ? strings.clipboardBlocked : copied ? strings.copied : ''}
       </p>
       {fallback && (
         <pre className="mx-2.5 max-h-32 overflow-auto whitespace-pre-wrap break-all rounded bg-[var(--bg-primary)] p-2 text-[10px] select-text"><code>{fallback}</code></pre>

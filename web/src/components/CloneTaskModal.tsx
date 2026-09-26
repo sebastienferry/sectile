@@ -16,6 +16,7 @@ import type { Status, Priority, TaskSource, TrackerSprint, CloneTaskRequest } fr
 import { LookupField } from './LookupField'
 import { PrioritySelect } from './PrioritySelect'
 import { sprintLookup } from '../lib/lookups'
+import { format } from '../lib/i18n'
 import { useBackdropDismiss } from '../hooks/useBackdropDismiss'
 
 export const CloneTaskModal: React.FC = () => {
@@ -29,6 +30,7 @@ export const CloneTaskModal: React.FC = () => {
     tasks,
     t,
   } = useApp()
+  const strings = t.taskDetail.clone
 
   const [title, setTitle] = useState('')
   const [taskProjectId, setTaskProjectId] = useState<string>('default')
@@ -67,11 +69,11 @@ export const CloneTaskModal: React.FC = () => {
     return combined
   }, [projects, taskProjectId, tasks])
 
-  const searchSprint = useMemo(() => sprintLookup(availableSprints), [availableSprints])
+  const searchSprint = useMemo(() => sprintLookup(availableSprints, t.taskDetail.lookups.sprintKinds), [availableSprints, t])
 
   useEffect(() => {
     if (isCloneModalOpen && cloneSourceTask) {
-      setTitle(`${cloneSourceTask.title} (Copie)`)
+      setTitle(format(strings.copyTitle, { title: cloneSourceTask.title }))
       setTaskProjectId(cloneSourceTask.projectId || 'default')
       setStatus('to_clarify')
       setPriority(cloneSourceTask.priority || 'medium')
@@ -90,7 +92,7 @@ export const CloneTaskModal: React.FC = () => {
         titleInputRef.current?.select()
       }, 50)
     }
-  }, [isCloneModalOpen, cloneSourceTask])
+  }, [isCloneModalOpen, cloneSourceTask, strings.copyTitle])
 
   const handleClose = () => {
     setIsCloneModalOpen(false)
@@ -161,14 +163,14 @@ export const CloneTaskModal: React.FC = () => {
             <div className="min-w-0">
               <div className="flex items-center gap-2">
                 <h2 className="text-sm font-bold text-[var(--text-primary)] truncate">
-                  Cloner la story
+                  {strings.title}
                 </h2>
                 <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-secondary)]">
                   {cloneSourceTask.key}
                 </span>
               </div>
               <p className="text-[11px] text-[var(--text-muted)] truncate">
-                Duplique la story en conservant son contenu et en lui attribuant un nouvel identifiant.
+                {strings.subtitle}
               </p>
             </div>
           </div>
@@ -192,7 +194,7 @@ export const CloneTaskModal: React.FC = () => {
           {/* New Title */}
           <div>
             <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
-              Titre de la nouvelle story <span className="text-rose-400">*</span>
+              {strings.titleLabel} <span className="text-rose-400">*</span>
             </label>
             <input
               ref={titleInputRef}
@@ -200,7 +202,7 @@ export const CloneTaskModal: React.FC = () => {
               required
               value={title}
               onChange={e => setTitle(e.target.value)}
-              placeholder="Titre de la story..."
+              placeholder={strings.titlePlaceholder}
               className="w-full px-3.5 py-2 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:border-[var(--accent-color)] font-medium"
             />
           </div>
@@ -210,7 +212,7 @@ export const CloneTaskModal: React.FC = () => {
             {/* Target Project */}
             <div>
               <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
-                Projet de destination
+                {strings.project}
               </label>
               <div className="relative">
                 <select
@@ -224,14 +226,14 @@ export const CloneTaskModal: React.FC = () => {
                     if (bookmarked.length > 0 && others.length > 0) {
                       return (
                         <>
-                          <optgroup label="Favoris">
+                          <optgroup label={t.taskDetail.fields.favorites}>
                             {bookmarked.map(p => (
                               <option key={p.id} value={p.id}>
                                 {p.name}
                               </option>
                             ))}
                           </optgroup>
-                          <optgroup label="Autres projets">
+                          <optgroup label={t.taskDetail.fields.otherProjects}>
                             {others.map(p => (
                               <option key={p.id} value={p.id}>
                                 {p.name}
@@ -255,7 +257,7 @@ export const CloneTaskModal: React.FC = () => {
             {/* Tracker Destination */}
             <div>
               <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
-                Type de Tracker
+                {strings.tracker}
               </label>
               <div className="grid grid-cols-3 gap-1">
                 {[
@@ -285,14 +287,14 @@ export const CloneTaskModal: React.FC = () => {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
-                Étape initiale (Statut)
+                {strings.initialStage}
               </label>
               <select
                 value={status}
                 onChange={e => setStatus(e.target.value as Status)}
                 className="w-full px-3 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)]"
               >
-                <option value="to_clarify">{t.status.to_clarify} (#new - Recommandé)</option>
+                <option value="to_clarify">{t.status.to_clarify} (#new - {strings.recommended})</option>
                 <option value="clarified">{t.status.clarified} (#clarified)</option>
                 <option value="to_implement">{t.status.to_implement} (#specified)</option>
                 <option value="to_test">{t.status.to_test} (#implemented)</option>
@@ -303,7 +305,7 @@ export const CloneTaskModal: React.FC = () => {
 
             <div>
               <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
-                Priorité
+                {t.taskModal.priority}
               </label>
               <PrioritySelect
                 value={priority}
@@ -317,24 +319,24 @@ export const CloneTaskModal: React.FC = () => {
           <div>
             <div className="flex items-center justify-between mb-1">
               <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
-                Sprint de destination
+                {strings.sprint}
               </label>
               {cloneSourceTask.sprint && (
                 <span className="text-[10px] text-[var(--text-muted)] font-mono">
-                  Source : {cloneSourceTask.sprint}
+                  {format(strings.sourceSprint, { sprint: cloneSourceTask.sprint })}
                 </span>
               )}
             </div>
             <LookupField
               value={sprint}
               icon={<CalendarRange size={12} />}
-              placeholder="Affecter un sprint (optionnel)…"
-              clearLabel="Backlog (aucun sprint)"
-              emptyHint="Aucun sprint trouvé. Tapez un nom pour créer."
+              placeholder={strings.sprintPlaceholder}
+              clearLabel={t.taskDetail.lookups.sprintClear}
+              emptyHint={t.taskDetail.lookups.sprintEmpty}
               onSearch={async (query: string) => {
                 const res = await searchSprint(query)
                 if (query.trim() && !res.some(o => o.label.toLowerCase() === query.trim().toLowerCase())) {
-                  res.unshift({ id: query.trim(), label: query.trim(), sublabel: 'Nouveau sprint' })
+                  res.unshift({ id: query.trim(), label: query.trim(), sublabel: t.taskDetail.lookups.newSprint })
                 }
                 return res
               }}
@@ -345,7 +347,7 @@ export const CloneTaskModal: React.FC = () => {
           {/* Options de duplication */}
           <div className="p-3.5 rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] space-y-2.5">
             <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
-              Éléments à cloner
+              {strings.elements}
             </label>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
@@ -359,7 +361,7 @@ export const CloneTaskModal: React.FC = () => {
                 />
                 <AlignLeft size={13} className="text-blue-400 shrink-0" />
                 <span className="text-[11px] text-[var(--text-primary)] font-medium truncate">
-                  Description détaillée
+                  {strings.description}
                 </span>
               </label>
 
@@ -373,7 +375,7 @@ export const CloneTaskModal: React.FC = () => {
                 />
                 <Tag size={13} className="text-amber-400 shrink-0" />
                 <span className="text-[11px] text-[var(--text-primary)] font-medium truncate">
-                  Tags et Labels ({cloneSourceTask.labels?.length || 0})
+                  {format(strings.labels, { count: cloneSourceTask.labels?.length || 0 })}
                 </span>
               </label>
 
@@ -388,7 +390,7 @@ export const CloneTaskModal: React.FC = () => {
                   />
                   <Layers size={13} className="text-purple-400 shrink-0" />
                   <span className="text-[11px] text-[var(--text-primary)] font-medium truncate" title={cloneSourceTask.parentTitle || cloneSourceTask.parentKey}>
-                    Rattacher à {cloneSourceTask.parentTitle || cloneSourceTask.parentKey}
+                    {format(strings.parent, { parent: cloneSourceTask.parentTitle || cloneSourceTask.parentKey || '' })}
                   </span>
                 </label>
               )}
@@ -404,7 +406,7 @@ export const CloneTaskModal: React.FC = () => {
                   />
                   <User size={13} className="text-emerald-400 shrink-0" />
                   <span className="text-[11px] text-[var(--text-primary)] font-medium truncate">
-                    Assigné ({cloneSourceTask.assignee})
+                    {format(strings.assignee, { assignee: cloneSourceTask.assignee })}
                   </span>
                 </label>
               )}
@@ -418,7 +420,7 @@ export const CloneTaskModal: React.FC = () => {
               onClick={handleClose}
               className="px-3.5 py-2 rounded-xl text-xs font-semibold text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] border border-[var(--border-color)] transition-colors cursor-pointer"
             >
-              Annuler
+              {t.taskModal.cancel}
             </button>
 
             <button
@@ -428,7 +430,7 @@ export const CloneTaskModal: React.FC = () => {
               className="px-3.5 py-2 rounded-xl text-xs font-semibold bg-[var(--bg-tertiary)] text-[var(--text-primary)] hover:bg-[var(--bg-primary)] border border-[var(--border-color)] transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
             >
               {isSubmitting ? <Loader2 size={13} className="animate-spin" /> : <Copy size={13} />}
-              <span>Cloner</span>
+              <span>{strings.clone}</span>
             </button>
 
             <button
@@ -438,7 +440,7 @@ export const CloneTaskModal: React.FC = () => {
               className="px-4 py-2 rounded-xl text-xs font-bold bg-[var(--accent-color)] text-white hover:brightness-110 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5 shadow-sm"
             >
               {isSubmitting ? <Loader2 size={13} className="animate-spin" /> : <CopyPlus size={13} />}
-              <span>Cloner et ouvrir</span>
+              <span>{strings.cloneAndOpen}</span>
             </button>
           </div>
         </form>

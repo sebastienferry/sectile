@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { useClickOutside } from '../hooks/useClickOutside'
 import { Loader2, Search, X } from 'lucide-react'
 import { Avatar } from './Avatar'
+import { useApp } from '../context/AppContext'
 
 export interface LookupOption {
   id: string
@@ -32,7 +33,10 @@ export const LookupField: React.FC<{
   clearLabel?: string
   disabled?: boolean
   emptyHint?: string
-}> = ({ value, onSearch, onPick, placeholder, icon, allowClear = true, clearLabel = 'Aucun', disabled, emptyHint }) => {
+}> = ({ value, onSearch, onPick, placeholder, icon, allowClear = true, clearLabel: clearLabelProp, disabled, emptyHint }) => {
+  const { t } = useApp()
+  const strings = t.taskDetail.lookups
+  const clearLabel = clearLabelProp ?? strings.none
   const [isOpen, setIsOpen] = useState(false)
   const [query, setQuery] = useState('')
   const [options, setOptions] = useState<LookupOption[]>([])
@@ -174,10 +178,10 @@ export const LookupField: React.FC<{
           {isSearching && options.length === 0 ? (
             <div className="flex items-center gap-2 px-2.5 py-2 text-[11px] text-[var(--text-muted)]">
               <Loader2 size={12} className="animate-spin" />
-              Recherche…
+              {strings.searching}
             </div>
           ) : rows.length === 0 ? (
-            <div className="px-2.5 py-2 text-[11px] text-[var(--text-muted)]">{emptyHint || 'Aucun résultat'}</div>
+            <div className="px-2.5 py-2 text-[11px] text-[var(--text-muted)]">{emptyHint || strings.noResults}</div>
           ) : (
             rows.map((option, index) => (
               <button
