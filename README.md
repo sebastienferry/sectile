@@ -455,9 +455,9 @@ runs the Go, web and desktop test suites on every mirrored branch and tag,
 then publishes two things: the server image
 (`<registry>/server:<pipeline>-<ref-slug>`, plus `latest` on `main` and the
 tag name on a tag) and, on a tag only, the cross-compiled `sectile-server-*` /
-`sectile-agent-*` binaries and the Sectile Desktop archives, uploaded to the
-project's Generic Package Registry under the package `sectile` with the tag as
-version. The agent is never
+`sectile-agent-*` binaries, joined by the Sectile Desktop archives on a
+`vX.Y.Z` release tag, uploaded to the project's Generic Package Registry under
+the package `sectile` with the tag as version. The agent is never
 part of the image: it runs on workstations, next to the coding CLIs.
 
 A merge into `main` promotes itself to dev. Once the image is published, the
