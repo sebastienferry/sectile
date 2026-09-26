@@ -1,6 +1,6 @@
-# ADR 0032: Engines are a workstation catalogue
+# ADR 0033: Engines are a workstation catalogue
 
-Status: Proposed (#510, to be accepted when the implementation lands)
+Status: Accepted (#510)
 
 Amends: [ADR 0031](0031-the-workstation-owns-the-invocation.md), the part
 that describes the engine (provider, command templates, model, per-skill
@@ -67,3 +67,28 @@ they do not describe an engine.
   and the upgrade is the supported direction.
 - Sharing engines across a team (#493) can later target the catalogue as a
   whole rather than five fields per level.
+
+## Implementation notes
+
+Found while implementing #510, within the decision above:
+
+- **Converted engines have derived identities.** The conversion runs in memory
+  on every read until the agent persists it at start, so an entry it creates
+  is identified by a hash of its profile, stable from one read to the next;
+  an identity already taken by another profile gets a numbered suffix. An
+  engine created from the desktop gets a random identity. The engine a
+  workstation stating nothing runs has an identity of its own, so the server
+  seed can tell "no statement" from "the default provider, stated".
+- **The server seed writes catalogue entries.** The deployment's engine
+  becomes the workstation default engine only while the default is that
+  unstated engine. A project's engine becomes an entry the project picks,
+  found or created, never an edit of an existing entry; a pick the project
+  already has is treated as its own statement, which the seed only completes.
+- **The one-off model rule is carried by the resolved configuration**
+  (`OffProjectDefaultEngine`), whose zero value keeps today's behaviour for a
+  configuration built without a task.
+- **A task switched back to its project default engine stores no choice**, so
+  it follows its project again if the project default engine changes later.
+- **Engines are edited inline in the settings panel and every change is saved
+  at once**, rather than in a separate dialog: the default then always names
+  a stored engine, which the agent requires.

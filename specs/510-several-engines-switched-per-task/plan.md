@@ -468,6 +468,6 @@ Desktop:
   `desktop/src/execution-fields.mjs`, `desktop/src/style.css`
 - `desktop/tests/engines.test.mjs`, `desktop/tests/task-engine.ui.cjs` (new)
   and the updated settings tests
-- `docs/adrs/0032-engines-are-a-workstation-catalogue.md` (proposed at this
+- `docs/adrs/0033-engines-are-a-workstation-catalogue.md` (proposed at this
   stage; renumber if `main` gained an ADR meanwhile)
 - `docs/contracts/server-agent-v1.md`, `docs/ARCHITECTURE.md`, `CHANGELOG.md`
