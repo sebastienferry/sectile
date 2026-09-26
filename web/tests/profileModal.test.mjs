@@ -24,8 +24,10 @@ test('profile tabs are fully localized in French and English', () => {
   assert.equal(translations.fr.profileModal.tabs.trackers, 'Identifiants Trackers')
   assert.equal(translations.en.profileModal.tabs.trackers, 'Tracker Credentials')
 
-  assert.equal(translations.fr.profileModal.tabs.aiEngine, 'Paramètres de l\'agent')
-  assert.equal(translations.en.profileModal.tabs.aiEngine, 'Agent settings')
+  // The tab holds the MCP connection only since #305: the engine settings are
+  // the workstation's.
+  assert.equal(translations.fr.profileModal.tabs.aiEngine, 'Connexion MCP')
+  assert.equal(translations.en.profileModal.tabs.aiEngine, 'MCP connection')
 
   assert.equal(translations.fr.profileModal.tabs.sdd, 'Compétences & SDD')
   assert.equal(translations.en.profileModal.tabs.sdd, 'Skills & SDD')

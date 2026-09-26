@@ -136,12 +136,12 @@ func sddProject(t *testing.T, framework string) (*DB, *models.Project, string) {
 		Name:         "Platform",
 		Slug:         "platform",
 		IssueTracker: "local",
-		RepoPath:     repo,
 		JiraProject:  "PE",
 	})
 	if err != nil || proj == nil {
 		t.Fatalf("projet de test : %v", err)
 	}
+	setLegacyProject(t, database, proj.ID, map[string]any{"repo_path": repo})
 	updated, err := database.UpdateProject(proj.ID, models.UpdateProjectRequest{SpecFramework: &framework})
 	if err != nil || updated == nil {
 		t.Fatalf("cadre SDD : %v", err)

@@ -40,7 +40,7 @@ func TestExternalTerminalDispatchWithoutSkillAndFailureFeedback(t *testing.T) {
 		finished := make(chan error, 1)
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		go func() {
-			_, err := h.launchTaskExternalTerminal(ctx, ImplicitUser, task.ID, "", "", "Ghostty")
+			_, err := h.launchTaskExternalTerminal(ctx, ImplicitUser, task.ID, "", "")
 			finished <- err
 		}()
 		var message AgentMessage
@@ -51,7 +51,7 @@ func TestExternalTerminalDispatchWithoutSkillAndFailureFeedback(t *testing.T) {
 		if err = json.Unmarshal(message.Payload, &payload); err != nil {
 			t.Fatal(err)
 		}
-		if payload["action"] != "open_terminal" || payload["schemaVersion"] != float64(1) || payload["skillId"] != nil || payload["terminalOverride"] != "Ghostty" {
+		if payload["action"] != "open_terminal" || payload["schemaVersion"] != float64(1) || payload["skillId"] != nil || payload["terminalOverride"] != nil {
 			t.Fatalf("bad terminal dispatch: %+v", payload)
 		}
 		select {
@@ -74,9 +74,9 @@ func TestExternalTerminalDispatchWithoutSkillAndFailureFeedback(t *testing.T) {
 	}
 }
 
-// The workstation commands are personal (ADR 0015): the terminal that opens is
-// the one stored by whoever owns the execution, not the deployment's.
-func TestExternalTerminalUsesTheOwnersCommand(t *testing.T) {
+// The terminal belongs to the workstation (#305): whatever the deployment and
+// the owner stored before, the server sends none and the agent resolves it.
+func TestExternalTerminalSendsNoServerTerminal(t *testing.T) {
 	h, database, cleanup := setupTestHandler(t)
 	defer cleanup()
 	if _, err := database.UpdateSettings(models.Settings{ExternalTerminalCommand: "iTerm"}); err != nil {
@@ -116,7 +116,7 @@ func TestExternalTerminalUsesTheOwnersCommand(t *testing.T) {
 	defer cancel()
 	finished := make(chan error, 1)
 	go func() {
-		_, err := h.launchTaskExternalTerminal(ctx, owner.ID, task.ID, "", "", "")
+		_, err := h.launchTaskExternalTerminal(ctx, owner.ID, task.ID, "", "")
 		finished <- err
 	}()
 	var message AgentMessage
@@ -127,8 +127,8 @@ func TestExternalTerminalUsesTheOwnersCommand(t *testing.T) {
 	if err = json.Unmarshal(message.Payload, &payload); err != nil {
 		t.Fatal(err)
 	}
-	if payload["terminalOverride"] != "Ghostty" {
-		t.Fatalf("terminal override = %v, want the owner's Ghostty", payload["terminalOverride"])
+	if _, sent := payload["terminalOverride"]; sent {
+		t.Fatalf("the server sent a terminal: %v", payload["terminalOverride"])
 	}
 	raw, _ := json.Marshal(map[string]string{"status": "completed", "summary": "ok"})
 	if err = agent.WriteJSON(AgentMessage{MsgID: message.MsgID, Type: "step_status", Payload: raw}); err != nil {

@@ -16,7 +16,6 @@ func TestOpenDBMigratesOnlyRetiredToSpecifyStatus(t *testing.T) {
 
 	project, err := database.CreateProject(models.CreateProjectRequest{
 		Name:         "Migration",
-		RepoPath:     t.TempDir(),
 		IssueTracker: "local",
 	})
 	if err != nil {

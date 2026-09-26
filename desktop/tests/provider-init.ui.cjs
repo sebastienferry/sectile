@@ -41,7 +41,7 @@ test('desktop initializes only the selected provider and retains partial results
   assert.deepEqual(writes[0],{id:'p',action:'initialize',provider:'codex'})
   release()
   await expect(result).toContainText('MCP: Success')
-  await expect(result).toContainText('Skills: Failed — Permission denied')
+  await expect(result).toContainText('Skills: Failed - Permission denied')
   await expect(button).toBeEnabled();await expect(provider).toBeEnabled()
   await button.click();await expect.poll(()=>writes.length).toBe(2);release()
   await expect(result).toContainText('Skills: Success')

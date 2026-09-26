@@ -59,26 +59,50 @@ var ErrNotSealed = errors.New("this credential is not sealed")
 
 // unlockedKeys holds the keys derived from a sealing passphrase, for as long as
 // the server runs. They are deliberately nowhere else: written down, they would
-// defeat the passphrase.
+// defeat the passphrase. Other server instances sharing the database hold them
+// too, in their own memory, see unlockedkeys.go.
 type unlockedKeys struct {
 	mu   sync.RWMutex
-	keys map[string]secrets.Key
+	keys map[string]heldKey
 }
 
-func (u *unlockedKeys) get(key string) (secrets.Key, bool) {
+// heldKey is a derived key and the unlock generation of the record it was
+// derived for. The key opens the credential only while the row still carries
+// that generation: a lock, or a new record, moves the row on, and every copy of
+// the key held anywhere stops working at once.
+type heldKey struct {
+	key        secrets.Key
+	generation int64
+}
+
+func (u *unlockedKeys) get(key string) (heldKey, bool) {
 	u.mu.RLock()
 	defer u.mu.RUnlock()
 	value, ok := u.keys[key]
 	return value, ok
 }
 
-func (u *unlockedKeys) set(key string, value secrets.Key) {
+func (u *unlockedKeys) set(key string, value heldKey) {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 	if u.keys == nil {
-		u.keys = map[string]secrets.Key{}
+		u.keys = map[string]heldKey{}
 	}
 	u.keys[key] = value
+}
+
+// current returns the held key when it still belongs to the row's generation,
+// and forgets it otherwise: it will never open anything again.
+func (u *unlockedKeys) current(key string, generation int64) (secrets.Key, bool) {
+	held, ok := u.get(key)
+	if !ok {
+		return secrets.Key{}, false
+	}
+	if held.generation != generation {
+		u.clear(key)
+		return secrets.Key{}, false
+	}
+	return held.key, true
 }
 
 func (u *unlockedKeys) clear(key string) {
@@ -188,6 +212,7 @@ func (d *DB) SetUserTrackerCredential(userID, tracker, siteURL, email, token, pa
 			sealed = excluded.sealed,
 			salt = excluded.salt,
 			account = '',
+			unlock_generation = user_tracker_credentials.unlock_generation + 1,
 			updated_at = excluded.updated_at
 	`, userID, tracker, strings.TrimSpace(siteURL), strings.TrimSpace(email), record, sealedValue, salt, now, now); err != nil {
 		return err
@@ -197,11 +222,19 @@ func (d *DB) SetUserTrackerCredential(userID, tracker, siteURL, email, token, pa
 	// would name an account the new token may not belong to.
 	//
 	// Storing it again replaces the key it was sealed with, so any key held
-	// from a previous passphrase must go.
+	// from a previous passphrase must go. The upsert moved the generation on,
+	// which already retires the copies other instances hold.
 	d.unlocked.clear(unlockKey(userID, tracker))
-	if sealed {
-		d.unlocked.set(unlockKey(userID, tracker), key)
+	if !sealed {
+		d.relayForgotten(userID, tracker)
+		return nil
 	}
+	var generation int64
+	if err := d.conn.QueryRow(`SELECT unlock_generation FROM user_tracker_credentials WHERE user_id = ? AND tracker = ?`, userID, tracker).Scan(&generation); err != nil {
+		return err
+	}
+	d.unlocked.set(unlockKey(userID, tracker), heldKey{key: key, generation: generation})
+	d.relayHeld(userID, tracker, key, generation)
 	return nil
 }
 
@@ -268,6 +301,7 @@ func (d *DB) ClearUserTrackerCredential(userID, tracker string) error {
 		return ErrNoUserCredential
 	}
 	d.unlocked.clear(unlockKey(userID, tracker))
+	d.relayForgotten(userID, tracker)
 	return nil
 }
 
@@ -282,7 +316,8 @@ func (d *DB) UnlockUserTrackerCredential(userID, tracker, passphrase string) err
 	d.mu.RLock()
 	var record, salt []byte
 	var sealed int
-	err := d.conn.QueryRow(`SELECT record, sealed, salt FROM user_tracker_credentials WHERE user_id = ? AND tracker = ?`, userID, tracker).Scan(&record, &sealed, &salt)
+	var generation int64
+	err := d.conn.QueryRow(`SELECT record, sealed, salt, unlock_generation FROM user_tracker_credentials WHERE user_id = ? AND tracker = ?`, userID, tracker).Scan(&record, &sealed, &salt, &generation)
 	d.mu.RUnlock()
 	if err == sql.ErrNoRows {
 		return ErrNoUserCredential
@@ -300,14 +335,31 @@ func (d *DB) UnlockUserTrackerCredential(userID, tracker, passphrase string) err
 	if _, err := secrets.Open(key, secrets.Binding{UserID: userID, Tracker: tracker}, record); err != nil {
 		return secrets.ErrWrongKey
 	}
-	d.unlocked.set(unlockKey(userID, tracker), key)
+	// A lock that lands between the read above and this line has moved the
+	// generation on, so the key kept here is already retired: the lock wins.
+	d.unlocked.set(unlockKey(userID, tracker), heldKey{key: key, generation: generation})
+	d.relayHeld(userID, tracker, key, generation)
 	return nil
 }
 
 // LockUserTrackerCredential forgets the derived key, so the credential needs
-// its passphrase again.
-func (d *DB) LockUserTrackerCredential(userID, tracker string) {
-	d.unlocked.clear(unlockKey(strings.TrimSpace(userID), tracker))
+// its passphrase again. It moves the credential's unlock generation on, which
+// is what makes the lock hold on every server instance sharing the database,
+// including one that never hears of it. A failure to do so is returned: the
+// lock would otherwise hold on this instance only, while the owner is told it
+// holds everywhere.
+func (d *DB) LockUserTrackerCredential(userID, tracker string) error {
+	userID = strings.TrimSpace(userID)
+	tracker = strings.ToLower(strings.TrimSpace(tracker))
+	d.unlocked.clear(unlockKey(userID, tracker))
+	d.mu.Lock()
+	_, err := d.conn.Exec(`UPDATE user_tracker_credentials SET unlock_generation = unlock_generation + 1 WHERE user_id = ? AND tracker = ? AND sealed = 1`, userID, tracker)
+	d.mu.Unlock()
+	if err != nil {
+		return fmt.Errorf("locking the credential: %w", err)
+	}
+	d.relayForgotten(userID, tracker)
+	return nil
 }
 
 // UserTrackerCredentials lists what one person stored, tokens excluded.
@@ -317,7 +369,7 @@ func (d *DB) UserTrackerCredentials(userID string) ([]UserCredential, error) {
 		return []UserCredential{}, nil
 	}
 	d.mu.RLock()
-	rows, err := d.conn.Query(`SELECT tracker, site_url, email, account, sealed, updated_at FROM user_tracker_credentials WHERE user_id = ? ORDER BY tracker`, userID)
+	rows, err := d.conn.Query(`SELECT tracker, site_url, email, account, sealed, unlock_generation, updated_at FROM user_tracker_credentials WHERE user_id = ? ORDER BY tracker`, userID)
 	d.mu.RUnlock()
 	if err != nil {
 		return nil, err
@@ -328,14 +380,15 @@ func (d *DB) UserTrackerCredentials(userID string) ([]UserCredential, error) {
 	for rows.Next() {
 		var credential UserCredential
 		var sealed int
-		if err := rows.Scan(&credential.Tracker, &credential.SiteURL, &credential.Email, &credential.Account, &sealed, &credential.UpdatedAt); err != nil {
+		var generation int64
+		if err := rows.Scan(&credential.Tracker, &credential.SiteURL, &credential.Email, &credential.Account, &sealed, &generation, &credential.UpdatedAt); err != nil {
 			// Skipping it silently showed a profile with no credential while
 			// the tracker kept using one.
 			return nil, err
 		}
 		credential.Sealed = sealed == 1
 		if credential.Sealed {
-			_, credential.Unlocked = d.unlocked.get(unlockKey(userID, credential.Tracker))
+			_, credential.Unlocked = d.unlocked.current(unlockKey(userID, credential.Tracker), generation)
 		} else {
 			credential.Unlocked = true
 		}
@@ -362,7 +415,8 @@ func (d *DB) userTrackerCredential(userID, tracker string) (siteURL string, emai
 
 	var record []byte
 	var sealed int
-	scanErr := d.conn.QueryRow(`SELECT site_url, email, record, sealed FROM user_tracker_credentials WHERE user_id = ? AND tracker = ?`, userID, tracker).Scan(&siteURL, &email, &record, &sealed)
+	var generation int64
+	scanErr := d.conn.QueryRow(`SELECT site_url, email, record, sealed, unlock_generation FROM user_tracker_credentials WHERE user_id = ? AND tracker = ?`, userID, tracker).Scan(&siteURL, &email, &record, &sealed, &generation)
 	if scanErr == sql.ErrNoRows {
 		return "", "", "", ErrNoUserCredential
 	}
@@ -375,7 +429,7 @@ func (d *DB) userTrackerCredential(userID, tracker string) (siteURL string, emai
 		return "", "", "", fmt.Errorf("la clé de chiffrement du serveur est indisponible : %w", d.serverKeyErr)
 	}
 	if sealed == 1 {
-		held, ok := d.unlocked.get(unlockKey(userID, tracker))
+		held, ok := d.unlocked.current(unlockKey(userID, tracker), generation)
 		if !ok {
 			return "", "", "", ErrCredentialLocked
 		}

@@ -31,14 +31,15 @@ import { SignInStatus } from './SignInStatus'
 import { MCPEngineConfig } from './MCPEngineConfig'
 import { Antigravity, Claude, OpenAI } from './icons'
 import type { Theme, Language, Density, ViewMode, DetailMode, AIProvider, SpecFramework } from '../types'
-import { AIModelField } from './AIModelField'
-import { ProviderModelsField } from './ProviderModelsField'
-import { isValidModel, providerModels } from '../lib/aiModels'
 import { useBackdropDismiss } from '../hooks/useBackdropDismiss'
 
 type SettingsTab = 'account' | 'appearance' | 'trackers' | 'aiEngine' | 'sdd' | 'workstations'
 
-const AI_PROVIDERS: { id: AIProvider; label: string; sub: string; icon: React.ReactNode }[] = [
+/**
+ * Clients the MCP configuration can be shown for. Picking one only changes the
+ * snippet displayed; the engine a run uses is a workstation setting (#305).
+ */
+const MCP_CLIENTS: { id: AIProvider; label: string; sub: string; icon: React.ReactNode }[] = [
   { id: 'agy', label: 'Antigravity', sub: 'Google Deepmind AGY CLI', icon: <Antigravity size={16} /> },
   { id: 'claude', label: 'Claude', sub: 'Anthropic Claude Code CLI', icon: <Claude size={16} /> },
   { id: 'codex', label: 'Codex', sub: 'OpenAI Codex CLI', icon: <OpenAI size={16} /> },
@@ -63,10 +64,8 @@ export const ProfileModal: React.FC = () => {
   const [detailMode, setDetailMode] = useState<DetailMode>(settings.detailMode || 'panel')
   const [uiScale, setUiScale] = useState<number>(settings.uiScale || 100)
 
-  // Agentic AI & Model Configuration
-  const [aiProvider, setAiProvider] = useState<AIProvider>(settings.aiProvider || 'agy')
-  const [aiModel, setAiModel] = useState(settings.aiModel || '')
-  const [aiProviderModels, setAiProviderModels] = useState<Record<string, string[]>>(settings.aiProviderModels || {})
+  // MCP client whose configuration snippet is shown. View state only, never saved.
+  const [mcpClient, setMcpClient] = useState<AIProvider>('claude')
   const [specFramework, setSpecFramework] = useState<SpecFramework>(settings.specFramework || 'speckit')
 
   // Skill Prompts
@@ -90,9 +89,6 @@ export const ProfileModal: React.FC = () => {
       setDefaultView(settings.defaultView)
       setDetailMode(settings.detailMode || 'panel')
       setUiScale(settings.uiScale || 100)
-      setAiProvider(settings.aiProvider || 'agy')
-      setAiModel(settings.aiModel || '')
-      setAiProviderModels(settings.aiProviderModels || {})
       setSpecFramework(settings.specFramework || 'speckit')
       setPromptClarify(settings.promptClarify || '')
       setPromptSpecify(settings.promptSpecify || '')
@@ -124,17 +120,7 @@ export const ProfileModal: React.FC = () => {
     { id: 'comfortable', label: language === 'fr' ? 'Confortable' : 'Comfortable', desc: t.profileModal.densityDesc?.comfortable || '15px font, grands espacements' },
   ]
 
-  const handleProviderSelect = (provider: typeof AI_PROVIDERS[0]) => {
-    setAiProvider(provider.id)
-  }
-
-  // Un modèle mal formé désactive l'enregistrement : le bouton est en pied de
-  // modale, loin du champ, et un clic sans effet n'indique rien.
-  const modelIsValid =
-    isValidModel(aiModel) && Object.values(aiProviderModels).every(list => list.every(model => isValidModel(model)))
-
   const handleSave = async () => {
-    if (!modelIsValid) return
     await updateSettings({
       userEmail: settings.userEmail,
       theme,
@@ -143,9 +129,6 @@ export const ProfileModal: React.FC = () => {
       defaultView,
       detailMode,
       uiScale,
-      aiProvider,
-      aiModel: aiModel.trim(),
-      aiProviderModels,
       specFramework,
       promptClarify: promptClarify.trim(),
       promptSpecify: promptSpecify.trim(),
@@ -460,54 +443,37 @@ export const ProfileModal: React.FC = () => {
                   {t.profileModal.ai.engineDesc}
                 </p>
 
-                {/* Agentic CLI Provider Selection */}
+                {/* MCP client whose snippet is displayed */}
                 <div className="space-y-2">
                   <label className="block text-[11px] font-bold uppercase tracking-wider text-[var(--text-muted)] flex items-center gap-1.5">
                     <Bot size={14} className="text-indigo-400" />
-                    <span>{t.profileModal.ai.defaultEngine}</span>
+                    <span>{t.profileModal.ai.mcpClient || 'Client MCP à configurer'}</span>
                   </label>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    {AI_PROVIDERS.map(p => {
-                      const isSelected = aiProvider === p.id
-                      const label = p.id === 'custom' ? (t.profileModal.ai.customProviderLabel || p.label) : p.label
-                      const sub = p.id === 'custom' ? (t.profileModal.ai.customProviderSub || p.sub) : p.sub
+                    {MCP_CLIENTS.map(p => {
+                      const isSelected = mcpClient === p.id
                       return (
                         <button
                           key={p.id}
                           type="button"
-                          onClick={() => handleProviderSelect(p)}
+                          onClick={() => setMcpClient(p.id)}
+                          aria-pressed={isSelected}
                           className={`px-3 py-2 rounded-xl border text-left transition-all cursor-pointer text-xs font-semibold flex items-center gap-2.5 truncate ${isSelected
                             ? 'bg-indigo-500/15 border-indigo-500 text-white ring-2 ring-indigo-500/30 shadow-xs'
                             : 'bg-[var(--bg-tertiary)] border-[var(--border-color)] text-[var(--text-secondary)] hover:border-[var(--text-muted)] hover:text-[var(--text-primary)]'
                             }`}
-                          title={sub}
+                          title={p.sub}
                         >
                           <span className="shrink-0 flex items-center justify-center">{p.icon}</span>
-                          <span className="truncate">{label}</span>
+                          <span className="truncate">{p.label}</span>
                         </button>
                       )
                     })}
                   </div>
                 </div>
 
-                <ProviderModelsField
-                  provider={aiProvider}
-                  providers={AI_PROVIDERS.map(p => p.id)}
-                  value={aiProviderModels}
-                  onChange={setAiProviderModels}
-                  label={t.profileModal.ai.proposedModelsFor}
-                />
-
-                <AIModelField
-                  provider={aiProvider}
-                  value={aiModel}
-                  onChange={setAiModel}
-                  availableModels={providerModels({ aiProviderModels }, aiProvider)}
-                  placeholder={t.profileModal.ai.defaultModelPlaceholder || 'Défaut du CLI'}
-                  label={t.profileModal.ai.defaultModel}
-                />
-                <MCPEngineConfig key={aiProvider} selectedProvider={aiProvider} onNavigateToWorkstations={() => setActiveTab('workstations')} onKeyCreated={() => setDevicesVersion(v => v + 1)} />
+                <MCPEngineConfig key={mcpClient} selectedProvider={mcpClient} onNavigateToWorkstations={() => setActiveTab('workstations')} onKeyCreated={() => setDevicesVersion(v => v + 1)} />
               </div>
             )}
 
@@ -795,7 +761,6 @@ export const ProfileModal: React.FC = () => {
           <button
             type="button"
             onClick={handleSave}
-            disabled={!modelIsValid}
             className="px-5 py-2 rounded-xl text-xs font-semibold text-white accent-bg shadow hover:opacity-90 active:scale-95 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {t.profileModal.save}

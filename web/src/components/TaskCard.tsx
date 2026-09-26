@@ -37,7 +37,8 @@ import { Avatar } from './Avatar'
 import { EpicBar, useEpicColors } from './EpicMarker'
 import { shortElapsed, isElapsedStale } from '../lib/elapsed'
 import { resolveTaskStage, getNextStepInfo, prRecoverySkill, skillForStage } from '../lib/workflow'
-import { providerModels, resolveConfiguredModel, shortModelLabel, taskProvider } from '../lib/aiModels'
+import { reportedModel, reportedPickerModels, shortModelLabel } from '../lib/aiModels'
+import { useProjectEngine } from '../hooks/useProjectEngine'
 import { loadLaunchModel, saveLaunchModel } from '../lib/launchModel'
 import { isSelectionClick } from '../lib/boardSelection'
 
@@ -394,17 +395,19 @@ export const TaskCard: React.FC<TaskCardProps> = ({
   // condensed card the chevrons live in this menu, on a full card they sit on
   // the card itself and carry no mode, so without these entries there is no way
   // to depart from the configured mode without opening the project settings.
-  // Les modèles proposés pour le moteur de ce projet, celui que la précédence
-  // résout en tête. Le retenir n'envoie aucune surcharge : c'est déjà ce que
-  // ferait un lancement non touché. Aucune saisie libre ici, c'est une liste.
-  const cardProvider = taskProvider(taskProject || undefined, settings)
-  const cardModels = providerModels(settings, cardProvider)
+  // The models offered come from what the caller's workstation reported for
+  // this project (#305): its list, minus the model the run would use anyway.
+  // Picking that one sends no override. No report, or a command line without a
+  // model slot, offers nothing.
+  const engine = useProjectEngine(task.projectId)
+  const engineUnknown = engine?.state === 'unknown'
+  const cardModels = engine?.state === 'reported' && engine.modelSlot ? engine.models || [] : []
   // La compétence réellement lancée par « Avancer », pas celle affichée : à
   // l'étape reviewed le pas suivant n'en nomme aucune alors que le lancement
   // exécute handoff, et une entrée par compétence sur handoff serait ignorée.
   const cardSkillId = skillForStage(resolveTaskStage(task, taskProject)) || undefined
-  const configuredCardModel = resolveConfiguredModel(taskProject || undefined, settings, cardSkillId)
-  const offeredModels = cardModels.filter(model => model !== configuredCardModel)
+  const configuredCardModel = reportedModel(engine, cardSkillId)
+  const offeredModels = reportedPickerModels(engine, cardSkillId)
   // Une sélection que le moteur du projet ne propose plus ne peut pas être
   // lancée : le projet a pu changer de moteur, ou sa liste a pu être retouchée.
   const effectiveLaunchModel = cardModels.includes(launchModel) ? launchModel : ''
@@ -475,6 +478,11 @@ export const TaskCard: React.FC<TaskCardProps> = ({
       }
     >
       {shortModelLabel(launchedModel)}
+    </span>
+  ) : engineUnknown ? (
+    // No agent of the caller serves this project: what would run is unknown.
+    <span className="ml-auto shrink-0 text-[9px] font-mono tracking-wide text-[var(--text-muted)]" title={t.compactCard.engineUnknown}>
+      {t.compactCard.engineUnknownShort}
     </span>
   ) : null
 

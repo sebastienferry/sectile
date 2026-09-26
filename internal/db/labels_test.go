@@ -61,11 +61,11 @@ func createTestProject(t *testing.T, database *DB) *models.Project {
 		Name:         "Test Project",
 		Slug:         "test-proj",
 		IssueTracker: "local",
-		RepoPath:     t.TempDir(),
 	})
 	if err != nil {
 		t.Fatalf("Failed to create test project: %v", err)
 	}
+	setLegacyProject(t, database, proj.ID, map[string]any{"repo_path": t.TempDir()})
 	return proj
 }
 

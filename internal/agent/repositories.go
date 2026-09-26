@@ -53,7 +53,7 @@ func codeIdentity(c agentconfig.Config) string {
 // repositoryRoot is the folder that holds a repository's checkout on this
 // workstation: its mapping, else the project root for the project's own
 // repository. A mapping whose folder is gone reads as unmapped.
-func repositoryRoot(overrides agentconfig.Overrides, projectRoot, code, identity string) (string, bool) {
+func repositoryRoot(overrides agentconfig.Settings, projectRoot, code, identity string) (string, bool) {
 	if mapped := strings.TrimSpace(overrides.Repositories[identity]); mapped != "" {
 		if info, err := os.Stat(mapped); err == nil && info.IsDir() && filepath.IsAbs(mapped) {
 			return mapped, true
@@ -72,7 +72,7 @@ func repositoryRoot(overrides agentconfig.Overrides, projectRoot, code, identity
 // repository otherwise. It returns the repository to pin when the choice came
 // from this workstation, errRepositoryAmbiguous when it cannot be made here,
 // and an error naming the repository when its folder is not mapped.
-func primaryRoot(ctx context.Context, config agentconfig.Config, overrides agentconfig.Overrides, projectRoot string, task models.Task) (root, identity, pin string, err error) {
+func primaryRoot(ctx context.Context, config agentconfig.Config, overrides agentconfig.Settings, projectRoot string, task models.Task) (root, identity, pin string, err error) {
 	code := codeIdentity(config)
 	mapped := func(identity string) bool {
 		_, ok := repositoryRoot(overrides, projectRoot, code, identity)
@@ -108,7 +108,7 @@ func primaryRoot(ctx context.Context, config agentconfig.Config, overrides agent
 // buildFolderMap describes every folder of a ticket to the agent: each project
 // repository with its role, its folder here and the ticket's worktree in it,
 // then the specifications folder when it is a folder of its own.
-func buildFolderMap(ctx context.Context, config agentconfig.Config, overrides agentconfig.Overrides, projectRoot, primary, workDir string, task models.Task) []models.FolderMapEntry {
+func buildFolderMap(ctx context.Context, config agentconfig.Config, overrides agentconfig.Settings, projectRoot, primary, workDir string, task models.Task) []models.FolderMapEntry {
 	code := codeIdentity(config)
 	branch := ""
 	if task.BranchName != nil {
@@ -339,7 +339,7 @@ func resolveLegacyRepoPaths(ctx context.Context, paths []models.LegacyRepoPath) 
 // secondary repository of a multi-repo project, on the ticket's branch,
 // created or reused like the primary one. The repository is echoed so the
 // server can tell this agent from one that ignored the question.
-func repositoryWorktree(ctx context.Context, config agentconfig.Config, overrides agentconfig.Overrides, projectRoot string, task models.Task, repository string) (models.RepositoryWorktree, error) {
+func repositoryWorktree(ctx context.Context, config agentconfig.Config, overrides agentconfig.Settings, projectRoot string, task models.Task, repository string) (models.RepositoryWorktree, error) {
 	if config.IsMonoRepo() {
 		return models.RepositoryWorktree{}, fmt.Errorf("project %s is mono-repo: its tickets work in a single repository", config.ProjectName)
 	}
@@ -366,7 +366,7 @@ func repositoryWorktree(ctx context.Context, config agentconfig.Config, override
 // removeRepositoryWorktrees answers remove_workspace for a ticket with
 // worktrees in several repositories: each is removed where it is mapped, and a
 // repository that could not be cleaned is named rather than failing the rest.
-func removeRepositoryWorktrees(ctx context.Context, config agentconfig.Config, overrides agentconfig.Overrides, projectRoot string, task models.Task, repositories []string) models.WorktreeRemoval {
+func removeRepositoryWorktrees(ctx context.Context, config agentconfig.Config, overrides agentconfig.Settings, projectRoot string, task models.Task, repositories []string) models.WorktreeRemoval {
 	result := models.WorktreeRemoval{Removed: []string{}}
 	branch := ""
 	if task.BranchName != nil {
@@ -421,6 +421,8 @@ func (d *agentDaemon) rememberConvertedFolders(ctx context.Context, config agent
 	code := codeIdentity(config)
 	d.prepareMu.Lock()
 	defer d.prepareMu.Unlock()
+	unlock := agentconfig.LockSettings()
+	defer unlock()
 	overrides, err := agentconfig.ReadSettings(d.localSettingsRoot())
 	if err != nil {
 		log.Printf("[Agent] Could not read the settings to keep converted folders: %v", err)

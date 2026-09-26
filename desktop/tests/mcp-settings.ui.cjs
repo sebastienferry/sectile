@@ -15,6 +15,8 @@ test('MCP settings explain both transports and apply the selected provider and t
    return
   }
   if(req.url==='/desktop/status'){res.end(JSON.stringify({connected:true,server:'https://sectile.example.test'}));return}
+  // The execution defaults panel hosts the provider the MCP section follows (#305).
+  if(req.url==='/desktop/workstation'){res.end(JSON.stringify({defaults:{},effective:{aiProvider:'agy',useWorktrees:true,parallelism:1,aiProviderModels:{}},providerModels:{},setupProviders:['claude','codex','agy'],seeded:{}}));return}
   if(['/desktop/runs','/desktop/projects'].includes(req.url)){res.end('[]');return}
   if(req.url==='/desktop/version'){res.end('{"version":"test"}');return}
   res.writeHead(404).end('{}')
@@ -27,7 +29,7 @@ test('MCP settings explain both transports and apply the selected provider and t
   app=await electron.launch({args:[path.resolve(__dirname,'..')],env})
   const page=await app.firstWindow();page.setDefaultTimeout(10000)
   await page.locator('#settings').click()
-  await page.getByRole('tab',{name:'AI Engine CLI',exact:true}).click()
+  await page.getByRole('tab',{name:'Execution defaults',exact:true}).click()
   const section=page.locator('.mcp-settings')
   await expect(section.getByRole('button',{name:'Remote HTTP (default)',exact:true})).toHaveAttribute('aria-pressed','true')
   await expect(section.locator('pre').first()).toContainText('serverUrl')

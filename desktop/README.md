@@ -73,7 +73,7 @@ If a terminal supervisor receives a hangup or termination signal, it stops and
 waits for its child process before reporting the execution outcome. A transient
 failure to deliver that report is retried.
 Reopening restores the connection. The gear at the bottom of the project sidebar
-opens **Settings**, the workstation-wide panel: **User profile** (opened first), **Appearance**, **Agent connection**, **AI Engine CLI**,
+opens **Settings**, the workstation-wide panel: **User profile** (opened first), **Appearance**, **Agent connection**, **Execution defaults**,
 **Agent logs** and **Changelog** (installed versions and release notes, pinned
 to the bottom of the sidebar). The larger settings dialog adapts to the window. Stop and restart sit in that same footer, and
 the connection state leads it: a green dot reading **Connected**, an orange one
@@ -306,20 +306,25 @@ and restarted before this action is available.
 
 ### Execution defaults and local overrides
 
-The server project supplies the `useWorktrees` default, which **Inherit worktrees
-from server** restores in the desktop project settings. Parallel executions
-(1 to 5) are workstation-owned: the server neither stores nor supplies a value,
-this app is the only surface that sets one, and a project without a local value
-runs a single execution at a time.
-Workstation settings are saved in `~/.config/sectile/settings.json` as project-ID maps:
+Every execution setting belongs to the workstation (ADR 0031): the AI
+provider, the model and per-skill models, the model list of each provider, the
+interactive and headless commands, the terminal, the editor, worktrees,
+parallel executions (1 to 10), the extra agents that get the skills and MCP,
+and the command name each stage runs. The web interface offers none of them
+and the server neither stores nor uses them.
 
-```json
-{
-  "projects": {"project-id": "/path/to/repository"},
-  "worktrees": {"project-id": true},
-  "parallelism": {"project-id": 2}
-}
-```
+**Settings → Execution defaults** edits the workstation level, applied to every
+project without a value of its own. The project settings edit one project:
+each field says whether it is set for the project or inherited, shows the
+inherited value (the workstation default, else the provider default) and has a
+reset that brings the inheritance back. Both go through the local agent, which
+validates them and alone writes the execution sections of
+`~/.config/sectile/settings.json`; a refused value is reported with its reason
+and nothing is written. Without a running agent the settings are shown as
+unavailable. On its first connection after the upgrade, the agent copies the
+values the server used to hold, once, so an existing setup keeps running what
+it ran. See the [server/agent contract](../docs/contracts/server-agent-v1.md)
+for the file layout.
 
 Without effective worktrees, the agent enforces one execution and the UI
 disables parallelism selection. Requests are acknowledged when queued; their
@@ -399,7 +404,7 @@ arguments with, for example, `make start ARGS="--url http://localhost:8090"`; pr
 authentication through `TOKEN`.
 
 Workstation settings open from the gear at the bottom of the project sidebar and
-use the same side navigation: **User profile**, **Agent connection**, **AI Engine CLI**, **Agent logs** and
+use the same side navigation: **User profile**, **Agent connection**, **Execution defaults**, **Agent logs** and
 **Changelog**, with **User profile** first. **Agent connection** reports the local
 agent with Start, Stop, and Restart controls, the server link (green when connected, orange otherwise), and the connect form itself: the same form the
 connection screen shows, borrowed while the category is open and returned when
@@ -411,13 +416,14 @@ until the agent is stopped, and the panel says so.
 
 Project configuration lists its categories in a side navigation, one panel at a
 time: **General** (local repository, removal from the desktop), **Execution**
-(worktrees, parallel executions, terminal emulator), **AI agent** (provider,
-model, command templates), **Deployment** and **Server**. **General** opens
+(worktrees, parallel executions, terminal emulator, extra setup providers),
+**AI agent** (provider, model, per-skill models, command templates, skill
+command names), **Deployment** and **Server**. **General** opens
 first. Use **Choose folder…** to select a repository through the native directory
 dialog. Worktrees use Yes/No buttons; parallel executions use a 1 to 10 slider.
 Each setting is one row: its name with the inherited value in small type on the
-left, its control on the right. Reset icons restore inheritance from server
-defaults, and parallelism has none because it never inherits. The placeholder
+left, its control on the right. Reset icons restore inheritance from the
+workstation defaults. The placeholder
 reference sits behind the **Placeholders** disclosure under the interactive
 command. The three storing categories share one form, so
 **Save local configuration** in the dialog footer writes them all at once,
@@ -491,8 +497,8 @@ Values are refreshed for every launch, including relaunches and custom instructi
 Saving or resetting settings stores the template, never the expanded task values.
 
 **Refresh from server** reloads project metadata, skills and inherited execution
-settings in the open dialog. Local overrides and unsaved local edits remain
-intact. Reset buttons then use the refreshed server values. Refresh does not
+settings in the open dialog. Local values and unsaved local edits remain
+intact. Refresh does not
 deploy tooling or modify running executions.
 
 Select a completed, failed or canceled execution and choose **Relaunch**.

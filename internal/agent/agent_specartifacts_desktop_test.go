@@ -35,7 +35,7 @@ func newSpecArtifactsDesktop(t *testing.T, serverValue string) *specArtifactsDes
 			t.Fatal(err)
 		}
 	}
-	if err := agentconfig.WriteSettings(agentconfig.Overrides{Projects: map[string]string{"p": root}}); err != nil {
+	if err := agentconfig.WriteSettings(agentconfig.Settings{ProjectSettings: map[string]agentconfig.ProjectSettings{"p": {Path: root}}}); err != nil {
 		t.Fatal(err)
 	}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -97,7 +97,7 @@ func (s *specArtifactsDesktop) launchValue(serverValue string) string {
 	if err != nil {
 		s.t.Fatal(err)
 	}
-	return agentconfig.ApplyOverrides(config, overrides).SpecArtifacts
+	return agentconfig.Resolve(config, overrides).SpecArtifacts
 }
 
 // The desktop stores a keep or drop override for the project, shows the
@@ -155,8 +155,8 @@ func TestDesktopProjectSpecArtifactsOverride(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := settings.SpecArtifacts["p"]; ok {
-		t.Fatalf("a reset must store no override: %v", settings.SpecArtifacts)
+	if value := settings.Project("p").SpecArtifacts; value != "" {
+		t.Fatalf("a reset must store no override: %v", value)
 	}
 	if strings.Contains(readExclude(t, s.root), "sectile") {
 		t.Fatalf("a save with an effective keep must remove the block:\n%s", readExclude(t, s.root))

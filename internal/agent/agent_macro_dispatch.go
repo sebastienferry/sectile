@@ -22,8 +22,8 @@ import (
 // mono-repo project, the project's checkout; else none, and the refusal names
 // the setting. The server holds no specifications path: it would name a
 // directory on another machine.
-func localSpecRepo(overrides agentconfig.Overrides, projectID, root string, monoRepo bool) (string, error) {
-	mapped := strings.TrimSpace(overrides.SpecRepos[projectID])
+func localSpecRepo(overrides agentconfig.Settings, projectID, root string, monoRepo bool) (string, error) {
+	mapped := strings.TrimSpace(overrides.ProjectSettings[projectID].SpecPath)
 	if mapped == "" {
 		if !monoRepo {
 			return "", errNoSpecFolder
@@ -184,7 +184,7 @@ func (d *agentDaemon) prepareMacroSkills(ctx context.Context, config agentconfig
 	if err != nil {
 		return config, "", "", err
 	}
-	config = agentconfig.ApplyOverrides(config, overrides)
+	config = agentconfig.Resolve(config, overrides)
 	if err := config.Validate(); err != nil {
 		return config, "", "", err
 	}
@@ -215,7 +215,7 @@ func (d *agentDaemon) macroWorkspaceFor(ctx context.Context, projectID, macroKey
 	if err != nil {
 		return macroWorkspace{}, err
 	}
-	config = agentconfig.ApplyOverrides(config, overrides)
+	config = agentconfig.Resolve(config, overrides)
 	spec, err := localSpecRepo(overrides, config.ProjectID, root, config.IsMonoRepo())
 	if err != nil {
 		return macroWorkspace{}, err

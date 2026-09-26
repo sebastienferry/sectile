@@ -155,6 +155,9 @@ func TestMigrationNineKeepsSurplusRunsAsConcurrent(t *testing.T) {
 		"ALTER TABLE projects ADD COLUMN gitlab_token TEXT NOT NULL DEFAULT ''",
 		"ALTER TABLE user_tracker_credentials DROP COLUMN account",
 		"ALTER TABLE projects DROP COLUMN spec_artifacts",
+		"ALTER TABLE user_tracker_credentials DROP COLUMN unlock_generation",
+		"DROP TABLE agent_capabilities",
+		"ALTER TABLE projects ADD COLUMN tty_mode TEXT NOT NULL DEFAULT 'integrated'",
 		"DELETE FROM schema_migrations WHERE version >= 9",
 		`INSERT INTO task_activities (id, task_id, skill_id, skill_name, action, status, created_at) VALUES
 			('old-skill', 't1', 'clarify', 'clarify', 'run', 'running', '2026-09-01 10:00:00'),

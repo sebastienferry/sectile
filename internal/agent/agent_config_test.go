@@ -387,27 +387,45 @@ func TestNativePickupBootstrapAndLaunch(t *testing.T) {
 	}
 }
 
-func TestTerminalContractPrecedence(t *testing.T) {
-	d := &agentDaemon{terminal: terminalChoice{app: "terminal"}}
-	c := agentconfig.Config{ExternalTerminalCommand: "iterm"}
-	if got := d.dispatchTerminal(c, ""); got != "iterm" {
+// The terminal is the workstation's own (#305): the project section, then the
+// workstation defaults, then the agent's default, then detection. The value
+// picked for the action and an explicit --terminal outrank them.
+func TestTerminalPrecedence(t *testing.T) {
+	testhome.Temp(t)
+	d := &agentDaemon{repoRoot: t.TempDir(), terminal: terminalChoice{app: "terminal"}}
+	if got := d.resolveTerminalForProject(context.Background(), "p", ""); got != "terminal" {
 		t.Fatal(got)
 	}
-	c = agentconfig.ApplyOverrides(c, agentconfig.Overrides{Terminal: "ghostty"})
-	if got := d.dispatchTerminal(c, ""); got != "ghostty" {
+	if err := agentconfig.WriteSettings(agentconfig.Settings{
+		Defaults:        agentconfig.Defaults{Execution: agentconfig.Execution{Terminal: "ghostty"}},
+		ProjectSettings: map[string]agentconfig.ProjectSettings{"p": {Execution: agentconfig.Execution{Terminal: "iterm"}}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if got := d.resolveTerminalForProject(context.Background(), "p", ""); got != "iterm" {
 		t.Fatal(got)
 	}
-	if got := d.dispatchTerminal(c, "warp"); got != "warp" {
+	if got := d.resolveTerminalForProject(context.Background(), "other", ""); got != "ghostty" {
+		t.Fatal(got)
+	}
+	if got := d.resolveTerminalForProject(context.Background(), "p", "warp"); got != "warp" {
 		t.Fatal(got)
 	}
 	d.terminal.explicit = true
-	if got := d.dispatchTerminal(c, "warp"); got != "terminal" {
+	if got := d.resolveTerminalForProject(context.Background(), "p", ""); got != "terminal" {
 		t.Fatal(got)
 	}
-	d.terminal.explicit = false
-	c.ExternalTerminalCommand = "pty"
-	if got := d.dispatchTerminal(c, ""); got != "pty" {
+}
+
+func TestEditorPrecedence(t *testing.T) {
+	if got := editorFor(agentconfig.Settings{}, ""); got != "code" {
 		t.Fatal(got)
+	}
+	if got := editorFor(agentconfig.Settings{}, "zed"); got != "zed" {
+		t.Fatal("an older server's editor must still open:", got)
+	}
+	if got := editorFor(agentconfig.Settings{Defaults: agentconfig.Defaults{EditorCommand: "cursor"}}, "zed"); got != "cursor" {
+		t.Fatal("the workstation's editor must win:", got)
 	}
 }
 

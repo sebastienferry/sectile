@@ -338,6 +338,7 @@ export interface TranslationSchema {
       cmdAutonomous?: string
       fastPresets?: string
       engineDesc: string
+      mcpClient?: string
       cmdTemplate: string
       repoPath: string
       repoPathDesc: string
@@ -668,6 +669,8 @@ export interface TranslationSchema {
     advanceInteractive: string
     advanceWithModel: string
     currentModel: string
+    engineUnknown: string
+    engineUnknownShort: string
     advanceAutonomous: string
     filterParent: string
     clearParent: string
@@ -1045,7 +1048,7 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
         account: 'Compte',
         appearance: 'Apparence',
         trackers: 'Identifiants Trackers',
-        aiEngine: 'Paramètres de l\'agent',
+        aiEngine: 'Connexion MCP',
         sdd: 'Compétences & SDD',
         workstations: 'Workstations & Agent',
         aiConfig: 'Moteur IA & Prompts',
@@ -1137,7 +1140,8 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
         cmdInteractive: 'Commande interactive',
         cmdAutonomous: 'Commande autonome (headless)',
         fastPresets: 'Modèles de commande rapides :',
-        engineDesc: 'Configurez le moteur d\'intelligence artificielle par défaut, les modèles et les commandes CLI d\'exécution des skills.',
+        engineDesc: 'Connectez directement un CLI ou un IDE au serveur MCP Sectile. Le moteur, les modèles et les commandes d\'exécution se règlent sur votre poste, dans l\'application desktop.',
+        mcpClient: 'Client MCP à configurer',
         cmdTemplate: 'Template de commande Shell CLI',
         repoPath: 'Répertoire du projet cible (CWD)',
         repoPathDesc: 'Emplacement du repo dans lequel l\'agent exécutera les commandes',
@@ -1467,6 +1471,8 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
       advanceInteractive: 'Avancer en interactif',
       advanceWithModel: 'Modèle des lancements',
       currentModel: '(modèle configuré)',
+      engineUnknown: 'Moteur inconnu : aucun de vos agents ne sert ce projet',
+      engineUnknownShort: '?',
       advanceAutonomous: 'Avancer en autonome',
       filterParent: 'Filtrer par parent',
       clearParent: 'Retirer le filtre parent',
@@ -1842,7 +1848,7 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
         account: 'Account',
         appearance: 'Appearance',
         trackers: 'Tracker Credentials',
-        aiEngine: 'Agent settings',
+        aiEngine: 'MCP connection',
         sdd: 'Skills & SDD',
         workstations: 'Workstations & Agent',
         aiConfig: 'AI Engine & Prompts',
@@ -1934,7 +1940,8 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
         cmdInteractive: 'Interactive command',
         cmdAutonomous: 'Autonomous command (headless)',
         fastPresets: 'Quick command presets:',
-        engineDesc: 'Configure the default artificial intelligence engine, models, and CLI command execution for skills.',
+        engineDesc: 'Connect a CLI or an IDE directly to the Sectile MCP server. The engine, models and execution commands are set on your workstation, in the desktop app.',
+        mcpClient: 'MCP client to configure',
         cmdTemplate: 'Shell CLI Command Template',
         repoPath: 'Target Project Directory (CWD)',
         repoPathDesc: 'Workspace directory where the agent will run commands',
@@ -2264,6 +2271,8 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
       advanceInteractive: 'Advance interactively',
       advanceWithModel: 'Model used by launches',
       currentModel: '(configured model)',
+      engineUnknown: 'Engine unknown: none of your agents serves this project',
+      engineUnknownShort: '?',
       advanceAutonomous: 'Advance autonomously',
       filterParent: 'Filter by parent',
       clearParent: 'Clear parent filter',

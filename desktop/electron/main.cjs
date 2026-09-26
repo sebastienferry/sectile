@@ -11,6 +11,7 @@ const {carryOverDataDirectory}=require('./datadir.cjs')
 const {readAgentLog}=require('./agent-log.cjs')
 const {fileSha256,agentOutdated}=require('./agent-identity.cjs')
 const {normalizeAppearance,windowColors}=require('./appearance.cjs')
+const {connectionUpdates,connectionView}=require('./connection-settings.cjs')
 if(process.env.SECTILE_DESKTOP_DATA_DIR)app.setPath('userData',process.env.SECTILE_DESKTOP_DATA_DIR)
 // The app kept its data under the previous package name; carry it over once.
 if(!process.env.SECTILE_DESKTOP_DATA_DIR){
@@ -109,25 +110,35 @@ function readSettings(){
   try{return JSON.parse(fs.readFileSync(path.join(app.getPath('userData'),'agent-settings.json'),'utf8'))}catch{return {}}
  }
 }
+// The renderer reads the connection facts only: the execution sections of the
+// same file belong to the agent and are read through /desktop/workstation.
 ipcMain.handle('settings',()=>{
  try{
   const saved=readSettings()
-  return {...saved,token:storedKey(saved),secret:undefined,apiKey:undefined}
+  return connectionView(saved,storedKey(saved))
  }catch{return {}}
 })
+// Only connection keys are written; any execution key is dropped, since the
+// agent is the only writer of the execution sections (#305). What the agent
+// wrote in the file is kept as it was.
 ipcMain.handle('save-settings',async(_,updates)=>{
  let previous={}
  try{previous=readSettings()}catch{}
- const saved={...previous,...updates}
+ const saved={...previous,...connectionUpdates(updates)}
  fs.mkdirSync(path.dirname(settingsPath()),{recursive:true,mode:0o700})
  fs.writeFileSync(settingsPath()+'.tmp',JSON.stringify(saved,null,2),{mode:0o600})
  fs.renameSync(settingsPath()+'.tmp',settingsPath())
- return {...saved,token:storedKey(saved),secret:undefined,apiKey:undefined}
+ return connectionView(saved,storedKey(saved))
 })
 // The appearance is applied here rather than in the renderer: themeSource
 // moves prefers-color-scheme and the native widgets together, and the window
 // is painted from it before the page has loaded anything.
 function applyAppearance(value){nativeTheme.themeSource=normalizeAppearance(value)}
+// The appearance is read on its own: the settings view the renderer gets is
+// limited to the connection facts.
+ipcMain.handle('appearance',()=>{
+ try{return normalizeAppearance(readSettings().appearance)}catch{return normalizeAppearance()}
+})
 ipcMain.handle('set-appearance',(_,value)=>{
  let previous={}
  try{previous=readSettings()}catch{}
@@ -298,6 +309,13 @@ ipcMain.handle('copy-text',(_,text)=>{
 ipcMain.handle('mcp-config',(_,provider)=>api('/desktop/mcp?provider='+encodeURIComponent(provider)))
 ipcMain.handle('configure-mcp',(_,provider,choice)=>api('/desktop/mcp?provider='+encodeURIComponent(provider),'POST',choice))
 ipcMain.handle('status',()=>api('/desktop/status'))
+// The workstation execution defaults, read and written by the agent. Without a
+// running agent the call fails: the desktop never writes them itself.
+ipcMain.handle('workstation-settings',()=>api('/desktop/workstation'))
+ipcMain.handle('save-workstation-settings',(_,defaults)=>{
+ if(!defaults||typeof defaults!=='object'||Array.isArray(defaults))throw Error('Invalid workstation settings')
+ return api('/desktop/workstation','PUT',defaults)
+})
 ipcMain.handle('choose-repository',async()=>{
  const result=await dialog.showOpenDialog(window,{title:'Select local repository',properties:['openDirectory']})
  return result.canceled?null:result.filePaths[0]

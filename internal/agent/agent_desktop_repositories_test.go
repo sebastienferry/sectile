@@ -18,7 +18,7 @@ func TestDesktopMapsARepositoryOnlyToACheckoutOfIt(t *testing.T) {
 	root := checkoutOf(t, "git@github.com:o/a.git")
 	b := checkoutOf(t, "https://github.com/o/b")
 	c := checkoutOf(t, "git@github.com:o/c.git")
-	if err := agentconfig.WriteSettings(agentconfig.Overrides{Projects: map[string]string{"p": root}}); err != nil {
+	if err := agentconfig.WriteSettings(agentconfig.Settings{ProjectSettings: map[string]agentconfig.ProjectSettings{"p": {Path: root}}}); err != nil {
 		t.Fatal(err)
 	}
 	var mu sync.Mutex
