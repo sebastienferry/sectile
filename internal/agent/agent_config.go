@@ -144,20 +144,20 @@ func gitLocal(ctx context.Context, root string, args ...string) (string, error) 
 
 // localProjectRoot resolves workstation mappings. Remote filesystem paths are
 // deliberately absent from the contract and never used as local working dirs.
-func (d *agentDaemon) localProjectRoot(ctx context.Context, c agentconfig.Config, allowUninitialized ...bool) (string, agentconfig.Overrides, error) {
+func (d *agentDaemon) localProjectRoot(ctx context.Context, c agentconfig.Config, allowUninitialized ...bool) (string, agentconfig.Settings, error) {
 	root := d.repoRoot
 	if root == "" {
 		root, _ = os.Getwd()
 		root = findRepoRoot(root)
 	}
-	overrides, err := agentconfig.ReadSettings(root)
+	settings, err := agentconfig.ReadSettings(root)
 	if err != nil {
-		return "", overrides, err
+		return "", settings, err
 	}
-	if overrides.DisconnectedProjects[c.ProjectID] {
-		return "", overrides, fmt.Errorf("project %s is disconnected; add it again in the desktop before launching", c.ProjectID)
+	if settings.DisconnectedProjects[c.ProjectID] {
+		return "", settings, fmt.Errorf("project %s is disconnected; add it again in the desktop before launching", c.ProjectID)
 	}
-	if mapped := overrides.Projects[c.ProjectID]; mapped != "" {
+	if mapped := settings.ProjectPath(c.ProjectID); mapped != "" {
 		if !filepath.IsAbs(mapped) {
 			mapped = filepath.Join(root, mapped)
 		}
@@ -165,112 +165,31 @@ func (d *agentDaemon) localProjectRoot(ctx context.Context, c agentconfig.Config
 	} else if d.link.projectID != c.ProjectID {
 		remote, err := gitLocal(ctx, root, "remote", "get-url", "origin")
 		if err != nil || c.GitRemoteURL == "" || models.RepositoryIdentity(remote) != models.RepositoryIdentity(c.GitRemoteURL) {
-			return "", overrides, fmt.Errorf("no local repository mapping for project %s; configure ~/.config/sectile/settings.json projects", c.ProjectID)
+			return "", settings, fmt.Errorf("no local repository mapping for project %s; set its folder in the desktop app", c.ProjectID)
 		}
 	}
 	root, err = filepath.Abs(root)
 	if err != nil {
-		return "", overrides, err
+		return "", settings, err
 	}
 	if _, err := gitLocal(ctx, root, "rev-parse", "--show-toplevel"); err != nil && !(len(allowUninitialized) > 0 && allowUninitialized[0]) {
-		return "", overrides, err
+		return "", settings, err
 	}
-	local, err := agentconfig.ReadOverrides(root)
+	// A project this workstation serves takes over the server's former values
+	// the first time it is resolved (#305).
+	if !settings.HasSeededProject(c.ProjectID) {
+		d.seedSettings(ctx, c)
+		if seeded, err := agentconfig.ReadSettings(d.localSettingsRoot()); err == nil {
+			settings = seeded
+		}
+	}
+	// The checkout's legacy .taskflow/agent.json fills what the workstation
+	// settings leave unset, as it always did.
+	local, err := agentconfig.WithRepositoryFile(settings, root)
 	if err != nil {
-		return "", overrides, err
+		return "", settings, err
 	}
-	if value, ok := overrides.Worktrees[c.ProjectID]; ok {
-		if local.Worktrees == nil {
-			local.Worktrees = map[string]bool{}
-		}
-		local.Worktrees[c.ProjectID] = value
-	}
-	if value, ok := overrides.SpecArtifacts[c.ProjectID]; ok {
-		if local.SpecArtifacts == nil {
-			local.SpecArtifacts = map[string]string{}
-		}
-		local.SpecArtifacts[c.ProjectID] = value
-	}
-	if value, ok := overrides.Parallelism[c.ProjectID]; ok {
-		if local.Parallelism == nil {
-			local.Parallelism = map[string]int{}
-		}
-		local.Parallelism[c.ProjectID] = value
-	}
-	if local.Commands == nil {
-		local.Commands = map[string]string{}
-	}
-	for id, command := range overrides.Commands {
-		local.Commands[id] = command
-	}
-	if local.CommandsAutonomous == nil {
-		local.CommandsAutonomous = map[string]string{}
-	}
-	for id, command := range overrides.CommandsAutonomous {
-		local.CommandsAutonomous[id] = command
-	}
-	if local.AIProviders == nil {
-		local.AIProviders = map[string]string{}
-	}
-	for id, provider := range overrides.AIProviders {
-		local.AIProviders[id] = provider
-	}
-	if local.AIModels == nil {
-		local.AIModels = map[string]string{}
-	}
-	for id, model := range overrides.AIModels {
-		local.AIModels[id] = model
-	}
-	if overrides.AIProvider != "" {
-		local.AIProvider = overrides.AIProvider
-	}
-	if overrides.AICommandTemplate != "" {
-		local.AICommandTemplate = overrides.AICommandTemplate
-	}
-	if overrides.AICommandTemplateAutonomous != "" {
-		local.AICommandTemplateAutonomous = overrides.AICommandTemplateAutonomous
-	}
-	if overrides.AIModel != "" {
-		local.AIModel = overrides.AIModel
-	}
-	if local.AISkillModels == nil {
-		local.AISkillModels = map[string]string{}
-	}
-	for id, model := range overrides.AISkillModels {
-		local.AISkillModels[id] = model
-	}
-	if overrides.Terminal != "" {
-		local.Terminal = overrides.Terminal
-	}
-	if local.Terminals == nil {
-		local.Terminals = map[string]string{}
-	}
-	for id, terminal := range overrides.Terminals {
-		local.Terminals[id] = terminal
-	}
-	if local.Skills == nil {
-		local.Skills = map[string]string{}
-	}
-	for id, content := range overrides.Skills {
-		local.Skills[id] = content
-	}
-	// The specifications folder is saved in the workstation settings only:
-	// leaving it out here made the desktop setting invisible to every macro
-	// operation.
-	if local.SpecRepos == nil {
-		local.SpecRepos = map[string]string{}
-	}
-	for id, folder := range overrides.SpecRepos {
-		local.SpecRepos[id] = folder
-	}
-	// So are the repository folders (#456), which every multi-repo launch
-	// resolves through the value returned here.
-	if local.Repositories == nil {
-		local.Repositories = map[string]string{}
-	}
-	for identity, folder := range overrides.Repositories {
-		local.Repositories[identity] = folder
-	}
+	local.DisconnectedProjects, local.MCPConnections = settings.DisconnectedProjects, settings.MCPConnections
 	return root, local, nil
 }
 
@@ -437,7 +356,7 @@ func (d *agentDaemon) prepareDispatchLocked(ctx context.Context, taskKey string,
 	if task.ProjectID != config.ProjectID {
 		return config, "", "", "", task, fmt.Errorf("task project changed during configuration sync")
 	}
-	config = agentconfig.ApplyOverrides(config, overrides)
+	config = agentconfig.Resolve(config, overrides)
 	if len(useWorktrees) > 0 {
 		config.UseWorktrees = useWorktrees[0]
 	}
@@ -872,7 +791,7 @@ func (d *agentDaemon) syncLocalProject(ctx context.Context, config agentconfig.C
 	if err != nil {
 		return err
 	}
-	config = agentconfig.ApplyOverrides(config, overrides)
+	config = agentconfig.Resolve(config, overrides)
 	if err := config.Validate(); err != nil {
 		return err
 	}

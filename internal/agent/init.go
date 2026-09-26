@@ -110,8 +110,8 @@ func InitContext(ctx context.Context, args []string) (string, error) {
 		// Match by local mapped projects in settings
 		if selectedProject == "" {
 			if settings, err := agentconfig.ReadSettings(root); err == nil {
-				for id, pPath := range settings.Projects {
-					if pPath != "" && filepath.Clean(pPath) == filepath.Clean(root) {
+				for id, section := range settings.ProjectSettings {
+					if pPath := section.Path; pPath != "" && filepath.Clean(pPath) == filepath.Clean(root) {
 						selectedProject = id
 						break
 					}

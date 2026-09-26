@@ -238,7 +238,7 @@ func applySpecArtifacts(ctx context.Context, config *agentconfig.Config, checkou
 // what saving the desktop settings with an effective keep does, so the rules
 // go at once rather than at the next launch. Failures are logged: the
 // settings are saved already, and the next launch retries.
-func clearSpecExclusions(ctx context.Context, config agentconfig.Config, overrides agentconfig.Overrides, projectRoot string) {
+func clearSpecExclusions(ctx context.Context, config agentconfig.Config, overrides agentconfig.Settings, projectRoot string) {
 	code := codeIdentity(config)
 	seen := map[string]bool{}
 	checkouts := []string{projectRoot}

@@ -93,7 +93,7 @@ func TestLocalMCPOptInDoesNotOpenOtherSurfaces(t *testing.T) {
 		}
 	}
 	check("/mcp", "", "", 401)
-	settings := agentconfig.Overrides{MCPConnections: map[string]agentconfig.MCPConnection{"codex": {Target: "local", Transport: "http"}}}
+	settings := agentconfig.Settings{MCPConnections: map[string]agentconfig.MCPConnection{"codex": {Target: "local", Transport: "http"}}}
 	if err := agentconfig.WriteSettings(settings); err != nil {
 		t.Fatal(err)
 	}

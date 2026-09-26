@@ -238,19 +238,3 @@ export function commandPreview(
       return { command: '', error: `Unsupported provider ${cli || '(none)'}: configure an AI command template.` }
   }
 }
-
-/**
- * The two command fields a project save sends. Both are always present, empty
- * included: the server keeps a stored value only when the field is absent, so
- * an empty field (or the custom agent turned off) is how a command is cleared.
- */
-export function projectAgentCommands(
-  useCustomAgent: boolean,
-  interactive: string,
-  autonomous: string,
-): { aiCommandTemplate: string; aiCommandTemplateAutonomous: string } {
-  return {
-    aiCommandTemplate: useCustomAgent ? interactive.trim() : '',
-    aiCommandTemplateAutonomous: useCustomAgent ? autonomous.trim() : '',
-  }
-}

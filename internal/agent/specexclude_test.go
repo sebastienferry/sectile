@@ -266,7 +266,7 @@ func TestDispatchExcludesInThePrimaryRepositoryOnly(t *testing.T) {
 	testhome.Temp(t)
 	projectRoot := checkoutOf(t, "git@github.com:o/a.git")
 	b := checkoutOf(t, "git@github.com:o/b.git")
-	if err := agentconfig.WriteSettings(agentconfig.Overrides{Projects: map[string]string{"p": projectRoot}, Repositories: map[string]string{"github.com/o/b": b}}); err != nil {
+	if err := agentconfig.WriteSettings(agentconfig.Settings{ProjectSettings: map[string]agentconfig.ProjectSettings{"p": {Path: projectRoot}}, Repositories: map[string]string{"github.com/o/b": b}}); err != nil {
 		t.Fatal(err)
 	}
 	config := multiRepoConfig()
@@ -325,7 +325,7 @@ func TestSpecArtifactsOperationAnswersTheEffectiveValue(t *testing.T) {
 	if got := mode(""); got != "drop" {
 		t.Fatalf("drop without a task: %q", got)
 	}
-	if err := agentconfig.WriteSettings(agentconfig.Overrides{SpecArtifacts: map[string]string{"p": "keep"}}); err != nil {
+	if err := agentconfig.WriteSettings(agentconfig.Settings{ProjectSettings: map[string]agentconfig.ProjectSettings{"p": {Path: root, SpecArtifacts: "keep"}}}); err != nil {
 		t.Fatal(err)
 	}
 	if got := mode(task.ID); got != "keep" {

@@ -59,13 +59,21 @@ func dropRepositoryColumns(d *DB) {
 	dropCredentialAccountColumn(d)
 }
 
-// dropCredentialAccountColumn removes what migrations 24, 25 and 26 add. It runs
+// dropCredentialAccountColumn undoes what migrations 24 to 28 change. It runs
 // with dropRepositoryColumns, since every fixture that rewinds before 21 also
-// rewinds before 24, 25 and 26.
+// rewinds before 24.
 func dropCredentialAccountColumn(d *DB) {
 	_, _ = d.conn.Exec("ALTER TABLE user_tracker_credentials DROP COLUMN account")
 	_, _ = d.conn.Exec("ALTER TABLE projects DROP COLUMN spec_artifacts")
 	_, _ = d.conn.Exec("ALTER TABLE user_tracker_credentials DROP COLUMN unlock_generation")
+	undoWorkstationMigrations(d)
+}
+
+// undoWorkstationMigrations puts back the schema migrations 26 and 27 change
+// (#305): the capability table goes, and the dropped project column returns.
+func undoWorkstationMigrations(d *DB) {
+	_, _ = d.conn.Exec("DROP TABLE agent_capabilities")
+	_, _ = d.conn.Exec("ALTER TABLE projects ADD COLUMN tty_mode TEXT NOT NULL DEFAULT 'integrated'")
 }
 
 // undoServerCredentialsMigration puts back the schema migration 22 changed, for the

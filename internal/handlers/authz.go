@@ -152,7 +152,14 @@ var personalSettingsKeys = map[string]bool{
 	"theme": true, "accentColor": true, "language": true, "density": true,
 	"defaultView": true, "uiScale": true, "detailMode": true,
 	"userName": true, "userEmail": true, "userAvatar": true,
-	"editorCommand": true, "externalTerminalCommand": true,
+}
+
+// executionSettingsKeys are the settings the workstation owns since #305. No
+// request writes them any more; a payload that still names them is saved
+// without them.
+var executionSettingsKeys = []string{
+	"aiProvider", "aiCommandTemplate", "aiCommandTemplateAutonomous", "aiModel", "aiSkillModels",
+	"aiProviderModels", "repoPath", "editorCommand", "externalTerminalCommand",
 }
 
 // trackerSettingsKeys are deployment keys a member may nonetheless write. They

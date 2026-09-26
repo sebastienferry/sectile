@@ -95,6 +95,10 @@ func (d *DB) UpdateUserSettings(userID string, s models.Settings) (*models.Setti
 		return nil, err
 	}
 	requested := PersonalSettings(s)
+	// The editor and the terminal are the workstation's (#305): an empty value
+	// keeps the stored one in the statement below, which is only read to seed
+	// each workstation once.
+	requested.EditorCommand, requested.ExternalTerminalCommand = "", ""
 	merged := requested
 	for _, field := range []struct{ value, fallback *string }{
 		{&merged.Theme, &current.Theme},
@@ -106,8 +110,6 @@ func (d *DB) UpdateUserSettings(userID string, s models.Settings) (*models.Setti
 		{&merged.UserName, &current.UserName},
 		{&merged.UserEmail, &current.UserEmail},
 		{&merged.UserAvatar, &current.UserAvatar},
-		{&merged.EditorCommand, &current.EditorCommand},
-		{&merged.ExternalTerminalCommand, &current.ExternalTerminalCommand},
 	} {
 		if *field.value == "" {
 			*field.value = *field.fallback

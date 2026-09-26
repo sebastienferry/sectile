@@ -159,28 +159,3 @@ func contains(haystack, needle string) bool {
 	}
 	return false
 }
-
-func TestApplyOverridesModel(t *testing.T) {
-	c := Config{ProjectID: "p", AIModel: "project", AISkillModels: map[string]string{"implement": "project-implement"}}
-
-	kept := ApplyOverrides(c, Overrides{})
-	if ResolveModel(kept, "implement") != "project-implement" || ResolveModel(kept, "clarify") != "project" {
-		t.Fatalf("no override must keep the server configuration: %+v", kept.Models())
-	}
-
-	overridden := ApplyOverrides(c, Overrides{AIModel: "workstation"})
-	if got := ResolveModel(overridden, "implement"); got != "project-implement" {
-		t.Fatalf("a bare workstation model must not silence the project skill entry: %q", got)
-	}
-	if got := ResolveModel(overridden, "clarify"); got != "workstation" {
-		t.Fatalf("workstation model must govern the skills no level singles out: %q", got)
-	}
-
-	perSkill := ApplyOverrides(c, Overrides{AISkillModels: map[string]string{"clarify": "workstation-clarify"}})
-	if got := ResolveModel(perSkill, "clarify"); got != "workstation-clarify" {
-		t.Fatalf("workstation skill entry ignored: %q", got)
-	}
-	if got := ResolveModel(perSkill, "implement"); got != "project-implement" {
-		t.Fatalf("a workstation skill entry must not erase the project's: %q", got)
-	}
-}
