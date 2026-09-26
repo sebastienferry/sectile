@@ -229,6 +229,11 @@ func (d *DB) SetUserBlocked(id string, blocked bool) (*User, error) {
 		if err := d.RevokeUserSessions(id); err != nil {
 			return nil, err
 		}
+		// And to the unlocks of their sealed credentials, which an agent of
+		// theirs would otherwise keep alive.
+		if err := d.ForgetUserUnlocks(id); err != nil {
+			return nil, err
+		}
 	} else if _, err := d.conn.Exec(`UPDATE users SET blocked_at = NULL WHERE id = ?`, id); err != nil {
 		return nil, err
 	}
@@ -278,6 +283,7 @@ func (d *DB) DeleteUser(id string) error {
 		`DELETE FROM device_credentials WHERE user_id = ?`,
 		`DELETE FROM user_settings WHERE user_id = ?`,
 		`DELETE FROM board_views WHERE user_id = ?`,
+		`DELETE FROM user_credential_unlocks WHERE user_id = ?`,
 		`DELETE FROM users WHERE id = ?`,
 	} {
 		if _, err := tx.Exec(statement, id); err != nil {

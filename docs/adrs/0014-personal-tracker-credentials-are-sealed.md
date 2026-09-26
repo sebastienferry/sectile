@@ -2,7 +2,9 @@
 
 Status: Accepted. Superseded in part by
 [ADR 0028](0028-tracker-sync-uses-a-server-credential-per-provider.md) for
-unattended work.
+unattended work. Amended by
+[ADR 0032](0032-unlocked-sealed-credentials-live-with-their-owners-presence.md)
+for the lifetime of an unlock.
 
 ## Context
 

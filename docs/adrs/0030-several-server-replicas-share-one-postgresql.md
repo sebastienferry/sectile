@@ -1,6 +1,8 @@
 # ADR 0030: Several server replicas share one PostgreSQL database
 
-Status: Accepted
+Status: Accepted. Amended by
+[ADR 0032](0032-unlocked-sealed-credentials-live-with-their-owners-presence.md)
+for the keys derived from sealing passphrases (#501).
 
 Amends: [ADR 0016](0016-postgresql-as-an-alternative-store.md), its statement
 that PostgreSQL backs one server instance, not several.
@@ -22,7 +24,7 @@ a single-instance store: a file is not shared between pods.
 
 **PostgreSQL is the only shared infrastructure.** No Redis, no session store, no
 sticky sessions. What the replicas must share goes through the database, and
-what cannot (a WebSocket, an MCP session, a derived key) is reached through the
+what cannot (a WebSocket, an MCP session) is reached through the
 replica that holds it, on an internal port:
 
 | Concern | Mechanism | Ticket |
@@ -33,7 +35,7 @@ replica that holds it, on an internal port:
 | Local agents | `agent_presence`; work forwarded to the replica holding the agent | #406 |
 | Read-check-write sequences, per-project limit | conditional updates and row locks instead of the process mutex | #407 |
 | MCP sessions | the session id names its replica; requests forwarded to it | #408 |
-| Keys derived from sealing passphrases | pushed to the peers wrapped under the server key, memory only; an authoritative lock generation in the database | #409 |
+| Keys derived from sealing passphrases | stored in the database, sealed under the server key, while their owner is present (ADR 0032, which replaced the in-memory relay of #409) | #501 |
 | Probes, drain, end-to-end proof | `/api/ready`, SIGTERM drain, a two-process harness in CI | #410 |
 
 **The replicas authenticate each other with a token derived from
@@ -76,5 +78,8 @@ once its silence passes the dead-after bound (45 s).
   and the replica the agent's WebSocket reached are unrelated.
 - **Redis or another message broker.** A second stateful dependency for what
   PostgreSQL already does at this scale.
-- **Persisting derived keys under the server key.** It would reduce a sealing
-  passphrase to the server key it exists to go beyond (#409).
+- **Persisting derived keys under the server key.** Rejected by #409 because it
+  would reduce a sealing passphrase to the server key it exists to go beyond,
+  then adopted by #501 (ADR 0032): the in-memory relay lost every key when all
+  replicas restarted at once, which every redeploy does. The exposure is bounded
+  by the owner's presence, see ADR 0032.

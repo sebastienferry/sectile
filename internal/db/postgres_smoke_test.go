@@ -1,6 +1,7 @@
 package db
 
 import (
+	"errors"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -415,5 +416,112 @@ func TestPostgresConnectsFromLibpqEnvironment(t *testing.T) {
 func TestPostgresRefusesAnEmptyConfiguration(t *testing.T) {
 	if _, err := Open(Config{Driver: DriverPostgres}); err == nil {
 		t.Fatal("a PostgreSQL config with no DSN and no environment must be refused")
+	}
+}
+
+// TestPostgresCredentialUnlocks runs the unlock storage and the presence
+// queries of #501 on PostgreSQL: the correlated subqueries, the COALESCE over
+// timestamps and the UPDATE that carries an agent's presence into its unlock.
+func TestPostgresCredentialUnlocks(t *testing.T) {
+	d := openPostgres(t)
+	for _, table := range []string{"user_credential_unlocks", "agent_presence", "server_instances"} {
+		if _, err := d.conn.Exec("DELETE FROM " + table); err != nil {
+			t.Fatalf("clearing %s: %v", table, err)
+		}
+	}
+	// A PostgreSQL store has no directory to hold a key file: production sets
+	// SECTILE_SECRET_KEY, the test gives it one.
+	key, err := secrets.ServerKey(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	d.serverKey, d.serverKeyErr = key, nil
+	now := time.Now().UTC()
+
+	// Stored, listed and resolved through the join.
+	sealedAndUnlocked(t, d, "u1", now.Add(-3*time.Hour))
+	if _, _, token, err := d.userTrackerCredential("u1", "jira"); err != nil || token != "sealed-token" {
+		t.Fatalf("resolving the unlocked credential: %q %v", token, err)
+	}
+	credentials, err := d.UserTrackerCredentials("u1")
+	if err != nil || len(credentials) != 1 || !credentials[0].Unlocked {
+		t.Fatalf("listing: %+v %v", credentials, err)
+	}
+
+	// A session seen 5 minutes ago keeps it; its sign-out alone drops it.
+	token := browserSession(t, d, "u1", now.Add(-5*time.Minute))
+	if forgotten, err := d.ForgetIdleUnlocks(now); err != nil || forgotten != 0 {
+		t.Fatalf("a present owner keeps the unlock: %d %v", forgotten, err)
+	}
+	if err := d.RevokeWebSession(token); err != nil {
+		t.Fatal(err)
+	}
+	serverInstance(t, d, "live", now)
+	agentOn(t, d, "u1", "live", now.Add(-time.Hour), time.Time{})
+	if err := d.ForgetUnlocksIfAbsent("u1", now); err != nil || unlockRows(t, d, "u1") != 1 {
+		t.Fatalf("a connected agent keeps the unlock through a sign-out: %v", err)
+	}
+
+	// The agent's instance dies and is reclaimed: its last heartbeat carries.
+	lastHeartbeat := now.Add(-10 * time.Minute)
+	if _, err := d.conn.Exec(`UPDATE server_instances SET last_seen = ? WHERE id = 'live'`, lastHeartbeat); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.reclaimDeadInstances(now); err != nil {
+		t.Fatal(err)
+	}
+	if forgotten, err := d.ForgetIdleUnlocks(now); err != nil || forgotten != 0 {
+		t.Fatalf("the reclaimed agent still counts: %d %v", forgotten, err)
+	}
+	if forgotten, err := d.ForgetIdleUnlocks(lastHeartbeat.Add(31 * time.Minute)); err != nil || forgotten != 1 {
+		t.Fatalf("31 minutes after the last heartbeat it goes: %d %v", forgotten, err)
+	}
+	if _, _, _, err := d.userTrackerCredential("u1", "jira"); !errors.Is(err, ErrCredentialLocked) {
+		t.Fatalf("forgotten, it is locked: %v", err)
+	}
+}
+
+// TestPostgresUnlockAcrossInstances is the replica case #501 settled in place
+// of #409's relay: two stores on one PostgreSQL database share an unlock with
+// nothing between them, a store opened afterwards finds it, and a lock through
+// one holds on the others at once.
+func TestPostgresUnlockAcrossInstances(t *testing.T) {
+	t.Setenv(secrets.KeyEnvVar, "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f")
+	a := openPostgres(t)
+	b, err := Open(Config{Driver: DriverPostgres, DSN: postgresDSN(t)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { b.Close() })
+
+	if err := a.SetUserTrackerCredential("u1", "jira", "https://acme.atlassian.net", "", "sealed-token", "open sesame"); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.LockUserTrackerCredential("u1", "jira"); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.UnlockUserTrackerCredential("u1", "jira", "open sesame"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, token, err := b.userTrackerCredential("u1", "jira"); err != nil || token != "sealed-token" {
+		t.Fatalf("B after the unlock through A: %q %v", token, err)
+	}
+
+	c, err := Open(Config{Driver: DriverPostgres, DSN: postgresDSN(t)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { c.Close() })
+	if _, _, token, err := c.userTrackerCredential("u1", "jira"); err != nil || token != "sealed-token" {
+		t.Fatalf("C, opened after the unlock: %q %v", token, err)
+	}
+
+	if err := a.LockUserTrackerCredential("u1", "jira"); err != nil {
+		t.Fatal(err)
+	}
+	for name, d := range map[string]*DB{"B": b, "C": c} {
+		if _, _, _, err := d.userTrackerCredential("u1", "jira"); !errors.Is(err, ErrCredentialLocked) {
+			t.Fatalf("%s after the lock through A: %v", name, err)
+		}
 	}
 }
