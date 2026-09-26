@@ -3,6 +3,7 @@ package db
 import (
 	"errors"
 	"testing"
+	"time"
 )
 
 func TestWebSessionResolvesToItsUser(t *testing.T) {
@@ -99,5 +100,20 @@ func TestLoginFlowDefaultsToTheInterfaceRoot(t *testing.T) {
 	}
 	if flow.Redirect != "/" {
 		t.Fatalf("redirect defaulted to %q, want /", flow.Redirect)
+	}
+}
+
+// Expiry is checked when consuming state, even before any cleanup removes it.
+func TestExpiredLoginFlowIsRejected(t *testing.T) {
+	database := identityDB(t)
+	state, err := database.StartLoginFlow(LoginFlow{Nonce: "nonce", CodeVerifier: "verifier"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.conn.Exec(`UPDATE login_flows SET expires_at = ? WHERE state_hash = ?`, time.Now().Add(-time.Minute).UTC(), hashSecret(state)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.ConsumeLoginFlow(state); !errors.Is(err, ErrLoginFlow) {
+		t.Fatalf("expired state returned %v, want ErrLoginFlow", err)
 	}
 }

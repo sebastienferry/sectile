@@ -37,3 +37,7 @@ Run `go test ./internal/auth ./internal/handlers ./internal/db` for the relevant
 A live provider may expose configuration differences that fixtures do not reproduce; keep private rollout acceptance separate from repository validation. Existing local accounts are not automatically merged with provider accounts. The existing first-admin/role-claim policy remains authoritative and must be considered when provisioning access.
 
 No architecture decision record is needed for reusing the established design. A change to identity, role authority or session architecture exceeds this plan and requires revisiting scope.
+
+## Implementation outcome
+
+Discovery and exchange coverage is colocated with the handler integration fixture in `internal/handlers/auth_oidc_integration_test.go` to exercise the real client without duplicating a provider fixture or introducing a production test seam. The serial tests temporarily install the TLS fixture's trusted transport and restore it on cleanup. Expired-state coverage is at the database boundary. All tested flows work with the current production code; only tests and setup documentation change.
