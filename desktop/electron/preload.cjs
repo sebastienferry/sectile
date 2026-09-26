@@ -24,7 +24,7 @@ contextBridge.exposeInMainWorld('localAgent',{
  setTaskEngine:(projectId,taskId,engineId)=>ipcRenderer.invoke('set-task-engine',{projectId,taskId,engineId}),
  chooseRepository:()=>ipcRenderer.invoke('choose-repository'),
  serverTasks:(id,q,launchable=false)=>ipcRenderer.invoke('server-tasks',id,q,launchable),
- launchConsole:(projectId,provider)=>ipcRenderer.invoke('launch-console',projectId,provider),
+ launchConsole:(projectId,provider,engineId)=>ipcRenderer.invoke('launch-console',projectId,provider,engineId),
  launchServerTask:(id,taskID,skillID,prompt,mode,force)=>ipcRenderer.invoke('launch-server-task',id,taskID,skillID,prompt,mode,force),
  openBoard:()=>ipcRenderer.invoke('open-board'),
  openTask:id=>ipcRenderer.invoke('open-task',id),

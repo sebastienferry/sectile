@@ -79,6 +79,8 @@ func fileSha256(path string) string {
 }
 
 type desktopRun struct {
+	EngineID        string    `json:"engineId,omitempty"`
+	EngineName      string    `json:"engineName,omitempty"`
 	Branch          string    `json:"branch,omitempty"`
 	Kind            string    `json:"kind,omitempty"`
 	Provider        string    `json:"provider,omitempty"`

@@ -80,10 +80,8 @@ const pullRequests=new Map()
 let localTasks={}
 try{localTasks=JSON.parse(localStorage.getItem('localTasks')||'{}')}catch{}
 const freeConsole=run=>run?.kind==='console'
-// Le moteur d'un run de tâche accompagne la compétence : deux runs de la même
-// compétence peuvent tourner contre des modèles différents. Une console libre
-// garde son libellé, son moteur est déjà dans son nom.
-const runLabel=run=>freeConsole(run)?(run.provider==='claude'?'Claude':'Codex')+' console':(runEngine(run)?run.skill+' · '+runEngine(run):run.skill)
+// Task runs show the skill and engine; project prompts show their engine name.
+const runLabel=run=>freeConsole(run)?(run.engineName||run.provider||'AI')+' · Project prompt':(runEngine(run)?run.skill+' · '+runEngine(run):run.skill)
 // A macro skill run has no task: its executions group under the macro.
 const macroRun=run=>!!run?.macroKey
 const taskKey=run=>JSON.stringify([run.projectId,freeConsole(run)?run.id:macroRun(run)?'macro:'+run.macroKey:run.taskId])
@@ -461,7 +459,7 @@ function projectMenu(project,waitingCount=0){
   {label:'Open tasks',run:()=>openTickets(project.id)},
   {label:(queued?'Show tasks':'Show execution queue')+(waitingCount?' · '+waitingCount+' waiting':''),run:()=>toggleQueue(project.id)},
   {label:'New task…',run:()=>newProjectTask(project.id)},
-  {label:'Open agent console',disabled:!project.path,run:()=>openAgentConsole(project.id)},
+  {label:'Project prompt',disabled:!project.path,run:()=>openAgentConsole(project.id)},
   null,
   {label:'Project settings…',run:()=>openProject(project.id)},
   {label:'Remove from desktop',danger:true,run:()=>requestRemoveProject(project.id,project.name)}
@@ -2493,7 +2491,7 @@ async function submitNativeDiscussion(view,entry){
 document.querySelector('#rerun').onclick=async()=>{
  const run=runs.find(item=>item.id===selected)
  if(!run||!['completed','failed','canceled'].includes(run.status))return
- if(freeConsole(run)){openAgentConsole(run.projectId,run.provider);return}
+ if(freeConsole(run)){openAgentConsole(run.projectId,run.engineId||run.provider);return}
  showDialog('Relaunch '+(run.taskKey||run.taskId))
  try{
   const info=await api.project(run.projectId)
@@ -2693,7 +2691,7 @@ function renderNextStep(){
  if(force){force.hidden=true;force.disabled=true}
  if(markReviewed){markReviewed.hidden=true;markReviewed.disabled=true}
  if(!run){status.textContent='Select a task to see its next step';return}
- if(freeConsole(run)){status.textContent='Free agent console · '+(run.cancelRequested?'Stopping':run.status);return}
+ if(freeConsole(run)){status.textContent='Project prompt · '+(run.cancelRequested?'Stopping':run.status);return}
  const key=taskKey(run)
  if(!nextStepData||nextStepData.key!==key){status.textContent='Loading task workflow…';return}
  if(nextStepData.error){status.textContent=nextStepData.error;retry.hidden=false;return}
@@ -2778,23 +2776,42 @@ document.querySelector('#mark-reviewed').onclick=()=>{
 }
 
 async function openAgentConsole(projectID,previousProvider){
- showDialog('Open agent console')
+ showDialog('Project prompt')
  paragraph('Start an interactive agent in this project’s local repository. Enter your instructions directly in its console.')
  const form=document.createElement('form'),label=document.createElement('label'),provider=document.createElement('select')
- label.textContent='Agent';provider.setAttribute('aria-label','Console agent')
+ label.textContent='AI engine';provider.setAttribute('aria-label','Console agent')
  for(const [value,text] of [['codex','Codex'],['claude','Claude']]){const option=document.createElement('option');option.value=value;option.textContent=text;provider.append(option)}
  label.append(provider)
  const location=document.createElement('p');location.textContent=projects.find(project=>project.id===projectID)?.path||''
  const launch=document.createElement('button');launch.textContent='Open console'
  const notice=document.createElement('p');notice.setAttribute('role','status')
  form.append(label,location,launch,notice);dialogBody.append(form)
- const pendingInfo=api.project(projectID).then(info=>{if(form.isConnected){const initial=previousProvider||info.aiProvider||info.server?.aiProvider;if(['codex','claude'].includes(initial))provider.value=initial}}).catch(()=>{})
- launch.disabled=true;await pendingInfo;launch.disabled=false
+ let catalogue=false
+ launch.disabled=true
+ try{
+  if(await taskEnginesAvailable()){
+   const view=await api.taskEngines(projectID)
+   if(!form.isConnected)return
+   provider.replaceChildren()
+   for(const engine of view.catalogue){
+    const option=document.createElement('option');option.value=engine.id
+    option.textContent=engineTooltip(engine,engine.id===view.projectDefault);provider.append(option)
+   }
+   catalogue=true
+   provider.value=view.catalogue.some(engine=>engine.id===previousProvider)?previousProvider:view.projectDefault
+   if(!provider.value&&provider.options.length)provider.selectedIndex=0
+  }else{
+   const info=await api.project(projectID)
+   const initial=previousProvider||info.aiProvider||info.server?.aiProvider
+   if(['codex','claude'].includes(initial))provider.value=initial
+  }
+  launch.disabled=!provider.value
+ }catch(err){notice.textContent=err.message}
  form.onsubmit=async event=>{
   event.preventDefault();if(launch.disabled)return
   launch.disabled=true;notice.textContent='Opening console…'
   try{
-   const run=await api.launchConsole(projectID,provider.value)
+   const run=await api.launchConsole(projectID,catalogue?undefined:provider.value,catalogue?provider.value:undefined)
    collapsedProjects.delete(projectID);queueProjects.delete(projectID)
    if(!runs.some(item=>item.id===run.id))runs.push(run)
    dialog.close();select(run);await refresh()
