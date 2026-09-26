@@ -29,25 +29,7 @@ type Operation struct {
 	// "interactive" or "autonomous". Empty is read as interactive by the agent,
 	// which keeps an older server working.
 	Mode string `json:"mode,omitempty"`
-	// Marketplace coordinates of a skill pack operation. The server stores and
-	// forwards them; it never dereferences them itself — cloning, fetching and
-	// reading a marketplace all happen on the workstation.
-	Marketplace string `json:"marketplace,omitempty"`
-	Plugin      string `json:"plugin,omitempty"`
-	Kind        string `json:"kind,omitempty"`    // github | git | path
-	Locator     string `json:"locator,omitempty"` // owner/repo, git URL, or absolute path
-	// Commit pins the revision to resolve. Empty resolves the marketplace head.
-	Commit string `json:"commit,omitempty"`
 }
-
-// ProjectIndependent reports whether an action works on deployment-wide state
-// rather than on a project: the marketplace registry belongs to no project, so
-// reading or forgetting one must not depend on which project happens to be the
-// default, nor on that project having a checkout on the workstation.
-func ProjectIndependent(action string) bool {
-	return action == "marketplace_catalog" || action == "marketplace_forget"
-}
-
 type Result struct {
 	Value json.RawMessage `json:"value,omitempty"`
 	Error string          `json:"error,omitempty"`

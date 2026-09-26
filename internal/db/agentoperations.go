@@ -58,10 +58,7 @@ func (d *DB) callAgentContext(parent context.Context, op agentprotocol.Operation
 			op.ProjectID = found
 		}
 	}
-	// A deployment-wide action still borrows the default or only project to
-	// reach an agent when there is one, but needs none: the dispatcher falls
-	// back to the agent registered for every project.
-	if op.ProjectID == "" && !agentprotocol.ProjectIndependent(op.Action) {
+	if op.ProjectID == "" {
 		return fmt.Errorf("select a project for local execution")
 	}
 	ctx, cancel := context.WithTimeout(parent, operationTimeout(op.Action))
@@ -97,12 +94,6 @@ var localInspections = map[string]time.Duration{
 func operationTimeout(action string) time.Duration {
 	if action == "spec_install" {
 		return 7 * time.Minute
-	}
-	// Reading a marketplace clones or fetches a repository, so it gets the
-	// network budget rather than the read-only one; three minutes is ample for
-	// a blobless clone and still fails while someone is watching.
-	if action == "marketplace_catalog" || action == "marketplace_pack" {
-		return 3 * time.Minute
 	}
 	if action == "run_prompt" {
 		return 12 * time.Minute

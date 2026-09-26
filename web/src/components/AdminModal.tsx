@@ -3,7 +3,6 @@ import { Shield, X } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { useCurrentUser } from '../hooks/useCurrentUser'
 import { UsersPanel } from './UsersPanel'
-import { SkillMarketplacesPanel } from './SkillMarketplacesPanel'
 import { useBackdropDismiss } from '../hooks/useBackdropDismiss'
 
 /**
@@ -72,9 +71,6 @@ export const AdminModal: React.FC = () => {
         {/* Body */}
         <div className="p-6 overflow-y-auto space-y-6 flex-1 text-xs">
           <UsersPanel currentUserId={currentUser.userId} embedded />
-
-          {/* Registre des marketplaces de skills : un réglage du déploiement */}
-          <SkillMarketplacesPanel />
         </div>
       </div>
     </div>

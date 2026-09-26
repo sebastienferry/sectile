@@ -125,45 +125,6 @@ CREATE TABLE IF NOT EXISTS settings (
     detail_mode TEXT DEFAULT 'panel',
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
-
--- Workflow skills edited per project. `content` is the project's own edit,
--- `pack_content` the marketplace baseline underneath it: the precedence is
--- built-in template -> pack body -> project edit, and the edit always wins.
-CREATE TABLE IF NOT EXISTS project_skills (
-    project_id TEXT NOT NULL,
-    skill_id   TEXT NOT NULL,
-    content    TEXT NOT NULL,           -- the project's own edit, empty when none
-    updated_at TEXT NOT NULL,
-    mode       TEXT NOT NULL DEFAULT '',  -- '' | 'interactive' | 'autonomous'
-    pack_content TEXT NOT NULL DEFAULT '', -- body supplied by the pinned pack
-    pack_origin  TEXT NOT NULL DEFAULT '', -- '<marketplace>/<plugin>@<version>+<sha7>'
-    PRIMARY KEY (project_id, skill_id)
-);
-
--- Deployment-wide registry of skill marketplaces. The name is the key a project
--- pins against and the cache directory the local agent derives.
-CREATE TABLE IF NOT EXISTS skill_marketplaces (
-    name TEXT PRIMARY KEY,
-    kind TEXT NOT NULL,                 -- 'github' | 'git' | 'path'
-    locator TEXT NOT NULL,              -- owner/repo, git URL, or absolute path
-    owner TEXT NOT NULL DEFAULT '',
-    description TEXT NOT NULL DEFAULT '',
-    last_commit TEXT NOT NULL DEFAULT '',
-    last_fetched_at TEXT NOT NULL DEFAULT '',
-    created_at TEXT NOT NULL
-);
-
--- What a project applied: one plugin, at one revision. Nothing re-resolves
--- without an explicit action.
-CREATE TABLE IF NOT EXISTS project_skill_packs (
-    project_id TEXT PRIMARY KEY,
-    marketplace TEXT NOT NULL,
-    plugin TEXT NOT NULL,
-    version TEXT NOT NULL DEFAULT '',
-    commit_sha TEXT NOT NULL DEFAULT '',
-    applied_at TEXT NOT NULL,
-    applied_skills TEXT NOT NULL DEFAULT '[]'  -- workflow directories the pack supplied
-);
 ```
 
 ---
@@ -234,10 +195,6 @@ and the tracker's own refusal when it fails.
 | `PUT` | `/api/projects/{id}/skill-editor/{skillId}/mode` | Pins the skill's execution mode for this project. Body `{mode}`: `interactive`, `autonomous`, or empty to clear it and fall back to the project default. |
 | `GET` | `/api/projects/{id}/spec-framework-status` | Per-framework SDD status for this project (see 2.5). |
 | `POST` | `/api/projects/{id}/install-spec-framework` | Installs a SDD toolchain for this project (see 2.5). |
-| `GET` | `/api/projects/{id}/skill-pack` | The marketplace pack this project applied, or `null` (see 2.6). |
-| `POST` | `/api/projects/{id}/skill-pack/preview` | Read-only diff of what a pack would change. Writes nothing (see 2.6). |
-| `POST` | `/api/projects/{id}/skill-pack` | Applies a pack: the one call that writes. Open to any signed-in account, like the skill editor. |
-| `DELETE` | `/api/projects/{id}/skill-pack` | Unpins the pack and restores the built-in catalogue. Same rule as applying. |
 
 ### 2.3.0 Current Account API
 
@@ -364,90 +321,6 @@ request was valid and `steps[]` carries the diagnosis:
 
 An unknown `framework` value returns HTTP 400. `force: true` re-runs the
 initializer over an already-initialized directory instead of returning early.
-
-
-### 2.6 Skill Marketplaces API
-
-Vocabulary: a **marketplace** is the repository (or directory) carrying
-`.claude-plugin/marketplace.json`, a **plugin** is the unit a project selects, a
-**pack** is that plugin's skill bodies resolved at one commit, and **applying**
-is the explicit action that makes a pack the project's baseline. See
-[ADR 0016](adrs/0016-skills-can-come-from-a-marketplace.md).
-
-| Method | Path | Description |
-| :--- | :--- | :--- |
-| `GET` | `/api/skill-marketplaces` | The registry. Readable by any signed-in caller. |
-| `POST` | `/api/skill-marketplaces` | Registers a source. Admin-only; resolves it once before storing, so an unusable locator is refused with its reason. |
-| `GET` | `/api/skill-marketplaces/{name}` | One registered source. |
-| `DELETE` | `/api/skill-marketplaces/{name}` | Unregisters it. Admin-only. Answers `{removed, pinnedBy[]}`: the projects that pinned it keep the bodies they applied, and their pin becomes orphaned. |
-| `GET` | `/api/skill-marketplaces/{name}/catalog` | Its plugins, each with the workflow skills it supplies and the directories Sectile ignores. |
-
-Every repository read happens on the workstation, through the local agent
-actions `marketplace_catalog` and `marketplace_pack` (cache:
-`~/.taskflow/marketplaces/<name>/`). The server never reaches the network.
-
-`POST /api/skill-marketplaces` request:
-
-```json
-{ "name": "acme", "kind": "path", "locator": "/srv/marketplaces/acme" }
-```
-
-`POST /api/projects/{id}/skill-pack/preview` request and response. Nothing it
-describes has been written: not the project's skills, not its files, not its
-pin.
-
-```json
-{ "marketplace": "acme", "plugin": "acme-flow", "commit": "" }
-```
-
-```json
-{
-  "pack": {
-    "marketplace": "acme",
-    "plugin": "acme-flow",
-    "version": "2.1.0",
-    "commit": "9f1c2ab…",
-    "bodies": { "clarify-issue": "---
-name: clarify-issue
----
-…" },
-    "ignored": ["docs-writer"],
-    "rejected": { "create-pr": "SKILL.md has no frontmatter block" },
-    "warnings": []
-  },
-  "entries": [
-    { "skillId": "clarify", "dirName": "clarify-issue", "name": "Clarify Issue", "current": "…", "proposed": "…", "changed": true }
-  ],
-  "missing": ["specify-issue", "code-issue"]
-}
-```
-
-A pack entry is accepted only when its skill directory name is one of the ten
-workflow directories; anything else is reported in `ignored` and installed
-nowhere. A plugin supplying none of them is an HTTP 400 naming what was found,
-never an empty success.
-
-`POST /api/projects/{id}/skill-pack` applies the previewed revision, stores the
-bodies under whatever the project edited itself, reinstalls the files and
-answers the pin:
-
-```json
-{
-  "projectId": "e2c1…",
-  "marketplace": "acme",
-  "plugin": "acme-flow",
-  "version": "2.1.0",
-  "commit": "9f1c2ab…",
-  "appliedAt": "2026-09-22T14:31:00Z",
-  "skills": ["clarify-issue"],
-  "orphaned": false
-}
-```
-
-The skill editor entries gain `origin` (`builtin` or `marketplace`) and
-`packOrigin`, and their `defaultContent` is the resolved baseline: `isCustom`
-keeps meaning "differs from what this project would otherwise get", and a reset
-lands on the pack body rather than on the catalogue.
 
 ---
 

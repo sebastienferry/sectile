@@ -26,21 +26,12 @@ func (d *DB) ensureProjectSkillsTable() {
 		skill_id   TEXT NOT NULL,
 		content    TEXT NOT NULL,
 		updated_at TEXT NOT NULL,
-		pack_content TEXT NOT NULL DEFAULT '',
-		pack_origin  TEXT NOT NULL DEFAULT '',
 		PRIMARY KEY (project_id, skill_id)
 	)`)
 	// mode : le mode d'exécution propre à la skill. Vide vaut « pas d'avis »,
 	// ce qui laisse la précédence retomber sur le défaut du projet.
-	// pack_content : le corps qu'un pack de marketplace fournit pour cette
-	// skill. C'est la ligne de base sous l'édition du projet, pas l'édition :
-	// une seule colonne ne peut pas porter les deux, et la précédence
-	// « intégré → pack → édition » a besoin des deux à la fois.
-	// pack_origin : les coordonnées du pack, pour l'affichage.
 	if d.dialect.RunsLegacyMigrations() {
 		_, _ = d.conn.Exec(`ALTER TABLE project_skills ADD COLUMN mode TEXT NOT NULL DEFAULT ''`)
-		_, _ = d.conn.Exec(`ALTER TABLE project_skills ADD COLUMN pack_content TEXT NOT NULL DEFAULT ''`)
-		_, _ = d.conn.Exec(`ALTER TABLE project_skills ADD COLUMN pack_origin TEXT NOT NULL DEFAULT ''`)
 	}
 }
 
@@ -48,9 +39,6 @@ type projectSkillOverride struct {
 	content   string
 	updatedAt string
 	mode      string
-	// packContent est le corps venu d'un pack, vide quand la skill n'en a pas.
-	packContent string
-	packOrigin  string
 }
 
 func (d *DB) projectSkillOverrides(projectID string) map[string]projectSkillOverride {
@@ -62,7 +50,7 @@ func (d *DB) projectSkillOverrides(projectID string) map[string]projectSkillOver
 	d.ensureProjectSkillsTable()
 
 	d.mu.RLock()
-	rows, err := d.conn.Query(`SELECT skill_id, content, updated_at, mode, pack_content, pack_origin FROM project_skills WHERE project_id = ?`, projectID)
+	rows, err := d.conn.Query(`SELECT skill_id, content, updated_at, mode FROM project_skills WHERE project_id = ?`, projectID)
 	d.mu.RUnlock()
 	if err != nil {
 		return out
@@ -70,15 +58,9 @@ func (d *DB) projectSkillOverrides(projectID string) map[string]projectSkillOver
 	defer rows.Close()
 	for rows.Next() {
 		var id, content, updated string
-		var mode, packContent, packOrigin sql.NullString
-		if err := rows.Scan(&id, &content, &updated, &mode, &packContent, &packOrigin); err == nil {
-			out[id] = projectSkillOverride{
-				content:     content,
-				updatedAt:   updated,
-				mode:        models.NormalizeSkillMode(mode.String),
-				packContent: packContent.String,
-				packOrigin:  packOrigin.String,
-			}
+		var mode sql.NullString
+		if err := rows.Scan(&id, &content, &updated, &mode); err == nil {
+			out[id] = projectSkillOverride{content: content, updatedAt: updated, mode: models.NormalizeSkillMode(mode.String)}
 		}
 	}
 	return out
@@ -172,15 +154,16 @@ func (d *DB) EffectiveProjectSkills(projectIDOrPath, specFramework string) []ski
 	if project, err := d.GetProjectByID(projectID); err == nil && project != nil && project.PRCreationStage == "specified" {
 		timing = "specified"
 	}
-	out := resolveSkillBaselines(overrides, framework)
+	out := skills.ProjectSkillTemplates(framework)
 	for i := range out {
 		if ov, ok := resolvedSkillOverride(overrides, out[i].ID); ok && strings.TrimSpace(ov.content) != "" {
-			// The baseline is what this project would run without its own
-			// edit: the pack body when one is applied, the catalogue otherwise.
-			contract := out[i].Content
 			out[i].Content = ov.content
-			if out[i].ID == "adjust" && strings.TrimSpace(ov.content) != strings.TrimSpace(contract) {
-				out[i].Content = adjustmentCustomContent(ov.content, contract)
+			if out[i].ID == "adjust" {
+				stage, _ := skills.StageSkillByID("adjust")
+				contract := skills.RenderSkillContent(stage, framework)
+				if strings.TrimSpace(out[i].Content) != strings.TrimSpace(contract) {
+					out[i].Content = adjustmentCustomContent(out[i].Content, contract)
+				}
 			}
 		}
 	}
@@ -203,10 +186,7 @@ func (d *DB) EffectiveProjectSkills(projectIDOrPath, specFramework string) []ski
 func (d *DB) ListProjectSkillEditor(projectIDOrPath string) ([]models.SkillEditorEntry, error) {
 	projectID, _, framework := d.projectSkillContext(projectIDOrPath)
 	overrides := d.projectSkillOverrides(projectID)
-	// The editor's default is the resolved baseline, not the catalogue: what
-	// the reset button restores and what "custom" is measured against is what
-	// this project would otherwise get.
-	defaults := resolveSkillBaselines(overrides, framework)
+	defaults := skills.ProjectSkillTemplates(framework)
 	var localFiles map[string]agentprotocol.SkillFile
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
@@ -245,11 +225,6 @@ func (d *DB) ListProjectSkillEditor(projectIDOrPath string) ([]models.SkillEdito
 			IsCustom:       isCustom,
 			UpdatedAt:      updatedAt,
 			Paths:          []string{},
-			Origin:         models.SkillOriginBuiltin,
-		}
-		if pack := overrides[stage.ID]; strings.TrimSpace(pack.packContent) != "" {
-			entry.Origin = models.SkillOriginMarketplace
-			entry.PackOrigin = pack.packOrigin
 		}
 
 		if stage.ID == "adjust" {
@@ -342,29 +317,13 @@ func (d *DB) ResetProjectSkillContent(projectIDOrPath, skillID string) (*models.
 	projectID, _, _ := d.projectSkillContext(projectIDOrPath)
 	d.ensureProjectSkillsTable()
 
-	// A reset lands on the resolved baseline, which is the pack body when the
-	// project applied one: going back to "what this project would otherwise
-	// get" is not going back to the catalogue.
-	baseline := skills.RenderSkillContent(stage, "")
-	for _, candidate := range d.resolvedSkillBaselines(projectID, "") {
-		if candidate.ID == stage.ID {
-			baseline = candidate.Content
-			break
-		}
-	}
-
 	d.mu.Lock()
 	var err error
 	if stage.ID == "adjust" {
 		// An explicit reset selects the default while retaining legacy entries.
-		_, err = d.conn.Exec(`INSERT INTO project_skills(project_id, skill_id, content, updated_at) VALUES (?, 'adjust', ?, ?) ON CONFLICT(project_id,skill_id) DO UPDATE SET content=excluded.content,updated_at=excluded.updated_at`, projectID, baseline, time.Now().Format(time.RFC3339))
+		_, err = d.conn.Exec(`INSERT INTO project_skills(project_id, skill_id, content, updated_at) VALUES (?, 'adjust', ?, ?) ON CONFLICT(project_id,skill_id) DO UPDATE SET content=excluded.content,updated_at=excluded.updated_at`, projectID, skills.RenderSkillContent(stage, ""), time.Now().Format(time.RFC3339))
 	} else {
-		// The row carries the pack baseline as well as the edit, so it only
-		// goes away when there is no pack body to preserve.
-		_, err = d.conn.Exec(`DELETE FROM project_skills WHERE project_id = ? AND skill_id = ? AND pack_content = ''`, projectID, stage.ID)
-		if err == nil {
-			_, err = d.conn.Exec(`UPDATE project_skills SET content = '', updated_at = ? WHERE project_id = ? AND skill_id = ?`, time.Now().Format(time.RFC3339), projectID, stage.ID)
-		}
+		_, err = d.conn.Exec(`DELETE FROM project_skills WHERE project_id = ? AND skill_id = ?`, projectID, stage.ID)
 	}
 	d.mu.Unlock()
 	if err != nil && err != sql.ErrNoRows {
@@ -458,31 +417,15 @@ func resolvedSkillOverride(overrides map[string]projectSkillOverride, id string)
 
 // Preserve canonical metadata when a legacy document is reconciled under Adjust.
 func adjustmentCustomContent(custom, contract string) string {
-	body := skills.StripFrontmatter(contract)
-	header := strings.TrimSuffix(contract, body)
-	return header + "## Project instructions\n\n" + skills.StripFrontmatter(custom) + "\n\n## Mandatory adjustment requirements\n\n" + body
-}
-
-// resolvedSkillBaselines returns, per skill, the content a project would get
-// without its own edits: the built-in template, replaced by the body of the
-// marketplace pack the project applied when that pack supplies the skill.
-//
-// This is the layer the precedence of the feature rests on. The editor shows it
-// as the default content, so "custom" keeps meaning "differs from what this
-// project would otherwise get" and a reset lands on the pack rather than on the
-// catalogue. A pack carries no framework variant, so its single specify or
-// refine body serves both frameworks, and a skill it does not supply keeps the
-// built-in — framework-specific — one.
-func (d *DB) resolvedSkillBaselines(projectID, framework string) []skills.ProjectSkillTemplate {
-	return resolveSkillBaselines(d.projectSkillOverrides(projectID), framework)
-}
-
-func resolveSkillBaselines(overrides map[string]projectSkillOverride, framework string) []skills.ProjectSkillTemplate {
-	packs := map[string]string{}
-	for _, stage := range skills.StageSkills {
-		if body := overrides[stage.ID].packContent; strings.TrimSpace(body) != "" {
-			packs[stage.ID] = body
+	strip := func(content string) string {
+		if strings.HasPrefix(content, "---\n") {
+			if end := strings.Index(content[4:], "\n---\n"); end >= 0 {
+				return content[4+end+5:]
+			}
 		}
+		return content
 	}
-	return skills.ProjectSkillTemplatesOver(framework, packs)
+	body := strip(contract)
+	header := strings.TrimSuffix(contract, body)
+	return header + "## Project instructions\n\n" + strip(custom) + "\n\n## Mandatory adjustment requirements\n\n" + body
 }

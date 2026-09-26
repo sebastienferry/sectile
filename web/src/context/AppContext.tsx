@@ -39,10 +39,6 @@ import type {
   AutoSyncState,
   TrackerCheck,
   TrackerCredentials,
-  SkillMarketplace,
-  MarketplaceCatalog,
-  SkillPackPreview,
-  SkillPackPin,
 } from '../types'
 import { translations, type TranslationSchema } from '../locales/translations'
 import { resolveAccentAttribute } from '../lib/accents'
@@ -319,13 +315,6 @@ interface AppContextType {
   resetSkillContent: (skillId: string) => Promise<SkillEditorEntry | null>
   saveSkillMode: (skillId: string, mode: SkillMode) => Promise<SkillEditorEntry | null>
   importSkillFromRepo: (skillId: string) => Promise<SkillEditorEntry | null>
-  /** Marketplaces de skills : le registre du déploiement, et ce que le projet en épingle. */
-  fetchSkillMarketplaces: () => Promise<SkillMarketplace[]>
-  fetchMarketplaceCatalog: (name: string) => Promise<MarketplaceCatalog | null>
-  fetchSkillPackPin: () => Promise<SkillPackPin | null>
-  previewSkillPack: (marketplace: string, plugin: string, commit?: string) => Promise<SkillPackPreview | null>
-  applySkillPack: (marketplace: string, plugin: string, commit?: string) => Promise<SkillPackPin | null>
-  unpinSkillPack: () => Promise<boolean>
   launchInteractiveStep: (task: Task, skillId: string, label: string) => Promise<void>
   confirmInteractiveStep: (note?: string) => Promise<void>
   dismissInteractiveStep: () => void
@@ -2762,102 +2751,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const importSkillFromRepo = (skillId: string) =>
     skillEditorAction(`/${encodeURIComponent(skillId)}/import`, { method: 'POST' }, 'Contenu du dépôt importé')
 
-  // Les corps des skills peuvent venir d'une marketplace : le registre est
-  // celui du déploiement, l'épingle est celle du projet, et rien ne devient
-  // effectif sans une application explicite.
-  const skillPackBase = () => {
-    const pid = currentProject?.id
-    if (!pid) return ''
-    return `${API_BASE}/projects/${encodeURIComponent(pid)}/skill-pack`
-  }
-
-  const fetchSkillMarketplaces = async (): Promise<SkillMarketplace[]> => {
-    try {
-      const res = await fetch(`${API_BASE}/skill-marketplaces`)
-      if (!res.ok) throw new Error('Lecture du registre impossible')
-      return (await res.json()) || []
-    } catch (err: any) {
-      addToast({ type: 'error', title: 'Marketplaces indisponibles', description: err.message })
-      return []
-    }
-  }
-
-  const fetchMarketplaceCatalog = async (name: string): Promise<MarketplaceCatalog | null> => {
-    try {
-      const res = await fetch(`${API_BASE}/skill-marketplaces/${encodeURIComponent(name)}/catalog`)
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(data.error || 'Lecture de la marketplace impossible')
-      return data as MarketplaceCatalog
-    } catch (err: any) {
-      addToast({ type: 'error', title: 'Marketplace illisible', description: err.message })
-      return null
-    }
-  }
-
-  const fetchSkillPackPin = async (): Promise<SkillPackPin | null> => {
-    const base = skillPackBase()
-    if (!base) return null
-    try {
-      const res = await fetch(base)
-      if (!res.ok) return null
-      return (await res.json()) as SkillPackPin | null
-    } catch {
-      return null
-    }
-  }
-
-  const previewSkillPack = async (marketplace: string, plugin: string, commit?: string): Promise<SkillPackPreview | null> => {
-    const base = skillPackBase()
-    if (!base) return null
-    try {
-      const res = await fetch(`${base}/preview`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ marketplace, plugin, commit }),
-      })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(data.error || 'Aperçu refusé')
-      return data as SkillPackPreview
-    } catch (err: any) {
-      addToast({ type: 'error', title: 'Aperçu impossible', description: err.message })
-      return null
-    }
-  }
-
-  const applySkillPack = async (marketplace: string, plugin: string, commit?: string): Promise<SkillPackPin | null> => {
-    const base = skillPackBase()
-    if (!base) return null
-    try {
-      const res = await fetch(base, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ marketplace, plugin, commit }),
-      })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(data.error || 'Application refusée')
-      addToast({ type: 'success', title: 'Pack appliqué', description: `${marketplace} / ${plugin}` })
-      return data as SkillPackPin
-    } catch (err: any) {
-      addToast({ type: 'error', title: 'Pack non appliqué', description: err.message })
-      return null
-    }
-  }
-
-  const unpinSkillPack = async (): Promise<boolean> => {
-    const base = skillPackBase()
-    if (!base) return false
-    try {
-      const res = await fetch(base, { method: 'DELETE' })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(data.error || 'Détachement refusé')
-      addToast({ type: 'success', title: 'Pack détaché', description: 'Les skills reviennent au modèle intégré' })
-      return true
-    } catch (err: any) {
-      addToast({ type: 'error', title: 'Pack toujours épinglé', description: err.message })
-      return false
-    }
-  }
-
   const pendingHorizonPushes = async (projectId: string): Promise<MacroMeta[]> => {
     try {
       const res = await fetch(`${API_BASE}/projects/${encodeURIComponent(projectId)}/macros/push-horizons`)
@@ -3601,12 +3494,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         resetSkillContent,
         saveSkillMode,
         importSkillFromRepo,
-        fetchSkillMarketplaces,
-        fetchMarketplaceCatalog,
-        fetchSkillPackPin,
-        previewSkillPack,
-        applySkillPack,
-        unpinSkillPack,
         launchInteractiveStep,
         confirmInteractiveStep,
         dismissInteractiveStep,

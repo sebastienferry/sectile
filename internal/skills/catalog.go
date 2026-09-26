@@ -370,26 +370,9 @@ func renderTicketTransitionContract(s StageSkill) string {
 	return strings.TrimRight(res, "\n") + "\n"
 }
 
-// StripFrontmatter removes a leading `---` block. Sectile generates the only
-// frontmatter a rendered file carries, so foreign prose spliced into it — a
-// legacy customization, a marketplace pack body — leaves its own behind.
-func StripFrontmatter(content string) string {
-	if strings.HasPrefix(content, "---\n") {
-		if end := strings.Index(content[4:], "\n---\n"); end >= 0 {
-			return content[4+end+5:]
-		}
-	}
-	return content
-}
-
 // Pickup embeds the maintained stage bodies, so batch and single-ticket runs
 // cannot silently omit a validation rule added to a standalone step.
-//
-// baselines carries, per stage id, the body that stage resolved to when it is
-// not the built-in one — a marketplace pack, today. A batch run must not lag
-// behind a stage a pack updated, so the composed section is that body rather
-// than the catalogue prose.
-func renderPickupSteps(specFramework string, batch bool, baselines map[string]string) string {
+func renderPickupSteps(specFramework string, batch bool) string {
 	var b strings.Builder
 	tmpl := readContractFragment("pickup-header")
 	header := executeContractTemplate(tmpl, map[string]any{
@@ -400,10 +383,6 @@ func renderPickupSteps(specFramework string, batch bool, baselines map[string]st
 	for _, id := range []string{"clarify", "specify", "implement", "adjust"} {
 		step, _ := StageSkillByID(id)
 		title := step.Title
-		if resolved := strings.TrimSpace(StripFrontmatter(baselines[id])); resolved != "" {
-			fmt.Fprintf(&b, "\n### %s\n%s\n", title, resolved)
-			continue
-		}
 		readFirst := readSkillFragment(id, "read-first", specFramework)
 		steps := readSkillFragment(id, "steps", specFramework)
 		guard := readSkillFragment(id, "guard", "")
@@ -413,49 +392,8 @@ func renderPickupSteps(specFramework string, batch bool, baselines map[string]st
 	return b.String()
 }
 
-// RenderSkillContent builds the SKILL.md of one skill from the built-in
-// catalogue.
+// RenderSkillContent builds the SKILL.md of one skill.
 func RenderSkillContent(s StageSkill, specFramework string) string {
-	return renderSkillContent(s, specFramework, nil)
-}
-
-// RenderSkillWithBody renders a skill whose prose comes from a marketplace
-// pack: Sectile's header and contracts, the pack body in between.
-//
-// Nothing a pack ships can remove a generated contract. The frontmatter, the
-// title, the stage line, the task-access and session-title contracts and the
-// ticket transition are Sectile's, and the pack body sits between them under
-// `## Project instructions` — the shape adjustmentCustomContent already
-// established for a reconciled adjustment, so there is one way of putting
-// foreign prose inside a Sectile contract and not two.
-//
-// baselines is what the batch skills compose from; it is read for pickup and
-// pickup_issues only, whose embedded stage sections have to follow the pack
-// rather than the catalogue.
-func RenderSkillWithBody(s StageSkill, specFramework, body string, baselines map[string]string) string {
-	generated := renderSkillContent(s, specFramework, baselines)
-	head, _, found := strings.Cut(generated, "## Goal\n")
-	if !found {
-		head = generated
-	}
-
-	var b strings.Builder
-	b.WriteString(head)
-	b.WriteString("## Project instructions\n\n")
-	b.WriteString(strings.TrimSpace(StripFrontmatter(body)))
-	b.WriteString("\n\n")
-	// A batch skill keeps its composed stages: the pack replaces the prose of
-	// the step, not the steps the batch has to walk through.
-	if s.ID == "pickup" || s.ID == "pickup_issues" {
-		fmt.Fprintf(&b, "## Steps\n%s\n\n", renderPickupSteps(specFramework, s.ID == "pickup_issues", baselines))
-	}
-	if contract := renderTicketTransitionContract(s); contract != "" {
-		b.WriteString(contract)
-	}
-	return b.String()
-}
-
-func renderSkillContent(s StageSkill, specFramework string, baselines map[string]string) string {
 	name := s.Title
 	if name == "" {
 		name = s.Name
@@ -470,7 +408,7 @@ func renderSkillContent(s StageSkill, specFramework string, baselines map[string
 	}
 
 	if s.ID == "pickup" || s.ID == "pickup_issues" {
-		steps = renderPickupSteps(specFramework, s.ID == "pickup_issues", baselines)
+		steps = renderPickupSteps(specFramework, s.ID == "pickup_issues")
 	}
 
 	goal := readSkillFragment(s.ID, "goal", "")
@@ -527,45 +465,21 @@ type ProjectSkillTemplate struct {
 // ProjectSkillTemplates returns the unified set ready to be written, with the
 // specification skill resolved for the project's SDD framework.
 func ProjectSkillTemplates(specFramework string) []ProjectSkillTemplate {
-	return ProjectSkillTemplatesOver(specFramework, nil)
-}
-
-// ProjectSkillTemplatesOver renders the whole set over a baseline map: the
-// body a marketplace pack supplies for a skill replaces the catalogue prose of
-// that skill, and the batch skills compose from the same map.
-func ProjectSkillTemplatesOver(specFramework string, baselines map[string]string) []ProjectSkillTemplate {
 	out := make([]ProjectSkillTemplate, 0, len(StageSkills))
 	for _, s := range StageSkills {
 		name := s.Name
 		if s.ID == "refine_macro" {
 			name = refineMacroFrameworkName(specFramework)
 		}
-		content := renderSkillContent(s, specFramework, baselines)
-		if body, ok := baselines[s.ID]; ok && strings.TrimSpace(body) != "" {
-			content = RenderSkillWithBody(s, specFramework, body, baselines)
-		}
 		out = append(out, ProjectSkillTemplate{
 			ID:          s.ID,
 			Name:        name,
 			DirName:     s.DirName,
 			Description: s.Description,
-			Content:     content,
+			Content:     RenderSkillContent(s, specFramework),
 		})
 	}
 	return out
-}
-
-// StageSkillByDirName resolves the skill a marketplace pack entry names. The
-// format carries directory names and nothing else, which is exactly what makes
-// the mapping unambiguous: one directory, one workflow step.
-func StageSkillByDirName(dirName string) (StageSkill, bool) {
-	dirName = strings.TrimSpace(dirName)
-	for _, s := range StageSkills {
-		if s.DirName == dirName {
-			return s, true
-		}
-	}
-	return StageSkill{}, false
 }
 
 // SkillDirsFor returns the skill directories of one skill inside a checkout,

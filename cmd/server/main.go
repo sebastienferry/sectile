@@ -236,8 +236,6 @@ func main() {
 	mux.HandleFunc("/api/skills", h.HandleSkills)
 	mux.HandleFunc("/api/spec-framework/status", h.HandleSpecFrameworkStatus)
 	mux.HandleFunc("/api/spec-framework/install", h.HandleSpecFrameworkInstall)
-	mux.HandleFunc("/api/skill-marketplaces", h.HandleSkillMarketplaces)
-	mux.HandleFunc("/api/skill-marketplaces/", h.HandleSkillMarketplaces)
 	mux.HandleFunc("/api/macros/", h.HandleMacroRoute)
 	mux.HandleFunc("/api/projects", h.HandleProjects)
 	mux.HandleFunc("/api/projects/", h.HandleProjectDetail)

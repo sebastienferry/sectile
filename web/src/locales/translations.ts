@@ -150,35 +150,6 @@ export interface TranslationSchema {
     stepsTitle: string
     skillSuccess: string
   }
-  /**
-   * Les corps des skills du workflow peuvent venir d'une marketplace. L'écran
-   * dit d'où vient ce qui tourne et ce qu'un pack changerait ; l'application
-   * reste une action explicite.
-   */
-  skillPack: {
-    title: string
-    none: string
-    choose: string
-    update: string
-    unpin: string
-    badge: string
-    orphaned: string
-    appliedAt: string
-    marketplace: string
-    plugin: string
-    previewTitle: string
-    previewIntro: string
-    changed: string
-    unchanged: string
-    ignored: string
-    rejected: string
-    missing: string
-    notReproducible: string
-    apply: string
-    close: string
-    noPlugin: string
-    loading: string
-  }
   taskModal: {
     createTitle: string
     editTitle: string
@@ -867,30 +838,6 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
       stepsTitle: 'Étapes exécutées',
       skillSuccess: 'Skill exécutée avec succès !',
     },
-    skillPack: {
-      title: 'Pack de skills',
-      none: 'Aucun pack : les skills sont celles intégrées à Sectile.',
-      choose: 'Choisir un pack',
-      update: 'Mettre à jour',
-      unpin: 'Détacher',
-      badge: 'MARKETPLACE',
-      orphaned: 'Marketplace non enregistrée : les corps appliqués restent, les coordonnées ne résolvent plus.',
-      appliedAt: 'appliqué le',
-      marketplace: 'Marketplace',
-      plugin: 'Plugin',
-      previewTitle: 'Ce que ce pack changerait',
-      previewIntro: 'Rien n\'est écrit tant que tu n\'as pas appliqué.',
-      changed: 'Skills modifiées',
-      unchanged: 'Skills identiques',
-      ignored: 'Répertoires ignorés',
-      rejected: 'Entrées refusées',
-      missing: 'Skills non fournies (modèle intégré conservé)',
-      notReproducible: 'Cette source n\'épingle aucune révision : le pack ne se rejouera pas à l\'identique.',
-      apply: 'Appliquer',
-      close: 'Fermer',
-      noPlugin: 'Cette marketplace ne fournit aucune skill du workflow.',
-      loading: 'Lecture de la marketplace…',
-    },
     taskModal: {
       createTitle: 'Nouvelle Tâche',
       editTitle: 'Détails & Agent Copilot',
@@ -1576,30 +1523,6 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
       output: 'Report & Generated Artifact',
       stepsTitle: 'Executed Steps',
       skillSuccess: 'Skill executed successfully!',
-    },
-    skillPack: {
-      title: 'Skill pack',
-      none: 'No pack: the skills are the ones built into Sectile.',
-      choose: 'Choose a pack',
-      update: 'Update',
-      unpin: 'Unpin',
-      badge: 'MARKETPLACE',
-      orphaned: 'Marketplace no longer registered: the applied bodies stay, the coordinates no longer resolve.',
-      appliedAt: 'applied on',
-      marketplace: 'Marketplace',
-      plugin: 'Plugin',
-      previewTitle: 'What this pack would change',
-      previewIntro: 'Nothing is written until you apply.',
-      changed: 'Skills that change',
-      unchanged: 'Skills left identical',
-      ignored: 'Ignored directories',
-      rejected: 'Refused entries',
-      missing: 'Skills the pack does not supply (built-in kept)',
-      notReproducible: 'This source pins no revision: the pack will not replay identically.',
-      apply: 'Apply',
-      close: 'Close',
-      noPlugin: 'This marketplace supplies no workflow skill.',
-      loading: 'Reading the marketplace…',
     },
     taskModal: {
       createTitle: 'New Task',
