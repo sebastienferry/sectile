@@ -236,10 +236,10 @@ worktrees fail visibly; preparation does not reset a branch to accommodate a
 request. Shared checkouts execute serially. Worktree projects admit up to five
 parallel executions according to the workstation setting, which defaults to one. Tasks using the same checkout cannot execute concurrently.
 
-Only the agent writes repository skills and `.taskflow/config.json` or updates
-the marked section of `AGENTS.md`. It preserves unrelated configuration keys and
-personal instructions. Modified managed skills are backed up before replacement;
-retired modified skills remain personal. Root-bound file access rejects escaping
+Only the agent writes repository skills or updates the marked section of
+`AGENTS.md`. It preserves unrelated configuration keys and personal
+instructions. Modified managed skills are backed up before replacement; retired
+modified skills remain personal. Root-bound file access rejects escaping
 symlinks. The downloaded `.taskflow/remote-config.json` is diagnostic, never an
 offline configuration fallback.
 

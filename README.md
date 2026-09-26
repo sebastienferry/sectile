@@ -1,1470 +1,201 @@
-# Sectile (React + Go + SQLite or PostgreSQL)
+# Sectile
 
-Desktop now provides a read-only **Changes** view for each local execution, comparing current worktree contents with the default-branch common ancestor. See [Inspect worktree changes](desktop/README.md#inspect-worktree-changes).
+Sectile is a local-first workflow manager for software teams. It brings tracker
+work, specification-driven development, coding agents, pull requests, and
+worktree isolation into one board—without requiring an online coding agent.
 
-The desktop supports persistent workstation project disconnection, with active
-execution protection and explicit re-add. See [Remove a local project](desktop/README.md#remove-a-local-project).
+It consists of three complementary components:
 
-Modern, agentic task workflow manager for developers and engineering teams, built with **Go**, **React 19**, **Tailwind CSS v4**, and **SQLite**.
+- **Server**: a Go application that serves the board, API, synchronization
+  queue, and embedded web UI.
+- **Workstation agent**: a local Go process that owns repository access,
+  worktrees, coding CLI launches, and MCP integrations.
+- **Desktop app**: an Electron companion for local execution, console output,
+  project management, and worktree-change inspection.
 
----
+## What it does
 
-## ✨ Implemented Features
+- Organizes work across **GitHub, GitLab, Jira, and local tasks**.
+- Guides each task through **Clarify → Specify → Implement → Adjust → Done**.
+- Supports **Spec Kit** and **OpenSpec** setup directly from the interface.
+- Launches configured coding engines, tracks their activities, and keeps
+  workflow transitions explicit.
+- Provides Kanban and list views, saved cross-project views, filters, search,
+  and keyboard-driven actions.
+- Runs on SQLite by default, with PostgreSQL available for server deployments.
 
-- **Server-side tracker integration**:
-  - GitHub REST supports synchronization, issue creation, updates and comments without an online agent.
-  - Jira Cloud REST supports the same, plus the sprint, team and epic fields GitHub does not have, over the account's API token.
-  - Configure explicit server credentials and repository/team identifiers. CLI login state is not used by the server.
-  - Local tasks remain in SQLite.
-  - Tracker queues expose actual API errors in Activities.
+## Requirements
 
-- 🔖 **Saved cross-project board views**:
-  - A personal, named selection of several projects and labels, listed in the
-    sidebar's *Vues* section and reachable through a `?view=<id>` link.
-  - A ticket shows in the view when it carries at least one of its labels,
-    compared whole and regardless of case; without labels, every ticket of the
-    chosen projects shows. Each card names its project, so one tracker story
-    synchronised by two projects reads as two cards.
-  - The board filters stay available and are remembered per view on the
-    browser. See `docs/adrs/0025-saved-board-views-are-personal-overlays.md`.
+- Go **1.26.6** or newer
+- Node.js **22.18.0** or newer with npm
+- Git
 
-- 📐 **Installable Spec-Driven Design Frameworks (Spec Kit & OpenSpec)**:
-  - **Real toolchain installation directly from the UI** (project *AI & SDD Skills* tab, or action palette <kbd>Cmd+K</kbd>):
-    - **GitHub Spec Kit**: installs the `specify` CLI via `uv` / `uvx` from `git+https://github.com/github/spec-kit.git`, then executes `specify init --here`. Scaffolds `.specify/` and `specs/` (spec.md, plan.md, tasks.md) as well as agent `/speckit.*` commands.
-    - **OpenSpec**: installs the `openspec` CLI via `npm` / `npx` from `@fission-ai/openspec`, then executes `openspec init`. Scaffolds `openspec/` (change proposals, spec deltas `ADDED` / `MODIFIED` / `REMOVED`, checklists).
-  - `GET /api/spec-framework/status`: reports per framework whether the CLI is found in `PATH` and whether the workspace is already initialized.
-  - `POST /api/spec-framework/install`: initiates the installation and returns **every executed command** with its output, making failures diagnosable and reproducible manually.
-  - Each installation is tracked as an activity in the *Activities* view.
-  - The selected framework guides the contents of the `/specify-issue` skill scaffolded into the project and the prompt sent to the AI agent.
-
-- 🤖 **Agent Copilot & Configurable AI Engines (`agy`, `vibe`, `claude`)**:
-  - **AI Engine selection**: without a command template, each provider is launched
-    with the command line Sectile attests for the requested execution mode. For `claude`:
-    - interactive: `claude --model <model> '<prompt>'`
-    - autonomous: `claude -p --permission-mode bypassPermissions --model <model> '<prompt>'`
-
-    Other providers: `agy -i` in interactive mode, `vibe -p --auto-approve` and
-    `codex exec` in autonomous mode. `agy`, `gemini` and `cursor` have no attested
-    autonomous mode and refuse a headless launch rather than guessing one.
-  - **Per-launch model**: the model list for each engine is configured globally
-    (*AI Engine* section of the profile) and is what the detail view launcher
-    and a card's `...` menu offer. The model resolved by configuration is the
-    default choice: keeping it does not alter the command, choosing another writes no
-    setting. On a card, the choice is a selection the card retains, displayed in
-    four characters in front of its action buttons; all its launches use it, including
-    the full chain.
-  - **Custom commands**: each mode has its own field, both globally and per project,
-    and both inherit independently. The autonomous command serves headless launches;
-    left empty, headless launches fall back to the interactive command, which must
-    then carry the `{mode:AUTONOMOUS|INTERACTIVE}` placeholder to indicate which words
-    belong to which mode. Settings screens display the two resulting command lines.
-  - **Prompt customization per skill**:
-    1. 🔍 **Clarify** (`/clarify-issue`): Analyzes ambiguities and generates framing questions.
-    2. 📝 **Specify** (`/specify-issue`): Drafts the specification (Spec Kit or OpenSpec, depending on the project's framework) and initializes the Git branch.
-    3. 💻 **Implement** (`/code-issue`): Code planning, file edits, and unit tests.
-    4. **Adjust** (`/adjust-issue`): Review the full branch, address findings and available PR feedback, run final checks, and update the existing PR before human merge.
-    5. ⚡ **Auto-Pilot** (`/pickup-issue`): Intelligent router that automatically sequences the next optimal workflow stage.
-  - **CLI status panel**: Real-time verification of installation and authentication for `git`, `gh`, `agy`, `claude`, `codex`, as well as the SDD tools `uv`, `specify` and `openspec`.
-
-- 🗂 **Sidebar & Workflow Stages**:
-  - `Backlog` ➔ `To Clarify` ➔ `Specified` ➔ `In Progress` ➔ `To Validate` ➔ `Done` with real-time counters.
-  - View toggle (`Kanban Board` / `List View`).
-  - Quick filters (`My Tasks`, `High Priority`, `Labels / Tags`) and source filter (`GitHub`, `Jira`, `Local`).
-  - **User project bookmarks & dropdown search**: Personal project bookmarks with star toggles, dropdown project search across shared workspaces, and "All projects" board/facets filtered strictly to bookmarked projects. Bookmarked projects are also prioritized in task creation, clone, and detail modals.
-  - Smooth sidebar expand / collapse.
-
-- 👤 **Profile & Personalized Ergonomics**:
-  - **Dynamic accent color**: *Indigo, Violet, Emerald, Amber, Rose, Cyan, Blue, Orange*.
-  - **Theme**: Dark Mode / Light Mode.
-  - **Multi-language**: French (FR) / English (EN) with instant switching.
-  - **Display density & UI scaling**:
-    - *Compact* (13px, reduced spacing, ideal for dense screens).
-    - *Standard* (14px, balanced view).
-    - *Comfortable* (15px, spacious view).
-
-- 🔀 **Kanban Board & List View (Drag & Drop)**:
-  - **Kanban Board View**: Fluid drag-and-drop between columns with automatic tracker sync.
-  - **List View**: Grouping by status, multi-column sorting, and inline editing.
-  - **Backlog batch launch**: Select visible `new` or `clarified` tasks from one project and choose "Batch" ("Lot" in French). A preparation dialog lets you adjust the displayed execution order and choose the dedicated worktree name before launching. Cancelling preserves the selection; a failed launch keeps the dialog ready for retry.
-
-- 🔍 **Quick Search (`/`) & Action Palette (`Cmd+K`)**:
-  - Keyboard shortcut `/` to immediately focus global search.
-  - Action palette (<kbd>Cmd+K</kbd>) with fuzzy search and direct keyboard skill execution.
-  - Workflow skills can be launched from the action palette, task card action menus, or the agent-owned desktop console; custom project command names and engine slash conventions are preserved.
-
----
-
-In Sectile Desktop, click the connected server address in the header (or focus it and press Enter) to open the board in your default browser. The shortcut is available while connected.
-
-## Task access from workflow skills
-
-Workflow skills use the local Sectile agent's exposed task-management interface first. When that interface is unavailable, `http://localhost:8090` is a temporary fallback and the integration failure must be recorded. Resolve the project and full task ID before mutations: a ticket key alone can match another repository. Managed runs retain ownership of result validation and stage transitions. See [the workflow access policy](docs/CAPABILITIES.md#task-access-from-agent-sessions).
+Optional integrations require the relevant local tools and credentials: GitHub
+CLI, GitLab or Jira API tokens, coding CLIs, Docker, or PostgreSQL.
 
 ## Quick start
 
-Install Go and the web dependencies, then build the two runtimes:
+Install the web dependencies and build the server and workstation agent:
 
 ```sh
 npm ci --prefix web
 make server agent
 ```
 
-Start the server with its persistent database. [`.env.sample`](./.env.sample)
-documents every variable the server, the agent and the MCP bridge read; copy it
-to `.env`, which the server loads at startup and which is gitignored:
+Start the server with SQLite:
 
 ```sh
-# Optional: an admin usually stores the server credential of each tracker from
-# Administration instead, but a headless deployment can export it here. One
-# variable per provider, and nothing else is read.
-export SECTILE_GITHUB_TOKEN='<GitHub API token>'
-# export SECTILE_JIRA_EMAIL='<Jira account e-mail>' SECTILE_JIRA_TOKEN='<Jira API token>'
-# export SECTILE_GITLAB_TOKEN='<GitLab API token>'
-DB_PATH=/path/to/tasks.db PORT=8090 ./bin/server
+DB_PATH=./tasks.db PORT=8090 ./bin/server
 ```
 
-### Switching between environments
+Open [http://localhost:8090](http://localhost:8090). The server does not open
+a browser, start a terminal, or run a coding agent on its own.
 
-A workstation that talks to more than one deployment does not retype its
-secrets. `scripts/set-env.sh` points `.env` at one environment and fills in
-what that environment needs, reading it from Google Secret Manager under your
-own `gcloud` credentials:
+To develop the server and web UI, use two terminals:
 
 ```sh
-scripts/set-env.sh dev            # activate the dev profile
-scripts/set-env.sh prod           # activate prod, after confirming
-scripts/set-env.sh --status       # which profile .env currently carries
-scripts/set-env.sh dev --dry-run  # show the block, fetch nothing
+make serve
 ```
-
-Which secret feeds which variable is declared in `scripts/env-profiles.conf`, a
-file that names secrets and holds none. It is gitignored and starts from
-[`scripts/env-profiles.conf.sample`](./scripts/env-profiles.conf.sample):
-a project id, a host name and the names of a deployment's secrets say enough
-about an infrastructure to stay out of a public repository.
 
 ```sh
-cp scripts/env-profiles.conf.sample scripts/env-profiles.conf
+npm run dev --prefix web
 ```
 
-The script rewrites only the block between its markers at the top of `.env`;
-everything you wrote outside it is preserved, and the previous file is kept as
-`.env.bak`.
+Vite runs on port 5173 and proxies API requests to port 8090.
 
-For a shell rather than a file:
+## Connect a workstation
 
-```sh
-eval "$(scripts/set-env.sh dev --export)"
-```
-
-One variable is deliberately absent from every profile.
-`SECTILE_TEST_POSTGRES_DSN` feeds the PostgreSQL suite, and that suite empties
-the database it is given: it truncates every table before each test. It belongs
-to a throwaway server and nothing else:
-
-```sh
-createdb sectile_test
-SECTILE_TEST_POSTGRES_DSN='postgres://localhost/sectile_test?sslmode=disable' \
-    go test ./internal/db/ -run Postgres
-```
-
-### Browser tests
-
-`npm test` in `web/` runs the unit tests only. The `web/tests/*.browser.mjs`
-files drive real components in Chrome through Playwright, one file at a time,
-from `web/`:
-
-```sh
-cd web
-PLAYWRIGHT_MODULE=/absolute/path/to/desktop/node_modules/playwright/index.mjs \
-    node tests/condensed-card.browser.mjs
-```
-
-`PLAYWRIGHT_MODULE` must name Playwright's `index.mjs` by an absolute path: a
-relative one resolves from `tests/`, and a task worktree has no
-`desktop/node_modules` of its own, so point it at the main checkout's. Task
-worktrees are named after the ticket key (`.tasks/worktrees/#387`) and Vite
-cannot serve a path that contains `#`, so a test started from such a checkout
-runs itself again through a temporary symbolic link without `#`, with Node
-keeping the link (`web/tests/browserRoot.mjs`): the same command works there,
-whether the worktree has its own `web/node_modules` or links the main
-checkout's.
-
-### PostgreSQL instead of SQLite
-
-SQLite is the default and the only engine the desktop application ships with. A
-server deployment that already runs PostgreSQL can use it instead, for managed
-backups, point-in-time recovery and the ops tooling that comes with them:
-
-```sh
-export DB_DRIVER=postgres
-export DATABASE_URL='postgres://sectile:password@db.internal:5432/sectile?sslmode=require'
-# Or, when the username and the password arrive as two separate secrets (which
-# is what a Kubernetes deployment gets, since a secret cannot be interpolated
-# into a string), leave DATABASE_URL empty and set the standard variables
-# instead: PGHOST, PGPORT, PGDATABASE, PGUSER, PGPASSWORD, PGSSLMODE.
-# The only source of the encryption key under PostgreSQL. There is no database
-# file to generate one beside, and a key invented on each restart would silently
-# make every stored tracker token unreadable. Generate: openssl rand -hex 32
-export SECTILE_SECRET_KEY='<64 hex characters>'
-./bin/server
-```
-
-`DB_PATH` is ignored in this mode. `DATABASE_URL` wins when both it and the
-standard variables are set. A PostgreSQL configuration that cannot be opened,
-or that names neither source, stops the server rather than falling back to
-SQLite: falling back would serve an empty board out of an unexpected store,
-which reads as data loss.
-
-One server instance per database. The job queue and the synchronisation loop run
-in-process and are not coordinated between instances, so two servers sharing a
-database would run every queued skill twice.
-
-Upgrading needs no schema step: a PostgreSQL database is created at the schema of
-the version that created it, and the server adds on each start whichever columns
-newer versions have declared since.
-
-Search needs the `unaccent` extension, which folds accents so that `equipe`
-finds `Équipe`. The server creates it on start. It is a trusted contrib
-extension: the server's role needs `CREATE` on the database, not superuser, and
-the PostgreSQL server needs its contrib package (the official images and most
-managed offerings ship it). When the extension cannot be created, the server
-refuses to start and its error names `unaccent`; an administrator can create it
-once with `CREATE EXTENSION unaccent;` and the server starts from then on.
-
-To move an existing SQLite database across, once:
-
-```sh
-SECTILE_SECRET_KEY='<the same key the SQLite server uses>' \
-  ./bin/sectile-migrate -from ./tasks.db -to "$DATABASE_URL"
-```
-
-The key matters: a stored tracker token is sealed to its owner and its tracker,
-not to the database, so the rows copy perfectly well under a different key and
-nobody notices until a tracker call fails. The migration opens one sealed
-credential as a check before it copies a single row, and refuses a destination
-that already holds data.
-
-Open **http://localhost:8090**. The server never opens a browser or starts local
-Git, tracker CLI, terminal, editor or LLM processes. A server deployment needs
-only its binary, writable database/configuration storage and network access to
-its trackers. Put it behind your deployment's access-control boundary; the
-existing browser REST API is still a single-user interface.
-
-On the workstation, pair once with a code from **Pair a workstation** in the
-profile dialog, then start the agent:
+From the server profile, create a pairing code under **Pair a workstation**.
+Then, on the machine that has the repository and coding tools:
 
 ```sh
 ./bin/agent pair --url http://localhost:8090 --code '<pairing code>'
 ./bin/agent --url http://localhost:8090 --project '<project-id>' --repo /path/to/clone
 ```
 
-Install and authenticate the coding CLI and Git tools on that workstation.
-`make agent` requires only Go; it does not build the web UI. `make desktop`
-builds the agent with the optional console companion, and `make desktop-package`
-packages it. `make run` opens it. For development, run `make serve` and
-`npm run dev --prefix web` in separate terminals; the Vite server listens on
-port 5173 and proxies `/api` to `http://localhost:8090`.
+The agent owns local Git operations and launches. Keep tracker credentials on
+the server and personal write credentials in the profile; do not put tokens in
+the agent configuration.
 
-### Tracker connection parameters
+## Common commands
 
-**The interface is the primary way to configure them.** *Connect your tracker*
-asks for the instance URL and the repository or project slug of the selected
-tracker (Jira, GitHub or GitLab) and saves them in the user configuration. No
-file to edit on the server, and no restart. A project can override the instance
-and the slug for itself, never the credential.
-
-**Every synchronisation uses the server credential of its provider.** There is
-one per provider, GitHub, Jira and GitLab, and it is what the auto-sync timer and
-a *Sync* started by hand both authenticate with; the activity says who asked, the
-tracker call never borrows their token nor the project owner's. An admin stores
-it from *Administration > Server tracker credentials*, which checks it against
-the instance first, shows the account it authenticates as, and says when it comes
-from the environment instead. It is sealed in the database under the server key,
-without a passphrase, since nobody is there to unlock it. A stored credential
-wins over the environment; clearing it hands the provider back to the
-environment. Members see whether each provider is configured, never the value,
-and cannot write it. A stored credential the key no longer opens fails the sync
-with an error saying so, rather than fall back to another account. See
-[ADR 0028](./docs/adrs/0028-tracker-sync-uses-a-server-credential-per-provider.md).
-
-Tokens are write-only: the API never returns one. The settings report
-`githubTokenSet` / `gitlabTokenSet` / `jiraApiTokenSet` when a server credential
-is stored, and `...FromEnv` when none is stored and the server environment
-supplies one.
-
-**A tracker write is personal, and only personal.** On every provider, an
-operation somebody asked for (a ticket created or edited, a comment, a stage
-report, a macro milestone) either carries their own token or is refused,
-because writing it under the server account would put a name on it that nobody
-chose. The server credential serves the synchronisation, and the work nobody
-asked for, only (ADR 0029). An agent key tied to no user, such as the shared
-server key, reads but never writes to a tracker. On Jira, an Atlassian account
-belongs to a site, so the site, the account e-mail and the token travel
-together: all three are stored from the person's own profile, in *Connect your
-tracker*. A project put on Jira prefills its tracker URL from the instance of
-whoever creates it.
-
-**A tracker credential is personal.** A comment, an assignment and a
-transition are attributed to the account whose token made the call, so a
-shared token makes the whole team sign as one integration account. *Profile >
-Tracker Credentials* therefore holds one zone per tracker Sectile can drive.
-Writing needs a personal credential on Jira, GitHub and GitLab alike; reads
-still use the server credential when you stored none. A personal token is encrypted with AES-256-GCM,
-bound to its owner and to its tracker, with the key held outside the database
-(`SECTILE_SECRET_KEY`, or a 0600 file beside it: `secret.key`, which belongs
-in no backup the database is in). A row moved from one user to another stops
-opening. The server starts without the key and refuses only what would need it.
-
-Optionally, a **sealing passphrase** derives the key instead, through Argon2id,
-and is never stored. Nothing can then open that token without its owner, the
-server included. The cost is stated in the screen at the moment of the choice:
-Sectile writes to trackers from a background queue, and a sealed token is
-unusable there until its owner unlocks it. A locked credential fails the
-operation rather than falling back to the server token, which would write under
-a name nobody chose. See [ADR 0014](./docs/adrs/0014-personal-tracker-credentials-are-sealed.md).
-
-An unlock survives server restarts and holds on every instance: it lasts while
-its owner is connected, through an open tab or a running local agent, and 30
-minutes after they leave, or ends at once when they sign out with nothing else
-connected. It is kept in the database under the server key, so unlocking needs
-that key, and during that window a copy of the database together with the key
-opens the token. See [ADR 0032](./docs/adrs/0032-unlocked-sealed-credentials-live-with-their-owners-presence.md).
-
-The background queue carries whoever asked a write: a field update and every
-tracker operation record the acting user on the job, and the worker puts them
-back before resolving a credential. A synchronisation is the exception: it
-records who asked on its activity, and reads with the server credential.
-
-Jira asks for the site (`mon-org.atlassian.net`), the account e-mail and an
-Atlassian API token, which authenticate as `email:token`. Its environment
-fallbacks are `SECTILE_JIRA_URL`, and the pair `SECTILE_JIRA_EMAIL` +
-`SECTILE_JIRA_TOKEN` for the server credential. A project overrides the site
-through its `trackerUrl`; the server credential stays global, one Atlassian
-token being valid on every site of the account.
-
-GitLab works on gitlab.com and on a self-managed instance, named by its REST
-API URL (`https://gitlab.example.org/api/v4`, `https://gitlab.com/api/v4` when
-empty). A GitLab project names its GitLab project by path (`group/sub/project`,
-or a numeric id), else the default of the settings. Every token, the server
-credential as the personal ones, is a personal access token with the `api`
-scope; a personal token makes the issues, notes and label changes someone asks
-for appear under their own GitLab account. The mapping follows GitHub's where
-the two share a notion ([ADR 0030](./docs/adrs/0030-gitlab-tracker-mapping.md)):
-the stage is a `#<stage>` label and a closed issue is finished; a macro is a
-pair of `macro:<title>` / `parent:<key>` labels; the team is a `team::<name>`
-scoped label; a board column is a list of the GitLab board, plus Open and
-Closed; a sprint is a project milestone or, on Premium, a group iteration. What
-a Free instance lacks, iterations, is simply absent from the sprint list, and
-moving a ticket into an iteration there is refused. Group epics and issue
-weights are not read.
-
-The environment variables below stay supported, as the fallback for headless and
-CI deployments where no one opens the interface. **Stored configuration wins**:
-for a URL the server resolves the project override, then the user configuration,
-then the environment; for a credential, the stored server credential, then the
-environment. `SECTILE_TRACKER_TOKEN`, `GH_TOKEN`, `GITHUB_TOKEN`,
-`JIRA_API_TOKEN` and `GITLAB_TOKEN` are no longer read: a server that still has
-one set logs a warning at startup naming its replacement.
-
-| Setting | Meaning |
+| Command | Purpose |
 | --- | --- |
-| `SECTILE_GITHUB_TOKEN` | GitHub server credential, when none is stored from Administration. |
-| `SECTILE_GITHUB_API_URL` | REST base URL; defaults to `https://api.github.com`. GitHub Enterprise uses `https://<host>/api/v3`. |
-| `SECTILE_GITLAB_TOKEN` | GitLab server credential, when none is stored from Administration. |
-| `SECTILE_GITLAB_API_URL` | GitLab REST base URL; defaults to `https://gitlab.com/api/v4`. |
-| `SECTILE_GITLAB_PROJECT` | Default GitLab project slug, e.g. `group/app`. |
+| `make server` | Build the embedded web UI and server binary. |
+| `make agent` | Build the workstation agent. |
+| `make serve` | Run the server from source. |
+| `make run` | Build and launch the desktop app. |
+| `make desktop` | Build the desktop app without launching it. |
+| `make desktop-package` | Package the desktop application. |
+| `make test` | Run Go and web checks. |
+| `make release` | Cross-compile server and agent binaries into `dist/`. |
+| `make help` | List all supported targets. |
 
-Environment variables are read from the environment of the **server process
-itself**, at startup only. `make serve`, `go run ./cmd/server` and
-`./bin/server` inherit the shell they are launched from, so exporting a
-variable in another terminal (or after the server is already running) has no
-effect: restart the server, or, better, type the value in the interface, which
-takes effect on the next request. A `gh` login on the same machine is not picked
-up either; for GitHub only `SECTILE_GITHUB_TOKEN` is consulted. Each provider
-reads its own variable only, so a server driving several providers cannot send
-one provider's credential to another.
+## Configuration
 
-The tokens are kept in the server database and in the agent's reach only through
-the server: `~/.config/sectile/settings.json`, the agent's own configuration,
-stays free of credentials.
+The interface is the preferred place to configure projects and trackers.
+Administrators can set server-side credentials per provider; users supply their
+own credentials for tracker writes, preserving authorship.
 
-For a GitHub project the token needs, at minimum, read and write access to the
-issues of the configured repositories, plus repository metadata. A fine-grained
-token therefore grants **Issues: read and write** and **Metadata: read** on those
-repositories; a classic token uses the `repo` scope. For a quick local setup,
-`SECTILE_GITHUB_TOKEN="$(gh auth token)"` reuses an existing `gh` login, which is
-convenient but tied to that CLI session rather than being a durable credential.
-
-Without a usable token the server keeps serving the board from its database, but
-every synchronisation fails with `no GitHub server credential: set
-SECTILE_GITHUB_TOKEN or save one in Administration` (and its Jira and GitLab
-equivalents), and a write somebody asks for without a credential of their own
-fails too: task comments do not load and workflow stage transitions do not reach
-the ticket. Verify the server picked the credential up by opening a task and
-checking that its comments load: that read goes through the tracker API.
-
-Environment credentials are read at server startup, stored ones on every call;
-both are excluded from agent configuration.
-Supply access to the configured repositories/teams and the operations you use
-(issues, comments, milestones and PR reads). Configure `githubRepo` as
-`owner/repository`. The server never discovers
-these through a local clone or CLI credential store. Missing credentials and
-API failures fail the operation visibly; there is no workstation fallback.
-
-### Releases and migration
-
-`make release` emits `server-<os>-<arch>` and `agent-<os>-<arch>` under
-`dist/`, with `.exe` for Windows. Install them under the canonical command
-names `sectile-server` and `sectile-agent` used throughout this document.
-Supported targets are Darwin arm64/amd64, Linux arm64/amd64 and Windows amd64.
-
-| Previous invocation | Replacement |
-| --- | --- |
-| `sectile` or `sectile` (server) | `sectile-server` |
-| `sectile agent ...` | `sectile-agent ...` |
-| `sectile mcp ...` or `sectile mcp ...` | `sectile-agent mcp ...` |
-| Unified `stage` / `sync-skills` commands | Agent MCP `transition_stage` / project skill deployment through the agent |
-
-Upgrade the server and agent together. No unified compatibility executable is
-built. Update service units, native client MCP registrations and custom launchers.
-The agent refreshes generated MCP registrations on dispatch. `SECTILE_OPEN_BROWSER`
-and `SECTILE_NO_BROWSER` are obsolete. The old server `/ws/terminal` and terminal
-session routes return 410; use the agent-owned desktop console.
-
-The product remains **Sectile**. Database lookup, `.taskflow/` configuration,
-`.tasks/` worktrees, `SECTILE_*`/legacy `TASKACAO_*` execution context and the
-`sectile-api` health identifier remain compatible. No database files are moved
-or deleted. Local CLI credentials remain available to agent-side coding and PR
-commands; configure the server credentials separately.
-
-### Container image and GitLab CI
-
-`Dockerfile` builds the server as a static binary with the web interface
-embedded, on a distroless non-root base. Everything it writes goes under
-`/data` (`DB_PATH=/data/tasks.db`, plus the data directory resolved through
-`XDG_CONFIG_HOME=/data/config`), so mount a persistent volume there:
+For headless or local development, copy the sample environment file and set
+only the values you need:
 
 ```sh
-docker build -t sectile-server .        # or: make image
-docker run -p 8090:8090 -v sectile-data:/data sectile-server
+cp .env.sample .env
 ```
 
-The GitHub repository is pull-mirrored into GitLab, where `.gitlab-ci.yml`
-runs the Go, web and desktop test suites on every mirrored branch and tag,
-then publishes two things: the server image
-(`<registry>/server:<pipeline>-<ref-slug>`, plus `latest` on `main` and the
-tag name on a tag) and, on a tag only, the cross-compiled `sectile-server-*` /
-`sectile-agent-*` binaries, joined by the Sectile Desktop archives on a
-`vX.Y.Z` release tag, uploaded to the project's Generic Package Registry under
-the package `sectile` with the tag as version. The agent is never
-part of the image: it runs on workstations, next to the coding CLIs.
+The server reads `.env` at startup. Its most common settings are `PORT`,
+`DB_PATH`, and server tracker credentials such as `SECTILE_GITHUB_TOKEN`.
+See [`.env.sample`](./.env.sample) for the complete reference.
 
-A merge into `main` promotes itself to dev. Once the image is published, the
-pipeline's `promote:dev` job rewrites the pinned tag in argocd-sp
-(`apps/sectile/dev/values.yml`, `features.main.image.tag`) through the shared
-automerge template and merges that change; ArgoCD deploys from the resulting
-commit, so the pipeline never talks to a cluster. What it pins is the same
-version string the image carries, never a number retyped by hand. Production
-is not promoted: there is none yet. Pinning an older tag by hand in argocd-sp
-therefore only holds until the next merge into `main`. To hold dev back,
-revert here. See
-[ADR 0016](docs/adrs/0016-promotion-automatique-en-dev.md).
+### MCP behind a hosting proxy
 
-A branch other than `main` is also published as `server:preview-<commit sha>`,
-the tag the test environments pull. Those are declared in argocd-sp
-(`apps/sectile/dev`, feature `testenv`): a merge request opened on the GitLab
-mirror for the mirrored branch and labelled `testenv` gets its own board at
-`https://testenv-<merge request number>-sectile.internal.eqtv.dev`, with its
-own database, following the head of the branch until the merge request closes.
-The GitHub pull request alone spawns nothing: the generator only reads GitLab.
-
-### Prometheus metrics
-
-The server exposes Prometheus metrics at `/metrics`, on its own port next to
-the interface. The path sits outside `/api/`, so it needs no browser session
-and is public: the metrics carry no secret and name nobody, only counts.
-
-| Metric | Type | Labels | Meaning |
-| --- | --- | --- | --- |
-| `sectile_http_requests_total` | counter | `handler`, `method`, `code` | Requests served by each controller. `handler` is the route pattern (`/api/tasks/`), never the raw path. |
-| `sectile_http_request_duration_seconds` | histogram | `handler`, `method` | Controller latency. Event streams and WebSockets are counted but not timed. |
-| `sectile_http_errors_total` | counter | `handler`, `method`, `class` | Requests answered with an error: `client` for 4xx, `server` for 5xx. |
-| `sectile_active_users` | gauge | | Accounts whose browser session reached the server within the last five minutes. |
-| `sectile_active_runs` | gauge | `status` | Runs not over, by `running`, `queued` and `pending`. |
-| `sectile_build_info` | gauge | `version`, `commit` | Always 1; identifies the running build. |
-
-The Go runtime (`go_*`) and process (`process_*`) metrics come with them. The
-HTTP series are counted by each server; the board series are read from the
-shared database at scrape time, so every replica reports the same value. Sum
-the former across replicas, take `max()` of the latter:
-
-```promql
-# Error rate, per controller
-sum by (handler) (rate(sectile_http_errors_total{class="server"}[5m]))
-  / sum by (handler) (rate(sectile_http_requests_total[5m]))
-# 95th percentile latency, per controller
-histogram_quantile(0.95, sum by (handler, le) (rate(sectile_http_request_duration_seconds_bucket[5m])))
-# Active users and runs
-max(sectile_active_users)
-max by (status) (sectile_active_runs)
-```
-
-See [ADR 0027](docs/adrs/0027-prometheus-metrics-and-active-users.md).
-
-### Grafana dashboard
-
-[`deploy/grafana/sectile.json`](deploy/grafana/sectile.json) is a Grafana
-dashboard for these metrics, in three rows: an overview (running version,
-replicas, active users, active runs by status), the HTTP controllers (requests,
-server and client errors, latency percentiles, busiest controllers; the scrapes
-of `/metrics` are left out) and the runtime of each replica (goroutines, memory,
-CPU, garbage collection, file descriptors).
-
-Import it from *Dashboards › New › Import*, or through the API:
-
-```bash
-jq '{dashboard: ., overwrite: true}' deploy/grafana/sectile.json \
-  | curl -sf -H "Authorization: Bearer $GRAFANA_TOKEN" -H 'Content-Type: application/json' \
-      -d @- "$GRAFANA_URL/api/dashboards/db"
-```
-
-The file names no datasource and no deployment, so it imports into any Grafana
-as is. Three selectors at the top pick them: *Datasource* (any
-Prometheus-compatible one holding the series), *Deployment* (every Kubernetes
-`namespace` that reports `sectile_build_info`) and *Replica* (the `pod`s of that
-deployment, all by default). The series are therefore expected to carry the
-`namespace` and `pod` labels, which a Kubernetes scrape adds. To make a
-deployment the default, select it and save the dashboard with *Update default
-variable values*. Importing again replaces the dashboard rather than copying
-it, since its `uid` is fixed; the defaults saved this way are lost and have to
-be saved again.
-
-`go test ./internal/metrics/` fails when a panel queries a `sectile_*` series
-the server does not register, adds up a board series across replicas, or names
-a datasource or a namespace of its own.
-
-## Versioning and changelog
-
-A release of Sectile is a Git tag `vX.Y.Z` following
-[Semantic Versioning](https://semver.org/spec/v2.0.0.html), and nothing else.
-The tag is the only source of the version: it is injected into the Go binaries
-at link time, and no file in the repository declares the product version. A
-build made outside a tag reports `dev`, which is exactly what it is.
-
-Every component can say what it is running:
-
-```bash
-sectile-server --version
-sectile-agent --version
-curl -s http://localhost:8090/api/version   # {"version":"v0.1.0","commit":"…"}
-```
-
-In the interfaces: the version sits in the web footer, and clicking it opens
-the release notes; the desktop app shows them in its settings, next to its own
-version and the local agent's: the two are distributed separately, so a
-workstation may have upgraded only one of them.
-
-The release notes live in [`CHANGELOG.md`](./CHANGELOG.md), in
-[Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format and **in
-English only**. The server embeds it and serves it on `GET /api/changelog`; the
-desktop app inlines it at build time. A pull request that changes something a
-user can see adds its own line under `## [Unreleased]`; the release promotes
-that section.
-
-What a pipeline produces depends on its ref:
-
-| Ref | Server image | Workstation binaries and desktop archives |
-|---|---|---|
-| tag `vX.Y.Z` | `server:vX.Y.Z` | published under version `vX.Y.Z` |
-| merge into `main` | `server:<iid>-main` + `latest` | none |
-| any other branch | `server:<iid>-<slug>` + `preview-<sha>` | none |
-
-A release is published twice, by two independent builds of the same tag: the
-GitLab tag pipeline uploads it to the mirror's package registry (package
-`sectile`, version `vX.Y.Z`), and a GitHub Actions workflow
-(`.github/workflows/release.yml`) creates the GitHub Release of the tag, with
-the tag's changelog section as its notes. Both carry the same fifteen files:
-the `sectile-agent-*` and `sectile-server-*` binaries, a Sectile Desktop
-archive for macOS (Apple Silicon and Intel), Linux x86-64 and Windows, each
-bundling its agent, and a `SHA256SUMS` over that stream's own files. How to
-install the desktop app from an archive, unsigned packages included, is in
-[Install a release](desktop/README.md#install-a-release). See
-[ADR 0034](docs/adrs/0034-a-release-is-published-on-both-forges.md).
-
-The procedure for cutting a tag (deriving the number, writing the changelog
-entries, bumping the manifests, committing, creating the annotated tag) is
-written in [`AGENTS.md`](./AGENTS.md) and is meant to be executed as written
-whenever somebody asks for a release. See
-[ADR 0018](docs/adrs/0018-semver-tags-and-changelog.md).
-
-## 📚 Technical Documentation
-
-A documentation suite for developers and LLMs is available in the [`/docs`](./docs) folder:
-
-- 🏛️ [**Architecture & System Design** (`docs/ARCHITECTURE.md`)](./docs/ARCHITECTURE.md): Concurrency model, SQLite persistence, Git worktree isolation, and agent console protocols.
-- ⚡ [**Core Capabilities & Workflows** (`docs/CAPABILITIES.md`)](./docs/CAPABILITIES.md): Multi-project management, 5-skill autonomous pipeline, Auto-Pilot, and GitHub / Jira synchronization.
-- 🎨 [**UX Components & Frontend Design** (`docs/UX_COMPONENTS.md`)](./docs/UX_COMPONENTS.md): Drag-and-drop Kanban, tabular list view, agent console companion, and Git diff inspector.
-- 🔌 [**API Reference & Data Specifications** (`docs/API_AND_DATA_SPEC.md`)](./docs/API_AND_DATA_SPEC.md): Complete SQLite schema, REST endpoints, and agent-owned console protocol.
-- 🤖 [**Re-Implementation Guide for LLMs** (`docs/REIMPLEMENTATION_GUIDE.md`)](./docs/REIMPLEMENTATION_GUIDE.md): Step-by-step blueprint to rebuild Sectile from scratch.
-
----
-
-## ⌨️ Keyboard Shortcuts
-
-| Shortcut | Action |
-|---|---|
-| `/` | Focus global search bar |
-| `Cmd+K` or `Ctrl+K` | Open command & skill palette |
-| `N` or `C` | Open quick task creation modal |
-| `Esc` | Close modal / clear search |
-| `↑` / `↓` + `Enter` | Navigate and select in action palette |
-
-## Remote execution and MCP
-
-Sectile exposes twelve typed tools at the Streamable HTTP endpoint `/mcp`:
-
-- `list_projects`: discover project primary keys, names and Git remotes.
-- `get_task`: read task details and comments.
-- `transition_stage`: record a verified workflow stage and queue tracker synchronization.
-- `add_comment`: post a task comment.
-- `list_tasks`: list tasks with optional filters.
-- `get_project_context`: read project execution settings and effective instructions.
-- `create_task`: file a new ticket on an explicitly named project, remotely whenever its tracker supports it.
-- `update_task`: update mutable descriptive fields of an existing task (title, description, priority, issueType, labels).
-- `start_run`: start or reuse the invocation's remote run, on a task (`taskKey`) or on a macro (`projectId` and `macroKey`).
-- `finish_run`: finish that run without advancing the task stage.
-- `report_waiting`: mark a task run as waiting for its user before a blocking question, so the board and the owner's desktop show it; the session's next call ends the wait.
-- `prepare_macro_worktree`: prepare a macro's specification checkout on the caller's local agent, in the desktop *Specifications folder*, and return its path and branch (empty for a folder that is not a Git repository).
-- `prepare_repository_worktree`: prepare the task's worktree in another repository (one of the project's repositories, or a Git folder attached to the project on the caller's workstation), on the caller's local agent and on the task branch, before a skill changes it; that repository then needs its own pull request, given to `transition_stage` in `prUrls`. A folder without a remote is changed in place, without it.
-
-HTTP and stdio both identify the server as `sectile`. Tool arguments, results,
-authentication and workflow validation retain their existing contracts.
-
-`/mcp` is stateful: every connected client holds one server session, so two
-clients sharing the same credential stay distinct and a client that goes away is
-noticed. A run started with `start_run` belongs to the session that started it.
-When that session ends (the client quits, its process is killed, or its
-connection breaks), the server closes the runs it still owns as canceled, with a
-note saying the client disconnected. A short silence ends nothing: a client that
-says nothing past `SECTILE_MCP_SESSION_TIMEOUT` (four hours by default) gets one
-sentence appended to its runs, which keep running and show as *silent* on the
-board. A client silent past `SECTILE_MCP_SESSION_ABANDON_AFTER` (eight hours by
-default, never less than the first bound) is taken for dead: its session is
-closed and its runs are canceled as disconnected. `finish_run` remains how a run
-reports its own outcome and always wins over that fallback, and a run a
-disconnection canceled can still be reported by its owner afterwards. A run reused from
-a launcher keeps its dispatching agent as owner, since that agent already watches
-the real process.
-
-The server also pings every session, every `SECTILE_MCP_KEEPALIVE_INTERVAL`
-(25 seconds by default), so that a proxy in front of it never cuts a client's
-idle event stream and makes the client start over with a new session. A session
-that owns no run and whose client neither answers
-`SECTILE_MCP_KEEPALIVE_FAILURES` pings in a row (3 by default) nor sends
-anything in between is closed at once. A session that owns a run is only ever
-closed by the two bounds above. Answering a ping does not count as the client
-speaking, so it does not delay the silence note.
-
-`GET /api/mcp/sessions` lists the live sessions, what each client calls itself,
-and the runs it owns, and how long each client has been attached.
-`SECTILE_MCP_CLIENT` names a bridge in that list. A run a
-client created can also be closed by hand, by its owner or an admin: *Close* on
-the board badge closes it as disconnected, and the activities view's cancel ends
-it for good. A server
-restart destroys every session at once, so startup closes the runs they owned as
-canceled; runs dispatched to an agent are preserved, because that agent
-reconnects and reports the real process exit.
-
-Each server process registers itself in the database and refreshes that record
-every ten seconds; every job it runs and every client run it holds records it as
-owner. On SQLite, which one process uses at a time, a start reclaims all
-unfinished work as described above. On PostgreSQL, where another server may be
-serving from the same database, a start and every live server only reclaim the
-work of servers not heard from for 45 seconds, so a rolling deploy no longer
-interrupts the server it replaces.
-
-Servers sharing a PostgreSQL database also relay to each other, through
-PostgreSQL `LISTEN/NOTIFY` on the `sectile_events` channel, the live updates
-they send to browsers and the cancellations they receive: a board open on one
-server shows a change made through another, and canceling a job stops it on
-whichever server runs it. A canceled job keeps its `canceled` status when its
-execution ends. Nothing extra has to be configured; SQLite needs none of it.
-
-A local agent keeps one connection to whichever server the load balancer gives
-it, and any other server reaches it through that one. Each server records in the
-database which agents it holds and forwards agent work, stage checks, launches,
-workspace operations, to the server holding the agent, on a dedicated internal
-port. That port must be declared on the container and must not be routed by the
-ingress:
-
-| Variable | Default | Purpose |
-| --- | --- | --- |
-| `SECTILE_INTERNAL_PORT` | `8092` | Port of the internal endpoints the servers call each other on. |
-| `SECTILE_INTERNAL_URL` | first non-loopback IPv4 and the internal port | Address this server advertises to the others. |
-
-The servers authenticate each other with a token derived from
-`SECTILE_SECRET_KEY`, which they already share; without it, agents connected to
-a server keep working through that server, and forwarding refuses with the
-reason. An operation forwarded to a server that stops before answering fails
-with an explicit error and is not replayed.
-
-The same port carries MCP sessions. A session lives on the server that created
-it, and its id names that server: a request that reaches another one is relayed
-to it on the internal port, event stream included, and answered as if it had
-gone there directly. A session whose server stopped is answered `404`, and the
-client starts a new one on a server that is up; one whose server is listed as up
-but does not answer gets `503` with its name. The load balancer must not buffer
-the event stream of `GET /mcp`. The sessions view (`GET /api/mcp/sessions`)
-lists the sessions of every live server, each with the `instance` holding it,
-and names under `unreachable` those that did not answer within two seconds.
-
-An unlocked sealed tracker credential needs none of this: its unlock is kept in
-the database, under `SECTILE_SECRET_KEY`, so every server reads it and a lock
-holds on every server at once (see "Tracker connection parameters" above).
-
-### Several replicas
-
-The server can run as several active replicas behind one load balancer, all on
-one PostgreSQL database; SQLite stays single-instance. No session store, no
-broker and no sticky sessions are needed: web sessions live in the database,
-and everything that lives in one replica's memory is reached through that
-replica on the internal port. The design is recorded in
-[ADR 0030](./docs/adrs/0030-several-server-replicas-share-one-postgresql.md).
-
-What the deployment must provide:
-
-- **PostgreSQL** (`DB_DRIVER=postgres`) shared by every replica.
-- **The same `SECTILE_SECRET_KEY` on every replica.** It opens the stored
-  credentials and authenticates the replicas to each other; without it the
-  replicas serve their own agents and sessions only.
-- **The internal port** (`SECTILE_INTERNAL_PORT`, `8092`) declared on the
-  container, reachable from the other replicas, and never routed by the
-  ingress. Set `SECTILE_INTERNAL_URL` when the pod's first IPv4 is not the
-  address the others reach.
-- **Probes.** Liveness on `GET /api/health`: the process serves. Readiness on
-  `GET /api/ready`: it answers `503` with a reason while the database does not
-  answer, before the replica is registered and its internal port serves, and
-  from the moment it is asked to stop. Both are public.
-- **A termination grace longer than the drain.** On SIGTERM a replica reports
-  not ready, keeps serving for `SECTILE_SHUTDOWN_GRACE` (default `5s`) so the
-  balancer stops routing to it, then removes itself, closes its agent
-  connections (the agents reconnect to another replica) and exits. The pod's
-  termination grace period must exceed that grace by the few seconds requests
-  need to finish. A replica killed without draining is taken over once it has
-  been silent for 45 seconds.
-- **Replica count and disruption budget.** Two replicas at least, and a
-  disruption budget that keeps one available (`maxUnavailable: 1` with two), so
-  a node drain or a rolling deploy never stops every replica at once.
-- **Ingress timeouts for long-lived connections.** The agent WebSocket
-  (`/ws/agent-connect`) is pinged every 10 seconds; the browser event stream
-  (`/api/events`) and the MCP event stream (`GET /mcp`) can stay silent much
-  longer. Give these paths an idle timeout of an hour or more, and do not
-  buffer the two event streams.
-
-What is lost with a replica: an agent operation in flight through it fails with
-an explicit error and is not replayed, its MCP sessions end (their clients
-start new ones, and the runs they owned stay recoverable through `finish_run`),
-and its agents and browsers reconnect to another replica on their own.
-
-| Variable | Default | Purpose |
-| --- | --- | --- |
-| `SECTILE_SHUTDOWN_GRACE` | `5s` | How long a stopping replica keeps serving after it reports not ready. `0` skips the wait. |
-| `SECTILE_INSTANCE_HEARTBEAT` | `10s` | Tests only: how often a replica says it is alive. |
-| `SECTILE_INSTANCE_DEAD_AFTER` | `45s` | Tests only: how long a silent replica is waited for before its work is taken over. |
-| `SECTILE_INSTANCE_RECLAIM` | `15s` | Tests only: how often a live replica looks for that work. |
-
-The last three exist for the multi-replica harness, which shortens them to run
-in seconds; a dead-after bound close to the heartbeat takes over the work of a
-replica that is merely slow. The harness, `TestPostgresMultiReplicaHarness` in
-`cmd/server`, runs two real server processes on the database named by
-`SECTILE_TEST_POSTGRES_DSN`, behind a balancer that honours readiness: it checks
-an agent operation, a live update and an MCP session across the two, kills one
-and drains the other. The `test:postgres` CI job runs it.
-
-### Signing in and pairing a workstation
-
-A deployment shared by several people signs them in through an OpenID Connect
-provider. Configure it on the server:
+If MCP returns `403 Forbidden: invalid Host header` while the workstation agent
+connects successfully, the hosting ingress may be forwarding to the server over
+loopback while keeping its public hostname. The MCP loopback protection rejects
+that combination unless the server explicitly trusts the public Host:
 
 ```sh
-export SECTILE_OIDC_ISSUER='https://example.okta.com'
-export SECTILE_OIDC_CLIENT_ID='<client id>'
-export SECTILE_OIDC_CLIENT_SECRET='<client secret>'
-export SECTILE_OIDC_REDIRECT_URL='https://sectile.example.com/auth/callback'
+export SECTILE_MCP_ALLOWED_HOSTS='sectile.example.com'
 ```
 
-The provider's endpoints are discovered from its metadata document at startup.
-A provider that cannot be reached stops the server rather than serving the
-interface unauthenticated. Without these variables the interface falls back to
-the local e-mail sign-in below. Signing in is mandatory either way: an
-unauthenticated visitor sees the sign-in screen and nothing else.
+Use the hostname from the server's public URL, including a generated hosting
+domain. Set this variable on every **server** instance and restart/redeploy it;
+the workstation agent and Codex MCP URL do not need to change. Multiple hosts
+are comma-separated and matched exactly, ignoring case. Include `:port` if it
+appears in the forwarded Host; do not include a scheme, path or wildcard.
 
-Each person then **pairs their workstation** from the profile dialog: generate a
-pairing code, single use and valid ten minutes, and spend it once with
-`sectile-agent pair` or in the desktop connect screen. The workstation receives
-its own API key and keeps it; nobody handles the key. It is the one credential
-every machine surface takes: the agent, the desktop app, `/mcp` on the server
-and the agent gateway. Keys expire after 90 days by default and are renewed or
-revoked per workstation from the same list, without disturbing the others. The
-agent warns in its log ten days before its key expires, and a refused key says
-`API key expired` rather than asking you to check for a typo.
+With no setting, loopback requests still require a loopback Host. Configuring a
+public Host adds only that authority to the loopback check; other hosts remain
+blocked there, and connections to non-loopback interfaces retain their existing
+behavior. Bearer authentication and rejection of browser origins always apply.
+An unauthenticated `401` does not test Host acceptance: authenticate an MCP
+initialization and verify `tools/list` after deployment. See
+[ADR 0037](docs/adrs/0037-explicit-mcp-ingress-hosts.md).
 
-A key is shown in clear only in the panel's advanced case: an MCP client
-configured by hand on a machine with no agent to pair for it.
+### PostgreSQL
 
-Roles can come from the provider. Name the claim carrying a person's groups or
-roles and the value that grants admin, and each sign-in sets the role from it:
+SQLite is the default and is what the desktop application ships with. A server
+deployment can use PostgreSQL instead:
 
 ```sh
-export SECTILE_OIDC_ROLE_CLAIM='groups'              # Okta: a groups claim on the authorization server
-export SECTILE_OIDC_ADMIN_GROUP='sectile-admins'     # Auth0: a namespaced claim set by a post-login Action
-```
-
-The two are set together or not at all. The claim is read from UserInfo, then
-from the ID token, and it may be a single string or a list. It is the authority:
-it overwrites a role an admin changed by hand at that person's next sign-in.
-Without it, the first person to sign in while no admin exists becomes the admin.
-
-### Before an identity provider: the local sign-in
-
-Without `SECTILE_OIDC_ISSUER` the interface offers a local sign-in: an e-mail
-address and nothing else. An unknown address creates the account, the first
-account created is the admin, and everyone after that is a member.
-
-The form also takes an optional sealing passphrase, the one protecting your own
-tracker tokens. It is never a login password: a wrong one signs you in anyway
-and leaves those tokens locked until you unlock them from your profile. A right
-one keeps them unlocked while you are connected, then 30 minutes.
-
-It identifies people; it does not authenticate them. Anyone who types a
-colleague's address is that colleague, so keep it to a trusted network and treat
-it as the step before connecting Okta or Auth0, which disables it. A deployment
-with no account yet shows the sign-in screen and no board; the first person to
-sign in becomes the admin.
-
-### Personal and deployment settings
-
-Presentation (theme, accent, language, density, default view, scale, detail
-mode), the displayed identity and the workstation commands (editor, external
-terminal) are **personal**: each account keeps its own, and an execution opens
-the terminal of whoever owns it. The trackers, the repository path, auto-sync,
-the AI configuration and the prompts are the **deployment's** and are an admin's
-to change. An account that has never saved a preference sees the deployment's
-values, so an upgrade changes nothing on screen.
-
-Before sign-in there is no personal language to read, so the sign-in screen
-uses the language this browser used last, else the browser's own language:
-French when it starts with `fr`, English otherwise. A French/English switch on
-the sign-in screen changes it at once and is remembered in this browser. After
-sign-in the personal language preference wins and becomes the remembered one.
-
-### Roles
-
-| | Admin | Member |
-|---|---|---|
-| Board, tasks, transitions, comments | yes | yes |
-| Launch and stop **their own** executions | yes | yes |
-| See everyone's running executions | yes | yes |
-| Stop **someone else's** execution, dispatch to their agent | yes | no |
-| Global settings, tracker credentials | yes | no, beyond their own preferences |
-| Create, edit and delete projects | yes | no |
-| List users, change roles, other people's workstations | yes | no |
-
-Executions record who started them. A stop is delivered to the owner's agent,
-which is what keeps a colleague's run from being closed while its process is
-still running. The **Administration** page, in the sidebar and the command
-palette for admins, shows how many people are using the board right now (a
-browser session seen within the last five minutes), how many runs are running,
-queued or pending, and the roster: each account with its role, whether it is
-online or when it was last seen, and the block and delete actions. The last
-admin cannot be demoted.
-
-Then start the workstation agent in an existing clone, with its key:
-
-```sh
-sectile-agent pair --url https://sectile.example.com --code '<pairing code>'
-sectile-agent init --provider <provider>    # bootstrap MCP and skills locally
-sectile-agent --url https://sectile.example.com --project '<project-id>' --repo /path/to/clone
-```
-
-You can also run `sectile-agent init --provider <provider>` anytime to bootstrap
-MCP registration and install managed skills for a specific provider locally
-without launching the background daemon.
-
-`SECTILE_SERVER_TOKEN`, the former shared agent credential, is still accepted
-for one release with a startup warning, and it is now the only credential
-outside the key store that opens a machine surface: the legacy open mode, where
-a server without it accepted any nonempty token, is gone
-([ADR 0019](docs/adrs/0019-the-machine-surfaces-have-no-open-mode.md)). A server
-that has issued no key refuses an invented token like any other. Workstations
-paired before keys expired keep working as keys without expiry, and the profile
-offers to set one.
-
-The agent fetches `GET /api/v1/agent/config`, creates or validates local Git
-worktrees, installs effective project skills, and launches the configured AI CLI.
-Local command templates support task and repository placeholders, including
-`{prompt}`, `{issueTitle}` and `{repoPath}`; see the [desktop placeholder guide](desktop/README.md).
-It does not open a database. Server filesystem paths and tracker credentials are
-excluded from the configuration contract. The old agent `--db` option is removed.
-A disconnected or incompatible configuration API prevents execution.
-
-Before launching an LLM CLI, the local agent automatically registers Sectile in
-that CLI's **user-level** configuration, and installs the managed skills there
-too. Unless an explicit desktop MCP preference is saved, Claude Code, Cursor and Gemini get a Streamable HTTP entry addressing the
-server's `/mcp` with the workstation key as bearer, so their Sectile tools keep
-working while the agent is stopped; the other CLIs get the
-`sectile-agent mcp --url <server>` stdio bridge with the key in its environment.
-The file is written owner-only. Existing settings and other MCP servers are
-preserved. Native workspace/MCP trust prompts still apply. Malformed
-configuration causes a visible launch error rather than being overwritten.
-
-Repositories and worktrees receive no Sectile-managed skill, command, MCP or
-project-context file. Copies written by earlier releases are retired from the
-checkout on the next dispatch when they are unchanged, and preserved when edited.
-
-| Target CLI | User MCP registration | Managed skills |
-| --- | --- | --- |
-| Claude | `~/.claude.json` | `~/.claude/skills` |
-| Codex | `~/.codex/config.toml` | `~/.agents/skills` |
-| Antigravity (`agy`) | `~/.gemini/config/mcp_config.json` | `~/.gemini/config/skills` |
-| Gemini | `~/.gemini/settings.json` | none |
-| Cursor | `~/.cursor/mcp.json` | none |
-| Vibe | `~/.vibe/config.toml` | none |
-
-The agent that runs the tasks is always set up. Agent configuration is managed per active provider and initialized via `sectile-agent init --provider <provider>`. Unused provider installations can be retired via CLI or profile settings.
-
-Custom command templates can use these providers. A `custom` provider is inferred
-from the template's executable name; unknown executables produce an explicit
-bootstrap error. The `sectile` MCP name is reserved for the agent-managed entry.
-JSON/TOML files are serialized when updated; unrelated setting values are retained.
-
-The External terminal button works without a skill selection and launches the
-configured interactive agent. An explicit command is executed as supplied; a
-selected skill is passed as the initial prompt. The server waits for the local
-agent's launch result, so configuration and terminal-launch errors reach the UI.
-Explicit external requests do not silently fall back to a hidden PTY.
-
-The Discuss action opens the configured agent on a task without running a skill:
-the provider is launched alone, with no skill command and no generated prompt, in
-the task's own checkout and branch. It is offered in the task menu, in the task
-detail and in the desktop launch selectors. The session carries the usual
-`SECTILE_*` environment, so the agent can read the task through the Sectile MCP
-when asked, but the discussion transitions no stage, records no skill result and
-reports nothing to the tracker. It is listed, stoppable and replayable like any
-other execution.
-
-For clients started outside Sectile, manual registration is still available,
-and the local agent is not required: create a key under the profile's advanced
-case. A client that speaks Streamable HTTP addresses the server directly with
-that key as bearer:
-
-```json
-{
-  "mcpServers": {
-    "sectile": {
-      "type": "http",
-      "url": "https://sectile.example.com/mcp",
-      "headers": {"Authorization": "Bearer sectile_…"}
-    }
-  }
-}
-```
-
-A client limited to stdio runs the bridge with the same key:
-
-```json
-{
-  "mcpServers": {
-    "sectile": {
-      "command": "/absolute/path/to/sectile-agent",
-      "args": ["mcp", "--url", "https://sectile.example.com"],
-      "env": {"SECTILE_AGENT_TOKEN": "sectile_…"}
-    }
-  }
-}
-```
-
-The bridge also reads `SECTILE_AGENT_URL`. Terminals launched by the agent
-inherit it, set to the server, together with `SECTILE_AGENT_TOKEN`. The agent
-gateway on `http://127.0.0.1:8091` still proxies `/mcp` and `/api/` and takes the
-same key by default. Selecting local proxy mode in desktop settings explicitly
-allows native loopback MCP clients without a key; `/api/` remains authenticated.
-Set `SECTILE_MCP_CLIENT`, or pass `--client`, to name that client in
-the session list; the bridge otherwise reports its host and process id.
-Protocol output uses
-stdout; diagnostics use stderr. The stdio bridge never falls back to another
-database or server after an error.
-
-### Choosing the MCP connection
-
-In the web profile, **AI Engine** contains one **MCP configuration** for the
-selected provider, including API-key creation. Choose **Remote HTTP** (default), **Local HTTP proxy**, or **STDIO** to
-display one configuration. The supported UI engines are Antigravity, Claude and Codex.
-Copy the example into the indicated user configuration,
-merge it with existing entries, replace the API key placeholder, and restart the
-AI engine. HTTP needs no local Sectile process. STDIO starts `sectile-agent mcp`;
-install the binary in PATH or use its absolute path. Development previews use
-`http://localhost:8090` for remote MCP, independently of the Vite UI port.
-Set `VITE_MCP_SERVER_URL` to override the server URL shown in configuration
-examples; production otherwise uses the current web origin.
-
-Desktop **Settings → Agents CLI → MCP configuration** offers the same three choices. HTTP connects directly to the remote server
-with the pairing key or to the local no-auth proxy. STDIO starts a bridge
-to the remote server with the pairing key and needs no running daemon. **Update provider configuration** writes the selected
-provider's user file, preserving other servers and tool permissions. Remote mode
-works with the agent stopped. Local mode requires the agent to remain running
-and lets any native process on the workstation use MCP as the paired user.
-Browser origins and unexpected Host headers are rejected; the remote server and
-local API routes still require authentication. Selecting remote mode for every
-provider disables the no-auth proxy again.
-
-Choices are stored per provider in `mcpConnections` in workstation settings,
-with `transport` (`http` or `stdio`) and `target` (`remote` or `local`). They survive
-launch-time setup and refresh after agent restart, including a changed local port.
-The preview uses a key placeholder; the desktop update writes the real paired key
-only for remote connections. Reload the AI engine after applying a change.
-
-Execution settings (provider, models, command templates, terminal, editor,
-worktrees, parallelism, setup providers, skill command names) belong to the
-workstation and live in `~/.config/sectile/settings.json` (ADR 0031); set them
-in the desktop app rather than by hand. See *Execution defaults and local
-overrides* below for the layout. Skill content overrides stay in the same file:
-
-```json
-{
-  "layout": 2,
-  "defaults": {"aiProvider": "claude", "terminal": "ghostty"},
-  "projectSettings": {"project-id": {"path": "/path/to/clone"}},
-  "skills": {"implement": "Project-specific local skill instructions"}
-}
-```
-
-These values remain local. The terminal picked for an action takes precedence,
-followed by the explicit `--terminal` flag, the project section, the workstation
-defaults, and environment/auto-detection. The legacy project
-`.taskflow/config.json` is not used as a terminal override. Wildcard agents (`--project all`) require a local
-project mapping or a matching Git origin. A registered concrete project can use
-`--repo` directly. Existing worktrees must match the assigned branch; Sectile
-never resets them to accommodate a dispatch.
-
-Skill refresh installs the current server-owned content and records hashes in
-`.taskflow/agent-manifest.json`. Changed local copies are backed up under
-`.taskflow/skill-backups/` before replacement. Personal skills outside the declared
-paths are untouched. Put persistent skill overrides in `~/.config/sectile/settings.json`.
-The effective `.taskflow/remote-config.json` snapshot is diagnostic only: it is
-never used as an offline fallback. These generated files are ignored by Git.
-
-The machine endpoints and the agent handshake validate the workstation API key.
-`SECTILE_SERVER_TOKEN`, when configured, is still accepted for one release; a
-server without it accepts nothing else, whether or not it has ever issued a key.
-This does not add multi-user login or authentication to the existing web/REST UI;
-remote deployments still need their existing access-control boundary.
-
-### Start the server and native local agent
-
-The web manages tasks, the agent hosts native coding CLI consoles, and the optional desktop displays them. The
-following commands start the standalone local agent. For the console
-application, see the desktop setup section below. Start the server in one terminal:
-
-```sh
-npm ci --prefix web
-make server agent
+export DB_DRIVER=postgres
+export DATABASE_URL='postgres://sectile:password@db.internal:5432/sectile?sslmode=require'
+export SECTILE_SECRET_KEY='<64 hex characters>'
 ./bin/server
 ```
 
-Start the local launcher in another terminal, using the project ID shown in
-Sectile and an existing local clone:
+Use one server instance per database unless the deployment follows the shared
+PostgreSQL design documented in the architecture guide.
+
+## Desktop application
+
+Build and start the local companion with:
 
 ```sh
-./bin/agent pair --url http://localhost:8090 --code '<pairing code>'   # once
-./bin/agent --url http://localhost:8090 --project '<project-id>' --repo /path/to/clone --terminal terminal
+make run
 ```
 
-`terminal` selects Terminal.app on macOS. Other supported choices include
-`ghostty` and `iterm`; omit the option for automatic detection. The native coding
-CLI must be installed and authenticated separately. Keep the agent running while
-using its MCP bridge. Quit the superseded Electron app before starting this agent
-so that it does not register a competing launcher.
+It includes the workstation agent and provides execution queues, an
+agent-owned console, project settings, MCP connections, and a read-only view
+of uncommitted worktree changes. For release installation and desktop-specific
+configuration, read the [Desktop guide](./desktop/README.md).
 
-For an explicitly configured project, connecting the agent installs the project
-skills and MCP bridge in the selected repository. You can then open Codex or
-Claude in that repository and ask it to use `pickup-issue` for a ticket. The skill
-reads task context through MCP, prepares/reuses a worktree, executes the workflow,
-and reports stages through MCP. Native client trust and tool approvals apply.
+## Testing
 
-Alternatively, invoke the pickup skill from the web.
-The agent prepares the task worktree, installs MCP there, and launches the native
-CLI. Execution and approvals stay in that CLI. The server owns task data and
-tracker synchronization; the launcher has no local task database.
-
-### Browser startup and workflow completion
-
-Open `http://localhost:8090` manually. The server does not launch a browser.
-Agent launch acknowledgements and remote run completion are separate from workflow
-transitions. Native skills submit verified stages through MCP. PR stages combine
-server-side forge evidence with agent checkout evidence; the server never opens
-that checkout. The old server-managed temporary result-file worker is retired.
-
-### Server/agent contract
-
-See [the version 1 contract](docs/contracts/server-agent-v1.md) for the configuration
-fields, launch messages, precedence, skill ownership and error behavior. Every
-launch downloads fresh configuration; there is no offline execution fallback.
-
-### One local agent for multiple projects
-
-Once the workstation is paired, discover projects and start the agent:
+Run the standard validation suite:
 
 ```sh
-sectile-agent --url http://localhost:8090 --list-projects
-sectile-agent --url http://localhost:8090
+make test
 ```
 
-The agent defaults to all projects. The current checkout is matched by its Git
-origin; map other project primary keys to local repositories in
-`~/.config/sectile/settings.json` in the starting directory (or the directory passed with
-`--repo`):
+Web browser tests use Playwright and are intentionally separate from the unit
+test command. Run them from `web/` with an absolute path to Playwright's
+`index.mjs`; the browser-test scripts live in [`web/tests`](./web/tests).
 
-```json
-{"projects":{"project-primary-key-a":"/path/to/repo-a","project-primary-key-b":"/path/to/repo-b"}}
-```
+## Documentation
 
-Use `--project <primary-key>` to restrict the agent to one project. Terminal and
-skill settings are downloaded from the server before each launch; no
-`--terminal` argument is necessary. See the
-[server/agent contract](docs/contracts/server-agent-v1.md) for identity and mapping rules.
+- [Architecture](./docs/ARCHITECTURE.md): component boundaries, persistence,
+  concurrency, worktrees, and console protocol.
+- [Capabilities](./docs/CAPABILITIES.md): workflow stages, tracker support,
+  agents, and task access policy.
+- [API and data model](./docs/API_AND_DATA_SPEC.md): REST API, SQLite schema,
+  and server-agent contracts.
+- [UX components](./docs/UX_COMPONENTS.md): board, list, desktop, and diff
+  experience.
+- [Desktop guide](./desktop/README.md): installation, packaging, local
+  configuration, and MCP setup.
+- [Architecture decisions](./docs/adrs): durable technical decisions.
+- [Changelog](./CHANGELOG.md): user-visible changes and release notes.
 
-The profile dialog includes a **Local agent** section with an editable server URL
-and a copyable launch command. Pair the workstation once with
-`sectile-agent pair` and a code from the panel above.
+## Releases
 
-Task cards and the task clarification panel provide **Copy skill command**.
-Choose Codex or Claude and a workflow skill, then copy the interactive terminal
-command. Commands use the task primary key and project identity with MCP
-instructions. Run them in a local repository where the project skills and
-Sectile MCP are already configured.
+Sectile releases are annotated Git tags in the form `vX.Y.Z`. The tag is the
+single source of truth for the version reported by the server, agent, web UI,
+and desktop app. See [`AGENTS.md`](./AGENTS.md) for the required release
+procedure and [the changelog](./CHANGELOG.md) for release notes.
 
-Remote work is shown on task cards and list rows with a single run icon: a pulsing
-blue dot while running, a clock while queued, and a crossed circle for a few seconds after a
-cancellation. Hovering or focusing an icon for a run owned by your own agent turns it
-into a stop control that cancels the run in place.
-The MCP tools `start_run` and `finish_run` track the invocation
-independently of stage transitions. Updated standalone skills and copied commands
-report this lifecycle; existing installed skills need to be refreshed. An abruptly
-closed client may leave an activity to cancel manually in the activity view.
+## License
 
-Agent-owned remote executions have a **Stop** button on the task. Sectile waits
-for the local supervisor to confirm process termination before marking the run
-canceled. Worktree changes are preserved. This requires restarting the local
-agent with the updated binary; previously launched or independent Codex/Claude
-processes cannot be controlled by the new supervisor.
-
-Project settings include **Create PR/MR**: choose the default **Draft after implementation**, or **Draft after specification** to review specs in an early draft.
-Skills reuse the same PR/MR during implementation and attach its URL through MCP. Adjust never creates a PR. Missing PRs recover through the configured earlier stage without downgrading completed work. `Create PR` (`create_pr`, `/create-pr`) remains available under Additional skills. It creates or reuses a PR without advancing the task stage or joining the automatic workflow. The legacy `review` invocation resolves to Adjust; inherited review customizations require reconciliation in Skills.
-
-To initialize a native provider from the desktop app, open the project gear menu, select **Deployment**, choose the **Initialization provider**, and click **Initialize**. This runs the same provider-specific skills and MCP initialization as `sectile-agent init --provider <provider>`. Separate MCP and skills results show success, failure, or unsupported skills, and initialization remains available to run again. The selection does not change the project’s execution provider. Configure and save the local repository first, and stop active executions before deployment. The agent fetches the current server skill content; **Refresh from server** alone refreshes settings without deploying files. Skills are also refreshed when preparing task executions.
-
-### Desktop console host
-
-Use **Project prompt** on a configured project to start any catalogue AI engine,
-including Codex, in a local TTY without a task or initial prompt. The selected engine
-keeps its model and interactive command. See [Project prompt](desktop/README.md#project-prompt).
-
-The desktop **Agent logs** toolbar action shows recent local-agent diagnostics even
-when disconnected, with a bounded snapshot and Refresh. Logs fill the workspace
-beside the project sidebar and omit terminal control sequences for readability.
-See [desktop usage](desktop/README.md#use).
-
-Use Sectile Desktop to follow native Codex/Claude terminals locally:
-
-```sh
-make desktop-build
-cd desktop
-npm start
-```
-
-Configure the server connection in the desktop window, then launch tasks from
-the web. The desktop hosts consoles, stop controls, log export and local project
-mappings. A status line beneath the task console offers the next workflow skill,
-using current task state and blocking duplicate active executions. Closing the
-window keeps the agent running. The integrated terminal,
-branch switcher, diff viewer and worktree controls have been removed from the web.
-
-See [desktop setup](desktop/README.md) and [ADR 0003](docs/adrs/0003-local-desktop-consoles.md).
-
-The desktop **Local agent** panel provides configuration and explicit start,
-stop and restart controls. Stopping or restarting requires confirmation and
-confirmed termination of active executions. Closing the desktop leaves the
-agent running.
-
-### Optional desktop companion
-
-The server, local agent and desktop app are independent components. Start the
-agent without the app:
-
-```sh
-sectile-agent pair --url http://localhost:8090 --code '<pairing code>'   # once
-sectile-agent --url http://localhost:8090 --repo /path/to/repository
-```
-
-The agent owns PTYs, supervision and console history. The desktop discovers it
-through `~/.taskflow/agent-connection.json` (private, mode 0600), including when
-opened after executions begin. Closing the app leaves executions running.
-The desktop can also start the same agent when none is running.
-`--desktop` is a deprecated no-op; `--terminal` is accepted for compatibility
-but executions always use agent-owned consoles. `--desktop-info` can override
-the discovery file for isolated instances; the app automatically discovers the
-default file and its legacy private connection file.
-
-### Build all components
-
-Run `make all` to build the embedded web server, standalone local agent and
-packaged desktop app. The outputs are `bin/server` and
-`bin/agent`; the agent starts directly. Use `make server` or
-`make agent` to build independently, and `make desktop-build`
-for the desktop development assets. On Apple Silicon the app is produced at
-`desktop/release/Sectile-darwin-arm64/Sectile.app`.
-
-The optional companion groups local executions under projects in a collapsible
-sidebar. Add projects by discovering the server catalog and mapping a local Git
-directory. Execution settings are stored per workstation and per project in
-`~/.config/sectile/settings.json`, and so are the folders attached to a
-project. The remote URL, the project's repositories, SDD selection and skill
-content remain server-owned and read-only. Explicit deployment buttons install
-the server skills or initialize its SDD framework in the mapped directory.
-The profile is a placeholder for future account management.
-
-### Formatting and checks
-
-Go sources are `gofmt`-clean: `gofmt -l .` must report nothing at the repository
-root. `make test` enforces it through its `fmt-check` dependency, so an
-unformatted file fails the suite before any test runs. Run `gofmt -w .` to fix
-it, or `make fmt-check` to see the offending files on their own.
-
-CI runs the same check in the `lint:gofmt` job of the GitLab mirror pipeline,
-using the `gofmt` of the Go version `go.mod` declares. It gates: a red job
-fails the pipeline, and `make fmt-check` is how to reproduce it locally. The
-pipeline only reaches a GitHub pull request when the GitLab project reports
-commit statuses to GitHub, and blocking the merge is a matter of requiring that
-status in the branch protection of `main`. Neither is a repository setting.
-
-### Execution modes
-
-A skill run is either **interactive** (a terminal window you answer, and the
-stage moves when you confirm) or **autonomous** (the CLI runs headless, with the
-provider's non-interactive approval mode, its output recorded on the run
-activity, and it posts its own stage transition through the Sectile MCP tools).
-When an autonomous run of a workflow step closes without having moved the task,
-the run says so: the server checks the hand-back but never invents a transition
-the work may not have earned.
-
-The mode of one launch is resolved in this order, first opinion winning: the
-one-off override chosen for that launch, then the skill's own setting in the
-skill editor, then the project's `defaultSkillMode`, then interactive.
-
-The one-off override is offered wherever you explicitly trigger a skill: the web
-task card menu, the web task detail modal, and the desktop Launch and Relaunch
-dialogs. The desktop next-step button stays a single click on the resolved mode.
-
-`claude -p --permission-mode bypassPermissions`, `codex exec` and
-`vibe -p --auto-approve` are the attested headless invocations. A discussion and
-a bare terminal stay interactive whatever the project default says.
-On `agy`, `gemini`, `cursor`, or a custom `aiCommandTemplate` with no
-`{mode:AUTONOMOUS|INTERACTIVE}` placeholder, an autonomous launch is refused by
-name rather than silently run interactively.
-
-The project also sets `fullChainStopStage`, where the **Full chain** (`>>`)
-action stops: `implemented` (before the pull request) or `reviewed` (default).
-A full chain run is always autonomous, and each step enqueues the next one when
-it closes having advanced the stage, until the stop stage. Merging stays manual.
-
-### Execution defaults and local overrides
-
-The server project supplies `specArtifacts` (`keep`, the default, or
-`drop`), set with **Keep specifications out of the repository** in the web
-project settings (#487). With `drop`, each launch writes the task's
-clarification and specification paths (`/specs/<K>-*/`,
-`/openspec/changes/<K>-*/`, `/docs/clarifications/<K>.md`, `<K>` being the key
-without `#`) into a marked block of the checkout's `.git/info/exclude`: the
-stages leave those files in the worktree, never commit them, and carry their
-substance in the stage reports. Switching back to `keep` removes only that
-block. The desktop **Specifications** row overrides the value per workstation
-(`specArtifacts` in the project section) and warns when the repository already tracks specifications.
-Every execution setting is the workstation's (ADR 0031): the web interface
-offers none, and the server neither stores nor serves a value it uses. The
-desktop app edits them at two levels, **Execution defaults** for the
-workstation and the project settings for one project, where each field says
-whether it is set for the project or inherited and can be reset. They are
-saved in `~/.config/sectile/settings.json`, which the agent alone writes:
-
-```json
-{
-  "layout": 2,
-  "defaults": {
-    "aiProvider": "claude", "aiModel": "claude-opus-5",
-    "aiProviderModels": {"claude": ["claude-opus-5", "claude-sonnet-5"]},
-    "terminal": "ghostty", "editorCommand": "cursor",
-    "useWorktrees": true, "parallelism": 2, "setupProviders": ["codex"]
-  },
-  "projectSettings": {
-    "project-id": {
-      "path": "/path/to/repository", "aiProvider": "codex",
-      "parallelism": 1, "skillCommands": {"implement": "code-issue"},
-      "specArtifacts": "drop"
-    }
-  },
-  "repositories": {"github.com/owner/other": "/path/to/other"}
-}
-```
-
-The project section speaks over the workstation defaults, which speak over the
-provider defaults (provider `agy`, worktrees on, one execution at a time, editor
-`code`). Parallelism is 1 to 10, and 1 without worktrees. A file written by an
-earlier release is read with the same meaning and rewritten on the next save.
-
-On the first connection after the upgrade, the agent copies the values the
-server used to hold into this file, once for the defaults and once per project
-the first time it runs it, so an existing setup keeps running what it ran. The
-agent then reports to the server what it will run for each project; the web
-model picker and the engine badge of a card show that report, and show the
-engine as unknown when none of your agents is connected for the project.
-
-`repositories` maps each repository a project declares, by its `host/path`
-identity, to the folder holding its checkout on this workstation (#456). It is
-keyed by repository rather than by project, so one checkout serves every
-project that works in it; the desktop project settings write it, and refuse a
-folder whose `origin` is another repository. The project's own repository
-keeps its folder in its project section's `path`, and its specifications
-folder defaults to that checkout.
-
-`projectSettings.<id>.folders` lists the folders attached to a project on this
-workstation, in the order they were added (#484): other code, libraries or
-notes a ticket depends on, Git checkouts or plain folders. The desktop project
-settings edit them under *Attached folders*, and they are never sent to the
-server. Every launch of the project receives them in `SECTILE_REPOSITORIES`
-and in the folder block of the prompt, each with its `kind` (`git`, `folder`,
-or `missing` for a folder gone since) and `attached: true`; Claude and Codex
-also receive the existing ones as `--add-dir`. An attached Git repository with
-a remote is `context` until the task calls `prepare_repository_worktree` for
-it, then `changed`, and needs its own pull request; a folder without a remote
-has the role `local` and is changed in place, with no worktree and no pull
-request.
-
-Without effective worktrees, the agent enforces one execution and the UI
-disables parallelism selection. Requests are acknowledged when queued; their
-remote run remains active until completion or cancellation. The agent reserves
-capacity before repository preparation, admits queued requests in order within
-each project, and holds capacity until confirmed process exit. Queued executions
-can be canceled from either UI. Tasks sharing an unisolated repository, or the
-same task worktree, cannot execute concurrently. Settings are resolved at
-admission into the queue; changes apply to subsequent submissions. Queue and
-console history are held in memory for the agent lifetime.
-
-### User configuration and commands
-
-Agent settings and project mappings live in
-`~/.config/sectile/settings.json`, shared by the CLI agent and companion.
-Writes preserve connection fields, use atomic replacement and mode 0600.
-Legacy repository mappings remain readable and are migrated on the next save.
-
-| Command | Action |
-| --- | --- |
-| `make server` | Build the server |
-| `make agent` | Build the local agent |
-| `make desktop` | Build the desktop app, without packaging |
-| `make desktop-package` | Build and package the desktop app |
-| `make all` | Build all components |
-| `make start` | Start the local agent |
-| `make serve` | Start the server |
-| `make run` | Start the desktop |
-
-Server and agent are built as `bin/server` and `bin/agent` by the `build-*` targets.
-The `serve`, `start` and `run` targets run from source and need no prior build. Pass agent
-arguments with, for example, `make start ARGS="--url http://localhost:8090"`;
-the workstation must be paired first with `sectile-agent pair`.
-
-### Browse desktop project tasks
-
-Hover or keyboard-focus a desktop project row and activate its **Open tasks**
-list icon to browse that project's unfinished server tickets immediately, in the
-**Tickets** pane that takes the console's place. Search by title or key, or
-submit an empty search to restore the full open list. Rows are ordered by
-priority descending then task identity ascending, and the **Key**, **Title**,
-**Stage** and **Priority** headers sort the list. A row's key opens that task in
-Sectile. **Run** launches the task's next workflow step, and the **…** menu
-offers pickup, the other skills, a discussion console and custom instructions.
-**Run** is disabled while an execution is active on that task. Loading the list
-never starts an execution. Failed requests can be retried with Search, and
-launching requires a configured local repository.
-
-### Desktop Quick add
-
-Click **New task (+)** beside a desktop project to choose **Run an existing
-ticket** or **Quick add task**. Both paths target the clicked project, even
-when another project's execution is selected. Existing tickets open the Tickets
-pane; Quick add preselects the project and offers **Launch task** after
-successful creation, which opens that pane on the new ticket.
-
-Press **Cmd+K** (macOS) or **Ctrl+K** to open the command palette, search its
-actions, and choose **Quick add task** or **Tasks list**. Enter runs the first
-matching action. **Tasks list** opens the Tickets pane for the selected project,
-for the only configured project, or for a project you pick when several apply.
-For **Quick add task**: The selected project's identity is prefilled; without a
-selection, choose a project explicitly. Enter a title and optional description.
-The server creates the task using its project tracker configuration.
-GitHub and Jira creation must succeed remotely; errors do not silently create
-a local fallback, and the site's own refusal is quoted, so a mandatory field it
-requires is readable. Local projects remain local. Creation does not start an execution;
-the success screen offers a separate **Launch task** action.
-
-Task IDs in the desktop sidebar and in the Tickets pane open the task directly on the configured Sectile server. Server links use `?task=<task-primary-key>` and open task details independently of board filters.
-
-For `agy`, the local agent registers the Sectile stdio bridge in
-`~/.gemini/config/mcp_config.json`; this CLI does not read the workspace
-`.agents/mcp_config.json`. Other MCP registrations and explicit tool policies are
-preserved. The entry runs `sectile-agent mcp --url <server>` with the workstation
-API key in its environment, so standalone agy sessions work without the agent.
-Restart agy after registration so it loads the updated MCP tools.
-
-## MCP naming upgrade
-
-MCP tool names now omit the `sectile_` prefix and the managed server registration
-is `sectile`. This intentionally breaks old MCP calls: no aliases or fallback
-calls are supported. The bridge and desktop client identities are `sectile-stdio`
-and `sectile-desktop-agent`.
-
-1. Upgrade the central server and workstation agent together. Mixed versions are
-   unsupported; the stdio bridge rejects incompatible upstream catalogs. Stop
-   existing native sessions before switching.
-2. On the next normal agent dispatch, bootstrap migrates the reserved `sectile`
-   registration to one `sectile` entry. It refreshes the connection settings and
-   preserves unrelated entries and explicit restrictions for all six providers.
-3. Resolve any migration error before retrying. Recognized server-scoped tool
-   lists map exact old names to generic names. Conflicting registrations,
-   unsupported patterns and legacy references in external policy files require
-   manual reconciliation; bootstrap leaves the original file unchanged. Preserve
-   deny rules and approval requirements when changing tool or server names.
-4. Update user-owned stored skill overrides and custom instructions manually.
-   Built-in instructions use generic tools; normal managed-file refresh retains
-   its backup behavior for local edits. Checked-in historical reports stay intact.
-5. Reconnect native clients to discard cached tool catalogs and accept their
-   normal workspace/MCP trust prompts. Verify the eight generic tools under
-   `sectile` before starting new work.
-
-For Vibe, review root `enabled_tools`, `disabled_tools` and `[tools.<name>]`
-policies manually: its client prefixes tools with the server name. See the
-[Vibe MCP permission reference](https://docs.mistral.ai/vibe/code/cli/mcp-servers).
-Antigravity's `disabledTools` list also maps exact old tool names; see its
-[MCP configuration reference](https://www.antigravity.google/docs/mcp).
-Gemini's server-scoped `includeTools` and `excludeTools` retain their filtering
-roles during exact-name migration; see the
-[Gemini MCP reference](https://geminicli.com/docs/tools/mcp-server/).
-Bootstrap does not rewrite separate user or enterprise policy files. Operators
-must also update restrictions supplied by enterprise policy, plugins or custom
-configuration paths before reconnecting clients.
-
-`SECTILE_*` variables (including `SECTILE_RUN_ID`), `.taskflow/`, database paths,
-`/mcp`, machine markers and repository/module names remain unchanged. There is no
-data migration. Rollback requires coordinating both binaries and restoring the
-matching client registration and custom instructions.
+No license is currently declared for this repository. Contact the repository
+owner before redistributing or reusing the code.
