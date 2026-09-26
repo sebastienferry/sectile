@@ -792,9 +792,9 @@ func (d *DB) runStageOp(ctx context.Context, op TrackerOp, steps *[]string) (str
 		header := ""
 		switch cleanStage {
 		case "clarified":
-			header = "### 💬 [Sectile] Rapport de Clarification\n\n"
+			header = "### 💬 [Sectile] Clarification Report\n\n"
 		case "specified":
-			header = "### 📋 [Sectile] Spécification Technique & Plan d'Implémentation\n\n"
+			header = "### 📋 [Sectile] Technical Specification & Implementation Plan\n\n"
 		case "implemented":
 			header = "### ⚡ [Sectile] Rapport d'Implémentation\n\n"
 		case "reviewed":

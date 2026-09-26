@@ -263,6 +263,42 @@ func jiraTestDB(t *testing.T, fake *fakeTracker) (*DB, *models.Project) {
 	return database, project
 }
 
+func TestStageReportsUseEnglishClarificationAndSpecificationTitles(t *testing.T) {
+	for _, test := range []struct {
+		name, stage, heading string
+	}{
+		{"clarification", "clarified", "### 💬 [Sectile] Clarification Report"},
+		{"specification", "specified", "### 📋 [Sectile] Technical Specification & Implementation Plan"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fake := newFakeTracker()
+			database, project := jiraTestDB(t, fake)
+			task, err := database.CreateTask(models.CreateTaskRequest{
+				ProjectID: project.ID,
+				Title:     "Stage report",
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			steps := []string{}
+			if _, err := database.runStageOp(context.Background(), TrackerOp{
+				TaskID: task.ID,
+				Stage:  test.stage,
+				Note:   "Stage note",
+			}, &steps); err != nil {
+				t.Fatal(err)
+			}
+			if len(fake.comments) != 1 {
+				t.Fatalf("comments = %d, want 1", len(fake.comments))
+			}
+			if got, want := fake.comments[0].Body, test.heading+"\n\nStage note"; got != want {
+				t.Fatalf("comment = %q, want %q", got, want)
+			}
+		})
+	}
+}
+
 func TestSyncOnATrackerWithBoardsImportsRefreshesTeamsAndColumns(t *testing.T) {
 	fake := newFakeTracker()
 	fake.tasks = []models.Task{{
