@@ -186,8 +186,9 @@ func (d *agentDaemon) handleRunControl(w http.ResponseWriter, r *http.Request) {
 }
 
 // postRunEngine tells the server which engine this run was actually launched
-// with. The launcher recorded its own resolution, but the workstation override
-// lives here, so this is the report that makes the run record true.
+// with. The launcher recorded the capability report, which may be missing or
+// stale; the resolution happens here, so this is the report that makes the run
+// record true.
 func (d *agentDaemon) postRunEngine(runID, provider, model string) {
 	if strings.TrimSpace(runID) == "" {
 		return
