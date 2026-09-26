@@ -16,7 +16,7 @@ window.calls=[]; window.accept=false; window.pending=false;
 const task=(id,stage,priority)=>({id,key:id,title:'Ticket '+id,projectId:'p',status:stage==='clarified'?'clarified':'to_clarify',priority,source:'local',labels:[stage],issueType:'Story'});
 window.allTasks=[task('new-low','new','low'),task('clarified','clarified','urgent'),{...task('specified','specified','medium'),parentKey:'#1'},task('new-high','new','high')];
 const project={id:'p',epicColors:true};
-window.ctx={tasks:allTasks,boardSort:{field:'priority',asc:false},setBoardSort:()=>{},projects:[project],currentProject:project,activities:[],activeTasks:new Set(),boardGrouping:'workflow',hideDone:false,isPinned:()=>false,t:translations.fr,
+window.ctx={tasks:allTasks,boardSort:{field:'priority',asc:false},setBoardSort:()=>{},projects:[project],currentProject:project,activities:[],activeTasks:new Set(),boardGrouping:'workflow',hideDone:false,isPinned:()=>false,settings:{language:'fr'},t:translations.fr,
 startBatchPickup:async ids=>{calls.push(ids);if(pending)return new Promise(resolve=>window.finish=resolve);return accept},
 setBoardGrouping:value=>{ctx.boardGrouping=value;render()}};
 const app=createRoot(document.getElementById('root'));

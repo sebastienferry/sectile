@@ -60,7 +60,8 @@ export function SectileDesktopPanel() {
                 type="button"
                 onClick={copyOrigin}
                 className="hover:text-cyan-400 transition-colors cursor-pointer"
-                title="Copy Server URL"
+                title={t.signIn.agent.copyServerUrl}
+                aria-label={t.signIn.agent.copyServerUrl}
               >
                 {copiedUrl ? <Check size={11} className="text-emerald-400" /> : <Copy size={11} />}
               </button>
@@ -108,7 +109,7 @@ export function HeadlessCliAgentPanel() {
       setCopyStatus(t.profileModal.workstations?.copiedCommand || 'Command copied.')
       setTimeout(() => setCopiedCmd(false), 2000)
     } catch {
-      setCopyStatus('Copy unavailable. Please copy manually.')
+      setCopyStatus(t.signIn.apiKeys.copyUnavailableManual)
     }
   }
 
@@ -160,7 +161,7 @@ export function HeadlessCliAgentPanel() {
             className="px-3 py-2 rounded-xl text-xs font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)] bg-[var(--bg-secondary)] hover:bg-[var(--bg-hover)] border border-[var(--border-color)] transition-all cursor-pointer flex items-center gap-1.5 shrink-0"
           >
             {copiedCmd ? <Check size={13} className="text-emerald-400" /> : <Copy size={13} />}
-            <span>{copiedCmd ? 'Copied' : (t.profileModal.workstations?.copyCommandBtn || 'Copy Command')}</span>
+            <span>{copiedCmd ? t.signIn.apiKeys.copied : (t.profileModal.workstations?.copyCommandBtn || 'Copy Command')}</span>
           </button>
         </div>
       ) : (

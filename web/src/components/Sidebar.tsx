@@ -46,6 +46,7 @@ import { enabledOptionalViews } from '../lib/optionalViews'
 import { myTasksTooltip } from '../lib/myTasks'
 import type { Status, TaskSource } from '../types'
 import { SectileLogo } from './SectileLogo'
+import { format, plural } from '../lib/i18n'
 
 const renderProjectIcon = (iconName: string, size = 15, className = '') => {
   switch (iconName) {
@@ -73,6 +74,7 @@ const SidebarSection: React.FC<{
   children: React.ReactNode
   action?: React.ReactNode
 }> = ({ id, title, collapsedBar, children, action }) => {
+  const { t } = useApp()
   const [isOpen, setIsOpen] = useState<boolean>(() => {
     try {
       const val = localStorage.getItem(`sectile_sidebar_section_${id}`) ?? localStorage.getItem(`taskacao_sidebar_section_${id}`)
@@ -106,7 +108,7 @@ const SidebarSection: React.FC<{
           type="button"
           onClick={toggle}
           className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] hover:text-[var(--text-primary)] cursor-pointer"
-          title={isOpen ? `Replier ${title}` : `Déplier ${title}`}
+          title={format(isOpen ? t.shell.sidebar.collapseSection : t.shell.sidebar.expandSection, { title })}
         >
           <ChevronDown
             size={11}
@@ -392,10 +394,10 @@ export const Sidebar: React.FC = () => {
                 </div>
                 <div className="flex flex-col min-w-0">
                   <span className="text-xs font-bold text-[var(--text-primary)] truncate">
-                    {currentProject ? currentProject.name : 'Tous les projets'}
+                    {currentProject ? currentProject.name : t.shell.statusBar.allProjects}
                   </span>
                   <span className="text-[10px] text-[var(--text-muted)] font-mono truncate">
-                    {currentProject ? `${currentProject.taskCount || 0} tâches` : `${projects.length} projets`}
+                    {currentProject ? plural(settings.language, currentProject.taskCount || 0, t.shell.projectPicker.taskCount) : plural(settings.language, projects.length, t.shell.projectPicker.projectCount)}
                   </span>
                 </div>
               </div>
@@ -407,8 +409,8 @@ export const Sidebar: React.FC = () => {
             {isProjectDropdownOpen && (
               <div className="absolute left-0 top-full mt-1.5 w-72 rounded-2xl bg-[var(--bg-secondary)] border border-[var(--sidebar-border)] shadow-2xl p-1.5 z-50 animate-in fade-in zoom-in-95 duration-150">
                 <div className="px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] flex items-center justify-between">
-                  <span>Espaces Projets</span>
-                  <span className="font-mono text-[9px]">{projects.length} projets</span>
+                  <span>{t.shell.projectPicker.title}</span>
+                  <span className="font-mono text-[9px]">{plural(settings.language, projects.length, t.shell.projectPicker.projectCount)}</span>
                 </div>
 
                 {/* Search Input */}
@@ -419,7 +421,7 @@ export const Sidebar: React.FC = () => {
                       type="text"
                       value={projectSearch}
                       onChange={e => setProjectSearch(e.target.value)}
-                      placeholder="Rechercher un projet..."
+                      placeholder={t.shell.projectPicker.searchPlaceholder}
                       className="w-full pl-7 pr-2 py-1 text-xs rounded-lg bg-[var(--bg-primary)] border border-[var(--border-color)] text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:border-[var(--accent-color)]"
                       onClick={e => e.stopPropagation()}
                     />
@@ -430,7 +432,7 @@ export const Sidebar: React.FC = () => {
                 <div className="max-h-48 overflow-y-auto space-y-0.5 mt-1">
                   {searchBookmarked.length === 0 && searchOthers.length === 0 ? (
                     <div className="px-2 py-3 text-center text-xs text-[var(--text-muted)]">
-                      {projectSearch.trim() ? 'Aucun projet trouvé' : 'Aucun projet favori'}
+                      {projectSearch.trim() ? t.shell.projectPicker.noMatch : t.shell.projectPicker.noFavorite}
                     </div>
                   ) : (
                     <>
@@ -439,7 +441,7 @@ export const Sidebar: React.FC = () => {
                           {projectSearch.trim() && searchOthers.length > 0 && (
                             <div className="px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] flex items-center gap-1">
                               <Star size={10} className="text-amber-400 fill-current" />
-                              <span>Favoris</span>
+                              <span>{t.shell.projectPicker.favorites}</span>
                             </div>
                           )}
                           {searchBookmarked.map(p => {
@@ -485,7 +487,7 @@ export const Sidebar: React.FC = () => {
                                         ? 'text-amber-400 hover:text-amber-500'
                                         : 'text-[var(--text-muted)] hover:text-amber-400 opacity-0 group-hover/item:opacity-100'
                                     }`}
-                                    title={p.bookmarked ? 'Retirer des favoris' : 'Ajouter aux favoris'}
+                                    title={p.bookmarked ? t.shell.projectPicker.removeFavorite : t.shell.projectPicker.addFavorite}
                                   >
                                     <Star size={12} className={p.bookmarked ? 'fill-current' : ''} />
                                   </button>
@@ -502,7 +504,7 @@ export const Sidebar: React.FC = () => {
                                       setProjectSearch('')
                                     }}
                                     className="p-1 rounded-md text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-primary)] opacity-0 group-hover/item:opacity-100 transition-opacity cursor-pointer"
-                                    title="Configurer ce projet"
+                                    title={t.shell.projectPicker.configure}
                                   >
                                     <Settings2 size={12} />
                                   </button>
@@ -516,7 +518,7 @@ export const Sidebar: React.FC = () => {
                       {searchOthers.length > 0 && (
                         <div className="space-y-0.5 mt-1.5">
                           <div className="px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
-                            Autres projets
+                            {t.shell.projectPicker.otherProjects}
                           </div>
                           {searchOthers.map(p => {
                             const isSel = selectedProjectId === p.id || selectedProjectId === p.slug
@@ -561,7 +563,7 @@ export const Sidebar: React.FC = () => {
                                         ? 'text-amber-400 hover:text-amber-500'
                                         : 'text-[var(--text-muted)] hover:text-amber-400 opacity-0 group-hover/item:opacity-100'
                                     }`}
-                                    title={p.bookmarked ? 'Retirer des favoris' : 'Ajouter aux favoris'}
+                                    title={p.bookmarked ? t.shell.projectPicker.removeFavorite : t.shell.projectPicker.addFavorite}
                                   >
                                     <Star size={12} className={p.bookmarked ? 'fill-current' : ''} />
                                   </button>
@@ -578,7 +580,7 @@ export const Sidebar: React.FC = () => {
                                       setProjectSearch('')
                                     }}
                                     className="p-1 rounded-md text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-primary)] opacity-0 group-hover/item:opacity-100 transition-opacity cursor-pointer"
-                                    title="Configurer ce projet"
+                                    title={t.shell.projectPicker.configure}
                                   >
                                     <Settings2 size={12} />
                                   </button>
@@ -612,7 +614,7 @@ export const Sidebar: React.FC = () => {
                     <div className="w-5 h-5 rounded-md bg-[var(--accent-color)]/20 text-[var(--accent-color)] flex items-center justify-center">
                       <Layers size={12} />
                     </div>
-                    <span>Tous les projets</span>
+                    <span>{t.shell.statusBar.allProjects}</span>
                   </div>
                   <span className="text-[10px] font-mono opacity-75">{counts.all}</span>
                 </button>
@@ -630,7 +632,7 @@ export const Sidebar: React.FC = () => {
                   className="w-full flex items-center gap-2 p-2 rounded-xl text-xs font-semibold text-[var(--accent-color)] hover:bg-[var(--accent-light)] transition-colors cursor-pointer"
                 >
                   <Plus size={14} />
-                  <span>Nouveau projet...</span>
+                  <span>{t.shell.projectPicker.newProject}</span>
                 </button>
               </div>
             )}
@@ -640,7 +642,7 @@ export const Sidebar: React.FC = () => {
             type="button"
             onClick={() => setIsProjectModalOpen(true)}
             className="w-full flex items-center justify-center p-2 rounded-xl bg-[var(--bg-tertiary)]/70 hover:bg-[var(--bg-tertiary)] text-[var(--accent-color)] border border-[var(--sidebar-border)] transition-colors cursor-pointer"
-            title={currentProject ? currentProject.name : 'Changer de projet'}
+            title={currentProject ? currentProject.name : t.shell.projectPicker.switchProject}
           >
             {currentProject ? renderProjectIcon(currentProject.icon, 16) : <Layers size={16} />}
           </button>
@@ -650,7 +652,7 @@ export const Sidebar: React.FC = () => {
       {/* Navigation & Filters Container */}
       <div className="flex-1 overflow-y-auto px-2.5 py-3 space-y-4">
         {/* Quick Views */}
-        <SidebarSection id="views" title="Vues" collapsedBar={sidebarCollapsed}>
+        <SidebarSection id="views" title={t.nav.views} collapsedBar={sidebarCollapsed}>
           <div className="space-y-0.5">
             {/* 1. Mes tâches */}
             <button
@@ -677,10 +679,10 @@ export const Sidebar: React.FC = () => {
                   ? 'bg-[var(--accent-light)] accent-text font-bold shadow-xs'
                   : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'
               }`}
-              title="Backlog"
+              title={t.nav.list}
             >
               <ListFilter size={15} className="shrink-0 text-indigo-400" />
-              {!sidebarCollapsed && <span className="truncate">Backlog</span>}
+              {!sidebarCollapsed && <span className="truncate">{t.nav.list}</span>}
             </button>
 
             {/* 4. Board */}
@@ -691,10 +693,10 @@ export const Sidebar: React.FC = () => {
                   ? 'bg-[var(--accent-light)] accent-text font-bold shadow-xs'
                   : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'
               }`}
-              title="Board"
+              title={t.nav.board}
             >
               <Columns size={15} className="shrink-0 text-emerald-400" />
-              {!sidebarCollapsed && <span className="truncate">Board</span>}
+              {!sidebarCollapsed && <span className="truncate">{t.nav.board}</span>}
             </button>
 
             {/* 5. Triage (optionnel, activé par projet) */}
@@ -780,11 +782,11 @@ export const Sidebar: React.FC = () => {
                   ? 'bg-[var(--accent-light)] accent-text font-bold shadow-xs'
                   : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'
               }`}
-              title="Skills du workflow agentique : une par étape, éditables ici"
+              title={t.shell.sidebar.skillsTooltip}
             >
               <div className="flex items-center gap-2.5 min-w-0 truncate">
                 <FileCode2 size={15} className="shrink-0 text-amber-400" />
-                {!sidebarCollapsed && <span className="truncate">Skills</span>}
+                {!sidebarCollapsed && <span className="truncate">{t.shell.sidebar.skills}</span>}
               </div>
             </button>
 
@@ -796,11 +798,11 @@ export const Sidebar: React.FC = () => {
                   ? 'bg-[var(--accent-light)] accent-text font-bold shadow-xs'
                   : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'
               }`}
-              title="Synchro (Synchronisation)"
+              title={t.shell.sidebar.syncTooltip}
             >
               <div className="flex items-center gap-2.5 min-w-0 truncate">
                 <RefreshCw size={15} className={`shrink-0 text-indigo-400 ${isSyncing ? 'animate-spin' : ''}`} />
-                {!sidebarCollapsed && <span className="truncate">Synchro</span>}
+                {!sidebarCollapsed && <span className="truncate">{t.nav.sync}</span>}
               </div>
             </button>
             {/* Équipes : la charge par personne, quand les tickets portent une équipe */}
@@ -812,11 +814,11 @@ export const Sidebar: React.FC = () => {
                     ? 'bg-[var(--accent-light)] accent-text font-bold shadow-xs'
                     : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'
                 }`}
-                title="Charge de l'équipe, personne par personne"
+                title={t.shell.sidebar.teamTooltip}
               >
                 <span className="flex items-center gap-2.5 min-w-0">
                   <Users size={15} className="shrink-0 text-violet-400" />
-                  {!sidebarCollapsed && <span className="truncate">Équipes</span>}
+                  {!sidebarCollapsed && <span className="truncate">{t.shell.sidebar.team}</span>}
                 </span>
                 {!sidebarCollapsed && (
                   <span className="text-[9px] font-bold px-1.5 rounded text-violet-300 bg-violet-400/10 border border-violet-400/30">
@@ -877,7 +879,7 @@ export const Sidebar: React.FC = () => {
             un découpage que l'écran de droite n'utilise pas. */}
         <SidebarSection
           id="stages"
-          title={showTrackerStatuses ? t.list.columns.status : 'Agentic Workflow'}
+          title={showTrackerStatuses ? t.list.columns.status : t.shell.sidebar.agenticWorkflow}
           collapsedBar={sidebarCollapsed}
         >
           {showTrackerStatuses ? (
@@ -1024,7 +1026,7 @@ export const Sidebar: React.FC = () => {
             className={`w-full flex items-center gap-2.5 p-2 rounded-xl text-[var(--text-primary)] transition-colors group text-left cursor-pointer ${
               activeView === 'admin' ? 'bg-[var(--accent-light)]' : 'hover:bg-[var(--bg-tertiary)]'
             }`}
-            title="Administration"
+            title={t.shell.sidebar.admin}
           >
             <div className="w-7 h-7 rounded-full flex items-center justify-center font-bold text-xs bg-amber-500/20 text-amber-500 shadow-xs shrink-0">
               <Shield size={14} />
@@ -1032,11 +1034,11 @@ export const Sidebar: React.FC = () => {
             {!sidebarCollapsed && (
               <div className="flex-1 min-w-0">
                 <div className="text-xs font-semibold truncate text-[var(--text-primary)] flex items-center gap-1.5">
-                  <span>Administration</span>
-                  <span className="text-[9px] px-1 py-0.2 rounded bg-amber-500/20 text-amber-500 font-bold uppercase tracking-wider">Admin</span>
+                  <span>{t.shell.sidebar.admin}</span>
+                  <span className="text-[9px] px-1 py-0.2 rounded bg-amber-500/20 text-amber-500 font-bold uppercase tracking-wider">{t.shell.sidebar.adminBadge}</span>
                 </div>
                 <div className="text-[10px] text-[var(--text-muted)] truncate">
-                  Utilisateurs & rôles
+                  {t.shell.sidebar.adminHint}
                 </div>
               </div>
             )}

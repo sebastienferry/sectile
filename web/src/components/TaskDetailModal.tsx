@@ -58,6 +58,8 @@ import { trackerHas } from '../lib/trackers'
 import { issueTypeStyle } from '../lib/issueTypes'
 import { runEngineLabel } from '../lib/runEngine'
 import { copyText } from '../lib/clipboard'
+import { EMPTY_VALUE, format, plural, formatDate, formatDateTime, formatTime } from '../lib/i18n'
+import { localizeActivityText } from '../lib/activityText'
 
 export const TaskDetailModal: React.FC = () => {
   const {
@@ -90,6 +92,8 @@ export const TaskDetailModal: React.FC = () => {
     syncSingleTask,
     t,
   } = useApp()
+  const td = t.taskDetail
+  const locale = settings.language
 
   const [projectMacros, setProjectMacros] = useState<MacroMeta[]>([])
 
@@ -324,18 +328,18 @@ export const TaskDetailModal: React.FC = () => {
       const options: LookupOption[] = people.map(m => ({
         id: m.accountId,
         label: m.displayName,
-        sublabel: m.email || (m.teamName ? `Équipe ${m.teamName}` : undefined),
+        sublabel: m.email || (m.teamName ? format(td.lookups.teamOf, { team: m.teamName }) : undefined),
         avatarUrl: m.avatarUrl,
         muted: !m.active,
       }))
       // L'assigné courant reste proposé même s'il ne ressort pas de la
       // recherche : sinon le champ paraîtrait vide de toute valeur valable.
       if (!query && assignee && !options.some(o => o.label === assignee)) {
-        options.unshift({ id: assigneeAccountId, label: assignee, sublabel: 'assigné actuel' })
+        options.unshift({ id: assigneeAccountId, label: assignee, sublabel: td.lookups.currentAssignee })
       }
       return options
     },
-    [selectedTask, searchAssignableUsers, assignee, assigneeAccountId]
+    [selectedTask, searchAssignableUsers, assignee, assigneeAccountId, td]
   )
 
   // Sprints du projet ou extraits des tickets : cherchés au clavier avec auto-complétion
@@ -358,7 +362,7 @@ export const TaskDetailModal: React.FC = () => {
     }
     return combined
   }, [projects, selectedTask?.projectId, taskProjectId, tasks])
-  const searchSprint = React.useMemo(() => sprintLookup(taskSprints), [taskSprints])
+  const searchSprint = React.useMemo(() => sprintLookup(taskSprints, td.lookups.sprintKinds), [taskSprints, td])
 
   const searchTeam = React.useCallback(
     async (query: string): Promise<LookupOption[]> => {
@@ -368,10 +372,10 @@ export const TaskDetailModal: React.FC = () => {
         .map(team => ({
           id: team.id,
           label: team.name,
-          sublabel: team.taskCount ? `${team.taskCount} ticket(s) sur ce board` : undefined,
+          sublabel: team.taskCount ? plural(locale, team.taskCount, td.lookups.teamTaskCount) : undefined,
         }))
     },
-    [searchTrackerTeams]
+    [searchTrackerTeams, locale, td]
   )
 
   const currentTaskProject = projects.find(p => p.id === (selectedTask?.projectId || taskProjectId))
@@ -488,14 +492,14 @@ export const TaskDetailModal: React.FC = () => {
     selectedTask.source === 'github' ? 'GitHub'
     : selectedTask.source === 'gitlab' ? 'GitLab'
     : selectedTask.source === 'jira' ? 'Jira'
-    : 'le tracker'
+    : td.header.theTracker
 
   const handleCopyKey = async (key: string) => {
     if (!(await copyText(key))) {
       addToast({
         type: 'error',
-        title: 'Copie impossible',
-        description: "Le presse-papiers n'est pas accessible depuis ce navigateur.",
+        title: td.toasts.copyFailedTitle,
+        description: td.toasts.copyFailedDescription,
       })
       return
     }
@@ -507,8 +511,8 @@ export const TaskDetailModal: React.FC = () => {
     }, 2000)
     addToast({
       type: 'success',
-      title: 'Identifiant copié',
-      description: `${key} a été copié dans le presse-papiers.`,
+      title: td.toasts.keyCopiedTitle,
+      description: format(td.toasts.keyCopiedDescription, { key }),
     })
   }
 
@@ -518,8 +522,8 @@ export const TaskDetailModal: React.FC = () => {
     <button
       type="button"
       onClick={() => handleCopyKey(key)}
-      title={`Copier ${key}`}
-      aria-label={`Copier ${key}`}
+      title={format(td.header.copyKey, { key })}
+      aria-label={format(td.header.copyKey, { key })}
       className="ml-1 inline-flex items-center self-center rounded p-0.5 opacity-60 hover:opacity-100 hover:bg-[var(--bg-tertiary)] focus-visible:opacity-100"
     >
       {copiedKey?.taskId === selectedTask.id && copiedKey.key === key ? <Check size={11} className="text-emerald-400" /> : <Copy size={11} />}
@@ -546,14 +550,23 @@ export const TaskDetailModal: React.FC = () => {
                 target="_blank"
                 rel="noreferrer"
                 className="text-[var(--text-muted)] hover:text-violet-300 hover:underline"
-                title={`Ouvrir ${selectedTask.parentType || 'le parent'} ${selectedTask.parentKey}${selectedTask.parentTitle ? ` — ${selectedTask.parentTitle}` : ''} sur ${trackerName}`}
+                title={format(selectedTask.parentTitle ? td.header.openParentTitled : td.header.openParent, {
+                  type: selectedTask.parentType || td.header.theParent,
+                  key: selectedTask.parentKey,
+                  title: selectedTask.parentTitle || '',
+                  tracker: trackerName,
+                })}
               >
                 {selectedTask.parentKey}
               </a>
             ) : (
               <span
                 className="text-[var(--text-muted)]"
-                title={`${selectedTask.parentType || 'Parent'} ${selectedTask.parentKey}${selectedTask.parentTitle ? ` — ${selectedTask.parentTitle}` : ''}`}
+                title={format(selectedTask.parentTitle ? td.header.parentTitled : td.header.parent, {
+                  type: selectedTask.parentType || td.header.parentFallback,
+                  key: selectedTask.parentKey,
+                  title: selectedTask.parentTitle || '',
+                })}
               >
                 {selectedTask.parentKey}
               </span>
@@ -568,7 +581,7 @@ export const TaskDetailModal: React.FC = () => {
             target="_blank"
             rel="noreferrer"
             className="inline-flex items-center gap-1 hover:underline"
-            title={`Ouvrir ${selectedTask.key} sur ${trackerName}`}
+            title={format(td.header.openTask, { key: selectedTask.key, tracker: trackerName })}
           >
             <span>{selectedTask.key}</span>
             <ExternalLink size={11} className="opacity-70" />
@@ -605,14 +618,14 @@ export const TaskDetailModal: React.FC = () => {
               }
             : {}
         }
-        title="Changer le type de ticket (Story, Bug, Tâche...)"
+        title={td.issueType.changeTitle}
       >
-        <option value="">Type: Défaut</option>
-        <option value="Story">📘 Story</option>
-        <option value="Bug">🐛 Bug</option>
-        <option value="Task">📝 Tâche</option>
-        <option value="Improvement">⚡ Amélioration</option>
-        <option value="Technical debt">🔧 Dette technique</option>
+        <option value="">{td.issueType.defaultOption}</option>
+        <option value="Story">📘 {td.issueType.story}</option>
+        <option value="Bug">🐛 {td.issueType.bug}</option>
+        <option value="Task">📝 {td.issueType.task}</option>
+        <option value="Improvement">⚡ {td.issueType.improvement}</option>
+        <option value="Technical debt">🔧 {td.issueType.technicalDebt}</option>
       </select>
     )
   }
@@ -753,8 +766,8 @@ export const TaskDetailModal: React.FC = () => {
     setTimeout(() => setCopiedSpec(false), 2000)
     addToast({
       type: 'success',
-      title: 'Spécification copiée',
-      description: 'La spécification technique a été copiée dans votre presse-papiers.',
+      title: td.toasts.specCopiedTitle,
+      description: td.toasts.specCopiedDescription,
     })
   }
 
@@ -771,7 +784,7 @@ export const TaskDetailModal: React.FC = () => {
           <div className="flex items-center gap-2">
             <FileCode size={16} className={isOpenSpec ? 'text-emerald-400' : 'text-blue-400'} />
             <h4 className="text-xs font-bold text-[var(--text-primary)]">
-              Spécification Technique ({frameworkLabel})
+              {format(td.spec.title, { framework: frameworkLabel })}
             </h4>
           </div>
           <div className="flex items-center gap-2">
@@ -786,10 +799,10 @@ export const TaskDetailModal: React.FC = () => {
               type="button"
               onClick={handleCopySpec}
               className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-mono font-bold bg-[var(--bg-primary)] hover:bg-[var(--bg-tertiary)] text-[var(--text-secondary)] border border-[var(--border-color)] transition-colors cursor-pointer"
-              title="Copier la spec complète"
+              title={td.spec.copyFull}
             >
               {copiedSpec ? <Check size={11} className="text-emerald-400" /> : <Copy size={11} />}
-              <span>{copiedSpec ? 'Copié !' : 'Copier'}</span>
+              <span>{copiedSpec ? td.spec.copied : td.spec.copy}</span>
             </button>
             <button
               type="button"
@@ -799,10 +812,10 @@ export const TaskDetailModal: React.FC = () => {
                   ? 'text-emerald-300 bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30'
                   : 'text-blue-300 bg-blue-500/15 hover:bg-blue-500/25 border border-blue-500/30'
               }`}
-              title="Agrandir la spécification en mode grand format / plein écran"
+              title={td.spec.expandTitle}
             >
               <Maximize2 size={11} />
-              <span>Agrandir</span>
+              <span>{td.spec.expand}</span>
             </button>
           </div>
         </div>
@@ -815,21 +828,21 @@ export const TaskDetailModal: React.FC = () => {
 
         <div className="flex items-center justify-between pt-1">
           <div className="text-[11px] text-[var(--text-muted)] font-mono">
-            {specifyActivity.completedAt ? `Généré le ${new Date(specifyActivity.completedAt).toLocaleString()}` : 'Spécification prête'}
+            {specifyActivity.completedAt ? format(td.spec.generatedAt, { date: formatDateTime(locale, specifyActivity.completedAt) }) : td.spec.ready}
           </div>
           <button
             type="button"
             onClick={() => handleTriggerSkill('implement')}
             disabled={isSkillRunning}
             className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold text-white shadow-md bg-linear-to-r from-blue-600 to-indigo-600 hover:opacity-90 active:scale-95 transition-all disabled:opacity-50 cursor-pointer"
-            title="Lancer l'implémentation du code conformément à cette spécification"
+            title={td.spec.implementTitle}
           >
             {isSkillRunning && runningSkillId === 'implement' ? (
               <Loader2 size={13} className="animate-spin" />
             ) : (
               <>
                 <Flame size={13} className="text-amber-300" />
-                <span>Lancer Implement Code</span>
+                <span>{td.spec.implement}</span>
                 <ArrowRight size={13} />
               </>
             )}
@@ -849,14 +862,14 @@ export const TaskDetailModal: React.FC = () => {
   // its launch button.
   const renderRecommendedStep = () => (
     <>
-      {selectedTask && !selectedTask.prUrl && resolveTaskStage(selectedTask, taskProject) === 'implemented' && <button type="button" onClick={() => handleTriggerSkill(prRecoverySkill(taskProject), 'PR recovery: preserve accepted work and attained stage; complete owner checks and create/reuse/link the PR. Do not advance to reviewed.')} className="px-4 py-2 text-purple-400 text-sm">Complete PR setup through {prRecoverySkill(taskProject)}</button>}
+      {selectedTask && !selectedTask.prUrl && resolveTaskStage(selectedTask, taskProject) === 'implemented' && <button type="button" onClick={() => handleTriggerSkill(prRecoverySkill(taskProject), 'PR recovery: preserve accepted work and attained stage; complete owner checks and create/reuse/link the PR. Do not advance to reviewed.')} className="px-4 py-2 text-purple-400 text-sm">{format(td.workflow.completePrSetup, { skill: prRecoverySkill(taskProject) })}</button>}
       {nextSkill && (
         <div className="flex flex-wrap items-center justify-between gap-3 p-3 rounded-xl bg-linear-to-r from-[var(--accent-light)] to-[var(--bg-tertiary)] border border-[var(--accent-color)]/40 shadow-xs">
           <div className="flex items-center gap-2">
             <span className="text-amber-400 animate-bounce">⚡</span>
             <div>
               <div className="text-xs font-bold text-[var(--text-primary)]">
-                Étape recommandée : {nextSkill.name}
+                {format(td.workflow.recommendedStep, { skill: nextSkill.name })}
               </div>
               <div className="text-[10px] text-[var(--text-muted)]">
                 {nextSkill.description}
@@ -872,12 +885,12 @@ export const TaskDetailModal: React.FC = () => {
               {isSkillRunning && runningSkillId === nextSkill.id ? (
                 <>
                   <Loader2 size={13} className="animate-spin" />
-                  <span>Exécution {activeProvider}...</span>
+                  <span>{format(td.workflow.running, { provider: activeProvider })}</span>
                 </>
               ) : (
                 <>
                   <Sparkles size={13} className="text-amber-300" />
-                  <span>Lancer {nextSkill.name}</span>
+                  <span>{format(td.workflow.launch, { skill: nextSkill.name })}</span>
                 </>
               )}
             </button>
@@ -893,7 +906,7 @@ export const TaskDetailModal: React.FC = () => {
       {/* Title Input */}
       <div>
         <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
-          Titre de la Story
+          {td.fields.storyTitle}
         </label>
         <input
           type="text"
@@ -910,7 +923,7 @@ export const TaskDetailModal: React.FC = () => {
         <div className="min-w-0 space-y-2">
           <div className="flex items-center justify-between gap-2 flex-wrap">
             <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
-              Description & Contexte Technique
+              {td.fields.description}
             </label>
             <div className="flex flex-wrap items-center gap-3">
               <label className="inline-flex items-center gap-1.5 text-xs text-[var(--text-secondary)] cursor-pointer select-none">
@@ -920,21 +933,21 @@ export const TaskDetailModal: React.FC = () => {
                   onChange={e => setWithComments(e.target.checked)}
                   className="rounded border-[var(--border-color)] text-[var(--accent-color)] focus:ring-0 cursor-pointer"
                 />
-                <span>Inclure les commentaires</span>
+                <span>{td.rewrite.includeComments}</span>
               </label>
               <button
                 type="button"
                 onClick={() => runSkill(selectedTask.id, 'rewrite_story', '', { withComments })}
                 disabled={isSkillRunning}
                 className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-cyan-500/10 text-cyan-400 border border-cyan-500/30 hover:bg-cyan-500/20 disabled:opacity-50 transition-colors"
-                title="Reformuler la description en User Story structurée GFM"
+                title={td.rewrite.rewriteTitle}
               >
                 {isSkillRunning && runningSkillId === 'rewrite_story' ? (
                   <Loader2 size={13} className="animate-spin" />
                 ) : (
                   <Sparkles size={13} />
                 )}
-                <span>Reformuler la story</span>
+                <span>{td.rewrite.rewrite}</span>
               </button>
             </div>
           </div>
@@ -944,7 +957,7 @@ export const TaskDetailModal: React.FC = () => {
               <div className="flex items-center justify-between gap-2">
                 <span className="text-xs font-semibold text-cyan-300 flex items-center gap-1.5">
                   <Sparkles size={14} />
-                  Aperçu de la story reformulée
+                  {td.rewrite.preview}
                 </span>
                 <div className="flex items-center gap-2">
                   <button
@@ -956,22 +969,22 @@ export const TaskDetailModal: React.FC = () => {
                         setDismissedRewriteId(rewriteActivity.id)
                         addToast({
                           type: 'success',
-                          title: 'Description mise à jour',
-                          description: 'La description de la tâche a été remplacée par la version reformulée.',
+                          title: td.toasts.descriptionUpdatedTitle,
+                          description: td.toasts.descriptionUpdatedDescription,
                         })
                       }
                     }}
                     className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-cyan-500 text-slate-950 hover:bg-cyan-400 transition-colors flex items-center gap-1"
                   >
                     <Check size={13} />
-                    Appliquer à la description
+                    {td.rewrite.apply}
                   </button>
                   <button
                     type="button"
                     onClick={() => setDismissedRewriteId(rewriteActivity.id)}
                     className="px-2 py-1 rounded-lg text-xs font-medium text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
                   >
-                    Masquer
+                    {td.rewrite.hide}
                   </button>
                 </div>
               </div>
@@ -1002,9 +1015,9 @@ export const TaskDetailModal: React.FC = () => {
                   value={trackerStatus}
                   onChange={e => applyTrackerStatus(e.target.value)}
                   className="w-full px-2.5 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)]"
-                  title="Statuts du projet, tels que le tracker les nomme"
+                  title={td.fields.trackerStatusTitle}
                 >
-                  <option value="">— non défini —</option>
+                  <option value="">{td.fields.notSet}</option>
                   {projectColumns.map(col => (
                     <optgroup key={col.name} label={col.name}>
                       {col.statuses.map(st => (
@@ -1032,13 +1045,13 @@ export const TaskDetailModal: React.FC = () => {
             {/* Étape du workflow agentique, couplée au statut par le mapping */}
             <div>
               <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
-                Étape agentique
+                {td.fields.stage}
               </label>
               <select
                 value={currentStage}
                 onChange={e => applyStage(e.target.value as WorkflowStage)}
                 className="w-full px-2.5 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)]"
-                title="Label du workflow agentique. Le statut suit selon le mapping du projet."
+                title={td.fields.stageTitle}
               >
                 {WORKFLOW_ORDER.map(stage => (
                   <option key={stage} value={stage}>#{stage}</option>
@@ -1061,7 +1074,7 @@ export const TaskDetailModal: React.FC = () => {
             {/* Project */}
             <div>
               <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
-                Projet
+                {td.fields.project}
               </label>
               <select
                 value={taskProjectId}
@@ -1072,7 +1085,7 @@ export const TaskDetailModal: React.FC = () => {
                   const targetProj = projects.find(p => p.id === val)
                   if (selectedTask) {
                     if (sourceProj && targetProj && !isProjectCompatible(sourceProj, targetProj)) {
-                      if (!confirm(`Attention: Le projet "${targetProj.name}" a un tracker différent de "${sourceProj.name}". Déplacer ce ticket vers ce projet quand même ?`)) {
+                      if (!confirm(format(td.move.confirm, { target: targetProj.name, source: sourceProj.name }))) {
                         return
                       }
                     }
@@ -1094,14 +1107,14 @@ export const TaskDetailModal: React.FC = () => {
                   if (bookmarked.length > 0 && others.length > 0) {
                     return (
                       <>
-                        <optgroup label="Favoris">
+                        <optgroup label={td.fields.favorites}>
                           {bookmarked.map(p => (
                             <option key={p.id} value={p.id}>
                               {p.name} ({p.issueTracker || 'local'})
                             </option>
                           ))}
                         </optgroup>
-                        <optgroup label="Autres projets">
+                        <optgroup label={td.fields.otherProjects}>
                           {others.map(p => (
                             <option key={p.id} value={p.id}>
                               {p.name} ({p.issueTracker || 'local'})
@@ -1124,20 +1137,20 @@ export const TaskDetailModal: React.FC = () => {
             {canPinRepository && (
               <div>
                 <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
-                  Dépôt
+                  {td.fields.repository}
                 </label>
                 <select
                   value={repository}
                   onChange={e => setRepository(e.target.value)}
                   className="w-full px-2.5 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)] font-mono"
-                  title="Dépôt dans lequel l'agent travaille ce ticket, les autres servant de contexte"
+                  title={td.fields.repositoryTitle}
                 >
-                  <option value="">— non épinglé —</option>
+                  <option value="">{td.fields.notPinned}</option>
                   {projectRepositories.map(repo => (
                     <option key={repo.identity} value={repo.identity}>{repo.identity}</option>
                   ))}
                   {repository && !projectRepositories.some(repo => repo.identity === repository) && (
-                    <option value={repository}>{repository} (hors du projet)</option>
+                    <option value={repository}>{format(td.fields.outsideProject, { repository })}</option>
                   )}
                 </select>
               </div>
@@ -1161,9 +1174,9 @@ export const TaskDetailModal: React.FC = () => {
                 <LookupField
                   value={assignee}
                   icon={<User size={12} />}
-                  placeholder="Chercher une personne…"
-                  clearLabel="Non assigné"
-                  emptyHint="Personne trouvée. Tapez un nom ou un e-mail."
+                  placeholder={td.lookups.assigneePlaceholder}
+                  clearLabel={td.lookups.unassigned}
+                  emptyHint={td.lookups.assigneeEmpty}
                   onSearch={searchAssignee}
                   onPick={option => {
                     setAssignee(option?.label || '')
@@ -1176,7 +1189,7 @@ export const TaskDetailModal: React.FC = () => {
                     type="text"
                     value={assignee}
                     onChange={e => setAssignee(e.target.value)}
-                    placeholder="Assigné à..."
+                    placeholder={td.lookups.assigneeFree}
                     className="w-full pl-7 pr-2.5 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)]"
                   />
                   <User size={12} className="absolute left-2.5 top-2.5 text-[var(--text-muted)]" />
@@ -1189,14 +1202,14 @@ export const TaskDetailModal: React.FC = () => {
             {selectedTask.creator && (
               <div>
                 <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
-                  Créé par
+                  {td.fields.creator}
                 </label>
                 <div className="flex items-center gap-2 px-2.5 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-secondary)] h-[34px]">
                   <Avatar
                     name={selectedTask.creator}
                     url={selectedTask.creatorAvatar}
                     size={18}
-                    title={`Créateur : ${selectedTask.creator}`}
+                    title={format(td.fields.creatorTitle, { name: selectedTask.creator })}
                   />
                   <span className="truncate font-medium text-[var(--text-primary)]" title={selectedTask.creator}>
                     {selectedTask.creator}
@@ -1213,13 +1226,13 @@ export const TaskDetailModal: React.FC = () => {
               <LookupField
                 value={sprint}
                 icon={<CalendarRange size={12} />}
-                placeholder="Chercher ou nommer un sprint…"
-                clearLabel="Backlog (aucun sprint)"
-                emptyHint="Aucun sprint trouvé. Tapez un nom pour créer."
+                placeholder={td.lookups.sprintPlaceholder}
+                clearLabel={td.lookups.sprintClear}
+                emptyHint={td.lookups.sprintEmpty}
                 onSearch={async (query: string) => {
                   const res = await searchSprint(query)
                   if (query.trim() && !res.some(o => o.label.toLowerCase() === query.trim().toLowerCase())) {
-                    res.unshift({ id: query.trim(), label: query.trim(), sublabel: 'Nouveau sprint' })
+                    res.unshift({ id: query.trim(), label: query.trim(), sublabel: td.lookups.newSprint })
                   }
                   return res
                 }}
@@ -1237,14 +1250,14 @@ export const TaskDetailModal: React.FC = () => {
             {trackerHas(selectedTask.source, 'team') && (
               <div>
                 <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
-                  Équipe
+                  {td.fields.team}
                 </label>
                   <LookupField
                     value={selectedTask.team || ''}
                     icon={<Users size={12} />}
-                    placeholder="Chercher une équipe…"
-                    clearLabel="Aucune équipe"
-                    emptyHint="Aucune équipe trouvée pour cette recherche."
+                    placeholder={td.lookups.teamPlaceholder}
+                    clearLabel={td.lookups.noTeam}
+                    emptyHint={td.lookups.teamEmpty}
                     onSearch={searchTeam}
                     onPick={option => {
                       setTaskTeam(selectedTask.id, option?.id || '', option?.label)
@@ -1256,18 +1269,18 @@ export const TaskDetailModal: React.FC = () => {
             {/* Select or create a macro / GitHub milestone. */}
             <div>
               <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
-                Macro (Milestone)
+                {td.fields.macro}
               </label>
               <LookupField
                 value={selectedTask.parentKey || selectedTask.parentTitle || ''}
                 icon={<Target size={12} />}
-                placeholder="Assigner ou nommer une macro…"
-                clearLabel="Détacher de la macro"
-                emptyHint="Aucune macro trouvée. Tapez un nom pour créer."
+                placeholder={td.lookups.macroPlaceholder}
+                clearLabel={td.lookups.macroClear}
+                emptyHint={td.lookups.macroEmpty}
                 onSearch={async (query: string) => {
                   const res = await searchMacro(query)
                   if (query.trim() && !res.some(o => o.label.toLowerCase() === query.trim().toLowerCase() || o.id.toLowerCase() === query.trim().toLowerCase())) {
-                    res.unshift({ id: `__create__:${query.trim()}`, label: query.trim(), sublabel: 'Créer ce milestone GitHub' })
+                    res.unshift({ id: `__create__:${query.trim()}`, label: query.trim(), sublabel: td.lookups.createMilestone })
                   }
                   return res
                 }}
@@ -1362,10 +1375,10 @@ export const TaskDetailModal: React.FC = () => {
       {/* Pull requests span the full width below both columns. */}
       <div className="space-y-1.5">
         <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
-          Pull Requests
+          {td.pr.title}
         </label>
         {prLinks.length === 0 && (
-          <p className="text-xs text-[var(--text-muted)]">Aucune pull request liée à ce ticket.</p>
+          <p className="text-xs text-[var(--text-muted)]">{td.pr.none}</p>
         )}
         {prLinks.map((link, index) => (
           <div key={index} className="flex items-center gap-1.5">
@@ -1385,16 +1398,16 @@ export const TaskDetailModal: React.FC = () => {
               className="flex-1 min-w-0 px-2.5 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)]"
             />
             <span className="shrink-0 text-[10px] text-[var(--text-muted)] max-w-[10rem] truncate" title={link.branch || ''}>
-              {link.branch || '—'}
+              {link.branch || EMPTY_VALUE}
             </span>
             {index === prLinks.length - 1 && (
-              <span className="shrink-0 text-[10px] font-semibold text-purple-400">courante</span>
+              <span className="shrink-0 text-[10px] font-semibold text-purple-400">{td.pr.current}</span>
             )}
             <button
               type="button"
               onClick={() => setPrLinks(prLinks.filter((_, i) => i !== index))}
               className="shrink-0 p-1.5 rounded-lg text-[var(--text-muted)] hover:text-red-400 hover:bg-red-500/10 transition-colors cursor-pointer"
-              title="Détacher cette pull request du ticket"
+              title={td.pr.detach}
             >
               <Trash2 size={13} />
             </button>
@@ -1419,10 +1432,10 @@ export const TaskDetailModal: React.FC = () => {
             onClick={addPrLink}
             disabled={!newPrUrl.trim() || prLinks.some(l => l.url === newPrUrl.trim())}
             className="shrink-0 flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-semibold text-purple-400 bg-purple-500/10 hover:bg-purple-500/20 border border-purple-500/30 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-            title="Lier cette pull request au ticket"
+            title={td.pr.linkTitle}
           >
             <Plus size={13} />
-            <span>Lier</span>
+            <span>{td.pr.link}</span>
           </button>
         </div>
       </div>
@@ -1440,7 +1453,7 @@ export const TaskDetailModal: React.FC = () => {
       {/* Les cinq pas du workflow, dans l'ordre : clarify, specify, implement, PR, handoff */}
       <div className="space-y-2">
         <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
-          Pipeline d'Avancement des Skills
+          {td.workflow.pipeline}
         </label>
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
           {skills.filter(s => isTaskScopedSkill(s.id)).map((s, index) => {
@@ -1463,7 +1476,7 @@ export const TaskDetailModal: React.FC = () => {
                     type="button"
                     onClick={() => handleTriggerSkill(s.id)}
                     disabled={isSkillRunning}
-                    aria-label={`Lancer ${s.name} dans le mode configuré`}
+                    aria-label={format(td.workflow.launchConfigured, { skill: s.name })}
                     className="text-left w-full disabled:opacity-60 cursor-pointer"
                   >
                     <div className="flex items-center justify-between mb-1.5">
@@ -1490,23 +1503,23 @@ export const TaskDetailModal: React.FC = () => {
                       type="button"
                       onClick={() => handleTriggerSkill(s.id, undefined, 'interactive')}
                       disabled={isSkillRunning}
-                      aria-label={`Lancer ${s.name} en interactif`}
-                      title="Ouvre un terminal que tu réponds, et tu confirmes la transition"
+                      aria-label={format(td.workflow.launchInteractive, { skill: s.name })}
+                      title={td.workflow.interactiveTitle}
                       className="flex-1 flex items-center justify-center gap-1 px-1 py-1 rounded-lg text-[9px] font-bold text-[var(--text-secondary)] bg-[var(--bg-secondary)] border border-[var(--border-color)] hover:text-[var(--accent-color)] hover:border-[var(--accent-color)]/60 disabled:opacity-40 cursor-pointer"
                     >
                       <Terminal size={9} />
-                      <span>Interactif</span>
+                      <span>{td.workflow.interactive}</span>
                     </button>
                     <button
                       type="button"
                       onClick={() => handleTriggerSkill(s.id, undefined, 'autonomous')}
                       disabled={isSkillRunning}
-                      aria-label={`Lancer ${s.name} en autonome`}
-                      title="Lance la CLI en headless, sans terminal ; le worker pose la transition"
+                      aria-label={format(td.workflow.launchAutonomous, { skill: s.name })}
+                      title={td.workflow.autonomousTitle}
                       className="flex-1 flex items-center justify-center gap-1 px-1 py-1 rounded-lg text-[9px] font-bold text-[var(--text-secondary)] bg-[var(--bg-secondary)] border border-[var(--border-color)] hover:text-[var(--accent-color)] hover:border-[var(--accent-color)]/60 disabled:opacity-40 cursor-pointer"
                     >
                       <Bot size={9} />
-                      <span>Autonome</span>
+                      <span>{td.workflow.autonomous}</span>
                     </button>
                   </div>
                 </div>
@@ -1521,11 +1534,11 @@ export const TaskDetailModal: React.FC = () => {
           type="button"
           onClick={() => runSkill(selectedTask.id, 'discuss')}
           disabled={isSkillRunning}
-          title="Ouvrir une session avec l'agent sur cette tâche, sans lancer de skill"
+          title={td.workflow.discussTitle}
           className="w-full flex items-center justify-center gap-1.5 p-3 rounded-xl text-xs font-bold border border-[var(--border-color)] bg-[var(--bg-tertiary)] text-[var(--text-primary)] hover:border-[var(--accent-color)]/60 transition-all disabled:opacity-50"
         >
           {isSkillRunning && runningSkillId === 'discuss' ? <Loader2 size={13} className="animate-spin" /> : <MessageCircle size={13} className="text-cyan-400" />}
-          <span>Discuter de la tâche</span>
+          <span>{td.workflow.discuss}</span>
         </button>
       )}
 
@@ -1535,10 +1548,10 @@ export const TaskDetailModal: React.FC = () => {
           <div className="flex items-center justify-between text-[11px]">
             <span className="font-bold uppercase tracking-wider text-[var(--text-muted)] flex items-center gap-1 text-[10px]">
               <Terminal size={12} className="text-[var(--accent-color)]" />
-              Dernière sortie ({latestActivity.skillName})
+              {format(td.activity.latestOutput, { skill: localizeActivityText(latestActivity.skillName, locale) })}
             </span>
             <span className="text-[10px] text-[var(--text-muted)]">
-              {new Date(latestActivity.createdAt).toLocaleTimeString()}
+              {formatTime(locale, latestActivity.createdAt, { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
             </span>
           </div>
           <div className="p-3.5 rounded-xl bg-slate-950 text-slate-200 border border-slate-800 font-mono text-xs space-y-2 max-h-56 overflow-y-auto leading-relaxed shadow-inner">
@@ -1562,10 +1575,10 @@ export const TaskDetailModal: React.FC = () => {
               )}
               <span>
                 {latestActivity.status === 'running'
-                  ? `[En cours] ${latestActivity.summary || 'Exécution de la skill...'}`
+                  ? `${td.activity.runningPrefix} ${localizeActivityText(latestActivity.summary, locale) || td.activity.runningFallback}`
                   : latestActivity.status === 'queued' || latestActivity.status === 'pending'
-                  ? `[En file d'attente] ${latestActivity.summary || 'En attente d\'un worker...'}`
-                  : latestActivity.summary}
+                  ? `${td.activity.queuedPrefix} ${localizeActivityText(latestActivity.summary, locale) || td.activity.queuedFallback}`
+                  : localizeActivityText(latestActivity.summary, locale)}
               </span>
             </div>
             {latestActivity.output && (
@@ -1582,7 +1595,7 @@ export const TaskDetailModal: React.FC = () => {
         <div className="space-y-1.5 pt-2">
           <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] flex items-center gap-1">
             <History size={12} />
-            Historique des exécutions ({activities.length})
+            {format(td.activity.history, { count: activities.length })}
           </span>
           <div className="space-y-1.5">
             {activities.slice(1, 4).map(act => (
@@ -1592,14 +1605,14 @@ export const TaskDetailModal: React.FC = () => {
               >
                 <div className="flex items-center gap-2 truncate">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
-                  <span className="font-bold text-[11px] text-[var(--text-primary)]">{act.skillName}</span>
+                  <span className="font-bold text-[11px] text-[var(--text-primary)]">{localizeActivityText(act.skillName, locale)}</span>
                   {runEngineLabel(act) && (
                     <span className="text-[10px] font-mono text-[var(--text-muted)]">{runEngineLabel(act)}</span>
                   )}
-                  <span className="text-[10px] text-[var(--text-muted)] truncate max-w-[200px]">{act.summary}</span>
+                  <span className="text-[10px] text-[var(--text-muted)] truncate max-w-[200px]">{localizeActivityText(act.summary, locale)}</span>
                 </div>
                 <span className="text-[10px] text-[var(--text-muted)] font-mono">
-                  {new Date(act.createdAt).toLocaleDateString(undefined, { hour: '2-digit', minute: '2-digit' })}
+                  {formatDateTime(locale, act.createdAt, { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
                 </span>
               </div>
             ))}
@@ -1655,10 +1668,10 @@ export const TaskDetailModal: React.FC = () => {
                   type="button"
                   onClick={handleToggleDetailMode}
                   className="flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] border border-[var(--border-color)] transition-colors"
-                  title="Afficher en modale centrée"
+                  title={td.header.showModalTitle}
                 >
                   <Square size={13} className="text-purple-400" />
-                  <span className="hidden sm:inline">Modale</span>
+                  <span className="hidden sm:inline">{td.header.showModal}</span>
                 </button>
 
                 {/* Two-way Unit Sync Button */}
@@ -1675,10 +1688,10 @@ export const TaskDetailModal: React.FC = () => {
                     }
                   }}
                   className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold text-indigo-300 bg-indigo-500/10 hover:bg-indigo-500/20 border border-indigo-500/30 transition-all cursor-pointer shadow-xs active:scale-95 disabled:opacity-50"
-                  title="Synchroniser ce ticket dans les deux sens avec le tracker distant (GitHub / Jira)"
+                  title={td.header.syncTitle}
                 >
                   <RefreshCw size={12} className={`text-indigo-400 ${isSyncingTask ? 'animate-spin' : ''}`} />
-                  <span className="hidden sm:inline">{isSyncingTask ? 'Sync...' : 'Sync'}</span>
+                  <span className="hidden sm:inline">{isSyncingTask ? td.header.syncing : td.header.sync}</span>
                 </button>
 
                 {selectedTask.prUrl && (
@@ -1701,7 +1714,7 @@ export const TaskDetailModal: React.FC = () => {
                       ? 'text-amber-300 bg-amber-400/10 hover:bg-amber-400/20'
                       : 'text-[var(--text-muted)] hover:text-amber-300 hover:bg-[var(--bg-tertiary)]'
                   }`}
-                  title={isPinned(selectedTask.id) ? 'Désépingler ce ticket' : 'Épingler ce ticket'}
+                  title={isPinned(selectedTask.id) ? td.header.unpin : td.header.pin}
                 >
                   {isPinned(selectedTask.id) ? <PinOff size={15} /> : <Pin size={15} />}
                 </button>
@@ -1710,7 +1723,7 @@ export const TaskDetailModal: React.FC = () => {
                   type="button"
                   onClick={() => openCloneModal(selectedTask)}
                   className="p-1.5 rounded-lg text-[var(--text-muted)] hover:text-cyan-400 hover:bg-cyan-500/10 transition-colors cursor-pointer"
-                  title="Cloner cette story"
+                  title={td.header.clone}
                 >
                   <CopyPlus size={15} />
                 </button>
@@ -1744,7 +1757,7 @@ export const TaskDetailModal: React.FC = () => {
                 }`}
               >
                 <FileCode size={13} />
-                <span>Story</span>
+                <span>{td.tabs.story}</span>
               </button>
 
               <button
@@ -1757,7 +1770,7 @@ export const TaskDetailModal: React.FC = () => {
                 }`}
               >
                 <MessageSquare size={13} className="text-cyan-400" />
-                <span>Commentaires</span>
+                <span>{td.tabs.comments}</span>
               </button>
 
               <button
@@ -1770,7 +1783,7 @@ export const TaskDetailModal: React.FC = () => {
                 }`}
               >
                 <Sparkles size={13} className="text-purple-400" />
-                <span>Skills & IA</span>
+                <span>{td.tabs.skills}</span>
                 {Boolean(clarifyActivity || specifyActivity) && (
                   <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
                 )}
@@ -1788,16 +1801,16 @@ export const TaskDetailModal: React.FC = () => {
             <div className="flex items-center justify-between px-6 py-3.5 border-t border-[var(--border-color)] bg-[var(--bg-tertiary)]/40 shrink-0">
               <div className="flex items-center gap-2 text-[11px] text-[var(--text-muted)]">
                 <span>
-                  {t.taskModal.created} {new Date(selectedTask.createdAt).toLocaleDateString()}
+                  {t.taskModal.created} {formatDate(locale, selectedTask.createdAt)}
                 </span>
                 {selectedTask.creator && (
                   <span className="flex items-center gap-1.5 border-l border-[var(--border-color)] pl-2">
-                    <span>Créé par</span>
+                    <span>{td.fields.creator}</span>
                     <Avatar
                       name={selectedTask.creator}
                       url={selectedTask.creatorAvatar}
                       size={14}
-                      title={`Créé par ${selectedTask.creator}`}
+                      title={format(td.fields.createdBy, { name: selectedTask.creator })}
                     />
                     <span className="font-medium text-[var(--text-secondary)]">{selectedTask.creator}</span>
                   </span>
@@ -1818,7 +1831,7 @@ export const TaskDetailModal: React.FC = () => {
                   className="px-4 py-1.5 rounded-xl text-xs font-bold text-white accent-bg shadow hover:opacity-90 active:scale-95 flex items-center gap-1.5 transition-all"
                 >
                   <Save size={13} />
-                  <span>{isSaving ? 'Enregistrement...' : t.taskModal.save}</span>
+                  <span>{isSaving ? td.header.saving : t.taskModal.save}</span>
                 </button>
               </div>
             </div>
@@ -1867,10 +1880,10 @@ export const TaskDetailModal: React.FC = () => {
               type="button"
               onClick={handleToggleDetailMode}
               className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] border border-[var(--border-color)] transition-colors"
-              title="Afficher en panneau latéral droit"
+              title={td.header.showPanelTitle}
             >
               <PanelRight size={14} className="text-indigo-400" />
-              <span className="hidden sm:inline">Panneau droit</span>
+              <span className="hidden sm:inline">{td.header.showPanel}</span>
             </button>
 
             {/* Two-way Unit Sync Button */}
@@ -1887,10 +1900,10 @@ export const TaskDetailModal: React.FC = () => {
                 }
               }}
               className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold text-indigo-300 bg-indigo-500/10 hover:bg-indigo-500/20 border border-indigo-500/30 transition-all cursor-pointer shadow-xs active:scale-95 disabled:opacity-50"
-              title="Synchroniser ce ticket dans les deux sens avec le tracker distant (GitHub / Jira)"
+              title={td.header.syncTitle}
             >
               <RefreshCw size={13} className={`text-indigo-400 ${isSyncingTask ? 'animate-spin' : ''}`} />
-              <span className="hidden sm:inline">{isSyncingTask ? 'Sync...' : 'Sync'}</span>
+              <span className="hidden sm:inline">{isSyncingTask ? td.header.syncing : td.header.sync}</span>
             </button>
 
             {selectedTask.prUrl && (
@@ -1913,7 +1926,7 @@ export const TaskDetailModal: React.FC = () => {
                   ? 'text-amber-300 bg-amber-400/10 hover:bg-amber-400/20'
                   : 'text-[var(--text-muted)] hover:text-amber-300 hover:bg-[var(--bg-tertiary)]'
               }`}
-              title={isPinned(selectedTask.id) ? 'Désépingler ce ticket' : 'Épingler ce ticket'}
+              title={isPinned(selectedTask.id) ? td.header.unpin : td.header.pin}
             >
               {isPinned(selectedTask.id) ? <PinOff size={16} /> : <Pin size={16} />}
             </button>
@@ -1922,7 +1935,7 @@ export const TaskDetailModal: React.FC = () => {
               type="button"
               onClick={() => openCloneModal(selectedTask)}
               className="p-1.5 rounded-lg text-[var(--text-muted)] hover:text-cyan-400 hover:bg-cyan-500/10 transition-colors cursor-pointer"
-              title="Cloner cette story"
+              title={td.header.clone}
             >
               <CopyPlus size={16} />
             </button>
@@ -1940,7 +1953,7 @@ export const TaskDetailModal: React.FC = () => {
               type="button"
               onClick={() => setIsMaximized(prev => !prev)}
               className="p-1.5 rounded-lg text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] transition-colors cursor-pointer"
-              title={isMaximized ? "Réduire" : "Plein écran"}
+              title={isMaximized ? td.header.restore : td.header.maximize}
             >
               {isMaximized ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
             </button>
@@ -1967,7 +1980,7 @@ export const TaskDetailModal: React.FC = () => {
               }`}
             >
               <FileCode size={14} />
-              <span>Infos de la Story</span>
+              <span>{td.tabs.storyInfo}</span>
             </button>
 
             <button
@@ -1980,7 +1993,7 @@ export const TaskDetailModal: React.FC = () => {
               }`}
             >
               <MessageSquare size={14} className="text-cyan-400" />
-              <span>Commentaires</span>
+              <span>{td.tabs.comments}</span>
             </button>
 
             <button
@@ -1993,7 +2006,7 @@ export const TaskDetailModal: React.FC = () => {
               }`}
             >
               <Sparkles size={14} className="text-purple-400" />
-              <span>Skills & IA</span>
+              <span>{td.tabs.skills}</span>
               {Boolean(clarifyActivity || specifyActivity) && (
                 <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse ml-0.5" />
               )}
@@ -2012,16 +2025,16 @@ export const TaskDetailModal: React.FC = () => {
         <div className="flex items-center justify-between px-6 py-4 border-t border-[var(--border-color)] bg-[var(--bg-tertiary)]/30 shrink-0">
           <div className="flex items-center gap-2 text-[11px] text-[var(--text-muted)]">
             <span>
-              {t.taskModal.created} {new Date(selectedTask.createdAt).toLocaleDateString()}
+              {t.taskModal.created} {formatDate(locale, selectedTask.createdAt)}
             </span>
             {selectedTask.creator && (
               <span className="flex items-center gap-1.5 border-l border-[var(--border-color)] pl-2">
-                <span>Créé par</span>
+                <span>{td.fields.creator}</span>
                 <Avatar
                   name={selectedTask.creator}
                   url={selectedTask.creatorAvatar}
                   size={14}
-                  title={`Créé par ${selectedTask.creator}`}
+                  title={format(td.fields.createdBy, { name: selectedTask.creator })}
                 />
                 <span className="font-medium text-[var(--text-secondary)]">{selectedTask.creator}</span>
               </span>
@@ -2042,7 +2055,7 @@ export const TaskDetailModal: React.FC = () => {
               className="px-5 py-2 rounded-xl text-xs font-bold text-white accent-bg shadow-md hover:opacity-90 active:scale-95 flex items-center gap-1.5 transition-all"
             >
               <Save size={14} />
-              <span>{isSaving ? 'Enregistrement...' : t.taskModal.save}</span>
+              <span>{isSaving ? td.header.saving : t.taskModal.save}</span>
             </button>
           </div>
         </div>
@@ -2065,7 +2078,7 @@ export const TaskDetailModal: React.FC = () => {
                       {selectedTask.key}
                     </span>
                     <h3 className="text-sm font-bold text-[var(--text-primary)]">
-                      Spécification Technique (Vue Détaillée)
+                      {td.spec.detailedTitle}
                     </h3>
                   </div>
                   <p className="text-[11px] text-[var(--text-muted)] mt-0.5">
@@ -2081,13 +2094,13 @@ export const TaskDetailModal: React.FC = () => {
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-[var(--bg-primary)] hover:bg-[var(--bg-tertiary)] text-[var(--text-secondary)] border border-[var(--border-color)] transition-colors"
                 >
                   {copiedSpec ? <Check size={13} className="text-emerald-400" /> : <Copy size={13} />}
-                  <span>{copiedSpec ? 'Copié !' : 'Copier spec'}</span>
+                  <span>{copiedSpec ? td.spec.copied : td.spec.copySpec}</span>
                 </button>
                 <button
                   type="button"
                   onClick={() => setIsExpandedSpec(false)}
                   className="p-2 rounded-xl hover:bg-[var(--bg-tertiary)] text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
-                  title="Réduire (ESC)"
+                  title={td.spec.collapse}
                 >
                   <Minimize2 size={16} />
                 </button>
@@ -2095,7 +2108,7 @@ export const TaskDetailModal: React.FC = () => {
                   type="button"
                   onClick={() => setIsExpandedSpec(false)}
                   className="p-2 rounded-xl hover:bg-[var(--bg-tertiary)] text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
-                  title="Fermer"
+                  title={td.spec.close}
                 >
                   <X size={18} />
                 </button>
@@ -2110,7 +2123,7 @@ export const TaskDetailModal: React.FC = () => {
             {/* Footer */}
             <div className="flex items-center justify-between px-6 py-3.5 border-t border-[var(--border-color)] bg-[var(--bg-tertiary)]/50 shrink-0">
               <span className="text-xs text-[var(--text-muted)] font-mono">
-                {specifyActivity.completedAt ? `Généré le ${new Date(specifyActivity.completedAt).toLocaleString()}` : ''}
+                {specifyActivity.completedAt ? format(td.spec.generatedAt, { date: formatDateTime(locale, specifyActivity.completedAt) }) : ''}
               </span>
 
               <button
@@ -2127,7 +2140,7 @@ export const TaskDetailModal: React.FC = () => {
                 ) : (
                   <>
                     <Flame size={14} className="text-amber-300" />
-                    <span>Lancer Implement Code</span>
+                    <span>{td.spec.implement}</span>
                     <ArrowRight size={13} />
                   </>
                 )}

@@ -7,6 +7,7 @@ import {
   axisWords,
   isAxisLabel,
 } from '../src/lib/labelAxes.ts'
+import { planning } from '../src/locales/planning.ts'
 
 test('the two axes carry their own prefix', () => {
   assert.equal(LABEL_AXES.phase.prefix, 'phase:')
@@ -67,8 +68,8 @@ test('a name with nothing left to name yields no label', () => {
 })
 
 test('each axis names itself in its own words', () => {
-  const phase = axisWords('phase')
-  const goal = axisWords('goal')
+  const phase = axisWords('phase', planning.fr.macro.axes)
+  const goal = axisWords('goal', planning.fr.macro.axes)
   assert.equal(phase.plural, 'Phases')
   assert.equal(goal.plural, 'Objectifs')
   assert.notEqual(phase.none, goal.none)
@@ -77,4 +78,9 @@ test('each axis names itself in its own words', () => {
       assert.ok(words[key], `${key} manquant`)
     }
   }
+})
+
+test('the axis words follow the UI language', () => {
+  assert.equal(axisWords('goal', planning.en.macro.axes).plural, 'Goals')
+  assert.equal(axisWords('phase', planning.en.macro.axes).none, 'No phase')
 })

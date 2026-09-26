@@ -2,6 +2,10 @@ import React, { useMemo, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Bold, Italic, Code, Link2, List, ListOrdered, Quote, Heading2, Eye, Pencil, CheckSquare } from 'lucide-react'
+import { useApp } from '../context/AppContext'
+import type { TaskDetailStrings } from '../locales/taskDetail'
+
+type MarkdownStrings = TaskDetailStrings['markdown']
 
 /**
  * Rendu et édition du Markdown, pour les descriptions et les commentaires.
@@ -40,30 +44,31 @@ export const MarkdownView: React.FC<{ children: string; className?: string; comp
   )
 }
 
+type SnippetId = keyof MarkdownStrings['snippets']
+
 type Snippet = {
+  /** Catalog entry holding the button title and the placeholder text. */
+  id: SnippetId
   icon: React.ReactNode
-  title: string
   /** Texte inséré avant la sélection. */
   before: string
   /** Texte inséré après la sélection, vide pour un préfixe de ligne. */
   after?: string
-  /** Contenu posé quand rien n'est sélectionné. */
-  placeholder?: string
   /** Le préfixe s'applique à chaque ligne sélectionnée (listes, citations). */
   perLine?: boolean
   shortcut?: string
 }
 
 const SNIPPETS: Snippet[] = [
-  { icon: <Bold size={12} />, title: 'Gras', before: '**', after: '**', placeholder: 'texte', shortcut: 'b' },
-  { icon: <Italic size={12} />, title: 'Italique', before: '_', after: '_', placeholder: 'texte', shortcut: 'i' },
-  { icon: <Code size={12} />, title: 'Code', before: '`', after: '`', placeholder: 'code' },
-  { icon: <Link2 size={12} />, title: 'Lien', before: '[', after: '](url)', placeholder: 'libellé', shortcut: 'k' },
-  { icon: <Heading2 size={12} />, title: 'Titre', before: '## ', perLine: true, placeholder: 'Titre' },
-  { icon: <List size={12} />, title: 'Liste', before: '- ', perLine: true, placeholder: 'élément' },
-  { icon: <ListOrdered size={12} />, title: 'Liste numérotée', before: '1. ', perLine: true, placeholder: 'élément' },
-  { icon: <CheckSquare size={12} />, title: 'Case à cocher', before: '- [ ] ', perLine: true, placeholder: 'à faire' },
-  { icon: <Quote size={12} />, title: 'Citation', before: '> ', perLine: true, placeholder: 'citation' },
+  { id: 'bold', icon: <Bold size={12} />, before: '**', after: '**', shortcut: 'b' },
+  { id: 'italic', icon: <Italic size={12} />, before: '_', after: '_', shortcut: 'i' },
+  { id: 'code', icon: <Code size={12} />, before: '`', after: '`' },
+  { id: 'link', icon: <Link2 size={12} />, before: '[', after: '](url)', shortcut: 'k' },
+  { id: 'heading', icon: <Heading2 size={12} />, before: '## ', perLine: true },
+  { id: 'list', icon: <List size={12} />, before: '- ', perLine: true },
+  { id: 'orderedList', icon: <ListOrdered size={12} />, before: '1. ', perLine: true },
+  { id: 'checkbox', icon: <CheckSquare size={12} />, before: '- [ ] ', perLine: true },
+  { id: 'quote', icon: <Quote size={12} />, before: '> ', perLine: true },
 ]
 
 /**
@@ -85,6 +90,8 @@ export const MarkdownEditor: React.FC<{
 }> = ({ value, onChange, placeholder, minHeight = 120, maxHeight, disabled, actions, onKeyDown }) => {
   const [isPreview, setIsPreview] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const { t } = useApp()
+  const strings = t.taskDetail.markdown
 
   const applySnippet = (snippet: Snippet) => {
     const textarea = textareaRef.current
@@ -93,6 +100,7 @@ export const MarkdownEditor: React.FC<{
     const start = textarea.selectionStart
     const end = textarea.selectionEnd
     const selected = value.slice(start, end)
+    const placeholder = strings.snippets[snippet.id].placeholder
 
     let inserted: string
     let nextStart: number
@@ -102,7 +110,7 @@ export const MarkdownEditor: React.FC<{
       // Le préfixe se pose en tête de chaque ligne, et sur la ligne courante
       // quand rien n'est sélectionné.
       const lineStart = value.lastIndexOf('\n', Math.max(0, start - 1)) + 1
-      const target = selected || snippet.placeholder || ''
+      const target = selected || placeholder
       const body = selected ? value.slice(lineStart, end) : target
       inserted = body
         .split('\n')
@@ -114,7 +122,7 @@ export const MarkdownEditor: React.FC<{
       nextStart = from
       nextEnd = from + inserted.length
     } else {
-      const target = selected || snippet.placeholder || ''
+      const target = selected || placeholder
       inserted = snippet.before + target + (snippet.after || '')
       onChange(value.slice(0, start) + inserted + value.slice(end))
       // Sans sélection, le curseur se pose sur le mot posé, prêt à être remplacé.
@@ -141,7 +149,7 @@ export const MarkdownEditor: React.FC<{
           }`}
         >
           <Pencil size={11} />
-          Écrire
+          {strings.write}
         </button>
         <button
           type="button"
@@ -151,23 +159,26 @@ export const MarkdownEditor: React.FC<{
           }`}
         >
           <Eye size={11} />
-          Aperçu
+          {strings.preview}
         </button>
 
         {!isPreview && (
           <div className="flex items-center gap-0.5 ml-2 pl-2 border-l border-[var(--border-color)]">
-            {SNIPPETS.map(snippet => (
+            {SNIPPETS.map(snippet => {
+              const title = strings.snippets[snippet.id].title
+              return (
               <button
-                key={snippet.title}
+                key={snippet.id}
                 type="button"
                 disabled={disabled}
                 onClick={() => applySnippet(snippet)}
-                title={snippet.shortcut ? `${snippet.title} (Ctrl/Cmd+${snippet.shortcut.toUpperCase()})` : snippet.title}
+                title={snippet.shortcut ? `${title} (Ctrl/Cmd+${snippet.shortcut.toUpperCase()})` : title}
                 className="p-1 rounded text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] cursor-pointer disabled:opacity-40"
               >
                 {snippet.icon}
               </button>
-            ))}
+              )
+            })}
           </div>
         )}
 
@@ -179,7 +190,7 @@ export const MarkdownEditor: React.FC<{
           {value.trim() ? (
             <MarkdownView>{value}</MarkdownView>
           ) : (
-            <span className="text-[11px] text-[var(--text-muted)] italic">Rien à afficher pour l'instant.</span>
+            <span className="text-[11px] text-[var(--text-muted)] italic">{strings.emptyPreview}</span>
           )}
         </div>
       ) : (

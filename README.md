@@ -853,6 +853,12 @@ the AI configuration and the prompts are the **deployment's** and are an admin's
 to change. An account that has never saved a preference sees the deployment's
 values, so an upgrade changes nothing on screen.
 
+Before sign-in there is no personal language to read, so the sign-in screen
+uses the language this browser used last, else the browser's own language:
+French when it starts with `fr`, English otherwise. A French/English switch on
+the sign-in screen changes it at once and is remembered in this browser. After
+sign-in the personal language preference wins and becomes the remembered one.
+
 ### Roles
 
 | | Admin | Member |

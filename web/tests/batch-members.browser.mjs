@@ -94,7 +94,7 @@ try {
   // The lead's border follows its member state, not the batch run it carries,
   // while the run badge that shows and stops that run stays.
   assert.equal(await border('#10'), 'none')
-  assert.equal(await card('#10').getByTitle(/^Remote execution running/).count(), 1, 'the lead keeps its run badge')
+  assert.equal(await card('#10').getByTitle(/^Exécution distante en cours/).count(), 1, 'the lead keeps its run badge')
   assert.equal(await border('#13'), 'none')
 
   // The condensed card carries the same badge, label and border.

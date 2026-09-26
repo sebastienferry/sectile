@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { currentPullRequestLink, pullRequestStateLabel, addPullRequestLink } from '../src/lib/pullRequests.ts'
+import { currentPullRequestLink, addPullRequestLink } from '../src/lib/pullRequests.ts'
+import { translations } from '../src/locales/translations.ts'
 
 test('the last PR determines the state independently of task workflow', () => {
  const old = {url:'https://github.com/a/b/pull/1',state:'merged'}
@@ -9,11 +10,14 @@ test('the last PR determines the state independently of task workflow', () => {
  assert.equal(currentPullRequestLink({prUrl:old.url,status:'done'}).state,undefined)
  assert.equal(currentPullRequestLink({}),undefined)
 })
-test('every observed state has a distinct accessible label', () => {
- const labels = ['open','conflicting','merged','closed',undefined].map(pullRequestStateLabel)
- assert.equal(new Set(labels).size,5)
- assert.match(labels[1],/conflits/)
- assert.equal(pullRequestStateLabel('unexpected'),labels[4])
+test('every observed state has a distinct accessible label in both languages', () => {
+ for (const language of ['fr', 'en']) {
+  const states = translations[language].taskDetail.pr.states
+  const labels = ['open','conflicting','merged','closed','unknown'].map(state => states[state])
+  assert.equal(new Set(labels).size,5)
+ }
+ assert.match(translations.fr.taskDetail.pr.states.conflicting,/conflits/)
+ assert.match(translations.en.taskDetail.pr.states.conflicting,/conflict/i)
 })
 test('link edits preserve observed history without assigning state to a new PR', () => {
  const first={url:'https://github.com/a/b/pull/1',state:'merged'}

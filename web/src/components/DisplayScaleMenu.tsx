@@ -24,14 +24,11 @@ import type { Density } from '../types'
  * côte à côte permet d'essayer plutôt que de choisir à l'avance.
  */
 
-const DENSITIES: { id: Density; label: string; hint: string }[] = [
-  { id: 'compact', label: 'Compacte', hint: 'Resserre les espaces, sans changer la taille du texte' },
-  { id: 'standard', label: 'Standard', hint: 'Le réglage par défaut' },
-  { id: 'comfortable', label: 'Confortable', hint: 'Aère les espaces' },
-]
+const DENSITIES: Density[] = ['compact', 'standard', 'comfortable']
 
 export function DisplayScaleMenu() {
-  const { settings, updateSettings } = useApp()
+  const { settings, updateSettings, t } = useApp()
+  const strings = t.shell.scale
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
   useClickOutside(ref, () => setOpen(false), open)
@@ -50,7 +47,7 @@ export function DisplayScaleMenu() {
         onClick={() => setOpen(prev => !prev)}
         aria-expanded={open}
         aria-haspopup="menu"
-        title="Zoom et densité de l'interface"
+        title={strings.menuTitle}
         className="flex items-center gap-1 font-mono hover:text-[var(--text-primary)] transition-colors cursor-pointer"
       >
         <ZoomIn size={12} />
@@ -66,15 +63,15 @@ export function DisplayScaleMenu() {
         >
           <div>
             <div className="text-[10px] font-bold uppercase tracking-[.08em] text-[var(--text-muted)] mb-1.5">
-              Zoom
+              {strings.zoom}
             </div>
             <div className="flex items-center gap-1.5">
               <button
                 type="button"
                 onClick={() => apply(stepUIScale(scale, 'down'))}
                 disabled={!canStepUIScale(scale, 'down')}
-                aria-label="Réduire"
-                title="Réduire"
+                aria-label={strings.zoomOut}
+                title={strings.zoomOut}
                 className="p-1 rounded-lg border border-[var(--border-color)] bg-[var(--bg-tertiary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] disabled:opacity-40 disabled:cursor-default cursor-pointer"
               >
                 <Minus size={12} />
@@ -86,8 +83,8 @@ export function DisplayScaleMenu() {
                 type="button"
                 onClick={() => apply(stepUIScale(scale, 'up'))}
                 disabled={!canStepUIScale(scale, 'up')}
-                aria-label="Agrandir"
-                title="Agrandir"
+                aria-label={strings.zoomIn}
+                title={strings.zoomIn}
                 className="p-1 rounded-lg border border-[var(--border-color)] bg-[var(--bg-tertiary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] disabled:opacity-40 disabled:cursor-default cursor-pointer"
               >
                 <Plus size={12} />
@@ -115,10 +112,10 @@ export function DisplayScaleMenu() {
 
           <div className="pt-2 border-t border-[var(--border-color)]">
             <div className="text-[10px] font-bold uppercase tracking-[.08em] text-[var(--text-muted)] mb-1.5">
-              Densité
+              {strings.density}
             </div>
             <div className="flex flex-col gap-0.5">
-              {DENSITIES.map(option => (
+              {DENSITIES.map(id => ({ id, ...strings.densities[id] })).map(option => (
                 <button
                   key={option.id}
                   type="button"

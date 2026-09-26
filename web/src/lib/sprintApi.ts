@@ -20,6 +20,20 @@ export interface SprintBatch {
   weeks: number
 }
 
+/**
+ * A refused sprint request. The message is the server's reason when it gave
+ * one, else empty: the caller words the bare status in the UI language.
+ */
+export class SprintRequestError extends Error {
+  readonly status: number
+
+  constructor(status: number, reason?: string) {
+    super(reason || '')
+    this.name = 'SprintRequestError'
+    this.status = status
+  }
+}
+
 const base = (projectId: string) => `/api/projects/${encodeURIComponent(projectId)}/sprints`
 
 async function send<T>(url: string, method: string, body?: unknown): Promise<{ status: number; data: T & { error?: string } }> {
@@ -29,7 +43,7 @@ async function send<T>(url: string, method: string, body?: unknown): Promise<{ s
     body: body === undefined ? undefined : JSON.stringify(body),
   })
   const data = await res.json().catch(() => ({}))
-  if (!res.ok && res.status !== 207) throw new Error(data.error || `Refus du serveur (${res.status})`)
+  if (!res.ok && res.status !== 207) throw new SprintRequestError(res.status, data.error)
   return { status: res.status, data }
 }
 

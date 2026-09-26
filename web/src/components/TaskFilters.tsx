@@ -6,6 +6,7 @@ import { LookupField, type LookupOption } from './LookupField'
 import { valueLookup } from '../lib/lookups'
 import { matchesSearch } from '../lib/searchFold'
 import { PRIORITY_COLORS, PRIORITY_LEVELS } from '../lib/priority'
+import { format, plural } from '../lib/i18n'
 
 /**
  * Les filtres de tri transversaux, posés dans la barre d'outils de chaque vue
@@ -51,7 +52,10 @@ export const TaskFilters: React.FC = () => {
     setActiveOnly,
     activeTasks,
     t,
+    settings,
   } = useApp()
+  const F = t.shell.filters
+  const lang = settings.language
 
   const [isStatusMenuOpen, setIsStatusMenuOpen] = React.useState(false)
   const statusMenuRef = React.useRef<HTMLDivElement>(null)
@@ -76,15 +80,15 @@ export const TaskFilters: React.FC = () => {
       // « Non assigné » est une valeur de filtre à part entière, et c'est souvent
       // la plus utile : elle est proposée en tête tant qu'il y a de quoi la
       // remplir.
-      if (taskFacets.unassignedCount > 0 && matchesSearch(query, 'Non assigné')) {
+      if (taskFacets.unassignedCount > 0 && matchesSearch(query, F.unassigned)) {
         return [
-          { id: unassignedFilterValue, label: 'Non assigné', sublabel: `${taskFacets.unassignedCount} ticket(s)` },
+          { id: unassignedFilterValue, label: F.unassigned, sublabel: plural(lang, taskFacets.unassignedCount, F.ticketCount) },
           ...people,
         ]
       }
       return people
     }
-  }, [availableAssignees, taskFacets.unassignedCount, unassignedFilterValue])
+  }, [availableAssignees, taskFacets.unassignedCount, unassignedFilterValue, F, lang])
 
   const searchMacroValue = React.useMemo(() => {
     const macroList: Array<{ id: string; label: string; sublabel?: string }> = []
@@ -97,7 +101,7 @@ export const TaskFilters: React.FC = () => {
         macroList.push({
           id: m.key,
           label: m.title ? `${m.key} · ${m.title}` : m.key,
-          sublabel: m.count ? `${m.count} ticket(s)` : undefined,
+          sublabel: m.count ? plural(lang, m.count, F.ticketCount) : undefined,
         })
       }
     }
@@ -107,31 +111,31 @@ export const TaskFilters: React.FC = () => {
       macroList.push({
         id: p.key,
         label: p.title ? `${p.key} · ${p.title}` : p.key,
-        sublabel: p.count ? `${p.count} ticket(s)` : undefined,
+        sublabel: p.count ? plural(lang, p.count, F.ticketCount) : undefined,
       })
     }
 
     return async (query: string): Promise<LookupOption[]> => {
       const filtered = macroList.filter(m => matchesSearch(query, m.label, m.id))
-      if (taskFacets.noMacroCount > 0 && matchesSearch(query, 'Sans macro', 'Sans milestone')) {
+      if (taskFacets.noMacroCount > 0 && matchesSearch(query, F.noMacro, F.noMilestone)) {
         return [
-          { id: '__no_macro__', label: 'Sans macro', sublabel: `${taskFacets.noMacroCount} ticket(s)` },
+          { id: '__no_macro__', label: F.noMacro, sublabel: plural(lang, taskFacets.noMacroCount, F.ticketCount) },
           ...filtered,
         ]
       }
       return filtered
     }
-  }, [taskFacets.macros, taskFacets.noMacroCount, availableParents])
+  }, [taskFacets.macros, taskFacets.noMacroCount, availableParents, F, lang])
 
   const selectedMacroLabel = React.useMemo(() => {
     if (!parentFilter) return ''
-    if (parentFilter === '__no_macro__' || parentFilter === 'none') return 'Sans macro'
+    if (parentFilter === '__no_macro__' || parentFilter === 'none') return F.noMacro
     const found = taskFacets.macros?.find(m => m.key === parentFilter)
     if (found) return found.title ? `${found.key} · ${found.title}` : found.key
     const foundParent = availableParents.find(p => p.key === parentFilter)
     if (foundParent) return foundParent.title ? `${foundParent.key} · ${foundParent.title}` : foundParent.key
     return parentFilter
-  }, [parentFilter, taskFacets.macros, availableParents])
+  }, [parentFilter, taskFacets.macros, availableParents, F])
 
   return (
     <div className="flex items-center gap-2 shrink-0">
@@ -149,25 +153,24 @@ export const TaskFilters: React.FC = () => {
         }`}
         title={
           pinnedTasks.length === 0
-            ? "Aucun ticket épinglé pour l'instant"
+            ? F.noPinned
             : pinnedOnly
-              ? 'Afficher tous les tickets'
-              : `N'afficher que les ${pinnedTasks.length} ticket(s) épinglé(s)`
+              ? t.shell.board.showAll
+              : plural(lang, pinnedTasks.length, F.onlyPinned)
         }
       >
         <Pin size={12} />
-        <span>Épinglés</span>
+        <span>{t.shell.pinned.title}</span>
         {pinnedTasks.length > 0 && (
           <span className="font-mono text-[10px] opacity-70">{pinnedTasks.length}</span>
         )}
       </button>
 
-      {/* En cours : la réponse à la question que pose la pastille des cartes —
-          qu'est-ce qui tourne en ce moment — sans parcourir trois cents tickets
-          à la recherche d'une marque colorée. Le filtre est tenu par le client,
-          sur les activités déjà chargées pour cette pastille : l'état d'un run
-          n'est pas une colonne de ticket, et un run qui s'achève retire donc son
-          ticket au rafraîchissement des activités, pas à celui des tickets. */}
+      {/* In progress: the answer to the question the cards' badge asks (what is
+          running right now?) without scanning three hundred tickets for a
+          coloured mark. The client holds the filter, over the activities already
+          loaded for that badge: a run's state is not a ticket column, so a run
+          that ends drops its ticket when the activities refresh, not the tickets. */}
       <button
         type="button"
         onClick={() => setActiveOnly(!activeOnly)}
@@ -179,14 +182,14 @@ export const TaskFilters: React.FC = () => {
         }`}
         title={
           activeTasks.size === 0
-            ? "Aucun ticket en cours d'exécution"
+            ? t.shell.list.noActive
             : activeOnly
-              ? 'Afficher tous les tickets'
-              : `N'afficher que les ${activeTasks.size} ticket(s) en cours d'exécution`
+              ? t.shell.board.showAll
+              : plural(lang, activeTasks.size, F.onlyActive)
         }
       >
         <Loader2 size={12} className={activeOnly ? 'animate-spin' : undefined} />
-        <span>En cours</span>
+        <span>{t.shell.header.activeOnly}</span>
         {activeTasks.size > 0 && (
           <span className="font-mono text-[10px] opacity-70">{activeTasks.size}</span>
         )}
@@ -205,7 +208,7 @@ export const TaskFilters: React.FC = () => {
                 key={level}
                 type="button"
                 onClick={() => setPriorityFilter(isActive ? null : level)}
-                title={isActive ? `Retirer le filtre ${t.priority[level]}` : `Filtrer : ${t.priority[level]}`}
+                title={format(isActive ? F.removePriority : F.filterPriority, { priority: t.priority[level] })}
                 aria-pressed={isActive}
                 className={`w-4 h-4 rounded-full flex items-center justify-center transition-all cursor-pointer ${
                   isActive
@@ -233,7 +236,7 @@ export const TaskFilters: React.FC = () => {
           <button
             type="button"
             onClick={() => setIsStatusMenuOpen(open => !open)}
-            title="Choisir les statuts affichés"
+            title={F.chooseStatuses}
             className="flex items-center gap-1.5 px-2 py-1 rounded-md text-[11px] font-semibold border cursor-pointer transition-colors"
             style={{
               color: trackerStatusFilters.length > 0 ? 'var(--accent-color)' : 'var(--text-secondary)',
@@ -259,7 +262,7 @@ export const TaskFilters: React.FC = () => {
                     onClick={() => setTrackerStatusFilters([])}
                     className="text-[10px] font-bold text-[var(--text-muted)] hover:text-[var(--text-primary)] cursor-pointer"
                   >
-                    Tous
+                    {F.all}
                   </button>
                 )}
               </div>
@@ -304,7 +307,7 @@ export const TaskFilters: React.FC = () => {
           <button
             type="button"
             onClick={() => setIsTypeMenuOpen(open => !open)}
-            title="Choisir les types de tickets affichés"
+            title={F.chooseTypes}
             className="flex items-center gap-1.5 px-2 py-1 rounded-md text-[11px] font-semibold border cursor-pointer transition-colors"
             style={{
               color: issueTypeFilters.length > 0 ? 'var(--accent-color)' : 'var(--text-secondary)',
@@ -313,14 +316,14 @@ export const TaskFilters: React.FC = () => {
             }}
           >
             <Shapes size={11} />
-            {issueTypeFilters.length > 0 ? `${issueTypeFilters.length} type(s)` : 'Types'}
+            {issueTypeFilters.length > 0 ? plural(lang, issueTypeFilters.length, F.typeCount) : F.types}
           </button>
 
           {isTypeMenuOpen && (
             <div className="absolute right-0 z-50 mt-1 w-[240px] max-h-[300px] overflow-auto rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-color)] shadow-lg p-1">
               <div className="flex items-center justify-between px-1.5 py-1">
                 <span className="text-[9.5px] uppercase tracking-wider font-bold text-[var(--text-muted)]">
-                  Types de tickets
+                  {F.issueTypes}
                 </span>
                 {issueTypeFilters.length > 0 && (
                   <button
@@ -328,7 +331,7 @@ export const TaskFilters: React.FC = () => {
                     onClick={() => setIssueTypeFilters([])}
                     className="text-[10px] font-bold text-[var(--text-muted)] hover:text-[var(--text-primary)] cursor-pointer"
                   >
-                    Tous
+                    {F.all}
                   </button>
                 )}
               </div>
@@ -342,14 +345,14 @@ export const TaskFilters: React.FC = () => {
                 disabled={!currentProject}
                 title={
                   currentProject
-                    ? `Choisir les types importés depuis le tracker pour ${currentProject.name}`
-                    : 'Sélectionnez un projet pour régler ses types importés'
+                    ? format(F.importedTypes, { project: currentProject.name })
+                    : F.selectProjectForTypes
                 }
                 className="w-full flex items-center gap-1.5 px-1.5 py-1 mb-1 rounded-lg text-[10px] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] cursor-pointer disabled:opacity-40 border-b border-[var(--border-color)] rounded-b-none"
               >
                 <Settings2 size={10} />
                 <span className="text-left leading-snug">
-                  Cette liste ne contient que les types importés. En ajouter dans le projet.
+                  {F.importedTypesHint}
                 </span>
               </button>
               {taskFacets.issueTypes.map(type => {
@@ -383,7 +386,7 @@ export const TaskFilters: React.FC = () => {
                     <span className="text-[11px] text-[var(--text-primary)] truncate flex-1 text-left">
                       {type.value}
                       {isContainer && !isActive && (
-                        <span className="ml-1 text-[9px] text-[var(--text-muted)]">masqué</span>
+                        <span className="ml-1 text-[9px] text-[var(--text-muted)]">{F.hidden}</span>
                       )}
                     </span>
                     <span className="text-[9.5px] font-mono text-[var(--text-muted)]">{type.count}</span>
@@ -401,8 +404,8 @@ export const TaskFilters: React.FC = () => {
           <div className="flex-1">
             <LookupField
               value={selectedMacroLabel}
-              placeholder="Toutes macros…"
-              clearLabel="Toutes macros"
+              placeholder={F.allMacrosPlaceholder}
+              clearLabel={F.allMacros}
               onSearch={searchMacroValue}
               onPick={option => setParentFilter(option?.id || null)}
             />
@@ -416,8 +419,8 @@ export const TaskFilters: React.FC = () => {
           <div className="flex-1">
             <LookupField
               value={sprintFilter || ''}
-              placeholder="Tous sprints"
-              clearLabel="Tous sprints"
+              placeholder={F.allSprints}
+              clearLabel={F.allSprints}
               onSearch={searchSprintValue}
               onPick={option => setSprintFilter(option?.id || null)}
             />
@@ -431,8 +434,8 @@ export const TaskFilters: React.FC = () => {
           <div className="flex-1">
             <LookupField
               value={teamFilter || ''}
-              placeholder="Toutes équipes"
-              clearLabel="Toutes équipes"
+              placeholder={F.allTeams}
+              clearLabel={F.allTeams}
               onSearch={searchTeamValue}
               onPick={option => setTeamFilter(option?.id || null)}
             />
@@ -445,9 +448,9 @@ export const TaskFilters: React.FC = () => {
           <User size={12} className={assigneeFilter ? 'text-emerald-400' : 'text-[var(--text-muted)]'} />
           <div className="flex-1">
             <LookupField
-              value={assigneeFilter === unassignedFilterValue ? 'Non assigné' : assigneeFilter || ''}
-              placeholder={teamFilter ? `Toute l'équipe` : 'Toutes personnes'}
-              clearLabel={teamFilter ? `Toute l'équipe` : 'Toutes personnes'}
+              value={assigneeFilter === unassignedFilterValue ? F.unassigned : assigneeFilter || ''}
+              placeholder={teamFilter ? F.wholeTeam : F.allPeople}
+              clearLabel={teamFilter ? F.wholeTeam : F.allPeople}
               onSearch={searchAssigneeValue}
               onPick={option => setAssigneeFilter(option?.id || null)}
             />

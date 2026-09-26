@@ -4,6 +4,7 @@ import {
   safeRedirectPath, signInPath, redirectFromSearch, shouldRedirectToSignIn, needsSignIn,
   describeSignInMode, describeRole, SIGN_IN_PATH, unlockSealedCredentials,
 } from '../src/lib/session.ts'
+import { translations } from '../src/locales/translations.ts'
 
 test('a return target stays inside the interface', () => {
   assert.equal(safeRedirectPath('/board'), '/board')
@@ -45,12 +46,16 @@ test('the sign-in screen is needed for anyone not signed in, with no escape hatc
   assert.equal(needsSignIn({ userId: 'usr_1', signedIn: true, identityProvider: false, mode: 'local', role: 'member' }), false)
 })
 
-test('modes and roles have a label', () => {
-  assert.equal(describeSignInMode('oidc'), 'Identity provider')
-  assert.match(describeSignInMode('local'), /temporary/)
-  assert.equal(describeRole('admin'), 'Admin')
-  assert.equal(describeRole('member'), 'Member')
-  assert.equal(describeRole(''), '')
+test('modes and roles have a label in the caller\'s language', () => {
+  const en = translations.en.signIn.status
+  const fr = translations.fr.signIn.status
+  assert.equal(describeSignInMode('oidc', en.modes), 'Identity provider')
+  assert.match(describeSignInMode('local', en.modes), /temporary/)
+  assert.match(describeSignInMode('local', fr.modes), /temporaire/)
+  assert.equal(describeRole('admin', en.roles), 'Admin')
+  assert.equal(describeRole('member', en.roles), 'Member')
+  assert.equal(describeRole('member', fr.roles), 'Membre')
+  assert.equal(describeRole('', en.roles), '')
 })
 
 test('a supplied sealing passphrase unlocks each sealed tracker, and a refusal only reports', async () => {
@@ -69,14 +74,29 @@ test('a supplied sealing passphrase unlocks each sealed tracker, and a refusal o
   }
   try {
     // No passphrase asks nothing: the session is open with the tokens locked.
-    assert.equal(await unlockSealedCredentials('   '), '')
+    assert.equal(await unlockSealedCredentials('   '), null)
     assert.equal(calls.length, 0)
 
-    const notice = await unlockSealedCredentials('open sesame')
+    const refusal = await unlockSealedCredentials('open sesame')
     assert.equal(calls.length, 3)
     assert.deepEqual(calls.slice(1).map(call => JSON.parse(call.body).tracker), ['jira', 'gitlab'])
-    assert.match(notice, /gitlab/)
-    assert.doesNotMatch(notice, /jira/)
+    // Only the refused tracker is reported, as a code the screen words itself.
+    assert.deepEqual(refusal, { code: 'refused', trackers: ['gitlab'] })
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('sealed tokens that cannot be listed are reported, and an unlocked set says nothing', async () => {
+  const originalFetch = globalThis.fetch
+  try {
+    globalThis.fetch = async () => { throw new Error('offline') }
+    assert.deepEqual(await unlockSealedCredentials('open sesame'), { code: 'unreadable' })
+
+    globalThis.fetch = async (url) => url === '/api/me/tracker-credentials'
+      ? { ok: true, json: async () => ({ credentials: [{ tracker: 'jira', sealed: true, unlocked: false }] }) }
+      : { ok: true, json: async () => ({}) }
+    assert.equal(await unlockSealedCredentials('open sesame'), null)
   } finally {
     globalThis.fetch = originalFetch
   }

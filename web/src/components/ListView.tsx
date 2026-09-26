@@ -40,6 +40,7 @@ import { PRIORITY_COLORS, PRIORITY_LEVELS } from "../lib/priority"
 import { Avatar } from "./Avatar"
 import { EpicBar, useEpicColors } from "./EpicMarker"
 import { shortElapsed, isElapsedStale } from "../lib/elapsed"
+import { format, formatDate, plural } from "../lib/i18n"
 import { resolveTaskStage } from "../lib/workflow"
 import { isSelectableStage } from "../lib/boardSelection"
 import {
@@ -99,7 +100,10 @@ export const ListView: React.FC = () => {
     startBatchPickup,
     addToast,
     t,
+    settings,
   } = useApp()
+  const L = t.shell.list
+  const lang = settings.language
   const showsEpicColors = useEpicColors()
 
 
@@ -179,12 +183,12 @@ export const ListView: React.FC = () => {
   // Workflow Stages & Statuses
   // -------------------------------------------------------------
   const WORKFLOW_STAGES: { id: WorkflowStage; label: string; stageLabel: string; stageColor: string; icon: React.ReactNode; color: string }[] = [
-    { id: "new", label: "New / À cadrer", stageLabel: "#new", stageColor: "bg-cyan-500/15 text-cyan-400 border-cyan-500/30", icon: <Sparkles size={14} />, color: "text-cyan-400" },
-    { id: "clarified", label: "Clarified / À spécifier", stageLabel: "#clarified", stageColor: "bg-amber-500/15 text-amber-400 border-amber-500/30", icon: <HelpCircle size={14} />, color: "text-amber-400" },
-    { id: "specified", label: "Specified / À développer", stageLabel: "#specified", stageColor: "bg-blue-500/15 text-blue-400 border-blue-500/30", icon: <FileCode size={14} />, color: "text-blue-400" },
-    { id: "implemented", label: "Implemented / À tester", stageLabel: "#implemented", stageColor: "bg-indigo-500/15 text-indigo-400 border-indigo-500/30", icon: <Flame size={14} />, color: "text-indigo-400" },
-    { id: "reviewed", label: "Reviewed / À clôturer", stageLabel: "#reviewed", stageColor: "bg-purple-500/15 text-purple-400 border-purple-500/30", icon: <ShieldCheck size={14} />, color: "text-purple-400" },
-    { id: "finished", label: "Finished / Terminé", stageLabel: "#finished", stageColor: "bg-emerald-500/15 text-emerald-400 border-emerald-500/30", icon: <CheckCircle2 size={14} />, color: "text-emerald-400" },
+    { id: "new", label: L.stages.new, stageLabel: "#new", stageColor: "bg-cyan-500/15 text-cyan-400 border-cyan-500/30", icon: <Sparkles size={14} />, color: "text-cyan-400" },
+    { id: "clarified", label: L.stages.clarified, stageLabel: "#clarified", stageColor: "bg-amber-500/15 text-amber-400 border-amber-500/30", icon: <HelpCircle size={14} />, color: "text-amber-400" },
+    { id: "specified", label: L.stages.specified, stageLabel: "#specified", stageColor: "bg-blue-500/15 text-blue-400 border-blue-500/30", icon: <FileCode size={14} />, color: "text-blue-400" },
+    { id: "implemented", label: L.stages.implemented, stageLabel: "#implemented", stageColor: "bg-indigo-500/15 text-indigo-400 border-indigo-500/30", icon: <Flame size={14} />, color: "text-indigo-400" },
+    { id: "reviewed", label: L.stages.reviewed, stageLabel: "#reviewed", stageColor: "bg-purple-500/15 text-purple-400 border-purple-500/30", icon: <ShieldCheck size={14} />, color: "text-purple-400" },
+    { id: "finished", label: L.stages.finished, stageLabel: "#finished", stageColor: "bg-emerald-500/15 text-emerald-400 border-emerald-500/30", icon: <CheckCircle2 size={14} />, color: "text-emerald-400" },
   ]
 
   const trackerStatusOptions = useMemo(() => {
@@ -206,12 +210,12 @@ export const ListView: React.FC = () => {
   }, [currentProject?.trackerColumns])
 
   const statusList: { id: Status; label: string; stageLabel: string; stageColor: string; icon: React.ReactNode; color: string }[] = [
-    { id: "to_clarify", label: t.status.to_clarify, stageLabel: "Backlog", stageColor: "bg-cyan-500/15 text-cyan-400 border-cyan-500/30", icon: <Sparkles size={14} />, color: "text-cyan-400" },
-    { id: "clarified", label: t.status.clarified, stageLabel: "Spécification", stageColor: "bg-amber-500/15 text-amber-400 border-amber-500/30", icon: <HelpCircle size={14} />, color: "text-amber-400" },
-    { id: "to_implement", label: t.status.to_implement, stageLabel: "En cours", stageColor: "bg-blue-500/15 text-blue-400 border-blue-500/30", icon: <FileCode size={14} />, color: "text-blue-400" },
-    { id: "to_test", label: t.status.to_test, stageLabel: "Tests", stageColor: "bg-indigo-500/15 text-indigo-400 border-indigo-500/30", icon: <Flame size={14} />, color: "text-indigo-400" },
-    { id: "to_close", label: t.status.to_close, stageLabel: "Revue", stageColor: "bg-purple-500/15 text-purple-400 border-purple-500/30", icon: <ShieldCheck size={14} />, color: "text-purple-400" },
-    { id: "finished", label: t.status.finished, stageLabel: "Terminé", stageColor: "bg-emerald-500/15 text-emerald-400 border-emerald-500/30", icon: <CheckCircle2 size={14} />, color: "text-emerald-400" },
+    { id: "to_clarify", label: t.status.to_clarify, stageLabel: L.statusStages.to_clarify, stageColor: "bg-cyan-500/15 text-cyan-400 border-cyan-500/30", icon: <Sparkles size={14} />, color: "text-cyan-400" },
+    { id: "clarified", label: t.status.clarified, stageLabel: L.statusStages.clarified, stageColor: "bg-amber-500/15 text-amber-400 border-amber-500/30", icon: <HelpCircle size={14} />, color: "text-amber-400" },
+    { id: "to_implement", label: t.status.to_implement, stageLabel: L.statusStages.to_implement, stageColor: "bg-blue-500/15 text-blue-400 border-blue-500/30", icon: <FileCode size={14} />, color: "text-blue-400" },
+    { id: "to_test", label: t.status.to_test, stageLabel: L.statusStages.to_test, stageColor: "bg-indigo-500/15 text-indigo-400 border-indigo-500/30", icon: <Flame size={14} />, color: "text-indigo-400" },
+    { id: "to_close", label: t.status.to_close, stageLabel: L.statusStages.to_close, stageColor: "bg-purple-500/15 text-purple-400 border-purple-500/30", icon: <ShieldCheck size={14} />, color: "text-purple-400" },
+    { id: "finished", label: t.status.finished, stageLabel: L.statusStages.finished, stageColor: "bg-emerald-500/15 text-emerald-400 border-emerald-500/30", icon: <CheckCircle2 size={14} />, color: "text-emerald-400" },
   ]
 
   // Pastilles flat (sans emoji ni bordure 3D)
@@ -234,11 +238,11 @@ export const ListView: React.FC = () => {
         .flatMap(status => groupRows(task => task.status === status.id))
   const batchTasks = batchRows.filter(task => selectedTaskIds.has(task.id))
   const batchUnavailableReason = batchTasks.length !== selectedTaskIds.size || batchTasks.length === 0
-    ? "Sélectionnez uniquement des tâches visibles dans le backlog."
+    ? L.batchOnlyVisible
     : batchTasks.some(task => task.projectId !== batchTasks[0].projectId)
-      ? "Sélectionnez des tâches d’un seul projet."
+      ? L.batchOneProject
       : batchTasks.some(task => !isSelectableStage(resolveTaskStage(task, currentProject)))
-        ? "Le lot accepte uniquement les tâches aux étapes New ou Clarified."
+        ? L.batchStages
         : ""
 
   const launchSelectedBatch = async () => {
@@ -333,12 +337,12 @@ export const ListView: React.FC = () => {
       }
       addToast({
         type: "success",
-        title: "Priorités mises à jour",
-        description: `${selectedTasks.length} tâche(s) passée(s) en priorité ${priority}`,
+        title: L.toasts.priorityUpdated,
+        description: plural(lang, selectedTasks.length, L.toasts.priorityUpdatedCount, { priority }),
       })
       setActiveBulkDropdown(null)
     } catch (err: any) {
-      addToast({ type: "error", title: "Erreur", description: err.message })
+      addToast({ type: "error", title: L.toasts.error, description: err.message })
     } finally {
       setIsBulkProcessing(false)
     }
@@ -353,12 +357,12 @@ export const ListView: React.FC = () => {
       }
       addToast({
         type: "success",
-        title: "Étape workflow mise à jour",
-        description: `${selectedTasks.length} tâche(s) passée(s) à #${stage}`,
+        title: L.toasts.stageUpdated,
+        description: plural(lang, selectedTasks.length, L.toasts.stageUpdatedCount, { stage }),
       })
       setActiveBulkDropdown(null)
     } catch (err: any) {
-      addToast({ type: "error", title: "Erreur", description: err.message })
+      addToast({ type: "error", title: L.toasts.error, description: err.message })
     } finally {
       setIsBulkProcessing(false)
     }
@@ -377,12 +381,12 @@ export const ListView: React.FC = () => {
       }
       addToast({
         type: "success",
-        title: "Statut mis à jour",
-        description: `${selectedTasks.length} tâche(s) passée(s) à « ${status} »`,
+        title: L.toasts.statusUpdated,
+        description: plural(lang, selectedTasks.length, L.toasts.statusUpdatedCount, { status }),
       })
       setActiveBulkDropdown(null)
     } catch (err: any) {
-      addToast({ type: "error", title: "Erreur", description: err.message })
+      addToast({ type: "error", title: L.toasts.error, description: err.message })
     } finally {
       setIsBulkProcessing(false)
     }
@@ -402,12 +406,12 @@ export const ListView: React.FC = () => {
       }
       addToast({
         type: "success",
-        title: "Label ajouté",
-        description: `Label #${clean} ajouté à ${selectedTasks.length} tâche(s)`,
+        title: L.toasts.labelAdded,
+        description: plural(lang, selectedTasks.length, L.toasts.labelAddedCount, { label: clean }),
       })
       setBulkLabelInput("")
     } catch (err: any) {
-      addToast({ type: "error", title: "Erreur", description: err.message })
+      addToast({ type: "error", title: L.toasts.error, description: err.message })
     } finally {
       setIsBulkProcessing(false)
     }
@@ -427,11 +431,11 @@ export const ListView: React.FC = () => {
       }
       addToast({
         type: "success",
-        title: "Label retiré",
-        description: `Label #${labelName} retiré des tâches sélectionnées`,
+        title: L.toasts.labelRemoved,
+        description: format(L.toasts.labelRemovedDescription, { label: labelName }),
       })
     } catch (err: any) {
-      addToast({ type: "error", title: "Erreur", description: err.message })
+      addToast({ type: "error", title: L.toasts.error, description: err.message })
     } finally {
       setIsBulkProcessing(false)
     }
@@ -439,7 +443,7 @@ export const ListView: React.FC = () => {
 
   const handleBulkDelete = async () => {
     if (selectedTasks.length === 0) return
-    if (!window.confirm(`Supprimer définitivement ${selectedTasks.length} tâche(s) sélectionnée(s) ?`)) return
+    if (!window.confirm(plural(lang, selectedTasks.length, L.deleteConfirm))) return
     setIsBulkProcessing(true)
     try {
       for (const task of selectedTasks) {
@@ -447,12 +451,12 @@ export const ListView: React.FC = () => {
       }
       addToast({
         type: "success",
-        title: "Tâches supprimées",
-        description: `${selectedTasks.length} tâche(s) supprimée(s)`,
+        title: L.toasts.deleted,
+        description: plural(lang, selectedTasks.length, L.toasts.deletedCount),
       })
       clearSelection()
     } catch (err: any) {
-      addToast({ type: "error", title: "Erreur", description: err.message })
+      addToast({ type: "error", title: L.toasts.error, description: err.message })
     } finally {
       setIsBulkProcessing(false)
     }
@@ -503,10 +507,10 @@ export const ListView: React.FC = () => {
                 }`}
                 title={
                   task.source === "github"
-                    ? `Ouvrir ${task.key} sur GitHub`
+                    ? format(L.openOnGithub, { key: task.key })
                     : task.source === "jira"
-                    ? `Ouvrir ${task.key} sur Jira`
-                    : `Ouvrir ${task.key}`
+                    ? format(L.openOnJira, { key: task.key })
+                    : format(L.open, { key: task.key })
                 }
               >
                 {task.source === "github" && <FolderGit2 size={11} className="text-purple-400" />}
@@ -539,7 +543,7 @@ export const ListView: React.FC = () => {
                   background: issueTypeStyle(task.issueType).background,
                   border: `1px solid ${issueTypeStyle(task.issueType).border}`,
                 }}
-                title={`Type de ticket : ${task.issueType}`}
+                title={format(t.shell.card.issueType, { type: task.issueType })}
               >
                 {issueTypeStyle(task.issueType).short}
               </span>
@@ -554,7 +558,7 @@ export const ListView: React.FC = () => {
             {condensedRows && task.parentKey && (
               <span
                 className="shrink-0 inline-flex items-center gap-1 px-1.5 rounded text-[10px] text-violet-300 bg-violet-500/10 border border-violet-500/25"
-                title={`${task.parentType || "Parent"} ${task.parentKey}${task.parentTitle ? ` - ${task.parentTitle}` : ""}`}
+                title={`${task.parentType || t.shell.card.parent} ${task.parentKey}${task.parentTitle ? ` - ${task.parentTitle}` : ""}`}
               >
                 <Layers size={9} className="shrink-0 opacity-80" />
                 <span className="font-mono font-bold">{task.parentKey}</span>
@@ -566,7 +570,7 @@ export const ListView: React.FC = () => {
           {!condensedRows && task.parentKey && (
             <div
               className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[10px] mt-1 mr-1 text-violet-300 bg-violet-500/10 border border-violet-500/25 max-w-[220px]"
-              title={`${task.parentType || "Parent"} ${task.parentKey}${task.parentTitle ? ` - ${task.parentTitle}` : ""}`}
+              title={`${task.parentType || t.shell.card.parent} ${task.parentKey}${task.parentTitle ? ` - ${task.parentTitle}` : ""}`}
             >
               <Layers size={9} className="shrink-0 opacity-80" />
               <span className="font-mono font-bold shrink-0">{task.parentKey}</span>
@@ -594,7 +598,7 @@ export const ListView: React.FC = () => {
               value={taskStage}
               onChange={e => moveTaskWorkflowStage(task.id, e.target.value as WorkflowStage)}
               className="text-[11px] font-bold bg-[var(--bg-secondary)] text-[var(--text-primary)] border border-[var(--border-color)] rounded-md px-2 py-1 focus:outline-none focus:border-[var(--accent-color)] cursor-pointer shadow-2xs"
-              title="Modifier l'étape du workflow agentique (met à jour le statut selon le mapping du projet)"
+              title={L.changeStageTitle}
             >
               {WORKFLOW_STAGES.map(s => (
                 <option key={s.id} value={s.id}>
@@ -614,7 +618,7 @@ export const ListView: React.FC = () => {
                 }
               }}
               className="text-[11px] font-medium bg-[var(--bg-secondary)] text-[var(--text-secondary)] border border-[var(--border-color)] rounded-md px-2 py-1 focus:outline-none focus:border-[var(--accent-color)] cursor-pointer shadow-2xs"
-              title="Modifier le statut (met à jour l'étape agentique selon le mapping du projet)"
+              title={L.changeStatusTitle}
             >
               {currentProject?.trackerColumns && currentProject.trackerColumns.length > 0 ? (
                 trackerStatusOptions.map(st => (
@@ -634,14 +638,14 @@ export const ListView: React.FC = () => {
 
           {/* L'ancienneté dans l'état est une seconde ligne sous le sélecteur :
               elle repasse par le mode détaillé, où on la lit vraiment. */}
-          {!condensedRows && task.statusChangedAt && shortElapsed(task.statusChangedAt) && (
+          {!condensedRows && task.statusChangedAt && shortElapsed(task.statusChangedAt, t.shell.elapsed) && (
             <div
               className="flex items-center gap-0.5 mt-1 text-[9.5px] font-medium"
               style={{ color: isElapsedStale(task.statusChangedAt) ? "var(--status-warn)" : "var(--text-muted)" }}
-              title={`Dans cet état depuis le ${new Date(task.statusChangedAt).toLocaleDateString()}`}
+              title={format(L.stateSince, { date: formatDate(lang, task.statusChangedAt) })}
             >
               <Clock size={9} />
-              <span>{shortElapsed(task.statusChangedAt)}</span>
+              <span>{shortElapsed(task.statusChangedAt, t.shell.elapsed)}</span>
             </div>
           )}
         </td>
@@ -653,7 +657,7 @@ export const ListView: React.FC = () => {
               value={task.priority}
               onChange={e => updateTask(task.id, { priority: e.target.value as Priority })}
               className="opacity-0 absolute inset-0 w-full h-full cursor-pointer z-10"
-              title={`${t.taskModal.priority} : ${priorityOpt.label} (Cliquer pour changer)`}
+              title={format(L.priorityChange, { label: t.taskModal.priority, value: priorityOpt.label })}
             >
               {PRIORITY_OPTIONS.map(p => (
                 <option key={p.id} value={p.id}>
@@ -699,7 +703,7 @@ export const ListView: React.FC = () => {
         <td className={`${cellPad} whitespace-nowrap text-xs text-[var(--text-secondary)]`}>
           <div className="flex flex-col gap-0.5">
             {task.assignee ? (
-              <div className="flex items-center gap-1.5" title={`Assigné : ${task.assignee}`}>
+              <div className="flex items-center gap-1.5" title={format(L.assignee, { name: task.assignee })}>
                 <Avatar name={task.assignee} url={task.assigneeAvatar} size={18} />
                 <span className="truncate max-w-[90px]">{task.assignee}</span>
               </div>
@@ -710,8 +714,8 @@ export const ListView: React.FC = () => {
                 imposent leur hauteur à toute la ligne. L'assigné reste, c'est
                 lui qu'on cherche en balayant le backlog. */}
             {!condensedRows && task.creator && (
-              <div className="flex items-center gap-1 text-[10px] text-[var(--text-muted)]" title={`Créé par : ${task.creator}`}>
-                <span className="opacity-70">par</span>
+              <div className="flex items-center gap-1 text-[10px] text-[var(--text-muted)]" title={format(L.createdBy, { name: task.creator })}>
+                <span className="opacity-70">{L.by}</span>
                 <Avatar name={task.creator} url={task.creatorAvatar} size={14} />
                 <span className="truncate max-w-[80px]">{task.creator}</span>
               </div>
@@ -730,7 +734,7 @@ export const ListView: React.FC = () => {
                 </span>
               ) : (
                 <span className="text-[10px] opacity-60 font-mono">
-                  {new Date(task.createdAt).toLocaleDateString()}
+                  {formatDate(lang, task.createdAt, { day: '2-digit', month: '2-digit', year: 'numeric' })}
                 </span>
               )}
 
@@ -748,7 +752,7 @@ export const ListView: React.FC = () => {
                     ? "bg-orange-500/15 text-orange-400 hover:bg-orange-500/25 border border-orange-500/30"
                     : "bg-purple-500/15 text-purple-400 hover:bg-purple-500/25 border border-purple-500/30"
                 }`}
-                title={task.prUrl.includes("gitlab") ? `Voir MR GitLab : ${task.prUrl}` : `Voir PR GitHub : ${task.prUrl}`}
+                title={format(task.prUrl.includes("gitlab") ? L.viewGitlabMr : L.viewGithubPr, { url: task.prUrl })}
               >
                 <PullRequestStateIcon task={task} size={10} />
                 <span>{task.prUrl.includes("gitlab") ? "GitLab MR" : "GitHub PR"}</span>
@@ -768,7 +772,7 @@ export const ListView: React.FC = () => {
                   ? "accent-text bg-[var(--accent-light)] border-[var(--accent-color)]/40"
                   : "text-[var(--text-muted)] hover:text-[var(--accent-color)] border-transparent hover:border-[var(--accent-color)]/30"
               }`}
-              title={isPinned(task.id) ? "Retirer des épinglés" : "Épingler"}
+              title={isPinned(task.id) ? L.unpin : L.pin}
             >
               <Pin size={13} />
             </button>
@@ -778,7 +782,7 @@ export const ListView: React.FC = () => {
               type="button"
               onClick={() => openCloneModal(task)}
               className="p-1 rounded text-[var(--text-muted)] hover:text-cyan-400 hover:bg-cyan-500/10 transition-colors cursor-pointer"
-              title="Cloner cette story"
+              title={L.clone}
             >
               <CopyPlus size={13} />
             </button>
@@ -808,7 +812,7 @@ export const ListView: React.FC = () => {
         <div className="flex items-center justify-between gap-4 pb-2 border-b border-[var(--border-color)] flex-wrap">
           <div className="flex items-center gap-4 flex-wrap">
             <span className="text-xs font-semibold text-[var(--text-secondary)]">
-              {visibleTasks.length} {visibleTasks.length > 1 ? "tâches dans le backlog" : "tâche dans le backlog"}
+              {plural(lang, visibleTasks.length, L.backlogCount)}
             </span>
 
             <BoardGroupingToggle size="sm" />
@@ -820,7 +824,7 @@ export const ListView: React.FC = () => {
                 onChange={e => setGroupByStatus(e.target.checked)}
                 className="rounded text-[var(--accent-color)] focus:ring-0 cursor-pointer"
               />
-              {boardGrouping === "workflow" ? "Grouper par étape workflow" : "Grouper par statut"}
+              {boardGrouping === "workflow" ? L.groupByStage : L.groupByStatus}
             </label>
             <label className="flex items-center gap-1.5 text-xs text-[var(--text-muted)] cursor-pointer hover:text-[var(--text-primary)] transition-colors">
               <input
@@ -829,7 +833,7 @@ export const ListView: React.FC = () => {
                 onChange={() => toggleHideDone()}
                 className="rounded text-[var(--accent-color)] focus:ring-0 cursor-pointer"
               />
-              Masquer terminées ({doneTasksCount})
+              {format(L.hideDone, { count: doneTasksCount })}
             </label>
           </div>
 
@@ -838,11 +842,11 @@ export const ListView: React.FC = () => {
               type="button"
               onClick={toggleRowMode}
               aria-pressed={condensedRows}
-              aria-label={condensedRows ? "Afficher les lignes détaillées" : "Afficher les lignes condensées"}
+              aria-label={condensedRows ? L.showExpanded : L.showCondensed}
               title={
                 condensedRows
-                  ? "Afficher les lignes détaillées (description et titre de la macro)"
-                  : "Condenser les lignes (sans description, macro réduite à sa clé)"
+                  ? L.showExpandedTitle
+                  : L.showCondensedTitle
               }
               className={`flex items-center justify-center p-1.5 rounded-lg border transition-colors cursor-pointer ${
                 condensedRows
@@ -861,13 +865,13 @@ export const ListView: React.FC = () => {
         {visibleTasks.length === 0 ? (
           <div className="py-16 text-center text-[var(--text-muted)] space-y-3">
             <Clock size={32} className="mx-auto opacity-40" />
-            <p className="text-sm font-medium">{activeOnly ? "Aucun ticket en cours d'exécution" : t.list.empty}</p>
+            <p className="text-sm font-medium">{activeOnly ? L.noActive : t.list.empty}</p>
             {activeOnly && (
               <button
                 onClick={() => setActiveOnly(false)}
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold accent-text bg-[var(--accent-light)] border border-[var(--accent-color)]/40 hover:opacity-80 transition-opacity cursor-pointer"
               >
-                <span>Afficher tous les tickets</span>
+                <span>{t.shell.board.showAll}</span>
               </button>
             )}
             {hideDone && doneTasksCount > 0 && (
@@ -876,7 +880,7 @@ export const ListView: React.FC = () => {
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 transition-colors cursor-pointer"
               >
                 <Eye size={13} />
-                <span>Afficher les {doneTasksCount} tâches terminées</span>
+                <span>{plural(lang, doneTasksCount, L.showDoneCount)}</span>
               </button>
             )}
           </div>
@@ -913,7 +917,7 @@ export const ListView: React.FC = () => {
                         onClick={() => toggleSelectGroup(groupTasks)}
                         className="text-[11px] font-semibold text-[var(--text-muted)] hover:text-[var(--accent-color)] transition-colors cursor-pointer"
                       >
-                        {isGroupAllSelected ? "Tout désélectionner" : "Sélectionner le groupe"}
+                        {isGroupAllSelected ? L.deselectAll : L.selectGroup}
                       </button>
                     </div>
 
@@ -931,17 +935,17 @@ export const ListView: React.FC = () => {
                                 }}
                                 onChange={() => toggleSelectGroup(groupTasks)}
                                 className="rounded text-[var(--accent-color)] focus:ring-0 cursor-pointer w-4 h-4"
-                                title="Sélectionner toutes les tâches de ce groupe"
+                                title={L.selectGroupTitle}
                               />
                             </th>
                             <th className="py-2 px-3 w-28">{t.list.columns.key}</th>
                             <th className="py-2 px-3 min-w-[240px]">{t.list.columns.title}</th>
-                            <th className="py-2 px-3 w-44">Étape Workflow</th>
+                            <th className="py-2 px-3 w-44">{L.stageColumn}</th>
                             <th className="py-2 px-3 w-8 text-center">{t.list.columns.priority}</th>
                             <th className="py-2 px-3 w-36">{t.list.columns.labels}</th>
                             <th className="py-2 px-3 w-32">{t.list.columns.assignee}</th>
                             <th className="py-2 px-3 w-32">{t.list.columns.dueDate}</th>
-                            <th className="py-2 px-3 text-right w-24">Actions</th>
+                            <th className="py-2 px-3 text-right w-24">{t.shell.card.actions}</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -983,7 +987,7 @@ export const ListView: React.FC = () => {
                         onClick={() => toggleSelectGroup(groupTasks)}
                         className="text-[11px] font-semibold text-[var(--text-muted)] hover:text-[var(--accent-color)] transition-colors cursor-pointer"
                       >
-                        {isGroupAllSelected ? "Tout désélectionner" : "Sélectionner le groupe"}
+                        {isGroupAllSelected ? L.deselectAll : L.selectGroup}
                       </button>
                     </div>
 
@@ -1001,7 +1005,7 @@ export const ListView: React.FC = () => {
                                 }}
                                 onChange={() => toggleSelectGroup(groupTasks)}
                                 className="rounded text-[var(--accent-color)] focus:ring-0 cursor-pointer w-4 h-4"
-                                title="Sélectionner toutes les tâches de ce groupe"
+                                title={L.selectGroupTitle}
                               />
                             </th>
                             <th className="py-2 px-3 w-28">{t.list.columns.key}</th>
@@ -1011,7 +1015,7 @@ export const ListView: React.FC = () => {
                             <th className="py-2 px-3 w-36">{t.list.columns.labels}</th>
                             <th className="py-2 px-3 w-32">{t.list.columns.assignee}</th>
                             <th className="py-2 px-3 w-32">{t.list.columns.dueDate}</th>
-                            <th className="py-2 px-3 text-right w-24">Actions</th>
+                            <th className="py-2 px-3 text-right w-24">{t.shell.card.actions}</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -1029,14 +1033,14 @@ export const ListView: React.FC = () => {
               <div className="flex items-center justify-between p-3 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-color)] text-xs text-[var(--text-muted)]">
                 <div className="flex items-center gap-2">
                   <EyeOff size={14} className="text-slate-400" />
-                  <span>{doneTasksCount} {doneTasksCount > 1 ? "tâches terminées sont masquées" : "tâche terminée est masquée"}</span>
+                  <span>{plural(lang, doneTasksCount, L.doneHidden)}</span>
                 </div>
                 <button
                   onClick={toggleHideDone}
                   className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 transition-colors cursor-pointer"
                 >
                   <Eye size={12} />
-                  <span>Afficher</span>
+                  <span>{L.show}</span>
                 </button>
               </div>
             )}
@@ -1058,7 +1062,7 @@ export const ListView: React.FC = () => {
                           }}
                           onChange={toggleSelectAllVisible}
                           className="rounded text-[var(--accent-color)] focus:ring-0 cursor-pointer w-4 h-4"
-                          title="Sélectionner toutes les tâches visibles"
+                          title={L.selectAllVisible}
                         />
                       </th>
                       <th className="py-2.5 px-3 cursor-pointer hover:text-[var(--text-primary)] w-28" onClick={() => handleSort("key")}>
@@ -1069,7 +1073,7 @@ export const ListView: React.FC = () => {
                       </th>
                       <th className="py-2.5 px-3 cursor-pointer hover:text-[var(--text-primary)] w-44" onClick={() => handleSort("status")}>
                         <div className="flex items-center gap-1">
-                          {boardGrouping === "workflow" ? "Étape Workflow" : t.list.columns.status} <ArrowUpDown size={12} />
+                          {boardGrouping === "workflow" ? L.stageColumn : t.list.columns.status} <ArrowUpDown size={12} />
                         </div>
                       </th>
                       <th className="py-2.5 px-3 cursor-pointer hover:text-[var(--text-primary)] w-8 text-center" onClick={() => handleSort("priority")}>
@@ -1080,7 +1084,7 @@ export const ListView: React.FC = () => {
                       <th className="py-2.5 px-3 cursor-pointer hover:text-[var(--text-primary)] w-32" onClick={() => handleSort("dueDate")}>
                         <div className="flex items-center gap-1">{t.list.columns.dueDate} <ArrowUpDown size={12} /></div>
                       </th>
-                      <th className="py-2.5 px-3 text-right w-24">Actions</th>
+                      <th className="py-2.5 px-3 text-right w-24">{t.shell.card.actions}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1094,14 +1098,14 @@ export const ListView: React.FC = () => {
               <div className="flex items-center justify-between p-3 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-color)] text-xs text-[var(--text-muted)]">
                 <div className="flex items-center gap-2">
                   <EyeOff size={14} className="text-slate-400" />
-                  <span>{doneTasksCount} {doneTasksCount > 1 ? "tâches terminées sont masquées" : "tâche terminée est masquée"}</span>
+                  <span>{plural(lang, doneTasksCount, L.doneHidden)}</span>
                 </div>
                 <button
                   onClick={toggleHideDone}
                   className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 transition-colors cursor-pointer"
                 >
                   <Eye size={12} />
-                  <span>Afficher</span>
+                  <span>{L.show}</span>
                 </button>
               </div>
             )}
@@ -1124,13 +1128,13 @@ export const ListView: React.FC = () => {
                 {selectedTaskIds.size}
               </span>
               <span className="font-semibold text-[var(--text-primary)] whitespace-nowrap">
-                {selectedTaskIds.size > 1 ? "sélectionnées" : "sélectionnée"}
+                {plural(lang, selectedTaskIds.size, t.shell.board.selected)}
               </span>
               <button
                 type="button"
                 onClick={clearSelection}
                 className="text-[var(--text-muted)] hover:text-[var(--text-primary)] p-1 rounded hover:bg-[var(--bg-tertiary)] transition-colors cursor-pointer"
-                title="Désélectionner tout"
+                title={t.shell.board.clearSelection}
               >
                 <X size={14} />
               </button>
@@ -1141,7 +1145,7 @@ export const ListView: React.FC = () => {
                 type="button"
                 onClick={launchSelectedBatch}
                 disabled={isBulkProcessing || Boolean(batchUnavailableReason)}
-                title={batchUnavailableReason || "Lancer les tâches sélectionnées sur l’agent local"}
+                title={batchUnavailableReason || t.shell.board.runSelected}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-[var(--bg-tertiary)] text-[var(--text-secondary)] border border-[var(--border-color)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-secondary)] transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <Sparkles size={13} />
@@ -1163,13 +1167,13 @@ export const ListView: React.FC = () => {
                 }`}
               >
                 {boardGrouping === "workflow" ? <Sparkles size={13} className="text-cyan-400" /> : <Kanban size={13} className="text-indigo-400" />}
-                <span>{boardGrouping === "workflow" ? "Étape" : "Statut"}</span>
+                <span>{boardGrouping === "workflow" ? L.bulkStage : L.bulkStatus}</span>
               </button>
 
               {activeBulkDropdown === "status" && (
                 <div className="absolute bottom-full mb-2 left-0 w-60 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-color)] shadow-xl p-1.5 z-50 space-y-1 animate-in fade-in-50 zoom-in-95">
                   <div className="px-2 py-1 text-[10px] uppercase font-bold text-[var(--text-muted)] tracking-wider border-b border-[var(--border-color)]/50 pb-1 mb-1">
-                    {boardGrouping === "workflow" ? "Changer l'étape agentique" : "Changer le statut"}
+                    {boardGrouping === "workflow" ? L.changeStage : L.changeStatus}
                   </div>
                   {boardGrouping === "workflow" ? (
                     WORKFLOW_STAGES.map(s => (
@@ -1231,13 +1235,13 @@ export const ListView: React.FC = () => {
                 }`}
               >
                 <Flame size={13} className="text-amber-400" />
-                <span>Priorité</span>
+                <span>{t.list.columns.priority}</span>
               </button>
 
               {activeBulkDropdown === "priority" && (
                 <div className="absolute bottom-full mb-2 left-0 w-44 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-color)] shadow-xl p-1.5 z-50 space-y-1 animate-in fade-in-50 zoom-in-95">
                   <div className="px-2 py-1 text-[10px] uppercase font-bold text-[var(--text-muted)] tracking-wider border-b border-[var(--border-color)]/50 pb-1 mb-1">
-                    Définir la priorité
+                    {L.setPriority}
                   </div>
                   {PRIORITY_OPTIONS.map(p => (
                     <button
@@ -1267,14 +1271,14 @@ export const ListView: React.FC = () => {
                 }`}
               >
                 <Tag size={13} className="text-blue-400" />
-                <span>Labels</span>
+                <span>{t.list.columns.labels}</span>
               </button>
 
               {activeBulkDropdown === "labels" && (
                 <div className="absolute bottom-full mb-2 -left-16 sm:left-0 w-72 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-color)] shadow-2xl p-3 z-50 space-y-3 animate-in fade-in-50 zoom-in-95">
                   <div className="flex items-center justify-between border-b border-[var(--border-color)] pb-1.5">
                     <span className="text-[11px] font-bold text-[var(--text-primary)] uppercase tracking-wider">
-                      Gestion des Labels
+                      {L.manageLabels}
                     </span>
                     <button
                       type="button"
@@ -1299,7 +1303,7 @@ export const ListView: React.FC = () => {
                       type="text"
                       value={bulkLabelInput}
                       onChange={e => setBulkLabelInput(e.target.value)}
-                      placeholder="Nouveau label..."
+                      placeholder={L.newLabel}
                       className="flex-1 text-xs px-2.5 py-1.5 rounded-lg bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent-color)]"
                     />
                     <button
@@ -1308,7 +1312,7 @@ export const ListView: React.FC = () => {
                       className="px-2.5 py-1.5 rounded-lg bg-[var(--accent-color)] text-white text-xs font-bold hover:opacity-90 disabled:opacity-50 transition-all cursor-pointer flex items-center gap-1 shrink-0"
                     >
                       <Plus size={12} />
-                      <span>Ajouter</span>
+                      <span>{L.add}</span>
                     </button>
                   </form>
 
@@ -1316,7 +1320,7 @@ export const ListView: React.FC = () => {
                   {allProjectLabels.length > 0 && (
                     <div className="space-y-1">
                       <div className="text-[10px] uppercase font-bold text-[var(--text-muted)]">
-                        Labels du projet (+ ajouter)
+                        {L.projectLabels}
                       </div>
                       <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto pr-1">
                         {allProjectLabels.map(l => (
@@ -1338,7 +1342,7 @@ export const ListView: React.FC = () => {
                   {selectedTasksLabels.length > 0 && (
                     <div className="space-y-1 pt-2 border-t border-[var(--border-color)]">
                       <div className="text-[10px] uppercase font-bold text-[var(--text-muted)]">
-                        Labels sur la sélection (cliquer pour retirer)
+                        {L.selectionLabels}
                       </div>
                       <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto pr-1">
                         {selectedTasksLabels.map(({ label, count }) => (
@@ -1347,7 +1351,7 @@ export const ListView: React.FC = () => {
                             type="button"
                             onClick={() => handleBulkRemoveLabel(label)}
                             className="text-[10px] px-1.5 py-0.5 rounded-md border border-rose-500/30 bg-rose-500/10 text-rose-300 hover:bg-rose-500/20 transition-colors cursor-pointer flex items-center gap-1 group/chip"
-                            title={`Retirer #${label} de ${count} tâche(s)`}
+                            title={plural(lang, count, L.removeLabel, { label })}
                           >
                             <span>#{label}</span>
                             <span className="text-[9px] opacity-70">({count})</span>
@@ -1367,17 +1371,17 @@ export const ListView: React.FC = () => {
               onClick={handleBulkDelete}
               disabled={isBulkProcessing}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-semibold text-rose-400 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/25 transition-all cursor-pointer"
-              title="Supprimer les tâches sélectionnées"
+              title={L.deleteSelected}
             >
               <Trash2 size={13} />
-              <span className="hidden sm:inline">Supprimer</span>
+              <span className="hidden sm:inline">{L.delete}</span>
             </button>
 
             {/* Loading Indicator */}
             {isBulkProcessing && (
               <div className="flex items-center gap-1.5 text-xs text-[var(--accent-color)] font-medium pl-2 border-l border-[var(--border-color)]">
                 <Loader2 size={13} className="animate-spin" />
-                <span>En cours...</span>
+                <span>{L.processing}</span>
               </div>
             )}
           </div>

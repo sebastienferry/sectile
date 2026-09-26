@@ -3,6 +3,7 @@ import { Check, Layers, Plus, Tag } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { MacroTaskRow } from './MacroTaskRow'
 import { isTaskDone } from '../lib/workflow'
+import { format, plural } from '../lib/i18n'
 import { LABEL_AXES, axisLabelOf, axisNameOf, axisWords, isAxisLabel, type LabelAxis } from '../lib/labelAxes'
 import type { Task } from '../types'
 
@@ -30,9 +31,10 @@ interface AxisGroup {
 }
 
 export const MacroLabelGroups: React.FC<{ axis: LabelAxis; tasks: Task[] }> = ({ axis, tasks }) => {
-  const { setSelectedTask, updateTask, addToast } = useApp()
+  const { setSelectedTask, updateTask, addToast, t, settings } = useApp()
+  const strings = t.planning.macro
   const meta = LABEL_AXES[axis]
-  const words = axisWords(axis)
+  const words = axisWords(axis, strings.axes)
 
   const carries = useCallback((label: string) => isAxisLabel(axis, label), [axis])
   const nameOf = useCallback((label: string) => axisNameOf(axis, label), [axis])
@@ -104,7 +106,7 @@ export const MacroLabelGroups: React.FC<{ axis: LabelAxis; tasks: Task[] }> = ({
           : kept
       await updateTask(taskId, { labels: next })
     } catch (err: any) {
-      addToast({ type: 'error', title: 'Déplacement refusé', description: err.message })
+      addToast({ type: 'error', title: strings.moveRefused, description: err.message })
     } finally {
       setBusy(null)
     }
@@ -161,7 +163,9 @@ export const MacroLabelGroups: React.FC<{ axis: LabelAxis; tasks: Task[] }> = ({
       onOpen={setSelectedTask}
       dragProps={dragProps(task, from)}
       busy={busy === task.id}
-      title={`${task.key} - ${task.title}${isTaskDone(task) ? ' (terminé)' : ''} · Glisser vers un groupe`}
+      title={format(strings.dragToGroup, {
+        title: format(isTaskDone(task) ? strings.taskTitleDone : strings.taskTitle, { key: task.key, title: task.title }),
+      })}
     />
   )
 
@@ -190,15 +194,15 @@ export const MacroLabelGroups: React.FC<{ axis: LabelAxis; tasks: Task[] }> = ({
                 background: 'var(--accent-light)',
                 border: '1px solid rgb(var(--accent-rgb) / 0.35)',
               }}
-              title={`Label sur le tracker : ${label}`}
+              title={format(strings.trackerLabel, { label })}
             >
               <Tag size={10} />
               {nameOf(label)}
             </span>
           )}
           <span className="text-[9.5px] font-mono text-[var(--text-muted)]">
-            {list.length} {list.length > 1 ? 'tickets' : 'ticket'}
-            {done > 0 && ` · ${done} terminé${done > 1 ? 's' : ''}`}
+            {plural(settings.language, list.length, strings.ticketCount)}
+            {done > 0 && ` · ${plural(settings.language, done, strings.doneCount)}`}
           </span>
           {!isUnplaced && done === list.length && list.length > 0 && (
             <span
@@ -209,14 +213,14 @@ export const MacroLabelGroups: React.FC<{ axis: LabelAxis; tasks: Task[] }> = ({
                 border: '1px solid rgb(var(--status-ok-rgb) / 0.32)',
               }}
             >
-              <Check size={9} /> Groupe terminé
+              <Check size={9} /> {strings.groupDone}
             </span>
           )}
         </div>
         <div className="flex flex-col gap-1">
           {list.length === 0 ? (
             <span className="text-[10.5px] text-[var(--text-muted)] italic">
-              Déposer un ticket ici pour le placer.
+              {strings.dropHere}
             </span>
           ) : (
             <>
@@ -231,7 +235,7 @@ export const MacroLabelGroups: React.FC<{ axis: LabelAxis; tasks: Task[] }> = ({
                   onClick={() => setExpanded(prev => ({ ...prev, [groupKey]: !isOpen }))}
                   className="self-start px-2 py-0.5 rounded-lg border border-dashed border-[var(--border-color)] text-[10px] font-semibold text-[var(--text-secondary)] hover:text-[var(--text-primary)] cursor-pointer"
                 >
-                  {isOpen ? 'Replier' : `+ ${list.length - ROWS_SHOWN} autres`}
+                  {isOpen ? strings.collapse : plural(settings.language, list.length - ROWS_SHOWN, strings.moreRows)}
                 </button>
               )}
             </>
@@ -246,7 +250,7 @@ export const MacroLabelGroups: React.FC<{ axis: LabelAxis; tasks: Task[] }> = ({
       <div className="flex flex-col items-center gap-2 py-10 text-center px-4">
         <Layers size={22} className="text-[var(--text-muted)]" />
         <p className="text-[11.5px] text-[var(--text-secondary)]">
-          Aucun ticket sous cette macro : rien à répartir pour l'instant.
+          {strings.empty}
         </p>
       </div>
     )
@@ -262,9 +266,9 @@ export const MacroLabelGroups: React.FC<{ axis: LabelAxis; tasks: Task[] }> = ({
           type="text"
           value={filter}
           onChange={e => setFilter(e.target.value)}
-          placeholder="Filtrer…"
+          placeholder={strings.filterPlaceholder}
           className="px-2 py-0.5 text-[10.5px] rounded-lg bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)] w-[130px]"
-          title="Ne garder que les groupes dont le nom contient ce texte"
+          title={strings.filterTitle}
         />
         <span className="ml-auto flex items-center gap-1">
           <input
@@ -285,7 +289,7 @@ export const MacroLabelGroups: React.FC<{ axis: LabelAxis; tasks: Task[] }> = ({
           {newGroup.trim() && (
             <span
               className="text-[9.5px] font-mono text-[var(--text-muted)] shrink-0"
-              title="Label qui sera posé sur le tracker"
+              title={strings.labelPreviewTitle}
             >
               {labelOf(newGroup)}
             </span>
@@ -295,10 +299,10 @@ export const MacroLabelGroups: React.FC<{ axis: LabelAxis; tasks: Task[] }> = ({
             onClick={createGroup}
             disabled={!labelOf(newGroup)}
             className="flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10.5px] font-bold text-white accent-bg disabled:opacity-40 cursor-pointer shrink-0"
-            title="Nommer le groupe sans étiqueter de ticket : il sert de cible, le label n'est posé qu'au premier dépôt"
+            title={strings.nameGroupTitle}
           >
             <Plus size={10} />
-            Nommer
+            {strings.nameGroup}
           </button>
         </span>
       </div>
@@ -306,8 +310,8 @@ export const MacroLabelGroups: React.FC<{ axis: LabelAxis; tasks: Task[] }> = ({
       {groups.length === 0 && (
         <p className="text-[11px] text-[var(--text-muted)]">
           {filter.trim()
-            ? `Aucun groupe ne correspond à « ${filter.trim()} ».`
-            : `Aucun groupe : nommez-en un, ou posez un label « ${meta.prefix}nom » sur un ticket.`}
+            ? format(strings.noGroupMatch, { filter: filter.trim() })
+            : format(strings.noGroup, { prefix: meta.prefix })}
         </p>
       )}
 
