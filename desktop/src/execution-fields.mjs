@@ -113,10 +113,17 @@ export function agentUnreachable(err){
  return /Connect to the local agent first|fetch failed|ECONNREFUSED|Agent disconnected/i.test(text)
 }
 
+// LEGACY_ENGINE_KEYS are the engine fields of #305. An agent that keeps the
+// engine catalogue (#510) never serves them; an older one does, and replaces
+// the defaults whole on save, so they are sent back as it served them.
+const LEGACY_ENGINE_KEYS=['aiProvider','aiModel','aiSkillModels','aiCommandTemplate','aiCommandTemplateAutonomous']
+
 // workstationPayload builds the full `defaults` object PUT to the agent from
-// the panel's state. A field left unset is absent, so it inherits.
-export function workstationPayload(state){
+// the panel's state. A field left unset is absent, so it inherits. `served` is
+// the defaults the agent last returned.
+export function workstationPayload(state,served={}){
  const out={}
+ for(const key of LEGACY_ENGINE_KEYS)if(served?.[key]!==undefined&&served[key]!==null&&served[key]!=='')out[key]=served[key]
  // The engine lives in the engine catalogue (#510): the defaults carry none.
  for(const key of ['terminal','editorCommand']){
   const value=String(state[key]??'').trim()

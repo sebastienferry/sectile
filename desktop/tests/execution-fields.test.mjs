@@ -41,6 +41,17 @@ test('the workstation payload omits what inherits and keeps an emptied list as a
   assert.equal(workstationPayload({ setupProviders: null }).setupProviders, null)
 })
 
+test('the workstation payload hands an older agent its own engine fields back', () => {
+  // An agent that predates #510 replaces the defaults whole: dropping what it
+  // served would erase its provider, model and templates.
+  const served = { aiProvider: 'codex', aiModel: 'gpt-5', aiSkillModels: { implement: 'o3' }, aiCommandTemplate: '', editorCommand: 'code' }
+  assert.deepEqual(workstationPayload({ editorCommand: 'zed', setupProviders: null }, served), {
+    aiProvider: 'codex', aiModel: 'gpt-5', aiSkillModels: { implement: 'o3' }, editorCommand: 'zed', setupProviders: null,
+  })
+  // A current agent serves none, so nothing is sent.
+  assert.deepEqual(workstationPayload({ setupProviders: null }, { editorCommand: 'code' }), { setupProviders: null })
+})
+
 test('a skill command name is a single word', () => {
   assert.ok(validSkillCommand('/code-issue'))
   assert.ok(validSkillCommand(''))

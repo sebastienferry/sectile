@@ -1087,15 +1087,19 @@ function enginesSection(){
  function closeEditor(){editing=null;editorBox.hidden=true;add.hidden=false;renderList()}
  cancelEngine.onclick=closeEditor
 
+ // Each save sends the whole catalogue built from the stored one, so the
+ // actions wait for the previous answer: a second click would undo the first.
+ let pending=false
  async function save(catalogue,defaultId,done){
-  say('Saving…')
+  if(pending)return
+  pending=true;saveEngine.disabled=true;say('Saving…');renderList()
   try{
    view=await api.saveEngines({catalogue,default:defaultId})
-   done?.();say(done?'Engine saved':'Engines saved');renderList()
+   done?.();say(done?'Engine saved':'Engines saved')
   }catch(err){
    if(agentUnreachable(err))say('The local agent is stopped. Start it to edit engines.','error')
    else say('Not saved: '+ipcMessage(err),'error')
-  }
+  }finally{pending=false;saveEngine.disabled=false;renderList()}
  }
  saveEngine.onclick=()=>{
   const name=nameInput.value.trim()
@@ -1127,7 +1131,7 @@ function enginesSection(){
    item.append(mark,text)
    if(isDefault){const badge=document.createElement('span');badge.className='engine-default';badge.textContent='Default';item.append(badge)}
    const actions=document.createElement('span');actions.className='engine-actions'
-   const busy=!!editing
+   const busy=!!editing||pending
    actions.append(
     button('Edit','Edit '+engine.name,()=>openEditor(engine),busy),
     button('↑','Move '+engine.name+' up',()=>save(moveEngine(view.catalogue,engine.id,-1),view.default),busy||index===0),
@@ -1143,7 +1147,7 @@ function enginesSection(){
     const names=Object.fromEntries((projects||[]).map(project=>[project.id,project.name]))
     const message=document.createElement('span');message.textContent=removalMessage(engine.name,removalImpact(view,engine.id,names))
     confirm.append(message,
-     button('Confirm removal','Confirm the removal of '+engine.name,()=>{confirming=null;save(view.catalogue.filter(e=>e.id!==engine.id),view.default)}),
+     button('Confirm removal','Confirm the removal of '+engine.name,()=>{confirming=null;save(view.catalogue.filter(e=>e.id!==engine.id),view.default)},pending),
      button('Cancel','Keep '+engine.name,()=>{confirming=null;renderList()}))
     list.append(confirm)
    }
@@ -1255,7 +1259,8 @@ function executionDefaultsPanel(panel){
 
  function fill(){
   const defaults=view.defaults||{}
-  const provider=view.effective?.defaultEngine?.provider||DEFAULT_PROVIDER
+  // An agent that predates #510 names its provider directly.
+  const provider=view.effective?.defaultEngine?.provider||view.effective?.aiProvider||DEFAULT_PROVIDER
   providerOptions(providerSelect,[provider])
   providerSelect.value=provider
   terminal.set(defaults.terminal||'')
@@ -1290,7 +1295,7 @@ function executionDefaultsPanel(panel){
   if(invalidList){notice.textContent='Invalid model in the list of '+invalidList[0];notice.dataset.tone='error';return}
   save.disabled=true;notice.textContent='Saving…';notice.dataset.tone=''
   try{
-   await api.saveWorkstationSettings(workstationPayload(state()))
+   await api.saveWorkstationSettings(workstationPayload(state(),view.defaults))
    notice.textContent='Execution defaults saved'
    try{view=await api.workstationSettings();if(body.isConnected){fill();notice.textContent='Execution defaults saved'}}catch{}
   }catch(err){
