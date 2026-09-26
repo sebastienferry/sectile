@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"tasks/internal/tracker"
 	"tasks/internal/trackerapi"
 	"time"
@@ -60,6 +61,9 @@ type Handler struct {
 	// mcpCluster forwards MCP requests to the instance holding their session.
 	// Nil when this instance shares its store with nobody.
 	mcpCluster *mcpCluster
+	// internalServing and draining feed the readiness probe (#410).
+	internalServing atomic.Bool
+	draining        atomic.Bool
 	// identityProvider is nil when no OpenID Connect provider is configured,
 	// which leaves the interface on its single implicit user.
 	identityProvider *auth.Provider

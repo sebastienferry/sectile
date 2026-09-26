@@ -12,7 +12,8 @@ const paths={
 export function pullRequestPresentation(link) {
  const state=Object.hasOwn(paths,link?.state)?link.state:'unknown'
  const label={open:'Open',merged:'Merged',closed:'Closed without merge',conflicting:'Conflicting',unknown:'State unknown'}[state]
- const color={open:'#4ade80',merged:'#c084fc',closed:'#f87171',conflicting:'#fbbf24',unknown:'#94a3b8'}[state]
+ // The tones live in the stylesheet's colour tokens, so they follow the appearance.
+ const color='var(--pr-'+state+')'
  return {state,label,color,icon:'<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">'+(paths[state]||paths.open)+'</svg>'}
 }
 export function renderPullRequestIndicator(element,link,label) {

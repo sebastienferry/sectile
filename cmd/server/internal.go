@@ -61,7 +61,9 @@ func startInternalListener(h *handlers.Handler, port string) {
 		return
 	}
 	log.Printf("   interne : :%s", port)
+	h.SetInternalServing(true)
 	go func() {
+		defer h.SetInternalServing(false)
 		if err := http.Serve(listener, mux); err != nil {
 			log.Printf("⚠️  Serveur interne arrêté : %v", err)
 		}

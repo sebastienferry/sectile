@@ -75,8 +75,10 @@ func TestASealedTokenNeedsItsPassphrase(t *testing.T) {
 		t.Fatalf("just stored: %q %v", token, err)
 	}
 
-	// A restart forgets every derived key.
-	database.LockUserTrackerCredential("u1", "jira")
+	// Locking forgets the unlock.
+	if err := database.LockUserTrackerCredential("u1", "jira"); err != nil {
+		t.Fatal(err)
+	}
 	if _, _, _, err := database.userTrackerCredential("u1", "jira"); !errors.Is(err, ErrCredentialLocked) {
 		t.Fatalf("a sealed credential must be locked again: %v", err)
 	}
@@ -129,6 +131,9 @@ func TestReplacingACredentialRetiresTheKeyItWasSealedWith(t *testing.T) {
 	if _, _, token, err := database.userTrackerCredential("u1", "jira"); err != nil || token != "second" {
 		t.Fatalf("the replacement must be what is served: %q %v", token, err)
 	}
+	if n := unlockRows(t, database, "u1"); n != 0 {
+		t.Fatalf("the unlock of the old passphrase must go, %d left", n)
+	}
 }
 
 func TestListingCredentialsNeverCarriesAToken(t *testing.T) {
@@ -177,6 +182,9 @@ func TestClearingRemovesTheCredentialAndItsKey(t *testing.T) {
 	if err := database.UnlockUserTrackerCredential("u1", "jira", "phrase"); !errors.Is(err, ErrNoUserCredential) {
 		t.Fatalf("unlocking a credential that no longer exists: %v", err)
 	}
+	if n := unlockRows(t, database, "u1"); n != 0 {
+		t.Fatalf("the unlock must go with the credential, %d left", n)
+	}
 }
 
 func TestStoringRefusesWhatItCannotAttribute(t *testing.T) {
@@ -223,12 +231,17 @@ func TestAMissingServerKeyBlocksOnlyWhatNeedsIt(t *testing.T) {
 		t.Errorf("the refusal must name the way out: %v", err)
 	}
 
-	// Sealing derives its own key, so it still works.
+	// Sealing derives its own key, so storing still works. Keeping it
+	// unlocked needs the server key (#501): it is saved locked, and unlocking
+	// it says why.
 	if err := database.SetUserTrackerCredential("u1", "jira", "acme.atlassian.net", "ada@example.com", "token", "ma phrase"); err != nil {
 		t.Fatalf("a sealed credential needs no server key: %v", err)
 	}
-	if _, _, token, err := database.userTrackerCredential("u1", "jira"); err != nil || token != "token" {
-		t.Fatalf("a sealed credential must still open: %q %v", token, err)
+	if _, _, _, err := database.userTrackerCredential("u1", "jira"); !errors.Is(err, ErrCredentialLocked) {
+		t.Fatalf("with nowhere to keep its unlock, it must be saved locked: %v", err)
+	}
+	if err := database.UnlockUserTrackerCredential("u1", "jira", "ma phrase"); !errors.Is(err, ErrServerKeyUnavailable) {
+		t.Fatalf("unlocking must name the missing server key: %v", err)
 	}
 }
 

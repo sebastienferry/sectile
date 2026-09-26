@@ -324,6 +324,13 @@ unusable there until its owner unlocks it. A locked credential fails the
 operation rather than falling back to the server token, which would write under
 a name nobody chose. See [ADR 0014](./docs/adrs/0014-personal-tracker-credentials-are-sealed.md).
 
+An unlock survives server restarts and holds on every instance: it lasts while
+its owner is connected, through an open tab or a running local agent, and 30
+minutes after they leave, or ends at once when they sign out with nothing else
+connected. It is kept in the database under the server key, so unlocking needs
+that key, and during that window a copy of the database together with the key
+opens the token. See [ADR 0032](./docs/adrs/0032-unlocked-sealed-credentials-live-with-their-owners-presence.md).
+
 The background queue carries whoever asked a write: a field update and every
 tracker operation record the acting user on the job, and the worker puts them
 back before resolving a credential. A synchronisation is the exception: it
@@ -690,6 +697,69 @@ the event stream of `GET /mcp`. The sessions view (`GET /api/mcp/sessions`)
 lists the sessions of every live server, each with the `instance` holding it,
 and names under `unreachable` those that did not answer within two seconds.
 
+An unlocked sealed tracker credential needs none of this: its unlock is kept in
+the database, under `SECTILE_SECRET_KEY`, so every server reads it and a lock
+holds on every server at once (see "Tracker connection parameters" above).
+
+### Several replicas
+
+The server can run as several active replicas behind one load balancer, all on
+one PostgreSQL database; SQLite stays single-instance. No session store, no
+broker and no sticky sessions are needed: web sessions live in the database,
+and everything that lives in one replica's memory is reached through that
+replica on the internal port. The design is recorded in
+[ADR 0030](./docs/adrs/0030-several-server-replicas-share-one-postgresql.md).
+
+What the deployment must provide:
+
+- **PostgreSQL** (`DB_DRIVER=postgres`) shared by every replica.
+- **The same `SECTILE_SECRET_KEY` on every replica.** It opens the stored
+  credentials and authenticates the replicas to each other; without it the
+  replicas serve their own agents and sessions only.
+- **The internal port** (`SECTILE_INTERNAL_PORT`, `8092`) declared on the
+  container, reachable from the other replicas, and never routed by the
+  ingress. Set `SECTILE_INTERNAL_URL` when the pod's first IPv4 is not the
+  address the others reach.
+- **Probes.** Liveness on `GET /api/health`: the process serves. Readiness on
+  `GET /api/ready`: it answers `503` with a reason while the database does not
+  answer, before the replica is registered and its internal port serves, and
+  from the moment it is asked to stop. Both are public.
+- **A termination grace longer than the drain.** On SIGTERM a replica reports
+  not ready, keeps serving for `SECTILE_SHUTDOWN_GRACE` (default `5s`) so the
+  balancer stops routing to it, then removes itself, closes its agent
+  connections (the agents reconnect to another replica) and exits. The pod's
+  termination grace period must exceed that grace by the few seconds requests
+  need to finish. A replica killed without draining is taken over once it has
+  been silent for 45 seconds.
+- **Replica count and disruption budget.** Two replicas at least, and a
+  disruption budget that keeps one available (`maxUnavailable: 1` with two), so
+  a node drain or a rolling deploy never stops every replica at once.
+- **Ingress timeouts for long-lived connections.** The agent WebSocket
+  (`/ws/agent-connect`) is pinged every 10 seconds; the browser event stream
+  (`/api/events`) and the MCP event stream (`GET /mcp`) can stay silent much
+  longer. Give these paths an idle timeout of an hour or more, and do not
+  buffer the two event streams.
+
+What is lost with a replica: an agent operation in flight through it fails with
+an explicit error and is not replayed, its MCP sessions end (their clients
+start new ones, and the runs they owned stay recoverable through `finish_run`),
+and its agents and browsers reconnect to another replica on their own.
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `SECTILE_SHUTDOWN_GRACE` | `5s` | How long a stopping replica keeps serving after it reports not ready. `0` skips the wait. |
+| `SECTILE_INSTANCE_HEARTBEAT` | `10s` | Tests only: how often a replica says it is alive. |
+| `SECTILE_INSTANCE_DEAD_AFTER` | `45s` | Tests only: how long a silent replica is waited for before its work is taken over. |
+| `SECTILE_INSTANCE_RECLAIM` | `15s` | Tests only: how often a live replica looks for that work. |
+
+The last three exist for the multi-replica harness, which shortens them to run
+in seconds; a dead-after bound close to the heartbeat takes over the work of a
+replica that is merely slow. The harness, `TestPostgresMultiReplicaHarness` in
+`cmd/server`, runs two real server processes on the database named by
+`SECTILE_TEST_POSTGRES_DSN`, behind a balancer that honours readiness: it checks
+an agent operation, a live update and an MCP session across the two, kills one
+and drains the other. The `test:postgres` CI job runs it.
+
 ### Signing in and pairing a workstation
 
 A deployment shared by several people signs them in through an OpenID Connect
@@ -742,7 +812,8 @@ account created is the admin, and everyone after that is a member.
 
 The form also takes an optional sealing passphrase, the one protecting your own
 tracker tokens. It is never a login password: a wrong one signs you in anyway
-and leaves those tokens locked until you unlock them from your profile.
+and leaves those tokens locked until you unlock them from your profile. A right
+one keeps them unlocked while you are connected, then 30 minutes.
 
 It identifies people; it does not authenticate them. Anyone who types a
 colleague's address is that colleague, so keep it to a trusted network and treat

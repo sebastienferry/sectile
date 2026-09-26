@@ -171,17 +171,23 @@ func TestASealedOrphanIsReportedAsSealed(t *testing.T) {
 	if len(orphans) != 1 || !orphans[0].Sealed {
 		t.Fatalf("expected one sealed orphan: %+v", orphans)
 	}
-	// Restarting the server forgets the derived key, and nothing can open it.
-	database.LockUserTrackerCredential(ImplicitUserID, "jira")
+	// Once its unlock is forgotten, nothing can open it.
+	if err := database.LockUserTrackerCredential(ImplicitUserID, "jira"); err != nil {
+		t.Fatal(err)
+	}
 	if _, _, _, err := database.userTrackerCredential(ImplicitUserID, "jira"); !errors.Is(err, ErrCredentialLocked) {
 		t.Fatalf("a sealed orphan is unreadable by the server: %v", err)
 	}
 
-	// Discarding it still works: it needs no key.
+	// Discarding it still works: it needs no key. And an unlock kept for it
+	// goes with it.
+	if err := database.UnlockUserTrackerCredential(ImplicitUserID, "jira", "open sesame"); err != nil {
+		t.Fatal(err)
+	}
 	if err := database.DiscardOrphanedTrackerCredential(ImplicitUserID, "jira"); err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := database.unlocked.get(unlockKey(ImplicitUserID, "jira")); ok {
-		t.Fatal("the derived key must not outlive the row it opens")
+	if n := unlockRows(t, database, ImplicitUserID); n != 0 {
+		t.Fatalf("the unlock must not outlive the row it opens: %d left", n)
 	}
 }
