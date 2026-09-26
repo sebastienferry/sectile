@@ -813,6 +813,8 @@ document.querySelector('#clear-history').onclick=async()=>{
 const dialog=document.querySelector('#project-dialog'),dialogBody=document.querySelector('#dialog-body')
 const dialogFooter=document.querySelector('.dialog-footer')
 const connectForm=document.querySelector('#start')
+const workspaceArticle=document.querySelector('#workspace article')
+let configurationPage=null,configurationGeneration=0,configurationHidden=null
 function returnConnectForm(){if(connectForm.parentElement!==document.querySelector('#setup'))document.querySelector('#setup').append(connectForm)}
 document.querySelector('#close-dialog').onclick=()=>dialog.close()
 // The footer carries only the actions a dialog puts there, so it stays out of
@@ -834,6 +836,7 @@ dialog.addEventListener('close',()=>{
  clearDialogFooter()
 })
 function showDialog(title){
+ closeConfiguration()
  updateSettingsConnection=null
  dialog.classList.remove('workstation-settings')
  returnConnectForm()
@@ -844,6 +847,45 @@ function showDialog(title){
  const heading=document.createElement('h2');heading.textContent=title;dialogBody.append(heading)
  if(!dialog.open)dialog.showModal()
 }
+// Configuration is a page, not a dialog. Reusing the existing body and footer
+// keeps every established setting control and its local save behaviour intact;
+// the page shell alone owns entering, leaving and restoring the workspace.
+function showConfiguration(title){
+ closeConfiguration()
+ configurationGeneration++
+ updateSettingsConnection=null
+ if(dialog.open)dialog.close()
+ const page=document.createElement('section');page.className='configuration-page';page.setAttribute('aria-label','Configuration')
+ const header=document.createElement('header');header.className='configuration-header'
+ const back=document.createElement('button');back.type='button';back.className='configuration-back';back.textContent='Back';back.onclick=closeConfiguration
+ const heading=document.createElement('h1');heading.textContent=title
+ header.append(back,heading)
+ const content=document.createElement('div');content.className='configuration-body'
+ configurationHidden=new Map([...workspaceArticle.children].map(child=>[child,child.hidden]))
+ for(const child of configurationHidden.keys())child.hidden=true
+ workspaceArticle.append(page);page.append(header,content)
+ content.append(dialogBody,dialogFooter)
+ dialog.classList.remove('workstation-settings')
+ dialogBody.replaceChildren()
+ clearDialogFooter()
+ const dialogHeading=document.createElement('h2');dialogHeading.textContent=title;dialogHeading.className='visually-hidden';dialogBody.append(dialogHeading)
+ configurationPage=page
+}
+function closeConfiguration(){
+ if(!configurationPage)return
+ configurationGeneration++
+ const page=configurationPage;configurationPage=null
+ updateSettingsConnection=null
+ returnConnectForm()
+ dialog.append(dialogBody,dialogFooter)
+ dialogBody.replaceChildren()
+ clearDialogFooter()
+ page.remove()
+ for(const [child,hidden] of configurationHidden||[])child.hidden=hidden
+ configurationHidden=null
+ resize()
+}
+const configurationActive=()=>!!configurationPage
 function paragraph(text){const p=document.createElement('p');p.textContent=text;dialogBody.append(p);return p}
 window.addEventListener('keydown',event=>{
  if(event.key==='Escape'&&!dialog.open&&ticketsOpen){event.preventDefault();closeTickets()}
@@ -1397,12 +1439,21 @@ const SETTINGS_CATEGORIES=[
  {id:'Logs',label:'Agent logs',icon:'<path d="M14 3H7a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V7Z"/><path d="M14 3v4h4"/><path d="M9 13h6M9 17h6"/>'},
  {id:'Changelog',label:'Changelog',icon:'<circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 8h.01"/>'}
 ]
-function openSettings(initial='Profile'){
- showDialog('Settings')
- dialog.classList.add('workstation-settings')
- const layout=document.createElement('div');layout.className='settings-layout'
+const PROJECT_SETTINGS_CATEGORIES=[
+ {id:'General',label:'General',saves:true,icon:'<path d="M4 7a2 2 0 0 1 2-2h3l2 2.5h7a2 2 0 0 1 2 2V18a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2Z"/>'},
+ {id:'Execution',label:'Execution',saves:true,icon:'<path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="2.4"/><circle cx="15" cy="17" r="2.4"/>'},
+ {id:'Agent',label:'AI agent',saves:true,icon:'<rect x="4" y="8" width="16" height="11" rx="3"/><path d="M12 4v4M9 13h.01M15 13h.01"/>'},
+ {id:'Deployment',label:'Deployment',saves:false,icon:'<path d="M12 20V7m0 0 4 4m-4-4-4 4"/><path d="M5 4h14"/>'},
+ {id:'Server',label:'Server',saves:false,icon:'<rect x="4" y="5" width="16" height="6" rx="2"/><rect x="4" y="14" width="16" height="6" rx="2"/><path d="M8 8h.01M8 17h.01"/>'}
+]
+function openSettings(initial='Profile',project){
+ showConfiguration('Configuration')
+ const generation=configurationGeneration
+ const layout=document.createElement('div');layout.className='settings-layout workstation-settings'
  const tabs=document.createElement('div');tabs.className='settings-nav';tabs.setAttribute('role','tablist')
- tabs.setAttribute('aria-orientation','vertical');tabs.setAttribute('aria-label','Settings categories')
+  tabs.setAttribute('aria-orientation','vertical');tabs.setAttribute('aria-label','Settings categories')
+ const generalLabel=document.createElement('h2');generalLabel.className='settings-group-label';generalLabel.textContent='General'
+ tabs.append(generalLabel)
  const content=document.createElement('div');content.className='settings-content stretch'
  layout.append(tabs,content);dialogBody.append(layout)
  const panels={}
@@ -1415,6 +1466,17 @@ function openSettings(initial='Profile'){
   panel.setAttribute('role','tabpanel');panel.setAttribute('aria-labelledby',tab.id);panels[category.id]=panel
   tab.onclick=()=>selectCategory(category.id)
   tabs.append(tab);content.append(panel)
+ }
+ if(project){
+  const projectLabel=document.createElement('h2');projectLabel.className='settings-group-label';projectLabel.textContent=project.name
+  tabs.append(projectLabel)
+  for(const category of PROJECT_SETTINGS_CATEGORIES){
+   const tab=document.createElement('button');tab.type='button';tab.setAttribute('role','tab');tab.title=category.label
+   tab.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">'+category.icon+'</svg>'
+   const text=document.createElement('span');text.className='settings-nav-label';text.textContent=category.label;tab.append(text)
+   tab.onclick=()=>openProject(project.id,category.id)
+   tabs.append(tab)
+  }
  }
  function selectCategory(name){
   for(const [key,value] of Object.entries(panels))value.hidden=key!==name
@@ -1448,7 +1510,7 @@ function openSettings(initial='Profile'){
  appearance.hint.textContent='System follows the appearance of this computer. The web interface keeps its own theme.'
  panels.Appearance.append(appearance.section)
  markAppearance('system')
- api.appearance().then(markAppearance).catch(()=>{})
+ api.appearance().then(value=>{if(configurationActive()&&generation===configurationGeneration)markAppearance(value)}).catch(()=>{})
 
  // Execution defaults: the workstation level of every execution setting,
  // owned by the local agent. The MCP connection choice follows its provider.
@@ -1524,7 +1586,7 @@ function openSettings(initial='Profile'){
  const fill=async()=>{
   let stored={}
   try{stored=await api.settings()}catch{}
-  if(!account.value.isConnected)return
+  if(!configurationActive()||generation!==configurationGeneration||!account.value.isConnected)return
   account.value.textContent=stored.server||'Not paired'
   device.value.textContent=stored.deviceId||'Not paired'
   renderAgentActions()
@@ -1540,12 +1602,12 @@ function openSettings(initial='Profile'){
   if(!agentConnected)return
   try{
    const status=await api.status()
-   if(!link.value.isConnected)return
+   if(!configurationActive()||generation!==configurationGeneration||!link.value.isConnected)return
    link.control.dataset.state=status.connected?'on':'off'
    link.value.textContent=status.connected?'Connected':status.contractError?'Server incompatible':'Server disconnected'
    if(status.contractError)link.hint.textContent=status.contractError
    if(status.server)account.value.textContent=status.server
-  }catch{if(link.value.isConnected)link.value.textContent='Unreachable'}
+  }catch{if(configurationActive()&&generation===configurationGeneration&&link.value.isConnected)link.value.textContent='Unreachable'}
  }
  updateSettingsConnection=status=>{
   renderAgentActions()
@@ -1706,28 +1768,33 @@ function requestRemoveProject(id,name){
  }
  dialogBody.append(confirm,cancel,notice)
 }
-async function openProject(id){
+async function openProject(id,initial='General'){
  selectedProject=id
- showDialog('Project configuration')
+ showConfiguration('Configuration')
+ const generation=configurationGeneration
  try{
   const info=await api.project(id)
+  if(!configurationActive()||generation!==configurationGeneration)return
   let config=info.server
-  dialogBody.querySelector('h2').textContent=config.projectName
 
   // A single Local panel had grown into one long scroll mixing the repository
   // path, execution limits and the agent command lines. Categories in a side
   // navigation name each group and keep the panel they open short, the way the
   // project modal of the web interface does.
-  const CATEGORIES=[
-   {id:'General',label:'General',saves:true,icon:'<path d="M4 7a2 2 0 0 1 2-2h3l2 2.5h7a2 2 0 0 1 2 2V18a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2Z"/>'},
-   {id:'Execution',label:'Execution',saves:true,icon:'<path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="2.4"/><circle cx="15" cy="17" r="2.4"/>'},
-   {id:'Agent',label:'AI agent',saves:true,icon:'<rect x="4" y="8" width="16" height="11" rx="3"/><path d="M12 4v4M9 13h.01M15 13h.01"/>'},
-   {id:'Deployment',label:'Deployment',saves:false,icon:'<path d="M12 20V7m0 0 4 4m-4-4-4 4"/><path d="M5 4h14"/>'},
-   {id:'Server',label:'Server',saves:false,icon:'<rect x="4" y="5" width="16" height="6" rx="2"/><rect x="4" y="14" width="16" height="6" rx="2"/><path d="M8 8h.01M8 17h.01"/>'}
-  ]
   const layout=document.createElement('div');layout.className='settings-layout'
   const tabs=document.createElement('div');tabs.className='settings-nav';tabs.setAttribute('role','tablist')
   tabs.setAttribute('aria-orientation','vertical');tabs.setAttribute('aria-label','Project settings categories')
+  const generalLabel=document.createElement('h2');generalLabel.className='settings-group-label';generalLabel.textContent='General'
+  const projectLabel=document.createElement('h2');projectLabel.className='settings-group-label';projectLabel.textContent=config.projectName
+  tabs.append(generalLabel)
+  for(const category of SETTINGS_CATEGORIES){
+   const tab=document.createElement('button');tab.type='button';tab.setAttribute('role','tab');tab.title=category.label
+   tab.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">'+category.icon+'</svg>'
+   const text=document.createElement('span');text.className='settings-nav-label';text.textContent=category.label;tab.append(text)
+   tab.onclick=()=>openSettings(category.id,{id,name:config.projectName})
+   tabs.append(tab)
+  }
+  tabs.append(projectLabel)
   const content=document.createElement('div');content.className='settings-content'
   layout.append(tabs,content)
   const panels={}
@@ -1740,12 +1807,12 @@ async function openProject(id){
   save.setAttribute('form',form.id)
   dialogFooter.prepend(save);syncDialogFooter()
   function selectCategory(name){
-   const stores=CATEGORIES.find(category=>category.id===name).saves
+   const stores=PROJECT_SETTINGS_CATEGORIES.find(category=>category.id===name).saves
    for(const [key,value] of Object.entries(panels))value.hidden=key!==name
    form.hidden=!stores;save.hidden=!stores;syncDialogFooter()
    for(const item of tabs.children)item.setAttribute('aria-selected',String(item.dataset.category===name))
   }
-  for(const category of CATEGORIES){
+  for(const category of PROJECT_SETTINGS_CATEGORIES){
    const tab=document.createElement('button');tab.type='button';tab.setAttribute('role','tab');tab.dataset.category=category.id;tab.title=category.label
    tab.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">'+category.icon+'</svg>'
    const text=document.createElement('span');text.className='settings-nav-label';text.textContent=category.label;tab.append(text)
@@ -1757,10 +1824,10 @@ async function openProject(id){
   }
   dialogBody.append(layout)
   content.append(form)
-  for(const category of CATEGORIES){
+  for(const category of PROJECT_SETTINGS_CATEGORIES){
    if(category.saves)form.append(panels[category.id]);else content.append(panels[category.id])
   }
-  selectCategory('General')
+  selectCategory(PROJECT_SETTINGS_CATEGORIES.some(category=>category.id===initial)?initial:'General')
   const path=document.createElement('input');path.value=info.path||'';path.required=true;path.placeholder='/path/to/repository';path.setAttribute('aria-label','Local repository')
   const browse=document.createElement('button');browse.type='button';browse.textContent='Choose folder…'
   browse.onclick=async()=>{try{const selected=await api.chooseRepository();if(selected){path.value=selected;pathOffer.examine()}}catch(err){error(err)}}
@@ -2142,7 +2209,7 @@ async function openProject(id){
     const fresh=await api.project(id)
     if(!reload.isConnected)return
     config=fresh.server
-    dialogBody.querySelector('h2').textContent=config.projectName
+    if(!configurationActive()||generation!==configurationGeneration)return
     if(inheritSpecArtifacts)specArtifacts=config.specArtifacts==='drop'?'drop':'keep'
     applyFields(fresh,true);renderServer();renderSpec({...fresh,specPath:specPath.value})
     notice.textContent='Server settings refreshed. Local overrides preserved.'

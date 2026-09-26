@@ -43,6 +43,12 @@ test('project settings override whether specification artefacts are dropped',asy
   }
 
   await openSettings()
+  const configuration=page.locator('.configuration-page')
+  await expect(configuration).toBeVisible()
+  await expect(page.locator('#project-dialog[open]')).toHaveCount(0)
+  await expect(configuration.getByRole('button',{name:'Back',exact:true})).toBeVisible()
+  assert.deepEqual(await configuration.locator('.settings-group-label').allTextContents(),['General','Example project'])
+  await expect(configuration.getByRole('tab',{name:'Execution',exact:true})).toHaveAttribute('aria-selected','true')
   const keep=page.getByRole('button',{name:'Keep',exact:true}),drop=page.getByRole('button',{name:'Drop',exact:true})
   await expect(keep).toHaveAttribute('aria-pressed','true')
   await expect(row().locator('.setting-text p').first()).toHaveText('Inherited · Server default: Keep')
@@ -57,7 +63,8 @@ test('project settings override whether specification artefacts are dropped',asy
 
   // A repository that already tracks specifications is warned about them.
   tracked=4
-  if(await page.locator('#project-dialog[open]').count())await page.locator('#close-dialog').click()
+  await configuration.getByRole('button',{name:'Back',exact:true}).click()
+  await expect(configuration).toHaveCount(0)
   await openSettings()
   await page.getByRole('button',{name:'Drop',exact:true}).click()
   await expect(row().locator('.setting-warning')).toHaveText("This repository already tracks 4 specification files. They stay in its history; only the next tasks' specifications are dropped.")
