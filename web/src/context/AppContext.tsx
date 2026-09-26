@@ -448,6 +448,7 @@ const API_BASE = '/api'
 export { UI_SCALE_OPTIONS } from '../lib/uiScale'
 import { normalizeUIScale } from '../lib/uiScale'
 import { toastDuration } from '../lib/toastTimer'
+import { applyDocumentLocale, isLocale, rememberLocale, resolveInitialLocale } from '../lib/i18n'
 
 // Le filtre « non assigné » a besoin d'une valeur : une chaîne vide voudrait dire
 // « aucun filtre ». La même sentinelle est reconnue côté serveur.
@@ -674,7 +675,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false)
   const [isProfileOpen, setIsProfileOpen] = useState(false)
-  const [settings, setSettings] = useState<UserSettings>(defaultSettings)
+  // Until the settings arrive, the language this browser last used (or its
+  // own) avoids a first paint in the wrong language.
+  const [settings, setSettings] = useState<UserSettings>(() => ({ ...defaultSettings, language: resolveInitialLocale() }))
   const [toasts, setToasts] = useState<ToastMessage[]>([])
 
   // Projects State
@@ -971,6 +974,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   const t = useMemo(() => translations[settings.language] || translations.fr, [settings.language])
 
+  // The page language and the tab title follow the UI language, on start and
+  // on every switch.
+  useEffect(() => {
+    applyDocumentLocale(isLocale(settings.language) ? settings.language : 'fr', t.app.documentTitle)
+  }, [settings.language, t])
+
   // The link a creation toast offers: the new ticket in the detail view, and
   // its tracker page when it has one.
   const createdTaskLink = useCallback((task: Task): ToastLink => ({
@@ -1062,6 +1071,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     if (outcome.kind !== 'ok') return
     const data = outcome.data
     setSettings(data)
+    // The personal preference wins over the browser, and is what the next
+    // signed-out visit starts with.
+    if (isLocale(data.language)) rememberLocale(data.language)
     // Premier lancement : aucune vue mémorisée, la vue par défaut des
     // réglages s'applique ici et nulle part ailleurs. C'est le seul moment
     // où l'on tient la valeur du serveur plutôt que celle de repli.
@@ -1878,6 +1890,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const updateSettings = async (newSettings: Partial<UserSettings>, options?: { silent?: boolean }) => {
     const merged = { ...settings, ...newSettings }
     setSettings(merged)
+    if (isLocale(newSettings.language)) rememberLocale(newSettings.language)
     try {
       const res = await fetch(`${API_BASE}/settings`, {
         method: 'POST',
