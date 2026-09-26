@@ -87,7 +87,7 @@ func twoRepoTask(t *testing.T) (*DB, *models.Task, *fakeRepoAgent) {
 	t.Helper()
 	d := testDB(t)
 	no := false
-	p, err := d.CreateProject(models.CreateProjectRequest{Name: "Multi", IssueTracker: "local", MonoRepo: &no, UseWorktrees: &no,
+	p, err := d.CreateProject(models.CreateProjectRequest{Name: "Multi", IssueTracker: "local", MonoRepo: &no,
 		GitRemoteUrl: "git@gitlab.com:g/a.git", Repositories: []string{"git@gitlab.com:g/b.git"}})
 	if err != nil {
 		t.Fatal(err)

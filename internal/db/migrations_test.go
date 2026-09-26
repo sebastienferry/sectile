@@ -65,6 +65,14 @@ func dropRepositoryColumns(d *DB) {
 func dropCredentialAccountColumn(d *DB) {
 	_, _ = d.conn.Exec("ALTER TABLE user_tracker_credentials DROP COLUMN account")
 	_, _ = d.conn.Exec("ALTER TABLE projects DROP COLUMN spec_artifacts")
+	undoWorkstationMigrations(d)
+}
+
+// undoWorkstationMigrations puts back the schema migrations 26 and 27 change
+// (#305): the capability table goes, and the dropped project column returns.
+func undoWorkstationMigrations(d *DB) {
+	_, _ = d.conn.Exec("DROP TABLE agent_capabilities")
+	_, _ = d.conn.Exec("ALTER TABLE projects ADD COLUMN tty_mode TEXT NOT NULL DEFAULT 'integrated'")
 }
 
 // undoServerCredentialsMigration puts back the schema migration 22 changed, for the

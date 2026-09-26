@@ -18,11 +18,11 @@ import (
 
 func TestLocalSpecRepoPrefersTheWorkstationMapping(t *testing.T) {
 	root := t.TempDir()
-	if got, err := localSpecRepo(agentconfig.Overrides{}, "p1", root, true); err != nil || got != root {
+	if got, err := localSpecRepo(agentconfig.Settings{}, "p1", root, true); err != nil || got != root {
 		t.Fatalf("without an override a mono-repo checkout carries the specifications: %q %v", got, err)
 	}
 	wiki := t.TempDir()
-	overrides := agentconfig.Overrides{SpecRepos: map[string]string{"p1": wiki}}
+	overrides := agentconfig.Settings{ProjectSettings: map[string]agentconfig.ProjectSettings{"p1": {SpecPath: wiki}}}
 	for _, mono := range []bool{true, false} {
 		if got, err := localSpecRepo(overrides, "p1", root, mono); err != nil || got != wiki {
 			t.Fatalf("the override must win (monoRepo %v): %q %v", mono, got, err)
@@ -32,7 +32,7 @@ func TestLocalSpecRepoPrefersTheWorkstationMapping(t *testing.T) {
 		t.Fatalf("another project's override must not apply, got %q", got)
 	}
 	missing := filepath.Join(t.TempDir(), "gone")
-	overrides.SpecRepos["p1"] = missing
+	overrides.ProjectSettings["p1"] = agentconfig.ProjectSettings{SpecPath: missing}
 	if _, err := localSpecRepo(overrides, "p1", root, true); err == nil || !strings.Contains(err.Error(), missing) {
 		t.Fatalf("an override to a missing directory must be refused by name, got %v", err)
 	}
@@ -41,7 +41,7 @@ func TestLocalSpecRepoPrefersTheWorkstationMapping(t *testing.T) {
 // A multi-repo project never falls back on the code checkout: the refusal
 // names the desktop setting instead.
 func TestLocalSpecRepoRequiresTheFolderOnAMultiRepoProject(t *testing.T) {
-	got, err := localSpecRepo(agentconfig.Overrides{}, "p1", t.TempDir(), false)
+	got, err := localSpecRepo(agentconfig.Settings{}, "p1", t.TempDir(), false)
 	if err == nil || got != "" || !strings.Contains(err.Error(), "Specifications folder") {
 		t.Fatalf("a multi-repo project without a folder must be refused naming the setting, got %q %v", got, err)
 	}
@@ -56,6 +56,10 @@ func TestMacroWorkspacePreparesWithoutATask(t *testing.T) {
 	config := agentconfig.Config{SchemaVersion: 1, ProjectID: "remote-project", UseWorktrees: true, AIProvider: "claude",
 		Skills: []agentconfig.Skill{{ID: "realign_macro", Directory: "realign-macro", Command: "/realign-macro", Content: "realign instructions"}}}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v1/agent/execution-seed" {
+			http.NotFound(w, r)
+			return
+		}
 		if r.URL.Path != "/api/v1/agent/config" {
 			t.Errorf("a macro launch must not read %s", r.URL.Path)
 			http.NotFound(w, r)
@@ -69,6 +73,10 @@ func TestMacroWorkspacePreparesWithoutATask(t *testing.T) {
 	}))
 	defer srv.Close()
 	d := &agentDaemon{repoRoot: root, loopback: loopbackServer{url: "http://127.0.0.1:8091"}, link: serverLink{serverURL: srv.URL, token: "token", projectID: "remote-project"}}
+	// The provider is the workstation's (#305).
+	if err := agentconfig.WriteSettings(agentconfig.Settings{Defaults: agentconfig.Defaults{Execution: agentconfig.Execution{AIProvider: "claude"}}}); err != nil {
+		t.Fatal(err)
+	}
 
 	fetched, err := d.fetchConfig(ctx, "remote-project", "")
 	if err != nil {
@@ -111,7 +119,7 @@ func TestMacroWorkspaceOnAPlainFolderOfAMultiRepoProject(t *testing.T) {
 		t.Fatalf("a multi-repo project without a folder must be refused naming the setting, got %v", err)
 	}
 
-	if err := agentconfig.WriteSettings(agentconfig.Overrides{SpecRepos: map[string]string{"remote-project": plain}}); err != nil {
+	if err := agentconfig.WriteSettings(agentconfig.Settings{ProjectSettings: map[string]agentconfig.ProjectSettings{"remote-project": {SpecPath: plain}}}); err != nil {
 		t.Fatal(err)
 	}
 	effective, cwd, workspace, err := d.prepareMacroWorkspace(ctx, config, "M-7", "Ux")
@@ -196,7 +204,7 @@ func TestMacroSpecFileReadsTheWorkstationFolder(t *testing.T) {
 
 	plain := t.TempDir()
 	inPlain := write(plain, "## 1. From the plain folder\n")
-	if err := agentconfig.WriteSettings(agentconfig.Overrides{SpecRepos: map[string]string{"remote-project": plain}}); err != nil {
+	if err := agentconfig.WriteSettings(agentconfig.Settings{ProjectSettings: map[string]agentconfig.ProjectSettings{"remote-project": {SpecPath: plain}}}); err != nil {
 		t.Fatal(err)
 	}
 	got, err = read()

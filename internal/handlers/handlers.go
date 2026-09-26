@@ -686,10 +686,6 @@ func (h *Handler) HandleProjects(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "Le nom du projet est obligatoire")
 			return
 		}
-		if err := agentconfig.ValidModelConfig(agentconfig.ModelConfig{Model: req.AIModel, SkillModels: req.AISkillModels}); err != nil {
-			writeError(w, http.StatusBadRequest, err.Error())
-			return
-		}
 
 		// The creator owns the project: the background synchronisation has no
 		// acting user of its own and reads under that account.
@@ -970,6 +966,15 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeJSON(w, http.StatusOK, project)
+		return
+	}
+
+	// Sub-action: /api/projects/{id}/engine: what the caller's own workstation
+	// reported it will run for this project (#305), for the launch picker and
+	// the pre-run badge. Unknown when no agent of theirs is connected for it:
+	// a report left by a workstation that went away is not what would run.
+	if len(parts) >= 2 && parts[1] == "engine" && r.Method == http.MethodGet {
+		writeJSON(w, http.StatusOK, h.projectEngine(h.webSessionUser(r), id))
 		return
 	}
 
@@ -1605,18 +1610,6 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "Payload invalide: "+err.Error())
 			return
 		}
-		var requested agentconfig.ModelConfig
-		if req.AIModel != nil {
-			requested.Model = *req.AIModel
-		}
-		if req.AISkillModels != nil {
-			requested.SkillModels = *req.AISkillModels
-		}
-		if err := agentconfig.ValidModelConfig(requested); err != nil {
-			writeError(w, http.StatusBadRequest, err.Error())
-			return
-		}
-
 		// Saving an ownerless project adopts the person saving it, so its
 		// background synchronisation stops running as the server.
 		project, err := h.db.UpdateProjectAs(h.webSessionUser(r), id, req)
@@ -2325,9 +2318,9 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 			// once the run is over, whether anything was supposed to come back
 			// from it without a user closing a session.
 			mode := h.db.ResolveTaskSkillMode(projectID, req.SkillID, req.Mode)
-			// The engine the server resolves is what the run shows until the
+			// The engine the workstation reported is what the run shows until the
 			// agent reports the one it really built its command line with.
-			provider, model := h.db.ResolveTaskEngine(projectID, req.SkillID, req.Model)
+			provider, model := h.db.ResolveTaskEngine(projectID, userID, ac.DeviceID, req.SkillID, req.Model)
 			// The run is recorded before the launch record, and its insert is the
 			// busy check that holds across server instances: a launch that lost
 			// the race to another one is refused here and leaves no trace.
@@ -2574,14 +2567,13 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 	// Sub-action: /api/tasks/{id}/tty-external: open a native external terminal for the task
 	if (subAction == "tty-external" || subAction == "terminal-external") && r.Method == http.MethodPost {
 		var req struct {
-			Command         string `json:"command"`
-			SkillID         string `json:"skillId"`
-			TerminalCommand string `json:"terminalCommand"`
+			Command string `json:"command"`
+			SkillID string `json:"skillId"`
 		}
 		if r.Body != nil {
 			_ = json.NewDecoder(r.Body).Decode(&req)
 		}
-		res, err := h.launchTaskExternalTerminal(r.Context(), h.webSessionUser(r), id, req.Command, req.SkillID, req.TerminalCommand)
+		res, err := h.launchTaskExternalTerminal(r.Context(), h.webSessionUser(r), id, req.Command, req.SkillID)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
@@ -3045,8 +3037,6 @@ func (h *Handler) composedSettings(userID string) (*models.Settings, error) {
 	composed.UserName = personal.UserName
 	composed.UserEmail = personal.UserEmail
 	composed.UserAvatar = personal.UserAvatar
-	composed.EditorCommand = personal.EditorCommand
-	composed.ExternalTerminalCommand = personal.ExternalTerminalCommand
 	if user, err := h.db.GetUser(userID); err == nil && user != nil {
 		// Name() is the chain the rest of the application already shows: the
 		// chosen name, then the one the sign-in supplied, then the address,
@@ -3087,17 +3077,6 @@ func (h *Handler) HandleSettings(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "Invalid settings payload: "+err.Error())
 			return
 		}
-		if err := agentconfig.ValidModelConfig(agentconfig.ModelConfig{Model: req.AIModel, SkillModels: req.AISkillModels}); err != nil {
-			writeError(w, http.StatusBadRequest, err.Error())
-			return
-		}
-		if err := agentconfig.ValidProviderModels(req.AIProviderModels); err != nil {
-			writeError(w, http.StatusBadRequest, err.Error())
-			return
-		}
-		// An empty command template is a value, not an omission: it hands both
-		// execution modes back to the provider. Only the raw payload tells the
-		// two apart, so presence of the key is what carries the intent.
 		var sent map[string]json.RawMessage
 		_ = json.Unmarshal(body, &sent)
 		// userName and userEmail are projections of the account's identity:
@@ -3106,6 +3085,12 @@ func (h *Handler) HandleSettings(w http.ResponseWriter, r *http.Request) {
 		// whole-row post a silent ignore instead of an admin-only refusal.
 		delete(sent, "userEmail")
 		delete(sent, "userName")
+		// The execution settings are the workstation's (#305): an older
+		// interface still posts them, and they are ignored rather than
+		// refused, so the rest of its save goes through.
+		for _, key := range executionSettingsKeys {
+			delete(sent, key)
+		}
 		current, err := h.db.GetSettings()
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
@@ -3149,15 +3134,7 @@ func (h *Handler) HandleSettings(w http.ResponseWriter, r *http.Request) {
 				writeError(w, http.StatusInternalServerError, err.Error())
 				return
 			}
-			var clear []string
-			if caller.IsAdmin() {
-				for _, name := range []string{"aiCommandTemplate", "aiCommandTemplateAutonomous"} {
-					if _, ok := sent[name]; ok {
-						clear = append(clear, name)
-					}
-				}
-			}
-			if _, err := h.db.UpdateSettings(deploymentReq, clear...); err != nil {
+			if _, err := h.db.UpdateSettings(deploymentReq); err != nil {
 				writeError(w, http.StatusInternalServerError, err.Error())
 				return
 			}
@@ -3797,16 +3774,35 @@ func (h *Handler) HandleAgentPull(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// HandleOpenEditor opens a workspace, worktree, or path in the user's code editor (default: code)
+// projectEngine reads the report of the workstation a launch by userID on
+// projectID would go to.
+func (h *Handler) projectEngine(userID, projectID string) models.EngineReport {
+	unknown := models.EngineReport{State: models.EngineUnknown}
+	if userID == "" {
+		userID = ImplicitUser
+	}
+	route := h.agentDispatcher.Route(userID, projectID)
+	if route == nil {
+		return unknown
+	}
+	report, ok := h.db.EngineReport(userID, projectID, route.DeviceID)
+	if !ok {
+		return unknown
+	}
+	return report
+}
+
+// HandleOpenEditor opens a task or a project in the editor of the workstation
+// that serves it. The editor is the workstation's own setting (#305): the
+// server names none.
 func (h *Handler) HandleOpenEditor(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
 		return
 	}
 	var req struct {
-		TaskID        string `json:"taskId"`
-		ProjectID     string `json:"projectId"`
-		EditorCommand string `json:"editorCommand"`
+		TaskID    string `json:"taskId"`
+		ProjectID string `json:"projectId"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
@@ -3820,15 +3816,7 @@ func (h *Handler) HandleOpenEditor(w http.ResponseWriter, r *http.Request) {
 		}
 		req.ProjectID = task.ProjectID
 	}
-	if req.EditorCommand == "" {
-		// The editor is a personal command too, so it is the caller's own,
-		// falling back to the deployment default through UserSettings.
-		settings, _ := h.db.UserSettings(h.webSessionUser(r))
-		if settings != nil {
-			req.EditorCommand = settings.EditorCommand
-		}
-	}
-	if err := h.db.AgentOperation(agentprotocol.Operation{ProjectID: req.ProjectID, TaskID: req.TaskID, Action: "open_editor", Editor: req.EditorCommand}, nil); err != nil {
+	if err := h.db.AgentOperation(agentprotocol.Operation{ProjectID: req.ProjectID, TaskID: req.TaskID, Action: "open_editor"}, nil); err != nil {
 		writeError(w, http.StatusConflict, err.Error())
 		return
 	}
@@ -3841,10 +3829,9 @@ func (h *Handler) HandleOpenExternalTerminal(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	var req struct {
-		TaskID          string `json:"taskId"`
-		SkillID         string `json:"skillId"`
-		Command         string `json:"command"`
-		TerminalCommand string `json:"terminalCommand"`
+		TaskID  string `json:"taskId"`
+		SkillID string `json:"skillId"`
+		Command string `json:"command"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
@@ -3854,7 +3841,7 @@ func (h *Handler) HandleOpenExternalTerminal(w http.ResponseWriter, r *http.Requ
 		writeError(w, http.StatusBadRequest, "Select a task to open an agent console")
 		return
 	}
-	result, err := h.launchTaskExternalTerminal(r.Context(), h.webSessionUser(r), req.TaskID, req.Command, req.SkillID, req.TerminalCommand)
+	result, err := h.launchTaskExternalTerminal(r.Context(), h.webSessionUser(r), req.TaskID, req.Command, req.SkillID)
 	if err != nil {
 		writeError(w, http.StatusConflict, err.Error())
 		return
@@ -3864,38 +3851,18 @@ func (h *Handler) HandleOpenExternalTerminal(w http.ResponseWriter, r *http.Requ
 
 // LaunchTaskExternalTerminal serves callers with no HTTP request of their own,
 // which is why it names the implicit user rather than resolving one.
-func (h *Handler) LaunchTaskExternalTerminal(taskID, command, skillID, customTermCmd string) (map[string]interface{}, error) {
-	return h.launchTaskExternalTerminal(context.Background(), ImplicitUser, taskID, command, skillID, customTermCmd)
+func (h *Handler) LaunchTaskExternalTerminal(taskID, command, skillID string) (map[string]interface{}, error) {
+	return h.launchTaskExternalTerminal(context.Background(), ImplicitUser, taskID, command, skillID)
 }
 
-func (h *Handler) launchTaskExternalTerminal(ctx context.Context, userID, taskID, command, skillID, customTermCmd string) (map[string]interface{}, error) {
+func (h *Handler) launchTaskExternalTerminal(ctx context.Context, userID, taskID, command, skillID string) (map[string]interface{}, error) {
 	task, err := h.db.GetTaskByID(taskID)
 	if err != nil || task == nil {
 		return nil, fmt.Errorf("task not found: %s", taskID)
 	}
 
-	// The workstation commands are personal (ADR 0015): the terminal that
-	// opens is the one of whoever owns this execution, not the deployment's.
-	// The project's own override still comes first, the deployment default last.
-	settings, _ := h.db.UserSettings(userID)
-	var proj *models.Project
-	if task.ProjectID != "" {
-		proj, _ = h.db.GetProjectByID(task.ProjectID)
-	}
-
-	// Precedence: what the call asked for, then the project's own terminal,
-	// then the owner's. The resolved value is what travels to the agent, so a
-	// personal terminal command is honoured on a launch, not only in the
-	// profile screen.
-	customTermCmd = strings.TrimSpace(customTermCmd)
-	if customTermCmd == "" && proj != nil && proj.ExternalTerminalCommand != "" {
-		customTermCmd = proj.ExternalTerminalCommand
-	}
-	if customTermCmd == "" && settings != nil && settings.ExternalTerminalCommand != "" {
-		customTermCmd = settings.ExternalTerminalCommand
-	}
-	terminalOverride := customTermCmd
-
+	// The terminal is the workstation's own setting (#305): the agent resolves
+	// it, and the server sends none.
 	projectID := "default"
 	if task.ProjectID != "" {
 		projectID = task.ProjectID
@@ -3909,7 +3876,7 @@ func (h *Handler) launchTaskExternalTerminal(ctx context.Context, userID, taskID
 		defer cancel()
 		err := h.agentDispatcher.DispatchAndWait(launchCtx, userID, projectID, task.ID, agentconfig.Dispatch{
 			SchemaVersion: agentconfig.Version, TaskKey: task.Key, TaskID: task.ID, ProjectID: projectID,
-			SkillID: skillID, Action: "open_terminal", Command: command, Prompt: command, TerminalOverride: terminalOverride,
+			SkillID: skillID, Action: "open_terminal", Command: command, Prompt: command,
 		})
 		if err != nil {
 			return nil, err

@@ -32,7 +32,7 @@ func TestHeadlessTrackerReadsWithoutAgentOrCLI(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer d.Close()
-	p, err := d.CreateProject(models.CreateProjectRequest{Name: "Headless", IssueTracker: "github", GithubRepo: "acme/app", RepoPath: "/no/server/checkout"})
+	p, err := d.CreateProject(models.CreateProjectRequest{Name: "Headless", IssueTracker: "github", GithubRepo: "acme/app"})
 	if err != nil {
 		t.Fatal(err)
 	}

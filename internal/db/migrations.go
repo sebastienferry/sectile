@@ -394,6 +394,37 @@ var migrations = []migration{
 			"ALTER TABLE projects ADD COLUMN spec_artifacts TEXT NOT NULL DEFAULT 'keep';",
 		},
 	},
+	{
+		// What each workstation will run, per project (#305): the engine a web
+		// launch announces before the run, and the models it may pick. Kept in
+		// the database rather than in the memory of the instance holding the
+		// agent's socket, since the web request may land on another instance.
+		version: 26,
+		name:    "agent_capabilities",
+		statements: []string{
+			`CREATE TABLE agent_capabilities (
+				user_id TEXT NOT NULL,
+				device_id TEXT NOT NULL DEFAULT '',
+				project_id TEXT NOT NULL,
+				provider TEXT NOT NULL DEFAULT '',
+				model TEXT NOT NULL DEFAULT '',
+				skill_models TEXT NOT NULL DEFAULT '{}',
+				models TEXT NOT NULL DEFAULT '[]',
+				model_slot INTEGER NOT NULL DEFAULT 0,
+				headless INTEGER NOT NULL DEFAULT 0,
+				reported_at DATETIME NOT NULL,
+				PRIMARY KEY (user_id, device_id, project_id)
+			);`,
+		},
+	},
+	{
+		// The project TTY mode was stored and never read (#305).
+		version: 27,
+		name:    "projects.tty_mode dropped",
+		statements: []string{
+			"ALTER TABLE projects DROP COLUMN tty_mode;",
+		},
+	},
 }
 
 // migrateSchema brings the database to the schema this binary expects, and is

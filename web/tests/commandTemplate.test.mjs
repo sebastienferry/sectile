@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { commandPreview, resolveTemplateMode, templateCarriesMode, modelArgs, dropModelSlot, projectAgentCommands } from '../src/lib/commandTemplate.ts'
+import { commandPreview, resolveTemplateMode, templateCarriesMode, modelArgs, dropModelSlot } from '../src/lib/commandTemplate.ts'
 
 // The autonomous fallback asks claude for its reasoning stream, so its expected
 // command line carries the flags the agent reads the trace off.
@@ -101,21 +101,4 @@ test('a dedicated autonomous command serves headless launches on its own', () =>
 test('a model glued to the prompt leaves the prompt behind', () => {
   assert.equal(dropModelSlot('cli --opt={model}{prompt}'), 'cli --opt={prompt}')
   assert.equal(dropModelSlot('cli {model}{prompt}'), 'cli{prompt}')
-})
-
-// A project save always sends both commands, so an empty field clears the stored
-// value instead of leaving it in place (#249).
-test('a project save sends both commands, empty ones included', () => {
-  assert.deepEqual(
-    projectAgentCommands(true, '  claude "{prompt}" ', ' claude -p "{prompt}"  '),
-    { aiCommandTemplate: 'claude "{prompt}"', aiCommandTemplateAutonomous: 'claude -p "{prompt}"' },
-  )
-  assert.deepEqual(
-    projectAgentCommands(true, 'claude "{prompt}"', '   '),
-    { aiCommandTemplate: 'claude "{prompt}"', aiCommandTemplateAutonomous: '' },
-  )
-  assert.deepEqual(
-    projectAgentCommands(false, 'claude "{prompt}"', 'claude -p "{prompt}"'),
-    { aiCommandTemplate: '', aiCommandTemplateAutonomous: '' },
-  )
 })

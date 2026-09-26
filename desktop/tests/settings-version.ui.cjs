@@ -31,7 +31,7 @@ test('changelog settings report both versions and the release notes',async()=>{
 
   await page.locator('#settings').click()
   await expect(page.getByRole('tab',{name:'User profile',exact:true})).toHaveAttribute('aria-selected','true')
-  await expect(page.getByRole('tab')).toHaveText(['User profile','Agent connection','AI Engine CLI','Agent logs','Changelog'])
+  await expect(page.getByRole('tab')).toHaveText(['User profile','Agent connection','Execution defaults','Agent logs','Changelog'])
   await expect(page.locator('#settings-panel-Profile .setting-name')).toHaveText(['Sectile server','Workstation','Profile and API keys'])
   const bounds=await page.locator('#project-dialog').boundingBox()
   assert.ok(bounds.width>840,'Workstation settings use the enlarged dialog')

@@ -1,10 +1,14 @@
 package db
 
 import (
+	"context"
+	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 	"time"
 
+	"tasks/internal/agentprotocol"
 	"tasks/internal/models"
 )
 
@@ -211,5 +215,60 @@ func TestASecondFinishDoesNotChainTwice(t *testing.T) {
 	time.Sleep(200 * time.Millisecond)
 	if after := countSkillActivities(t, d, task.ID, skillName(t, d, "specify")); after != before {
 		t.Fatalf("a repeated finish_run enqueued %d more step(s)", after-before)
+	}
+}
+
+// A workstation that cannot run headless refuses the first step against its
+// own provider (#305): the run ends failed with the agent's reason verbatim and
+// the chain-stop note, the launch record says why, and nothing more is queued.
+// The server itself never refuses the chain up front.
+func TestAHeadlessRefusalOnTheAgentEndsTheChainWithItsReason(t *testing.T) {
+	d, project := modeTestDB(t)
+	task := chainTestTask(t, d, project)
+	reason := `provider "agy" has no headless mode: run this skill interactively, or configure an AI command template carrying a {mode:AUTONOMOUS|INTERACTIVE} placeholder`
+	calls := make(chan agentprotocol.Operation, 4)
+	d.SetAgentOperations(func(ctx context.Context, op agentprotocol.Operation) (json.RawMessage, error) {
+		calls <- op
+		return nil, errors.New(reason)
+	})
+	if _, _, err := d.EnqueueFullChainRun(task.ID); err != nil {
+		t.Fatalf("the server must not refuse the chain up front: %v", err)
+	}
+	select {
+	case op := <-calls:
+		if op.Action != "execute_skill" || op.Mode != models.SkillModeAutonomous {
+			t.Fatalf("unexpected operation: %+v", op)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the first step never reached the agent")
+	}
+	var run, launch *models.TaskActivity
+	for i := 0; i < 100 && (run == nil || launch == nil || launch.Status == string(models.ActivityStatusRunning) || launch.Status == "queued"); i++ {
+		time.Sleep(20 * time.Millisecond)
+		run, launch = nil, nil
+		for _, a := range mustActivities(t, d, task.ID) {
+			a := a
+			switch a.SkillID {
+			case "remote_run":
+				run = &a
+			case "agent_launch":
+				launch = &a
+			}
+		}
+	}
+	if run == nil || run.Status != "failed" || !strings.Contains(run.Summary, reason) || !strings.Contains(run.Summary, "the full chain stops here") {
+		t.Fatalf("the run does not carry the agent's reason and the chain note: %+v", run)
+	}
+	if launch == nil || launch.Status != "failed" || !strings.Contains(launch.Error, reason) {
+		t.Fatalf("the launch record does not carry the reason: %+v", launch)
+	}
+	time.Sleep(100 * time.Millisecond)
+	select {
+	case op := <-calls:
+		t.Fatalf("another step was sent after the refusal: %+v", op)
+	default:
+	}
+	if n := countSkillActivities(t, d, task.ID, skillName(t, d, "specify")); n != 0 {
+		t.Fatalf("a next step was queued: %d", n)
 	}
 }

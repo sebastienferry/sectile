@@ -92,9 +92,8 @@ func TestOwnerRecoversARunReclaimedByASingleProcessRestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	no := false
-	project, err := d.CreateProject(models.CreateProjectRequest{Name: "Restart", RepoPath: "/not-mounted",
-		IssueTracker: "local", UseWorktrees: &no, AIProvider: "claude"})
+	project, err := d.CreateProject(models.CreateProjectRequest{Name: "Restart",
+		IssueTracker: "local"})
 	if err != nil {
 		t.Fatal(err)
 	}
