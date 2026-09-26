@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"tasks/internal/auth"
 	"tasks/internal/db"
@@ -189,9 +190,18 @@ func (h *Handler) HandleLogout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if cookie, err := r.Cookie(sessionCookie); err == nil {
+		owner := h.db.WebSessionOwner(cookie.Value)
 		if err := h.db.RevokeWebSession(cookie.Value); err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
+		}
+		// Leaving with nothing else connected locks the sealed tokens at
+		// once, rather than 30 minutes later (#501). The sign-out itself has
+		// happened: a failure here is reported, not returned.
+		if owner != "" {
+			if err := h.db.ForgetUnlocksIfAbsent(owner, time.Now()); err != nil {
+				log.Printf("⚠️  Reverrouillage des jetons scellés à la déconnexion de %s : %v", owner, err)
+			}
 		}
 	}
 	http.SetCookie(w, h.sessionCookieFor(r, "", -1))
