@@ -22,8 +22,6 @@ import {
   Sliders,
   Globe,
   Key,
-  RotateCcw,
-  Bot,
   Info,
   Inbox,
   Map,
@@ -38,7 +36,6 @@ import type {
   IssueTracker,
   ProjectSkillsStatus,
   DetectedStatus,
-  AIProvider,
   TrackerColumn,
   SpecFramework,
   SpecFrameworkStatus,
@@ -47,15 +44,11 @@ import type {
   OptionalViewMode,
 } from '../types'
 import { ACCENT_COLORS, accentBadgeStyle, normalizeAccentColor, DEFAULT_PROJECT_ACCENT } from '../lib/accents'
-import { AIModelField } from './AIModelField'
-import { isValidModel, providerModels } from '../lib/aiModels'
 import { PROJECT_TRACKERS, needsCredentialsFor } from '../lib/trackers'
-import { Antigravity, Claude, OpenAI } from './icons'
-import { hasProjectAgentOverride, projectAgentSettings } from '../lib/projectAgentSettings'
 import { formatProjectKeyList, parseProjectKeyList } from '../lib/roadmapProjects'
 import { declaredRepositories, droppedRepositoryPaths, duplicateRepository, repositoryIdentity } from '../lib/repositories'
 
-type ProjectTab = 'general' | 'tracker' | 'agent' | 'workflow' | 'skills'
+type ProjectTab = 'general' | 'tracker' | 'workflow' | 'skills'
 
 /**
  * Vues optionnelles proposées dans les réglages du projet. Leur libellé dit ce
@@ -81,16 +74,8 @@ const TABS: {
 }[] = [
   { id: 'general', label: 'Général', icon: Folder, iconColor: 'text-amber-400' },
   { id: 'tracker', label: 'Tracker', icon: Sliders, iconColor: 'text-emerald-400' },
-  { id: 'agent', label: 'Agent settings', icon: Bot, iconColor: 'text-indigo-400' },
   { id: 'workflow', label: 'Agentic workflow', icon: Workflow, iconColor: 'text-blue-400' },
   { id: 'skills', label: 'Compétences IA & SDD', icon: Sparkles, iconColor: 'text-cyan-400' },
-]
-
-const AI_PROVIDERS: { id: AIProvider; label: string; sub: string; icon: React.ReactNode }[] = [
-  { id: 'agy', label: 'Antigravity', sub: 'Google Deepmind AGY CLI', icon: <Antigravity size={16} /> },
-  { id: 'claude', label: 'Claude', sub: 'Anthropic Claude Code CLI', icon: <Claude size={16} /> },
-  { id: 'codex', label: 'ChatGPT', sub: 'OpenAI Codex CLI', icon: <OpenAI size={16} /> },
-  { id: 'custom', label: 'CLI Personnalisé', sub: 'Binaire ou script custom', icon: <Terminal size={16} className="text-indigo-400" /> },
 ]
 
 const AVAILABLE_ICONS = [
@@ -150,8 +135,7 @@ export const ProjectModal: React.FC = () => {
   const [color, setColor] = useState<AccentColor>(DEFAULT_PROJECT_ACCENT)
   const [isDefault, setIsDefault] = useState(false)
 
-  // Section 2: Git (Local path, URL distante git@..., init git)
-  const [repoPath, setRepoPath] = useState('')
+  // Section 2: Git (remote URL, declared repositories)
   const [prCreationStage, setPRCreationStage] = useState<'specified' | 'implemented'>('implemented')
   const [defaultSkillMode, setDefaultSkillMode] = useState<SkillMode>('')
   const [fullChainStopStage, setFullChainStopStage] = useState<'implemented' | 'reviewed'>('reviewed')
@@ -168,18 +152,12 @@ export const ProjectModal: React.FC = () => {
   const [newRepository, setNewRepository] = useState('')
   const [repositoryError, setRepositoryError] = useState('')
 
-  // Section 3: Agent IA & CLI
-  const [aiProvider, setAiProvider] = useState<AIProvider | ''>('')
-  const [aiModel, setAiModel] = useState('')
-  const [aiSkillModels, setAiSkillModels] = useState<Record<string, string>>({})
-  const [useCustomAgent, setUseCustomAgent] = useState(false)
-  const [useWorktrees, setUseWorktrees] = useState(true)
+  // Section 3: background synchronisation
   const [autoSyncEnabled, setAutoSyncEnabled] = useState(false)
   const [autoSyncIntervalMin, setAutoSyncIntervalMin] = useState(5)
 
   // Section 4: Compétences IA & Framework SDD
   const [specFramework, setSpecFramework] = useState<SpecFramework>('speckit')
-  const [skillOverrides, setSkillOverrides] = useState<Record<string, string>>({})
   const [skillsStatus, setSkillsStatus] = useState<ProjectSkillsStatus | null>(null)
 
 
@@ -251,7 +229,6 @@ export const ProjectModal: React.FC = () => {
       setColor(normalizeAccentColor(editingProject.color) ?? DEFAULT_PROJECT_ACCENT)
       setIsDefault(editingProject.isDefault || false)
 
-      setRepoPath(editingProject.repoPath || '')
       setPRCreationStage(editingProject.prCreationStage || 'implemented')
       setDefaultSkillMode(editingProject.defaultSkillMode || '')
       setFullChainStopStage(editingProject.fullChainStopStage || 'reviewed')
@@ -263,13 +240,7 @@ export const ProjectModal: React.FC = () => {
       setNewRepository('')
       setRepositoryError('')
 
-      const hasCustomAgent = hasProjectAgentOverride(editingProject.aiProvider, editingProject.aiModel)
-      setUseCustomAgent(hasCustomAgent)
-      setAiProvider(editingProject.aiProvider || '')
-      setAiModel(editingProject.aiModel || '')
-      setAiSkillModels(editingProject.aiSkillModels || {})
       setSpecFramework(editingProject.specFramework || settings.specFramework || 'speckit')
-      setUseWorktrees(editingProject.useWorktrees !== false)
       setAutoSyncEnabled(Boolean(editingProject.autoSyncEnabled))
       setAutoSyncIntervalMin(editingProject.autoSyncIntervalMin || 5)
 
@@ -284,7 +255,6 @@ export const ProjectModal: React.FC = () => {
       setIssueTypes(editingProject.issueTypes || [])
       setEnabledViews(enabledOptionalViews(editingProject))
       setEpicColors(editingProject.epicColors === true)
-      setSkillOverrides(editingProject.skillOverrides || {})
 
 
       fetchDetectedStatuses(editingProject.issueTracker, editingProject.githubRepo)
@@ -307,19 +277,13 @@ export const ProjectModal: React.FC = () => {
       setColor('indigo')
       setIsDefault(false)
 
-      setRepoPath('')
       setGitRemoteUrl('')
       setMonoRepo(true)
       setRepositories([])
       setNewRepository('')
       setRepositoryError('')
 
-      setUseCustomAgent(false)
-      setAiProvider('')
-      setAiModel('')
-      setAiSkillModels({})
       setSpecFramework(settings.specFramework || 'speckit')
-      setUseWorktrees(true)
       setEpicColors(false)
       setAutoSyncEnabled(false)
       setAutoSyncIntervalMin(5)
@@ -329,7 +293,6 @@ export const ProjectModal: React.FC = () => {
       setGithubRepo('')
       setJiraProject('')
       setRoadmapProjects('')
-      setSkillOverrides({})
       setSkillsStatus(null)
       setSddStatuses([])
       setSddResult(null)
@@ -370,30 +333,6 @@ export const ProjectModal: React.FC = () => {
   }
 
 
-  const handleSkillOverrideChange = (skillId: string, customName: string) => {
-    setSkillOverrides(prev => ({
-      ...prev,
-      [skillId]: customName,
-    }))
-  }
-
-  // Un modèle mal formé désactive l'enregistrement plutôt que de le laisser
-  // échouer en silence : l'entrée fautive peut être dans l'onglet Compétences,
-  // loin du bouton, et un clic sans effet n'indique rien.
-  const modelsAreValid =
-    isValidModel(aiModel) && Object.values(aiSkillModels).every(model => isValidModel(model))
-
-  // Une entrée vidée disparaît de la carte : elle signifie « hérite », et non
-  // « aucun modèle », ce qui est exactement ce que le serveur normalise.
-  const handleSkillModelChange = (skillId: string, model: string) => {
-    setAiSkillModels(prev => {
-      const next = { ...prev }
-      if (model.trim() === '') delete next[skillId]
-      else next[skillId] = model
-      return next
-    })
-  }
-
   // The same identity rule as the server: a second spelling of one remote
   // (SSH or HTTPS, case, ".git") is refused before it reaches the save.
   const addRepository = () => {
@@ -412,7 +351,7 @@ export const ProjectModal: React.FC = () => {
 
   const handleSubmit = async (e?: React.FormEvent) => {
     e?.preventDefault()
-    if (!name.trim() || isSubmitting || !modelsAreValid) return
+    if (!name.trim() || isSubmitting) return
 
     setIsSubmitting(true)
     try {
@@ -431,7 +370,6 @@ export const ProjectModal: React.FC = () => {
         icon,
         color,
         isDefault,
-        repoPath: repoPath.trim(),
         prCreationStage,
         defaultSkillMode,
         fullChainStopStage,
@@ -440,11 +378,7 @@ export const ProjectModal: React.FC = () => {
         gitRemoteUrl: gitRemoteUrl.trim(),
         monoRepo,
         repositories: savedRepositories,
-        ...projectAgentSettings(useCustomAgent, aiProvider, aiModel),
-        aiSkillModels,
-        setupProviders: [],
         specFramework,
-        useWorktrees,
         autoSyncEnabled,
         autoSyncIntervalMin,
         issueTracker,
@@ -456,7 +390,6 @@ export const ProjectModal: React.FC = () => {
         issueTypes,
         enabledViews,
         epicColors,
-        skillOverrides,
       }
 
       const saved = editingProject
@@ -566,12 +499,6 @@ export const ProjectModal: React.FC = () => {
                       <span
                         className={`w-2 h-2 rounded-full shrink-0 ${skillsStatus.isGitRepo ? 'bg-emerald-400' : 'bg-amber-400'}`}
                         title={skillsStatus.isGitRepo ? 'Dépôt Git valide' : 'Pas un dépôt Git'}
-                      />
-                    )}
-                    {tab.id === 'agent' && useCustomAgent && (
-                      <span
-                        className="w-2 h-2 rounded-full shrink-0 bg-[var(--accent-color)]"
-                        title="Agent personnalisé actif"
                       />
                     )}
                     {tab.id === 'skills' && skillsStatus && (
@@ -898,135 +825,6 @@ export const ProjectModal: React.FC = () => {
                   </span>
                 </label>
               </div>
-            </div>
-          )}
-
-          {/* ========================================================= */}
-          {/* SECTION 3: AGENT IA & CLI (Configuration du moteur/CLI)   */}
-          {/* ========================================================= */}
-          {activeTab === 'agent' && (
-            <div className="space-y-4 animate-in fade-in duration-150">
-              {/* Header card */}
-              <div className="p-3.5 rounded-xl bg-[var(--bg-tertiary)]/70 border border-[var(--border-color)]">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2.5">
-                    <div className="w-8 h-8 rounded-xl bg-[var(--accent-light)] accent-text flex items-center justify-center shrink-0 border border-[var(--accent-color)]/30">
-                      <Bot size={16} />
-                    </div>
-                    <div>
-                      <span className="text-xs font-bold text-[var(--text-primary)] block">
-                        Moteur IA & Ligne de Commande pour ce Projet
-                      </span>
-                      <span className="text-[10px] text-[var(--text-muted)] block">
-                        Personnalisez le CLI utilisé (AGY, Claude Code, Codex...) et les options de prompt pour ce dépôt.
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-1 bg-[var(--bg-secondary)] p-1 rounded-xl border border-[var(--border-color)]">
-                    <button
-                      type="button"
-                      onClick={() => setUseCustomAgent(false)}
-                      className={`px-2.5 py-1 text-[11px] font-bold rounded-lg transition-all cursor-pointer ${
-                        !useCustomAgent
-                          ? 'bg-[var(--accent-color)] text-white shadow-xs'
-                          : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
-                      }`}
-                    >
-                      Hériter du Global
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setUseCustomAgent(true)
-                        if (!aiProvider) setAiProvider(settings.aiProvider || 'agy')
-                      }}
-                      className={`px-2.5 py-1 text-[11px] font-bold rounded-lg transition-all cursor-pointer ${
-                        useCustomAgent
-                          ? 'bg-[var(--accent-color)] text-white shadow-xs'
-                          : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
-                      }`}
-                    >
-                      Spécifique au Projet
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              {!useCustomAgent ? (
-                <div className="p-4 rounded-xl bg-[var(--bg-primary)] border border-dashed border-[var(--border-color)] flex items-center gap-3 text-[var(--text-secondary)]">
-                  <Info size={16} className="text-[var(--accent-color)] shrink-0" />
-                  <div className="text-xs">
-                    <span className="font-semibold text-[var(--text-primary)]">Configuration Globale Active : </span>
-                    <span className="font-mono text-[var(--accent-color)] font-bold">{settings.aiProvider.toUpperCase()}</span>
-                    {settings.aiModel && (
-                      <span className="text-[var(--text-muted)] block mt-0.5 text-[11px]">
-                        Modèle : {settings.aiModel}
-                      </span>
-                    )}
-                  </div>
-                </div>
-              ) : (
-                <div className="space-y-4 animate-in fade-in duration-150">
-                  {/* Select AI Provider */}
-                  <div className="space-y-2">
-                    <label className="block text-[11px] font-bold uppercase tracking-wider text-[var(--text-muted)] flex items-center gap-1.5">
-                      <Bot size={14} className="text-indigo-400" />
-                      <span>{t?.profileModal?.ai?.defaultEngine || "Fournisseur de l'Agent IA"}</span>
-                    </label>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                      {AI_PROVIDERS.map(p => {
-                        const isSel = (aiProvider || settings.aiProvider) === p.id
-                        const label = p.id === 'custom' ? (t?.profileModal?.ai?.customProviderLabel || p.label) : p.label
-                        const sub = p.id === 'custom' ? (t?.profileModal?.ai?.customProviderSub || p.sub) : p.sub
-                        return (
-                          <button
-                            key={p.id}
-                            type="button"
-                            onClick={() => {
-                              setAiProvider(p.id)
-                            }}
-                            className={`px-3 py-2 rounded-xl border text-left transition-all cursor-pointer text-xs font-semibold flex items-center gap-2.5 truncate ${
-                              isSel
-                                ? 'bg-indigo-500/15 border-indigo-500 text-white ring-2 ring-indigo-500/30 shadow-xs'
-                                : 'bg-[var(--bg-tertiary)] border-[var(--border-color)] text-[var(--text-secondary)] hover:border-[var(--text-muted)] hover:text-[var(--text-primary)]'
-                            }`}
-                            title={sub}
-                          >
-                            <span className="shrink-0 flex items-center justify-center">{p.icon}</span>
-                            <span className="truncate">{label}</span>
-                          </button>
-                        )
-                      })}
-                    </div>
-                  </div>
-
-                  <AIModelField
-                    provider={aiProvider || settings.aiProvider}
-                    value={aiModel}
-                    onChange={setAiModel}
-                    availableModels={providerModels(settings, aiProvider || settings.aiProvider)}
-                    placeholder={settings.aiModel ? `Hérite du global : ${settings.aiModel}` : (t?.profileModal?.ai?.defaultModelPlaceholder || 'Défaut du CLI')}
-                    label="Modèle du projet"
-                  />
-                </div>
-              )}
-
-              {/* Server execution defaults; local agents can override these values. */}
-              <div className="p-3.5 rounded-xl border border-[var(--border-color)] bg-[var(--bg-tertiary)]/70">
-                <h4 className="text-xs font-bold text-[var(--text-primary)]">Local agent execution defaults</h4>
-                <p className="text-[11px] text-[var(--text-muted)]">Inherited by local agents unless overridden in the companion app.</p>
-                <label className="flex items-center gap-2 mt-2.5 text-xs text-[var(--text-secondary)] cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={useWorktrees}
-                    onChange={e => setUseWorktrees(e.target.checked)}
-                    className="rounded border-[var(--border-color)] accent-[var(--accent-color)]"
-                  />
-                  <span>Use a worktree for each task</span>
-                </label>
-              </div>
-
             </div>
           )}
 
@@ -1479,7 +1277,6 @@ export const ProjectModal: React.FC = () => {
                   onStageColumnsChange={setStageColumns}
                   issueTracker={issueTracker}
                   githubRepo={githubRepo}
-                  repoPath={repoPath}
                 />
               </div>
             </div>
@@ -1559,10 +1356,10 @@ export const ProjectModal: React.FC = () => {
               <div className="p-3.5 rounded-xl bg-[var(--bg-tertiary)]/70 border border-[var(--border-color)] space-y-2.5">
                 <div className="flex items-center justify-between pb-1 border-b border-[var(--border-color)]">
                   <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--text-primary)]">
-                    Compétences du Workflow & Surcharge des Noms
+                    Compétences du Workflow
                   </span>
                   <span className="text-[10px] text-[var(--text-muted)]">
-                    Personnalisez le libellé de chaque compétence
+                    Noms de commande et modèles se règlent sur votre poste
                   </span>
                 </div>
 
@@ -1570,7 +1367,6 @@ export const ProjectModal: React.FC = () => {
                   {WORKFLOW_SKILLS.map(s => {
                     const isInst = (skillsStatus?.skills || []).find(sk => sk.id === s.id)?.installed || false
                     const SkillIcon = s.icon
-                    const customValue = skillOverrides[s.id] || ''
                     const displayDefaultName = s.id === 'specify'
                       ? (specFramework === 'openspec' ? 'Specify (OpenSpec)' : 'Specify (Spec Kit)')
                       : s.defaultName
@@ -1602,44 +1398,8 @@ export const ProjectModal: React.FC = () => {
                           </div>
                         </div>
 
-                        {/* Custom Name Override Input Right */}
+                        {/* Installation state */}
                         <div className="flex items-center gap-2 flex-1 justify-end">
-                          <div className="relative flex-1 max-w-[260px]">
-                            <input
-                              type="text"
-                              value={customValue}
-                              onChange={e => handleSkillOverrideChange(s.id, e.target.value)}
-                              placeholder={`Surcharge : ${displayDefaultName}`}
-                              className="w-full px-2.5 py-1 text-xs rounded-lg bg-[var(--bg-secondary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)] font-medium"
-                            />
-                            {customValue && (
-                              <button
-                                type="button"
-                                onClick={() => handleSkillOverrideChange(s.id, '')}
-                                className="absolute right-1.5 top-1.5 text-[var(--text-muted)] hover:text-rose-400 p-0.5"
-                                title="Réinitialiser au nom par défaut"
-                              >
-                                <RotateCcw size={11} />
-                              </button>
-                            )}
-                          </div>
-
-                          <div className="relative w-[150px] shrink-0">
-                            <input
-                              type="text"
-                              value={aiSkillModels[s.id] || ''}
-                              onChange={e => handleSkillModelChange(s.id, e.target.value)}
-                              placeholder="Modèle hérité"
-                              aria-label={`Modèle pour ${displayDefaultName}`}
-                              aria-invalid={!isValidModel(aiSkillModels[s.id] || '')}
-                              className={`w-full px-2.5 py-1 text-xs font-mono rounded-lg bg-[var(--bg-secondary)] border text-[var(--text-primary)] focus:outline-none ${
-                                isValidModel(aiSkillModels[s.id] || '')
-                                  ? 'border-[var(--border-color)] focus:border-[var(--accent-color)]'
-                                  : 'border-red-500'
-                              }`}
-                            />
-                          </div>
-
                           <div className="shrink-0 w-20 text-right">
                             {isInst ? (
                               <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-400">
@@ -1694,7 +1454,7 @@ export const ProjectModal: React.FC = () => {
             <button
               type="button"
               onClick={handleSubmit}
-              disabled={isSubmitting || !name.trim() || !modelsAreValid}
+              disabled={isSubmitting || !name.trim()}
               className="px-5 py-2 rounded-xl text-xs font-bold text-white accent-bg shadow-md hover:opacity-90 active:scale-95 flex items-center gap-1.5 transition-all disabled:opacity-50 cursor-pointer"
             >
               <Save size={14} />

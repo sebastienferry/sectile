@@ -236,15 +236,13 @@ interface AppContextType {
   /** Distinct parents present in the loaded tasks, most populated first. */
   availableParents: { key: string; title: string; type: string; count: number }[]
   /**
-   * Resolves the display name of a workflow skill, honouring the project's
-   * `skillOverrides`. Pass `projectId` to resolve against a specific project -
-   * a task's project is not necessarily the one selected in the sidebar.
+   * Resolves the display name of a workflow skill. Command names renamed on
+   * the workstation are not visible to the web, so this is the default name.
    */
   skillLabel: (skillId: string, fallback?: string, projectId?: string) => string
   /**
-   * Resolves the slash command of a workflow skill. A project override is
-   * treated as the command to invoke, normalised with a leading slash, so
-   * renaming a skill also changes the command shown and run.
+   * Resolves the slash command of a workflow skill: the default command, the
+   * workstation applying its own renames when it runs the skill.
    */
   skillCommand: (skillId: string, fallback: string, projectId?: string) => string
   /** Docked workspace terminal on the right side of the app. */
@@ -422,10 +420,6 @@ const defaultSettings: UserSettings = {
   userName: '',
   userEmail: 'dev@example.com',
   userAvatar: '',
-  aiProvider: 'agy',
-  aiCommandTemplate: 'agy -p "{prompt}"',
-  aiModel: '',
-  repoPath: '',
   issueTracker: 'local',
   githubRepo: '',
   jiraProject: '',
@@ -438,8 +432,6 @@ const defaultSettings: UserSettings = {
   promptHandoff: '',
   promptCreatePr: '',
   promptPick: '',
-  editorCommand: 'code',
-  externalTerminalCommand: '',
   updatedAt: new Date().toISOString(),
 }
 
@@ -3371,7 +3363,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     addToast({
       type: 'info',
       title: t.toasts.skillQueued,
-      description: `Moteur: ${settings.aiProvider.toUpperCase()} (${skillId}) - Poussée en file d'attente`,
+      description: `${skillId} - Poussée en file d'attente`,
     })
 
     try {
@@ -3555,40 +3547,21 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     return out
   }, [tasks, sourceFilter, parentFilter, selectedProjectId, selectedViewId, bookmarkedProjectIds])
 
-  // A project can rename any workflow skill through `skillOverrides`
-  // (skillId -> custom label). Every place that shows a skill name goes through
-  // this resolver, otherwise the setting would be write-only.
-  const resolveSkillOverride = useCallback(
-    (skillId: string, projectId?: string): string => {
-      const proj = projectId
-        ? projects.find(p => p.id === projectId) || currentProject
-        : currentProject
-      return (proj?.skillOverrides?.[skillId] || '').trim()
-    },
-    [projects, currentProject]
-  )
-
+  // Skill command names are a workstation setting since #305: the local file
+  // renames a skill, the server never sees it, so the web shows the defaults.
+  // The projectId parameter stays so callers keep a single signature.
   const skillLabel = useCallback(
-    (skillId: string, fallback?: string, projectId?: string): string => {
-      const override = resolveSkillOverride(skillId, projectId)
-      // An override written as a command ("/clarify-workitem") reads badly as a
-      // label, so strip the slash for display purposes.
-      if (override) return override.replace(/^\//, '')
+    (skillId: string, fallback?: string, _projectId?: string): string => {
       if (fallback && fallback.trim() !== '') return fallback
       const known = skills.find(s => s.id === skillId)
       return known?.name || skillId
     },
-    [resolveSkillOverride, skills]
+    [skills]
   )
 
   const skillCommand = useCallback(
-    (skillId: string, fallback: string, projectId?: string): string => {
-      const override = resolveSkillOverride(skillId, projectId)
-      if (!override) return fallback
-      // Accept both "clarify-workitem" and "/clarify-workitem".
-      return '/' + override.replace(/^\//, '')
-    },
-    [resolveSkillOverride]
+    (_skillId: string, fallback: string, _projectId?: string): string => fallback,
+    []
   )
 
   // Distinct parents across the loaded tasks, ordered by how much work hangs

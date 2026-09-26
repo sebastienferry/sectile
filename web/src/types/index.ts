@@ -201,8 +201,6 @@ export interface TrackerBoard {
   type: string
 }
 
-export type TtyMode = 'integrated' | 'external'
-
 /**
  * A saved board view (#387): a personal, named selection of projects and
  * labels over the all-projects board. The server resolves it; the interface
@@ -230,20 +228,10 @@ export interface Project {
   description: string
   icon: string
   color: AccentColor | string
-  repoPath: string
-  /**
-   * Répertoires de travail connus du projet. Alimentée automatiquement :
-   * dès qu'un ticket épingle un nouveau CWD, le chemin est enregistré ici.
-   */
-  repoPaths?: string[]
   /** Other Jira project keys whose story keys the slicing attaches. Read, never written. */
   roadmapProjects?: string[]
-  /**
-   * Chaque tâche travaille dans son propre worktree Git isolé, ou directement
-   * dans le clone si l'option est désactivée. Vrai par défaut.
-   */
+  /** Stage at which the workflow opens the pull request. */
   prCreationStage?: 'specified' | 'implemented'
-  useWorktrees?: boolean
   /**
    * Mode d'exécution des skills quand ni le lancement ni la skill n'en fixe un.
    * Vide vaut « interactif », le comportement historique.
@@ -312,15 +300,6 @@ export interface Project {
   isDefault: boolean
   bookmarked?: boolean
   taskCount?: number
-  skillOverrides?: Record<string, string>
-  setupProviders?: string[]
-  aiProvider?: AIProvider
-  aiCommandTemplate?: string
-  aiCommandTemplateAutonomous?: string
-  /** Modèle du moteur pour ce projet. Vide : le réglage global s'applique. */
-  aiModel?: string
-  /** Modèle par compétence (skillId -> modèle) pour celles qui s'écartent d'aiModel. */
-  aiSkillModels?: Record<string, string>
   specFramework?: SpecFramework
   /** Synchronisation automatique en arrière-plan activée pour ce projet. */
   autoSyncEnabled?: boolean
@@ -332,23 +311,16 @@ export interface Project {
    * client : le propriétaire décide du jeton emprunté (ADR 0018).
    */
   ownerUserId?: string
-  /** Mode d'exécution des terminaux : 'integrated' (web xterm) ou 'external' (vrai terminal OS). */
-  ttyMode?: TtyMode
-  /** Commande ou application de terminal externe spécifique à ce projet (ex: 'Ghostty', 'iTerm', 'Terminal'). */
-  externalTerminalCommand?: string
   createdAt: string
   updatedAt: string
 }
 
 /**
- * Project fields accepted by the create and update endpoints.
- *
- * A stored Project only exposes known providers. A write may additionally send
- * an empty provider to clear the optional project override; omitting the field
- * keeps the existing value on updates.
+ * Project fields accepted by the create and update endpoints. Execution
+ * settings (provider, model, templates, checkout, terminal) are not among
+ * them: the workstation's local file owns them (#305).
  */
-export type ProjectSavePayload = Omit<Partial<Project>, 'aiProvider' | 'repositories'> & {
-  aiProvider?: AIProvider | ''
+export type ProjectSavePayload = Omit<Partial<Project>, 'repositories'> & {
   /** Remote URLs of the full declared list; the code remote may be included or not. */
   repositories?: string[]
 }
@@ -669,20 +641,6 @@ export interface UserSettings {
   userName: string
   userEmail: string
   userAvatar: string
-  aiProvider: AIProvider
-  aiCommandTemplate: string
-  aiCommandTemplateAutonomous?: string
-  /** Modèle du moteur. Vide : le CLI garde son défaut. */
-  aiModel?: string
-  /** Modèle par compétence (skillId -> modèle). */
-  aiSkillModels?: Record<string, string>
-  /**
-   * Modèles proposés par moteur (provider -> liste ordonnée). C'est ce que les
-   * surfaces de lancement offrent : un modèle absent d'ici ne peut pas être
-   * choisi au lancement. Un moteur sans liste retombe sur celle livrée.
-   */
-  aiProviderModels?: Record<string, string[]>
-  repoPath: string
   issueTracker: IssueTracker
   githubRepo: string
   jiraProject?: string
@@ -716,11 +674,30 @@ export interface UserSettings {
   promptHandoff: string
   promptCreatePr?: string
   promptPick: string
-  editorCommand: string
-  /** Commande ou nom de l'application de terminal externe (ex: "Terminal", "iTerm", "Ghostty"). */
-  externalTerminalCommand?: string
   specFramework?: SpecFramework
   updatedAt: string
+}
+
+/**
+ * What the caller's own workstation reported for a project (#305): the engine
+ * and models its next run would use. `unknown` means no agent of the caller is
+ * connected for the project, or it predates the report; the web then names no
+ * model and offers no picker. Empty values may be omitted by the server.
+ */
+export interface EngineReport {
+  state: 'reported' | 'unknown'
+  provider?: AIProvider | string
+  /** Project-wide model, used by skills without their own entry. */
+  model?: string
+  /** Per-skill models (skillId -> model), outranking `model`. */
+  skillModels?: Record<string, string>
+  /** The models the workstation offers at launch. */
+  models?: string[]
+  /** Whether the reported command line carries a model at all. */
+  modelSlot?: boolean
+  /** Whether a headless run is possible on that workstation. */
+  headless?: boolean
+  reportedAt?: string
 }
 
 export interface TaskFacetValue {

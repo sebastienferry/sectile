@@ -192,8 +192,7 @@ export const Sidebar: React.FC = () => {
     const matches = projects.filter(p =>
       p.name.toLowerCase().includes(q) ||
       p.slug.toLowerCase().includes(q) ||
-      (p.description && p.description.toLowerCase().includes(q)) ||
-      (p.repoPath && p.repoPath.toLowerCase().includes(q))
+      (p.description && p.description.toLowerCase().includes(q))
     )
     return {
       searchBookmarked: matches.filter(p => p.bookmarked),
@@ -466,7 +465,7 @@ export const Sidebar: React.FC = () => {
                                   <div className="flex flex-col min-w-0">
                                     <span className="truncate">{p.name}</span>
                                     <span className="text-[9px] text-[var(--text-muted)] font-mono truncate max-w-[120px]">
-                                      {p.repoPath ? p.repoPath.split('/').pop() : ''}
+                                      {p.slug}
                                     </span>
                                   </div>
                                 </div>
@@ -542,7 +541,7 @@ export const Sidebar: React.FC = () => {
                                   <div className="flex flex-col min-w-0">
                                     <span className="truncate">{p.name}</span>
                                     <span className="text-[9px] text-[var(--text-muted)] font-mono truncate max-w-[120px]">
-                                      {p.repoPath ? p.repoPath.split('/').pop() : ''}
+                                      {p.slug}
                                     </span>
                                   </div>
                                 </div>
