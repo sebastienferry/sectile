@@ -4,6 +4,7 @@ import (
 	"errors"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"tasks/internal/models"
 )
@@ -238,5 +239,33 @@ func TestStartRunWithTheBatchRunReportsAMember(t *testing.T) {
 		if _, err := d.StartRemoteRunBy("u1", "t3", "pickup_issues", run.ID); err == nil {
 			t.Fatal("start_run with a finished batch run was accepted")
 		}
+	})
+}
+
+// An agent reporting the end of the batch run announces every ticket of the
+// batch, each without its batch, as finish_run does.
+func TestAgentReportedEndAnnouncesEveryMember(t *testing.T) {
+	batchEngines(t, func(t *testing.T, d *DB) {
+		run := seedBatch(t, d)
+		cleared := make(chan string, 16)
+		d.RegisterPostBackListener(func(task *models.Task, _ *models.TaskActivity, _ error) {
+			if task != nil && task.Batch == nil {
+				cleared <- task.ID
+			}
+		})
+		if _, err := d.SyncRemoteRunStatus(run.ID, "t1", "p1", "#1", "pickup_issues", "completed", "done", nil); err != nil {
+			t.Fatal(err)
+		}
+		want := map[string]bool{"t1": true, "t2": true, "t3": true}
+		deadline := time.After(5 * time.Second)
+		for len(want) > 0 {
+			select {
+			case id := <-cleared:
+				delete(want, id)
+			case <-deadline:
+				t.Fatalf("no announcement without the batch for %v", want)
+			}
+		}
+		wantStates(t, d, "", "", "")
 	})
 }

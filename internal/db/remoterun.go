@@ -440,6 +440,21 @@ func (d *DB) SyncRemoteRunStatusFor(ownerID, activityID, taskID, projectID, task
 	}
 	d.mu.Unlock()
 
+	// An agent reporting the end of a batch run ends the batch: its tickets
+	// stop showing it, as they do when finish_run closes it (#522).
+	endsRun := existingID != "" && status != "queued" && status != "running" &&
+		currentStatus != "completed" && currentStatus != "failed" && currentStatus != "canceled"
+	if endsRun {
+		if members := d.batchMemberIDs(activityID); len(members) > 0 {
+			if task != nil {
+				if fresh, err := d.GetTaskByID(task.ID); err == nil && fresh != nil {
+					task = fresh
+				}
+			}
+			d.notifyBatchMembers(activityID, members[1:]...)
+		}
+	}
+
 	activity, err := d.GetActivityByID(activityID)
 	if err != nil {
 		return nil, err
