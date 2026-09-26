@@ -206,3 +206,41 @@ func TestSettingsSpecReposClearTheLastEntry(t *testing.T) {
 		t.Fatalf("the folder must be removed: %v %v", got.SpecRepos, err)
 	}
 }
+
+// The specification artefacts override (#487) is stored only once chosen, and
+// clearing the last one leaves neither an empty map nor a null in the file.
+func TestSettingsSpecArtifactsAddNoKeyUntilUsed(t *testing.T) {
+	testhome.Temp(t)
+	path, _ := SettingsPath()
+	hasKey := func() bool {
+		t.Helper()
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var fields map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &fields); err != nil {
+			t.Fatal(err)
+		}
+		_, ok := fields["specArtifacts"]
+		return ok
+	}
+	if err := WriteSettings(Overrides{Projects: map[string]string{"p": "/repo"}}); err != nil {
+		t.Fatal(err)
+	}
+	if hasKey() {
+		t.Fatal("a workstation that never overrode the setting must not gain the key")
+	}
+	if err := WriteSettings(Overrides{SpecArtifacts: map[string]string{"p": "drop"}}); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := ReadSettings(t.TempDir()); err != nil || got.SpecArtifacts["p"] != "drop" {
+		t.Fatalf("the override must be stored: %v %v", got.SpecArtifacts, err)
+	}
+	if err := WriteSettings(Overrides{SpecArtifacts: map[string]string{}}); err != nil {
+		t.Fatal(err)
+	}
+	if hasKey() {
+		t.Fatal("removing the last override must remove the key")
+	}
+}

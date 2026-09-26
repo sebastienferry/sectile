@@ -301,6 +301,8 @@ export const QuickAddModal: React.FC = () => {
                             ? `GitHub (${activeProject.githubRepo ? activeProject.githubRepo.split('/')[1] || activeProject.githubRepo : 'repo'})`
                             : activeProject.issueTracker === 'jira'
                             ? `Jira (${activeProject.jiraProject || 'projet non configuré'})`
+                            : activeProject.issueTracker === 'gitlab'
+                            ? `GitLab (${activeProject.gitlabProject || 'projet par défaut'})`
                             : 'Local'}
                         </span>
                       </span>

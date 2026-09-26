@@ -2,7 +2,7 @@
 
 References: [`spec.md`](spec.md), [`docs/clarifications/409.md`](../../docs/clarifications/409.md).
 
-## Schema: migration 25 `user_tracker_credentials.unlock_generation`
+## Schema: migration 26 `user_tracker_credentials.unlock_generation`
 
 ```sql
 ALTER TABLE user_tracker_credentials ADD COLUMN unlock_generation INTEGER NOT NULL DEFAULT 0;

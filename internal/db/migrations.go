@@ -385,11 +385,21 @@ var migrations = []migration{
 		},
 	},
 	{
+		// Whether the project's tasks commit their clarification and
+		// specification files ("keep") or leave them ignored in the worktree
+		// ("drop", #487). Every existing project keeps them.
+		version: 25,
+		name:    "projects.spec_artifacts",
+		statements: []string{
+			"ALTER TABLE projects ADD COLUMN spec_artifacts TEXT NOT NULL DEFAULT 'keep';",
+		},
+	},
+	{
 		// Which unlock of a sealed credential a held key belongs to (#409). A
 		// lock or a new record moves it on, so a key another server instance
 		// still holds from before stops opening anything, whether or not that
 		// instance heard of the lock. It is a counter, not a secret.
-		version: 25,
+		version: 26,
 		name:    "user_tracker_credentials.unlock_generation",
 		statements: []string{
 			"ALTER TABLE user_tracker_credentials ADD COLUMN unlock_generation INTEGER NOT NULL DEFAULT 0;",

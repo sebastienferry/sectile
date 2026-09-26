@@ -47,7 +47,8 @@ Stop before merge. Stage-local boundaries apply while that stage is active; afte
    c. Name critical dependencies: other services, migrations, missing data, third-party limits.
    d. Resolve reversible technical choices using existing code and project conventions.
    e. Formulate essential product questions that alter acceptance criteria, with your recommended option.
-   f. Write docs/clarifications/<n>.md, commit with docs(spec): clarify #<n> (round 1).
+   f. Write docs/clarifications/<n>.md, commit with docs(spec): clarify #<n> (round 1), unless the file
+      is ignored by Git (step 6).
    g. Ask the questions (interactively in-session if the owner is present; as a ticket discussion
       comment via add_comment when unattended).
 3. In Round N (follow-up after owner answers):
@@ -55,13 +56,18 @@ Stop before merge. Stage-local boundaries apply while that stage is active; afte
    b. Append a dated section: "## Round N - answers from the owner (<date>)" to docs/clarifications/<n>.md.
    c. Explicitly record settled choices and any reversed prior assumptions.
    d. Address newly surfaced ambiguities or dependencies.
-   e. Commit updates with docs(spec): clarify #<n> (round N).
+   e. Commit updates with docs(spec): clarify #<n> (round N), unless the file is ignored by Git (step 6).
    f. If follow-up product questions remain, ask them and stop without transitioning.
 4. Exit condition:
    Rounds continue until the owner confirms that the clarification is satisfactory (or zero open
    product questions remain in unattended pickup). Never transition new → clarified while product
    questions remain open.
 5. Persist the settled scope, decisions, and assumptions in the report before concluding.
+6. Dropped artefacts: `<n>` is the task key without its leading `#` (`487` for `#487`). Before
+   committing, run `git check-ignore -q docs/clarifications/<n>.md`. When it succeeds, the project
+   drops its specification artefacts on this workstation: write and update the file in the worktree,
+   never commit it, never force it with `git add -f`, and put the settled decisions in full in the
+   transition note, saying that the report file stays local to the worktree.
 
 - Do not transition new → clarified while any product question or decision remains open.
 - Do not invent answers to essential product questions in unattended runs; record them and ask.
@@ -70,7 +76,7 @@ Stop before merge. Stage-local boundaries apply while that stage is active; afte
 - Do not switch branches or create a new branch: reuse the assigned feat/<n> branch.
 
 Report and persist before continuing:
-- The report path: docs/clarifications/<n>.md.
+- The report path: docs/clarifications/<n>.md, and whether it is committed or local to the worktree (ignored by Git).
 - Current round number and whether the exit condition was met.
 - Settled decisions and reversed assumptions.
 - Numbered open questions (if any) and who is expected to answer them.
@@ -101,18 +107,30 @@ Report and persist before continuing:
    - Write `plan.md` (stack, architecture, data contracts, target files)
    - Write `tasks.md` (ordered implementation checklist with test plan)
    - Use `/speckit.specify`, `/speckit.plan`, `/speckit.tasks` if available.
+3. Dropped artefacts: before committing the specification, run `git check-ignore -q` on one of its
+   files (`specs/<KEY>-<title-slug>/spec.md` or `openspec/changes/<KEY>-<title-slug>/proposal.md`).
+   When it succeeds, the project drops its specification artefacts on this workstation: write the
+   files in the worktree, never commit them, never force them with `git add -f`, and put the
+   requirements and the open points in the transition note, saying that the files stay local to the
+   worktree. Open no pull request at this stage then, even when the project creates it after
+   specification: say in the report that it is deferred to the implemented stage.
 
 - Do not decide what the clarification left open. Mark it as open and say so.
 - Do not describe implementation inside the behaviour file.
 - Do not start implementing, even the easy part.
 
 Report and persist before continuing:
-- The files written, with their paths.
+- The files written, with their paths, and whether they are committed or local to the worktree (ignored by Git).
 - The work branch.
 - Requirements that are still open, and what they block.
 
 ### Implement Code
 - The specification and its task checklist. It is the contract, follow its order.
+  Its files may be ignored by Git (`git check-ignore -q` succeeds on them): the project drops its
+  specification artefacts on this workstation. Read them from the worktree, never commit them and
+  never force them with `git add -f`. When the project drops its artefacts (the launch prompt says so,
+  or the paths are ignored) and the specification is missing from the worktree, stop and report that
+  it is not available on this workstation: never rewrite it.
 - The surrounding code: naming, error handling, comment density, test style. Match it.
 - How this project builds and tests. Find the real commands, do not assume them.
 
@@ -121,7 +139,8 @@ Report and persist before continuing:
    primary worktree; the other repositories are read-only context. To change one, call
    `prepare_repository_worktree` for it first and work in the worktree it returns: each
    changed repository then needs its own pull request, given to `transition_stage` in `prUrls`.
-3. Work through the checklist in small steps, each one leaving the tree buildable.
+3. Work through the checklist in small steps, each one leaving the tree buildable. When the
+   specification artefacts are ignored by Git, commit the code only and never force-add them.
 4. Add the tests that cover the new behaviour and its edge cases, not just the
    happy path. A change with no test needs a stated reason.
 5. Run build, static analysis and tests. Fix until green, and quote the real output.
@@ -157,7 +176,8 @@ Report and persist before continuing:
 3. Update documentation affected by the change. Fix what the review finds, now. A known defect belongs in the code, not in the
    description of the merge request.
 4. Re-run build, static analysis and tests after integrating the default branch and on the final state.
-5. Commit with a conventional message: type, scope, and why the change exists.
+5. Commit with a conventional message: type, scope, and why the change exists. Never force-add a
+   specification artefact that Git ignores (`git add -f`): the project drops them on this workstation.
 6. Push the branch and update the same existing merge request: summary, test plan, and the specific
    places where you want a reviewer's eyes.
    Run `git fetch origin`, then choose the push from the state of `origin/<branch>`:

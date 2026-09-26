@@ -3,6 +3,7 @@ import { Check, ExternalLink, Layers, Target, User, CalendarRange, Inbox, Eye, E
 import { useApp } from '../context/AppContext'
 import { LookupField, type LookupOption } from './LookupField'
 import { macroLookup, sprintLookup } from '../lib/lookups'
+import { trackerHas } from '../lib/trackers'
 import { resolveTaskStage } from '../lib/workflow'
 import type { MacroMeta, Task } from '../types'
 
@@ -429,7 +430,7 @@ export const CurationTable: React.FC = () => {
 
                     {/* Équipe */}
                     <td className="py-1.5 px-2">
-                      {task.source === 'jira' ? (
+                      {trackerHas(task.source, 'team') ? (
                         <LookupField
                           value={task.team || ''}
                           icon={<Layers size={10} />}
@@ -445,7 +446,7 @@ export const CurationTable: React.FC = () => {
 
                     {/* Assigné */}
                     <td className="py-1.5 px-2">
-                      {task.source === 'jira' ? (
+                      {trackerHas(task.source, 'assigneeLookup') ? (
                         <LookupField
                           value={task.assignee || ''}
                           icon={<User size={10} />}

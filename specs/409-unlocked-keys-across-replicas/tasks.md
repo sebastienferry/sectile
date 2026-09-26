@@ -9,7 +9,7 @@ References: [`spec.md`](spec.md), [`plan.md`](plan.md).
 
 ## 2. Lock generation (FR3, FR4)
 
-- [x] T2.1 Migration 25 `user_tracker_credentials.unlock_generation`.
+- [x] T2.1 Migration 26 `user_tracker_credentials.unlock_generation`.
 - [x] T2.2 Held keys carry their generation; the resolver and the list check it.
 - [x] T2.3 Lock bumps the generation and returns an error; store bumps it on conflict.
 - [x] T2.4 Handler: a failed lock answers 500.

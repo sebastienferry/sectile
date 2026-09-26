@@ -89,6 +89,7 @@ var localInspections = map[string]time.Duration{
 	"read_skill":      15 * time.Second,
 	"open_editor":     15 * time.Second,
 	"macro_spec_file": 15 * time.Second,
+	"spec_artifacts":  15 * time.Second,
 	"cli_status":      30 * time.Second,
 }
 

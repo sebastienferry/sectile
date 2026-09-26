@@ -269,6 +269,7 @@ func main() {
 	mux.HandleFunc("/api/sync/all", h.HandleSyncAll)
 	mux.HandleFunc("/api/sync/github", h.HandleSyncGithub)
 	mux.HandleFunc("/api/sync/jira", h.HandleSyncJira)
+	mux.HandleFunc("/api/sync/gitlab", h.HandleSyncGitlab)
 	mux.HandleFunc("/api/sync/auto", h.HandleAutoSyncStatus)
 	mux.HandleFunc("/api/setup/tracker", h.HandleTrackerSetup)
 	mux.HandleFunc("/api/setup/tracker/check", h.HandleTrackerSetup)

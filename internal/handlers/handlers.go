@@ -591,6 +591,32 @@ func (h *Handler) HandleSyncJira(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// HandleSyncGitlab queues a GitLab synchronisation of one project: the job
+// resolves the project's GitLab adapter, instance and project path.
+//
+//	POST /api/sync/gitlab {projectId}
+func (h *Handler) HandleSyncGitlab(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+	var req struct {
+		ProjectID string `json:"projectId"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&req)
+
+	activity, err := h.db.EnqueueSyncAs(h.webSessionUser(r), "gitlab", "", req.ProjectID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"message":  "Synchronisation GitLab ajoutée à la file d'attente",
+		"activity": activity,
+	})
+}
+
 // HandleSpecFrameworkStatus reports whether GitHub Spec Kit / OpenSpec are
 // installed on the host and initialized in a project working directory.
 // GET /api/spec-framework/status?projectId=…&repoPath=…&framework=speckit|openspec
@@ -4039,7 +4065,7 @@ func (h *Handler) HandleEventsSSE(w http.ResponseWriter, r *http.Request) {
 // repositoryErrorStatus answers 400 for a refused repository declaration or
 // pin (#456), and 500 for anything else.
 func repositoryErrorStatus(err error) int {
-	if errors.Is(err, db.ErrDuplicateRepository) || errors.Is(err, db.ErrRepositoryNotInProject) {
+	if errors.Is(err, db.ErrDuplicateRepository) || errors.Is(err, db.ErrRepositoryNotInProject) || errors.Is(err, db.ErrInvalidSpecArtifacts) {
 		return http.StatusBadRequest
 	}
 	return http.StatusInternalServerError

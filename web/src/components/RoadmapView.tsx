@@ -1828,7 +1828,7 @@ export const RoadmapView: React.FC = () => {
                             // Where the line's story lands: the macro's project by
                             // default, or another project of the same tracker
                             // instance, where the epic can still be its parent.
-                            const options = targetProjectOptions(currentProject, projects, { jiraUrl: settings.jiraUrl, githubApiUrl: settings.githubApiUrl })
+                            const options = targetProjectOptions(currentProject, projects, { jiraUrl: settings.jiraUrl, githubApiUrl: settings.githubApiUrl, gitlabUrl: settings.gitlabUrl, gitlabProject: settings.gitlabProject })
                             const saved = todo.targetProjectId && todo.targetProjectId !== currentProject.id ? todo.targetProjectId : ''
                             const savedName = projects.find(p => p.id === saved)?.name || saved
                             const invalid = saved !== '' && !options.some(p => p.id === saved)
