@@ -4338,6 +4338,7 @@ func (d *DB) processSkillJob(job SkillJob) {
 	d.mu.Lock()
 	_, err := d.conn.Exec("UPDATE task_activities SET skill_id='agent_launch' WHERE id=?", job.ActivityID)
 	d.mu.Unlock()
+	renamed := err == nil
 
 	var task *models.Task
 	if err == nil {
@@ -4367,9 +4368,39 @@ func (d *DB) processSkillJob(job SkillJob) {
 			summary = "Agent launch refused: another run is active on this task"
 		}
 	}
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	_, _ = d.conn.Exec("UPDATE task_activities SET skill_id='agent_launch',status=?,summary=?,error=?,completed_at=? WHERE id=? AND status != 'canceled'", status, summary, errorText, time.Now(), job.ActivityID)
+	d.closeLaunch(job.ActivityID, renamed, status, summary, errorText)
+}
+
+// launchCloseAttempts and launchCloseRetryPause bound how hard closeLaunch
+// tries before leaving the row to the reclaim at the next start.
+const (
+	launchCloseAttempts   = 3
+	launchCloseRetryPause = 100 * time.Millisecond
+)
+
+// closeLaunch ends a launch record, a canceled one excepted. When the rename to
+// agent_launch failed, repeating it would most likely fail the same way and
+// leave the row running under its stage skill, where the one-run index keeps
+// refusing every launch on the task: the close then sets the terminal status
+// alone, which is enough to take the row out of the index.
+func (d *DB) closeLaunch(activityID string, renamed bool, status, summary, errorText string) {
+	query := "UPDATE task_activities SET status=?,summary=?,error=?,completed_at=? WHERE id=? AND status != 'canceled'"
+	if renamed {
+		query = "UPDATE task_activities SET skill_id='agent_launch',status=?,summary=?,error=?,completed_at=? WHERE id=? AND status != 'canceled'"
+	}
+	var err error
+	for attempt := 1; attempt <= launchCloseAttempts; attempt++ {
+		if attempt > 1 {
+			time.Sleep(launchCloseRetryPause)
+		}
+		d.mu.Lock()
+		_, err = d.conn.Exec(query, status, summary, errorText, time.Now(), activityID)
+		d.mu.Unlock()
+		if err == nil {
+			return
+		}
+	}
+	log.Printf("[agent_launch] closing launch %s failed after %d attempts: %v", activityID, launchCloseAttempts, err)
 }
 
 // trackerDisplayName spells a tracker for the activity log.
