@@ -336,7 +336,7 @@ func (d *agentDaemon) executeOperation(ctx context.Context, op agentprotocol.Ope
 			// This workstation's own mapping of that repository, or the folder
 			// attached for it (#484), is the first place to look (#456); the
 			// legacy paths stay hints behind it.
-			if mapped, _, ok := repositoryFolder(ctx, overrides, config.ProjectID, root, codeIdentity(config), models.RepositoryIdentity(repository)); ok {
+			if mapped, ok := repositoryFolder(ctx, overrides, config.ProjectID, root, codeIdentity(config), models.RepositoryIdentity(repository)); ok {
 				candidates = append([]string{mapped}, candidates...)
 			}
 			checkout, found, err := verifiedCheckout(ctx, repository, strings.TrimSpace(op.Branch), candidates)

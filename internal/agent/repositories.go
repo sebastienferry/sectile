@@ -64,7 +64,7 @@ func repositoryRoot(overrides agentconfig.Settings, projectRoot, code, identity 
 func primaryRoot(ctx context.Context, config agentconfig.Config, overrides agentconfig.Settings, projectRoot string, task models.Task) (root, identity string, err error) {
 	code := codeIdentity(config)
 	mapped := func(identity string) bool {
-		_, _, ok := repositoryFolder(ctx, overrides, config.ProjectID, projectRoot, code, identity)
+		_, ok := repositoryFolder(ctx, overrides, config.ProjectID, projectRoot, code, identity)
 		return ok
 	}
 	repository, outcome := models.ResolvePrimaryRepository(task.Repository, projectRepositories(config), mapped)
@@ -74,7 +74,7 @@ func primaryRoot(ctx context.Context, config agentconfig.Config, overrides agent
 	case models.PrimaryUnmapped:
 		return "", "", fmt.Errorf("Le dépôt %s de la tâche n'est associé à aucun dossier sur ce poste : choisissez son dossier dans les réglages du projet de l'app desktop.", repository.Identity)
 	}
-	root, _, _ = repositoryFolder(ctx, overrides, config.ProjectID, projectRoot, code, repository.Identity)
+	root, _ = repositoryFolder(ctx, overrides, config.ProjectID, projectRoot, code, repository.Identity)
 	if repository.Identity != code {
 		// The project's own checkout ignores .tasks/ through its .gitignore;
 		// another repository has no reason to, so its status is kept clean
@@ -111,7 +111,7 @@ func buildFolderMap(ctx context.Context, config agentconfig.Config, overrides ag
 	seen := map[string]bool{}
 	listed := map[string]bool{}
 	for _, repository := range projectRepositories(config) {
-		root, _, _ := repositoryFolder(ctx, overrides, config.ProjectID, projectRoot, code, repository.Identity)
+		root, _ := repositoryFolder(ctx, overrides, config.ProjectID, projectRoot, code, repository.Identity)
 		entry := models.FolderMapEntry{Remote: repository.URL, Identity: repository.Identity, Role: models.FolderRoleContext, Path: root}
 		switch {
 		case repository.Identity == primary:
@@ -364,7 +364,7 @@ func repositoryWorktree(ctx context.Context, config agentconfig.Config, override
 	if target, ok := models.FindProjectRepository(projectRepositories(config), repository); ok {
 		identity = target.Identity
 	}
-	root, _, ok := repositoryFolder(ctx, overrides, config.ProjectID, projectRoot, codeIdentity(config), identity)
+	root, ok := repositoryFolder(ctx, overrides, config.ProjectID, projectRoot, codeIdentity(config), identity)
 	if !ok || identity == "" {
 		return models.RepositoryWorktree{}, fmt.Errorf("Le dépôt %s n'est ni associé ni attaché à ce projet sur ce poste : attachez son dossier dans les réglages du projet de l'app desktop.", repository)
 	}
@@ -393,7 +393,7 @@ func removeRepositoryWorktrees(ctx context.Context, config agentconfig.Config, o
 	}
 	code := codeIdentity(config)
 	for _, identity := range repositories {
-		root, _, ok := repositoryFolder(ctx, overrides, config.ProjectID, projectRoot, code, identity)
+		root, ok := repositoryFolder(ctx, overrides, config.ProjectID, projectRoot, code, identity)
 		if !ok {
 			result.Failed = append(result.Failed, models.WorktreeRemovalFailed{Repository: identity, Error: "not found on this workstation"})
 			continue

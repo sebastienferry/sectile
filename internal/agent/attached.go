@@ -72,18 +72,18 @@ func attachedFolders(ctx context.Context, overrides agentconfig.Settings, projec
 // repositoryFolder is the folder holding identity's checkout here: its
 // mapping, the project root for the code repository, else a Git folder
 // attached to the project whose origin is identity. A mapping wins over an
-// attached folder of the same repository. attached tells the last case.
-func repositoryFolder(ctx context.Context, overrides agentconfig.Settings, projectID, projectRoot, code, identity string) (root string, attached, ok bool) {
+// attached folder of the same repository.
+func repositoryFolder(ctx context.Context, overrides agentconfig.Settings, projectID, projectRoot, code, identity string) (string, bool) {
 	if root, ok := repositoryRoot(overrides, projectRoot, code, identity); ok {
-		return root, false, true
+		return root, true
 	}
 	if identity == "" {
-		return "", false, false
+		return "", false
 	}
 	for _, folder := range attachedFolders(ctx, overrides, projectID) {
 		if folder.Kind == folderKindGit && folder.Identity == identity {
-			return folder.Path, true, true
+			return folder.Path, true
 		}
 	}
-	return "", false, false
+	return "", false
 }

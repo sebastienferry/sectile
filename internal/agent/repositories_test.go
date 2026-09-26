@@ -277,18 +277,18 @@ func TestRepositoryFolderPrefersTheMapping(t *testing.T) {
 	mapped := checkoutOf(t, "git@github.com:o/lib.git")
 	overrides := attachedTo(agentconfig.Settings{}, attached)
 
-	if root, isAttached, ok := repositoryFolder(ctx, overrides, "p", projectRoot, "github.com/o/a", "github.com/o/lib"); !ok || !isAttached || !samePath(t, root, attached) {
-		t.Errorf("attached: %q %v %v", root, isAttached, ok)
+	if root, ok := repositoryFolder(ctx, overrides, "p", projectRoot, "github.com/o/a", "github.com/o/lib"); !ok || !samePath(t, root, attached) {
+		t.Errorf("attached: %q %v", root, ok)
 	}
-	if root, isAttached, ok := repositoryFolder(ctx, overrides, "p", projectRoot, "github.com/o/a", "github.com/o/a"); !ok || isAttached || root != projectRoot {
-		t.Errorf("code repository: %q %v %v", root, isAttached, ok)
+	if root, ok := repositoryFolder(ctx, overrides, "p", projectRoot, "github.com/o/a", "github.com/o/a"); !ok || root != projectRoot {
+		t.Errorf("code repository: %q %v", root, ok)
 	}
 	overrides.Repositories = map[string]string{"github.com/o/lib": mapped}
-	if root, isAttached, ok := repositoryFolder(ctx, overrides, "p", projectRoot, "github.com/o/a", "github.com/o/lib"); !ok || isAttached || root != mapped {
-		t.Errorf("the mapping must win over the attached folder: %q %v %v", root, isAttached, ok)
+	if root, ok := repositoryFolder(ctx, overrides, "p", projectRoot, "github.com/o/a", "github.com/o/lib"); !ok || root != mapped {
+		t.Errorf("the mapping must win over the attached folder: %q %v", root, ok)
 	}
 	for _, identity := range []string{"github.com/o/elsewhere", ""} {
-		if _, _, ok := repositoryFolder(ctx, overrides, "p", projectRoot, "github.com/o/a", identity); ok {
+		if _, ok := repositoryFolder(ctx, overrides, "p", projectRoot, "github.com/o/a", identity); ok {
 			t.Errorf("%q found", identity)
 		}
 	}
