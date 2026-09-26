@@ -19,16 +19,13 @@ import { useApp } from '../context/AppContext'
 import { LookupField, type LookupOption } from './LookupField'
 import { macroLookup, sprintLookup } from '../lib/lookups'
 import { matchesSearch } from '../lib/searchFold'
+import { format, plural } from '../lib/i18n'
 import type { MacroMeta, Task } from '../types'
 
 type Dimension = 'sprint' | 'macro' | 'team' | 'assignee'
 
-const DIMENSION_LABELS: Record<Dimension, string> = {
-  sprint: 'sans sprint',
-  macro: 'sans macro',
-  team: 'sans équipe',
-  assignee: 'sans assigné',
-}
+/** The dimensions in the order the pills show them; their labels come from the catalog. */
+const DIMENSIONS: Dimension[] = ['sprint', 'macro', 'team', 'assignee']
 
 export const TriageView: React.FC = () => {
   const {
@@ -55,7 +52,10 @@ export const TriageView: React.FC = () => {
     migrateTasks,
     startBatchPickup,
     t,
+    settings,
   } = useApp()
+  const strings = t.planning.triage
+  const language = settings.language
 
   const [macros, setMacros] = useState<MacroMeta[]>([])
   const [dimensions, setDimensions] = useState<Dimension[]>(['sprint', 'macro'])
@@ -160,12 +160,16 @@ export const TriageView: React.FC = () => {
     return async (query: string): Promise<LookupOption[]> => {
       const res = await base(query)
       if (query.trim() && !res.some(o => o.label.toLowerCase() === query.trim().toLowerCase() || o.id.toLowerCase() === query.trim().toLowerCase())) {
-        res.unshift({ id: `__create__:${query.trim()}`, label: query.trim(), sublabel: 'Créer ce milestone GitHub' })
+        res.unshift({ id: `__create__:${query.trim()}`, label: query.trim(), sublabel: strings.createMilestone })
       }
       return res
     }
-  }, [macros])
-  const searchSprint = useMemo(() => sprintLookup(currentProject?.sprints || []), [currentProject?.sprints])
+  }, [macros, strings.createMilestone])
+  const sprintKinds = t.taskDetail.lookups.sprintKinds
+  const searchSprint = useMemo(
+    () => sprintLookup(currentProject?.sprints || [], sprintKinds),
+    [currentProject?.sprints, sprintKinds]
+  )
 
   const searchTeamOptions = async (query: string): Promise<LookupOption[]> => {
     const found = await searchTrackerTeams(query)
@@ -188,9 +192,9 @@ export const TriageView: React.FC = () => {
         <div className="p-3 rounded-2xl bg-[var(--accent-light)] border border-[var(--accent-color)]/30">
           <Inbox size={32} className="text-[var(--accent-color)]" />
         </div>
-        <p className="text-sm font-bold text-[var(--text-primary)]">Sélectionnez un projet</p>
+        <p className="text-sm font-bold text-[var(--text-primary)]">{strings.noProjectTitle}</p>
         <p className="text-xs text-[var(--text-secondary)] max-w-md">
-          Le triage permet d'affecter en masse les Sprints, les Macros (Milestones) et les équipes sur vos tâches.
+          {strings.noProjectBody}
         </p>
       </div>
     )
@@ -206,9 +210,9 @@ export const TriageView: React.FC = () => {
               <SlidersHorizontal size={16} />
             </div>
             <div>
-              <h1 className="text-sm font-bold leading-tight">Triage du Backlog</h1>
+              <h1 className="text-sm font-bold leading-tight">{strings.title}</h1>
               <p className="text-[11px] text-[var(--text-muted)]">
-                Affectez rapidement vos tâches aux Sprints et aux Macros (Milestones).
+                {strings.subtitle}
               </p>
             </div>
           </div>
@@ -221,7 +225,7 @@ export const TriageView: React.FC = () => {
                 type="text"
                 value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)}
-                placeholder="Filtrer clé, titre, membre…"
+                placeholder={strings.searchPlaceholder}
                 className="w-full pl-8 pr-2.5 py-1 text-xs rounded-lg bg-[var(--bg-primary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)]"
               />
               {searchQuery && (
@@ -242,10 +246,10 @@ export const TriageView: React.FC = () => {
                 value={filterSprint}
                 onChange={e => setFilterSprint(e.target.value)}
                 className="px-2 py-1 text-xs rounded-lg bg-[var(--bg-primary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none cursor-pointer"
-                title="Filtrer par Sprint"
+                title={strings.sprintFilterTitle}
               >
-                <option value="all">Tous les sprints</option>
-                <option value="none">Sans sprint (Backlog)</option>
+                <option value="all">{strings.allSprints}</option>
+                <option value="none">{strings.noSprintBacklog}</option>
                 {sprintOptions.map(sp => (
                   <option key={sp.id} value={sp.name}>
                     {sp.name} ({sp.state})
@@ -265,10 +269,10 @@ export const TriageView: React.FC = () => {
                   setParentFilter(val === 'all' ? null : val === 'none' ? '__no_macro__' : val)
                 }}
                 className="px-2 py-1 text-xs rounded-lg bg-[var(--bg-primary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none cursor-pointer"
-                title="Filtrer par Macro"
+                title={strings.macroFilterTitle}
               >
-                <option value="all">Toutes les macros</option>
-                <option value="none">Sans macro</option>
+                <option value="all">{strings.allMacros}</option>
+                <option value="none">{strings.noMacro}</option>
                 {macroOptions.map(m => (
                   <option key={m.key} value={m.key}>
                     {m.key} - {m.title}
@@ -287,10 +291,10 @@ export const TriageView: React.FC = () => {
                 background: hideDone ? 'rgb(var(--status-ok-rgb) / 0.12)' : 'var(--bg-tertiary)',
                 borderColor: hideDone ? 'rgb(var(--status-ok-rgb) / 0.32)' : 'var(--border-color)',
               }}
-              title="Masquer les tâches terminées"
+              title={strings.hideDoneTitle}
             >
               {hideDone ? <EyeOff size={13} /> : <Eye size={13} />}
-              <span>{hideDone ? 'Terminées masquées' : 'Terminées visibles'}</span>
+              <span>{hideDone ? strings.doneHidden : strings.doneVisible}</span>
             </button>
           </div>
         </div>
@@ -299,9 +303,9 @@ export const TriageView: React.FC = () => {
         <div className="flex items-center justify-between gap-2 flex-wrap pt-1 border-t border-[var(--border-color)]/60">
           <div className="flex items-center gap-1.5 flex-wrap">
             <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mr-1">
-              Manquants :
+              {strings.missingHeading}
             </span>
-            {(Object.keys(DIMENSION_LABELS) as Dimension[]).map(dimension => {
+            {DIMENSIONS.map(dimension => {
               const isActive = dimensions.includes(dimension)
               return (
                 <button
@@ -314,9 +318,9 @@ export const TriageView: React.FC = () => {
                     background: isActive ? 'var(--accent-light)' : 'var(--bg-tertiary)',
                     borderColor: isActive ? 'rgb(var(--accent-rgb) / 0.4)' : 'var(--border-color)',
                   }}
-                  title={`${counts[dimension]} tâche(s) ${DIMENSION_LABELS[dimension]}`}
+                  title={plural(language, counts[dimension], strings.missingCountTitle, { missing: strings.missing[dimension] })}
                 >
-                  <span>{DIMENSION_LABELS[dimension]}</span>
+                  <span>{strings.missing[dimension]}</span>
                   <span className="font-mono text-[10px] px-1 rounded bg-[var(--bg-primary)]/80">
                     {counts[dimension]}
                   </span>
@@ -330,13 +334,13 @@ export const TriageView: React.FC = () => {
                 onClick={() => setDimensions([])}
                 className="text-[10px] text-[var(--text-muted)] hover:text-[var(--text-primary)] underline cursor-pointer ml-1"
               >
-                Afficher tout
+                {strings.showAll}
               </button>
             )}
           </div>
 
           <div className="text-[11px] text-[var(--text-muted)] font-medium">
-            <span className="font-bold text-[var(--text-primary)]">{filteredRows.length}</span> tâche(s) affichée(s)
+            <span className="font-bold text-[var(--text-primary)]">{filteredRows.length}</span> {plural(language, filteredRows.length, strings.shownNoun)}
           </div>
         </div>
       </div>
@@ -349,7 +353,7 @@ export const TriageView: React.FC = () => {
         >
           <div className="flex items-center gap-1.5 font-bold text-xs" style={{ color: 'var(--accent-color)' }}>
             <CheckCircle2 size={15} />
-            <span>{selectedIds.length} sélectionné(s)</span>
+            <span>{plural(language, selectedIds.length, strings.selectedCount)}</span>
           </div>
 
           {/* Quick Sprint Assignment */}
@@ -358,10 +362,10 @@ export const TriageView: React.FC = () => {
               <LookupField
                 value={batchSprint.name}
                 icon={<CalendarRange size={11} />}
-                placeholder="Affecter Sprint…"
-                clearLabel="Backlog (aucun sprint)"
+                placeholder={strings.assignSprintPlaceholder}
+                clearLabel={strings.backlogNoSprint}
                 onSearch={searchSprint}
-                onPick={option => setBatchSprint({ id: option?.id || '', name: option?.label || 'Backlog' })}
+                onPick={option => setBatchSprint({ id: option?.id || '', name: option?.label || strings.backlog })}
               />
             </div>
             <button
@@ -374,7 +378,7 @@ export const TriageView: React.FC = () => {
               }
               className="px-2 py-1 rounded-lg text-xs font-bold cursor-pointer disabled:opacity-40 text-[var(--text-primary)] bg-[var(--bg-primary)] border border-[var(--border-color)] shrink-0 hover:bg-[var(--bg-tertiary)]"
             >
-              {batchBusy === 'sprint' ? '…' : 'OK'}
+              {batchBusy === 'sprint' ? '…' : strings.confirm}
             </button>
           </div>
 
@@ -384,9 +388,9 @@ export const TriageView: React.FC = () => {
               <LookupField
                 value={batchMacro}
                 icon={<Target size={11} />}
-                placeholder="Affecter Macro…"
+                placeholder={strings.assignMacroPlaceholder}
                 allowClear={true}
-                clearLabel="Retirer de la macro"
+                clearLabel={strings.removeFromMacro}
                 onSearch={searchMacro}
                 onPick={option => setBatchMacro(option?.id || '')}
               />
@@ -399,7 +403,7 @@ export const TriageView: React.FC = () => {
               }
               className="px-2 py-1 rounded-lg text-xs font-bold cursor-pointer disabled:opacity-40 text-[var(--text-primary)] bg-[var(--bg-primary)] border border-[var(--border-color)] shrink-0 hover:bg-[var(--bg-tertiary)]"
             >
-              {batchBusy === 'macro' ? '…' : 'OK'}
+              {batchBusy === 'macro' ? '…' : strings.confirm}
             </button>
           </div>
 
@@ -409,21 +413,21 @@ export const TriageView: React.FC = () => {
               <LookupField
                 value={batchTeam.name}
                 icon={<Layers size={11} />}
-                placeholder="Affecter Équipe…"
-                clearLabel="Aucune équipe"
+                placeholder={strings.assignTeamPlaceholder}
+                clearLabel={strings.noTeam}
                 onSearch={searchTeamOptions}
-                onPick={option => setBatchTeam({ id: option?.id || '', name: option?.label || 'Aucune équipe' })}
+                onPick={option => setBatchTeam({ id: option?.id || '', name: option?.label || strings.noTeam })}
               />
             </div>
             <button
               type="button"
               disabled={!batchTeam.name || batchBusy === 'team'}
               onClick={() =>
-                runBatch('team', () => setTasksTeam(currentProject.id, selectedIds, batchTeam.id, batchTeam.name))
+                runBatch('team', () => setTasksTeam(currentProject.id, selectedIds, batchTeam.id, batchTeam.id ? batchTeam.name : ''))
               }
               className="px-2 py-1 rounded-lg text-xs font-bold cursor-pointer disabled:opacity-40 text-[var(--text-primary)] bg-[var(--bg-primary)] border border-[var(--border-color)] shrink-0 hover:bg-[var(--bg-tertiary)]"
             >
-              {batchBusy === 'team' ? '…' : 'OK'}
+              {batchBusy === 'team' ? '…' : strings.confirm}
             </button>
           </div>
 
@@ -435,7 +439,7 @@ export const TriageView: React.FC = () => {
                 onChange={(e) => setBatchProjectId(e.target.value)}
                 className="px-2 py-1.5 text-xs rounded-xl bg-[var(--bg-primary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)] font-medium max-w-[170px]"
               >
-                <option value="">Déplacer projet…</option>
+                <option value="">{strings.moveProjectPlaceholder}</option>
                 {projects
                   .filter(p => p.id !== currentProject?.id)
                   .map(p => (
@@ -455,9 +459,9 @@ export const TriageView: React.FC = () => {
                   })
                 }
                 className="px-2 py-1 rounded-lg text-xs font-bold cursor-pointer disabled:opacity-40 text-[var(--text-primary)] bg-[var(--bg-primary)] border border-[var(--border-color)] shrink-0 hover:bg-[var(--bg-tertiary)]"
-                title="Déplacer les tickets sélectionnés vers ce projet"
+                title={strings.moveProjectTitle}
               >
-                {batchBusy === 'project' ? '…' : 'OK'}
+                {batchBusy === 'project' ? '…' : strings.confirm}
               </button>
             </div>
           )}
@@ -466,7 +470,7 @@ export const TriageView: React.FC = () => {
             type="button"
             onClick={() => startBatchPickup(selectedIds)}
             className="flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold cursor-pointer bg-[var(--bg-tertiary)] text-[var(--text-secondary)] border border-[var(--border-color)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-secondary)] transition-colors shrink-0 shadow-xs"
-            title="Run the selected tasks on the local agent"
+            title={strings.runSelectedTitle}
           >
             <Sparkles size={13} />
             {t.batchLaunch}
@@ -477,7 +481,7 @@ export const TriageView: React.FC = () => {
             onClick={() => setChecked({})}
             className="ml-auto text-xs font-bold text-[var(--text-muted)] hover:text-[var(--text-primary)] cursor-pointer"
           >
-            Désélectionner tout
+            {strings.deselectAll}
           </button>
         </div>
       )}
@@ -509,20 +513,20 @@ export const TriageView: React.FC = () => {
                         : 'transparent',
                     border: '1px solid var(--border-color)',
                   }}
-                  title="Tout sélectionner / désélectionner"
+                  title={strings.toggleAllTitle}
                 >
                   {filteredRows.length > 0 && filteredRows.every(t => checked[t.id]) && (
                     <Check size={10} className="text-white" />
                   )}
                 </button>
               </th>
-              <th className="py-2.5 px-3 w-24">Ticket</th>
-              <th className="py-2.5 px-3 min-w-[280px]">Titre</th>
-              <th className="py-2.5 px-3 w-[220px]">Macro (Milestone)</th>
-              <th className="py-2.5 px-3 w-[200px]">Sprint</th>
-              <th className="py-2.5 px-3 w-[180px]">Équipe</th>
-              <th className="py-2.5 px-3 w-[180px]">Assigné</th>
-              <th className="py-2.5 px-3 w-16 text-center">Actions</th>
+              <th className="py-2.5 px-3 w-24">{strings.columns.ticket}</th>
+              <th className="py-2.5 px-3 min-w-[280px]">{strings.columns.title}</th>
+              <th className="py-2.5 px-3 w-[220px]">{strings.columns.macro}</th>
+              <th className="py-2.5 px-3 w-[200px]">{strings.columns.sprint}</th>
+              <th className="py-2.5 px-3 w-[180px]">{strings.columns.team}</th>
+              <th className="py-2.5 px-3 w-[180px]">{strings.columns.assignee}</th>
+              <th className="py-2.5 px-3 w-16 text-center">{strings.columns.actions}</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-[var(--border-color)]/60">
@@ -531,9 +535,9 @@ export const TriageView: React.FC = () => {
                 <td colSpan={8} className="py-12 px-4 text-center">
                   <div className="flex flex-col items-center justify-center gap-2 text-[var(--text-muted)]">
                     <CheckCircle2 size={24} className="text-emerald-400" />
-                    <p className="text-sm font-semibold text-[var(--text-primary)]">Tout est trié !</p>
+                    <p className="text-sm font-semibold text-[var(--text-primary)]">{strings.emptyTitle}</p>
                     <p className="text-xs max-w-sm">
-                      Aucune tâche ne correspond aux critères de triage actuels.
+                      {strings.emptyBody}
                     </p>
                   </div>
                 </td>
@@ -573,7 +577,7 @@ export const TriageView: React.FC = () => {
                           rel="noreferrer"
                           className="inline-flex items-center gap-1 text-[11px] font-mono font-bold hover:underline"
                           style={{ color: 'var(--status-info)' }}
-                          title={`Ouvrir ${task.key} sur le tracker distant`}
+                          title={format(strings.openOnRemoteTracker, { key: task.key })}
                         >
                           {task.key}
                           <ExternalLink size={10} />
@@ -591,7 +595,7 @@ export const TriageView: React.FC = () => {
                         type="button"
                         onClick={() => setSelectedTask(task)}
                         className="text-xs text-left font-medium text-[var(--text-primary)] hover:text-[var(--accent-color)] truncate block w-full max-w-[450px] cursor-pointer"
-                        title={`${task.title} (cliquer pour ouvrir)`}
+                        title={format(strings.clickToOpen, { title: task.title })}
                       >
                         {task.title}
                       </button>
@@ -602,9 +606,9 @@ export const TriageView: React.FC = () => {
                       <LookupField
                         value={task.parentKey || task.parentTitle || ''}
                         icon={<Target size={11} />}
-                        placeholder="Assigner Macro…"
-                        clearLabel="Détacher de la macro"
-                        emptyHint="Aucune macro ne correspond."
+                        placeholder={strings.assignMacroRowPlaceholder}
+                        clearLabel={strings.detachFromMacro}
+                        emptyHint={strings.noMacroMatch}
                         onSearch={searchMacro}
                         onPick={async (option) => {
                           if (!option?.id) {
@@ -631,9 +635,9 @@ export const TriageView: React.FC = () => {
                       <LookupField
                         value={task.sprint || ''}
                         icon={<CalendarRange size={11} />}
-                        placeholder="Assigner Sprint…"
-                        clearLabel="Backlog (aucun sprint)"
-                        emptyHint="Aucun sprint ne correspond."
+                        placeholder={strings.assignSprintRowPlaceholder}
+                        clearLabel={strings.backlogNoSprint}
+                        emptyHint={strings.noSprintMatch}
                         onSearch={searchSprint}
                         onPick={option => setTaskSprint(task.id, option?.id || '', option?.label)}
                       />
@@ -644,8 +648,8 @@ export const TriageView: React.FC = () => {
                       <LookupField
                         value={task.team || ''}
                         icon={<Layers size={11} />}
-                        placeholder="Équipe…"
-                        clearLabel="Aucune équipe"
+                        placeholder={strings.teamPlaceholder}
+                        clearLabel={strings.noTeam}
                         onSearch={searchTeamOptions}
                         onPick={option => setTaskTeam(task.id, option?.id || '', option?.label)}
                       />
@@ -656,8 +660,8 @@ export const TriageView: React.FC = () => {
                       <LookupField
                         value={task.assignee || ''}
                         icon={<User size={11} />}
-                        placeholder="Assigné…"
-                        clearLabel="Non assigné"
+                        placeholder={strings.assigneePlaceholder}
+                        clearLabel={strings.unassigned}
                         onSearch={async query => {
                           const people = await searchAssignableUsers(task.id, query)
                           return people.map(m => ({

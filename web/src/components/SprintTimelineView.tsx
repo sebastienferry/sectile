@@ -31,7 +31,6 @@ import {
   calculateSprintDates,
   shiftSubsequentSprintDates,
   generateDefaultSprints,
-  formatDateFR,
   formatDateISO,
   formatDateInput,
   getMonday,
@@ -41,7 +40,8 @@ import {
   sprintManagementOf,
   sprintTarget,
 } from '../lib/sprints'
-import { createSprints, deleteSprint, updateSprint, type SprintPatch } from '../lib/sprintApi'
+import { createSprints, deleteSprint, updateSprint, SprintRequestError, type SprintPatch } from '../lib/sprintApi'
+import { format, plural, formatDate } from '../lib/i18n'
 import type { Task, TrackerSprint, WorkflowStage } from '../types'
 import { resolveTaskStage } from '../lib/workflow'
 import { Avatar } from './Avatar'
@@ -63,10 +63,14 @@ export const SprintTimelineView: React.FC = () => {
     addToast,
     startBatchPickup,
     t,
+    settings,
   } = useApp()
+  const st = t.sprints
+  const lang = settings.language
+  const showDate = (value?: string) => (value ? formatDate(lang, value) : '')
   const showsEpicColors = useEpicColors()
-  // Vraie quand la tâche porte la barre de son épic : son projet la demande et
-  // elle a un épic.
+  // True when the task carries its epic's bar: its project asks for it and it
+  // has an epic.
   const showsEpicBarOf = (task: Task) =>
     showsEpicColors(task.projectId) && Boolean(task.parentKey?.trim())
 
@@ -101,7 +105,13 @@ export const SprintTimelineView: React.FC = () => {
       await Promise.all([fetchProjects(), refreshTasks()])
       return result
     } catch (err) {
-      addToast({ type: 'error', title, description: err instanceof Error ? err.message : String(err) })
+      const description =
+        err instanceof SprintRequestError && !err.message
+          ? format(st.feedback.serverRefused, { status: err.status })
+          : err instanceof Error
+          ? err.message
+          : String(err)
+      addToast({ type: 'error', title, description })
       return null
     }
   }
@@ -233,7 +243,7 @@ export const SprintTimelineView: React.FC = () => {
     }
     const info = stageInfo[stage] || stageInfo.new
     return (
-      <span className={`px-1.5 py-0.2 rounded font-mono font-bold text-[8.5px] border shrink-0 ${info.style}`} title={`Étape : ${info.label}`}>
+      <span className={`px-1.5 py-0.2 rounded font-mono font-bold text-[8.5px] border shrink-0 ${info.style}`} title={format(st.timeline.stageTitle, { stage: info.label })}>
         {info.label}
       </span>
     )
@@ -332,8 +342,8 @@ export const SprintTimelineView: React.FC = () => {
     if (updated) {
       addToast({
         type: 'success',
-        title: 'Sprints mis à jour',
-        description: `${newSprints.length} sprint(s) enregistrés pour ce projet.`,
+        title: st.feedback.saved,
+        description: plural(lang, newSprints.length, st.feedback.savedDescription),
       })
     }
   }
@@ -380,15 +390,15 @@ export const SprintTimelineView: React.FC = () => {
   const handleCreateBatch = async () => {
     if (!currentProject?.id) return
     setBatchBusyCreate(true)
-    const result = await trackerWrite('Sprints non créés', () =>
+    const result = await trackerWrite(st.batch.createFailed, () =>
       createSprints(currentProject.id, { name: batchPattern, count: batchCount, start: startDateStr, weeks: Math.round(durationDays / 7) })
     )
     setBatchBusyCreate(false)
     if (!result) return
     if (result.error) {
-      addToast({ type: 'warning', title: 'Création interrompue', description: result.error })
+      addToast({ type: 'warning', title: st.batch.interrupted, description: result.error })
     } else {
-      addToast({ type: 'success', title: 'Sprints créés', description: `${result.created.length} sprint(s) créé(s) sur le tracker.` })
+      addToast({ type: 'success', title: st.batch.created, description: plural(lang, result.created.length, st.batch.createdDescription) })
       setIsCreatingBatch(false)
     }
   }
@@ -396,13 +406,13 @@ export const SprintTimelineView: React.FC = () => {
   // Delete a sprint
   const handleDeleteSprint = async (index: number) => {
     const sprintToDelete = sprints[index]
-    if (!window.confirm(`Supprimer le ${sprintToDelete.name} ? Les tâches associées seront renvoyées au backlog.`)) {
+    if (!window.confirm(format(st.dialogs.deleteConfirm, { name: sprintToDelete.name }))) {
       return
     }
     if (trackerOwned) {
       if (!currentProject?.id || !sprintToDelete.id) return
-      const done = await trackerWrite('Sprint non supprimé', () => deleteSprint(currentProject.id, sprintToDelete.id!).then(() => true))
-      if (done) addToast({ type: 'success', title: `${sprintToDelete.name} supprimé`, description: 'Supprimé sur le tracker.' })
+      const done = await trackerWrite(st.dialogs.deleteFailed, () => deleteSprint(currentProject.id, sprintToDelete.id!).then(() => true))
+      if (done) addToast({ type: 'success', title: format(st.dialogs.deleted, { name: sprintToDelete.name }), description: st.dialogs.deletedOnTracker })
       return
     }
     const updated = sprints.filter((_, i) => i !== index)
@@ -437,7 +447,7 @@ export const SprintTimelineView: React.FC = () => {
       if (current.state === 'closed') {
         // Jira keeps a closed sprint's dates and state; only its name changes.
         setEditingSprintIndex(null)
-        if (patch.name) await trackerWrite('Sprint non modifié', () => updateSprint(currentProject.id, current.id!, patch))
+        if (patch.name) await trackerWrite(st.dialogs.editFailed, () => updateSprint(currentProject.id, current.id!, patch))
         return
       }
       if (editSprintStartDate && editSprintStartDate !== formatDateInput(current.startDate)) patch.start = editSprintStartDate
@@ -445,7 +455,7 @@ export const SprintTimelineView: React.FC = () => {
       if (editSprintState !== current.state) patch.state = editSprintState
       setEditingSprintIndex(null)
       if (Object.keys(patch).length === 0) return
-      await trackerWrite('Sprint non modifié', () => updateSprint(currentProject.id, current.id!, patch))
+      await trackerWrite(st.dialogs.editFailed, () => updateSprint(currentProject.id, current.id!, patch))
       return
     }
 
@@ -498,12 +508,12 @@ export const SprintTimelineView: React.FC = () => {
       const nextSprint = nextSprintAfter(sprints, sprint)
       const patch: SprintPatch = { state: 'closed' }
       if (closeSprintDestination === 'next' || closeSprintDestination === 'backlog') patch.moveOpenTo = closeSprintDestination
-      const closed = sprint.id ? await trackerWrite('Sprint non clôturé', () => updateSprint(currentProject.id, sprint.id!, patch)) : null
+      const closed = sprint.id ? await trackerWrite(st.close.failed, () => updateSprint(currentProject.id, sprint.id!, patch)) : null
       if (closed && closeSprintActivateNext && nextSprint?.id && nextSprint.state === 'future') {
-        await trackerWrite(`${nextSprint.name} non démarré`, () => updateSprint(currentProject.id, nextSprint.id!, { state: 'active' }))
+        await trackerWrite(format(st.close.startFailed, { name: nextSprint.name }), () => updateSprint(currentProject.id, nextSprint.id!, { state: 'active' }))
       }
       if (closed) {
-        addToast({ type: 'success', title: `${sprint.name} clôturé !`, description: 'Clôturé sur le tracker.' })
+        addToast({ type: 'success', title: format(st.close.closed, { name: sprint.name }), description: st.close.closedOnTracker })
         setClosingSprint(null)
       }
       setIsClosingSprintBusy(false)
@@ -544,23 +554,21 @@ export const SprintTimelineView: React.FC = () => {
 
       addToast({
         type: 'success',
-        title: `${sprint.name} clôturé !`,
+        title: format(st.close.closed, { name: sprint.name }),
         description: unfinishedTasks.length > 0
-          ? `${unfinishedTasks.length} tâche(s) non terminée(s) ${
-              closeSprintDestination === 'next' && nextSprint
-                ? `déplacée(s) vers ${nextSprint.name}`
-                : closeSprintDestination === 'backlog'
-                ? 'renvoyée(s) au backlog'
-                : 'conservée(s) dans le sprint'
-            }.`
-          : 'Toutes les tâches étaient complétées.',
+          ? closeSprintDestination === 'next' && nextSprint
+            ? plural(lang, unfinishedTasks.length, st.close.movedToNext, { name: nextSprint.name })
+            : closeSprintDestination === 'backlog'
+            ? plural(lang, unfinishedTasks.length, st.close.sentToBacklog)
+            : plural(lang, unfinishedTasks.length, st.close.keptInSprint)
+          : st.close.allDone,
       })
 
       setClosingSprint(null)
     } catch (err: any) {
       addToast({
         type: 'error',
-        title: 'Erreur lors de la clôture',
+        title: st.close.error,
         description: err.message,
       })
     } finally {
@@ -572,16 +580,16 @@ export const SprintTimelineView: React.FC = () => {
     if (trackerOwned) {
       const sprint = sprints[index]
       if (!currentProject?.id || !sprint.id) return
-      const reopened = await trackerWrite('Sprint non réouvert', () => updateSprint(currentProject.id, sprint.id!, { state: 'active' }))
-      if (reopened) addToast({ type: 'info', title: `${sprint.name} réouvert`, description: 'Repassé en Actif sur le tracker.' })
+      const reopened = await trackerWrite(st.dialogs.reopenFailed, () => updateSprint(currentProject.id, sprint.id!, { state: 'active' }))
+      if (reopened) addToast({ type: 'info', title: format(st.dialogs.reopened, { name: sprint.name }), description: st.dialogs.reopenedOnTracker })
       return
     }
     const updated = sprints.map((sp, i) => (i === index ? { ...sp, state: 'active' } : sp))
     await saveSprints(updated)
     addToast({
       type: 'info',
-      title: `${sprints[index].name} réouvert`,
-      description: 'Le statut du sprint a été repassé en Actif.',
+      title: format(st.dialogs.reopened, { name: sprints[index].name }),
+      description: st.dialogs.reopenedLocal,
     })
   }
 
@@ -632,8 +640,8 @@ export const SprintTimelineView: React.FC = () => {
       await setTasksSprint(currentProject.id, taskIds, target.id, target.name)
       addToast({
         type: 'success',
-        title: 'Tâches planifiées',
-        description: `${taskIds.length} tâches déplacées dans le ${sprintName}.`,
+        title: st.backlog.planned,
+        description: plural(lang, taskIds.length, st.backlog.plannedDescription, { name: sprintName }),
       })
     } else {
       for (const id of taskIds) {
@@ -661,8 +669,8 @@ export const SprintTimelineView: React.FC = () => {
       await setTasksSprint(currentProject.id, ids, target.id, target.name)
       addToast({
         type: 'success',
-        title: 'Tâches affectées',
-        description: `${ids.length} tâche(s) affectée(s) au ${batchTargetSprint}.`,
+        title: st.backlog.assigned,
+        description: plural(lang, ids.length, st.backlog.assignedDescription, { name: batchTargetSprint }),
       })
     } else {
       for (const id of ids) {
@@ -705,10 +713,10 @@ export const SprintTimelineView: React.FC = () => {
               </div>
               <div>
                 <h2 className="text-xs font-bold uppercase tracking-wider text-[var(--text-primary)]">
-                  SPRINTS
+                  {st.timeline.title}
                 </h2>
                 <span className="text-[10px] text-[var(--text-muted)]">
-                  Découpage temporel & calcul automatique des cycles
+                  {st.timeline.subtitle}
                 </span>
               </div>
             </div>
@@ -718,14 +726,9 @@ export const SprintTimelineView: React.FC = () => {
             {/* Sprint Duration Selector */}
             <div className="flex items-center gap-1 bg-[var(--bg-tertiary)] p-0.5 rounded-lg border border-[var(--border-color)] text-xs">
               <span className="text-[10px] text-[var(--text-muted)] font-medium px-2 flex items-center gap-1">
-                <Clock size={11} /> Durée :
+                <Clock size={11} /> {st.timeline.duration}
               </span>
-              {[
-                { label: '1 sem (7j)', days: 7 },
-                { label: '2 sem (14j)', days: 14 },
-                { label: '3 sem (21j)', days: 21 },
-                { label: '4 sem (28j)', days: 28 },
-              ].map(d => (
+              {[7, 14, 21, 28].map(days => ({ label: format(st.timeline.durationOption, { weeks: days / 7, days }), days })).map(d => (
                 <button
                   key={d.days}
                   type="button"
@@ -748,7 +751,7 @@ export const SprintTimelineView: React.FC = () => {
 
             {/* Start Date of Sprint 1 */}
             <div className="flex items-center gap-1.5 text-xs bg-[var(--bg-tertiary)] px-2.5 py-1 rounded-lg border border-[var(--border-color)]">
-              <span className="text-[10px] text-[var(--text-muted)] font-medium">Début S1 :</span>
+              <span className="text-[10px] text-[var(--text-muted)] font-medium">{st.timeline.startS1}</span>
               <input
                 type="date"
                 value={startDateStr}
@@ -775,10 +778,10 @@ export const SprintTimelineView: React.FC = () => {
                     ? 'bg-[var(--accent-color)] text-white shadow-xs font-bold'
                     : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
                 }`}
-                title="Affichage sous forme de cartes complètes"
+                title={st.timeline.cardsTitle}
               >
                 <LayoutGrid size={12} />
-                <span className="hidden sm:inline">Cartes</span>
+                <span className="hidden sm:inline">{st.timeline.cards}</span>
               </button>
               <button
                 type="button"
@@ -788,10 +791,10 @@ export const SprintTimelineView: React.FC = () => {
                     ? 'bg-[var(--accent-color)] text-white shadow-xs font-bold'
                     : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
                 }`}
-                title="Affichage sous forme de chips compactes"
+                title={st.timeline.chipsTitle}
               >
                 <Tag size={12} />
-                <span className="hidden sm:inline">Chips</span>
+                <span className="hidden sm:inline">{st.timeline.chips}</span>
               </button>
             </div>
 
@@ -805,13 +808,13 @@ export const SprintTimelineView: React.FC = () => {
                     ? 'bg-slate-500/15 text-slate-300 border-slate-500/30 hover:bg-slate-500/25'
                     : 'bg-[var(--bg-tertiary)] text-[var(--text-secondary)] border-[var(--border-color)] hover:text-[var(--text-primary)]'
                 }`}
-                title={hideClosedSprints ? "Afficher les sprints clôturés" : "Masquer les sprints clôturés"}
+                title={hideClosedSprints ? st.timeline.showClosed : st.timeline.hideClosed}
               >
                 <Archive size={12} className={hideClosedSprints ? "text-slate-400" : "text-[var(--text-muted)]"} />
                 <span>
-                  {hideClosedSprints
-                    ? `Clôturés masqués (${sprints.filter(s => s.state === 'closed').length})`
-                    : `Clôturés (${sprints.filter(s => s.state === 'closed').length})`}
+                  {format(hideClosedSprints ? st.timeline.closedHidden : st.timeline.closedShown, {
+                    count: sprints.filter(s => s.state === 'closed').length,
+                  })}
                 </span>
               </button>
             )}
@@ -820,10 +823,10 @@ export const SprintTimelineView: React.FC = () => {
               type="button"
               onClick={handleRecalculateAll}
               className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold bg-[var(--bg-tertiary)] hover:bg-[var(--bg-primary)] border border-[var(--border-color)] text-[var(--text-primary)] transition-all cursor-pointer shadow-xs"
-              title="Réaligner automatiquement les dates de tous les sprints"
+              title={st.timeline.recalculateTitle}
             >
               <RefreshCw size={12} className="text-cyan-400" />
-              <span>Recalculer</span>
+              <span>{st.timeline.recalculate}</span>
             </button>}
 
             {!readOnly && <button
@@ -831,10 +834,10 @@ export const SprintTimelineView: React.FC = () => {
               disabled={trackerOwned && !currentProject?.boardId}
               onClick={handleAddSprint}
               className="flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold bg-[var(--accent-color)] hover:opacity-90 text-white transition-all cursor-pointer shadow-xs"
-              title={trackerOwned && !currentProject?.boardId ? "Choisissez d'abord un board dans les options du projet" : 'Ajouter un nouveau sprint consécutif'}
+              title={trackerOwned && !currentProject?.boardId ? st.timeline.chooseBoardFirst : st.timeline.addSprintTitle}
             >
               <Plus size={13} />
-              <span>{trackerOwned ? '+ Sprints' : '+ Sprint'}</span>
+              <span>{trackerOwned ? st.timeline.addSprints : st.timeline.addSprint}</span>
             </button>}
 
             <button
@@ -847,13 +850,13 @@ export const SprintTimelineView: React.FC = () => {
               }`}
               title={
                 isBacklogOpen
-                  ? 'Masquer le Backlog (Vue synthétique compacte sans Drag & Drop)'
-                  : 'Afficher le Backlog (Mode planification interactive avec Drag & Drop)'
+                  ? st.timeline.hideBacklogTitle
+                  : st.timeline.showBacklogTitle
               }
             >
               <Layers size={13} />
               <span>
-                {isBacklogOpen ? 'Backlog (Glisser-Déposer actif)' : `Afficher Backlog (${unscheduledTasks.length})`}
+                {isBacklogOpen ? st.timeline.backlogOpen : format(st.timeline.showBacklog, { count: unscheduledTasks.length })}
               </span>
             </button>
           </div>
@@ -863,17 +866,17 @@ export const SprintTimelineView: React.FC = () => {
       {/* Tracker-owned batch creation: written to the tracker, shown from its answer. */}
       {trackerOwned && isCreatingBatch && (
         <div className="border-b border-[var(--border-color)] bg-[var(--bg-tertiary)]/40 px-4 py-2 flex items-center gap-2 flex-wrap text-xs shrink-0">
-          <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">Nouveaux sprints sur le tracker</span>
+          <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">{st.batch.heading}</span>
           <input
-            aria-label="Modèle de nom"
+            aria-label={st.batch.patternLabel}
             value={batchPattern}
             onChange={e => setBatchPattern(e.target.value)}
             placeholder="Sprint {n}"
             className="px-2 py-1 rounded bg-[var(--bg-primary)] border border-[var(--border-color)] text-[var(--text-primary)] font-mono text-[11px] w-36"
-            title="{n} est remplacé par le numéro du sprint dans le lot"
+            title={st.batch.patternTitle}
           />
           <label className="flex items-center gap-1 text-[var(--text-secondary)]">
-            Nombre
+            {st.batch.count}
             <input
               type="number"
               min={1}
@@ -884,7 +887,7 @@ export const SprintTimelineView: React.FC = () => {
             />
           </label>
           <span className="text-[var(--text-muted)] text-[10.5px]">
-            à partir du {formatDateFR(startDateStr)}, {Math.round(durationDays / 7)} semaine(s) chacun
+            {plural(lang, Math.round(durationDays / 7), st.batch.summary, { date: showDate(startDateStr) })}
           </span>
           <button
             type="button"
@@ -892,14 +895,14 @@ export const SprintTimelineView: React.FC = () => {
             onClick={handleCreateBatch}
             className="px-3 py-1 rounded-lg text-xs font-bold bg-[var(--accent-color)] text-white hover:opacity-90 disabled:opacity-40 cursor-pointer"
           >
-            {batchBusyCreate ? <Loader2 size={12} className="animate-spin" /> : 'Créer'}
+            {batchBusyCreate ? <Loader2 size={12} className="animate-spin" /> : st.batch.create}
           </button>
           <button
             type="button"
             onClick={() => setIsCreatingBatch(false)}
             className="px-2 py-1 rounded-lg text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] cursor-pointer"
           >
-            Annuler
+            {st.batch.cancel}
           </button>
         </div>
       )}
@@ -910,11 +913,11 @@ export const SprintTimelineView: React.FC = () => {
           <div className="flex items-center gap-2">
             <span className="font-bold text-[var(--accent-color)] flex items-center gap-1.5">
               <CheckSquare size={14} />
-              <span>{selectedTaskIds.length} tâche(s) sélectionnée(s)</span>
+              <span>{plural(lang, selectedTaskIds.length, st.backlog.selectedTasks)}</span>
             </span>
             {selectedSprintTaskIds.length > 0 && (
               <span className="text-[10.5px] text-[var(--text-muted)] font-medium">
-                ({selectedSprintTaskIds.length} affectée(s) à un sprint)
+                {plural(lang, selectedSprintTaskIds.length, st.backlog.selectedInSprint)}
               </span>
             )}
           </div>
@@ -927,7 +930,7 @@ export const SprintTimelineView: React.FC = () => {
               onChange={e => setBatchTargetSprint(e.target.value)}
               className="text-xs px-2.5 py-1 rounded-lg bg-[var(--bg-secondary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none cursor-pointer font-medium"
             >
-              <option value="">Affecter à un sprint...</option>
+              <option value="">{st.backlog.assignPlaceholder}</option>
               {sprints.map(sp => (
                 <option key={sp.name} value={sp.name}>
                   {sp.name}
@@ -941,29 +944,29 @@ export const SprintTimelineView: React.FC = () => {
               onClick={handleApplyBatchSprint}
               className="px-3 py-1 rounded-lg text-xs font-bold bg-[var(--accent-color)] text-white hover:opacity-90 disabled:opacity-40 transition-all cursor-pointer shadow-xs"
             >
-              {batchBusy ? <Loader2 size={12} className="animate-spin" /> : 'Affecter'}
+              {batchBusy ? <Loader2 size={12} className="animate-spin" /> : st.backlog.assign}
             </button>
 
-            {/* Retirer du sprint / Renvoyer au backlog */}
+            {/* Remove from the sprint, back to the backlog */}
             <button
               type="button"
               disabled={batchBusy || readOnly}
               onClick={handleBatchRemoveFromSprint}
               className="flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold bg-amber-500/15 text-amber-400 hover:bg-amber-500/25 border border-amber-500/30 transition-all cursor-pointer shadow-xs disabled:opacity-40"
-              title="Retirer les tâches sélectionnées du sprint et les renvoyer au backlog"
+              title={st.backlog.removeSelectedTitle}
             >
               {batchBusy ? <Loader2 size={12} className="animate-spin" /> : <X size={13} />}
               <span>
-                Retirer du sprint{selectedSprintTaskIds.length > 0 ? ` (${selectedSprintTaskIds.length})` : ''}
+                {st.backlog.removeFromSprint}{selectedSprintTaskIds.length > 0 ? ` (${selectedSprintTaskIds.length})` : ''}
               </span>
             </button>
 
-            {/* Lancer le lot en auto-pilot */}
+            {/* Run the batch on autopilot */}
             <button
               type="button"
               onClick={() => startBatchPickup(selectedTaskIds)}
               className="flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold bg-[var(--bg-tertiary)] text-[var(--text-secondary)] border border-[var(--border-color)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-secondary)] transition-colors cursor-pointer shadow-xs"
-              title="Run the selected tasks on the local agent"
+              title={st.backlog.runSelectedTitle}
             >
               <Sparkles size={13} />
               <span>{t.batchLaunch}</span>
@@ -973,7 +976,7 @@ export const SprintTimelineView: React.FC = () => {
               type="button"
               onClick={() => setCheckedTaskIds({})}
               className="p-1 rounded-lg text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] transition-colors cursor-pointer"
-              title="Désélectionner tout"
+              title={st.backlog.clearSelection}
             >
               <X size={14} />
             </button>
@@ -994,7 +997,7 @@ export const SprintTimelineView: React.FC = () => {
             {sprints.map((sprint, index) => {
               const sprintKey = sprint.name.toLowerCase().trim()
               const sprintTasks = tasksBySprint.get(sprintKey) || []
-              const rel = getSprintRelativeInfo(sprint)
+              const rel = getSprintRelativeInfo(sprint, st.timeline.relative, lang)
               const isOver = isBacklogOpen && dragOverSprint === sprint.name
 
               // Completed stats
@@ -1058,23 +1061,23 @@ export const SprintTimelineView: React.FC = () => {
                         <div className="flex items-center justify-between">
                           <span className="text-xs font-bold text-[var(--accent-color)] flex items-center gap-1.5">
                             <SlidersHorizontal size={13} />
-                            <span>Modifier les dates et paramètres de {sprint.name}</span>
+                            <span>{format(st.dialogs.editHeading, { name: sprint.name })}</span>
                           </span>
                           <div className="flex items-center gap-1.5">
                             <button
                               type="button"
                               onClick={() => handleSaveEditSprint(index)}
                               className="flex items-center gap-1 px-3 py-1 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-500 rounded-lg transition-all cursor-pointer shadow-xs"
-                              title="Enregistrer les modifications"
+                              title={st.dialogs.saveTitle}
                             >
                               <Check size={13} />
-                              <span>Enregistrer</span>
+                              <span>{st.dialogs.save}</span>
                             </button>
                             <button
                               type="button"
                               onClick={() => setEditingSprintIndex(null)}
                               className="p-1 rounded-lg text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] transition-colors cursor-pointer"
-                              title="Annuler"
+                              title={st.dialogs.cancel}
                             >
                               <X size={14} />
                             </button>
@@ -1085,13 +1088,13 @@ export const SprintTimelineView: React.FC = () => {
                           {/* Nom */}
                           <div>
                             <label className="block text-[10px] font-bold text-[var(--text-muted)] uppercase tracking-wider mb-1">
-                              Nom du sprint
+                              {st.dialogs.nameLabel}
                             </label>
                             <input
                               type="text"
                               value={editSprintName}
                               onChange={e => setEditSprintName(e.target.value)}
-                              placeholder="Ex: Sprint 1"
+                              placeholder={st.dialogs.namePlaceholder}
                               className="w-full px-2.5 py-1.5 text-xs font-bold rounded-lg bg-[var(--bg-secondary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)]"
                             />
                           </div>
@@ -1099,7 +1102,7 @@ export const SprintTimelineView: React.FC = () => {
                           {/* Date Début */}
                           <div>
                             <label className="block text-[10px] font-bold text-[var(--text-muted)] uppercase tracking-wider mb-1">
-                              Date de début
+                              {st.dialogs.startDate}
                             </label>
                             <input
                               type="date"
@@ -1112,7 +1115,7 @@ export const SprintTimelineView: React.FC = () => {
                           {/* Date Fin */}
                           <div>
                             <label className="block text-[10px] font-bold text-[var(--text-muted)] uppercase tracking-wider mb-1">
-                              Date de fin
+                              {st.dialogs.endDate}
                             </label>
                             <input
                               type="date"
@@ -1125,16 +1128,16 @@ export const SprintTimelineView: React.FC = () => {
                           {/* Statut */}
                           <div>
                             <label className="block text-[10px] font-bold text-[var(--text-muted)] uppercase tracking-wider mb-1">
-                              Statut du cycle
+                              {st.dialogs.stateLabel}
                             </label>
                             <select
                               value={editSprintState}
                               onChange={e => setEditSprintState(e.target.value as any)}
                               className="w-full px-2.5 py-1.5 text-xs font-semibold rounded-lg bg-[var(--bg-secondary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)] cursor-pointer"
                             >
-                              <option value="active">🟢 En cours (Active)</option>
-                              <option value="future">🔵 À venir (Future)</option>
-                              <option value="closed">⚪ Clôturé (Closed)</option>
+                              <option value="active">{st.dialogs.stateActive}</option>
+                              <option value="future">{st.dialogs.stateFuture}</option>
+                              <option value="closed">{st.dialogs.stateClosed}</option>
                             </select>
                           </div>
                         </div>
@@ -1148,7 +1151,7 @@ export const SprintTimelineView: React.FC = () => {
                               onChange={e => setEditShiftSubsequent(e.target.checked)}
                               className="rounded text-[var(--accent-color)] w-3.5 h-3.5 cursor-pointer"
                             />
-                            <span>Décaler automatiquement les dates des sprints suivants pour préserver l'enchaînement</span>
+                            <span>{st.dialogs.shiftSubsequent}</span>
                           </label>
                         </div>}
                       </div>
@@ -1173,16 +1176,16 @@ export const SprintTimelineView: React.FC = () => {
                           {sprint.state === 'closed' ? (
                             <span className="text-[9px] font-bold px-2 py-0.5 rounded-full border bg-slate-500/15 text-slate-400 border-slate-500/30 flex items-center gap-1">
                               <CheckCircle2 size={10} className="text-slate-400" />
-                              Clôturé
+                              {st.timeline.badgeClosed}
                             </span>
                           ) : sprint.state === 'active' || rel.type === 'current' ? (
                             <span className="text-[9px] font-bold px-2 py-0.5 rounded-full border bg-emerald-500/15 text-emerald-400 border-emerald-500/30 flex items-center gap-1">
                               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping inline-block" />
-                              En cours
+                              {st.timeline.badgeActive}
                             </span>
                           ) : (
                             <span className="text-[9px] font-bold px-2 py-0.5 rounded-full border bg-cyan-500/15 text-cyan-400 border-cyan-500/30">
-                              À venir
+                              {st.timeline.badgeFuture}
                             </span>
                           )}
 
@@ -1207,11 +1210,11 @@ export const SprintTimelineView: React.FC = () => {
                             disabled={readOnly}
                             onClick={() => handleStartEditSprint(index, sprint)}
                             className="flex items-center gap-1 text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] px-2 py-0.5 rounded-lg border border-transparent hover:border-[var(--border-color)] font-mono text-[10.5px] transition-colors cursor-pointer"
-                            title="Cliquer pour modifier les dates du sprint"
+                            title={st.timeline.editDatesTitle}
                           >
                             <CalendarDays size={11} className="text-[var(--accent-color)]" />
                             <span>
-                              {formatDateFR(sprint.startDate)} ➔ {formatDateFR(sprint.endDate)}
+                              {showDate(sprint.startDate)} ➔ {showDate(sprint.endDate)}
                             </span>
                             <Edit2 size={9} className="opacity-40 hover:opacity-100 ml-0.5" />
                           </button>
@@ -1241,20 +1244,20 @@ export const SprintTimelineView: React.FC = () => {
                                 type="button"
                                 onClick={() => handleReopenSprint(index)}
                                 className="flex items-center gap-1 px-2 py-1 rounded-lg text-[10.5px] font-semibold text-cyan-400 bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/30 transition-all cursor-pointer shadow-xs"
-                                title="Réouvrir ce sprint (repasser en statut Actif)"
+                                title={st.timeline.reopenTitle}
                               >
                                 <RotateCcw size={11} />
-                                <span>Réouvrir</span>
+                                <span>{st.timeline.reopen}</span>
                               </button>
                             ) : (
                               <button
                                 type="button"
                                 onClick={() => handleStartCloseSprint(sprint, index)}
                                 className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10.5px] font-bold text-emerald-300 bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 transition-all cursor-pointer shadow-xs active:scale-95"
-                                title="Clôturer ce sprint et choisir la destination des tâches non terminées"
+                                title={st.timeline.closeTitle}
                               >
                                 <CheckCircle2 size={12} className="text-emerald-400" />
-                                <span>Clôturer</span>
+                                <span>{st.timeline.close}</span>
                               </button>
                             )}
 
@@ -1263,7 +1266,7 @@ export const SprintTimelineView: React.FC = () => {
                               type="button"
                               onClick={() => handleStartEditSprint(index, sprint)}
                               className="p-1 rounded-lg text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] transition-colors cursor-pointer"
-                              title="Modifier les dates et le statut"
+                              title={st.timeline.editTitle}
                             >
                               <SlidersHorizontal size={12} />
                             </button>}
@@ -1273,7 +1276,7 @@ export const SprintTimelineView: React.FC = () => {
                               type="button"
                               onClick={() => handleDeleteSprint(index)}
                               className="p-1 rounded-lg text-[var(--text-muted)] hover:text-rose-400 transition-colors cursor-pointer"
-                              title="Supprimer ce sprint"
+                              title={st.timeline.deleteTitle}
                             >
                               <Trash2 size={12} />
                             </button>}
@@ -1284,7 +1287,7 @@ export const SprintTimelineView: React.FC = () => {
                                 type="button"
                                 onClick={() => toggleCollapseSprint(sprint.name)}
                                 className="p-1 rounded-lg text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] transition-colors cursor-pointer"
-                                title={isCollapsed ? "Déplier le sprint" : "Replier le sprint"}
+                                title={isCollapsed ? st.timeline.expand : st.timeline.collapse}
                               >
                                 {isCollapsed ? <ChevronDown size={13} /> : <ChevronUp size={13} />}
                               </button>
@@ -1298,21 +1301,24 @@ export const SprintTimelineView: React.FC = () => {
                     {sprint.state === 'closed' && isCollapsed ? (
                       <div className="p-3 text-center text-xs text-[var(--text-muted)] bg-[var(--bg-primary)]/40 flex items-center justify-between">
                         <span>
-                          Sprint clôturé ({sprintTasks.length} tâche{sprintTasks.length > 1 ? 's' : ''}, {doneTasks.length} terminée{doneTasks.length > 1 ? 's' : ''})
+                          {format(st.timeline.collapsedSummary, {
+                            tasks: plural(lang, sprintTasks.length, st.timeline.collapsedTasks),
+                            done: plural(lang, doneTasks.length, st.timeline.collapsedDone),
+                          })}
                         </span>
                         <button
                           type="button"
                           onClick={() => toggleCollapseSprint(sprint.name)}
                           className="text-[11px] text-[var(--accent-color)] hover:underline font-semibold cursor-pointer"
                         >
-                          Afficher les tâches
+                          {st.timeline.showTasks}
                         </button>
                       </div>
                     ) : !isBacklogOpen ? (
                       <div className="p-2.5">
                         {sprintTasks.length === 0 ? (
                           <p className="text-[11px] text-[var(--text-muted)] italic px-1">
-                            0 tâche planifiée dans ce sprint.
+                            {st.timeline.emptyCompact}
                           </p>
                         ) : displayMode === 'chips' ? (
                           <div className="flex flex-wrap gap-1.5">
@@ -1355,7 +1361,7 @@ export const SprintTimelineView: React.FC = () => {
                                   }}
                                   hidden={readOnly}
                                   className="p-0.5 rounded text-[var(--text-muted)] hover:text-rose-400 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer ml-0.5"
-                                  title="Retirer du sprint (renvoyer au backlog)"
+                                  title={st.timeline.removeTaskTitle}
                                 >
                                   <X size={11} />
                                 </button>
@@ -1415,7 +1421,7 @@ export const SprintTimelineView: React.FC = () => {
                                     }}
                                     hidden={readOnly}
                                     className="text-[var(--text-muted)] hover:text-rose-400 p-0.5 transition-colors opacity-0 group-hover:opacity-100 cursor-pointer"
-                                    title="Retirer du sprint (renvoyer au backlog)"
+                                    title={st.timeline.removeTaskTitle}
                                   >
                                     <X size={11} />
                                   </button>
@@ -1430,9 +1436,9 @@ export const SprintTimelineView: React.FC = () => {
                       <div className="p-3.5 space-y-2">
                         {sprintTasks.length === 0 ? (
                           <div className="p-5 rounded-xl border-2 border-dashed border-[var(--border-color)]/70 text-center text-xs text-[var(--text-muted)] bg-[var(--bg-primary)]/40 hover:bg-[var(--bg-primary)]/60 transition-colors">
-                            <p className="font-medium">Aucune tâche dans ce sprint</p>
+                            <p className="font-medium">{st.timeline.emptyTitle}</p>
                             <p className="text-[10px] opacity-70 mt-0.5">
-                              Glissez des tâches depuis le Backlog ou un autre sprint ici.
+                              {st.timeline.emptyHint}
                             </p>
                           </div>
                         ) : displayMode === 'chips' ? (
@@ -1479,7 +1485,7 @@ export const SprintTimelineView: React.FC = () => {
                                   }}
                                   hidden={readOnly}
                                   className="p-0.5 rounded text-[var(--text-muted)] hover:text-rose-400 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
-                                  title="Retirer du sprint"
+                                  title={st.backlog.removeFromSprint}
                                 >
                                   <X size={11} />
                                 </button>
@@ -1538,7 +1544,7 @@ export const SprintTimelineView: React.FC = () => {
                                       }}
                                       hidden={readOnly}
                                       className="p-1 rounded text-[var(--text-muted)] hover:text-rose-400 hover:bg-rose-500/10 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
-                                      title="Retirer du sprint (renvoyer au backlog)"
+                                      title={st.timeline.removeTaskTitle}
                                     >
                                       <X size={11} />
                                     </button>
@@ -1577,7 +1583,7 @@ export const SprintTimelineView: React.FC = () => {
             <div
               onPointerDown={handleStartResizeBacklog}
               className="absolute left-0 top-0 bottom-0 w-2 -ml-1 cursor-col-resize hover:bg-[var(--accent-color)]/50 active:bg-[var(--accent-color)] transition-colors z-30 flex items-center justify-center group"
-              title="Glisser pour redimensionner le panneau Backlog"
+              title={st.backlog.resizeTitle}
             >
               <div className="w-0.5 h-6 bg-[var(--border-color)] group-hover:bg-white rounded-full" />
             </div>
@@ -1587,7 +1593,7 @@ export const SprintTimelineView: React.FC = () => {
               <div className="flex items-center gap-2">
                 <Layers size={14} className="text-cyan-400" />
                 <h3 className="text-xs font-bold text-[var(--text-primary)]">
-                  Backlog non planifié
+                  {st.backlog.title}
                 </h3>
                 <span className="text-[10px] font-mono font-bold px-1.5 py-0.2 rounded-full bg-[var(--bg-tertiary)] text-[var(--text-secondary)]">
                   {unscheduledTasks.length}
@@ -1599,7 +1605,7 @@ export const SprintTimelineView: React.FC = () => {
                   type="button"
                   onClick={() => setIsBacklogOpen(false)}
                   className="p-1 rounded text-[var(--text-muted)] hover:text-[var(--text-primary)] cursor-pointer"
-                  title="Fermer le Backlog"
+                  title={st.backlog.closeTitle}
                 >
                   <X size={14} />
                 </button>
@@ -1613,7 +1619,7 @@ export const SprintTimelineView: React.FC = () => {
                   type="text"
                   value={backlogSearch}
                   onChange={e => setBacklogSearch(e.target.value)}
-                  placeholder="Filtrer le backlog..."
+                  placeholder={st.backlog.filterPlaceholder}
                   className="w-full pl-7 pr-2 py-1 text-xs rounded-lg bg-[var(--bg-primary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)]"
                 />
                 <Search size={12} className="absolute left-2.5 top-2 text-[var(--text-muted)]" />
@@ -1628,10 +1634,10 @@ export const SprintTimelineView: React.FC = () => {
                       ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
                       : 'bg-[var(--bg-primary)] text-[var(--text-muted)] border-[var(--border-color)] hover:text-[var(--text-primary)]'
                   }`}
-                  title={showDoneInBacklog ? 'Masquer les tâches terminées (#finished)' : `Afficher les ${finishedUnscheduledCount} tâches terminées`}
+                  title={showDoneInBacklog ? st.backlog.hideDoneTitle : plural(lang, finishedUnscheduledCount, st.backlog.showDoneTitle)}
                 >
                   <CheckCircle2 size={11} />
-                  <span>{showDoneInBacklog ? 'Terminées' : `Terminées (${finishedUnscheduledCount})`}</span>
+                  <span>{showDoneInBacklog ? st.backlog.done : format(st.backlog.doneCount, { count: finishedUnscheduledCount })}</span>
                 </button>
               )}
             </div>
@@ -1646,19 +1652,19 @@ export const SprintTimelineView: React.FC = () => {
                 {unscheduledTasks.length > 0 && unscheduledTasks.every(t => checkedTaskIds[t.id]) ? (
                   <>
                     <CheckSquare size={13} className="text-[var(--accent-color)]" />
-                    <span>Tout désélectionner</span>
+                    <span>{st.backlog.deselectAll}</span>
                   </>
                 ) : (
                   <>
                     <Square size={13} />
-                    <span>Tout cocher</span>
+                    <span>{st.backlog.selectAll}</span>
                   </>
                 )}
               </button>
 
               {selectedBacklogList.length > 0 && (
                 <span className="text-[10px] font-bold text-[var(--accent-color)] bg-[var(--accent-light)] px-1.5 py-0.5 rounded border border-[var(--accent-color)]/30">
-                  {selectedBacklogList.length} sélectionné(s)
+                  {plural(lang, selectedBacklogList.length, st.backlog.selectedCount)}
                 </span>
               )}
             </div>
@@ -1672,7 +1678,7 @@ export const SprintTimelineView: React.FC = () => {
                   onChange={e => setBatchTargetSprint(e.target.value)}
                   className="flex-1 text-xs px-2 py-1 rounded bg-[var(--bg-primary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none cursor-pointer"
                 >
-                  <option value="">Déplacer vers un sprint...</option>
+                  <option value="">{st.backlog.movePlaceholder}</option>
                   {sprints.map(sp => (
                     <option key={sp.name} value={sp.name}>
                       {sp.name}
@@ -1685,13 +1691,13 @@ export const SprintTimelineView: React.FC = () => {
                   onClick={handleApplyBatchSprint}
                   className="px-2.5 py-1 rounded text-xs font-bold bg-[var(--accent-color)] text-white hover:opacity-90 disabled:opacity-40 cursor-pointer shadow-xs"
                 >
-                  {batchBusy ? '…' : 'Déplacer'}
+                  {batchBusy ? '…' : st.backlog.move}
                 </button>
                 <button
                   type="button"
                   onClick={() => startBatchPickup(selectedBacklogList.map(t => t.id))}
                   className="flex items-center gap-1 px-2.5 py-1 rounded text-xs font-semibold bg-[var(--bg-tertiary)] text-[var(--text-secondary)] border border-[var(--border-color)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-secondary)] transition-colors cursor-pointer shadow-xs shrink-0"
-                  title="Run the backlog tasks on the local agent"
+                  title={st.backlog.runBacklogTitle}
                 >
                   <Sparkles size={12} />
                   <span>{t.batchLaunch}</span>
@@ -1703,7 +1709,7 @@ export const SprintTimelineView: React.FC = () => {
             <div className="flex-1 overflow-y-auto p-2.5 space-y-1.5">
               {unscheduledTasks.length === 0 ? (
                 <div className="py-12 text-center text-xs text-[var(--text-muted)]">
-                  {backlogSearch ? 'Aucun résultat' : 'Toutes les tâches sont planifiées ! 🎉'}
+                  {backlogSearch ? st.backlog.noResults : st.backlog.allPlanned}
                 </div>
               ) : displayMode === 'chips' ? (
                 /* Chips representation in Backlog */
@@ -1749,7 +1755,7 @@ export const SprintTimelineView: React.FC = () => {
                         onClick={e => e.stopPropagation()}
                         className="text-[9px] font-semibold px-1 py-0.2 rounded bg-[var(--bg-tertiary)] text-[var(--accent-color)] border border-[var(--border-color)] focus:outline-none cursor-pointer ml-auto"
                       >
-                        <option value="">+ Sprint</option>
+                        <option value="">{st.timeline.addSprint}</option>
                         {sprints.map(sp => (
                           <option key={sp.name} value={sp.name}>
                             {sp.name}
@@ -1806,7 +1812,7 @@ export const SprintTimelineView: React.FC = () => {
 
                     <div className="flex items-center justify-between pt-1 border-t border-[var(--border-color)]/40 text-[10px]">
                       <span className="text-[var(--text-muted)] flex items-center gap-1">
-                        <GripVertical size={11} className="text-[var(--text-muted)]" /> Glisser
+                        <GripVertical size={11} className="text-[var(--text-muted)]" /> {st.backlog.drag}
                       </span>
 
                       {/* Quick Assign Dropdown */}
@@ -1822,7 +1828,7 @@ export const SprintTimelineView: React.FC = () => {
                         onClick={e => e.stopPropagation()}
                         className="text-[9.5px] font-semibold px-1.5 py-0.5 rounded bg-[var(--bg-tertiary)] text-[var(--accent-color)] border border-[var(--border-color)] focus:outline-none cursor-pointer"
                       >
-                        <option value="">+ Sprint</option>
+                        <option value="">{st.timeline.addSprint}</option>
                         {sprints.map(sp => (
                           <option key={sp.name} value={sp.name}>
                             {sp.name}
@@ -1850,16 +1856,18 @@ export const SprintTimelineView: React.FC = () => {
                 </div>
                 <div>
                   <h3 className="text-sm font-bold text-[var(--text-primary)]">
-                    Clôturer {closingSprint.sprint.name}
+                    {format(st.close.heading, { name: closingSprint.sprint.name })}
                   </h3>
                   <span className="text-[10.5px] text-[var(--text-muted)]">
-                    Bilan du cycle et réaffectation des tâches restantes
+                    {st.close.subtitle}
                   </span>
                 </div>
               </div>
               <button
                 type="button"
                 onClick={() => setClosingSprint(null)}
+                aria-label={st.close.dismiss}
+                title={st.close.dismiss}
                 className="p-1.5 rounded-lg text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] transition-colors cursor-pointer"
               >
                 <X size={16} />
@@ -1885,25 +1893,25 @@ export const SprintTimelineView: React.FC = () => {
                     <div className="grid grid-cols-2 gap-3">
                       <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex flex-col">
                         <span className="text-[10px] uppercase tracking-wider font-bold text-emerald-400">
-                          Tâches Terminées
+                          {st.close.doneHeading}
                         </span>
                         <span className="text-2xl font-extrabold text-emerald-300 mt-1">
                           {doneTasks.length}
                         </span>
                         <span className="text-[10px] text-[var(--text-muted)] mt-1">
-                          Livrées dans ce cycle
+                          {st.close.doneHint}
                         </span>
                       </div>
 
                       <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 flex flex-col">
                         <span className="text-[10px] uppercase tracking-wider font-bold text-amber-400">
-                          Tâches Non Terminées
+                          {st.close.unfinishedHeading}
                         </span>
                         <span className="text-2xl font-extrabold text-amber-300 mt-1">
                           {unfinishedTasks.length}
                         </span>
                         <span className="text-[10px] text-[var(--text-muted)] mt-1">
-                          {unfinishedTasks.length === 0 ? 'Aucun reliquat !' : 'À transférer ou reporter'}
+                          {unfinishedTasks.length === 0 ? st.close.nothingLeft : st.close.toMove}
                         </span>
                       </div>
                     </div>
@@ -1911,7 +1919,7 @@ export const SprintTimelineView: React.FC = () => {
                     {unfinishedTasks.length > 0 ? (
                       <div className="space-y-2 pt-1">
                         <label className="block text-[11.5px] font-bold text-[var(--text-primary)]">
-                          Que faire des {unfinishedTasks.length} tâche(s) non terminée(s) ?
+                          {plural(lang, unfinishedTasks.length, st.close.question)}
                         </label>
 
                         <div className="space-y-2">
@@ -1932,10 +1940,10 @@ export const SprintTimelineView: React.FC = () => {
                               />
                               <div className="space-y-0.5">
                                 <span className="font-bold text-[var(--text-primary)] block">
-                                  Transférer vers {nextSprint.name} (Recommandé)
+                                  {format(st.close.toNext, { name: nextSprint.name })}
                                 </span>
                                 <span className="text-[10.5px] text-[var(--text-muted)] block leading-snug">
-                                  Les tâches ouvertes rejoindront la liste des priorités du prochain cycle.
+                                  {st.close.toNextHint}
                                 </span>
                               </div>
                             </label>
@@ -1957,10 +1965,10 @@ export const SprintTimelineView: React.FC = () => {
                             />
                             <div className="space-y-0.5">
                               <span className="font-bold text-[var(--text-primary)] block">
-                                Renvoyer vers le Backlog général
+                                {st.close.toBacklog}
                               </span>
                               <span className="text-[10.5px] text-[var(--text-muted)] block leading-snug">
-                                Les tâches redeviendront non planifiées dans le backlog sans assignation de sprint.
+                                {st.close.toBacklogHint}
                               </span>
                             </div>
                           </label>
@@ -1981,10 +1989,10 @@ export const SprintTimelineView: React.FC = () => {
                             />
                             <div className="space-y-0.5">
                               <span className="font-bold text-[var(--text-primary)] block">
-                                Conserver dans ce sprint clôturé
+                                {st.close.keep}
                               </span>
                               <span className="text-[10.5px] text-[var(--text-muted)] block leading-snug">
-                                Les tâches resteront associées à {closingSprint.sprint.name} pour l'historique.
+                                {format(st.close.keepHint, { name: closingSprint.sprint.name })}
                               </span>
                             </div>
                           </label>
@@ -1992,9 +2000,9 @@ export const SprintTimelineView: React.FC = () => {
                       </div>
                     ) : (
                       <div className="p-3.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-center space-y-1">
-                        <p className="font-bold text-emerald-300">Félicitations ! 🎉</p>
+                        <p className="font-bold text-emerald-300">{st.close.congrats}</p>
                         <p className="text-[11px] text-[var(--text-muted)]">
-                          Toutes les tâches de ce sprint ont été menées à terme. Aucune réaffectation n'est nécessaire.
+                          {st.close.allDoneHint}
                         </p>
                       </div>
                     )}
@@ -2003,10 +2011,10 @@ export const SprintTimelineView: React.FC = () => {
                       <div className="p-3 rounded-xl bg-[var(--bg-tertiary)]/70 border border-[var(--border-color)] flex items-center justify-between">
                         <div>
                           <span className="font-semibold text-[var(--text-primary)] block text-xs">
-                            Activer automatiquement {nextSprint.name}
+                            {format(st.close.activateNext, { name: nextSprint.name })}
                           </span>
                           <span className="text-[10px] text-[var(--text-muted)] block">
-                            Passe le statut du prochain sprint à "En cours".
+                            {st.close.activateNextHint}
                           </span>
                         </div>
                         <input
@@ -2030,7 +2038,7 @@ export const SprintTimelineView: React.FC = () => {
                 disabled={isClosingSprintBusy}
                 className="px-3.5 py-1.5 rounded-xl text-xs font-semibold text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] border border-[var(--border-color)] transition-colors cursor-pointer"
               >
-                Annuler
+                {st.close.cancel}
               </button>
               <button
                 type="button"
@@ -2043,7 +2051,7 @@ export const SprintTimelineView: React.FC = () => {
                 ) : (
                   <CheckCircle2 size={13} />
                 )}
-                <span>Confirmer la clôture</span>
+                <span>{st.close.confirm}</span>
               </button>
             </div>
           </div>

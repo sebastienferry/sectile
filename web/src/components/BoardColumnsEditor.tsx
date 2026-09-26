@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { Plus, X, ArrowUp, ArrowDown, RefreshCw, Kanban, Tag, GitPullRequest, Eye, EyeOff } from 'lucide-react'
 import { useApp } from '../context/AppContext'
+import { format, plural } from '../lib/i18n'
 import type { Project, TrackerBoard, TrackerColumn, WorkflowStage } from '../types'
 import {
   mergeDetectedColumns,
@@ -52,7 +53,8 @@ export const BoardColumnsEditor: React.FC<Props> = ({
   issueTracker,
   githubRepo,
 }) => {
-  const { fetchProjectTrackerStatuses, listProjectBoards, importProjectBoardColumns, addToast } = useApp()
+  const { fetchProjectTrackerStatuses, listProjectBoards, importProjectBoardColumns, addToast, t, settings } = useApp()
+  const cs = t.projectSettings.columns
 
   const [statuses, setStatuses] = useState<string[]>([])
   const [newColumnName, setNewColumnName] = useState('')
@@ -150,7 +152,7 @@ export const BoardColumnsEditor: React.FC<Props> = ({
         detectionError = data.error || ''
       } else {
         const errData = await res.json().catch(() => ({}))
-        detectionError = errData.error || `Détection refusée (${res.status})`
+        detectionError = errData.error || format(cs.toasts.detectionRefused, { status: res.status })
       }
 
       // Un tracker à board décrit ses colonnes : on les reprend telles quelles,
@@ -162,7 +164,7 @@ export const BoardColumnsEditor: React.FC<Props> = ({
         if (detectionError) {
           addToast({
             type: 'error',
-            title: 'Statuts incomplets',
+            title: cs.toasts.incompleteStatuses,
             description: detectionError,
           })
         }
@@ -171,8 +173,8 @@ export const BoardColumnsEditor: React.FC<Props> = ({
         onStageColumnsChange(pruneStageColumns(stageColumns, merged))
         addToast({
           type: 'success',
-          title: 'Colonnes du board reprises',
-          description: `${merged.length} colonne(s) depuis le board distant.`,
+          title: cs.toasts.columnsImported,
+          description: plural(settings.language, merged.length, cs.toasts.columnsImportedDescription),
         })
         return
       }
@@ -180,7 +182,7 @@ export const BoardColumnsEditor: React.FC<Props> = ({
       if (detectionError) {
         addToast({
           type: 'error',
-          title: 'Détection impossible',
+          title: cs.toasts.detectionFailed,
           description: detectionError,
         })
         return
@@ -208,21 +210,21 @@ export const BoardColumnsEditor: React.FC<Props> = ({
 
         addToast({
           type: 'success',
-          title: 'Colonnes & statuts détectés !',
-          description: `${detectedList.length} colonne(s) créée(s) depuis le board distant.`,
+          title: cs.toasts.columnsDetected,
+          description: plural(settings.language, detectedList.length, cs.toasts.columnsCreatedDescription),
         })
       } else {
         addToast({
           type: 'info',
-          title: 'Aucune colonne trouvée',
-          description: 'Vérifiez la configuration du tracker.',
+          title: cs.toasts.noColumnFound,
+          description: cs.toasts.checkTracker,
         })
       }
     } catch (err: any) {
       addToast({
         type: 'error',
-        title: 'Erreur de détection',
-        description: err.message || 'Détection impossible',
+        title: cs.toasts.detectionError,
+        description: err.message || cs.toasts.detectionFailed,
       })
     } finally {
       setIsDetecting(false)
@@ -358,40 +360,40 @@ export const BoardColumnsEditor: React.FC<Props> = ({
     <div className="space-y-3">
       <div className="flex items-center justify-between gap-2">
         <label className="text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
-          Colonnes du board
+          {cs.title}
         </label>
         <button
           type="button"
           disabled={isDetecting}
           onClick={handleDetect}
           className="flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-bold bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] hover:border-[var(--accent-color)] hover:bg-[var(--accent-light)] transition-all cursor-pointer disabled:opacity-50"
-          title="Détecter les statuts depuis le tracker (GitHub / Jira / Base)"
+          title={cs.detectTitle}
         >
           <RefreshCw size={10} className={isDetecting ? 'animate-spin text-[var(--accent-color)]' : 'text-cyan-400'} />
-          <span>{isDetecting ? 'Détection...' : 'Détecter les statuts'}</span>
+          <span>{isDetecting ? cs.detecting : cs.detect}</span>
         </button>
       </div>
 
       {boards.length > 0 && (
         <div className="flex items-center gap-2">
           <label className="text-[10px] uppercase tracking-wider text-[var(--text-muted)] shrink-0">
-            Board du tracker
+            {cs.boardLabel}
           </label>
           <select
             value={boardId}
             disabled={isImporting}
             onChange={e => handleBoardChange(e.target.value)}
             className="flex-1 px-2 py-1 text-xs rounded-lg bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)] disabled:opacity-50 cursor-pointer"
-            title="Board dont les colonnes sont reprises"
+            title={cs.boardTitle}
           >
             {!recordedBoard && (
               <option value="" disabled>
-                Choisir un board…
+                {cs.chooseBoard}
               </option>
             )}
             {boards.map(b => (
               <option key={b.id} value={b.id}>
-                {b.name}{b.type ? ` (${b.type})` : ''}{b.id === suggestedBoard ? ' (suggéré)' : ''}
+                {b.name}{b.type ? ` (${b.type})` : ''}{b.id === suggestedBoard ? ` (${cs.suggested})` : ''}
               </option>
             ))}
           </select>
@@ -399,7 +401,7 @@ export const BoardColumnsEditor: React.FC<Props> = ({
       )}
 
       <p className="text-[10px] text-[var(--text-muted)] -mt-1">
-        Les colonnes sont détectées à chaque synchro. Glisse un statut du tracker ou une étape du workflow dans une colonne ; un statut n'appartient qu'à une colonne, une étape peut en viser plusieurs.
+        {cs.help}
       </p>
 
       {/* Réservoirs de pastilles à glisser */}
@@ -415,11 +417,11 @@ export const BoardColumnsEditor: React.FC<Props> = ({
       >
         <div className="flex items-center gap-1.5 flex-wrap">
           <span className="inline-flex items-center gap-1 text-[9px] uppercase tracking-wider text-[var(--text-muted)] mr-1">
-            <GitPullRequest size={10} /> Statuts libres
+            <GitPullRequest size={10} /> {cs.freeStatuses}
           </span>
           {freeStatuses.length === 0 ? (
             <span className="text-[10px] text-[var(--text-muted)]">
-              Tous les statuts connus sont affectés. Glisse-en un ici pour le libérer.
+              {cs.allAssigned}
             </span>
           ) : (
             freeStatuses.map(st => (
@@ -429,7 +431,7 @@ export const BoardColumnsEditor: React.FC<Props> = ({
                 onDragStart={e => startDragStatus(e, st)}
                 onDragEnd={endDrag}
                 className={`${chipBase} bg-[var(--bg-primary)] text-[var(--text-secondary)] border-[var(--border-color)] hover:border-[var(--accent-color)]/50`}
-                title="Glisser dans une colonne"
+                title={cs.dragIntoColumn}
               >
                 {st}
               </span>
@@ -439,7 +441,7 @@ export const BoardColumnsEditor: React.FC<Props> = ({
 
         <div className="flex items-center gap-1.5 flex-wrap pt-1.5 border-t border-[var(--border-color)]/50">
           <span className="inline-flex items-center gap-1 text-[9px] uppercase tracking-wider text-[var(--text-muted)] mr-1">
-            <Tag size={10} /> Workflow agentique
+            <Tag size={10} /> {cs.agenticWorkflow}
           </span>
           {WORKFLOW_STAGES.map(stage => (
             <span
@@ -448,7 +450,7 @@ export const BoardColumnsEditor: React.FC<Props> = ({
               onDragStart={e => startDragStage(e, stage.id)}
               onDragEnd={endDrag}
               className={`${chipBase} bg-emerald-500/10 text-emerald-300 border-emerald-500/30 hover:border-emerald-400`}
-              title="Glisser dans une ou plusieurs colonnes"
+              title={cs.dragIntoColumns}
             >
               {stage.label}
             </span>
@@ -458,7 +460,7 @@ export const BoardColumnsEditor: React.FC<Props> = ({
 
       {columns.length === 0 ? (
         <p className="text-[10px] text-[var(--text-muted)]">
-          Aucune colonne : le board utilise les statuts génériques. Lance une synchro, clique sur Détecter, ou crée une colonne à la main.
+          {cs.noColumns}
         </p>
       ) : (
         <div className="space-y-2">
@@ -487,11 +489,11 @@ export const BoardColumnsEditor: React.FC<Props> = ({
                     className="flex-1 px-2 py-1 text-xs font-bold rounded-lg bg-[var(--bg-primary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)]"
                   />
                   <button type="button" onClick={() => moveColumn(index, -1)} disabled={index === 0}
-                    className="p-1 rounded text-[var(--text-muted)] hover:text-[var(--text-primary)] disabled:opacity-30 cursor-pointer" title="Monter">
+                    className="p-1 rounded text-[var(--text-muted)] hover:text-[var(--text-primary)] disabled:opacity-30 cursor-pointer" title={cs.moveUp} aria-label={cs.moveUp}>
                     <ArrowUp size={12} />
                   </button>
                   <button type="button" onClick={() => moveColumn(index, 1)} disabled={index === columns.length - 1}
-                    className="p-1 rounded text-[var(--text-muted)] hover:text-[var(--text-primary)] disabled:opacity-30 cursor-pointer" title="Descendre">
+                    className="p-1 rounded text-[var(--text-muted)] hover:text-[var(--text-primary)] disabled:opacity-30 cursor-pointer" title={cs.moveDown} aria-label={cs.moveDown}>
                     <ArrowDown size={12} />
                   </button>
                   <button
@@ -504,12 +506,13 @@ export const BoardColumnsEditor: React.FC<Props> = ({
                     className={`p-1 rounded cursor-pointer ${
                       col.hidden ? 'text-amber-400' : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'
                     }`}
-                    title={col.hidden ? 'Colonne masquée sur le board : réafficher' : 'Masquer cette colonne sur le board'}
+                    title={col.hidden ? cs.showColumn : cs.hideColumn}
+                    aria-label={col.hidden ? cs.showColumn : cs.hideColumn}
                   >
                     {col.hidden ? <EyeOff size={12} /> : <Eye size={12} />}
                   </button>
                   <button type="button" onClick={() => removeColumn(index)}
-                    className="p-1 rounded text-[var(--text-muted)] hover:text-rose-400 cursor-pointer" title="Supprimer la colonne">
+                    className="p-1 rounded text-[var(--text-muted)] hover:text-rose-400 cursor-pointer" title={cs.deleteColumn} aria-label={cs.deleteColumn}>
                     <X size={12} />
                   </button>
                 </div>
@@ -517,7 +520,7 @@ export const BoardColumnsEditor: React.FC<Props> = ({
                 <div className="flex flex-wrap items-center gap-1 min-h-[22px]">
                   {col.statuses.length === 0 && (
                     <span className="text-[10px] text-[var(--text-muted)] italic">
-                      Aucun statut : dépose-en un ici
+                      {cs.noStatus}
                     </span>
                   )}
                   {col.statuses.map(st => (
@@ -527,10 +530,10 @@ export const BoardColumnsEditor: React.FC<Props> = ({
                       onDragStart={e => startDragStatus(e, st)}
                       onDragEnd={endDrag}
                       className={`${chipBase} bg-[var(--accent-light)] accent-text border-[var(--accent-color)]/30`}
-                      title="Glisser vers une autre colonne, ou vers les statuts libres"
+                      title={cs.dragStatus}
                     >
                       {st}
-                      <button type="button" onClick={() => removeStatus(col.name, st)} className="hover:opacity-70 cursor-pointer" title="Retirer">
+                      <button type="button" onClick={() => removeStatus(col.name, st)} className="hover:opacity-70 cursor-pointer" title={cs.remove} aria-label={cs.remove}>
                         <X size={9} />
                       </button>
                     </span>
@@ -538,10 +541,10 @@ export const BoardColumnsEditor: React.FC<Props> = ({
                 </div>
 
                 <div className="flex flex-wrap items-center gap-1 pt-1.5 border-t border-[var(--border-color)]/50 min-h-[22px]">
-                  <span className="text-[9px] uppercase tracking-wider text-[var(--text-muted)] mr-1">Workflow</span>
+                  <span className="text-[9px] uppercase tracking-wider text-[var(--text-muted)] mr-1">{cs.workflow}</span>
                   {stagesOfColumn(col.name).length === 0 && (
                     <span className="text-[10px] text-[var(--text-muted)] italic">
-                      Aucune étape affectée
+                      {cs.noStage}
                     </span>
                   )}
                   {stagesOfColumn(col.name).map(stage => (
@@ -553,7 +556,7 @@ export const BoardColumnsEditor: React.FC<Props> = ({
                       className={`${chipBase} bg-emerald-500/20 text-emerald-300 border-emerald-500/40 font-bold`}
                     >
                       #{stage}
-                      <button type="button" onClick={() => removeStage(col.name, stage)} className="hover:opacity-70 cursor-pointer" title="Retirer de cette colonne">
+                      <button type="button" onClick={() => removeStage(col.name, stage)} className="hover:opacity-70 cursor-pointer" title={cs.removeStage} aria-label={cs.removeStage}>
                         <X size={9} />
                       </button>
                     </span>
@@ -567,7 +570,7 @@ export const BoardColumnsEditor: React.FC<Props> = ({
 
       {dragging?.kind === 'status' && (
         <p className="text-[10px] text-[var(--text-muted)]">
-          Dépose « {dragging.value} » dans une colonne, ou dans les statuts libres pour l'en retirer.
+          {format(cs.dropHint, { status: dragging.value })}
         </p>
       )}
 
@@ -582,7 +585,7 @@ export const BoardColumnsEditor: React.FC<Props> = ({
               addColumn()
             }
           }}
-          placeholder="Nouvelle colonne (ex. PEER REVIEW)"
+          placeholder={cs.newColumnPlaceholder}
           className="flex-1 px-2.5 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)]"
         />
         <button
@@ -592,7 +595,7 @@ export const BoardColumnsEditor: React.FC<Props> = ({
           className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-bold text-white accent-bg shadow-xs hover:opacity-90 disabled:opacity-40 transition-all cursor-pointer shrink-0"
         >
           <Plus size={12} />
-          <span>Colonne</span>
+          <span>{cs.addColumn}</span>
         </button>
       </div>
     </div>

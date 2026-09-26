@@ -356,7 +356,7 @@ func (d *agentDaemon) prepareDispatchLocked(ctx context.Context, taskKey string,
 	if task.ProjectID != config.ProjectID {
 		return config, "", "", "", task, fmt.Errorf("task project changed during configuration sync")
 	}
-	config = agentconfig.Resolve(config, overrides)
+	config = agentconfig.ResolveTask(config, overrides, task.ID)
 	if len(useWorktrees) > 0 {
 		config.UseWorktrees = useWorktrees[0]
 	}
@@ -653,6 +653,22 @@ func launchCommandLine(config agentconfig.Config, model, prompt, mode string, co
 	return modeCommandLine(config.AIProvider, config.AICommandTemplate, model, prompt, mode, contexts...)
 }
 
+// engineError names the engine a refused launch runs, so an owner who switched
+// a task to it knows which engine to fix (#510).
+func engineError(config agentconfig.Config, err error) error {
+	if strings.TrimSpace(config.EngineName) == "" {
+		return err
+	}
+	return fmt.Errorf("engine %q: %w", config.EngineName, err)
+}
+
+// logIgnoredModel says once per launch that its one-off model does not apply.
+func logIgnoredModel(config agentconfig.Config, taskRef, model string) {
+	if config.OffProjectDefaultEngine && strings.TrimSpace(model) != "" {
+		log.Printf("[Agent] One-off model %q ignored: task %s runs on engine %q", model, taskRef, config.EngineName)
+	}
+}
+
 func sameDirectory(a, b string) bool {
 	first, err := os.Stat(a)
 	if err != nil {
@@ -670,7 +686,14 @@ func sameDirectory(a, b string) bool {
 // An identifier the shape rule rejects is refused here rather than resolved:
 // the value is about to be placed on a command line this process runs through
 // sh -c, so the agent checks it even though the server already did.
+//
+// A task switched to another engine than its project default one ignores the
+// launch model (#510): the web offers the models of the project default
+// engine, which may not even be the same provider's.
 func LaunchModel(config agentconfig.Config, skillID, override string) (string, error) {
+	if config.OffProjectDefaultEngine {
+		override = ""
+	}
 	if override = strings.TrimSpace(override); override != "" {
 		if err := agentconfig.ValidModel(override); err != nil {
 			return "", err

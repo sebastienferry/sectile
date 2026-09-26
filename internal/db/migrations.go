@@ -457,6 +457,24 @@ var migrations = []migration{
 			);`,
 		},
 	},
+	{
+		// The tickets of a batch launched from the web, in launch order, and
+		// where each one stands (#522, ADR 0034). The rows hang on the batch
+		// run: a batch is running exactly while that run is, so nothing needs
+		// deleting when it ends. The lead ticket is position 1.
+		version: 30,
+		name:    "batch_members",
+		statements: []string{
+			`CREATE TABLE batch_members (
+				run_id TEXT NOT NULL,
+				task_id TEXT NOT NULL,
+				position INTEGER NOT NULL,
+				state TEXT NOT NULL DEFAULT 'waiting',
+				PRIMARY KEY (run_id, task_id)
+			);`,
+			"CREATE INDEX idx_batch_members_task ON batch_members (task_id);",
+		},
+	},
 }
 
 // migrateSchema brings the database to the schema this binary expects, and is

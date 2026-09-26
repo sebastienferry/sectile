@@ -50,20 +50,28 @@ Already running coding clients are not restarted or modified by a later download
 The server resolves the method only: project metadata over the deployment's.
 Every execution setting is resolved by the agent from
 `~/.config/sectile/settings.json` (ADR 0031): the project section, then the
-workstation defaults, then the provider defaults (provider `agy`, the
-provider's own command, no model flag, the shipped model list, the detected
-terminal, editor `code`, worktrees on, one execution at a time, no extra setup
-provider, the stage's standard command). These values are never uploaded,
-except as the capability report below. A project section that names a
-provider different from the defaults' without a command of its own drops the
-inherited command, each template independently: a command written for one CLI
-never serves another.
+workstation defaults, then the provider defaults (the shipped model list, the
+detected terminal, editor `code`, worktrees on, one execution at a time, no
+extra setup provider, the stage's standard command). These values are never
+uploaded, except as the capability report below.
 
-Model selection resolves level by level, most specific first: the launch's
-one-off model, then the project section, then the workstation defaults. The
-most specific statement wins: naming a skill outranks a bare model, whatever
-level that bare model sits on, so a bare model governs only the skills no level
-singles out.
+The engine (provider, interactive and headless templates, model, per-skill
+models) is a catalogue entry since #510 (ADR 0033), resolved as a whole: the
+engine a task was switched to on this workstation, else its project's default
+engine, else the workstation default engine. Nothing is inherited from another
+engine; an empty template runs the provider's own command and an empty model
+the provider's own model. A resolution without a task (capability report,
+macro skills, project refresh, free console) uses the project default engine.
+A file stating no engine runs `agy` with its defaults.
+
+Model selection within the engine: a per-skill model outranks the engine
+model. The launch's one-off model outranks both, but only when the task runs
+its project default engine, the one the capability report describes; on
+another engine it is ignored, and the run record says what ran.
+
+Skills and the Sectile MCP registration are set up for the running provider,
+the extra setup providers, and the provider of every catalogue engine that
+takes skills, so a task switched to any of them finds them in place.
 
 Parallelism is 1 to 10, from the project section, else the defaults, else 1,
 and 1 whenever worktrees are off. Extra setup providers from the project
@@ -448,6 +456,15 @@ workflow chain.
 Nested skills reuse their owner's run; intermediate transitions do not close it.
 These activities never acquire the managed-stage transition guard.
 
+A batch pickup (`pickup_issues`) is one run on the batch's first ticket, whose
+other tickets the server records as its members (ADR 0034). The agent reuses the
+launch run ID on every ticket: `start_run(taskKey, skill, runId)` on a member
+with the batch run's ID returns the batch run, creates no run, and marks that
+member as the one being processed, the previous one becoming done. The same call
+on a ticket outside the batch, or with a batch run that ended, is refused as any
+unmatched `runId` is. `finish_run` is called once, on the first ticket, when the
+whole batch ends; every member stops showing the batch then.
+
 Cards and list rows display a single run icon while a run is active: running takes
 precedence over queued, and a cancellation stays visible briefly, updated
 through server events and polling. Reading a task alone never marks it running.
@@ -519,6 +536,15 @@ transport's included, and cancels the runs it owns with the disconnect note,
 after the silence sentence; their owner may still report the real outcome. The
 rewrite matches the disconnect note anywhere in the summary, so a run silenced
 and then closed stays recoverable.
+
+The server pings every session every `SECTILE_MCP_KEEPALIVE_INTERVAL` (25s by
+default) over the standalone `GET /mcp` stream, so a proxy never finds that
+stream idle. A session that owns no run is closed, transport included, once
+`SECTILE_MCP_KEEPALIVE_FAILURES` pings in a row (3 by default) got no answer and
+its client sent nothing in between. A session that owns a run is never closed by
+a missed ping: the silence and abandon bounds above still decide for it. A ping
+reply is not a client message and does not reset the silence. An unusable value
+of either setting keeps its default.
 
 A run a client created has no agent to stop. `POST /api/tasks/{id}/cancel-run`
 closes it instead, for its owner or an administrator only (an ownerless run is an
@@ -632,29 +658,38 @@ default file and its legacy private connection file.
 
 ### Execution defaults and local overrides
 
-The workstation settings file is written in layout 2:
+The workstation settings file is written in layout 3:
 
 ```json
 {
   "server": "https://sectile.example", "deviceId": "laptop", "apiKey": "...",
-  "layout": 2,
+  "layout": 3,
   "defaults": {
-    "aiProvider": "claude", "aiCommandTemplate": "", "aiCommandTemplateAutonomous": "",
-    "aiModel": "claude-opus-5", "aiSkillModels": {"implement": "claude-sonnet-5"},
     "aiProviderModels": {"claude": ["claude-opus-5", "claude-sonnet-5"]},
     "terminal": "ghostty", "editorCommand": "cursor",
     "useWorktrees": true, "parallelism": 2, "setupProviders": ["codex"]
   },
   "projectSettings": {
     "project-id": {
-      "path": "/path/to/repository", "specPath": "/path/to/specs",
-      "aiProvider": "codex", "aiModel": "gpt-5", "terminal": "iterm",
+      "path": "/path/to/repository", "specPath": "/path/to/specs", "terminal": "iterm",
       "useWorktrees": false, "parallelism": 1, "setupProviders": null,
       "skillCommands": {"implement": "code-issue"}, "specArtifacts": "drop"
     }
   },
+  "engines": {
+    "catalogue": [
+      {"id": "e-1f3a9c20b7d4", "name": "Claude Opus", "provider": "claude",
+       "model": "claude-opus-5", "skillModels": {"implement": "claude-sonnet-5"},
+       "command": "", "commandAutonomous": ""},
+      {"id": "e-7c01d2e9aa51", "name": "Codex", "provider": "codex", "model": "gpt-5"}
+    ],
+    "default": "e-1f3a9c20b7d4",
+    "projects": {"project-id": "e-7c01d2e9aa51"},
+    "tasks": {"task-id": "e-1f3a9c20b7d4"}
+  },
   "repositories": {"github.com/owner/other": "/path/to/other"},
-  "seeded": {"defaults": "https://sectile.example", "projects": {"project-id": "2026-09-25T00:00:00Z"}}
+  "seeded": {"defaults": "https://sectile.example", "defaultEngine": "e-1f3a9c20b7d4",
+             "projects": {"project-id": "2026-09-25T00:00:00Z"}}
 }
 ```
 
@@ -669,12 +704,31 @@ settings with an effective `keep` removes the project's block from every
 checkout the workstation maps for it; lines outside the block are never
 touched.
 
+`engines` (#510) holds the catalogue in its order (1 to 20 engines, names
+unique ignoring case, at most 64 characters), the workstation default engine,
+each project's default engine and each task's engine, by task primary key.
+Identities are the agent's: a choice naming no catalogue engine reads as none
+and is dropped on the next write, and removing an engine drops the choices
+pointing at it. The key sits outside the ones an agent of layout 2 replaces,
+so such an agent keeps it when it saves.
+
+The engine fields of layout 2 (`aiProvider`, `aiCommandTemplate`,
+`aiCommandTemplateAutonomous`, `aiModel`, `aiSkillModels` in `defaults` and in
+project sections) are converted into catalogue entries on every read, and the
+agent persists the conversion once at start, after copying the previous file
+to `settings.json.bak-layout<N>`. Each level becomes an entry equal to what it
+resolved, identical profiles share one entry, and a project that stated
+engine fields picks its entry. The conversion runs again, reusing identical
+entries and keeping the default engine, if an older agent writes engine fields
+back.
+
 A file written before #305 (flat `aiProvider`, `aiModel`, `terminal`... and the
 per-project maps `projects`, `specRepos`, `worktrees`, `parallelism`,
 `terminals`, `aiProviders`, `aiModels`, `commands`, `commandsAutonomous`,
 `specArtifacts`) is
-read with the same meaning and rewritten in layout 2 on the next save. An
-emptied map or list leaves the file rather than keeping its previous content.
+read with the same meaning and rewritten in the current layout on the next
+save. An emptied map or list leaves the file rather than keeping its previous
+content.
 
 The desktop edits both levels through the agent: `GET`/`PUT /desktop/workstation`
 for the defaults, `POST /desktop/projects` for a project section (each field
@@ -682,6 +736,32 @@ with an `inherit…` flag), and `GET /desktop/project` answers, per execution
 field, `{value, inherited, source}` with `source` one of `project`,
 `workstation` or `default`. An invalid value is refused with its reason and the
 file is left unchanged. The Electron companion writes connection keys only.
+Both saves refuse the engine fields of layout 2 with a 400 naming the engine
+catalogue; a project save picks its engine with `defaultEngine` (an engine
+identity, unknown: 400) or `inheritDefaultEngine: true`.
+
+`GET /desktop/status` advertises `task-engines` when the agent keeps the
+catalogue. The desktop then uses:
+
+- `GET /desktop/engines`: `{catalogue, default, providers, providerModels,
+  projects, taskCounts}`, the last two saying what points at each engine;
+- `PUT /desktop/engines` with `{catalogue, default}`: the whole catalogue in
+  its new order, a new engine without `id`; 400 with the validation message,
+  409 when the default engine is left out, then a new capability report;
+- `GET /desktop/task-engines?projectId=<id>`: `{projectDefault, catalogue:
+  [{id, name, provider, model}], tasks: {taskId: engineId}}`;
+- `PUT /desktop/task-engines` with `{projectId, taskId, engineId}`: stores the
+  task's engine, none when it is the project default engine; 404 when the
+  engine is not in the catalogue. The capability report does not change.
+
+`GET /desktop/status` advertises `open-editor` when the agent opens an
+execution's folder in the workstation editor (#535). `POST
+/desktop/open-editor` with `{runId}` takes the folder from the run, never from
+the request, and starts `defaults.editorCommand` on it the way the
+`open_editor` operation does. It answers `{editor, directory}`; 400 without a
+run ID, 404 for an unknown run, 409 when the run has no folder or no editor is
+set (it never falls back to `code`), 410 when the folder no longer exists, and
+500 with the launch error.
 
 `repositories` maps each repository of a multi-repo project, by its
 `host/path` identity, to the folder holding its checkout on this workstation
@@ -735,7 +815,11 @@ The agent seeds its defaults after the first identity check of a connection,
 and a project the first time it resolves it, once each (`seeded`). It writes
 only the keys the file does not set, and only where they change the outcome of
 the local resolution, computed with the pre-#305 precedence so a launch
-resolves what it resolved before the upgrade. A fetch failure writes and marks
+resolves what it resolved before the upgrade. Since #510 the engine goes to
+the catalogue: the deployment's becomes the workstation default engine while
+the workstation states none (`seeded.defaultEngine`), and a project that
+resolves differently picks an entry, found or created, completing the pick it
+may already have. A fetch failure writes and marks
 nothing; the next connection or resolution retries. A disconnected project is
 not seeded, and pairing to another server does not seed the defaults again.
 
@@ -755,7 +839,8 @@ not seeded, and pairing to another server does not seed the defaults again.
 ```
 
 The agent sends it, for every project it serves, after registering its
-WebSocket and after each local save. A model is reported only when it reaches
+WebSocket and after each local save. It describes the project default engine;
+a task switched to another engine changes nothing in it. A model is reported only when it reaches
 the command line; `modelSlot` says whether a launch model can; `headless`
 whether an autonomous run is possible. The report belongs to the credential's
 user and to `deviceId`, the device the agent presents on its WebSocket; the
@@ -993,15 +1078,20 @@ receives the engine's final answer and any diagnostic printed beside the stream,
 never the stream's frames. A run that ends without an answer reports the reason
 its result frame carries, so a failure is not recorded as an empty entry.
 
-### Free desktop agent consoles
+### Desktop project prompts
 
-`GET /desktop/status` advertises `free-console`. Authenticated
-`POST /desktop/consoles` accepts `{"projectId":"...","provider":"codex"}` or
-`provider: "claude"` and returns HTTP 202 with the admitted local run. Browser
-Origin headers are rejected. Invalid input returns 400, unavailable server
-configuration returns 502, and local mapping or shutdown conflicts return 409.
+`GET /desktop/status` advertises `free-console` and `task-engines`.
+Authenticated `POST /desktop/consoles` accepts
+`{"projectId":"...","engineId":"..."}`. The engine must exist in the workstation
+catalogue; a removed identity returns 404. The desktop offers the catalogue
+from `GET /desktop/task-engines?projectId=...` and selects the project default.
+The engine's model and interactive template apply to this launch only.
+Templates receive an empty prompt and the mapped repository as `{repoPath}`.
+Built-in providers open an interactive session without a prompt argument.
+Legacy `{"projectId":"...","provider":"codex"}` requests remain supported
+for built-in providers. Custom commands must be selected by engine identity.
 
-The run has `kind: "console"`, a `provider`, a unique local ID, and empty task,
+The run has `kind: "console"`, a `provider`, the selected `engineId`, `engineName` and `model`, a unique local ID, and empty task,
 skill, and prompt fields. Its CLI receives no arguments. Project mappings and
 execution limits apply; the console reserves the mapped shared checkout through
 the existing queue. It does not scaffold tooling, create a worktree, or mutate

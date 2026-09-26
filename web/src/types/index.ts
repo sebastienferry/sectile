@@ -403,6 +403,21 @@ export interface PullRequestLink {
   branch?: string
 }
 
+/** Where a ticket stands in the batch run that covers it. */
+export type BatchMemberState = 'waiting' | 'processing' | 'done'
+
+/** A ticket's place in a running batch, as the server reports it on the task. */
+export interface TaskBatch {
+  /** The batch run, which sits on the lead ticket. */
+  runId: string
+  leadTaskId: string
+  leadKey: string
+  /** 1 for the lead, in launch order. */
+  position: number
+  size: number
+  state: BatchMemberState
+}
+
 export interface Task {
   id: string
   projectId?: string
@@ -458,6 +473,8 @@ export interface Task {
   parentTitle?: string
   parentType?: string
   activities?: TaskActivity[]
+  /** The ticket's place in a running batch (#522); absent when it is in none. */
+  batch?: TaskBatch
   createdAt: string
   updatedAt: string
 }

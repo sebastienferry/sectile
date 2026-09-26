@@ -123,7 +123,8 @@ func TestLegacyLayoutIsFoldedAndRewritten(t *testing.T) {
 		MCPConnections:       map[string]MCPConnection{"claude": {Transport: "http", Target: "local"}},
 		Skills:               map[string]string{"implement": "local"},
 	}
-	if !reflect.DeepEqual(got, want) {
+	// The engine settings land in the catalogue (#510), as ReadSettings converts.
+	if want = converted(want); !reflect.DeepEqual(got, want) {
 		t.Fatalf("fold:\n got  %+v\n want %+v", got, want)
 	}
 	if err := WriteSettings(got); err != nil {
@@ -142,7 +143,7 @@ func TestLegacyLayoutIsFoldedAndRewritten(t *testing.T) {
 			t.Errorf("connection key %q lost", key)
 		}
 	}
-	if string(fields["layout"]) != "2" {
+	if string(fields["layout"]) != "3" {
 		t.Fatalf("layout: %s", fields["layout"])
 	}
 	again, err := ReadSettings(t.TempDir())

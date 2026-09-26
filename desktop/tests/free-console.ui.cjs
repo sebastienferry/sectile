@@ -9,9 +9,10 @@ test('free consoles launch without prompts, reconnect and stop independently',as
  const runs=[],launches=[],resultReads=[];let failLaunch=true,inputs='',attachments=0,taskWrites=0,taskReads=0
  const server=http.createServer((req,res)=>{
   assert.equal(req.headers.authorization,'Bearer test-secret');res.setHeader('Content-Type','application/json')
-  if(req.url==='/desktop/status'){res.end(JSON.stringify({connected:true,server:'http://example.test',capabilities:['free-console']}));return}
+  if(req.url==='/desktop/status'){res.end(JSON.stringify({connected:true,server:'http://example.test',capabilities:['free-console','task-engines']}));return}
   if(req.url==='/desktop/projects'){res.end(JSON.stringify([{id:'p',name:'Project',path:'/tmp/repo'}]));return}
   if(req.url==='/desktop/project?id=p'){res.end(JSON.stringify({configured:true,parallelism:2,server:{aiProvider:'claude',skills:[]}}));return}
+  if(req.url==='/desktop/task-engines?projectId=p'){res.end(JSON.stringify({projectDefault:'e-claude',catalogue:[{id:'e-claude',name:'Claude',provider:'claude'},{id:'e-codex',name:'Codex',provider:'codex'},{id:'e-custom',name:'Local custom',provider:'custom'}]}));return}
   if(req.url==='/desktop/runs'){res.end(JSON.stringify(runs));return}
   if(req.url.startsWith('/desktop/run-result')){resultReads.push(req.url);res.writeHead(404).end();return}
   if(req.url.startsWith('/desktop/tasks?')){if(req.method==='POST')taskWrites++;else taskReads++;res.end('[]');return}
@@ -19,7 +20,7 @@ test('free consoles launch without prompts, reconnect and stop independently',as
    let raw='';req.on('data',chunk=>raw+=chunk);req.on('end',()=>{
     if(failLaunch){res.writeHead(409);res.end('Project unavailable');return}
     const input=JSON.parse(raw);launches.push(input);const id='console-'+launches.length
-    const run={id,kind:'console',provider:input.provider,projectId:input.projectId,taskId:'',skill:'',directory:'/tmp/repo',sessionId:id,status:'running'}
+    const run={id,kind:'console',provider:input.engineId==='e-codex'?'codex':'claude',engineId:input.engineId,engineName:input.engineId==='e-codex'?'Codex':'Claude',projectId:input.projectId,taskId:'',skill:'',directory:'/tmp/repo',sessionId:id,status:'running'}
     runs.push(run);res.writeHead(202);res.end(JSON.stringify(run))
    });return
   }
@@ -38,23 +39,24 @@ test('free consoles launch without prompts, reconnect and stop independently',as
  const open=async()=>{app=await electron.launch({args:[path.resolve(__dirname,'..')],env});const page=await app.firstWindow();page.setDefaultTimeout(7000);return page}
  try{
   let page=await open()
-  await page.locator('.project-row').first().click({button:'right'});await page.getByRole('menuitem',{name:'Open agent console',exact:true}).click()
+  await page.locator('.project-row').first().click({button:'right'});await page.getByRole('menuitem',{name:'Project prompt',exact:true}).click()
   const provider=page.getByLabel('Console agent')
-  await page.waitForFunction(()=>document.querySelector('[aria-label="Console agent"]').value==='claude')
+  await page.waitForFunction(()=>document.querySelector('[aria-label="Console agent"]').value==='e-claude')
   assert.equal(await page.locator('dialog textarea').count(),0)
+  assert.equal(await provider.locator('option').count(),3)
   await page.getByRole('button',{name:'Open console',exact:true}).click()
   await page.getByText('Project unavailable',{exact:false}).waitFor()
   assert.equal(await page.getByRole('button',{name:'Open console',exact:true}).isEnabled(),true)
-  failLaunch=false;await provider.selectOption('codex');await page.getByRole('button',{name:'Open console',exact:true}).click()
-  await page.waitForFunction(()=>document.querySelector('#title').textContent==='Codex console')
-  assert.deepEqual(launches,[{projectId:'p',provider:'codex'}])
+  failLaunch=false;await provider.selectOption('e-codex');await page.getByRole('button',{name:'Open console',exact:true}).click()
+  await page.waitForFunction(()=>document.querySelector('#title').textContent==='Codex · Project prompt')
+  assert.deepEqual(launches,[{projectId:'p',engineId:'e-codex'}])
   assert.equal(await page.locator('#next-step').isHidden(),true);assert.equal(await page.locator('.task-number').count(),0)
   assert.equal(await page.locator('#selected-pr').isHidden(),true)
   await page.locator('.xterm-helper-textarea').pressSequentially('hello agent');await page.locator('.xterm-helper-textarea').press('Enter')
   await page.waitForTimeout(150);assert.match(inputs,/hello agent\r/)
-  await page.getByRole('button',{name:'Actions for Project',exact:true}).click();await page.getByRole('menuitem',{name:'Open agent console',exact:true}).click();await page.getByRole('button',{name:'Open console',exact:true}).click()
+  await page.getByRole('button',{name:'Actions for Project',exact:true}).click();await page.getByRole('menuitem',{name:'Project prompt',exact:true}).click();await page.getByRole('button',{name:'Open console',exact:true}).click()
   await page.waitForFunction(()=>document.querySelectorAll('.local-task').length===2)
-  assert.equal(launches[1].provider,'claude');assert.equal(await page.locator('#execution-history').isHidden(),true)
+  assert.equal(launches[1].engineId,'e-claude');assert.equal(await page.locator('#execution-history').isHidden(),true)
   assert.equal(resultReads.length,0);assert.equal(taskWrites,0);assert.equal(taskReads,0)
   const before=attachments
   await app.close();app=null;page=await open()
@@ -65,10 +67,10 @@ test('free consoles launch without prompts, reconnect and stop independently',as
   await page.waitForFunction(()=>document.querySelector('#skill-result').hidden)
   assert.ok(attachments>before);assert.equal(runs[0].status,'canceled');assert.equal(runs[1].status,'running')
   await page.getByRole('button',{name:'Relaunch',exact:true}).click()
-  await page.waitForFunction(()=>document.querySelector('[aria-label="Console agent"]').value==='codex')
+  await page.waitForFunction(()=>document.querySelector('[aria-label="Console agent"]').value==='e-codex')
   await page.getByRole('button',{name:'Open console',exact:true}).click()
   await page.waitForFunction(()=>document.querySelectorAll('.local-task').length===3)
-  assert.deepEqual(launches[2],{projectId:'p',provider:'codex'});assert.equal(resultReads.length,0);assert.equal(taskWrites,0);assert.equal(taskReads,0)
+  assert.deepEqual(launches[2],{projectId:'p',engineId:'e-codex'});assert.equal(resultReads.length,0);assert.equal(taskWrites,0);assert.equal(taskReads,0)
   await page.screenshot({path:path.join(root,'free-console.png')});console.log('Free-console screenshot: '+path.join(root,'free-console.png'))
  }finally{
   if(app)await app.close()

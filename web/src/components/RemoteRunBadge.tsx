@@ -6,23 +6,15 @@ import { deriveRunIndicator, type RunIndicatorState } from '../lib/remoteRunIndi
 import { RunStateGlyph } from './RunStateGlyph'
 import { runState } from '../../../shared/runStates'
 import { runEngineLabel } from '../lib/runEngine'
+import { format, isLocale } from '../lib/i18n'
+import { localizeActivityText } from '../lib/activityText'
 
 // The indicator is a bare glyph: a filled box would read as an action button
 // competing with the card's own controls, and the state already carries in the
 // colour. The glyph and the colour come from the shared run-state definition,
 // which is also what the desktop puts on its notification, so the two cannot
-// drift apart.
-const LABELS: Record<RunIndicatorState, string> = {
-  waiting: 'Remote execution waiting for you',
-  silent: 'Remote execution silent: its client stopped making calls a while ago',
-  running: 'Remote execution running',
-  queued: 'Remote execution queued',
-  canceled: 'Remote execution canceled',
-}
-
-/** A launch parked until its ticket is pinned asks for a repository, not an answer. */
-const REPOSITORY_WAIT_LABEL = 'Remote execution waiting for the repository of its ticket'
-
+// drift apart. The state labels live in `t.shell.remoteRun.states`; a launch
+// parked until its ticket is pinned asks for a repository, not an answer.
 /** The state glyph, at badge size, pulsing while the state lasts. */
 function StateGlyph({ state, pulse }: { state: RunIndicatorState; pulse: boolean }) {
   return (
@@ -49,7 +41,9 @@ function formatWaited(since?: string): string {
 }
 
 export function RemoteRunBadge({ taskId }: { taskId: string }) {
-  const { activities, fetchActivities, addToast } = useApp()
+  const { activities, fetchActivities, addToast, t, settings } = useApp()
+  const locale = isLocale(settings.language) ? settings.language : 'fr'
+  const strings = t.shell.remoteRun
   const [canceling, setCanceling] = useState(false)
   const [hovered, setHovered] = useState(false)
   const [unreachable, setUnreachable] = useState(false)
@@ -64,7 +58,8 @@ export function RemoteRunBadge({ taskId }: { taskId: string }) {
   const skills = runs
     .map(run => {
       const engine = runEngineLabel(run)
-      return engine ? `${run.skillName} (${engine})` : run.skillName
+      const skill = localizeActivityText(run.skillName, locale)
+      return engine ? `${skill} (${engine})` : skill
     })
     .join(', ')
   const waited = state === 'waiting' ? formatWaited(waitingSince) : ''
@@ -72,10 +67,10 @@ export function RemoteRunBadge({ taskId }: { taskId: string }) {
   // what tells the difference between a button that will work and one that
   // answers that the execution is not yours.
   const owners = [...new Set(runs.map(run => run.userName).filter(Boolean))].join(', ')
-  const baseLabel = state === 'waiting' && waitingReason === 'repository' ? REPOSITORY_WAIT_LABEL : LABELS[state]
-  const stateLabel = baseLabel + (waited ? ` for ${waited}` : '')
+  const baseLabel = state === 'waiting' && waitingReason === 'repository' ? strings.repositoryWait : strings.states[state]
+  const stateLabel = baseLabel + (waited ? format(strings.waitedFor, { duration: waited }) : '')
     + (count > 1 ? ` (${count})` : '') + (skills ? ` (${skills})` : '')
-    + (owners ? ` started by ${owners}` : '')
+    + (owners ? format(strings.startedBy, { owners }) : '')
 
   // closing marks a client run being closed rather than an agent run being
   // stopped: there is no agent to be unreachable, so no force is ever offered.
@@ -88,7 +83,7 @@ export function RemoteRunBadge({ taskId }: { taskId: string }) {
         })
         if (!response.ok) {
           const error = await response.json()
-          throw Object.assign(new Error(error.error || 'Could not confirm execution stopped'), { status: response.status })
+          throw Object.assign(new Error(error.error || strings.cancelUnconfirmed), { status: response.status })
         }
       }
       await fetchActivities()
@@ -100,7 +95,7 @@ export function RemoteRunBadge({ taskId }: { taskId: string }) {
       // ours, so the server's answer is simply shown.
       const refused = typeof error === 'object' && error !== null && (error as { status?: number }).status === 403
       if (!force && !refused && !closing) setUnreachable(true)
-      addToast({ type: 'error', title: closing ? 'Close failed' : 'Cancellation failed', description: error instanceof Error ? error.message : String(error) })
+      addToast({ type: 'error', title: closing ? strings.closeFailed : strings.cancelFailed, description: error instanceof Error ? error.message : String(error) })
     } finally { setCanceling(false) }
   }
 
@@ -119,8 +114,7 @@ export function RemoteRunBadge({ taskId }: { taskId: string }) {
       : <StateGlyph state={state} pulse={state === 'running'} />
 
   if (closing) {
-    const closeLabel = (canceling ? 'Closing ' : 'Close ') + skills
-      + ': its client made the run, no agent holds it. The owner can still report how it ended.'
+    const closeLabel = format(canceling ? strings.closing : strings.close, { skills })
     return (
       <button type="button" disabled={canceling} title={showAction || canceling ? closeLabel : stateLabel} aria-label={closeLabel}
         onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}
@@ -136,12 +130,12 @@ export function RemoteRunBadge({ taskId }: { taskId: string }) {
     return <span role="status" title={stateLabel} aria-label={stateLabel} className={shape} style={tint}>{glyph}</span>
   }
 
-  const actionLabel = canceling ? 'Stopping ' + skills : 'Stop ' + skills
+  const actionLabel = format(canceling ? strings.stopping : strings.stop, { skills })
   if (unreachable) {
     return (
       <button type="button" disabled={canceling}
-        title="The agent could not be reached. Close this run without stopping any local process."
-        aria-label={'Force close ' + skills}
+        title={strings.unreachable}
+        aria-label={format(strings.forceClose, { skills })}
         onClick={event => { event.stopPropagation(); void cancelRuns(cancelableRunIds, true) }}
         className={shape + interactive} style={tint}>
         <StateGlyph state="canceled" pulse={false} />

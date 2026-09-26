@@ -294,3 +294,33 @@ func TestMCPAbandonAfterOverride(t *testing.T) {
 		}
 	}
 }
+
+func TestMCPKeepaliveOverrides(t *testing.T) {
+	if got := mcpKeepaliveInterval(); got != taskmcp.DefaultKeepaliveInterval {
+		t.Fatalf("default keepalive interval = %s, want %s", got, taskmcp.DefaultKeepaliveInterval)
+	}
+	if got := mcpKeepaliveFailures(); got != taskmcp.DefaultKeepaliveFailures {
+		t.Fatalf("default keepalive failures = %d, want %d", got, taskmcp.DefaultKeepaliveFailures)
+	}
+	t.Setenv("SECTILE_MCP_KEEPALIVE_INTERVAL", "10s")
+	t.Setenv("SECTILE_MCP_KEEPALIVE_FAILURES", "5")
+	if got := mcpKeepaliveInterval(); got != 10*time.Second {
+		t.Fatalf("configured keepalive interval = %s, want 10s", got)
+	}
+	if got := mcpKeepaliveFailures(); got != 5 {
+		t.Fatalf("configured keepalive failures = %d, want 5", got)
+	}
+	// An unusable value must not stop the pings or close sessions at once.
+	for _, raw := range []string{"often", "-1s", "0"} {
+		t.Setenv("SECTILE_MCP_KEEPALIVE_INTERVAL", raw)
+		if got := mcpKeepaliveInterval(); got != taskmcp.DefaultKeepaliveInterval {
+			t.Fatalf("keepalive interval for %q = %s, want the default", raw, got)
+		}
+	}
+	for _, raw := range []string{"three", "-1", "0"} {
+		t.Setenv("SECTILE_MCP_KEEPALIVE_FAILURES", raw)
+		if got := mcpKeepaliveFailures(); got != taskmcp.DefaultKeepaliveFailures {
+			t.Fatalf("keepalive failures for %q = %d, want the default", raw, got)
+		}
+	}
+}

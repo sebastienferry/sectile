@@ -30,6 +30,8 @@ import { runStateOf, runStateLabel } from '../../../shared/runStates'
 import type { ActivityStatus, TaskActivity } from '../types'
 import { runEngineLabel } from '../lib/runEngine'
 import { matchesSearch } from '../lib/searchFold'
+import { format, formatDateTime, formatTime, isLocale } from '../lib/i18n'
+import { localizeActivityText } from '../lib/activityText'
 
 // The badge's colour stays a Tailwind class rather than the hex value the shared
 // definition carries: replacing the palette is its own change, tracked apart to
@@ -62,8 +64,13 @@ export const ActivitiesView: React.FC = () => {
     setSelectedTask,
     tasks,
     skills,
+    settings,
     t,
   } = useApp()
+  const locale = isLocale(settings.language) ? settings.language : 'fr'
+  const op = t.operations.activities
+  // Server-written activity text, in the viewer's language (ADR 0035).
+  const localized = (text: string) => localizeActivityText(text, locale)
 
   // 'waiting' is not an activity status: a blocked run is still running. It is
   // a filter of its own because it answers the question the status cannot.
@@ -148,40 +155,27 @@ export const ActivitiesView: React.FC = () => {
       }
 
       if (
-        !matchesSearch(searchQuery, act.taskKey, act.taskTitle, act.skillName, act.summary, act.action, act.output)
+        !matchesSearch(
+          searchQuery, act.taskKey, act.taskTitle, act.skillName, act.summary, act.action, act.output,
+          // What the viewer reads is searchable too, not only the stored French.
+          localizeActivityText(act.summary, locale), localizeActivityText(act.action, locale),
+        )
       ) {
         return false
       }
 
       return true
     })
-  }, [activities, statusFilter, skillFilter, searchQuery])
+  }, [activities, statusFilter, skillFilter, searchQuery, locale])
 
-  const formatDate = (isoString?: string) => {
-    if (!isoString) return ''
-    try {
-      const d = new Date(isoString)
-      return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
-    } catch {
-      return isoString
-    }
-  }
+  // Times and dates follow the UI language, never the browser's.
+  const formatClock = (isoString?: string) =>
+    isoString ? formatTime(locale, isoString, { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : ''
 
-  const formatFullDate = (isoString?: string) => {
-    if (!isoString) return ''
-    try {
-      const d = new Date(isoString)
-      return d.toLocaleString([], {
-        day: '2-digit',
-        month: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-      })
-    } catch {
-      return isoString
-    }
-  }
+  const formatFullDate = (isoString?: string) =>
+    isoString
+      ? formatDateTime(locale, isoString, { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' })
+      : ''
 
   return (
     <div className="flex-1 flex flex-col h-full overflow-hidden bg-[var(--bg-primary)]">
@@ -204,7 +198,7 @@ export const ActivitiesView: React.FC = () => {
               {activityStats.running > 0 && (
                 <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-500/20 text-blue-400 border border-blue-500/40 animate-pulse font-mono">
                   <span className="w-2 h-2 rounded-full bg-blue-400 animate-ping" />
-                  {activityStats.running} en cours
+                  {format(op.runningCount, { count: activityStats.running })}
                 </span>
               )}
             </div>
@@ -450,7 +444,7 @@ export const ActivitiesView: React.FC = () => {
                 {activities.length === 0 ? t.activities.empty.title : t.activities.empty.noFilterMatch}
               </h3>
               <p className="text-xs text-[var(--text-muted)] max-w-sm mt-1">
-                {activities.length === 0 ? t.activities.empty.desc : 'Modifiez vos filtres de recherche pour afficher les activités.'}
+                {activities.length === 0 ? t.activities.empty.desc : op.noFilterMatchDescription}
               </p>
             </div>
           ) : (
@@ -480,7 +474,7 @@ export const ActivitiesView: React.FC = () => {
                       <div className="min-w-0">
                         <div className="flex items-center gap-2">
                           <span className="font-bold text-xs text-[var(--text-primary)] truncate">
-                            {act.skillName || act.skillId}
+                            {localized(act.skillName || act.skillId)}
                           </span>
                           {runEngineLabel(act) && (
                             <span className="text-[10px] font-mono text-[var(--text-muted)] truncate">{runEngineLabel(act)}</span>
@@ -513,7 +507,7 @@ export const ActivitiesView: React.FC = () => {
                     {/* Meta: Duration & Date */}
                     <div className="text-right shrink-0 flex flex-col items-end gap-1">
                       <span className="text-[11px] font-mono text-[var(--text-muted)]">
-                        {formatDate(act.createdAt)}
+                        {formatClock(act.createdAt)}
                       </span>
                       {act.duration && (
                         <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-[var(--bg-tertiary)] text-[var(--text-secondary)] border border-[var(--border-color)] font-semibold">
@@ -526,7 +520,7 @@ export const ActivitiesView: React.FC = () => {
                   {/* Summary / Output Snippet */}
                   {act.summary && (
                     <p className="text-xs text-[var(--text-secondary)] mt-2.5 line-clamp-2 bg-[var(--bg-tertiary)]/40 p-2 rounded-xl border border-[var(--border-color)]/60 font-mono text-[11px]">
-                      {act.summary}
+                      {localized(act.summary)}
                     </p>
                   )}
 
@@ -541,10 +535,10 @@ export const ActivitiesView: React.FC = () => {
                   <div className="flex items-center justify-between mt-3 pt-2.5 border-t border-[var(--border-color)]/50 text-xs text-[var(--text-muted)]">
                     <div className="flex items-center gap-2">
                       <span className="text-[10px] uppercase font-bold text-[var(--text-muted)]">
-                        Action :
+                        {op.actionLabel}
                       </span>
                       <span className="text-[11px] text-[var(--text-secondary)] truncate max-w-xs">
-                        {act.action}
+                        {localized(act.action)}
                       </span>
                     </div>
 
@@ -606,7 +600,7 @@ export const ActivitiesView: React.FC = () => {
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
                     <h2 className="text-base font-bold text-[var(--text-primary)] truncate">
-                      {selectedActivity.skillName}
+                      {localized(selectedActivity.skillName)}
                     </h2>
                     {runEngineLabel(selectedActivity) && (
                       <span className="text-[11px] font-mono text-[var(--text-muted)] truncate">
@@ -648,7 +642,7 @@ export const ActivitiesView: React.FC = () => {
                 <button
                   onClick={() => setSelectedActivity(null)}
                   className="p-1.5 rounded-lg text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-secondary)] transition-colors"
-                  title="Fermer l'inspecteur"
+                  title={op.closeInspector}
                 >
                   <XCircle size={18} />
                 </button>
@@ -666,10 +660,10 @@ export const ActivitiesView: React.FC = () => {
                   <div className="min-w-0">
                     <div className="text-xs font-bold text-[var(--text-primary)] truncate">
                       {selectedActivity.taskKey ? `[${selectedActivity.taskKey}] ` : ''}
-                      {selectedActivity.taskTitle || 'Tâche liée'}
+                      {selectedActivity.taskTitle || op.linkedTask}
                     </div>
                     <div className="text-[11px] text-[var(--text-muted)] truncate">
-                      {selectedActivity.action}
+                      {localized(selectedActivity.action)}
                     </div>
                   </div>
                 </div>
@@ -686,21 +680,21 @@ export const ActivitiesView: React.FC = () => {
               {/* Execution Timing Metadata */}
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
                 <div className="p-2.5 rounded-xl bg-[var(--bg-tertiary)]/50 border border-[var(--border-color)]">
-                  <div className="text-[10px] text-[var(--text-muted)] font-bold uppercase">Créée à</div>
+                  <div className="text-[10px] text-[var(--text-muted)] font-bold uppercase">{op.createdAt}</div>
                   <div className="font-mono text-[var(--text-primary)] font-semibold mt-0.5">
-                    {formatDate(selectedActivity.createdAt) || 'N/A'}
+                    {formatClock(selectedActivity.createdAt) || op.notAvailable}
                   </div>
                 </div>
                 <div className="p-2.5 rounded-xl bg-[var(--bg-tertiary)]/50 border border-[var(--border-color)]">
-                  <div className="text-[10px] text-[var(--text-muted)] font-bold uppercase">Démarrée à</div>
+                  <div className="text-[10px] text-[var(--text-muted)] font-bold uppercase">{op.startedAt}</div>
                   <div className="font-mono text-[var(--text-primary)] font-semibold mt-0.5">
-                    {selectedActivity.startedAt ? formatDate(selectedActivity.startedAt) : 'En attente...'}
+                    {selectedActivity.startedAt ? formatClock(selectedActivity.startedAt) : op.pending}
                   </div>
                 </div>
                 <div className="p-2.5 rounded-xl bg-[var(--bg-tertiary)]/50 border border-[var(--border-color)]">
-                  <div className="text-[10px] text-[var(--text-muted)] font-bold uppercase">Durée totale</div>
+                  <div className="text-[10px] text-[var(--text-muted)] font-bold uppercase">{op.totalDuration}</div>
                   <div className="font-mono text-emerald-400 font-semibold mt-0.5">
-                    {selectedActivity.duration || (selectedActivity.status === 'running' ? 'En cours...' : 'N/A')}
+                    {selectedActivity.duration || (selectedActivity.status === 'running' ? op.inProgress : op.notAvailable)}
                   </div>
                 </div>
               </div>
@@ -731,13 +725,13 @@ export const ActivitiesView: React.FC = () => {
                         <div className="w-4 h-4 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0 mt-0.5 text-[10px] font-bold">
                           ✓
                         </div>
-                        <span className="font-mono text-[11px] leading-relaxed">{step}</span>
+                        <span className="font-mono text-[11px] leading-relaxed">{localized(step)}</span>
                       </div>
                     ))}
                     {selectedActivity.status === 'running' && (
                       <div className="flex items-center gap-2.5 text-xs text-blue-400 animate-pulse pt-1">
                         <Loader2 size={13} className="animate-spin shrink-0" />
-                        <span className="font-mono text-[11px]">Exécution en cours avec l'agent IA...</span>
+                        <span className="font-mono text-[11px]">{op.runningWithAgent}</span>
                       </div>
                     )}
                   </div>
@@ -807,7 +801,7 @@ export const ActivitiesView: React.FC = () => {
                   {selectedActivity.status === 'running' && !selectedActivity.output ? (
                     <div className="flex items-center justify-center py-12 text-slate-400 gap-2">
                       <Loader2 size={16} className="animate-spin text-blue-400" />
-                      <span>Exécution du processus IA en cours... Les logs apparaîtront ici.</span>
+                      <span>{op.runningNoOutput}</span>
                     </div>
                   ) : selectedActivity.output ? (
                     outputViewMode === 'rendered' ? (
@@ -819,7 +813,7 @@ export const ActivitiesView: React.FC = () => {
                     )
                   ) : (
                     <div className="text-slate-500 italic py-8 text-center">
-                      Aucune sortie générée.
+                      {op.noOutput}
                     </div>
                   )}
                 </div>
@@ -832,10 +826,10 @@ export const ActivitiesView: React.FC = () => {
               <Terminal size={28} />
             </div>
             <h3 className="text-sm font-bold text-[var(--text-primary)]">
-              Sélectionnez une activité
+              {op.selectTitle}
             </h3>
             <p className="text-xs text-[var(--text-muted)] max-w-xs mt-1">
-              Cliquez sur une exécution de skill pour visualiser ses étapes détaillées, son statut et ses logs de sortie en temps réel.
+              {op.selectDescription}
             </p>
           </div>
         )}

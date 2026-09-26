@@ -84,6 +84,8 @@ type agentDaemon struct {
 	done             chan struct{}
 	contract         contractState
 	launchTerminalFn func(terminalApp, sessionID string) error
+	// openEditorFn replaces the editor launch in tests (#535).
+	openEditorFn func(editor, directory string) error
 	// capabilities serializes the engine reports sent to the server (#305).
 	capabilities capabilityReporter
 }
@@ -328,6 +330,14 @@ func Run(args []string) {
 	log.Printf("🚀 Sectile Agent starting (server=%s, project=%s, device=%s)", daemon.link.serverURL, daemon.link.projectID, daemon.link.deviceID)
 
 	daemon.loopback.binarySha256 = executableSha256()
+	// The engine settings of #305 become the engine catalogue once, before the
+	// first project sync and capability report (#510). A failure leaves the
+	// file alone: every read converts it in memory anyway.
+	if migrated, err := agentconfig.MigrateSettings(daemon.localSettingsRoot()); err != nil {
+		log.Printf("[Agent] Engine settings not converted to the engine catalogue: %v", err)
+	} else if migrated {
+		log.Printf("[Agent] Engine settings converted to the engine catalogue; the previous file is kept beside it")
+	}
 	// Start local agent HTTP reverse proxy gateway
 	if err := daemon.startLocalProxy(ctx); err != nil {
 		log.Printf("[Agent] Cannot bootstrap MCP without the local gateway: %v", err)
@@ -1120,10 +1130,12 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 		} else {
 			preflightErr = fmt.Errorf("provider %q has no headless mode: run this skill interactively, or configure an AI command template carrying a {mode:AUTONOMOUS|INTERACTIVE} placeholder", provider)
 		}
+		preflightErr = engineError(config, preflightErr)
 		launchFailure = preflightErr
 		d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", preflightErr.Error())
 		return
 	}
+	logIgnoredModel(config, taskRef, payload.Model)
 	folders := d.taskFolderMap(ctx, config, task, workDir)
 	payload.Prompt += folderMapPrompt(folders)
 	fullLine, err := dispatchCommand(config, taskRef, payload.SkillID, payload.Action, payload.Prompt, payload.Command, payload.Mode, payload.Model, agentCommandContext{Task: task, Branch: branch, Directory: workDir, Tracker: config.IssueTracker, Repo: config.GithubRepo, AddDirs: folderMapDirs(folders)})

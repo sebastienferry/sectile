@@ -316,17 +316,42 @@ ipcMain.handle('save-workstation-settings',(_,defaults)=>{
  if(!defaults||typeof defaults!=='object'||Array.isArray(defaults))throw Error('Invalid workstation settings')
  return api('/desktop/workstation','PUT',defaults)
 })
+// The engine catalogue and the per-task engine (#510). An agent that predates
+// them answers nothing useful, so a write names the update it needs.
+async function requireTaskEngines(){
+ const status=await api('/desktop/status')
+ if(!status.capabilities?.includes('task-engines'))throw Error('Update and restart the local agent to manage engines.')
+}
+ipcMain.handle('engines',()=>api('/desktop/engines'))
+ipcMain.handle('save-engines',async(_,input)=>{
+ if(!input||!Array.isArray(input.catalogue))throw Error('Invalid engine catalogue')
+ await requireTaskEngines()
+ return api('/desktop/engines','PUT',{catalogue:input.catalogue,default:input.default||''})
+})
+ipcMain.handle('task-engines',(_,projectId)=>api('/desktop/task-engines?projectId='+encodeURIComponent(projectId)))
+ipcMain.handle('set-task-engine',async(_,{projectId,taskId,engineId}={})=>{
+ await requireTaskEngines()
+ return api('/desktop/task-engines','PUT',{projectId,taskId,engineId})
+})
 ipcMain.handle('choose-repository',async()=>{
  const result=await dialog.showOpenDialog(window,{title:'Select local repository',properties:['openDirectory']})
  return result.canceled?null:result.filePaths[0]
 })
 ipcMain.handle('server-tasks',(_,id,q,launchable)=>api('/desktop/tasks?projectId='+encodeURIComponent(id)+'&q='+encodeURIComponent(q||'')+'&launchable='+Boolean(launchable)))
-ipcMain.handle('launch-console',(_,projectId,provider)=>api('/desktop/consoles','POST',{projectId,provider}))
+ipcMain.handle('launch-console',(_,projectId,provider,engineId)=>api('/desktop/consoles','POST',engineId?{projectId,engineId}:{projectId,provider}))
 // An absent mode means "no override": nothing is sent, so a launch with no
 // explicit choice puts exactly the payload on the wire that it always did.
 ipcMain.handle('launch-server-task',(_,id,taskID,skillID,prompt,mode,force)=>api('/desktop/tasks?projectId='+encodeURIComponent(id),'POST',Object.assign({taskID,skillID,prompt},mode?{mode}:null,force?{force:true}:null)))
 ipcMain.handle('launch-native-discussion',async(_,{projectId,taskId,terminal}={})=>api('/desktop/tasks/terminal-external','POST',{projectId,taskId,skillId:'discuss',terminal}))
 ipcMain.handle('detach-to-native-terminal',async(_,{runId,terminal}={})=>api('/desktop/terminal/detach','POST',{runId,terminal}))
+// Opening a worktree in the editor (#535) names the run, never a path: the
+// agent resolves the folder itself. An older agent has no such route.
+ipcMain.handle('open-editor',async(_,runId)=>{
+ if(typeof runId!=='string'||!runId)throw Error('Run ID required')
+ const status=await api('/desktop/status')
+ if(!status.capabilities?.includes('open-editor'))throw Error('Update and restart the local agent to open the editor.')
+ return api('/desktop/open-editor','POST',{runId})
+})
 ipcMain.handle('open-board',async()=>{
  const status=await api('/desktop/status')
  if(!status.connected)throw Error('Server disconnected')

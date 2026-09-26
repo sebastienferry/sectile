@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -60,7 +61,8 @@ func TestSeedOnFirstResolution(t *testing.T) {
 	defer server.Close()
 	d.link.serverURL = server.URL
 
-	// The fixture's own project statements survive: only unset keys are seeded.
+	// The fixture's own project statements survive: its project engine and its
+	// worktrees are kept, only what the workstation leaves unset is seeded.
 	if _, _, err := d.localProjectRoot(context.Background(), config); err != nil {
 		t.Fatal(err)
 	}
@@ -71,12 +73,12 @@ func TestSeedOnFirstResolution(t *testing.T) {
 	if !settings.HasSeededDefaults() || !settings.HasSeededProject("p") {
 		t.Fatalf("not marked: %+v", settings.Seeded)
 	}
-	if settings.Defaults.AIProvider != "claude" || settings.Defaults.AIModel != "opus" || settings.Defaults.EditorCommand != "cursor" {
-		t.Fatalf("defaults: %+v", settings.Defaults)
+	if engine := settings.DefaultEngine(); engine.Provider != "claude" || engine.Model != "opus" || settings.Defaults.EditorCommand != "cursor" {
+		t.Fatalf("defaults: %+v %+v", engine, settings.Defaults)
 	}
-	p := settings.Project("p")
-	if p.AIProvider != "codex" || p.AICommandTemplate != "custom {prompt}" || p.UseWorktrees == nil || !*p.UseWorktrees {
-		t.Fatalf("project section: %+v", p)
+	p, engine := settings.Project("p"), settings.ProjectEngine("p")
+	if engine.Provider != "agy" || engine.Command != "custom {prompt}" || p.UseWorktrees == nil || !*p.UseWorktrees {
+		t.Fatalf("project section: %+v %+v", p, engine)
 	}
 	// Seeded once: a changed server value is never taken again.
 	srv.mu.Lock()
@@ -89,8 +91,8 @@ func TestSeedOnFirstResolution(t *testing.T) {
 	settings, _ = agentconfig.ReadSettings(d.repoRoot)
 	srv.mu.Lock()
 	defer srv.mu.Unlock()
-	if srv.fetches != before || settings.Project("p").AIProvider != "codex" {
-		t.Fatalf("seeded twice: fetches %d → %d, provider %q", before, srv.fetches, settings.Project("p").AIProvider)
+	if srv.fetches != before || settings.ProjectEngine("p").Provider != "agy" {
+		t.Fatalf("seeded twice: fetches %d → %d, provider %q", before, srv.fetches, settings.ProjectEngine("p").Provider)
 	}
 }
 
@@ -131,7 +133,7 @@ func TestSeedSkipsADisconnectedProject(t *testing.T) {
 	}
 	d.seedSettings(context.Background(), config)
 	settings, _ := agentconfig.ReadSettings(d.repoRoot)
-	if settings.HasSeededProject("p") || settings.Project("p").AIProvider != "" {
+	if settings.HasSeededProject("p") || settings.ProjectEngine("p").Provider != "agy" {
 		t.Fatal("a disconnected project was seeded")
 	}
 	if !settings.HasSeededDefaults() {
@@ -163,9 +165,18 @@ func TestCapabilitiesAreReportedAfterADesktopSave(t *testing.T) {
 	server := httptest.NewServer(srv.handler(t, config))
 	defer server.Close()
 	d.link.serverURL = server.URL
-	body, _ := json.Marshal(map[string]any{"aiProvider": "claude", "aiModel": "opus", "editorCommand": "zed", "parallelism": 2})
-	w := disconnectRequest(d, http.MethodPut, "/desktop/workstation", string(body))
-	if w.Code != http.StatusNoContent {
+	// The project runs its own engine: editing that engine is what the report
+	// follows (#510).
+	settings, _ := agentconfig.ReadSettings(d.repoRoot)
+	catalogue := settings.Engines.Catalogue
+	for i := range catalogue {
+		if catalogue[i].ID == settings.ProjectEngine("p").ID {
+			catalogue[i].Provider, catalogue[i].Model = "claude", "opus"
+		}
+	}
+	body, _ := json.Marshal(map[string]any{"catalogue": catalogue, "default": settings.DefaultEngine().ID})
+	w := disconnectRequest(d, http.MethodPut, "/desktop/engines", string(body))
+	if w.Code != http.StatusOK {
 		t.Fatal(w.Code, w.Body.String())
 	}
 	deadline := time.Now().Add(5 * time.Second)
@@ -217,7 +228,11 @@ func TestDesktopWorkstationValidatesAndRoundTrips(t *testing.T) {
 	if settings, _ := agentconfig.ReadSettings(d.repoRoot); settings.Layout != 0 {
 		t.Fatal("a refused save wrote the file")
 	}
-	if w := put(map[string]any{"aiProvider": "claude", "aiSkillModels": map[string]string{"implement": " sonnet ", "clarify": ""}, "aiProviderModels": map[string][]string{"claude": {}}, "useWorktrees": false, "setupProviders": []string{}}); w.Code != http.StatusNoContent {
+	// The engine fields moved to the catalogue (#510): an older desktop is told so.
+	if w := put(map[string]any{"aiProvider": "claude"}); w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "engine catalogue") {
+		t.Fatalf("engine fields: %d %s", w.Code, w.Body.String())
+	}
+	if w := put(map[string]any{"aiSkillModels": map[string]string{"clarify": ""}, "aiProviderModels": map[string][]string{"claude": {}}, "useWorktrees": false, "setupProviders": []string{}, "editorCommand": " zed "}); w.Code != http.StatusNoContent {
 		t.Fatal(w.Code, w.Body.String())
 	}
 	r := httptest.NewRequest(http.MethodGet, "/desktop/workstation", nil)
@@ -228,13 +243,13 @@ func TestDesktopWorkstationValidatesAndRoundTrips(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &view); err != nil {
 		t.Fatal(err)
 	}
-	if view.Defaults.AIProvider != "claude" || view.Defaults.AISkillModels["implement"] != "sonnet" || len(view.Defaults.AISkillModels) != 1 {
-		t.Fatalf("defaults: %+v", view.Defaults)
+	if view.Defaults.StatesEngine() || view.Defaults.EditorCommand != "zed" || view.Effective.DefaultEngine.Provider != agentconfig.DefaultProvider {
+		t.Fatalf("defaults: %+v %+v", view.Defaults, view.Effective)
 	}
 	if list, ok := view.Effective.AIProviderModels["claude"]; !ok || len(list) != 0 {
 		t.Fatalf("an emptied list must stay a choice: %v", view.Effective.AIProviderModels)
 	}
-	if view.Effective.UseWorktrees || view.Effective.EditorCommand != "code" || view.Defaults.SetupProviders == nil {
+	if view.Effective.UseWorktrees || view.Effective.EditorCommand != "zed" || view.Defaults.SetupProviders == nil {
 		t.Fatalf("effective: %+v / %+v", view.Effective, view.Defaults)
 	}
 	if len(view.ProviderModels["codex"]) == 0 {
@@ -259,23 +274,25 @@ func TestDesktopProjectSavesEveryExecutionField(t *testing.T) {
 	if w := save(map[string]any{"parallelism": 0}); w.Code != http.StatusBadRequest {
 		t.Fatal("parallelism 0 was accepted", w.Code)
 	}
+	if w := save(map[string]any{"aiSkillModels": map[string]string{"implement": "sonnet"}}); w.Code != http.StatusBadRequest {
+		t.Fatal("an engine field of #305 was accepted", w.Code)
+	}
 	if w := save(map[string]any{
-		"aiSkillModels": map[string]string{"implement": "sonnet"}, "setupProviders": []string{"codex"},
-		"skillCommands": map[string]string{"implement": "/build-it"}, "parallelism": 4,
+		"setupProviders": []string{"codex"}, "skillCommands": map[string]string{"implement": "/build-it"}, "parallelism": 4,
 	}); w.Code != http.StatusNoContent {
 		t.Fatal(w.Code, w.Body.String())
 	}
 	p, _ := agentconfig.ReadSettings(d.repoRoot)
 	section := p.Project("p")
-	if section.AISkillModels["implement"] != "sonnet" || len(section.SetupProviders) != 1 || section.SkillCommands["implement"] != "/build-it" || section.Parallelism != 4 {
+	if len(section.SetupProviders) != 1 || section.SkillCommands["implement"] != "/build-it" || section.Parallelism != 4 {
 		t.Fatalf("section: %+v", section)
 	}
-	if w := save(map[string]any{"inheritAiSkillModels": true, "inheritSetupProviders": true, "inheritSkillCommands": true, "inheritParallelism": true}); w.Code != http.StatusNoContent {
+	if w := save(map[string]any{"inheritSetupProviders": true, "inheritSkillCommands": true, "inheritParallelism": true}); w.Code != http.StatusNoContent {
 		t.Fatal(w.Code, w.Body.String())
 	}
 	p, _ = agentconfig.ReadSettings(d.repoRoot)
 	section = p.Project("p")
-	if section.AISkillModels != nil || section.SetupProviders != nil || section.SkillCommands != nil || section.Parallelism != 0 {
+	if section.SetupProviders != nil || section.SkillCommands != nil || section.Parallelism != 0 {
 		t.Fatalf("inherit left values: %+v", section)
 	}
 }

@@ -27,19 +27,21 @@ export function CommandModePreview({
   const app = useOptionalApp()
   const t = customT || app?.t || translations.fr
   const aiT = t?.profileModal?.ai
+  // A partial custom catalog (tests) falls back to the French strings.
+  const skillsT = t?.skillsEditor || translations.fr.skillsEditor
 
   const modes: { label: string; autonomous: boolean }[] = [
-    { label: aiT?.modeInteractive || 'Interactif', autonomous: false },
-    { label: aiT?.modeAutonomous || 'Autonome', autonomous: true },
+    { label: aiT?.modeInteractive || skillsT.modes.interactive, autonomous: false },
+    { label: aiT?.modeAutonomous || skillsT.modes.autonomous, autonomous: true },
   ]
 
   return (
     <div className="mt-2 rounded-xl border border-[var(--border-color)] bg-[var(--bg-primary)] p-2.5 space-y-1.5">
       <div className="text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
-        {aiT?.executedCommand || 'Commande exécutée'}
+        {aiT?.executedCommand || skillsT.modes.executedCommand}
       </div>
       {modes.map(mode => {
-        const preview = commandPreview(provider, template, model, mode.autonomous, autonomousTemplate)
+        const preview = commandPreview(provider, template, model, mode.autonomous, autonomousTemplate, skillsT.feedback)
         return (
           <div key={mode.label} className="flex items-start gap-2">
             <span className="shrink-0 w-16 pt-0.5 text-[10px] font-semibold text-[var(--text-secondary)]">

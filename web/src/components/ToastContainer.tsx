@@ -84,6 +84,8 @@ const ToastItem: React.FC<{ toast: ToastMessage; onRemove: (id: string) => void 
       </div>
       <button
         onClick={() => onRemove(toast.id)}
+        title={t.operations.notifications.dismiss}
+        aria-label={t.operations.notifications.dismiss}
         className="p-0.5 text-[var(--text-muted)] hover:text-[var(--text-primary)] rounded transition-colors"
       >
         <X size={14} />

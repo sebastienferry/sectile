@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { RefreshCw, Users, CircleSlash, ExternalLink } from 'lucide-react'
 import { useApp } from '../context/AppContext'
+import { format, formatDate, formatTime, parseDateInput, plural } from '../lib/i18n'
 import { Avatar } from './Avatar'
 import type { Task, TeamMemberLoad, TeamWorkload } from '../types'
 
@@ -24,7 +25,11 @@ export const TeamView: React.FC = () => {
     setSelectedTask,
     activeJobCount,
     currentProject,
+    t,
+    settings,
   } = useApp()
+  const strings = t.planning.team
+  const language = settings.language
 
   const [selectedTeam, setSelectedTeam] = useState<string>('')
   const [workload, setWorkload] = useState<TeamWorkload | null>(null)
@@ -70,22 +75,20 @@ export const TeamView: React.FC = () => {
   }, [workload])
 
   const syncedLabel = (iso?: string): string => {
-    if (!iso) return 'membres jamais lus'
-    const date = new Date(iso)
-    if (Number.isNaN(date.getTime())) return 'membres jamais lus'
-    return `membres lus le ${date.toLocaleDateString()} à ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+    const date = parseDateInput(iso)
+    if (!date) return strings.membersNeverRead
+    return format(strings.membersReadAt, {
+      date: formatDate(language, date, { day: '2-digit', month: '2-digit', year: 'numeric' }),
+      time: formatTime(language, date),
+    })
   }
 
   if (teams.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center h-full gap-3 text-center px-6">
         <Users size={28} className="text-[var(--text-muted)]" />
-        <p className="text-sm font-bold text-[var(--text-primary)]">Aucune équipe sur les tickets</p>
-        <p className="text-xs text-[var(--text-secondary)] max-w-md leading-relaxed">
-          Le champ Équipe du tracker n'est pas obligatoire : cette vue apparaît dès qu'un ticket
-          synchronisé en porte une. Sur Jira, une synchronisation ramène l'équipe de chaque ticket
-          puis lit les personnes de chaque équipe rencontrée.
-        </p>
+        <p className="text-sm font-bold text-[var(--text-primary)]">{strings.emptyTitle}</p>
+        <p className="text-xs text-[var(--text-secondary)] max-w-md leading-relaxed">{strings.emptyBody}</p>
       </div>
     )
   }
@@ -110,7 +113,7 @@ export const TeamView: React.FC = () => {
         </select>
 
         <span className="text-[10px] text-[var(--text-muted)]">
-          {team?.memberCount || 0} personne(s) · {syncedLabel(team?.syncedAt)}
+          {plural(language, team?.memberCount || 0, strings.people)} · {syncedLabel(team?.syncedAt)}
         </span>
 
         {team?.id && (
@@ -123,28 +126,39 @@ export const TeamView: React.FC = () => {
               setIsRefreshing(false)
             }}
             className="ml-auto flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-[11px] font-bold text-[var(--text-secondary)] bg-[var(--bg-tertiary)] border border-[var(--border-color)] hover:text-[var(--text-primary)] cursor-pointer disabled:opacity-50"
-            title="Relire les membres de l'équipe depuis le tracker"
+            title={strings.refreshTitle}
           >
             <RefreshCw size={12} className={isRefreshing ? 'animate-spin' : ''} />
-            Membres
+            {strings.refresh}
           </button>
         )}
       </div>
 
       <div className="flex flex-wrap gap-3 px-4 py-2 text-[10px] text-[var(--text-secondary)] border-b border-[var(--border-color)] shrink-0">
-        <span>{totals.assigned} ticket(s) assigné(s) à {totals.people} personne(s)</span>
-        <span>{totals.unassigned} non assigné(s)</span>
-        {totals.outside > 0 && <span>{totals.outside} porté(s) hors équipe</span>}
-        {currentProject && <span className="text-[var(--text-muted)]">Projet : {currentProject.name}</span>}
+        <span>
+          {plural(language, totals.assigned, strings.assignedSummary, {
+            people: plural(language, totals.people, strings.people),
+          })}
+        </span>
+        <span>{plural(language, totals.unassigned, strings.unassignedCount)}</span>
+        {totals.outside > 0 && <span>{plural(language, totals.outside, strings.outsideCount)}</span>}
+        {currentProject && (
+          <span className="text-[var(--text-muted)]">{format(strings.project, { name: currentProject.name })}</span>
+        )}
       </div>
 
       <div className="flex-1 overflow-auto p-4">
         {isLoading && !workload ? (
-          <p className="text-xs text-[var(--text-muted)]">Chargement de la charge de l'équipe…</p>
+          <p className="text-xs text-[var(--text-muted)]">{strings.loading}</p>
         ) : (
           <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(260px,1fr))]">
             {workload?.members.map(load => (
-              <MemberColumn key={load.member.accountId || load.member.displayName} load={load} onOpen={setSelectedTask} />
+              <MemberColumn
+                key={load.member.accountId || load.member.displayName}
+                load={load}
+                onOpen={setSelectedTask}
+                emptyLabel={strings.noTicket}
+              />
             ))}
 
             {workload?.outside.map(load => (
@@ -152,19 +166,21 @@ export const TeamView: React.FC = () => {
                 key={`outside-${load.member.displayName}`}
                 load={load}
                 onOpen={setSelectedTask}
-                badge="hors équipe"
+                badge={strings.outsideBadge}
+                emptyLabel={strings.noTicket}
               />
             ))}
 
             {workload && workload.unassigned.length > 0 && (
               <MemberColumn
                 load={{
-                  member: { teamId: '', accountId: '', displayName: 'Non assigné', active: true },
+                  member: { teamId: '', accountId: '', displayName: strings.unassigned, active: true },
                   tasks: workload.unassigned,
                   byStatus: {},
                   total: workload.unassigned.length,
                 }}
                 onOpen={setSelectedTask}
+                emptyLabel={strings.noTicket}
                 unassigned
               />
             )}
@@ -179,8 +195,10 @@ const MemberColumn: React.FC<{
   load: TeamMemberLoad
   onOpen: (task: Task) => void
   badge?: string
+  /** What an empty column says, in the UI language. */
+  emptyLabel: string
   unassigned?: boolean
-}> = ({ load, onOpen, badge, unassigned }) => (
+}> = ({ load, onOpen, badge, emptyLabel, unassigned }) => (
   <div className="flex flex-col rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-color)] overflow-hidden">
     <div className="flex items-center gap-2 px-3 py-2 border-b border-[var(--border-color)]">
       {unassigned ? (
@@ -200,7 +218,7 @@ const MemberColumn: React.FC<{
     </div>
 
     {load.tasks.length === 0 ? (
-      <p className="px-3 py-3 text-[10.5px] text-[var(--text-muted)]">Aucun ticket dans cette équipe.</p>
+      <p className="px-3 py-3 text-[10.5px] text-[var(--text-muted)]">{emptyLabel}</p>
     ) : (
       <div className="flex flex-col divide-y divide-[var(--border-color)] max-h-[320px] overflow-auto">
         {load.tasks.map(task => (

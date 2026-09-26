@@ -846,9 +846,12 @@ type Task struct {
 	// review column and a merge column, do not move it.
 	StatusChangedAt *time.Time     `json:"statusChangedAt,omitempty"`
 	Activities      []TaskActivity `json:"activities,omitempty"`
-	Pinned          bool           `json:"pinned,omitempty"`
-	CreatedAt       time.Time      `json:"createdAt"`
-	UpdatedAt       time.Time      `json:"updatedAt"`
+	// Batch is the task's place in a running batch, nil when it is in none.
+	// An ended batch fills nothing.
+	Batch     *TaskBatch `json:"batch,omitempty"`
+	Pinned    bool       `json:"pinned,omitempty"`
+	CreatedAt time.Time  `json:"createdAt"`
+	UpdatedAt time.Time  `json:"updatedAt"`
 }
 
 type Settings struct {
@@ -1120,6 +1123,31 @@ type RunSkillRequest struct {
 	// workspace checks still apply. It is reserved to the owner of the active
 	// run or to an admin, and it never closes the run it steps over.
 	Force bool `json:"force,omitempty"`
+	// BatchTaskIDs are the tickets of a batch launch, in order, the first being
+	// the task the launch is made on. Only pickup_issues takes them. Empty for
+	// any other launch.
+	BatchTaskIDs []string `json:"batchTaskIds,omitempty"`
+}
+
+// Batch member states (#522). The lead starts processing, the others waiting;
+// the agent moves the processing mark by starting the batch run on a member.
+const (
+	BatchMemberWaiting    = "waiting"
+	BatchMemberProcessing = "processing"
+	BatchMemberDone       = "done"
+)
+
+// TaskBatch is a task's place in a running batch.
+type TaskBatch struct {
+	// RunID is the batch run, which sits on the lead ticket.
+	RunID      string `json:"runId"`
+	LeadTaskID string `json:"leadTaskId"`
+	LeadKey    string `json:"leadKey"`
+	// Position counts from 1, the lead, in launch order; Size is the number of
+	// tickets in the batch.
+	Position int    `json:"position"`
+	Size     int    `json:"size"`
+	State    string `json:"state"`
 }
 
 type RunSkillResponse struct {

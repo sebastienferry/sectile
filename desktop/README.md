@@ -2,6 +2,62 @@
 
 Local task execution consoles without a separate chatbot UI.
 
+## Install a release
+
+Every release `vX.Y.Z` publishes a Sectile Desktop archive per platform. Each
+one holds the app and the Sectile agent built for the same platform, so nothing
+else needs installing: no Node, no Go, no clone of this repository.
+
+| Platform | Archive |
+| --- | --- |
+| macOS, Apple Silicon | `sectile-desktop-darwin-arm64.zip` |
+| macOS, Intel | `sectile-desktop-darwin-amd64.zip` |
+| Linux, x86-64 | `sectile-desktop-linux-amd64.tar.gz` |
+| Windows, 64-bit | `sectile-desktop-windows-amd64.zip` |
+
+Download it from either place, they carry the same release:
+
+- the GitHub Release of the tag, on the repository's **Releases** page;
+- the GitLab mirror's package registry, package `sectile`, version `vX.Y.Z`,
+  next to the `sectile-agent-*` and `sectile-server-*` binaries.
+
+Take the `SHA256SUMS` file from the same place as the archive (each place
+builds its own files and vouches for those only), and check the archive
+against it in the download directory:
+
+```sh
+shasum -a 256 -c --ignore-missing SHA256SUMS      # macOS
+sha256sum -c --ignore-missing SHA256SUMS          # Linux
+```
+
+On Windows, compare `Get-FileHash .\sectile-desktop-windows-amd64.zip` in
+PowerShell with the archive's line in `SHA256SUMS`.
+
+The packages are not signed with a publisher identity, so each system warns
+once before opening them:
+
+- **macOS.** Extract the zip (double-click it in Finder, or `unzip`), move
+  `Sectile.app` where you want it, then remove the quarantine mark macOS put
+  on the download, once, before the first launch:
+
+  ```sh
+  xattr -dr com.apple.quarantine /path/to/Sectile.app
+  ```
+
+  Then open `Sectile.app`. Without that command, macOS reports the app as
+  damaged or from an unidentified developer and refuses to open it.
+- **Linux.** Extract with `tar -xzf sectile-desktop-linux-amd64.tar.gz` and run
+  `Sectile-linux-x64/Sectile`. The archive keeps the executable bits: no
+  `chmod` is needed.
+- **Windows.** Extract the zip with Explorer (**Extract All**) and run
+  `Sectile-win32-x64\Sectile.exe`. SmartScreen warns that the publisher is
+  unknown: click **More info**, then **Run anyway**. Windows supervision is
+  not supported yet (see
+  [ADR 0003](../docs/adrs/0003-local-desktop-consoles.md)).
+
+The app starts its bundled agent. **Settings → General** shows the desktop
+version (`X.Y.Z`) and the agent's (`vX.Y.Z`): both come from the release.
+
 ## Start
 
 From the repository root:
@@ -25,7 +81,7 @@ project scope. Subsequent launches reconnect to the application's existing agent
 
 ### MCP connections
 
-Open **Settings → Agents CLI**, select an AI provider, then use **MCP configuration**.
+Open **Settings → Execution defaults**, pick the provider in **MCP configuration**, then use it.
 Choose **Remote HTTP** (default), **Local HTTP proxy**, or **STDIO**. Remote
 HTTP uses the pairing key without requiring a running agent. Local HTTP calls
 the running no-auth proxy directly. STDIO starts a bridge to the remote server
@@ -39,18 +95,19 @@ Restart the AI engine afterward. This action is separate from saving CLI default
 Custom providers require manual configuration.
 
 
-### Free agent console
+### Project prompt
 
-Click **>_ Open agent console** in a configured project's heading, choose **Codex**
-or **Claude**, and click **Open console**. The app launches `codex` or `claude`
-with no arguments in that project's mapped local repository. Type your first
-instructions directly in the TTY. The selected CLI must be installed locally;
-its own sign-in and permission prompts remain available in the console.
+Click **Project prompt** in a configured project's menu, choose any engine from
+the workstation catalogue, and click **Open console**. The project default engine
+is selected initially. Codex, Claude, Antigravity, Gemini, Cursor, Vibe and custom
+engines use their configured model and interactive command in the project's mapped
+repository. Type instructions directly in the TTY. The CLI must be installed
+locally; its sign-in and permission prompts remain available.
 
 Each launch is a separate local console. It uses no task, skill, initial prompt,
-or workflow command template. It does not create a tracker activity or change a
+or workflow stage command. Custom interactive engine templates receive an empty prompt. It does not create a tracker activity or change a
 workflow stage. The sidebar shows process status, and the toolbar supports stop,
-export, and relaunch. Rename and archive are available through the console menu.
+export, and relaunch. The console's sidebar row renames it locally and archives it.
 Closing and reopening the app reconnects while the daemon remains running.
 
 Free consoles use the existing execution queue and reserve the project's shared
@@ -209,8 +266,17 @@ cd desktop
 npm run test:ui
 ```
 
-The unsigned package is in desktop/release. Tests use an isolated temporary
-profile and mock agent. Go tests exercise real PTY replay and supervision.
+The unsigned package is in desktop/release, for the host platform only. Tests
+use an isolated temporary profile and mock agent. Go tests exercise real PTY
+replay and supervision.
+
+The release archives are built by the release pipelines, never from a branch.
+To reproduce one locally, build the agent for the target and package it:
+
+```sh
+cd desktop && npm run build && cd ..
+scripts/release/package-desktop.sh v0.0.0 linux amd64 path/to/sectile-agent-linux-amd64 dist-desktop
+```
 
 ### Restarting the agent
 
@@ -306,15 +372,29 @@ and restarted before this action is available.
 
 ### Execution defaults and local overrides
 
-Every execution setting belongs to the workstation (ADR 0031): the AI
-provider, the model and per-skill models, the model list of each provider, the
-interactive and headless commands, the terminal, the editor, worktrees,
-parallel executions (1 to 10), the extra agents that get the skills and MCP,
-and the command name each stage runs. The web interface offers none of them
-and the server neither stores nor uses them.
+Every execution setting belongs to the workstation (ADR 0031): the engines,
+the model list of each provider, the terminal, the editor, worktrees, parallel
+executions (1 to 10), the extra agents that get the skills and MCP, and the
+command name each stage runs. The editor is picked from **None**, **VS Code**,
+**Cursor**, **Zed**, **Sublime Text** or **Custom command…**, whose text is
+run with the folder appended; **None**, the default, hides the toolbar's
+editor button. The web interface offers none of them and the
+server neither stores nor uses them.
 
-**Settings → Execution defaults** edits the workstation level, applied to every
-project without a value of its own. The project settings edit one project:
+An engine (ADR 0033) is a named AI CLI profile: provider, model, per-skill
+models, interactive and headless commands. **Settings → Execution defaults**
+opens with the **Engines** list, in the order a task cycles through them, the
+workstation default engine marked **Default**. **Add an engine** and **Edit**
+open the engine editor, with the provider presets and a preview of the command
+lines; the arrows reorder, **Make default** moves the mark, and **Remove** asks
+first, naming the projects and counting the tasks that use the engine. The
+default engine and the last one cannot be removed. Every change is saved at
+once. Existing provider, model and command settings became engines on the
+first start of the upgraded agent, which kept a copy of the previous file
+beside it.
+
+The rest of **Settings → Execution defaults** edits the workstation level,
+applied to every project without a value of its own. The project settings edit one project:
 each field says whether it is set for the project or inherited, shows the
 inherited value (the workstation default, else the provider default) and has a
 reset that brings the inheritance back. Both go through the local agent, which
@@ -417,8 +497,9 @@ until the agent is stopped, and the panel says so.
 Project configuration lists its categories in a side navigation, one panel at a
 time: **General** (local repository, removal from the desktop), **Execution**
 (worktrees, parallel executions, terminal emulator, extra setup providers),
-**AI agent** (provider, model, per-skill models, command templates, skill
-command names), **Deployment** and **Server**. **General** opens
+**AI agent** (the project's **Default engine**, picked from the engines or
+inherited from the workstation default one, and skill command names),
+**Deployment** and **Server**. **General** opens
 first. Use **Choose folder…** to select a repository through the native directory
 dialog. Worktrees use Yes/No buttons; parallel executions use a 1 to 10 slider.
 Each setting is one row: its name with the inherited value in small type on the
@@ -443,7 +524,16 @@ even when the project is collapsed. Search by title or task key to narrow it;
 submit an empty search to restore all open tasks. Finished tasks are excluded.
 
 The pane is a table with one row per task: execution state, **Key**, **Title**,
-**Stage**, **Priority**, a pull request icon when one is linked, and actions.
+**Stage**, **Priority**, **Engine**, a pull request icon when one is linked, and
+actions. The **Engine** button shows the letters of the provider the task's
+next run uses; its tooltip names the engine, its provider and its model, and
+says when it is the project default engine, and it is highlighted when it is
+not. Activating it (click, Enter or Space) moves the task to the next engine of
+the catalogue, the last one wrapping to the first. The choice stays with the
+task on this workstation, for every launch of it, from the desktop or the web,
+until the next click; a run already going keeps its engine. A one-off launch
+model applies only on the project default engine. The column is hidden with an
+agent that does not keep engines.
 Activate a row's key to open that task in Sectile, the same gesture the sidebar
 task number offers.
 Rows are ordered by priority descending (urgent, high, medium, low, then
@@ -469,10 +559,9 @@ repository mapping, otherwise every launch control is disabled with a notice.
 Loading, empty and error states are shown in the pane; use **Search** to
 retry a failed request. Opening the pane does not start an execution.
 
-The **AI agent** category includes the effective **CLI command**. Edit it to save a
-per-project override under `commands` in user settings; the reset icon restores
-the server template (or provider default when empty or lacking `{prompt}`). Save to apply to subsequent
-executions. Command templates execute on the local agent and support these placeholders:
+An engine's commands are edited in its engine editor; empty ones run the
+provider default. Command templates execute on the local agent and support
+these placeholders:
 
 | Placeholder | Value |
 | --- | --- |
@@ -518,8 +607,11 @@ Linked pull requests appear as an icon on the same task row, after the title and
 status. Hover for the URL or activate the icon to open the PR externally without
 changing the selected console. Long titles truncate to keep controls inline.
 Projects can be collapsed;
-their **+** button opens the task launcher. A task's **…** menu provides relaunch,
-local rename and archive actions. Archiving hides its existing executions without
+their **+** button opens the task launcher. A task row carries an archive button
+and a pencil that turns its title into a field for a local rename: Enter or
+leaving the field saves, Escape cancels, and the local name, kept on this
+workstation only, takes precedence over the tracker title. Relaunch and detach to
+a native terminal are toolbar buttons of the selected task. Archiving hides its existing executions without
 changing the server task. Active executions require explicit confirmation and
 confirmed stop before archiving. A new execution makes the task visible again.
 The TTY toolbar's execution selector provides access to previous runs of the
@@ -535,6 +627,13 @@ same glyph and wording as the sidebar row and the desktop notification. Below
 it, the execution's checkout path is a control: click it to copy the path to
 the clipboard, confirmed by a short **Copied**; the text also stays selectable
 for a manual copy.
+
+When an editor is chosen in **Settings → Execution defaults**, a code icon
+follows the path: **Open in <editor>** opens the execution's checkout in that
+editor. The desktop only names the execution; the local agent looks up its
+folder and refuses, with its reason, when the folder is gone or no editor is
+set. Without a chosen editor, or with an agent that predates the button, the
+path stands alone.
 
 The controls whose action does not depend on the workflow stage — relaunch, log
 export, the **Console** / **Changes** switch, and the linked pull request — are

@@ -87,10 +87,18 @@ func (d *DB) startRemoteRun(taskKey, skill, runID string, agentOwned bool, launc
 		if err != nil {
 			return nil, err
 		}
-		if activity == nil || activity.TaskID != task.ID || activity.SkillID != "remote_run" || activity.Status != "running" {
-			return nil, fmt.Errorf("remote run does not match an active execution on this task")
+		if activity == nil || activity.SkillID != "remote_run" {
+			return nil, adoptionRefusal(nil, "task")
 		}
-		return activity, nil
+		if activity.TaskID != task.ID {
+			return d.reportBatchMember(activity, task)
+		}
+		adopted, err := d.adoptRun(activity, "task")
+		if err == nil {
+			// The lead of a batch reported again takes the mark back.
+			d.markBatchMember(adopted, task)
+		}
+		return adopted, err
 	}
 	if strings.TrimSpace(skill) == "" {
 		return nil, fmt.Errorf("skill is required")
@@ -115,7 +123,7 @@ func (d *DB) startRemoteRun(taskKey, skill, runID string, agentOwned bool, launc
 		activity.Concurrent = true
 	}
 	if err := d.AddTaskActivity(*activity); err != nil {
-		return nil, d.taskBusy(task.ID, err)
+		return nil, d.taskBusy(task, err)
 	}
 	launch.Stage = d.StageOfTask(task)
 	if launch.Mode != "" || launch.Stage != "" || launch.ChainStop != "" {
@@ -126,6 +134,91 @@ func (d *DB) startRemoteRun(taskKey, skill, runID string, agentOwned bool, launc
 	}
 	d.notifyPostBackListeners(task, activity, nil)
 	return activity, nil
+}
+
+// reportBatchMember is start_run with a batch run's id on another ticket of that
+// batch: the agent says it starts working on that ticket (#522). The batch run
+// is returned as it is and no run is created. A ticket outside the batch, or a
+// batch run that already ended, is refused as any unmatched runId is.
+func (d *DB) reportBatchMember(batchRun *models.TaskActivity, task *models.Task) (*models.TaskActivity, error) {
+	if batchRun.Status != "running" && batchRun.Status != "queued" {
+		return nil, adoptionRefusal(batchRun, "task")
+	}
+	member, previous, err := d.MarkBatchMemberProcessing(batchRun.ID, task.ID)
+	if err != nil {
+		return nil, err
+	}
+	if !member {
+		return nil, adoptionRefusal(nil, "task")
+	}
+	adopted, err := d.adoptRun(batchRun, "task")
+	if err != nil {
+		return nil, err
+	}
+	d.notifyBatchMembers(batchRun.ID, nonEmpty(task.ID, previous)...)
+	return adopted, nil
+}
+
+// markBatchMember moves the processing mark of the batch run to task, when the
+// run is a batch and task one of its members, and announces what changed.
+func (d *DB) markBatchMember(batchRun *models.TaskActivity, task *models.Task) {
+	member, previous, err := d.MarkBatchMemberProcessing(batchRun.ID, task.ID)
+	if err != nil || !member || previous == "" {
+		return
+	}
+	d.notifyBatchMembers(batchRun.ID, task.ID, previous)
+}
+
+func nonEmpty(values ...string) []string {
+	out := values[:0:0]
+	for _, v := range values {
+		if v != "" {
+			out = append(out, v)
+		}
+	}
+	return out
+}
+
+// adoptRun hands a session the run its launcher created. The agent may have
+// reported that run as queued while it waited for a slot, although the session
+// it launched is already doing the work: the session's own start is the better
+// signal, so a queued run becomes running here (#499). A run already running is
+// returned as it is, which makes two adoptions in the same instant both succeed.
+func (d *DB) adoptRun(activity *models.TaskActivity, scope string) (*models.TaskActivity, error) {
+	switch activity.Status {
+	case "running":
+		return activity, nil
+	case "queued":
+	default:
+		return nil, adoptionRefusal(activity, scope)
+	}
+	d.mu.Lock()
+	_, err := d.conn.Exec(`UPDATE task_activities SET status='running', started_at=COALESCE(started_at, ?)
+		WHERE id=? AND skill_id='remote_run' AND status='queued'`, time.Now(), activity.ID)
+	d.mu.Unlock()
+	if err != nil {
+		return nil, err
+	}
+	adopted, err := d.GetActivityByID(activity.ID)
+	if err != nil {
+		return nil, err
+	}
+	// Another caller may have ended it between the read and the update.
+	if adopted == nil || adopted.Status != "running" {
+		return nil, adoptionRefusal(adopted, scope)
+	}
+	return adopted, nil
+}
+
+// adoptionRefusal says why a runId cannot be adopted and what the session should
+// do instead. The unmatched case keeps the wording it always had, so a search
+// for it still finds it.
+func adoptionRefusal(activity *models.TaskActivity, scope string) error {
+	const instead = "call start_run without a runId to report a new execution"
+	if activity != nil && activity.Status != "running" && activity.Status != "queued" {
+		return fmt.Errorf("remote run %s already ended as %s; %s", activity.ID, activity.Status, instead)
+	}
+	return fmt.Errorf("remote run does not match an active execution on this %s; %s", scope, instead)
 }
 
 // NoteRemoteRun appends one sentence to a remote run that is still running. It
@@ -213,10 +306,14 @@ func (d *DB) finishRemoteRun(taskKey, runID, status, note string, authorize func
 	// sentence after it, and a silence sentence comes before it on a run that
 	// fell quiet before it was closed (#319). A cancellation someone typed never
 	// carries that sentence and stays final.
-	closable := "status='running'"
+	//
+	// A run still queued is closable too: the agent calls a launcher run queued
+	// while it waits for a slot, and the session holding its runId may be the
+	// one reporting how it ended (#499).
+	closable := "status IN ('running', 'queued')"
 	args := []any{status, "%" + models.RunSilencePrefix + "%", " \u2014 ", note, note, time.Now(), runID, task.ID}
 	if authorize != nil {
-		closable = "(status='running' OR (status='canceled' AND summary LIKE ?))"
+		closable = "(status IN ('running', 'queued') OR (status='canceled' AND summary LIKE ?))"
 		args = append(args, "%"+models.RunDisconnectNote+"%")
 	}
 	result, err := d.conn.Exec("UPDATE task_activities SET status=?, summary="+summaryExpr+", completed_at=?, waiting_since=NULL, waiting_session='' WHERE id=? AND task_id=? AND skill_id='remote_run' AND "+closable, args...)
@@ -232,6 +329,14 @@ func (d *DB) finishRemoteRun(taskKey, runID, status, note string, authorize func
 	// idempotent, and a second report must not enqueue a second chain step.
 	if count == 1 {
 		d.handBackRun(task.ID, runID, status)
+		// The tickets of a batch stop showing it. The lead is read again as
+		// well, so the task this notification carries has no batch left.
+		if members := d.batchMemberIDs(runID); len(members) > 0 {
+			if fresh, err := d.GetTaskByID(task.ID); err == nil && fresh != nil {
+				task = fresh
+			}
+			d.notifyBatchMembers(runID, members[1:]...)
+		}
 	}
 	activity, err := d.GetActivityByID(runID)
 	if err != nil {
@@ -334,6 +439,21 @@ func (d *DB) SyncRemoteRunStatusFor(ownerID, activityID, taskID, projectID, task
 		}
 	}
 	d.mu.Unlock()
+
+	// An agent reporting the end of a batch run ends the batch: its tickets
+	// stop showing it, as they do when finish_run closes it (#522).
+	endsRun := existingID != "" && status != "queued" && status != "running" &&
+		currentStatus != "completed" && currentStatus != "failed" && currentStatus != "canceled"
+	if endsRun {
+		if members := d.batchMemberIDs(activityID); len(members) > 0 {
+			if task != nil {
+				if fresh, err := d.GetTaskByID(task.ID); err == nil && fresh != nil {
+					task = fresh
+				}
+			}
+			d.notifyBatchMembers(activityID, members[1:]...)
+		}
+	}
 
 	activity, err := d.GetActivityByID(activityID)
 	if err != nil {

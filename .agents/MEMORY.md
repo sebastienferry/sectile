@@ -2,6 +2,10 @@
 
 ## Architecture Decisions & Constraints
 
+### Test Agent Operation Logs Must Be Synchronized (2026-09-26)
+- Stage validation and the asynchronous postback worker can invoke the same `SetAgentOperations` callback concurrently. A fixture's operation log needs a mutex for both appends and snapshots; returning a raw slice pointer leaves readers unprotected. GitLab job 16751709293 exposed this in `specifyOwnedTask` (`internal/db/specartifacts_test.go`).
+- A test that queues a sync and then calls `processSyncJob` directly must use separate tracker/database fixtures for those checks. Otherwise the queued job can overwrite the direct job's recorded identity (`TestASynchronisationAskedForBySomebodyRecordsThemAndReadsAsNobody`).
+
 ### 1. Web Server HTTP API Only (No Workstation CLIs)
 - **Constraint**: The web server (`cmd/server`, `internal/handlers`, `internal/db`, `internal/trackerapi`) must access remote issue trackers (GitHub) solely via HTTP REST and GraphQL APIs through `tasks/internal/trackerapi.Client`.
 - **Enforcement**:
@@ -96,7 +100,7 @@
 - **Constraint**: `/mcp` is served **statefully** (`mcp.StreamableHTTPOptions{JSONResponse: true, SessionTimeout: ...}` in `internal/handlers/agent_api.go`). Do not restore `Stateless: true`: a stateless endpoint builds a throwaway session per request, so the server can neither tell two clients apart nor observe a disconnection, which is what closes abandoned runs.
 - **Ownership rule**: a run created by `start_run` is adopted by the calling session (`taskmcp.SessionRegistry`) and closed as `canceled` when that session ends. A run **reused** through `runId`/`SECTILE_RUN_ID` is deliberately **not** adopted — it belongs to the dispatching agent, whose supervisor reports the real process exit (see ADR 0006). Adopting it would cancel an execution that is still running.
 - **Non-obvious SDK behaviour** (`modelcontextprotocol/go-sdk` v1.7.0):
-  - `StreamableHTTPOptions.SessionTimeout` counts idle time, and **only POST requests reset it** (`sessionInfo.startPOST`). A long-lived GET/SSE stream does not. Clients that must stay connected have to ping; the stdio bridge sets `ClientOptions.KeepAlive` for exactly that reason.
+  - `StreamableHTTPOptions.SessionTimeout` counts idle time, and **only POST requests reset it** (`sessionInfo.startPOST`). A long-lived GET/SSE stream does not. Clients that must stay connected have to ping; the stdio bridge sets `ClientOptions.KeepAlive` for exactly that reason. The server pings too, from `SessionRegistry.SetKeepalive` rather than `ServerOptions.KeepAlive` (#517): an SDK-decided close would go through `SessionRegistry.Close` and cancel adopted runs. With `JSONResponse: true` and no `EventStore`, a ping to a session with no open GET stream fails at once (`rejected by transport`), and that local refusal is itself a `*jsonrpc.Error`: only `CodeMethodNotFound` means the client answered.
   - Session lifecycle hooks: `ServerOptions.InitializedHandler` gives the start, `ServerSession.Wait()` blocks until the end (client `DELETE`, dropped connection, or idle timeout), and `ServerSession.ID()` is the `Mcp-Session-Id`.
 - **Closure status**: the `finish_run` contract accepts only `completed`, `failed` and `canceled`, so a disconnection closes with `canceled` plus an explanatory note rather than a new status value.
 - **Restart**: a restart destroys every session, so `NewDB` closes `remote_run` activities whose `action != db.RunActionAgent` (`internal/db/db.go`, next to the rule that fails interrupted server jobs). The action field is the persisted owner marker — `db.RunActionClient` vs `db.RunActionAgent` — and is the only thing a restart can rely on, since sessions live in memory. Do not widen that cleanup to agent-owned runs: their supervisor reconnects and reports the real exit (ADR 0006).

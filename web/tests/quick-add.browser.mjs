@@ -234,7 +234,7 @@ try {
   await followUp('Clarifier').check();
   await dialog.locator('button[type="submit"]').click();
   await page.waitForFunction(() => fake.requests.filter(r => r.method === 'POST' && r.path === '/api/tasks').length === 5);
-  await page.getByText('Creation failed').first().waitFor();
+  await page.getByText('La création a échoué').first().waitFor();
   await dialog.waitFor();
   assert.equal(await dialog.locator('input[type="text"]').first().inputValue(), 'refused one');
   const skillCalls = await requests('POST', /\/run-skill$/);

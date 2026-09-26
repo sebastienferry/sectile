@@ -46,6 +46,7 @@ import { EpicBar, useEpicColors } from './EpicMarker'
 import { MacroLabelGroups } from './MacroLabelGroups'
 import { MacroTaskRow } from './MacroTaskRow'
 import { sprintLookup, isProjectCompatible, targetProjectOptions } from '../lib/lookups'
+import { format, plural } from '../lib/i18n'
 import {
   buildMacroRows,
   placementIssues,
@@ -74,20 +75,27 @@ import type { MacroHorizon, MacroMeta, MacroTodo, MacroTodoSource } from '../typ
 import { MacroRealignButton } from './MacroRealignButton'
 
 /**
- * Roadmap des macros, d'après le design « Roadmap Epics.dc.html ».
+ * Macro roadmap, after the "Roadmap Epics.dc.html" design.
  *
- * Deux métiers, pas un seul. NOW et NEXT sont opérationnels : on y vérifie que
- * les stories d'une macro sont bien dans un sprint — actif pour NOW, à venir pour
- * NEXT — et tout ce qui ne l'est pas doit sauter aux yeux. LATER est du cadrage
- * de macro : description et TODO se travaillent avant qu'il y ait des stories.
+ * Two jobs, not one. NOW and NEXT are operational: they check that a macro's
+ * stories sit in a sprint (active for NOW, upcoming for NEXT), and whatever
+ * does not must stand out. LATER is macro framing: description and TODO are
+ * worked on before there are stories.
+ *
+ * Display text comes from `t.planning.roadmap`; horizon labels are product
+ * vocabulary and read the same in both languages.
  */
 
-const TABS: { id: HorizonTab; label: string; icon: React.ReactNode }[] = [
+/**
+ * The tabs. Horizon tabs show the horizon label as is; the two others take
+ * their label from the catalog (`t.planning.roadmap.tabs`).
+ */
+const TABS: { id: HorizonTab; label?: string; icon: React.ReactNode }[] = [
   { id: 'now', label: 'NOW', icon: <Target size={14} /> },
   { id: 'next', label: 'NEXT', icon: <Route size={14} /> },
   { id: 'later', label: 'LATER', icon: <Compass size={14} /> },
-  { id: 'unclassified', label: 'Non classés', icon: <HelpCircle size={14} /> },
-  { id: 'hidden', label: 'Masqués', icon: <EyeOff size={14} /> },
+  { id: 'unclassified', icon: <HelpCircle size={14} /> },
+  { id: 'hidden', icon: <EyeOff size={14} /> },
 ]
 
 export const RoadmapView: React.FC = () => {
@@ -132,6 +140,8 @@ export const RoadmapView: React.FC = () => {
     createBatchTasks,
     t,
   } = useApp()
+  const strings = t.planning.roadmap
+  const language = settings.language
   // Les macros sont celles du projet affiché : c'est son réglage qui compte.
   const epicColorsOn = useEpicColors()()
 
@@ -251,14 +261,18 @@ export const RoadmapView: React.FC = () => {
   // Épics et sprints se cherchent au clavier : cette vue en liste cent quarante
   // et dix, et l'épic cible d'une découpe se choisissait dans un menu déroulant
   // de tout le projet.
-  const searchSprint = useMemo(() => sprintLookup(currentProject?.sprints || []), [currentProject?.sprints])
+  const sprintKinds = t.taskDetail.lookups.sprintKinds
+  const searchSprint = useMemo(
+    () => sprintLookup(currentProject?.sprints || [], sprintKinds),
+    [currentProject?.sprints, sprintKinds]
+  )
 
   // Ce qui restreint la liste de tickets sur laquelle la roadmap est construite.
   const activeFilterChips = useMemo(() => {
     const chips: { label: string; clear: () => void }[] = []
     if (assigneeFilter) {
       chips.push({
-        label: assigneeFilter === '__unassigned__' ? 'non assigné' : assigneeFilter,
+        label: assigneeFilter === '__unassigned__' ? strings.filters.unassigned : assigneeFilter,
         clear: () => setAssigneeFilter(null),
       })
     }
@@ -266,8 +280,8 @@ export const RoadmapView: React.FC = () => {
     if (sprintFilter) chips.push({ label: sprintFilter, clear: () => setSprintFilter(null) })
     if (teamFilter) chips.push({ label: teamFilter, clear: () => setTeamFilter(null) })
     if (labelFilter) chips.push({ label: `#${labelFilter.replace(/^#+/, '')}`, clear: () => setLabelFilter(null) })
-    if (pinnedOnly) chips.push({ label: 'épinglés seulement', clear: () => setPinnedOnly(false) })
-    if (searchQuery) chips.push({ label: `« ${searchQuery} »`, clear: () => setSearchQuery('') })
+    if (pinnedOnly) chips.push({ label: strings.filters.pinnedOnly, clear: () => setPinnedOnly(false) })
+    if (searchQuery) chips.push({ label: format(strings.filters.search, { query: searchQuery }), clear: () => setSearchQuery('') })
     return chips
   }, [
     assigneeFilter,
@@ -285,6 +299,7 @@ export const RoadmapView: React.FC = () => {
     setPinnedOnly,
     setSearchQuery,
     t,
+    strings,
   ])
 
   const PANEL_MIN = 420
@@ -510,8 +525,8 @@ export const RoadmapView: React.FC = () => {
     if (!currentProject?.id) {
       addToast({
         type: 'error',
-        title: 'Aucun projet sélectionné',
-        description: 'Choisis un projet pour classer ses macros.',
+        title: strings.noProjectTitle,
+        description: strings.noProjectBody,
       })
       return
     }
@@ -560,11 +575,11 @@ export const RoadmapView: React.FC = () => {
             {row.squad}
           </span>
           <span className="text-[9.5px] px-1 rounded font-bold" style={{ color: prio.color, background: prio.bg }}>
-            {prio.label}
+            {strings.priority[row.priority]}
           </span>
           <span className="text-[9px] font-bold px-1.5 rounded uppercase tracking-[.06em]"
             style={{ color: mat.color, background: mat.bg, border: `1px solid ${mat.border}` }}>
-            {row.maturity}
+            {strings.maturity[row.maturity]}
           </span>
 
           {displayMode === 'execution' ? (
@@ -572,18 +587,18 @@ export const RoadmapView: React.FC = () => {
               <span className="ml-auto text-[10px] font-bold px-1.5 py-0.5 rounded inline-flex items-center gap-1"
                 style={{ color: 'var(--status-danger)', background: 'rgb(var(--status-danger-rgb) / 0.13)', border: '1px solid rgb(var(--status-danger-rgb) / 0.32)' }}>
                 <AlertTriangle size={10} />
-                {issues.length} à corriger
+                {plural(language, issues.length, strings.toFix)}
               </span>
             ) : (
               <span className="ml-auto text-[10px] font-bold px-1.5 py-0.5 rounded inline-flex items-center gap-1"
                 style={{ color: 'var(--status-ok)', background: 'rgb(var(--status-ok-rgb) / 0.13)', border: '1px solid rgb(var(--status-ok-rgb) / 0.32)' }}>
                 <Check size={10} />
-                tout placé
+                {strings.allPlaced}
               </span>
             )
           ) : (
             <span className="ml-auto text-[10px] font-mono text-[var(--text-muted)]">
-              {todosOf(row).filter(t => t.done).length}/{todosOf(row).length} todos
+              {format(strings.todosCount, { done: todosOf(row).filter(t => t.done).length, total: todosOf(row).length })}
             </span>
           )}
         </div>
@@ -591,18 +606,18 @@ export const RoadmapView: React.FC = () => {
         <div className="text-[12px] font-semibold leading-snug mt-1.5">{row.title}</div>
 
         <div className="flex items-center gap-2 mt-2 flex-wrap text-[10px] font-mono text-[var(--text-muted)]">
-          <span>{row.open.length} ouverts / {row.tasks.length}</span>
+          <span>{plural(language, row.open.length, strings.openOfTotal, { total: row.tasks.length })}</span>
           {row.inActiveSprint.length > 0 && (
-            <span style={{ color: 'var(--status-ok)' }}>{row.inActiveSprint.length} sprint actif</span>
+            <span style={{ color: 'var(--status-ok)' }}>{format(strings.activeSprintCount, { count: row.inActiveSprint.length })}</span>
           )}
           {row.inFutureSprint.length > 0 && (
-            <span style={{ color: 'var(--status-info)' }}>{row.inFutureSprint.length} sprint futur</span>
+            <span style={{ color: 'var(--status-info)' }}>{format(strings.futureSprintCount, { count: row.inFutureSprint.length })}</span>
           )}
           {row.inStaleSprint.length > 0 && (
-            <span style={{ color: 'var(--status-warn)' }}>{row.inStaleSprint.length} sprint clos</span>
+            <span style={{ color: 'var(--status-warn)' }}>{format(strings.staleSprintCount, { count: row.inStaleSprint.length })}</span>
           )}
           {row.unscheduled.length > 0 && (
-            <span style={{ color: 'var(--status-danger)' }}>{row.unscheduled.length} sans sprint</span>
+            <span style={{ color: 'var(--status-danger)' }}>{format(strings.noSprintCount, { count: row.unscheduled.length })}</span>
           )}
         </div>
 
@@ -625,7 +640,7 @@ export const RoadmapView: React.FC = () => {
                   background: active ? HORIZON_META[h].color : isSuggestion ? HORIZON_META[h].bg : 'transparent',
                   borderColor: active || isSuggestion ? HORIZON_META[h].border : 'var(--border-color)',
                 }}
-                title={isSuggestion ? `Suggéré d'après les sprints : ${HORIZON_META[h].label}` : `Classer en ${HORIZON_META[h].label}`}
+                title={format(isSuggestion ? strings.suggestedHorizon : strings.classifyAs, { horizon: HORIZON_META[h].label })}
               >
                 {HORIZON_META[h].label}
                 {isSuggestion && ' ?'}
@@ -674,7 +689,7 @@ export const RoadmapView: React.FC = () => {
               background: 'rgb(var(--status-danger-rgb) / 0.13)',
               border: '1px solid rgb(var(--status-danger-rgb) / 0.32)',
             }}
-            title={`${issues.length} ticket(s) sans sprint ou dans un sprint clos`}
+            title={plural(language, issues.length, strings.issuesTitle)}
           >
             <AlertTriangle size={9} />
             {issues.length}
@@ -684,7 +699,7 @@ export const RoadmapView: React.FC = () => {
           className="shrink-0 text-[9.5px] px-1 rounded font-bold"
           style={{ color: prio.color, background: prio.bg }}
         >
-          {prio.label}
+          {strings.priority[row.priority]}
         </span>
         <span className="shrink-0 flex items-center gap-0.5">
           {CONDENSED_HORIZONS.map(h => {
@@ -706,10 +721,10 @@ export const RoadmapView: React.FC = () => {
                 }}
                 title={
                   isSuggestion
-                    ? `Suggéré d'après les sprints : ${HORIZON_META[h].label}`
-                    : `Classer en ${HORIZON_META[h].label}`
+                    ? format(strings.suggestedHorizon, { horizon: HORIZON_META[h].label })
+                    : format(strings.classifyAs, { horizon: HORIZON_META[h].label })
                 }
-                aria-label={`Classer en ${HORIZON_META[h].label}`}
+                aria-label={format(strings.classifyAs, { horizon: HORIZON_META[h].label })}
                 aria-pressed={active}
               >
                 {HORIZON_SHORT[h]}
@@ -735,8 +750,8 @@ export const RoadmapView: React.FC = () => {
     if (!text) {
       addToast({
         type: 'warning',
-        title: 'Cadrage requis',
-        description: 'Veuillez saisir un texte de cadrage (description) avant de raffiner la macro.',
+        title: strings.framingRequired,
+        description: strings.framingRequiredBody,
       })
       return
     }
@@ -758,8 +773,8 @@ export const RoadmapView: React.FC = () => {
     } else if (result) {
       addToast({
         type: 'info',
-        title: 'Aucune donnée générée',
-        description: "Le texte de cadrage n'a pas permis de générer de nouveaux items.",
+        title: strings.noGeneratedData,
+        description: strings.noGeneratedDataBody,
       })
     }
   }
@@ -784,10 +799,10 @@ export const RoadmapView: React.FC = () => {
                     background: active ? meta?.color || 'var(--text-muted)' : 'transparent',
                     color: active ? '#fff' : 'var(--text-secondary)',
                   }}
-                  title={meta ? meta.hint : 'Macros pas encore arbitrées'}
+                  title={t.id === 'unclassified' ? strings.unclassifiedHint : strings.horizonHints[t.id]}
                 >
                   {t.icon}
-                  <span>{t.label}</span>
+                  <span>{t.label ?? (t.id === 'hidden' ? strings.tabs.hidden : strings.tabs.unclassified)}</span>
                   <span
                     className="text-[10px] font-mono px-1.5 rounded-full"
                     style={{
@@ -812,10 +827,10 @@ export const RoadmapView: React.FC = () => {
                 borderColor: showClosed ? 'rgb(var(--accent-rgb) / 0.4)' : 'var(--border-color)',
                 color: showClosed ? 'var(--accent-color)' : 'var(--text-secondary)',
               }}
-              title={`${closedCount} macros terminées côté tracker`}
+              title={plural(language, closedCount, strings.closedTitle)}
             >
               {showClosed ? <Eye size={12} /> : <EyeOff size={12} />}
-              {showClosed ? `${closedCount} terminées affichées` : `${closedCount} terminées masquées`}
+              {plural(language, closedCount, showClosed ? strings.closedShown : strings.closedHidden)}
             </button>
           )}
 
@@ -845,10 +860,10 @@ export const RoadmapView: React.FC = () => {
                 borderColor: 'rgb(var(--status-warn-rgb) / 0.4)',
                 color: 'var(--status-warn)',
               }}
-              title={`${pendingPushes} macro(s) classée(s) ici dont le label roadmap n'est pas encore posé sur le tracker`}
+              title={plural(language, pendingPushes, strings.pendingPushesTitle)}
             >
               {isPushing ? <Loader2 size={12} className="animate-spin" /> : <Tag size={12} />}
-              {pendingPushes} label(s) à pousser
+              {plural(language, pendingPushes, strings.pendingPushes)}
             </button>
           )}
 
@@ -870,10 +885,10 @@ export const RoadmapView: React.FC = () => {
                 borderColor: 'var(--border-color)',
                 color: 'var(--text-secondary)',
               }}
-              title="Relire les labels roadmap: portés par les épics du tracker et en tirer le classement local"
+              title={strings.importTitle}
             >
               {isImporting ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
-              Relire les labels
+              {strings.importLabels}
             </button>
           )}
 
@@ -891,7 +906,7 @@ export const RoadmapView: React.FC = () => {
                     borderColor: 'rgb(var(--status-warn-rgb) / 0.34)',
                     color: 'var(--status-warn)',
                   }}
-                  title={`Filtre actif : ${chip.label}. Cliquer pour l'enlever.`}
+                  title={format(strings.activeFilterTitle, { label: chip.label })}
                 >
                   <Filter size={10} />
                   {chip.label}
@@ -911,10 +926,10 @@ export const RoadmapView: React.FC = () => {
                   ? 'bg-[var(--accent-color)] text-white shadow-xs'
                   : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
               }`}
-              title="Mode Framing : Cadrage et Checklist TODOs"
+              title={strings.modes.framingTitle}
             >
               <Compass size={12} />
-              <span>Framing</span>
+              <span>{strings.modes.framing}</span>
             </button>
             <button
               type="button"
@@ -924,10 +939,10 @@ export const RoadmapView: React.FC = () => {
                   ? 'bg-[var(--accent-color)] text-white shadow-xs'
                   : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
               }`}
-              title="Mode Execution : Stories, Sprints et Découpe"
+              title={strings.modes.executionTitle}
             >
               <Target size={12} />
-              <span>Execution</span>
+              <span>{strings.modes.execution}</span>
             </button>
             {/* Les deux axes de découpe. Ils sont des modes du panneau et non
                 une vue à part : on répartit les tickets d'une macro en la
@@ -940,10 +955,10 @@ export const RoadmapView: React.FC = () => {
                   ? 'bg-[var(--accent-color)] text-white shadow-xs'
                   : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
               }`}
-              title="Phases : l'ordre du travail, porté par des labels « phase:… »"
+              title={strings.modes.phasesTitle}
             >
               <Layers size={12} />
-              <span>Phases</span>
+              <span>{t.planning.macro.axes.phase.plural}</span>
             </button>
             <button
               type="button"
@@ -953,10 +968,10 @@ export const RoadmapView: React.FC = () => {
                   ? 'bg-[var(--accent-color)] text-white shadow-xs'
                   : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
               }`}
-              title="Objectifs : ce qu'on cherche à obtenir, porté par des labels « goal:… »"
+              title={strings.modes.goalsTitle}
             >
               <Goal size={12} />
-              <span>Objectifs</span>
+              <span>{t.planning.macro.axes.goal.plural}</span>
             </button>
           </div>
 
@@ -971,9 +986,9 @@ export const RoadmapView: React.FC = () => {
               setShowCreateMacroModal(true)
             }}
             className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-bold text-white accent-bg cursor-pointer disabled:opacity-40"
-            title="Créer une macro / milestone GitHub"
+            title={strings.createMacroTitle}
           >
-            <Plus size={12} /> Macro
+            <Plus size={12} /> {strings.createMacro}
           </button>
 
           {displayMode === 'execution' && (
@@ -986,10 +1001,10 @@ export const RoadmapView: React.FC = () => {
                 borderColor: onlyIssues ? 'rgb(var(--status-danger-rgb) / 0.4)' : 'var(--border-color)',
                 color: onlyIssues ? 'var(--status-danger)' : 'var(--text-secondary)',
               }}
-              title="Ne garder que les macros ayant un ticket non terminé sans sprint, ou resté dans un sprint passé"
+              title={strings.onlyIssuesTitle}
             >
               <AlertTriangle size={12} />
-              À corriger
+              {strings.onlyIssues}
             </button>
           )}
 
@@ -1008,13 +1023,13 @@ export const RoadmapView: React.FC = () => {
             }}
             title={
               tab === 'hidden'
-                ? "Une ligne par macro : sa clé, son titre, sa priorité et son classement. L'onglet « Masqués » garde la forme dépliée."
-                : 'Une ligne par macro : sa clé, son titre, sa priorité et son classement'
+                ? strings.condensedTitleHidden
+                : strings.condensedTitle
             }
             aria-pressed={isRoadmapRowCondensed(rowMode)}
           >
             <Rows3 size={12} />
-            Condensé
+            {strings.condensed}
           </button>
 
           {/* La barre de recherche est dans l'en-tête, loin de la liste : sans
@@ -1029,12 +1044,12 @@ export const RoadmapView: React.FC = () => {
               }}
             >
               <Search size={11} />
-              {rows.length} macro{rows.length > 1 ? 's' : ''} sur « {searchQuery.trim()} »
+              {plural(language, rows.length, strings.searchResults, { query: searchQuery.trim() })}
               <button
                 type="button"
                 onClick={() => setSearchQuery('')}
                 className="cursor-pointer opacity-70 hover:opacity-100"
-                title="Effacer la recherche"
+                title={strings.clearSearch}
               >
                 <X size={11} />
               </button>
@@ -1045,9 +1060,9 @@ export const RoadmapView: React.FC = () => {
         {displayMode === 'execution' && (tab === 'now' || tab === 'next') && (
           <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] bg-[var(--bg-tertiary)] border border-[var(--border-color)] shrink-0">
             <CalendarDays size={13} style={{ color: HORIZON_META[horizonOfTab].color }} />
-            <span className="text-[var(--text-muted)]">{tab === 'now' ? 'Sprints actifs' : 'Sprints à venir'} :</span>
+            <span className="text-[var(--text-muted)]">{tab === 'now' ? strings.activeSprints : strings.upcomingSprints}</span>
             {(tab === 'now' ? activeSprints : futureSprints).length === 0 ? (
-              <span className="font-mono" style={{ color: 'var(--status-warn)' }}>aucun connu — lance une synchro</span>
+              <span className="font-mono" style={{ color: 'var(--status-warn)' }}>{strings.noKnownSprint}</span>
             ) : (
               <span className="font-mono font-bold truncate max-w-[320px]">
                 {(tab === 'now' ? activeSprints : futureSprints).map(s => s.name).join(' · ')}
@@ -1065,20 +1080,20 @@ export const RoadmapView: React.FC = () => {
               <div className="h-full flex flex-col items-center justify-center gap-2 text-center px-6">
                 <Compass size={26} className="text-[var(--text-muted)]" />
                 <p className="text-sm font-semibold">
-                  {searchQuery.trim() ? `Aucune macro ne correspond à « ${searchQuery.trim()} »` : 'Aucune macro ici'}
+                  {searchQuery.trim() ? format(strings.noMacroMatch, { query: searchQuery.trim() }) : strings.noMacroHere}
                 </p>
                 <p className="text-[11px] text-[var(--text-muted)] max-w-sm">
                   {searchQuery.trim()
                     ? hiddenMatches > 0
-                      ? `${hiddenMatches} macro(s) correspondent mais sont écartées par les filtres d'affichage : affiche les macros closes ou celles d'un autre projet pour les voir.`
-                      : 'La recherche porte sur la clé, le titre et l’équipe de la macro, ainsi que sur les clés et titres de ses tickets.'
+                      ? plural(language, hiddenMatches, strings.hiddenMatches)
+                      : strings.searchScope
                     : tab === 'hidden'
-                    ? 'Aucune macro masquée. Classe en HIDDEN le tout-venant qui n’a pas vocation à apparaître dans la roadmap.'
+                    ? strings.emptyHidden
                     : tab === 'unclassified'
-                    ? 'Toutes les macros sont classées. Les nouvelles apparaîtront ici après une synchro.'
+                    ? strings.emptyUnclassified
                     : onlyIssues
-                      ? 'Aucune anomalie de placement sur cet horizon.'
-                      : 'Classe des macros depuis l’onglet « Non classés » pour les voir apparaître ici.'}
+                      ? strings.emptyNoIssue
+                      : strings.emptyHorizon}
                 </p>
               </div>
             ) : (
@@ -1092,10 +1107,10 @@ export const RoadmapView: React.FC = () => {
           <div
             role="separator"
             aria-orientation="vertical"
-            aria-label="Répartition entre la liste des macros et le panneau"
+            aria-label={strings.splitLabel}
             onPointerDown={startSplitDrag}
             onDoubleClick={() => setPanelWidth(720)}
-            title="Glisser pour répartir, double-clic pour revenir à la largeur par défaut"
+            title={strings.splitTitle}
             className="w-1.5 shrink-0 cursor-col-resize transition-colors"
             style={{ background: isDraggingSplit ? 'var(--accent-color)' : 'var(--border-color)' }}
           />
@@ -1121,10 +1136,10 @@ export const RoadmapView: React.FC = () => {
                     type="button"
                     onClick={() => setIsPanelExpanded(prev => !prev)}
                     className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-semibold text-[var(--accent-color)] hover:opacity-90 cursor-pointer border border-[var(--accent-color)]/40 bg-[var(--accent-light)] transition-colors"
-                    title={isPanelExpanded ? "Réduire le panneau (Vue divisée)" : "Agrandir le panneau sur toute la surface (Mode Framing)"}
+                    title={isPanelExpanded ? strings.panel.collapseTitle : strings.panel.expandTitle}
                   >
                     {isPanelExpanded ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
-                    <span>{isPanelExpanded ? "Réduire" : "Plein écran"}</span>
+                    <span>{isPanelExpanded ? strings.panel.collapse : strings.panel.expand}</span>
                   </button>
 
                   {selected.tasks[0]?.externalUrl && (
@@ -1135,9 +1150,9 @@ export const RoadmapView: React.FC = () => {
                         background: 'rgb(var(--status-info-rgb) / 0.12)',
                         border: '1px solid rgb(var(--status-info-rgb) / 0.32)',
                       }}
-                      title={`Ouvrir ${selected.key} dans le tracker distant`}>
+                      title={format(strings.panel.openRemoteTitle, { key: selected.key })}>
                       <ExternalLink size={13} />
-                      <span>Lien</span>
+                      <span>{strings.panel.link}</span>
                     </a>
                   )}
                   <button
@@ -1147,10 +1162,10 @@ export const RoadmapView: React.FC = () => {
                       setIsEditingTitle(true)
                     }}
                     className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-semibold text-[var(--text-secondary)] hover:text-[var(--text-primary)] cursor-pointer border border-[var(--border-color)] hover:border-[var(--accent-color)]/50 transition-colors"
-                    title="Modifier le nom de la macro / milestone"
+                    title={strings.panel.renameTitle}
                   >
                     <Pencil size={12} />
-                    <span>Renommer</span>
+                    <span>{strings.panel.rename}</span>
                   </button>
                   <button
                     type="button"
@@ -1162,16 +1177,16 @@ export const RoadmapView: React.FC = () => {
                       setShowMigrateModal(true)
                     }}
                     className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-semibold text-[var(--text-secondary)] hover:text-[var(--text-primary)] cursor-pointer border border-[var(--border-color)] hover:border-[var(--accent-color)]/50 transition-colors"
-                    title="Migrer cette macro et ses tickets vers un autre projet compatible"
+                    title={strings.panel.migrateTitle}
                   >
                     <ArrowRightLeft size={12} />
-                    <span>Migrer</span>
+                    <span>{strings.panel.migrate}</span>
                   </button>
                   <button
                     type="button"
                     disabled={busyKey === 'delete'}
                     onClick={async () => {
-                      if (!confirm(`Supprimer la macro ${selected.key} (${selected.title}) ?\n(Les tickets associés seront détachés)`)) return
+                      if (!confirm(format(strings.panel.deleteConfirm, { key: selected.key, title: selected.title }))) return
                       if (!currentProject?.id) return
                       setBusyKey('delete')
                       const ok = await deleteMacro(currentProject.id, selected.key)
@@ -1182,10 +1197,10 @@ export const RoadmapView: React.FC = () => {
                       setBusyKey(null)
                     }}
                     className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-semibold text-[var(--text-muted)] hover:text-rose-400 cursor-pointer border border-[var(--border-color)] hover:border-rose-500/30 transition-colors disabled:opacity-50"
-                    title={`Supprimer la macro ${selected.key} (et le milestone GitHub si applicable)`}
+                    title={format(strings.panel.deleteTitle, { key: selected.key })}
                   >
                     <Trash2 size={12} />
-                    <span>Supprimer</span>
+                    <span>{strings.panel.delete}</span>
                   </button>
                 </div>
               </div>
@@ -1207,7 +1222,7 @@ export const RoadmapView: React.FC = () => {
                       const updated = await saveMacroMeta(targetProjId, selected.key, { title: nextTitle })
                       if (updated) {
                         setMacroMeta(prev => prev.map(m => m.key === selected.key ? { ...m, title: nextTitle } : m))
-                        addToast({ type: 'success', title: `Macro ${selected.key} renommée`, description: nextTitle })
+                        addToast({ type: 'success', title: format(strings.panel.renamed, { key: selected.key }), description: nextTitle })
                       }
                       setIsEditingTitle(false)
                       setBusyKey(null)
@@ -1230,7 +1245,7 @@ export const RoadmapView: React.FC = () => {
                       type="submit"
                       disabled={!editingTitleValue.trim() || busyKey === 'editTitle'}
                       className="p-1.5 rounded-lg text-white accent-bg hover:opacity-90 transition-opacity cursor-pointer disabled:opacity-50"
-                      title="Enregistrer le nom"
+                      title={strings.panel.saveName}
                     >
                       {busyKey === 'editTitle' ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />}
                     </button>
@@ -1238,7 +1253,7 @@ export const RoadmapView: React.FC = () => {
                       type="button"
                       onClick={() => setIsEditingTitle(false)}
                       className="p-1.5 rounded-lg text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] transition-colors cursor-pointer"
-                      title="Annuler"
+                      title={strings.panel.cancel}
                     >
                       <X size={13} />
                     </button>
@@ -1251,7 +1266,7 @@ export const RoadmapView: React.FC = () => {
                         setIsEditingTitle(true)
                       }}
                       className="text-[16px] font-bold leading-[1.25] cursor-pointer hover:text-[var(--accent-color)] transition-colors"
-                      title="Cliquer pour modifier le nom du milestone"
+                      title={strings.panel.clickToRename}
                     >
                       {selected.title}
                     </h2>
@@ -1262,7 +1277,7 @@ export const RoadmapView: React.FC = () => {
                         setIsEditingTitle(true)
                       }}
                       className="opacity-0 group-hover:opacity-100 p-1 rounded-md text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] transition-all cursor-pointer"
-                      title="Renommer la macro / milestone"
+                      title={strings.panel.renameShortTitle}
                     >
                       <Pencil size={12} />
                     </button>
@@ -1272,7 +1287,7 @@ export const RoadmapView: React.FC = () => {
 
               {selected.meta?.status && (
                 <div className="mt-1.5 text-[10px] font-mono" style={{ color: selected.closed ? 'var(--status-ok)' : 'var(--text-muted)' }}>
-                  Macro {selected.closed ? 'terminée' : 'ouverte'} · {selected.meta.status}
+                  {format(selected.closed ? strings.panel.statusClosed : strings.panel.statusOpen, { status: selected.meta.status })}
                 </div>
               )}
             </div>
@@ -1294,7 +1309,7 @@ export const RoadmapView: React.FC = () => {
                       ticket existant dans la macro. */}
                   <div>
                     <div className="text-[10px] font-bold uppercase tracking-[.08em] text-[var(--text-muted)] mb-1.5">
-                      Composer la macro
+                      {strings.execution.compose}
                     </div>
 
                     <div className="flex items-center gap-2">
@@ -1311,7 +1326,7 @@ export const RoadmapView: React.FC = () => {
                             setBusyKey(null)
                           }
                         }}
-                        placeholder={`Nouvelle story sous ${selected.key}…`}
+                        placeholder={format(strings.execution.newStoryPlaceholder, { key: selected.key })}
                         className="flex-1 px-2.5 py-1.5 text-xs rounded-xl bg-[var(--bg-primary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)]"
                       />
                       <button
@@ -1325,7 +1340,7 @@ export const RoadmapView: React.FC = () => {
                         }}
                         className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-bold text-white accent-bg disabled:opacity-40 cursor-pointer shrink-0"
                       >
-                        <Plus size={12} /> {busyKey === 'new' ? '…' : 'Créer'}
+                        <Plus size={12} /> {busyKey === 'new' ? '…' : strings.execution.create}
                       </button>
                     </div>
 
@@ -1334,7 +1349,7 @@ export const RoadmapView: React.FC = () => {
                         type="text"
                         value={attachQuery}
                         onChange={e => setAttachQuery(e.target.value)}
-                        placeholder="Pousser un ticket existant : clé ou titre…"
+                        placeholder={strings.execution.attachPlaceholder}
                         className="w-full px-2.5 py-1.5 text-xs rounded-xl bg-[var(--bg-primary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)]"
                       />
                       {attachCandidates.length > 0 && (
@@ -1357,7 +1372,7 @@ export const RoadmapView: React.FC = () => {
                               </span>
                               <span className="text-[11px] truncate flex-1 text-[var(--text-secondary)]">{candidate.title}</span>
                               {candidate.parentKey && (
-                                <span className="text-[9px] font-mono shrink-0 text-[var(--text-muted)]" title="Macro actuelle, qui sera remplacée">
+                                <span className="text-[9px] font-mono shrink-0 text-[var(--text-muted)]" title={strings.execution.currentMacroTitle}>
                                   {candidate.parentKey} →
                                 </span>
                               )}
@@ -1372,15 +1387,15 @@ export const RoadmapView: React.FC = () => {
                   <div className="grid grid-cols-2 gap-2">
                     <div className="px-2.5 py-2 rounded-lg bg-[var(--bg-primary)] border border-[var(--border-color)]">
                       <div className="text-[9px] font-bold uppercase tracking-[.08em] text-[var(--text-muted)]">
-                        {tab === 'now' ? 'Dans un sprint actif' : 'Dans un sprint à venir'}
+                        {tab === 'now' ? strings.execution.inActiveSprint : strings.execution.inUpcomingSprint}
                       </div>
                       <div className="text-[15px] font-bold mt-0.5" style={{ color: 'var(--status-ok)' }}>
                         {tab === 'now' ? selected.inActiveSprint.length : selected.inFutureSprint.length}
-                        <span className="text-[11px] font-normal text-[var(--text-muted)]"> / {selected.open.length} ouverts</span>
+                        <span className="text-[11px] font-normal text-[var(--text-muted)]"> {plural(language, selected.open.length, strings.execution.openSuffix)}</span>
                       </div>
                     </div>
                     <div className="px-2.5 py-2 rounded-lg bg-[var(--bg-primary)] border border-[var(--border-color)]">
-                      <div className="text-[9px] font-bold uppercase tracking-[.08em] text-[var(--text-muted)]">À corriger</div>
+                      <div className="text-[9px] font-bold uppercase tracking-[.08em] text-[var(--text-muted)]">{strings.onlyIssues}</div>
                       <div className="text-[15px] font-bold mt-0.5"
                         style={{ color: placementIssues(selected, horizonOfTab).length ? 'var(--status-danger)' : 'var(--status-ok)' }}>
                         {placementIssues(selected, horizonOfTab).length}
@@ -1390,20 +1405,20 @@ export const RoadmapView: React.FC = () => {
 
                   <div>
                     <div className="text-[10px] font-bold uppercase tracking-[.08em] text-[var(--text-muted)] mb-1.5">
-                      Stories et sprints ({selected.open.length} ouvertes)
+                      {plural(language, selected.open.length, strings.execution.storiesHeading)}
                     </div>
                     <div className="flex flex-col gap-1.5">
                       {selected.open.length === 0 && (
                         <p className="text-[11px] text-[var(--text-muted)]">
-                          Aucune story ouverte : cette macro ressemble plutôt à du LATER.
+                          {strings.execution.noOpenStory}
                         </p>
                       )}
                       {orderedOpen.map((task, index) => {
                         const state = placementOf(task, selected, horizonOfTab)
                         const meta = PLACEMENT_META[state]
                         const beyondCut = cutAt >= 0 && index >= cutAt
-                        const sprintLabel = sprintLabelOf(task)
-                        const startsSprint = index === 0 || sprintLabelOf(orderedOpen[index - 1]) !== sprintLabel
+                        const sprintLabel = sprintLabelOf(task, strings.execution.noSprint)
+                        const startsSprint = index === 0 || sprintLabelOf(orderedOpen[index - 1], strings.execution.noSprint) !== sprintLabel
                         return (
                           <React.Fragment key={task.id}>
                             {startsSprint && (
@@ -1450,8 +1465,8 @@ export const RoadmapView: React.FC = () => {
                                   background: cutAt === index ? 'var(--accent-color)' : 'var(--bg-secondary)',
                                   border: `1px solid ${cutAt === index ? 'var(--accent-color)' : 'var(--border-color)'}`,
                                 }}
-                                title={`Couper ici : ${orderedOpen.length - index} ticket(s) partent`}
-                                aria-label={`Couper avant ${task.key}`}
+                                title={plural(language, orderedOpen.length - index, strings.execution.cutHereTitle)}
+                                aria-label={format(strings.execution.cutBefore, { key: task.key })}
                               />
                             </div>
 
@@ -1473,7 +1488,7 @@ export const RoadmapView: React.FC = () => {
                                   background: checked[task.id] ? 'var(--accent-color)' : 'transparent',
                                   border: `1px solid ${checked[task.id] ? 'var(--accent-color)' : 'var(--border-color)'}`,
                                 }}
-                                title="Sélectionner pour déplacer vers une autre macro"
+                                title={strings.execution.selectToMove}
                               >
                                 {checked[task.id] && <Check size={10} className="text-white" />}
                               </button>
@@ -1487,8 +1502,8 @@ export const RoadmapView: React.FC = () => {
                                   <LookupField
                                     value={task.sprint || ''}
                                     icon={<CalendarRange size={10} />}
-                                    placeholder={meta.label}
-                                    clearLabel="Backlog (aucun sprint)"
+                                    placeholder={strings.placement[state]}
+                                    clearLabel={t.planning.triage.backlogNoSprint}
                                     onSearch={searchSprint}
                                     onPick={option => setTaskSprint(task.id, option?.id || '', option?.label)}
                                   />
@@ -1496,7 +1511,7 @@ export const RoadmapView: React.FC = () => {
                               ) : (
                                 <span className="text-[9px] px-1 rounded font-mono ml-auto shrink-0 truncate max-w-[150px]"
                                   style={{ color: meta.color, background: meta.bg, border: `1px solid ${meta.border}` }}>
-                                  {task.sprint || meta.label}
+                                  {task.sprint || strings.placement[state]}
                                 </span>
                               )}
 
@@ -1509,7 +1524,7 @@ export const RoadmapView: React.FC = () => {
                                   setBusyKey(null)
                                 }}
                                 className="p-1 rounded text-[var(--text-muted)] hover:text-rose-400 cursor-pointer disabled:opacity-50"
-                                title={`Retirer ${task.key} de la macro`}
+                                title={format(strings.execution.removeFromMacro, { key: task.key })}
                               >
                                 <X size={12} />
                               </button>
@@ -1517,10 +1532,10 @@ export const RoadmapView: React.FC = () => {
                             <div className="text-[11px] mt-1 leading-snug text-[var(--text-secondary)]">{task.title}</div>
                             {state !== 'ok' && (
                               <div className="text-[9.5px] mt-1 font-mono" style={{ color: meta.color }}>
-                                {state === 'missing' && 'Aucun sprint : à placer'}
-                                {state === 'stale' && 'Sprint clos ou inconnu du board'}
+                                {state === 'missing' && strings.execution.stateMissing}
+                                {state === 'stale' && strings.execution.stateStale}
                                 {state === 'other-horizon' &&
-                                  (tab === 'now' ? 'Dans un sprint futur, pas actif' : 'Dans un sprint actif, pas futur')}
+                                  (tab === 'now' ? strings.execution.stateFutureNotActive : strings.execution.stateActiveNotFuture)}
                               </div>
                             )}
                           </div>
@@ -1540,8 +1555,8 @@ export const RoadmapView: React.FC = () => {
                       <Scissors size={11} style={{ color: cutAt >= 0 ? 'var(--accent-color)' : 'var(--text-muted)' }} />
                       <span className="text-[10px] text-[var(--text-secondary)]">
                         {cutAt < 0
-                          ? 'Fais glisser un cran dans la marge pour couper'
-                          : `${orderedOpen.length - cutAt} ticket(s) à partir de ${sprintLabelOf(orderedOpen[cutAt])}`}
+                          ? strings.execution.cutHint
+                          : plural(language, orderedOpen.length - cutAt, strings.execution.cutSummary, { sprint: sprintLabelOf(orderedOpen[cutAt], strings.execution.noSprint) })}
                       </span>
                       {cutAt >= 0 && (
                         <button
@@ -1549,7 +1564,7 @@ export const RoadmapView: React.FC = () => {
                           onClick={() => setCutAt(-1)}
                           className="ml-auto text-[10px] font-bold text-[var(--text-muted)] hover:text-[var(--text-primary)] cursor-pointer"
                         >
-                          Annuler la coupe
+                          {strings.execution.cancelCut}
                         </button>
                       )}
                     </div>
@@ -1561,18 +1576,18 @@ export const RoadmapView: React.FC = () => {
                   {cutIds.length > 0 && sprintOptions.length > 0 && (
                     <div className="p-2.5 rounded-xl border border-[var(--border-color)] bg-[var(--bg-primary)]">
                       <div className="text-[10px] font-bold uppercase tracking-[.08em] mb-1.5 text-[var(--text-muted)]">
-                        Replanifier {cutIds.length} ticket(s) dans…
+                        {plural(language, cutIds.length, strings.execution.rescheduleHeading)}
                       </div>
                       <div className="flex items-center gap-2">
                         <div className="flex-1">
                           <LookupField
                             value={sprintTarget.name}
                             icon={<CalendarRange size={11} />}
-                            placeholder="sprint cible..."
-                            clearLabel="Backlog (retirer du sprint)"
+                            placeholder={strings.execution.targetSprintPlaceholder}
+                            clearLabel={strings.execution.backlogRemove}
                             onSearch={searchSprint}
                             onPick={option =>
-                              setSprintTarget({ id: option?.id || '', name: option?.label || 'Backlog' })
+                              setSprintTarget({ id: option?.id || '', name: option?.label || t.planning.triage.backlog })
                             }
                           />
                         </div>
@@ -1594,9 +1609,9 @@ export const RoadmapView: React.FC = () => {
                           }}
                           className="px-2.5 py-1.5 rounded-lg text-[11px] font-bold cursor-pointer shrink-0 disabled:opacity-40"
                           style={{ color: 'var(--status-ok)', background: 'rgb(var(--status-ok-rgb) / 0.12)', border: '1px solid rgb(var(--status-ok-rgb) / 0.32)' }}
-                          title="Déplacer la sélection dans ce sprint, via la file d'activités"
+                          title={strings.execution.rescheduleTitle}
                         >
-                          {busyKey === 'sprint' ? '…' : 'Replanifier'}
+                          {busyKey === 'sprint' ? '…' : strings.execution.reschedule}
                         </button>
                       </div>
                     </div>
@@ -1607,16 +1622,16 @@ export const RoadmapView: React.FC = () => {
                   {cutIds.length > 0 && (
                     <div className="p-2.5 rounded-xl border" style={{ background: 'var(--accent-light)', borderColor: 'rgb(var(--accent-rgb) / 0.4)' }}>
                       <div className="text-[10px] font-bold uppercase tracking-[.08em] mb-1.5" style={{ color: 'var(--accent-color)' }}>
-                        Couper {cutIds.length} ticket(s) vers…
+                        {plural(language, cutIds.length, strings.execution.cutHeading)}
                       </div>
                       <div className="flex items-center gap-2">
                         <div className="flex-1">
                           <LookupField
                             value={moveTarget}
                             icon={<Target size={11} />}
-                            placeholder="macro existante..."
+                            placeholder={strings.execution.existingMacroPlaceholder}
                             allowClear={false}
-                            emptyHint="Aucune macro ne correspond."
+                            emptyHint={t.planning.triage.noMacroMatch}
                             onSearch={async query => {
                               const q = query.trim().toLowerCase()
                               return allRows
@@ -1640,7 +1655,7 @@ export const RoadmapView: React.FC = () => {
                           }}
                           className="px-2.5 py-1.5 rounded-lg text-[11px] font-bold text-white accent-bg disabled:opacity-40 cursor-pointer shrink-0"
                         >
-                          Déplacer
+                          {strings.execution.move}
                         </button>
                       </div>
                       <div className="flex items-center gap-2 mt-2">
@@ -1648,7 +1663,7 @@ export const RoadmapView: React.FC = () => {
                           type="text"
                           value={newMacroTitle}
                           onChange={e => setNewMacroTitle(e.target.value)}
-                          placeholder="…ou vers une nouvelle macro : son titre"
+                          placeholder={strings.execution.newMacroPlaceholder}
                           className="flex-1 px-2 py-1.5 text-[11px] rounded-lg bg-[var(--bg-primary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)]"
                         />
                         <button
@@ -1662,11 +1677,11 @@ export const RoadmapView: React.FC = () => {
                             setNewMacroTitle('')
                             setBusyKey(null)
                           }}
-                          title="Créer la macro cible et y déplacer les tickets sélectionnés"
+                          title={strings.execution.createAndMoveTitle}
                           className="px-2.5 py-1.5 rounded-lg text-[11px] font-bold cursor-pointer shrink-0 disabled:opacity-40"
                           style={{ color: 'var(--status-info)', background: 'rgb(var(--status-info-rgb) / 0.12)', border: '1px solid rgb(var(--status-info-rgb) / 0.32)' }}
                         >
-                          {busyKey === 'move' ? '…' : 'Créer et couper'}
+                          {busyKey === 'move' ? '…' : strings.execution.createAndCut}
                         </button>
                       </div>
                     </div>
@@ -1686,11 +1701,11 @@ export const RoadmapView: React.FC = () => {
                         <div className="flex items-center gap-1.5 min-w-0">
                           {isDescExpanded ? <ChevronDown size={14} className="text-[var(--accent-color)] shrink-0" /> : <ChevronRight size={14} className="text-[var(--text-muted)] shrink-0" />}
                           <span className="text-[11px] font-bold uppercase tracking-[.08em] text-[var(--text-primary)] shrink-0">
-                            Description de la Macro
+                            {strings.framing.descriptionHeading}
                           </span>
                           {!isDescExpanded && draftDescription.trim() && (
                             <span className="text-[10px] text-[var(--text-muted)] italic truncate max-w-[280px]">
-                              — {draftDescription.trim().slice(0, 50)}…
+                              - {draftDescription.trim().slice(0, 50)}…
                             </span>
                           )}
                         </div>
@@ -1700,17 +1715,17 @@ export const RoadmapView: React.FC = () => {
                             disabled={isRefining}
                             onClick={handleRefineMacro}
                             className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold text-orange-300 bg-orange-500/10 border border-orange-500/30 hover:bg-orange-500/20 disabled:opacity-50 cursor-pointer"
-                            title="Raffiner le cadrage avec l'IA pour générer la checklist de TODOs"
+                            title={strings.framing.refineTitle}
                           >
                             {isRefining ? <Loader2 size={10} className="animate-spin text-orange-400" /> : <Sparkles size={10} className="text-orange-400" />}
-                            <span>Raffiner AI</span>
+                            <span>{strings.framing.refine}</span>
                           </button>
                           {currentProject?.id && (
                             <MacroRealignButton
                               projectId={currentProject.id}
                               macroKey={selected.key}
-                              onError={message => addToast({ type: 'error', title: 'Réalignement impossible', description: message })}
-                              onLaunched={message => addToast({ type: 'success', title: 'Réalignement lancé', description: message })}
+                              onError={message => addToast({ type: 'error', title: strings.framing.realignFailed, description: message })}
+                              onLaunched={message => addToast({ type: 'success', title: strings.framing.realignLaunched, description: message })}
                             />
                           )}
                           {draftDirty && (
@@ -1722,7 +1737,7 @@ export const RoadmapView: React.FC = () => {
                               }}
                               className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold text-white accent-bg cursor-pointer"
                             >
-                              <Save size={10} /> Enregistrer
+                              <Save size={10} /> {strings.framing.save}
                             </button>
                           )}
                         </div>
@@ -1737,7 +1752,7 @@ export const RoadmapView: React.FC = () => {
                               setDraftDirty(true)
                             }}
                             minHeight={120}
-                            placeholder="Le problème, le périmètre, la valeur attendue, ce qui est hors périmètre… Ce cadrage vit dans Sectile."
+                            placeholder={strings.framing.descriptionPlaceholder}
                           />
                         </div>
                       )}
@@ -1753,11 +1768,11 @@ export const RoadmapView: React.FC = () => {
                           {isFramingExpanded ? <ChevronDown size={14} className="text-amber-400 shrink-0" /> : <ChevronRight size={14} className="text-[var(--text-muted)] shrink-0" />}
                           <span className="text-[11px] font-bold uppercase tracking-[.08em] text-[var(--text-primary)] flex items-center gap-1 shrink-0">
                             <MessageSquare size={12} className="text-amber-400" />
-                            <span>Commentaire Framing / Notes de Cadrage</span>
+                            <span>{strings.framing.commentHeading}</span>
                           </span>
                           {!isFramingExpanded && draftFramingComment.trim() && (
                             <span className="text-[10px] text-[var(--text-muted)] italic truncate max-w-[280px]">
-                              — {draftFramingComment.trim().slice(0, 50)}…
+                              - {draftFramingComment.trim().slice(0, 50)}…
                             </span>
                           )}
                         </div>
@@ -1771,7 +1786,7 @@ export const RoadmapView: React.FC = () => {
                               }}
                               className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold text-white accent-bg cursor-pointer"
                             >
-                              <Save size={10} /> Enregistrer
+                              <Save size={10} /> {strings.framing.save}
                             </button>
                           )}
                         </div>
@@ -1786,7 +1801,7 @@ export const RoadmapView: React.FC = () => {
                               setDraftFramingDirty(true)
                             }}
                             minHeight={100}
-                            placeholder="Commentaires et consignes de cadrage pour l'équipe ou l'agent (ex: architecture, contraintes techniques, notes de révision)..."
+                            placeholder={strings.framing.commentPlaceholder}
                           />
                         </div>
                       )}
@@ -1795,7 +1810,7 @@ export const RoadmapView: React.FC = () => {
 
                   <div>
                     <div className="text-[10px] font-bold uppercase tracking-[.08em] text-[var(--text-muted)] mb-1.5">
-                      Checklist TODOs ({todosOf(selected).filter(t => t.done).length}/{todosOf(selected).length})
+                      {format(strings.framing.checklistHeading, { done: todosOf(selected).filter(t => t.done).length, total: todosOf(selected).length })}
                     </div>
                     <div className="flex flex-col gap-1.5">
                       {todosOf(selected).map(todo => (
@@ -1813,7 +1828,7 @@ export const RoadmapView: React.FC = () => {
                               background: todo.done ? 'var(--accent-color)' : 'transparent',
                               border: `1px solid ${todo.done ? 'var(--accent-color)' : 'var(--border-color)'}`,
                             }}
-                            title={todo.done ? 'Rouvrir' : 'Cocher'}
+                            title={todo.done ? strings.framing.reopen : strings.framing.check}
                           >
                             {todo.done && <Check size={10} className="text-white" />}
                           </button>
@@ -1836,7 +1851,7 @@ export const RoadmapView: React.FC = () => {
                               // Where the story was created, read-only; worth saying only
                               // where another project could have received it.
                               return saved || options.length > 0 ? (
-                                <span className="text-[9.5px] px-1.5 py-0.5 rounded shrink-0 text-[var(--text-muted)] border border-[var(--border-color)]" title="Projet où la story a été créée">
+                                <span className="text-[9.5px] px-1.5 py-0.5 rounded shrink-0 text-[var(--text-muted)] border border-[var(--border-color)]" title={strings.framing.storyProjectTitle}>
                                   {saved ? savedName : currentProject.name}
                                 </span>
                               ) : null
@@ -1844,7 +1859,7 @@ export const RoadmapView: React.FC = () => {
                             if (options.length === 0 && !saved) return null
                             return (
                               <select
-                                aria-label={`Projet cible de « ${todo.text} »`}
+                                aria-label={format(strings.framing.targetProjectLabel, { todo: todo.text })}
                                 value={saved}
                                 onChange={e =>
                                   persist(selected.key, {
@@ -1852,11 +1867,11 @@ export const RoadmapView: React.FC = () => {
                                   })
                                 }
                                 className={`text-[9.5px] max-w-[120px] px-1 py-0.5 rounded shrink-0 bg-[var(--bg-secondary)] border cursor-pointer ${invalid ? 'border-rose-500 text-rose-300' : 'border-[var(--border-color)] text-[var(--text-secondary)]'}`}
-                                title={invalid ? 'Ce projet ne partage plus le tracker de la macro : la création de la story sera refusée.' : 'Projet où créer la story'}
+                                title={invalid ? strings.framing.incompatibleProjectTitle : strings.framing.targetProjectTitle}
                               >
                                 <option value="">{currentProject.name}</option>
                                 {options.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                                {invalid && <option value={saved}>{savedName} (incompatible)</option>}
+                                {invalid && <option value={saved}>{format(strings.framing.incompatibleOption, { name: savedName })}</option>}
                               </select>
                             )
                           })()}
@@ -1874,7 +1889,7 @@ export const RoadmapView: React.FC = () => {
                                 background: 'rgb(var(--status-ok-rgb) / 0.13)',
                                 border: '1px solid rgb(var(--status-ok-rgb) / 0.32)',
                               }}
-                              title={`Story créée : ${todo.storyKey}`}
+                              title={format(strings.framing.storyCreated, { key: todo.storyKey })}
                             >
                               {todo.storyKey}
                             </button>
@@ -1889,7 +1904,7 @@ export const RoadmapView: React.FC = () => {
                                   target="_blank"
                                   rel="noreferrer"
                                   className="shrink-0 text-[var(--text-muted)] hover:text-[var(--accent-color)] transition-colors"
-                                  title={`Ouvrir ${todo.storyKey} sur le tracker`}
+                                  title={format(t.planning.macro.openOnTracker, { key: todo.storyKey })}
                                 >
                                   <ExternalLink size={10} />
                                 </a>
@@ -1914,16 +1929,16 @@ export const RoadmapView: React.FC = () => {
                                 background: 'rgb(var(--status-info-rgb) / 0.12)',
                                 border: '1px solid rgb(var(--status-info-rgb) / 0.32)',
                               }}
-                              title={`Créer une story sous ${selected.key}`}
+                              title={format(strings.framing.createStoryTitle, { key: selected.key })}
                             >
-                              {creatingTodoId === todo.id ? '…' : 'Créer story'}
+                              {creatingTodoId === todo.id ? '…' : strings.framing.createStory}
                             </button>
                           )}
                           <button
                             type="button"
                             onClick={() => persist(selected.key, { todos: todosOf(selected).filter(t => t.id !== todo.id) })}
                             className="p-0.5 rounded text-[var(--text-muted)] hover:text-rose-400 cursor-pointer shrink-0"
-                            title="Retirer"
+                            title={strings.framing.remove}
                           >
                             <Trash2 size={11} />
                           </button>
@@ -1931,7 +1946,7 @@ export const RoadmapView: React.FC = () => {
                       ))}
                       {todosOf(selected).length === 0 && (
                         <p className="text-[11px] text-[var(--text-muted)]">
-                          Aucune ligne. Écris ici ce qu'il faudra faire, avant même de créer des stories.
+                          {strings.framing.noTodo}
                         </p>
                       )}
                     </div>
@@ -1947,12 +1962,12 @@ export const RoadmapView: React.FC = () => {
                             addTodo(selected)
                           }
                         }}
-                        placeholder="Ajouter une ligne de TODO…"
+                        placeholder={strings.framing.addTodoPlaceholder}
                         className="flex-1 px-2.5 py-1.5 text-xs rounded-xl bg-[var(--bg-primary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)]"
                       />
                       <button type="button" onClick={() => addTodo(selected)} disabled={!newTodo.trim()}
                         className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-bold text-white accent-bg disabled:opacity-40 cursor-pointer shrink-0">
-                        <Plus size={12} /> Ajouter
+                        <Plus size={12} /> {strings.framing.add}
                       </button>
                     </div>
 
@@ -1963,17 +1978,17 @@ export const RoadmapView: React.FC = () => {
                         rien, là où un refus nomme sa cause. */}
                     <div className="flex items-center gap-2 mt-2 pt-2 border-t border-[var(--border-color)]">
                       <span className="text-[10px] font-bold uppercase tracking-[.08em] text-[var(--text-muted)] shrink-0">
-                        Importer
+                        {strings.framing.importHeading}
                       </span>
                       {([
-                        { source: 'tasks' as const, label: 'tasks.md', hint: "Un groupe de tasks.md par ligne : c'est le grain d'une story." },
-                        { source: 'spec' as const, label: 'spec.md', hint: 'Une exigence ou une user story priorisée par ligne.' },
+                        { source: 'tasks' as const, label: 'tasks.md', hint: strings.framing.importTasksHint },
+                        { source: 'spec' as const, label: 'spec.md', hint: strings.framing.importSpecHint },
                         // L'inverse de « Créer story » : celui-ci descend d'une
                         // ligne vers un ticket, celui-là remonte d'un ticket
                         // vers sa ligne. Une macro dont les stories ont été
                         // créées ailleurs avait une découpe vide alors que le
                         // travail était déjà découpé.
-                        { source: 'stories' as const, label: 'Reprendre les stories', hint: "Une ligne par ticket déjà créé sous la macro, chacune arrivant rattachée au sien." },
+                        { source: 'stories' as const, label: strings.framing.importStories, hint: strings.framing.importStoriesHint },
                       ]).map(option => (
                         <button
                           key={option.source}
@@ -2001,7 +2016,7 @@ export const RoadmapView: React.FC = () => {
                   {selected.tasks.length > 0 && (
                     <div className="pt-2 border-t border-[var(--border-color)]">
                       <div className="text-[10px] font-bold uppercase tracking-[.08em] text-[var(--text-muted)] mb-1.5">
-                        Tickets créés sous cette macro ({selected.tasks.length})
+                        {format(strings.framing.createdTickets, { count: selected.tasks.length })}
                       </div>
                       {/* Une seule colonne, la même ligne que les groupes par
                           objectif : une pastille qui ne porte que la clé oblige
@@ -2026,7 +2041,7 @@ export const RoadmapView: React.FC = () => {
             <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--border-color)]">
               <div className="flex items-center gap-2 text-sm font-bold text-[var(--text-primary)]">
                 <Target size={16} className="text-[var(--accent-color)]" />
-                <span>Créer une Macro (Milestone)</span>
+                <span>{strings.createModal.title}</span>
               </div>
               <button
                 type="button"
@@ -2062,14 +2077,14 @@ export const RoadmapView: React.FC = () => {
             >
               <div>
                 <label className="block text-[11px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1.5">
-                  Titre de la macro / milestone
+                  {strings.createModal.titleLabel}
                 </label>
                 <input
                   type="text"
                   autoFocus
                   value={createMacroTitle}
                   onChange={(e) => setCreateMacroTitle(e.target.value)}
-                  placeholder="Ex : Refonte API v2, Authentification SSO, Q3 Release…"
+                  placeholder={strings.createModal.titlePlaceholder}
                   className="w-full px-3 py-2 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)] font-medium"
                 />
               </div>
@@ -2077,23 +2092,23 @@ export const RoadmapView: React.FC = () => {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-[11px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1.5">
-                    Horizon
+                    {strings.createModal.horizon}
                   </label>
                   <select
                     value={createMacroHorizon}
                     onChange={(e) => setCreateMacroHorizon(e.target.value as MacroHorizon)}
                     className="w-full px-3 py-2 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)] font-medium"
                   >
-                    <option value="now">NOW (En cours)</option>
-                    <option value="next">NEXT (À venir)</option>
-                    <option value="later">LATER (Plus tard / Design)</option>
+                    <option value="now">{strings.createModal.horizonNow}</option>
+                    <option value="next">{strings.createModal.horizonNext}</option>
+                    <option value="later">{strings.createModal.horizonLater}</option>
                   </select>
                 </div>
 
                 {projects.length > 1 && (
                   <div>
                     <label className="block text-[11px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1.5">
-                      Projet
+                      {strings.createModal.project}
                     </label>
                     <select
                       value={createMacroProjectId}
@@ -2116,7 +2131,7 @@ export const RoadmapView: React.FC = () => {
                   onClick={() => setShowCreateMacroModal(false)}
                   className="px-3 py-1.5 text-xs font-semibold rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] cursor-pointer"
                 >
-                  Annuler
+                  {strings.panel.cancel}
                 </button>
                 <button
                   type="submit"
@@ -2124,7 +2139,7 @@ export const RoadmapView: React.FC = () => {
                   className="flex items-center gap-1.5 px-4 py-1.5 text-xs font-bold text-white accent-bg rounded-xl cursor-pointer disabled:opacity-50"
                 >
                   {busyKey === 'macro' ? <Loader2 size={13} className="animate-spin" /> : <Plus size={13} />}
-                  Créer la macro
+                  {strings.createModal.submit}
                 </button>
               </div>
             </form>
@@ -2138,7 +2153,7 @@ export const RoadmapView: React.FC = () => {
             <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--border-color)]">
               <div className="flex items-center gap-2 text-sm font-bold text-[var(--text-primary)]">
                 <ArrowRightLeft size={16} className="text-[var(--accent-color)]" />
-                <span>Migrer la Macro ({selected.key})</span>
+                <span>{format(strings.migrateModal.title, { key: selected.key })}</span>
               </div>
               <button
                 type="button"
@@ -2169,18 +2184,18 @@ export const RoadmapView: React.FC = () => {
               className="p-5 space-y-4"
             >
               <div>
-                <div className="text-xs text-[var(--text-muted)] mb-1 font-medium">Macro à déplacer :</div>
+                <div className="text-xs text-[var(--text-muted)] mb-1 font-medium">{strings.migrateModal.macroToMove}</div>
                 <div className="p-3 rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)]">
                   <div className="text-xs font-bold text-[var(--text-primary)]">{selected.title}</div>
                   <div className="text-[11px] font-mono text-[var(--text-muted)] mt-0.5">
-                    Projet actuel : {currentProject?.name} · {selected.tasks.length} ticket(s) associé(s)
+                    {plural(language, selected.tasks.length, strings.migrateModal.currentProject, { name: currentProject?.name || '' })}
                   </div>
                 </div>
               </div>
 
               <div>
                 <label className="block text-[11px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1.5">
-                  Projet de destination (compatible)
+                  {strings.migrateModal.targetProject}
                 </label>
                 {projects.filter(p => isProjectCompatible(currentProject, p)).length > 0 ? (
                   <select
@@ -2196,7 +2211,7 @@ export const RoadmapView: React.FC = () => {
                   </select>
                 ) : (
                   <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs">
-                    Aucun autre projet compatible trouvé (trackers compatibles requis).
+                    {strings.migrateModal.noCompatible}
                   </div>
                 )}
               </div>
@@ -2210,7 +2225,7 @@ export const RoadmapView: React.FC = () => {
                     className="rounded accent-[var(--accent-color)]"
                   />
                   <span className="text-xs text-[var(--text-primary)] font-medium">
-                    Transférer aussi les <strong>{selected.tasks.length} ticket(s)</strong> rattaché(s) à cette macro
+                    {strings.migrateModal.includeTasksBefore}{' '}<strong>{plural(language, selected.tasks.length, strings.migrateModal.includeTasksCount)}</strong>{' '}{plural(language, selected.tasks.length, strings.migrateModal.includeTasksAfter)}
                   </span>
                 </label>
               )}
@@ -2221,7 +2236,7 @@ export const RoadmapView: React.FC = () => {
                   onClick={() => setShowMigrateModal(false)}
                   className="px-3 py-1.5 text-xs font-semibold rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] cursor-pointer"
                 >
-                  Annuler
+                  {strings.panel.cancel}
                 </button>
                 <button
                   type="submit"
@@ -2229,7 +2244,7 @@ export const RoadmapView: React.FC = () => {
                   className="flex items-center gap-1.5 px-4 py-1.5 text-xs font-bold text-white accent-bg rounded-xl cursor-pointer disabled:opacity-50"
                 >
                   {isMigrating ? <Loader2 size={13} className="animate-spin" /> : <ArrowRightLeft size={13} />}
-                  <span>Confirmer la migration</span>
+                  <span>{strings.migrateModal.submit}</span>
                 </button>
               </div>
             </form>
@@ -2246,7 +2261,7 @@ export const RoadmapView: React.FC = () => {
                 <div className="flex items-center gap-2">
                   <Sparkles size={16} className="text-orange-400" />
                   <h3 className="text-sm font-bold text-[var(--text-primary)]">
-                    Raffinage de la macro {selected.key}
+                    {format(strings.refineModal.title, { key: selected.key })}
                   </h3>
                   <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded uppercase ${
                     refinePreview.specFramework === 'openspec'
@@ -2257,7 +2272,7 @@ export const RoadmapView: React.FC = () => {
                   </span>
                 </div>
                 <p className="text-[11px] text-[var(--text-muted)] mt-1">
-                  {refinePreview.todos.length} item(s) de TODO généré(s) d'après le texte de cadrage.
+                  {plural(language, refinePreview.todos.length, strings.refineModal.generated)}
                 </p>
               </div>
               <button
@@ -2274,7 +2289,7 @@ export const RoadmapView: React.FC = () => {
                 <div className="space-y-1.5">
                   <span className="text-xs font-bold text-[var(--text-muted)] flex items-center gap-1">
                     <ListChecks size={13} className="text-orange-400" />
-                    Checklist TODOs de la macro ({refinePreview.todos.length})
+                    {format(strings.refineModal.checklist, { count: refinePreview.todos.length })}
                   </span>
                   {refinePreview.todos.map((todo, idx) => (
                     <div key={todo.id || idx} className="flex items-start gap-2 p-2 rounded-xl bg-[var(--bg-primary)] border border-[var(--border-color)]">
@@ -2292,7 +2307,7 @@ export const RoadmapView: React.FC = () => {
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-bold text-[var(--text-primary)] flex items-center gap-1.5">
                       <FolderGit2 size={13} className="text-cyan-400" />
-                      Tickets Sectile déduits ({refinePreview.proposedTasks.length})
+                      {format(strings.refineModal.proposed, { count: refinePreview.proposedTasks.length })}
                     </span>
                     <button
                       type="button"
@@ -2307,7 +2322,7 @@ export const RoadmapView: React.FC = () => {
                       }}
                       className="text-[10px] font-bold text-[var(--accent-color)] hover:underline cursor-pointer"
                     >
-                      Tout sélectionner / Déselectionner
+                      {strings.refineModal.toggleAll}
                     </button>
                   </div>
                   <div className="space-y-1.5 max-h-52 overflow-y-auto">
@@ -2352,7 +2367,7 @@ export const RoadmapView: React.FC = () => {
                 onClick={() => setRefinePreview(null)}
                 className="px-3 py-1.5 rounded-xl text-xs font-semibold text-[var(--text-secondary)] hover:text-[var(--text-primary)] bg-[var(--bg-tertiary)] border border-[var(--border-color)] cursor-pointer"
               >
-                Annuler
+                {strings.panel.cancel}
               </button>
               {refinePreview.todos && refinePreview.todos.length > 0 && (
                 <button
@@ -2363,13 +2378,13 @@ export const RoadmapView: React.FC = () => {
                     setRefinePreview(null)
                     addToast({
                       type: 'success',
-                      title: 'TODOs ajoutés',
-                      description: `${refinePreview.todos.length} item(s) ajoutés à la checklist de ${selected.key}`,
+                      title: strings.refineModal.todosAdded,
+                      description: plural(language, refinePreview.todos.length, strings.refineModal.todosAddedBody, { key: selected.key }),
                     })
                   }}
                   className="px-3 py-1.5 rounded-xl text-xs font-bold text-[var(--text-primary)] bg-[var(--bg-tertiary)] border border-[var(--border-color)] hover:border-[var(--accent-color)] cursor-pointer"
                 >
-                  Ajouter aux TODOs
+                  {strings.refineModal.addToTodos}
                 </button>
               )}
               {refinePreview.proposedTasks && refinePreview.proposedTasks.length > 0 && (
@@ -2379,7 +2394,7 @@ export const RoadmapView: React.FC = () => {
                   onClick={async () => {
                     const selectedTasksToCreate = refinePreview.proposedTasks?.filter((_, idx) => selectedProposedTasks[idx]) || []
                     if (selectedTasksToCreate.length === 0) {
-                      addToast({ type: 'warning', title: 'Aucun ticket sélectionné', description: 'Veuillez cocher au moins un ticket à générer.' })
+                      addToast({ type: 'warning', title: strings.refineModal.noTicketSelected, description: strings.refineModal.noTicketSelectedBody })
                       return
                     }
                     setIsCreatingBatch(true)
@@ -2400,7 +2415,7 @@ export const RoadmapView: React.FC = () => {
                   className="px-3.5 py-1.5 rounded-xl text-xs font-bold text-white bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 cursor-pointer flex items-center gap-1.5"
                 >
                   {isCreatingBatch ? <Loader2 size={13} className="animate-spin" /> : <FolderGit2 size={13} />}
-                  <span>Générer les tickets Sectile ({Object.values(selectedProposedTasks).filter(Boolean).length})</span>
+                  <span>{format(strings.refineModal.generate, { count: Object.values(selectedProposedTasks).filter(Boolean).length })}</span>
                 </button>
               )}
             </div>

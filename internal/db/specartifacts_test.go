@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"slices"
+	"sync"
 	"testing"
 
 	"tasks/internal/agentprotocol"
@@ -117,6 +119,7 @@ func TestMigrationTwentyFiveKeepsExistingProjectsArtefacts(t *testing.T) {
 		"ALTER TABLE projects ADD COLUMN tty_mode TEXT NOT NULL DEFAULT 'integrated'",
 		"ALTER TABLE user_tracker_credentials DROP COLUMN unlock_generation",
 		"DROP TABLE user_credential_unlocks",
+		"DROP TABLE batch_members",
 		`INSERT INTO projects (id, name, slug) VALUES ('p1', 'Old', 'old')`,
 		"DELETE FROM schema_migrations WHERE version >= 25",
 	} {
@@ -143,7 +146,7 @@ func TestMigrationTwentyFiveKeepsExistingProjectsArtefacts(t *testing.T) {
 // specifyOwnedTask is a task at clarified in a project that opens its pull
 // request at specification, with an agent answering spec_artifacts with
 // answer and a forge that finds nothing.
-func specifyOwnedTask(t *testing.T, answer func() (json.RawMessage, error)) (*DB, *models.Task, *[]string) {
+func specifyOwnedTask(t *testing.T, answer func() (json.RawMessage, error)) (*DB, *models.Task, func() []string) {
 	t.Helper()
 	d := testDB(t)
 	p, err := d.CreateProject(models.CreateProjectRequest{Name: "Early", IssueTracker: "local", PRCreationStage: "specified"})
@@ -158,8 +161,12 @@ func specifyOwnedTask(t *testing.T, answer func() (json.RawMessage, error)) (*DB
 		t.Fatal(err)
 	}
 	var asked []string
+	var askedMu sync.Mutex
 	d.SetAgentOperations(func(ctx context.Context, op agentprotocol.Operation) (json.RawMessage, error) {
+		// Stage validation and the postback worker can call the agent concurrently.
+		askedMu.Lock()
 		asked = append(asked, op.Action)
+		askedMu.Unlock()
 		switch op.Action {
 		case "spec_artifacts":
 			return answer()
@@ -171,7 +178,11 @@ func specifyOwnedTask(t *testing.T, answer func() (json.RawMessage, error)) (*DB
 	d.prEvidenceLookup = func(string, string, string) (trackerapi.PullRequest, error) {
 		return trackerapi.PullRequest{}, fmt.Errorf("no pull request for this branch")
 	}
-	return d, task, &asked
+	return d, task, func() []string {
+		askedMu.Lock()
+		defer askedMu.Unlock()
+		return slices.Clone(asked)
+	}
 }
 
 // A workstation that drops the artefacts has nothing to open a pull request
@@ -218,7 +229,7 @@ func TestDroppedArtefactsLeaveTheOtherPullRequestChecksAlone(t *testing.T) {
 	if _, _, err := d.TransitionTaskStage(task.ID, "specified", "spec written", "https://forge/pull/9", "ticket"); err == nil {
 		t.Fatal("a named PR the forge cannot confirm must still be refused")
 	}
-	for _, action := range *asked {
+	for _, action := range asked() {
 		if action == "spec_artifacts" {
 			t.Fatal("a named PR must not ask the agent about the artefacts")
 		}

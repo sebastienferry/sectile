@@ -1,5 +1,33 @@
+import { shell, type ShellStrings } from './shell.ts'
+import { taskDetail, type TaskDetailStrings } from './taskDetail.ts'
+import { projectSettings, type ProjectSettingsStrings } from './projectSettings.ts'
+import { planning, type PlanningStrings } from './planning.ts'
+import { sprints, type SprintsStrings } from './sprints.ts'
+import { skillsEditor, type SkillsEditorStrings } from './skillsEditor.ts'
+import { operations, type OperationsStrings } from './operations.ts'
+import { signIn, type SignInStrings } from './signIn.ts'
+
+/**
+ * The web catalog. The namespaces below `toasts` live in one module per
+ * surface (`locales/<surface>.ts`), merged here, so that `t` stays the single
+ * entry point.
+ */
 export interface TranslationSchema {
+  shell: ShellStrings
+  taskDetail: TaskDetailStrings
+  projectSettings: ProjectSettingsStrings
+  planning: PlanningStrings
+  sprints: SprintsStrings
+  skillsEditor: SkillsEditorStrings
+  operations: OperationsStrings
+  signIn: SignInStrings
   batchLaunch: string
+  batchMember: {
+    badge: string
+    tooltip: string
+    waiting: string
+    processing: string
+  }
   batchDialog: {
     title: string
     worktree: string
@@ -17,6 +45,8 @@ export interface TranslationSchema {
   app: {
     title: string
     tagline: string
+    /** The browser tab title. */
+    documentTitle: string
   }
   nav: {
     allTasks: string
@@ -805,7 +835,21 @@ export interface TranslationSchema {
 
 export const translations: Record<'fr' | 'en', TranslationSchema> = {
   fr: {
+    shell: shell.fr,
+    taskDetail: taskDetail.fr,
+    projectSettings: projectSettings.fr,
+    planning: planning.fr,
+    sprints: sprints.fr,
+    skillsEditor: skillsEditor.fr,
+    operations: operations.fr,
+    signIn: signIn.fr,
     batchLaunch: 'Lot',
+    batchMember: {
+      badge: 'Lot {key}',
+      tooltip: 'Lot mené par {key} · ticket {position} sur {size}',
+      waiting: 'en attente dans le lot',
+      processing: 'en cours',
+    },
     batchDialog: {
       title: "Préparer le lot",
       worktree: "Nom du worktree",
@@ -823,6 +867,7 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
     app: {
       title: 'Sectile',
       tagline: 'Gestionnaire de tâches agentique',
+      documentTitle: 'Sectile - Gestionnaire de tâches agentique',
     },
     nav: {
       allTasks: 'Toutes les tâches',
@@ -1301,7 +1346,7 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
     trackerCredentials: {
       description: 'Vos accès personnels aux trackers. Les jetons saisis sont strictement individuels et protégés par votre compte.',
       orphanTitle: 'Un accès subsiste sous une identité sans compte',
-      orphanBody: "Un jeton reste enregistré sous l'identifiant utilisé avant que la connexion ne devienne obligatoire. Aucun compte ne le résout : il n'est ni utilisable ni révocable depuis cette page, et il occupe le nom du tracker. Ressaisissez votre propre jeton ci-dessous — c'est la seule sortie, car le serveur ne peut pas établir à qui celui-ci appartient.",
+      orphanBody: "Un jeton reste enregistré sous l'identifiant utilisé avant que la connexion ne devienne obligatoire. Aucun compte ne le résout : il n'est ni utilisable ni révocable depuis cette page, et il occupe le nom du tracker. Ressaisissez votre propre jeton ci-dessous : c'est la seule sortie, car le serveur ne peut pas établir à qui celui-ci appartient.",
       orphanAdminHint: 'Une fois votre accès ressaisi, vous pouvez supprimer la ligne restante.',
       orphanOwner: 'enregistré sous',
       orphanDiscard: 'Supprimer la ligne',
@@ -1382,7 +1427,7 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
         tokenPlaceholderEnv: "Fourni par l'environnement du serveur",
         tokenPlaceholderEmpty: "Collez le jeton",
         siteIsPersonalNotice: "Votre compte appartient à cette instance. Les projets que vous posez sur ce tracker la reprennent.",
-        lockedNoticeSuffix: " — déverrouillez vos jetons dans la section ci-dessus.",
+        lockedNoticeSuffix: " : déverrouillez vos jetons dans la section ci-dessus.",
         sealedUnlockedNotice: "Jeton scellé avec votre phrase unique (déverrouillé).",
         willBeSealedNotice: "Ce jeton sera automatiquement scellé avec la phrase unique active définie plus haut.",
         connectedAs: "Connecté comme",
@@ -1575,7 +1620,7 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
       failedTitle: 'Lecture impossible',
       failedDescription: '{resource} : le serveur a répondu {detail}. Ce que vous voyez est incomplet.',
       bannerTitle: 'Interface dégradée',
-      bannerDescription: 'Ces lectures échouent : {detail}. Rien n\'est vide, rien n\'a été supprimé — le serveur ne répond pas.',
+      bannerDescription: 'Ces lectures échouent : {detail}. Rien n\'est vide, rien n\'a été supprimé, le serveur ne répond pas.',
       retry: 'Réessayer',
       resources: {
         projects: 'Projets',
@@ -1605,12 +1650,26 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
     },
   },
   en: {
+    shell: shell.en,
+    taskDetail: taskDetail.en,
+    projectSettings: projectSettings.en,
+    planning: planning.en,
+    sprints: sprints.en,
+    skillsEditor: skillsEditor.en,
+    operations: operations.en,
+    signIn: signIn.en,
     batchLaunch: 'Batch',
+    batchMember: {
+      badge: 'Batch {key}',
+      tooltip: 'Batch led by {key} · ticket {position} of {size}',
+      waiting: 'waiting in batch',
+      processing: 'in progress',
+    },
     batchDialog: {
       title: "Prepare batch",
       worktree: "Worktree name",
       worktreeHint: "One dedicated worktree for the entire batch.",
-      invalidName: "Use 1–80 letters, digits, hyphens or underscores, starting with a letter or digit.",
+      invalidName: "Use 1 to 80 letters, digits, hyphens or underscores, starting with a letter or digit.",
       order: "Execution order",
       orderHint: "Tickets will run from top to bottom. Use the arrows to change their order.",
       moveUp: "Move up",
@@ -1623,6 +1682,7 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
     app: {
       title: 'Sectile',
       tagline: 'Agentic Task Workflow Manager',
+      documentTitle: 'Sectile - Agentic Task Workflow Manager',
     },
     nav: {
       allTasks: 'All Tasks',
@@ -2101,7 +2161,7 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
     trackerCredentials: {
       description: 'Your personal tracker credentials. Entered tokens are strictly individual and protected by your account.',
       orphanTitle: 'A credential is left under an identity with no account',
-      orphanBody: 'A token is still stored under the identifier used before sign-in became mandatory. No account resolves it: it can neither be used nor revoked from this page, and it occupies the tracker name. Register your own token below — that is the only way out, because the server cannot establish whose this one is.',
+      orphanBody: 'A token is still stored under the identifier used before sign-in became mandatory. No account resolves it: it can neither be used nor revoked from this page, and it occupies the tracker name. Register your own token below: that is the only way out, because the server cannot establish whose this one is.',
       orphanAdminHint: 'Once your own credential is registered, you can discard the leftover row.',
       orphanOwner: 'stored under',
       orphanDiscard: 'Discard the row',
@@ -2182,7 +2242,7 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
         tokenPlaceholderEnv: 'Provided by server environment',
         tokenPlaceholderEmpty: 'Paste token',
         siteIsPersonalNotice: 'Your account belongs to this instance. Projects configured with this tracker will inherit it.',
-        lockedNoticeSuffix: ' — unlock your tokens in the section above.',
+        lockedNoticeSuffix: ': unlock your tokens in the section above.',
         sealedUnlockedNotice: 'Token sealed with your master passphrase (unlocked).',
         willBeSealedNotice: 'This token will automatically be sealed with the active master passphrase defined above.',
         connectedAs: 'Connected as',
@@ -2375,7 +2435,7 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
       failedTitle: 'Read failed',
       failedDescription: '{resource}: the server answered {detail}. What you see is incomplete.',
       bannerTitle: 'Degraded interface',
-      bannerDescription: 'These reads are failing: {detail}. Nothing is empty and nothing was deleted — the server is not answering.',
+      bannerDescription: 'These reads are failing: {detail}. Nothing is empty and nothing was deleted, the server is not answering.',
       retry: 'Retry',
       resources: {
         projects: 'Projects',
