@@ -1,12 +1,30 @@
 package agentconfig
 
 import (
+	"encoding/json"
+	"errors"
 	"reflect"
 	"strings"
 	"testing"
 )
 
 func boolPtr(v bool) *bool { return &v }
+
+// converted is a layout-2 fixture as ReadSettings hands it over: the engine
+// settings of #305 converted into the catalogue (#510). It works on a copy, so
+// a test can edit its fixture and convert it again.
+func converted(s Settings) Settings {
+	raw, err := json.Marshal(s)
+	if err != nil {
+		panic(err)
+	}
+	var out Settings
+	if err := json.Unmarshal(raw, &out); err != nil {
+		panic(err)
+	}
+	convertEngines(&out)
+	return out
+}
 
 func TestResolveIgnoresServerExecutionValues(t *testing.T) {
 	// An older server still sends execution fields: none of them may survive.
@@ -24,7 +42,7 @@ func TestResolveIgnoresServerExecutionValues(t *testing.T) {
 
 func TestResolveDoesNotMutateContract(t *testing.T) {
 	c := Config{Skills: []Skill{{ID: "implement", Content: "remote"}}}
-	effective := Resolve(c, Settings{Defaults: Defaults{Execution: Execution{AIProvider: "claude"}}, Skills: map[string]string{"implement": "local"}})
+	effective := Resolve(c, converted(Settings{Defaults: Defaults{Execution: Execution{AIProvider: "claude"}}, Skills: map[string]string{"implement": "local"}}))
 	if c.Skills[0].Content != "remote" || effective.Skills[0].Content != "local" || effective.AIProvider != "claude" {
 		t.Fatal("precedence or isolation failed")
 	}
@@ -37,7 +55,7 @@ func TestResolveProjectOverDefaults(t *testing.T) {
 			"p1": {Execution: Execution{AIProvider: "claude", AIModel: "claude-opus-5"}},
 		},
 	}
-	p1 := Resolve(Config{ProjectID: "p1"}, s)
+	p1 := Resolve(Config{ProjectID: "p1"}, converted(s))
 	if p1.AIProvider != "claude" || p1.AIModel != "claude-opus-5" {
 		t.Fatalf("project section ignored: %+v", p1)
 	}
@@ -45,19 +63,19 @@ func TestResolveProjectOverDefaults(t *testing.T) {
 	if p1.AICommandTemplate != "" || p1.AICommandTemplateAutonomous != "" {
 		t.Fatalf("the inherited commands must be dropped on a provider change: %+v", p1)
 	}
-	p2 := Resolve(Config{ProjectID: "p2"}, s)
+	p2 := Resolve(Config{ProjectID: "p2"}, converted(s))
 	if p2.AIProvider != "gemini" || p2.AIModel != "gemini-pro" || p2.AICommandTemplate != "gemini --x {prompt}" || p2.AICommandTemplateAutonomous != "gemini -p {prompt}" {
 		t.Fatalf("workstation defaults ignored: %+v", p2)
 	}
 	// The project's own command survives its provider change, each template independently.
 	s.ProjectSettings["p1"] = ProjectSettings{Execution: Execution{AIProvider: "claude", AICommandTemplate: "my-claude {prompt}"}}
-	own := Resolve(Config{ProjectID: "p1"}, s)
+	own := Resolve(Config{ProjectID: "p1"}, converted(s))
 	if own.AICommandTemplate != "my-claude {prompt}" || own.AICommandTemplateAutonomous != "" {
 		t.Fatalf("project command lost or the other template kept: %+v", own)
 	}
 	// Same provider: the templates the project leaves empty are inherited.
 	s.ProjectSettings["p1"] = ProjectSettings{Execution: Execution{AIProvider: "gemini", AICommandTemplateAutonomous: "gemini -p --y {prompt}"}}
-	same := Resolve(Config{ProjectID: "p1"}, s)
+	same := Resolve(Config{ProjectID: "p1"}, converted(s))
 	if same.AICommandTemplate != "gemini --x {prompt}" || same.AICommandTemplateAutonomous != "gemini -p --y {prompt}" {
 		t.Fatalf("same-provider inheritance broken: %+v", same)
 	}
@@ -69,17 +87,17 @@ func TestResolveProviderChangeComparesAgainstTheDefaultProvider(t *testing.T) {
 		Defaults:        Defaults{Execution: Execution{AICommandTemplate: "agy --x {prompt}"}},
 		ProjectSettings: map[string]ProjectSettings{"p": {Execution: Execution{AIProvider: "claude"}}},
 	}
-	if got := Resolve(Config{ProjectID: "p"}, s); got.AICommandTemplate != "" {
+	if got := Resolve(Config{ProjectID: "p"}, converted(s)); got.AICommandTemplate != "" {
 		t.Fatalf("an agy command reached claude: %q", got.AICommandTemplate)
 	}
 	s.ProjectSettings["p"] = ProjectSettings{Execution: Execution{AIProvider: "agy"}}
-	if got := Resolve(Config{ProjectID: "p"}, s); got.AICommandTemplate != "agy --x {prompt}" {
+	if got := Resolve(Config{ProjectID: "p"}, converted(s)); got.AICommandTemplate != "agy --x {prompt}" {
 		t.Fatalf("the same provider must inherit: %q", got.AICommandTemplate)
 	}
 }
 
 func TestResolveDropsALegacyBareCLIName(t *testing.T) {
-	got := Resolve(Config{ProjectID: "p"}, Settings{Defaults: Defaults{Execution: Execution{AIProvider: "claude", AICommandTemplate: "claude"}}})
+	got := Resolve(Config{ProjectID: "p"}, converted(Settings{Defaults: Defaults{Execution: Execution{AIProvider: "claude", AICommandTemplate: "claude"}}}))
 	if got.AICommandTemplate != "" {
 		t.Fatalf("a bare CLI name must not reach the runner: %q", got.AICommandTemplate)
 	}
@@ -92,7 +110,7 @@ func TestResolveModelPrecedence(t *testing.T) {
 			"p": {Execution: Execution{AIModel: "project", AISkillModels: map[string]string{"implement": "project-implement"}}},
 		},
 	}
-	got := Resolve(Config{ProjectID: "p"}, s)
+	got := Resolve(Config{ProjectID: "p"}, converted(s))
 	if ResolveModel(got, "implement") != "project-implement" {
 		t.Fatal("project skill entry lost")
 	}
@@ -103,7 +121,7 @@ func TestResolveModelPrecedence(t *testing.T) {
 	if ResolveModel(got, "specify") != "project" {
 		t.Fatal("project model must govern the skills no level singles out")
 	}
-	other := Resolve(Config{ProjectID: "other"}, s)
+	other := Resolve(Config{ProjectID: "other"}, converted(s))
 	if ResolveModel(other, "specify") != "workstation" || ResolveModel(other, "implement") != "workstation" {
 		t.Fatal("defaults ignored for a project without a section")
 	}
@@ -194,7 +212,21 @@ func TestValidateLevels(t *testing.T) {
 			t.Errorf("%s: accepted", c.name)
 		}
 	}
-	if err := ValidateProject(ProjectSettings{SkillCommands: map[string]string{"implement": "/code-issue"}, Execution: Execution{AIProvider: "custom", AICommandTemplate: "x {prompt}", Parallelism: 4}}); err != nil {
+	if err := ValidateProject(ProjectSettings{SkillCommands: map[string]string{"implement": "/code-issue"}, Execution: Execution{Parallelism: 4}}); err != nil {
 		t.Fatal(err)
+	}
+	if err := ValidateExecution(Execution{AIProvider: "custom", AICommandTemplate: "x {prompt}"}); err != nil {
+		t.Fatal(err)
+	}
+	// The engine settings of #305 live in the catalogue since #510.
+	for name, err := range map[string]error{
+		"defaults provider": ValidateDefaults(Defaults{Execution: Execution{AIProvider: "claude"}}),
+		"defaults models":   ValidateDefaults(Defaults{Execution: Execution{AISkillModels: map[string]string{"implement": "m"}}}),
+		"project template":  ValidateProject(ProjectSettings{Execution: Execution{AICommandTemplate: "x {prompt}"}}),
+		"project model":     ValidateProject(ProjectSettings{Execution: Execution{AIModel: "m"}}),
+	} {
+		if !errors.Is(err, ErrEngineFields) {
+			t.Errorf("%s: want ErrEngineFields, got %v", name, err)
+		}
 	}
 }

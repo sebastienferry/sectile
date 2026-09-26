@@ -53,6 +53,14 @@ type Config struct {
 	// and specification files out of the repository (#487), else empty or
 	// "keep". After ApplyOverrides it holds this workstation's effective value.
 	SpecArtifacts string `json:"specArtifacts,omitempty"`
+	// EngineID and EngineName name the catalogue engine Resolve picked (#510).
+	// OffProjectDefaultEngine is true when a task runs another engine than its
+	// project default one, which is when a one-off launch model is ignored; its
+	// zero value keeps a configuration built by hand on today's behaviour.
+	// None of them is part of the contract.
+	EngineID               string `json:"-"`
+	EngineName             string `json:"-"`
+	OffProjectDefaultEngine bool   `json:"-"`
 }
 
 // DropsSpecArtifacts reads SpecArtifacts with its default: keep.

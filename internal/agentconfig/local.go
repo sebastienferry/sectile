@@ -34,6 +34,8 @@ type Settings struct {
 	// Skills overrides a skill's content, by skill ID.
 	Skills map[string]string `json:"skills,omitempty"`
 	Seeded Seeded            `json:"seeded"`
+	// Engines is the engine catalogue and the choices pointing into it (#510).
+	Engines Engines `json:"engines"`
 }
 
 // legacySettings is the layout that predates #305: global scalars mixed with
@@ -225,7 +227,10 @@ func WithRepositoryFile(s Settings, root string) (Settings, error) {
 	if err != nil {
 		return s, err
 	}
-	return overlay(legacy, s), nil
+	s = overlay(legacy, s)
+	// The repository file states engine fields of #305 only.
+	convertEngines(&s)
+	return s, nil
 }
 
 func hasCreatePR(skills []Skill) bool {
