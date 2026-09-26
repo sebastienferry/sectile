@@ -17,20 +17,23 @@ dialect), standard `testing`.
 
 ### 1. Building the baseline alone
 
-The test opens a SQLite file through a raw `DB` built like `openWith` does, but
-without `migrateSchema`. To avoid copying `openWith`, the migration list becomes
-a field read by `migrateSchema`: `openWith` keeps using the package list, and a
-test-only helper `openBaselineOnly(t, path)` opens with an empty list. The
-production path is unchanged: `DB.migrations` is nil there, which means "the
-package list".
+The test assembles a `DB` from the same parts `openWith` uses (dialect,
+connection, `newSQLConn`), then runs `ensureSchemaMigrationsTable` and
+`applyBaseline` only. No production code changes: `openWith` keeps running
+every migration.
 
-Rejected: swapping the package-level `migrations` variable in the test. It is
-shared by every test in the package and would race with any parallel one.
+Rejected: a `DB.migrations` field read by `migrateSchema`, which was the first
+plan. The test does not need it, since `applyBaseline` relies on no other field
+of `DB`. Also rejected: swapping the package-level `migrations` variable in
+the test. It is shared by every test in the package and would race with any
+parallel one.
 
 ### 2. The snapshot
 
 `internal/db/testdata/baseline_schema.txt`, one line per column, sorted:
-`table.column|type|notnull|default`. `sqlite_%` tables and `schema_migrations`
+`table.column TYPE [NOT NULL] [DEFAULT x] [PRIMARY KEY]`, plus one
+`index <name> on <table>` line per named index (an index added to the baseline
+has the same problem as a column). `sqlite_%` tables and `schema_migrations`
 are excluded: the first are internal, the second is written by the runner,
 not by the baseline.
 
@@ -46,8 +49,6 @@ not happen.
 
 | File | Change |
 | --- | --- |
-| `internal/db/migrations.go` | `migrateSchema` reads `d.migrationList()` (field, falling back to `migrations`) |
-| `internal/db/db.go` | `DB.migrations` field, doc comment |
 | `internal/db/baseline_guard_test.go` | new: helper, snapshot reader, test |
 | `internal/db/testdata/baseline_schema.txt` | new: the snapshot |
 
