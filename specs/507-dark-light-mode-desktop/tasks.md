@@ -12,8 +12,8 @@ Ordered checklist. Each group leaves the desktop buildable. Before starting,
 - [x] T1.3 `main.cjs`: apply the stored preference before creating the window,
   window colours from `nativeTheme.shouldUseDarkColors`, repaint on
   `nativeTheme` `updated` (overlay outside macOS only).
-- [x] T1.4 `set-appearance` IPC with the atomic settings write;
-  `preload.cjs` exposes `setAppearance`.
+- [x] T1.4 `set-appearance` IPC with the atomic settings write, and a
+  read-only `appearance` IPC; `preload.cjs` exposes both.
 
 ## 2. Stylesheet tokens (FR-5, FR-7) - `feat(desktop)`
 

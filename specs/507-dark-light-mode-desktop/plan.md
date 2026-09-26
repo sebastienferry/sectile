@@ -41,9 +41,10 @@ New module `desktop/electron/appearance.cjs`, pure and unit-tested:
   only exists on Windows and Linux; macOS keeps its traffic lights).
 - New IPC `set-appearance`: normalises the value, merges it into
   `settings.json` through the same atomic write as `save-settings`, applies it
-  and returns the stored value. `settings` already returns the whole file, so
-  the renderer reads the current value from it.
-- `preload.cjs` exposes `setAppearance(value)`.
+  and returns the stored value. Since #305 the `settings` IPC returns the
+  connection facts only, so a read-only `appearance` IPC answers the stored,
+  normalised value.
+- `preload.cjs` exposes `appearance()` and `setAppearance(value)`.
 
 `nativeTheme.themeSource` drives `prefers-color-scheme` in the renderer and the
 native widgets, so the renderer never needs to be told the resolved mode.
@@ -96,13 +97,14 @@ event assigns `terminal.options.theme`.
 after User profile. Its panel holds one `settingRow('Theme', ...)` with a
 `.segmented` group (`role=group`, `aria-label="Appearance"`) of three buttons
 System / Dark / Light; `aria-pressed` marks the current value, read from
-`api.settings()`. Pressing a button calls `api.setAppearance(value)` and
+`api.appearance()`. Pressing a button calls `api.setAppearance(value)` and
 updates `aria-pressed` from the returned value; an error goes through the
 dialog's usual `error()` path.
 
 ## Data contracts
 
 - `settings.json`: new optional key `appearance: "system" | "dark" | "light"`.
+- IPC `appearance() -> "system" | "dark" | "light"`.
 - IPC `set-appearance(value: string) -> "system" | "dark" | "light"`.
 
 ## Target files
@@ -110,8 +112,8 @@ dialog's usual `error()` path.
 | File | Change |
 | --- | --- |
 | `desktop/electron/appearance.cjs` | new: normalisation and window colours |
-| `desktop/electron/main.cjs` | apply at start, repaint on `updated`, `set-appearance` IPC |
-| `desktop/electron/preload.cjs` | expose `setAppearance` |
+| `desktop/electron/main.cjs` | apply at start, repaint on `updated`, `appearance` and `set-appearance` IPC |
+| `desktop/electron/preload.cjs` | expose `appearance` and `setAppearance` |
 | `desktop/src/appearance.mjs` | new: terminal themes, choices |
 | `desktop/src/main.js` | terminal theme, live switch, Appearance category |
 | `desktop/src/style.css` | colour tokens, dark and light sets |
