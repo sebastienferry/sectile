@@ -745,6 +745,15 @@ catalogue. The desktop then uses:
   task's engine, none when it is the project default engine; 404 when the
   engine is not in the catalogue. The capability report does not change.
 
+`GET /desktop/status` advertises `open-editor` when the agent opens an
+execution's folder in the workstation editor (#535). `POST
+/desktop/open-editor` with `{runId}` takes the folder from the run, never from
+the request, and starts `defaults.editorCommand` on it the way the
+`open_editor` operation does. It answers `{editor, directory}`; 400 without a
+run ID, 404 for an unknown run, 409 when the run has no folder or no editor is
+set (it never falls back to `code`), 410 when the folder no longer exists, and
+500 with the launch error.
+
 `repositories` maps each repository of a multi-repo project, by its
 `host/path` identity, to the folder holding its checkout on this workstation
 (#456). It is keyed by repository rather than by project, so one checkout

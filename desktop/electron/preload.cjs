@@ -47,6 +47,7 @@ contextBridge.exposeInMainWorld('localAgent',{
  stop:id=>ipcRenderer.invoke('stop',id),
  launchNativeDiscussion:(projectId,taskId,terminal)=>ipcRenderer.invoke('launch-native-discussion',{projectId,taskId,terminal}),
  detachToNativeTerminal:(runId,terminal)=>ipcRenderer.invoke('detach-to-native-terminal',{runId,terminal}),
+ openEditor:runId=>ipcRenderer.invoke('open-editor',runId),
  detach:()=>ipcRenderer.invoke('detach'),
  attach:id=>ipcRenderer.invoke('attach',id),
  input:data=>ipcRenderer.send('terminal-input',data),

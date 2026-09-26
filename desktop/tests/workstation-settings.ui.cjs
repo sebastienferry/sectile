@@ -69,7 +69,9 @@ test('execution defaults are read from and saved through the agent, which may re
  try {
   let panel
   ;({app,panel}=await openExecutionDefaults(server,root))
-  await expect(panel.getByRole('textbox',{name:'Editor command',exact:true})).toHaveValue('zed')
+  // The editor is a picker (#535): a stored preset loads as that preset.
+  await expect(panel.getByRole('combobox',{name:'Editor',exact:true})).toHaveValue('zed')
+  await expect(panel.getByRole('textbox',{name:'Custom editor command',exact:true})).toBeHidden()
   await panel.getByRole('textbox',{name:'Models offered for codex',exact:true}).fill('gpt-5, o4-mini')
   await panel.getByRole('button',{name:'Save execution defaults'}).click()
   await expect(panel.locator('.workstation-notice')).toContainText('Execution defaults saved')
@@ -78,12 +80,28 @@ test('execution defaults are read from and saved through the agent, which may re
   assert.equal(state.puts[0].aiModel,undefined)
   assert.deepEqual(state.puts[0].aiProviderModels,{codex:['gpt-5','o4-mini']})
   assert.equal(state.puts[0].setupProviders,null)
+  assert.equal(state.puts[0].editorCommand,'zed')
 
   // A value the agent refuses is reported with its reason.
   state.refuse='parallelism must be between 1 and 10'
   await panel.getByRole('button',{name:'Save execution defaults'}).click()
   await expect(panel.locator('.workstation-notice')).toContainText('Not saved: parallelism must be between 1 and 10')
   assert.equal(state.puts.length,1)
+
+  // A command that matches no preset is a custom one, saved as typed.
+  state.refuse=''
+  const editor=panel.getByRole('combobox',{name:'Editor',exact:true})
+  await editor.selectOption({label:'Custom command…'})
+  const custom=panel.getByRole('textbox',{name:'Custom editor command',exact:true})
+  await expect(custom).toBeVisible()
+  await custom.fill('  cursor -n  ')
+  await panel.getByRole('button',{name:'Save execution defaults'}).click()
+  await expect(panel.locator('.workstation-notice')).toContainText('Execution defaults saved')
+  assert.equal(state.puts[1].editorCommand,'cursor -n')
+  // The reset control returns the row to None.
+  await panel.getByRole('button',{name:'Reset editor to default',exact:true}).click()
+  await expect(editor).toHaveValue('')
+  await expect(custom).toBeHidden()
  } finally {
   await app?.close()
   server.close()

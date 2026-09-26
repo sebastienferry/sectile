@@ -344,6 +344,14 @@ ipcMain.handle('launch-console',(_,projectId,provider,engineId)=>api('/desktop/c
 ipcMain.handle('launch-server-task',(_,id,taskID,skillID,prompt,mode,force)=>api('/desktop/tasks?projectId='+encodeURIComponent(id),'POST',Object.assign({taskID,skillID,prompt},mode?{mode}:null,force?{force:true}:null)))
 ipcMain.handle('launch-native-discussion',async(_,{projectId,taskId,terminal}={})=>api('/desktop/tasks/terminal-external','POST',{projectId,taskId,skillId:'discuss',terminal}))
 ipcMain.handle('detach-to-native-terminal',async(_,{runId,terminal}={})=>api('/desktop/terminal/detach','POST',{runId,terminal}))
+// Opening a worktree in the editor (#535) names the run, never a path: the
+// agent resolves the folder itself. An older agent has no such route.
+ipcMain.handle('open-editor',async(_,runId)=>{
+ if(typeof runId!=='string'||!runId)throw Error('Run ID required')
+ const status=await api('/desktop/status')
+ if(!status.capabilities?.includes('open-editor'))throw Error('Update and restart the local agent to open the editor.')
+ return api('/desktop/open-editor','POST',{runId})
+})
 ipcMain.handle('open-board',async()=>{
  const status=await api('/desktop/status')
  if(!status.connected)throw Error('Server disconnected')

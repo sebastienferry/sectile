@@ -255,6 +255,9 @@ aside{flex-shrink:0}.sidebar-hidden #sidebar-resizer{display:none}#sidebar-resiz
 .worktree:hover{color:var(--text);background:var(--surface);border-color:var(--border-strong)}
 .worktree:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .worktree-copied{flex-shrink:0;font-size:11px;color:var(--accent-text)}
+#toolbar #open-editor{flex-shrink:0;width:24px;height:24px;padding:3px;border-radius:6px;color:var(--text-muted)}
+#toolbar #open-editor svg{width:16px;height:16px}
+#toolbar #open-editor:hover:not(:disabled){color:var(--text);background:var(--surface)}
 .worktree-copied:empty{display:none}
 
 #selected-pr{gap:5px;width:auto;min-width:36px;padding:8px 10px;color:var(--link);font-size:12px;white-space:nowrap}

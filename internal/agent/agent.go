@@ -84,6 +84,8 @@ type agentDaemon struct {
 	done             chan struct{}
 	contract         contractState
 	launchTerminalFn func(terminalApp, sessionID string) error
+	// openEditorFn replaces the editor launch in tests (#535).
+	openEditorFn func(editor, directory string) error
 	// capabilities serializes the engine reports sent to the server (#305).
 	capabilities capabilityReporter
 }

@@ -15,6 +15,8 @@ test fixtures or internal plumbing.
 
 ### Added
 
+- **Open a worktree in your editor from the desktop.** Choose VS Code, Cursor, Zed, Sublime Text or a custom command under Settings → Execution defaults → Editor, and a code icon next to the selected execution's path opens its worktree in that editor. With no editor chosen, the path shows alone as before. (#535)
+
 - **Download Sectile Desktop from every release.** Each release now publishes a ready-to-run Sectile Desktop for macOS (Apple Silicon and Intel), Linux x86-64 and Windows, with the Sectile agent included, so you no longer need to build it from the repository. The archives are on the release's GitHub Release page and in the GitLab package, next to the agent and server binaries, with checksums; the desktop README's "Install a release" section explains how to open the unsigned app on each system. (#428)
 
 - **Project prompt for every desktop AI engine.** The former Open agent console action now offers the workstation engine catalogue, including Codex and custom engines, starts with the project default, and preserves the selected engine’s model and interactive command when launching or relaunching.
