@@ -153,7 +153,7 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 		// contractError separates a server that is merely unreachable from one
 		// that cannot be talked to at all. Without it the desktop reports both
 		// as a disconnection and the user has no reason to look at the build.
-		_ = json.NewEncoder(w).Encode(map[string]any{"connected": connected, "server": d.link.serverURL, "contractError": d.contract.current(), "capabilities": []string{"git-diff", "create-task", "remove-project", "free-console", "transition-stage", "repositories", "git-init"}, "disconnectedProjects": disconnected})
+		_ = json.NewEncoder(w).Encode(map[string]any{"connected": connected, "server": d.link.serverURL, "contractError": d.contract.current(), "capabilities": []string{"git-diff", "create-task", "remove-project", "free-console", "transition-stage", "repositories", "git-init", taskEnginesCapability}, "disconnectedProjects": disconnected})
 		return
 	}
 	if (r.URL.Path == "/desktop/restart" || r.URL.Path == "/desktop/shutdown") && r.Method == http.MethodPost {
@@ -212,6 +212,14 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	if r.URL.Path == "/desktop/tasks" {
 		d.desktopTasks(w, r)
+		return
+	}
+	if r.URL.Path == "/desktop/engines" {
+		d.desktopEngines(w, r)
+		return
+	}
+	if r.URL.Path == "/desktop/task-engines" {
+		d.desktopTaskEngines(w, r)
 		return
 	}
 	if r.URL.Path == "/desktop/workstation" {
@@ -526,6 +534,10 @@ func (d *agentDaemon) desktopProjects(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 500)
 		return
 	}
+	if input.statesEngine() {
+		http.Error(w, agentconfig.ErrEngineFields.Error(), 400)
+		return
+	}
 	project := input.apply(settings.Project(input.ProjectID))
 	project.Path = input.Path
 	if input.SpecPath != nil {
@@ -535,11 +547,11 @@ func (d *agentDaemon) desktopProjects(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 400)
 		return
 	}
-	settings.SetProject(input.ProjectID, project)
-	if resolved := agentconfig.Resolve(config, settings); resolved.AIProvider == "custom" && resolved.AICommandTemplate == "" {
-		http.Error(w, "Custom provider requires a command template containing {prompt}", 400)
+	if err := input.applyEngine(&settings); err != nil {
+		http.Error(w, err.Error(), 400)
 		return
 	}
+	settings.SetProject(input.ProjectID, project)
 	delete(settings.DisconnectedProjects, input.ProjectID)
 	if err := agentconfig.WriteSettings(settings); err != nil {
 		http.Error(w, err.Error(), 500)
@@ -733,7 +745,7 @@ func (d *agentDaemon) desktopProject(w http.ResponseWriter, r *http.Request) {
 			"configured":                  mappingErr == nil,
 			"aiCommandTemplate":           effective.AICommandTemplate,
 			"aiCommandTemplateAutonomous": effective.AICommandTemplateAutonomous,
-			"commandOverride":             section.AICommandTemplate != "" || section.AICommandTemplateAutonomous != "",
+			"defaultEngine":               summaryOf(overrides.ProjectEngine(id)),
 			"worktreeOverride":            section.UseWorktrees != nil,
 			"specArtifacts":               models.NormalizeSpecArtifacts(effective.SpecArtifacts),
 			"specArtifactsOverride":       section.SpecArtifacts != "",
@@ -741,8 +753,6 @@ func (d *agentDaemon) desktopProject(w http.ResponseWriter, r *http.Request) {
 			"parallelism":                 agentconfig.ExecutionLimit(id, effective.UseWorktrees, overrides),
 			"aiProvider":                  effective.AIProvider,
 			"aiModel":                     effective.AIModel,
-			"aiProviderOverride":          section.AIProvider != "",
-			"aiModelOverride":             section.AIModel != "",
 			"terminal":                    effective.ExternalTerminalCommand,
 			"terminalOverride":            section.Terminal != "",
 			"fields":                      fields,

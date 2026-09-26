@@ -50,20 +50,28 @@ Already running coding clients are not restarted or modified by a later download
 The server resolves the method only: project metadata over the deployment's.
 Every execution setting is resolved by the agent from
 `~/.config/sectile/settings.json` (ADR 0031): the project section, then the
-workstation defaults, then the provider defaults (provider `agy`, the
-provider's own command, no model flag, the shipped model list, the detected
-terminal, editor `code`, worktrees on, one execution at a time, no extra setup
-provider, the stage's standard command). These values are never uploaded,
-except as the capability report below. A project section that names a
-provider different from the defaults' without a command of its own drops the
-inherited command, each template independently: a command written for one CLI
-never serves another.
+workstation defaults, then the provider defaults (the shipped model list, the
+detected terminal, editor `code`, worktrees on, one execution at a time, no
+extra setup provider, the stage's standard command). These values are never
+uploaded, except as the capability report below.
 
-Model selection resolves level by level, most specific first: the launch's
-one-off model, then the project section, then the workstation defaults. The
-most specific statement wins: naming a skill outranks a bare model, whatever
-level that bare model sits on, so a bare model governs only the skills no level
-singles out.
+The engine (provider, interactive and headless templates, model, per-skill
+models) is a catalogue entry since #510 (ADR 0033), resolved as a whole: the
+engine a task was switched to on this workstation, else its project's default
+engine, else the workstation default engine. Nothing is inherited from another
+engine; an empty template runs the provider's own command and an empty model
+the provider's own model. A resolution without a task (capability report,
+macro skills, project refresh, free console) uses the project default engine.
+A file stating no engine runs `agy` with its defaults.
+
+Model selection within the engine: a per-skill model outranks the engine
+model. The launch's one-off model outranks both, but only when the task runs
+its project default engine, the one the capability report describes; on
+another engine it is ignored, and the run record says what ran.
+
+Skills and the Sectile MCP registration are set up for the running provider,
+the extra setup providers, and the provider of every catalogue engine that
+takes skills, so a task switched to any of them finds them in place.
 
 Parallelism is 1 to 10, from the project section, else the defaults, else 1,
 and 1 whenever worktrees are off. Extra setup providers from the project
@@ -632,29 +640,38 @@ default file and its legacy private connection file.
 
 ### Execution defaults and local overrides
 
-The workstation settings file is written in layout 2:
+The workstation settings file is written in layout 3:
 
 ```json
 {
   "server": "https://sectile.example", "deviceId": "laptop", "apiKey": "...",
-  "layout": 2,
+  "layout": 3,
   "defaults": {
-    "aiProvider": "claude", "aiCommandTemplate": "", "aiCommandTemplateAutonomous": "",
-    "aiModel": "claude-opus-5", "aiSkillModels": {"implement": "claude-sonnet-5"},
     "aiProviderModels": {"claude": ["claude-opus-5", "claude-sonnet-5"]},
     "terminal": "ghostty", "editorCommand": "cursor",
     "useWorktrees": true, "parallelism": 2, "setupProviders": ["codex"]
   },
   "projectSettings": {
     "project-id": {
-      "path": "/path/to/repository", "specPath": "/path/to/specs",
-      "aiProvider": "codex", "aiModel": "gpt-5", "terminal": "iterm",
+      "path": "/path/to/repository", "specPath": "/path/to/specs", "terminal": "iterm",
       "useWorktrees": false, "parallelism": 1, "setupProviders": null,
       "skillCommands": {"implement": "code-issue"}, "specArtifacts": "drop"
     }
   },
+  "engines": {
+    "catalogue": [
+      {"id": "e-1f3a9c20b7d4", "name": "Claude Opus", "provider": "claude",
+       "model": "claude-opus-5", "skillModels": {"implement": "claude-sonnet-5"},
+       "command": "", "commandAutonomous": ""},
+      {"id": "e-7c01d2e9aa51", "name": "Codex", "provider": "codex", "model": "gpt-5"}
+    ],
+    "default": "e-1f3a9c20b7d4",
+    "projects": {"project-id": "e-7c01d2e9aa51"},
+    "tasks": {"task-id": "e-1f3a9c20b7d4"}
+  },
   "repositories": {"github.com/owner/other": "/path/to/other"},
-  "seeded": {"defaults": "https://sectile.example", "projects": {"project-id": "2026-09-25T00:00:00Z"}}
+  "seeded": {"defaults": "https://sectile.example", "defaultEngine": "e-1f3a9c20b7d4",
+             "projects": {"project-id": "2026-09-25T00:00:00Z"}}
 }
 ```
 
@@ -669,12 +686,31 @@ settings with an effective `keep` removes the project's block from every
 checkout the workstation maps for it; lines outside the block are never
 touched.
 
+`engines` (#510) holds the catalogue in its order (1 to 20 engines, names
+unique ignoring case, at most 64 characters), the workstation default engine,
+each project's default engine and each task's engine, by task primary key.
+Identities are the agent's: a choice naming no catalogue engine reads as none
+and is dropped on the next write, and removing an engine drops the choices
+pointing at it. The key sits outside the ones an agent of layout 2 replaces,
+so such an agent keeps it when it saves.
+
+The engine fields of layout 2 (`aiProvider`, `aiCommandTemplate`,
+`aiCommandTemplateAutonomous`, `aiModel`, `aiSkillModels` in `defaults` and in
+project sections) are converted into catalogue entries on every read, and the
+agent persists the conversion once at start, after copying the previous file
+to `settings.json.bak-layout<N>`. Each level becomes an entry equal to what it
+resolved, identical profiles share one entry, and a project that stated
+engine fields picks its entry. The conversion runs again, reusing identical
+entries and keeping the default engine, if an older agent writes engine fields
+back.
+
 A file written before #305 (flat `aiProvider`, `aiModel`, `terminal`... and the
 per-project maps `projects`, `specRepos`, `worktrees`, `parallelism`,
 `terminals`, `aiProviders`, `aiModels`, `commands`, `commandsAutonomous`,
 `specArtifacts`) is
-read with the same meaning and rewritten in layout 2 on the next save. An
-emptied map or list leaves the file rather than keeping its previous content.
+read with the same meaning and rewritten in the current layout on the next
+save. An emptied map or list leaves the file rather than keeping its previous
+content.
 
 The desktop edits both levels through the agent: `GET`/`PUT /desktop/workstation`
 for the defaults, `POST /desktop/projects` for a project section (each field
@@ -682,6 +718,23 @@ with an `inherit…` flag), and `GET /desktop/project` answers, per execution
 field, `{value, inherited, source}` with `source` one of `project`,
 `workstation` or `default`. An invalid value is refused with its reason and the
 file is left unchanged. The Electron companion writes connection keys only.
+Both saves refuse the engine fields of layout 2 with a 400 naming the engine
+catalogue; a project save picks its engine with `defaultEngine` (an engine
+identity, unknown: 400) or `inheritDefaultEngine: true`.
+
+`GET /desktop/status` advertises `task-engines` when the agent keeps the
+catalogue. The desktop then uses:
+
+- `GET /desktop/engines`: `{catalogue, default, providers, providerModels,
+  projects, taskCounts}`, the last two saying what points at each engine;
+- `PUT /desktop/engines` with `{catalogue, default}`: the whole catalogue in
+  its new order, a new engine without `id`; 400 with the validation message,
+  409 when the default engine is left out, then a new capability report;
+- `GET /desktop/task-engines?projectId=<id>`: `{projectDefault, catalogue:
+  [{id, name, provider, model}], tasks: {taskId: engineId}}`;
+- `PUT /desktop/task-engines` with `{projectId, taskId, engineId}`: stores the
+  task's engine, none when it is the project default engine; 404 when the
+  engine is not in the catalogue. The capability report does not change.
 
 `repositories` maps each repository of a multi-repo project, by its
 `host/path` identity, to the folder holding its checkout on this workstation
@@ -735,7 +788,11 @@ The agent seeds its defaults after the first identity check of a connection,
 and a project the first time it resolves it, once each (`seeded`). It writes
 only the keys the file does not set, and only where they change the outcome of
 the local resolution, computed with the pre-#305 precedence so a launch
-resolves what it resolved before the upgrade. A fetch failure writes and marks
+resolves what it resolved before the upgrade. Since #510 the engine goes to
+the catalogue: the deployment's becomes the workstation default engine while
+the workstation states none (`seeded.defaultEngine`), and a project that
+resolves differently picks an entry, found or created, completing the pick it
+may already have. A fetch failure writes and marks
 nothing; the next connection or resolution retries. A disconnected project is
 not seeded, and pairing to another server does not seed the defaults again.
 
@@ -755,7 +812,8 @@ not seeded, and pairing to another server does not seed the defaults again.
 ```
 
 The agent sends it, for every project it serves, after registering its
-WebSocket and after each local save. A model is reported only when it reaches
+WebSocket and after each local save. It describes the project default engine;
+a task switched to another engine changes nothing in it. A model is reported only when it reaches
 the command line; `modelSlot` says whether a launch model can; `headless`
 whether an autonomous run is possible. The report belongs to the credential's
 user and to `deviceId`, the device the agent presents on its WebSocket; the

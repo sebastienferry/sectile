@@ -25,7 +25,7 @@ project scope. Subsequent launches reconnect to the application's existing agent
 
 ### MCP connections
 
-Open **Settings → Agents CLI**, select an AI provider, then use **MCP configuration**.
+Open **Settings → Execution defaults**, pick the provider in **MCP configuration**, then use it.
 Choose **Remote HTTP** (default), **Local HTTP proxy**, or **STDIO**. Remote
 HTTP uses the pairing key without requiring a running agent. Local HTTP calls
 the running no-auth proxy directly. STDIO starts a bridge to the remote server
@@ -306,15 +306,26 @@ and restarted before this action is available.
 
 ### Execution defaults and local overrides
 
-Every execution setting belongs to the workstation (ADR 0031): the AI
-provider, the model and per-skill models, the model list of each provider, the
-interactive and headless commands, the terminal, the editor, worktrees,
-parallel executions (1 to 10), the extra agents that get the skills and MCP,
-and the command name each stage runs. The web interface offers none of them
-and the server neither stores nor uses them.
+Every execution setting belongs to the workstation (ADR 0031): the engines,
+the model list of each provider, the terminal, the editor, worktrees, parallel
+executions (1 to 10), the extra agents that get the skills and MCP, and the
+command name each stage runs. The web interface offers none of them and the
+server neither stores nor uses them.
 
-**Settings → Execution defaults** edits the workstation level, applied to every
-project without a value of its own. The project settings edit one project:
+An engine (ADR 0033) is a named AI CLI profile: provider, model, per-skill
+models, interactive and headless commands. **Settings → Execution defaults**
+opens with the **Engines** list, in the order a task cycles through them, the
+workstation default engine marked **Default**. **Add an engine** and **Edit**
+open the engine editor, with the provider presets and a preview of the command
+lines; the arrows reorder, **Make default** moves the mark, and **Remove** asks
+first, naming the projects and counting the tasks that use the engine. The
+default engine and the last one cannot be removed. Every change is saved at
+once. Existing provider, model and command settings became engines on the
+first start of the upgraded agent, which kept a copy of the previous file
+beside it.
+
+The rest of **Settings → Execution defaults** edits the workstation level,
+applied to every project without a value of its own. The project settings edit one project:
 each field says whether it is set for the project or inherited, shows the
 inherited value (the workstation default, else the provider default) and has a
 reset that brings the inheritance back. Both go through the local agent, which
@@ -417,8 +428,9 @@ until the agent is stopped, and the panel says so.
 Project configuration lists its categories in a side navigation, one panel at a
 time: **General** (local repository, removal from the desktop), **Execution**
 (worktrees, parallel executions, terminal emulator, extra setup providers),
-**AI agent** (provider, model, per-skill models, command templates, skill
-command names), **Deployment** and **Server**. **General** opens
+**AI agent** (the project's **Default engine**, picked from the engines or
+inherited from the workstation default one, and skill command names),
+**Deployment** and **Server**. **General** opens
 first. Use **Choose folder…** to select a repository through the native directory
 dialog. Worktrees use Yes/No buttons; parallel executions use a 1 to 10 slider.
 Each setting is one row: its name with the inherited value in small type on the
@@ -443,7 +455,16 @@ even when the project is collapsed. Search by title or task key to narrow it;
 submit an empty search to restore all open tasks. Finished tasks are excluded.
 
 The pane is a table with one row per task: execution state, **Key**, **Title**,
-**Stage**, **Priority**, a pull request icon when one is linked, and actions.
+**Stage**, **Priority**, **Engine**, a pull request icon when one is linked, and
+actions. The **Engine** button shows the letters of the provider the task's
+next run uses; its tooltip names the engine, its provider and its model, and
+says when it is the project default engine, and it is highlighted when it is
+not. Activating it (click, Enter or Space) moves the task to the next engine of
+the catalogue, the last one wrapping to the first. The choice stays with the
+task on this workstation, for every launch of it, from the desktop or the web,
+until the next click; a run already going keeps its engine. A one-off launch
+model applies only on the project default engine. The column is hidden with an
+agent that does not keep engines.
 Activate a row's key to open that task in Sectile, the same gesture the sidebar
 task number offers.
 Rows are ordered by priority descending (urgent, high, medium, low, then
@@ -469,10 +490,9 @@ repository mapping, otherwise every launch control is disabled with a notice.
 Loading, empty and error states are shown in the pane; use **Search** to
 retry a failed request. Opening the pane does not start an execution.
 
-The **AI agent** category includes the effective **CLI command**. Edit it to save a
-per-project override under `commands` in user settings; the reset icon restores
-the server template (or provider default when empty or lacking `{prompt}`). Save to apply to subsequent
-executions. Command templates execute on the local agent and support these placeholders:
+An engine's commands are edited in its engine editor; empty ones run the
+provider default. Command templates execute on the local agent and support
+these placeholders:
 
 | Placeholder | Value |
 | --- | --- |
