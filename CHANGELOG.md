@@ -13,6 +13,8 @@ test fixtures or internal plumbing.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-09-26
+
 ### Added
 
 - **Attach folders to a project in Sectile Desktop.** Project settings → General → *Attached folders* adds any other folder of your workstation to a project: another repository, a library, notes, a Git checkout or a plain folder. Every execution of the project is then told where they are and what each one is. An attached Git repository with a remote is changed through a worktree on the ticket's branch and needs its own pull request before the ticket can be marked implemented; a folder without a remote is changed in place. The folders stay on your workstation and are never sent to the server. Update the local agent together with the server: an older agent cannot prepare a worktree in an attached repository. (#484)
@@ -45,7 +47,7 @@ test fixtures or internal plumbing.
 
 - **Start a project on a folder that is not a Git repository yet.** The desktop project settings offer to initialize the Local repository or the Specifications folder with an empty first commit, so Sectile can create worktrees from it. The repository stays on your workstation and is never pushed; since nothing is committed, worktrees start without the folder's existing files. A Git folder with no commit yet is offered the first commit alone. (#481)
 
-- **Multi-repo projects run each task in its own repository.** A project that is not mono-repo lists the repositories its tickets work in, by remote, in its web settings; each workstation gives each repository its folder in the desktop project settings, and a folder is accepted only if its checkout is that repository. A ticket is pinned to one of them from its detail, and every stage then runs in a worktree of that repository. When a launch cannot tell which repository a ticket belongs to, it waits for you to choose one, from the console pane of the desktop app or from the ticket, even when it runs autonomously, and nothing is guessed. The agent is told where every folder of the project is: the others are handed to Claude as context it is told not to change (nothing enforces it), and a skill that must change one asks for a worktree there on the same branch. Each changed repository then needs its own pull request, and the transitions check every one of them. Working directories typed on tickets before are converted to repositories once, by the first workstation that sees the project; the ones it cannot resolve are dropped and listed in the project settings. (#456)
+- **Multi-repo projects run each task in its own repository.** A project lists the other repositories its tickets work in, by remote, in its web settings; each workstation gives each repository its folder in the desktop project settings, and a folder is accepted only if its checkout is that repository. A ticket is pinned to one of them from its detail, and every stage then runs in a worktree of that repository. A ticket pinned to none runs in the code repository. The agent is told where every folder of the project is: the others are handed to Claude as context it is told not to change (nothing enforces it), and a skill that must change one asks for a worktree there on the same branch. Each changed repository then needs its own pull request, and the transitions check every one of them. Working directories typed on tickets before are converted to repositories once, by the first workstation that sees the project; the ones it cannot resolve are dropped and listed in the project settings. (#456)
 
 - **An Administration page.** Admins now open a full page from the sidebar or the command palette instead of a dialog. It shows how many people are using the board right now, how many runs are running, queued or pending, and the account totals, and refreshes on its own. The users list says who is online and when each account was last seen, next to the role and the block and delete actions.
 
@@ -65,7 +67,7 @@ test fixtures or internal plumbing.
 
 - **Each macro gets its own worktree.** A macro's specification is written in `.tasks/worktrees/<KEY>` of the specifications folder, when it is a Git repository, on the macro's branch, started from the up-to-date default branch, so two macros specified at the same time no longer share untracked files. An existing worktree is reused with its uncommitted work; projects with worktrees off keep using the checkout. (#426)
 
-- **Declare where a project's specifications live, on your workstation.** The desktop project settings have a *Specifications folder* used by every macro operation: the slicing import, the macro worktree and `realign-macro`. A mono-repo project inherits its local repository unless you choose another folder; a multi-repo project needs one, and macro operations say so until it is set. The folder may be a Git repository or a plain folder, and the settings show which: in a plain folder, macro skills write in place, with no branch, commit or push. Importing the slicing from the web now reads the specification on your workstation, so it needs the desktop app connected. The code repository stays the agents' working directory. (#426, #443)
+- **Declare where a project's specifications live, on your workstation.** The desktop project settings have a *Specifications folder* used by every macro operation: the slicing import, the macro worktree and `realign-macro`. It defaults to the project's local repository unless you choose another folder. The folder may be a Git repository or a plain folder, and the settings show which: in a plain folder, macro skills write in place, with no branch, commit or push. Importing the slicing from the web now reads the specification on your workstation, so it needs the desktop app connected. The code repository stays the agents' working directory. (#426, #443)
 
 - **Manage Jira sprints from the timeline.** On a Jira project, *+ Sprints* creates a batch on the board (name pattern with `{n}`, count, start date, one to four weeks each); renaming, changing dates, closing and deleting are written to Jira and the timeline shows Jira's answer, so the next synchronisation keeps them. Closing can first move the unfinished tickets to the next sprint or to the backlog. On a GitHub project the timeline is read-only. (#426)
 
@@ -74,25 +76,6 @@ test fixtures or internal plumbing.
 - **Attach stories from the other Jira projects your roadmap reads.** *Projets de roadmap*, in a Jira project's tracker options, lists other project keys whose stories attach to slicing lines on import. Sectile only reads them and never writes to those projects. (#426)
 
 - **The "created" toast links to the new ticket.** After a quick add, or a story created from the Roadmap (typed or from a slicing line), the toast offers *Ouvrir <key>*, which opens the ticket's detail, and an icon to its GitHub or Jira page when it has one. Such a toast stays 8 s instead of 3.5 s and waits while the pointer or the keyboard is on it; other toasts are unchanged. (#432)
-
-- **Zoom and density are in the status bar, and the zoom reaches further.** The bottom bar shows the current zoom and opens both settings where you are already looking, instead of four clicks away under Profile, Appearance. The ladder gains 80 %, 150 % and 175 %: stopping at 125 % left "it is too small" without an answer. The four levels you may already have chosen are unchanged, and a value written by another version snaps to the nearest step rather than being refused.
-
-- **Group a macro's tickets by phase and by goal.** Two tabs in the macro panel, *Phases* and *Objectifs*, split the same tickets along two axes carried by prefixed labels: `phase:` says the order of the work, `goal:` says what you are trying to obtain, and a ticket can serve one without belonging to the other. Drag a ticket between groups to move it; only that axis's label changes. Naming a group labels nothing, so the group waits empty as a target and the label becomes real on the first ticket dropped into it. Names are normalised on the way to the tracker, spaces becoming hyphens as Jira requires, and the resulting label is shown before it is applied.
-
-- **Take the existing stories back into a macro's slicing.** *Reprendre les stories*, next to the other import buttons, writes one todo line per ticket already created under the macro, each arriving attached to its own. It is the reverse of *Créer story*: a macro whose tickets were created elsewhere had an empty slicing although the work was already sliced. Running it again adds nothing and says the slicing is up to date. A line that carries a story now also links straight to it on the tracker, and the list of a macro's tickets reads as one row per ticket, with its title, type, sprint and assignee, like the phase and goal groups.
-
-- **Import a macro's slicing from the repository's specification.** The macro panel, under Framing, offers *tasks.md* and *spec.md*: the first reads the group headings of the tasks file, one group being one story, the second the requirements or the prioritised user stories. Lines already there are kept, matched on their text rather than their position, so a ticked line keeps its tick and its story even when a group is inserted above it, and a line typed by hand survives. The two sources add up rather than replace each other. Nothing is written to the repository or the tracker, and no story is created: producing the slicing is a gesture you ask for, never a side effect of the synchronisation. When the specification is not merged yet, it is read from the macro's own branch, and the report says which file or branch it came from. A refusal names its cause: no repository configured, no specification folder for that key, or the chosen file missing next to the other one.
-
-- The Backlog can be condensed to one row per ticket: the button left of the filters drops the description excerpt and reduces the macro to its key, on the title line. The two details that made a row taller go with it (the time spent in the current state, the creator below the assignee), and the macro's title stays in the tooltip. The board and the roadmap keep their own density, and the choice is remembered for the next visit.
-
-- Projects can colour their cards per epic (project settings, General, "Couleur par épic"; off by default). A thin bar in the epic's colour, along the left edge, marks board cards, Backlog rows, sprint timeline items and Roadmap macros. The colour is derived from the epic key, so an epic looks the same in every view; tasks without an epic are unchanged.
-
-- Saved board views: name a selection of several projects and labels, and
-  reopen it from the sidebar's *Vues* section or a direct link. A ticket appears
-  when it carries any of the view's labels, cards name their project, and the
-  board filters are remembered per view (#387).
-
-- Web and desktop PR indicators show the current GitHub or GitLab request as open, conflicting, merged, or closed without merge. State refresh uses grouped forge reads without synchronizing stories individually.
 
 ### Changed
 
@@ -118,10 +101,6 @@ test fixtures or internal plumbing.
 
 - **A context menu on each desktop project.** A project row in the desktop sidebar now shows only its name and a *…* button. Right-click the row, or click *…*, to open tasks, switch to the execution queue, create a task, open the agent console, reach the project settings or remove the project from the desktop. The count of waiting executions moves to the *…* button.
 
-- **The desktop specifications folder follows the repository layout.** The project's General settings now state whether the project is a mono-repo or a multi-repo one. On a mono-repo project, a *Specifications live in the code repository* checkbox decides between the local repository and a folder of their own; on a multi-repo project, the folder is asked for directly. The detected kind now names the folder it was checked on, for example *Git repository · /path/to/repo*.
-
-- **Set a project as mono-repo or multi-repo from the web interface.** The Git repository section of the project settings has a *Mono-repo* checkbox, ticked by default; untick it when a project's tickets span several repositories.
-
 - **A quieter status bar.** The MCP clients indicator and the active executions counter are gone from the status bar. Who is using the board and how many runs are in flight are now on the Administration page, and the activities view still lists every execution. `GET /api/mcp/sessions` still lists the live sessions.
 
 - **The desktop sidebar reads as columns.** Each execution row now starts with its run state, then its task number, so the states of all your runs line up down one column, as in the tickets pane; the task numbers share one width, so the titles line up too, free consoles included. A longer number is still shown in full and only shifts its own title. (#446)
@@ -138,24 +117,120 @@ test fixtures or internal plumbing.
 
 - **A queued run now makes its task busy.** A skill waiting for its turn in the queue will start an agent on the ticket, so launching another run on the same ticket is refused, as it already was for a running one, with a message saying the run is queued. The refusal covers the next step, the full chain and a retry too, which used to queue a second run. "Launch anyway" still starts one next to it, and a session you start yourself from a terminal is never refused.
 
-- **Triage, Roadmap and Timeline are now hidden by default and enabled per
-  project.** Project settings, under General, carry a "Vues de l'espace de
-  travail" section where each project turns on the planning views it actually
-  uses. A view that is off appears neither in the sidebar nor in the command
-  palette, and switching to a project that does not use the view you are on
-  returns you to the board. Existing projects start with all three off.
+### Removed
 
-- Issue details show description and technical context directly below the title, alongside metadata, with pull requests below; narrow views keep the content first.
+- **The Mono-repo project setting.** Every project now works the same way: its list of other repositories is always available in the web project settings, a ticket runs in the repository it is pinned to or else in the code repository, and an execution never waits for somebody to choose a repository. The Repository layout row and the repository picker of the desktop console are gone with it. (#484)
 
-- Removed the permanent instructional hint below the desktop project list.
+- **The web editors for execution settings**: the AI engine tab of the profile (its MCP configuration stays), the "Agent settings" category of the project settings (the PR creation stage moves to "Agentic workflow"), the local folder and per-skill command name fields. Also the project "TTY mode", which nothing used. (#305)
 
-- Consolidated MCP setup into one per-engine configuration with three choices:
-  remote HTTP (default), local HTTP proxy, and STDIO. The engine selectors
-  offer Antigravity, Claude and Codex using the existing compact controls. API-key creation now lives in the same web
-  view, and desktop shows only the selected connection configuration.
+- **The old tracker credential variables and the per-project tokens.** `SECTILE_TRACKER_TOKEN`, `GH_TOKEN`, `GITHUB_TOKEN`, `JIRA_API_TOKEN` and `GITLAB_TOKEN` are no longer read as tracker credentials: set `SECTILE_GITHUB_TOKEN`, `SECTILE_JIRA_EMAIL` with `SECTILE_JIRA_TOKEN`, or `SECTILE_GITLAB_TOKEN` instead, or store the credential from the Administration page. The server still starts with one of them set, and logs a warning naming its replacement. The GitHub and GitLab tokens a project could carry are gone, and discarded on upgrade: one server credential serves every project of its provider. (#464)
+
+### Fixed
+
+- **The web interface speaks one language throughout.** With English selected, the sidebar and project picker, the board and backlog controls, task details, project settings, the roadmap, triage and team views, the sprint timeline, the skill editor, activities, synchronisation messages and notifications no longer fall back to French, tooltips and screen-reader labels included; with French selected they read as before. Counts agree with their number, and the provider descriptions in the project settings now describe the tracker API integration. Known messages the server writes in the activity history are shown in English too; task content, tracker names and statuses, and raw error details stay as they are. (#526, #527, #528, #529, #530, #531, #532)
+
+- **Dates, the page title and the sign-in screen follow your language.** Dates and times use the language chosen in Sectile rather than the browser's, a sprint date no longer shifts by a day in time zones west of UTC, and the browser tab and page language match the interface. Signed out, Sectile uses the language this browser last used, or the browser's own language, and the sign-in screen offers a French/English switch; once signed in, your profile setting applies. (#533, #534)
+
+- **Every ticket of a batch launched from the web shows the batch, and is busy while it runs.** Each ticket of a running batch now carries a `Lot <first ticket>` badge on its board card, its list row and its detail panel, with where it stands: *en cours* for the ticket the agent is working on, *en attente dans le lot* for the ones waiting their turn, and the badge alone once done. Launching a skill on any of them is refused with a message naming the batch until the batch run ends, and every indicator disappears when it does. (#522)
+
+- **MCP clients keep one session behind a proxy, and abandoned sessions no longer pile up on the server.** The server now pings every connected MCP client every 25 seconds, so a proxy that cuts idle connections no longer drops the client's event stream and forces it to reconnect with a new session every two and a half minutes. A session that owns no run and whose client stopped answering is released after three missed pings, instead of staying in memory for eight hours. The interval and the number of missed pings are set with `SECTILE_MCP_KEEPALIVE_INTERVAL` and `SECTILE_MCP_KEEPALIVE_FAILURES`. (#517)
+
+- **A run launched from the board is shown running and its outcome is recorded, even when the local agent reported it queued.** The session a launch starts can now take over its run with `start_run` and report how it ended with `finish_run` while the board still shows it *queued*, instead of being refused with "remote run does not match an active execution" and leaving the run unfinished. A refused run id now says whether the run already ended and what to do instead. (#499)
+
+- **Sealed tracker tokens no longer lock themselves when the server restarts.** Once unlocked, a token sealed with a passphrase stays unlocked on every server instance while you are connected, from a browser tab or a running local agent, and locks itself 30 minutes after you leave, or at once when you sign out with nothing else of yours connected. (#501)
+
+- **An outdated local agent is named instead of failing obscurely.** When the server asks your local agent for something its build cannot do, stage transitions and the other features that rely on it now say which agent is outdated and that restarting or updating the Sectile desktop app fixes it, instead of `unknown local operation`. The desktop app notices when the running agent is not the one it bundles, including after a rebuild that reports the same version, offers to restart it, and marks it as outdated in its settings until then. (#391)
+
+- **Stage reports, tickets created by agents, converted tickets, stories created under a macro and macro milestones are no longer written under the server account.** They are written under the credential of the person who caused them. A stage recorded without one is kept on the board, and its activity now fails and says why instead of claiming the report was posted. (#482)
+
+- **My Tasks finds the tickets assigned to you on GitHub and Jira.** The *My Tasks* button of the sidebar now keeps the tickets assigned to your GitHub login or your Jira display name, as the account of your personal credential for that tracker, and your local tickets by your name or e-mail, all at once over *All projects* or a saved view. It stays on when no ticket is yours, is remembered per project and view, and shows as a *My Tasks* chip in the filters. On a tracker where you have no confirmed personal credential it uses your name and e-mail, and its tooltip names that tracker: save or verify your personal credential in your profile to fix it. (#468)
+
+- **Agents can file tickets on Jira-backed projects.** `create_task` no longer answers that remote creation is not supported for Jira: it creates the Jira issue under your own Jira account, with the issue type and parent epic the agent gives and its Markdown description rendered, and returns the new key and link. Without a personal Jira token in your profile the call is refused and nothing is created. When Jira refuses a creation, the error lists the fields the project makes mandatory for that issue type. Creating a task from the desktop app files it on Jira the same way. `get_task` also shows a Jira ticket's comments, read with your own token. (#472)
+
+- **The waiting glyph clears once you answer.** Pressing Enter in a run's console, in the desktop app or the web terminal, now clears its *waiting* mark at once, on the desktop and on the board; other keys leave it. The mark also no longer stays after the server restarts or the desktop reconnects, and a session's next Sectile call ends its wait whichever server instance serves it. (#475)
+
+- **The missing repository mapping error points at the right file.** When the agent cannot find a project's local repository, the error now names `~/.config/sectile/settings.json`, the file Sectile actually reads, instead of a `taskflow` path that does not exist.
+
+- **The desktop app no longer fails to list projects after a long pause.** On a PostgreSQL server, a database connection left idle for a long time could be dropped by the network, and the next request to use it, often the desktop app's project list, answered *Cannot list projects*. Sectile now renews its connections before that happens, and logs the cause of such errors.
+
+- **Search ignores case and accents.** The search bar finds `Équipe` whether you type `equipe`, `Equipe` or `ÉQUIPE`, on the board, the roadmap, triage, the activities view and the filter pickers, and `%` or `_` typed in a search now match those characters only. On a PostgreSQL server this needs the `unaccent` extension, which Sectile creates at start; a server whose database role cannot create it refuses to start and says so. (#447)
+
+- **An agent session keeps working whichever server receives its requests.** With several servers behind one load balancer, a request for an MCP session reaches the server that holds it, so tool calls, runs and the event stream no longer fail with "session not found" halfway through. A session whose server stopped is refused as not found, and the client starts a new one. The sessions view lists the sessions of every server. (#408)
+
+- **A run canceled after a long silence can be reported again.** A run that had gone silent and was then canceled as disconnected refused its owner's report of how it really ended; it now accepts it, like any other disconnected run. (#319)
+
+- **A run you stopped stays stopped.** An agent reporting a run as running a moment after it was canceled, finished or failed used to bring it back as running on the board; a run that has ended now keeps its outcome.
+
+- **Live updates and cancellations reach every server sharing a database.** A
+  board open on one server now shows a change made through another, and
+  canceling a job stops it on the server that runs it. A job canceled while it
+  ran, or before it started, keeps its canceled status instead of being
+  overwritten by its own outcome, with one server as with several. (#405)
+
+- **A local agent is reachable whichever server receives the request.** With
+  several servers on one database, a stage transition, a launch or a workspace
+  operation arriving on a server the agent is not connected to used to fail with
+  "no local agent connected". The servers now forward the work to the one holding
+  the agent, over an internal port (`SECTILE_INTERNAL_PORT`, 8092 by default), and
+  the agent indicator lists the agents of every server. The indicator also
+  refreshes as soon as an agent connects or disconnects. (#406)
+
+- **Several servers sharing one database synchronise each project once.** The
+  background synchronisation used to run in every server, so each project was
+  read once per server per interval, and a tracker asking to slow down (rate
+  limit) was only heard by the server it answered. The servers now share the
+  loop's pacing: one of them claims a due project, a full read dated by any of
+  them counts for all, and a rate limit pauses every server for ten minutes.
+  The synchronisation status is the same whichever server answers. (#404)
+
+- **Starting a second server on PostgreSQL no longer interrupts the first one's
+  work.** A server used to mark every running job as failed and every client run
+  as canceled when it started, including the work of another server sharing the
+  same PostgreSQL database, which a rolling deploy does for a few seconds. Each
+  server now only reclaims the work of servers that stopped answering for 45
+  seconds. A single SQLite server still reclaims everything at start, as before.
+  (#403)
+
+- **The suggested Jira board can be confirmed from the board picker.** On a
+  project with no board recorded yet, the picker in the project settings now
+  starts on "Choisir un board…" and marks the default board as "(suggéré)".
+  Picking it records it and imports its columns, as picking any other board
+  does, instead of waiting for the next synchronisation. (#375)
+
+- **A locked personal GitHub token stops the call instead of borrowing the
+  server's.** When somebody sealed their GitHub token behind a passphrase and
+  had not unlocked it, Sectile quietly used the project or server token instead:
+  the background synchronisation of a project they own read as the service
+  account while its activity named them, and their own writes went out under an
+  account they did not choose. Such a call made through the GitHub tracker
+  adapter now fails and says the credential is locked, as Jira already did. The
+  branch pull request lookup and the GitHub GraphQL reads, which resolve their
+  credential through `trackerAs`, still fall back and are out of scope of this
+  change. Somebody who stored no GitHub token at all still uses the project or
+  server token.
+
+## [0.2.0] - 2026-09-24
 
 ### Added
 
+- **Zoom and density are in the status bar, and the zoom reaches further.** The bottom bar shows the current zoom and opens both settings where you are already looking, instead of four clicks away under Profile, Appearance. The ladder gains 80 %, 150 % and 175 %: stopping at 125 % left "it is too small" without an answer. The four levels you may already have chosen are unchanged, and a value written by another version snaps to the nearest step rather than being refused.
+
+- **Group a macro's tickets by phase and by goal.** Two tabs in the macro panel, *Phases* and *Objectifs*, split the same tickets along two axes carried by prefixed labels: `phase:` says the order of the work, `goal:` says what you are trying to obtain, and a ticket can serve one without belonging to the other. Drag a ticket between groups to move it; only that axis's label changes. Naming a group labels nothing, so the group waits empty as a target and the label becomes real on the first ticket dropped into it. Names are normalised on the way to the tracker, spaces becoming hyphens as Jira requires, and the resulting label is shown before it is applied.
+
+- **Take the existing stories back into a macro's slicing.** *Reprendre les stories*, next to the other import buttons, writes one todo line per ticket already created under the macro, each arriving attached to its own. It is the reverse of *Créer story*: a macro whose tickets were created elsewhere had an empty slicing although the work was already sliced. Running it again adds nothing and says the slicing is up to date. A line that carries a story now also links straight to it on the tracker, and the list of a macro's tickets reads as one row per ticket, with its title, type, sprint and assignee, like the phase and goal groups.
+
+- **Import a macro's slicing from the repository's specification.** The macro panel, under Framing, offers *tasks.md* and *spec.md*: the first reads the group headings of the tasks file, one group being one story, the second the requirements or the prioritised user stories. Lines already there are kept, matched on their text rather than their position, so a ticked line keeps its tick and its story even when a group is inserted above it, and a line typed by hand survives. The two sources add up rather than replace each other. Nothing is written to the repository or the tracker, and no story is created: producing the slicing is a gesture you ask for, never a side effect of the synchronisation. When the specification is not merged yet, it is read from the macro's own branch, and the report says which file or branch it came from. A refusal names its cause: no repository configured, no specification folder for that key, or the chosen file missing next to the other one.
+
+- The Backlog can be condensed to one row per ticket: the button left of the filters drops the description excerpt and reduces the macro to its key, on the title line. The two details that made a row taller go with it (the time spent in the current state, the creator below the assignee), and the macro's title stays in the tooltip. The board and the roadmap keep their own density, and the choice is remembered for the next visit.
+
+- Projects can colour their cards per epic (project settings, General, "Couleur par épic"; off by default). A thin bar in the epic's colour, along the left edge, marks board cards, Backlog rows, sprint timeline items and Roadmap macros. The colour is derived from the epic key, so an epic looks the same in every view; tasks without an epic are unchanged.
+
+- Saved board views: name a selection of several projects and labels, and
+  reopen it from the sidebar's *Vues* section or a direct link. A ticket appears
+  when it carries any of the view's labels, cards name their project, and the
+  board filters are remembered per view (#387).
+
+- Web and desktop PR indicators show the current GitHub or GitLab request as open, conflicting, merged, or closed without merge. State refresh uses grouped forge reads without synchronizing stories individually.
 - **The Triage view is back.** It lists the work items that are missing a
   sprint, a macro, a team or an assignee, groups them by what they lack, and
   lets you fix several at once. It is off by default; enable it per project in
@@ -226,6 +301,21 @@ test fixtures or internal plumbing.
 
 ### Changed
 
+- **Triage, Roadmap and Timeline are now hidden by default and enabled per
+  project.** Project settings, under General, carry a "Vues de l'espace de
+  travail" section where each project turns on the planning views it actually
+  uses. A view that is off appears neither in the sidebar nor in the command
+  palette, and switching to a project that does not use the view you are on
+  returns you to the board. Existing projects start with all three off.
+
+- Issue details show description and technical context directly below the title, alongside metadata, with pull requests below; narrow views keep the content first.
+
+- Removed the permanent instructional hint below the desktop project list.
+
+- Consolidated MCP setup into one per-engine configuration with three choices:
+  remote HTTP (default), local HTTP proxy, and STDIO. The engine selectors
+  offer Antigravity, Claude and Codex using the existing compact controls. API-key creation now lives in the same web
+  view, and desktop shows only the selected connection configuration.
 - Desktop console cleanup uses an unboxed broom icon, and task toolbar icons no longer have button frames. Icon controls show visible tooltips on hover and keyboard focus, including disabled actions.
 
 - Desktop settings use a larger dialog, open on User profile, and list Agent connection, AI Engine CLI, Agent logs, and Changelog in that order, with Changelog at the bottom of the sidebar. The User profile no longer shows the Credential row, and Agent connection shows a green or orange dot beside the server link status, plus Start, Stop, and Restart controls beside the local agent.
@@ -271,35 +361,7 @@ test fixtures or internal plumbing.
   Boards importing from such a project will see their ordinary work items move
   off the high level on the next synchronisation.
 
-### Removed
-
-- **The Mono-repo project setting.** Every project now works the same way: its list of other repositories is always available in the web project settings, a ticket runs in the repository it is pinned to or else in the code repository, and an execution never waits for somebody to choose a repository. The Repository layout row and the repository picker of the desktop console are gone with it. (#484)
-
-- **The web editors for execution settings**: the AI engine tab of the profile (its MCP configuration stays), the "Agent settings" category of the project settings (the PR creation stage moves to "Agentic workflow"), the local folder and per-skill command name fields. Also the project "TTY mode", which nothing used. (#305)
-
-- **The old tracker credential variables and the per-project tokens.** `SECTILE_TRACKER_TOKEN`, `GH_TOKEN`, `GITHUB_TOKEN`, `JIRA_API_TOKEN` and `GITLAB_TOKEN` are no longer read as tracker credentials: set `SECTILE_GITHUB_TOKEN`, `SECTILE_JIRA_EMAIL` with `SECTILE_JIRA_TOKEN`, or `SECTILE_GITLAB_TOKEN` instead, or store the credential from the Administration page. The server still starts with one of them set, and logs a warning naming its replacement. The GitHub and GitLab tokens a project could carry are gone, and discarded on upgrade: one server credential serves every project of its provider. (#464)
-
 ### Fixed
-
-- **The web interface speaks one language throughout.** With English selected, the sidebar and project picker, the board and backlog controls, task details, project settings, the roadmap, triage and team views, the sprint timeline, the skill editor, activities, synchronisation messages and notifications no longer fall back to French, tooltips and screen-reader labels included; with French selected they read as before. Counts agree with their number, and the provider descriptions in the project settings now describe the tracker API integration. Known messages the server writes in the activity history are shown in English too; task content, tracker names and statuses, and raw error details stay as they are. (#526, #527, #528, #529, #530, #531, #532)
-- **Dates, the page title and the sign-in screen follow your language.** Dates and times use the language chosen in Sectile rather than the browser's, a sprint date no longer shifts by a day in time zones west of UTC, and the browser tab and page language match the interface. Signed out, Sectile uses the language this browser last used, or the browser's own language, and the sign-in screen offers a French/English switch; once signed in, your profile setting applies. (#533, #534)
-- **Every ticket of a batch launched from the web shows the batch, and is busy while it runs.** Each ticket of a running batch now carries a `Lot <first ticket>` badge on its board card, its list row and its detail panel, with where it stands: *en cours* for the ticket the agent is working on, *en attente dans le lot* for the ones waiting their turn, and the badge alone once done. Launching a skill on any of them is refused with a message naming the batch until the batch run ends, and every indicator disappears when it does. (#522)
-- **MCP clients keep one session behind a proxy, and abandoned sessions no longer pile up on the server.** The server now pings every connected MCP client every 25 seconds, so a proxy that cuts idle connections no longer drops the client's event stream and forces it to reconnect with a new session every two and a half minutes. A session that owns no run and whose client stopped answering is released after three missed pings, instead of staying in memory for eight hours. The interval and the number of missed pings are set with `SECTILE_MCP_KEEPALIVE_INTERVAL` and `SECTILE_MCP_KEEPALIVE_FAILURES`. (#517)
-- **A run launched from the board is shown running and its outcome is recorded, even when the local agent reported it queued.** The session a launch starts can now take over its run with `start_run` and report how it ended with `finish_run` while the board still shows it *queued*, instead of being refused with "remote run does not match an active execution" and leaving the run unfinished. A refused run id now says whether the run already ended and what to do instead. (#499)
-- **Sealed tracker tokens no longer lock themselves when the server restarts.** Once unlocked, a token sealed with a passphrase stays unlocked on every server instance while you are connected, from a browser tab or a running local agent, and locks itself 30 minutes after you leave, or at once when you sign out with nothing else of yours connected. (#501)
-- **An outdated local agent is named instead of failing obscurely.** When the server asks your local agent for something its build cannot do, stage transitions and the other features that rely on it now say which agent is outdated and that restarting or updating the Sectile desktop app fixes it, instead of `unknown local operation`. The desktop app notices when the running agent is not the one it bundles, including after a rebuild that reports the same version, offers to restart it, and marks it as outdated in its settings until then. (#391)
-- **Stage reports, tickets created by agents, converted tickets, stories created under a macro and macro milestones are no longer written under the server account.** They are written under the credential of the person who caused them. A stage recorded without one is kept on the board, and its activity now fails and says why instead of claiming the report was posted. (#482)
-- **My Tasks finds the tickets assigned to you on GitHub and Jira.** The *My Tasks* button of the sidebar now keeps the tickets assigned to your GitHub login or your Jira display name, as the account of your personal credential for that tracker, and your local tickets by your name or e-mail, all at once over *All projects* or a saved view. It stays on when no ticket is yours, is remembered per project and view, and shows as a *My Tasks* chip in the filters. On a tracker where you have no confirmed personal credential it uses your name and e-mail, and its tooltip names that tracker: save or verify your personal credential in your profile to fix it. (#468)
-- **Agents can file tickets on Jira-backed projects.** `create_task` no longer answers that remote creation is not supported for Jira: it creates the Jira issue under your own Jira account, with the issue type and parent epic the agent gives and its Markdown description rendered, and returns the new key and link. Without a personal Jira token in your profile the call is refused and nothing is created. When Jira refuses a creation, the error lists the fields the project makes mandatory for that issue type. Creating a task from the desktop app files it on Jira the same way. `get_task` also shows a Jira ticket's comments, read with your own token. (#472)
-- **The waiting glyph clears once you answer.** Pressing Enter in a run's console, in the desktop app or the web terminal, now clears its *waiting* mark at once, on the desktop and on the board; other keys leave it. The mark also no longer stays after the server restarts or the desktop reconnects, and a session's next Sectile call ends its wait whichever server instance serves it. (#475)
-- **The missing repository mapping error points at the right file.** When the agent cannot find a project's local repository, the error now names `~/.config/sectile/settings.json`, the file Sectile actually reads, instead of a `taskflow` path that does not exist.
-- **The desktop app no longer fails to list projects after a long pause.** On a PostgreSQL server, a database connection left idle for a long time could be dropped by the network, and the next request to use it, often the desktop app's project list, answered *Cannot list projects*. Sectile now renews its connections before that happens, and logs the cause of such errors.
-- **Search ignores case and accents.** The search bar finds `Équipe` whether you type `equipe`, `Equipe` or `ÉQUIPE`, on the board, the roadmap, triage, the activities view and the filter pickers, and `%` or `_` typed in a search now match those characters only. On a PostgreSQL server this needs the `unaccent` extension, which Sectile creates at start; a server whose database role cannot create it refuses to start and says so. (#447)
-- **An agent session keeps working whichever server receives its requests.** With several servers behind one load balancer, a request for an MCP session reaches the server that holds it, so tool calls, runs and the event stream no longer fail with "session not found" halfway through. A session whose server stopped is refused as not found, and the client starts a new one. The sessions view lists the sessions of every server. (#408)
-
-- **A run canceled after a long silence can be reported again.** A run that had gone silent and was then canceled as disconnected refused its owner's report of how it really ended; it now accepts it, like any other disconnected run. (#319)
-
-- **A run you stopped stays stopped.** An agent reporting a run as running a moment after it was canceled, finished or failed used to bring it back as running on the board; a run that has ended now keeps its outcome.
 
 - **A saved view selects the same tickets on every server.** A view label with
   an accent, `Équipe`, matched its tickets or not depending on the locale the
@@ -315,28 +377,6 @@ test fixtures or internal plumbing.
   up empty and the board showed nothing. The column is now added on start,
   whatever version the database comes from, and no setting is lost.
 
-- **Live updates and cancellations reach every server sharing a database.** A
-  board open on one server now shows a change made through another, and
-  canceling a job stops it on the server that runs it. A job canceled while it
-  ran, or before it started, keeps its canceled status instead of being
-  overwritten by its own outcome, with one server as with several. (#405)
-
-- **A local agent is reachable whichever server receives the request.** With
-  several servers on one database, a stage transition, a launch or a workspace
-  operation arriving on a server the agent is not connected to used to fail with
-  "no local agent connected". The servers now forward the work to the one holding
-  the agent, over an internal port (`SECTILE_INTERNAL_PORT`, 8092 by default), and
-  the agent indicator lists the agents of every server. The indicator also
-  refreshes as soon as an agent connects or disconnects. (#406)
-
-- **Several servers sharing one database synchronise each project once.** The
-  background synchronisation used to run in every server, so each project was
-  read once per server per interval, and a tracker asking to slow down (rate
-  limit) was only heard by the server it answered. The servers now share the
-  loop's pacing: one of them claims a due project, a full read dated by any of
-  them counts for all, and a rate limit pauses every server for ten minutes.
-  The synchronisation status is the same whichever server answers. (#404)
-
 - **A server that fails to answer no longer looks like an empty deployment.**
   Reading the projects, the issues, the settings or the saved board views used
   to be discarded in silence when the server refused: the sidebar and the board
@@ -345,14 +385,6 @@ test fixtures or internal plumbing.
   answered, and while the projects or the issues are failing a banner stays on
   screen, with a button to try again. Being signed out stays quiet, since it
   already sends you to the sign-in screen.
-
-- **Starting a second server on PostgreSQL no longer interrupts the first one's
-  work.** A server used to mark every running job as failed and every client run
-  as canceled when it started, including the work of another server sharing the
-  same PostgreSQL database, which a rolling deploy does for a few seconds. Each
-  server now only reclaims the work of servers that stopped answering for 45
-  seconds. A single SQLite server still reclaims everything at start, as before.
-  (#403)
 
 - **A coordination project can record a pull request from another repository.**
   When a project has no code remote, or is not mono-repo, a stage transition
@@ -412,22 +444,6 @@ test fixtures or internal plumbing.
 - Running execution icons now spin in the desktop sidebar and discussion header, while respecting reduced-motion preferences.
 
 - Terminal-owned executions now stop their child processes and report their exit when the supervisor receives a hangup or termination signal, preventing stale running entries and stop timeouts. Transient exit-report failures are retried, and Stop automatically recovers a run whose local terminal has already disappeared.
-- **The suggested Jira board can be confirmed from the board picker.** On a
-  project with no board recorded yet, the picker in the project settings now
-  starts on "Choisir un board…" and marks the default board as "(suggéré)".
-  Picking it records it and imports its columns, as picking any other board
-  does, instead of waiting for the next synchronisation. (#375)
-- **A locked personal GitHub token stops the call instead of borrowing the
-  server's.** When somebody sealed their GitHub token behind a passphrase and
-  had not unlocked it, Sectile quietly used the project or server token instead:
-  the background synchronisation of a project they own read as the service
-  account while its activity named them, and their own writes went out under an
-  account they did not choose. Such a call made through the GitHub tracker
-  adapter now fails and says the credential is locked, as Jira already did. The
-  branch pull request lookup and the GitHub GraphQL reads, which resolve their
-  credential through `trackerAs`, still fall back and are out of scope of this
-  change. Somebody who stored no GitHub token at all still uses the project or
-  server token.
 - **Clicking beside a dialog closes it, as `Escape` does.** Ten dialogs - the
   quick add, the clone, the command palette, the task sheet and its expanded
   specification reader, the three roadmap dialogs, the sprint closing and the
@@ -543,5 +559,7 @@ release mechanism that will keep the following entries short.
   A run canceled because its client disconnected can still be finished by the
   agent that owns it, so the chain carries on. (#315)
 
-[Unreleased]: https://github.com/sebastienferry/sectile/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/sebastienferry/sectile/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/sebastienferry/sectile/compare/v0.2.0...v0.3.0
+[0.2.0]: https://github.com/sebastienferry/sectile/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/sebastienferry/sectile/releases/tag/v0.1.0
