@@ -1,0 +1,167 @@
+# The GitHub Release of a Sectile tag.
+#
+# A release tag vX.Y.Z pushed to this repository is built here, on GitHub's
+# runners, and published as the GitHub Release of that tag: the four Sectile
+# Desktop archives, the agent and server binaries, and SHA256SUMS over them,
+# with the tag's CHANGELOG.md section as the notes.
+#
+# This is one of two release streams. The GitLab mirror builds the same tag
+# again and publishes it to its package registry (.gitlab-ci.yml). Both run
+# the steps in scripts/release/, so they build the same set; they share no
+# credential, and neither waits on the other. Each SHA256SUMS vouches for its
+# own stream's files. See docs/adrs/0034-a-release-is-published-on-both-forges.md.
+#
+# The Go test suite is not run here: the GitLab stream gates on it for the same
+# commit, and the tag is cut from a main whose pipeline already ran it. The
+# desktop unit tests and the builds are, since they are what this workflow
+# publishes.
+name: release
+
+on:
+  push:
+    # SemVer without suffix, as AGENTS.md cuts a release. A suffixed tag is
+    # not a release and publishes nothing.
+    tags: ['v[0-9]+.[0-9]+.[0-9]+']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  TAG: ${{ github.ref_name }}
+
+jobs:
+  binaries:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      # Both refusals come before any build: a release whose app lies about
+      # its version, or has no notes, is not published at all.
+      - name: Check the desktop version
+        run: sh scripts/release/check-desktop-version.sh "$TAG"
+      - name: Check the release notes
+        run: node scripts/release/changelog-section.mjs "${TAG#v}" > /dev/null
+      - name: Build the interface
+        working-directory: web
+        run: |
+          npm ci --no-audit --no-fund
+          npm run build
+      - name: Test the desktop app
+        working-directory: desktop
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+        run: |
+          npm ci --no-audit --no-fund
+          npm test
+      - name: Build the binaries
+        run: sh scripts/release/build-binaries.sh "$TAG" "$GITHUB_SHA" dist
+      # A binary that does not report the tag is a broken release.
+      - name: Check the binary versions
+        run: |
+          ./dist/sectile-server-linux-amd64 --version | grep -F "$TAG"
+          ./dist/sectile-agent-linux-amd64 --version | grep -F "$TAG"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: binaries
+          path: dist/
+          if-no-files-found: error
+
+  # macOS archives are packaged on macOS, where packager writes the asar
+  # integrity digest and re-signs the framework ad-hoc; the other two are
+  # cross-packaged on Linux, where the bundled Linux agent can be run.
+  desktop:
+    needs: binaries
+    strategy:
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            host: linux
+            targets: linux/amd64 windows/amd64
+          - runner: macos-latest
+            host: macos
+            targets: darwin/arm64 darwin/amd64
+    runs-on: ${{ matrix.runner }}
+    env:
+      ELECTRON_CACHE: ${{ github.workspace }}/.electron-cache
+      ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: binaries
+          path: dist
+      # packager downloads each target's Electron itself.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ env.ELECTRON_CACHE }}
+          key: electron-${{ matrix.host }}-${{ hashFiles('desktop/package-lock.json') }}
+      - name: Build the desktop app
+        working-directory: desktop
+        run: |
+          npm ci --no-audit --no-fund
+          npm run build
+      - name: Package
+        run: |
+          # Artifacts lose their file modes on the way.
+          chmod +x dist/sectile-agent-*
+          for target in ${{ matrix.targets }}; do
+            os=${target%/*}; arch=${target#*/}
+            agent=dist/sectile-agent-${os}-${arch}
+            if [ "$os" = "windows" ]; then agent=${agent}.exe; fi
+            sh scripts/release/package-desktop.sh "$TAG" "$os" "$arch" "$agent" dist-desktop
+          done
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: desktop-${{ matrix.host }}
+          path: dist-desktop/sectile-desktop-*
+          if-no-files-found: error
+
+  release:
+    needs: [binaries, desktop]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          path: release
+          merge-multiple: true
+      # Ten binaries, four archives and the checksums: the release set, and
+      # nothing else.
+      - name: Write the checksums
+        working-directory: release
+        run: |
+          sha256sum * > SHA256SUMS
+          cat SHA256SUMS
+          test "$(ls | wc -l)" -eq 15
+      - name: Write the notes
+        run: node scripts/release/changelog-section.mjs "${TAG#v}" > "$RUNNER_TEMP/notes.md"
+      # A re-run replaces the files and the notes of the release it already
+      # made, rather than failing or making a second one.
+      - name: Publish the release
+        run: |
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            gh release upload "$TAG" --clobber release/*
+            gh release edit "$TAG" --title "$TAG" --notes-file "$RUNNER_TEMP/notes.md" --draft=false --prerelease=false --latest
+          else
+            gh release create "$TAG" --verify-tag --title "$TAG" --notes-file "$RUNNER_TEMP/notes.md" --latest release/*
+          fi
