@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"tasks/internal/agentconfig"
 	"tasks/internal/agentprotocol"
 	"tasks/internal/models"
 )
@@ -23,7 +24,7 @@ func engineDB(t *testing.T) *DB {
 
 func engineTask(t *testing.T, database *DB) *models.Task {
 	t.Helper()
-	project, err := database.CreateProject(models.CreateProjectRequest{Name: "Engine", AIProvider: "claude", AIModel: "claude-sonnet-5"})
+	project, err := database.CreateProject(models.CreateProjectRequest{Name: "Engine"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -169,86 +170,75 @@ func TestQueuedLaunchCarriesTheModel(t *testing.T) {
 	waitForIdleConnections(t, database)
 }
 
-// What the server can resolve on its own: the project over the global settings,
-// with the launch choice on top. It is what a run shows until the agent reports.
-func TestResolveTaskEngine(t *testing.T) {
+// The engine a run shows before the agent's own report comes from what the
+// workstation reported (#305): unknown without a report, never a server value.
+func TestResolveTaskEngineReadsTheReport(t *testing.T) {
 	database := engineDB(t)
-	// The legacy global template is cleared on purpose: it carries {prompt}, so
-	// it would govern the command line and no model would reach it, which is
-	// exactly what the last case below checks.
-	if _, err := database.UpdateSettings(models.Settings{
-		AIProvider: "gemini", AIModel: "global-model", AISkillModels: map[string]string{"clarify": "global-clarify"},
-	}, "aiCommandTemplate"); err != nil {
-		t.Fatal(err)
-	}
-	project, err := database.CreateProject(models.CreateProjectRequest{Name: "Resolve", AIProvider: "claude", AIModel: "project-model"})
+	setLegacySettings(t, database, map[string]any{"ai_provider": "gemini", "ai_model": "global-model"})
+	project, err := database.CreateProject(models.CreateProjectRequest{Name: "Resolve"})
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	provider, model := database.ResolveTaskEngine(project.ID, "implement", "")
-	if provider != "claude" || model != "project-model" {
-		t.Fatalf("project level lost: %q/%q", provider, model)
+	if provider, model := database.ResolveTaskEngine(project.ID, "ada", "laptop", "implement", "chosen"); provider != "" || model != "" {
+		t.Fatalf("without a report the engine is unknown, got %q/%q", provider, model)
 	}
-	// The most specific configured statement still wins between levels.
-	if _, model = database.ResolveTaskEngine(project.ID, "clarify", ""); model != "global-clarify" {
-		t.Fatalf("a global per-skill entry must survive a bare project model: %q", model)
+	report := agentconfig.CapabilityReport{SchemaVersion: 1, DeviceID: "laptop", Projects: []agentconfig.Capability{{
+		ProjectID: project.ID, Provider: "claude", Model: "project-model", SkillModels: map[string]string{"clarify": "clarify-model"}, ModelSlot: true,
+	}}}
+	if err := database.SaveCapabilities("ada", report); err != nil {
+		t.Fatal(err)
 	}
-	// The launch outranks every configured level.
-	if _, model = database.ResolveTaskEngine(project.ID, "clarify", "chosen-model"); model != "chosen-model" {
+	if provider, model := database.ResolveTaskEngine(project.ID, "ada", "laptop", "implement", ""); provider != "claude" || model != "project-model" {
+		t.Fatalf("report ignored: %q/%q", provider, model)
+	}
+	if _, model := database.ResolveTaskEngine(project.ID, "ada", "laptop", "clarify", ""); model != "clarify-model" {
+		t.Fatalf("per-skill model ignored: %q", model)
+	}
+	// The launch outranks the configured model when the command line carries one.
+	if _, model := database.ResolveTaskEngine(project.ID, "ada", "laptop", "clarify", "chosen"); model != "chosen" {
 		t.Fatalf("launch choice lost: %q", model)
 	}
-	// A project with no provider of its own falls back to the global one.
-	plain, err := database.CreateProject(models.CreateProjectRequest{Name: "Plain"})
-	if err != nil {
+	// An unknown device falls back to the person's latest report.
+	if provider, _ := database.ResolveTaskEngine(project.ID, "ada", "other", "implement", ""); provider != "claude" {
+		t.Fatalf("fallback to the latest report: %q", provider)
+	}
+	// Another person's report is never theirs.
+	if provider, _ := database.ResolveTaskEngine(project.ID, "grace", "", "implement", ""); provider != "" {
+		t.Fatalf("someone else's report was served: %q", provider)
+	}
+	// Without a model slot, neither the configured model nor a choice is claimed.
+	report.Projects[0].ModelSlot, report.Projects[0].Model, report.Projects[0].SkillModels = false, "", nil
+	if err := database.SaveCapabilities("ada", report); err != nil {
 		t.Fatal(err)
 	}
-	if provider, _ = database.ResolveTaskEngine(plain.ID, "implement", ""); provider != "gemini" {
-		t.Fatalf("global provider lost: %q", provider)
-	}
-
-	// A template that governs the command line without a {model} slot carries no
-	// model, so the run must not claim one it never ran against.
-	templated, err := database.CreateProject(models.CreateProjectRequest{
-		Name: "Templated", AIProvider: "claude", AIModel: "project-model", AICommandTemplate: `claude -p "{prompt}"`,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, model = database.ResolveTaskEngine(templated.ID, "implement", "chosen-model"); model != "" {
-		t.Fatalf("a template with no {model} slot must report no model: %q", model)
-	}
-
-	// A provider that takes no model reports none either, configured or chosen.
-	flagless, err := database.CreateProject(models.CreateProjectRequest{Name: "Flagless", AIProvider: "agy", AIModel: "project-model"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if provider, model = database.ResolveTaskEngine(flagless.ID, "implement", "chosen-model"); provider != "agy" || model != "" {
-		t.Fatalf("a flagless provider must report no model: %q/%q", provider, model)
+	if _, model := database.ResolveTaskEngine(project.ID, "ada", "laptop", "clarify", "chosen"); model != "" {
+		t.Fatalf("a command line without a model slot claims %q", model)
 	}
 }
 
-// The per-provider list is settings like any other: it survives a round trip and
-// is normalised on the way in.
-func TestSettingsKeepTheProviderModelLists(t *testing.T) {
+// Each workstation keeps its own report, replaced by its next one.
+func TestEngineReportPerDevice(t *testing.T) {
 	database := engineDB(t)
-	saved, err := database.UpdateSettings(models.Settings{
-		AIProvider:       "claude",
-		AIProviderModels: map[string][]string{"claude": {"claude-opus-5", " ", "claude-opus-5", "claude-haiku-4-5"}},
-	})
-	if err != nil {
-		t.Fatal(err)
+	save := func(device, provider string) {
+		t.Helper()
+		if err := database.SaveCapabilities("ada", agentconfig.CapabilityReport{SchemaVersion: 1, DeviceID: device, Projects: []agentconfig.Capability{
+			{ProjectID: "p", Provider: provider, Models: []string{"a", "b"}, Headless: true},
+			{ProjectID: " ", Provider: "ignored"},
+		}}); err != nil {
+			t.Fatal(err)
+		}
 	}
-	if got := saved.AIProviderModels["claude"]; len(got) != 2 {
-		t.Fatalf("list not normalised on write: %v", got)
+	save("laptop", "claude")
+	save("desktop", "codex")
+	save("laptop", "gemini")
+	if report, ok := database.EngineReport("ada", "p", "laptop"); !ok || report.State != models.EngineReported || report.Provider != "gemini" ||
+		len(report.Models) != 2 || !report.Headless || report.SkillModels == nil {
+		t.Fatalf("laptop: %+v %v", report, ok)
 	}
-	read, err := database.GetSettings()
-	if err != nil {
-		t.Fatal(err)
+	if report, _ := database.EngineReport("ada", "p", "desktop"); report.Provider != "codex" {
+		t.Fatalf("desktop: %+v", report)
 	}
-	got := read.AIProviderModels["claude"]
-	if len(got) != 2 || got[0] != "claude-opus-5" || got[1] != "claude-haiku-4-5" {
-		t.Fatalf("list not persisted in order: %v", got)
+	if report, ok := database.EngineReport("ada", "q", ""); ok || report.State != models.EngineUnknown {
+		t.Fatalf("an unreported project: %+v", report)
 	}
 }

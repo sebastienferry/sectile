@@ -14,10 +14,7 @@ func modeTestDB(t *testing.T) (*DB, *models.Project) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { d.Close() })
-	no := false
-	// claude is one of the attested headless providers, so a full chain run is
-	// not refused for a reason the test is not about.
-	project, err := d.CreateProject(models.CreateProjectRequest{Name: "Modes", RepoPath: "/not-mounted", IssueTracker: "local", UseWorktrees: &no, AIProvider: "claude"})
+	project, err := d.CreateProject(models.CreateProjectRequest{Name: "Modes", IssueTracker: "local"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,14 +49,11 @@ func TestSupportsAutonomousRun(t *testing.T) {
 }
 
 // EnqueueFullChainRun does not refuse on provider or missing CLI templates:
-// capability checks are delegated to the local workstation agent.
+// capability checks are delegated to the local workstation agent (#305).
 func TestFullChainDoesNotRequireServerCLITemplates(t *testing.T) {
 	d, project := modeTestDB(t)
 	for _, provider := range []string{"agy", "gemini", "cursor"} {
-		value := provider
-		if _, err := d.UpdateProject(project.ID, models.UpdateProjectRequest{AIProvider: &value}); err != nil {
-			t.Fatal(err)
-		}
+		setLegacyProject(t, d, project.ID, map[string]any{"ai_provider": provider})
 		task, err := d.CreateTask(models.CreateTaskRequest{ProjectID: project.ID, Title: "chain on " + provider})
 		if err != nil {
 			t.Fatal(err)

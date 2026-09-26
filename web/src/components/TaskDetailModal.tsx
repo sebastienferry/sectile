@@ -42,6 +42,7 @@ import {
   Plus,
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
+import { useProjectEngine } from '../hooks/useProjectEngine'
 import { useBackdropDismiss } from '../hooks/useBackdropDismiss'
 import type { TeamMember, Status, Priority, DetailMode, SpecFramework, WorkflowStage, MacroMeta, SkillMode, PullRequestLink } from '../types'
 import { WORKFLOW_ORDER, isTaskScopedSkill, prRecoverySkill, resolveTaskStage } from '../lib/workflow'
@@ -138,9 +139,11 @@ export const TaskDetailModal: React.FC = () => {
     [projects, selectedTask?.projectId]
   )
 
-  // Resolved once for the whole modal: every label and every command must name
-  // the same CLI, otherwise the badge says AGY while the command runs Claude.
-  const activeProvider = taskProject?.aiProvider || settings.aiProvider || 'agy'
+  // The provider the caller's workstation reported for this project (#305),
+  // the one a launch from here would run. Unknown when no agent of theirs
+  // serves the project: the server no longer knows it.
+  const engine = useProjectEngine(taskProject?.id)
+  const activeProvider = engine?.state === 'reported' && engine.provider ? engine.provider : t.compactCard.engineUnknown
 
   const [isSyncingTask, setIsSyncingTask] = useState(false)
 

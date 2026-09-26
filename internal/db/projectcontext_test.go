@@ -18,10 +18,11 @@ func TestProjectSaveNeverWritesRepositoryFiles(t *testing.T) {
 	if err := os.WriteFile(instructions, []byte("personal instructions"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	project, err := database.CreateProject(models.CreateProjectRequest{Name: "Headless", RepoPath: repo, GithubRepo: "owner/repo", IssueTracker: "github"})
+	project, err := database.CreateProject(models.CreateProjectRequest{Name: "Headless", GithubRepo: "owner/repo", IssueTracker: "github"})
 	if err != nil {
 		t.Fatal(err)
 	}
+	setLegacyProject(t, database, project.ID, map[string]any{"repo_path": repo})
 	name := "Updated"
 	if _, err = database.UpdateProject(project.ID, models.UpdateProjectRequest{Name: &name}); err != nil {
 		t.Fatal(err)

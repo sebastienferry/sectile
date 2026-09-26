@@ -270,7 +270,9 @@ func TestWebSkillRequiresLocalAgent(t *testing.T) {
 	}
 }
 
-func TestAgentConfigServesLegacyBareTemplateAsEmpty(t *testing.T) {
+// The configuration names no provider or command since #305, whatever the
+// deployment row held.
+func TestAgentConfigServesNoExecutionSetting(t *testing.T) {
 	h, database, cleanup := setupTestHandler(t)
 	defer cleanup()
 	t.Setenv("SECTILE_SERVER_TOKEN", "expected")
@@ -288,7 +290,7 @@ func TestAgentConfigServesLegacyBareTemplateAsEmpty(t *testing.T) {
 	if err := json.Unmarshal(rr.Body.Bytes(), &c); err != nil {
 		t.Fatal(err)
 	}
-	if c.AIProvider != "agy" || c.AICommandTemplate != "" {
+	if c.AIProvider != "" || c.AICommandTemplate != "" {
 		t.Fatalf("provider=%q template=%q", c.AIProvider, c.AICommandTemplate)
 	}
 }

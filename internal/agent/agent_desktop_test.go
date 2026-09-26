@@ -394,7 +394,12 @@ func TestDesktopProjectAIProviderAndModelOverrides(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	settings := agentconfig.Overrides{Projects: map[string]string{"p": root}}
+	// The workstation defaults name the model; the server's values are
+	// ignored whatever they say (#305).
+	settings := agentconfig.Settings{
+		ProjectSettings: map[string]agentconfig.ProjectSettings{"p": {Path: root}},
+		Defaults:        agentconfig.Defaults{Execution: agentconfig.Execution{AIModel: "workstation-model"}},
+	}
 	if err := agentconfig.WriteSettings(settings); err != nil {
 		t.Fatal(err)
 	}
@@ -443,7 +448,7 @@ func TestDesktopProjectAIProviderAndModelOverrides(t *testing.T) {
 		return w
 	}
 
-	// 1. Initial GET /desktop/project?id=p should return server defaults and false override flags
+	// 1. Initial GET /desktop/project?id=p returns the workstation defaults, never the server's values
 	w := doReq("GET", "/desktop/project?id=p", nil)
 	if w.Code != 200 {
 		t.Fatalf("GET /desktop/project returned %d: %s", w.Code, w.Body.String())
@@ -452,8 +457,14 @@ func TestDesktopProjectAIProviderAndModelOverrides(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &projResp); err != nil {
 		t.Fatal(err)
 	}
-	if projResp["aiProvider"] != "agy" || projResp["aiModel"] != "server-model" {
-		t.Fatalf("unexpected provider/model: %v / %v", projResp["aiProvider"], projResp["aiModel"])
+	if projResp["aiProvider"] != "agy" || projResp["aiModel"] != "workstation-model" || projResp["aiCommandTemplate"] != "" {
+		t.Fatalf("unexpected provider/model: %v / %v / %v", projResp["aiProvider"], projResp["aiModel"], projResp["aiCommandTemplate"])
+	}
+	if server, _ := projResp["server"].(map[string]any); server["aiModel"] != nil || server["aiCommandTemplate"] != "" {
+		t.Fatalf("a server execution value reached the desktop: %v", server)
+	}
+	if field, _ := projResp["fields"].(map[string]any)["aiModel"].(map[string]any); field["source"] != "workstation" || field["inherited"] != "workstation-model" {
+		t.Fatalf("model source: %v", field)
 	}
 	if projResp["aiProviderOverride"] != false || projResp["aiModelOverride"] != false {
 		t.Fatalf("expected false override flags: %v / %v", projResp["aiProviderOverride"], projResp["aiModelOverride"])
@@ -494,7 +505,7 @@ func TestDesktopProjectAIProviderAndModelOverrides(t *testing.T) {
 
 	// Verify disk settings untouched after validation failures
 	s, _ := agentconfig.ReadSettings(root)
-	if len(s.AIProviders) != 0 || len(s.AIModels) != 0 {
+	if s.Project("p").AIProvider != "" || s.Project("p").AIModel != "" {
 		t.Fatalf("settings mutated after validation failure: %+v", s)
 	}
 
@@ -510,7 +521,7 @@ func TestDesktopProjectAIProviderAndModelOverrides(t *testing.T) {
 	}
 
 	s, _ = agentconfig.ReadSettings(root)
-	if s.AIProviders["p"] != "claude" || s.AIModels["p"] != "claude-opus-5" {
+	if s.Project("p").AIProvider != "claude" || s.Project("p").AIModel != "claude-opus-5" {
 		t.Fatalf("overrides not persisted: %+v", s)
 	}
 
@@ -530,7 +541,7 @@ func TestDesktopProjectAIProviderAndModelOverrides(t *testing.T) {
 		t.Fatalf("expected true override flags: %v / %v", projResp["aiProviderOverride"], projResp["aiModelOverride"])
 	}
 
-	// 4. Inherit resets provider and model to server defaults
+	// 4. Inherit resets provider and model to the workstation defaults
 	w = doReq("POST", "/desktop/projects", map[string]any{
 		"projectId":         "p",
 		"path":              root,
@@ -542,11 +553,11 @@ func TestDesktopProjectAIProviderAndModelOverrides(t *testing.T) {
 	}
 
 	s, _ = agentconfig.ReadSettings(root)
-	if len(s.AIProviders) != 0 || len(s.AIModels) != 0 {
+	if s.Project("p").AIProvider != "" || s.Project("p").AIModel != "" {
 		t.Fatalf("overrides not deleted after inherit: %+v", s)
 	}
 
-	// GET /desktop/project?id=p should reflect server defaults again
+	// GET /desktop/project?id=p should reflect the workstation defaults again
 	w = doReq("GET", "/desktop/project?id=p", nil)
 	if w.Code != 200 {
 		t.Fatalf("GET /desktop/project returned %d: %s", w.Code, w.Body.String())
@@ -555,7 +566,7 @@ func TestDesktopProjectAIProviderAndModelOverrides(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &projResp); err != nil {
 		t.Fatal(err)
 	}
-	if projResp["aiProvider"] != "agy" || projResp["aiModel"] != "server-model" {
+	if projResp["aiProvider"] != "agy" || projResp["aiModel"] != "workstation-model" {
 		t.Fatalf("unexpected provider/model after reset: %v / %v", projResp["aiProvider"], projResp["aiModel"])
 	}
 	if projResp["aiProviderOverride"] != false || projResp["aiModelOverride"] != false {
@@ -681,6 +692,9 @@ func TestDesktopProjectTerminalSettings(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	if err := agentconfig.WriteSettings(agentconfig.Settings{Defaults: agentconfig.Defaults{Execution: agentconfig.Execution{Terminal: "wezterm"}}}); err != nil {
+		t.Fatal(err)
+	}
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(r.URL.Path, "/api/v1/agent/config") {
@@ -723,7 +737,7 @@ func TestDesktopProjectTerminalSettings(t *testing.T) {
 		return w
 	}
 
-	// 1. Initial GET returns server default terminal and false override
+	// 1. Initial GET returns the workstation terminal, not the server's, and false override
 	w := doReq("GET", "/desktop/project?id=p", nil)
 	if w.Code != 200 {
 		t.Fatalf("GET /desktop/project returned %d: %s", w.Code, w.Body.String())
@@ -732,7 +746,7 @@ func TestDesktopProjectTerminalSettings(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &projResp); err != nil {
 		t.Fatal(err)
 	}
-	if projResp["terminal"] != "terminal" || projResp["terminalOverride"] != false {
+	if projResp["terminal"] != "wezterm" || projResp["terminalOverride"] != false {
 		t.Fatalf("unexpected terminal response: %+v", projResp)
 	}
 
@@ -747,8 +761,8 @@ func TestDesktopProjectTerminalSettings(t *testing.T) {
 	}
 
 	s, _ := agentconfig.ReadSettings(root)
-	if s.Terminals["p"] != "ghostty" {
-		t.Fatalf("expected Terminals[p] to be ghostty, got %+v", s.Terminals)
+	if s.Project("p").Terminal != "ghostty" {
+		t.Fatalf("expected the project terminal to be ghostty, got %+v", s.Project("p"))
 	}
 
 	// 3. GET /desktop/project?id=p should reflect new terminal override
@@ -782,7 +796,7 @@ func TestDesktopProjectTerminalSettings(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &projResp); err != nil {
 		t.Fatal(err)
 	}
-	if projResp["terminal"] != "terminal" || projResp["terminalOverride"] != false {
+	if projResp["terminal"] != "wezterm" || projResp["terminalOverride"] != false {
 		t.Fatalf("expected reset terminal: %v / %v", projResp["terminal"], projResp["terminalOverride"])
 	}
 }
@@ -943,9 +957,9 @@ func TestAdmitProjectRunValidatesAutonomousPreflight(t *testing.T) {
 	config.AICommandTemplate = ""
 	config.AICommandTemplateAutonomous = ""
 
-	_ = agentconfig.WriteSettings(agentconfig.Overrides{
-		Projects:   map[string]string{"p": d.repoRoot},
-		AIProvider: "agy",
+	_ = agentconfig.WriteSettings(agentconfig.Settings{
+		ProjectSettings: map[string]agentconfig.ProjectSettings{"p": {Path: d.repoRoot}},
+		Defaults:        agentconfig.Defaults{Execution: agentconfig.Execution{AIProvider: "agy"}},
 	})
 
 	payload := agentconfig.Dispatch{
@@ -965,9 +979,9 @@ func TestAdmitProjectRunValidatesAutonomousPreflight(t *testing.T) {
 	}
 
 	// When provider supports autonomous mode (e.g. claude), admission succeeds
-	_ = agentconfig.WriteSettings(agentconfig.Overrides{
-		Projects:   map[string]string{"p": d.repoRoot},
-		AIProvider: "claude",
+	_ = agentconfig.WriteSettings(agentconfig.Settings{
+		ProjectSettings: map[string]agentconfig.ProjectSettings{"p": {Path: d.repoRoot}},
+		Defaults:        agentconfig.Defaults{Execution: agentconfig.Execution{AIProvider: "claude"}},
 	})
 	config.AIProvider = "claude"
 	payload.RunID = "run-auto-pass"
@@ -991,7 +1005,7 @@ func TestDesktopProjectSpecificationsFolder(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := agentconfig.WriteSettings(agentconfig.Overrides{Projects: map[string]string{"p": root}}); err != nil {
+	if err := agentconfig.WriteSettings(agentconfig.Settings{ProjectSettings: map[string]agentconfig.ProjectSettings{"p": {Path: root}}}); err != nil {
 		t.Fatal(err)
 	}
 	monoRepo := true
@@ -1046,7 +1060,7 @@ func TestDesktopProjectSpecificationsFolder(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		return settings.SpecRepos["p"]
+		return settings.SpecPath("p")
 	}
 
 	// Mono-repo without an override: the code checkout is inherited, and it is

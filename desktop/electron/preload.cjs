@@ -14,6 +14,8 @@ contextBridge.exposeInMainWorld('localAgent',{
  mcpConfig:provider=>ipcRenderer.invoke('mcp-config',provider),
  configureMCP:(provider,choice)=>ipcRenderer.invoke('configure-mcp',provider,choice),
  status:()=>ipcRenderer.invoke('status'),
+ workstationSettings:()=>ipcRenderer.invoke('workstation-settings'),
+ saveWorkstationSettings:defaults=>ipcRenderer.invoke('save-workstation-settings',defaults),
  chooseRepository:()=>ipcRenderer.invoke('choose-repository'),
  serverTasks:(id,q,launchable=false)=>ipcRenderer.invoke('server-tasks',id,q,launchable),
  launchConsole:(projectId,provider)=>ipcRenderer.invoke('launch-console',projectId,provider),

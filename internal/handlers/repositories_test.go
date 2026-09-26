@@ -20,8 +20,17 @@ func TestProjectRepositoriesOverHTTP(t *testing.T) {
 	}
 	defer database.Close()
 	no := false
-	project, err := database.CreateProject(models.CreateProjectRequest{Name: "Multi", MonoRepo: &no, GitRemoteUrl: "git@github.com:o/a.git", RepoPaths: []string{"/src/b"}})
+	project, err := database.CreateProject(models.CreateProjectRequest{Name: "Multi", MonoRepo: &no, GitRemoteUrl: "git@github.com:o/a.git"})
 	if err != nil {
+		t.Fatal(err)
+	}
+	// A ticket pinned to a legacy path gives the project one to convert.
+	pinned, err := database.CreateTask(models.CreateTaskRequest{ProjectID: project.ID, Title: "pinned"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacyPath := "/src/b"
+	if _, err := database.UpdateTask(pinned.ID, models.UpdateTaskRequest{RepoPath: &legacyPath}); err != nil {
 		t.Fatal(err)
 	}
 	h := NewHandler(database)

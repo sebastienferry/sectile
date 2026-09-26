@@ -78,6 +78,8 @@ test fixtures or internal plumbing.
 
 ### Changed
 
+- **Execution settings belong to each workstation.** The AI provider, the models and per-skill models, the model list of each provider, the interactive and headless commands, the terminal, the editor, worktrees, parallelism, the extra agents that get the skills, and the command name each stage runs are now set in the desktop app, for the workstation and per project, and no longer in the web interface; the server stops storing or using them. An existing workstation takes over the values the server held, once, on its first connection, and keeps running what it ran before. The web model picker and the engine badge of a card now show what your connected workstation will run, and say "Engine unknown" when none of your agents is connected for the project. Upgrade the local agent together with the server: an older agent receives no execution setting from the new server and falls back to its own defaults. (#305)
+
 - **Breaking: every change you make on a tracker needs your own tracker credential.** On GitHub and GitLab, a change you make without a personal tracker credential is now refused instead of being written under the server account, as Jira already did; add yours in *Profile → Tracker credentials*. Agent keys not tied to a user, such as the shared server key, can no longer write to a tracker: pair the desktop app or use a personal API key. Reading still works without a credential, and the synchronisation keeps using the server credential. (#482)
 
 - **Every synchronisation uses the server credential of its tracker, set by an admin.** The automatic sync and a *Sync* started by hand now both read with one credential per provider (GitHub, Jira, GitLab), instead of the project owner's or your own token, so a sync keeps working when its owner leaves or locks their token. Admins set, check and clear these credentials from a new *Server tracker credentials* section of the Administration page, which shows the account each one authenticates as; they are encrypted in the database with the server key, and members can no longer change them. Tokens already saved in the server settings are encrypted and kept on upgrade; a server that has one to encrypt and no usable `SECTILE_SECRET_KEY` refuses to start rather than lose it. A Jira project that only synced through its owner's personal token now needs a Jira server credential. Your own writes (transitions, comments) still go with your own credential. (#464)
@@ -240,6 +242,8 @@ test fixtures or internal plumbing.
   off the high level on the next synchronisation.
 
 ### Removed
+
+- **The web editors for execution settings**: the AI engine tab of the profile (its MCP configuration stays), the "Agent settings" category of the project settings (the PR creation stage moves to "Agentic workflow"), the local folder and per-skill command name fields. Also the project "TTY mode", which nothing used. (#305)
 
 - **The old tracker credential variables and the per-project tokens.** `SECTILE_TRACKER_TOKEN`, `GH_TOKEN`, `GITHUB_TOKEN`, `JIRA_API_TOKEN` and `GITLAB_TOKEN` are no longer read as tracker credentials: set `SECTILE_GITHUB_TOKEN`, `SECTILE_JIRA_EMAIL` with `SECTILE_JIRA_TOKEN`, or `SECTILE_GITLAB_TOKEN` instead, or store the credential from the Administration page. The server still starts with one of them set, and logs a warning naming its replacement. The GitHub and GitLab tokens a project could carry are gone, and discarded on upgrade: one server credential serves every project of its provider. (#464)
 

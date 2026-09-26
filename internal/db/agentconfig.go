@@ -8,7 +8,8 @@ import (
 	"tasks/internal/skills"
 )
 
-// AgentConfig exposes only execution settings, never server paths or tracker credentials.
+// AgentConfig exposes the project's method, never server paths, tracker
+// credentials or execution settings.
 func (d *DB) AgentConfig(projectID, taskKey string, framework ...string) (*agentconfig.Config, error) {
 	if taskKey != "" {
 		task, err := d.GetTaskByID(taskKey)
@@ -37,13 +38,15 @@ func (d *DB) AgentConfig(projectID, taskKey string, framework ...string) (*agent
 	if err != nil {
 		return nil, err
 	}
+	// The execution settings are the workstation's (#305): the configuration
+	// carries the method only, and the agent resolves the invocation from its
+	// own file.
 	c := &agentconfig.Config{
 		Skills: []agentconfig.Skill{}, SchemaVersion: agentconfig.Version, ProjectID: p.ID, ProjectName: p.Name, Description: p.Description,
 		TrackerURL: p.TrackerUrl, JiraProject: p.JiraProject, GitRemoteURL: p.GitRemoteUrl, GithubRepo: p.GithubRepo, IssueTracker: p.IssueTracker,
-		SpecFramework: p.SpecFramework, UseWorktrees: p.UseWorktrees, PRCreationStage: p.PRCreationStage, SpecArtifacts: models.NormalizeSpecArtifacts(p.SpecArtifacts),
+		SpecFramework: p.SpecFramework, PRCreationStage: p.PRCreationStage, SpecArtifacts: models.NormalizeSpecArtifacts(p.SpecArtifacts),
 		DefaultSkillMode: models.NormalizeSkillMode(p.DefaultSkillMode), FullChainStopStage: models.NormalizeFullChainStopStage(p.FullChainStopStage),
-		AIProvider: p.AIProvider, AICommandTemplate: p.AICommandTemplate, AICommandTemplateAutonomous: p.AICommandTemplateAutonomous, ExternalTerminalCommand: p.ExternalTerminalCommand,
-		SetupProviders: models.NormalizeSetupProviders(p.SetupProviders), MonoRepo: &p.MonoRepo,
+		MonoRepo: &p.MonoRepo,
 	}
 	for _, repository := range p.Repositories {
 		c.Repositories = append(c.Repositories, repository.URL)
@@ -56,31 +59,6 @@ func (d *DB) AgentConfig(projectID, taskKey string, framework ...string) (*agent
 	}
 	if c.SpecFramework == "" {
 		c.SpecFramework = s.SpecFramework
-	}
-	if c.AIProvider == "" {
-		c.AIProvider = s.AIProvider
-	}
-	if c.AICommandTemplate == "" {
-		c.AICommandTemplate = s.AICommandTemplate
-	}
-	// The two commands are inherited independently: a project that spells out only
-	// one of them keeps the other from the global settings.
-	if c.AICommandTemplateAutonomous == "" {
-		c.AICommandTemplateAutonomous = s.AICommandTemplateAutonomous
-	}
-	// Legacy rows store a bare CLI name here; the runner never used it, so the agent must not see it.
-	c.AICommandTemplate = agentconfig.EffectiveCommandTemplate(c.AIProvider, c.AICommandTemplate)
-	c.AICommandTemplateAutonomous = agentconfig.EffectiveCommandTemplate(c.AIProvider, c.AICommandTemplateAutonomous)
-	// The project speaks over the global settings, level by level, but the most
-	// specific statement wins: a global per-skill entry survives a bare project
-	// model, which is what MergeModels encodes.
-	aiModels := agentconfig.MergeModels(
-		agentconfig.ModelConfig{Model: p.AIModel, SkillModels: p.AISkillModels},
-		agentconfig.ModelConfig{Model: s.AIModel, SkillModels: s.AISkillModels},
-	)
-	c.AIModel, c.AISkillModels = aiModels.Model, aiModels.SkillModels
-	if c.ExternalTerminalCommand == "" {
-		c.ExternalTerminalCommand = s.ExternalTerminalCommand
 	}
 	if len(framework) > 0 && framework[0] != "" {
 		if !isKnownFrameworkAlias(framework[0]) {
@@ -98,17 +76,83 @@ func (d *DB) AgentConfig(projectID, taskKey string, framework ...string) (*agent
 		if !ok {
 			continue
 		}
-		command := stage.Command
-		if override := p.SkillOverrides[skill.ID]; override != "" {
-			command = override
-		}
+		// The stage's standard command: a workstation's own command name is the
+		// workstation's to set (#305).
 		content, _ := commandContentFromSkill(stage, skill.Content, c.SpecFramework)
-		c.Skills = append(c.Skills, agentconfig.Skill{RequiresReconciliation: skill.ID == "adjust" && reconcile, ID: skill.ID, Directory: stage.DirName, Command: command, Content: skill.Content, CommandContent: content})
+		c.Skills = append(c.Skills, agentconfig.Skill{RequiresReconciliation: skill.ID == "adjust" && reconcile, ID: skill.ID, Directory: stage.DirName, Command: stage.Command, Content: skill.Content, CommandContent: content})
 	}
 	if err := c.Validate(); err != nil {
 		return nil, err
 	}
 	return c, nil
+}
+
+// LegacyProjectExecution is the execution composition AgentConfig served
+// before #305, project row over deployment settings, kept verbatim so a
+// workstation seeds exactly what it used to receive. It reads the columns
+// #492 will drop, and writes nothing. The terminal is the project row's own:
+// the deployment's travels with the workstation defaults.
+func (d *DB) LegacyProjectExecution(projectID string) (*agentconfig.SeedProject, error) {
+	p, err := d.GetProjectByID(projectID)
+	if err != nil {
+		return nil, err
+	}
+	if p == nil {
+		return nil, fmt.Errorf("project not found: %s", projectID)
+	}
+	s, err := d.GetSettings()
+	if err != nil {
+		return nil, err
+	}
+	provider := firstNonEmpty(p.AIProvider, s.AIProvider)
+	aiModels := agentconfig.MergeModels(
+		agentconfig.ModelConfig{Model: p.AIModel, SkillModels: p.AISkillModels},
+		agentconfig.ModelConfig{Model: s.AIModel, SkillModels: s.AISkillModels},
+	)
+	useWorktrees := p.UseWorktrees
+	seed := &agentconfig.SeedProject{
+		ProjectID:                   p.ID,
+		AIProvider:                  provider,
+		AICommandTemplate:           agentconfig.EffectiveCommandTemplate(provider, firstNonEmpty(p.AICommandTemplate, s.AICommandTemplate)),
+		AICommandTemplateAutonomous: agentconfig.EffectiveCommandTemplate(provider, firstNonEmpty(p.AICommandTemplateAutonomous, s.AICommandTemplateAutonomous)),
+		AIModel:                     aiModels.Model,
+		AISkillModels:               aiModels.SkillModels,
+		Terminal:                    strings.TrimSpace(p.ExternalTerminalCommand),
+		UseWorktrees:                &useWorktrees,
+		SetupProviders:              models.NormalizeSetupProviders(p.SetupProviders),
+	}
+	for skill, name := range p.SkillOverrides {
+		if _, ok := skills.StageSkillByID(skill); ok && strings.TrimSpace(name) != "" {
+			if seed.SkillCommands == nil {
+				seed.SkillCommands = map[string]string{}
+			}
+			seed.SkillCommands[skill] = strings.TrimSpace(name)
+		}
+	}
+	return seed, nil
+}
+
+// LegacyWorkstationExecution is what the workstation defaults are seeded
+// from: the deployment's execution values, with the terminal and the editor
+// of the paired account, which already fall back to the deployment's. The
+// column default editor, code, is the provider default and is not sent.
+func (d *DB) LegacyWorkstationExecution(userID string) (*agentconfig.SeedDefaults, error) {
+	s, err := d.GetSettings()
+	if err != nil {
+		return nil, err
+	}
+	seed := &agentconfig.SeedDefaults{
+		AIProvider: s.AIProvider, AICommandTemplate: s.AICommandTemplate, AICommandTemplateAutonomous: s.AICommandTemplateAutonomous,
+		AIModel: s.AIModel, AISkillModels: s.AISkillModels, AIProviderModels: s.AIProviderModels,
+		Terminal: s.ExternalTerminalCommand, EditorCommand: s.EditorCommand,
+	}
+	if personal, err := d.UserSettings(userID); err == nil && personal != nil {
+		seed.Terminal, seed.EditorCommand = personal.ExternalTerminalCommand, personal.EditorCommand
+	}
+	if strings.TrimSpace(seed.EditorCommand) == agentconfig.DefaultEditor {
+		seed.EditorCommand = ""
+	}
+	return seed, nil
 }
 
 // AgentProjects omits server filesystem paths and credentials.

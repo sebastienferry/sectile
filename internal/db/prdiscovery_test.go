@@ -23,8 +23,7 @@ func discoveryTestDB(t *testing.T, stageLabel string) (*DB, *models.Project, *mo
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = d.Close() })
-	no := false
-	p, err := d.CreateProject(models.CreateProjectRequest{Name: "Rediscovery", IssueTracker: "local", GithubRepo: "acme/app", UseWorktrees: &no})
+	p, err := d.CreateProject(models.CreateProjectRequest{Name: "Rediscovery", IssueTracker: "local", GithubRepo: "acme/app"})
 	if err != nil {
 		t.Fatal(err)
 	}

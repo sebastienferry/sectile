@@ -67,8 +67,7 @@ func TestMergedPRCompletesReview(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer d.Close()
-	no := false
-	p, err := d.CreateProject(models.CreateProjectRequest{Name: "Merged", RepoPath: "/not-mounted-on-server", IssueTracker: "local", UseWorktrees: &no})
+	p, err := d.CreateProject(models.CreateProjectRequest{Name: "Merged", IssueTracker: "local"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -125,11 +124,11 @@ func TestEarlierPRRecoveryPreservesImplemented(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer d.Close()
-			no := false
-			p, err := d.CreateProject(models.CreateProjectRequest{Name: "Recovery", RepoPath: repo, IssueTracker: "local", UseWorktrees: &no})
+			p, err := d.CreateProject(models.CreateProjectRequest{Name: "Recovery", IssueTracker: "local"})
 			if err != nil {
 				t.Fatal(err)
 			}
+			setLegacyProject(t, d, p.ID, map[string]any{"repo_path": repo})
 			_, err = d.UpdateProject(p.ID, models.UpdateProjectRequest{PRCreationStage: &timing})
 			if err != nil {
 				t.Fatal(err)
@@ -178,11 +177,11 @@ func TestAdjustmentReconciliationRetainsHistoryAndReset(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer d.Close()
-	no := false
-	p, err := d.CreateProject(models.CreateProjectRequest{Name: "Custom", RepoPath: root, IssueTracker: "local", UseWorktrees: &no})
+	p, err := d.CreateProject(models.CreateProjectRequest{Name: "Custom", IssueTracker: "local"})
 	if err != nil {
 		t.Fatal(err)
 	}
+	setLegacyProject(t, d, p.ID, map[string]any{"repo_path": root})
 	d.ensureProjectSkillsTable()
 	for _, id := range []string{"create_pr", "review"} {
 		if _, err := d.conn.Exec("INSERT INTO project_skills(project_id,skill_id,content,updated_at) VALUES (?,?,?,?)", p.ID, id, "legacy "+id, time.Now().Format(time.RFC3339)); err != nil {
@@ -330,8 +329,7 @@ func TestGitLabStageEvidenceThroughTheAgent(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer d.Close()
-	no := false
-	p, err := d.CreateProject(models.CreateProjectRequest{Name: "GitLab", RepoPath: "/not-mounted-on-server", IssueTracker: "local", GitRemoteUrl: "git@gitlab.com:group/app.git", UseWorktrees: &no})
+	p, err := d.CreateProject(models.CreateProjectRequest{Name: "GitLab", IssueTracker: "local", GitRemoteUrl: "git@gitlab.com:group/app.git"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -437,8 +435,7 @@ func TestGitLabEvidenceThroughTheLookupHook(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer d.Close()
-	no := false
-	p, err := d.CreateProject(models.CreateProjectRequest{Name: "Hook", RepoPath: "/not-mounted-on-server", IssueTracker: "local", GitRemoteUrl: "git@gitlab.com:group/app.git", UseWorktrees: &no})
+	p, err := d.CreateProject(models.CreateProjectRequest{Name: "Hook", IssueTracker: "local", GitRemoteUrl: "git@gitlab.com:group/app.git"})
 	if err != nil {
 		t.Fatal(err)
 	}

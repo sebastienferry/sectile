@@ -221,6 +221,11 @@ func TestConsoleAdmissionUsesLocalMappingAndQueue(t *testing.T) {
 	testhome.Temp(t)
 	d, config := disconnectFixture(t)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v1/agent/execution-seed" {
+			// A server that predates #305: nothing to seed.
+			http.NotFound(w, r)
+			return
+		}
 		if r.Method != "GET" || r.URL.Path != "/api/v1/agent/config" {
 			t.Errorf("unexpected server request: %s %s", r.Method, r.URL)
 			http.NotFound(w, r)

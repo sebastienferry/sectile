@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -14,7 +13,7 @@ import (
 func launchModelTask(t *testing.T) (*Handler, *db.DB, *models.Task, func()) {
 	t.Helper()
 	h, database, cleanup := setupTestHandler(t)
-	project, err := database.CreateProject(models.CreateProjectRequest{Name: "Launch", AIProvider: "claude", AIModel: "claude-sonnet-5"})
+	project, err := database.CreateProject(models.CreateProjectRequest{Name: "Launch"})
 	if err != nil {
 		cleanup()
 		t.Fatal(err)
@@ -115,22 +114,20 @@ func TestEngineReportUpdatesTheRun(t *testing.T) {
 	}
 }
 
-// The per-provider list is refused as a whole when one identifier is unusable,
-// and the error says which provider carries it.
-func TestSettingsRefuseAnInvalidProviderModel(t *testing.T) {
-	h, _, _, cleanup := launchModelTask(t)
+// The per-provider lists are the workstation's (#305): the settings route
+// ignores them, whatever they hold, and stores nothing.
+func TestSettingsIgnoreTheProviderModelLists(t *testing.T) {
+	h, database, _, cleanup := launchModelTask(t)
 	defer cleanup()
 
-	body := `{"aiProviderModels":{"gemini":["gemini-2.5-pro; rm -rf ~"]}}`
+	body := `{"theme":"light","aiProviderModels":{"gemini":["gemini-2.5-pro; rm -rf ~"]}}`
 	req := httptest.NewRequest(http.MethodPut, "/api/settings", strings.NewReader(body))
 	rec := httptest.NewRecorder()
 	h.HandleSettings(rec, req)
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusOK || strings.Contains(rec.Body.String(), "aiProviderModels") {
+		t.Fatalf("expected the list to be ignored, got %d: %s", rec.Code, rec.Body.String())
 	}
-	var payload map[string]string
-	_ = json.Unmarshal(rec.Body.Bytes(), &payload)
-	if !strings.Contains(strings.Join([]string{payload["error"], rec.Body.String()}, " "), "gemini") {
-		t.Fatalf("the error must name the provider: %s", rec.Body.String())
+	if stored, _ := database.GetSettings(); stored.AIProviderModels != nil {
+		t.Fatalf("the list was stored: %v", stored.AIProviderModels)
 	}
 }

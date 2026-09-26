@@ -56,7 +56,7 @@ try {
   page.on('pageerror', e => errors.push(e.message));
 
   await page.goto(`${base}/modal`);
-  await page.getByRole('button', { name: 'Agent settings' }).click();
+  await page.getByRole('button', { name: 'Agentic workflow' }).click();
   const option = page.getByRole('checkbox', { name: /Keep specifications out of the repository/ });
   await option.waitFor();
 
@@ -76,7 +76,7 @@ try {
 
   // A project that drops its artefacts opens with the option checked.
   await page.evaluate(() => window.open({ ...window.project, specArtifacts: 'drop' }));
-  await page.getByRole('button', { name: 'Agent settings' }).click();
+  await page.getByRole('button', { name: 'Agentic workflow' }).click();
   await option.waitFor();
   assert.equal(await option.isChecked(), true, 'a drop project must show the option checked');
   await option.uncheck();

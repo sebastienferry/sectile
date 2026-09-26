@@ -36,7 +36,6 @@ interface Props {
   onStageColumnsChange: (mapping: Record<string, string[]>) => void
   issueTracker?: string
   githubRepo?: string
-  repoPath?: string
 }
 
 type DragPayload =
@@ -52,7 +51,6 @@ export const BoardColumnsEditor: React.FC<Props> = ({
   onStageColumnsChange,
   issueTracker,
   githubRepo,
-  repoPath,
 }) => {
   const { fetchProjectTrackerStatuses, listProjectBoards, importProjectBoardColumns, addToast } = useApp()
 
@@ -134,7 +132,6 @@ export const BoardColumnsEditor: React.FC<Props> = ({
       if (project?.id) params.append('projectId', project.id)
       if (issueTracker) params.append('tracker', issueTracker)
       if (githubRepo) params.append('repo', githubRepo)
-      if (repoPath) params.append('repoPath', repoPath)
 
       let detectedList: string[] = []
       let detectedColumns: DetectedColumn[] = []

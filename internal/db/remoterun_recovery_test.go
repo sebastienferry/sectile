@@ -28,9 +28,8 @@ func recoveryStore(t *testing.T, engine string) (*DB, *models.Project) {
 	if engine == "sqlite" {
 		t.Cleanup(func() { d.Close() })
 	}
-	no := false
-	project, err := d.CreateProject(models.CreateProjectRequest{Name: "Recovery", RepoPath: "/not-mounted",
-		IssueTracker: "local", UseWorktrees: &no, AIProvider: "claude"})
+	project, err := d.CreateProject(models.CreateProjectRequest{Name: "Recovery",
+		IssueTracker: "local"})
 	if err != nil {
 		t.Fatal(err)
 	}
