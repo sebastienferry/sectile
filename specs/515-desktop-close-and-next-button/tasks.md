@@ -6,16 +6,16 @@ pushed: merge, do not rebase).
 
 ## 1. Icon next-step button and step badge (US1, FR1-FR3)
 
-- [ ] T1.1 Markup: `#next-step` gets the `icon-button` class; add
+- [x] T1.1 Markup: `#next-step` gets the `icon-button` class; add
   `<span id="next-step-label" class="step-badge" aria-hidden="true" hidden>`
   after the future `#pickup-chain` slot (plan decision 1).
-- [ ] T1.2 `iconPaths['next-step']` single chevron (plan decision 2).
-- [ ] T1.3 `renderNextStep()`: a helper sets `aria-label`, `title` and the
+- [x] T1.2 `iconPaths['next-step']` single chevron (plan decision 2).
+- [x] T1.3 `renderNextStep()`: a helper sets `aria-label`, `title` and the
   badge text to the `Next:` / `Current:` string instead of `textContent`;
   the badge is visible exactly when `#next-step` is (plan decision 3).
-- [ ] T1.4 `.step-badge` style; `#next-step` keeps its colours (plan
+- [x] T1.4 `.step-badge` style; `#next-step` keeps its colours (plan
   decision 7).
-- [ ] T1.5 `desktop/tests/next-step.ui.cjs`: replace the `textContent`
+- [x] T1.5 `desktop/tests/next-step.ui.cjs`: replace the `textContent`
   assertions by `aria-label` assertions, add badge-text assertions for
   `Next: Specify` (idle) and `Current: Implement` (queued run, older console
   selected), check the badge is hidden with `>` on a finished idle task.

@@ -46,10 +46,12 @@ test('console next step rechecks task state, guards active history and handles f
  try{
   app=await electron.launch({args:[path.resolve(__dirname,'..')],env})
   const page=await app.firstWindow();page.setDefaultTimeout(7000)
-  const button=page.locator('#next-step'),status=page.locator('#next-step-status')
+  const button=page.locator('#next-step'),badge=page.locator('#next-step-label'),status=page.locator('#next-step-status')
   const selectA=()=>page.locator('.local-task').filter({has:page.getByRole('button',{name:'Open #1 in Sectile',exact:true})}).locator('.run').click()
   const selectB=()=>page.locator('.local-task').filter({has:page.getByRole('button',{name:'Open #2 in Sectile',exact:true})}).locator('.run').click()
   await page.getByRole('button',{name:'Next: Specify',exact:true}).waitFor()
+  assert.equal(await badge.textContent(),'Next: Specify','The badge names the next step')
+  assert.equal(await badge.isVisible(),true,'The badge is visible with the button')
   stage='specified'
   await button.click()
   await page.getByRole('button',{name:'Next: Implement',exact:true}).waitFor()
@@ -64,10 +66,12 @@ test('console next step rechecks task state, guards active history and handles f
   // Ending the execution and launching the next step never apply at the same time.
   assert.equal(await page.locator('#stop').isEnabled(),true,'A running execution can be ended')
   assert.equal(await button.isDisabled(),true,'The next step waits for the execution to end')
-  assert.equal(await button.textContent(),'Current: Implement','The button names the running skill')
+  assert.equal(await button.getAttribute('aria-label'),'Current: Implement','The button names the running skill')
+  assert.equal(await badge.textContent(),'Current: Implement','The badge names the running skill')
   await page.locator('#execution-history').selectOption('old')
   assert.equal(await button.isDisabled(),true,'An older console cannot bypass an active run')
-  assert.equal(await button.textContent(),'Current: Implement','An older console still names the active run')
+  assert.equal(await button.getAttribute('aria-label'),'Current: Implement','An older console still names the active run')
+  assert.equal(await badge.textContent(),'Current: Implement','An older console still names the active run')
   // The execution completes and moves the stage: the button proposes the step that follows.
   stage='implemented';active=false
   await page.waitForFunction(()=>document.querySelector('#stop').disabled)
@@ -79,7 +83,8 @@ test('console next step rechecks task state, guards active history and handles f
   await page.waitForFunction(()=>document.querySelector('#next-step-status').textContent.includes('Execution in progress'))
   assert.equal(launches.length,2)
   assert.deepEqual(launches[1],{taskID:'task-a',skillID:'implement',prompt:''},'The missing pull request is recovered by the creation owner, never by create_pr')
-  assert.equal(await button.textContent(),'Current: Implement','The button names the skill launched, not the step label')
+  assert.equal(await button.getAttribute('aria-label'),'Current: Implement','The button names the skill launched, not the step label')
+  assert.equal(await badge.textContent(),'Current: Implement','The badge names the skill launched, not the step label')
   // An execution that ends without moving the stage proposes the same step again.
   active=false
   await page.getByRole('button',{name:'Next: Create PR',exact:true}).waitFor()
@@ -107,9 +112,12 @@ test('console next step rechecks task state, guards active history and handles f
   prUrl=null
   stage='finished';await selectA()
   await page.waitForFunction(()=>document.querySelector('#next-step-status').textContent.includes('Task finished'))
+  assert.equal(await button.isHidden(),true)
+  assert.equal(await badge.isHidden(),true)
   failRead=true;await selectA()
   await page.getByRole('button',{name:'Retry',exact:true}).waitFor()
   assert.equal(await button.isHidden(),true)
+  assert.equal(await badge.isHidden(),true)
   failRead=false;stage='new';await page.getByRole('button',{name:'Retry',exact:true}).click()
   await page.getByRole('button',{name:'Next: Clarify',exact:true}).waitFor()
   delayRead=300;await selectA();delayRead=0;await selectB()
@@ -147,7 +155,8 @@ test('console next step rechecks task state, guards active history and handles f
   // The action belongs to the execution controls, not to the status line it describes.
   assert.equal(await page.locator('#toolbar #next-step').count(),1,'The next action sits in the execution toolbar')
   assert.equal(await page.locator('#task-status button').count(),0,'The footer keeps the status text alone')
-  assert.equal(await page.evaluate(()=>document.querySelector('#next-step').nextElementSibling.id),'mark-reviewed')
+  assert.equal(await page.evaluate(()=>document.querySelector('#next-step').nextElementSibling.id),'next-step-label')
+  assert.equal(await page.evaluate(()=>document.querySelector('#next-step-label').nextElementSibling.id),'mark-reviewed')
   assert.equal(await page.evaluate(()=>document.querySelector('#mark-reviewed').nextElementSibling.id),'retry-next-step')
   // Closing the current step comes before launching the next one, in the order the user acts.
   assert.equal(await page.evaluate(()=>document.querySelector('#stop').nextElementSibling.id),'next-step','The closing control precedes the next action')
