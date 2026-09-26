@@ -230,3 +230,64 @@ func TestValidateLevels(t *testing.T) {
 		}
 	}
 }
+
+func TestResolveMarksAWorkstationSkillOverrideCustom(t *testing.T) {
+	c := Config{ProjectID: "p", Skills: []Skill{{ID: "implement", Content: "server"}, {ID: "clarify", Content: "server", Custom: true}, {ID: "specify", Content: "server"}}}
+	got := Resolve(c, Settings{Skills: map[string]string{"implement": "local"}})
+	if !got.Skills[0].Custom || got.Skills[0].Content != "local" {
+		t.Fatalf("a workstation override is a custom skill: %+v", got.Skills[0])
+	}
+	if !got.Skills[1].Custom {
+		t.Fatal("the server's custom flag was lost")
+	}
+	if got.Skills[2].Custom {
+		t.Fatal("a skill nobody edited reads as custom")
+	}
+	if c.Skills[0].Custom {
+		t.Fatal("the contract was mutated")
+	}
+}
+
+func TestResolveRecordsAnExplicitSkillCommand(t *testing.T) {
+	c := Config{ProjectID: "p", Skills: []Skill{{ID: "implement", Command: "/code-issue"}, {ID: "clarify", Command: "/clarify-issue"}}}
+	got := Resolve(c, Settings{ProjectSettings: map[string]ProjectSettings{"p": {SkillCommands: map[string]string{"implement": "/sectile:code-issue", "clarify": " "}}}})
+	if !got.Skills[0].CommandOverridden || got.Skills[0].Command != "/sectile:code-issue" {
+		t.Fatalf("explicit command: %+v", got.Skills[0])
+	}
+	if got.Skills[1].CommandOverridden {
+		t.Fatal("a blank entry is not an explicit command")
+	}
+	raw, _ := json.Marshal(got.Skills[0])
+	if strings.Contains(string(raw), "verridden") {
+		t.Fatalf("CommandOverridden is not part of the contract: %s", raw)
+	}
+}
+
+func TestNamespacedSkillCommand(t *testing.T) {
+	for _, name := range []string{"sectile:clarify-issue", "/sectile:clarify-issue", "clarify-issue"} {
+		if err := ValidateProject(ProjectSettings{SkillCommands: map[string]string{"clarify": name}}); err != nil {
+			t.Errorf("%q refused: %v", name, err)
+		}
+	}
+	for _, name := range []string{"sectile:", ":clarify-issue", "a:b:c", "sectile/clarify-issue", "sectile: clarify"} {
+		if err := ValidateProject(ProjectSettings{SkillCommands: map[string]string{"clarify": name}}); err == nil {
+			t.Errorf("%q accepted", name)
+		}
+	}
+}
+
+func TestSkillSourceDefaults(t *testing.T) {
+	if !(Defaults{}).CustomSkillsWinOrDefault() || (Defaults{}).InstalledSkillSourceOrDefault() != SkillSourceDirect {
+		t.Fatal("absent settings must read as their defaults")
+	}
+	d := Defaults{CustomSkillsWin: boolPtr(false), InstalledSkillSource: SkillSourcePlugin}
+	if d.CustomSkillsWinOrDefault() || d.InstalledSkillSourceOrDefault() != SkillSourcePlugin {
+		t.Fatalf("settings ignored: %+v", d)
+	}
+	if err := ValidateDefaults(d); err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateDefaults(Defaults{InstalledSkillSource: "marketplace"}); err == nil {
+		t.Fatal("an unknown source was accepted")
+	}
+}

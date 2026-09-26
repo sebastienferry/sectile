@@ -52,6 +52,33 @@ type Defaults struct {
 	// is a choice, even empty; an absent one falls back to the shipped list.
 	AIProviderModels map[string][]string `json:"aiProviderModels,omitempty"`
 	EditorCommand    string              `json:"editorCommand,omitempty"`
+	// CustomSkillsWin runs a project's custom skill instead of the installed
+	// one. Nil means true.
+	CustomSkillsWin *bool `json:"customSkillsWin,omitempty"`
+	// InstalledSkillSource is the installed source a dispatch tries first:
+	// "direct" (the direct setup's copy) or "plugin" (the Claude plugin).
+	// Empty means "direct".
+	InstalledSkillSource string `json:"installedSkillSource,omitempty"`
+}
+
+// Installed skill sources, in the order InstalledSkillSource names them.
+const (
+	SkillSourceDirect = "direct"
+	SkillSourcePlugin = "plugin"
+)
+
+// CustomSkillsWinOrDefault reads CustomSkillsWin with its default: on.
+func (d Defaults) CustomSkillsWinOrDefault() bool {
+	return d.CustomSkillsWin == nil || *d.CustomSkillsWin
+}
+
+// InstalledSkillSourceOrDefault reads InstalledSkillSource with its default:
+// the direct copy.
+func (d Defaults) InstalledSkillSourceOrDefault() string {
+	if d.InstalledSkillSource == SkillSourcePlugin {
+		return SkillSourcePlugin
+	}
+	return SkillSourceDirect
 }
 
 // ProjectSettings is one project's section, keyed by the project's primary key.
@@ -206,6 +233,7 @@ func resolve(c Config, s Settings, engine Engine) Config {
 		id := c.Skills[i].ID
 		if name := strings.TrimSpace(project.SkillCommands[id]); name != "" {
 			c.Skills[i].Command = name
+			c.Skills[i].CommandOverridden = true
 		}
 		if id == "adjust" {
 			for _, legacy := range []string{"review"} {
@@ -220,6 +248,8 @@ func resolve(c Config, s Settings, engine Engine) Config {
 			}
 			c.Skills[i].Content = content
 			c.Skills[i].CommandContent = content + "\n\n## Ticket\n$ARGUMENTS\n"
+			// A workstation override is this workstation's custom skill.
+			c.Skills[i].Custom = true
 		}
 	}
 	return c
@@ -272,9 +302,10 @@ func ProviderModels(d Defaults, provider string) []string {
 	return append([]string{}, DefaultProviderModels[provider]...)
 }
 
-// skillCommandName accepts a single word, with an optional leading slash; the
-// name becomes a file name in the CLI's skill directory.
-var skillCommandName = regexp.MustCompile(`^/?[A-Za-z0-9][A-Za-z0-9_-]*$`)
+// skillCommandName accepts a single word, with an optional leading slash and
+// an optional "<namespace>:" prefix, which is how a plugin's skill is invoked
+// (/sectile:clarify-issue).
+var skillCommandName = regexp.MustCompile(`^/?(?:[A-Za-z0-9][A-Za-z0-9_-]*:)?[A-Za-z0-9][A-Za-z0-9_-]*$`)
 
 // ValidateExecution checks one level before it is written, so an invalid value
 // never reaches the file. The caller names the level in its own message.
@@ -326,6 +357,11 @@ func ValidateDefaults(d Defaults) error {
 	if len(d.EditorCommand) > MaxCommandLength {
 		return fmt.Errorf("editorCommand is longer than %d characters", MaxCommandLength)
 	}
+	switch d.InstalledSkillSource {
+	case "", SkillSourceDirect, SkillSourcePlugin:
+	default:
+		return fmt.Errorf("installedSkillSource must be %s or %s", SkillSourceDirect, SkillSourcePlugin)
+	}
 	return nil
 }
 
@@ -339,7 +375,7 @@ func ValidateProject(p ProjectSettings) error {
 	}
 	for skill, name := range p.SkillCommands {
 		if name = strings.TrimSpace(name); name != "" && !skillCommandName.MatchString(name) {
-			return fmt.Errorf("skill %q: command %q must be a single word", skill, name)
+			return fmt.Errorf("skill %q: command %q must be a single word, optionally prefixed with a plugin name and a colon", skill, name)
 		}
 	}
 	switch p.SpecArtifacts {

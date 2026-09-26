@@ -119,6 +119,9 @@ func overlay(base, top Settings) Settings {
 		Execution:        overlayExecution(base.Defaults.Execution, top.Defaults.Execution),
 		AIProviderModels: top.Defaults.AIProviderModels,
 		EditorCommand:    firstSet(top.Defaults.EditorCommand, base.Defaults.EditorCommand),
+		// No legacy layout knows the skill settings: the current file states them.
+		CustomSkillsWin:      top.Defaults.CustomSkillsWin,
+		InstalledSkillSource: top.Defaults.InstalledSkillSource,
 	}
 	if out.Defaults.AIProviderModels == nil {
 		out.Defaults.AIProviderModels = base.Defaults.AIProviderModels

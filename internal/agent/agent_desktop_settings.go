@@ -240,6 +240,10 @@ type workstationEffective struct {
 	UseWorktrees     bool                `json:"useWorktrees"`
 	Parallelism      int                 `json:"parallelism"`
 	AIProviderModels map[string][]string `json:"aiProviderModels"`
+	// CustomSkillsWin and InstalledSkillSource are the two skill settings with
+	// their defaults applied.
+	CustomSkillsWin      bool   `json:"customSkillsWin"`
+	InstalledSkillSource string `json:"installedSkillSource"`
 }
 
 // desktopWorkstation reads and writes the workstation defaults. The agent is
@@ -311,6 +315,8 @@ func (d *agentDaemon) workstationViewOf(settings agentconfig.Settings) workstati
 			DefaultEngine: summaryOf(settings.DefaultEngine()),
 			Terminal:      terminal, EditorCommand: editor, UseWorktrees: effective.UseWorktrees,
 			Parallelism: agentconfig.ExecutionLimit("", true, settings), AIProviderModels: configured,
+			CustomSkillsWin:      settings.Defaults.CustomSkillsWinOrDefault(),
+			InstalledSkillSource: settings.Defaults.InstalledSkillSourceOrDefault(),
 		},
 		ProviderModels: shipped,
 		SetupProviders: append([]string{}, models.SetupProviders...),
@@ -327,6 +333,7 @@ func normalizeDefaults(in agentconfig.Defaults) agentconfig.Defaults {
 	in.AISkillModels = compactStrings(in.AISkillModels)
 	in.Terminal = strings.TrimSpace(in.Terminal)
 	in.EditorCommand = strings.TrimSpace(in.EditorCommand)
+	in.InstalledSkillSource = strings.TrimSpace(in.InstalledSkillSource)
 	if in.SetupProviders != nil {
 		in.SetupProviders = trimList(in.SetupProviders)
 	}

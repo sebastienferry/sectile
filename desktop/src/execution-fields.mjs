@@ -13,9 +13,9 @@ export const PROVIDERS=[
 export const DEFAULT_PROVIDER='agy'
 export const SETUP_PROVIDERS=['claude','codex','agy']
 
-// A skill command is one word, optionally led by a slash (mirrors the agent's
-// skillCommandName rule).
-const SKILL_COMMAND=/^\/?[A-Za-z0-9][A-Za-z0-9_-]*$/
+// A skill command is one word, optionally led by a slash and by a plugin
+// namespace such as "sectile:" (mirrors the agent's skillCommandName rule).
+const SKILL_COMMAND=/^\/?(?:[A-Za-z0-9][A-Za-z0-9_-]*:)?[A-Za-z0-9][A-Za-z0-9_-]*$/
 export function validSkillCommand(value){
  const trimmed=String(value||'').trim()
  return trimmed===''||SKILL_COMMAND.test(trimmed)
@@ -135,5 +135,11 @@ export function workstationPayload(state,served={}){
  const lists={}
  for(const [provider,models] of Object.entries(state.aiProviderModels||{}))if(Array.isArray(models))lists[provider]=[...models]
  if(Object.keys(lists).length)out.aiProviderModels=lists
+ // The agent replaces the defaults whole: a form without the skill settings
+ // hands back what it was served rather than resetting them.
+ const customSkillsWin=typeof state.customSkillsWin==='boolean'?state.customSkillsWin:served?.customSkillsWin
+ if(typeof customSkillsWin==='boolean')out.customSkillsWin=customSkillsWin
+ const source=String(state.installedSkillSource??served?.installedSkillSource??'').trim()
+ if(source)out.installedSkillSource=source
  return out
 }

@@ -57,3 +57,26 @@ test('a skill command name is a single word', () => {
   assert.ok(validSkillCommand(''))
   assert.ok(!validSkillCommand('two words'))
 })
+
+test('a skill command may name the plugin that ships it', () => {
+  assert.ok(validSkillCommand('sectile:clarify-issue'))
+  assert.ok(validSkillCommand('/sectile:clarify-issue'))
+  assert.ok(!validSkillCommand('sectile:'))
+  assert.ok(!validSkillCommand(':clarify-issue'))
+  assert.ok(!validSkillCommand('a:b:c'))
+  assert.ok(!validSkillCommand('sectile/clarify-issue'))
+})
+
+test('the workstation payload carries the two skill settings', () => {
+  assert.deepEqual(
+    workstationPayload({ setupProviders: null, customSkillsWin: false, installedSkillSource: 'plugin' }),
+    { setupProviders: null, customSkillsWin: false, installedSkillSource: 'plugin' },
+  )
+  // A form that does not show them hands back what the agent served.
+  assert.deepEqual(
+    workstationPayload({ setupProviders: null }, { customSkillsWin: false, installedSkillSource: 'plugin' }),
+    { setupProviders: null, customSkillsWin: false, installedSkillSource: 'plugin' },
+  )
+  // Neither set nor served: nothing sent, the agent applies its defaults.
+  assert.deepEqual(workstationPayload({ setupProviders: null }, {}), { setupProviders: null })
+})

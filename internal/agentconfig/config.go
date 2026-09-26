@@ -10,6 +10,13 @@ type Skill struct {
 	Command                string `json:"command"`
 	Content                string `json:"content"`
 	CommandContent         string `json:"commandContent"`
+	// Custom says the content is a project's edit (or this workstation's own
+	// override) rather than the built-in skill. A server that predates it sends
+	// nothing, which reads as the built-in skill, so the installed one runs.
+	Custom bool `json:"custom,omitempty"`
+	// CommandOverridden says Command is the project section's explicit
+	// SkillCommands entry rather than the catalogue's. Not part of the contract.
+	CommandOverridden bool `json:"-"`
 }
 
 type Config struct {
