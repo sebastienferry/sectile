@@ -10,6 +10,10 @@ import (
 	"tasks/internal/models"
 )
 
+// attachedFoldersCapability tells the desktop this agent serves
+// /desktop/folders (#484).
+const attachedFoldersCapability = "attached-folders"
+
 // Kinds of an attached folder, as the desktop settings and the folder map
 // state them.
 const (

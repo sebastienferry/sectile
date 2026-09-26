@@ -86,7 +86,7 @@ const runLabel=run=>freeConsole(run)?(run.engineName||run.provider||'AI')+' · P
 // A macro skill run has no task: its executions group under the macro.
 const macroRun=run=>!!run?.macroKey
 const taskKey=run=>JSON.stringify([run.projectId,freeConsole(run)?run.id:macroRun(run)?'macro:'+run.macroKey:run.taskId])
-const activeRun=run=>['running','queued','preparing','waiting'].includes(run.status)
+const activeRun=run=>['running','queued','preparing'].includes(run.status)
 const taskState=run=>localTasks[taskKey(run)]||{}
 function formatTerminalName(term){
  if(!term)return 'terminal'
@@ -232,49 +232,14 @@ function select(run,background=false,options){
  showDirectory(run.directory)
  document.querySelector('#stop').disabled=!activeRun(run)
  terminal.reset()
- hideRepositoryChoice()
  if(needsConsoleNotice(run)){
   api.detach().catch(error)
   terminal.writeln(consoleNotice(run))
-  if(run.status==='waiting')showRepositoryChoice(run)
   render(options);return
  }
  api.attach(run.id).then(()=>{setTimeout(resize,150);if(!changes.active&&!ticketsOpen&&!readOnlyConsole(run))terminal.focus()}).catch(error)
  render(options)
 }
-// A launch the agent parked until its ticket is pinned to a repository (#456)
-// is resumed from here: choosing a repository pins the ticket, and a
-// repository not mapped yet is given its folder first. The agent resumes the
-// same execution once it reads the pin back.
-function showRepositoryChoice(run){
- hideRepositoryChoice()
- const bar=document.createElement('div');bar.id='repository-choice';bar.className='repository-choice'
- bar.setAttribute('role','group');bar.setAttribute('aria-label','Repository of this task')
- const label=document.createElement('span');label.textContent='Repository of '+(run.taskKey||run.taskId)
- const choice=document.createElement('select');choice.setAttribute('aria-label','Repository')
- const start=document.createElement('button');start.type='button';start.textContent='Start in this repository';start.disabled=true
- const status=document.createElement('span');status.setAttribute('role','status')
- bar.append(label,choice,start,status)
- document.querySelector('#terminal').before(bar)
- api.repositories(run.projectId).then(list=>{
-  for(const repository of list){
-   const option=document.createElement('option');option.value=repository.identity;option.dataset.path=repository.path||''
-   option.textContent=repository.identity+(repository.path?'':' · choose its folder');choice.append(option)
-  }
-  start.disabled=!list.length
- }).catch(err=>{status.textContent=err.message})
- start.onclick=async()=>{
-  const option=choice.selectedOptions[0];if(!option)return
-  start.disabled=true
-  try{
-   let path=''
-   if(!option.dataset.path){path=await api.chooseRepository();if(!path){start.disabled=false;return}}
-   await api.mapRepository({projectId:run.projectId,repository:option.value,taskId:run.taskId,...(path?{path}:{})})
-   status.textContent='Repository pinned · the execution starts shortly'
-  }catch(err){status.textContent=err.message;start.disabled=false}
- }
-}
-function hideRepositoryChoice(){document.querySelector('#repository-choice')?.remove()}
 // The state the user reads, drawn from the shared definition so the row, the
 // execution queue and the banner the desktop raises cannot say three things.
 // The glyph is decorative: the label carries the state for anyone who cannot
@@ -300,13 +265,12 @@ function renderQueue(project,group){
  const active=runsForProject.filter(run=>['running','preparing'].includes(run.status)&&!run.cancelRequested)
  const stopping=runsForProject.filter(run=>activeRun(run)&&run.cancelRequested)
  const waiting=orderedQueueRuns(runsForProject)
- const parked=runsForProject.filter(run=>run.status==='waiting'&&!run.cancelRequested)
- const text=active.length+' active · '+waiting.length+' waiting'+(parked.length?' · '+parked.length+' waiting for a repository':'')+(stopping.length?' · '+stopping.length+' stopping':'')
+ const text=active.length+' active · '+waiting.length+' waiting'+(stopping.length?' · '+stopping.length+' stopping':'')
  if(summary.textContent!==text)summary.textContent=text
- if(!active.length&&!waiting.length&&!stopping.length&&!parked.length){
+ if(!active.length&&!waiting.length&&!stopping.length){
   const empty=document.createElement('p');empty.textContent='No active or queued executions';list.append(empty);return
  }
- for(const [label,items] of [['Waiting for a repository',parked],['Waiting · submission order',waiting],['Stopping / canceling',stopping],['Running / preparing',active]]){
+ for(const [label,items] of [['Waiting · submission order',waiting],['Stopping / canceling',stopping],['Running / preparing',active]]){
   if(!items.length)continue
   const heading=document.createElement('h3');heading.textContent=label;list.append(heading)
   const entries=document.createElement('ul');list.append(entries)
@@ -556,7 +520,7 @@ function render(options){
   capacity.setAttribute('aria-label',capacity.title)
   heading.replaceChildren(name,capacity)
   heading.onclick=()=>{selectedProject=project.id;if(collapsedProjects.has(project.id))collapsedProjects.delete(project.id);else collapsedProjects.add(project.id);localStorage.setItem('collapsedProjects',JSON.stringify([...collapsedProjects]));render()}
-  const waitingCount=runs.filter(run=>run.projectId===project.id&&['queued','waiting'].includes(run.status)&&!run.cancelRequested).length
+  const waitingCount=runs.filter(run=>run.projectId===project.id&&run.status==='queued'&&!run.cancelRequested).length
   const {more,menu,openAt}=projectMenu(project,waitingCount)
   projectRow.oncontextmenu=event=>{event.preventDefault();openAt(event.clientX,event.clientY)}
   projectRow.append(heading,more,menu);group.append(projectRow)
@@ -686,7 +650,7 @@ async function updateDisconnected(ids,force=false,deferrable=false){
  if(hiddenProject(selectedProject))selectedProject=null
  const current=runs.find(run=>run.id===selected)
  if(current&&hiddenProject(current.projectId)){
-  selected=null;hideRepositoryChoice();terminal.reset()
+  selected=null;terminal.reset()
   document.querySelector('#title').textContent='Select an execution'
   showDirectory('')
   await api.detach().catch(error)
@@ -797,7 +761,7 @@ async function restartLocalAgent(){
  const button=document.querySelector('#restart');button.disabled=true;restarting=true
  try{
   if(await api.restart()){
-   selected=null;runs=[];last='';hideRepositoryChoice();terminal.reset();render()
+   selected=null;runs=[];last='';terminal.reset();render()
    renderHeader()
    showDirectory('')
    document.querySelector('#error').textContent=''
@@ -817,7 +781,7 @@ async function stopLocalAgent(){
  const button=document.querySelector('#shutdown');button.disabled=true;restarting=true
  try{
   if(await api.shutdown()){
-   selected=null;runs=[];last='';hideRepositoryChoice();terminal.reset();render()
+   selected=null;runs=[];last='';terminal.reset();render()
    document.querySelector('#setup').hidden=false;document.querySelector('#workspace').hidden=true
    document.querySelector('#restart').hidden=true;button.hidden=true
    document.querySelector('#start button').disabled=false
@@ -838,7 +802,7 @@ document.querySelector('#clear-history').onclick=async()=>{
   runs=runs.filter(run=>!removed.includes(run.id))
   for(const id of removed)skillResults.delete(id)
   if(removed.includes(selected)){
-   selected=null;hideRepositoryChoice();terminal.reset()
+   selected=null;terminal.reset()
    renderHeader()
    showDirectory('')
   }
@@ -1804,17 +1768,14 @@ async function openProject(id){
   const repository=settingRow('Local repository',{stacked:true},picker)
   const pathOffer=attachGitOffer(path,repository,'Local repository')
   // Macro operations read and write specifications here. Only an override is
-  // stored: a mono-repo project inherits its local repository, a multi-repo
-  // project needs one. The layout itself is a project setting held by the
-  // server, so it is stated here and changed in the web interface.
-  const layoutRow=readOnlyRow('Repository layout','Project setting · Change it in the project settings of the web interface.')
+  // stored: every project inherits its local repository otherwise (#484).
   const specPath=document.createElement('input');specPath.value=info.specPath||'';specPath.setAttribute('aria-label','Specifications folder')
   const specBrowse=document.createElement('button');specBrowse.type='button';specBrowse.textContent='Choose folder…';specBrowse.setAttribute('aria-label','Choose specifications folder…')
   specBrowse.onclick=async()=>{try{const selected=await api.chooseRepository();if(selected){specPath.value=selected;renderSpec({...specData,specPath:selected});specOffer.examine()}}catch(err){error(err)}}
   const specPicker=document.createElement('div');specPicker.className='repository-picker';specPicker.append(specPath,specBrowse)
-  // Mono-repo only: the specifications either share the code checkout or live
-  // in a folder of their own. Unticking reveals the folder; ticking drops the
-  // override so the folder follows the local repository again.
+  // The specifications either share the code checkout or live in a folder of
+  // their own. Unticking reveals the folder; ticking drops the override so the
+  // folder follows the local repository again.
   const sameRepo=document.createElement('input');sameRepo.type='checkbox';sameRepo.id='spec-same-repository'
   const sameRepoLabel=document.createElement('label');sameRepoLabel.className='spec-same-repository';sameRepoLabel.htmlFor=sameRepo.id
   sameRepoLabel.append(sameRepo,document.createTextNode(' Specifications live in the code repository'))
@@ -1830,21 +1791,15 @@ async function openProject(id){
   let specData=info
   function renderSpec(data,options){
    specData=data
-   const mono=data.monoRepo!==false,override=!!(data.specPath||'').trim()
-   const separate=!mono||override||!!options?.separate
-   const required=!mono&&!override
-   layoutRow.value.textContent=mono?'Mono-repo':'Multi-repo'
-   sameRepoLabel.hidden=!mono;sameRepo.checked=mono&&!separate
+   const override=!!(data.specPath||'').trim()
+   const separate=override||!!options?.separate
+   sameRepo.checked=!separate
    // Following the local repository, the folder has no offer of its own.
    if(specPicker.hidden!==!separate)specOffer.show(separate)
    specPicker.hidden=!separate
-   specPath.placeholder=mono?'Folder holding the specifications':'Required for a multi-repo project'
-   specRepository.section.classList.toggle('required',required)
-   specPath.setAttribute('aria-invalid',required?'true':'false')
-   specRepository.hint.textContent=required?'Required · Macro operations of a multi-repo project need this folder. Settings can still be saved without it.'
-    :!separate?'Macro skills read and write specifications in the local repository.'
-    :mono?'A folder of its own · Tick the box to use the local repository again.'
-    :'Where macro skills read and write specifications.'
+   specPath.placeholder='Folder holding the specifications'
+   specRepository.hint.textContent=!separate?'Macro skills read and write specifications in the local repository.'
+    :'A folder of its own · Tick the box to use the local repository again.'
    // The kind is detected on the folder the agent resolves, which is not
    // always the one typed: name it, so the verdict says what it is about.
    // A value typed but not saved yet has not been examined.
@@ -1857,16 +1812,18 @@ async function openProject(id){
   }
   renderSpec(info)
   pathOffer.examine();specOffer.show(!specPicker.hidden)
-  // The other repositories of a multi-repo project, each in a folder of this
-  // workstation (#456). The project's own repository is the local repository
-  // above; the list itself is a project setting of the web interface.
+  // The other repositories the project declares, each in a folder of this
+  // workstation (#456), on every project (#484). The project's own repository
+  // is the local repository above; the list itself is a project setting of
+  // the web interface.
   const repositoryList=document.createElement('div');repositoryList.className='repository-list'
   const repositoriesRow=settingRow('Other repositories',{stacked:true},repositoryList)
   repositoriesRow.hint.textContent='Tasks pinned to one of these repositories run in a worktree of its folder; the others are given to the agent as read-only context.'
   repositoriesRow.section.hidden=true
   const repositoryInputs=[]
-  if(info.monoRepo===false){
-   api.repositories(id).then(list=>{
+  function loadRepositories(){
+   return api.repositories(id).then(list=>{
+    repositoryList.replaceChildren();repositoryInputs.length=0
     for(const repository of list.filter(item=>!item.code)){
      const input=document.createElement('input');input.value=repository.path||'';input.placeholder='Folder holding a checkout of '+repository.identity
      input.setAttribute('aria-label','Folder of '+repository.identity)
@@ -1880,6 +1837,48 @@ async function openProject(id){
     repositoriesRow.section.hidden=!repositoryInputs.length
    }).catch(error)
   }
+  loadRepositories()
+  // Folders attached to the project on this workstation only (#484): every
+  // execution of the project is given them as context. Adding and removing
+  // apply at once, like a repository folder chosen from the agent; a checkout
+  // of one of the project's repositories becomes that repository's folder.
+  const folderList=document.createElement('ul');folderList.className='attached-folders';folderList.setAttribute('aria-label','Attached folders')
+  const addFolder=document.createElement('button');addFolder.type='button';addFolder.textContent='Add folder…'
+  const folderStatus=document.createElement('p');folderStatus.className='attached-folder-status';folderStatus.setAttribute('role','status')
+  const foldersRow=settingRow('Attached folders',{stacked:true},folderList,addFolder,folderStatus)
+  foldersRow.hint.textContent='Other folders of this workstation handed to every execution of this project. A Git repository with a remote is changed through a worktree and its own pull request; a folder without a remote is changed in place.'
+  const folderKind=folder=>folder.duplicate?'Duplicate of the folder of '+folder.duplicate
+   :folder.kind==='git'?(folder.remote?'Git repository · '+folder.remote:'Git repository, no remote')
+   :folder.kind==='folder'?'Folder, not a Git repository':'Folder not found'
+  function renderFolders(list){
+   folderList.replaceChildren()
+   if(!list.length){const empty=document.createElement('li');empty.className='attached-folder-empty';empty.textContent='No attached folder';folderList.append(empty)}
+   for(const folder of list){
+    const item=document.createElement('li');item.className='attached-folder';item.dataset.kind=folder.duplicate?'duplicate':folder.kind
+    const where=document.createElement('span');where.className='attached-folder-path';where.textContent=folder.path;where.title=folder.path
+    const kind=document.createElement('small');kind.className='attached-folder-kind';kind.textContent=folderKind(folder)
+    const remove=document.createElement('button');remove.type='button';remove.textContent='Remove';remove.setAttribute('aria-label','Remove '+folder.path)
+    remove.onclick=async()=>{
+     remove.disabled=true
+     try{await api.detachFolder(id,folder.path);folderStatus.textContent='Removed '+folder.path;await loadFolders()}
+     catch(err){folderStatus.textContent=ipcMessage(err);remove.disabled=false}
+    }
+    const text=document.createElement('div');text.append(where,kind)
+    item.append(text,remove);folderList.append(item)
+   }
+  }
+  function loadFolders(){return api.folders(id).then(renderFolders).catch(err=>{folderStatus.textContent=ipcMessage(err)})}
+  addFolder.onclick=async()=>{
+   try{
+    const selected=await api.chooseRepository();if(!selected)return
+    addFolder.disabled=true
+    const answer=await api.attachFolder(id,selected)
+    if(answer?.mappedAs){folderStatus.textContent=selected+' is a checkout of '+answer.mappedAs+': it is now that repository\'s folder.';await loadRepositories()}
+    else folderStatus.textContent='Attached '+selected
+    await loadFolders()
+   }catch(err){folderStatus.textContent=ipcMessage(err)}finally{addFolder.disabled=false}
+  }
+  loadFolders()
   // Every execution field reads {value, inherited, source} from the agent: set
   // for the project, or inherited from the workstation defaults, else the
   // provider default. The server never supplies one (#305).
@@ -2051,7 +2050,7 @@ async function openProject(id){
   }
 
   const notice=document.createElement('p');notice.setAttribute('role','status')
-  panels.General.append(repository.section,layoutRow.section,specRepository.section,repositoriesRow.section)
+  panels.General.append(repository.section,specRepository.section,repositoriesRow.section,foldersRow.section)
   panels.Execution.append(controls.worktrees.section,controls.specArtifacts.section,controls.parallel.section,terminalRow.section,setupRow.section)
   panels.Agent.append(engineRow.section,skillCommandsRow.section)
   const remove=document.createElement('button');remove.type='button';remove.textContent='Remove from desktop';remove.className='remove-project'
@@ -2120,11 +2119,11 @@ async function openProject(id){
    };tools.append(button)
   }
   panels.Deployment.append(tools)
-  function renderServer(monoRepo){
+  function renderServer(){
    panels.Server.replaceChildren()
   const readOnly=document.createElement('p');readOnly.textContent='Server configuration · Read only';panels.Server.append(readOnly)
   const metadata=document.createElement('dl')
-  for(const [label,value] of [['Repository',config.gitRemoteUrl||'Not configured'],['Repository layout',monoRepo?'Mono-repo':'Multi-repo'],['SDD framework',config.specFramework||'Not configured']]){
+  for(const [label,value] of [['Repository',config.gitRemoteUrl||'Not configured'],['SDD framework',config.specFramework||'Not configured']]){
    const term=document.createElement('dt'),description=document.createElement('dd');term.textContent=label;description.textContent=value;metadata.append(term,description)
   }
   panels.Server.append(metadata)
@@ -2134,7 +2133,7 @@ async function openProject(id){
   }
 
   }
-  renderServer(info.monoRepo)
+  renderServer()
   const reload=document.createElement('button');reload.type='button';reload.textContent='Refresh from server';reload.className='refresh-project'
   layout.before(reload)
   reload.onclick=async()=>{
@@ -2145,7 +2144,7 @@ async function openProject(id){
     config=fresh.server
     dialogBody.querySelector('h2').textContent=config.projectName
     if(inheritSpecArtifacts)specArtifacts=config.specArtifacts==='drop'?'drop':'keep'
-    applyFields(fresh,true);renderServer(fresh.monoRepo);renderSpec({...fresh,specPath:specPath.value})
+    applyFields(fresh,true);renderServer();renderSpec({...fresh,specPath:specPath.value})
     notice.textContent='Server settings refreshed. Local overrides preserved.'
    }catch(err){notice.textContent=err.message}finally{reload.disabled=false}
   }
@@ -2623,7 +2622,7 @@ async function archiveTask(run){
  saveLocalTasks()
  const current=runs.find(item=>item.id===selected)
  if(current&&taskKey(current)===taskKey(run)){
-  selected=null;hideRepositoryChoice();terminal.reset();await api.detach()
+  selected=null;terminal.reset();await api.detach()
   renderHeader();showDirectory('')
  }
  runs=latest;last=JSON.stringify(latest);dialog.close();render()
