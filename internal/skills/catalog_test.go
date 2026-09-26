@@ -157,6 +157,30 @@ func TestPublishingSkillsForceOnlyWhenPublishedHistoryWasRewritten(t *testing.T)
 	}
 }
 
+// A project may drop its specification artefacts (#487). The skills cannot
+// know it from their text, which is shared by every project, so the stages that
+// write or read the artefacts ask Git, and never force an ignored one in.
+func TestStageSkillsDecideDroppedArtefactsFromGit(t *testing.T) {
+	for _, id := range []string{"clarify", "specify", "implement", "pickup", "pickup_issues"} {
+		for _, framework := range []string{"speckit", "openspec"} {
+			skill, ok := skills.StageSkillByID(id)
+			if !ok {
+				t.Fatalf("%s skill missing", id)
+			}
+			content := skills.RenderSkillContent(skill, framework)
+			for _, required := range []string{"git check-ignore -q", "git add -f"} {
+				if !strings.Contains(content, required) {
+					t.Errorf("%s (%s) is missing %q", id, framework, required)
+				}
+			}
+		}
+	}
+	adjust, _ := skills.StageSkillByID("adjust")
+	if !strings.Contains(skills.RenderSkillContent(adjust, "speckit"), "Never force-add a\n   specification artefact that Git ignores") {
+		t.Error("adjust must never force-add an ignored specification artefact")
+	}
+}
+
 func TestRewriteStorySkillTemplate(t *testing.T) {
 	// 1. Verify StageSkillByID lookup for rewrite_story and its aliases
 	aliases := []string{"rewrite_story", "rewrite-story", "rewrite"}

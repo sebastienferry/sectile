@@ -185,6 +185,12 @@ func (d *agentDaemon) localProjectRoot(ctx context.Context, c agentconfig.Config
 		}
 		local.Worktrees[c.ProjectID] = value
 	}
+	if value, ok := overrides.SpecArtifacts[c.ProjectID]; ok {
+		if local.SpecArtifacts == nil {
+			local.SpecArtifacts = map[string]string{}
+		}
+		local.SpecArtifacts[c.ProjectID] = value
+	}
 	if value, ok := overrides.Parallelism[c.ProjectID]; ok {
 		if local.Parallelism == nil {
 			local.Parallelism = map[string]int{}
@@ -456,6 +462,9 @@ func (d *agentDaemon) prepareDispatchLocked(ctx context.Context, taskKey string,
 	if err != nil {
 		return config, "", "", "", task, err
 	}
+	if err := applySpecArtifacts(ctx, &config, root, task.Key); err != nil {
+		return config, "", "", "", task, err
+	}
 	preserved, err := agentconfig.Scaffold(workDir, config)
 	for _, path := range preserved {
 		log.Printf("[Agent] Saved previous skill content: %s", path)
@@ -606,8 +615,8 @@ func templateProvider(template string) string {
 }
 
 // reasoningOptions make an engine print what it is doing as it does it: one
-// JSON object per line — the prose, the tool calls, then a final result message
-// carrying the answer — instead of the answer alone. They are only ever added to
+// JSON object per line (the prose, the tool calls, then a final result message
+// carrying the answer) instead of the answer alone. They are only ever added to
 // a headless launch: an interactive session already shows all of this to the
 // human watching it.
 var reasoningOptions = []string{"--output-format", "stream-json", "--verbose"}
@@ -615,7 +624,7 @@ var reasoningOptions = []string{"--output-format", "stream-json", "--verbose"}
 // engineStreamsReasoning says whether an engine can be asked for that stream.
 // Only an engine that can is ever handed the options, so nothing is passed a
 // flag it does not have, and adding an engine here is a one-line change once its
-// stream format is attested — the reader in internal/runner is Claude's shape.
+// stream format is attested: the reader in internal/runner is Claude's shape.
 func engineStreamsReasoning(provider string) bool {
 	return strings.EqualFold(strings.TrimSpace(provider), "claude")
 }
@@ -629,7 +638,7 @@ func engineStreamsReasoning(provider string) bool {
 // configured template and a dedicated autonomous command leave early, and asking
 // the provider again at the far end would answer for a branch that was not
 // taken. A template asking for the stream itself is read as one, which is
-// exactly right — its output is that stream.
+// exactly right: its output is that stream.
 func commandReadsReasoning(commandLine string) bool {
 	return strings.Contains(commandLine, strings.Join(reasoningOptions, " "))
 }

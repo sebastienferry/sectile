@@ -2,7 +2,9 @@ package agent
 
 import (
 	"context"
+	"crypto/sha256"
 	"crypto/subtle"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"github.com/google/uuid"
@@ -39,6 +41,41 @@ type loopbackServer struct {
 	// echoConsoles mirrors console output on the agent's own stdout. Off by
 	// default: it is a debugging aid, not a way to read runs.
 	echoConsoles bool
+	// binarySha256 fingerprints the executable this agent was started from,
+	// hashed at start: by the time the companion asks, the file on disk may
+	// already be a newer build. Empty when the executable could not be read.
+	binarySha256 string
+}
+
+// desktopVersion answers /desktop/version: the build, plus the fingerprint that
+// lets the companion tell a same-version rebuild from the binary it bundles.
+type desktopVersion struct {
+	version.Info
+	BinarySha256 string `json:"binarySha256,omitempty"`
+}
+
+// executableSha256 hashes the running executable's content, "" when it cannot
+// be read. The version and the commit do not change on a rebuild with
+// uncommitted changes; the content does.
+func executableSha256() string {
+	binary, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+	return fileSha256(binary)
+}
+
+func fileSha256(path string) string {
+	file, err := os.Open(path)
+	if err != nil {
+		return ""
+	}
+	defer file.Close()
+	hash := sha256.New()
+	if _, err := io.Copy(hash, file); err != nil {
+		return ""
+	}
+	return hex.EncodeToString(hash.Sum(nil))
 }
 
 type desktopRun struct {
@@ -90,7 +127,7 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 	// the version never changes while the process lives.
 	if r.URL.Path == "/desktop/version" && r.Method == http.MethodGet {
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(version.Current())
+		_ = json.NewEncoder(w).Encode(desktopVersion{Info: version.Current(), BinarySha256: d.loopback.binarySha256})
 		return
 	}
 	if r.URL.Path == "/desktop/mcp" {
@@ -466,18 +503,30 @@ func (d *agentDaemon) desktopProjects(w http.ResponseWriter, r *http.Request) {
 		// clears the override, so a mono-repo checkout carries the
 		// specifications again.
 		SpecPath *string `json:"specPath"`
+		// SpecArtifacts overrides the project's choice to keep or drop the
+		// tasks' specification artefacts on this workstation (#487);
+		// InheritSpecArtifacts removes the override.
+		SpecArtifacts        *string `json:"specArtifacts"`
+		InheritSpecArtifacts bool    `json:"inheritSpecArtifacts"`
 	}
 	if json.NewDecoder(http.MaxBytesReader(w, r.Body, 8192)).Decode(&input) != nil || input.ProjectID == "" || !filepath.IsAbs(input.Path) {
 		http.Error(w, "Project and absolute repository path required", 400)
 		return
 	}
-	if _, err := d.fetchConfig(r.Context(), input.ProjectID, ""); err != nil {
+	serverConfig, err := d.fetchConfig(r.Context(), input.ProjectID, "")
+	if err != nil {
 		http.Error(w, err.Error(), 400)
 		return
 	}
 	if _, err := gitLocal(r.Context(), input.Path, "rev-parse", "--show-toplevel"); err != nil {
 		http.Error(w, "Select a local Git repository", 400)
 		return
+	}
+	if input.SpecArtifacts != nil && !input.InheritSpecArtifacts {
+		if value := *input.SpecArtifacts; value != models.SpecArtifactsKeep && value != models.SpecArtifactsDrop {
+			http.Error(w, "Specifications must be keep or drop", 400)
+			return
+		}
 	}
 	specPath := ""
 	if input.SpecPath != nil {
@@ -610,6 +659,14 @@ func (d *agentDaemon) desktopProjects(w http.ResponseWriter, r *http.Request) {
 	if input.InheritWorktrees {
 		delete(overrides.Worktrees, input.ProjectID)
 	}
+	if input.InheritSpecArtifacts {
+		delete(overrides.SpecArtifacts, input.ProjectID)
+	} else if input.SpecArtifacts != nil {
+		if overrides.SpecArtifacts == nil {
+			overrides.SpecArtifacts = map[string]string{}
+		}
+		overrides.SpecArtifacts[input.ProjectID] = *input.SpecArtifacts
+	}
 	if input.InheritTerminal {
 		delete(overrides.Terminals, input.ProjectID)
 	} else if input.Terminal != nil {
@@ -627,6 +684,9 @@ func (d *agentDaemon) desktopProjects(w http.ResponseWriter, r *http.Request) {
 	if err := agentconfig.WriteSettings(overrides); err != nil {
 		http.Error(w, err.Error(), 500)
 		return
+	}
+	if !agentconfig.ApplyOverrides(serverConfig, overrides).DropsSpecArtifacts() {
+		clearSpecExclusions(r.Context(), serverConfig, overrides, input.Path)
 	}
 	w.WriteHeader(204)
 }
@@ -675,6 +735,7 @@ func (d *agentDaemon) disconnectProject(w http.ResponseWriter, r *http.Request) 
 	settings.DisconnectedProjects[id] = true
 	delete(settings.Projects, id)
 	delete(settings.Worktrees, id)
+	delete(settings.SpecArtifacts, id)
 	delete(settings.Parallelism, id)
 	delete(settings.Commands, id)
 	delete(settings.CommandsAutonomous, id)
@@ -791,6 +852,7 @@ func (d *agentDaemon) desktopProject(w http.ResponseWriter, r *http.Request) {
 		}
 		effective := agentconfig.ApplyOverrides(config, overrides)
 		_, worktreeOverride := overrides.Worktrees[id]
+		_, specArtifactsOverride := overrides.SpecArtifacts[id]
 		// The inherited folder follows the code checkout: only an override is
 		// stored, so a later change of the local repository carries it along.
 		specDefault := ""
@@ -815,6 +877,9 @@ func (d *agentDaemon) desktopProject(w http.ResponseWriter, r *http.Request) {
 			"aiCommandTemplateAutonomous": effective.AICommandTemplateAutonomous,
 			"commandOverride":             overrides.Commands[id] != "" || overrides.CommandsAutonomous[id] != "",
 			"worktreeOverride":            worktreeOverride,
+			"specArtifacts":               models.NormalizeSpecArtifacts(effective.SpecArtifacts),
+			"specArtifactsOverride":       specArtifactsOverride,
+			"specArtifactsTracked":        trackedSpecArtifacts(r.Context(), root, mappingErr),
 			"parallelism":                 agentconfig.ExecutionLimit(id, effective.UseWorktrees, overrides),
 			"aiProvider":                  effective.AIProvider,
 			"aiModel":                     effective.AIModel,

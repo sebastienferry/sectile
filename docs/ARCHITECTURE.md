@@ -34,7 +34,7 @@ flowchart TB
         Agent --> Repos
     end
 
-    Forges["GitHub · Jira"]
+    Forges["GitHub · GitLab · Jira"]
 
     UI -->|"REST + SSE"| Server
     Agent <-->|"authenticated WebSocket<br/>(dispatch, workspace operations)"| Server
@@ -72,7 +72,7 @@ sequenceDiagram
     participant A as sectile-agent
     participant C as Coding CLI
     participant M as MCP bridge
-    participant F as GitHub / Jira
+    participant F as GitHub / GitLab / Jira
 
     UI->>S: launch a skill on a task (mode: interactive or autonomous)
     S->>S: record the launch activity

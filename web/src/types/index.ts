@@ -13,7 +13,7 @@ export type Status =
   | 'to_validate'
   | 'done'
 
-export type TaskSource = 'github' | 'jira' | 'local'
+export type TaskSource = 'github' | 'gitlab' | 'jira' | 'local'
 
 export type TerminalDockPosition = 'bottom' | 'left' | 'right'
 
@@ -244,6 +244,12 @@ export interface Project {
    */
   prCreationStage?: 'specified' | 'implemented'
   useWorktrees?: boolean
+  /**
+   * Whether the tasks' clarification and specification files are committed
+   * with the code ("keep", the default) or left in the task worktree and
+   * ignored by Git ("drop"). A workstation may override it.
+   */
+  specArtifacts?: 'keep' | 'drop'
   /**
    * Mode d'exécution des skills quand ni le lancement ni la skill n'en fixe un.
    * Vide vaut « interactif », le comportement historique.
@@ -601,7 +607,7 @@ export type DetailMode = 'modal' | 'panel'
 
 export type AIProvider = 'agy' | 'vibe' | 'claude' | 'gemini' | 'codex' | 'cursor' | 'custom'
 
-export type IssueTracker = 'github' | 'jira' | 'local'
+export type IssueTracker = 'github' | 'gitlab' | 'jira' | 'local'
 
 /**
  * Spec-Driven Design frameworks Sectile can scaffold into a project.
@@ -734,12 +740,8 @@ export interface TaskFacetValue {
  * projet et jeton pour GitLab.
  */
 export interface TrackerCredentials {
-  /**
-   * GitLab n'est pas dans `IssueTracker` : ses paramètres se configurent, mais
-   * aucun adaptateur GitLab n'est enregistré, donc un projet ne peut pas encore
-   * le choisir comme tracker. Jira et GitHub, eux, en ont un.
-   */
-  tracker: IssueTracker | 'gitlab'
+  /** A tracker a credential can be stored for: every remote one. */
+  tracker: Exclude<IssueTracker, 'local'>
   siteUrl: string
   /** Dépôt GitHub (`owner/repo`) ou projet GitLab (`groupe/projet`). */
   project?: string
