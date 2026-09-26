@@ -67,6 +67,8 @@ internal/webui/dist/*
 .gemini/skills/
 .skills/
 .mcp.json
+# The golden plugin's MCP declaration: placeholders only, no address or key.
+!internal/skills/testdata/plugin/.mcp.json
 
 # Local desktop build outputs
 desktop/bin/

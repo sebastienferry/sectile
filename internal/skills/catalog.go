@@ -13,7 +13,10 @@ import (
 	"embed"
 	"encoding/json"
 	"fmt"
+	"io/fs"
+	"path"
 	"path/filepath"
+	"sort"
 	"strings"
 	"text/template"
 
@@ -375,9 +378,20 @@ func renderMacroRunContract(s StageSkill) string {
 	return strings.TrimRight(readContractFragment("macro-run"), "\n") + "\n"
 }
 
+// directTaskAccessFallback is the HTTP fallback of a skill the direct setup
+// writes, which runs beside a local agent.
+const directTaskAccessFallback = "http://localhost:8090"
+
+// genericTaskAccessFallback is the same fallback in a plugin skill, which
+// carries no address: the server is the one the user gave at install time.
+const genericTaskAccessFallback = "the Sectile server URL the plugin was installed with (its server_url setting)"
+
 // renderTaskAccessContract keeps task access consistent across skills and commands.
-func renderTaskAccessContract() string {
-	return strings.TrimRight(readContractFragment("task-access"), "\n") + "\n\n"
+func renderTaskAccessContract(fallback string) string {
+	res := executeContractTemplate(readContractFragment("task-access"), map[string]any{
+		"Fallback": fallback,
+	})
+	return strings.TrimRight(res, "\n") + "\n\n"
 }
 
 // renderSessionTitleContract names the agent session after the work item it runs
@@ -454,7 +468,33 @@ func RenderSkillContent(s StageSkill, specFramework string) string {
 	if s.ID == "pickup" || s.ID == "pickup_issues" {
 		steps = renderPickupSteps(specFramework, s.ID == "pickup_issues")
 	}
+	return assembleSkill(s, name, readFirst, steps, directTaskAccessFallback)
+}
 
+// RenderGenericSkillContent builds the SKILL.md of one skill for every project
+// at once, as the Claude plugin distributes it: where RenderSkillContent picks
+// the fragment of the project's specification framework, this carries each
+// variant under a heading naming the framework, and the agent reads the
+// project's value from get_project_context at run time. The pull-request
+// policy is generic for the same reason.
+func RenderGenericSkillContent(s StageSkill) string {
+	name := s.Title
+	if name == "" {
+		name = s.Name
+	}
+	readFirst := genericSkillFragment(s.ID, "read-first", "###")
+	steps := genericSkillFragment(s.ID, "steps", "###")
+	if s.ID == "pickup" || s.ID == "pickup_issues" {
+		steps = renderGenericPickupSteps(s.ID == "pickup_issues")
+	}
+	content := assembleSkill(s, name, readFirst, steps, genericTaskAccessFallback)
+	if HasPullRequestPolicy(s.ID) {
+		content += GenericPullRequestPolicy()
+	}
+	return content
+}
+
+func assembleSkill(s StageSkill, name, readFirst, steps, taskAccessFallback string) string {
 	goal := readSkillFragment(s.ID, "goal", "")
 	guard := readSkillFragment(s.ID, "guard", "")
 	report := readSkillFragment(s.ID, "report", "")
@@ -471,7 +511,7 @@ func RenderSkillContent(s StageSkill, specFramework string) string {
 		b.WriteString("Interactive: the user answers in the terminal.")
 	}
 	b.WriteString("\n\n")
-	b.WriteString(renderTaskAccessContract())
+	b.WriteString(renderTaskAccessContract(taskAccessFallback))
 	b.WriteString(renderSessionTitleContract(s))
 	fmt.Fprintf(&b, "## Goal\n%s\n\n", goal)
 	if readFirst != "" {
@@ -497,6 +537,106 @@ func RenderSkillContent(s StageSkill, specFramework string) string {
 		fmt.Fprintf(&b, "## Report\n%s\n", report)
 	}
 	return b.String()
+}
+
+// SpecFrameworks lists the specification frameworks some fragment has a
+// variant for, read from the embedded fragment names so that adding a variant
+// file is enough for the generic skills to carry it.
+func SpecFrameworks() []string {
+	seen := map[string]bool{}
+	entries, _ := fs.Glob(embeddedSkillsFS, "fragments/*/*.*.md")
+	for _, entry := range entries {
+		parts := strings.Split(path.Base(entry), ".")
+		if len(parts) == 3 {
+			seen[parts[1]] = true
+		}
+	}
+	out := make([]string, 0, len(seen))
+	for framework := range seen {
+		out = append(out, framework)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// genericSkillFragment returns a fragment that does not depend on the
+// framework as it is, and one that does as a subsection per framework, then the
+// unsuffixed fragment for any other value. A variant identical to the
+// unsuffixed fragment adds nothing and is left to "Otherwise".
+func genericSkillFragment(skillID, name, level string) string {
+	fallback := readSkillFragment(skillID, name, "")
+	var variants []string
+	for _, framework := range SpecFrameworks() {
+		data, err := embeddedSkillsFS.ReadFile(path.Join("fragments", skillID, name+"."+framework+".md"))
+		if err != nil || strings.TrimSpace(string(data)) == strings.TrimSpace(fallback) {
+			continue
+		}
+		variants = append(variants, fmt.Sprintf("%s When get_project_context reports specFramework %q\n%s", level, framework, strings.TrimRight(string(data), "\n")))
+	}
+	if len(variants) == 0 {
+		return fallback
+	}
+	if strings.TrimSpace(fallback) != "" {
+		variants = append(variants, fmt.Sprintf("%s Otherwise\n%s", level, strings.TrimRight(fallback, "\n")))
+	}
+	return "Read specFramework from get_project_context and follow the subsection that matches it.\n\n" + strings.Join(variants, "\n\n")
+}
+
+// renderGenericPickupSteps is renderPickupSteps with every framework variant
+// of the composed stages.
+func renderGenericPickupSteps(batch bool) string {
+	var b strings.Builder
+	header := executeContractTemplate(readContractFragment("pickup-header"), map[string]any{
+		"Batch": batch,
+	})
+	b.WriteString(strings.TrimRight(header, "\n") + "\n")
+
+	for _, id := range []string{"clarify", "specify", "implement", "adjust"} {
+		step, _ := StageSkillByID(id)
+		readFirst := genericSkillFragment(id, "read-first", "####")
+		steps := genericSkillFragment(id, "steps", "####")
+		guard := readSkillFragment(id, "guard", "")
+		report := readSkillFragment(id, "report", "")
+		fmt.Fprintf(&b, "\n### %s\n%s\n\n%s\n\n%s\n\nReport and persist before continuing:\n%s\n", step.Title, readFirst, steps, guard, report)
+	}
+	return b.String()
+}
+
+// HasPullRequestPolicy says whether a skill carries the project's pull-request
+// policy: the steps that may open or update one.
+func HasPullRequestPolicy(skillID string) bool {
+	switch skillID {
+	case "specify", "implement", "adjust", "pickup", "pickup_issues":
+		return true
+	}
+	return false
+}
+
+const (
+	pullRequestPolicySpecified   = "After the specification is written and validated, commit and push the specification on the task branch and open a draft PR/MR for specification review. Reuse an existing PR/MR for that branch. Include its URL as prUrl in the specified transition. Keep newly created PRs draft while implementing; preserve an existing ready PR; update the same PR/MR and mark it ready only after implementation and review. Do not mark the task reviewed merely because a draft exists. When the specification files are ignored by Git (dropped artefacts), open no PR at this stage, say so in the report, and create the draft after implementation.\n"
+	pullRequestPolicyImplemented = "After successful implementation checks, commit and push the branch, discover and reuse its open PR/MR or create a draft when absence is confirmed. Include its URL as prUrl in the implemented transition. Do not create one during specification or adjustment. Lookup failure is not absence. Preserve an existing ready PR.\n"
+)
+
+// ProjectPullRequestPolicy is the pull-request section appended to a skill
+// rendered for one project, whose creation stage is "specified" or anything
+// else, which reads as "implemented".
+func ProjectPullRequestPolicy(timing string) string {
+	if timing != "specified" {
+		timing = "implemented"
+	}
+	out := "\n## Project pull request policy\nPR creation stage: " + timing + ". Read this setting from get_project_context before executing. "
+	if timing == "specified" {
+		return out + pullRequestPolicySpecified
+	}
+	return out + pullRequestPolicyImplemented
+}
+
+// GenericPullRequestPolicy is the same section for every project: both
+// wordings, chosen by what get_project_context reports.
+func GenericPullRequestPolicy() string {
+	return "\n## Project pull request policy\nRead prCreationStage from get_project_context before executing.\n\n" +
+		"### When prCreationStage is \"specified\"\n" + pullRequestPolicySpecified +
+		"\n### Otherwise (\"implemented\" or empty)\n" + pullRequestPolicyImplemented
 }
 
 // ProjectSkillTemplate is one skill ready to be provisioned into a checkout:
