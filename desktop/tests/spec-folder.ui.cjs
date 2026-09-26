@@ -3,12 +3,12 @@ const assert=require('node:assert/strict')
 const {_electron:electron,expect}=require('@playwright/test')
 const http=require('node:http'),fs=require('node:fs'),os=require('node:os'),path=require('node:path')
 
-// The specifications folder of a mono-repo project shares the code repository
-// behind a checkbox, a multi-repo project is flagged without one while still
-// saving, and the detected kind names the folder it was detected on.
-test('desktop specifications folder follows the repository layout and names what it detected',async()=>{
+// The specifications folder shares the code repository behind a checkbox on
+// every project (#484), is never flagged as required, and the detected kind
+// names the folder it was detected on.
+test('desktop specifications folder shares the code repository and names what it detected',async()=>{
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'sectile-spec-ui-')),saves=[]
- let project={configured:true,monoRepo:true,path:'/test/repo',specPath:'',specDefault:'/test/repo',specKind:'git',aiProvider:'agy',server:{projectId:'p',projectName:'Test project',aiProvider:'agy',skills:[]}}
+ let project={configured:true,path:'/test/repo',specPath:'',specDefault:'/test/repo',specKind:'git',aiProvider:'agy',server:{projectId:'p',projectName:'Test project',aiProvider:'agy',skills:[]}}
  const server=http.createServer((req,res)=>{
   res.setHeader('Content-Type','application/json')
   const url=new URL(req.url,'http://localhost')
@@ -18,7 +18,7 @@ test('desktop specifications folder follows the repository layout and names what
     let body='';req.on('data',chunk=>body+=chunk);req.on('end',()=>{
      const input=JSON.parse(body);saves.push(input)
      // The agent stores a plain folder as typed and says it is one.
-     project={...project,specPath:input.specPath,specKind:input.specPath?'folder':project.monoRepo?'git':'unset'}
+     project={...project,specPath:input.specPath,specKind:input.specPath?'folder':'git'}
      res.statusCode=204;res.end()
     });return
    }
@@ -42,16 +42,15 @@ test('desktop specifications folder follows the repository layout and names what
     field:page.getByRole('textbox',{name:'Specifications folder',exact:true}),
     same:page.getByRole('checkbox',{name:'Specifications live in the code repository',exact:true}),
     kind:page.getByRole('status',{name:'Specifications folder kind',exact:true}),
-    row:page.locator('.setting-row',{hasText:'Specifications folder'}),
-    layout:page.locator('.setting-row',{hasText:'Repository layout'})
+    row:page.locator('.setting-row',{hasText:'Specifications folder'})
    }
   }
   const save=()=>page.getByRole('button',{name:'Save local configuration',exact:true}).click()
 
-  // Mono-repo, no override: the box is ticked, the folder hidden, and the kind
-  // names the checkout it was detected on.
-  let {field,same,kind,row,layout}=await open()
-  await expect(layout).toContainText('Mono-repo')
+  // No override: the box is ticked, the folder hidden, and the kind names the
+  // checkout it was detected on. The removed repository layout is not shown.
+  let {field,same,kind,row}=await open()
+  await expect(page.locator('.setting-row',{hasText:'Repository layout'})).toHaveCount(0)
   await expect(same).toBeChecked()
   await expect(field).toBeHidden()
   await expect(row).toContainText('in the local repository')
@@ -78,24 +77,19 @@ test('desktop specifications folder follows the repository layout and names what
   await expect(kind).toHaveText('Git repository · /test/repo')
   await page.keyboard.press('Escape')
 
-  // Multi-repo, nothing set: no box, the folder flagged as required, and
-  // saving still works.
-  project={...project,monoRepo:false,specPath:'',specDefault:'',specKind:'unset'}
-  ;({field,same,kind,row,layout}=await open())
-  await expect(layout).toContainText('Multi-repo')
-  await expect(same).toBeHidden()
-  await expect(field).toHaveAttribute('placeholder','Required for a multi-repo project')
-  await expect(field).toHaveAttribute('aria-invalid','true')
-  await expect(row).toContainText('Required')
-  // An empty kind is hidden, and so out of the accessibility tree.
-  await expect(page.locator('.spec-kind')).toBeHidden()
-
+  // A project that used to be multi-repo reopens the same way: the box is
+  // offered and nothing is flagged as required.
+  ;({field,same,kind,row}=await open())
+  await expect(same).toBeVisible()
+  await expect(same).toBeChecked()
+  await expect(row).not.toContainText('Required')
+  await same.uncheck()
+  await expect(field).toHaveAttribute('placeholder','Folder holding the specifications')
   await field.fill('/test/plain-specs')
   await save()
   await expect.poll(()=>saves.length).toBe(3)
   assert.equal(saves[2].specPath,'/test/plain-specs')
   await expect(kind).toHaveText('Folder, not a Git repository · /test/plain-specs')
-  await expect(field).toHaveAttribute('aria-invalid','false')
  }finally{
   if(app)await app.close()
   await new Promise(resolve=>server.close(resolve))

@@ -154,11 +154,6 @@ type Project struct {
 	// hand.
 	BoardID        string          `json:"boardId,omitempty"`
 	TrackerColumns []TrackerColumn `json:"trackerColumns,omitempty"`
-	// MonoRepo says the project lives in a single repository. The current branch,
-	// the branch switcher and the branch shown on a card only mean something
-	// there: on a project whose tickets span several repositories, they display
-	// the branch of whichever repository happens to be configured.
-	MonoRepo bool `json:"monoRepo"`
 	// IssueTypes names the tracker work item types this project imports as cards.
 	// Empty means the default (Task and Story). A project whose tracker exposes
 	// its own type imports nothing without it: a feedback project may carry a
@@ -407,10 +402,7 @@ type CreateProjectRequest struct {
 	// EpicColors paints each card with the colour of its epic. Off when absent.
 	EpicColors bool `json:"epicColors,omitempty"`
 	// RoadmapProjects are the Jira project keys the slicing also reads.
-	RoadmapProjects []string `json:"roadmapProjects,omitempty"`
-	// MonoRepo defaults to true when absent: a single repository is the common
-	// case, and it is what the tool did before the setting existed.
-	MonoRepo            *bool    `json:"monoRepo,omitempty"`
+	RoadmapProjects     []string `json:"roadmapProjects,omitempty"`
 	Name                string   `json:"name"`
 	Slug                string   `json:"slug,omitempty"`
 	Description         string   `json:"description,omitempty"`
@@ -454,7 +446,6 @@ type UpdateProjectRequest struct {
 	IssueTypes          *[]string            `json:"issueTypes,omitempty"`
 	EnabledViews        *[]string            `json:"enabledViews,omitempty"`
 	EpicColors          *bool                `json:"epicColors,omitempty"`
-	MonoRepo            *bool                `json:"monoRepo,omitempty"`
 	StageColumns        *map[string][]string `json:"stageColumns,omitempty"`
 	GitRemoteUrl        *string              `json:"gitRemoteUrl,omitempty"`
 	GithubRepo          *string              `json:"githubRepo,omitempty"`
@@ -804,8 +795,9 @@ type Task struct {
 	// project's repoPath, for trackers where one epic spans several codebases.
 	// Empty means "inherit the project, then the global setting".
 	RepoPath *string `json:"repoPath,omitempty"`
-	// Repository pins the repository, by identity, this ticket works in on a
-	// multi-repo project. Empty means not pinned.
+	// Repository pins the repository, by identity, this ticket works in, one
+	// of its project's repositories. Empty means not pinned: the ticket works
+	// in the code repository.
 	Repository string `json:"repository,omitempty"`
 	// ChangedRepositories are the other repositories, by identity, in which
 	// the ticket has a worktree on its branch. Each needs its pull request.

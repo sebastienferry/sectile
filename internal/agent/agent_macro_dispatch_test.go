@@ -16,34 +16,25 @@ import (
 	"tasks/internal/testhome"
 )
 
+// Every project's code checkout carries its specifications unless the
+// workstation names another folder (#484).
 func TestLocalSpecRepoPrefersTheWorkstationMapping(t *testing.T) {
 	root := t.TempDir()
-	if got, err := localSpecRepo(agentconfig.Settings{}, "p1", root, true); err != nil || got != root {
-		t.Fatalf("without an override a mono-repo checkout carries the specifications: %q %v", got, err)
+	if got, err := localSpecRepo(agentconfig.Settings{}, "p1", root); err != nil || got != root {
+		t.Fatalf("without an override the code checkout carries the specifications: %q %v", got, err)
 	}
 	wiki := t.TempDir()
 	overrides := agentconfig.Settings{ProjectSettings: map[string]agentconfig.ProjectSettings{"p1": {SpecPath: wiki}}}
-	for _, mono := range []bool{true, false} {
-		if got, err := localSpecRepo(overrides, "p1", root, mono); err != nil || got != wiki {
-			t.Fatalf("the override must win (monoRepo %v): %q %v", mono, got, err)
-		}
+	if got, err := localSpecRepo(overrides, "p1", root); err != nil || got != wiki {
+		t.Fatalf("the override must win: %q %v", got, err)
 	}
-	if got, _ := localSpecRepo(overrides, "p2", root, true); got != root {
+	if got, _ := localSpecRepo(overrides, "p2", root); got != root {
 		t.Fatalf("another project's override must not apply, got %q", got)
 	}
 	missing := filepath.Join(t.TempDir(), "gone")
 	overrides.ProjectSettings["p1"] = agentconfig.ProjectSettings{SpecPath: missing}
-	if _, err := localSpecRepo(overrides, "p1", root, true); err == nil || !strings.Contains(err.Error(), missing) {
+	if _, err := localSpecRepo(overrides, "p1", root); err == nil || !strings.Contains(err.Error(), missing) {
 		t.Fatalf("an override to a missing directory must be refused by name, got %v", err)
-	}
-}
-
-// A multi-repo project never falls back on the code checkout: the refusal
-// names the desktop setting instead.
-func TestLocalSpecRepoRequiresTheFolderOnAMultiRepoProject(t *testing.T) {
-	got, err := localSpecRepo(agentconfig.Settings{}, "p1", t.TempDir(), false)
-	if err == nil || got != "" || !strings.Contains(err.Error(), "Specifications folder") {
-		t.Fatalf("a multi-repo project without a folder must be refused naming the setting, got %q %v", got, err)
 	}
 }
 
@@ -102,22 +93,17 @@ func TestMacroWorkspacePreparesWithoutATask(t *testing.T) {
 	}
 }
 
-// A multi-repo project whose specifications folder is a plain folder: the
-// launch writes in that folder, with no branch, and the command line carries
-// no dangling branch text. Without the folder the launch is refused.
-func TestMacroWorkspaceOnAPlainFolderOfAMultiRepoProject(t *testing.T) {
+// A project whose specifications folder is a plain folder: the launch writes
+// in that folder, with no branch, and the command line carries no dangling
+// branch text.
+func TestMacroWorkspaceOnAPlainSpecificationsFolder(t *testing.T) {
 	ctx := context.Background()
 	testhome.Temp(t)
 	root, _ := specRepoWithRemote(t)
 	plain := t.TempDir()
-	mono := false
-	config := agentconfig.Config{SchemaVersion: 1, ProjectID: "remote-project", UseWorktrees: true, AIProvider: "claude", MonoRepo: &mono,
+	config := agentconfig.Config{SchemaVersion: 1, ProjectID: "remote-project", UseWorktrees: true, AIProvider: "claude",
 		Skills: []agentconfig.Skill{{ID: "realign_macro", Directory: "realign-macro", Command: "/realign-macro", Content: "realign instructions"}}}
 	d := &agentDaemon{repoRoot: root, loopback: loopbackServer{url: "http://127.0.0.1:8091"}, link: serverLink{serverURL: "http://127.0.0.1:9", token: "token", projectID: "remote-project"}}
-
-	if _, _, _, err := d.prepareMacroWorkspace(ctx, config, "M-7", "Ux"); err == nil || !strings.Contains(err.Error(), "Specifications folder") {
-		t.Fatalf("a multi-repo project without a folder must be refused naming the setting, got %v", err)
-	}
 
 	if err := agentconfig.WriteSettings(agentconfig.Settings{ProjectSettings: map[string]agentconfig.ProjectSettings{"remote-project": {SpecPath: plain}}}); err != nil {
 		t.Fatal(err)
@@ -158,14 +144,13 @@ func TestMacroRunsShareACheckoutOnlyForTheSameMacro(t *testing.T) {
 }
 
 // The server's slicing import reads the macro's specification through the
-// agent, in the workstation's specifications folder: the code checkout on a
-// mono-repo project, the override otherwise, and a plain folder is enough.
+// agent, in the workstation's specifications folder: the code checkout
+// without an override, the override otherwise, and a plain folder is enough.
 func TestMacroSpecFileReadsTheWorkstationFolder(t *testing.T) {
 	ctx := context.Background()
 	testhome.Temp(t)
 	root, _ := specRepoWithRemote(t)
-	mono := true
-	config := agentconfig.Config{SchemaVersion: 1, ProjectID: "remote-project", AIProvider: "claude", SpecFramework: "speckit", MonoRepo: &mono}
+	config := agentconfig.Config{SchemaVersion: 1, ProjectID: "remote-project", AIProvider: "claude", SpecFramework: "speckit"}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(config)
@@ -194,12 +179,7 @@ func TestMacroSpecFileReadsTheWorkstationFolder(t *testing.T) {
 	inCode := write(root, "## 1. From the code checkout\n")
 	got, err := read()
 	if err != nil || got.Content != "## 1. From the code checkout\n" || !samePath(t, got.Origin, inCode) {
-		t.Fatalf("a mono-repo project reads its code checkout: %+v %v", got, err)
-	}
-
-	mono = false
-	if _, err := read(); err == nil || !strings.Contains(err.Error(), "Specifications folder") {
-		t.Fatalf("a multi-repo project without a folder must be refused naming the setting, got %v", err)
+		t.Fatalf("a project without an override reads its code checkout: %+v %v", got, err)
 	}
 
 	plain := t.TempDir()

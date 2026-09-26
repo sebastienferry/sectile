@@ -46,8 +46,8 @@ type projectSettingsInput struct {
 	SpecArtifacts        *string `json:"specArtifacts"`
 	InheritSpecArtifacts bool    `json:"inheritSpecArtifacts"`
 	// SpecPath is the specifications folder on this workstation; empty
-	// clears the override, so a mono-repo checkout carries the
-	// specifications again.
+	// clears the override, so the code checkout carries the specifications
+	// again.
 	SpecPath *string `json:"specPath"`
 }
 

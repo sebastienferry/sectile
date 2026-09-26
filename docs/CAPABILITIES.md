@@ -24,7 +24,8 @@ Sectile supports multiple concurrent software repositories and projects from a s
   - `issue_tracker`: Tracker provider (`github`, `gitlab`, `jira`, or `local`).
   - `tracker_columns` / `stage_columns`: Board columns, the tracker statuses they group, and the workflow stage each column carries. This is what maps a Sectile stage onto an external tracker state.
   - `skill_overrides`: Project-specific prompt template overrides.
-  - `repositories`: On a multi-repo project, the remotes its tickets work in, the code remote first. A ticket is pinned to one of them and runs in a worktree of it; the others are context the agent is told not to change (an instruction, not enforced), and a skill asks for a worktree in one before changing it, which then needs its own pull request (#456, ADR 0028).
+  - `repositories`: The remotes its tickets work in, the code remote first. A ticket pinned to one of them runs in a worktree of it, an unpinned one in the code repository; the others are context the agent is told not to change (an instruction, not enforced), and a skill asks for a worktree in one before changing it, which then needs its own pull request (#456, ADR 0028, ADR 0036).
+  - Attached folders: other folders a workstation attaches to the project in the desktop settings, kept on that workstation only and handed to every launch as context. An attached Git repository with a remote is changed through a worktree and its own pull request, a folder without a remote in place (#484, ADR 0036).
 
 - **Dynamic Workspace Switcher**:
   - The UI allows filtering tasks by project (`All Projects` vs individual projects).

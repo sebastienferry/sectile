@@ -107,11 +107,10 @@ func declaredRepositoryURLs(p *models.Project) []string {
 }
 
 // taskPin is the repository a ticket is pinned to, as far as its project is
-// concerned: nothing on a mono-repo project, whose tickets live in one
-// repository, and nothing for a pin to a repository the project no longer
-// declares. The agent reads a pin the same way (models.ResolvePrimaryRepository).
+// concerned: nothing for a pin to a repository the project no longer declares.
+// The agent reads a pin the same way (models.ResolvePrimaryRepository).
 func taskPin(project *models.Project, task *models.Task) string {
-	if project == nil || task == nil || project.MonoRepo {
+	if project == nil || task == nil {
 		return ""
 	}
 	if repository, ok := models.FindProjectRepository(project.Repositories, task.Repository); ok {
@@ -120,21 +119,20 @@ func taskPin(project *models.Project, task *models.Task) string {
 	return ""
 }
 
-// taskChangedRepositories are the secondary repositories a ticket changed that
-// its project still declares, the primary one left out.
+// taskChangedRepositories are the secondary repositories a ticket changed, the
+// primary one left out. A folder attached on a workstation only is one of them
+// as much as a project repository (#484): each needs its pull request.
 func taskChangedRepositories(project *models.Project, task *models.Task) []string {
-	if project == nil || task == nil || project.MonoRepo {
+	if project == nil || task == nil {
 		return nil
 	}
 	primary := TaskPrimaryRepository(project, task)
 	var changed []string
 	for _, identity := range task.ChangedRepositories {
-		if identity == primary || slices.Contains(changed, identity) {
+		if identity == "" || identity == primary || slices.Contains(changed, identity) {
 			continue
 		}
-		if _, ok := models.FindProjectRepository(project.Repositories, identity); ok {
-			changed = append(changed, identity)
-		}
+		changed = append(changed, identity)
 	}
 	return changed
 }
@@ -277,38 +275,6 @@ func (d *DB) AddChangedRepository(taskID, identity string) error {
 	})
 }
 
-// MarkRunAwaitingRepository parks a launch until its ticket is pinned to a
-// repository, or releases it. Unlike a wait declared by a session, it applies
-// to an autonomous run too: the answer is a pin on the ticket, which anybody
-// can give from the board, not a reply in the session. Only the run's owner,
-// or an admin, may set it.
-func (d *DB) MarkRunAwaitingRepository(caller Actor, admin bool, runID string, waiting bool) (*models.TaskActivity, error) {
-	runID = strings.TrimSpace(runID)
-	existing, err := d.GetActivityByID(runID)
-	if err != nil {
-		return nil, err
-	}
-	if existing == nil || existing.SkillID != "remote_run" || existing.Status != "running" {
-		return nil, fmt.Errorf("remote run not found or no longer running")
-	}
-	if !admin && existing.UserID != "" && existing.UserID != caller.ID {
-		return nil, ErrRunNotYours
-	}
-	statement := "UPDATE task_activities SET waiting_since=NULL, waiting_session='', waiting_reason='' WHERE id=? AND skill_id='remote_run' AND status='running'"
-	args := []any{runID}
-	if waiting {
-		statement = "UPDATE task_activities SET waiting_since=COALESCE(waiting_since, ?), waiting_session='', waiting_reason='repository' WHERE id=? AND skill_id='remote_run' AND status='running'"
-		args = []any{time.Now(), runID}
-	}
-	d.mu.Lock()
-	_, err = d.conn.Exec(statement, args...)
-	d.mu.Unlock()
-	if err != nil {
-		return nil, err
-	}
-	return d.GetActivityByID(runID)
-}
-
 // TaskPrimaryRepository is the identity of the repository a ticket runs in:
 // its pin, else its project's code remote. Empty when neither exists.
 func TaskPrimaryRepository(project *models.Project, task *models.Task) string {
@@ -324,7 +290,10 @@ func TaskPrimaryRepository(project *models.Project, task *models.Task) string {
 // PrepareRepositoryWorktree asks the caller's local agent for the ticket's
 // worktree in a secondary repository, on the ticket's branch, and records that
 // repository as changed. Git runs on the agent's machine, which holds the
-// checkouts; the server only checks the request and relays it.
+// checkouts; the server only checks the request and relays it. The repository
+// is one of the project's, or a Git folder attached to the project on the
+// caller's workstation (#484), which only that agent knows: the server never
+// learns its path, and records its identity once the agent returned a worktree.
 func (d *DB) PrepareRepositoryWorktree(ctx context.Context, userID, taskKey, repository string) (*models.RepositoryWorktree, error) {
 	task, err := d.GetTaskByID(taskKey)
 	if err != nil {
@@ -340,12 +309,13 @@ func (d *DB) PrepareRepositoryWorktree(ctx context.Context, userID, taskKey, rep
 	if project == nil {
 		return nil, fmt.Errorf("project not found")
 	}
-	if project.MonoRepo {
-		return nil, fmt.Errorf("project %s is mono-repo: its tickets work in a single repository", project.Name)
-	}
 	target, ok := models.FindProjectRepository(project.Repositories, repository)
 	if !ok {
-		return nil, fmt.Errorf("%w: %s", ErrRepositoryNotInProject, strings.TrimSpace(repository))
+		identity := models.RepositoryIdentity(repository)
+		if !remoteIdentity(identity) {
+			return nil, fmt.Errorf("%q does not name a repository: give the repository's remote URL or host/path; a folder without a remote is changed in place, with no worktree and no pull request", strings.TrimSpace(repository))
+		}
+		target = models.ProjectRepository{URL: strings.TrimSpace(repository), Identity: identity}
 	}
 	branch := ""
 	if task.BranchName != nil {
@@ -370,4 +340,11 @@ func (d *DB) PrepareRepositoryWorktree(ctx context.Context, userID, taskKey, rep
 		return nil, err
 	}
 	return &worktree, nil
+}
+
+// remoteIdentity tells an identity derived from a remote (host/path) from what
+// a folder path or a bare name reduces to, which names no repository.
+func remoteIdentity(identity string) bool {
+	host, path, ok := strings.Cut(identity, "/")
+	return ok && host != "" && path != "" && !strings.ContainsAny(identity, `\~`) && !strings.HasPrefix(host, ".")
 }

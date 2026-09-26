@@ -3421,34 +3421,6 @@ func (h *Handler) HandleActivityDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Sub-action: /api/activities/{id}/awaiting-repository
-	// The local agent parks a launch until its ticket is pinned to a
-	// repository (#456), autonomous runs included: the answer is a pin on the
-	// ticket, not a reply in the session. Like the engine report below, it is
-	// sent by the local agent with its own credential, which the middleware
-	// has authenticated; an identified caller must own the run or be an admin.
-	if len(parts) >= 2 && parts[1] == "awaiting-repository" && r.Method == http.MethodPost {
-		var body struct {
-			Waiting *bool `json:"waiting"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Waiting == nil {
-			writeError(w, http.StatusBadRequest, "Body must be {\"waiting\": true|false}")
-			return
-		}
-		caller := h.webPrincipal(r)
-		activity, err := h.db.MarkRunAwaitingRepository(caller.Actor(), caller.IsAdmin() || caller.Anonymous(), id, *body.Waiting)
-		if errors.Is(err, db.ErrRunNotYours) {
-			writeError(w, http.StatusForbidden, err.Error())
-			return
-		}
-		if err != nil {
-			writeError(w, http.StatusNotFound, err.Error())
-			return
-		}
-		writeJSON(w, http.StatusOK, activity)
-		return
-	}
-
 	// Sub-action: /api/activities/{id}/engine
 	// Reported by the local agent once it has built the command line, which is
 	// the only place the workstation override is applied. It corrects what the

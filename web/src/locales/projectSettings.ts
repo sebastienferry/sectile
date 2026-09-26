@@ -38,9 +38,6 @@ const fr = {
   repositories: {
     sectionTitle: 'Dépôt Git',
     remoteUrlLabel: 'URL distante Git',
-    monoRepo: 'Mono-repo : le code et les spécifications vivent dans ce dépôt',
-    monoRepoHelp:
-      "Décochez quand les tickets couvrent plusieurs dépôts. Chaque poste déclare alors son dossier de spécifications dans l'application desktop.",
     listLabel: 'Dépôts',
     codeRepositoryTitle: "Le dépôt de code, issu de l'URL distante ci-dessus",
     codeBadge: 'code',
@@ -50,7 +47,7 @@ const fr = {
     add: 'Ajouter',
     duplicate: 'Ce dépôt est déjà listé ({identity}).',
     droppedPaths: 'Chemins non convertis en dépôts : {paths}',
-    desktopNote: "Les dépôts locaux et les consoles d'exécution se gèrent dans l'agent desktop.",
+    desktopNote: "Les dépôts locaux, les dossiers attachés et les consoles d'exécution se gèrent dans l'agent desktop.",
   },
   views: {
     sectionTitle: "Vues de l'espace de travail",
@@ -286,9 +283,6 @@ const en: ProjectSettingsStrings = {
   repositories: {
     sectionTitle: 'Git repository',
     remoteUrlLabel: 'Git remote URL',
-    monoRepo: 'Mono-repo: the code and the specifications live in this repository',
-    monoRepoHelp:
-      'Untick when tickets span several repositories. Each workstation then declares its specifications folder in the desktop app.',
     listLabel: 'Repositories',
     codeRepositoryTitle: 'The code repository, from the remote URL above',
     codeBadge: 'code',
@@ -298,7 +292,7 @@ const en: ProjectSettingsStrings = {
     add: 'Add',
     duplicate: 'This repository is already listed ({identity}).',
     droppedPaths: 'Paths not converted to repositories: {paths}',
-    desktopNote: 'Local repositories and execution consoles are managed in the desktop agent.',
+    desktopNote: 'Local repositories, attached folders and execution consoles are managed in the desktop agent.',
   },
   views: {
     sectionTitle: 'Workspace views',

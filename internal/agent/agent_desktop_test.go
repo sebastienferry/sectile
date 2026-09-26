@@ -417,11 +417,7 @@ func TestDesktopProjectDefaultEngine(t *testing.T) {
 			return
 		}
 		if strings.HasPrefix(r.URL.Path, "/api/projects/") {
-			json.NewEncoder(w).Encode(models.Project{
-				ID:       "p",
-				Name:     "Project P",
-				MonoRepo: false,
-			})
+			json.NewEncoder(w).Encode(models.Project{ID: "p", Name: "Project P"})
 			return
 		}
 		http.NotFound(w, r)
@@ -948,7 +944,7 @@ func TestAdmitProjectRunValidatesAutonomousPreflight(t *testing.T) {
 
 // The specifications folder may be a Git checkout, normalised to its top
 // level, or a plain folder kept as typed. The project info says which one is
-// in effect, and what a mono-repo project inherits.
+// in effect, and that every project inherits its code checkout (#484).
 func TestDesktopProjectSpecificationsFolder(t *testing.T) {
 	testhome.Temp(t)
 	root := t.TempDir()
@@ -960,13 +956,12 @@ func TestDesktopProjectSpecificationsFolder(t *testing.T) {
 	if err := agentconfig.WriteSettings(agentconfig.Settings{ProjectSettings: map[string]agentconfig.ProjectSettings{"p": {Path: root}}}); err != nil {
 		t.Fatal(err)
 	}
-	monoRepo := true
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case strings.HasPrefix(r.URL.Path, "/api/v1/agent/config"):
 			json.NewEncoder(w).Encode(agentconfig.Config{SchemaVersion: agentconfig.Version, ProjectID: "p", GitRemoteURL: "https://example.test/project.git", AIProvider: "claude"})
 		case strings.HasPrefix(r.URL.Path, "/api/projects/"):
-			json.NewEncoder(w).Encode(models.Project{ID: "p", Name: "Project P", MonoRepo: monoRepo})
+			json.NewEncoder(w).Encode(models.Project{ID: "p", Name: "Project P"})
 		default:
 			http.NotFound(w, r)
 		}
@@ -1015,11 +1010,14 @@ func TestDesktopProjectSpecificationsFolder(t *testing.T) {
 		return settings.SpecPath("p")
 	}
 
-	// Mono-repo without an override: the code checkout is inherited, and it is
-	// a Git repository.
+	// Without an override the code checkout is inherited, and it is a Git
+	// repository. The removed repository layout is not reported any more.
 	got := info()
 	if got["specPath"] != "" || !samePath(t, got["specDefault"].(string), root) || got["specKind"] != "git" {
-		t.Fatalf("a mono-repo project inherits its checkout: %v", got)
+		t.Fatalf("a project inherits its checkout: %v", got)
+	}
+	if _, reported := got["monoRepo"]; reported {
+		t.Fatalf("the removed repository layout is still reported: %v", got)
 	}
 
 	// A plain folder is accepted as typed, and shown as such.
@@ -1067,13 +1065,11 @@ func TestDesktopProjectSpecificationsFolder(t *testing.T) {
 		t.Fatalf("a deleted folder must read as missing: %v", info())
 	}
 
-	// Clearing removes the override; a multi-repo project then has nothing to
-	// inherit, and says so.
+	// Clearing removes the override, and the code checkout is inherited again.
 	if w := save(""); w.Code != 200 || stored() != "" {
 		t.Fatalf("clearing must remove the override: %d %q", w.Code, stored())
 	}
-	monoRepo = false
-	if got := info(); got["specDefault"] != "" || got["specKind"] != "unset" {
-		t.Fatalf("a multi-repo project inherits nothing: %v", got)
+	if got := info(); !samePath(t, got["specDefault"].(string), root) || got["specKind"] != "git" {
+		t.Fatalf("a cleared override inherits the checkout again: %v", got)
 	}
 }

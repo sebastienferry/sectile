@@ -223,10 +223,12 @@ or tracker credentials. Local repositories are mapped by project primary key in
 engine per project and the engine each task was switched to from the desktop
 ticket table. The agent applies the task's engine at dispatch, so the server
 and the dispatch contract know nothing of it. Git remote identity can match the current repository.
-Repositories are never cloned implicitly. On a multi-repo project, each
-repository the project declares is mapped by its remote identity instead
-(`repositories`), and a task runs in a worktree of the repository it is pinned
-to; a launch that cannot tell which waits for the pin (ADR 0028).
+Repositories are never cloned implicitly. Each other repository a project
+declares is mapped by its remote identity instead (`repositories`), and a task
+runs in a worktree of the repository it is pinned to, else of the code
+repository (ADR 0028, ADR 0036). A workstation can also attach folders to a
+project (`projectSettings.<id>.folders`): they are handed to every launch in
+the folder map and never leave the workstation (ADR 0036).
 
 Task preparation reuses the assigned branch's existing checkout where possible.
 Otherwise it creates `.tasks/worktrees/<taskKey>` locally. Existing mismatched

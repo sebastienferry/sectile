@@ -15,7 +15,7 @@ test('project settings override whether specification artefacts are dropped',asy
   res.setHeader('Content-Type','application/json')
   if(req.url==='/desktop/projects'&&req.method==='POST'){let raw='';req.on('data',chunk=>raw+=chunk);req.on('end',()=>{saved.push(JSON.parse(raw));res.writeHead(204).end()});return}
   if(req.url==='/desktop/projects'){res.end(JSON.stringify([{id:'project-a',name:'Example project',path:'/tmp/spec-worktree'}]));return}
-  if(req.url==='/desktop/project?id=project-a'){res.end(JSON.stringify({server:{projectName:'Example project',gitRemoteUrl:'https://example.test/repo.git',specFramework:'speckit',useWorktrees:true,specArtifacts:'keep',skills:[]},monoRepo:true,path:'/tmp/spec-worktree',configured:true,useWorktrees:true,specArtifacts:'keep',specArtifactsOverride:false,specArtifactsTracked:tracked}));return}
+  if(req.url==='/desktop/project?id=project-a'){res.end(JSON.stringify({server:{projectName:'Example project',gitRemoteUrl:'https://example.test/repo.git',specFramework:'speckit',useWorktrees:true,specArtifacts:'keep',skills:[]},path:'/tmp/spec-worktree',configured:true,useWorktrees:true,specArtifacts:'keep',specArtifactsOverride:false,specArtifactsTracked:tracked}));return}
   if(req.url==='/desktop/status'){res.end(JSON.stringify({connected:true,server:'http://example.test'}));return}
   if(req.url==='/desktop/runs'){res.end('[]');return}
   if(req.url.startsWith('/desktop/tasks?')){res.end('[]');return}

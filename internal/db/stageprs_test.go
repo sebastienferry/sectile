@@ -12,7 +12,7 @@ import (
 	"tasks/internal/models"
 )
 
-// A GitLab multi-repo project: g/a is the code remote, g/b a second
+// A GitLab project with two repositories: g/a is the code remote, g/b a second
 // repository. Every lookup goes through the agent, as GitLab evidence does.
 const (
 	mrA = "https://gitlab.com/g/a/-/merge_requests/1"
@@ -86,8 +86,7 @@ func (f *fakeRepoAgent) set(change func(*fakeRepoAgent)) {
 func twoRepoTask(t *testing.T) (*DB, *models.Task, *fakeRepoAgent) {
 	t.Helper()
 	d := testDB(t)
-	no := false
-	p, err := d.CreateProject(models.CreateProjectRequest{Name: "Multi", IssueTracker: "local", MonoRepo: &no,
+	p, err := d.CreateProject(models.CreateProjectRequest{Name: "Multi", IssueTracker: "local",
 		GitRemoteUrl: "git@gitlab.com:g/a.git", Repositories: []string{"git@gitlab.com:g/b.git"}})
 	if err != nil {
 		t.Fatal(err)
@@ -238,5 +237,47 @@ func TestTheCodeRepositoryChangedFromAPinnedTicketIsReadInItsOwnCheckout(t *test
 	}
 	if got.PrURL == nil || *got.PrURL != mrB {
 		t.Errorf("current pull request = %v, want the pinned repository's", got.PrURL)
+	}
+}
+
+// A repository the ticket changed through a folder attached on a workstation
+// only is outside the project's list (#484): it still needs its pull request
+// at every transition that asks for evidence, and its worktree goes at
+// handoff.
+func TestAnAttachedRepositoryNeedsItsPullRequest(t *testing.T) {
+	const mrLib = "https://gitlab.com/g/lib/-/merge_requests/4"
+	d, task, agent := twoRepoTask(t)
+	if _, err := d.conn.Exec(`UPDATE tasks SET changed_repositories='["gitlab.com/g/lib"]' WHERE id=?`, task.ID); err != nil {
+		t.Fatal(err)
+	}
+	task, _ = d.GetTaskByID(task.ID)
+	agent.set(func(f *fakeRepoAgent) { f.heads["gitlab.com/g/lib"] = "head-4" })
+
+	if _, _, err := d.TransitionTaskStageWithPRs("", task.ID, "implemented", "done", []string{mrA}, "feat/12"); err == nil || !strings.Contains(err.Error(), "gitlab.com/g/lib") {
+		t.Fatalf("err = %v, want a refusal naming gitlab.com/g/lib", err)
+	}
+	if _, err := d.adjustmentPrerequisite(task, "", false); err == nil || !strings.Contains(err.Error(), "gitlab.com/g/lib") {
+		t.Fatalf("adjust: err = %v, want the attached repository named", err)
+	}
+
+	agent.set(func(f *fakeRepoAgent) { f.prs["gitlab.com/g/lib"] = mrLib })
+	got, _, err := d.TransitionTaskStageWithPRs("", task.ID, "implemented", "done", []string{mrA, mrLib}, "feat/12")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.PrURL == nil || *got.PrURL != mrA {
+		t.Errorf("current pull request = %v, want the primary repository's", got.PrURL)
+	}
+	if !strings.Contains(fmt.Sprint(got.PrLinks), mrLib) {
+		t.Errorf("recorded = %+v, want the attached repository's merge request", got.PrLinks)
+	}
+
+	if err := d.RemoveTaskWorktree("", task.ID); err != nil {
+		t.Fatal(err)
+	}
+	var removed []string
+	agent.set(func(f *fakeRepoAgent) { removed = f.removed })
+	if strings.Join(removed, " ") != "gitlab.com/g/a gitlab.com/g/lib" {
+		t.Errorf("asked to remove %v", removed)
 	}
 }

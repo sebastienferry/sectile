@@ -150,29 +150,3 @@ func TestLegacyWorkstationExecutionTakesTheCallersTerminalAndEditor(t *testing.T
 		t.Fatalf("the caller's own terminal and editor: %+v", seed)
 	}
 }
-
-// The repository layout reaches the agent, which decides from it whether the
-// code checkout carries the specifications.
-func TestAgentConfigCarriesTheRepositoryLayout(t *testing.T) {
-	database, err := NewDB(filepath.Join(t.TempDir(), "tasks.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer database.Close()
-	project, err := database.CreateProject(models.CreateProjectRequest{Name: "Layout"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, mono := range []bool{false, true} {
-		if _, err = database.UpdateProject(project.ID, models.UpdateProjectRequest{MonoRepo: &mono}); err != nil {
-			t.Fatal(err)
-		}
-		config, err := database.AgentConfig(project.ID, "")
-		if err != nil {
-			t.Fatal(err)
-		}
-		if config.MonoRepo == nil || *config.MonoRepo != mono || config.IsMonoRepo() != mono {
-			t.Fatalf("monoRepo %v expected, got %v", mono, config.MonoRepo)
-		}
-	}
-}

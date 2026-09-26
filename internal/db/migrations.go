@@ -475,6 +475,18 @@ var migrations = []migration{
 			"CREATE INDEX idx_batch_members_task ON batch_members (task_id);",
 		},
 	},
+	{
+		// One kind of project (#484, ADR 0036): the mono-repo/multi-repo
+		// setting goes, a ticket runs in its code repository unless pinned,
+		// and no launch waits for a repository choice any more. A wait parked
+		// on one before the upgrade would never be answered, so it is cleared.
+		version: 31,
+		name:    "projects.mono_repo_removed",
+		statements: []string{
+			"ALTER TABLE projects DROP COLUMN mono_repo;",
+			"UPDATE task_activities SET waiting_since = NULL, waiting_session = '', waiting_reason = '' WHERE waiting_reason = 'repository';",
+		},
+	},
 }
 
 // migrateSchema brings the database to the schema this binary expects, and is

@@ -139,7 +139,7 @@ test('console next step rechecks task state, guards active history and handles f
   assert.equal(await button.isDisabled(),true)
   assert.equal(await chain.isDisabled(),true)
   // Several active executions: the most recent one names the button.
-  extra=[extra[0],{id:'adjust',skill:'adjust',status:'waiting',createdAt:'2026-09-26T10:05:00Z'}]
+  extra=[extra[0],{id:'adjust',skill:'adjust',status:'preparing',createdAt:'2026-09-26T10:05:00Z'}]
   await page.getByRole('button',{name:'Current: Adjust',exact:true}).waitFor()
   extra=[{id:'pickup',skill:'pickup',status:'completed',createdAt:'2026-09-26T10:00:00Z'}]
   await page.getByRole('button',{name:'Next: Clarify',exact:true}).waitFor()

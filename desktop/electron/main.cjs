@@ -397,14 +397,24 @@ ipcMain.handle('remove-project',async(_,id)=>{
  return api('/desktop/projects?id='+encodeURIComponent(id),'DELETE')
 })
 ipcMain.handle('map-project',(_,mapping)=>api('/desktop/projects','POST',mapping))
-// The folders of a multi-repo project's repositories on this workstation
-// (#456). An agent that predates them answers nothing useful, so it is named.
+// The folders of a project's repositories on this workstation (#456). An
+// agent that predates them answers nothing useful, so it is named.
 async function requireRepositories(){
  const status=await api('/desktop/status')
- if(!status.capabilities?.includes('repositories'))throw Error('Update and restart the local agent to map the repositories of a multi-repo project.')
+ if(!status.capabilities?.includes('repositories'))throw Error('Update and restart the local agent to map the repositories of this project.')
 }
 ipcMain.handle('repositories',async(_,projectId)=>{await requireRepositories();return api('/desktop/repositories?projectId='+encodeURIComponent(projectId))})
 ipcMain.handle('map-repository',async(_,mapping)=>{await requireRepositories();return api('/desktop/repositories','POST',mapping)})
+// The folders attached to a project on this workstation (#484). They stay
+// between the desktop and its local agent, which an older version of does not
+// serve them.
+async function requireAttachedFolders(){
+ const status=await api('/desktop/status')
+ if(!status.capabilities?.includes('attached-folders'))throw Error('Update and restart the local agent to attach folders to a project.')
+}
+ipcMain.handle('folders',async(_,projectId)=>{await requireAttachedFolders();return api('/desktop/folders?projectId='+encodeURIComponent(projectId))})
+ipcMain.handle('attach-folder',async(_,{projectId,path:folder})=>{await requireAttachedFolders();return api('/desktop/folders','POST',{projectId,path:folder})})
+ipcMain.handle('detach-folder',async(_,{projectId,path:folder})=>{await requireAttachedFolders();return api('/desktop/folders?projectId='+encodeURIComponent(projectId)+'&path='+encodeURIComponent(folder),'DELETE')})
 // The Git initialization of a project folder (#481). An agent that predates
 // it reports no state, so the settings offer nothing and behave as before.
 async function hasGitInit(){

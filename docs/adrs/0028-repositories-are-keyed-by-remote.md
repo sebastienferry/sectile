@@ -1,6 +1,10 @@
 # ADR 0028: A project's repositories are keyed by remote, and each workstation maps them
 
-Status: Accepted
+Status: Accepted. Superseded in part by
+[ADR 0036](0036-attached-folders-and-one-kind-of-project.md): the `monoRepo`
+setting and the launch that waits for a repository choice are removed, a
+ticket runs in its pinned repository else in the code repository, and folders
+attached on a workstation join the folder map.
 
 ## Context
 

@@ -332,11 +332,6 @@ func (d *agentDaemon) awaitRunSlot(ctx context.Context, run *controlledRun) erro
 			if other == run {
 				continue
 			}
-			// A launch waiting for its ticket's repository holds no slot and
-			// no checkout until it is resumed (#456).
-			if other.desktop.Status == "waiting" {
-				continue
-			}
 			select {
 			case <-other.exited:
 				continue

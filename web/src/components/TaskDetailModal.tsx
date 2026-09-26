@@ -216,7 +216,7 @@ export const TaskDetailModal: React.FC = () => {
   // Pinning a repository only means something when the ticket has a choice:
   // a mono-repo or a single repository leaves the agent nothing to decide.
   const projectRepositories = taskProject?.repositories || []
-  const canPinRepository = taskProject?.monoRepo === false && projectRepositories.length > 1
+  const canPinRepository = projectRepositories.length > 1
   // The pin is sent only when it changed: an unchanged stale pin, one the
   // project no longer lists, would make the server refuse the whole save.
   const repositoryUpdate = () =>

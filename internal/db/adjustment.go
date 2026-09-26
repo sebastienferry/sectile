@@ -32,10 +32,9 @@ func (d *DB) adjustmentPrerequisite(task *models.Task, actorID string, ready boo
 		branch = *task.BranchName
 	}
 	// The PR to adjust is the task's current one: when it lives in another
-	// repository, that is where the branch is looked up.
-	// A mono-repo project never reads another repository; its prerequisite finds
-	// the PR by branch, as it always did, even when the recorded link names an
-	// older name of the repository.
+	// repository, that is where the branch is looked up, on every project
+	// (#484). A link naming a former path of the project's repository is read
+	// there too: the forge redirects a renamed repository.
 	target, err := d.resolveStagePRTarget(project, models.CurrentPullRequest(task.PrLinks))
 	if err != nil {
 		target = stagePRTarget{}
@@ -145,7 +144,8 @@ func (d *DB) stagePRRequired(task *models.Task, skillID string) bool {
 }
 
 // validateStagePRAt is validateStagePR once the repository the pull request
-// is read in is known, which a multi-repo ticket decides per repository.
+// is read in is known, which a ticket with several repositories decides per
+// repository.
 func (d *DB) validateStagePRAt(task *models.Task, actorID, skillID, repoPath, branch, url string, target stagePRTarget) (string, string, error) {
 	skillID = models.NormalizeSkillID(skillID)
 	pr, err := d.lookupStagePR(task, actorID, repoPath, branch, target)
@@ -207,11 +207,9 @@ type stagePRTarget struct {
 }
 
 // resolveStagePRTarget decides whether prURL names a pull request outside the
-// project repository, and whether the project may record one (Q1 of #392): a
-// project without a code remote, or not mono-repo, may; a mono-repo project
-// with a remote keeps the same-repository rule. A link that is not a
-// recognized pull request keeps the project path, as before: the forge answer
-// never matches it, so the evidence check refuses it there.
+// project repository, which any project may record (#392, #484). A link that
+// is not a recognized pull request keeps the project path, as before: the
+// forge answer never matches it, so the evidence check refuses it there.
 func (d *DB) resolveStagePRTarget(project *models.Project, prURL string) (stagePRTarget, error) {
 	prURL = strings.TrimSpace(prURL)
 	if prURL == "" {
@@ -221,9 +219,6 @@ func (d *DB) resolveStagePRTarget(project *models.Project, prURL string) (stageP
 	own := projectRepositoryIdentities(project)
 	if !ok || slices.Contains(own, link.Identity()) {
 		return stagePRTarget{}, nil
-	}
-	if len(own) > 0 && project != nil && project.MonoRepo {
-		return stagePRTarget{}, fmt.Errorf("pull request %s is not in the project repository %s; only a project without a code remote, or not mono-repo, may record one from another repository", prURL, own[0])
 	}
 	return stagePRTarget{link: link, url: prURL, foreign: true}, nil
 }

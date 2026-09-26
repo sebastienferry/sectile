@@ -340,8 +340,8 @@ for the desktop development assets. On Apple Silicon the app is produced at
 The optional companion groups local executions under projects in a collapsible
 sidebar. Add projects by discovering the server catalog and mapping a local Git
 directory. Local worktree preferences are stored per project in
-`~/.config/sectile/settings.json`. Repository layout, remote URL, SDD selection and skill
-content remain server-owned and read-only. Explicit deployment buttons install
+`~/.config/sectile/settings.json`. The remote URL, the project's repositories,
+SDD selection and skill content remain server-owned and read-only. Explicit deployment buttons install
 the server skills or initialize its SDD framework in the mapped directory.
 **Settings → User profile** states what this workstation knows about the
 account: the paired server and the workstation identifier. Display name,
@@ -422,10 +422,9 @@ console history are held in memory for the agent lifetime.
 project's specifications: the slicing imported from the web, the macro worktree
 and `realign-macro`. It is set on the workstation only; the server stores no
 such path. Only a folder you choose is saved, under `specRepos` in the
-workstation settings. Without one, a mono-repo project inherits its local
-repository, shown as the placeholder, and keeps following it; a multi-repo
-project has none, the field is flagged, and macro operations refuse to run until
-it is set. Clearing the field removes the override.
+workstation settings. Without one, the project inherits its local repository,
+behind the ticked *Specifications live in the code repository* box, and keeps
+following it. Clearing the field removes the override.
 
 The folder must be an absolute path to an existing directory. A folder inside a
 Git repository is saved as that repository's top level; any other folder is
@@ -435,6 +434,29 @@ was deleted since. In a plain folder, macro skills write in place, with no
 worktree, branch, commit or push.
 A plain folder can also be made a Git repository from the settings; see
 below.
+
+### Attached folders
+
+**General → Attached folders** lists the other folders of this workstation
+handed to every execution of the project (#484): another repository, a
+library, notes. **Add folder…** attaches one at once and **Remove** detaches
+it, with no need to save. Each line says what the folder is: *Git repository*
+with its remote, *Git repository, no remote*, *Folder, not a Git repository*,
+*Folder not found* for a folder deleted since, which can still be removed, or
+*Duplicate* when its remote became one of the project's repositories that this
+workstation maps elsewhere.
+
+A folder that is already the project's local repository, its specifications
+folder, the folder of one of its repositories or an attached folder is
+refused, saying which one it is. A checkout of one of the project's
+repositories is not attached: it becomes that repository's folder under
+*Other repositories*.
+
+The folders are stored under `projectSettings.<id>.folders` in the workstation
+settings and never sent to the server. Every execution receives them with the
+project's repositories; a Git repository with a remote is changed through a
+worktree on the ticket's branch and needs its own pull request, and a folder
+without a remote is changed in place.
 
 ### Initializing a Git repository for a project folder
 
