@@ -90,6 +90,8 @@ test fixtures or internal plumbing.
 
 ### Changed
 
+- **Lighter execution history in the desktop toolbar.** The drop-down that switches between a task's executions in Sectile Desktop no longer looks like a boxed form field: it sits unboxed next to the toolbar icons, with a discreet chevron, a background on hover and the accent ring on keyboard focus, in both themes. (#525)
+
 - **Next step and full chain from the desktop toolbar.** The console toolbar of Sectile Desktop launches the selected task's next step from a `>` button and its whole workflow, unattended, from a `>>` button, as the web task card does; a small badge next to them reads `Next: <step>` or, while something runs, `Current: <skill>`. (#515)
 
 - **Rename a task from its sidebar row.** In Sectile Desktop, the **…** button of a task row gives way to a pencil that turns the task's title into a field: Enter or clicking away saves the local name, Escape cancels. Relaunch and Detach to native terminal stay in the toolbar of the selected task, and Archive on the row. (#513)
