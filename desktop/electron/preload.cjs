@@ -7,6 +7,7 @@ contextBridge.exposeInMainWorld('localAgent',{
  saveLog:text=>ipcRenderer.invoke('save-log',text),
  settings:()=>ipcRenderer.invoke('settings'),
  saveSettings:settings=>ipcRenderer.invoke('save-settings',settings),
+ setAppearance:value=>ipcRenderer.invoke('set-appearance',value),
  version:()=>ipcRenderer.invoke('version'),
  shutdown:()=>ipcRenderer.invoke('shutdown'),
  restart:()=>ipcRenderer.invoke('restart'),

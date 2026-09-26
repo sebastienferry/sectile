@@ -73,7 +73,7 @@ If a terminal supervisor receives a hangup or termination signal, it stops and
 waits for its child process before reporting the execution outcome. A transient
 failure to deliver that report is retried.
 Reopening restores the connection. The gear at the bottom of the project sidebar
-opens **Settings**, the workstation-wide panel: **User profile** (opened first), **Agent connection**, **AI Engine CLI**,
+opens **Settings**, the workstation-wide panel: **User profile** (opened first), **Appearance**, **Agent connection**, **AI Engine CLI**,
 **Agent logs** and **Changelog** (installed versions and release notes, pinned
 to the bottom of the sidebar). The larger settings dialog adapts to the window. Stop and restart sit in that same footer, and
 the connection state leads it: a green dot reading **Connected**, an orange one
@@ -281,6 +281,11 @@ the server skills or initialize its SDD framework in the mapped directory.
 account: the paired server and the workstation identifier. Display name,
 password and API keys stay server-owned;
 **Open the web interface** goes there.
+**Settings → Appearance** chooses the desktop's theme: **System** (the
+default) follows the computer's light or dark appearance, **Dark** and
+**Light** force one. The choice applies at once to the whole window, the
+console included, and is kept as `appearance` in the workstation
+`settings.json`. It is independent of the theme of the web interface.
 
 ### Remove a local project
 

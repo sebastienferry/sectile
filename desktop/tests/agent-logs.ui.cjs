@@ -9,7 +9,7 @@ test('agent logs work offline, render literal snapshots and recover from read fa
  const env={...process.env,SECTILE_DESKTOP_DATA_DIR:root,SECTILE_DESKTOP_TEST:'1'};delete env.ELECTRON_RUN_AS_NODE
  let application
  try{
-  application=await electron.launch({args:[path.resolve(__dirname,'..')],env})
+  application=await electron.launch({args:[path.resolve(__dirname,'..')],env,colorScheme:'dark'})
   const page=await application.firstWindow();page.setDefaultTimeout(7000)
   await page.locator('#setup').waitFor()
   // A stopped agent hides the sidebar, so the connection screen carries the one

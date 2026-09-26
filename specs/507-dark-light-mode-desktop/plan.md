@@ -147,3 +147,8 @@ dialog's usual `error()` path.
   light scheme is light; a restart with `appearance: "light"` stored creates a
   light window.
 - Existing suites: `npm test` and `npm run test:ui` in `desktop/`.
+- Playwright emulates a light `prefers-color-scheme` in Electron unless told
+  otherwise. The existing UI tests that assert dark palette values
+  (`agent-logs`, `console`, `disconnect`, `task-order-render`) launch with
+  `colorScheme: 'dark'`; `appearance.ui.cjs` launches with `colorScheme: null`
+  so the media query answers `nativeTheme`, which is what it tests.

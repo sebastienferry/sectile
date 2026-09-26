@@ -41,7 +41,7 @@ test('desktop console reconnects, accepts input and stops the owned run',async()
  delete env.ELECTRON_RUN_AS_NODE
  let application
  try{
-  application=await electron.launch({executablePath:process.env.SECTILE_DESKTOP_EXECUTABLE,args:process.env.SECTILE_DESKTOP_EXECUTABLE?[]:[path.resolve(__dirname,'..')],env})
+  application=await electron.launch({executablePath:process.env.SECTILE_DESKTOP_EXECUTABLE,args:process.env.SECTILE_DESKTOP_EXECUTABLE?[]:[path.resolve(__dirname,'..')],env,colorScheme:'dark'})
   let page=await application.firstWindow()
   await page.getByText('#48 · Server specification task · specify',{exact:true}).waitFor()
   await page.locator('.xterm-screen').waitFor()
