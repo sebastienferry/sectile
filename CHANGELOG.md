@@ -86,6 +86,8 @@ test fixtures or internal plumbing.
 
 ### Changed
 
+- **Next step and full chain from the desktop toolbar.** The console toolbar of Sectile Desktop launches the selected task's next step from a `>` button and its whole workflow, unattended, from a `>>` button, as the web task card does; a small badge next to them reads `Next: <step>` or, while something runs, `Current: <skill>`. (#515)
+
 - **Rename a task from its sidebar row.** In Sectile Desktop, the **…** button of a task row gives way to a pencil that turns the task's title into a field: Enter or clicking away saves the local name, Escape cancels. Relaunch and Detach to native terminal stay in the toolbar of the selected task, and Archive on the row. (#513)
 
 - **Desktop project settings pick a default engine.** The provider, model, per-skill model and command fields leave the project settings and the workstation defaults for a single "Default engine" choice among the workstation's engines. Existing settings become engines automatically on the first start of the updated agent, which keeps a copy of the previous settings file, and every project keeps running what it ran. (#510)

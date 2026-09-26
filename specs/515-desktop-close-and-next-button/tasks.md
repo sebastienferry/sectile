@@ -64,7 +64,7 @@ pushed: merge, do not rebase).
 
 ## 3. Changelog (FR12)
 
-- [ ] T3.1 Under `## [Unreleased]` / `### Changed`, one line, for example:
+- [x] T3.1 Under `## [Unreleased]` / `### Changed`, one line, for example:
   "**Next step and full chain from the desktop toolbar.** The console toolbar
   of Sectile Desktop launches the selected task's next step from a `>` button
   and its whole workflow, unattended, from a `>>` button, as the web task card
