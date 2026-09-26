@@ -230,3 +230,33 @@ func TestValidateLevels(t *testing.T) {
 		}
 	}
 }
+
+// The folders attached to a project (#484) are a section of their own: a
+// section holding only them is kept, the checkout's legacy file never merges
+// entries into them, and they read back as written.
+func TestAttachedFoldersAreKeptWhole(t *testing.T) {
+	var s Settings
+	s.SetProject("p", ProjectSettings{Folders: []string{"/src/lib"}})
+	if got := s.Project("p").Folders; !reflect.DeepEqual(got, []string{"/src/lib"}) {
+		t.Fatalf("a section holding only folders was dropped: %+v", s.ProjectSettings)
+	}
+	merged := overlay(Settings{ProjectSettings: map[string]ProjectSettings{"p": {Path: "/src/app", Folders: []string{"/legacy"}}}}, s)
+	if got := merged.Project("p"); got.Path != "/src/app" || !reflect.DeepEqual(got.Folders, []string{"/src/lib"}) {
+		t.Fatalf("overlay = %+v", got)
+	}
+	if got := overlay(Settings{ProjectSettings: map[string]ProjectSettings{"p": {Folders: []string{"/legacy"}}}}, Settings{}).Project("p"); !reflect.DeepEqual(got.Folders, []string{"/legacy"}) {
+		t.Fatalf("an unset list must fall back: %+v", got)
+	}
+	raw, err := json.Marshal(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var back Settings
+	if err := json.Unmarshal(raw, &back); err != nil || !reflect.DeepEqual(back.Project("p").Folders, []string{"/src/lib"}) || !strings.Contains(string(raw), `"folders":["/src/lib"]`) {
+		t.Fatalf("round trip = %s, %+v, %v", raw, back.Project("p"), err)
+	}
+	s.SetProject("p", ProjectSettings{})
+	if _, kept := s.ProjectSettings["p"]; kept {
+		t.Fatal("an emptied section must be dropped")
+	}
+}

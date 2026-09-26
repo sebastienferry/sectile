@@ -244,6 +244,10 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 		d.desktopRepositories(w, r)
 		return
 	}
+	if r.URL.Path == "/desktop/folders" {
+		d.desktopFolders(w, r)
+		return
+	}
 	if r.URL.Path == "/desktop/git-init" {
 		d.desktopGitInit(w, r)
 		return

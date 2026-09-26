@@ -58,12 +58,13 @@ func repositoryRoot(overrides agentconfig.Settings, projectRoot, code, identity 
 
 // primaryRoot decides which checkout a ticket's worktree lives in, before
 // anything is launched: the checkout of the repository the ticket is pinned
-// to, else the project root, the code repository (#484). It fails, naming the
-// repository, when the pinned one has no folder here.
+// to, mapped or attached here, else the project root, the code repository
+// (#484). It fails, naming the repository, when the pinned one has no folder
+// here.
 func primaryRoot(ctx context.Context, config agentconfig.Config, overrides agentconfig.Settings, projectRoot string, task models.Task) (root, identity string, err error) {
 	code := codeIdentity(config)
 	mapped := func(identity string) bool {
-		_, ok := repositoryRoot(overrides, projectRoot, code, identity)
+		_, _, ok := repositoryFolder(ctx, overrides, config.ProjectID, projectRoot, code, identity)
 		return ok
 	}
 	repository, outcome := models.ResolvePrimaryRepository(task.Repository, projectRepositories(config), mapped)
@@ -73,7 +74,7 @@ func primaryRoot(ctx context.Context, config agentconfig.Config, overrides agent
 	case models.PrimaryUnmapped:
 		return "", "", fmt.Errorf("Le dépôt %s de la tâche n'est associé à aucun dossier sur ce poste : choisissez son dossier dans les réglages du projet de l'app desktop.", repository.Identity)
 	}
-	root, _ = repositoryRoot(overrides, projectRoot, code, repository.Identity)
+	root, _, _ = repositoryFolder(ctx, overrides, config.ProjectID, projectRoot, code, repository.Identity)
 	if repository.Identity != code {
 		// The project's own checkout ignores .tasks/ through its .gitignore;
 		// another repository has no reason to, so its status is kept clean
@@ -110,7 +111,7 @@ func buildFolderMap(ctx context.Context, config agentconfig.Config, overrides ag
 	seen := map[string]bool{}
 	listed := map[string]bool{}
 	for _, repository := range projectRepositories(config) {
-		root, _ := repositoryRoot(overrides, projectRoot, code, repository.Identity)
+		root, _, _ := repositoryFolder(ctx, overrides, config.ProjectID, projectRoot, code, repository.Identity)
 		entry := models.FolderMapEntry{Remote: repository.URL, Identity: repository.Identity, Role: models.FolderRoleContext, Path: root}
 		switch {
 		case repository.Identity == primary:
