@@ -3,33 +3,52 @@
 ## Context
 
 The desktop renderer currently uses one shared native dialog for transient
-flows. `openSettings()` and `openProject()` build the two configuration
-interfaces inside that dialog, sharing its heading, close control, footer, and
-cleanup lifecycle. They need to become application surfaces while preserving
-the existing setting controls and the normal desktop selection state.
+flows. `openSettings()` and `openProject()` build separate configuration
+interfaces inside it. They share many visual and behavioral primitives but
+force a user to leave one configuration context before entering the other.
+The new Configuration page must unite those contexts while retaining the
+normal desktop selection state and the existing configuration behavior.
 
 ## Decisions
 
-### Render configuration through a dedicated page lifecycle
+### Render one dedicated Configuration page
 
-The renderer will introduce a page-level configuration container or equivalent
-page-rendering lifecycle, separate from `showDialog()`. Opening Settings or a
-project configuration replaces the normal desktop main content with the
-configuration surface; it does not call `showModal()` or reuse dialog-only
-controls. The existing category and field construction will be reused where
-practical so their behavior remains unchanged.
+The renderer will introduce a page-level Configuration lifecycle, separate
+from `showDialog()`. The page replaces the normal desktop main content; it
+does not call `showModal()` or reuse dialog-only controls. Existing field and
+panel construction will be reused where practical so their behavior remains
+unchanged.
 
-**Rejected:** enlarging the existing dialog. A larger dialog would preserve the
-same modal interaction model and would not satisfy the requested full-page
-navigation.
+Both the Settings entry point and a project's Project settings entry point
+open this same page. They only differ in the initially selected sidebar item.
+
+**Rejected:** two independent full-page surfaces. That preserves the same
+separation users are asking to remove and duplicates navigation and lifecycle
+handling.
+
+### Group one sidebar in workstation-then-project order
+
+The Configuration sidebar presents a General group containing the existing
+workstation categories, followed by a group named for the selected project
+containing its existing configuration categories. General is always first.
+Only the project explicitly selected by the Project settings entry point is
+included; the page does not aggregate categories from other projects.
+
+Opening Settings selects its default General category. Opening Project
+settings selects the requested project category while retaining General above
+it in the same sidebar.
+
+**Rejected:** putting project categories before General or merging both sets
+into an unlabeled flat list. Either choice loses the requested hierarchy and
+makes ownership of a setting unclear.
 
 ### Back restores the existing main desktop state
 
-Each configuration page will have a real button with an accessible name such
-as Back. Activating it returns to the normal desktop page and restores its
+The unified page will have one real button with an accessible name such as
+Back. Activating it returns to the normal desktop page and restores its
 already-held project, selected task/execution, terminal, and sidebar state.
 It does not reload the application, clear selection, or invoke an unrelated
-dialog close handler. Keyboard activation follows the native button behavior.
+dialog close handler. Keyboard activation follows native button behavior.
 
 **Rejected:** relying on Escape or a close icon alone. Those affordances are
 ambiguous for a page and do not provide the requested visible return action.
@@ -37,34 +56,35 @@ ambiguous for a page and do not provide the requested visible return action.
 ### Page departure invalidates asynchronous rendering
 
 The page lifecycle will own a generation, connection check, or equivalent
-validity guard. An asynchronous settings, project, log, or refresh result may
-update the page only while that page remains current. Leaving the page before a
-request settles must not recreate configuration content, alter the restored
-main page, or apply a stale connection status.
+validity guard. An asynchronous workstation setting, project setting, log, or
+refresh result may update Configuration only while that page remains current.
+Leaving the page before a request settles must not recreate configuration
+content, alter the restored main page, or apply stale status.
 
 Existing modal cleanup remains responsible for modal-only flows.
 
-### Share responsive settings layout without modal geometry
+### Share responsive layout without modal geometry
 
-The full-page surfaces retain the existing category navigation and responsive
-breakpoint: on narrow widths categories wrap above the content. Dialog width,
-maximum-height, sticky dialog footer, and dialog-specific heading rules will
-not define the page layout. Project save actions remain available only in the
-same categories that currently persist local configuration; read-only panels
-remain read-only/action panels.
+The unified sidebar retains the existing responsive breakpoint: on narrow
+widths, group labels, categories, and content remain usable in the existing
+responsive layout. Dialog width, maximum-height, sticky dialog footer, and
+dialog-specific heading rules will not define the page layout. Project save
+actions remain available only in the same categories that currently persist
+local configuration; read-only panels remain read-only/action panels.
 
 ### Retain the modal implementation for unrelated flows
 
 `showDialog()` and its cleanup stay in place for confirmations, add-project,
-and other non-settings dialogs. The change is intentionally narrow: changing
-the settings navigation mechanism must not change how any unrelated dialog
-opens, closes, or clears its content.
+and other non-configuration dialogs. The change is intentionally narrow:
+changing Configuration must not change how an unrelated dialog opens, closes,
+or clears its content.
 
 ## Affected areas
 
-- `desktop/src/main.js`: page visibility and lifecycle, Settings and project
-  configuration entry points, Back behavior, and async validity guards.
-- `desktop/src/style.css`: full-page configuration composition, responsive
-  layout, and removal of settings-specific dependence on dialog geometry.
-- `desktop/tests/*.ui.cjs`: full-page navigation, retained configuration
+- `desktop/src/main.js`: Configuration page visibility and lifecycle, unified
+  sidebar groups, entry-point selection, Back behavior, and async validity
+  guards.
+- `desktop/src/style.css`: full-page composition, grouped sidebar, responsive
+  layout, and removal of configuration dependence on dialog geometry.
+- `desktop/tests/*.ui.cjs`: unified navigation, retained configuration
   behavior, and modal regression coverage.
