@@ -11,7 +11,11 @@ test('desktop console reconnects, accepts input and stops the owned run',async()
   if(req.headers.authorization!=='Bearer test-secret'){res.writeHead(401).end();return}
   res.setHeader('Content-Type','application/json')
   if(req.url==='/desktop/projects'){res.end(JSON.stringify([{id:'project-a',name:'Example project',path:'/tmp/spec-worktree'},{id:'project-b',name:'Other project',path:'/tmp/other-worktree'}]));return}
-  if(req.url==='/desktop/project?id=project-a'||req.url==='/desktop/project?id=project-b'){res.end(JSON.stringify({server:{projectName:'Example project',gitRemoteUrl:'https://example.test/repo.git',specFramework:'openspec',useWorktrees:true,aiCommandTemplate:serverCommand,aiCommandTemplateAutonomous:'codex exec {prompt}',skills:[{id:'specify',content:'Specification instructions'}]},monoRepo:true,path:'/tmp/spec-worktree',configured:true,useWorktrees:true}));return}
+  if(req.url==='/desktop/project?id=project-a'||req.url==='/desktop/project?id=project-b'){res.end(JSON.stringify({server:{projectName:'Example project',gitRemoteUrl:'https://example.test/repo.git',specFramework:'openspec',useWorktrees:true,aiCommandTemplate:serverCommand,aiCommandTemplateAutonomous:'codex exec {prompt}',skills:[{id:'specify',content:'Specification instructions'}]},monoRepo:true,path:'/tmp/spec-worktree',configured:true,useWorktrees:true,
+   // Since #305 the agent says where each execution value comes from; here the
+   // workstation defaults hold the commands.
+   fields:{aiCommandTemplate:{value:serverCommand,inherited:serverCommand,source:'workstation'},aiCommandTemplateAutonomous:{value:'codex exec {prompt}',inherited:'codex exec {prompt}',source:'workstation'},
+    useWorktrees:{value:true,inherited:true,source:'default'},parallelism:{value:1,inherited:1,source:'default'}}}));return}
   if(req.url.startsWith('/desktop/tasks?')){
    if(req.method==='POST'){submitted=true;let raw='';req.on('data',chunk=>raw+=chunk);req.on('end',()=>{launches.push({...JSON.parse(raw),projectID:new URL(req.url,'http://localhost').searchParams.get('projectId')});res.end(JSON.stringify({status:'running'}))});return}
    if(createdInput&&new URL(req.url,'http://localhost').searchParams.get('q')==='#49'){res.end(JSON.stringify([{id:'created',key:'#49',projectId:createdInput.projectID,title:createdInput.title,status:'to_clarify'}]));return}
@@ -94,14 +98,14 @@ test('desktop console reconnects, accepts input and stops the owned run',async()
   const parallel=page.getByRole('slider',{name:'Parallel executions',exact:true})
   await page.getByRole('button',{name:'No',exact:true}).click()
   assert.equal(await parallel.isDisabled(),true)
-  await page.getByRole('button',{name:'Reset worktrees to server default',exact:true}).click()
+  await page.getByRole('button',{name:'Reset worktrees to workstation default',exact:true}).click()
   assert.equal(await parallel.isDisabled(),false)
   // The ceiling is the workstation's, not a five-way segmented control.
   assert.equal(await parallel.getAttribute('max'),'10')
   await parallel.fill('3')
   assert.equal(await parallel.inputValue(),'3')
-  // Parallelism is workstation-owned: no server default, hence no reset control.
-  assert.equal(await page.getByRole('button',{name:'Reset parallelism to server default',exact:true}).count(),0)
+  // Parallelism inherits the workstation default, which a reset brings back.
+  assert.equal(await page.getByRole('button',{name:'Reset parallel executions to workstation default',exact:true}).count(),1)
   await page.getByRole('tab',{name:'AI agent',exact:true}).click()
   // The token reference sits behind a disclosure so the row stays one line.
   await page.locator('.placeholder-help summary').click()
