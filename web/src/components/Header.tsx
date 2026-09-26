@@ -9,6 +9,7 @@ import {
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import type { Status, Priority } from '../types'
+import { format } from '../lib/i18n'
 
 export const Header: React.FC = () => {
   const {
@@ -64,7 +65,7 @@ export const Header: React.FC = () => {
             setIsProjectModalOpen(true)
           }}
           className="p-2 rounded-lg text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] border border-transparent hover:border-[var(--border-color)] transition-all cursor-pointer shadow-2xs group"
-          title={`Configuration du projet : ${currentProject ? currentProject.name : 'Gérer les projets'}`}
+          title={format(t.shell.header.projectSettings, { name: currentProject ? currentProject.name : t.shell.header.manageProjects })}
         >
           <Settings size={16} className="group-hover:rotate-45 transition-transform duration-300" />
         </button>
@@ -103,7 +104,7 @@ export const Header: React.FC = () => {
           <button
             onClick={() => setSearchQuery('')}
             className="absolute right-3 p-0.5 text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors cursor-pointer"
-            title="Effacer la recherche (Esc)"
+            title={t.shell.header.clearSearch}
           >
             <X size={14} />
           </button>
@@ -143,7 +144,7 @@ export const Header: React.FC = () => {
           )}
           {pinnedOnly && (
             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold shrink-0 accent-text bg-[var(--accent-light)] border border-[var(--accent-color)]/40">
-              Épinglés
+              {t.shell.pinned.title}
               <button onClick={() => setPinnedOnly(false)} className="hover:opacity-75 cursor-pointer">
                 <X size={11} />
               </button>
@@ -151,7 +152,7 @@ export const Header: React.FC = () => {
           )}
           {activeOnly && (
             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold shrink-0 accent-text bg-[var(--accent-light)] border border-[var(--accent-color)]/40">
-              En cours
+              {t.shell.header.activeOnly}
               <button onClick={() => setActiveOnly(false)} className="hover:opacity-75 cursor-pointer">
                 <X size={11} />
               </button>
@@ -160,7 +161,7 @@ export const Header: React.FC = () => {
           {parentFilter && (
             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40 shrink-0">
               <Target size={10} />
-              {parentFilter === '__no_macro__' || parentFilter === 'none' ? 'Sans macro' : parentFilter}
+              {parentFilter === '__no_macro__' || parentFilter === 'none' ? t.shell.header.noMacro : parentFilter}
               <button onClick={() => setParentFilter(null)} className="hover:opacity-75 cursor-pointer">
                 <X size={11} />
               </button>

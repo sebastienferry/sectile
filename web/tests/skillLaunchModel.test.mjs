@@ -88,7 +88,7 @@ test('the card shows the model its buttons will use', () => {
   // Discreet: coloured text only, no badge chrome competing with the buttons.
   assert.doesNotMatch(card, /modelIndicator[\s\S]{0,400}rounded|modelIndicator[\s\S]{0,400}border/)
   assert.match(card, /\{shortModelLabel\(launchedModel\)\}/)
-  assert.match(card, /title=\{\s*effectiveLaunchModel\s*\? `Modèle retenu pour cette tâche : \$\{launchedModel\}`/)
+  assert.match(card, /title=\{\s*effectiveLaunchModel\s*\? format\(t\.shell\.card\.modelChosen, \{ model: launchedModel \}\)/)
 
   // One definition, rendered by both shapes: a condensed card keeps its actions
   // behind the menu, so the indicator precedes that menu there, and precedes the

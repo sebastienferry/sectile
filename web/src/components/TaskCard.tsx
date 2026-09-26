@@ -36,6 +36,7 @@ import { PRIORITY_LEVELS, priorityColor } from '../lib/priority'
 import { Avatar } from './Avatar'
 import { EpicBar, useEpicColors } from './EpicMarker'
 import { shortElapsed, isElapsedStale } from '../lib/elapsed'
+import { format, formatDate } from '../lib/i18n'
 import { resolveTaskStage, getNextStepInfo, prRecoverySkill, skillForStage } from '../lib/workflow'
 import { reportedModel, reportedPickerModels, shortModelLabel } from '../lib/aiModels'
 import { useProjectEngine } from '../hooks/useProjectEngine'
@@ -277,9 +278,9 @@ export const TaskCard: React.FC<TaskCardProps> = ({
       case 'clarify':
         return {
           id: 'clarify',
-          label: skillLabel('clarify', 'Clarifier'),
+          label: skillLabel('clarify', t.shell.card.skills.clarify),
           icon: <Sparkles size={11} className="text-amber-400" />,
-          title: 'Clarifier les exigences et cadrer la tâche',
+          title: t.shell.card.skillTitles.clarify,
           action: async (e: React.MouseEvent) => {
             e.stopPropagation()
             if (isSkillRunning) return
@@ -289,9 +290,9 @@ export const TaskCard: React.FC<TaskCardProps> = ({
       case 'specify':
         return {
           id: 'specify',
-          label: skillLabel('specify', 'Spécifier'),
+          label: skillLabel('specify', t.shell.card.skills.specify),
           icon: <FileCode size={11} className="text-blue-400" />,
-          title: 'Rédiger la spécification technique (Spec Kit / OpenSpec)',
+          title: t.shell.card.skillTitles.specify,
           action: async (e: React.MouseEvent) => {
             e.stopPropagation()
             if (isSkillRunning) return
@@ -301,9 +302,9 @@ export const TaskCard: React.FC<TaskCardProps> = ({
       case 'implement':
         return {
           id: 'implement',
-          label: skillLabel('implement', 'Coder'),
+          label: skillLabel('implement', t.shell.card.skills.implement),
           icon: <Flame size={11} className="text-indigo-400" />,
-          title: "Lancer l'implémentation du code par l'agent IA",
+          title: t.shell.card.skillTitles.implement,
           action: async (e: React.MouseEvent) => {
             e.stopPropagation()
             if (isSkillRunning) return
@@ -313,9 +314,9 @@ export const TaskCard: React.FC<TaskCardProps> = ({
       case 'adjust':
         return {
           id: 'adjust',
-          label: skillLabel('adjust', 'Adjust'),
+          label: skillLabel('adjust', t.shell.card.skills.adjust),
           icon: <GitPullRequest size={11} className="text-purple-400" />,
-          title: 'Review the complete branch and adjust the existing PR',
+          title: t.shell.card.skillTitles.adjust,
           action: async (e: React.MouseEvent) => {
             e.stopPropagation()
             if (isSkillRunning) return
@@ -327,7 +328,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({
     }
   }
 
-  const nextStepInfo = getNextStepInfo(task, taskProject)
+  const nextStepInfo = getNextStepInfo(task, taskProject, t.shell.nextStep)
   const isFinishedTask = nextStepInfo.currentStage === 'finished'
 
   // Un pas du workflow. Sans surcharge, le mode est celui que la précédence
@@ -343,7 +344,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({
     setAdvancing(null)
   }
 
-  // Determine current workflow stage action (Clarifier ➔ Spécifier ➔ Coder ➔ Adjust ➔ Merge ➔ #finished)
+  // Determine current workflow stage action (Clarify ➔ Specify ➔ Code ➔ Adjust ➔ Merge ➔ #finished)
   const getWorkflowAction = () => {
     const stage = resolveTaskStage(task, taskProject)
     if (stage === 'finished') return null
@@ -354,9 +355,9 @@ export const TaskCard: React.FC<TaskCardProps> = ({
     ) {
       return {
         id: 'handoff',
-        label: 'Handoff',
+        label: t.shell.card.skills.handoff,
         icon: <CheckCircle2 size={11} className="text-emerald-400" />,
-        title: 'Verify human merge and hand off the task',
+        title: t.shell.card.skillTitles.handoff,
         action: async (e: React.MouseEvent) => {
           e.stopPropagation()
           await runSkill(task.id, 'handoff')
@@ -439,8 +440,8 @@ export const TaskCard: React.FC<TaskCardProps> = ({
       type="button"
       role="checkbox"
       aria-checked={selected}
-      aria-label={selected ? `Retirer ${task.key} de la sélection` : `Sélectionner ${task.key}`}
-      title={selected ? 'Retirer de la sélection' : 'Sélectionner pour un lot (Ctrl/Cmd+clic)'}
+      aria-label={format(selected ? t.shell.card.deselectTask : t.shell.card.selectTask, { key: task.key })}
+      title={selected ? t.shell.card.deselect : t.shell.card.selectForBatch}
       onClick={e => {
         e.stopPropagation()
         onToggleSelect?.()
@@ -473,8 +474,8 @@ export const TaskCard: React.FC<TaskCardProps> = ({
       }`}
       title={
         effectiveLaunchModel
-          ? `Modèle retenu pour cette tâche : ${launchedModel}`
-          : `Modèle configuré : ${launchedModel}`
+          ? format(t.shell.card.modelChosen, { model: launchedModel })
+          : format(t.shell.card.modelConfigured, { model: launchedModel })
       }
     >
       {shortModelLabel(launchedModel)}
@@ -574,8 +575,8 @@ export const TaskCard: React.FC<TaskCardProps> = ({
           }
         }}
         className="p-1 rounded-md text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] border border-transparent hover:border-[var(--border-color)]/60 transition-colors cursor-pointer"
-        title="Actions"
-        aria-label="Actions"
+        title={t.shell.card.actions}
+        aria-label={t.shell.card.actions}
         aria-expanded={isMenuOpen}
       >
         <MoreHorizontal size={14} />
@@ -659,7 +660,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({
             className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[11px] text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] transition-colors cursor-pointer"
           >
             <Eye size={12} className="text-blue-400" />
-            <span>Voir les détails</span>
+            <span>{t.shell.card.viewDetails}</span>
           </button>
 
           {/* Discuter : ouvre l'agent en session interactive, sans lancer de skill. */}
@@ -671,11 +672,11 @@ export const TaskCard: React.FC<TaskCardProps> = ({
                 await runSkill(task.id, 'discuss')
               }}
               disabled={isSkillRunning}
-              title="Ouvrir une session avec l'agent sur cette tâche, sans lancer de skill"
+              title={t.shell.card.discussTitle}
               className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[11px] text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {isSkillRunning && runningSkillId === 'discuss' ? <Loader2 size={12} className="animate-spin" /> : <MessageCircle size={12} className="text-cyan-400" />}
-              <span>Discuter</span>
+              <span>{t.shell.card.discuss}</span>
             </button>
           )}
 
@@ -690,11 +691,11 @@ export const TaskCard: React.FC<TaskCardProps> = ({
               className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[11px] text-purple-400 hover:bg-purple-500/10 transition-colors cursor-pointer"
             >
               <GitPullRequest size={12} />
-              <span>Complete PR setup in the earlier stage</span>
+              <span>{t.shell.card.prRecovery}</span>
             </button>
           )}
 
-          {task.prUrl && resolveTaskStage(task, taskProject) === 'reviewed' && <button type="button" onClick={async () => { setIsMenuOpen(false); await runSkill(task.id, 'adjust') }} className="w-full px-2.5 py-1.5 text-purple-400 text-left text-xs">Adjust again</button>}
+          {task.prUrl && resolveTaskStage(task, taskProject) === 'reviewed' && <button type="button" onClick={async () => { setIsMenuOpen(false); await runSkill(task.id, 'adjust') }} className="w-full px-2.5 py-1.5 text-purple-400 text-left text-xs">{t.shell.card.adjustAgain}</button>}
           {/* Merge / Finaliser : masqué quand c'est déjà l'action de l'étape courante */}
           {task.status !== 'finished' && workflowAction?.id !== 'handoff' && (
             <button
@@ -706,7 +707,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({
               className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[11px] text-emerald-400 hover:bg-emerald-500/10 transition-colors cursor-pointer"
             >
               <CheckCircle2 size={12} />
-              <span>Handoff after human merge</span>
+              <span>{t.shell.card.handoffAfterMerge}</span>
             </button>
           )}
 
@@ -720,7 +721,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({
               className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[11px] text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] transition-colors cursor-pointer"
             >
               <ExternalLink size={12} className="text-amber-400" />
-              <span>Ouvrir sur le tracker</span>
+              <span>{t.shell.card.openTracker}</span>
             </a>
           )}
 
@@ -731,10 +732,10 @@ export const TaskCard: React.FC<TaskCardProps> = ({
               openCloneModal(task)
             }}
             className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[11px] text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] transition-colors cursor-pointer"
-            title="Créer une copie de cette story"
+            title={t.shell.card.cloneTitle}
           >
             <CopyPlus size={12} className="text-cyan-400" />
-            <span>Cloner la story</span>
+            <span>{t.shell.card.clone}</span>
           </button>
 
           <button
@@ -742,12 +743,12 @@ export const TaskCard: React.FC<TaskCardProps> = ({
             onClick={() => {
               setIsMenuOpen(false)
               navigator.clipboard.writeText(`${task.key}: ${task.title}`)
-              addToast({ type: 'info', title: 'Copié', description: `${task.key} copié dans le presse-papier` })
+              addToast({ type: 'info', title: t.shell.card.copied, description: format(t.shell.card.copiedDescription, { key: task.key }) })
             }}
             className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[11px] text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] transition-colors cursor-pointer"
           >
             <Copy size={12} className="text-slate-400" />
-            <span>Copier la référence</span>
+            <span>{t.shell.card.copyReference}</span>
           </button>
 
           {Boolean(task.sprint) && (
@@ -758,10 +759,10 @@ export const TaskCard: React.FC<TaskCardProps> = ({
                 await setTaskSprint(task.id, '', '')
               }}
               className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[11px] text-amber-400 hover:bg-amber-500/10 transition-colors cursor-pointer"
-              title="Retirer la tâche du sprint et la renvoyer au backlog"
+              title={t.shell.card.removeFromSprintTitle}
             >
               <X size={12} />
-              <span>Retirer du sprint</span>
+              <span>{t.shell.card.removeFromSprint}</span>
             </button>
           )}
 
@@ -771,14 +772,14 @@ export const TaskCard: React.FC<TaskCardProps> = ({
             type="button"
             onClick={() => {
               setIsMenuOpen(false)
-              if (window.confirm(`Supprimer la tâche ${task.key} ?`)) {
+              if (window.confirm(format(t.shell.card.deleteConfirm, { key: task.key }))) {
                 deleteTask(task.id)
               }
             }}
             className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[11px] text-rose-400 hover:bg-rose-500/10 transition-colors cursor-pointer"
           >
             <Trash2 size={12} />
-            <span>Supprimer la tâche</span>
+            <span>{t.shell.card.delete}</span>
           </button>
         </div>,
         document.body
@@ -839,7 +840,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({
                     ? 'text-violet-300'
                     : 'text-[var(--text-muted)] hover:text-violet-300'
                 }`}
-                title={`${task.parentType || 'Parent'} ${task.parentKey}${task.parentTitle ? ` — ${task.parentTitle}` : ''} (cliquer pour filtrer)`}
+                title={format(t.shell.card.parentFilterTitle, { type: task.parentType || t.shell.card.parent, key: task.parentKey, title: task.parentTitle ? ` · ${task.parentTitle}` : '' })}
               >
                 {task.parentKey}
               </button>
@@ -853,7 +854,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({
               rel="noreferrer"
               onClick={e => e.stopPropagation()}
               className="inline-flex items-center gap-0.5 text-[var(--accent-color)] hover:underline"
-              title={`Ouvrir ${task.key} sur le tracker externe`}
+              title={format(t.shell.card.openExternal, { key: task.key })}
             >
               <span>{task.key}</span>
               <ExternalLink size={9} className="opacity-70" />
@@ -880,7 +881,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({
               background: issueTypeStyle(task.issueType).background,
               border: `1px solid ${issueTypeStyle(task.issueType).border}`,
             }}
-            title={`Type de ticket : ${task.issueType}`}
+            title={format(t.shell.card.issueType, { type: task.issueType })}
           >
             {issueTypeStyle(task.issueType).short}
           </span>
@@ -909,7 +910,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({
               target="_blank"
               rel="noreferrer"
               className="p-1 rounded text-purple-300 bg-purple-500/10 hover:bg-purple-500/25 border border-purple-500/30 transition-all hover:scale-105"
-              title={task.prUrl.includes('gitlab') ? `GitLab MR: ${task.prUrl}` : `GitHub PR: ${task.prUrl}`}
+              title={format(task.prUrl.includes('gitlab') ? t.shell.card.gitlabMr : t.shell.card.githubPr, { url: task.prUrl })}
             >
               <PullRequestStateIcon task={task} size={12} />
             </a>
@@ -933,21 +934,21 @@ export const TaskCard: React.FC<TaskCardProps> = ({
 
         {/* Assignee / Date */}
         <div className="flex items-center gap-1.5 shrink-0 ml-auto text-[10px] text-[var(--text-muted)]">
-          {task.statusChangedAt && shortElapsed(task.statusChangedAt) && (
+          {task.statusChangedAt && shortElapsed(task.statusChangedAt, t.shell.elapsed) && (
             <span
               className="flex items-center gap-0.5 font-medium"
               style={{ color: isElapsedStale(task.statusChangedAt) ? 'var(--status-warn)' : 'var(--text-muted)' }}
-              title={`Dans cette catégorie de statut depuis le ${new Date(task.statusChangedAt).toLocaleDateString()}`}
+              title={format(t.shell.card.statusSince, { date: formatDate(settings.language, task.statusChangedAt) })}
             >
               <Clock size={10} />
-              <span>{shortElapsed(task.statusChangedAt)}</span>
+              <span>{shortElapsed(task.statusChangedAt, t.shell.elapsed)}</span>
             </span>
           )}
           {task.assignee && (
             <Avatar name={task.assignee} url={task.assigneeAvatar} size={18} />
           )}
           {task.dueDate && (
-            <span className="flex items-center gap-0.5 text-amber-400 font-medium" title={`Échéance : ${task.dueDate}`}>
+            <span className="flex items-center gap-0.5 text-amber-400 font-medium" title={format(t.shell.card.due, { date: task.dueDate })}>
               <Calendar size={10} />
               <span>{task.dueDate.split('T')[0]?.slice(5)}</span>
             </span>
@@ -973,7 +974,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({
               ? 'accent-text bg-[var(--accent-light)] border-[var(--accent-color)]/40'
               : 'text-[var(--text-muted)] hover:text-[var(--accent-color)] hover:bg-[var(--accent-light)] border-transparent hover:border-[var(--accent-color)]/30'
           }`}
-          title={isPinned(task.id) ? 'Retirer de la barre des épinglés' : 'Épingler pour basculer vite dessus'}
+          title={isPinned(task.id) ? t.shell.card.unpinTitle : t.shell.card.pinTitle}
         >
           <Pin size={14} />
         </button>

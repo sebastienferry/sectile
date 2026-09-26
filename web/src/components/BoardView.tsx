@@ -22,6 +22,7 @@ import { resolveTaskStage, stageFromLabels } from '../lib/workflow'
 import { BoardGroupingToggle } from './BoardGroupingToggle'
 import { BoardSortSelect } from './BoardSortSelect'
 import { sortTasks } from '../lib/boardSort'
+import { format, plural } from '../lib/i18n'
 import {
   isSelectableStage,
   orderSelection,
@@ -44,7 +45,10 @@ interface WorkflowColumnConfig {
 
 interface StatusColumnConfig {
   id: Status
+  /** The tracker column name, or the status key of the internal board: it matches tasks, never translated. */
   title: string
+  /** What the header shows when it differs from `title` (the internal board's own columns). */
+  label?: string
   stageLabel: string
   stageColor: string
   icon: React.ReactNode
@@ -84,6 +88,7 @@ export const BoardView: React.FC = () => {
     isProfileOpen,
     searchQuery,
     t,
+    settings,
   } = useApp()
 
   const [showHiddenColumns, setShowHiddenColumns] = useState(false)
@@ -96,7 +101,7 @@ export const BoardView: React.FC = () => {
   const [launchingBatch, setLaunchingBatch] = useState(false)
 
   // Every column follows the sort chosen in the toolbar (#402). Drag and drop
-  // never reorders inside a column — it changes the stage — so sorting here
+  // never reorders inside a column (it changes the stage), so sorting here
   // overrides no manual order.
   const sortColumn = (list: Task[]) => sortTasks(list, boardSort)
 
@@ -107,7 +112,7 @@ export const BoardView: React.FC = () => {
   const workflowColumns: WorkflowColumnConfig[] = [
     {
       id: 'new',
-      title: 'New',
+      title: t.shell.board.stages.new,
       stageLabel: '#new',
       stageColor: 'bg-cyan-500/15 text-cyan-400 border-cyan-500/30',
       icon: <Sparkles size={16} className="text-cyan-400" />,
@@ -118,7 +123,7 @@ export const BoardView: React.FC = () => {
     },
     {
       id: 'clarified',
-      title: 'Clarified',
+      title: t.shell.board.stages.clarified,
       stageLabel: '#clarified',
       stageColor: 'bg-amber-500/15 text-amber-400 border-amber-500/30',
       icon: <HelpCircle size={16} className="text-amber-400" />,
@@ -129,7 +134,7 @@ export const BoardView: React.FC = () => {
     },
     {
       id: 'specified',
-      title: 'Specified',
+      title: t.shell.board.stages.specified,
       stageLabel: '#specified',
       stageColor: 'bg-blue-500/15 text-blue-400 border-blue-500/30',
       icon: <FileCode size={16} className="text-blue-400" />,
@@ -140,7 +145,7 @@ export const BoardView: React.FC = () => {
     },
     {
       id: 'implemented',
-      title: 'Implemented',
+      title: t.shell.board.stages.implemented,
       stageLabel: '#implemented',
       stageColor: 'bg-indigo-500/15 text-indigo-400 border-indigo-500/30',
       icon: <Flame size={16} className="text-indigo-400" />,
@@ -151,7 +156,7 @@ export const BoardView: React.FC = () => {
     },
     {
       id: 'reviewed',
-      title: 'Reviewed',
+      title: t.shell.board.stages.reviewed,
       stageLabel: '#reviewed',
       stageColor: 'bg-purple-500/15 text-purple-400 border-purple-500/30',
       icon: <ShieldCheck size={16} className="text-purple-400" />,
@@ -162,7 +167,7 @@ export const BoardView: React.FC = () => {
     },
     {
       id: 'finished',
-      title: 'Finished',
+      title: t.shell.board.stages.finished,
       stageLabel: '#finished',
       stageColor: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30',
       icon: <CheckCircle2 size={16} className="text-emerald-400" />,
@@ -198,7 +203,8 @@ export const BoardView: React.FC = () => {
     {
       id: 'to_clarify',
       title: 'Todo',
-      stageLabel: 'Backlog',
+      label: t.shell.board.statusColumns.todo,
+      stageLabel: t.shell.board.statusColumns.todoStage,
       stageColor: 'bg-cyan-500/15 text-cyan-400 border-cyan-500/30',
       icon: <ListFilter size={16} className="text-cyan-400" />,
       color: 'text-cyan-400',
@@ -209,7 +215,8 @@ export const BoardView: React.FC = () => {
     {
       id: 'in_progress',
       title: 'In Progress',
-      stageLabel: 'En cours',
+      label: t.shell.board.statusColumns.inProgress,
+      stageLabel: t.shell.board.statusColumns.inProgressStage,
       stageColor: 'bg-blue-500/15 text-blue-400 border-blue-500/30',
       icon: <Flame size={16} className="text-blue-400" />,
       color: 'text-blue-400',
@@ -220,7 +227,8 @@ export const BoardView: React.FC = () => {
     {
       id: 'to_test',
       title: 'In Review & Testing',
-      stageLabel: 'Revue & Tests',
+      label: t.shell.board.statusColumns.review,
+      stageLabel: t.shell.board.statusColumns.reviewStage,
       stageColor: 'bg-purple-500/15 text-purple-400 border-purple-500/30',
       icon: <ShieldCheck size={16} className="text-purple-400" />,
       color: 'text-purple-400',
@@ -231,7 +239,8 @@ export const BoardView: React.FC = () => {
     {
       id: 'finished',
       title: 'Done',
-      stageLabel: 'Terminé',
+      label: t.shell.board.statusColumns.done,
+      stageLabel: t.shell.board.statusColumns.doneStage,
       stageColor: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30',
       icon: <CheckCircle2 size={16} className="text-emerald-400" />,
       color: 'text-emerald-400',
@@ -280,9 +289,9 @@ export const BoardView: React.FC = () => {
     await moveTaskWorkflowStage(task.id, targetStage)
   }
 
-  // Les colonnes du projet, à la façon de Jira : un nom et les statuts du tracker
-  // qu'elles regroupent. Dès qu'un projet en définit, elles remplacent les
-  // colonnes de statuts génériques — ce mode n'est qu'une extension de celui-ci.
+  // The project's columns, Jira style: a name and the tracker statuses they
+  // group. As soon as a project defines some, they replace the generic status
+  // columns: this mode is only an extension of that one.
   // Extract distinct trackerStatus from tasks as fallback columns if project trackerColumns is empty
   const fallbackTrackerColumns = React.useMemo(() => {
     const seen = new Set<string>()
@@ -357,9 +366,9 @@ export const BoardView: React.FC = () => {
     return inColumn.length > 0 && inColumn.every(t => t.status === 'finished' || t.status === 'done')
   }
 
-  // Les tickets que les colonnes affichent. Le filtre « en cours » s'arrête ici :
-  // `tasks` continue de servir aux résolutions par id du glisser-déposer, et la
-  // structure du board — ses colonnes — ne bouge pas parce qu'un filtre la vide.
+  // The tickets the columns show. The "in progress" filter stops here: `tasks`
+  // still serves the id lookups of drag and drop, and the board structure (its
+  // columns) does not move because a filter empties it.
   const displayedTasks = React.useMemo(
     () => (activeOnly ? tasks.filter(t => activeTasks.has(t.id)) : tasks),
     [tasks, activeOnly, activeTasks],
@@ -564,13 +573,13 @@ export const BoardView: React.FC = () => {
             type="button"
             onClick={toggleBoardCardDisplayMode}
             aria-pressed={isCondensed}
-            aria-label={isCondensed ? 'Afficher les cartes détaillées' : 'Afficher les cartes sur une ligne'}
+            aria-label={isCondensed ? t.shell.board.showExpanded : t.shell.board.showCondensed}
             className={`flex items-center justify-center p-1.5 rounded-lg border transition-colors cursor-pointer ${
               isCondensed
                 ? 'bg-[var(--accent-light)] accent-text border-[var(--accent-color)]/40 shadow-2xs'
                 : 'bg-[var(--bg-tertiary)] text-[var(--text-secondary)] border-[var(--border-color)] hover:text-[var(--text-primary)]'
             }`}
-            title={isCondensed ? 'Afficher les cartes détaillées' : 'Afficher les cartes sur une ligne'}
+            title={isCondensed ? t.shell.board.showExpanded : t.shell.board.showCondensed}
           >
             {isCondensed ? <List size={14} /> : <Kanban size={14} />}
           </button>
@@ -588,7 +597,7 @@ export const BoardView: React.FC = () => {
               title={hiddenColumns.map(c => c.name).join(', ')}
             >
               {showHiddenColumns ? <EyeOff size={13} /> : <Eye size={13} />}
-              <span>{showHiddenColumns ? 'Masquer' : `${hiddenColumns.length} colonne${hiddenColumns.length > 1 ? 's' : ''} masquée${hiddenColumns.length > 1 ? 's' : ''}`}</span>
+              <span>{showHiddenColumns ? t.shell.board.hide : plural(settings.language, hiddenColumns.length, t.shell.board.hiddenColumns)}</span>
             </button>
           )}
 
@@ -599,10 +608,10 @@ export const BoardView: React.FC = () => {
                 ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/40 shadow-2xs'
                 : 'bg-[var(--bg-tertiary)] text-[var(--text-secondary)] border-[var(--border-color)] hover:text-[var(--text-primary)]'
             }`}
-            title={hideDone ? 'Afficher les tâches terminées' : 'Masquer les tâches terminées'}
+            title={hideDone ? t.shell.board.showDoneTitle : t.shell.board.hideDoneTitle}
           >
             {hideDone ? <Eye size={13} className="text-emerald-400" /> : <EyeOff size={13} />}
-            <span>{hideDone ? 'Afficher Terminé' : 'Masquer Terminé'}</span>
+            <span>{hideDone ? t.shell.board.showDone : t.shell.board.hideDone}</span>
           </button>
         </div>
       </div>
@@ -612,13 +621,13 @@ export const BoardView: React.FC = () => {
           toutes vides, ce qu'une colonne vide seule n'explique pas. */}
       {activeOnly && displayedTasks.length === 0 && (
         <div className="mx-4 mt-4 flex items-center justify-between gap-3 rounded-lg border border-[var(--border-color)] bg-[var(--bg-secondary)] px-3 py-2 text-[11px] text-[var(--text-secondary)]">
-          <span>Aucun ticket en cours d'exécution.</span>
+          <span>{t.shell.board.noActive}</span>
           <button
             type="button"
             onClick={() => setActiveOnly(false)}
             className="font-semibold accent-text hover:opacity-80 transition-opacity cursor-pointer"
           >
-            Afficher tous les tickets
+            {t.shell.board.showAll}
           </button>
         </div>
       )}
@@ -648,7 +657,7 @@ export const BoardView: React.FC = () => {
                         ? 'border-emerald-500 ring-2 ring-emerald-500/30 bg-emerald-500/15'
                         : 'border-[var(--border-color)] hover:border-emerald-500/40'
                     }`}
-                    title="Colonne Finished masquée - Glissez une tâche ici pour la terminer, ou cliquez pour l'afficher"
+                    title={t.shell.board.finishedHidden}
                   >
                     <div className="flex flex-col items-center gap-1.5">
                       <CheckCircle2 size={18} className="text-emerald-400" />
@@ -659,7 +668,7 @@ export const BoardView: React.FC = () => {
 
                     <div className="flex-1 flex items-center justify-center my-4">
                       <span className="[writing-mode:vertical-lr] rotate-180 text-xs font-bold text-[var(--text-secondary)] group-hover:text-emerald-400 tracking-wider transition-colors">
-                        Finished ({colTasks.length})
+                        {t.shell.board.stages.finished} ({colTasks.length})
                       </span>
                     </div>
 
@@ -702,7 +711,7 @@ export const BoardView: React.FC = () => {
                         <button
                           onClick={toggleHideDone}
                           className="p-1 rounded-md text-[var(--text-muted)] hover:text-emerald-400 hover:bg-[var(--bg-tertiary)] transition-colors cursor-pointer"
-                          title="Masquer la colonne Finished"
+                          title={t.shell.board.hideFinished}
                         >
                           <EyeOff size={14} />
                         </button>
@@ -710,7 +719,7 @@ export const BoardView: React.FC = () => {
                       <button
                         onClick={() => openQuickAddForWorkflow(col.id)}
                         className="p-1 rounded-md text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] transition-colors cursor-pointer"
-                        title={`Ajouter un ticket (#${col.id})`}
+                        title={format(t.shell.board.addTicket, { stage: col.id })}
                       >
                         <Plus size={15} />
                       </button>
@@ -760,7 +769,7 @@ export const BoardView: React.FC = () => {
                         ? 'border-emerald-500 ring-2 ring-emerald-500/30 bg-emerald-500/15'
                         : 'border-[var(--border-color)] hover:border-emerald-500/40'
                     }`}
-                    title={`Colonne ${col.title} masquée : glissez une tâche ici pour la fermer, ou cliquez pour la rouvrir`}
+                    title={format(t.shell.board.columnHidden, { column: col.label ?? col.title })}
                   >
                     <div className="flex flex-col items-center gap-1.5">
                       <CheckCircle2 size={18} className="text-emerald-400" />
@@ -771,7 +780,7 @@ export const BoardView: React.FC = () => {
 
                     <div className="flex-1 flex items-center justify-center my-4">
                       <span className="[writing-mode:vertical-lr] rotate-180 text-xs font-bold text-[var(--text-secondary)] group-hover:text-emerald-400 tracking-wider transition-colors">
-                        {col.title} ({colTasks.length})
+                        {col.label ?? col.title} ({colTasks.length})
                       </span>
                     </div>
 
@@ -799,7 +808,7 @@ export const BoardView: React.FC = () => {
                     <div className="flex items-center gap-2">
                       <span>{col.icon}</span>
                       <h3 className="text-xs font-bold text-[var(--text-primary)] tracking-wide">
-                        {col.title}
+                        {col.label ?? col.title}
                       </h3>
                       <span className={`text-[10px] font-bold px-1.5 py-0.2 rounded border ${col.stageColor}`}>
                         {col.stageLabel}
@@ -814,7 +823,7 @@ export const BoardView: React.FC = () => {
                         <button
                           onClick={toggleHideDone}
                           className="p-1 rounded-md text-[var(--text-muted)] hover:text-emerald-400 hover:bg-[var(--bg-tertiary)] transition-colors"
-                          title="Masquer la colonne Done"
+                          title={t.shell.board.hideDoneColumn}
                         >
                           <EyeOff size={14} />
                         </button>
@@ -822,7 +831,7 @@ export const BoardView: React.FC = () => {
                       <button
                         onClick={() => openQuickAddForStatus(col.id)}
                         className="p-1 rounded-md text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] transition-colors"
-                        title={`Ajouter une tâche (${col.title})`}
+                        title={format(t.shell.board.addTask, { column: col.label ?? col.title })}
                       >
                         <Plus size={15} />
                       </button>
@@ -854,14 +863,14 @@ export const BoardView: React.FC = () => {
               <div className="flex items-center justify-between p-3 border-b border-[var(--border-color)]">
                 <div className="flex items-center gap-2">
                   <ListFilter size={16} className="text-amber-400" />
-                  <h3 className="text-xs font-bold text-[var(--text-primary)] tracking-wide">Non classé</h3>
+                  <h3 className="text-xs font-bold text-[var(--text-primary)] tracking-wide">{t.shell.board.unclassified}</h3>
                   <span className="text-[11px] font-mono px-1.5 py-0.2 rounded-full font-bold bg-amber-500/20 text-amber-300">
                     {unassignedTasks.length}
                   </span>
                 </div>
               </div>
               <div className="px-3 py-1.5 text-[10px] text-[var(--text-muted)] border-b border-[var(--border-color)]/60">
-                Statuts non affectés à une colonne : {Array.from(new Set(unassignedTasks.map(t => t.trackerStatus || 'sans statut'))).join(', ')}
+                {format(t.shell.board.unassignedStatuses, { statuses: Array.from(new Set(unassignedTasks.map(task => task.trackerStatus || t.shell.board.noStatus))).join(', ') })}
               </div>
               <div className="flex-1 overflow-y-auto p-2.5 space-y-2.5">
                 {unassignedTasks.map(renderCard)}
@@ -881,7 +890,7 @@ export const BoardView: React.FC = () => {
                 {selectedIds.size}
               </span>
               <span className="font-semibold text-[var(--text-primary)] whitespace-nowrap">
-                {selectedIds.size > 1 ? 'sélectionnées' : 'sélectionnée'}
+                {plural(settings.language, selectedIds.size, t.shell.board.selected)}
               </span>
             </div>
 
@@ -890,7 +899,7 @@ export const BoardView: React.FC = () => {
               onClick={launchSelectedBatch}
               disabled={launchingBatch}
               className="flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold cursor-pointer bg-[var(--bg-tertiary)] text-[var(--text-secondary)] border border-[var(--border-color)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-secondary)] transition-colors shrink-0 shadow-xs disabled:opacity-50 disabled:cursor-not-allowed"
-              title="Run the selected tasks on the local agent"
+              title={t.shell.board.runSelected}
             >
               <Sparkles size={13} />
               {t.batchLaunch}
@@ -902,7 +911,7 @@ export const BoardView: React.FC = () => {
               className="flex items-center gap-1 text-xs font-bold text-[var(--text-muted)] hover:text-[var(--text-primary)] cursor-pointer"
             >
               <X size={13} />
-              Désélectionner tout
+              {t.shell.board.clearSelection}
             </button>
           </div>
         </div>
