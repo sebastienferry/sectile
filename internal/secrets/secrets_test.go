@@ -241,3 +241,46 @@ func TestThePersonalBindingSerialisationIsUnchanged(t *testing.T) {
 		t.Fatal("a server credential without a tracker must be refused")
 	}
 }
+
+// An unlocked key is kept under the server key while the unlock lasts: it opens
+// only under its own owner, tracker and server key, and never as the
+// credential it unlocks.
+func TestAWrappedUnlockOpensUnderItsOwnBindingOnly(t *testing.T) {
+	serverKey := testKey(t)
+	derived := DeriveKey("correct horse", []byte("0123456789abcdef"))
+	record, err := WrapKey(serverKey, UnlockBinding("u1", "Jira"), derived)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := UnwrapKey(serverKey, UnlockBinding("u1", "jira"), record); err != nil || got != derived {
+		t.Fatalf("round trip: %v", err)
+	}
+	for _, theft := range []Binding{
+		UnlockBinding("u2", "jira"),
+		UnlockBinding("u1", "github"),
+		{UserID: "u1", Tracker: "jira"},
+		ServerBinding("jira"),
+	} {
+		if _, err := UnwrapKey(serverKey, theft, record); !errors.Is(err, ErrWrongKey) {
+			t.Errorf("%+v opened the unlock record: %v", theft, err)
+		}
+	}
+	if _, err := UnwrapKey(testKey(t), UnlockBinding("u1", "jira"), record); !errors.Is(err, ErrWrongKey) {
+		t.Errorf("another server key opened the unlock record: %v", err)
+	}
+
+	credential, err := Seal(serverKey, Binding{UserID: "u1", Tracker: "jira"}, "token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := UnwrapKey(serverKey, UnlockBinding("u1", "jira"), credential); !errors.Is(err, ErrWrongKey) {
+		t.Errorf("a credential record opened as an unlock: %v", err)
+	}
+	notAKey, err := Seal(serverKey, UnlockBinding("u1", "jira"), "not hex")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := UnwrapKey(serverKey, UnlockBinding("u1", "jira"), notAKey); !errors.Is(err, ErrWrongKey) {
+		t.Errorf("a record that is not a key unwrapped: %v", err)
+	}
+}

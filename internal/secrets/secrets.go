@@ -154,15 +154,26 @@ func DeriveKey(passphrase string, salt []byte) Key {
 // Server marks the credential Sectile itself uses for a tracker, which belongs
 // to no user. It serialises under a prefix of its own, so a server record never
 // opens as somebody's personal one, nor the other way round.
+//
+// Unlock marks the key a person's passphrase derived, kept under the server key
+// while their unlock lasts. It has a prefix of its own too, so an unlock record
+// never opens as the credential it unlocks, nor the other way round.
 type Binding struct {
 	UserID  string
 	Tracker string
 	Server  bool
+	Unlock  bool
 }
 
 // ServerBinding is the binding of the server credential of one tracker.
 func ServerBinding(tracker string) Binding {
 	return Binding{Tracker: tracker, Server: true}
+}
+
+// UnlockBinding is the binding of the unlocked key of one person's sealed
+// credential for one tracker.
+func UnlockBinding(userID, tracker string) Binding {
+	return Binding{UserID: userID, Tracker: tracker, Unlock: true}
 }
 
 // The parts are length-prefixed rather than merely joined: concatenation alone
@@ -175,6 +186,9 @@ func (b Binding) bytes() []byte {
 	name := strings.ToLower(strings.TrimSpace(b.Tracker))
 	if b.Server {
 		return fmt.Appendf(nil, "sectile:v1:server:tracker:%d:%s", len(name), name)
+	}
+	if b.Unlock {
+		return fmt.Appendf(nil, "sectile:v1:unlock:user:%d:%s:tracker:%d:%s", len(user), user, len(name), name)
 	}
 	return fmt.Appendf(nil, "sectile:v1:user:%d:%s:tracker:%d:%s", len(user), user, len(name), name)
 }
@@ -212,6 +226,28 @@ func Open(key Key, binding Binding, record []byte) (string, error) {
 		return "", ErrWrongKey
 	}
 	return string(plaintext), nil
+}
+
+// WrapKey seals a derived key under another key, for as long as an unlock
+// lasts. It is Seal applied to the key's hex form.
+func WrapKey(key Key, binding Binding, wrapped Key) ([]byte, error) {
+	return Seal(key, binding, hex.EncodeToString(wrapped[:]))
+}
+
+// UnwrapKey opens what WrapKey sealed. Anything that does not open, or does not
+// open to a key, answers ErrWrongKey.
+func UnwrapKey(key Key, binding Binding, record []byte) (Key, error) {
+	var out Key
+	text, err := Open(key, binding, record)
+	if err != nil {
+		return out, err
+	}
+	raw, err := hex.DecodeString(text)
+	if err != nil || len(raw) != len(out) {
+		return out, ErrWrongKey
+	}
+	copy(out[:], raw)
+	return out, nil
 }
 
 func newAEAD(key Key) (cipher.AEAD, error) {
