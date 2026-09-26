@@ -126,6 +126,7 @@ func TestLocalWorktreeReusesMainCheckoutForDerivedBranch(t *testing.T) {
 }
 
 func TestGatewayForwardsMCPAndOwnCredential(t *testing.T) {
+	testhome.Temp(t)
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer daemon-token" {
 			t.Errorf("wrong upstream token")

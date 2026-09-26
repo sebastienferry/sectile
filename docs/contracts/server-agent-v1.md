@@ -505,6 +505,17 @@ agent's list catches up on the next change.
 
 ## MCP session ownership
 
+The server protects loopback MCP connections against DNS rebinding: their Host
+must be a loopback address or an explicit entry in `SECTILE_MCP_ALLOWED_HOSTS`.
+This server-only variable supports hosting ingresses that connect locally while
+preserving the public Host. It is read when the shared MCP transport is built,
+so changes require a server restart. Entries are comma-separated exact Host
+authorities, case-insensitive, including the port when present; schemes, paths
+and wildcard expansion are not supported. Forwarded headers cannot grant an
+exception. Non-loopback connections keep their existing behavior, and both
+`/mcp` and `/internal/mcp` retain their authentication and browser-Origin checks.
+The workstation gateway's separate loopback Host guard is unchanged.
+
 `/mcp` is served statefully: each client holds one server session, identified by
 `Mcp-Session-Id` and told apart from any other session sharing the same bearer
 credential. A session begins when its client completes initialization and ends on
