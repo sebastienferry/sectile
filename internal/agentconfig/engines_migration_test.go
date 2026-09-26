@@ -233,3 +233,19 @@ func TestMigrateSettingsBacksUpOnce(t *testing.T) {
 		t.Fatal("the first backup was overwritten")
 	}
 }
+
+func TestConversionDefaultsToTheFirstEntryOfAStatedCatalogue(t *testing.T) {
+	s := Settings{Engines: Engines{Default: "e-gone", Catalogue: []Engine{
+		{ID: "e-codex", Name: "Codex", Provider: "codex"},
+		{ID: "e-claude", Name: "Claude fast", Provider: "claude", Model: "claude-sonnet-5"},
+	}}}
+	if !convertEngines(&s) {
+		t.Fatal("a dangling default must be repaired")
+	}
+	if s.Engines.Default != "e-codex" || len(s.Engines.Catalogue) != 2 {
+		t.Fatalf("the first entry must become the default without an implicit engine: %+v", s.Engines)
+	}
+	if convertEngines(&s) {
+		t.Fatal("a repaired catalogue must not change again")
+	}
+}

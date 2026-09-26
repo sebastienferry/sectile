@@ -141,7 +141,13 @@ func convertEngines(s *Settings) bool {
 		}
 		changed = true
 	} else if !s.hasDefaultEngine() {
-		s.Engines.Default = s.addImplicitEngine()
+		// A catalogue whose default names no entry runs its first entry, as
+		// DefaultEngine reads it; only an empty one gets the implicit engine.
+		if len(s.Engines.Catalogue) > 0 {
+			s.Engines.Default = s.Engines.Catalogue[0].ID
+		} else {
+			s.Engines.Default = s.addImplicitEngine()
+		}
 		changed = true
 	}
 	ids := make([]string, 0, len(s.ProjectSettings))
