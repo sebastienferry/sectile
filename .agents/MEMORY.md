@@ -2,6 +2,10 @@
 
 ## Architecture Decisions & Constraints
 
+### Test Agent Operation Logs Must Be Synchronized (2026-09-26)
+- Stage validation and the asynchronous postback worker can invoke the same `SetAgentOperations` callback concurrently. A fixture's operation log needs a mutex for both appends and snapshots; returning a raw slice pointer leaves readers unprotected. GitLab job 16751709293 exposed this in `specifyOwnedTask` (`internal/db/specartifacts_test.go`).
+- A test that queues a sync and then calls `processSyncJob` directly must use separate tracker/database fixtures for those checks. Otherwise the queued job can overwrite the direct job's recorded identity (`TestASynchronisationAskedForBySomebodyRecordsThemAndReadsAsNobody`).
+
 ### 1. Web Server HTTP API Only (No Workstation CLIs)
 - **Constraint**: The web server (`cmd/server`, `internal/handlers`, `internal/db`, `internal/trackerapi`) must access remote issue trackers (GitHub) solely via HTTP REST and GraphQL APIs through `tasks/internal/trackerapi.Client`.
 - **Enforcement**:

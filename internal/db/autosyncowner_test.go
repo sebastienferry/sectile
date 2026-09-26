@@ -73,9 +73,12 @@ func TestASynchronisationAskedForBySomebodyRecordsThemAndReadsAsNobody(t *testin
 		t.Fatalf("the activity must say who asked, got %q", queued.UserID)
 	}
 
-	// Run a job here rather than wait for the worker, which would overwrite
-	// what this test is watching. Even a job that names somebody reads as
-	// nobody: the worker puts no acting user on a synchronisation.
+	// Use a separate fixture for the direct job: the queued job above can
+	// still be running and must not overwrite the identity being asserted.
+	fake = newFakeTracker()
+	database, project = jiraTestDB(t, fake)
+	// Even a job that names somebody reads as nobody: the worker puts no
+	// acting user on a synchronisation.
 	activity := models.TaskActivity{ID: "sync-owner", ProjectID: project.ID, SkillID: "sync_jira", Status: "running", CreatedAt: time.Now()}
 	if err := database.AddTaskActivity(activity); err != nil {
 		t.Fatal(err)
