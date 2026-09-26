@@ -445,10 +445,16 @@ func (d *DB) runAssignOp(ctx context.Context, op TrackerOp, steps *[]string) (st
 		// Nom choisi hors liste (saisie libre, ou membre d'une autre équipe) :
 		// l'identifiant de compte se retrouve dans les équipes connues.
 		accountID = d.AccountIDForAssignee(who, task.Team)
-		if accountID == "" {
-			return "", fmt.Errorf("aucun compte Jira connu pour « %s » : synchronisez l'équipe du ticket, ou choisissez une personne dans la liste", who)
+		switch {
+		case accountID != "":
+			*steps = append(*steps, fmt.Sprintf("Compte résolu depuis les équipes connues : %s", accountID))
+		case writer.Name() == "gitlab":
+			// GitLab resolves a username among the project's members itself,
+			// and the name a GitLab task carries is that username.
+			accountID = who
+		default:
+			return "", fmt.Errorf("aucun compte %s connu pour « %s » : synchronisez l'équipe du ticket, ou choisissez une personne dans la liste", trackerDisplayName(writer.Name()), who)
 		}
-		*steps = append(*steps, fmt.Sprintf("Compte résolu depuis les équipes connues : %s", accountID))
 	}
 
 	callCtx, cancel := context.WithTimeout(ctx, 30*time.Second)

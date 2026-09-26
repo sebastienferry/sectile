@@ -9,10 +9,11 @@ import (
 )
 
 // NewDefaultRegistry constructs a tracker.Registry populated with the GitHub,
-// Jira and Local adapters using the given tracker API client.
+// GitLab, Jira and Local adapters using the given tracker API client.
 func NewDefaultRegistry(client *Client) *tracker.Registry {
 	reg := tracker.NewRegistry()
 	reg.Register("github", NewGithubAdapter(client))
+	reg.Register("gitlab", NewGitlabAdapter(client))
 	reg.Register("jira", NewJiraAdapter(client))
 	reg.Register("local", tracker.NewLocalAdapter())
 	return reg
@@ -46,9 +47,9 @@ func NewGithubAdapter(client *Client) *GithubAdapter {
 	}
 }
 
-// IssuePullRequests implements tracker.PullRequestDiscoverer. GitHub is the only
-// tracker that answers it today; Jira and the local board do not declare the
-// capability and do not implement the interface.
+// IssuePullRequests implements tracker.PullRequestDiscoverer. GitHub and GitLab
+// answer it; Jira and the local board do not declare the capability and do not
+// implement the interface.
 func (g *GithubAdapter) IssuePullRequests(ctx context.Context, req tracker.IssuePullRequestsRequest) ([]models.TaskPullRequest, error) {
 	repo := resolveGithubRepo(req.Project)
 	if repo == "" {

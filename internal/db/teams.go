@@ -555,7 +555,9 @@ func (d *DB) SearchAssignableUsersAs(ctx context.Context, taskIDOrKey string, qu
 	if err != nil || ts == nil || !ts.Supports(tracker.CapAssign) {
 		return []models.TeamMember{}, nil
 	}
-	ctx, cancel := context.WithTimeout(ctx, teamsAPITimeout)
+	// The call takes a key and nothing else: the project travels in the
+	// context, or GitLab would search the members of the default project.
+	ctx, cancel := context.WithTimeout(tracker.WithProject(ctx, task.ProjectID), teamsAPITimeout)
 	defer cancel()
 	people, err := ts.SearchAssignable(ctx, task.Key, query, 20)
 	if err != nil {
@@ -623,7 +625,9 @@ func (d *DB) SetTasksTeam(ctx context.Context, projectID string, taskIDs []strin
 		if err != nil || task == nil {
 			continue
 		}
-		if task.Source != "jira" {
+		// The team exists on the trackers that declare it (Jira, GitLab), and
+		// only there: a GitHub or local work item keeps no team.
+		if ts, err := d.TrackerForTask(task); err != nil || !ts.Supports(tracker.CapTeam) {
 			continue
 		}
 		if firstKey == "" {
@@ -636,7 +640,7 @@ func (d *DB) SetTasksTeam(ctx context.Context, projectID string, taskIDs []strin
 		d.mu.Unlock()
 	}
 	if len(resolved) == 0 {
-		return nil, fmt.Errorf("le champ Équipe n'existe que sur un ticket Jira")
+		return nil, fmt.Errorf("le champ Équipe n'existe pas sur le tracker de ces tickets")
 	}
 
 	singleID := ""

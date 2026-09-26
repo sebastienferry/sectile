@@ -115,7 +115,7 @@ func (d *DB) GetProjectMacros(projectID string) ([]models.MacroMeta, error) {
 	d.mu.Unlock()
 
 	proj, _ := d.GetProjectByID(projectID)
-	if proj != nil && (proj.IssueTracker == "github" || proj.GithubRepo != "") {
+	if githubMilestoneMacros(proj) {
 		if milestones, err := d.tracker(proj.ID).ListGithubMilestones(proj.GithubRepo, proj.RepoPath); err == nil && len(milestones) > 0 {
 			d.mu.Lock()
 			for _, m := range milestones {
@@ -217,7 +217,7 @@ func (d *DB) UpdateMacro(ctx context.Context, projectID string, key string, titl
 	proj, _ := d.GetProjectByID(projectID)
 	// Only what the milestone carries travels: the horizon, the framing and the
 	// slicing are Sectile's own.
-	if proj != nil && (proj.IssueTracker == "github" || proj.GithubRepo != "") && (title != nil || description != nil || closed != nil) {
+	if githubMilestoneMacros(proj) && (title != nil || description != nil || closed != nil) {
 		var num int
 		if strings.HasPrefix(strings.ToUpper(key), "M-") {
 			_, _ = fmt.Sscanf(strings.ToUpper(key), "M-%d", &num)
@@ -536,11 +536,63 @@ func (d *DB) applyTaskMacro(ctx context.Context, taskIDOrKey string, macroKey st
 				}
 			}
 		}
+	} else if task.Source == "gitlab" && proj != nil {
+		if err := d.writeGitlabMacroLabels(ctx, proj, task, cleanMacroKey); err != nil {
+			*steps = append(*steps, fmt.Sprintf("⚠️ Labels de macro GitLab non posés sur %s : %v, gardé en local", task.Key, err))
+			if isTrackerWriteRefusal(err) {
+				return task, err
+			}
+		} else if cleanMacroKey == "" {
+			*steps = append(*steps, fmt.Sprintf("✅ %s retiré de sa macro sur GitLab", task.Key))
+		} else {
+			*steps = append(*steps, fmt.Sprintf("✅ %s rattaché à la macro %s sur GitLab", task.Key, cleanMacroKey))
+		}
 	} else {
 		*steps = append(*steps, fmt.Sprintf("✅ %s macro mise à jour en local", task.Key))
 	}
 
 	return task, nil
+}
+
+// writeGitlabMacroLabels writes a task's macro on GitLab, where it is carried
+// by labels on every tier: macro:<title> and parent:<key> replace the task's
+// previous ones, and an empty key removes them.
+func (d *DB) writeGitlabMacroLabels(ctx context.Context, proj *models.Project, task *models.Task, macroKey string) error {
+	ts, err := d.TrackerForProject(proj)
+	if err != nil {
+		return err
+	}
+	var add []string
+	if macroKey != "" {
+		title := ""
+		d.mu.RLock()
+		_ = d.conn.QueryRow("SELECT title FROM macros WHERE project_id = ? AND key = ?", proj.ID, macroKey).Scan(&title)
+		d.mu.RUnlock()
+		if strings.TrimSpace(title) == "" {
+			title = macroKey
+		}
+		add = []string{"macro:" + title, "parent:" + macroKey}
+	}
+	var remove []string
+	for _, l := range task.Labels {
+		low := strings.ToLower(strings.TrimSpace(l))
+		if (strings.HasPrefix(low, "macro:") || strings.HasPrefix(low, "parent:")) && !containsFold(add, l) {
+			remove = append(remove, l)
+		}
+	}
+	if len(add) == 0 && len(remove) == 0 {
+		return nil
+	}
+	return ts.UpdateLabels(tracker.WithProject(ctx, proj.ID), task.Key, add, remove)
+}
+
+func containsFold(list []string, s string) bool {
+	for _, item := range list {
+		if strings.EqualFold(strings.TrimSpace(item), strings.TrimSpace(s)) {
+			return true
+		}
+	}
+	return false
 }
 
 func (d *DB) applyTaskEpic(ctx context.Context, taskIDOrKey string, epicKey string, steps *[]string) (*models.Task, error) {
@@ -616,6 +668,10 @@ func (d *DB) createStoryUnder(ctx context.Context, macroProject, target *models.
 				notice = fmt.Sprintf("milestone %s non posé sur GitHub : %v ; rattachement gardé en local", macroKey, err)
 			}
 		}
+	case task.Source == "gitlab":
+		if err := d.writeGitlabMacroLabels(ctx, target, task, macroKey); err != nil {
+			notice = fmt.Sprintf("labels de la macro %s non posés sur GitLab : %v ; rattachement gardé en local", macroKey, err)
+		}
 	case task.Source == "jira":
 		// The epic parents the story on Jira itself, not only on the board.
 		if ts, tsErr := d.TrackerForProject(target); tsErr != nil {
@@ -650,7 +706,7 @@ func (d *DB) CreateMacro(ctx context.Context, projectID string, title string, ho
 
 	key := ""
 	var refused error
-	if (proj.IssueTracker == "github" || proj.GithubRepo != "") && proj.GithubRepo != "" {
+	if githubMilestoneMacros(proj) && proj.GithubRepo != "" {
 		if client, err := d.trackerForWrite(ctx, "github", proj.ID); err != nil {
 			refused = err
 		} else if num, err := client.CreateGithubMilestone(proj.GithubRepo, proj.RepoPath, title, ""); err == nil && num > 0 {
@@ -700,7 +756,7 @@ func (d *DB) DeleteMacro(ctx context.Context, projectID string, key string) erro
 
 	var refused error
 	proj, _ := d.GetProjectByID(projectID)
-	if proj != nil && (proj.IssueTracker == "github" || proj.GithubRepo != "") {
+	if githubMilestoneMacros(proj) {
 		var num int
 		if strings.HasPrefix(strings.ToUpper(key), "M-") {
 			_, _ = fmt.Sscanf(strings.ToUpper(key), "M-%d", &num)
@@ -815,7 +871,7 @@ func IsProjectCompatible(p1, p2 *models.Project) bool {
 	if t1 == t2 || t1 == "local" || t2 == "local" {
 		return true
 	}
-	if (p1.GithubRepo != "" || t1 == "github") && (p2.GithubRepo != "" || t2 == "github") {
+	if githubMilestoneMacros(p1) && githubMilestoneMacros(p2) {
 		return true
 	}
 	return false
@@ -853,7 +909,7 @@ func (d *DB) MigrateMacro(ctx context.Context, sourceProjectID string, macroKey 
 	// The credentials are resolved before anything moves: a migration half
 	// done because the person has no GitHub token would leave the macro in one
 	// project and its milestone in none.
-	targetIsGithub := targetProj.IssueTracker == "github" || targetProj.GithubRepo != ""
+	targetIsGithub := githubMilestoneMacros(targetProj)
 	var targetWriter, sourceWriter *trackerapi.Client
 	if targetIsGithub {
 		if targetWriter, err = d.trackerForWrite(ctx, "github", targetProj.ID); err != nil {
@@ -1041,12 +1097,20 @@ func (d *DB) MigrateEpic(ctx context.Context, sourceProjectID string, epicKey st
 	return d.MigrateMacro(ctx, sourceProjectID, epicKey, targetProjectID, migrateTasks)
 }
 
+// githubMilestoneMacros reports whether a project's macros are GitHub
+// milestones: a GitHub project, or one that names a repository without
+// choosing another tracker. A GitLab project never is, even with a repository
+// left from an earlier configuration: its macros live in labels (#398).
+func githubMilestoneMacros(proj *models.Project) bool {
+	return proj != nil && !strings.EqualFold(proj.IssueTracker, "gitlab") &&
+		(proj.IssueTracker == "github" || proj.GithubRepo != "")
+}
+
 // githubTransferBetween reports whether moving a task between the two projects
 // transfers its GitHub issue from one repository to the other.
 func githubTransferBetween(source, target *models.Project) bool {
 	return source != nil && target != nil &&
-		(source.IssueTracker == "github" || source.GithubRepo != "") &&
-		(target.IssueTracker == "github" || target.GithubRepo != "") &&
+		githubMilestoneMacros(source) && githubMilestoneMacros(target) &&
 		source.GithubRepo != "" && target.GithubRepo != "" &&
 		source.GithubRepo != target.GithubRepo
 }
