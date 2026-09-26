@@ -29,6 +29,8 @@ import {
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { useBackdropDismiss } from '../hooks/useBackdropDismiss'
+import { format } from '../lib/i18n'
+import type { ProjectSettingsStrings } from '../locales/projectSettings'
 import { OPTIONAL_VIEWS, enabledOptionalViews } from '../lib/optionalViews'
 import { BoardColumnsEditor } from './BoardColumnsEditor'
 import type {
@@ -51,53 +53,71 @@ import { declaredRepositories, droppedRepositoryPaths, duplicateRepository, repo
 type ProjectTab = 'general' | 'tracker' | 'workflow' | 'skills'
 
 /**
- * Vues optionnelles proposées dans les réglages du projet. Leur libellé dit ce
- * que la vue montre : « Triage » seul ne dit pas de quoi il trie.
+ * Optional views offered in the project settings. The view names are product
+ * names and stay the same in every language; the hint, which says what the
+ * view shows, comes from the catalog (`projectSettings.views.hints`).
  */
 const OPTIONAL_VIEW_CARDS: {
   id: OptionalViewMode
   label: string
-  hint: string
   icon: React.FC<{ size?: number; className?: string }>
   iconColor: string
 }[] = [
-  { id: 'triage', label: 'Triage', hint: 'Tickets sans sprint, macro, équipe ou assigné', icon: Inbox, iconColor: 'text-rose-400' },
-  { id: 'roadmap', label: 'Roadmap', hint: 'Macros par horizon : NOW / NEXT / FUTURE', icon: Map, iconColor: 'text-amber-400' },
-  { id: 'timeline', label: 'Timeline', hint: 'Calendrier des sprints passés et à venir', icon: Clock, iconColor: 'text-blue-400' },
+  { id: 'triage', label: 'Triage', icon: Inbox, iconColor: 'text-rose-400' },
+  { id: 'roadmap', label: 'Roadmap', icon: Map, iconColor: 'text-amber-400' },
+  { id: 'timeline', label: 'Timeline', icon: Clock, iconColor: 'text-blue-400' },
 ]
 
+/** The tabs of the modal; their labels come from `projectSettings.tabs`. */
 const TABS: {
   id: ProjectTab
-  label: string
   icon: React.FC<{ size?: number; className?: string }>
   iconColor: string
 }[] = [
-  { id: 'general', label: 'Général', icon: Folder, iconColor: 'text-amber-400' },
-  { id: 'tracker', label: 'Tracker', icon: Sliders, iconColor: 'text-emerald-400' },
-  { id: 'workflow', label: 'Agentic workflow', icon: Workflow, iconColor: 'text-blue-400' },
-  { id: 'skills', label: 'Compétences IA & SDD', icon: Sparkles, iconColor: 'text-cyan-400' },
+  { id: 'general', icon: Folder, iconColor: 'text-amber-400' },
+  { id: 'tracker', icon: Sliders, iconColor: 'text-emerald-400' },
+  { id: 'workflow', icon: Workflow, iconColor: 'text-blue-400' },
+  { id: 'skills', icon: Sparkles, iconColor: 'text-cyan-400' },
 ]
 
+// The tooltip of an icon is its lucide name, the same in every language.
 const AVAILABLE_ICONS = [
-  { name: 'Folder', Icon: Folder, label: 'Dossier' },
-  { name: 'Terminal', Icon: Terminal, label: 'Terminal' },
-  { name: 'Zap', Icon: Zap, label: 'Éclair' },
-  { name: 'Flame', Icon: Flame, label: 'Flamme' },
-  { name: 'Layers', Icon: Layers, label: 'Calques' },
-  { name: 'Box', Icon: Box, label: 'Module' },
-  { name: 'Code2', Icon: Code2, label: 'Code' },
-  { name: 'Cpu', Icon: Cpu, label: 'Core / CPU' },
-  { name: 'Sparkles', Icon: Sparkles, label: 'IA / Magic' },
-  { name: 'Workflow', Icon: Workflow, label: 'Workflow' },
+  { name: 'Folder', Icon: Folder },
+  { name: 'Terminal', Icon: Terminal },
+  { name: 'Zap', Icon: Zap },
+  { name: 'Flame', Icon: Flame },
+  { name: 'Layers', Icon: Layers },
+  { name: 'Box', Icon: Box },
+  { name: 'Code2', Icon: Code2 },
+  { name: 'Cpu', Icon: Cpu },
+  { name: 'Sparkles', Icon: Sparkles },
+  { name: 'Workflow', Icon: Workflow },
 ]
 
-const WORKFLOW_SKILLS: { id: string; defaultName: string; code: string; desc: string; icon: React.ComponentType<{ size?: number; className?: string }>; color: string }[] = [
-  { id: 'clarify', defaultName: 'Clarify', code: 'clarify-issue', desc: 'Questions de cadrage & inputs produit', icon: HelpCircle, color: 'amber' },
-  { id: 'specify', defaultName: 'Specify', code: 'specify-issue', desc: 'Spécification technique (Spec Kit / OpenSpec)', icon: FileCode, color: 'blue' },
-  { id: 'implement', defaultName: 'Implement', code: 'code-issue', desc: 'Développement & codage de la story', icon: Flame, color: 'indigo' },
-  { id: 'adjust', defaultName: 'Adjust', code: 'adjust-issue', desc: 'Revue de code, tests & Pull Request', icon: ShieldCheck, color: 'purple' },
-  { id: 'handoff', defaultName: 'Handoff', code: 'handoff-issue', desc: 'Compte-rendu de passation & nettoyage local', icon: Sparkles, color: 'emerald' },
+// Skill names and command identifiers are never translated; the description
+// comes from `projectSettings.skills.descriptions`.
+const WORKFLOW_SKILLS: { id: WorkflowSkillId; defaultName: string; code: string; icon: React.ComponentType<{ size?: number; className?: string }>; color: string }[] = [
+  { id: 'clarify', defaultName: 'Clarify', code: 'clarify-issue', icon: HelpCircle, color: 'amber' },
+  { id: 'specify', defaultName: 'Specify', code: 'specify-issue', icon: FileCode, color: 'blue' },
+  { id: 'implement', defaultName: 'Implement', code: 'code-issue', icon: Flame, color: 'indigo' },
+  { id: 'adjust', defaultName: 'Adjust', code: 'adjust-issue', icon: ShieldCheck, color: 'purple' },
+  { id: 'handoff', defaultName: 'Handoff', code: 'handoff-issue', icon: Sparkles, color: 'emerald' },
 ]
+
+type WorkflowSkillId = keyof ProjectSettingsStrings['skills']['descriptions']
+
+/**
+ * Renders a catalog template whose `{name}` placeholders are elements (a
+ * `<code>`, an `<em>`) rather than plain text, keeping the surrounding words in
+ * the order the language puts them.
+ */
+const richText = (template: string, parts: Record<string, React.ReactNode>): React.ReactNode[] =>
+  template.split(/(\{\w+\})/).map((chunk, index) => {
+    const match = /^\{(\w+)\}$/.exec(chunk)
+    return match && match[1] in parts
+      ? <React.Fragment key={index}>{parts[match[1]]}</React.Fragment>
+      : chunk
+  })
 
 const extractGithubRepoFromGitUrl = (url: string): string => {
   const clean = url.trim().replace(/\.git$/, '')
@@ -124,6 +144,7 @@ export const ProjectModal: React.FC = () => {
     settings,
     t,
   } = useApp()
+  const ps = t.projectSettings
 
   const [activeTab, setActiveTab] = useState<ProjectTab>('general')
 
@@ -352,7 +373,7 @@ export const ProjectModal: React.FC = () => {
     const url = newRepository.trim()
     if (!url) return
     if (duplicateRepository(gitRemoteUrl, [...repositories, url])) {
-      setRepositoryError(`This repository is already listed (${repositoryIdentity(url)}).`)
+      setRepositoryError(format(ps.repositories.duplicate, { identity: repositoryIdentity(url) }))
       return
     }
     setRepositories(prev => [...prev, url])
@@ -371,7 +392,7 @@ export const ProjectModal: React.FC = () => {
       // A remote typed but not added yet is part of what is being saved.
       const pending = newRepository.trim()
       if (pending && duplicateRepository(gitRemoteUrl, [...repositories, pending])) {
-        setRepositoryError(`This repository is already listed (${repositoryIdentity(pending)}).`)
+        setRepositoryError(format(ps.repositories.duplicate, { identity: repositoryIdentity(pending) }))
         return
       }
       const savedRepositories = pending ? [...repositories, pending] : repositories
@@ -431,7 +452,7 @@ export const ProjectModal: React.FC = () => {
 
   const handleDelete = async () => {
     if (!editingProject || isDeleting) return
-    if (confirm(`Êtes-vous sûr de vouloir supprimer le projet "${editingProject.name}" ? Les tâches associées seront conservées.`)) {
+    if (confirm(format(ps.feedback.deleteConfirm, { name: editingProject.name }))) {
       setIsDeleting(true)
       try {
         await deleteProject(editingProject.id)
@@ -442,6 +463,13 @@ export const ProjectModal: React.FC = () => {
       }
     }
   }
+
+  // Tracker product names stay as they are; what Sectile says about them
+  // follows the UI language.
+  const providerKey: keyof ProjectSettingsStrings['providers']['capabilities'] =
+    issueTracker === 'github' || issueTracker === 'jira' || issueTracker === 'gitlab' ? issueTracker : 'local'
+  const providerDescription = ps.providers.descriptions[providerKey]
+  const providerCapabilities = ps.providers.capabilities[providerKey]
 
   return (
     <div
@@ -464,10 +492,10 @@ export const ProjectModal: React.FC = () => {
             </div>
             <div>
               <h3 className="text-sm font-bold text-[var(--text-primary)]">
-                {editingProject ? `Paramètres : ${editingProject.name}` : 'Nouveau Projet'}
+                {editingProject ? format(ps.shell.settingsTitle, { name: editingProject.name }) : ps.shell.newProjectTitle}
               </h3>
               <p className="text-[11px] text-[var(--text-muted)]">
-                {editingProject ? 'Project settings, AI provider, tracker and skills' : 'Créez un espace dédié avec son propre dépôt Git, agent IA et tracker'}
+                {editingProject ? ps.shell.editSubtitle : ps.shell.newSubtitle}
               </p>
             </div>
           </div>
@@ -479,6 +507,8 @@ export const ProjectModal: React.FC = () => {
               setEditingProject(null)
             }}
             className="p-1.5 rounded-lg text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] transition-colors cursor-pointer"
+            title={ps.shell.close}
+            aria-label={ps.shell.close}
           >
             <X size={17} />
           </button>
@@ -507,14 +537,14 @@ export const ProjectModal: React.FC = () => {
                       <span className={isActive ? 'accent-text' : tab.iconColor}>
                         <Icon size={15} />
                       </span>
-                      <span className="truncate">{tab.label}</span>
+                      <span className="truncate">{ps.tabs[tab.id]}</span>
                     </div>
 
                     {/* Status Indicators / Badges */}
                     {tab.id === 'general' && skillsStatus && (
                       <span
                         className={`w-2 h-2 rounded-full shrink-0 ${skillsStatus.isGitRepo ? 'bg-emerald-400' : 'bg-amber-400'}`}
-                        title={skillsStatus.isGitRepo ? 'Dépôt Git valide' : 'Pas un dépôt Git'}
+                        title={skillsStatus.isGitRepo ? ps.shell.gitRepoValid : ps.shell.notGitRepo}
                       />
                     )}
                     {tab.id === 'skills' && skillsStatus && (
@@ -535,7 +565,7 @@ export const ProjectModal: React.FC = () => {
             </nav>
 
             <div className="pt-3 border-t border-[var(--border-color)]/60 px-2 flex items-center justify-between text-[10px] text-[var(--text-muted)]">
-              <span className="truncate font-medium">{editingProject ? editingProject.name : 'Nouveau projet'}</span>
+              <span className="truncate font-medium">{editingProject ? editingProject.name : ps.shell.newProject}</span>
               {editingProject && (
                 <span className="font-mono text-[9px] px-1.5 py-0.5 rounded bg-[var(--bg-tertiary)] border border-[var(--border-color)]">
                   {editingProject.issueTracker || 'local'}
@@ -557,40 +587,40 @@ export const ProjectModal: React.FC = () => {
                 <div className="space-y-3.5">
                   <div>
                     <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
-                      Titre du Projet *
+                      {ps.general.titleLabel}
                     </label>
                     <input
                       type="text"
                       required
                       value={name}
                       onChange={e => handleNameChange(e.target.value)}
-                      placeholder="Ex: Mon Projet, Mobile App, Backend API..."
+                      placeholder={ps.general.titlePlaceholder}
                       className="w-full px-3 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)] font-medium"
                     />
                   </div>
 
                   <div>
                     <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
-                      Description
+                      {ps.general.descriptionLabel}
                     </label>
                     <input
                       type="text"
                       value={description}
                       onChange={e => setDescription(e.target.value)}
-                      placeholder="Ex: Application principale Web et backend Go..."
+                      placeholder={ps.general.descriptionPlaceholder}
                       className="w-full px-3 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)]"
                     />
                   </div>
 
                   <div>
                     <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
-                      Identifiant / Slug
+                      {ps.general.slugLabel}
                     </label>
                     <input
                       type="text"
                       value={slug}
                       onChange={e => setSlug(e.target.value.toLowerCase().replace(/[^a-z0-9]+/g, '-'))}
-                      placeholder="mon-projet"
+                      placeholder={ps.general.slugPlaceholder}
                       className="w-full px-3 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] font-mono focus:outline-none focus:border-[var(--accent-color)]"
                     />
                   </div>
@@ -604,7 +634,7 @@ export const ProjectModal: React.FC = () => {
                       className="rounded border-[var(--border-color)] text-[var(--accent-color)] focus:ring-[var(--accent-color)] cursor-pointer"
                     />
                     <label htmlFor="isDefault" className="text-xs text-[var(--text-primary)] cursor-pointer font-medium">
-                      Définir comme projet par défaut
+                      {ps.general.isDefault}
                     </label>
                   </div>
                 </div>
@@ -613,7 +643,7 @@ export const ProjectModal: React.FC = () => {
                 <div className="space-y-3.5">
                   <div>
                     <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1.5">
-                      Icône
+                      {ps.general.iconLabel}
                     </label>
                     <div className="flex flex-wrap gap-1.5 p-2 rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)]">
                       {AVAILABLE_ICONS.map(({ name: iconName, Icon }) => {
@@ -669,12 +699,12 @@ export const ProjectModal: React.FC = () => {
                 <div className="flex items-center gap-1.5">
                   <GitBranch size={13} className="text-[var(--accent-color)]" />
                   <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--text-primary)]">
-                    Dépôt Git
+                    {ps.repositories.sectionTitle}
                   </span>
                 </div>
                 <div>
                   <label htmlFor="gitRemoteUrl" className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1.5">
-                    Git remote URL
+                    {ps.repositories.remoteUrlLabel}
                   </label>
                   <input
                     id="gitRemoteUrl"
@@ -693,25 +723,25 @@ export const ProjectModal: React.FC = () => {
                     className="mt-0.5 rounded border-[var(--border-color)] accent-[var(--accent-color)]"
                   />
                   <span>
-                    Mono-repo: the code and the specifications live in this repository
+                    {ps.repositories.monoRepo}
                     <span className="block text-[10px] text-[var(--text-muted)] leading-relaxed">
-                      Untick when tickets span several repositories. Each workstation then declares its specifications folder in the desktop app.
+                      {ps.repositories.monoRepoHelp}
                     </span>
                   </span>
                 </label>
                 {!monoRepo && (
                   <div>
                     <span className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1.5">
-                      Repositories
+                      {ps.repositories.listLabel}
                     </span>
                     <ul className="space-y-1">
                       {gitRemoteUrl.trim() && (
                         <li
                           className="flex items-center gap-2 px-3 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-muted)] font-mono"
-                          title="The code repository, from the remote URL above"
+                          title={ps.repositories.codeRepositoryTitle}
                         >
                           <span className="truncate flex-1">{gitRemoteUrl.trim()}</span>
-                          <span className="font-sans text-[10px] shrink-0">code</span>
+                          <span className="font-sans text-[10px] shrink-0">{ps.repositories.codeBadge}</span>
                         </li>
                       )}
                       {repositories.map(url => (
@@ -724,8 +754,8 @@ export const ProjectModal: React.FC = () => {
                             type="button"
                             onClick={() => setRepositories(prev => prev.filter(entry => entry !== url))}
                             className="shrink-0 text-[var(--text-muted)] hover:text-red-500 cursor-pointer"
-                            title="Remove this repository"
-                            aria-label={`Remove ${url}`}
+                            title={ps.repositories.removeTitle}
+                            aria-label={format(ps.repositories.removeAria, { url })}
                           >
                             <X size={12} />
                           </button>
@@ -747,7 +777,7 @@ export const ProjectModal: React.FC = () => {
                           }
                         }}
                         placeholder="git@github.com:owner/other-repository.git"
-                        aria-label="Remote URL of another repository"
+                        aria-label={ps.repositories.otherRepositoryAria}
                         className="flex-1 min-w-0 px-3 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] font-mono focus:outline-none focus:border-[var(--accent-color)]"
                       />
                       <button
@@ -756,7 +786,7 @@ export const ProjectModal: React.FC = () => {
                         disabled={!newRepository.trim()}
                         className="px-3 py-1.5 text-xs rounded-xl border border-[var(--border-color)] text-[var(--text-secondary)] hover:border-[var(--accent-color)] disabled:opacity-50 cursor-pointer"
                       >
-                        Add
+                        {ps.repositories.add}
                       </button>
                     </div>
                     {repositoryError && (
@@ -766,11 +796,11 @@ export const ProjectModal: React.FC = () => {
                 )}
                 {droppedPaths.length > 0 && (
                   <p className="text-[10px] text-amber-500 leading-relaxed">
-                    Paths not converted to repositories: {droppedPaths.map(entry => `${entry.path} (${entry.reason})`).join(', ')}
+                    {format(ps.repositories.droppedPaths, { paths: droppedPaths.map(entry => `${entry.path} (${entry.reason})`).join(', ') })}
                   </p>
                 )}
                 <p className="text-[10px] text-[var(--text-muted)] leading-relaxed">
-                  Local repositories and execution consoles are managed in the desktop agent.
+                  {ps.repositories.desktopNote}
                 </p>
               </div>
 
@@ -779,7 +809,7 @@ export const ProjectModal: React.FC = () => {
                 <div className="flex items-center gap-1.5">
                   <Layers size={13} className="text-[var(--accent-color)]" />
                   <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--text-primary)]">
-                    Vues de l'espace de travail
+                    {ps.views.sectionTitle}
                   </span>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
@@ -801,7 +831,7 @@ export const ProjectModal: React.FC = () => {
                           )
                         }
                         aria-pressed={isActive}
-                        title={view.hint}
+                        title={ps.views.hints[view.id]}
                         className={`flex items-start gap-2 p-2.5 rounded-xl border text-left transition-all cursor-pointer ${
                           isActive
                             ? 'bg-[var(--accent-light)] border-[var(--accent-color)]/40 accent-text'
@@ -812,7 +842,7 @@ export const ProjectModal: React.FC = () => {
                         <span className="min-w-0">
                           <span className="block text-xs font-bold truncate">{view.label}</span>
                           <span className="block text-[10px] text-[var(--text-muted)] leading-snug">
-                            {view.hint}
+                            {ps.views.hints[view.id]}
                           </span>
                         </span>
                         {isActive && <Check size={12} className="shrink-0 mt-0.5" />}
@@ -821,9 +851,7 @@ export const ProjectModal: React.FC = () => {
                   })}
                 </div>
                 <p className="text-[10px] text-[var(--text-muted)] leading-relaxed">
-                  Ces vues sont masquées par défaut : elles n'apparaissent dans la barre
-                  latérale et dans la palette de commandes que pour les projets qui les
-                  activent ici.
+                  {ps.views.hiddenByDefault}
                 </p>
                 <label className="flex items-start gap-2 pt-1 text-xs text-[var(--text-secondary)] cursor-pointer">
                   <input
@@ -833,10 +861,9 @@ export const ProjectModal: React.FC = () => {
                     className="mt-0.5 rounded border-[var(--border-color)] accent-[var(--accent-color)]"
                   />
                   <span>
-                    <span className="block font-bold text-[var(--text-primary)]">Couleur par épic</span>
+                    <span className="block font-bold text-[var(--text-primary)]">{ps.views.epicColors}</span>
                     <span className="block text-[10px] text-[var(--text-muted)] leading-snug">
-                      Une barre et une pastille de la couleur de l'épic sur les cartes du Board,
-                      du Backlog, de la Timeline et sur les macros du Roadmap
+                      {ps.views.epicColorsHelp}
                     </span>
                   </span>
                 </label>
@@ -857,10 +884,10 @@ export const ProjectModal: React.FC = () => {
                   </div>
                   <div>
                     <span className="text-xs font-bold text-[var(--text-primary)] block">
-                      Create PR/MR
+                      {ps.workflow.prTitle}
                     </span>
                     <span className="text-[10px] text-[var(--text-muted)] block">
-                      Étape du workflow à laquelle l'agent ouvre la Pull/Merge Request en brouillon.
+                      {ps.workflow.prHelp}
                     </span>
                   </div>
                 </div>
@@ -870,8 +897,8 @@ export const ProjectModal: React.FC = () => {
                   onChange={e => setPRCreationStage(e.target.value as 'specified' | 'implemented')}
                   className="w-full px-3 py-1.5 text-xs rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)]"
                 >
-                  <option value="implemented">Draft after implementation</option>
-                  <option value="specified">Draft after specification</option>
+                  <option value="implemented">{ps.workflow.draftAfterImplementation}</option>
+                  <option value="specified">{ps.workflow.draftAfterSpecification}</option>
                 </select>
               </div>
 
@@ -883,16 +910,16 @@ export const ProjectModal: React.FC = () => {
                   className="mt-0.5 rounded border-[var(--border-color)] accent-[var(--accent-color)]"
                 />
                 <span>
-                  Keep specifications out of the repository
+                  {ps.workflow.dropSpecArtifacts}
                   <span className="block text-[11px] text-[var(--text-muted)]">
-                    Clarifications and specifications stay in the task worktree and are never committed. Those already committed stay in the history.
+                    {ps.workflow.dropSpecArtifactsHelp}
                   </span>
                 </span>
               </label>
 
               <div>
                 <label htmlFor="defaultSkillMode" className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1.5">
-                  Mode d'exécution par défaut
+                  {ps.execution.defaultModeLabel}
                 </label>
                 <select
                   id="defaultSkillMode"
@@ -900,22 +927,18 @@ export const ProjectModal: React.FC = () => {
                   onChange={e => setDefaultSkillMode(e.target.value as SkillMode)}
                   className="w-full px-3 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)]"
                 >
-                  <option value="interactive">Interactif</option>
-                  <option value="autonomous">Autonome (headless)</option>
-                  <option value="">Choisir par skill</option>
+                  <option value="interactive">{ps.execution.interactive}</option>
+                  <option value="autonomous">{ps.execution.autonomous}</option>
+                  <option value="">{ps.execution.perSkill}</option>
                 </select>
                 <p className="mt-1 text-[10px] text-[var(--text-muted)] leading-relaxed">
-                  S'applique aux skills qui ne fixent pas leur propre mode : un skill qui
-                  fixe le sien l'emporte toujours. « Choisir par skill » n'impose rien au
-                  niveau du projet et laisse chaque skill décider ; ceux qui ne décident pas
-                  restent interactifs. Une surcharge au lancement l'emporte sur tout, pour
-                  ce lancement seulement.
+                  {ps.execution.defaultModeHelp}
                 </p>
               </div>
 
               <div>
                 <label htmlFor="fullChainStopStage" className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1.5">
-                  Arrêt de la chaîne complète
+                  {ps.execution.fullChainStopLabel}
                 </label>
                 <select
                   id="fullChainStopStage"
@@ -923,11 +946,11 @@ export const ProjectModal: React.FC = () => {
                   onChange={e => setFullChainStopStage(e.target.value as 'implemented' | 'reviewed')}
                   className="w-full px-3 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)]"
                 >
-                  <option value="reviewed">Après la PR (reviewed)</option>
-                  <option value="implemented">Avant la PR (implemented)</option>
+                  <option value="reviewed">{ps.execution.afterPr}</option>
+                  <option value="implemented">{ps.execution.beforePr}</option>
                 </select>
                 <p className="mt-1 text-[10px] text-[var(--text-muted)] leading-relaxed">
-                  La fusion reste manuelle dans les deux cas.
+                  {ps.execution.mergeStaysManual}
                 </p>
               </div>
             </div>
@@ -941,7 +964,7 @@ export const ProjectModal: React.FC = () => {
               {/* Tracker Type Radio Pills */}
               <div>
                 <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1.5">
-                  Type de Tracker d'Issues
+                  {ps.tracker.typeLabel}
                 </label>
                 <select
                   value={issueTracker}
@@ -965,9 +988,9 @@ export const ProjectModal: React.FC = () => {
                   }}
                   className="w-full px-3 py-2 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)] font-medium cursor-pointer"
                 >
-                  {PROJECT_TRACKERS.map(t => (
-                    <option key={t.id} value={t.id}>
-                      {t.label}
+                  {PROJECT_TRACKERS.map(tracker => (
+                    <option key={tracker.id} value={tracker.id}>
+                      {tracker.label}
                     </option>
                   ))}
                 </select>
@@ -978,7 +1001,7 @@ export const ProjectModal: React.FC = () => {
                 <div className="flex items-center gap-1.5 font-semibold text-[var(--text-primary)]">
                   <Info size={13} className="text-[var(--accent-color)]" />
                   <span>
-                    {issueTracker === 'local' && 'Sectile (Stockage Local)'}
+                    {issueTracker === 'local' && ps.providers.localName}
                     {issueTracker === 'github' && 'GitHub Issues'}
                     {issueTracker === 'jira' && 'Jira'}
                     {issueTracker === 'gitlab' && 'GitLab'}
@@ -986,132 +1009,22 @@ export const ProjectModal: React.FC = () => {
                 </div>
 
                 <p className="text-[11px] text-[var(--text-muted)] leading-relaxed">
-                  {issueTracker === 'local' &&
-                    'Stockage direct en base SQLite locale. Idéal pour travailler hors-ligne avec toutes les capacités des agents et de gestion de branches.'}
-                  {issueTracker === 'github' &&
-                    'Synchronisation bidirectionnelle via la CLI GitHub. Les statuts du workflow sont reflétés par des labels (#new, #clarified, #specified, etc.) et l’état Open/Closed.'}
-                  {issueTracker === 'jira' &&
-                    'Intégration avec les projets Jira Software via l’API Atlassian.'}
-                  {issueTracker === 'gitlab' &&
-                    'Intégration avec un projet GitLab, gitlab.com ou auto-hébergé, via son API. L’étape est portée par les labels #new, #clarified, #specified, etc., les colonnes du board sont ses listes, et les jalons comme les itérations (Premium) servent de sprints. L’équipe est un label team::<nom>.'}
+                  {providerDescription}
                 </p>
 
-                {/* Grille des fonctionnalités supportées */}
+                {/* Capabilities the selected tracker supports */}
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5 pt-2 border-t border-[var(--border-color)]/50">
-                  {issueTracker === 'local' && (
-                    <>
-                      <div className="flex items-center gap-1 text-[10.5px] text-emerald-400 font-medium">
-                        <CheckCircle2 size={11} className="shrink-0" />
-                        <span>Workflow 6 étapes</span>
-                      </div>
-                      <div className="flex items-center gap-1 text-[10.5px] text-emerald-400 font-medium">
-                        <CheckCircle2 size={11} className="shrink-0" />
-                        <span>Kanban personnalisé</span>
-                      </div>
-                      <div className="flex items-center gap-1 text-[10.5px] text-emerald-400 font-medium">
-                        <CheckCircle2 size={11} className="shrink-0" />
-                        <span>Branches Git & Diff</span>
-                      </div>
-                      <div className="flex items-center gap-1 text-[10.5px] text-emerald-400 font-medium">
-                        <CheckCircle2 size={11} className="shrink-0" />
-                        <span>Labels & Sous-tâches</span>
-                      </div>
-                      <div className="flex items-center gap-1 text-[10.5px] text-emerald-400 font-medium">
-                        <CheckCircle2 size={11} className="shrink-0" />
-                        <span>Priorités & Échéances</span>
-                      </div>
-                      <div className="flex items-center gap-1 text-[10.5px] text-emerald-400 font-medium">
-                        <CheckCircle2 size={11} className="shrink-0" />
-                        <span>Zéro latence / Offline</span>
-                      </div>
-                    </>
-                  )}
-
+                  {providerCapabilities.map(capability => (
+                    <div key={capability} className="flex items-center gap-1 text-[10.5px] text-emerald-400 font-medium">
+                      <CheckCircle2 size={11} className="shrink-0" />
+                      <span>{capability}</span>
+                    </div>
+                  ))}
                   {issueTracker === 'github' && (
-                    <>
-                      <div className="flex items-center gap-1 text-[10.5px] text-emerald-400 font-medium">
-                        <CheckCircle2 size={11} className="shrink-0" />
-                        <span>Sync Issues (Titre/Corps)</span>
-                      </div>
-                      <div className="flex items-center gap-1 text-[10.5px] text-emerald-400 font-medium">
-                        <CheckCircle2 size={11} className="shrink-0" />
-                        <span>Labels d'étape (#new, etc.)</span>
-                      </div>
-                      <div className="flex items-center gap-1 text-[10.5px] text-emerald-400 font-medium">
-                        <CheckCircle2 size={11} className="shrink-0" />
-                        <span>Ouverture / Clôture</span>
-                      </div>
-                      <div className="flex items-center gap-1 text-[10.5px] text-emerald-400 font-medium">
-                        <CheckCircle2 size={11} className="shrink-0" />
-                        <span>Assignation de membres</span>
-                      </div>
-                      <div className="flex items-center gap-1 text-[10.5px] text-emerald-400 font-medium">
-                        <CheckCircle2 size={11} className="shrink-0" />
-                        <span>Pull Requests liées</span>
-                      </div>
-                      <div className="flex items-center gap-1 text-[10.5px] text-amber-400 font-medium" title="GitHub Issues n'a pas de colonnes de statut natives (uniquement Open/Closed). Sectile utilise les labels d'étapes.">
-                        <Info size={11} className="shrink-0" />
-                        <span>Statuts via Labels</span>
-                      </div>
-                    </>
-                  )}
-
-                  {issueTracker === 'jira' && (
-                    <>
-                      <div className="flex items-center gap-1 text-[10.5px] text-emerald-400 font-medium">
-                        <CheckCircle2 size={11} className="shrink-0" />
-                        <span>Sync Workitems</span>
-                      </div>
-                      <div className="flex items-center gap-1 text-[10.5px] text-emerald-400 font-medium">
-                        <CheckCircle2 size={11} className="shrink-0" />
-                        <span>Transitions de Workflow</span>
-                      </div>
-                      <div className="flex items-center gap-1 text-[10.5px] text-emerald-400 font-medium">
-                        <CheckCircle2 size={11} className="shrink-0" />
-                        <span>Labels & Composants</span>
-                      </div>
-                      <div className="flex items-center gap-1 text-[10.5px] text-emerald-400 font-medium">
-                        <CheckCircle2 size={11} className="shrink-0" />
-                        <span>Assignations</span>
-                      </div>
-                      <div className="flex items-center gap-1 text-[10.5px] text-emerald-400 font-medium">
-                        <CheckCircle2 size={11} className="shrink-0" />
-                        <span>Sprints & Macros</span>
-                      </div>
-                      <div className="flex items-center gap-1 text-[10.5px] text-emerald-400 font-medium">
-                        <CheckCircle2 size={11} className="shrink-0" />
-                        <span>Commentaires Jira</span>
-                      </div>
-                    </>
-                  )}
-
-                  {issueTracker === 'gitlab' && (
-                    <>
-                      <div className="flex items-center gap-1 text-[10.5px] text-emerald-400 font-medium">
-                        <CheckCircle2 size={11} className="shrink-0" />
-                        <span>Sync Issues</span>
-                      </div>
-                      <div className="flex items-center gap-1 text-[10.5px] text-emerald-400 font-medium">
-                        <CheckCircle2 size={11} className="shrink-0" />
-                        <span>Labels d'étape (#new, etc.)</span>
-                      </div>
-                      <div className="flex items-center gap-1 text-[10.5px] text-emerald-400 font-medium">
-                        <CheckCircle2 size={11} className="shrink-0" />
-                        <span>Listes du board</span>
-                      </div>
-                      <div className="flex items-center gap-1 text-[10.5px] text-emerald-400 font-medium">
-                        <CheckCircle2 size={11} className="shrink-0" />
-                        <span>Jalons & Itérations</span>
-                      </div>
-                      <div className="flex items-center gap-1 text-[10.5px] text-emerald-400 font-medium">
-                        <CheckCircle2 size={11} className="shrink-0" />
-                        <span>Équipes (team::)</span>
-                      </div>
-                      <div className="flex items-center gap-1 text-[10.5px] text-emerald-400 font-medium">
-                        <CheckCircle2 size={11} className="shrink-0" />
-                        <span>Merge Requests liées</span>
-                      </div>
-                    </>
+                    <div className="flex items-center gap-1 text-[10.5px] text-amber-400 font-medium" title={ps.providers.githubStatusNoteTitle}>
+                      <Info size={11} className="shrink-0" />
+                      <span>{ps.providers.githubStatusNote}</span>
+                    </div>
                   )}
                 </div>
               </div>
@@ -1121,7 +1034,7 @@ export const ProjectModal: React.FC = () => {
                 {issueTracker === 'github' && (
                   <div>
                     <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
-                      Dépôt GitHub (owner/repo)
+                      {ps.tracker.githubRepoLabel}
                     </label>
                     <div className="relative">
                       <input
@@ -1131,7 +1044,7 @@ export const ProjectModal: React.FC = () => {
                           setGithubRepo(e.target.value)
                           fetchDetectedStatuses('github', e.target.value)
                         }}
-                        placeholder="owner/nom-du-repo"
+                        placeholder={ps.tracker.githubRepoPlaceholder}
                         className="w-full pl-8 pr-3 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] font-mono focus:outline-none focus:border-[var(--accent-color)]"
                       />
                       <Globe size={14} className="absolute left-2.5 top-2.5 text-[var(--accent-color)]" />
@@ -1142,14 +1055,14 @@ export const ProjectModal: React.FC = () => {
                 {issueTracker === 'github' && (
                   <div>
                     <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
-                      Instance GitHub (optionnel)
+                      {ps.tracker.githubInstanceLabel}
                     </label>
                     <div className="relative">
                       <input
                         type="text"
                         value={githubApiUrl}
                         onChange={e => setGithubApiUrl(e.target.value)}
-                        placeholder="Celle de la configuration utilisateur"
+                        placeholder={ps.tracker.instancePlaceholder}
                         className="w-full pl-8 pr-3 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] font-mono focus:outline-none focus:border-[var(--accent-color)]"
                       />
                       <Globe size={14} className="absolute left-2.5 top-2.5 text-[var(--accent-color)]" />
@@ -1160,14 +1073,14 @@ export const ProjectModal: React.FC = () => {
                 {issueTracker === 'gitlab' && (
                   <div>
                     <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
-                      Projet GitLab (groupe/projet)
+                      {ps.tracker.gitlabProjectLabel}
                     </label>
                     <div className="relative">
                       <input
                         type="text"
                         value={gitlabProject}
                         onChange={e => setGitlabProject(e.target.value)}
-                        placeholder={settings.gitlabProject?.trim() || 'groupe/sous-groupe/projet'}
+                        placeholder={settings.gitlabProject?.trim() || ps.tracker.gitlabProjectPlaceholder}
                         className="w-full pl-8 pr-3 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] font-mono focus:outline-none focus:border-[var(--accent-color)]"
                       />
                       <Globe size={14} className="absolute left-2.5 top-2.5 text-[var(--accent-color)]" />
@@ -1178,7 +1091,7 @@ export const ProjectModal: React.FC = () => {
                 {issueTracker === 'gitlab' && (
                   <div>
                     <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
-                      Instance GitLab (optionnel)
+                      {ps.tracker.gitlabInstanceLabel}
                     </label>
                     <div className="relative">
                       <input
@@ -1196,7 +1109,7 @@ export const ProjectModal: React.FC = () => {
                 {issueTracker === 'jira' && (
                   <div>
                     <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
-                      Projet Jira (clé)
+                      {ps.tracker.jiraProjectLabel}
                     </label>
                     <div className="relative">
                       <input
@@ -1207,13 +1120,13 @@ export const ProjectModal: React.FC = () => {
                           setJiraProject(val)
                           fetchDetectedStatuses('jira')
                         }}
-                        placeholder="Ex: PE, ENG, OPS..."
+                        placeholder={ps.tracker.jiraProjectPlaceholder}
                         className="w-full pl-8 pr-3 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] font-mono uppercase focus:outline-none focus:border-[var(--accent-color)]"
                       />
                       <Key size={14} className="absolute left-2.5 top-2.5 text-[var(--accent-color)]" />
                     </div>
                     <span className="text-[9px] text-[var(--text-muted)] mt-1 block">
-                      Le projet interrogé par la synchronisation REST. Le site, l'e-mail et le jeton se configurent dans <em>Connecter votre tracker</em>.
+                      {richText(ps.tracker.jiraProjectHelp, { link: <em>{t.trackerCredentials.setup.title}</em> })}
                     </span>
                   </div>
                 )}
@@ -1221,18 +1134,18 @@ export const ProjectModal: React.FC = () => {
                 {issueTracker === 'jira' && (
                   <div>
                     <label htmlFor="project-roadmap-projects" className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
-                      Projets de roadmap
+                      {ps.tracker.roadmapProjectsLabel}
                     </label>
                     <input
                       id="project-roadmap-projects"
                       type="text"
                       value={roadmapProjects}
                       onChange={e => setRoadmapProjects(e.target.value.toUpperCase())}
-                      placeholder="Ex: DATA, OPS"
+                      placeholder={ps.tracker.roadmapProjectsPlaceholder}
                       className="w-full px-3 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] font-mono uppercase focus:outline-none focus:border-[var(--accent-color)]"
                     />
                     <span className="text-[9px] text-[var(--text-muted)] mt-1 block">
-                      Autres projets Jira dont les stories se rattachent aux lignes de découpe à l'import. Lus seulement : Sectile n'y écrit jamais.
+                      {ps.tracker.roadmapProjectsHelp}
                     </span>
                   </div>
                 )}
@@ -1240,13 +1153,13 @@ export const ProjectModal: React.FC = () => {
                 {issueTracker === 'jira' && (
                   <div className="col-span-2">
                     <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
-                      Types de tickets importés
+                      {ps.tracker.issueTypesLabel}
                     </label>
                     {isLoadingIssueTypes ? (
-                      <span className="text-[10px] text-[var(--text-muted)]">Lecture des types du projet…</span>
+                      <span className="text-[10px] text-[var(--text-muted)]">{ps.tracker.issueTypesLoading}</span>
                     ) : availableIssueTypes.length === 0 ? (
                       <span className="text-[10px] text-[var(--text-muted)]">
-                        Types indisponibles : enregistrez le projet avec sa clé Jira, puis rouvrez cette fiche.
+                        {ps.tracker.issueTypesUnavailable}
                       </span>
                     ) : (
                       <div className="flex flex-wrap gap-1.5">
@@ -1284,19 +1197,17 @@ export const ProjectModal: React.FC = () => {
                       </div>
                     )}
                     <span className="text-[9px] text-[var(--text-muted)] mt-1 block">
-                      Rien de sélectionné vaut Task et Story. Un projet dont le tracker n'expose que
-                      son propre type (un type maison, par exemple) n'importe aucun ticket tant
-                      qu'il n'est pas coché ici.
+                      {ps.tracker.issueTypesHelp}
                     </span>
                   </div>
                 )}
 
                 <div className={issueTracker === 'local' ? 'col-span-2' : ''}>
                   <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
-                    {issueTracker === 'jira' ? 'URL Jira (base)' : 'URL du Tracker'}
+                    {issueTracker === 'jira' ? ps.tracker.jiraUrlLabel : ps.tracker.trackerUrlLabel}
                     {issueTracker === 'jira' && trackerUrl.trim() && trackerUrl.trim() === userCredentials.find(c => c.tracker === 'jira')?.siteUrl?.trim() ? (
                       <span className="ml-1 font-normal normal-case text-[9px] text-[var(--text-muted)]">
-                        reprise de votre accès
+                        {ps.tracker.inheritedFromAccess}
                       </span>
                     ) : null}
                   </label>
@@ -1305,14 +1216,14 @@ export const ProjectModal: React.FC = () => {
                       type="text"
                       value={trackerUrl}
                       onChange={e => setTrackerUrl(e.target.value)}
-                      placeholder={issueTracker === 'jira' ? 'https://mon-org.atlassian.net' : issueTracker === 'gitlab' ? 'https://gitlab.com/groupe/projet' : 'https://github.com/owner/repository'}
+                      placeholder={issueTracker === 'jira' ? ps.tracker.jiraUrlPlaceholder : issueTracker === 'gitlab' ? ps.tracker.gitlabUrlPlaceholder : 'https://github.com/owner/repository'}
                       className="w-full pl-8 pr-3 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)]"
                     />
                     <Globe size={14} className="absolute left-2.5 top-2.5 text-[var(--accent-color)]" />
                   </div>
                   {issueTracker === 'jira' && (
                     <span className="text-[9px] text-[var(--text-muted)] mt-1 block">
-                      Sert à construire les liens <code className="text-cyan-400">/browse/&lt;KEY&gt;</code> des tickets.
+                      {richText(ps.tracker.browseHelp, { path: <code className="text-cyan-400">/browse/&lt;KEY&gt;</code> })}
                     </span>
                   )}
                 </div>
@@ -1323,10 +1234,10 @@ export const ProjectModal: React.FC = () => {
                 <div className="flex items-center justify-between">
                   <div>
                     <label className="text-xs font-bold text-[var(--text-primary)] block">
-                      Synchronisation en arrière-plan
+                      {ps.tracker.syncTitle}
                     </label>
                     <span className="text-[10px] text-[var(--text-secondary)] block mt-0.5">
-                      Génère automatiquement des tâches de synchronisation en file d'attente pour les tickets non terminés de ce projet.
+                      {ps.tracker.syncHelp}
                     </span>
                   </div>
                   <button
@@ -1349,8 +1260,8 @@ export const ProjectModal: React.FC = () => {
                 {autoSyncEnabled && (
                   <div className="pt-2 border-t border-[var(--border-color)] space-y-1.5">
                     <div className="flex items-center justify-between text-xs">
-                      <span className="text-[var(--text-secondary)] font-medium">Période de synchronisation :</span>
-                      <span className="font-mono font-bold text-[var(--accent-color)]">{autoSyncIntervalMin} min</span>
+                      <span className="text-[var(--text-secondary)] font-medium">{ps.tracker.syncPeriod}</span>
+                      <span className="font-mono font-bold text-[var(--accent-color)]">{format(ps.tracker.minutes, { count: autoSyncIntervalMin })}</span>
                     </div>
                     <input
                       type="range"
@@ -1361,9 +1272,9 @@ export const ProjectModal: React.FC = () => {
                       className="w-full h-1.5 bg-[var(--bg-primary)] rounded-lg appearance-none cursor-pointer accent-[var(--accent-color)]"
                     />
                     <div className="flex justify-between text-[9px] text-[var(--text-muted)] font-mono">
-                      <span>1 min</span>
-                      <span>15 min</span>
-                      <span>30 min</span>
+                      <span>{format(ps.tracker.minutes, { count: 1 })}</span>
+                      <span>{format(ps.tracker.minutes, { count: 15 })}</span>
+                      <span>{format(ps.tracker.minutes, { count: 30 })}</span>
                     </div>
                   </div>
                 )}
@@ -1394,7 +1305,7 @@ export const ProjectModal: React.FC = () => {
               {/* SDD Framework Selection Cards */}
               <div>
                 <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1.5">
-                  Framework Spec-Driven Design (SDD) pour ce Projet
+                  {ps.skills.frameworkLabel}
                 </label>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                   <button
@@ -1415,11 +1326,16 @@ export const ProjectModal: React.FC = () => {
                           GitHub Spec Kit
                         </span>
                         <span className="text-[9px] font-mono px-1.5 py-0.2 rounded-full font-bold bg-blue-500/20 text-blue-300 border border-blue-500/30">
-                          Recommandé
+                          {ps.skills.recommended}
                         </span>
                       </div>
                       <span className="text-[10px] text-[var(--text-muted)] leading-relaxed block">
-                        CLI <code className="text-cyan-400">specify</code>. Scaffolde <code className="text-cyan-400">.specify/</code> et <code className="text-cyan-400">specs/</code> : spec.md, plan.md, tasks.md et les commandes <code className="text-cyan-400">/speckit.*</code>.
+                        {richText(ps.skills.speckitDescription, {
+                          cli: <code className="text-cyan-400">specify</code>,
+                          specifyDir: <code className="text-cyan-400">.specify/</code>,
+                          specsDir: <code className="text-cyan-400">specs/</code>,
+                          commands: <code className="text-cyan-400">/speckit.*</code>,
+                        })}
                       </span>
                     </div>
                   </button>
@@ -1442,11 +1358,14 @@ export const ProjectModal: React.FC = () => {
                           OpenSpec
                         </span>
                         <span className="text-[9px] font-mono px-1.5 py-0.2 rounded-full font-bold bg-purple-500/20 text-purple-300 border border-purple-500/30">
-                          Spec avant code
+                          {ps.skills.specBeforeCode}
                         </span>
                       </div>
                       <span className="text-[10px] text-[var(--text-muted)] leading-relaxed block">
-                        CLI <code className="text-cyan-400">openspec</code>. Scaffolde <code className="text-cyan-400">openspec/</code> : propositions de changement, deltas de specs et checklists validés avant implémentation.
+                        {richText(ps.skills.openspecDescription, {
+                          cli: <code className="text-cyan-400">openspec</code>,
+                          dir: <code className="text-cyan-400">openspec/</code>,
+                        })}
                       </span>
                     </div>
                   </button>
@@ -1460,10 +1379,10 @@ export const ProjectModal: React.FC = () => {
               <div className="p-3.5 rounded-xl bg-[var(--bg-tertiary)]/70 border border-[var(--border-color)] space-y-2.5">
                 <div className="flex items-center justify-between pb-1 border-b border-[var(--border-color)]">
                   <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--text-primary)]">
-                    Compétences du Workflow
+                    {ps.skills.workflowSkillsTitle}
                   </span>
                   <span className="text-[10px] text-[var(--text-muted)]">
-                    Noms de commande et modèles se règlent sur votre poste
+                    {ps.skills.workflowSkillsNote}
                   </span>
                 </div>
 
@@ -1496,8 +1415,8 @@ export const ProjectModal: React.FC = () => {
                             </div>
                             <span className="text-[10px] text-[var(--text-muted)] truncate max-w-[220px]">
                               {s.id === 'specify'
-                                ? (specFramework === 'openspec' ? 'Proposition de changement OpenSpec (deltas de specs, checklist)' : 'Spécification Spec Kit (spec.md, plan.md, tasks.md, BDD Given/When/Then)')
-                                : s.desc}
+                                ? (specFramework === 'openspec' ? ps.skills.specifyOpenSpec : ps.skills.specifySpecKit)
+                                : ps.skills.descriptions[s.id]}
                             </span>
                           </div>
                         </div>
@@ -1508,11 +1427,11 @@ export const ProjectModal: React.FC = () => {
                             {isInst ? (
                               <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-400">
                                 <Check size={11} />
-                                <span>Installé</span>
+                                <span>{ps.skills.installed}</span>
                               </span>
                             ) : (
                               <span className="text-[10px] font-medium text-[var(--text-muted)]">
-                                Non installé
+                                {ps.skills.notInstalled}
                               </span>
                             )}
                           </div>
@@ -1536,10 +1455,10 @@ export const ProjectModal: React.FC = () => {
                 onClick={handleDelete}
                 disabled={isDeleting}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold text-rose-400 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 transition-colors cursor-pointer"
-                title="Supprimer ce projet"
+                title={ps.feedback.deleteTitle}
               >
                 <Trash2 size={13} />
-                <span>{isDeleting ? 'Suppression...' : 'Supprimer'}</span>
+                <span>{isDeleting ? ps.feedback.deleting : ps.feedback.delete}</span>
               </button>
             )}
           </div>
@@ -1562,7 +1481,7 @@ export const ProjectModal: React.FC = () => {
               className="px-5 py-2 rounded-xl text-xs font-bold text-white accent-bg shadow-md hover:opacity-90 active:scale-95 flex items-center gap-1.5 transition-all disabled:opacity-50 cursor-pointer"
             >
               <Save size={14} />
-              <span>{isSubmitting ? 'Enregistrement...' : editingProject ? 'Mettre à jour' : 'Créer le projet'}</span>
+              <span>{isSubmitting ? ps.feedback.saving : editingProject ? ps.feedback.update : ps.feedback.create}</span>
             </button>
           </div>
         </div>
