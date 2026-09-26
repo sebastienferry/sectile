@@ -298,9 +298,10 @@ func TestSaveTrackerCredentialsKeepsTheRestOfTheConfiguration(t *testing.T) {
 	}
 }
 
-// GitLab parameters are configuration, not a tracker: the registry still has no
-// gitlab adapter, and saying so is more honest than half a synchronisation.
-func TestStoredGitlabParametersDoNotRegisterATracker(t *testing.T) {
+// A GitLab project resolves to the GitLab adapter (#398), and the stored
+// parameters are the ones its calls carry: the instance and project of the
+// settings, the server credential.
+func TestStoredGitlabParametersReachTheGitlabAdapter(t *testing.T) {
 	database := testDB(t)
 	if _, err := database.UpdateSettings(models.Settings{GitlabUrl: "https://gitlab.example/api/v4", GitlabProject: "group/app"}); err != nil {
 		t.Fatal(err)
@@ -308,9 +309,13 @@ func TestStoredGitlabParametersDoNotRegisterATracker(t *testing.T) {
 	if err := database.SaveServerTrackerCredential("gitlab", "", "gl-token", "", ""); err != nil {
 		t.Fatal(err)
 	}
-	_, err := database.trackerRegistry.ForProject(&models.Project{ID: "p", IssueTracker: "gitlab"})
-	if err == nil || !strings.Contains(err.Error(), "aucun tracker distant configuré") {
-		t.Fatalf("expected the registry's unconfigured-tracker error, got %v", err)
+	ts, err := database.trackerRegistry.ForProject(&models.Project{ID: "p", IssueTracker: "gitlab"})
+	if err != nil || ts.Name() != "gitlab" {
+		t.Fatalf("a GitLab project resolves to the GitLab adapter: %v %v", ts, err)
+	}
+	cred := database.trackerCredentials("")
+	if cred.GitlabURL != "https://gitlab.example/api/v4" || cred.GitlabProject != "group/app" || cred.GitlabToken != "gl-token" {
+		t.Fatalf("stored parameters: %+v", cred)
 	}
 }
 
