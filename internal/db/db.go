@@ -1944,6 +1944,9 @@ func (d *DB) GetTasksInScope(scope TaskScope, query, status, priority, label, sp
 	if tasks == nil {
 		tasks = []models.Task{}
 	}
+	if err := d.attachBatchesUnsafe(tasks); err != nil {
+		return nil, err
+	}
 
 	return tasks, nil
 }
@@ -2109,6 +2112,7 @@ func (d *DB) GetTaskByID(id string) (*models.Task, error) {
 
 	activities, _ := d.getTaskActivitiesUnsafe(t.ID)
 	t.Activities = activities
+	t.Batch, _ = d.activeBatchOfUnsafe(t.ID)
 
 	return &t, nil
 }
@@ -5275,16 +5279,16 @@ func (d *DB) enqueueSkillOnTask(taskID string, skillID string, prompt string, au
 	// The insert then settles the race the check cannot: the database refuses a
 	// second ordinary active run on the task, from this server or any other.
 	// Nothing is queued for a refused run.
-	if active, err := d.ActiveRunOnTask(task.ID); err != nil {
+	if active, batch, err := d.ActiveBusyCause(task.ID); err != nil {
 		return nil, nil, err
 	} else if active != nil {
-		return nil, nil, &TaskBusyError{Active: active}
+		return nil, nil, &TaskBusyError{TaskKey: task.Key, Active: active, Batch: batch}
 	}
 	d.mu.Lock()
 	err = d.addTaskActivityDirect(act)
 	d.mu.Unlock()
 	if err != nil {
-		return nil, nil, d.taskBusy(task.ID, err)
+		return nil, nil, d.taskBusy(task, err)
 	}
 
 	// Push to background channel worker

@@ -322,6 +322,67 @@ func describeActiveRun(a *models.TaskActivity) string {
 	return fmt.Sprintf("A run of %s started at %s is still active on this task.", name, started)
 }
 
+// batchLaunchMembers checks the tickets of a batch launch and returns their ids
+// in launch order, or why the launch is invalid. A batch is pickup_issues on at
+// least two distinct tickets of one project, the first being task. "Launch
+// anyway" does not apply: it would put a busy ticket in the batch.
+func (h *Handler) batchLaunchMembers(task *models.Task, req models.RunSkillRequest) ([]string, string) {
+	if req.SkillID != "pickup_issues" {
+		return nil, "Only pickup_issues launches a batch."
+	}
+	if req.Force {
+		return nil, "A batch cannot be launched anyway."
+	}
+	if len(req.BatchTaskIDs) < 2 {
+		return nil, "A batch needs at least two tickets."
+	}
+	ids := make([]string, 0, len(req.BatchTaskIDs))
+	seen := map[string]bool{}
+	for i, ref := range req.BatchTaskIDs {
+		member, err := h.db.GetTaskByID(strings.TrimSpace(ref))
+		if err != nil || member == nil {
+			return nil, fmt.Sprintf("Batch ticket %s not found.", ref)
+		}
+		if i == 0 && member.ID != task.ID {
+			return nil, "A batch must start with the ticket it is launched on."
+		}
+		if member.ProjectID != task.ProjectID {
+			return nil, fmt.Sprintf("%s belongs to another project than %s.", member.Key, task.Key)
+		}
+		if seen[member.ID] {
+			return nil, fmt.Sprintf("%s appears twice in the batch.", member.Key)
+		}
+		seen[member.ID] = true
+		ids = append(ids, member.ID)
+	}
+	return ids, ""
+}
+
+// describeBusy is describeActiveRun for a task that may be busy through a
+// running batch, which is then what the refusal names (#522).
+func describeBusy(taskKey string, active *models.TaskActivity, batch *models.TaskBatch) string {
+	if batch == nil {
+		return describeActiveRun(active)
+	}
+	if taskKey == "" {
+		taskKey = "This task"
+	}
+	if batch.Position == 1 {
+		return fmt.Sprintf("%s leads a batch that is still running.", taskKey)
+	}
+	return fmt.Sprintf("%s is part of the batch led by %s, which is still running.", taskKey, batch.LeadKey)
+}
+
+// busyBody is the 409 body of a refused launch: the message, the run that
+// blocks it and, for a batch, its lead.
+func busyBody(message string, active *models.TaskActivity, batch *models.TaskBatch) map[string]string {
+	body := map[string]string{"error": message, "activeRunId": active.ID}
+	if batch != nil {
+		body["batchLeadKey"] = batch.LeadKey
+	}
+	return body
+}
+
 // writeTaskBusy answers a launch the database refused because the task already
 // carries an active run, with the body the busy check answers, and reports
 // whether it did. Any other error is left to the caller.
@@ -332,7 +393,7 @@ func writeTaskBusy(w http.ResponseWriter, err error) bool {
 	}
 	body := map[string]string{"error": "Another run is active on this task."}
 	if busy.Active != nil {
-		body = map[string]string{"error": describeActiveRun(busy.Active), "activeRunId": busy.Active.ID}
+		body = busyBody(describeBusy(busy.TaskKey, busy.Active, busy.Batch), busy.Active, busy.Batch)
 	}
 	writeJSON(w, http.StatusConflict, body)
 	return true
@@ -2283,10 +2344,22 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		// A batch launch names its tickets; they are checked before anything
+		// is recorded, like the busy rule below.
+		var batchIDs []string
+		if len(req.BatchTaskIDs) > 0 {
+			var reason string
+			if batchIDs, reason = h.batchLaunchMembers(task, req); reason != "" {
+				writeError(w, http.StatusBadRequest, reason)
+				return
+			}
+		}
+
 		// A task already carrying an active run is busy: a second launch would
-		// start an agent in parallel on the same work. The check happens before
-		// anything is recorded, so a refused launch leaves no trace at all.
-		active, activeErr := h.db.ActiveRunOnTask(task.ID)
+		// start an agent in parallel on the same work. So is a ticket of a
+		// running batch. The check happens before anything is recorded, so a
+		// refused launch leaves no trace at all.
+		active, batch, activeErr := h.db.ActiveBusyCause(task.ID)
 		if activeErr != nil {
 			log.Printf("[Dispatch] cannot check task %s for an active run: %v", task.Key, activeErr)
 			writeError(w, http.StatusInternalServerError, "Cannot check the task for an active run")
@@ -2294,16 +2367,38 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 		}
 		if active != nil {
 			if !req.Force {
-				writeJSON(w, http.StatusConflict, map[string]string{
-					"error":       describeActiveRun(active),
-					"activeRunId": active.ID,
-				})
+				writeJSON(w, http.StatusConflict, busyBody(describeBusy(task.Key, active, batch), active, batch))
 				return
 			}
 			// Forcing steps over another session's run, so it follows the rule
 			// cancel-run enforces: the owner, or an admin. The active run is
 			// left exactly as it is; force is not a cancellation.
 			if _, ok := h.requireOwnerOrAdmin(w, r, active.UserID); !ok {
+				return
+			}
+		}
+		// A batch cannot take in a busy ticket: it would then carry two active
+		// runs, which the busy rule exists to prevent. The first one is named;
+		// the lead was checked above.
+		var joining []string
+		if len(batchIDs) > 1 {
+			joining = batchIDs[1:]
+		}
+		for _, memberID := range joining {
+			memberActive, memberBatch, err := h.db.ActiveBusyCause(memberID)
+			if err != nil {
+				log.Printf("[Dispatch] cannot check batch member %s for an active run: %v", memberID, err)
+				writeError(w, http.StatusInternalServerError, "Cannot check the task for an active run")
+				return
+			}
+			if memberActive != nil {
+				member, _ := h.db.GetTaskByID(memberID)
+				key := memberID
+				if member != nil {
+					key = member.Key
+				}
+				message := fmt.Sprintf("%s cannot join the batch: %s", key, describeBusy(key, memberActive, memberBatch))
+				writeJSON(w, http.StatusConflict, busyBody(message, memberActive, memberBatch))
 				return
 			}
 		}
@@ -2368,6 +2463,24 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 				log.Printf("[Dispatch] cannot track remote execution on task %s: %v", task.Key, runErr)
 				writeError(w, http.StatusInternalServerError, "Cannot track remote execution")
 				return
+			}
+			// The members are recorded on the run before the agent hears of it,
+			// so a batch whose members could not be recorded never starts.
+			if len(batchIDs) > 0 {
+				if err := h.db.RecordBatch(remoteRun.ID, batchIDs); err != nil {
+					_, _ = h.db.FinishRemoteRun(task.ID, remoteRun.ID, "failed", err.Error())
+					act.Status = "failed"
+					act.Error = err.Error()
+					finished := time.Now()
+					act.CompletedAt = &finished
+					_ = h.db.FinishAgentLaunch(act)
+					log.Printf("[Dispatch] cannot record the batch of task %s: %v", task.Key, err)
+					writeError(w, http.StatusInternalServerError, "Cannot record the batch")
+					return
+				}
+				if fresh, err := h.db.GetTaskByID(task.ID); err == nil && fresh != nil {
+					task = fresh
+				}
 			}
 			launchCtx, cancel := context.WithTimeout(r.Context(), 45*time.Second)
 			defer cancel()

@@ -1,5 +1,7 @@
 import { PullRequestStateIcon } from './PullRequestStateIcon'
 import { RemoteRunBadge } from './RemoteRunBadge'
+import { BatchBadge } from './BatchBadge'
+import { batchIndicator } from '../lib/batchMembership'
 import { CopyTaskSkillMenu } from './CopyTaskSkillMenu'
 import React, { useState, useRef, useEffect } from 'react'
 import { createPortal } from 'react-dom'
@@ -386,6 +388,10 @@ export const TaskCard: React.FC<TaskCardProps> = ({
   const workflowAction = getWorkflowAction()
   const isRunning = latestActivity?.status === 'running'
   const isQueued = latestActivity?.status === 'queued' || latestActivity?.status === 'pending'
+  // A ticket of a running batch takes its border from where it stands in the
+  // batch, the lead included, rather than from the batch run (#522).
+  const batch = batchIndicator(task)
+  const cardTone = batch ? batch.tone : isRunning ? 'indigo' : isQueued ? 'amber' : null
 
   const isCondensed = compact
   // Barre de la couleur de l'épic, sur les projets qui la demandent.
@@ -792,9 +798,9 @@ export const TaskCard: React.FC<TaskCardProps> = ({
       onDragStart={handleDragStartInternal}
       onClick={openOrToggle}
       className={`task-card ${isCondensed ? 'task-card-condensed' : ''} group relative border bg-[var(--bg-secondary)] ${isCondensed ? 'rounded-none px-1.5 py-1' : 'p-3'} hover:shadow-md transition-all duration-150 cursor-grab active:cursor-grabbing select-none ${
-        isRunning
+        cardTone === 'indigo'
           ? `border-indigo-500/60 shadow-md shadow-indigo-500/10 ${selected ? '' : 'ring-1 ring-indigo-500/20'}`
-          : isQueued
+          : cardTone === 'amber'
           ? `border-amber-500/50 shadow-md shadow-amber-500/10 ${selected ? '' : 'ring-1 ring-amber-500/20'}`
           : selected
           ? 'border-[var(--accent-color)]'
@@ -816,6 +822,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({
             {task.title}
           </button>
           {selectionBox}
+          <BatchBadge task={task} />
           <RemoteRunBadge taskId={task.id} />
           {modelIndicator}
           {actionsMenu}
@@ -958,6 +965,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({
       {/* Ligne 4 : Activité live / queued + menu d'actions (...) */}
       <div className="pt-2 border-t border-[var(--border-color)]/50 flex items-center gap-1.5" onClick={e => e.stopPropagation()}>
         <RemoteRunBadge taskId={task.id} />
+        <BatchBadge task={task} />
         {/* Live / Queued Activity indicator */}
 
 

@@ -1,5 +1,11 @@
 export interface TranslationSchema {
   batchLaunch: string
+  batchMember: {
+    badge: string
+    tooltip: string
+    waiting: string
+    processing: string
+  }
   batchDialog: {
     title: string
     worktree: string
@@ -806,6 +812,12 @@ export interface TranslationSchema {
 export const translations: Record<'fr' | 'en', TranslationSchema> = {
   fr: {
     batchLaunch: 'Lot',
+    batchMember: {
+      badge: 'Lot {key}',
+      tooltip: 'Lot mené par {key} · ticket {position} sur {size}',
+      waiting: 'en attente dans le lot',
+      processing: 'en cours',
+    },
     batchDialog: {
       title: "Préparer le lot",
       worktree: "Nom du worktree",
@@ -1606,6 +1618,12 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
   },
   en: {
     batchLaunch: 'Batch',
+    batchMember: {
+      badge: 'Batch {key}',
+      tooltip: 'Batch led by {key} · ticket {position} of {size}',
+      waiting: 'waiting in batch',
+      processing: 'in progress',
+    },
     batchDialog: {
       title: "Prepare batch",
       worktree: "Worktree name",
