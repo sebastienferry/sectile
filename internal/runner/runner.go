@@ -1047,6 +1047,9 @@ func (r *Runner) OpenInEditor(editorCmd string, targetPath string) error {
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("failed to open in '%s': %w", editorCmd, err)
 	}
+	// The launcher usually hands over to the editor and exits at once; reaping
+	// it keeps a long-running agent from collecting one zombie per open.
+	go func() { _ = cmd.Wait() }()
 	return nil
 }
 
