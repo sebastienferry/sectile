@@ -22,7 +22,7 @@ test('sidebar orders tasks across refreshes while retaining selection and histor
  const env={...process.env,SECTILE_DESKTOP_DATA_DIR:root,SECTILE_DESKTOP_TEST:'1'};delete env.ELECTRON_RUN_AS_NODE
  let app
  try{
-  app=await electron.launch({args:[path.resolve(__dirname,'..')],env})
+  app=await electron.launch({args:[path.resolve(__dirname,'..')],env,colorScheme:'dark'})
   const page=await app.firstWindow();page.setDefaultTimeout(7000)
   const order=()=>page.locator('.task-number').allTextContents()
   await page.waitForFunction(()=>document.querySelectorAll('.local-task').length===5)
