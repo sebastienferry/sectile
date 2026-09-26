@@ -8,7 +8,7 @@ pushed: merge, do not rebase).
 
 - [ ] T1.1 Export `skillLabel(skillId)` from `desktop/src/workflow.mjs`
   (plan decision 1).
-- [ ] T1.2 Unit tests: every workflow id maps to its label (`create_pr` ->
+- [ ] T1.2 Unit tests in a new `desktop/tests/workflow.test.mjs`: every workflow id maps to its label (`create_pr` ->
   `Create PR`), an unknown id is capitalized (`pickup` -> `Pickup`,
   `discuss` -> `Discuss`), an empty or missing id returns `''`. Run
   `npm test` in `desktop/`.
