@@ -3395,7 +3395,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     taskId: string,
     skillId: string,
     prompt?: string,
-    opts?: { withComments?: boolean; mode?: SkillMode; model?: string }
+    opts?: { withComments?: boolean; mode?: SkillMode; model?: string; batchTaskIds?: string[] }
   ): Promise<TaskActivity | null> => {
     setIsSkillRunning(true)
     setRunningSkillId(skillId)
@@ -3418,6 +3418,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           withComments: opts?.withComments,
           mode: opts?.mode || undefined,
           model: opts?.model?.trim() || undefined,
+          // The tickets of a batch, in order: the server records them on the
+          // batch run so each one shows it (#522).
+          batchTaskIds: opts?.batchTaskIds?.length ? opts.batchTaskIds : undefined,
         }),
       })
       if (!res.ok) {
@@ -3689,7 +3692,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         new Set(taskIds).size !== taskIds.length ||
         batch.some(task => !task || task.projectId !== batchPickupTasks[0].projectId) ||
         taskIds.some(id => !batchPickupTasks.some(task => task.id === id))) return false
-    const activity = await runSkill(taskIds[0], 'pickup_issues', buildBatchPickupPrompt(taskIds, worktreeName))
+    const activity = await runSkill(taskIds[0], 'pickup_issues', buildBatchPickupPrompt(taskIds, worktreeName), { batchTaskIds: taskIds })
     if (!activity) return false
     finishBatchPickup(true)
     return true
