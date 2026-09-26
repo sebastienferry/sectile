@@ -112,6 +112,10 @@ func TestMigrationTwentyFiveKeepsExistingProjectsArtefacts(t *testing.T) {
 	}
 	for _, stmt := range []string{
 		"ALTER TABLE projects DROP COLUMN spec_artifacts",
+		// Nor anything the migrations after 25 change, which reopening replays.
+		"DROP TABLE agent_capabilities",
+		"ALTER TABLE projects ADD COLUMN tty_mode TEXT NOT NULL DEFAULT 'integrated'",
+		"ALTER TABLE user_tracker_credentials DROP COLUMN unlock_generation",
 		"DROP TABLE user_credential_unlocks",
 		`INSERT INTO projects (id, name, slug) VALUES ('p1', 'Old', 'old')`,
 		"DELETE FROM schema_migrations WHERE version >= 25",
@@ -142,8 +146,7 @@ func TestMigrationTwentyFiveKeepsExistingProjectsArtefacts(t *testing.T) {
 func specifyOwnedTask(t *testing.T, answer func() (json.RawMessage, error)) (*DB, *models.Task, *[]string) {
 	t.Helper()
 	d := testDB(t)
-	no := false
-	p, err := d.CreateProject(models.CreateProjectRequest{Name: "Early", RepoPath: "/not-mounted-on-server", IssueTracker: "local", UseWorktrees: &no, PRCreationStage: "specified"})
+	p, err := d.CreateProject(models.CreateProjectRequest{Name: "Early", IssueTracker: "local", PRCreationStage: "specified"})
 	if err != nil {
 		t.Fatal(err)
 	}

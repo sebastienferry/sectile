@@ -121,7 +121,7 @@ func (d *agentDaemon) executeOperation(ctx context.Context, op agentprotocol.Ope
 	if err != nil {
 		return nil, err
 	}
-	config = agentconfig.ApplyOverrides(config, overrides)
+	config = agentconfig.Resolve(config, overrides)
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
@@ -394,7 +394,7 @@ func (d *agentDaemon) executeOperation(ctx context.Context, op agentprotocol.Ope
 	case "git_delete":
 		return nil, local.DeleteGitBranch(root, op.Branch, op.DeleteRemote)
 	case "open_editor":
-		return nil, r.OpenInEditor(op.Editor, target)
+		return nil, r.OpenInEditor(editorFor(overrides, op.Editor), target)
 	case "cli_status":
 		return r.CheckCliTools(root), nil
 	}
@@ -431,4 +431,17 @@ func localTaskPath(ctx context.Context, root string, task models.Task) (string, 
 		}
 	}
 	return target, nil
+}
+
+// editorFor picks the editor an open_editor operation runs: the workstation's
+// own (#305), else the one an older server still resolves and sends, else
+// the default.
+func editorFor(settings agentconfig.Settings, sent string) string {
+	if editor := settings.Editor(); editor != "" {
+		return editor
+	}
+	if sent = strings.TrimSpace(sent); sent != "" {
+		return sent
+	}
+	return agentconfig.DefaultEditor
 }

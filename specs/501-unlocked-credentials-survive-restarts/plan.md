@@ -12,7 +12,7 @@ those of `9ba14877` and only locate the code; re-find them before editing.
 - No web or desktop change: the sign-in screen and the profile already unlock,
   lock and show `unlocked` (`web/src/lib/session.ts`,
   `web/src/components/SignInScreen.tsx`, `AppContext.lockAllUserCredentials`).
-- Docs: new ADR 0031, ADR 0014 status line, `README.md` (§ personal
+- Docs: new ADR 0032, ADR 0014 status line, `README.md` (§ personal
   credentials around line 319, § sign-in around line 743), `CHANGELOG.md`.
 
 ## Design choice: the unlock belongs to the person, not to one session row
@@ -24,9 +24,9 @@ tab open (decision 3), and signing out of one of several sessions keeps it
 (decision 4). The unlock is therefore stored per `(user_id, tracker)`, like the
 credential it opens, and its life is bounded by the person's presence, which
 the web sessions and `agent_presence` rows provide. Revoking or expiring the
-sessions does end it, through that presence. Recorded in ADR 0031.
+sessions does end it, through that presence. Recorded in ADR 0032.
 
-## 1. Storage: `user_credential_unlocks` (migration 26)
+## 1. Storage: `user_credential_unlocks` (Migration 29)
 
 ```sql
 CREATE TABLE IF NOT EXISTS user_credential_unlocks (
@@ -185,14 +185,14 @@ Run `go test ./...`, then `internal/db` under PostgreSQL (see the memory note on
 
 ## 7. Docs
 
-- `docs/adrs/0031-unlocked-sealed-credentials-live-with-their-owners-presence.md`:
+- `docs/adrs/0032-unlocked-sealed-credentials-live-with-their-owners-presence.md`:
   context (restarts, replicas, #501), decision (§1, §4, §5), consequences (a
   database copy plus the server key opens a sealed token during the window;
   root on the server could already read it from memory; the database alone
   still opens nothing; unlock now needs the server key), alternatives rejected
   (keep it in memory; the browser holds the key; a foreign key to one session
   row; a setting for the delay).
-- ADR 0014: status line "Amended by ADR 0031 for the lifetime of an unlock";
+- ADR 0014: status line "Amended by ADR 0032 for the lifetime of an unlock";
   leave its body as written.
 - `README.md` § personal credentials: replace the implicit "until restart" with
   the new lifetime; § sign-in: a passphrase given at sign-in keeps the tokens

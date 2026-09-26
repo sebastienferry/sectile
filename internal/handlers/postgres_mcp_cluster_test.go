@@ -53,9 +53,8 @@ func TestPostgresMCPSessionAcrossTwoInstances(t *testing.T) {
 	a, stopA := startPostgresNode(t, openPostgresInstance(t))
 	b, _ := startPostgresNode(t, openPostgresInstance(t))
 
-	no := false
-	project, err := a.db.CreateProject(models.CreateProjectRequest{Name: "Replicas " + a.id()[:8], RepoPath: "/not-mounted",
-		IssueTracker: "local", UseWorktrees: &no, AIProvider: "claude"})
+	project, err := a.db.CreateProject(models.CreateProjectRequest{Name: "Replicas " + a.id()[:8],
+		IssueTracker: "local"})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -145,7 +145,7 @@ func (d *DB) SetUserTrackerCredential(userID, tracker, siteURL, email, token, pa
 	// locked, and unlocking it says why.
 	var wrapped []byte
 	if sealed && d.serverKeyErr == nil {
-		if wrapped, err = secrets.WrapKey(d.serverKey, secrets.UnlockBinding(userID, tracker), key); err != nil {
+		if wrapped, err = secrets.WrapKey(d.serverKey, secrets.Binding{UserID: userID, Tracker: tracker}, key); err != nil {
 			return err
 		}
 	}
@@ -302,7 +302,7 @@ func (d *DB) UnlockUserTrackerCredential(userID, tracker, passphrase string) err
 		// next instance, which is the failure this storage exists to end.
 		return fmt.Errorf("%w (%w) : définissez %s sur le serveur pour desceller un jeton", ErrServerKeyUnavailable, d.serverKeyErr, secrets.KeyEnvVar)
 	}
-	wrapped, err := secrets.WrapKey(d.serverKey, secrets.UnlockBinding(userID, tracker), key)
+	wrapped, err := secrets.WrapKey(d.serverKey, secrets.Binding{UserID: userID, Tracker: tracker}, key)
 	if err != nil {
 		return err
 	}
@@ -422,7 +422,7 @@ func (d *DB) unwrapUnlock(userID, tracker string, wrapped []byte) (secrets.Key, 
 	if wrapped == nil || d.serverKeyErr != nil {
 		return secrets.Key{}, false
 	}
-	key, err := secrets.UnwrapKey(d.serverKey, secrets.UnlockBinding(userID, tracker), wrapped)
+	key, err := secrets.UnwrapKey(d.serverKey, secrets.Binding{UserID: userID, Tracker: tracker}, wrapped)
 	return key, err == nil
 }
 

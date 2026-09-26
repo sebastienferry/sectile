@@ -7,8 +7,10 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
 
 	"io"
 	"io/fs"
@@ -201,7 +203,15 @@ func main() {
 	// This process is one serving instance among those that may share the
 	// database: it keeps its row fresh and reclaims the work of instances that
 	// went away. See internal/db/instances.go.
-	if _, err := database.StartInstance(); err != nil {
+	if err := applyInstanceTiming(osGetenv); err != nil {
+		log.Fatalf("Configuration: %v", err)
+	}
+	shutdownGrace, err := shutdownGraceFromEnv(osGetenv)
+	if err != nil {
+		log.Fatalf("Configuration: %v", err)
+	}
+	stopInstance, err := database.StartInstance()
+	if err != nil {
 		log.Fatalf("Fatal database error: %v", err)
 	}
 	log.Printf("   instance : %s", database.InstanceID())
@@ -244,6 +254,7 @@ func main() {
 
 	// API Routes
 	mux.HandleFunc(handlers.HealthPath, h.HandleHealth)
+	mux.HandleFunc(handlers.ReadyPath, h.HandleReady)
 	mux.HandleFunc(handlers.VersionPath, h.HandleVersion)
 	mux.HandleFunc(handlers.ChangelogPath, h.HandleChangelog)
 	mux.HandleFunc("/api/cli-status", h.HandleCliStatus)
@@ -333,6 +344,8 @@ func main() {
 	mux.Handle("/api/v1/agent/identity", h.AgentAPIAuth(http.HandlerFunc(h.HandleAgentIdentity)))
 	mux.Handle("/api/v1/agent/config", h.AgentAPIAuth(http.HandlerFunc(h.HandleAgentConfig)))
 	mux.Handle("/api/v1/agent/projects", h.AgentAPIAuth(http.HandlerFunc(h.HandleAgentProjects)))
+	mux.Handle("/api/v1/agent/execution-seed", h.AgentAPIAuth(http.HandlerFunc(h.HandleAgentExecutionSeed)))
+	mux.Handle("/api/v1/agent/capabilities", h.AgentAPIAuth(http.HandlerFunc(h.HandleAgentCapabilities)))
 	mux.Handle("/api/v1/agent/run-output", h.AgentAPIAuth(http.HandlerFunc(h.HandleAgentRunOutput)))
 
 	// Remote Agent WebSocket & Dispatch Routes
@@ -433,7 +446,18 @@ func main() {
 	log.Printf("🚀 Sectile Server listening on %s", url)
 	log.Printf("   base : %s — %s (%s)", database.EngineName(), dbTarget, dbOrigin)
 
-	if err := http.Serve(listener, handlerWithCORS); err != nil {
+	// A stop asked by the orchestrator, or by Ctrl+C, drains the instance
+	// rather than dropping it: see drain.
+	server := &http.Server{Handler: handlerWithCORS}
+	stopping, stopSignals := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
+	defer stopSignals()
+	served := make(chan error, 1)
+	go func() { served <- server.Serve(listener) }()
+	select {
+	case err := <-served:
 		log.Fatalf("Server failed: %v", err)
+	case <-stopping.Done():
+		stopSignals()
+		drain(h, stopInstance, server, shutdownGrace)
 	}
 }

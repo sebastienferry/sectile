@@ -167,9 +167,11 @@ test:postgres:
     # The subset is chosen for what breaks silently rather than for what is easy
     # to test: schema creation from empty, a CRUD round trip, an upsert, the
     # timestamp round trip that #294 was about, and a migration round trip.
-    # The handlers subset is two instances sharing one database (#408). Both
-    # packages empty the same database, hence -p 1.
-    - go test -p 1 ./internal/db/ ./internal/handlers/ -run 'TestPostgres|TestMigrate' -v
+    # The handlers subset is two instances sharing one database (#408), and
+    # cmd/server's is the multi-replica harness: two real server processes on
+    # that database, one of them killed, one drained (#410). The packages empty
+    # the same database, hence -p 1.
+    - go test -p 1 ./internal/db/ ./internal/handlers/ ./cmd/server/ -run 'TestPostgres|TestMigrate' -v
 
 # The server-side half of `make fmt-check`, which until now only ran for whoever
 # ran `make test` before pushing. It gates like test:postgres: the repository is

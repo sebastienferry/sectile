@@ -134,7 +134,7 @@ func MergeModels(high, low ModelConfig) ModelConfig {
 }
 
 // Models exposes the configuration's own level, once every level above it has
-// already been folded in by the server and by ApplyOverrides.
+// already been folded in by Resolve.
 func (c Config) Models() ModelConfig {
 	return ModelConfig{Model: c.AIModel, SkillModels: c.AISkillModels}
 }

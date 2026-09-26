@@ -43,7 +43,6 @@ export const SyncView: React.FC = () => {
   // Local form state initialized from active project or fallback to global settings
   const [githubRepo, setGithubRepo] = useState(currentProject?.githubRepo || settings.githubRepo || '')
   const [jiraKey, setJiraKey] = useState(currentProject?.jiraProject || settings.jiraProject || '')
-  const [repoPath, setRepoPath] = useState(currentProject?.repoPath || settings.repoPath || '')
   const [issueTracker, setIssueTracker] = useState<IssueTracker>(activeTracker)
   const [isSaved, setIsSaved] = useState(false)
 
@@ -56,7 +55,6 @@ export const SyncView: React.FC = () => {
     if (currentProject) {
       setGithubRepo(currentProject.githubRepo || '')
       setJiraKey(currentProject.jiraProject || '')
-      setRepoPath(currentProject.repoPath || '')
       setIssueTracker(currentProject.issueTracker || 'local')
       setCustomGithubRepo(currentProject.githubRepo || '')
       setCustomJiraKey(currentProject.jiraProject || '')
@@ -69,14 +67,12 @@ export const SyncView: React.FC = () => {
       await updateProject(currentProject.id, {
         githubRepo: githubRepo.trim(),
         jiraProject: jiraKey.trim().toUpperCase(),
-        repoPath: repoPath.trim(),
         issueTracker,
       })
     }
     await updateSettings({
       githubRepo: githubRepo.trim(),
       jiraProject: jiraKey.trim().toUpperCase(),
-      repoPath: repoPath.trim(),
       issueTracker,
     })
     setIsSaved(true)
@@ -223,9 +219,10 @@ export const SyncView: React.FC = () => {
                   {currentProject.name}
                 </h3>
                 <p className="text-xs text-[var(--text-muted)] font-mono truncate max-w-lg">
-                  {currentProject.repoPath || 'Dossier par défaut du projet'}
-                  {currentProject.githubRepo ? ` · GitHub: ${currentProject.githubRepo}` : ''}
-                  {currentProject.jiraProject ? ` · Jira: ${currentProject.jiraProject}` : ''}
+                  {[
+                    currentProject.githubRepo ? `GitHub: ${currentProject.githubRepo}` : '',
+                    currentProject.jiraProject ? `Jira: ${currentProject.jiraProject}` : '',
+                  ].filter(Boolean).join(' · ')}
                 </p>
               </div>
             </div>
@@ -442,20 +439,6 @@ export const SyncView: React.FC = () => {
                   <span>Stockage SQLite autonome sans clé distante requise.</span>
                 </div>
               )}
-
-              {/* Repo Path */}
-              <div className="sm:col-span-2">
-                <label className="block text-xs font-semibold text-[var(--text-secondary)] mb-1.5">
-                  Dossier local du projet (repoPath)
-                </label>
-                <input
-                  type="text"
-                  value={repoPath}
-                  onChange={e => setRepoPath(e.target.value)}
-                  placeholder="Ex: /Users/username/Sources/my-project"
-                  className="w-full px-3 py-2 text-xs font-mono rounded-lg bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)]"
-                />
-              </div>
             </div>
 
             <div className="pt-3 flex justify-end">

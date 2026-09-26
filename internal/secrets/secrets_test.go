@@ -242,45 +242,63 @@ func TestThePersonalBindingSerialisationIsUnchanged(t *testing.T) {
 	}
 }
 
-// An unlocked key is kept under the server key while the unlock lasts: it opens
-// only under its own owner, tracker and server key, and never as the
-// credential it unlocks.
-func TestAWrappedUnlockOpensUnderItsOwnBindingOnly(t *testing.T) {
-	serverKey := testKey(t)
+// A derived key crosses the network between server instances wrapped under the
+// server key (#409): it comes back whole for its owner, and for nobody else.
+func TestAWrappedKeyComesBackOnlyForItsOwner(t *testing.T) {
+	wrapping := testKey(t)
+	owner := Binding{UserID: "u1", Tracker: "jira"}
 	derived := DeriveKey("correct horse", []byte("0123456789abcdef"))
-	record, err := WrapKey(serverKey, UnlockBinding("u1", "Jira"), derived)
+
+	wrapped, err := WrapKey(wrapping, owner, derived)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, err := UnwrapKey(serverKey, UnlockBinding("u1", "jira"), record); err != nil || got != derived {
-		t.Fatalf("round trip: %v", err)
+	if bytes.Contains(wrapped, derived[:]) {
+		t.Fatal("the key must not appear in what crosses the network")
 	}
-	for _, theft := range []Binding{
-		UnlockBinding("u2", "jira"),
-		UnlockBinding("u1", "github"),
-		{UserID: "u1", Tracker: "jira"},
-		ServerBinding("jira"),
-	} {
-		if _, err := UnwrapKey(serverKey, theft, record); !errors.Is(err, ErrWrongKey) {
-			t.Errorf("%+v opened the unlock record: %v", theft, err)
-		}
-	}
-	if _, err := UnwrapKey(testKey(t), UnlockBinding("u1", "jira"), record); !errors.Is(err, ErrWrongKey) {
-		t.Errorf("another server key opened the unlock record: %v", err)
+	back, err := UnwrapKey(wrapping, owner, wrapped)
+	if err != nil || back != derived {
+		t.Fatalf("unwrapping = %v, %v; want the derived key", Fingerprint(back), err)
 	}
 
-	credential, err := Seal(serverKey, Binding{UserID: "u1", Tracker: "jira"}, "token")
+	if _, err := UnwrapKey(testKey(t), owner, wrapped); !errors.Is(err, ErrWrongKey) {
+		t.Fatalf("another server key: %v, want ErrWrongKey", err)
+	}
+	for _, other := range []Binding{{UserID: "u2", Tracker: "jira"}, {UserID: "u1", Tracker: "github"}} {
+		if _, err := UnwrapKey(wrapping, other, wrapped); !errors.Is(err, ErrWrongKey) {
+			t.Fatalf("owner %+v: %v, want ErrWrongKey", other, err)
+		}
+	}
+	tampered := append([]byte(nil), wrapped...)
+	tampered[len(tampered)-1] ^= 1
+	if _, err := UnwrapKey(wrapping, owner, tampered); !errors.Is(err, ErrWrongKey) {
+		t.Fatalf("tampered: %v, want ErrWrongKey", err)
+	}
+	if _, err := UnwrapKey(wrapping, owner, wrapped[:4]); !errors.Is(err, ErrWrongKey) {
+		t.Fatalf("truncated: %v, want ErrWrongKey", err)
+	}
+	if _, err := WrapKey(wrapping, Binding{Tracker: "jira"}, derived); err == nil {
+		t.Fatal("a key with no owner must be refused")
+	}
+}
+
+// A wrapped key and a credential record are sealed under different associated
+// data, so neither can be passed off as the other.
+func TestAWrappedKeyIsNotACredentialRecord(t *testing.T) {
+	wrapping := testKey(t)
+	owner := Binding{UserID: "u1", Tracker: "jira"}
+	wrapped, err := WrapKey(wrapping, owner, DeriveKey("phrase", []byte("0123456789abcdef")))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := UnwrapKey(serverKey, UnlockBinding("u1", "jira"), credential); !errors.Is(err, ErrWrongKey) {
-		t.Errorf("a credential record opened as an unlock: %v", err)
+	if _, err := Open(wrapping, owner, wrapped); !errors.Is(err, ErrWrongKey) {
+		t.Fatalf("a wrapped key opened as a record: %v", err)
 	}
-	notAKey, err := Seal(serverKey, UnlockBinding("u1", "jira"), "not hex")
+	record, err := Seal(wrapping, owner, strings.Repeat("k", 32))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := UnwrapKey(serverKey, UnlockBinding("u1", "jira"), notAKey); !errors.Is(err, ErrWrongKey) {
-		t.Errorf("a record that is not a key unwrapped: %v", err)
+	if _, err := UnwrapKey(wrapping, owner, record); !errors.Is(err, ErrWrongKey) {
+		t.Fatalf("a record unwrapped as a key: %v", err)
 	}
 }

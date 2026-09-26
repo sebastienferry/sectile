@@ -91,36 +91,24 @@ export const CommandPalette: React.FC = () => {
 
   /**
    * Installs a Spec-Driven Design toolchain (Spec Kit or OpenSpec) into the
-   * active project's working directory, reporting the outcome as a toast.
+   * selected project, reporting the outcome as a toast. Only the project is
+   * named: the workstation's agent picks its own checkout and provider.
    */
   const installSpecFrameworkFromPalette = async (framework: 'speckit' | 'openspec') => {
     const label = framework === 'openspec' ? 'OpenSpec' : 'GitHub Spec Kit'
-    const repoPath = currentProject?.repoPath || settings.repoPath
-    if (!repoPath) {
-      addToast({
-        type: 'warning',
-        title: 'Aucun répertoire de travail',
-        description: `Configurez le CWD d'un projet avant d'installer ${label}.`,
-      })
-      return
-    }
+    if (!currentProject) return
 
     addToast({
       type: 'info',
       title: `Installation de ${label}...`,
-      description: `Répertoire : ${repoPath}`,
+      description: currentProject.name,
     })
 
     try {
-      const res = await fetch('/api/spec-framework/install', {
+      const res = await fetch(`/api/projects/${encodeURIComponent(currentProject.id)}/install-spec-framework`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          framework,
-          repoPath,
-          projectId: currentProject?.id || '',
-          aiAgent: currentProject?.aiProvider || settings.aiProvider || '',
-        }),
+        body: JSON.stringify({ framework }),
       })
       const result = await res.json()
       if (!res.ok) {
@@ -292,28 +280,31 @@ export const CommandPalette: React.FC = () => {
         syncJira(currentProject?.jiraProject)
       },
     },
-    {
-      id: 'install_speckit',
-      title: '📑 Installer GitHub Spec Kit dans le projet actif',
-      icon: <Download size={16} className="text-blue-400" />,
-      shortcut: 'K',
-      keywords: ['speckit', 'spec kit', 'specify', 'sdd', 'installer', 'install', 'scaffold', 'uv', 'uvx'],
-      action: () => {
-        setIsCommandPaletteOpen(false)
-        void installSpecFrameworkFromPalette('speckit')
+    // Offered whenever a project is selected: the agent resolves the checkout.
+    ...(currentProject ? [
+      {
+        id: 'install_speckit',
+        title: '📑 Installer GitHub Spec Kit dans le projet actif',
+        icon: <Download size={16} className="text-blue-400" />,
+        shortcut: 'K',
+        keywords: ['speckit', 'spec kit', 'specify', 'sdd', 'installer', 'install', 'scaffold', 'uv', 'uvx'],
+        action: () => {
+          setIsCommandPaletteOpen(false)
+          void installSpecFrameworkFromPalette('speckit')
+        },
       },
-    },
-    {
-      id: 'install_openspec',
-      title: '🧭 Installer OpenSpec dans le projet actif',
-      icon: <Download size={16} className="text-emerald-400" />,
-      shortcut: 'Shift+K',
-      keywords: ['openspec', 'open spec', 'sdd', 'installer', 'install', 'scaffold', 'npx', 'npm'],
-      action: () => {
-        setIsCommandPaletteOpen(false)
-        void installSpecFrameworkFromPalette('openspec')
+      {
+        id: 'install_openspec',
+        title: '🧭 Installer OpenSpec dans le projet actif',
+        icon: <Download size={16} className="text-emerald-400" />,
+        shortcut: 'Shift+K',
+        keywords: ['openspec', 'open spec', 'sdd', 'installer', 'install', 'scaffold', 'npx', 'npm'],
+        action: () => {
+          setIsCommandPaletteOpen(false)
+          void installSpecFrameworkFromPalette('openspec')
+        },
       },
-    },
+    ] : []),
     ...[],
     ...[],
     {

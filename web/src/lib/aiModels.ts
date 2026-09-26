@@ -1,64 +1,64 @@
-import type { AIProvider, Project, UserSettings } from '../types'
+import type { EngineReport } from '../types'
+
+/** The report of a project no agent of the caller serves. */
+export const UNKNOWN_ENGINE: EngineReport = Object.freeze({ state: 'unknown' }) as EngineReport
 
 /**
- * Models Sectile ships for each engine, used while the settings configure none.
- * Configuring a provider replaces its list rather than adding to it, so a model
- * removed in the interface really disappears from the launch surfaces.
- * Engines that take no model flag are absent on purpose.
+ * Reads the body of GET /api/projects/{id}/engine. Anything that is not a
+ * report with state "reported" (an older server, an error body) reads as
+ * unknown, so the web never announces an engine it was not told about.
  */
-export const DEFAULT_PROVIDER_MODELS: Partial<Record<AIProvider, string[]>> = {
-  claude: ['claude-fable-5-1', 'claude-fable-5', 'claude-fable', 'claude-opus-5', 'claude-sonnet-5', 'claude-haiku-4-5'],
-  codex: ['gpt-5-codex', 'gpt-5', 'o4-mini'],
-  agy: ['gemini-3.8-pro', 'gemini-3.8-flash', 'gemini-3.8', 'gemini-3.0-pro', 'gemini-2.5-pro', 'gemini-2.5-flash'],
-  gemini: ['gemini-3.8-pro', 'gemini-3.8-flash', 'gemini-3.8', 'gemini-3.0-pro', 'gemini-2.5-pro', 'gemini-2.5-flash'],
-  cursor: ['auto', 'claude-sonnet-5', 'gpt-5'],
+export function normalizeEngineReport(data: unknown): EngineReport {
+  if (!data || typeof data !== 'object') return UNKNOWN_ENGINE
+  const raw = data as Record<string, unknown>
+  if (raw.state !== 'reported') return UNKNOWN_ENGINE
+  const text = (value: unknown) => (typeof value === 'string' ? value.trim() : '')
+  const skillModels: Record<string, string> = {}
+  if (raw.skillModels && typeof raw.skillModels === 'object') {
+    for (const [skill, model] of Object.entries(raw.skillModels as Record<string, unknown>)) {
+      const value = text(model)
+      if (value) skillModels[skill] = value
+    }
+  }
+  const models = Array.isArray(raw.models) ? raw.models.map(text).filter(Boolean) : []
+  return {
+    state: 'reported',
+    provider: text(raw.provider),
+    model: text(raw.model),
+    skillModels,
+    models: [...new Set(models)],
+    // An omitted flag is an empty value the server dropped, hence false.
+    modelSlot: raw.modelSlot === true,
+    headless: raw.headless === true,
+    reportedAt: text(raw.reportedAt),
+  }
 }
 
 /**
- * The models offered for one provider: what the global settings configure for
- * it, or the shipped list when they configure nothing. This is the single
- * source of what can be picked at launch and of what the configuration fields
- * suggest, so a model added once is available everywhere.
+ * The model the next run of one skill would use on the caller's workstation,
+ * as its capability report states it (#305): the per-skill model, else the
+ * project-wide one. Empty when the report is unknown, names no model, or the
+ * workstation's command line carries no model at all.
  */
-export function providerModels(settings: Partial<Pick<UserSettings, 'aiProviderModels'>> | undefined, provider: AIProvider | '' | undefined): string[] {
-  if (!provider) return []
-  // Une liste vide est un choix, « ne rien proposer pour ce moteur », et non une
-  // absence de réglage : seule l'absence de clé retombe sur la liste livrée.
-  const configured = settings?.aiProviderModels?.[provider]
-  if (configured) return configured
-  return DEFAULT_PROVIDER_MODELS[provider as AIProvider] || []
-}
-
-/**
- * The model the configured levels resolve for one task and one skill: the most
- * specific statement wins, so a per-skill entry outranks a bare model whatever
- * level it sits on, and the project outranks the global settings.
- *
- * The workstation override is invisible from here: only the agent reads it,
- * which is why the launch surfaces say so rather than presenting this as the
- * certain answer.
- */
-export function resolveConfiguredModel(
-  project: Partial<Pick<Project, 'aiModel' | 'aiSkillModels'>> | undefined,
-  settings: Partial<Pick<UserSettings, 'aiModel' | 'aiSkillModels'>> | undefined,
-  skillId?: string,
-): string {
+export function reportedModel(report: EngineReport | null | undefined, skillId?: string): string {
+  if (!report || report.state !== 'reported' || report.modelSlot !== true) return ''
   const skill = (skillId || '').trim()
   if (skill) {
-    const fromProject = (project?.aiSkillModels?.[skill] || '').trim()
-    if (fromProject) return fromProject
-    const fromSettings = (settings?.aiSkillModels?.[skill] || '').trim()
-    if (fromSettings) return fromSettings
+    const perSkill = (report.skillModels?.[skill] || '').trim()
+    if (perSkill) return perSkill
   }
-  return (project?.aiModel || '').trim() || (settings?.aiModel || '').trim()
+  return (report.model || '').trim()
 }
 
-/** The provider a task runs on: its project's, else the global setting. */
-export function taskProvider(
-  project: Partial<Pick<Project, 'aiProvider'>> | undefined,
-  settings: Partial<Pick<UserSettings, 'aiProvider'>> | undefined,
-): AIProvider | '' {
-  return (project?.aiProvider || settings?.aiProvider || '') as AIProvider | ''
+/**
+ * The models the launch picker offers for one skill: the reported list minus
+ * the model the run would use anyway. Empty, so no picker, when the report is
+ * unknown or the command line carries no model.
+ */
+export function reportedPickerModels(report: EngineReport | null | undefined, skillId?: string): string[] {
+  if (!report || report.state !== 'reported' || report.modelSlot !== true) return []
+  const configured = reportedModel(report, skillId)
+  return (report.models || []).filter(model => model && model !== configured)
 }
 
 /**
@@ -103,25 +103,4 @@ export function shortModelLabel(model: string): string {
   const distinctive = segments.find(segment => !VENDOR_SEGMENTS.has(segment))
   const base = distinctive || segments.slice(0, 2).join('')
   return base.slice(0, 4).toUpperCase()
-}
-
-/** Engines Sectile passes `--model` to. The others ignore a configured model. */
-export function providerTakesModel(provider?: AIProvider | ''): boolean {
-  return provider === 'claude' || provider === 'codex' || provider === 'gemini' || provider === 'cursor' || provider === 'agy'
-}
-
-/**
- * Same shape check as the server: an identifier has to be placeable on a command
- * line as a single word. Validating here turns a server 400 into an inline hint.
- */
-const MODEL_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:@/-]*$/
-
-export function isValidModel(value: string): boolean {
-  const trimmed = value.trim()
-  return trimmed === '' || MODEL_PATTERN.test(trimmed)
-}
-
-/** A template owns the whole command line, so no flag is injected beside it. */
-export function templateGovernsCommand(provider: AIProvider | '' | undefined, template: string): boolean {
-  return template.trim() !== '' && (provider === 'custom' || template.includes('{prompt}'))
 }

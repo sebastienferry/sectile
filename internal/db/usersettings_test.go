@@ -21,9 +21,11 @@ func openUserSettingsDB(t *testing.T) *DB {
 // deployment shows what it always showed until someone saves a preference.
 func TestUserSettingsSeedFromTheDeploymentRow(t *testing.T) {
 	d := openUserSettingsDB(t)
-	if _, err := d.UpdateSettings(models.Settings{Theme: "light", Language: "en", EditorCommand: "zed"}); err != nil {
+	if _, err := d.UpdateSettings(models.Settings{Theme: "light", Language: "en"}); err != nil {
 		t.Fatal(err)
 	}
+	// Written before #305; still read, for the seed of a workstation.
+	setLegacySettings(t, d, map[string]any{"editor_command": "zed"})
 	seeded, err := d.UserSettings("alice")
 	if err != nil {
 		t.Fatal(err)
@@ -62,9 +64,10 @@ func TestUserSettingsAreIsolatedBetweenAccounts(t *testing.T) {
 // A save carrying only the field it edits must not blank the others.
 func TestUserSettingsOmittedKeyChangesNothing(t *testing.T) {
 	d := openUserSettingsDB(t)
-	if _, err := d.UpdateUserSettings("alice", models.Settings{Theme: "light", UserName: "Alice", ExternalTerminalCommand: "Ghostty"}); err != nil {
+	if _, err := d.UpdateUserSettings("alice", models.Settings{Theme: "light", UserName: "Alice"}); err != nil {
 		t.Fatal(err)
 	}
+	setLegacyColumns(t, d, "user_settings", "user_id", "alice", map[string]any{"external_terminal_command": "Ghostty"})
 	if _, err := d.UpdateUserSettings("alice", models.Settings{Theme: "dark"}); err != nil {
 		t.Fatal(err)
 	}

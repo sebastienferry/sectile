@@ -329,7 +329,7 @@ its owner is connected, through an open tab or a running local agent, and 30
 minutes after they leave, or ends at once when they sign out with nothing else
 connected. It is kept in the database under the server key, so unlocking needs
 that key, and during that window a copy of the database together with the key
-opens the token. See [ADR 0031](./docs/adrs/0031-unlocked-sealed-credentials-live-with-their-owners-presence.md).
+opens the token. See [ADR 0032](./docs/adrs/0032-unlocked-sealed-credentials-live-with-their-owners-presence.md).
 
 The background queue carries whoever asked a write: a field update and every
 tracker operation record the acting user on the job, and the worker puts them
@@ -697,6 +697,69 @@ the event stream of `GET /mcp`. The sessions view (`GET /api/mcp/sessions`)
 lists the sessions of every live server, each with the `instance` holding it,
 and names under `unreachable` those that did not answer within two seconds.
 
+An unlocked sealed tracker credential needs none of this: its unlock is kept in
+the database, under `SECTILE_SECRET_KEY`, so every server reads it and a lock
+holds on every server at once (see "Tracker connection parameters" above).
+
+### Several replicas
+
+The server can run as several active replicas behind one load balancer, all on
+one PostgreSQL database; SQLite stays single-instance. No session store, no
+broker and no sticky sessions are needed: web sessions live in the database,
+and everything that lives in one replica's memory is reached through that
+replica on the internal port. The design is recorded in
+[ADR 0030](./docs/adrs/0030-several-server-replicas-share-one-postgresql.md).
+
+What the deployment must provide:
+
+- **PostgreSQL** (`DB_DRIVER=postgres`) shared by every replica.
+- **The same `SECTILE_SECRET_KEY` on every replica.** It opens the stored
+  credentials and authenticates the replicas to each other; without it the
+  replicas serve their own agents and sessions only.
+- **The internal port** (`SECTILE_INTERNAL_PORT`, `8092`) declared on the
+  container, reachable from the other replicas, and never routed by the
+  ingress. Set `SECTILE_INTERNAL_URL` when the pod's first IPv4 is not the
+  address the others reach.
+- **Probes.** Liveness on `GET /api/health`: the process serves. Readiness on
+  `GET /api/ready`: it answers `503` with a reason while the database does not
+  answer, before the replica is registered and its internal port serves, and
+  from the moment it is asked to stop. Both are public.
+- **A termination grace longer than the drain.** On SIGTERM a replica reports
+  not ready, keeps serving for `SECTILE_SHUTDOWN_GRACE` (default `5s`) so the
+  balancer stops routing to it, then removes itself, closes its agent
+  connections (the agents reconnect to another replica) and exits. The pod's
+  termination grace period must exceed that grace by the few seconds requests
+  need to finish. A replica killed without draining is taken over once it has
+  been silent for 45 seconds.
+- **Replica count and disruption budget.** Two replicas at least, and a
+  disruption budget that keeps one available (`maxUnavailable: 1` with two), so
+  a node drain or a rolling deploy never stops every replica at once.
+- **Ingress timeouts for long-lived connections.** The agent WebSocket
+  (`/ws/agent-connect`) is pinged every 10 seconds; the browser event stream
+  (`/api/events`) and the MCP event stream (`GET /mcp`) can stay silent much
+  longer. Give these paths an idle timeout of an hour or more, and do not
+  buffer the two event streams.
+
+What is lost with a replica: an agent operation in flight through it fails with
+an explicit error and is not replayed, its MCP sessions end (their clients
+start new ones, and the runs they owned stay recoverable through `finish_run`),
+and its agents and browsers reconnect to another replica on their own.
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `SECTILE_SHUTDOWN_GRACE` | `5s` | How long a stopping replica keeps serving after it reports not ready. `0` skips the wait. |
+| `SECTILE_INSTANCE_HEARTBEAT` | `10s` | Tests only: how often a replica says it is alive. |
+| `SECTILE_INSTANCE_DEAD_AFTER` | `45s` | Tests only: how long a silent replica is waited for before its work is taken over. |
+| `SECTILE_INSTANCE_RECLAIM` | `15s` | Tests only: how often a live replica looks for that work. |
+
+The last three exist for the multi-replica harness, which shortens them to run
+in seconds; a dead-after bound close to the heartbeat takes over the work of a
+replica that is merely slow. The harness, `TestPostgresMultiReplicaHarness` in
+`cmd/server`, runs two real server processes on the database named by
+`SECTILE_TEST_POSTGRES_DSN`, behind a balancer that honours readiness: it checks
+an agent operation, a live update and an MCP session across the two, kills one
+and drains the other. The `test:postgres` CI job runs it.
+
 ### Signing in and pairing a workstation
 
 A deployment shared by several people signs them in through an OpenID Connect
@@ -934,21 +997,24 @@ launch-time setup and refresh after agent restart, including a changed local por
 The preview uses a key placeholder; the desktop update writes the real paired key
 only for remote connections. Reload the AI engine after applying a change.
 
-Optional workstation overrides belong in `~/.config/sectile/settings.json`:
+Execution settings (provider, models, command templates, terminal, editor,
+worktrees, parallelism, setup providers, skill command names) belong to the
+workstation and live in `~/.config/sectile/settings.json` (ADR 0031); set them
+in the desktop app rather than by hand. See *Execution defaults and local
+overrides* below for the layout. Skill content overrides stay in the same file:
 
 ```json
 {
-  "projects": {"project-id": "/path/to/clone"},
-  "terminal": "ghostty",
-  "aiProvider": "claude",
-  "aiCommandTemplate": "claude {prompt}",
+  "layout": 2,
+  "defaults": {"aiProvider": "claude", "terminal": "ghostty"},
+  "projectSettings": {"project-id": {"path": "/path/to/clone"}},
   "skills": {"implement": "Project-specific local skill instructions"}
 }
 ```
 
-Overrides remain local. The explicit `--terminal` flag takes precedence, followed
-by an explicit terminal choice on the launch request, local overrides, remote
-project/global settings, and environment/auto-detection. The legacy project
+These values remain local. The terminal picked for an action takes precedence,
+followed by the explicit `--terminal` flag, the project section, the workstation
+defaults, and environment/auto-detection. The legacy project
 `.taskflow/config.json` is not used as a terminal override. Wildcard agents (`--project all`) require a local
 project mapping or a matching Git origin. A registered concrete project can use
 `--repo` directly. Existing worktrees must match the assigned branch; Sectile
@@ -1133,7 +1199,7 @@ for the desktop development assets. On Apple Silicon the app is produced at
 
 The optional companion groups local executions under projects in a collapsible
 sidebar. Add projects by discovering the server catalog and mapping a local Git
-directory. Local worktree preferences are stored per project in
+directory. Execution settings are stored per workstation and per project in
 `~/.config/sectile/settings.json`. Repository layout, remote URL, SDD selection and skill
 content remain server-owned and read-only. Explicit deployment buttons install
 the server skills or initialize its SDD framework in the mapped directory.
@@ -1185,13 +1251,7 @@ it closes having advanced the stage, until the stop stage. Merging stays manual.
 
 ### Execution defaults and local overrides
 
-The server project supplies the `useWorktrees` default, which **Inherit worktrees
-from server** restores in the desktop project settings. Parallel executions
-(1 to 10, set with a slider) are workstation-owned: the server neither stores nor
-supplies a value, the desktop app is the only surface that sets one, and a
-project without a local value runs a single execution at a time.
-
-The server project also supplies `specArtifacts` (`keep`, the default, or
+The server project supplies `specArtifacts` (`keep`, the default, or
 `drop`), set with **Keep specifications out of the repository** in the web
 project settings (#487). With `drop`, each launch writes the task's
 clarification and specification paths (`/specs/<K>-*/`,
@@ -1200,25 +1260,52 @@ without `#`) into a marked block of the checkout's `.git/info/exclude`: the
 stages leave those files in the worktree, never commit them, and carry their
 substance in the stage reports. Switching back to `keep` removes only that
 block. The desktop **Specifications** row overrides the value per workstation
-and warns when the repository already tracks specifications.
-Workstation settings are saved in `~/.config/sectile/settings.json` as project-ID maps:
+(`specArtifacts` in the project section) and warns when the repository already tracks specifications.
+Every execution setting is the workstation's (ADR 0031): the web interface
+offers none, and the server neither stores nor serves a value it uses. The
+desktop app edits them at two levels, **Execution defaults** for the
+workstation and the project settings for one project, where each field says
+whether it is set for the project or inherited and can be reset. They are
+saved in `~/.config/sectile/settings.json`, which the agent alone writes:
 
 ```json
 {
-  "projects": {"project-id": "/path/to/repository"},
-  "worktrees": {"project-id": true},
-  "specArtifacts": {"project-id": "drop"},
-  "parallelism": {"project-id": 2},
+  "layout": 2,
+  "defaults": {
+    "aiProvider": "claude", "aiModel": "claude-opus-5",
+    "aiProviderModels": {"claude": ["claude-opus-5", "claude-sonnet-5"]},
+    "terminal": "ghostty", "editorCommand": "cursor",
+    "useWorktrees": true, "parallelism": 2, "setupProviders": ["codex"]
+  },
+  "projectSettings": {
+    "project-id": {
+      "path": "/path/to/repository", "aiProvider": "codex",
+      "parallelism": 1, "skillCommands": {"implement": "code-issue"},
+      "specArtifacts": "drop"
+    }
+  },
   "repositories": {"github.com/owner/other": "/path/to/other"}
 }
 ```
+
+The project section speaks over the workstation defaults, which speak over the
+provider defaults (provider `agy`, worktrees on, one execution at a time, editor
+`code`). Parallelism is 1 to 10, and 1 without worktrees. A file written by an
+earlier release is read with the same meaning and rewritten on the next save.
+
+On the first connection after the upgrade, the agent copies the values the
+server used to hold into this file, once for the defaults and once per project
+the first time it runs it, so an existing setup keeps running what it ran. The
+agent then reports to the server what it will run for each project; the web
+model picker and the engine badge of a card show that report, and show the
+engine as unknown when none of your agents is connected for the project.
 
 `repositories` maps each repository of a multi-repo project, by its
 `host/path` identity, to the folder holding its checkout on this workstation
 (#456). It is keyed by repository rather than by project, so one checkout
 serves every project that works in it; the desktop project settings write it,
 and refuse a folder whose `origin` is another repository. The project's own
-repository keeps its folder in `projects`.
+repository keeps its folder in its project section's `path`.
 
 Without effective worktrees, the agent enforces one execution and the UI
 disables parallelism selection. Requests are acknowledged when queued; their

@@ -480,3 +480,48 @@ func TestPostgresCredentialUnlocks(t *testing.T) {
 		t.Fatalf("forgotten, it is locked: %v", err)
 	}
 }
+
+// TestPostgresUnlockAcrossInstances is the replica case #501 settled in place
+// of #409's relay: two stores on one PostgreSQL database share an unlock with
+// nothing between them, a store opened afterwards finds it, and a lock through
+// one holds on the others at once.
+func TestPostgresUnlockAcrossInstances(t *testing.T) {
+	t.Setenv(secrets.KeyEnvVar, "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f")
+	a := openPostgres(t)
+	b, err := Open(Config{Driver: DriverPostgres, DSN: postgresDSN(t)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { b.Close() })
+
+	if err := a.SetUserTrackerCredential("u1", "jira", "https://acme.atlassian.net", "", "sealed-token", "open sesame"); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.LockUserTrackerCredential("u1", "jira"); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.UnlockUserTrackerCredential("u1", "jira", "open sesame"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, token, err := b.userTrackerCredential("u1", "jira"); err != nil || token != "sealed-token" {
+		t.Fatalf("B after the unlock through A: %q %v", token, err)
+	}
+
+	c, err := Open(Config{Driver: DriverPostgres, DSN: postgresDSN(t)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { c.Close() })
+	if _, _, token, err := c.userTrackerCredential("u1", "jira"); err != nil || token != "sealed-token" {
+		t.Fatalf("C, opened after the unlock: %q %v", token, err)
+	}
+
+	if err := a.LockUserTrackerCredential("u1", "jira"); err != nil {
+		t.Fatal(err)
+	}
+	for name, d := range map[string]*DB{"B": b, "C": c} {
+		if _, _, _, err := d.userTrackerCredential("u1", "jira"); !errors.Is(err, ErrCredentialLocked) {
+			t.Fatalf("%s after the lock through A: %v", name, err)
+		}
+	}
+}

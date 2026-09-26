@@ -14,7 +14,7 @@ and renumber (plan §1).
 
 ## 2. Shared unlock storage (FR-1, FR-6, FR-7, FR-9, FR-10) - `fix(db)`
 
-- [x] T2.1 Migration 26 `user_credential_unlocks` (plan §1); teach the rewind
+- [x] T2.1 Migration 29 `user_credential_unlocks` (plan §1); teach the rewind
   fixtures to drop the table (`forgetSchemaVersion`, the `version >= N`
   fixtures in `migrations_test.go` and `activerun_test.go`).
 - [x] T2.2 Remove `unlockedKeys` and `DB.unlocked`; rewrite unlock, lock,
@@ -50,7 +50,7 @@ and renumber (plan §1).
 
 ## 5. Documentation (US7) - `docs`
 
-- [x] T5.1 ADR 0031 (plan §7); ADR 0014 status line "Amended by ADR 0031".
+- [x] T5.1 ADR 0032 (plan §7); ADR 0014 status line "Amended by ADR 0032".
 - [x] T5.2 `README.md` § personal credentials and § sign-in.
 - [x] T5.3 `CHANGELOG.md` `[Unreleased]` → `### Fixed`:
   "**Sealed tracker tokens no longer lock themselves when the server
@@ -58,6 +58,22 @@ and renumber (plan §1).
   every server instance while you are connected, from a browser tab or a
   running local agent, and locks itself 30 minutes after you leave, or at once
   when you sign out with nothing else of yours connected. (#501)"
+
+## 5b. Merge with #409 (#506) - `merge`
+
+#409, merged into `main` meanwhile, kept the derived key in memory and relayed
+it between instances, and rejected persisting it. The owner chose #501's
+database store over it (answer A on the ticket, 2026-09-26).
+
+- [x] T5b.1 Migration renumbered 26 → 29 after main's 26-28; ADR 0031 → 0032.
+- [x] T5b.2 `secrets.WrapKey`/`UnwrapKey` from main kept (own associated-data
+  prefix); `secrets.UnlockBinding` removed.
+- [x] T5b.3 Relay removed: `internal/db/unlockedkeys.go`,
+  `internal/handlers/credential_cluster.go`, the `/internal/credentials/keys`
+  route, the key pull at start, and their tests. `unlock_generation`
+  (migration 28) left unused.
+- [x] T5b.4 ADR 0030 amended (row, rejected alternative); README multi-replica
+  paragraph and the #409 changelog line rewritten.
 
 ## 6. Verification
 
@@ -78,9 +94,9 @@ and renumber (plan §1).
   and every row is dropped when a single-process server restarts. Read from
   those rows alone, an unlock kept alive by an agent would be forgotten at that
   moment instead of 30 minutes after the agent was last seen (US4, and US1 for
-  a person whose only presence is an agent). Migration 26 therefore carries a
+  a person whose only presence is an agent). Migration 29 therefore carries a
   nullable `agent_seen_at`, filled from the dropped rows just before they go
-  (`keepAgentPresenceInUnlocks`), and the sweep counts it. ADR 0031 records it.
+  (`keepAgentPresenceInUnlocks`), and the sweep counts it. ADR 0032 records it.
 - The composite foreign key of plan §1 was dropped: SQLite does not enforce it
   here, and every path that deletes a credential, or an account, deletes its
   unlock explicitly.

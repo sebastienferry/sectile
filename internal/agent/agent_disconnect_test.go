@@ -32,7 +32,11 @@ func disconnectFixture(t *testing.T) (*agentDaemon, agentconfig.Config) {
 			t.Fatal(err)
 		}
 	}
-	settings := agentconfig.Overrides{Projects: map[string]string{"p": root, "other": "/other"}, Commands: map[string]string{"p": "custom {prompt}"}, Worktrees: map[string]bool{"p": true}, Parallelism: map[string]int{"p": 3}, SpecRepos: map[string]string{"p": root, "other": "/other-specs"}}
+	on := true
+	settings := agentconfig.Settings{ProjectSettings: map[string]agentconfig.ProjectSettings{
+		"p":     {Path: root, SpecPath: root, Execution: agentconfig.Execution{AICommandTemplate: "custom {prompt}", UseWorktrees: &on, Parallelism: 3}},
+		"other": {Path: "/other", SpecPath: "/other-specs"},
+	}}
 	if err := agentconfig.WriteSettings(settings); err != nil {
 		t.Fatal(err)
 	}
@@ -73,7 +77,8 @@ func withUnwritableSettings(t *testing.T, fn func()) {
 func TestProjectDisconnectionPersistenceAndReadd(t *testing.T) {
 	d, config := disconnectFixture(t)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
+		// The capability report is the one write the agent sends (#305).
+		if r.Method != http.MethodGet && r.URL.Path != "/api/v1/agent/capabilities" {
 			t.Error("unexpected server mutation")
 		}
 		if r.URL.Path == "/api/v1/agent/projects" {
@@ -93,7 +98,7 @@ func TestProjectDisconnectionPersistenceAndReadd(t *testing.T) {
 		}
 	}
 	settings, err := agentconfig.ReadSettings(d.repoRoot)
-	if err != nil || !settings.DisconnectedProjects["p"] || settings.Projects["p"] != "" || settings.Projects["other"] != "/other" || len(settings.Commands) != 0 || len(settings.Worktrees) != 0 || len(settings.Parallelism) != 0 || settings.SpecRepos["p"] != "" || settings.SpecRepos["other"] != "/other-specs" {
+	if err != nil || !settings.DisconnectedProjects["p"] || !settings.Project("p").IsZero() || settings.ProjectPath("other") != "/other" || settings.SpecPath("other") != "/other-specs" {
 		t.Fatalf("settings: %+v %v", settings, err)
 	}
 	if len(d.queue.runs) != 1 {
@@ -143,7 +148,7 @@ func TestProjectDisconnectionPersistenceAndReadd(t *testing.T) {
 		t.Fatal(w.Code, w.Body.String())
 	}
 	settings, _ = agentconfig.ReadSettings(d.repoRoot)
-	if settings.DisconnectedProjects["p"] || len(settings.Commands) != 0 || len(settings.Worktrees) != 0 || len(settings.Parallelism) != 0 {
+	if p := settings.Project("p"); settings.DisconnectedProjects["p"] || p.AICommandTemplate != "" || p.UseWorktrees != nil || p.Parallelism != 0 {
 		t.Fatal("re-add restored deleted overrides", settings)
 	}
 	if _, _, err := d.localProjectRoot(context.Background(), config); err != nil {

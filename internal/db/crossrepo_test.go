@@ -30,8 +30,7 @@ func crossRepoTask(t *testing.T, req models.CreateProjectRequest) (*DB, *models.
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { d.Close() })
-	no := false
-	req.RepoPath, req.IssueTracker, req.UseWorktrees = "/not-mounted-on-server", "local", &no
+	req.IssueTracker = "local"
 	p, err := d.CreateProject(req)
 	if err != nil {
 		t.Fatal(err)

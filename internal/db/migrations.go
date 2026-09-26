@@ -395,13 +395,56 @@ var migrations = []migration{
 		},
 	},
 	{
-		// The unlock of a sealed personal credential (#501, ADR 0031): the key
+		// What each workstation will run, per project (#305): the engine a web
+		// launch announces before the run, and the models it may pick. Kept in
+		// the database rather than in the memory of the instance holding the
+		// agent's socket, since the web request may land on another instance.
+		version: 26,
+		name:    "agent_capabilities",
+		statements: []string{
+			`CREATE TABLE agent_capabilities (
+				user_id TEXT NOT NULL,
+				device_id TEXT NOT NULL DEFAULT '',
+				project_id TEXT NOT NULL,
+				provider TEXT NOT NULL DEFAULT '',
+				model TEXT NOT NULL DEFAULT '',
+				skill_models TEXT NOT NULL DEFAULT '{}',
+				models TEXT NOT NULL DEFAULT '[]',
+				model_slot INTEGER NOT NULL DEFAULT 0,
+				headless INTEGER NOT NULL DEFAULT 0,
+				reported_at DATETIME NOT NULL,
+				PRIMARY KEY (user_id, device_id, project_id)
+			);`,
+		},
+	},
+	{
+		// The project TTY mode was stored and never read (#305).
+		version: 27,
+		name:    "projects.tty_mode dropped",
+		statements: []string{
+			"ALTER TABLE projects DROP COLUMN tty_mode;",
+		},
+	},
+	{
+		// Which unlock of a sealed credential a held key belongs to (#409). A
+		// lock or a new record moves it on, so a key another server instance
+		// still holds from before stops opening anything, whether or not that
+		// instance heard of the lock. It is a counter, not a secret. Unused
+		// since #501 keeps unlocks in user_credential_unlocks (ADR 0032).
+		version: 28,
+		name:    "user_tracker_credentials.unlock_generation",
+		statements: []string{
+			"ALTER TABLE user_tracker_credentials ADD COLUMN unlock_generation INTEGER NOT NULL DEFAULT 0;",
+		},
+	},
+	{
+		// The unlock of a sealed personal credential (#501, ADR 0032): the key
 		// its passphrase derived, sealed under the server key, so the unlock
 		// survives a restart and holds on every instance. It lasts while its
 		// owner is present (web sessions, agent_presence) and is forgotten 30
 		// minutes after. agent_seen_at keeps the last presence of an agent
 		// whose agent_presence row was dropped with its instance.
-		version: 26,
+		version: 29,
 		name:    "user_credential_unlocks",
 		statements: []string{
 			`CREATE TABLE user_credential_unlocks (

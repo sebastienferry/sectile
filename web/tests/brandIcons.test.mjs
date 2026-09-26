@@ -66,7 +66,6 @@ test('the barrel exports the four marks and their props type', () => {
 test('every call site imports the marks from the local barrel', async () => {
   const callSites = {
     'ProfileModal.tsx': ['Antigravity', 'Claude', 'OpenAI'],
-    'ProjectModal.tsx': ['Antigravity', 'Claude', 'OpenAI'],
   }
   for (const [file, names] of Object.entries(callSites)) {
     const source = await read(`../src/components/${file}`)

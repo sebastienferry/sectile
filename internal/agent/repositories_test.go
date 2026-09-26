@@ -31,7 +31,7 @@ func TestPrimaryRootFollowsThePin(t *testing.T) {
 	ctx := context.Background()
 	projectRoot := checkoutOf(t, "git@github.com:o/a.git")
 	b := checkoutOf(t, "git@github.com:o/b.git")
-	overrides := agentconfig.Overrides{Repositories: map[string]string{"github.com/o/b": b}}
+	overrides := agentconfig.Settings{Repositories: map[string]string{"github.com/o/b": b}}
 
 	root, identity, pin, err := primaryRoot(ctx, multiRepoConfig(), overrides, projectRoot, models.Task{Key: "#1", Repository: "github.com/o/b"})
 	if err != nil || root != b || identity != "github.com/o/b" || pin != "" {
@@ -51,7 +51,7 @@ func TestPrimaryRootFollowsThePin(t *testing.T) {
 	}
 	// Only the code remote is mapped here (through the project root): it is
 	// the task's, and the task gets pinned to it.
-	root, _, pin, err = primaryRoot(ctx, multiRepoConfig(), agentconfig.Overrides{}, projectRoot, models.Task{Key: "#1"})
+	root, _, pin, err = primaryRoot(ctx, multiRepoConfig(), agentconfig.Settings{}, projectRoot, models.Task{Key: "#1"})
 	if err != nil || root != projectRoot || pin != "github.com/o/a" {
 		t.Errorf("single candidate: %q %q %v", root, pin, err)
 	}
@@ -71,7 +71,7 @@ func TestFolderMapDescribesEveryFolder(t *testing.T) {
 	gitTest(t, b, "branch", "feat/1")
 	secondary := filepath.Join(t.TempDir(), "b-wt")
 	gitTest(t, b, "worktree", "add", "-q", secondary, "feat/1")
-	overrides := agentconfig.Overrides{Repositories: map[string]string{"github.com/o/b": b}, SpecRepos: map[string]string{"p": spec}}
+	overrides := agentconfig.Settings{Repositories: map[string]string{"github.com/o/b": b}, ProjectSettings: map[string]agentconfig.ProjectSettings{"p": {SpecPath: spec}}}
 	task := models.Task{Key: "#1", BranchName: branchOf("feat/1"), ChangedRepositories: []string{"github.com/o/b"}}
 
 	entries := buildFolderMap(ctx, multiRepoConfig(), overrides, projectRoot, "github.com/o/a", "/work/a", task)
@@ -101,7 +101,7 @@ func TestFolderMapDescribesEveryFolder(t *testing.T) {
 			t.Errorf("prompt misses %q:\n%s", want, prompt)
 		}
 	}
-	single := buildFolderMap(ctx, agentconfig.Config{ProjectID: "p", GitRemoteURL: "git@github.com:o/a.git"}, agentconfig.Overrides{}, projectRoot, "github.com/o/a", projectRoot, models.Task{Key: "#1"})
+	single := buildFolderMap(ctx, agentconfig.Config{ProjectID: "p", GitRemoteURL: "git@github.com:o/a.git"}, agentconfig.Settings{}, projectRoot, "github.com/o/a", projectRoot, models.Task{Key: "#1"})
 	if len(single) != 1 || folderMapPrompt(single) != "" {
 		t.Errorf("a single checkout needs no map in the prompt: %+v", single)
 	}
@@ -148,7 +148,7 @@ func TestRepositoryWorktreeReusesTheTaskBranch(t *testing.T) {
 	projectRoot := checkoutOf(t, "git@github.com:o/a.git")
 	b := checkoutOf(t, "git@github.com:o/b.git")
 	gitTest(t, b, "branch", "feat/1")
-	overrides := agentconfig.Overrides{Repositories: map[string]string{"github.com/o/b": b}}
+	overrides := agentconfig.Settings{Repositories: map[string]string{"github.com/o/b": b}}
 	task := models.Task{Key: "#1", BranchName: branchOf("feat/1")}
 
 	first, err := repositoryWorktree(ctx, multiRepoConfig(), overrides, projectRoot, task, "https://github.com/o/b")
@@ -317,7 +317,7 @@ func TestConvertedFoldersAreKeptOnThisWorkstation(t *testing.T) {
 	testhome.Temp(t)
 	root := checkoutOf(t, "git@github.com:o/a.git")
 	b := checkoutOf(t, "git@github.com:o/b.git")
-	if err := agentconfig.WriteSettings(agentconfig.Overrides{Projects: map[string]string{"p": root}}); err != nil {
+	if err := agentconfig.WriteSettings(agentconfig.Settings{ProjectSettings: map[string]agentconfig.ProjectSettings{"p": {Path: root}}}); err != nil {
 		t.Fatal(err)
 	}
 	d := &agentDaemon{repoRoot: root}

@@ -112,6 +112,8 @@ func (d *agentDaemon) mapRepository(r *http.Request, repository models.ProjectRe
 	}
 	d.prepareMu.Lock()
 	defer d.prepareMu.Unlock()
+	unlock := agentconfig.LockSettings()
+	defer unlock()
 	overrides, err := agentconfig.ReadSettings(d.localSettingsRoot())
 	if err != nil {
 		return 500, err

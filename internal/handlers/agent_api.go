@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"tasks/internal/agentconfig"
 	"tasks/internal/db"
 	"tasks/internal/taskmcp"
 )
@@ -282,6 +283,66 @@ func (h *Handler) HandleAgentConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, config)
+}
+
+// HandleAgentExecutionSeed serves the execution values a server stored before
+// #305, read-only, so a workstation copies them once into its own file: the
+// deployment's with the caller's terminal and editor, and with projectId, what
+// the configuration used to compose for that project. Nothing is written.
+func (h *Handler) HandleAgentExecutionSeed(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+	credential, err := h.resolveAgentCredential(bearerToken(r))
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, agentAuthMessage(err))
+		return
+	}
+	defaults, err := h.db.LegacyWorkstationExecution(credential.UserID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	seed := agentconfig.Seed{SchemaVersion: agentconfig.Version, Defaults: defaults}
+	if projectID := strings.TrimSpace(r.URL.Query().Get("projectId")); projectID != "" {
+		project, err := h.db.LegacyProjectExecution(projectID)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		seed.Project = project
+	}
+	writeJSON(w, http.StatusOK, seed)
+}
+
+// HandleAgentCapabilities stores what the calling workstation reported it will
+// run, per project (#305). The report is the caller's own: its user comes from
+// the credential, never from the body.
+func (h *Handler) HandleAgentCapabilities(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPut {
+		writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+	credential, err := h.resolveAgentCredential(bearerToken(r))
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, agentAuthMessage(err))
+		return
+	}
+	var report agentconfig.CapabilityReport
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&report); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid capability report")
+		return
+	}
+	if report.SchemaVersion != agentconfig.Version {
+		writeError(w, http.StatusBadRequest, "Unsupported capability report version")
+		return
+	}
+	if err := h.db.SaveCapabilities(credential.UserID, report); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (h *Handler) HandleAgentProjects(w http.ResponseWriter, r *http.Request) {

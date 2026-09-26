@@ -16,7 +16,7 @@ import (
 func multiRepoProject(t *testing.T, d *DB) (*models.Project, *models.Task) {
 	t.Helper()
 	no := false
-	p, err := d.CreateProject(models.CreateProjectRequest{Name: "Multi", IssueTracker: "local", MonoRepo: &no, UseWorktrees: &no,
+	p, err := d.CreateProject(models.CreateProjectRequest{Name: "Multi", IssueTracker: "local", MonoRepo: &no,
 		GitRemoteUrl: "git@github.com:o/a.git", Repositories: []string{"https://github.com/o/b"}})
 	if err != nil {
 		t.Fatal(err)
@@ -112,11 +112,13 @@ func TestPostgresRepositoryConversion(t *testing.T) {
 
 func testRepositoryConversion(t *testing.T, d *DB) {
 	no := false
-	p, err := d.CreateProject(models.CreateProjectRequest{Name: "Legacy", IssueTracker: "local", MonoRepo: &no, UseWorktrees: &no,
-		GitRemoteUrl: "git@github.com:o/a.git", RepoPath: "/src/a", RepoPaths: []string{"/src/b", "/gone"}})
+	p, err := d.CreateProject(models.CreateProjectRequest{Name: "Legacy", IssueTracker: "local", MonoRepo: &no,
+		GitRemoteUrl: "git@github.com:o/a.git"})
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The paths a project held before #456, which no request writes any more.
+	setLegacyProject(t, d, p.ID, map[string]any{"repo_path": "/src/a", "repo_paths": `["/src/b","/gone"]`})
 	pinned, _ := d.CreateTask(models.CreateTaskRequest{ProjectID: p.ID, Title: "pinned"})
 	lost, _ := d.CreateTask(models.CreateTaskRequest{ProjectID: p.ID, Title: "lost"})
 	if _, err := d.conn.Exec("UPDATE tasks SET repo_path='/src/b' WHERE id=?", pinned.ID); err != nil {

@@ -70,7 +70,9 @@ const (
 	saltLength   = 16
 )
 
-// Key is a 32-byte AEAD key. It never leaves the process.
+// Key is a 32-byte AEAD key. It never leaves the process in clear: a key derived
+// from a passphrase that another server instance needs travels wrapped, see
+// WrapKey.
 type Key [keyLength]byte
 
 // ServerKey loads the server key: the environment first, then the file beside
@@ -154,26 +156,15 @@ func DeriveKey(passphrase string, salt []byte) Key {
 // Server marks the credential Sectile itself uses for a tracker, which belongs
 // to no user. It serialises under a prefix of its own, so a server record never
 // opens as somebody's personal one, nor the other way round.
-//
-// Unlock marks the key a person's passphrase derived, kept under the server key
-// while their unlock lasts. It has a prefix of its own too, so an unlock record
-// never opens as the credential it unlocks, nor the other way round.
 type Binding struct {
 	UserID  string
 	Tracker string
 	Server  bool
-	Unlock  bool
 }
 
 // ServerBinding is the binding of the server credential of one tracker.
 func ServerBinding(tracker string) Binding {
 	return Binding{Tracker: tracker, Server: true}
-}
-
-// UnlockBinding is the binding of the unlocked key of one person's sealed
-// credential for one tracker.
-func UnlockBinding(userID, tracker string) Binding {
-	return Binding{UserID: userID, Tracker: tracker, Unlock: true}
 }
 
 // The parts are length-prefixed rather than merely joined: concatenation alone
@@ -186,9 +177,6 @@ func (b Binding) bytes() []byte {
 	name := strings.ToLower(strings.TrimSpace(b.Tracker))
 	if b.Server {
 		return fmt.Appendf(nil, "sectile:v1:server:tracker:%d:%s", len(name), name)
-	}
-	if b.Unlock {
-		return fmt.Appendf(nil, "sectile:v1:unlock:user:%d:%s:tracker:%d:%s", len(user), user, len(name), name)
 	}
 	return fmt.Appendf(nil, "sectile:v1:user:%d:%s:tracker:%d:%s", len(user), user, len(name), name)
 }
@@ -228,26 +216,51 @@ func Open(key Key, binding Binding, record []byte) (string, error) {
 	return string(plaintext), nil
 }
 
-// WrapKey seals a derived key under another key, for as long as an unlock
-// lasts. It is Seal applied to the key's hex form.
-func WrapKey(key Key, binding Binding, wrapped Key) ([]byte, error) {
-	return Seal(key, binding, hex.EncodeToString(wrapped[:]))
+// A key derived from a passphrase lives in memory only. When several server
+// instances share one database, the ones that did not receive the passphrase
+// need the key too, and it crosses the network between them. WrapKey seals it
+// under the server key every instance holds, bound to its owner, so the network
+// only ever carries ciphertext. Its associated data has a prefix of its own: a
+// wrapped key never opens as a credential record, nor a record as a key.
+
+// WrapKey seals a derived key under a wrapping key, for one owner.
+func WrapKey(wrapping Key, owner Binding, key Key) ([]byte, error) {
+	if owner.UserID == "" || owner.Tracker == "" {
+		return nil, fmt.Errorf("a wrapped key must name its owner and its tracker")
+	}
+	aead, err := newAEAD(wrapping)
+	if err != nil {
+		return nil, err
+	}
+	nonce := make([]byte, aead.NonceSize())
+	if _, err := rand.Read(nonce); err != nil {
+		return nil, err
+	}
+	return aead.Seal(nonce, nonce, key[:], wrappedKeyData(owner)), nil
 }
 
-// UnwrapKey opens what WrapKey sealed. Anything that does not open, or does not
-// open to a key, answers ErrWrongKey.
-func UnwrapKey(key Key, binding Binding, record []byte) (Key, error) {
-	var out Key
-	text, err := Open(key, binding, record)
+// UnwrapKey opens what WrapKey sealed. A wrong wrapping key, another owner and
+// tampered bytes all answer ErrWrongKey.
+func UnwrapKey(wrapping Key, owner Binding, wrapped []byte) (Key, error) {
+	var key Key
+	aead, err := newAEAD(wrapping)
 	if err != nil {
-		return out, err
+		return key, err
 	}
-	raw, err := hex.DecodeString(text)
-	if err != nil || len(raw) != len(out) {
-		return out, ErrWrongKey
+	if len(wrapped) < aead.NonceSize() {
+		return key, ErrWrongKey
 	}
-	copy(out[:], raw)
-	return out, nil
+	nonce, ciphertext := wrapped[:aead.NonceSize()], wrapped[aead.NonceSize():]
+	plaintext, err := aead.Open(nil, nonce, ciphertext, wrappedKeyData(owner))
+	if err != nil || len(plaintext) != keyLength {
+		return key, ErrWrongKey
+	}
+	copy(key[:], plaintext)
+	return key, nil
+}
+
+func wrappedKeyData(owner Binding) []byte {
+	return append([]byte("sectile:v1:unlocked-key:"), owner.bytes()...)
 }
 
 func newAEAD(key Key) (cipher.AEAD, error) {

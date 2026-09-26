@@ -1,10 +1,12 @@
-# ADR 0031: An unlocked sealed credential lives with its owner's presence
+# ADR 0032: An unlocked sealed credential lives with its owner's presence
 
 Status: Accepted
 
 Amends: [ADR 0014](0014-personal-tracker-credentials-are-sealed.md), its
 sentence "The derived key is held in memory for as long as the server runs and
-is forgotten on restart."
+is forgotten on restart."; and
+[ADR 0030](0030-several-server-replicas-share-one-postgresql.md), its row on
+keys derived from sealing passphrases (#409) and the alternative it rejected.
 
 ## Context
 
@@ -18,7 +20,11 @@ that received it. Two things broke that model (#501):
   their sealed token locked itself, and their next write, or a write Sectile
   made later on their behalf (ADR 0029), failed with "unlock it".
 - **Replicas.** With several instances sharing one database, an unlock reached
-  only the instance that served it. The others answered "locked".
+  only the instance that served it. The others answered "locked". #409 (ADR
+  0030) answered that by relaying the wrapped key between the live instances,
+  in memory only, with a lock generation in the database. It still loses every
+  key when all instances restart together, which a redeploy does, and always on
+  a single instance: the restart complaint stays.
 
 Nothing expired an unlock either: it lasted as long as the process, including
 after its owner had signed out.
@@ -78,6 +84,11 @@ bounded by the presence the sessions and agents provide.
   error naming `SECTILE_SECRET_KEY`, and a sealed credential saved without it
   is stored locked, rather than claiming an unlock that would not outlive the
   process.
+- The relay of #409 is gone: the in-memory key map, the internal route
+  `/internal/credentials/keys`, and the pull of held keys at start. Lock is a
+  `DELETE`, seen by every instance at its next read. The column
+  `user_tracker_credentials.unlock_generation` (migration 28) is left unused:
+  dropping it would take a migration of its own for no behaviour.
 - An unlock is not copied by `sectile-migrate`: people unlock again on the
   destination.
 - A redeploy during working hours no longer locks the sealed tokens of people
@@ -87,6 +98,10 @@ bounded by the presence the sessions and agents provide.
 ## Alternatives rejected
 
 - **Keep the key in memory.** It is what broke.
+- **Keep #409's relay and only add the idle expiry and the lock on sign-out.**
+  Nothing is written down, but a redeploy that restarts every instance still
+  locks everyone, which is the complaint of #501. The owner chose the database
+  (answer A on #501).
 - **Hold the key in the browser**, sent with each request. The writes Sectile
   makes later on a person's behalf, and the ones an agent causes, have no
   browser to ask.

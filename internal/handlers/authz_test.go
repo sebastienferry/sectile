@@ -225,19 +225,20 @@ func TestMembersOnlyChangeTheirPreferencesInSettings(t *testing.T) {
 	if status, body := call(t, server, bob, http.MethodPost, "/api/settings", string(payload)); status != http.StatusOK {
 		t.Fatalf("member changing the theme: %d %s", status, body)
 	}
-	current.AIProvider = "codex"
 	current.AutoSyncEnabled = !current.AutoSyncEnabled
 	payload, _ = json.Marshal(current)
+	// An execution setting in the payload is ignored, not refused (#305).
+	payload = []byte(strings.Replace(string(payload), "{", `{"aiProvider":"codex",`, 1))
 	status, body := call(t, server, bob, http.MethodPost, "/api/settings", string(payload))
-	if status != http.StatusForbidden || !strings.Contains(body, "aiProvider") || !strings.Contains(body, "autoSyncEnabled") {
-		t.Fatalf("member changing the provider: %d %s", status, body)
+	if status != http.StatusForbidden || strings.Contains(body, "aiProvider") || !strings.Contains(body, "autoSyncEnabled") {
+		t.Fatalf("member changing the sync loop: %d %s", status, body)
 	}
 	if status, body = call(t, server, alice, http.MethodPost, "/api/settings", string(payload)); status != http.StatusOK {
-		t.Fatalf("admin changing the provider: %d %s", status, body)
+		t.Fatalf("admin changing the sync loop: %d %s", status, body)
 	}
 	saved, _ := database.GetSettings()
-	if saved.AIProvider != "codex" {
-		t.Fatalf("the deployment provider = %q, want codex", saved.AIProvider)
+	if saved.AutoSyncEnabled != current.AutoSyncEnabled || saved.AIProvider == "codex" {
+		t.Fatalf("the deployment row = %+v", saved)
 	}
 
 	// The theme each of them saved is their own, and the deployment row is not

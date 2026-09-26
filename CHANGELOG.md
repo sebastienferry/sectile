@@ -15,6 +15,10 @@ test fixtures or internal plumbing.
 
 ### Added
 
+- **Run the server as several replicas.** Several servers can now share one PostgreSQL database behind a load balancer, with no sticky sessions. A new readiness probe, `GET /api/ready`, tells the balancer when a replica can take traffic. A replica asked to stop drains first: it reports not ready, keeps serving for `SECTILE_SHUTDOWN_GRACE` (5 seconds by default), then hands its agents over to the other replicas. The README's "Several replicas" section lists what the deployment must provide. (#410)
+
+- **Sealed tracker credentials unlock on every server.** When several servers share a PostgreSQL database, a credential unlocked through one of them can be used through all of them, including servers started afterwards, and locking it holds on all of them at once. The passphrase is still never stored. (#409, #501)
+
 - **GitLab as a project tracker.** A project can now be put on GitLab, gitlab.com or a self-managed instance, by naming its GitLab project (`group/project`) and optionally its instance. Its issues are synchronised and written back like GitHub and Jira ones: the stage is a `#<stage>` label and a closed issue is finished, a macro is a pair of `macro:` / `parent:` labels, the team a `team::<name>` label, the board columns are the GitLab board's lists, and project milestones as well as Premium iterations are sprints you can move tickets into, create and edit. Comments, assignees and related merge requests follow too. A personal GitLab token (scope `api`) makes your writes appear under your own GitLab account. (#398)
 
 - **Choose how Board and Backlog cards are sorted.** A selector in the Board and Backlog toolbars orders the cards by priority (the default), by epic, by key or by last update, with a button that flips the direction. Epic keeps the tickets of one epic together in each column, the epic holding the most urgent ticket first, and the tickets without an epic last. The choice is shared by both views and remembered by the browser. In the Backlog it replaces the "Priorité" button; clicking a column header of the flat table still sorts that table until the selector changes. (#402)
@@ -77,6 +81,10 @@ test fixtures or internal plumbing.
 - Web and desktop PR indicators show the current GitHub or GitLab request as open, conflicting, merged, or closed without merge. State refresh uses grouped forge reads without synchronizing stories individually.
 
 ### Changed
+
+- **The desktop workflow button says what is running.** While an execution of the selected task is active or being launched, the console toolbar button reads `Current: <skill>` (for example `Current: Pickup`) instead of a greyed-out `Next:`, including on a finished task; it proposes `Next: <step>` again once the execution ends. (#500)
+
+- **Execution settings belong to each workstation.** The AI provider, the models and per-skill models, the model list of each provider, the interactive and headless commands, the terminal, the editor, worktrees, parallelism, the extra agents that get the skills, and the command name each stage runs are now set in the desktop app, for the workstation and per project, and no longer in the web interface; the server stops storing or using them. An existing workstation takes over the values the server held, once, on its first connection, and keeps running what it ran before. The web model picker and the engine badge of a card now show what your connected workstation will run, and say "Engine unknown" when none of your agents is connected for the project. Upgrade the local agent together with the server: an older agent receives no execution setting from the new server and falls back to its own defaults. (#305)
 
 - **Breaking: every change you make on a tracker needs your own tracker credential.** On GitHub and GitLab, a change you make without a personal tracker credential is now refused instead of being written under the server account, as Jira already did; add yours in *Profile → Tracker credentials*. Agent keys not tied to a user, such as the shared server key, can no longer write to a tracker: pair the desktop app or use a personal API key. Reading still works without a credential, and the synchronisation keeps using the server credential. (#482)
 
@@ -240,6 +248,8 @@ test fixtures or internal plumbing.
   off the high level on the next synchronisation.
 
 ### Removed
+
+- **The web editors for execution settings**: the AI engine tab of the profile (its MCP configuration stays), the "Agent settings" category of the project settings (the PR creation stage moves to "Agentic workflow"), the local folder and per-skill command name fields. Also the project "TTY mode", which nothing used. (#305)
 
 - **The old tracker credential variables and the per-project tokens.** `SECTILE_TRACKER_TOKEN`, `GH_TOKEN`, `GITHUB_TOKEN`, `JIRA_API_TOKEN` and `GITLAB_TOKEN` are no longer read as tracker credentials: set `SECTILE_GITHUB_TOKEN`, `SECTILE_JIRA_EMAIL` with `SECTILE_JIRA_TOKEN`, or `SECTILE_GITLAB_TOKEN` instead, or store the credential from the Administration page. The server still starts with one of them set, and logs a warning naming its replacement. The GitHub and GitLab tokens a project could carry are gone, and discarded on upgrade: one server credential serves every project of its provider. (#464)
 
