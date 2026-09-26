@@ -121,7 +121,9 @@ func (d *agentDaemon) executeOperation(ctx context.Context, op agentprotocol.Ope
 	if err != nil {
 		return nil, err
 	}
-	config = agentconfig.Resolve(config, overrides)
+	// An operation on a task runs the task's engine; without one, the project
+	// default engine.
+	config = agentconfig.ResolveTask(config, overrides, op.TaskID)
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}

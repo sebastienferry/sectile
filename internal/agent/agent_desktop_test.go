@@ -386,7 +386,7 @@ func TestLaunchAdmissionOfReservedSkills(t *testing.T) {
 	}
 }
 
-func TestDesktopProjectAIProviderAndModelOverrides(t *testing.T) {
+func TestDesktopProjectDefaultEngine(t *testing.T) {
 	testhome.Temp(t)
 	root := t.TempDir()
 	for _, args := range [][]string{{"init"}, {"remote", "add", "origin", "https://example.test/project.git"}} {
@@ -448,7 +448,7 @@ func TestDesktopProjectAIProviderAndModelOverrides(t *testing.T) {
 		return w
 	}
 
-	// 1. Initial GET /desktop/project?id=p returns the workstation defaults, never the server's values
+	// 1. The project runs the workstation default engine, never the server's values.
 	w := doReq("GET", "/desktop/project?id=p", nil)
 	if w.Code != 200 {
 		t.Fatalf("GET /desktop/project returned %d: %s", w.Code, w.Body.String())
@@ -463,114 +463,66 @@ func TestDesktopProjectAIProviderAndModelOverrides(t *testing.T) {
 	if server, _ := projResp["server"].(map[string]any); server["aiModel"] != nil || server["aiCommandTemplate"] != "" {
 		t.Fatalf("a server execution value reached the desktop: %v", server)
 	}
-	if field, _ := projResp["fields"].(map[string]any)["aiModel"].(map[string]any); field["source"] != "workstation" || field["inherited"] != "workstation-model" {
-		t.Fatalf("model source: %v", field)
+	stored, _ := agentconfig.ReadSettings(root)
+	workstation := stored.DefaultEngine().ID
+	field, _ := projResp["fields"].(map[string]any)["defaultEngine"].(map[string]any)
+	if field["source"] != "workstation" || field["value"] != workstation || field["inherited"] != workstation {
+		t.Fatalf("default engine source: %v", field)
 	}
-	if projResp["aiProviderOverride"] != false || projResp["aiModelOverride"] != false {
-		t.Fatalf("expected false override flags: %v / %v", projResp["aiProviderOverride"], projResp["aiModelOverride"])
-	}
-
-	// 2. Validation rejections
-	// 2a. Invalid model
-	w = doReq("POST", "/desktop/projects", map[string]any{
-		"projectId":  "p",
-		"path":       root,
-		"aiModel":    "invalid model; rm -rf /",
-		"aiProvider": "claude",
-	})
-	if w.Code != 400 {
-		t.Fatalf("expected 400 for invalid model, got %d: %s", w.Code, w.Body.String())
+	if _, ok := projResp["fields"].(map[string]any)["aiModel"]; ok {
+		t.Fatal("the project settings still describe an engine field")
 	}
 
-	// 2b. Invalid provider
-	w = doReq("POST", "/desktop/projects", map[string]any{
-		"projectId":  "p",
-		"path":       root,
-		"aiProvider": "unknown-provider",
-	})
-	if w.Code != 400 {
-		t.Fatalf("expected 400 for invalid provider, got %d: %s", w.Code, w.Body.String())
+	// 2. The engine fields of #305 and an unknown engine are refused.
+	for name, body := range map[string]map[string]any{
+		"model":          {"aiModel": "claude-opus-5"},
+		"provider":       {"aiProvider": "claude"},
+		"template":       {"aiCommandTemplate": "custom {prompt}"},
+		"unknown engine": {"defaultEngine": "e-forged"},
+	} {
+		body["projectId"], body["path"] = "p", root
+		if w := doReq("POST", "/desktop/projects", body); w.Code != 400 {
+			t.Errorf("%s: expected 400, got %d: %s", name, w.Code, w.Body.String())
+		}
 	}
-
-	// 2c. Custom provider without {prompt} in command
-	w = doReq("POST", "/desktop/projects", map[string]any{
-		"projectId":         "p",
-		"path":              root,
-		"aiProvider":        "custom",
-		"aiCommandTemplate": "custom command without prompt slot",
-	})
-	if w.Code != 400 {
-		t.Fatalf("expected 400 for custom provider without prompt, got %d: %s", w.Code, w.Body.String())
-	}
-
-	// Verify disk settings untouched after validation failures
-	s, _ := agentconfig.ReadSettings(root)
-	if s.Project("p").AIProvider != "" || s.Project("p").AIModel != "" {
+	if s, _ := agentconfig.ReadSettings(root); s.Engines.Projects != nil || s.Project("p").StatesEngine() {
 		t.Fatalf("settings mutated after validation failure: %+v", s)
 	}
 
-	// 3. Valid POST /desktop/projects sets overrides
-	w = doReq("POST", "/desktop/projects", map[string]any{
-		"projectId":  "p",
-		"path":       root,
-		"aiProvider": "claude",
-		"aiModel":    "claude-opus-5",
-	})
-	if w.Code != 204 {
+	// 3. The project picks another catalogue engine.
+	catalogue := append(stored.Engines.Catalogue, agentconfig.Engine{Name: "Claude Opus", Provider: "claude", Model: "claude-opus-5"})
+	if w := doReq("PUT", "/desktop/engines", map[string]any{"catalogue": catalogue, "default": workstation}); w.Code != 200 {
+		t.Fatalf("PUT /desktop/engines returned %d: %s", w.Code, w.Body.String())
+	}
+	stored, _ = agentconfig.ReadSettings(root)
+	opus := stored.Engines.Catalogue[len(stored.Engines.Catalogue)-1].ID
+	if w := doReq("POST", "/desktop/projects", map[string]any{"projectId": "p", "path": root, "defaultEngine": opus}); w.Code != 204 {
 		t.Fatalf("POST /desktop/projects returned %d: %s", w.Code, w.Body.String())
 	}
-
-	s, _ = agentconfig.ReadSettings(root)
-	if s.Project("p").AIProvider != "claude" || s.Project("p").AIModel != "claude-opus-5" {
-		t.Fatalf("overrides not persisted: %+v", s)
+	if s, _ := agentconfig.ReadSettings(root); s.ProjectEngine("p").ID != opus {
+		t.Fatalf("project default engine not persisted: %+v", s.Engines)
 	}
-
-	// GET /desktop/project?id=p should reflect overrides
 	w = doReq("GET", "/desktop/project?id=p", nil)
-	if w.Code != 200 {
-		t.Fatalf("GET /desktop/project returned %d: %s", w.Code, w.Body.String())
-	}
 	projResp = nil
 	if err := json.Unmarshal(w.Body.Bytes(), &projResp); err != nil {
 		t.Fatal(err)
 	}
 	if projResp["aiProvider"] != "claude" || projResp["aiModel"] != "claude-opus-5" {
-		t.Fatalf("unexpected provider/model after override: %v / %v", projResp["aiProvider"], projResp["aiModel"])
+		t.Fatalf("unexpected provider/model after the pick: %v / %v", projResp["aiProvider"], projResp["aiModel"])
 	}
-	if projResp["aiProviderOverride"] != true || projResp["aiModelOverride"] != true {
-		t.Fatalf("expected true override flags: %v / %v", projResp["aiProviderOverride"], projResp["aiModelOverride"])
+	if field, _ := projResp["fields"].(map[string]any)["defaultEngine"].(map[string]any); field["source"] != "project" || field["value"] != opus {
+		t.Fatalf("default engine after the pick: %v", field)
+	}
+	if engine, _ := projResp["defaultEngine"].(map[string]any); engine["name"] != "Claude Opus" {
+		t.Fatalf("default engine summary: %v", projResp["defaultEngine"])
 	}
 
-	// 4. Inherit resets provider and model to the workstation defaults
-	w = doReq("POST", "/desktop/projects", map[string]any{
-		"projectId":         "p",
-		"path":              root,
-		"inheritAiProvider": true,
-		"inheritAiModel":    true,
-	})
-	if w.Code != 204 {
+	// 4. Inherit follows the workstation default engine again.
+	if w := doReq("POST", "/desktop/projects", map[string]any{"projectId": "p", "path": root, "inheritDefaultEngine": true}); w.Code != 204 {
 		t.Fatalf("POST /desktop/projects inherit returned %d: %s", w.Code, w.Body.String())
 	}
-
-	s, _ = agentconfig.ReadSettings(root)
-	if s.Project("p").AIProvider != "" || s.Project("p").AIModel != "" {
-		t.Fatalf("overrides not deleted after inherit: %+v", s)
-	}
-
-	// GET /desktop/project?id=p should reflect the workstation defaults again
-	w = doReq("GET", "/desktop/project?id=p", nil)
-	if w.Code != 200 {
-		t.Fatalf("GET /desktop/project returned %d: %s", w.Code, w.Body.String())
-	}
-	projResp = nil
-	if err := json.Unmarshal(w.Body.Bytes(), &projResp); err != nil {
-		t.Fatal(err)
-	}
-	if projResp["aiProvider"] != "agy" || projResp["aiModel"] != "workstation-model" {
-		t.Fatalf("unexpected provider/model after reset: %v / %v", projResp["aiProvider"], projResp["aiModel"])
-	}
-	if projResp["aiProviderOverride"] != false || projResp["aiModelOverride"] != false {
-		t.Fatalf("expected false override flags after reset: %v / %v", projResp["aiProviderOverride"], projResp["aiModelOverride"])
+	if s, _ := agentconfig.ReadSettings(root); s.Engines.Projects != nil || s.ProjectEngine("p").ID != workstation {
+		t.Fatalf("pick not cleared after inherit: %+v", s.Engines)
 	}
 }
 

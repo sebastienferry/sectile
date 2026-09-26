@@ -21,6 +21,7 @@ import { consoleNotice, needsConsoleNotice, readOnlyConsole } from './run-consol
 import { previewLines } from './command-preview.mjs'
 import { PROVIDERS, DEFAULT_PROVIDER, SETUP_PROVIDERS, projectFields, ownEntries, compact, parseModelList, sourceHint, describe, ipcMessage, agentUnreachable, validSkillCommand, workstationPayload } from './execution-fields.mjs'
 import { runEngine } from './run-engine.mjs'
+import { nextEngine, taskEngine, engineMark, engineTooltip, moveEngine, removalImpact, removalMessage } from './engines.mjs'
 import { pollAction } from './agent-poll.mjs'
 import { offerFor, initializedNotice } from './git-init.mjs'
 // The repository changelog, inlined by Vite at build time. The app reads it
@@ -1048,6 +1049,179 @@ function entryList({keyLabel,valueLabel,addLabel,fixed,placeholder,onChange,vali
  }
 }
 
+// Whether the running agent keeps an engine catalogue and a per-task engine
+// (#510). An older agent answers neither, so the desktop hides what needs them.
+async function taskEnginesAvailable(){
+ try{return !!(await api.status()).capabilities?.includes('task-engines')}catch{return false}
+}
+
+// The engine catalogue (#510): each AI CLI profile of the workstation, named,
+// one of them the workstation default engine. The agent owns it; every change
+// is saved through it at once, so the list always shows what is stored.
+function enginesSection(){
+ const section=document.createElement('section');section.className='engines-section'
+ const heading=document.createElement('h3');heading.textContent='Engines'
+ const intro=document.createElement('p');intro.className='hint'
+ intro.textContent='A project runs the workstation default engine unless it picks another one; a task can be switched to any engine from the ticket list.'
+ const unavailable=document.createElement('p');unavailable.className='hint';unavailable.hidden=true
+ const list=document.createElement('ul');list.className='engine-list';list.setAttribute('aria-label','Engines')
+ const add=document.createElement('button');add.type='button';add.textContent='Add an engine'
+ const notice=document.createElement('p');notice.setAttribute('role','status');notice.className='engines-notice'
+ const editorBox=document.createElement('div');editorBox.className='engine-editor';editorBox.setAttribute('role','group');editorBox.setAttribute('aria-label','Engine editor');editorBox.hidden=true
+ section.append(heading,intro,unavailable,list,add,editorBox,notice)
+ let view=null,confirming=null
+ const say=(text,tone='')=>{notice.textContent=text;notice.dataset.tone=tone}
+
+ // The editor: name, provider, model, per-skill models and both templates.
+ const nameInput=document.createElement('input');nameInput.type='text';nameInput.className='model-input';nameInput.setAttribute('aria-label','Engine name');nameInput.maxLength=64
+ const nameRow=settingRow('Name',null,nameInput)
+ const providerSelect=document.createElement('select');providerSelect.className='provider-select';providerSelect.setAttribute('aria-label','AI Provider')
+ providerOptions(providerSelect)
+ const providerRow=settingRow('AI Provider',null,providerSelect)
+ const modelInput=document.createElement('input');modelInput.type='text';modelInput.className='model-input';modelInput.setAttribute('aria-label','AI Model')
+ modelInput.placeholder='Empty: use provider default model'
+ const modelRow=settingRow('AI Model',null,modelInput)
+ const skillModels=entryList({keyLabel:'Skill',valueLabel:'Model for skill',addLabel:'Add a skill model',validate:validateModel,onChange:()=>renderEditor()})
+ const skillModelsRow=settingRow('Per-skill models',{stacked:true},skillModels.box)
+ const command=document.createElement('textarea');command.className='cli-command';command.setAttribute('aria-label','Interactive CLI command')
+ command.placeholder='Provider default command'
+ const autonomousCommand=document.createElement('textarea');autonomousCommand.className='cli-command';autonomousCommand.setAttribute('aria-label','Autonomous CLI command')
+ autonomousCommand.placeholder='Empty: the interactive command serves headless launches too'
+ const previewBox=document.createElement('dl');previewBox.className='command-preview'
+ const help=document.createElement('details');help.className='placeholder-help'
+ const helpSummary=document.createElement('summary');helpSummary.textContent='Placeholders'
+ const helpText=document.createElement('p');helpText.textContent=PLACEHOLDER_HELP
+ help.append(helpSummary,helpText)
+ const presetsBar=document.createElement('div');presetsBar.className='cli-presets-bar'
+ for(const preset of CLI_PRESETS){
+  const button=document.createElement('button');button.type='button';button.textContent=preset.label
+  button.onclick=()=>{providerSelect.value=preset.provider;command.value=preset.cmd;autonomousCommand.value=preset.auto;renderEditor()}
+  presetsBar.append(button)
+ }
+ const commandRow=settingRow('Interactive CLI command',{stacked:true},command,help,presetsBar)
+ const autonomousRow=settingRow('Autonomous CLI command (headless)',{stacked:true},autonomousCommand,previewBox)
+ const saveEngine=document.createElement('button');saveEngine.type='button';saveEngine.className='dialog-action primary';saveEngine.textContent='Save engine'
+ const cancelEngine=document.createElement('button');cancelEngine.type='button';cancelEngine.textContent='Cancel'
+ const editorActions=document.createElement('div');editorActions.className='deployment-actions';editorActions.append(saveEngine,cancelEngine)
+ editorBox.append(nameRow.section,providerRow.section,modelRow.section,skillModelsRow.section,commandRow.section,autonomousRow.section,editorActions)
+ let editing=null
+ function renderEditor(){
+  if(!validateModel(modelInput.value)){modelRow.hint.textContent=INVALID_MODEL;modelInput.setAttribute('aria-invalid','true')}
+  else{modelInput.removeAttribute('aria-invalid');modelRow.hint.textContent=modelInput.value.trim()?'':'Provider default model'}
+  skillModelsRow.hint.textContent=skillModels.invalid()?INVALID_MODEL:'A model per skill beats the AI model above.'
+  commandRow.hint.textContent='Both empty runs the provider default for each mode.'
+  autonomousRow.hint.textContent='Command template used for autonomous runs. Empty falls back to interactive command.'
+  previewBox.replaceChildren()
+  for(const line of previewLines(providerSelect.value,command.value,modelInput.value,autonomousCommand.value)){
+   const term=document.createElement('dt');term.textContent=line.label
+   const detail=document.createElement('dd');detail.textContent=line.text
+   if(!line.ok)detail.className='command-preview-error'
+   previewBox.append(term,detail)
+  }
+ }
+ providerSelect.onchange=()=>{
+  // A command written for another provider does not follow the switch; a
+  // preset or an empty one does.
+  if(KNOWN_COMMANDS.includes(command.value.trim())){
+   command.value=providerSelect.value==='custom'?"/path/to/custom-cli {mode:-p|-i} '{prompt}'":''
+   autonomousCommand.value=''
+  }
+  renderEditor()
+ }
+ for(const input of [modelInput,command,autonomousCommand])input.addEventListener('input',renderEditor)
+ function openEditor(engine){
+  editing=engine||{id:'',name:'',provider:DEFAULT_PROVIDER}
+  confirming=null
+  providerOptions(providerSelect,[editing.provider])
+  nameInput.value=editing.name||'';providerSelect.value=editing.provider||DEFAULT_PROVIDER
+  modelInput.value=editing.model||'';skillModels.set(editing.skillModels||{})
+  command.value=editing.command||'';autonomousCommand.value=editing.commandAutonomous||''
+  editorBox.hidden=false;add.hidden=true;say('');renderEditor();renderList();nameInput.focus()
+ }
+ function closeEditor(){editing=null;editorBox.hidden=true;add.hidden=false;renderList()}
+ cancelEngine.onclick=closeEditor
+
+ // Each save sends the whole catalogue built from the stored one, so the
+ // actions wait for the previous answer: a second click would undo the first.
+ let pending=false
+ async function save(catalogue,defaultId,done){
+  if(pending)return
+  pending=true;saveEngine.disabled=true;say('Saving…');renderList()
+  try{
+   view=await api.saveEngines({catalogue,default:defaultId})
+   done?.();say(done?'Engine saved':'Engines saved')
+  }catch(err){
+   if(agentUnreachable(err))say('The local agent is stopped. Start it to edit engines.','error')
+   else say('Not saved: '+ipcMessage(err),'error')
+  }finally{pending=false;saveEngine.disabled=false;renderList()}
+ }
+ saveEngine.onclick=()=>{
+  const name=nameInput.value.trim()
+  if(!name){say('An engine needs a name','error');return}
+  if(!validateModel(modelInput.value)||skillModels.invalid()){say(INVALID_MODEL,'error');return}
+  if(providerSelect.value==='custom'&&!command.value.includes('{prompt}')){say('Custom provider requires a command template containing {prompt}','error');return}
+  const edited={...editing,name,provider:providerSelect.value,model:modelInput.value.trim(),skillModels:compact(skillModels.get()),command:command.value.trim(),commandAutonomous:autonomousCommand.value.trim()}
+  const catalogue=editing.id?view.catalogue.map(engine=>engine.id===editing.id?edited:engine):[...view.catalogue,edited]
+  save(catalogue,view.default,closeEditor)
+ }
+ add.onclick=()=>openEditor(null)
+
+ function button(text,label,onclick,disabled){
+  const b=document.createElement('button');b.type='button';b.textContent=text;b.setAttribute('aria-label',label);b.title=label
+  b.disabled=!!disabled;b.onclick=onclick;return b
+ }
+ function renderList(){
+  list.replaceChildren()
+  if(!view)return
+  const count=view.catalogue.length
+  view.catalogue.forEach((engine,index)=>{
+   const isDefault=engine.id===view.default
+   const item=document.createElement('li');item.className='engine-item';item.dataset.engineId=engine.id
+   const mark=document.createElement('span');mark.className='engine-mark';mark.setAttribute('aria-hidden','true');mark.textContent=engineMark(engine.provider)
+   const text=document.createElement('span');text.className='engine-text'
+   const title=document.createElement('strong');title.textContent=engine.name
+   const detail=document.createElement('small');detail.textContent=engine.provider+' · '+(engine.model||'provider default')
+   text.append(title,detail)
+   item.append(mark,text)
+   if(isDefault){const badge=document.createElement('span');badge.className='engine-default';badge.textContent='Default';item.append(badge)}
+   const actions=document.createElement('span');actions.className='engine-actions'
+   const busy=!!editing||pending
+   actions.append(
+    button('Edit','Edit '+engine.name,()=>openEditor(engine),busy),
+    button('↑','Move '+engine.name+' up',()=>save(moveEngine(view.catalogue,engine.id,-1),view.default),busy||index===0),
+    button('↓','Move '+engine.name+' down',()=>save(moveEngine(view.catalogue,engine.id,1),view.default),busy||index===count-1),
+   )
+   if(!isDefault)actions.append(button('Make default','Make '+engine.name+' the default engine',()=>save(view.catalogue,engine.id),busy))
+   // The default engine and the last one cannot go: mark another one first.
+   actions.append(button('Remove','Remove '+engine.name,()=>{confirming=engine.id;renderList()},busy||isDefault||count===1))
+   item.append(actions)
+   list.append(item)
+   if(confirming===engine.id){
+    const confirm=document.createElement('li');confirm.className='engine-confirm'
+    const names=Object.fromEntries((projects||[]).map(project=>[project.id,project.name]))
+    const message=document.createElement('span');message.textContent=removalMessage(engine.name,removalImpact(view,engine.id,names))
+    confirm.append(message,
+     button('Confirm removal','Confirm the removal of '+engine.name,()=>{confirming=null;save(view.catalogue.filter(e=>e.id!==engine.id),view.default)},pending),
+     button('Cancel','Keep '+engine.name,()=>{confirming=null;renderList()}))
+    list.append(confirm)
+   }
+  })
+ }
+ async function load(){
+  editing=null;confirming=null;editorBox.hidden=true
+  if(!await taskEnginesAvailable()){
+   view=null;list.replaceChildren();add.hidden=true
+   unavailable.textContent='Update and restart the local agent to manage engines.';unavailable.hidden=false
+   return
+  }
+  unavailable.hidden=true;add.hidden=false
+  try{view=await api.engines()}
+  catch(err){view=null;say('Unable to read engines: '+ipcMessage(err),'error')}
+  renderList()
+ }
+ return {section,load,defaultProvider:()=>view?.catalogue.find(engine=>engine.id===view.default)?.provider||''}
+}
+
 // The "Execution defaults" panel: the workstation level of every execution
 // setting, read from and written through the local agent (#305). The agent is
 // the only writer of these sections, so without it the panel says the settings
@@ -1060,39 +1234,11 @@ function executionDefaultsPanel(panel){
  const stated={}
  const changed=()=>{notice.textContent='';notice.dataset.tone=''}
 
- const providerSelect=document.createElement('select');providerSelect.className='provider-select';providerSelect.setAttribute('aria-label','AI Provider')
+ // The engines (#510) come first: what a project runs unless it picks another.
+ const engines=enginesSection()
+ // The MCP configuration below is per provider: this picks which one.
+ const providerSelect=document.createElement('select');providerSelect.className='provider-select';providerSelect.setAttribute('aria-label','MCP provider')
  providerOptions(providerSelect)
- const providerRow=settingRow('AI Provider',{resetLabel:'Reset AI provider to default',onReset:()=>{stated.aiProvider=false;providerSelect.value=DEFAULT_PROVIDER;providerSelect.dispatchEvent(new Event('change'))}},providerSelect)
-
- const modelInput=document.createElement('input');modelInput.type='text';modelInput.className='model-input';modelInput.setAttribute('aria-label','AI Model')
- modelInput.placeholder='Empty: use provider default model'
- const modelRow=settingRow('AI Model',{resetLabel:'Reset AI model to default',onReset:()=>{modelInput.value='';render()}},modelInput)
-
- const skillModels=entryList({keyLabel:'Skill',valueLabel:'Model for skill',addLabel:'Add a skill model',validate:validateModel,onChange:()=>{changed();render()}})
- const skillModelsRow=settingRow('Per-skill models',{stacked:true,resetLabel:'Reset per-skill models to default',onReset:()=>{skillModels.set({});render()}},skillModels.box)
-
- const command=document.createElement('textarea');command.className='cli-command';command.setAttribute('aria-label','Interactive CLI command')
- command.placeholder='Provider default command'
- const autonomousCommand=document.createElement('textarea');autonomousCommand.className='cli-command';autonomousCommand.setAttribute('aria-label','Autonomous CLI command')
- autonomousCommand.placeholder='Empty: the interactive command serves headless launches too'
- const previewBox=document.createElement('dl');previewBox.className='command-preview'
- const help=document.createElement('details');help.className='placeholder-help'
- const helpSummary=document.createElement('summary');helpSummary.textContent='Placeholders'
- const helpText=document.createElement('p');helpText.textContent=PLACEHOLDER_HELP
- help.append(helpSummary,helpText)
- const presetsBar=document.createElement('div');presetsBar.className='cli-presets-bar'
- presetsBar.style.cssText='display:flex;flex-wrap:wrap;gap:6px;margin-top:8px'
- for(const preset of CLI_PRESETS){
-  const button=document.createElement('button');button.type='button';button.textContent=preset.label
-  button.style.cssText='font-size:11.5px;padding:4px 8px'
-  button.onclick=()=>{
-   providerSelect.value=preset.provider;stated.aiProvider=preset.cmd!==''||stated.aiProvider
-   command.value=preset.cmd;autonomousCommand.value=preset.auto;changed();render()
-  }
-  presetsBar.append(button)
- }
- const commandRow=settingRow('Interactive CLI command',{stacked:true,resetLabel:'Reset CLI commands to provider defaults',onReset:()=>{command.value='';autonomousCommand.value='';render()}},command,help,presetsBar)
- const autonomousRow=settingRow('Autonomous CLI command (headless)',{stacked:true},autonomousCommand,previewBox)
 
  // The models a launch may pick, per provider. A provider without a list of
  // its own offers the one Sectile ships; editing it creates the list.
@@ -1143,27 +1289,10 @@ function executionDefaultsPanel(panel){
  const save=document.createElement('button');save.type='button';save.className='dialog-action primary';save.textContent='Save execution defaults'
  const actions=document.createElement('div');actions.className='deployment-actions';actions.style.marginTop='16px'
  actions.append(save,notice)
- body.append(providerRow.section,modelRow.section,skillModelsRow.section,commandRow.section,autonomousRow.section,listsRow.section,terminalRow.section,editorRow.section,worktreeRow.section,parallelRow.section,setupRow.section,actions)
+ body.append(engines.section,listsRow.section,terminalRow.section,editorRow.section,worktreeRow.section,parallelRow.section,setupRow.section,actions)
 
- const effective=()=>view?.effective||{}
  function hint(row,set,defaultText,setText){row.hint.textContent=set?(setText||'Workstation default'):'Default · '+defaultText}
  function render(){
-  const provider=providerSelect.value
-  hint(providerRow,stated.aiProvider,DEFAULT_PROVIDER)
-  if(!validateModel(modelInput.value)){modelRow.hint.textContent=INVALID_MODEL;modelInput.setAttribute('aria-invalid','true')}
-  else{modelInput.removeAttribute('aria-invalid');hint(modelRow,!!modelInput.value.trim(),'provider default model')}
-  const skills=skillModels.get()
-  skillModelsRow.hint.textContent=skillModels.invalid()?INVALID_MODEL:Object.keys(skills).length?'A model per skill beats the AI model above, at any level.':'None · Every skill runs the AI model above.'
-  const commandSet=!!(command.value.trim()||autonomousCommand.value.trim())
-  commandRow.hint.textContent=(commandSet?'Workstation default':'Default · provider command')+' · Both empty runs the provider default for each mode.'
-  autonomousRow.hint.textContent='Command template used for autonomous runs. Empty falls back to interactive command.'
-  previewBox.replaceChildren()
-  for(const line of previewLines(provider,command.value,modelInput.value,autonomousCommand.value)){
-   const term=document.createElement('dt');term.textContent=line.label
-   const detail=document.createElement('dd');detail.textContent=line.text
-   if(!line.ok)detail.className='command-preview-error'
-   previewBox.append(term,detail)
-  }
   for(const [id,entry] of Object.entries(listInputs)){
    entry.row.hint.textContent=stated['models:'+id]?'Custom list · Empty offers no model at launch.':'Shipped list'
    if(!stated['models:'+id])entry.input.value=(view?.providerModels?.[id]||[]).join(', ')
@@ -1180,27 +1309,14 @@ function executionDefaultsPanel(panel){
   for(const [id,box] of Object.entries(setupChecks))box.checked=!!setupProviders?.includes(id)
   setupRow.hint.textContent=setupProviders===null?'Default · None beyond the provider':setupProviders.length?'Workstation default':'Workstation default · None'
  }
- providerSelect.onchange=()=>{
-  stated.aiProvider=true
-  // A command written for another provider does not follow the switch; a
-  // preset or an empty one does.
-  if(KNOWN_COMMANDS.includes(command.value.trim())){
-   command.value=providerSelect.value==='custom'?"/path/to/custom-cli {mode:-p|-i} '{prompt}'":''
-   autonomousCommand.value=''
-  }
-  changed();render()
- }
- for(const input of [modelInput,command,autonomousCommand,editorInput])input.addEventListener('input',()=>{changed();render()})
+ for(const input of [editorInput])input.addEventListener('input',()=>{changed();render()})
 
  function fill(){
   const defaults=view.defaults||{}
-  providerOptions(providerSelect,[defaults.aiProvider,effective().aiProvider])
-  stated.aiProvider=!!defaults.aiProvider
-  providerSelect.value=defaults.aiProvider||effective().aiProvider||DEFAULT_PROVIDER
-  modelInput.value=defaults.aiModel||''
-  skillModels.set(defaults.aiSkillModels||{})
-  command.value=defaults.aiCommandTemplate||''
-  autonomousCommand.value=defaults.aiCommandTemplateAutonomous||''
+  // An agent that predates #510 names its provider directly.
+  const provider=view.effective?.defaultEngine?.provider||view.effective?.aiProvider||DEFAULT_PROVIDER
+  providerOptions(providerSelect,[provider])
+  providerSelect.value=provider
   terminal.set(defaults.terminal||'')
   editorInput.value=defaults.editorCommand||''
   useWorktrees=typeof defaults.useWorktrees==='boolean'?defaults.useWorktrees:null
@@ -1225,19 +1341,15 @@ function executionDefaultsPanel(panel){
   const lists={}
   for(const [id,entry] of Object.entries(listInputs))if(stated['models:'+id])lists[id]=parseModelList(entry.input.value)
   return {
-   aiProvider:stated.aiProvider?providerSelect.value:'',aiModel:modelInput.value,aiSkillModels:skillModels.get(),
-   aiCommandTemplate:command.value,aiCommandTemplateAutonomous:autonomousCommand.value,
    terminal:terminal.get(),editorCommand:editorInput.value,useWorktrees,parallelism,setupProviders,aiProviderModels:lists
   }
  }
  save.onclick=async()=>{
-  if(!validateModel(modelInput.value)||skillModels.invalid()){notice.textContent=INVALID_MODEL;notice.dataset.tone='error';return}
   const invalidList=Object.entries(listInputs).find(([id,entry])=>stated['models:'+id]&&parseModelList(entry.input.value).some(model=>!validateModel(model)))
   if(invalidList){notice.textContent='Invalid model in the list of '+invalidList[0];notice.dataset.tone='error';return}
-  if(providerSelect.value==='custom'&&!command.value.includes('{prompt}')){notice.textContent='Custom provider requires a command template containing {prompt}';notice.dataset.tone='error';return}
   save.disabled=true;notice.textContent='Saving…';notice.dataset.tone=''
   try{
-   await api.saveWorkstationSettings(workstationPayload(state()))
+   await api.saveWorkstationSettings(workstationPayload(state(),view.defaults))
    notice.textContent='Execution defaults saved'
    try{view=await api.workstationSettings();if(body.isConnected){fill();notice.textContent='Execution defaults saved'}}catch{}
   }catch(err){
@@ -1260,6 +1372,7 @@ function executionDefaultsPanel(panel){
   }
   if(!body.isConnected)return
   body.hidden=false;fill()
+  await engines.load()
  }
  panel.append(unavailable,body)
  return {providerSelect,load}
@@ -1333,6 +1446,7 @@ function openSettings(initial='Profile'){
  // owned by the local agent. The MCP connection choice follows its provider.
  const execution=executionDefaultsPanel(panels.AgentCli)
  const mcpPanel=mcpSettings(api,execution.providerSelect)
+ mcpPanel.section.insertBefore(settingRow('Provider',null,execution.providerSelect).section,mcpPanel.section.children[1])
  panels.AgentCli.append(mcpPanel.section)
 
  const agentState=readOnlyRow('Local agent','The agent process this desktop talks to.')
@@ -1816,66 +1930,34 @@ async function openProject(id){
   }
   updateSetup()
 
-  let selectedProvider=fields.aiProvider.value||DEFAULT_PROVIDER,inheritAiProvider=inherits('aiProvider')
-  const providerSelect=document.createElement('select');providerSelect.className='provider-select';providerSelect.setAttribute('aria-label','AI Provider')
-  providerOptions(providerSelect,[selectedProvider,fields.aiProvider.inherited])
-  providerSelect.value=selectedProvider
-  const providerRow=settingRow('AI Provider',{resetLabel:'Reset AI provider to workstation default'},providerSelect)
-  const providerReset=providerRow.reset,providerHint=providerRow.hint
-  function updateProvider(){
-    providerHint.textContent=hintFor('aiProvider',inheritAiProvider,DEFAULT_PROVIDER)
-    renderCommandPreview()
+  // The project default engine (#510): an engine of the workstation catalogue,
+  // or the workstation default engine. Engines themselves are edited in
+  // Settings; an agent without a catalogue shows no selector.
+  const selectedProvider=info.aiProvider||DEFAULT_PROVIDER
+  let engineView=null
+  if(await taskEnginesAvailable()){try{engineView=await api.engines()}catch{}}
+  let defaultEngine=fields.defaultEngine.source==='project'?fields.defaultEngine.value||'':'',inheritDefaultEngine=inherits('defaultEngine')
+  const engineSelect=document.createElement('select');engineSelect.className='provider-select';engineSelect.setAttribute('aria-label','Default engine')
+  const engineRow=settingRow('Default engine',{resetLabel:'Reset default engine to the workstation default'},engineSelect)
+  engineRow.section.hidden=!engineView
+  const engineById=engineId=>engineView?.catalogue.find(engine=>engine.id===engineId)
+  function fillEngines(){
+   engineSelect.replaceChildren()
+   const workstation=engineById(engineView?.default)
+   const inherit=document.createElement('option');inherit.value='';inherit.textContent='Inherit the workstation default ('+(workstation?.name||'none')+')'
+   engineSelect.append(inherit)
+   for(const engine of engineView?.catalogue||[]){const option=document.createElement('option');option.value=engine.id;option.textContent=engine.name;engineSelect.append(option)}
+   engineSelect.value=inheritDefaultEngine||!engineById(defaultEngine)?'':defaultEngine
   }
-  const resetProvider=()=>{
-    selectedProvider=fields.aiProvider.inherited||DEFAULT_PROVIDER
-    providerSelect.value=selectedProvider
-    inheritAiProvider=true
-    updateProvider()
+  function updateEngine(){
+   const engine=engineById(inheritDefaultEngine?engineView?.default:defaultEngine)
+   const detail=engine?' · '+engine.provider+' · '+(engine.model||'provider default'):''
+   engineRow.hint.textContent=(inheritDefaultEngine?'Inherited from workstation':'Set for this project')+detail
   }
-  providerReset.onclick=resetProvider
-
-  let inheritAiModel=inherits('aiModel')
-  const modelInput=document.createElement('input');modelInput.type='text';modelInput.className='model-input';modelInput.setAttribute('aria-label','AI Model')
-  modelInput.value=fields.aiModel.value||''
-  modelInput.placeholder='Empty: use provider default model'
-  const modelRow=settingRow('AI Model',{resetLabel:'Reset AI model to workstation default'},modelInput)
-  const modelReset=modelRow.reset,modelHint=modelRow.hint
-
-  function updateModel(){
-    modelHint.textContent=hintFor('aiModel',inheritAiModel,'provider default')
-    if(!validateModel(modelInput.value)){
-      modelHint.textContent=INVALID_MODEL
-      modelInput.setAttribute('aria-invalid','true')
-    }else{
-      modelInput.removeAttribute('aria-invalid')
-    }
-    renderCommandPreview()
-  }
-
-  modelInput.oninput=()=>{
-    inheritAiModel=false
-    updateModel()
-  }
-  const resetModel=()=>{
-    modelInput.value=fields.aiModel.inherited||''
-    inheritAiModel=true
-    updateModel()
-  }
-  modelReset.onclick=resetModel
-
-  // A model per stage skill, beating the AI model above. The project states
-  // only the entries it sets; the others show what they inherit.
-  let inheritAiSkillModels=inherits('aiSkillModels')
-  const skillModels=entryList({keyLabel:'Skill',valueLabel:'Model for skill',addLabel:'Add a skill model',fixed:skills.length?skills:null,validate:validateModel,
-   placeholder:skill=>fields.aiSkillModels.inherited?.[skill]||'Inherited',onChange:()=>{inheritAiSkillModels=false;updateSkillModels()}})
-  skillModels.set(ownEntries(fields.aiSkillModels))
-  const resetSkillModels=()=>{skillModels.set({});inheritAiSkillModels=true;updateSkillModels()}
-  const skillModelsRow=settingRow('Per-skill models',{stacked:true,resetLabel:'Reset per-skill models to workstation default',onReset:resetSkillModels},skillModels.box)
-  function updateSkillModels(){
-   skillModels.refreshPlaceholders()
-   skillModelsRow.hint.textContent=skillModels.invalid()?INVALID_MODEL:hintFor('aiSkillModels',inheritAiSkillModels,'None')
-  }
-  updateSkillModels()
+  const resetEngine=()=>{defaultEngine='';inheritDefaultEngine=true;engineSelect.value='';updateEngine()}
+  engineRow.reset.onclick=resetEngine
+  engineSelect.onchange=()=>{defaultEngine=engineSelect.value;inheritDefaultEngine=!defaultEngine;updateEngine()}
+  fillEngines();updateEngine()
 
   // The slash command each stage runs, when the local CLI installs it under
   // another name. One word, an optional leading slash.
@@ -1891,58 +1973,6 @@ async function openProject(id){
    skillCommandsRow.hint.textContent=skillCommands.invalid()?'A skill command name is a single word, optionally led by /.':inheritSkillCommands?'Standard commands':'Set for this project · Empty entries run the standard command.'
   }
   updateSkillCommands()
-
-  let inheritCommand=inherits('aiCommandTemplate')&&inherits('aiCommandTemplateAutonomous')
-  // The two execution modes run different command lines, so they get one field
-  // each. Overriding only the interactive one would leave the workstation's headless
-  // command running beside it, which is not what an override means.
-  const command=document.createElement('textarea');command.className='cli-command';command.setAttribute('aria-label','Interactive CLI command')
-  command.value=fields.aiCommandTemplate.value||''
-  command.placeholder='Workstation provider default command'
-  const autonomousCommand=document.createElement('textarea');autonomousCommand.className='cli-command';autonomousCommand.setAttribute('aria-label','Autonomous CLI command')
-  autonomousCommand.value=fields.aiCommandTemplateAutonomous.value||''
-  autonomousCommand.placeholder='Empty: the interactive command serves headless launches too'
-  const commandPreviewBox=document.createElement('dl');commandPreviewBox.className='command-preview'
-  function renderCommandPreview(){
-   commandPreviewBox.replaceChildren()
-   for(const line of previewLines(selectedProvider,command.value,modelInput.value,autonomousCommand.value)){
-    const term=document.createElement('dt');term.textContent=line.label
-    const detail=document.createElement('dd');detail.textContent=line.text
-    if(!line.ok)detail.className='command-preview-error'
-    commandPreviewBox.append(term,detail)
-   }
-  }
-  const placeholderHelp=document.createElement('details');placeholderHelp.className='placeholder-help'
-  const placeholderSummary=document.createElement('summary');placeholderSummary.textContent='Placeholders'
-  const placeholderText=document.createElement('p')
-  placeholderText.textContent='Required in a command: {prompt} (instructions). Also: {issueKey}, {issueTitle}, {issueDesc}, {branchName}, {repoPath} (local directory), {tracker}, {repo}, {model}, {mode:AUTONOMOUS|INTERACTIVE}.'
-  placeholderHelp.append(placeholderSummary,placeholderText)
-  function commandState(){commandHint.textContent=hintFor('aiCommandTemplate',inheritCommand,'provider command')+' · Both empty runs the provider default for each mode.';renderCommandPreview()}
-  command.oninput=()=>{inheritCommand=false;commandState()}
-  autonomousCommand.oninput=()=>{inheritCommand=false;commandState()}
-  const resetCommand=()=>{command.value=fields.aiCommandTemplate.inherited||'';autonomousCommand.value=fields.aiCommandTemplateAutonomous.inherited||'';inheritCommand=true;commandState()}
-  const commandRow=settingRow('Interactive CLI command',{stacked:true,resetLabel:'Reset CLI commands to workstation defaults',onReset:resetCommand},command,placeholderHelp)
-  const commandHint=commandRow.hint
-  const autonomousRow=settingRow('Autonomous CLI command (headless)',{stacked:true},autonomousCommand,commandPreviewBox)
-
-  const KNOWN_PRESETS=['',"/path/to/custom-cli {mode:-p|-i} '{prompt}'","claude --model {model} '{prompt}'",'agy --dangerously-skip-permissions --model {model} "{prompt}"',"codex --model {model} '{prompt}'"]
-  providerSelect.onchange=()=>{
-    selectedProvider=providerSelect.value
-    inheritAiProvider=false
-    if(command.value.trim()===''||KNOWN_PRESETS.includes(command.value.trim())){
-      if(selectedProvider==='custom'){
-        command.value="/path/to/custom-cli {mode:-p|-i} '{prompt}'"
-      }else{
-        command.value=''
-      }
-      autonomousCommand.value=''
-    }
-    updateProvider()
-  }
-
-  updateProvider()
-  updateModel()
-  commandState()
 
   let inheritTerminal=inherits('terminal')
   const terminal=terminalPicker(()=>{inheritTerminal=false;updateTerminal()})
@@ -1965,23 +1995,21 @@ async function openProject(id){
     inheritSpecArtifacts=!fresh.specArtifactsOverride
     specArtifacts=fresh.specArtifacts==='drop'?'drop':'keep'
     inheritWorktrees=inherits('useWorktrees');inheritParallelism=inherits('parallelism');inheritSetupProviders=inherits('setupProviders')
-    inheritAiProvider=inherits('aiProvider');inheritAiModel=inherits('aiModel');inheritAiSkillModels=inherits('aiSkillModels')
-    inheritSkillCommands=inherits('skillCommands');inheritCommand=inherits('aiCommandTemplate')&&inherits('aiCommandTemplateAutonomous');inheritTerminal=inherits('terminal')
+    inheritDefaultEngine=inherits('defaultEngine');defaultEngine=inheritDefaultEngine?'':fields.defaultEngine.value||''
+    inheritSkillCommands=inherits('skillCommands');inheritTerminal=inherits('terminal')
    }
    if(inheritWorktrees)resetWorktrees()
    if(inheritParallelism)resetParallelism()
    if(inheritSetupProviders)resetSetup()
-   if(inheritAiProvider)resetProvider()
-   if(inheritAiModel)resetModel()
-   if(inheritCommand)resetCommand()
    if(inheritTerminal)resetTerminal()
-   update();updateSetup();updateProvider();updateModel();updateSkillModels();updateSkillCommands();commandState();updateTerminal()
+   fillEngines()
+   update();updateSetup();updateEngine();updateSkillCommands();updateTerminal()
   }
 
   const notice=document.createElement('p');notice.setAttribute('role','status')
   panels.General.append(repository.section,layoutRow.section,specRepository.section,repositoriesRow.section)
   panels.Execution.append(controls.worktrees.section,controls.specArtifacts.section,controls.parallel.section,terminalRow.section,setupRow.section)
-  panels.Agent.append(providerRow.section,modelRow.section,skillModelsRow.section,commandRow.section,autonomousRow.section,skillCommandsRow.section)
+  panels.Agent.append(engineRow.section,skillCommandsRow.section)
   const remove=document.createElement('button');remove.type='button';remove.textContent='Remove from desktop';remove.className='remove-project'
   remove.onclick=()=>requestRemoveProject(id,config.projectName)
   if(info.configured||runs.some(run=>run.projectId===id))panels.General.append(remove)
@@ -1989,25 +2017,15 @@ async function openProject(id){
   const tools=document.createElement('div');tools.className='deployment-actions'
   form.onsubmit=async event=>{
    event.preventDefault()
-   if(!validateModel(modelInput.value)||skillModels.invalid()){
-    notice.textContent='Invalid AI model identifier: must only contain letters, digits, and allowed punctuation (. _ - : @ /)'
-    return
-   }
    if(skillCommands.invalid()){
     notice.textContent='A skill command name is a single word, optionally led by /.'
-    return
-   }
-   if(selectedProvider==='custom'&&!command.value.includes('{prompt}')){
-    notice.textContent='Custom provider requires a command template containing {prompt}'
     return
    }
    save.disabled=true
    try{
     await api.mapProject({projectId:id,path:path.value,specPath:specPath.value.trim(),
      useWorktrees,inheritWorktrees,specArtifacts,inheritSpecArtifacts,parallelism,inheritParallelism,
-     aiProvider:selectedProvider,aiModel:modelInput.value.trim(),inheritAiProvider,inheritAiModel,
-     aiSkillModels:compact(skillModels.get()),inheritAiSkillModels,
-     aiCommandTemplate:command.value,aiCommandTemplateAutonomous:autonomousCommand.value,inheritCommand,
+     ...(engineView?{defaultEngine,inheritDefaultEngine}:{}),
      terminal:terminal.get(),inheritTerminal,
      setupProviders:[...setupProviders],inheritSetupProviders,
      skillCommands:compact(skillCommands.get()),inheritSkillCommands})
@@ -2173,9 +2191,12 @@ async function openTickets(projectID,initialQuery=''){
   const isCurrent=()=>current===view.generation&&ticketsView===view&&ticketsOpen
   list.textContent='Loading open tasks…';list.setAttribute('aria-busy','true');view.rows.clear();view.compose=null;status.textContent=''
   try{
-   const [tasks,info]=await Promise.all([api.serverTasks(projectID,searchText,true),api.project(projectID)])
+   // The engine of each task (#510), when the agent keeps one: an older agent
+   // answers nothing, and the table shows no engine column.
+   const engines=taskEnginesAvailable().then(ok=>ok?api.taskEngines(projectID):null).catch(()=>null)
+   const [tasks,info,taskEngines]=await Promise.all([api.serverTasks(projectID,searchText,true),api.project(projectID),engines])
    if(!isCurrent())return
-   view.tasks=tasks.filter(task=>!isFinishedTask(task));view.info=info;view.query=searchText
+   view.tasks=tasks.filter(task=>!isFinishedTask(task));view.info=info;view.query=searchText;view.engines=taskEngines
    renderTicketsTable(view)
   }catch(err){if(isCurrent()){const message=document.createElement('p');message.setAttribute('role','alert');message.textContent='Could not load open tasks: '+err.message+'. Use Search to retry.';list.replaceChildren(message)}}
   finally{if(isCurrent())list.setAttribute('aria-busy','false')}
@@ -2185,6 +2206,14 @@ async function openTickets(projectID,initialQuery=''){
  await load()
 }
 const TICKET_COLUMNS=[['state',''],['key','Key'],['title','Title'],['stage','Stage'],['priority','Priority'],['pr','PR'],['actions','Actions']]
+// The engine column sits before the PR one, and only with an agent that keeps
+// a per-task engine (#510).
+function ticketColumns(view){
+ if(!view.engines)return TICKET_COLUMNS
+ const columns=[...TICKET_COLUMNS]
+ columns.splice(columns.findIndex(([field])=>field==='pr'),0,['engine','Engine'])
+ return columns
+}
 function renderTicketsTable(view,focusField=null){
  const {list,tasks,info,sort}=view
  view.closeOpenMenu?.()
@@ -2197,7 +2226,7 @@ function renderTicketsTable(view,focusField=null){
  const table=document.createElement('table');table.className='tickets-table'
  const caption=document.createElement('caption');caption.className='visually-hidden';caption.textContent='Open tasks in '+view.projectName
  const head=document.createElement('thead'),headRow=document.createElement('tr')
- for(const [field,label] of TICKET_COLUMNS){
+ for(const [field,label] of ticketColumns(view)){
   const cell=document.createElement('th');cell.scope='col';cell.dataset.column=field
   if(SORTABLE_FIELDS.includes(field)){
    const active=sort.field===field
@@ -2325,10 +2354,55 @@ function ticketRow(view,task){
  keyLink.title='Open task in Sectile';keyLink.setAttribute('aria-label','Open '+key+' in Sectile')
  keyLink.onclick=()=>api.openTask(task.id).catch(error)
  keyCell.append(keyLink)
- row.append(stateCell,keyCell,titleCell,stageCell,priorityCell,prCell,actions)
+ row.append(stateCell,keyCell,titleCell,stageCell,priorityCell)
+ if(view.engines){
+  const engineCell=cell('ticket-engine')
+  const toggle=document.createElement('button');toggle.type='button';toggle.className='engine-toggle'
+  toggle.onclick=()=>switchTaskEngine(view,entry)
+  entry.engine=toggle;engineCell.append(toggle);row.append(engineCell)
+  renderEngineToggle(view,entry)
+ }
+ row.append(prCell,actions)
  view.rows.set(task.id,entry)
  updateTicketRow(view,entry)
  return row
+}
+// The engine icon of a row: the monogram of its task engine, a tooltip naming
+// it, and a highlight when the task left its project default engine (#510).
+function renderEngineToggle(view,entry){
+ const {task,engine:toggle}=entry
+ if(!toggle)return
+ const key=task.key||task.id
+ const current=taskEngine(view.engines,task.id)
+ const onDefault=!current||current.id===view.engines.projectDefault
+ const tooltip=engineTooltip(current,onDefault)
+ toggle.textContent=engineMark(current?.provider)
+ toggle.title=tooltip;toggle.setAttribute('aria-label','Engine for '+key+': '+tooltip)
+ toggle.dataset.engineId=current?.id||''
+ if(onDefault)delete toggle.dataset.offDefault;else toggle.dataset.offDefault='true'
+}
+// A click moves the task to the next engine of the catalogue. The icon moves at
+// once; a refusal puts back what the agent stores and says why. A run already
+// going keeps its engine: the choice applies from the next launch.
+async function switchTaskEngine(view,entry){
+ const engines=view.engines
+ if(!engines||engines.catalogue.length<2)return
+ const taskId=entry.task.id
+ const previous=engines.tasks?.[taskId]
+ const next=nextEngine(engines.catalogue,taskEngine(engines,taskId)?.id,engines.projectDefault)
+ if(!next)return
+ engines.tasks={...engines.tasks,[taskId]:next.id}
+ if(next.id===engines.projectDefault)delete engines.tasks[taskId]
+ renderEngineToggle(view,entry)
+ try{
+  const stored=await api.setTaskEngine(view.projectID,taskId,next.id)
+  if(ticketsView===view&&stored)view.engines.tasks=stored.tasks||{}
+ }catch(err){
+  if(previous)engines.tasks[taskId]=previous;else delete engines.tasks[taskId]
+  view.status.textContent='Could not switch the engine of '+(entry.task.key||taskId)+': '+ipcMessage(err)
+  try{const fresh=await api.taskEngines(view.projectID);if(ticketsView===view)view.engines=fresh}catch{}
+ }
+ if(ticketsView===view)for(const row of view.rows.values())renderEngineToggle(view,row)
 }
 // Only the parts that depend on the polled runs are refreshed here: the row
 // itself stays, so a poll cannot move focus or close an open menu.
@@ -2368,7 +2442,7 @@ function openCompose(view,entry,initial=null,focusPrompt=true){
  closeCompose(view)
  const key=entry.task.key||entry.task.id
  const row=document.createElement('tr');row.className='ticket-compose'
- const cell=document.createElement('td');cell.colSpan=TICKET_COLUMNS.length
+ const cell=document.createElement('td');cell.colSpan=ticketColumns(view).length
  const prompt=document.createElement('textarea');prompt.placeholder='What should the agent do?';prompt.setAttribute('aria-label','Custom instructions')
  const mode=modeSelect(document,'Execution mode for '+key)
  const launch=document.createElement('button');launch.type='button';launch.textContent='Launch';launch.disabled=!view.info.configured

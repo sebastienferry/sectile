@@ -218,7 +218,11 @@ The agent downloads fresh project configuration for each operation. Configuratio
 contains identity, effective skills and defaults, without server filesystem paths
 or tracker credentials. Local repositories are mapped by project primary key in
 `~/.config/sectile/settings.json`, with repository overrides supported under
-`.taskflow/agent.json`. Git remote identity can match the current repository.
+`.taskflow/agent.json`. The same file holds the workstation's engine catalogue
+(ADR 0033): named AI CLI profiles, one workstation default engine, a default
+engine per project and the engine each task was switched to from the desktop
+ticket table. The agent applies the task's engine at dispatch, so the server
+and the dispatch contract know nothing of it. Git remote identity can match the current repository.
 Repositories are never cloned implicitly. On a multi-repo project, each
 repository the project declares is mapped by its remote identity instead
 (`repositories`), and a task runs in a worktree of the repository it is pinned

@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"reflect"
 	"sort"
@@ -16,17 +17,19 @@ import (
 // nil keeps the stored value; an inherit flag removes the project's statement
 // so the workstation default applies again.
 type projectSettingsInput struct {
-	ProjectID                   string            `json:"projectId"`
-	Path                        string            `json:"path"`
+	ProjectID string `json:"projectId"`
+	Path      string `json:"path"`
+	// DefaultEngine picks the project default engine from the catalogue
+	// (#510); InheritDefaultEngine follows the workstation default engine.
+	DefaultEngine        *string `json:"defaultEngine"`
+	InheritDefaultEngine bool    `json:"inheritDefaultEngine"`
+	// The engine fields of #305 are only read to refuse them: a desktop that
+	// still sends them predates the engine catalogue.
 	AIProvider                  *string           `json:"aiProvider"`
 	AIModel                     *string           `json:"aiModel"`
-	InheritAIProvider           bool              `json:"inheritAiProvider"`
-	InheritAIModel              bool              `json:"inheritAiModel"`
 	AISkillModels               map[string]string `json:"aiSkillModels"`
-	InheritAISkillModels        bool              `json:"inheritAiSkillModels"`
 	AICommandTemplate           *string           `json:"aiCommandTemplate"`
 	AICommandTemplateAutonomous *string           `json:"aiCommandTemplateAutonomous"`
-	InheritCommand              bool              `json:"inheritCommand"`
 	InheritWorktrees            bool              `json:"inheritWorktrees"`
 	Parallelism                 *int              `json:"parallelism"`
 	InheritParallelism          bool              `json:"inheritParallelism"`
@@ -48,6 +51,30 @@ type projectSettingsInput struct {
 	SpecPath *string `json:"specPath"`
 }
 
+// statesEngine reports an input carrying an engine field of #305.
+func (in projectSettingsInput) statesEngine() bool {
+	set := func(value *string) bool { return value != nil && strings.TrimSpace(*value) != "" }
+	return set(in.AIProvider) || set(in.AIModel) || set(in.AICommandTemplate) || set(in.AICommandTemplateAutonomous) ||
+		len(compactStrings(in.AISkillModels)) > 0
+}
+
+// applyEngine sets the project default engine the input picks.
+func (in projectSettingsInput) applyEngine(settings *agentconfig.Settings) error {
+	if in.InheritDefaultEngine {
+		settings.SetProjectEngine(in.ProjectID, "")
+		return nil
+	}
+	if in.DefaultEngine == nil {
+		return nil
+	}
+	id := strings.TrimSpace(*in.DefaultEngine)
+	if _, ok := settings.Engine(id); id != "" && !ok {
+		return fmt.Errorf("engine %q is not in the catalogue", id)
+	}
+	settings.SetProjectEngine(in.ProjectID, id)
+	return nil
+}
+
 // apply folds the input onto a project section.
 func (in projectSettingsInput) apply(p agentconfig.ProjectSettings) agentconfig.ProjectSettings {
 	text := func(field *string, value *string, inherit bool) {
@@ -57,25 +84,8 @@ func (in projectSettingsInput) apply(p agentconfig.ProjectSettings) agentconfig.
 			*field = strings.TrimSpace(*value)
 		}
 	}
-	text(&p.AIProvider, in.AIProvider, in.InheritAIProvider)
-	text(&p.AIModel, in.AIModel, in.InheritAIModel)
 	text(&p.Terminal, in.Terminal, in.InheritTerminal)
 	text(&p.SpecArtifacts, in.SpecArtifacts, in.InheritSpecArtifacts)
-	// The two commands are set together: a workstation that pins only the
-	// interactive one would keep running an inherited headless command beside
-	// it, which is the opposite of what a project command is for.
-	if in.InheritCommand {
-		p.AICommandTemplate, p.AICommandTemplateAutonomous = "", ""
-	} else if in.AICommandTemplate != nil || in.AICommandTemplateAutonomous != nil {
-		p.AICommandTemplate, p.AICommandTemplateAutonomous = "", ""
-		text(&p.AICommandTemplate, in.AICommandTemplate, false)
-		text(&p.AICommandTemplateAutonomous, in.AICommandTemplateAutonomous, false)
-	}
-	if in.InheritAISkillModels {
-		p.AISkillModels = nil
-	} else if in.AISkillModels != nil {
-		p.AISkillModels = compactStrings(in.AISkillModels)
-	}
 	if in.InheritWorktrees {
 		p.UseWorktrees = nil
 	} else if in.UseWorktrees != nil {
@@ -149,6 +159,7 @@ func executionFields(config agentconfig.Config, settings agentconfig.Settings) m
 	effective := agentconfig.Resolve(config, settings)
 	bare := settings
 	bare.ProjectSettings = map[string]agentconfig.ProjectSettings{}
+	bare.Engines.Projects = nil
 	inherited := agentconfig.Resolve(config, bare)
 	defaults := settings.Defaults
 	source := func(project, workstation bool) string {
@@ -167,17 +178,14 @@ func executionFields(config agentconfig.Config, settings agentconfig.Settings) m
 		}
 		return out
 	}
+	_, picked := settings.Engine(settings.Engines.Projects[id])
 	return map[string]fieldSource{
-		"aiProvider":                  {effective.AIProvider, inherited.AIProvider, source(section.AIProvider != "", defaults.AIProvider != "")},
-		"aiCommandTemplate":           {effective.AICommandTemplate, inherited.AICommandTemplate, source(section.AICommandTemplate != "", defaults.AICommandTemplate != "")},
-		"aiCommandTemplateAutonomous": {effective.AICommandTemplateAutonomous, inherited.AICommandTemplateAutonomous, source(section.AICommandTemplateAutonomous != "", defaults.AICommandTemplateAutonomous != "")},
-		"aiModel":                     {effective.AIModel, inherited.AIModel, source(section.AIModel != "", defaults.AIModel != "")},
-		"aiSkillModels":               {emptyMap(effective.AISkillModels), emptyMap(inherited.AISkillModels), source(len(section.AISkillModels) > 0, len(defaults.AISkillModels) > 0)},
-		"terminal":                    {effective.ExternalTerminalCommand, inherited.ExternalTerminalCommand, source(section.Terminal != "", defaults.Terminal != "")},
-		"useWorktrees":                {effective.UseWorktrees, inherited.UseWorktrees, source(section.UseWorktrees != nil, defaults.UseWorktrees != nil)},
-		"parallelism":                 {agentconfig.ExecutionLimit(id, true, settings), agentconfig.ExecutionLimit(id, true, bare), source(section.Parallelism != 0, defaults.Parallelism != 0)},
-		"setupProviders":              {emptyList(effective.SetupProviders), emptyList(inherited.SetupProviders), source(section.SetupProviders != nil, defaults.SetupProviders != nil)},
-		"skillCommands":               {commands(effective), commands(inherited), source(len(section.SkillCommands) > 0, false)},
+		"defaultEngine":  {effective.EngineID, settings.DefaultEngine().ID, source(picked, true)},
+		"terminal":       {effective.ExternalTerminalCommand, inherited.ExternalTerminalCommand, source(section.Terminal != "", defaults.Terminal != "")},
+		"useWorktrees":   {effective.UseWorktrees, inherited.UseWorktrees, source(section.UseWorktrees != nil, defaults.UseWorktrees != nil)},
+		"parallelism":    {agentconfig.ExecutionLimit(id, true, settings), agentconfig.ExecutionLimit(id, true, bare), source(section.Parallelism != 0, defaults.Parallelism != 0)},
+		"setupProviders": {emptyList(effective.SetupProviders), emptyList(inherited.SetupProviders), source(section.SetupProviders != nil, defaults.SetupProviders != nil)},
+		"skillCommands":  {commands(effective), commands(inherited), source(len(section.SkillCommands) > 0, false)},
 	}
 }
 
@@ -224,16 +232,14 @@ type workstationView struct {
 }
 
 // workstationEffective is what a project without a section of its own runs.
+// Its engine is the workstation default engine (#510).
 type workstationEffective struct {
-	AIProvider                  string              `json:"aiProvider"`
-	AICommandTemplate           string              `json:"aiCommandTemplate"`
-	AICommandTemplateAutonomous string              `json:"aiCommandTemplateAutonomous"`
-	AIModel                     string              `json:"aiModel"`
-	Terminal                    string              `json:"terminal"`
-	EditorCommand               string              `json:"editorCommand"`
-	UseWorktrees                bool                `json:"useWorktrees"`
-	Parallelism                 int                 `json:"parallelism"`
-	AIProviderModels            map[string][]string `json:"aiProviderModels"`
+	DefaultEngine    engineSummary       `json:"defaultEngine"`
+	Terminal         string              `json:"terminal"`
+	EditorCommand    string              `json:"editorCommand"`
+	UseWorktrees     bool                `json:"useWorktrees"`
+	Parallelism      int                 `json:"parallelism"`
+	AIProviderModels map[string][]string `json:"aiProviderModels"`
 }
 
 // desktopWorkstation reads and writes the workstation defaults. The agent is
@@ -255,12 +261,10 @@ func (d *agentDaemon) desktopWorkstation(w http.ResponseWriter, r *http.Request)
 			return
 		}
 		input = normalizeDefaults(input)
+		// A desktop that predates the engine catalogue still sends the engine
+		// fields: refused with a message saying why, never silently dropped.
 		if err := agentconfig.ValidateDefaults(input); err != nil {
 			http.Error(w, err.Error(), 400)
-			return
-		}
-		if input.AIProvider == "custom" && strings.TrimSpace(input.AICommandTemplate) == "" {
-			http.Error(w, "Custom provider requires a command template containing {prompt}", 400)
 			return
 		}
 		d.prepareMu.Lock()
@@ -281,7 +285,7 @@ func (d *agentDaemon) desktopWorkstation(w http.ResponseWriter, r *http.Request)
 }
 
 func (d *agentDaemon) workstationViewOf(settings agentconfig.Settings) workstationView {
-	effective := agentconfig.Resolve(agentconfig.Config{}, agentconfig.Settings{Defaults: settings.Defaults})
+	effective := agentconfig.Resolve(agentconfig.Config{}, agentconfig.Settings{Defaults: settings.Defaults, Engines: settings.Engines})
 	shipped := map[string][]string{}
 	for provider := range agentconfig.DefaultProviderModels {
 		shipped[provider] = agentconfig.ProviderModels(agentconfig.Defaults{}, provider)
@@ -301,16 +305,11 @@ func (d *agentDaemon) workstationViewOf(settings agentconfig.Settings) workstati
 	if terminal == "" {
 		terminal = d.resolveTerminalForProject(context.Background(), "", "")
 	}
-	defaults := settings.Defaults
-	if defaults.AISkillModels == nil {
-		defaults.AISkillModels = map[string]string{}
-	}
 	return workstationView{
-		Defaults: defaults,
+		Defaults: settings.Defaults,
 		Effective: workstationEffective{
-			AIProvider: effective.AIProvider, AICommandTemplate: effective.AICommandTemplate,
-			AICommandTemplateAutonomous: effective.AICommandTemplateAutonomous, AIModel: effective.AIModel,
-			Terminal: terminal, EditorCommand: editor, UseWorktrees: effective.UseWorktrees,
+			DefaultEngine: summaryOf(settings.DefaultEngine()),
+			Terminal:      terminal, EditorCommand: editor, UseWorktrees: effective.UseWorktrees,
 			Parallelism: agentconfig.ExecutionLimit("", true, settings), AIProviderModels: configured,
 		},
 		ProviderModels: shipped,

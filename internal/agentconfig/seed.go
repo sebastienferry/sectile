@@ -101,35 +101,41 @@ func legacyApply(server legacyEngine, global, project Execution) legacyEngine {
 	return out
 }
 
-// ApplyWorkstationSeed copies the deployment's values into the workstation
-// defaults, once, only into the keys the workstation does not set and only
-// where they change what a project without values of its own resolves.
+// profile is the engine a legacy resolution ran.
+func (e legacyEngine) profile() Engine {
+	return normalizeProfile(Engine{
+		Provider: e.provider, Command: e.command, CommandAutonomous: e.autonomous,
+		Model: e.models.Model, SkillModels: e.models.SkillModels,
+	})
+}
+
+// catalogueUnstated reports a workstation whose default engine is the one a
+// workstation stating nothing runs: the one the conversion gives a file whose
+// defaults name no engine. Projects may still have engines of their own.
+func (s Settings) catalogueUnstated() bool {
+	id := s.DefaultEngine().ID
+	return id == "" || id == implicitEngineID
+}
+
+// ApplyWorkstationSeed copies the deployment's values into the workstation,
+// once, only where the workstation states nothing: the engine the server
+// composed becomes the workstation default engine of a catalogue still
+// unstated (#510), and the terminal, the editor and the model lists fill the
+// keys the defaults leave unset.
 func ApplyWorkstationSeed(s *Settings, seed SeedDefaults, server string) {
-	global := s.Defaults.Execution
 	old := legacyApply(legacyEngine{
 		provider: seed.AIProvider, command: seed.AICommandTemplate, autonomous: seed.AICommandTemplateAutonomous,
 		models: ModelConfig{Model: seed.AIModel, SkillModels: seed.AISkillModels},
-	}, global, Execution{})
+	}, Execution{}, Execution{})
 	written := Defaults{}
 	d := &s.Defaults
-	current := func() Config { return Resolve(Config{}, Settings{Defaults: *d}) }
-	if d.AIProvider == "" && current().AIProvider != old.provider {
-		d.AIProvider, written.AIProvider = old.provider, old.provider
-	}
-	if d.AICommandTemplate == "" && old.command != "" && current().AICommandTemplate != old.command {
-		d.AICommandTemplate, written.AICommandTemplate = old.command, old.command
-	}
-	if d.AICommandTemplateAutonomous == "" && old.autonomous != "" && current().AICommandTemplateAutonomous != old.autonomous {
-		d.AICommandTemplateAutonomous, written.AICommandTemplateAutonomous = old.autonomous, old.autonomous
-	}
-	if d.AIModel == "" && old.models.Model != "" {
-		d.AIModel, written.AIModel = old.models.Model, old.models.Model
-	}
-	for skill, model := range old.models.SkillModels {
-		if strings.TrimSpace(d.AISkillModels[skill]) == "" {
-			d.AISkillModels = setEntry(d.AISkillModels, skill, model)
-			written.AISkillModels = setEntry(written.AISkillModels, skill, model)
+	if s.catalogueUnstated() && !sameProfile(s.DefaultEngine(), old.profile()) {
+		if implicit := s.DefaultEngine().ID; !s.enginePicked(implicit) {
+			s.removeEngine(implicit)
 		}
+		id := s.findOrCreate(old.profile())
+		s.Engines.Default = id
+		s.Seeded.DefaultEngine = id
 	}
 	if d.Terminal == "" && strings.TrimSpace(seed.Terminal) != "" {
 		d.Terminal, written.Terminal = strings.TrimSpace(seed.Terminal), strings.TrimSpace(seed.Terminal)
@@ -150,70 +156,78 @@ func ApplyWorkstationSeed(s *Settings, seed SeedDefaults, server string) {
 	s.Seeded.DefaultValues = &written
 }
 
-// globalBeforeSeed is the workstation's own global statement: the defaults
-// without what the defaults seed wrote and nobody changed since.
-func globalBeforeSeed(s Settings) Execution {
-	g := s.Defaults.Execution
-	w := s.Seeded.DefaultValues
-	if w == nil {
-		return g
-	}
-	unset := func(value *string, seeded string) {
-		if seeded != "" && *value == seeded {
-			*value = ""
-		}
-	}
-	unset(&g.AIProvider, w.AIProvider)
-	unset(&g.AICommandTemplate, w.AICommandTemplate)
-	unset(&g.AICommandTemplateAutonomous, w.AICommandTemplateAutonomous)
-	unset(&g.AIModel, w.AIModel)
-	unset(&g.Terminal, w.Terminal)
-	if len(w.AISkillModels) > 0 {
-		kept := map[string]string{}
-		for skill, model := range g.AISkillModels {
-			if w.AISkillModels[skill] != model {
-				kept[skill] = model
+// enginePicked reports a project or a task pointing at the engine.
+func (s Settings) enginePicked(id string) bool {
+	for _, m := range []map[string]string{s.Engines.Projects, s.Engines.Tasks} {
+		for _, picked := range m {
+			if picked == id {
+				return true
 			}
 		}
-		g.AISkillModels = kept
+	}
+	return false
+}
+
+func (s *Settings) removeEngine(id string) {
+	kept := s.Engines.Catalogue[:0]
+	for _, engine := range s.Engines.Catalogue {
+		if engine.ID != id {
+			kept = append(kept, engine)
+		}
+	}
+	s.Engines.Catalogue = kept
+}
+
+// globalBeforeSeed is the workstation's own global statement: the default
+// engine unless the seed created it or the workstation states none, and the
+// terminal unless the defaults seed wrote it and nobody changed it since.
+func globalBeforeSeed(s Settings) Execution {
+	var g Execution
+	if engine := s.DefaultEngine(); engine.ID != s.Seeded.DefaultEngine && !s.catalogueUnstated() {
+		g = engine.execution()
+	}
+	g.Terminal = s.Defaults.Terminal
+	if w := s.Seeded.DefaultValues; w != nil && w.Terminal != "" && g.Terminal == w.Terminal {
+		g.Terminal = ""
 	}
 	return g
 }
 
-// ApplyProjectSeed copies what the server composed for a project into its section,
-// once, only into the keys the section does not set and only where they change
-// the resolution: afterwards the project resolves the provider, command lines,
-// models, terminal, worktrees, setup providers and skill command names the
-// pre-#305 agent resolved.
+// ApplyProjectSeed copies what the server composed for a project, once, only
+// where the project states nothing and only where it changes the resolution:
+// afterwards the project resolves the provider, command lines, models,
+// terminal, worktrees, setup providers and skill command names the pre-#305
+// agent resolved. The engine becomes a catalogue entry the project picks
+// (#510), found or created, never an edit of an existing entry.
 func ApplyProjectSeed(s *Settings, c Config, seed SeedProject, at string) {
 	id := c.ProjectID
 	p := s.Project(id)
 	global := globalBeforeSeed(*s)
+	// A project that picked an engine states that engine: the seed only fills
+	// what the pick leaves unset, as it filled what a section left unset.
+	local := Execution{Terminal: p.Terminal}
+	pick, picked := s.Engine(s.Engines.Projects[id])
+	if picked {
+		local = pick.execution()
+		local.Terminal = p.Terminal
+	}
 	old := legacyApply(legacyEngine{
 		provider: seed.AIProvider, command: seed.AICommandTemplate, autonomous: seed.AICommandTemplateAutonomous,
 		terminal: seed.Terminal, models: ModelConfig{Model: seed.AIModel, SkillModels: seed.AISkillModels},
-	}, global, p.Execution)
+	}, global, local)
+	if picked {
+		// A pick states its per-skill models, which no pre-#305 project level did.
+		old.models = MergeModels(ModelConfig{Model: old.models.Model, SkillModels: pick.SkillModels}, old.models)
+	}
 	current := func() Config {
 		s.SetProject(id, p)
 		return Resolve(c, *s)
 	}
-	if p.AIProvider == "" && current().AIProvider != old.provider {
-		p.AIProvider = old.provider
-	}
-	if p.AICommandTemplate == "" && old.command != "" && current().AICommandTemplate != old.command {
-		p.AICommandTemplate = old.command
-	}
-	if p.AICommandTemplateAutonomous == "" && old.autonomous != "" && current().AICommandTemplateAutonomous != old.autonomous {
-		p.AICommandTemplateAutonomous = old.autonomous
-	}
-	if p.AIModel == "" && old.models.Model != "" && current().AIModel != old.models.Model {
-		p.AIModel = old.models.Model
-	}
-	resolved := current()
-	for skill, model := range old.models.SkillModels {
-		if strings.TrimSpace(p.AISkillModels[skill]) == "" && resolved.AISkillModels[skill] != model {
-			p.AISkillModels = setEntry(p.AISkillModels, skill, model)
-		}
+	resolved, want := current(), old.profile()
+	if resolved.AIProvider != want.Provider || resolved.AICommandTemplate != want.Command ||
+		resolved.AICommandTemplateAutonomous != want.CommandAutonomous ||
+		!sameProfile(Engine{Model: resolved.AIModel, SkillModels: resolved.AISkillModels}, Engine{Model: want.Model, SkillModels: want.SkillModels}) {
+		s.SetProjectEngine(id, s.findOrCreate(want))
 	}
 	if p.Terminal == "" && old.terminal != "" && current().ExternalTerminalCommand != old.terminal {
 		p.Terminal = old.terminal
@@ -227,7 +241,7 @@ func ApplyProjectSeed(s *Settings, c Config, seed SeedProject, at string) {
 		if len(want) == 0 {
 			want = nil
 		}
-		if !reflect.DeepEqual(current().SetupProviders, want) {
+		if !reflect.DeepEqual(configuredSetupProviders(*s, p), want) {
 			p.SetupProviders = append([]string{}, want...)
 		}
 	}
@@ -246,6 +260,22 @@ func ApplyProjectSeed(s *Settings, c Config, seed SeedProject, at string) {
 		s.Seeded.Projects = map[string]string{}
 	}
 	s.Seeded.Projects[id] = at
+}
+
+// configuredSetupProviders is the setup provider list the levels state, before
+// the catalogue providers join it: what the server's list is compared with.
+func configuredSetupProviders(s Settings, p ProjectSettings) []string {
+	var out []string
+	if s.Defaults.SetupProviders != nil {
+		out = models.NormalizeSetupProviders(s.Defaults.SetupProviders)
+	}
+	if p.SetupProviders != nil {
+		out = models.NormalizeSetupProviders(p.SetupProviders)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 func commandOf(c Config, skillID string) string {

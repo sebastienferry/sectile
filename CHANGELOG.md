@@ -15,6 +15,8 @@ test fixtures or internal plumbing.
 
 ### Added
 
+- **Several AI engines, switched per task from the desktop.** Sectile Desktop keeps a catalogue of named engines on your workstation, each a full AI CLI profile (provider, model, per-skill models, interactive and headless commands), edited under **Settings → Execution defaults → Engines**, one of them the default. The ticket list shows each task's engine as an icon; clicking it hands the task to the next engine, and every launch of that task on this workstation uses it, whether started from the desktop, the web, a relaunch or a full chain. A one-off launch model applies only on the project's default engine. (#510)
+
 - **Light mode for Sectile Desktop.** The desktop app now has a light appearance next to its dark one. A new **Appearance** category in the desktop settings offers System, Dark and Light; System, the default, follows your computer's appearance, so a desktop on a light system turns light after the update. The whole window follows the choice at once, the console included, without a restart. The web interface keeps its own theme. (#507)
 
 - **Run the server as several replicas.** Several servers can now share one PostgreSQL database behind a load balancer, with no sticky sessions. A new readiness probe, `GET /api/ready`, tells the balancer when a replica can take traffic. A replica asked to stop drains first: it reports not ready, keeps serving for `SECTILE_SHUTDOWN_GRACE` (5 seconds by default), then hands its agents over to the other replicas. The README's "Several replicas" section lists what the deployment must provide. (#410)
@@ -85,6 +87,8 @@ test fixtures or internal plumbing.
 ### Changed
 
 - **Rename a task from its sidebar row.** In Sectile Desktop, the **…** button of a task row gives way to a pencil that turns the task's title into a field: Enter or clicking away saves the local name, Escape cancels. Relaunch and Detach to native terminal stay in the toolbar of the selected task, and Archive on the row. (#513)
+
+- **Desktop project settings pick a default engine.** The provider, model, per-skill model and command fields leave the project settings and the workstation defaults for a single "Default engine" choice among the workstation's engines. Existing settings become engines automatically on the first start of the updated agent, which keeps a copy of the previous settings file, and every project keeps running what it ran. (#510)
 
 - **The desktop workflow button says what is running.** While an execution of the selected task is active or being launched, the console toolbar button reads `Current: <skill>` (for example `Current: Pickup`) instead of a greyed-out `Next:`, including on a finished task; it proposes `Next: <step>` again once the execution ends. (#500)
 
