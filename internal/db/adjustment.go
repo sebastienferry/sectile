@@ -165,6 +165,8 @@ func (d *DB) validateStagePRAt(task *models.Task, actorID, skillID, repoPath, br
 		SHA        string
 		Branch     string
 		Clean      bool
+		Path       string
+		Status     string
 	}
 	op := agentprotocol.Operation{ProjectID: task.ProjectID, TaskID: task.ID, Action: "git_evidence", UserID: actorID}
 	if target.foreign {
@@ -188,7 +190,20 @@ func (d *DB) validateStagePRAt(task *models.Task, actorID, skillID, repoPath, br
 		return "", "", fmt.Errorf("%s does not contain the agent checkout commit", request)
 	}
 	if ready && !evidence.Clean {
-		return "", "", fmt.Errorf("agent checkout contains uncommitted changes")
+		path := evidence.Path
+		if path == "" {
+			path = repoPath
+		}
+		message := "Impossible de marquer la tâche comme revue : des modifications locales ne sont pas commitées"
+		if path != "" {
+			message += fmt.Sprintf(" dans le checkout %q", path)
+		}
+		message += "."
+		if evidence.Status != "" {
+			message += "\nFichiers concernés (git status --short) :\n" + evidence.Status
+		}
+		message += "\nConservez ces modifications en les committant puis en poussant la branche, ou mettez-les de côté avec git stash. Réessayez ensuite « Marquer comme revue »."
+		return "", "", fmt.Errorf("%s", message)
 	}
 
 	return url, "", nil
