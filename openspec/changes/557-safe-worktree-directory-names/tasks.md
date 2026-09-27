@@ -1,0 +1,10 @@
+# Implementation checklist
+
+- [ ] 1. Add the shared safe naming and input-validation helper; cover numeric mapping, deterministic output, ASCII/length bounds, reserved names, case/punctuation/Unicode collisions, namespace collisions, and invalid inputs with table tests.
+- [ ] 2. Integrate safe destination and occupied sibling selection into task preparation while retaining branch reuse, branch validation, remote branch base selection, and worktrees-disabled behavior. Add real-Git tests for occupied files/directories/symlinks, multiple occupied candidates, repeat reuse, and safe creation failures.
+- [ ] 3. Consolidate branch-first local checkout resolution and migrate desktop discussion launch and workspace/editor/diff/removal consumers. Test arbitrary, legacy, shared batch, main-checkout, detached, wrong-branch, missing and dirty checkout cases; prove unrelated entries remain unchanged.
+- [ ] 4. Apply naming to macro preparation and test numeric and nonnumeric keys, legacy branch reuse, main-checkout reuse, and existing occupied-path refusal/empty-stale-path safeguards without changing macro base selection.
+- [ ] 5. Audit secondary/attached repository preparation, multi-repository cleanup, skill discovery, and batch flows; add integration coverage proving consistent actual-path reuse and preserved primary/context boundaries.
+- [ ] 6. Verify Vite in a minimal application prepared through production worktree creation under a safe root, with dependencies installed in the generated checkout. Assert successful source-module execution and DOM output in a browser; record evidence and clean up fixture processes. Retain the #417 legacy-path workaround.
+- [ ] 7. Update architecture and relevant agent-contract documentation; add one user-facing Fixed entry under Unreleased. Describe legacy preservation and the unsafe-ancestor limitation.
+- [ ] 8. Run focused Go tests and race checks for affected agent/workspace behavior, required repository checks for touched surfaces, and strict OpenSpec validation. Review the diff against the accepted clarification and report validation and remaining limitations without claiming legacy Vite repair.
