@@ -65,7 +65,8 @@ func TestWorkspaceOperationUsesLocalMappingAndAssignedCheckout(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if evidence["clean"] != false || evidence["path"] != resolvedRoot || evidence["status"] != "?? AGENTS.md" {
+	evidencePath, ok := evidence["path"].(string)
+	if evidence["clean"] != false || !ok || !sameDirectory(evidencePath, resolvedRoot) || evidence["status"] != "?? AGENTS.md" {
 		t.Fatalf("dirty checkout evidence: %#v", evidence)
 	}
 	task.ProjectID = "other"

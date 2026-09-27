@@ -48,14 +48,14 @@ No automatic migration or Vite repair is promised for retained legacy paths. Saf
 
 PR #559 was verified open and draft on `feat/557` before edits, with implementation HEAD `02fc7c1cbfa9b0e546bd478e035e302df1a6a749`. The configured remote default is `main`; the initial fetched base was already included. A later pre-push fetch detected `7bb34b4a39b83c2f433b7241955f4264228300de` (#563), which was merged without rewriting the shared branch. The changelog conflict was resolved by retaining both independent Fixed entries. Its code changes merged cleanly and were reviewed for compatibility with the checkout resolver; final checks were rerun after integration.
 
-The complete branch diff was reviewed against the accepted clarification and OpenSpec requirements, including naming bounds and original-key digests, occupied entries and symlinks, branch-first legacy/shared/main lookup, task and macro creation, desktop discussion launch, secondary repository preparation, explicit cleanup, documentation and the changelog. No actionable code defect was found. The design's legacy fallback needs no separate path probe: registered legacy checkouts already appear in the authoritative Git branch inventory; an unregistered directory is not accepted as a checkout.
+The complete branch diff was reviewed against the accepted clarification and OpenSpec requirements, including naming bounds and original-key digests, occupied entries and symlinks, branch-first legacy/shared/main lookup, task and macro creation, desktop discussion launch, secondary repository preparation, explicit cleanup, documentation and the changelog. No actionable production-code defect was found. Base integration exposed a new test assertion that required a symlink-resolved path spelling; it was corrected to compare directory identity, preserving this specification's main-checkout spelling contract and the base change's dirty-status checks. The design's legacy fallback needs no separate path probe: registered legacy checkouts already appear in the authoritative Git branch inventory; an unregistered directory is not accepted as a checkout.
 
 Feedback retrieval succeeded for task comments and all three PR endpoints (inline comments, reviews and conversation comments). The PR endpoints returned empty lists, so there is no human feedback to address. Task reports were reconciled with the accepted scope and implementation; no outstanding question remains.
 
 Final checks were rerun:
 
 - `go test ./...`, `go vet ./...`, `make fmt-check`, `make build-all` and `git diff --check`: passed.
-- `go test -race ./internal/agent ./internal/workspace`: passed (agent 45.328s, workspace 1.850s).
+- `go test -race ./internal/agent ./internal/workspace`: passed (initial review: agent 45.328s, workspace 1.850s; repeated after base integration and the assertion correction).
 - Web `npm test`: 509 passed; desktop `npm test`: 145 passed; TypeScript and web lint passed with existing warnings.
 - Strict OpenSpec validation: passed.
 - Opt-in Vite acceptance rerun with `-count=1`: passed in 10.01s. Chrome loaded `/src/main.js` with HTTP 200, rendered `safe-worktree-loaded` and reported no page errors. Production preparation created `.tasks/worktrees/issue-289` under the test's safe temporary root, and Vite was installed in that checkout's own `node_modules`.
