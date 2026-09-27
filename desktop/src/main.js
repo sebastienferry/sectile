@@ -2525,7 +2525,7 @@ function ticketRow(view,task){
    entry.declareReviewed=button
    button.onclick=()=>{closeMenu();confirmDeclareReviewed(view.projectID,task)}
   }else{
-   button.onclick=()=>{closeMenu();if(item.compose)openCompose(view,entry);else if(item.nativeTerminal)submitNativeDiscussion(view,entry).catch(()=>{});else submitTicketLaunch(view,entry,item.skillId,'','').catch(()=>{})}
+   button.onclick=()=>{closeMenu();if(item.compose)openCompose(view,entry);else if(item.nativeTerminal)submitNativeDiscussion(view,entry).catch(()=>{});else submitTicketLaunch(view,entry,item.skillId,'',item.skillId==='pickup'?'autonomous':'').catch(()=>{})}
   }
   menu.append(button)
  }
