@@ -4,7 +4,7 @@ const {_electron:electron,expect}=require('@playwright/test')
 const http=require('node:http'),fs=require('node:fs'),os=require('node:os'),path=require('node:path')
 const {WebSocketServer}=require('ws')
 
-test('the discussion header carries identity, state, a copyable worktree and icon controls',async()=>{
+test('the discussion header carries identity and controls while the footer carries state',async()=>{
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'sectile-discussion-header-'))
  const worktree='/tmp/example/worktree-42'
  const otherWorktree='/tmp/example/worktree-7'
@@ -34,13 +34,14 @@ test('the discussion header carries identity, state, a copyable worktree and ico
   const page=await app.firstWindow();page.setDefaultTimeout(7000)
   await app.evaluate(({clipboard})=>clipboard.writeText('untouched'))
 
-  // Identity and state share one line; the state is the shared vocabulary.
+  // The title retains identity; the footer state uses the shared vocabulary.
   await expect(page.locator('#title')).toHaveText('#82 · Rework the discussion header · implement')
   await expect(page.locator('#run-state')).toHaveText('Running')
   await expect(page.locator('#run-state')).toHaveAttribute('title','Process: Running')
   assert.equal(await page.locator('#run-state svg').count(),1,'The state keeps the shared glyph beside its label')
-  // The state comes first, in the header as in the sidebar row and the tickets pane.
-  assert.ok(await page.evaluate(()=>document.querySelector('#run-state').compareDocumentPosition(document.querySelector('#title'))&Node.DOCUMENT_POSITION_FOLLOWING),'The header state precedes the title')
+  // Only the sidebar row keeps the state before its title.
+  await expect(page.locator('#task-status #run-state')).toHaveText('Running')
+  await expect(page.locator('#toolbar #run-state')).toHaveCount(0)
   const row=page.locator('.local-task').first()
   assert.ok(await row.evaluate(el=>el.querySelector('.run-state').compareDocumentPosition(el.querySelector('strong'))&Node.DOCUMENT_POSITION_FOLLOWING),'The row state precedes the title')
   await expect(row.locator('.run-state')).toHaveAttribute('title',/^Process: /)
@@ -96,7 +97,7 @@ test('the discussion header carries identity, state, a copyable worktree and ico
   await page.screenshot({path:path.join(root,'discussion-header.png')})
   console.log('Discussion header screenshot: '+path.join(root,'discussion-header.png'))
 
-  // Without a selected execution the header offers neither state nor path.
+  // Without a selected execution the footer state and header path are hidden.
   runs=[];await page.reload()
   await expect(page.locator('#title')).toHaveText('Select an execution')
   await expect(page.locator('#run-state')).toBeHidden()

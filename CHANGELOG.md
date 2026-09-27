@@ -19,6 +19,8 @@ test fixtures or internal plumbing.
 
 ### Changed
 
+- Desktop execution and skill-result indicators now appear in the task’s bottom status bar; the redundant current-skill badge is hidden. (#560)
+
 - AI engine profiles have their own desktop settings page, separate from execution defaults.
 
 - Desktop configuration project sections can be collapsed; expanding one closes the others while global settings remain visible.

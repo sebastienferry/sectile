@@ -62,7 +62,10 @@ test('console next step rechecks task state, guards active history and handles f
   failLaunch=true;await button.click()
   await page.waitForFunction(()=>document.querySelector('#next-step-status').textContent.includes('Could not launch'))
   assert.equal(await button.isEnabled(),true,'Launch errors allow retry')
-  failLaunch=false;await button.dblclick()
+  failLaunch=false
+  // Target the same action twice: hiding the current badge reflows the toolbar,
+  // so a coordinate double-click can land on a different control after launch.
+  await button.evaluate(el=>{el.click();el.click()})
   await page.waitForFunction(()=>document.querySelector('#next-step-status').textContent.includes('Execution in progress'))
   assert.equal(launches.length,1)
   assert.deepEqual(launches[0],{taskID:'task-a',skillID:'implement',prompt:''})
@@ -72,12 +75,12 @@ test('console next step rechecks task state, guards active history and handles f
   assert.equal(await chain.isDisabled(),true,'The full chain button waits for the execution to end')
   assert.equal(await chain.isVisible(),true,'The full chain button stays visible during an execution')
   assert.equal(await button.getAttribute('aria-label'),'Current: Implement','The button names the running skill')
-  assert.equal(await badge.textContent(),'Current: Implement','The badge names the running skill')
+  assert.equal(await badge.isHidden(),true,'The current skill badge does not repeat the execution title')
   await page.locator('#execution-history').selectOption('old')
   assert.equal(await button.isDisabled(),true,'An older console cannot bypass an active run')
   assert.equal(await chain.isDisabled(),true,'An older console still disables full chain')
   assert.equal(await button.getAttribute('aria-label'),'Current: Implement','An older console still names the active run')
-  assert.equal(await badge.textContent(),'Current: Implement','An older console still names the active run')
+  assert.equal(await badge.isHidden(),true,'The current skill badge does not repeat the execution title')
   // The execution completes and moves the stage: the button proposes the step that follows.
   stage='implemented';active=false
   await page.waitForFunction(()=>document.querySelector('#stop').disabled)
@@ -90,7 +93,7 @@ test('console next step rechecks task state, guards active history and handles f
   assert.equal(launches.length,2)
   assert.deepEqual(launches[1],{taskID:'task-a',skillID:'implement',prompt:''},'The missing pull request is recovered by the creation owner, never by create_pr')
   assert.equal(await button.getAttribute('aria-label'),'Current: Implement','The button names the skill launched, not the step label')
-  assert.equal(await badge.textContent(),'Current: Implement','The badge names the skill launched, not the step label')
+  assert.equal(await badge.isHidden(),true,'The current skill badge does not repeat the execution title')
   // An execution that ends without moving the stage proposes the same step again.
   active=false
   await page.getByRole('button',{name:'Next: Create PR',exact:true}).waitFor()
@@ -173,7 +176,7 @@ test('console next step rechecks task state, guards active history and handles f
   assert.deepEqual(launches[launchCountBefore],{taskID:'task-a',skillID:'pickup',prompt:'',mode:'autonomous'})
   assert.equal(await button.isDisabled(),true)
   assert.equal(await chain.isDisabled(),true)
-  assert.equal(await badge.textContent(),'Current: Pickup')
+  assert.equal(await badge.isHidden(),true,'The current skill badge does not repeat the execution title')
 
   // A failed >> launch shows 'Could not launch full chain' and re-enables both buttons (US2.5)
   active=false

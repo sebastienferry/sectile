@@ -187,6 +187,8 @@ aside{flex-shrink:0}.sidebar-hidden #sidebar-resizer{display:none}#sidebar-resiz
 .local-task>.run-state{padding-left:8px;cursor:pointer}.local-task>.task-key-slot{display:inline-flex;flex-shrink:0;min-width:5ch;margin-left:8px;font-size:11px;white-space:nowrap}.local-task .task-key-slot>.task-number{border:0;background:none;padding:4px 0;margin:0;font-size:11px;font-variant-numeric:tabular-nums;white-space:nowrap;color:var(--task-key);cursor:pointer}.local-task .task-key-slot>.task-number:hover{text-decoration:underline;color:inherit}
 
 #task-status{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;flex-shrink:0}
+.execution-status{display:flex;align-items:center;gap:10px;flex-wrap:wrap;min-width:0;max-width:100%}.execution-status:has(>[hidden]):not(:has(>:not([hidden]))){display:none}
+#task-status .skill-result{white-space:normal;overflow-wrap:anywhere;min-width:0}
 #next-step-status{flex:1;min-width:160px;overflow-wrap:anywhere}
 #next-step,#pickup-chain{color:var(--next-step-text);background:var(--next-step-bg);border-color:var(--next-step-border)}#next-step,#pickup-chain,#mark-reviewed,#retry-next-step,#force-next-step{flex-shrink:0}
 .step-badge{font-size:11px;color:var(--text-muted);border:1px solid var(--border);border-radius:999px;padding:2px 8px;white-space:nowrap;flex-shrink:0}
@@ -260,8 +262,8 @@ aside{flex-shrink:0}.sidebar-hidden #sidebar-resizer{display:none}#sidebar-resiz
 @media(max-width:750px){.diff-body{grid-template-columns:minmax(0,1fr)}.diff-files{max-height:150px}}
 
 .terminal-title-line{display:flex;align-items:center;flex-wrap:wrap;gap:8px;min-width:0}.terminal-title-line #title{min-width:0}
-.header-state{gap:5px;font-size:11px;white-space:nowrap;color:var(--text-secondary)}
-.header-state svg{flex-shrink:0}
+.selected-run-state{gap:5px;font-size:11px;white-space:nowrap;color:var(--text-secondary)}
+.selected-run-state svg{flex-shrink:0}
 
 /* The path is a control, not a caption, but it must not look like one more
    button in the action row: no frame until it is pointed at. */
