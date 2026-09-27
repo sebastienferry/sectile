@@ -15,9 +15,13 @@ test fixtures or internal plumbing.
 
 ### Added
 
+- Projects can optionally push clarification and specification commits after each stage commit; the setting is off by default. (#459)
+
 - Open desktop Configuration with Cmd+, on macOS or Ctrl+, on Windows/Linux, including from a terminal; an already-open settings page keeps its current category and unsaved edits. (#547)
 
 ### Changed
+
+- Each clarification round now publishes its full report section on the ticket, retaining Markdown history and avoiding duplicate final-round comments. (#459)
 
 - Desktop execution and skill-result indicators now appear in the task’s bottom status bar; the redundant current-skill badge is hidden. (#560)
 

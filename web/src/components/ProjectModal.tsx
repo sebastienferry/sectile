@@ -159,6 +159,7 @@ export const ProjectModal: React.FC = () => {
   // Section 2: Git (remote URL, declared repositories)
   const [prCreationStage, setPRCreationStage] = useState<'specified' | 'implemented'>('implemented')
   const [defaultSkillMode, setDefaultSkillMode] = useState<SkillMode>('')
+  const [pushStageCommits, setPushStageCommits] = useState(false)
   const [fullChainStopStage, setFullChainStopStage] = useState<'implemented' | 'reviewed'>('reviewed')
   const [trackerColumns, setTrackerColumns] = useState<TrackerColumn[]>([])
   const [stageColumns, setStageColumns] = useState<Record<string, string[]>>({})
@@ -257,6 +258,7 @@ export const ProjectModal: React.FC = () => {
       setPRCreationStage(editingProject.prCreationStage || 'implemented')
       setDefaultSkillMode(editingProject.defaultSkillMode || '')
       setFullChainStopStage(editingProject.fullChainStopStage || 'reviewed')
+      setPushStageCommits(editingProject.pushStageCommits === true)
       setTrackerColumns(editingProject.trackerColumns || [])
       setStageColumns(editingProject.stageColumns || {})
       setGitRemoteUrl(editingProject.gitRemoteUrl || '')
@@ -297,6 +299,7 @@ export const ProjectModal: React.FC = () => {
       }
     } else {
       setPRCreationStage('implemented')
+      setPushStageCommits(false)
       setName('')
       setSlug('')
       setDescription('')
@@ -402,6 +405,7 @@ export const ProjectModal: React.FC = () => {
         prCreationStage,
         defaultSkillMode,
         fullChainStopStage,
+        pushStageCommits,
         trackerColumns,
         stageColumns,
         gitRemoteUrl: gitRemoteUrl.trim(),
@@ -913,6 +917,12 @@ export const ProjectModal: React.FC = () => {
                   {ps.execution.defaultModeHelp}
                 </p>
               </div>
+
+              <label className="flex items-center gap-2 text-xs text-[var(--text-primary)]">
+                <input type="checkbox" checked={pushStageCommits} onChange={e => setPushStageCommits(e.target.checked)} />
+                {ps.execution.pushStageCommitsLabel}
+              </label>
+              <p className="text-[10px] text-[var(--text-muted)]">{ps.execution.pushStageCommitsHelp}</p>
 
               <div>
                 <label htmlFor="fullChainStopStage" className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1.5">

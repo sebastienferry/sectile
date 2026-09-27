@@ -149,6 +149,8 @@ type Project struct {
 	// "implemented" and "reviewed" mean anything; anything else reads as
 	// "reviewed" so a bad stored value cannot wedge a board.
 	FullChainStopStage string `json:"fullChainStopStage"`
+	// PushStageCommits publishes clarify and specify commits when enabled.
+	PushStageCommits bool `json:"pushStageCommits"`
 	// BoardID / TrackerColumns mirror the tracker's board: its columns in order,
 	// with the statuses each one groups. Imported from the tracker, not typed by
 	// hand.
@@ -413,6 +415,7 @@ type CreateProjectRequest struct {
 	SpecArtifacts       string   `json:"specArtifacts,omitempty"`
 	DefaultSkillMode    string   `json:"defaultSkillMode,omitempty"`
 	FullChainStopStage  string   `json:"fullChainStopStage,omitempty"`
+	PushStageCommits    bool     `json:"pushStageCommits,omitempty"`
 	BoardID             string   `json:"boardId,omitempty"`
 	GitRemoteUrl        string   `json:"gitRemoteUrl,omitempty"`
 	GithubRepo          string   `json:"githubRepo,omitempty"`
@@ -440,6 +443,7 @@ type UpdateProjectRequest struct {
 	SpecArtifacts       *string              `json:"specArtifacts,omitempty"`
 	DefaultSkillMode    *string              `json:"defaultSkillMode,omitempty"`
 	FullChainStopStage  *string              `json:"fullChainStopStage,omitempty"`
+	PushStageCommits    *bool                `json:"pushStageCommits,omitempty"`
 	BoardID             *string              `json:"boardId,omitempty"`
 	TrackerColumns      *[]TrackerColumn     `json:"trackerColumns,omitempty"`
 	Sprints             *[]TrackerSprint     `json:"sprints,omitempty"`
