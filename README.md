@@ -135,7 +135,6 @@ initialization and verify `tools/list` after deployment. See
 
 ### Connecting an Auth0 application
 
-
 Register Sectile as an Auth0 **Regular Web Application** (a server-side client).
 See Auth0's [application registration guide](https://auth0.com/docs/get-started/auth0-overview/create-applications/regular-web-apps)
 and [authorization code guide](https://auth0.com/docs/get-started/authentication-and-authorization-flow/authorization-code-flow/add-login-auth-code-flow).
@@ -180,13 +179,11 @@ user back in without another password prompt. Existing local accounts are not
 automatically linked to provider accounts, even when their e-mail matches.
 Before enabling the provider on an existing board, arrange administrator access:
 without a configured role claim, the first-account bootstrap grants admin only
-while no administrator exists. Optional role-claim configuration is described
-through `SECTILE_OIDC_ROLE_CLAIM` and `SECTILE_OIDC_ADMIN_GROUP`, which must be
+while no administrator exists. Optional role-claim configuration uses `SECTILE_OIDC_ROLE_CLAIM` and `SECTILE_OIDC_ADMIN_GROUP`, which must be
 set together or left unset. The claim is read from UserInfo, then the ID token,
 and may be a string or list. Its role overwrites manual role changes on the next
 sign-in; without it, the stored role remains authoritative. Do not assume a
-tenant supplies a particular claim. Workstation pairing
-and device keys continue to work independently of browser sessions.
+tenant supplies a particular claim. Workstation pairing and device keys continue to work independently of browser sessions.
 
 A callback mismatch requires checking the registered URL against the server
 setting. Discovery errors require checking issuer spelling and server access to
