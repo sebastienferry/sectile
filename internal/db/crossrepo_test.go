@@ -125,8 +125,12 @@ func TestForeignHeadIsCheckedOnAVerifiedCheckout(t *testing.T) {
 		t.Fatalf("stale checkout accepted or misworded: %v", err)
 	}
 	agent.checkout = foundCheckout("mr-head", false)
-	if _, _, err := d.validateStagePR(task, "", "adjust", "", sfeBranch, archMR); err == nil || !strings.Contains(err.Error(), "uncommitted changes") {
+	agent.checkout = strings.TrimSuffix(agent.checkout, "}") + `,"status":" M AGENTS.md"}`
+	if _, _, err := d.validateStagePR(task, "", "adjust", "", sfeBranch, archMR); err == nil || !strings.Contains(err.Error(), "modifications locales ne sont pas commitées") {
 		t.Fatalf("dirty checkout accepted for adjustment: %v", err)
+	}
+	if _, _, err := d.validateStagePR(task, "", "adjust", "", sfeBranch, archMR); err == nil || !strings.Contains(err.Error(), "/work/argocd-arch") || !strings.Contains(err.Error(), " M AGENTS.md") || !strings.Contains(err.Error(), "git stash") {
+		t.Fatalf("dirty checkout lacks recovery details: %v", err)
 	}
 }
 

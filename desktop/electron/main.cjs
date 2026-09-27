@@ -37,8 +37,10 @@ async function api(route,method='GET',body){
  const response=await fetch(connection.url+route,{method,headers:{Authorization:'Bearer '+connection.token,'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined,signal:AbortSignal.timeout(route==="/desktop/create-task"?120000:route.startsWith("/desktop/tasks")&&method==="POST"?60000:route.startsWith("/desktop/project?")&&method==="POST"?420000:15000),redirect:'error'})
  if(!response.ok){
   const detail=await response.text().catch(()=>'')
-  // Keep the raw body as the message so callers can parse structured errors; name the call when it is empty.
-  const failure=Error(detail||method+' '+route+' failed with HTTP '+response.status)
+  // Display plain API errors; preserve structured refusals for callers that read their fields.
+  let message=detail
+  try{const parsed=JSON.parse(detail);if(typeof parsed.error==='string'&&Object.keys(parsed).length===1)message=parsed.error}catch{}
+  const failure=Error(message||method+' '+route+' failed with HTTP '+response.status)
   Object.assign(failure,{status:response.status,route,method,body:detail})
   throw failure
  }
@@ -437,7 +439,7 @@ ipcMain.handle('git-diff',async(_,id)=>{
  try{return await api('/desktop/git-diff?id='+encodeURIComponent(id))}
  catch(err){
   let detail
-  try{detail=JSON.parse(err.message)}catch{throw err}
+  try{detail=JSON.parse(err.body||err.message)}catch{throw err}
   throw Error(detail.error?.message||'Inspection failed. Refresh to retry.')
  }
 })
