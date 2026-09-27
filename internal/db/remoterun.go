@@ -621,39 +621,17 @@ func (d *DB) AnswerRemoteRunWait(userID, runID string, waitingSince time.Time) (
 	if userID == "" || runID == "" || waitingSince.IsZero() {
 		return false, fmt.Errorf("user, run and answered wait are required")
 	}
-	var current sql.NullTime
-	var reason string
 	d.mu.Lock()
-	err := d.conn.QueryRow(`SELECT waiting_since, waiting_reason FROM task_activities
-		WHERE id = ? AND user_id = ? AND action = ? AND status = 'running' AND skill_id = 'remote_run'`,
-		runID, userID, RunActionAgent).Scan(&current, &reason)
-	if errors.Is(err, sql.ErrNoRows) {
-		d.mu.Unlock()
-		return false, nil
-	}
-	if err != nil {
-		d.mu.Unlock()
-		return false, err
-	}
-	if !current.Valid || reason != "" || !sameInstant(current.Time, waitingSince) {
-		d.mu.Unlock()
-		return false, nil
-	}
 	count, err := d.execCount(`UPDATE task_activities SET waiting_since=NULL, waiting_session='', waiting_reason=''
-		WHERE id = ? AND user_id = ? AND waiting_since IS NOT NULL AND waiting_reason = '' AND status = 'running' AND skill_id = 'remote_run'`,
-		runID, userID)
+		WHERE id = ? AND user_id = ? AND action = ? AND waiting_since = ? AND waiting_reason = '' AND status = 'running' AND skill_id = 'remote_run'`,
+		// SQLite stores local timestamps as text; the echoed mark may be UTC.
+		runID, userID, RunActionAgent, waitingSince.In(time.Local))
 	d.mu.Unlock()
 	if err != nil || count == 0 {
 		return false, err
 	}
 	d.notifyWaitChange(runID, true)
 	return true, nil
-}
-
-// sameInstant compares two waiting marks at the precision every engine keeps,
-// since the agent sends back the instant it was pushed after a JSON round trip.
-func sameInstant(a, b time.Time) bool {
-	return a.Truncate(time.Microsecond).Equal(b.Truncate(time.Microsecond))
 }
 
 // ReportRemoteRunWaitingAs is ReportSessionRunWaitingAs for a caller with no
