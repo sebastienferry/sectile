@@ -54,8 +54,8 @@ func TestMacroWorktreeStartsFromTheFetchedDefaultBranch(t *testing.T) {
 	if ws.Branch != "M-7-ux-improvements-and-fixes" || !ws.Worktree || ws.Warning != "" {
 		t.Fatalf("unexpected workspace %+v", ws)
 	}
-	if !samePath(t, ws.Path, filepath.Join(clone, ".tasks", "worktrees", "M-7")) {
-		t.Fatalf("worktree at %s, want .tasks/worktrees/M-7", ws.Path)
+	if !samePath(t, ws.Path, filepath.Join(clone, ".tasks", "worktrees", mustWorktreeName(t, "m-7"))) {
+		t.Fatalf("unexpected generated worktree path %s", ws.Path)
 	}
 	if head := gitTest(t, ws.Path, "rev-parse", "HEAD"); head != upstream {
 		t.Fatalf("the branch must start from the fetched origin/main %s, got %s", upstream, head)
@@ -164,7 +164,7 @@ func TestMacroWorktreesAreSeparatePerMacro(t *testing.T) {
 func TestMacroWorktreeRecreatesAnEmptyStalePath(t *testing.T) {
 	ctx := context.Background()
 	clone, _ := specRepoWithRemote(t)
-	stale := filepath.Join(clone, ".tasks", "worktrees", "M-7")
+	stale := filepath.Join(clone, ".tasks", "worktrees", mustWorktreeName(t, "M-7"))
 	if err := os.MkdirAll(stale, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -181,7 +181,7 @@ func TestMacroWorktreeRecreatesAnEmptyStalePath(t *testing.T) {
 func TestMacroWorktreeNeverDeletesANonEmptyStalePath(t *testing.T) {
 	ctx := context.Background()
 	clone, _ := specRepoWithRemote(t)
-	stale := filepath.Join(clone, ".tasks", "worktrees", "M-7")
+	stale := filepath.Join(clone, ".tasks", "worktrees", mustWorktreeName(t, "M-7"))
 	if err := os.MkdirAll(stale, 0o755); err != nil {
 		t.Fatal(err)
 	}

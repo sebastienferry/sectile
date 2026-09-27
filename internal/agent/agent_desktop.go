@@ -1211,13 +1211,23 @@ func (d *agentDaemon) desktopTasksTerminalExternal(w http.ResponseWriter, r *htt
 		return
 	}
 
+	root, _, err = primaryRoot(r.Context(), config, overrides, root, task)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
 	workDir := root
 	branch := "main"
 	if task.BranchName != nil && *task.BranchName != "" {
 		branch = *task.BranchName
 	}
 	if config.UseWorktrees {
-		worktreeDir := filepath.Join(root, ".tasks", "worktrees", task.Key)
+		worktreeDir, pathErr := localTaskPath(r.Context(), root, task)
+		if pathErr != nil {
+			http.Error(w, pathErr.Error(), http.StatusConflict)
+			return
+		}
+		branch, _ = taskWorktreeBranch(task)
 		if info, err := os.Stat(worktreeDir); err == nil && info.IsDir() {
 			workDir = worktreeDir
 		}

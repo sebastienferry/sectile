@@ -30,6 +30,7 @@ test fixtures or internal plumbing.
 
 ### Fixed
 
+- New task and macro worktrees use filesystem-safe directory names so Vite can load source modules; existing checkouts remain available at their original locations. (#557)
 - Marking a task reviewed now explains which local checkout and uncommitted files block validation, and how to resolve them.
 
 - Switching desktop configuration categories or projects no longer accumulates Refresh from server buttons.
