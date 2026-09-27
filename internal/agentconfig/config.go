@@ -20,6 +20,7 @@ type Config struct {
 	PRCreationStage    string   `json:"prCreationStage"`
 	DefaultSkillMode   string   `json:"defaultSkillMode,omitempty"`
 	FullChainStopStage string   `json:"fullChainStopStage,omitempty"`
+	PushStageCommits   bool     `json:"pushStageCommits"`
 	SchemaVersion      int      `json:"schemaVersion"`
 	ProjectID          string   `json:"projectId"`
 	ProjectName        string   `json:"projectName"`

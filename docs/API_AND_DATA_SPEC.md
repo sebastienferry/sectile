@@ -45,6 +45,7 @@ CREATE TABLE IF NOT EXISTS projects (
     spec_framework TEXT DEFAULT '',    -- 'speckit' | 'openspec'
     default_skill_mode TEXT NOT NULL DEFAULT '',            -- '' (interactive) | 'interactive' | 'autonomous'
     full_chain_stop_stage TEXT NOT NULL DEFAULT 'reviewed', -- 'implemented' | 'reviewed'
+    push_stage_commits INTEGER NOT NULL DEFAULT 0, -- boolean pushStageCommits in project/config/context JSON
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );

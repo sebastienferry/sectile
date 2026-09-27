@@ -162,6 +162,8 @@ const fr = {
     defaultModeHelp:
       "S'applique aux skills qui ne fixent pas leur propre mode : un skill qui fixe le sien l'emporte toujours. « Choisir par skill » n'impose rien au niveau du projet et laisse chaque skill décider ; ceux qui ne décident pas restent interactifs. Une surcharge au lancement l'emporte sur tout, pour ce lancement seulement.",
     fullChainStopLabel: 'Arrêt de la chaîne complète',
+    pushStageCommitsLabel: 'Pousser la branche après chaque commit de clarification ou de spécification',
+    pushStageCommitsHelp: 'Désactivé par défaut. Un refus de push est signalé sans bloquer l’étape.',
     afterPr: 'Après la PR (reviewed)',
     beforePr: 'Avant la PR (implemented)',
     mergeStaysManual: 'La fusion reste manuelle dans les deux cas.',
@@ -405,6 +407,8 @@ const en: ProjectSettingsStrings = {
     defaultModeHelp:
       'Applies to the skills that do not set their own mode: a skill that sets its own always wins. "Choose per skill" imposes nothing at project level and lets each skill decide; those that do not decide stay interactive. An override at launch wins over everything, for that launch only.',
     fullChainStopLabel: 'Full chain stop',
+    pushStageCommitsLabel: 'Push the branch after each clarification or specification commit',
+    pushStageCommitsHelp: 'Off by default. A refused push is reported without blocking the stage.',
     afterPr: 'After the PR (reviewed)',
     beforePr: 'Before the PR (implemented)',
     mergeStaysManual: 'Merging stays manual in both cases.',

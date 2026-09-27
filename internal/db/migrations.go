@@ -487,6 +487,11 @@ var migrations = []migration{
 			"UPDATE task_activities SET waiting_since = NULL, waiting_session = '', waiting_reason = '' WHERE waiting_reason = 'repository';",
 		},
 	},
+	{
+		version:    32,
+		name:       "projects.push_stage_commits",
+		statements: []string{"ALTER TABLE projects ADD COLUMN push_stage_commits INTEGER NOT NULL DEFAULT 0;"},
+	},
 }
 
 // migrateSchema brings the database to the schema this binary expects, and is

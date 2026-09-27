@@ -3,3 +3,5 @@
 - Settled decisions and reversed assumptions.
 - Numbered open questions (if any) and who is expected to answer them.
 - Stage transition status (applied or blocked awaiting answers).
+- Full content of this round (initial report or new section), publication result and any numbered parts.
+- Optional stage push result, including refusals that did not block the stage.
