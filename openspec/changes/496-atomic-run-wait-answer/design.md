@@ -4,4 +4,6 @@
 
 The existing read-then-write flow is rejected because the instance mutex cannot guard writes made through a different database connection or server. A transaction with a locking read would also work, but adds engine-specific locking for a single-column predicate. Keep timestamp arguments as `time.Time`; the existing agent JSON round trip and database drivers establish the mark's precision.
 
-The regression test uses two PostgreSQL stores. It races an answer to the old mark against clearing and redeclaring a wait, then asserts that any newly declared mark survives. A serialized stale-answer case and existing SQLite tests cover the deterministic boundaries.
+SQLite stores bound timestamps as local-offset text. The echoed mark can be UTC after its JSON round trip, so bind it in the server's local zone; PostgreSQL compares timestamps by instant and is unaffected by that conversion.
+
+The regression test uses two PostgreSQL stores. A transaction writes the newer mark but leaves it uncommitted, while the other instance's answer blocks on that row. After confirming the answer reached the blocked update, the test commits the newer mark and asserts it survives. A serialized stale-answer case and existing SQLite tests cover the other boundaries.

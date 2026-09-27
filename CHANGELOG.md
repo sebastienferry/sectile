@@ -38,6 +38,7 @@ test fixtures or internal plumbing.
 
 - Newly generated Sectile tracker reports use English headings for clarification, specification, implementation, review, and closure. (#549)
 - Desktop Tickets Pickup (full chain) now runs autonomously even when the project or pickup skill defaults to interactive execution. (#565)
+- Answering a question in a run no longer clears a newer question recorded at the same time by another server replica. (#496)
 - New task and macro worktrees use filesystem-safe directory names so Vite can load source modules; existing checkouts remain available at their original locations. (#557)
 - Marking a task reviewed now explains which local checkout and uncommitted files block validation, and how to resolve them.
 
