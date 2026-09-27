@@ -13,6 +13,10 @@ test fixtures or internal plumbing.
 
 ## [Unreleased]
 
+### Added
+
+- Open desktop Configuration with Cmd+, on macOS or Ctrl+, on Windows/Linux, including from a terminal; an already-open settings page keeps its current category and unsaved edits. (#547)
+
 ### Changed
 
 - AI engine profiles have their own desktop settings page, separate from execution defaults.

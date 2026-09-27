@@ -10,6 +10,7 @@ import { orderedTaskGroups } from './task-order.mjs'
 import { transitions, announce } from './notifications.mjs'
 import { runStateOf, runStateLabel, runStateSvg } from '../../shared/runStates.ts'
 import { isMacPlatform, sidebarShortcutAction, sidebarShortcutAria, sidebarShortcutLabel } from '../../shared/sidebarShortcut.mjs'
+import { configShortcutAction, configShortcutAria, configShortcutLabel } from './config-shortcut.mjs'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
@@ -1740,7 +1741,11 @@ function openSettings(initial='Profile',project){
  }
  fill()
 }
-document.querySelector('#settings').onclick=()=>openSettings('Profile')
+const settingsButton=document.querySelector('#settings')
+settingsButton.onclick=()=>openSettings('Profile')
+const settingsMac=isMacPlatform(navigator)
+settingsButton.title='Settings ('+configShortcutLabel(settingsMac)+')'
+settingsButton.setAttribute('aria-keyshortcuts',configShortcutAria(settingsMac))
 
 async function loadProjects(){
  const version=projectStateVersion
@@ -2830,6 +2835,12 @@ function openCommandPalette(){
  dialogBody.append(filter,...buttons);filter.focus()
 }
 document.querySelector('#command-palette').onclick=openCommandPalette
+window.addEventListener('keydown',event=>{
+ const action=configShortcutAction({key:event.key,metaKey:event.metaKey,ctrlKey:event.ctrlKey,shiftKey:event.shiftKey,altKey:event.altKey,repeat:event.repeat,defaultPrevented:event.defaultPrevented,mac:isMacPlatform(navigator),modalOpen:dialog.open,configurationOpen:configurationActive()})
+ if(action==='ignore')return
+ event.preventDefault();event.stopPropagation()
+ if(action==='open')openSettings('Profile')
+},true)
 window.addEventListener('keydown',event=>{
  if((event.metaKey||event.ctrlKey)&&event.key.toLowerCase()==='k'){event.preventDefault();event.stopPropagation();openCommandPalette()}
 },true)
