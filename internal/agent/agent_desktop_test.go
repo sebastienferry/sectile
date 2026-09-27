@@ -826,11 +826,15 @@ func TestDesktopTasksTerminalExternal(t *testing.T) {
 	}
 
 	branchName := "feat/1"
+	gitTest(t, root, "commit", "--allow-empty", "-m", "initial")
+	actual := filepath.Join(root, ".tasks", "worktrees", "batch-shared")
+	gitTest(t, root, "worktree", "add", "-b", branchName, actual)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(r.URL.Path, "/api/v1/agent/config") {
 			json.NewEncoder(w).Encode(agentconfig.Config{
 				SchemaVersion:           agentconfig.Version,
 				ProjectID:               "p",
+				UseWorktrees:            true,
 				GitRemoteURL:            "https://example.test/project.git",
 				ExternalTerminalCommand: "terminal",
 			})
@@ -894,6 +898,13 @@ func TestDesktopTasksTerminalExternal(t *testing.T) {
 		t.Fatalf("unexpected response: %+v", res)
 	}
 	runID := res["runId"].(string)
+	d.queue.mu.Lock()
+	run := d.queue.runs[runID]
+	if run == nil || !sameDirectory(run.desktop.Directory, actual) || run.desktop.Branch != branchName || run.desktop.TaskKey != "#1" {
+		d.queue.mu.Unlock()
+		t.Fatal("discussion did not use the assigned branch checkout and unchanged identity")
+	}
+	d.queue.mu.Unlock()
 	if launchedApp != "ghostty" || launchedSess != runID {
 		t.Fatalf("unexpected launch: app=%s sess=%s wantSess=%s", launchedApp, launchedSess, runID)
 	}

@@ -50,7 +50,7 @@ func TestLocalWorktreeCreationAndBranchGuard(t *testing.T) {
 	branch := "feat/test-task"
 	task := models.Task{Key: "#46", BranchName: &branch}
 	path, got, err := ensureLocalWorktree(ctx, root, task, true)
-	if err != nil || got != branch || path != filepath.Join(root, ".tasks/worktrees/#46") {
+	if err != nil || got != branch || path != filepath.Join(root, ".tasks/worktrees/issue-46") {
 		t.Fatalf("prepare %s %s %v", path, got, err)
 	}
 	if _, _, err := ensureLocalWorktree(ctx, root, task, true); err != nil {
@@ -63,7 +63,7 @@ func TestLocalWorktreeCreationAndBranchGuard(t *testing.T) {
 	if err != nil || got != branch {
 		t.Fatalf("stale key path refused the launch: %s %s %v", beside, got, err)
 	}
-	if beside == filepath.Join(root, ".tasks/worktrees/#46") {
+	if beside == filepath.Join(root, ".tasks/worktrees/issue-46") {
 		t.Fatalf("new worktree collided with the stale path: %s", beside)
 	}
 	if current, err := gitLocal(ctx, beside, "branch", "--show-current"); err != nil || current != branch {

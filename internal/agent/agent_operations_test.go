@@ -50,7 +50,7 @@ func TestWorkspaceOperationUsesLocalMappingAndAssignedCheckout(t *testing.T) {
 	if evidence["branch"] != branch || evidence["clean"] != true || evidence["sha"] == "" {
 		t.Fatalf("evidence: %#v", evidence)
 	}
-	if _, err := os.Stat(filepath.Join(root, ".tasks", "worktrees", task.Key)); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(root, ".tasks", "worktrees", mustWorktreeName(t, task.Key))); !os.IsNotExist(err) {
 		t.Fatal("read created another checkout")
 	}
 	task.ProjectID = "other"
@@ -95,7 +95,7 @@ func TestPrepareWorkspaceAnswersBeforeTheInstallAndALaunchWaitsForIt(t *testing.
 	}))
 	defer srv.Close()
 	daemon := &agentDaemon{repoRoot: root, loopback: loopbackServer{url: "http://127.0.0.1:8091"}, link: serverLink{serverURL: srv.URL, token: "token", projectID: project}}
-	worktree := filepath.Join(root, ".tasks", "worktrees", task.Key)
+	worktree := filepath.Join(root, ".tasks", "worktrees", mustWorktreeName(t, task.Key))
 	web := filepath.Join(worktree, "web")
 
 	// The operation answers while its install is still blocked.
@@ -201,7 +201,7 @@ func TestLaunchPreparationWaitsForTheInstall(t *testing.T) {
 	}))
 	defer srv.Close()
 	daemon := &agentDaemon{repoRoot: root, loopback: loopbackServer{url: "http://127.0.0.1:8091"}, link: serverLink{serverURL: srv.URL, token: "token", projectID: project}}
-	web := filepath.Join(root, ".tasks", "worktrees", task.Key, "web")
+	web := filepath.Join(root, ".tasks", "worktrees", mustWorktreeName(t, task.Key), "web")
 
 	launched := make(chan error, 1)
 	go func() {
