@@ -3,7 +3,7 @@ const assert=require('node:assert/strict')
 const {_electron:electron,expect}=require('@playwright/test')
 const http=require('node:http'),fs=require('node:fs'),os=require('node:os'),path=require('node:path')
 
-test('desktop initializes only the selected provider and retains partial results and retry',async()=>{
+test('desktop delegates initialization provider to workstation settings and retains partial results and retry',async()=>{
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'sectile-init-ui-')),writes=[]
  let release
  const server=http.createServer((req,res)=>{
@@ -21,6 +21,8 @@ test('desktop initializes only the selected provider and retains partial results
   if(url.pathname==='/desktop/status'){res.end(JSON.stringify({connected:true,server:'https://example.test'}));return}
   if(url.pathname==='/desktop/runs'){res.end('[]');return}
   if(url.pathname==='/desktop/settings'){res.end('{"aiProvider":"agy"}');return}
+  if(url.pathname==='/desktop/workstation'){res.end('{"globalConfiguration":true,"defaults":{"initializationProvider":"codex"}}');return}
+  if(url.pathname==='/desktop/engines'){res.end('{"catalogue":[{"id":"codex","name":"Codex","provider":"codex"}],"default":"codex"}');return}
   res.end('{}')
  })
  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve))
@@ -32,17 +34,22 @@ test('desktop initializes only the selected provider and retains partial results
   const page=await app.firstWindow();page.setDefaultTimeout(10000)
   await page.getByRole('button',{name:'Actions for Test project',exact:true}).click();await page.getByRole('menuitem',{name:'Project settings…',exact:true}).click()
   await page.getByRole('tab',{name:'Deployment',exact:true}).click()
-  const provider=page.getByRole('combobox',{name:'Initialization provider',exact:true}),button=page.getByRole('button',{name:'Initialize',exact:true}),result=page.locator('.initialization-result')
-  await provider.selectOption('codex')
+  await expect(page.getByRole('combobox',{name:'Deployment project',exact:true})).toHaveValue('p')
+  await expect(page.getByRole('tab',{name:'Server',exact:true})).toHaveCount(0)
+  await expect(page.getByRole('tab',{name:'AI agent',exact:true})).toHaveCount(0)
+  const button=page.getByRole('button',{name:'Set up engine globally',exact:true}),result=page.locator('.initialization-result')
+  await expect(page.getByRole('combobox',{name:'Setup AI engine',exact:true})).toHaveValue('codex')
+  await expect(page.getByRole('button',{name:'Install SDD in project',exact:true})).toBeVisible()
+  await expect(page.getByRole('combobox',{name:'Initialization provider',exact:true})).toHaveCount(0)
   assert.equal(writes.length,0)
   await button.click()
   await expect.poll(()=>writes.length).toBe(1)
-  await expect(button).toBeDisabled();await expect(provider).toBeDisabled()
+  await expect(button).toBeDisabled()
   assert.deepEqual(writes[0],{id:'p',action:'initialize',provider:'codex'})
   release()
   await expect(result).toContainText('MCP: Success')
   await expect(result).toContainText('Skills: Failed - Permission denied')
-  await expect(button).toBeEnabled();await expect(provider).toBeEnabled()
+  await expect(button).toBeEnabled()
   await button.click();await expect.poll(()=>writes.length).toBe(2);release()
   await expect(result).toContainText('Skills: Success')
   await expect(button).toBeEnabled()

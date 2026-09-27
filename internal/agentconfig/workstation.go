@@ -48,6 +48,8 @@ type Execution struct {
 // statement of its own.
 type Defaults struct {
 	Execution
+	SkillCommands          map[string]string `json:"skillCommands,omitempty"`
+	InitializationProvider string            `json:"initializationProvider,omitempty"`
 	// AIProviderModels lists what a launch may pick, per provider. A present key
 	// is a choice, even empty; an absent one falls back to the shipped list.
 	AIProviderModels map[string][]string `json:"aiProviderModels,omitempty"`
@@ -209,7 +211,11 @@ func resolve(c Config, s Settings, engine Engine) Config {
 
 	for i := range c.Skills {
 		id := c.Skills[i].ID
-		if name := strings.TrimSpace(project.SkillCommands[id]); name != "" {
+		commandNames := project.SkillCommands
+		if s.Defaults.SkillCommands != nil {
+			commandNames = s.Defaults.SkillCommands
+		}
+		if name := strings.TrimSpace(commandNames[id]); name != "" {
 			c.Skills[i].Command = name
 		}
 		if id == "adjust" {
@@ -319,6 +325,16 @@ var ErrEngineFields = errors.New("engine settings moved to the engine catalogue;
 
 // ValidateDefaults checks the workstation level.
 func ValidateDefaults(d Defaults) error {
+	for skill, name := range d.SkillCommands {
+		if name = strings.TrimSpace(name); name != "" && !skillCommandName.MatchString(name) {
+			return fmt.Errorf("skill %q: command %q must be a single word", skill, name)
+		}
+	}
+	if d.InitializationProvider != "" {
+		if _, err := ResolveLocations(d.InitializationProvider); err != nil {
+			return err
+		}
+	}
 	if d.statesEngine() {
 		return ErrEngineFields
 	}

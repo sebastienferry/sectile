@@ -204,8 +204,8 @@ function agentUnavailable(){
  document.querySelector('#restart').hidden=true
  document.querySelector('#agent-offline').hidden=false
  closeTickets(false)
- document.querySelector('#setup').hidden=false
- document.querySelector('#workspace').hidden=true
+ document.querySelector('#setup').hidden=configurationActive()
+ document.querySelector('#workspace').hidden=!configurationActive()
  connectionStatus({text:'Local agent stopped'})
  projectsLoaded=false
  openEditorAvailable=false;renderOpenEditor()
@@ -813,6 +813,7 @@ document.querySelector('#clear-history').onclick=async()=>{
 const dialog=document.querySelector('#project-dialog'),dialogBody=document.querySelector('#dialog-body')
 const dialogFooter=document.querySelector('.dialog-footer')
 const connectForm=document.querySelector('#start')
+let configurationPage=null,configurationGeneration=0,configurationHidden=null,expandedConfigurationProject=null
 function returnConnectForm(){if(connectForm.parentElement!==document.querySelector('#setup'))document.querySelector('#setup').append(connectForm)}
 document.querySelector('#close-dialog').onclick=()=>dialog.close()
 // The footer carries only the actions a dialog puts there, so it stays out of
@@ -827,13 +828,14 @@ function clearDialogFooter(){
 // closes writes into a detached node and is dropped. The close event is queued,
 // so a flow that reopens the dialog in the same task keeps its fresh content.
 dialog.addEventListener('close',()=>{
- if(dialog.open)return
+ if(dialog.open||configurationActive())return
  updateSettingsConnection=null
  returnConnectForm()
  dialogBody.replaceChildren()
  clearDialogFooter()
 })
 function showDialog(title){
+ closeConfiguration()
  updateSettingsConnection=null
  dialog.classList.remove('workstation-settings')
  returnConnectForm()
@@ -844,8 +846,59 @@ function showDialog(title){
  const heading=document.createElement('h2');heading.textContent=title;dialogBody.append(heading)
  if(!dialog.open)dialog.showModal()
 }
+// Configuration is a page, not a dialog. Reusing the existing body and footer
+// keeps every established setting control and its local save behaviour intact;
+// the page shell alone owns entering, leaving and restoring the workspace.
+function showConfiguration(title){
+ if(configurationPage){
+  configurationGeneration++
+  updateSettingsConnection=null
+  returnConnectForm()
+  dialogBody.replaceChildren()
+  clearDialogFooter()
+  return
+ }
+ configurationGeneration++
+ updateSettingsConnection=null
+ if(dialog.open)dialog.close()
+ const page=document.createElement('section');page.className='configuration-page';page.setAttribute('aria-label','Configuration')
+ page.returnFocus=document.activeElement
+ const back=document.createElement('button');back.type='button';back.className='configuration-back';back.textContent='←';back.setAttribute('aria-label','Back');back.title='Back';back.onclick=closeConfiguration
+ const content=document.createElement('div');content.className='configuration-body'
+ const workspace=document.querySelector('#workspace')
+ workspace.hidden=false;document.querySelector('#setup').hidden=true
+ configurationHidden=new Map([...workspace.children].map(child=>[child,child.hidden]))
+ for(const child of configurationHidden.keys())child.hidden=true
+ workspace.append(page);page.append(content)
+ page.backButton=back
+ content.append(dialogBody,dialogFooter)
+ dialog.classList.remove('workstation-settings')
+ dialogBody.replaceChildren()
+ clearDialogFooter()
+ const dialogHeading=document.createElement('h2');dialogHeading.textContent=title;dialogHeading.className='visually-hidden';dialogBody.append(dialogHeading)
+ configurationPage=page
+}
+function closeConfiguration(){
+ if(!configurationPage)return
+ configurationGeneration++
+ const page=configurationPage;configurationPage=null
+ updateSettingsConnection=null
+ returnConnectForm()
+ dialog.append(dialogBody,dialogFooter)
+ dialogBody.replaceChildren()
+ clearDialogFooter()
+ page.remove()
+ for(const [child,hidden] of configurationHidden||[])child.hidden=hidden
+ configurationHidden=null
+ document.querySelector('#workspace').hidden=!agentConnected
+ document.querySelector('#setup').hidden=agentConnected
+ resize()
+ if(page.returnFocus?.isConnected)page.returnFocus.focus()
+}
+const configurationActive=()=>!!configurationPage
 function paragraph(text){const p=document.createElement('p');p.textContent=text;dialogBody.append(p);return p}
 window.addEventListener('keydown',event=>{
+ if(event.key==='Escape'&&!dialog.open&&configurationActive()){event.preventDefault();closeConfiguration();return}
  if(event.key==='Escape'&&!dialog.open&&ticketsOpen){event.preventDefault();closeTickets()}
 })
 
@@ -1243,8 +1296,6 @@ function executionDefaultsPanel(panel){
  const stated={}
  const changed=()=>{notice.textContent='';notice.dataset.tone=''}
 
- // The engines (#510) come first: what a project runs unless it picks another.
- const engines=enginesSection()
  // The MCP configuration below is per provider: this picks which one.
  const providerSelect=document.createElement('select');providerSelect.className='provider-select';providerSelect.setAttribute('aria-label','MCP provider')
  providerOptions(providerSelect)
@@ -1283,6 +1334,15 @@ function executionDefaultsPanel(panel){
  const setupBox=document.createElement('div');setupBox.className='setup-providers'
  const setupChecks={}
  const setupRow=settingRow('Extra setup providers',{resetLabel:'Reset setup providers to default',onReset:()=>{setupProviders=null;render()}},setupBox)
+ const initializationProvider=document.createElement('select');initializationProvider.setAttribute('aria-label','Initialization provider')
+ for(const provider of ['agy','claude','codex','cursor','gemini','vibe']){
+  const option=document.createElement('option');option.value=provider;option.textContent=provider;initializationProvider.append(option)
+ }
+ const initializationRow=settingRow('Initialization provider',{},initializationProvider)
+ initializationRow.hint.textContent='Provider used when initializing any project on this workstation.'
+ const globalCommands=entryList({keyLabel:'Skill',valueLabel:'Command for skill',addLabel:'Add a skill command',validate:validSkillCommand,onChange:changed,placeholder:()=> 'Standard command'})
+ const commandsRow=settingRow('Skill command names',{stacked:true,resetLabel:'Reset skill command names to the standard ones',onReset:()=>{globalCommands.set({});changed()}},globalCommands.box)
+ commandsRow.hint.textContent='Commands used for all projects on this workstation. Empty entries run the standard command.'
  function renderSetupChoices(choices){
   setupBox.replaceChildren()
   for(const id of choices){
@@ -1297,7 +1357,7 @@ function executionDefaultsPanel(panel){
  const save=document.createElement('button');save.type='button';save.className='dialog-action primary';save.textContent='Save execution defaults'
  const actions=document.createElement('div');actions.className='deployment-actions';actions.style.marginTop='16px'
  actions.append(save,notice)
- body.append(engines.section,listsRow.section,terminalRow.section,editorRow.section,worktreeRow.section,parallelRow.section,setupRow.section,actions)
+ body.append(listsRow.section,terminalRow.section,editorRow.section,worktreeRow.section,parallelRow.section,setupRow.section,initializationRow.section,commandsRow.section,actions)
 
  function hint(row,set,defaultText,setText){row.hint.textContent=set?(setText||'Workstation default'):'Default · '+defaultText}
  function render(){
@@ -1320,6 +1380,13 @@ function executionDefaultsPanel(panel){
 
  function fill(){
   const defaults=view.defaults||{}
+  initializationProvider.value=defaults.initializationProvider||DEFAULT_PROVIDER
+  globalCommands.set(defaults.skillCommands||{})
+  const globalAvailable=view.globalConfiguration===true
+  initializationProvider.disabled=!globalAvailable
+  for(const input of commandsRow.section.querySelectorAll('input,button,select'))input.disabled=!globalAvailable
+  initializationRow.hint.textContent=globalAvailable?'Provider used when initializing any project on this workstation.':'Update and restart the local agent to edit global initialization settings.'
+  commandsRow.hint.textContent=globalAvailable?'Commands used for all projects on this workstation. Empty entries run the standard command.':'Update and restart the local agent to edit global skill command names.'
   // An agent that predates #510 names its provider directly.
   const provider=view.effective?.defaultEngine?.provider||view.effective?.aiProvider||DEFAULT_PROVIDER
   providerOptions(providerSelect,[provider])
@@ -1348,10 +1415,11 @@ function executionDefaultsPanel(panel){
   const lists={}
   for(const [id,entry] of Object.entries(listInputs))if(stated['models:'+id])lists[id]=parseModelList(entry.input.value)
   return {
-   terminal:terminal.get(),editorCommand:editor.get(),useWorktrees,parallelism,setupProviders,aiProviderModels:lists
+   terminal:terminal.get(),editorCommand:editor.get(),useWorktrees,parallelism,setupProviders,aiProviderModels:lists,...(view.globalConfiguration?{skillCommands:compact(globalCommands.get()),initializationProvider:initializationProvider.value}:{})
   }
  }
  save.onclick=async()=>{
+  if(globalCommands.invalid()){notice.textContent='A skill command name is a single word, optionally led by /.';notice.dataset.tone='error';return}
   const invalidList=Object.entries(listInputs).find(([id,entry])=>stated['models:'+id]&&parseModelList(entry.input.value).some(model=>!validateModel(model)))
   if(invalidList){notice.textContent='Invalid model in the list of '+invalidList[0];notice.dataset.tone='error';return}
   save.disabled=true;notice.textContent='Saving…';notice.dataset.tone=''
@@ -1380,7 +1448,6 @@ function executionDefaultsPanel(panel){
   }
   if(!body.isConnected)return
   body.hidden=false;fill()
-  await engines.load()
  }
  panel.append(unavailable,body)
  return {providerSelect,load}
@@ -1394,16 +1461,117 @@ const SETTINGS_CATEGORIES=[
  {id:'Appearance',label:'Appearance',icon:'<circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 0 0 18Z" fill="currentColor"/>'},
  {id:'Connection',label:'Agent connection',icon:'<path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="3"/><circle cx="15" cy="17" r="3"/>'},
  {id:'AgentCli',label:'Execution defaults',icon:'<rect x="3" y="4" width="18" height="16" rx="2"/><path d="m7 9 3 3-3 3M12 15h5"/>'},
+ {id:'Engines',label:'AI engines',icon:'<rect x="4" y="8" width="16" height="11" rx="3"/><path d="M12 4v4M9 13h.01M15 13h.01"/>'},
+ {id:'Deployment',label:'Deployment',icon:'<path d="M12 20V7m0 0 4 4m-4-4-4 4"/><path d="M5 4h14"/>'},
  {id:'Logs',label:'Agent logs',icon:'<path d="M14 3H7a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V7Z"/><path d="M14 3v4h4"/><path d="M9 13h6M9 17h6"/>'},
  {id:'Changelog',label:'Changelog',icon:'<circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 8h.01"/>'}
 ]
-function openSettings(initial='Profile'){
- showDialog('Settings')
- dialog.classList.add('workstation-settings')
- const layout=document.createElement('div');layout.className='settings-layout'
+const PROJECT_SETTINGS_CATEGORIES=[
+ {id:'Remove',label:'General',saves:true,icon:'<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7h.01"/>'},
+ {id:'General',label:'Folders',saves:true,icon:'<path d="M4 7a2 2 0 0 1 2-2h3l2 2.5h7a2 2 0 0 1 2 2V18a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2Z"/>'},
+ {id:'Execution',label:'Execution',saves:true,icon:'<path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="2.4"/><circle cx="15" cy="17" r="2.4"/>'}
+]
+function configurationNavigation(tabs,projectId){
+ if(projectId)expandedConfigurationProject=projectId
+ const current=new Map([...tabs.querySelectorAll('button[data-category]')].map(tab=>[tab.dataset.category,tab]))
+ tabs.replaceChildren(configurationPage.backButton)
+ const projectGroups=[]
+ function updateProjectGroups(){
+  for(const group of projectGroups){
+   const expanded=group.id===expandedConfigurationProject
+   group.toggle.setAttribute('aria-expanded',String(expanded))
+   for(const tab of group.tabs)tab.hidden=!expanded
+  }
+ }
+ function group(label,categories,active,navigate,id){
+  const heading=document.createElement('h2');heading.className='settings-group-label';heading.textContent=label;tabs.append(heading)
+  const projectGroup=id?{id,tabs:[]}:null
+  if(projectGroup){
+   const toggle=document.createElement('button');toggle.type='button';toggle.className='project-settings-toggle';toggle.textContent=label
+   toggle.onclick=()=>{expandedConfigurationProject=expandedConfigurationProject===id?null:id;updateProjectGroups()}
+   heading.replaceChildren(toggle);projectGroup.toggle=toggle;projectGroups.push(projectGroup)
+  }
+  for(const category of categories){
+   let tab=active?current.get(category.id):null
+   if(!tab){
+    tab=document.createElement('button');tab.type='button';tab.setAttribute('role','tab');tab.setAttribute('aria-selected','false');tab.title=category.label
+    tab.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">'+category.icon+'</svg>'
+    const text=document.createElement('span');text.className='settings-nav-label';text.textContent=category.label;tab.append(text)
+    tab.onclick=()=>navigate(category.id)
+   }
+   tabs.append(tab)
+   if(projectGroup)projectGroup.tabs.push(tab)
+  }
+ }
+ group('General',SETTINGS_CATEGORIES,!projectId,name=>openSettings(name))
+ for(const project of projects)group(project.name,PROJECT_SETTINGS_CATEGORIES,project.id===projectId,name=>openProject(project.id,name),project.id)
+ updateProjectGroups()
+}
+function deploymentPanel(panel){
+ const globalTitle=document.createElement('h3');globalTitle.textContent='Global AI engine setup'
+ const globalHint=document.createElement('p');globalHint.textContent='Install skills and register MCP in your user configuration for the selected engine’s provider. Engines sharing a provider share this installation.'
+ const engine=document.createElement('select');engine.setAttribute('aria-label','Setup AI engine')
+ panel.append(globalTitle,globalHint,settingRow('AI engine',{},engine).section)
+ const source=projects.find(project=>project.id===selectedProject)||projects[0]
+ const sourceHint=document.createElement('p');sourceHint.textContent=source?'Skills supplied by '+source.name+'. Installation is user-wide, not project-local.':'Connect a project to obtain the server skills.';panel.append(sourceHint)
+ let engines=[]
+ api.engines().then(view=>{
+  if(!panel.isConnected)return
+  engines=view.catalogue||[]
+  for(const item of engines){const option=document.createElement('option');option.value=item.id;option.textContent=item.name+' ('+item.provider+')';engine.append(option)}
+  engine.value=view.default||engines[0]?.id||''
+  initialize.disabled=!source||!engines.length
+ }).catch(()=>{globalHint.textContent='Update the local agent to configure setup by AI engine.'})
+ const globalActions=document.createElement('div');globalActions.className='deployment-actions';panel.append(globalActions)
+ const localTitle=document.createElement('h3');localTitle.textContent='Local project SDD setup'
+ const localHint=document.createElement('p');localHint.textContent='Install the project’s SDD framework in its local repository. This does not install global engine skills or MCP.'
+ panel.append(localTitle,localHint)
+ const target=document.createElement('select');target.setAttribute('aria-label','Deployment project')
+ for(const project of projects){const option=document.createElement('option');option.value=project.id;option.textContent=project.name;target.append(option)}
+ if(projects.some(project=>project.id===selectedProject))target.value=selectedProject
+ panel.append(settingRow('Project',{},target).section)
+ const notice=document.createElement('p');notice.setAttribute('role','status')
+ const results=document.createElement('div');results.className='initialization-result';results.setAttribute('role','status')
+ const actions=document.createElement('div');actions.className='deployment-actions'
+ let pending=false
+ let initialize
+ for(const [action,label] of [['initialize','Set up engine globally'],['framework','Install SDD in project']]){
+  const button=document.createElement('button');button.type='button';button.textContent=label;button.disabled=!projects.length
+  if(action==='initialize'){initialize=button;button.disabled=true}
+  button.onclick=async()=>{
+   const projectId=action==='initialize'?source?.id:target.value
+   const selectedEngine=engines.find(item=>item.id===engine.value)
+   if(pending||!projectId||(action==='initialize'&&!selectedEngine))return
+   pending=true;target.disabled=true
+   engine.disabled=true;initialize.disabled=true;for(const item of actions.children)item.disabled=true
+   results.replaceChildren();notice.textContent=action==='initialize'?'Initialization in progress…':'Deployment in progress…'
+   try{
+    const info=await api.project(projectId)
+    if(!info.configured)throw Error('Configure this project’s local folder before deployment.')
+    const result=await api.deployProject(projectId,action,action==='initialize'?selectedEngine.provider:undefined)
+    if(!panel.isConnected)return
+    notice.textContent=result.message||'Deployment complete'
+    if(action==='initialize')for(const [label,step] of [['MCP',result.mcp],['Skills',result.skills]]){
+     if(!step)continue
+     const line=document.createElement('p');line.textContent=label+': '+({success:'Success',failed:'Failed',skipped:'Skipped',not_run:'Not run'}[step.status]||step.status)+' - '+step.message;results.append(line)
+    }
+   }catch(err){if(panel.isConnected)notice.textContent=ipcMessage(err)}finally{
+    pending=false;target.disabled=false;engine.disabled=false;initialize.disabled=!source||!engines.length;for(const item of actions.children)item.disabled=false
+   }
+  };(action==='initialize'?globalActions:actions).append(button)
+ }
+ panel.append(actions,notice,results)
+}
+function openSettings(initial='Profile',project){
+ showConfiguration('Configuration')
+ const generation=configurationGeneration
+ const layout=document.createElement('div');layout.className='settings-layout workstation-settings'
  const tabs=document.createElement('div');tabs.className='settings-nav';tabs.setAttribute('role','tablist')
- tabs.setAttribute('aria-orientation','vertical');tabs.setAttribute('aria-label','Settings categories')
+  tabs.setAttribute('aria-orientation','vertical');tabs.setAttribute('aria-label','Settings categories')
+ const generalLabel=document.createElement('h2');generalLabel.className='settings-group-label';generalLabel.textContent='General'
+ tabs.append(generalLabel)
  const content=document.createElement('div');content.className='settings-content stretch'
+ const pageTitle=document.createElement('h2');pageTitle.className='configuration-panel-title';content.append(pageTitle)
  layout.append(tabs,content);dialogBody.append(layout)
  const panels={}
  for(const category of SETTINGS_CATEGORIES){
@@ -1416,7 +1584,19 @@ function openSettings(initial='Profile'){
   tab.onclick=()=>selectCategory(category.id)
   tabs.append(tab);content.append(panel)
  }
+ if(project){
+  const projectLabel=document.createElement('h2');projectLabel.className='settings-group-label';projectLabel.textContent=project.name
+  tabs.append(projectLabel)
+  for(const category of PROJECT_SETTINGS_CATEGORIES){
+   const tab=document.createElement('button');tab.type='button';tab.setAttribute('role','tab');tab.title=category.label
+   tab.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">'+category.icon+'</svg>'
+   const text=document.createElement('span');text.className='settings-nav-label';text.textContent=category.label;tab.append(text)
+   tab.onclick=()=>openProject(project.id,category.id)
+   tabs.append(tab)
+  }
+ }
  function selectCategory(name){
+  pageTitle.textContent=SETTINGS_CATEGORIES.find(category=>category.id===name).label
   for(const [key,value] of Object.entries(panels))value.hidden=key!==name
   for(const item of tabs.children)item.setAttribute('aria-selected',String(item.dataset.category===name))
   if(name==='Logs')loadLog()
@@ -1448,14 +1628,19 @@ function openSettings(initial='Profile'){
  appearance.hint.textContent='System follows the appearance of this computer. The web interface keeps its own theme.'
  panels.Appearance.append(appearance.section)
  markAppearance('system')
- api.appearance().then(markAppearance).catch(()=>{})
+ api.appearance().then(value=>{if(configurationActive()&&generation===configurationGeneration)markAppearance(value)}).catch(()=>{})
 
  // Execution defaults: the workstation level of every execution setting,
  // owned by the local agent. The MCP connection choice follows its provider.
  const execution=executionDefaultsPanel(panels.AgentCli)
+ const engines=enginesSection()
+ engines.section.querySelector('h3').remove()
+ panels.Engines.append(engines.section)
+ engines.load().catch(()=>{})
  const mcpPanel=mcpSettings(api,execution.providerSelect)
  mcpPanel.section.insertBefore(settingRow('Provider',null,execution.providerSelect).section,mcpPanel.section.children[1])
  panels.AgentCli.append(mcpPanel.section)
+ deploymentPanel(panels.Deployment)
 
  const agentState=readOnlyRow('Local agent','The agent process this desktop talks to.')
  const agentActions=document.createElement('span');agentActions.className='settings-agent-actions'
@@ -1492,9 +1677,8 @@ function openSettings(initial='Profile'){
  fillChangelogPanel(panels.Changelog)
 
  const logs=document.createElement('div');logs.className='settings-logs'
- const logHeading=document.createElement('h3');logHeading.textContent='Agent logs'
  const reload=document.createElement('button');reload.type='button';reload.textContent='Refresh'
- const logToolbar=document.createElement('div');logToolbar.className='agent-log-toolbar';logToolbar.append(logHeading,reload)
+ const logToolbar=document.createElement('div');logToolbar.className='agent-log-toolbar';logToolbar.append(reload)
  const description=document.createElement('p');description.textContent='Diagnostics captured by this desktop app. Agents started elsewhere may write to their original terminal instead.'
  const source=document.createElement('p');source.className='agent-log-source'
  const logStatus=document.createElement('p');logStatus.setAttribute('role','status')
@@ -1518,13 +1702,14 @@ function openSettings(initial='Profile'){
  reload.onclick=loadLog
 
  selectCategory(SETTINGS_CATEGORIES.some(category=>category.id===initial)?initial:'Profile')
+ configurationNavigation(tabs)
  // The connection facts come from two sources the agent answers separately, and
  // a stopped agent still has a paired server to report: the stored settings fill
  // the panel first, the live status refines it when the agent answers.
  const fill=async()=>{
   let stored={}
   try{stored=await api.settings()}catch{}
-  if(!account.value.isConnected)return
+  if(!configurationActive()||generation!==configurationGeneration||!account.value.isConnected)return
   account.value.textContent=stored.server||'Not paired'
   device.value.textContent=stored.deviceId||'Not paired'
   renderAgentActions()
@@ -1540,12 +1725,12 @@ function openSettings(initial='Profile'){
   if(!agentConnected)return
   try{
    const status=await api.status()
-   if(!link.value.isConnected)return
+   if(!configurationActive()||generation!==configurationGeneration||!link.value.isConnected)return
    link.control.dataset.state=status.connected?'on':'off'
    link.value.textContent=status.connected?'Connected':status.contractError?'Server incompatible':'Server disconnected'
    if(status.contractError)link.hint.textContent=status.contractError
    if(status.server)account.value.textContent=status.server
-  }catch{if(link.value.isConnected)link.value.textContent='Unreachable'}
+  }catch{if(configurationActive()&&generation===configurationGeneration&&link.value.isConnected)link.value.textContent='Unreachable'}
  }
  updateSettingsConnection=status=>{
   renderAgentActions()
@@ -1706,29 +1891,37 @@ function requestRemoveProject(id,name){
  }
  dialogBody.append(confirm,cancel,notice)
 }
-async function openProject(id){
+async function openProject(id,initial='Remove'){
  selectedProject=id
- showDialog('Project configuration')
+ if(!configurationActive())showConfiguration('Configuration')
+ let generation=++configurationGeneration
  try{
   const info=await api.project(id)
+  if(!configurationActive()||generation!==configurationGeneration)return
+  showConfiguration('Configuration')
+  generation=configurationGeneration
   let config=info.server
-  dialogBody.querySelector('h2').textContent=config.projectName
 
   // A single Local panel had grown into one long scroll mixing the repository
   // path, execution limits and the agent command lines. Categories in a side
   // navigation name each group and keep the panel they open short, the way the
   // project modal of the web interface does.
-  const CATEGORIES=[
-   {id:'General',label:'General',saves:true,icon:'<path d="M4 7a2 2 0 0 1 2-2h3l2 2.5h7a2 2 0 0 1 2 2V18a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2Z"/>'},
-   {id:'Execution',label:'Execution',saves:true,icon:'<path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="2.4"/><circle cx="15" cy="17" r="2.4"/>'},
-   {id:'Agent',label:'AI agent',saves:true,icon:'<rect x="4" y="8" width="16" height="11" rx="3"/><path d="M12 4v4M9 13h.01M15 13h.01"/>'},
-   {id:'Deployment',label:'Deployment',saves:false,icon:'<path d="M12 20V7m0 0 4 4m-4-4-4 4"/><path d="M5 4h14"/>'},
-   {id:'Server',label:'Server',saves:false,icon:'<rect x="4" y="5" width="16" height="6" rx="2"/><rect x="4" y="14" width="16" height="6" rx="2"/><path d="M8 8h.01M8 17h.01"/>'}
-  ]
   const layout=document.createElement('div');layout.className='settings-layout'
   const tabs=document.createElement('div');tabs.className='settings-nav';tabs.setAttribute('role','tablist')
   tabs.setAttribute('aria-orientation','vertical');tabs.setAttribute('aria-label','Project settings categories')
+  const generalLabel=document.createElement('h2');generalLabel.className='settings-group-label';generalLabel.textContent='General'
+  const projectLabel=document.createElement('h2');projectLabel.className='settings-group-label';projectLabel.textContent=config.projectName
+  tabs.append(generalLabel)
+  for(const category of SETTINGS_CATEGORIES){
+   const tab=document.createElement('button');tab.type='button';tab.setAttribute('role','tab');tab.title=category.label
+   tab.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">'+category.icon+'</svg>'
+   const text=document.createElement('span');text.className='settings-nav-label';text.textContent=category.label;tab.append(text)
+   tab.onclick=()=>openSettings(category.id,{id,name:config.projectName})
+   tabs.append(tab)
+  }
+  tabs.append(projectLabel)
   const content=document.createElement('div');content.className='settings-content'
+  const pageTitle=document.createElement('h2');pageTitle.className='configuration-panel-title';content.append(pageTitle)
   layout.append(tabs,content)
   const panels={}
   // The categories that store something share one form, so a single save keeps
@@ -1740,12 +1933,13 @@ async function openProject(id){
   save.setAttribute('form',form.id)
   dialogFooter.prepend(save);syncDialogFooter()
   function selectCategory(name){
-   const stores=CATEGORIES.find(category=>category.id===name).saves
+   pageTitle.textContent=PROJECT_SETTINGS_CATEGORIES.find(category=>category.id===name).label
+   const stores=PROJECT_SETTINGS_CATEGORIES.find(category=>category.id===name).saves
    for(const [key,value] of Object.entries(panels))value.hidden=key!==name
    form.hidden=!stores;save.hidden=!stores;syncDialogFooter()
    for(const item of tabs.children)item.setAttribute('aria-selected',String(item.dataset.category===name))
   }
-  for(const category of CATEGORIES){
+  for(const category of PROJECT_SETTINGS_CATEGORIES){
    const tab=document.createElement('button');tab.type='button';tab.setAttribute('role','tab');tab.dataset.category=category.id;tab.title=category.label
    tab.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">'+category.icon+'</svg>'
    const text=document.createElement('span');text.className='settings-nav-label';text.textContent=category.label;tab.append(text)
@@ -1757,10 +1951,11 @@ async function openProject(id){
   }
   dialogBody.append(layout)
   content.append(form)
-  for(const category of CATEGORIES){
+  for(const category of PROJECT_SETTINGS_CATEGORIES){
    if(category.saves)form.append(panels[category.id]);else content.append(panels[category.id])
   }
-  selectCategory('General')
+  selectCategory(PROJECT_SETTINGS_CATEGORIES.some(category=>category.id===initial)?initial:'Remove')
+  configurationNavigation(tabs,id)
   const path=document.createElement('input');path.value=info.path||'';path.required=true;path.placeholder='/path/to/repository';path.setAttribute('aria-label','Local repository')
   const browse=document.createElement('button');browse.type='button';browse.textContent='Choose folder…'
   browse.onclick=async()=>{try{const selected=await api.chooseRepository();if(selected){path.value=selected;pathOffer.examine()}}catch(err){error(err)}}
@@ -2002,21 +2197,6 @@ async function openProject(id){
   engineSelect.onchange=()=>{defaultEngine=engineSelect.value;inheritDefaultEngine=!defaultEngine;updateEngine()}
   fillEngines();updateEngine()
 
-  // The slash command each stage runs, when the local CLI installs it under
-  // another name. One word, an optional leading slash.
-  let inheritSkillCommands=inherits('skillCommands')
-  const skillCommands=entryList({keyLabel:'Skill',valueLabel:'Command for skill',addLabel:'Add a skill command',fixed:skills,validate:validSkillCommand,
-   placeholder:skill=>fields.skillCommands.inherited?.[skill]||'Standard command',onChange:()=>{inheritSkillCommands=false;updateSkillCommands()}})
-  skillCommands.set(ownEntries(fields.skillCommands))
-  const resetSkillCommands=()=>{skillCommands.set({});inheritSkillCommands=true;updateSkillCommands()}
-  const skillCommandsRow=settingRow('Skill command names',{stacked:true,resetLabel:'Reset skill command names to the standard ones',onReset:resetSkillCommands},skillCommands.box)
-  skillCommandsRow.section.hidden=!skills.length
-  function updateSkillCommands(){
-   skillCommands.refreshPlaceholders()
-   skillCommandsRow.hint.textContent=skillCommands.invalid()?'A skill command name is a single word, optionally led by /.':inheritSkillCommands?'Standard commands':'Set for this project · Empty entries run the standard command.'
-  }
-  updateSkillCommands()
-
   let inheritTerminal=inherits('terminal')
   const terminal=terminalPicker(()=>{inheritTerminal=false;updateTerminal()})
   terminal.set(fields.terminal.value||'')
@@ -2039,39 +2219,35 @@ async function openProject(id){
     specArtifacts=fresh.specArtifacts==='drop'?'drop':'keep'
     inheritWorktrees=inherits('useWorktrees');inheritParallelism=inherits('parallelism');inheritSetupProviders=inherits('setupProviders')
     inheritDefaultEngine=inherits('defaultEngine');defaultEngine=inheritDefaultEngine?'':fields.defaultEngine.value||''
-    inheritSkillCommands=inherits('skillCommands');inheritTerminal=inherits('terminal')
+    inheritTerminal=inherits('terminal')
    }
    if(inheritWorktrees)resetWorktrees()
    if(inheritParallelism)resetParallelism()
    if(inheritSetupProviders)resetSetup()
    if(inheritTerminal)resetTerminal()
    fillEngines()
-   update();updateSetup();updateEngine();updateSkillCommands();updateTerminal()
+   update();updateSetup();updateEngine();updateTerminal()
   }
 
   const notice=document.createElement('p');notice.setAttribute('role','status')
   panels.General.append(repository.section,specRepository.section,repositoriesRow.section,foldersRow.section)
   panels.Execution.append(controls.worktrees.section,controls.specArtifacts.section,controls.parallel.section,terminalRow.section,setupRow.section)
-  panels.Agent.append(engineRow.section,skillCommandsRow.section)
+  panels.Remove.append(engineRow.section)
   const remove=document.createElement('button');remove.type='button';remove.textContent='Remove from desktop';remove.className='remove-project'
   remove.onclick=()=>requestRemoveProject(id,config.projectName)
-  if(info.configured||runs.some(run=>run.projectId===id))panels.General.append(remove)
+  const removalNote=document.createElement('p');removalNote.textContent='Remove this project from this workstation. The project remains on the Sectile server.'
+  panels.Remove.append(removalNote)
+  if(info.configured||runs.some(run=>run.projectId===id))panels.Remove.append(remove)
   content.append(notice)
-  const tools=document.createElement('div');tools.className='deployment-actions'
   form.onsubmit=async event=>{
    event.preventDefault()
-   if(skillCommands.invalid()){
-    notice.textContent='A skill command name is a single word, optionally led by /.'
-    return
-   }
    save.disabled=true
    try{
     await api.mapProject({projectId:id,path:path.value,specPath:specPath.value.trim(),
      useWorktrees,inheritWorktrees,specArtifacts,inheritSpecArtifacts,parallelism,inheritParallelism,
      ...(engineView?{defaultEngine,inheritDefaultEngine}:{}),
      terminal:terminal.get(),inheritTerminal,
-     setupProviders:[...setupProviders],inheritSetupProviders,
-     skillCommands:compact(skillCommands.get()),inheritSkillCommands})
+     setupProviders:[...setupProviders],inheritSetupProviders})
     // Each repository folder is checked against its origin by the agent, so
     // a wrong folder is refused by name rather than saved. The settings above
     // are saved by then, which the notice says rather than hiding it.
@@ -2088,61 +2264,26 @@ async function openProject(id){
     // stored, not what was typed.
     try{const fresh=await api.project(id);info.specPath=fresh.specPath||'';specPath.value=info.specPath;renderSpec(fresh);applyFields(fresh)}catch(err){error(err)}
     await loadProjects()
-    for(const button of tools.querySelectorAll('button'))button.disabled=false
    }catch(err){notice.textContent=err.message}finally{save.disabled=false}
   }
-  const initProvider=document.createElement('select');initProvider.setAttribute('aria-label','Initialization provider')
-  for(const [value,label] of [['agy','Antigravity'],['claude','Claude'],['codex','Codex'],['cursor','Cursor'],['gemini','Gemini'],['vibe','Vibe']]){
-   const option=document.createElement('option');option.value=value;option.textContent=label;initProvider.append(option)
-  }
-  initProvider.value=[...initProvider.options].some(option=>option.value===selectedProvider)?selectedProvider:'agy'
-  const initRow=settingRow('Initialization provider',{},initProvider)
-  initRow.hint.textContent='Initialize this provider’s server skills and MCP connection. You can run this again at any time.'
-  const initResult=document.createElement('div');initResult.setAttribute('role','status');initResult.className='initialization-result'
-  panels.Deployment.append(initRow.section,initResult)
-  for(const [action,title] of [['initialize','Initialize'],['framework','Deploy SDD framework']]){
-   const button=document.createElement('button');button.textContent=title;button.disabled=!info.configured
-   button.onclick=async()=>{
-    for(const item of tools.querySelectorAll('button'))item.disabled=true
-    initProvider.disabled=true
-    notice.textContent=action==='initialize'?'Initialization in progress…':'Deployment in progress…'
-    if(action==='initialize')initResult.replaceChildren()
-    try{
-     const result=await api.deployProject(id,action,action==='initialize'?initProvider.value:undefined)
-     notice.textContent=result.message||'Deployment complete'
-     if(action==='initialize'){
-      for(const [label,step] of [['MCP',result.mcp],['Skills',result.skills]]){
-       const line=document.createElement('p');line.textContent=label+': '+({success:'Success',failed:'Failed',skipped:'Skipped',not_run:'Not run'}[step.status]||step.status)+' - '+step.message;initResult.append(line)
-      }
-     }
-    }catch(err){notice.textContent=err.message}finally{initProvider.disabled=false;for(const item of tools.querySelectorAll('button'))item.disabled=false}
-   };tools.append(button)
-  }
-  panels.Deployment.append(tools)
+  const metadata=document.createElement('div');panels.Remove.prepend(metadata)
   function renderServer(){
-   panels.Server.replaceChildren()
-  const readOnly=document.createElement('p');readOnly.textContent='Server configuration · Read only';panels.Server.append(readOnly)
-  const metadata=document.createElement('dl')
-  for(const [label,value] of [['Repository',config.gitRemoteUrl||'Not configured'],['SDD framework',config.specFramework||'Not configured']]){
-   const term=document.createElement('dt'),description=document.createElement('dd');term.textContent=label;description.textContent=value;metadata.append(term,description)
-  }
-  panels.Server.append(metadata)
-  for(const skill of config.skills||[]){
-   const details=document.createElement('details'),summary=document.createElement('summary'),content=document.createElement('pre')
-   summary.textContent=skill.command||skill.id;content.textContent=skill.content;details.append(summary,content);panels.Server.append(details)
-  }
-
+   metadata.replaceChildren()
+   for(const [label,value] of [['Git remote',config.gitRemoteUrl||'Not configured'],['SDD framework',config.specFramework||'Not configured']]){
+    const row=readOnlyRow(label,'Managed on the Sectile server')
+    row.value.textContent=value;metadata.append(row.section)
+   }
   }
   renderServer()
-  const reload=document.createElement('button');reload.type='button';reload.textContent='Refresh from server';reload.className='refresh-project'
-  layout.before(reload)
+  const reload=document.createElement('button');reload.type='button';reload.textContent='Refresh from server';reload.className='dialog-action refresh-project'
+  dialogFooter.append(reload);syncDialogFooter()
   reload.onclick=async()=>{
    reload.disabled=true;notice.textContent='Refreshing server settings…'
    try{
     const fresh=await api.project(id)
     if(!reload.isConnected)return
     config=fresh.server
-    dialogBody.querySelector('h2').textContent=config.projectName
+    if(!configurationActive()||generation!==configurationGeneration)return
     if(inheritSpecArtifacts)specArtifacts=config.specArtifacts==='drop'?'drop':'keep'
     applyFields(fresh,true);renderServer();renderSpec({...fresh,specPath:specPath.value})
     notice.textContent='Server settings refreshed. Local overrides preserved.'

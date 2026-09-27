@@ -13,8 +13,20 @@ test fixtures or internal plumbing.
 
 ## [Unreleased]
 
+### Changed
+
+- AI engine profiles have their own desktop settings page, separate from execution defaults.
+
+- Desktop configuration project sections can be collapsed; expanding one closes the others while global settings remain visible.
+- Configuration pages use consistent compact title spacing to keep navigation visually stable.
+
+- **Initialization provider and skill command names are workstation settings.** Configure them once under Settings → Execution defaults for all projects; Deployment can explicitly select an engine for global setup. Existing project command names stay active until workstation command settings are saved.
+
+- **Desktop configuration opens as a full page.** Settings and a project's configuration now share one full-page Configuration view with a Back button. Its sidebar lists General workstation categories first, followed by the selected project's categories, while existing save actions and configuration controls remain available. (#545)
+
 ### Fixed
 
+- Switching desktop configuration categories or projects no longer accumulates Refresh from server buttons.
 - **MCP connections behind a hosting proxy.** Servers whose ingress forwards over loopback can now allow their public hostname with `SECTILE_MCP_ALLOWED_HOSTS`, so Codex and other MCP clients can initialize and load tools instead of receiving `403 invalid Host header`. Authentication and protection against unlisted loopback hosts remain enforced.
 
 ## [0.3.0] - 2026-09-26

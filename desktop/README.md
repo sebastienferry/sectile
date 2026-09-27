@@ -130,7 +130,7 @@ If a terminal supervisor receives a hangup or termination signal, it stops and
 waits for its child process before reporting the execution outcome. A transient
 failure to deliver that report is retried.
 Reopening restores the connection. The gear at the bottom of the project sidebar
-opens **Settings**, the workstation-wide panel: **User profile** (opened first), **Appearance**, **Agent connection**, **Execution defaults**,
+opens **Settings**, the workstation-wide panel: **User profile** (opened first), **Appearance**, **Agent connection**, **Execution defaults**, **AI engines**, **Deployment**,
 **Agent logs** and **Changelog** (installed versions and release notes, pinned
 to the bottom of the sidebar). The larger settings dialog adapts to the window. Stop and restart sit in that same footer, and
 the connection state leads it: a green dot reading **Connected**, an orange one
@@ -382,7 +382,7 @@ editor button. The web interface offers none of them and the
 server neither stores nor uses them.
 
 An engine (ADR 0033) is a named AI CLI profile: provider, model, per-skill
-models, interactive and headless commands. **Settings → Execution defaults**
+models, interactive and headless commands. **Settings → AI engines**
 opens with the **Engines** list, in the order a task cycles through them, the
 workstation default engine marked **Default**. **Add an engine** and **Edit**
 open the engine editor, with the provider presets and a preview of the command
@@ -393,7 +393,14 @@ once. Existing provider, model and command settings became engines on the
 first start of the upgraded agent, which kept a copy of the previous file
 beside it.
 
-The rest of **Settings → Execution defaults** edits the workstation level,
+**Settings → Execution defaults** edits the workstation level,
+including **Initialization provider** and **Skill command names**, which apply
+to all projects. Initialization without an explicit provider uses the saved
+initialization provider; Deployment explicitly selects an engine for global setup.
+Existing project command names remain active until workstation command settings
+are saved; saving replaces those project overrides with the global commands.
+These controls require the updated local agent and are disabled on older agents.
+Other workstation defaults are
 applied to every project without a value of its own. The project settings edit one project:
 each field says whether it is set for the project or inherited, shows the
 inherited value (the workstation default, else the provider default) and has a
@@ -506,7 +513,7 @@ arguments with, for example, `make start ARGS="--url http://localhost:8090"`; pr
 authentication through `TOKEN`.
 
 Workstation settings open from the gear at the bottom of the project sidebar and
-use the same side navigation: **User profile**, **Agent connection**, **Execution defaults**, **Agent logs** and
+use the same side navigation: **User profile**, **Agent connection**, **Execution defaults**, **AI engines**, **Deployment**, **Agent logs** and
 **Changelog**, with **User profile** first. **Agent connection** reports the local
 agent with Start, Stop, and Restart controls, the server link (green when connected, orange otherwise), and the connect form itself: the same form the
 connection screen shows, borrowed while the category is open and returned when
@@ -516,12 +523,14 @@ the credential a pairing leaves behind is what restarts a stopped agent, with no
 code to type again. A running agent owns the link, so **Connect** stays disabled
 until the agent is stopped, and the panel says so.
 
+Project names in the configuration sidebar toggle collapsible sections. Only
+one project section is expanded at a time; global settings remain visible.
 Project configuration lists its categories in a side navigation, one panel at a
-time: **General** (local repository, removal from the desktop), **Execution**
+time: **General** (Git remote, SDD framework, default engine, removal from the desktop),
+**Folders** (local repositories and specification folders), **Execution**
 (worktrees, parallel executions, terminal emulator, extra setup providers),
-**AI agent** (the project's **Default engine**, picked from the engines or
-inherited from the workstation default one, and skill command names),
-**Deployment** and **Server**. **General** opens
+with the project's default engine picked from the workstation catalogue or
+inherited from its default. **General** opens
 first. Use **Choose folder…** to select a repository through the native directory
 dialog. Worktrees use Yes/No buttons; parallel executions use a 1 to 10 slider.
 Each setting is one row: its name with the inherited value in small type on the
@@ -530,8 +539,11 @@ workstation defaults. The placeholder
 reference sits behind the **Placeholders** disclosure under the interactive
 command. The three storing categories share one form, so
 **Save local configuration** in the dialog footer writes them all at once,
-whichever category is open; **Deployment** and **Server** hide it because they
-store nothing. Server metadata and skill content remain read-only.
+whichever project category is open. Server metadata remains read-only; the
+configuration does not display skill content. **Deployment** separates global
+AI engine setup (user-level skills and MCP, shared by engines with the same
+provider) from local SDD setup (a selected project's repository). Global setup
+uses the current project's server skills as its source, shown in the panel.
 
 Hover or keyboard-focus a project row and activate **Open tasks** to list its
 open server tasks in the **Tickets** pane, which takes the console's place; the

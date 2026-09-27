@@ -123,6 +123,8 @@ const LEGACY_ENGINE_KEYS=['aiProvider','aiModel','aiSkillModels','aiCommandTempl
 // the defaults the agent last returned.
 export function workstationPayload(state,served={}){
  const out={}
+ if(state.skillCommands!==undefined||served.skillCommands!==undefined)out.skillCommands=compact(state.skillCommands??served.skillCommands)
+ if(state.initializationProvider||served.initializationProvider)out.initializationProvider=state.initializationProvider||served.initializationProvider
  for(const key of LEGACY_ENGINE_KEYS)if(served?.[key]!==undefined&&served[key]!==null&&served[key]!=='')out[key]=served[key]
  // The engine lives in the engine catalogue (#510): the defaults carry none.
  for(const key of ['terminal','editorCommand']){
