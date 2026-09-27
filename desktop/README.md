@@ -129,7 +129,11 @@ Closing the window or quitting Electron keeps the detached agent and tasks alive
 If a terminal supervisor receives a hangup or termination signal, it stops and
 waits for its child process before reporting the execution outcome. A transient
 failure to deliver that report is retried.
-Reopening restores the connection. The gear at the bottom of the project sidebar
+Reopening restores the connection. **Cmd+,** on macOS or **Ctrl+,** on Windows/Linux
+opens Configuration at User profile, even from an input or terminal. Pressing
+the shortcut within Configuration preserves the category and unsaved edits.
+
+The gear at the bottom of the project sidebar
 opens **Settings**, the workstation-wide panel: **User profile** (opened first), **Appearance**, **Agent connection**, **Execution defaults**, **AI engines**, **Deployment**,
 **Agent logs** and **Changelog** (installed versions and release notes, pinned
 to the bottom of the sidebar). The larger settings dialog adapts to the window. Stop and restart sit in that same footer, and
