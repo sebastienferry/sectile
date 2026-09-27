@@ -19,6 +19,8 @@ test fixtures or internal plumbing.
 
 ### Changed
 
+- **Adjustment no longer forces corrections on a custom skill.** Sectile still makes every adjustment verify the existing pull request, never create one or push onto a merged one, collect review feedback and never merge; reviewing, fixing, running checks and pushing are now left to the adjustment skill. The bundled skill keeps doing all of it, and a custom skill that forbids corrections is obeyed.
+
 - AI engine profiles have their own desktop settings page, separate from execution defaults.
 
 - Desktop configuration project sections can be collapsed; expanding one closes the others while global settings remain visible.
