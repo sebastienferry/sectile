@@ -53,6 +53,21 @@ func TestWorkspaceOperationUsesLocalMappingAndAssignedCheckout(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(root, ".tasks", "worktrees", mustWorktreeName(t, task.Key))); !os.IsNotExist(err) {
 		t.Fatal("read created another checkout")
 	}
+	if err := os.WriteFile(filepath.Join(root, "AGENTS.md"), []byte("Local instructions"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	value, err = daemon.executeOperation(ctx, op)
+	if err != nil {
+		t.Fatal(err)
+	}
+	evidence = value.(map[string]any)
+	resolvedRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if evidence["clean"] != false || evidence["path"] != resolvedRoot || evidence["status"] != "?? AGENTS.md" {
+		t.Fatalf("dirty checkout evidence: %#v", evidence)
+	}
 	task.ProjectID = "other"
 	if _, err := daemon.executeOperation(ctx, op); err == nil {
 		t.Fatal("foreign task accepted")

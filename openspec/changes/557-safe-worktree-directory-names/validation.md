@@ -46,7 +46,7 @@ No automatic migration or Vite repair is promised for retained legacy paths. Saf
 
 ## Adjustment review (2026-09-27)
 
-PR #559 was verified open and draft on `feat/557` before edits, with implementation HEAD `02fc7c1cbfa9b0e546bd478e035e302df1a6a749`. The configured remote default is `main`; fetched `origin/main` at `7bb34b4a39b83c2f433b7241955f4264228300de` is already an ancestor of the task branch, so no integration rewrite was needed.
+PR #559 was verified open and draft on `feat/557` before edits, with implementation HEAD `02fc7c1cbfa9b0e546bd478e035e302df1a6a749`. The configured remote default is `main`; the initial fetched base was already included. A later pre-push fetch detected `7bb34b4a39b83c2f433b7241955f4264228300de` (#563), which was merged without rewriting the shared branch. The changelog conflict was resolved by retaining both independent Fixed entries. Its code changes merged cleanly and were reviewed for compatibility with the checkout resolver; final checks were rerun after integration.
 
 The complete branch diff was reviewed against the accepted clarification and OpenSpec requirements, including naming bounds and original-key digests, occupied entries and symlinks, branch-first legacy/shared/main lookup, task and macro creation, desktop discussion launch, secondary repository preparation, explicit cleanup, documentation and the changelog. No actionable code defect was found. The design's legacy fallback needs no separate path probe: registered legacy checkouts already appear in the authoritative Git branch inventory; an unregistered directory is not accepted as a checkout.
 

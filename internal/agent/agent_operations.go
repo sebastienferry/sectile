@@ -345,7 +345,7 @@ func (d *agentDaemon) executeOperation(ctx context.Context, op agentprotocol.Ope
 			if err != nil {
 				return nil, err
 			}
-			return map[string]any{"repository": repository, "found": found, "path": checkout.Path, "sha": checkout.SHA, "branch": checkout.Branch, "clean": checkout.Clean}, nil
+			return map[string]any{"repository": repository, "found": found, "path": checkout.Path, "sha": checkout.SHA, "branch": checkout.Branch, "clean": checkout.Clean, "status": checkout.Status}, nil
 		}
 		sha, err := gitLocal(ctx, target, "rev-parse", "HEAD")
 		if err != nil {
@@ -356,7 +356,7 @@ func (d *agentDaemon) executeOperation(ctx context.Context, op agentprotocol.Ope
 			return nil, err
 		}
 		branch, err := gitLocal(ctx, target, "branch", "--show-current")
-		return map[string]any{"sha": strings.TrimSpace(sha), "branch": strings.TrimSpace(branch), "clean": strings.TrimSpace(status) == ""}, err
+		return map[string]any{"sha": strings.TrimSpace(sha), "branch": strings.TrimSpace(branch), "clean": strings.TrimSpace(status) == "", "path": target, "status": strings.TrimRight(status, "\r\n")}, err
 	case "pr_evidence":
 		// The server verifies stage evidence on forges it cannot reach itself, with
 		// the CLI login this workstation already has. A forge that answered without
