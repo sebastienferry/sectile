@@ -134,7 +134,16 @@ test('TTY header follows metadata and selection without disturbing the console',
   await expect(header()).toHaveText('full-task-id · specify')
   const consoleCounts=[attachments,disconnections]
   reported={activity:{id:'other',taskId:'full-task-id',skillId:'specify',status:'completed'},task:{labels:['specified']}}
-  await expect(page.locator('#skill-result')).toHaveText('✓ Skill completed')
+  await expect(page.locator('#task-status #skill-result')).toHaveText('✓ Skill completed')
+  await expect(page.locator('#task-status #run-state')).toHaveText('Running')
+  await expect(page.locator('#toolbar #run-state, #toolbar #skill-result')).toHaveCount(0)
+  await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows()[0].setSize(800,600))
+  await expect.poll(()=>page.evaluate(()=>window.innerWidth)).toBe(800)
+  for(const selector of ['#run-state','#skill-result','#next-step-status']){
+   assert.ok(await page.locator(selector).evaluate(el=>{const r=el.getBoundingClientRect();return r.left>=0&&r.right<=innerWidth&&r.bottom<=innerHeight}),'Footer status stays inside the narrow viewport')
+  }
+  const footerBounds=await page.locator('#task-status').boundingBox(),terminalBounds=await page.locator('#terminal').boundingBox()
+  assert.ok(footerBounds.y>=terminalBounds.y+terminalBounds.height-1,'Execution status stays below the console')
   await page.screenshot({path:path.join(root,'skill-completed.png')})
   console.log('Skill-result screenshot: '+path.join(root,'skill-completed.png'))
   assert.equal(runs[0].status,'running')

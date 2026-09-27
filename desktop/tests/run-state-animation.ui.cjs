@@ -29,6 +29,8 @@ test('desktop running icons pulse across polls and stop for other states or redu
   const states=page.locator('.local-task .run-state, #run-state')
   const icons=states.locator('svg')
   await expect(states).toHaveCount(2)
+  await expect(page.locator('#task-status #run-state')).toHaveText('Running')
+  await expect(page.locator('#toolbar #run-state')).toHaveCount(0)
   await expect(page.locator('#run-state')).toHaveText('Running')
   for(const icon of await icons.all()){
    await expect.poll(()=>icon.evaluate(el=>el.getAnimations().filter(a=>a.playState==='running').length)).toBe(1)
