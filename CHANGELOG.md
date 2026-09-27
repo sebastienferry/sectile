@@ -15,6 +15,7 @@ test fixtures or internal plumbing.
 
 ### Added
 
+- A user guide walks through Sectile sign-in, Jira access, project and workstation setup, Claude Code prompts, autonomous runs, and Desktop use. (#567)
 - Projects can optionally push clarification and specification commits after each stage commit; the setting is off by default. (#459)
 
 - Open desktop Configuration with Cmd+, on macOS or Ctrl+, on Windows/Linux, including from a terminal; an already-open settings page keeps its current category and unsaved edits. (#547)
