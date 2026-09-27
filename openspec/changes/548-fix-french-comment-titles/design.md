@@ -13,5 +13,5 @@ comment format without changing unrelated stage behavior.
 
 - Translating every French runtime string: outside this ticket's explicit
   scope, and it would alter existing product surfaces.
-- Moving titles to a localization layer: the two fixed, workflow-owned English
+- Moving titles to a localization layer: the five fixed, workflow-owned English
   headings do not justify a new abstraction.
