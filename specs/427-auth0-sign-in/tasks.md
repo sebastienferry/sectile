@@ -17,3 +17,9 @@ The OIDC integration tests live together in `internal/handlers/auth_oidc_integra
 Validation: `go test ./internal/auth ./internal/handlers ./internal/db`, `go vet ./internal/auth ./internal/handlers ./internal/db`, `go build -o /tmp/sectile-427-server ./cmd/server`, and `make fmt-check` passed. The targeted race check `go test -race ./internal/handlers -run TestOIDC -count=1` also passed. Live deployment (T6) remains pending and was not attempted without private deployment inputs.
 
 Repository implementation is published as draft PR [#521](https://github.com/sebastienferry/sectile/pull/521), but recording the implemented stage through Sectile returned a connection error. A subsequent task read also failed, so the remote transition is unverified and must be reconciled before retrying. T6 remains pending as private rollout work.
+
+## Resumed validation (2026-09-27)
+
+Recovered the existing implementation into the assigned `feat/427` worktree and preserved draft PR #521 on `feat/427-auth0-sign-in`. Both branches contain the same recovered code. Adapted the Auth0 setup guide to the current README. Required package tests passed (auth 0.301s, handlers 14.548s, db 23.271s), as did the targeted OIDC race check (6.040s), vet, server build, formatting and diff checks.
+
+T7 remains pending: Sectile rejected `feat/427` because no matching PR exists on that branch, and rejected the existing PR branch because it does not match assigned branch `feat/427`. Restore the task branch association to the existing PR branch through Sectile task details, then retry the implemented transition. No duplicate PR was created. T6 remains separate private rollout work.
