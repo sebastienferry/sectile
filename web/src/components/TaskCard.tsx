@@ -31,7 +31,7 @@ import {
   Check,
   X,
 } from 'lucide-react'
-import type { Task, Priority, SkillMode } from '../types'
+import type { Task, Priority, SkillMode, EngineReport } from '../types'
 import { useApp } from '../context/AppContext'
 import { issueTypeStyle } from '../lib/issueTypes'
 import { PRIORITY_LEVELS, priorityColor } from '../lib/priority'
@@ -41,12 +41,13 @@ import { shortElapsed, isElapsedStale } from '../lib/elapsed'
 import { format, formatDate } from '../lib/i18n'
 import { resolveTaskStage, getNextStepInfo, prRecoverySkill, skillForStage } from '../lib/workflow'
 import { reportedModel, reportedPickerModels, shortModelLabel } from '../lib/aiModels'
-import { useProjectEngine } from '../hooks/useProjectEngine'
 import { loadLaunchModel, saveLaunchModel } from '../lib/launchModel'
 import { isSelectionClick } from '../lib/boardSelection'
 
 interface TaskCardProps {
   task: Task
+  /** Loaded once by the board for every card of this project. */
+  engine?: EngineReport | null
   isDragging?: boolean
   onDragStart?: (e: React.DragEvent) => void
   compact?: boolean
@@ -60,6 +61,7 @@ interface TaskCardProps {
 
 export const TaskCard: React.FC<TaskCardProps> = ({
   task,
+  engine = null,
   isDragging,
   onDragStart,
   compact = false,
@@ -406,7 +408,6 @@ export const TaskCard: React.FC<TaskCardProps> = ({
   // this project (#305): its list, minus the model the run would use anyway.
   // Picking that one sends no override. No report, or a command line without a
   // model slot, offers nothing.
-  const engine = useProjectEngine(task.projectId)
   const engineUnknown = engine?.state === 'unknown'
   const cardModels = engine?.state === 'reported' && engine.modelSlot ? engine.models || [] : []
   // La compétence réellement lancée par « Avancer », pas celle affichée : à

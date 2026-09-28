@@ -136,6 +136,7 @@ export interface TranslationSchema {
     showDone: string
   }
   board: {
+    loadMore: string
     emptyColumn: string
     addTask: string
     dragHint: string
@@ -954,6 +955,7 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
       showDone: 'Afficher les tâches terminées',
     },
     board: {
+      loadMore: 'Afficher plus de tâches',
       emptyColumn: 'Aucune tâche dans cette colonne',
       addTask: 'Ajouter une tâche',
       dragHint: 'Glisser-déposer pour changer de statut ou réordonner',
@@ -1768,6 +1770,7 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
       showDone: 'Show completed tasks',
     },
     board: {
+      loadMore: 'Show more tasks',
       emptyColumn: 'No tasks in this column',
       addTask: 'Add task',
       dragHint: 'Drag and drop to update status or reorder',
