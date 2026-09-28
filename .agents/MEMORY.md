@@ -2,6 +2,10 @@
 
 ## Architecture Decisions & Constraints
 
+### Go CI Timeouts and MCP Keepalive Fixtures (2026-09-28)
+- `go test -timeout` limits the whole package binary. In GitLab job 16775660955, `internal/db` exhausted 30 minutes while its tests kept passing; the final test had run for only four seconds and was still migrating its fixture. Read the duration and stack before treating the last named test as hung. The CI package budget is now 60 minutes, with a 90-minute job budget for compilation and reporting.
+- A raw MCP client never answers pings. Starting a 50 ms keepalive before checking its registration can delete the session before initialization returns on a slow runner. The orphan-release test drives `pingSessions` after initialization and checks every failure up to the threshold; the stream test still covers the periodic loop.
+
 ### Test Agent Operation Logs Must Be Synchronized (2026-09-26)
 - Stage validation and the asynchronous postback worker can invoke the same `SetAgentOperations` callback concurrently. A fixture's operation log needs a mutex for both appends and snapshots; returning a raw slice pointer leaves readers unprotected. GitLab job 16751709293 exposed this in `specifyOwnedTask` (`internal/db/specartifacts_test.go`).
 - A test that queues a sync and then calls `processSyncJob` directly must use separate tracker/database fixtures for those checks. Otherwise the queued job can overwrite the direct job's recorded identity (`TestASynchronisationAskedForBySomebodyRecordsThemAndReadsAsNobody`).
