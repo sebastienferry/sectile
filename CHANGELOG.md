@@ -27,6 +27,8 @@ test fixtures or internal plumbing.
 
 - **The agent no longer writes skills or MCP registrations on its own.** A task or macro dispatch, an agent start or reconnection and a skills-editor save leave `~/.claude`, `~/.claude.json`, `~/.agents`, `~/.codex` and `~/.gemini` untouched. A dispatch runs the skill it finds installed, or fails with a message saying how to install one; a project's edited skill is handed to its run in a private file, so two projects no longer overwrite each other's skills. Saved desktop MCP connections are rewritten at start only when the server address, key or executable changed. (#267)
 - A skill command name may carry a plugin namespace, such as `sectile:clarify-issue`. (#267)
+- **The web project picker shows recent projects and reaches every project.** With an empty search it lists the three projects last opened in this browser and your favorites. Search now also matches descriptions, repositories and trackers, ignoring accents, and the menu can be driven with the arrow keys, Enter and Esc. A new "Browse projects…" entry opens an overview of every project, filterable by text and tracker, where favorites can be toggled. (#582)
+
 - **Adjustment no longer forces corrections on a custom skill.** Sectile still makes every adjustment verify the existing pull request, never create one or push onto a merged one, collect review feedback and never merge; reviewing, fixing, running checks and pushing are now left to the adjustment skill. The bundled skill keeps doing all of it, and a custom skill that forbids corrections is obeyed. (#561)
 
 - Each clarification round now publishes its full report section on the ticket, retaining Markdown history and avoiding duplicate final-round comments. (#459)
