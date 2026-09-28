@@ -119,6 +119,37 @@ test('execution defaults are read from and saved through the agent, which may re
  }
 })
 
+// An unset parallelism means five executions (#594); an explicit 1 stays a
+// choice the panel reads back as the workstation's.
+test('parallel executions default to five and keep an explicit value',async()=>{
+ for(const [defaults,readout,hint] of [[{},'5 executions','Default · 5 executions'],[{parallelism:1},'1 execution','Workstation default']]){
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'sectile-parallelism-ui-'))
+  const {server}=fakeAgent({defaults})
+  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve))
+  let app
+  try {
+   let panel,page
+   ;({app,panel,page}=await openExecutionDefaults(server,root))
+   const slider=panel.getByRole('slider',{name:'Parallel executions',exact:true})
+   // A filter's inner locator is relative to the row, so it starts from the page.
+   const row=panel.locator('.setting-row').filter({has:page.getByRole('slider',{name:'Parallel executions',exact:true})})
+   await expect(slider).toHaveValue(String(parseInt(readout)))
+   await expect(row.locator('.slider-value')).toHaveText(readout)
+   await expect(row.locator('.setting-text p')).toHaveText(hint)
+   // The reset returns the row to the default, not to one execution.
+   await slider.fill('2')
+   await expect(row.locator('.setting-text p')).toHaveText('Workstation default')
+   await panel.getByRole('button',{name:'Reset parallel executions to default',exact:true}).click()
+   await expect(slider).toHaveValue('5')
+   await expect(row.locator('.setting-text p')).toHaveText('Default · 5 executions')
+  } finally {
+   await app?.close()
+   server.close()
+   fs.rmSync(root,{recursive:true,force:true})
+  }
+ }
+})
+
 // A project's custom skill that ran is a passive signal (#267): a badge on the
 // settings button and a notice beside the setting that allows it.
 test('custom skills used show as a badge and a notice, and not when none ran',async()=>{

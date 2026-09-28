@@ -55,7 +55,7 @@ The server resolves the method only: project metadata over the deployment's.
 Every execution setting is resolved by the agent from
 `~/.config/sectile/settings.json` (ADR 0031): the project section, then the
 workstation defaults, then the provider defaults (the shipped model list, the
-detected terminal, editor `code`, worktrees on, one execution at a time, no
+detected terminal, editor `code`, worktrees on, five executions at a time, no
 extra setup provider, the stage's standard command). These values are never
 uploaded, except as the capability report below.
 
@@ -77,7 +77,7 @@ Skills and the Sectile MCP registration are set up for the running provider,
 the extra setup providers, and the provider of every catalogue engine that
 takes skills, so a task switched to any of them finds them in place.
 
-Parallelism is 1 to 10, from the project section, else the defaults, else 1,
+Parallelism is 1 to 10, from the project section, else the defaults, else 5,
 and 1 whenever worktrees are off. Extra setup providers from the project
 section replace the defaults' list rather than adding to it; an empty list is
 the decision "none".
