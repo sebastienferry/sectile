@@ -505,6 +505,15 @@ func TestNativeAdjustmentAliasesAndReconciliation(t *testing.T) {
 		if err != nil || !strings.Contains(line, "adjust-issue") || !strings.Contains(line, "Never create or replace a PR") {
 			t.Fatalf("%s: %s %v", id, line, err)
 		}
+		// The contract only sets guardrails: correcting, checking and pushing are the skill's call.
+		if !strings.Contains(line, "Preserve work on failure") || !strings.Contains(line, "Never merge, approve, close the task") {
+			t.Fatalf("%s: contract lost a guardrail: %s", id, line)
+		}
+		for _, work := range []string{"commit and push", "build/lint/test", "Review the complete branch", "reconcile"} {
+			if strings.Contains(line, work) {
+				t.Fatalf("%s: contract prescribes %q: %s", id, work, line)
+			}
+		}
 	}
 	c.Skills[0].RequiresReconciliation = true
 	if _, err := dispatchCommand(c, "task-61", "review", "", "", "", models.SkillModeInteractive, ""); err == nil {

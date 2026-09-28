@@ -22,6 +22,8 @@ test fixtures or internal plumbing.
 
 ### Changed
 
+- **Adjustment no longer forces corrections on a custom skill.** Sectile still makes every adjustment verify the existing pull request, never create one or push onto a merged one, collect review feedback and never merge; reviewing, fixing, running checks and pushing are now left to the adjustment skill. The bundled skill keeps doing all of it, and a custom skill that forbids corrections is obeyed. (#561)
+
 - Each clarification round now publishes its full report section on the ticket, retaining Markdown history and avoiding duplicate final-round comments. (#459)
 
 - Desktop task headers now put the title and execution history above the worktree path and actions; Console and Changes can be shown together with an adjustable divider. (#574)

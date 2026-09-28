@@ -1016,8 +1016,9 @@ available; custom adjustment content also receives the current built-in contract
 
 Managed adjustment verifies the PR identity against the task's recorded set:
 the same PR, or a newer one on a branch the task already used, together with the
-branch, pushed commit, clean checkout and reported build/lint/test checks at
-completion. A branch carrying several merged pull requests and none open is
+branch, pushed commit and clean checkout at completion, and records whatever
+build/lint/test checks the adjustment skill reports; running them is the skill's
+call (ADR 0038). A branch carrying several merged pull requests and none open is
 evidenced by its most recent merge; several *open* pull requests on one branch
 remain an unresolvable ambiguity and fail the lookup. Standalone transitions verify forge identity and readiness;
 check output remains agent-reported. Human merge and handoff remain separate.
