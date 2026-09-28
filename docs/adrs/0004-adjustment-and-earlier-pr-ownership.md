@@ -19,7 +19,10 @@ Normalize legacy invocation IDs at execution boundaries, retaining storage field
 activity history. Resolve overrides in order: adjust, create_pr, review, built-in.
 Inherited custom content requires explicit reconciliation; preserve losing entries
 and divergent installed files. Keep the mandatory adjustment contract with customized
-instructions. Forge identity, pushed commit, readiness and checkout validation are
+instructions.
+*Amended by [ADR 0038](0038-the-adjustment-contract-carries-guardrails-only.md): the
+contract keeps its guardrails only; reviewing, fixing and running checks belong to
+the skill.* Forge identity, pushed commit, readiness and checkout validation are
 separate from agent-reported check results.
 
 ## Consequences
