@@ -21,3 +21,11 @@
    requirements and the open points in the transition note, saying that the files stay local to the
    worktree. Open no pull request at this stage then, even when the project creates it after
    specification: say in the report that it is deferred to the implemented stage.
+
+4. Optional stage publication: read `pushStageCommits` from `get_project_context`
+   (or the supplied project configuration); missing or false means off. When true,
+   after each stage commit push the actual assigned work branch with a plain push.
+   Use `git push -u origin <branch>` on first publication and `git push origin <branch>`
+   afterwards. Never force. Report a refused push and continue the stage; retain the
+   commit for retry. Ignored artifacts are never committed or force-added, so writing
+   them alone triggers no push. This setting does not replace required PR publication.

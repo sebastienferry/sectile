@@ -245,6 +245,7 @@ export interface Project {
   defaultSkillMode?: SkillMode
   /** Étape où s'arrête une exécution en chaîne. Vide vaut « reviewed ». */
   fullChainStopStage?: 'implemented' | 'reviewed'
+  pushStageCommits?: boolean
   /** Board du tracker retenu pour ce projet. */
   boardId?: string
   /**

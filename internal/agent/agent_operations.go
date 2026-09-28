@@ -307,7 +307,9 @@ func (d *agentDaemon) executeOperation(ctx context.Context, op agentprotocol.Ope
 		return models.WorktreeInfo{TaskKey: t.Key, Branch: branch, WorktreePath: dir, MainRepoPath: root, Exists: config.UseWorktrees}, nil
 	case "workspace_info":
 		branch := ""
-		if task.BranchName != nil {
+		if config.UseWorktrees {
+			branch, _ = taskWorktreeBranch(task)
+		} else if task.BranchName != nil {
 			branch = *task.BranchName
 		}
 		fi, err := os.Stat(target)
@@ -400,38 +402,6 @@ func (d *agentDaemon) executeOperation(ctx context.Context, op agentprotocol.Ope
 		return r.CheckCliTools(root), nil
 	}
 	return nil, fmt.Errorf("unsupported operation")
-}
-
-// Resolve the checkout from local Git metadata. A server path is never trusted,
-// and an assigned branch already checked out elsewhere must be reused.
-func localTaskPath(ctx context.Context, root string, task models.Task) (string, error) {
-	target := filepath.Join(root, ".tasks", "worktrees", task.Key)
-	branch := ""
-	if task.BranchName != nil {
-		branch = strings.TrimSpace(*task.BranchName)
-	}
-	if branch != "" {
-		out, err := gitLocal(ctx, root, "worktree", "list", "--porcelain")
-		if err != nil {
-			return "", err
-		}
-		current := ""
-		for _, line := range strings.Split(out, "\n") {
-			if strings.HasPrefix(line, "worktree ") {
-				current = strings.TrimPrefix(line, "worktree ")
-			}
-			if line == "branch refs/heads/"+branch && current != "" {
-				return current, nil
-			}
-		}
-	}
-	if fi, err := os.Stat(target); err == nil && fi.IsDir() && branch != "" {
-		actual, err := gitLocal(ctx, target, "branch", "--show-current")
-		if err != nil || actual != branch {
-			return "", fmt.Errorf("task checkout does not match assigned branch %s", branch)
-		}
-	}
-	return target, nil
 }
 
 // editorFor picks the editor an open_editor operation runs: the workstation's

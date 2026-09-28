@@ -212,8 +212,9 @@ need a new execution. A failed refresh clears the previous result.
 
 ### Skill result indicator
 
-The terminal header and each visible task row show the skill's result independently of its console
-process. A checkmark means the server reports that exact execution completed;
+The bottom task status bar and each visible task row show the skill's result
+independently of its console process. A checkmark means the server reports that
+exact execution completed;
 for workflow stages, the task must also have reached the corresponding stage.
 An open console can therefore show **Skill completed**. Process exit alone shows
 **Execution ended · skill completion unconfirmed**, and pending stage validation,
@@ -226,8 +227,9 @@ already carried by the run state, and a second glyph restating it in other words
 only looks like a second fact. A free console runs no skill and shows no
 indicator either, except while a requested stop has not taken effect — the one
 transient the run state has no word for.
-Task-row icons use the same completion rules as the header, with the skill name
-and result in their tooltip and accessible label. Visible rows refresh even when
+Task-row icons use the same completion rules as the task status bar, with the
+skill name and result in their tooltip and accessible label. Visible rows refresh
+even when
 they are not selected, with at most four concurrent result lookups. A task row
 represents its current execution; selecting older history does not replace that
 row's result. Updates preserve selection and keyboard focus without reattaching
@@ -660,10 +662,11 @@ reconnecting the console; unavailable titles fall back to identity and skill.
 Long headers truncate on one line, with their full text available on hover and
 to assistive technology. Toolbar controls wrap at narrow window widths.
 
-Beside the title, the header shows the selected execution's run state with the
-same glyph and wording as the sidebar row and the desktop notification. Below
-it, the execution's checkout path is a control: click it to copy the path to
-the clipboard, confirmed by a short **Copied**; the text also stays selectable
+The bottom task status bar shows the selected execution's run state and skill
+result. The run state uses the same glyph and wording as the sidebar row and the
+desktop notification. Below the title, the execution's checkout path is a control:
+click it to copy the path to the clipboard, confirmed by a short **Copied**; the
+text also stays selectable
 for a manual copy.
 
 When an editor is chosen in **Settings → Execution defaults**, a code icon
@@ -709,6 +712,9 @@ project (implementation by default, specification when the project creates its
 pull request there), which records the link and unlocks **Next: Adjust**.
 Historical consoles use the task's current state too. The action
 is disabled while that task has an active execution or a launch is pending.
+Its accessible name identifies the current skill; the decorative current-skill
+badge is hidden because the execution title already names the skill. Available
+next steps retain their **Next: <skill>** badge.
 The desktop rechecks state before submission; if the next step changed, review
 the updated button and click again. Metadata failures offer **Retry**.
 Reviewed tasks show **Awaiting human merge**; finished tasks have no next action.

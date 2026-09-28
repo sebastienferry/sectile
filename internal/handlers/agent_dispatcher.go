@@ -511,14 +511,14 @@ var ErrNoAgentConnected = errors.New("no local agent connected")
 // DispatchAndWait confirms a terminal launch before the HTTP caller reports
 // success. Responses are bound to the connection that received the command.
 func (d *AgentDispatcher) DispatchAndWait(ctx context.Context, userID, projectID, taskID string, payload any) error {
-	ac := d.Lookup(userID, projectID)
-	if ac == nil {
-		if location, ok := d.cluster.owner(userID, projectID); ok {
-			return d.cluster.dispatchAndWait(ctx, location, userID, projectID, taskID, payload)
-		}
+	route := d.waitForRoute(ctx, userID, projectID, defaultAgentReconnectGrace)
+	if route == nil {
 		return ErrNoAgentConnected
 	}
-	return d.dispatchAndWaitLocal(ctx, ac, userID, taskID, payload)
+	if route.remote != nil {
+		return d.cluster.dispatchAndWait(ctx, *route.remote, userID, projectID, taskID, payload)
+	}
+	return d.dispatchAndWaitLocal(ctx, route.local, userID, taskID, payload)
 }
 
 // dispatchAndWaitLocal confirms a launch on a connection held here.

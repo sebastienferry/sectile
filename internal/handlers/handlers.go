@@ -2408,7 +2408,7 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 			projectID = task.ProjectID
 		}
 		userID := h.webSessionUser(r)
-		ac := h.agentDispatcher.Route(userID, projectID)
+		ac := h.agentDispatcher.waitForRoute(r.Context(), userID, projectID, defaultAgentReconnectGrace)
 
 		// 1. If a local agent daemon is connected, delegate the execution directly to it!
 		if ac != nil {
@@ -2520,6 +2520,10 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		if h.agentDispatcher.agentWasRecentlyConnected(userID, projectID) {
+			writeError(w, http.StatusConflict, "L'agent local se reconnecte. Réessayez le lancement dans quelques secondes.")
+			return
+		}
 		writeError(w, http.StatusConflict, "Connect the local agent to launch this skill.")
 		return
 	}

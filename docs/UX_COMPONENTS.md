@@ -76,7 +76,7 @@ with the agent happens in the shell where the agent CLI actually runs.
 - Mounted via `<InteractiveTerminal task={chatTask} />`.
 - Connects directly to the Go WebSocket endpoint `/ws/terminal?taskId=<id>`.
 - Embeds a full Xterm.js terminal emulator with auto-fit addon and dark obsidian theme.
-- Directly controls the shell running in `.tasks/worktrees/<taskKey>`.
+- Directly controls the shell running in `.tasks/worktrees/<safe-name>`.
 - Action toolbar: `Launch agent`, `/clarify`, `/specify`, `/code`, `/adjust-issue`, `Ctrl+C`, `Clear`, `Reset`.
 
 ### 2.5 Task Detail Modal (`TaskDetailModal.tsx`)

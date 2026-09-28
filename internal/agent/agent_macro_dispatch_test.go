@@ -80,7 +80,7 @@ func TestMacroWorkspacePreparesWithoutATask(t *testing.T) {
 	if !samePath(t, cwd, root) {
 		t.Fatalf("the skill must run in the project checkout, got %s", cwd)
 	}
-	if !workspace.Worktree || workspace.Branch != "M-7-ux-improvements" || !samePath(t, workspace.Path, filepath.Join(root, ".tasks", "worktrees", "M-7")) {
+	if !workspace.Worktree || workspace.Branch != "M-7-ux-improvements" || !samePath(t, workspace.Path, filepath.Join(root, ".tasks", "worktrees", mustWorktreeName(t, "M-7"))) {
 		t.Fatalf("unexpected macro workspace %+v", workspace)
 	}
 	if _, err := os.Stat(filepath.Join(os.Getenv("HOME"), ".claude/skills/realign-macro/SKILL.md")); err != nil {

@@ -245,7 +245,7 @@ workstation's own setting for the project (`specRepos` in the local settings,
 edited as "Specifications folder" in the desktop project dialog), else the
 project's mapped checkout (#484). The server holds no
 specifications path (#443). On a Git folder the worktree is
-`.tasks/worktrees/<KEY>` in that repository, on the existing branch named after
+`.tasks/worktrees/<safe-name>` in that repository, on the existing branch named after
 the key or a new `<KEY>-<slug>` from the fetched default branch; an existing tree
 is reused as is. With worktrees off, the checkout itself is returned with
 `worktree: false` and nothing is created. On a folder outside any Git checkout,
@@ -268,11 +268,20 @@ French, and shown as they are. An agent that predates the action answers
 request to update the desktop app; no agent connected for the requesting user
 is likewise reported as the desktop app to connect.
 
+New task and macro directory names use `issue-<number>` for canonical numeric
+GitHub keys and `key-<slug>-<sha256>` otherwise (at most 120 ASCII bytes).
+The digest uses the original key, preserving case and normalization distinctions.
+Branch lookup takes precedence over predicted names for workspace information,
+launches, editor/diff operations and cleanup. Legacy checkouts remain in place;
+occupied task destinations use bounded safe siblings, while macros retain their
+nonempty-path refusal. Safe directory naming requires safe ancestor paths for
+Vite compatibility and does not repair existing unsafe checkouts.
+
 `repository_worktree` (`payload.taskId`, `payload.repository`, `payload.branch`)
 prepares a task's worktree in a secondary repository (#456): one of the
 project's repositories, or a Git folder attached to the project on the
 workstation (#484), with the logic of the primary worktree: the worktree that
-already has the task branch checked out is reused, else `.tasks/worktrees/<KEY>`
+already has the task branch checked out is reused, else `.tasks/worktrees/<safe-name>`
 is created in that repository's mapped folder, else in its attached folder. It
 answers `{"repository", "path", "branch"}`, `repository` echoing the request;
 the server reads a missing echo as an agent too old to answer. A repository

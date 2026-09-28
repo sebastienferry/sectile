@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
 import { test } from 'node:test'
-import { fileURLToPath } from 'node:url'
 import {
   EMPTY_VALUE,
   format,
@@ -53,7 +52,7 @@ test('missing and invalid dates render a neutral placeholder', () => {
 
 test('a date-only value is a calendar day in any time zone, an instant is converted', () => {
   const script = `
-    import { formatDate, formatDateTime } from ${JSON.stringify(fileURLToPath(new URL('../src/lib/i18n.ts', import.meta.url)))}
+    import { formatDate, formatDateTime } from ${JSON.stringify(new URL('../src/lib/i18n.ts', import.meta.url).href)}
     console.log(JSON.stringify([
       formatDate('en', '2026-09-01'),
       formatDateTime('en', '2026-09-01T02:00:00Z', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false }),

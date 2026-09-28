@@ -234,20 +234,13 @@ func ensureLocalWorktree(ctx context.Context, root string, task models.Task, use
 		}
 		return root, current, err
 	}
-	if task.Key == "" || task.Key == "." || task.Key == ".." || strings.ContainsAny(task.Key, "/\\") {
-		return "", "", fmt.Errorf("invalid task key for worktree")
+	name, err := safeWorktreeName(task.Key)
+	if err != nil {
+		return "", "", err
 	}
-	if branch == "" {
-		slug := strings.Trim(strings.Map(func(r rune) rune {
-			if r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '-' {
-				return r
-			}
-			return '-'
-		}, strings.ToLower(task.Key)), "-")
-		if slug == "" {
-			return "", "", fmt.Errorf("task key cannot produce a branch name")
-		}
-		branch = "feat/" + slug
+	branch, err = taskWorktreeBranch(task)
+	if err != nil {
+		return "", "", err
 	}
 	if _, err := gitLocal(ctx, root, "check-ref-format", "--branch", branch); err != nil {
 		return "", "", err
@@ -271,23 +264,8 @@ func ensureLocalWorktree(ctx context.Context, root string, task models.Task, use
 		return existing, branch, nil
 	}
 
-	// The branch is checked out nowhere, so a worktree has to be created. The
-	// key path is the natural home; when it is taken by an unrelated branch the
-	// launch still proceeds, on a sibling path, and the stale path is named in
-	// the log rather than turned into a refusal.
-	target := filepath.Join(root, ".tasks", "worktrees", task.Key)
-	if _, err := os.Stat(target); err == nil {
-		occupant, occErr := gitLocal(ctx, target, "branch", "--show-current")
-		if occErr != nil {
-			occupant = "an unknown branch"
-		}
-		suffix := strings.ReplaceAll(models.SanitizeBranchName(branch), "/", "-")
-		if suffix == "" {
-			suffix = "branch"
-		}
-		log.Printf("[Agent] Stale worktree path %s carries %s, not the assigned branch %s; creating the worktree beside it", target, occupant, branch)
-		target = filepath.Join(root, ".tasks", "worktrees", task.Key+"-"+suffix)
-	} else if !os.IsNotExist(err) {
+	target, err := availableTaskWorktreePath(root, name, branch)
+	if err != nil {
 		return "", "", err
 	}
 	if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {

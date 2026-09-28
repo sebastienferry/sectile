@@ -23,7 +23,7 @@ test('the tickets pane lists, sorts and launches a project\'s open tasks',async(
   if(url.pathname==='/desktop/status'){res.end(JSON.stringify({connected:true,server:'http://example.test'}));return}
   if(url.pathname==='/desktop/projects'){res.end(JSON.stringify(['A','B'].map(name=>({id:'project-'+name.toLowerCase(),name:'Project '+name,path:'/tmp/'+name}))));return}
   if(url.pathname==='/desktop/runs'){res.end(JSON.stringify(runs));return}
-  if(url.pathname==='/desktop/project'){res.end(JSON.stringify({configured,server:{skills:[{id:'clarify'},{id:'pickup'},{id:'specify'}]}}));return}
+  if(url.pathname==='/desktop/project'){res.end(JSON.stringify({configured,server:{defaultSkillMode:'interactive',skills:[{id:'clarify'},{id:'pickup',mode:'interactive'},{id:'specify'}]}}));return}
   if(url.pathname==='/desktop/tasks'){
    if(req.method==='POST'){
     let raw='';req.on('data',chunk=>raw+=chunk);req.on('end',()=>{
@@ -159,27 +159,30 @@ test('the tickets pane lists, sorts and launches a project\'s open tasks',async(
   await expect(page.getByRole('status').filter({hasText:'Execution submitted for #1'})).toBeVisible()
   await expect(pane).toBeVisible()
   assert.deepEqual(launches,[{project:'project-b',taskID:'b1',skillID:'clarify',prompt:''}])
-  // The menu launches the full chain and a discussion with no instructions at all.
+  // The menu overrides interactive defaults for full pickup only.
   const more=page.getByRole('button',{name:'More actions for #1',exact:true})
   await more.click()
   await expect(more).toHaveAttribute('aria-expanded','true')
   assert.deepEqual(await page.getByRole('menuitem').allTextContents(),['Pickup (full chain)','clarify','specify','Discussion (no skill)','Discussion in native terminal','Custom instructions…'])
   await page.getByRole('menuitem',{name:'Pickup (full chain)',exact:true}).click()
   await expect.poll(()=>launches.length).toBe(2)
-  assert.deepEqual(launches.at(-1),{project:'project-b',taskID:'b1',skillID:'pickup',prompt:''})
+  assert.deepEqual(launches.at(-1),{project:'project-b',taskID:'b1',skillID:'pickup',prompt:'',mode:'autonomous'})
   await expect(more).toHaveAttribute('aria-expanded','false')
   await more.click();await page.keyboard.press('Escape');await expect(page.getByRole('menu')).toBeHidden();await expect(more).toBeFocused()
   await expect(pane).toBeVisible()
   await more.click();await page.getByRole('menuitem',{name:'Discussion (no skill)',exact:true}).click()
   await expect.poll(()=>launches.length).toBe(3)
   assert.deepEqual(launches.at(-1),{project:'project-b',taskID:'b1',skillID:'discuss',prompt:''})
+  await more.click();await page.getByRole('menuitem',{name:'clarify',exact:true}).click()
+  await expect.poll(()=>launches.length).toBe(4)
+  assert.deepEqual(launches.at(-1),{project:'project-b',taskID:'b1',skillID:'clarify',prompt:''})
   // Custom instructions need text and carry the one-off execution mode.
   await more.click();await page.getByRole('menuitem',{name:'Custom instructions…',exact:true}).click()
   const instructions=page.getByRole('textbox',{name:'Custom instructions',exact:true})
   await expect(instructions).toBeFocused()
   await page.getByRole('button',{name:'Launch',exact:true}).click()
   await expect(page.getByRole('status').filter({hasText:'Enter custom instructions.'})).toBeVisible()
-  assert.equal(launches.length,3)
+  assert.equal(launches.length,4)
   await instructions.fill('Explain the ticket')
   await page.getByRole('combobox',{name:'Execution mode for #1',exact:true}).selectOption('autonomous')
   // Sorting rebuilds the rows; what the user is typing is their work, not render state.
@@ -188,7 +191,7 @@ test('the tickets pane lists, sorts and launches a project\'s open tasks',async(
   await expect(page.getByRole('combobox',{name:'Execution mode for #1',exact:true})).toHaveValue('autonomous')
   await expect(page.getByRole('button',{name:'Title',exact:true})).toBeFocused()
   await page.getByRole('button',{name:'Launch',exact:true}).click()
-  await expect.poll(()=>launches.length).toBe(4)
+  await expect.poll(()=>launches.length).toBe(5)
   assert.deepEqual(launches.at(-1),{project:'project-b',taskID:'b1',skillID:'custom',prompt:'Explain the ticket',mode:'autonomous'})
   await expect(instructions).toHaveCount(0)
   // An active execution disables Run, shows the shared state and leaves the menu open to use;

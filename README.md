@@ -24,6 +24,11 @@ It consists of three complementary components:
   and keyboard-driven actions.
 - Runs on SQLite by default, with PostgreSQL available for server deployments.
 
+Clarification rounds publish their full report sections on the ticket and retain
+Markdown history. In project workflow settings, `pushStageCommits` optionally
+pushes clarification and specification commits; it is off by default. Installed
+skills receive the updated instructions when the agent regenerates them.
+
 ## Requirements
 
 - Go **1.26.6** or newer
@@ -175,6 +180,8 @@ test command. Run them from `web/` with an absolute path to Playwright's
 
 ## Documentation
 
+- [User guide](./docs/USER_GUIDE.md): sign-in, tracker credentials, projects,
+  workstation setup, coding prompts, autonomous runs, and Desktop.
 - [Architecture](./docs/ARCHITECTURE.md): component boundaries, persistence,
   concurrency, worktrees, and console protocol.
 - [Capabilities](./docs/CAPABILITIES.md): workflow stages, tracker support,

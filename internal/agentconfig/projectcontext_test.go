@@ -87,25 +87,56 @@ func TestScaffoldRetiresLegacyCheckoutFiles(t *testing.T) {
 }
 
 func TestScaffoldRemovesManagedContextBlock(t *testing.T) {
-	root, home := t.TempDir(), t.TempDir()
-	testhome.Set(t, home)
-	initial := "# Personal instructions\n\n" + contextStart + "\nmanaged content\n" + contextEnd + "\n## Footer\n"
-	if err := os.WriteFile(filepath.Join(root, "AGENTS.md"), []byte(initial), 0644); err != nil {
-		t.Fatal(err)
+	block := func(start, end string) string {
+		return start + "\nmanaged content\n" + end + "\n"
 	}
-	if _, err := Scaffold(root, Config{SchemaVersion: Version}); err != nil {
-		t.Fatal(err)
-	}
-	raw, err := os.ReadFile(filepath.Join(root, "AGENTS.md"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	got := string(raw)
-	if strings.Contains(got, contextStart) || strings.Contains(got, "managed content") {
-		t.Fatalf("managed block kept: %s", got)
-	}
-	if !strings.Contains(got, "# Personal instructions") || !strings.Contains(got, "## Footer") {
-		t.Fatalf("personal instructions lost: %s", got)
+	for _, tc := range []struct {
+		name    string
+		initial string
+		want    string
+		remove  bool
+		failed  bool
+	}{
+		{"legacy with instructions", "# Personal instructions\n\n" + block(contextStart, contextEnd) + "## Footer\n", "# Personal instructions\n\n## Footer\n", false, false},
+		{"sectile with instructions", "# Personal instructions\n\n" + block(sectileContextStart, sectileContextEnd) + "## Footer\n", "# Personal instructions\n\n## Footer\n", false, false},
+		{"both marker spellings", "# Personal instructions\n\n" + block(contextStart, contextEnd) + block(sectileContextStart, sectileContextEnd) + "## Footer\n", "# Personal instructions\n\n## Footer\n", false, false},
+		{"managed content only", block(sectileContextStart, sectileContextEnd), "", true, false},
+		{"no managed markers", "# Personal instructions\n", "# Personal instructions\n", false, false},
+		{"missing end", "# Personal instructions\n" + sectileContextStart + "\nmanaged content\n", "", false, true},
+		{"orphan end", "# Personal instructions\n" + sectileContextEnd + "\n", "", false, true},
+		{"mismatched markers", contextStart + "\nmanaged content\n" + sectileContextEnd + "\n", "", false, true},
+		{"later incomplete block", block(contextStart, contextEnd) + sectileContextStart + "\nmanaged content\n", "", false, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root, home := t.TempDir(), t.TempDir()
+			testhome.Set(t, home)
+			path := filepath.Join(root, "AGENTS.md")
+			if err := os.WriteFile(path, []byte(tc.initial), 0644); err != nil {
+				t.Fatal(err)
+			}
+			_, err := Scaffold(root, Config{SchemaVersion: Version})
+			if tc.failed {
+				if err == nil || !strings.Contains(err.Error(), "incomplete project context block") {
+					t.Fatalf("expected incomplete-block error, got %v", err)
+				}
+				raw, readErr := os.ReadFile(path)
+				if readErr != nil || string(raw) != tc.initial {
+					t.Fatalf("file changed after error: %q, %v", raw, readErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			raw, readErr := os.ReadFile(path)
+			if tc.remove {
+				if !os.IsNotExist(readErr) {
+					t.Fatalf("managed-only file was not removed: %v", readErr)
+				}
+			} else if readErr != nil || string(raw) != tc.want {
+				t.Fatalf("AGENTS.md = %q, %v; want %q", raw, readErr, tc.want)
+			}
+		})
 	}
 }
 

@@ -454,3 +454,17 @@ how long the wait has lasted, and the activities view has a matching filter.
 - **Side-by-Side & Inline Git Diff Inspector**: Displays real-time file diffs between the active task branch and `main` using syntax highlighting.
 - **Branch Checkout & Worktree Switcher**: Allows the developer to switch their main editor CWD or inspect the worktree directory in one click.
 - **Auto-Pruning**: Safely removes worktrees when tasks are marked as finished or deleted.
+
+### Clarification round reports and stage publication
+
+Each clarification round publishes its complete section on the ticket, while the
+Markdown report preserves the history. Intermediate standalone rounds use comments;
+the final round uses the stage transition note once. Large sections are divided into
+numbered parts. Managed runs report through their supplied result contract.
+
+The project workflow setting `pushStageCommits` is off by default. When enabled,
+clarify and specify push their assigned branch after each artifact commit, setting
+the upstream on first publication and never forcing. A refused push is reported
+without blocking the stage. Ignored artifacts remain local and cause no commit or
+push. Required pull request publication still follows the project's creation stage.
+Agents receive these instructions when their installed skills are regenerated.

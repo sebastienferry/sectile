@@ -159,7 +159,7 @@ func TestRepositoryWorktreeReusesTheTaskBranch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if first.Repository != "github.com/o/b" || first.Branch != "feat/1" || !strings.Contains(first.Path, filepath.Join(".tasks", "worktrees", "#1")) {
+	if first.Repository != "github.com/o/b" || first.Branch != "feat/1" || !strings.Contains(first.Path, filepath.Join(".tasks", "worktrees", "issue-1")) {
 		t.Fatalf("worktree = %+v", first)
 	}
 	if got := gitTest(t, first.Path, "branch", "--show-current"); got != "feat/1" {
@@ -411,7 +411,7 @@ func TestRepositoryWorktreeInAnAttachedFolder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if first.Repository != "github.com/o/lib" || first.Branch != "feat/1" || !strings.Contains(first.Path, filepath.Join(".tasks", "worktrees", "#1")) {
+	if first.Repository != "github.com/o/lib" || first.Branch != "feat/1" || !strings.Contains(first.Path, filepath.Join(".tasks", "worktrees", "issue-1")) {
 		t.Fatalf("worktree = %+v", first)
 	}
 	if got := gitTest(t, first.Path, "branch", "--show-current"); got != "feat/1" {

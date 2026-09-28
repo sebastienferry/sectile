@@ -15,11 +15,20 @@ test fixtures or internal plumbing.
 
 ### Added
 
+- A user guide walks through Sectile sign-in, Jira access, project and workstation setup, Claude Code prompts, autonomous runs, and Desktop use. (#567)
+- Projects can optionally push clarification and specification commits after each stage commit; the setting is off by default. (#459)
+
 - Open desktop Configuration with Cmd+, on macOS or Ctrl+, on Windows/Linux, including from a terminal; an already-open settings page keeps its current category and unsaved edits. (#547)
 
 ### Changed
 
-- **Adjustment no longer forces corrections on a custom skill.** Sectile still makes every adjustment verify the existing pull request, never create one or push onto a merged one, collect review feedback and never merge; reviewing, fixing, running checks and pushing are now left to the adjustment skill. The bundled skill keeps doing all of it, and a custom skill that forbids corrections is obeyed.
+- **Adjustment no longer forces corrections on a custom skill.** Sectile still makes every adjustment verify the existing pull request, never create one or push onto a merged one, collect review feedback and never merge; reviewing, fixing, running checks and pushing are now left to the adjustment skill. The bundled skill keeps doing all of it, and a custom skill that forbids corrections is obeyed. (#561)
+
+- Each clarification round now publishes its full report section on the ticket, retaining Markdown history and avoiding duplicate final-round comments. (#459)
+
+- Desktop task headers now put the title and execution history above the worktree path and actions; Console and Changes can be shown together with an adjustable divider. (#574)
+
+- Desktop execution and skill-result indicators now appear in the task’s bottom status bar; the redundant current-skill badge is hidden. (#560)
 
 - AI engine profiles have their own desktop settings page, separate from execution defaults.
 
@@ -32,6 +41,11 @@ test fixtures or internal plumbing.
 
 ### Fixed
 
+- Agent reconnection now retries promptly after a dropped session, and a launch waits briefly for a reconnecting agent. Abnormal WebSocket losses no longer claim the server deliberately closed the connection. (#568)
+- Newly generated Sectile tracker reports use English headings for clarification, specification, implementation, review, and closure. (#549)
+- Desktop Tickets Pickup (full chain) now runs autonomously even when the project or pickup skill defaults to interactive execution. (#565)
+- Answering a question in a run no longer clears a newer question recorded at the same time by another server replica. (#496)
+- New task and macro worktrees use filesystem-safe directory names so Vite can load source modules; existing checkouts remain available at their original locations. (#557)
 - Marking a task reviewed now explains which local checkout and uncommitted files block validation, and how to resolve them.
 
 - Switching desktop configuration categories or projects no longer accumulates Refresh from server buttons.
