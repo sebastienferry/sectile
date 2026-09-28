@@ -13,6 +13,7 @@ import (
 	"tasks/internal/agentprotocol"
 	"tasks/internal/models"
 	"tasks/internal/sddfiles"
+	"tasks/internal/testsqlite"
 )
 
 // Un tasks.md tel qu'une spécification l'écrit : des groupes numérotés, et sous
@@ -125,7 +126,7 @@ func TestNormalisationDeLaSource(t *testing.T) {
 
 func sddProject(t *testing.T, framework string) (*DB, *models.Project, string) {
 	t.Helper()
-	database, err := NewDB(filepath.Join(t.TempDir(), "test.db"))
+	database, err := testsqlite.New(t, filepath.Join(t.TempDir(), "test.db"), NewDB)
 	if err != nil {
 		t.Fatalf("base de test : %v", err)
 	}

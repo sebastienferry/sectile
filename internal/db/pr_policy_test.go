@@ -4,11 +4,12 @@ import (
 	"path/filepath"
 	"strings"
 	"tasks/internal/models"
+	"tasks/internal/testsqlite"
 	"testing"
 )
 
 func TestProjectPRPolicy(t *testing.T) {
-	database, err := NewDB(filepath.Join(t.TempDir(), "tasks.db"))
+	database, err := testsqlite.New(t, filepath.Join(t.TempDir(), "tasks.db"), NewDB)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,7 +55,7 @@ func TestProjectPRPolicy(t *testing.T) {
 // A project may open its pull request at clarification (#580): the value is
 // stored, handed to agents, and an unknown value still leaves it unchanged.
 func TestProjectPRPolicyClarified(t *testing.T) {
-	database, err := NewDB(filepath.Join(t.TempDir(), "tasks.db"))
+	database, err := testsqlite.New(t, filepath.Join(t.TempDir(), "tasks.db"), NewDB)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -91,7 +92,7 @@ func TestProjectPRPolicyClarified(t *testing.T) {
 // The clarification skill carries the pull request policy only when it opens
 // the pull request; every later stage skill then keeps the same draft (#580).
 func TestProjectPRPolicyTextFollowsTheCreationStage(t *testing.T) {
-	database, err := NewDB(filepath.Join(t.TempDir(), "tasks.db"))
+	database, err := testsqlite.New(t, filepath.Join(t.TempDir(), "tasks.db"), NewDB)
 	if err != nil {
 		t.Fatal(err)
 	}

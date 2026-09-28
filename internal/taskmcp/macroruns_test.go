@@ -7,6 +7,7 @@ import (
 
 	"tasks/internal/db"
 	"tasks/internal/models"
+	"tasks/internal/testsqlite"
 )
 
 func TestRunTargetNamesExactlyOneForm(t *testing.T) {
@@ -30,7 +31,7 @@ func TestRunTargetNamesExactlyOneForm(t *testing.T) {
 }
 
 func TestStartAndFinishAMacroRun(t *testing.T) {
-	database, err := db.NewDB(filepath.Join(t.TempDir(), "test.db"))
+	database, err := testsqlite.New(t, filepath.Join(t.TempDir(), "test.db"), db.NewDB)
 	if err != nil {
 		t.Fatal(err)
 	}

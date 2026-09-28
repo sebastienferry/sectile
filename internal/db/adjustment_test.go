@@ -10,6 +10,7 @@ import (
 	"tasks/internal/agentprotocol"
 	"tasks/internal/models"
 	"tasks/internal/skills"
+	"tasks/internal/testsqlite"
 	"tasks/internal/trackerapi"
 	"testing"
 	"time"
@@ -62,7 +63,7 @@ func TestAdjustmentEvidenceRejectsInvalidPR(t *testing.T) {
 	}
 }
 func TestMergedPRCompletesReview(t *testing.T) {
-	d, err := NewDB(filepath.Join(t.TempDir(), "test.db"))
+	d, err := testsqlite.New(t, filepath.Join(t.TempDir(), "test.db"), NewDB)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -119,7 +120,7 @@ func TestEarlierPRRecoveryPreservesImplemented(t *testing.T) {
 	for _, timing := range []string{"specified", "implemented"} {
 		t.Run(timing, func(t *testing.T) {
 			repo := "/not-mounted-on-server"
-			d, err := NewDB(filepath.Join(t.TempDir(), "test.db"))
+			d, err := testsqlite.New(t, filepath.Join(t.TempDir(), "test.db"), NewDB)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -172,7 +173,7 @@ func TestEarlierPRRecoveryPreservesImplemented(t *testing.T) {
 }
 func TestAdjustmentReconciliationRetainsHistoryAndReset(t *testing.T) {
 	root := t.TempDir()
-	d, err := NewDB(filepath.Join(t.TempDir(), "test.db"))
+	d, err := testsqlite.New(t, filepath.Join(t.TempDir(), "test.db"), NewDB)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -211,7 +212,7 @@ func TestAdjustmentReconciliationRetainsHistoryAndReset(t *testing.T) {
 	}
 }
 func TestCompositePRPoliciesCreateBeforeAdjustment(t *testing.T) {
-	d, err := NewDB(filepath.Join(t.TempDir(), "test.db"))
+	d, err := testsqlite.New(t, filepath.Join(t.TempDir(), "test.db"), NewDB)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -324,7 +325,7 @@ func TestGitLabEvidenceIsWordedAsMergeRequest(t *testing.T) {
 // TestGitLabStageEvidenceThroughTheAgent drives the real route: a project whose
 // remote is GitLab has its merge request read by the local agent.
 func TestGitLabStageEvidenceThroughTheAgent(t *testing.T) {
-	d, err := NewDB(filepath.Join(t.TempDir(), "test.db"))
+	d, err := testsqlite.New(t, filepath.Join(t.TempDir(), "test.db"), NewDB)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -430,7 +431,7 @@ func TestGitLabStageEvidenceThroughTheAgent(t *testing.T) {
 // TestGitLabEvidenceThroughTheLookupHook applies the evidence rules to a GitLab
 // answer injected through prEvidenceLookup, as the GitHub tests do.
 func TestGitLabEvidenceThroughTheLookupHook(t *testing.T) {
-	d, err := NewDB(filepath.Join(t.TempDir(), "test.db"))
+	d, err := testsqlite.New(t, filepath.Join(t.TempDir(), "test.db"), NewDB)
 	if err != nil {
 		t.Fatal(err)
 	}

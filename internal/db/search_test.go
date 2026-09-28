@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"tasks/internal/models"
+	"tasks/internal/testsqlite"
 )
 
 // seedSearch writes one project and the tickets the search tests look for, each
@@ -97,7 +98,7 @@ func TestPostgresTaskSearchTreatsWildcardsLiterally(t *testing.T) {
 // ignored, accents are not, and wildcards typed in the query are literal there
 // too.
 func TestSQLiteTaskSearchKeepsItsFold(t *testing.T) {
-	d, err := NewDB(filepath.Join(t.TempDir(), "search.db"))
+	d, err := testsqlite.New(t, filepath.Join(t.TempDir(), "search.db"), NewDB)
 	if err != nil {
 		t.Fatalf("creating the database: %v", err)
 	}

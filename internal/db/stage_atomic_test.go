@@ -3,11 +3,12 @@ package db
 import (
 	"path/filepath"
 	"tasks/internal/models"
+	"tasks/internal/testsqlite"
 	"testing"
 )
 
 func TestStageRollsBackWhenActivityCannotBeRecorded(t *testing.T) {
-	database, err := NewDB(filepath.Join(t.TempDir(), "tasks.db"))
+	database, err := testsqlite.New(t, filepath.Join(t.TempDir(), "tasks.db"), NewDB)
 	if err != nil {
 		t.Fatal(err)
 	}

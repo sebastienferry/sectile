@@ -6,13 +6,14 @@ import (
 
 	"tasks/internal/db"
 	"tasks/internal/models"
+	"tasks/internal/testsqlite"
 )
 
 // The #499 path through the tools a session actually calls: the launcher
 // records a run, the agent reports it queued, and the session it launched
 // adopts it with start_run and reports it with finish_run.
 func TestALauncherRunLeftQueuedIsAdoptedAndFinishedOverMCP(t *testing.T) {
-	database, err := db.NewDB(filepath.Join(t.TempDir(), "test.db"))
+	database, err := testsqlite.New(t, filepath.Join(t.TempDir(), "test.db"), db.NewDB)
 	if err != nil {
 		t.Fatal(err)
 	}

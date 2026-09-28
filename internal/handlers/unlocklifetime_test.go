@@ -9,6 +9,7 @@ import (
 
 	"tasks/internal/db"
 	"tasks/internal/secrets"
+	"tasks/internal/testsqlite"
 )
 
 // sealedCredentialUnlocked stores a sealed Jira credential through the route,
@@ -97,7 +98,7 @@ func TestSigningOutWithAConnectedAgentKeepsTheUnlock(t *testing.T) {
 // than answering "unlocked" for as long as one process lives (FR-9).
 func TestUnlockingWithoutAServerKeyAnswers503(t *testing.T) {
 	t.Setenv(secrets.KeyEnvVar, "not-a-key")
-	database, err := db.NewDB(filepath.Join(t.TempDir(), "test.db"))
+	database, err := testsqlite.New(t, filepath.Join(t.TempDir(), "test.db"), db.NewDB)
 	if err != nil {
 		t.Fatal(err)
 	}

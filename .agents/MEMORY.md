@@ -2,6 +2,12 @@
 
 ## Architecture Decisions & Constraints
 
+### SQLite Test Templates (#595)
+- Ordinary behavior fixtures use `internal/testsqlite.New(t, path, db.NewDB)` (or existing `testDB`/`setupTestDB`/`setupTestHandler` helpers). It migrates once per process, closes and checks the WAL, then opens an independent copy per test through normal startup. Do not share fixture directories: keys live beside the database.
+- Keep direct constructors for schema upgrades, first startup, persistence, recovery and multi-instance tests. Never replace a reopen with a template: existing destinations are rejected intentionally. PostgreSQL integration databases remain disposable and separate.
+- Faster fixtures exposed concurrent access to `fakeCrossRepoAgent` from stage validation and queued postbacks; guard both recorded counters and mutable answers with its mutex.
+- Profile fixture setup before increasing timeouts or adding parallelism: migrations dominated a representative instrumented test. See `docs/TESTING.md` and `BenchmarkSQLiteFixture` for repeatable measurements.
+
 ### Go CI Timeouts and MCP Keepalive Fixtures (2026-09-28)
 - The SDK returns HTTP 202 for `notifications/initialized` before its handler finishes. Before manually driving pings, wait for both the registry entry and its non-nil transport: `Watch` publishes them in separate critical sections. Disabling the periodic keepalive alone does not synchronize initialization.
 - `go test -timeout` limits the whole package binary. In a CI run, `internal/db` exhausted 30 minutes while its tests kept passing; the final test had run for only four seconds and was still migrating its fixture. Read the duration and stack before treating the last named test as hung. The CI package budget is now 60 minutes, with a 90-minute job budget for compilation and reporting.

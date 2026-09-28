@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"tasks/internal/db"
+	"tasks/internal/testsqlite"
 
 	"github.com/gorilla/websocket"
 )
@@ -31,7 +32,7 @@ func connectAgent(t *testing.T, h *Handler) (*websocket.Conn, func()) {
 // to observe a dropped connection in milliseconds rather than half a minute.
 func newAgentHandler(t *testing.T, ping, read time.Duration) *Handler {
 	t.Helper()
-	database, err := db.NewDB(filepath.Join(t.TempDir(), "test.db"))
+	database, err := testsqlite.New(t, filepath.Join(t.TempDir(), "test.db"), db.NewDB)
 	if err != nil {
 		t.Fatalf("db error: %v", err)
 	}

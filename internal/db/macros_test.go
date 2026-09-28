@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"tasks/internal/models"
+	"tasks/internal/testsqlite"
 )
 
 func TestProjectCompatibility(t *testing.T) {
@@ -30,7 +31,7 @@ func TestMigrateMacroAndTasks(t *testing.T) {
 	tempDir := t.TempDir()
 	dbPath := filepath.Join(tempDir, "test.db")
 
-	database, err := NewDB(dbPath)
+	database, err := testsqlite.New(t, dbPath, NewDB)
 	if err != nil {
 		t.Fatalf("Failed to initialize database: %v", err)
 	}
@@ -110,7 +111,7 @@ func TestMigrateSingleTask(t *testing.T) {
 	tempDir := t.TempDir()
 	dbPath := filepath.Join(tempDir, "test.db")
 
-	database, err := NewDB(dbPath)
+	database, err := testsqlite.New(t, dbPath, NewDB)
 	if err != nil {
 		t.Fatalf("Failed to initialize database: %v", err)
 	}
@@ -164,7 +165,7 @@ func TestRefineMacro(t *testing.T) {
 	tempDir := t.TempDir()
 	dbPath := filepath.Join(tempDir, "test.db")
 
-	database, err := NewDB(dbPath)
+	database, err := testsqlite.New(t, dbPath, NewDB)
 	if err != nil {
 		t.Fatalf("Failed to initialize database: %v", err)
 	}
@@ -258,7 +259,7 @@ func TestRefineMacro(t *testing.T) {
 // main », et rien dans la relecture ne doit les distinguer d'un choix.
 func TestMacroTodoOriginRoundTrip(t *testing.T) {
 	tempDir := t.TempDir()
-	database, err := NewDB(filepath.Join(tempDir, "test.db"))
+	database, err := testsqlite.New(t, filepath.Join(tempDir, "test.db"), NewDB)
 	if err != nil {
 		t.Fatalf("Failed to initialize database: %v", err)
 	}
@@ -334,7 +335,7 @@ func TestMacroTodoLegacyRowReadsWithoutOrigin(t *testing.T) {
 // lignes qu'une version ultérieure a écrites.
 func TestMacroTodoOriginIsTrimmedAndUnknownKindKept(t *testing.T) {
 	tempDir := t.TempDir()
-	database, err := NewDB(filepath.Join(tempDir, "test.db"))
+	database, err := testsqlite.New(t, filepath.Join(tempDir, "test.db"), NewDB)
 	if err != nil {
 		t.Fatalf("Failed to initialize database: %v", err)
 	}
@@ -383,7 +384,7 @@ func TestMacroTodoOriginIsTrimmedAndUnknownKindKept(t *testing.T) {
 // The Roadmap links its "story created" toast to the new ticket, so turning a
 // todo line into a story has to hand the created task back, not only its key.
 func TestCreateStoryFromMacroTodoReturnsTheTask(t *testing.T) {
-	database, err := NewDB(filepath.Join(t.TempDir(), "test.db"))
+	database, err := testsqlite.New(t, filepath.Join(t.TempDir(), "test.db"), NewDB)
 	if err != nil {
 		t.Fatalf("Failed to initialize database: %v", err)
 	}

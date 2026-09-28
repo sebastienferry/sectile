@@ -4,10 +4,12 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"tasks/internal/testsqlite"
 )
 
 func TestMCPTemplatesPreserveCustomReferences(t *testing.T) {
-	database, err := NewDB(filepath.Join(t.TempDir(), "test.db"))
+	database, err := testsqlite.New(t, filepath.Join(t.TempDir(), "test.db"), NewDB)
 	if err != nil {
 		t.Fatal(err)
 	}

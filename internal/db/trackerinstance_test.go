@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"tasks/internal/models"
+	"tasks/internal/testsqlite"
 	"tasks/internal/tracker"
 )
 
@@ -75,7 +76,7 @@ func jiraStoryDB(t *testing.T, targetID func(sameSite, otherSite *models.Project
 }
 
 func TestSameTrackerInstanceFixtures(t *testing.T) {
-	database, err := NewDB(t.TempDir() + "/tasks.db")
+	database, err := testsqlite.New(t, t.TempDir()+"/tasks.db", NewDB)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -187,7 +188,7 @@ func TestARefusedParentKeepsTheStory(t *testing.T) {
 }
 
 func TestLocalStoryIsParentedLocallyOnly(t *testing.T) {
-	database, err := NewDB(t.TempDir() + "/tasks.db")
+	database, err := testsqlite.New(t, t.TempDir()+"/tasks.db", NewDB)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"tasks/internal/models"
 	"tasks/internal/secrets"
+	"tasks/internal/testsqlite"
 	"tasks/internal/tracker"
 	"testing"
 )
@@ -45,7 +46,7 @@ func countTitled(t *testing.T, database *DB, title string) int {
 // project, which CreateTask falls back to, tracks locally, so a Jira request on
 // it would otherwise have been filed as a local card.
 func TestStrictRemoteCreationRejectsATrackerTheProjectDoesNotUse(t *testing.T) {
-	database, err := NewDB(filepath.Join(t.TempDir(), "tasks.db"))
+	database, err := testsqlite.New(t, filepath.Join(t.TempDir(), "tasks.db"), NewDB)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,7 +65,7 @@ func TestStrictRemoteCreationRejectsATrackerTheProjectDoesNotUse(t *testing.T) {
 }
 
 func TestStrictRemoteCreationRejectsATrackerThatCannotCreate(t *testing.T) {
-	database, err := NewDB(filepath.Join(t.TempDir(), "tasks.db"))
+	database, err := testsqlite.New(t, filepath.Join(t.TempDir(), "tasks.db"), NewDB)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,7 +87,7 @@ func TestStrictRemoteCreationRejectsATrackerThatCannotCreate(t *testing.T) {
 }
 
 func TestStrictRemoteCreationForwardsTypeAndParentAsTheCaller(t *testing.T) {
-	database, err := NewDB(filepath.Join(t.TempDir(), "tasks.db"))
+	database, err := testsqlite.New(t, filepath.Join(t.TempDir(), "tasks.db"), NewDB)
 	if err != nil {
 		t.Fatal(err)
 	}

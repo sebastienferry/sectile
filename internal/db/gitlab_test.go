@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"tasks/internal/models"
+	"tasks/internal/testsqlite"
 	"tasks/internal/tracker"
 )
 
@@ -89,7 +90,7 @@ func newGitlabFixture(t *testing.T) *gitlabFixture {
 	t.Cleanup(server.Close)
 	t.Setenv("SECTILE_GITLAB_API_URL", server.URL+"/api/v4")
 	t.Setenv("SECTILE_GITLAB_TOKEN", "server-token")
-	d, err := NewDB(filepath.Join(t.TempDir(), "tasks.db"))
+	d, err := testsqlite.New(t, filepath.Join(t.TempDir(), "tasks.db"), NewDB)
 	if err != nil {
 		t.Fatal(err)
 	}

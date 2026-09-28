@@ -13,12 +13,13 @@ import (
 
 	"tasks/internal/models"
 	"tasks/internal/secrets"
+	"tasks/internal/testsqlite"
 	"tasks/internal/trackerapi"
 )
 
 func testDB(t *testing.T) *DB {
 	t.Helper()
-	database, err := NewDB(filepath.Join(t.TempDir(), "tasks.db"))
+	database, err := testsqlite.New(t, filepath.Join(t.TempDir(), "tasks.db"), NewDB)
 	if err != nil {
 		t.Fatal(err)
 	}

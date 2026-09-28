@@ -5,11 +5,12 @@ import (
 	"testing"
 
 	"tasks/internal/models"
+	"tasks/internal/testsqlite"
 )
 
 func modeTestDB(t *testing.T) (*DB, *models.Project) {
 	t.Helper()
-	d, err := NewDB(filepath.Join(t.TempDir(), "test.db"))
+	d, err := testsqlite.New(t, filepath.Join(t.TempDir(), "test.db"), NewDB)
 	if err != nil {
 		t.Fatal(err)
 	}
