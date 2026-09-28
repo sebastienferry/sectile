@@ -647,6 +647,12 @@ not launched omit `startedAt`; completion preserves both timestamps. Desktop
 clients fall back to `createdAt` for legacy records without a valid start time.
 This display metadata does not change queue scheduling.
 
+An entry marked `restored: true` was loaded from the agent's run store at start
+(ADR 0040): it has exited, carries no `sessionId` and no `waitingSince`, and
+`/desktop/terminal` replays its stored console output or trace read-only, then
+closes. Agents that keep such a store list `run-store` in the `capabilities` of
+`GET /desktop/status`; older agents send neither.
+
 Web skill launches without a connected agent fail explicitly rather than falling
 back to server-side execution.
 
@@ -657,8 +663,9 @@ only when all registered processes have confirmed exit. Active runs or a restart
 already in progress return 409. New run registration is rejected once restart
 begins. The desktop confirms with the user, stops active runs through
 `/desktop/stop`, requests restart, and reconnects using the rewritten private
-connection file. Arguments, environment and local mappings are preserved;
-in-memory console history is cleared.
+connection file. Arguments, environment and local mappings are preserved.
+An agent with the `run-store` capability restores the finished runs and their
+console output on start; an older one clears its in-memory console history.
 
 The **Local agent** panel exposes launch configuration. Stop the daemon before
 changing settings, then use **Start local agent**. **Stop agent** uses authenticated

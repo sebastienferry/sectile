@@ -87,12 +87,15 @@ The trace needs no tap: `runTrace` gains `snapshot() []string` (copy of
   has exited.
 - `d.persistLoop(ctx)`: a 5 s ticker; saves each run whose tap or trace is
   dirty or whose status changed since its last save (`controlledRun.savedStatus`).
-- On exit: the places that close `run.exited` (`handleRunControl`,
-  `finishHeadlessRun`, `launchConsole`, `recoverOrphanedPTYRun`, the macro
-  and discussion failure paths) are funnelled through
-  `d.markExited(run)`, which closes the channel under `once` and schedules
-  `persistRun` and `prune` in a goroutine, so no store I/O happens under the
-  queue lock.
+- On exit: `d.trackRun(id, run)`, called where a run enters the index
+  (`enqueueRunLocked`, `wrapRun`, `registerHeadlessRun`), starts a goroutine
+  that waits on `run.exited`, then calls `persistRun` and `prune`. No store
+  I/O happens under the queue lock, and none of the places that close
+  `exited` had to change. *Changed during implementation: the plan first
+  funnelled every close through a `markExited` helper; waiting on the channel
+  covers the same paths without touching them.* The one path that deletes a
+  run it never started (external terminal failure) now closes `exited` first,
+  so its watcher ends.
 - On graceful stop: `Run` saves every run in a `defer` registered after the
   session-closing `defer`, so it runs first (defers are LIFO) and captures
   the output before the sessions close.
@@ -125,11 +128,17 @@ lines or one line with the stored console bytes. Tests that build an
 - `readOnlyConsole(run)`: `true` for `run.restored===true`.
 - No change in `main.js`: attach, relaunch, clear and archive already work from
   the run record.
+- `desktop/electron/main.cjs`: the restart and stop confirmation said "Console
+  history will be cleared". It reads `run-store` in the `capabilities` of
+  `/desktop/status` (advertised by an agent that has a store) and says the
+  consoles are kept; an older agent keeps the old warning. *Added during
+  implementation: the sentence would otherwise be false.*
 
 ## Data contract
 
 `GET /desktop/runs` entries gain `"restored": true` on restored runs; absent
-otherwise. Nothing else changes on the loopback API, the server protocol or
+otherwise. `GET /desktop/status` lists `run-store` in `capabilities` when the
+agent has a store. Nothing else changes on the loopback API, the server protocol or
 MCP.
 
 ## Rejected alternatives
