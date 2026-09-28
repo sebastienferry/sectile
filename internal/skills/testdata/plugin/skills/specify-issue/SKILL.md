@@ -77,6 +77,15 @@ Read specFramework from get_project_context and follow the subsection that match
    worktree. Open no pull request at this stage then, even when the project creates it after
    specification: say in the report that it is deferred to the implemented stage.
 
+4. Optional stage publication: read `pushStageCommits` from `get_project_context`
+   (or the supplied project configuration); missing or false means off. When true,
+   after each stage commit push the actual assigned work branch with a plain push.
+   Use `git push -u origin <branch>` on first publication and `git push origin <branch>`
+   afterwards. Never force. Report a refused push and continue the stage; retain the
+   commit for retry. Ignored artifacts are never committed or force-added, so writing
+   them alone triggers no push. This setting does not replace required PR publication.
+
+
 ## Do not
 - Do not decide what the clarification left open. Mark it as open and say so.
 - Do not describe implementation inside the behaviour file.
@@ -89,7 +98,7 @@ Read specFramework from get_project_context and follow the subsection that match
 
 ## Execution and ticket state
 - **Managed Sectile run**: When the invocation supplies a result-file contract, follow it. Sectile validates the result and owns transitions and tracker reports. Do not also call stage/postback APIs or edit tracker labels.
-- **Remote execution indicator (standalone only)**: Before doing work, call start_run with the full task primary key and skill name. If SECTILE_RUN_ID or a launch runId is supplied, reuse it. Keep the returned activity ID as runId. Nested skills reuse the outer run; only the owner finishes it. Call finish_run with taskKey, runId, status (completed, failed or canceled), and a note when the entire invocation ends, including errors or stopping for user input. Intermediate stage transitions do not finish an enclosing pickup run. A batch tracks each task separately. Never start a run merely to read a task.
+- **Remote execution indicator (standalone only)**: Before doing work, call start_run with the full task primary key and skill name. If SECTILE_RUN_ID or a launch runId is supplied, reuse it. Keep the returned activity ID as runId. Nested skills reuse the outer run; only the owner finishes it. Call finish_run with taskKey, runId, status (completed, failed or canceled), and a note when the entire invocation ends, including errors or stopping for user input. Intermediate stage transitions do not finish an enclosing pickup run. Never start a run merely to read a task.
 - **Waiting for the user (standalone only)**: Right before asking the user a question you cannot continue without, call report_waiting with taskKey, runId and waiting true, so the board and the owner's desktop show the run as waiting. Your next Sectile call ends the wait; call report_waiting with waiting false if you resume without one. A headless run is left unmarked, which the result says.
 - **Standalone invocation**: Read live context with `get_task` and `get_project_context`. After verifying each completed step, invoke `transition_stage` with the task key, completed stage, structured report note and actual branch. Check the tool result for errors before continuing.
 Transition clarified → specified only when this step is complete.
