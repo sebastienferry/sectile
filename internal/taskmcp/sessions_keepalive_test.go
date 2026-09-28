@@ -239,14 +239,27 @@ func TestAPingedStreamOutlivesTheProxyIdleTimeout(t *testing.T) {
 // A session whose client went away without a word, and which owns no run, is
 // closed after the failure threshold, and what it held is released.
 func TestAnOrphanedSessionIsClosedAndReleased(t *testing.T) {
-	s := newKeepaliveServer(t, true)
+	// Drive the ping rounds after initialization: a slow runner can otherwise
+	// exhaust the failure threshold before connectRaw returns.
+	s := newKeepaliveServer(t, false)
 	baseline := runtime.NumGoroutine()
 
 	c := connectRaw(t, s.url)
 	if _, ok := s.session(c.id); !ok {
 		t.Fatalf("session %s is not registered", c.id)
 	}
-	eventually(t, 20*testKeepalive, "the orphaned session is closed", func() bool { return s.count() == 0 })
+	for failures := 1; failures <= testFailures; failures++ {
+		s.registry.pingSessions(testKeepalive/2, testFailures)
+		if failures < testFailures {
+			entry, ok := s.session(c.id)
+			if !ok || entry.pingFailures != failures {
+				t.Fatalf("after %d failed pings: registered = %v, failures = %d", failures, ok, entry.pingFailures)
+			}
+		}
+	}
+	if s.count() != 0 {
+		t.Fatal("the orphaned session is still registered after the failure threshold")
+	}
 	c.http.CloseIdleConnections()
 	eventually(t, 2*time.Second, "the goroutines return to their baseline", func() bool {
 		return runtime.NumGoroutine() <= baseline
