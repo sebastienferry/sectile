@@ -230,6 +230,9 @@ type workstationView struct {
 	ProviderModels      map[string][]string  `json:"providerModels"`
 	SetupProviders      []string             `json:"setupProviders"`
 	Seeded              agentconfig.Seeded   `json:"seeded"`
+	// CustomSkillsUsed lists the project custom skills dispatches ran since
+	// the agent started, the latest first: the desktop's passive signal (#267).
+	CustomSkillsUsed []customSkillUse `json:"customSkillsUsed"`
 }
 
 // workstationEffective is what a project without a section of its own runs.
@@ -331,9 +334,10 @@ func (d *agentDaemon) workstationViewOf(settings agentconfig.Settings) workstati
 			CustomSkillsWin:      settings.Defaults.CustomSkillsWinOrDefault(),
 			InstalledSkillSource: settings.Defaults.InstalledSkillSourceOrDefault(),
 		},
-		ProviderModels: shipped,
-		SetupProviders: append([]string{}, models.SetupProviders...),
-		Seeded:         settings.Seeded,
+		ProviderModels:   shipped,
+		SetupProviders:   append([]string{}, models.SetupProviders...),
+		Seeded:           settings.Seeded,
+		CustomSkillsUsed: d.customSkillsUsed(),
 	}
 }
 

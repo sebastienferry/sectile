@@ -255,6 +255,20 @@ func TestDesktopWorkstationValidatesAndRoundTrips(t *testing.T) {
 	if len(view.ProviderModels["codex"]) == 0 {
 		t.Fatal("the shipped lists must be offered")
 	}
+	// No custom skill ran: the list is there and empty, never null.
+	if !strings.Contains(w.Body.String(), `"customSkillsUsed":[]`) {
+		t.Fatalf("customSkillsUsed must be an empty list: %s", w.Body.String())
+	}
+	d.noteCustomSkillUse(agentconfig.Config{ProjectID: "p1", ProjectName: "Sectile"}, agentconfig.Skill{ID: "implement", Directory: "code-issue"})
+	w = httptest.NewRecorder()
+	d.desktopHandler(w, r)
+	view = workstationView{}
+	if err := json.Unmarshal(w.Body.Bytes(), &view); err != nil {
+		t.Fatal(err)
+	}
+	if len(view.CustomSkillsUsed) != 1 || view.CustomSkillsUsed[0].ProjectName != "Sectile" || view.CustomSkillsUsed[0].Directory != "code-issue" {
+		t.Fatalf("customSkillsUsed = %+v", view.CustomSkillsUsed)
+	}
 }
 
 func TestDesktopProjectSavesEveryExecutionField(t *testing.T) {
