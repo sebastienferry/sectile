@@ -37,6 +37,7 @@ test fixtures or internal plumbing.
 
 ### Fixed
 
+- Agent reconnection now retries promptly after a dropped session, and a launch waits briefly for a reconnecting agent. Abnormal WebSocket losses no longer claim the server deliberately closed the connection. (#568)
 - Newly generated Sectile tracker reports use English headings for clarification, specification, implementation, review, and closure. (#549)
 - Desktop Tickets Pickup (full chain) now runs autonomously even when the project or pickup skill defaults to interactive execution. (#565)
 - Answering a question in a run no longer clears a newer question recorded at the same time by another server replica. (#496)

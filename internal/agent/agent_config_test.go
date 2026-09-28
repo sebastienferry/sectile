@@ -474,7 +474,7 @@ func TestInvalidProjectFailsBeforeAgentRegistration(t *testing.T) {
 	}))
 	defer srv.Close()
 	d := &agentDaemon{repoRoot: t.TempDir(), link: serverLink{serverURL: srv.URL, token: "test", projectID: "taskativ"}}
-	err := d.connect(context.Background())
+	_, err := d.connect(context.Background())
 	if err == nil || !strings.Contains(err.Error(), "project not found: taskativ") {
 		t.Fatalf("missing initialization error: %v", err)
 	}
