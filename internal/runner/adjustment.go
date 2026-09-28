@@ -238,5 +238,7 @@ func gitLabEvidencePages(args []string, run func(...string) (string, error)) (st
 	}
 }
 
-// AdjustmentContract accompanies every native or managed customization.
-const AdjustmentContract = `Mandatory adjustment contract: verify the existing matching task-branch PR before changes; it must be open, or already merged by the human. Never push onto a merged PR: review the final state and report it. Never create or replace a PR. Review the complete branch against the specification, reconcile the current remote default branch, retrieve available feedback and record dispositions; retrieval failure blocks completion. Run build/lint/test checks on final code, commit and push, update the same PR and verify readiness and its final commit. No human feedback is required. Preserve work on failure. Never merge, approve, close the task or remove its worktree. Missing PR recovery belongs to the configured earlier creation stage.`
+// AdjustmentContract accompanies every native or managed customization. It
+// carries guardrails only: what the skill does within them, including whether
+// it corrects anything, is the skill's call (ADR 0038).
+const AdjustmentContract = `Mandatory adjustment contract: verify the existing matching task-branch PR before changes; it must be open, or already merged by the human. Never push onto a merged PR: review its final state and report it. Never create or replace a PR; missing PR recovery belongs to the configured earlier creation stage. Retrieve available feedback and record a disposition for each; retrieval failure blocks completion, and no human feedback is required. Preserve work on failure. Never merge, approve, close the task or remove its worktree.`
