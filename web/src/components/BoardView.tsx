@@ -566,13 +566,13 @@ export const BoardView: React.FC = () => {
     <div className="flex-1 flex flex-col h-full overflow-hidden bg-[var(--bg-primary)] select-none">
       {/* Board Top Toolbar: Grouping Mode Switcher */}
       {/* View Subheader: View Mode Switcher (Icon-only) & Hide/Show Done Filter */}
-      <div className="flex items-center justify-between px-4 py-2 border-b border-[var(--border-color)] bg-[var(--bg-secondary)]/50 shrink-0">
+      <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-2 border-b border-[var(--border-color)] bg-[var(--bg-secondary)]/50 shrink-0">
         <div className="flex items-center gap-3">
           <BoardGroupingToggle size="md" />
           <BoardSortSelect size="md" />
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-1 flex-wrap items-center justify-end gap-2 min-w-0">
           <button
             type="button"
             onClick={toggleBoardCardDisplayMode}

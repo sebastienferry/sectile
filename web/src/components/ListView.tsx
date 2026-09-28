@@ -837,7 +837,7 @@ export const ListView: React.FC = () => {
             </label>
           </div>
 
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex flex-1 flex-wrap items-center justify-end gap-2 min-w-0">
             <button
               type="button"
               onClick={toggleRowMode}
