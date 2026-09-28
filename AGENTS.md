@@ -1,17 +1,3 @@
-<!-- sectile:project-context:start -->
-## Sectile workflow
-
-Sectile operates the development workflow for this repository. Project and
-remote tracker context is supplied through the authenticated Sectile MCP
-connection and dispatch context.
-
-- Tracker: `github`
-- GitHub repository: `sebastienferry/sectile`
-- Git remote: `git@github.com:sebastienferry/sectile.git`
-
-Development work follows Sectile's stages: clarify, specify, implement, adjust the existing pull request, then human merge and handoff. Keep the assigned branch/worktree, use Sectile's local stage handler for standalone runs, and let managed Sectile runs own stage transitions and tracker synchronization.
-<!-- sectile:project-context:end -->
-
 ## Everything written in the repository is in English
 
 Code comments, doc comments, identifiers, test names and failure messages,
