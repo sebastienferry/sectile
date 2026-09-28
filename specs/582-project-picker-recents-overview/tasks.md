@@ -2,21 +2,21 @@
 
 ## Pure helpers
 
-- [ ] T1 `lib/projectHistory.ts`: `ProjectOpening`, key, limit,
+- [x] T1 `lib/projectHistory.ts`: `ProjectOpening`, key, limit,
       `parseProjectHistory`, `recordProjectOpening`, `readProjectHistory`,
       `writeProjectHistory` (FR3, FR4).
-- [ ] T2 `tests/projectHistory.test.mjs`:
+- [x] T2 `tests/projectHistory.test.mjs`:
   - an opening moves to the front and dedupes;
   - the history is capped at 50;
   - malformed JSON, a non-array value, or an entry with no id or with an
     invalid date is parsed safely;
   - a storage that throws on read or on write yields `[]` or a no-op, with no
     exception.
-- [ ] T3 `lib/projectPicker.ts`: `projectRepositories`, `repositoryLabel`,
+- [x] T3 `lib/projectPicker.ts`: `projectRepositories`, `repositoryLabel`,
       `trackerLabel`, `matchProject`, `orderProjects`, `pickerModel`,
       `overviewProjects`, `highlightParts`, `descriptionExcerpt` (FR1, FR2,
       FR5, FR6, FR9).
-- [ ] T4 `tests/projectPicker.test.mjs`:
+- [x] T4 `tests/projectPicker.test.mjs`:
   - with an empty query: 3 recents at most, favorites skipped from recents,
     unknown ids ignored, 6 favorites A–Z at most with `hiddenFavorites`, and no
     other project;
@@ -34,7 +34,7 @@
 
 ## State
 
-- [ ] T5 `AppContext.tsx`:
+- [x] T5 `AppContext.tsx`:
   - `projectHistory` state, initialized with `readProjectHistory()`;
   - `setSelectedProjectId` records every id other than `'all'`, in the state
     and in storage;
@@ -44,10 +44,10 @@
 
 ## UI
 
-- [ ] T6 Strings: add the plan's keys to `fr` and `en` in `locales/shell.ts`,
+- [x] T6 Strings: add the plan's keys to `fr` and `en` in `locales/shell.ts`,
       remove `noFavorite`, and extend `tests/shellCatalog.test.mjs` with the
       English "Browse projects…", "Recent" and overview title (FR10).
-- [ ] T7 `components/ProjectPicker.tsx`:
+- [x] T7 `components/ProjectPicker.tsx`:
   - sections from `pickerModel`, and the rows with a highlighted name and a
     second line;
   - the "more" links, and the empty result explaining what search covers;
@@ -55,51 +55,60 @@
     entries;
   - no scroll container anywhere, and truncation on every line (US1, US3,
     US6, FR7).
-- [ ] T8 Keyboard and ARIA in `ProjectPicker`:
+- [x] T8 Keyboard and ARIA in `ProjectPicker`:
   - combobox, listbox, options and `aria-activedescendant`;
   - focus on open, ↑/↓ that wrap, Enter, and two-step Esc that gives the focus
     back to the switcher;
   - `stopPropagation` on the handled keys (US4, FR8).
-- [ ] T9 `Sidebar.tsx`: replace the inline dropdown with `ProjectPicker`,
+- [x] T9 `Sidebar.tsx`: replace the inline dropdown with `ProjectPicker`,
       pass the switcher button ref, and delete `searchBookmarked` /
       `searchOthers`. The collapsed button is unchanged.
-- [ ] T10 `components/ProjectOverviewModal.tsx`:
+- [x] T10 `components/ProjectOverviewModal.tsx`:
   - `useBackdropDismiss`, `aria-modal`, Esc and a close button;
   - a text filter focused on open and seeded from `projectOverviewQuery`;
   - tracker chips with counts;
   - the card grid ordered by `overviewProjects`, with a star toggle, "opened
     {elapsed}" from the history, Enter/Space/click to open, and an empty state
     (US5, FR9).
-- [ ] T11 `App.tsx`: render `ProjectOverviewModal` next to `ProjectModal`.
+- [x] T11 `App.tsx`: render `ProjectOverviewModal` next to `ProjectModal`.
+
+## Added during implementation
+
+- [x] T14 `fetchProjects` keeps any existing selected project, not only a
+      favorite, and unfavoriting the current project keeps it selected: without
+      it, a project opened from Recent or the overview was taken away at the next
+      refresh or reload (see plan, Deviation).
+- [x] T15 `ProjectIcon.tsx`: `renderProjectIcon` shared by the sidebar, the
+      picker and the overview.
 
 ## Docs
 
-- [ ] T12 `CHANGELOG.md` `[Unreleased]` → `Changed`: one line for the new
+- [x] T12 `CHANGELOG.md` `[Unreleased]` → `Changed`: one line for the new
       project picker (recents, search on more fields, keyboard) and the project
       overview (#582) (FR11).
 
 ## Browser regression
 
-- [ ] T13 `tests/project-picker.browser.mjs` (real App, faked API with about
+- [x] T13 `tests/project-picker.browser.mjs` (real App, faked API with about
       12 projects, 9 of them favorites and a mix of trackers):
-  - [ ] Open the picker. Check the search focus, 3 recents at most, 6
+  - [x] Open the picker. Check the search focus, 3 recents at most, 6
         favorites plus the "more favorites" link, and no scrollbar
         (`scrollHeight <= clientHeight` and `scrollWidth <= clientWidth` on the
         menu and every descendant).
-  - [ ] Open a project from the picker, reload, reopen, and check that it
+  - [x] Open a project from the picker, reload, reopen, and check that it
         leads "Recent" when it is not a favorite.
-  - [ ] Type an accented query that matches only a description. Check the
+  - [x] Type an accented query that matches only a description. Check the
         excerpt, the highlight and the 6-row cap with the "more matches" link,
         which opens the overview pre-filtered.
-  - [ ] With ↓ ↓ Enter, check that the second option opens. Check that Esc
+  - [x] With ↓ ↓ Enter, check that the second option opens. Check that Esc
         clears the query and then closes the picker, with the focus back on the
         switcher.
-  - [ ] Overview: check the tracker chip filter, that a star toggle is
+  - [x] Overview: check the tracker chip filter, that a star toggle is
         reflected in the picker, that Esc closes without changing the project,
         and that Enter on a focused card opens it.
-  - [ ] Check that `/` outside a field still focuses the global search, and
+  - [x] Check that `/` outside a field still focuses the global search, and
         that "All projects" still selects `all`.
-  - [ ] Run with `localStorage` access throwing. Check that the picker still
+  - [x] Run with `localStorage` access throwing. Check that the picker still
         renders and that openings update Recent within the session.
 
 ## Test plan

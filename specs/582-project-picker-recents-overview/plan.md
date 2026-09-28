@@ -225,6 +225,17 @@ be polished during implementation, as long as both locales carry every key.
   link): easy to miss one. The single hook in `setSelectedProjectId` covers all
   of them.
 
+## Deviation found during implementation
+
+`fetchProjects` kept the selection only when the selected project was a
+favorite, and falling back to a favorite otherwise; `toggleProjectBookmark`
+moved the selection away when the current project stopped being a favorite.
+Both made a non-favorite project impossible to keep: opening it from Recent or
+the overview lasted until the next project refresh (task creation, sync,
+reload). The rule becomes "keep the selected project while it exists", with the
+favorite-first fallback unchanged for a missing or deleted project. This is
+required by US2.3 and US5.8 and is covered by the browser regression.
+
 ## Risks
 
 - `setSelectedProjectId` has other callers: `AppContext.tsx:1747` passes
