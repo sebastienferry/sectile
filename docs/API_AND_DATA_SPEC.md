@@ -288,7 +288,8 @@ session, never from the payload, and no answer ever carries a token.
 and ignoring the case of A-Z, the confirmed `account` of the caller's personal
 credential for the ticket's tracker. On a tracker with no confirmed account,
 and on local tickets, it is compared with the account's name and e-mail
-instead. The account is learnt when the credential is saved, or when the stored
+instead, ignoring case and accents: a Jira display name "Sebastien FERRY"
+matches an account named "Sébastien Ferry". The account is learnt when the credential is saved, or when the stored
 one is checked with `POST /api/setup/tracker/check` and no typed token, on its
 own site (GitHub and Jira); it is stored in clear in
 `user_tracker_credentials.account`, so a sealed and locked credential keeps it.

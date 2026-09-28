@@ -1811,7 +1811,10 @@ func (d *DB) GetTasksInScope(scope TaskScope, query, status, priority, label, sp
 	}
 
 	if scope.Mine != nil {
-		cond, mineArgs := d.myTasksCondition(*scope.Mine)
+		cond, mineArgs, err := d.myTasksCondition(*scope.Mine)
+		if err != nil {
+			return nil, err
+		}
 		conditions = append(conditions, cond)
 		args = append(args, mineArgs...)
 	}
