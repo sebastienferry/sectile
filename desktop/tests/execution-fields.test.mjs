@@ -79,4 +79,9 @@ test('the workstation payload carries the two skill settings', () => {
   )
   // Neither set nor served: nothing sent, the agent applies its defaults.
   assert.deepEqual(workstationPayload({ setupProviders: null }, {}), { setupProviders: null })
+  // A form that resets them sends nothing either, whatever was served.
+  assert.deepEqual(
+    workstationPayload({ setupProviders: null, customSkillsWin: null, installedSkillSource: '' }, { customSkillsWin: false, installedSkillSource: 'plugin' }),
+    { setupProviders: null },
+  )
 })

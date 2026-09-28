@@ -138,10 +138,11 @@ export function workstationPayload(state,served={}){
  for(const [provider,models] of Object.entries(state.aiProviderModels||{}))if(Array.isArray(models))lists[provider]=[...models]
  if(Object.keys(lists).length)out.aiProviderModels=lists
  // The agent replaces the defaults whole: a form without the skill settings
- // hands back what it was served rather than resetting them.
- const customSkillsWin=typeof state.customSkillsWin==='boolean'?state.customSkillsWin:served?.customSkillsWin
+ // (undefined) hands back what it was served rather than resetting them, while
+ // null or an empty source is a reset to the default.
+ const customSkillsWin=state.customSkillsWin===undefined?served?.customSkillsWin:state.customSkillsWin
  if(typeof customSkillsWin==='boolean')out.customSkillsWin=customSkillsWin
- const source=String(state.installedSkillSource??served?.installedSkillSource??'').trim()
+ const source=String((state.installedSkillSource===undefined?served?.installedSkillSource:state.installedSkillSource)??'').trim()
  if(source)out.installedSkillSource=source
  return out
 }
