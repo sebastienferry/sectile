@@ -136,6 +136,8 @@ interface AppContextType {
   setPriorityFilter: (priority: Priority | null) => void
   labelFilter: string | null
   taskFacets: {
+    /** The filterScopeKey the values were read for, null before the first read (#581). */
+    scope: string | null
     sprints: string[]
     teams: string[]
     macros: { key: string; title: string; count: number }[]
@@ -450,6 +452,8 @@ import { normalizeUIScale } from '../lib/uiScale'
 import { toastDuration } from '../lib/toastTimer'
 import { applyDocumentLocale, format, isLocale, plural, rememberLocale, resolveInitialLocale } from '../lib/i18n'
 import { localizeActivityText } from '../lib/activityText'
+import { createLatestRequest } from '../lib/latestRequest'
+import { staleFilters } from '../lib/filterPruning'
 
 // Le filtre « non assigné » a besoin d'une valeur : une chaîne vide voudrait dire
 // « aucun filtre ». La même sentinelle est reconnue côté serveur.
@@ -561,6 +565,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [priorityFilter, setPriorityFilterState] = useState<Priority | null>(null)
   const [labelFilter, setLabelFilterState] = useState<string | null>(null)
   const [taskFacets, setTaskFacets] = useState<{
+    scope: string | null
     sprints: string[]
     teams: string[]
     macros: { key: string; title: string; count: number }[]
@@ -574,6 +579,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     issueTypes: TaskFacetValue[]
     total: number
   }>({
+    scope: null,
     sprints: [],
     teams: [],
     macros: [],
@@ -1248,10 +1254,20 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     return () => controller.abort()
   }, [setSelectedProjectId])
 
+  // Every read of the task list goes through this counter, the activity poll's
+  // included: only an answer to the newest request may replace the board, and
+  // likewise for the facets (#581).
+  const tasksRequestRef = useRef(createLatestRequest())
+  const facetsRequestRef = useRef(createLatestRequest())
+
   const fetchTasks = useCallback(async () => {
+    const ticket = tasksRequestRef.current.begin()
     try {
       setIsLoading(true)
       const outcome = await readJson<Task[]>(`${API_BASE}/tasks?${buildTaskQuery()}`)
+      // An answer for filters, a project or a view no longer on screen is
+      // dropped whole: no board, no error, no fallback.
+      if (!tasksRequestRef.current.isLatest(ticket)) return
       // A view that is gone, or someone else's, answers 404: the board falls
       // back to what it would show without it, and says why. It is not a
       // degraded read, so it never reaches the banner.
@@ -1269,7 +1285,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       setTasks(outcome.data)
       setError(null)
     } finally {
-      setIsLoading(false)
+      if (tasksRequestRef.current.isLatest(ticket)) setIsLoading(false)
     }
   }, [buildTaskQuery, selectedViewId, leaveUnavailableView, addToast, trackRead, t])
 
@@ -1303,6 +1319,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   }, [filterScope])
 
   const fetchTaskFacets = useCallback(async () => {
+    const ticket = facetsRequestRef.current.begin()
+    // The scope travels with the values, so that a remembered filter is only
+    // ever checked against its own project's or view's board (#581).
+    const scope = filterScopeKey(selectedProjectId, selectedViewId)
     try {
       const params = new URLSearchParams()
       if (selectedViewId) {
@@ -1313,7 +1333,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       const res = await fetch(`${API_BASE}/tasks/facets?${params.toString()}`)
       if (!res.ok) return
       const data = await res.json()
+      if (!facetsRequestRef.current.isLatest(ticket)) return
       setTaskFacets({
+        scope,
         sprints: data?.sprints || [],
         teams: data?.teams || [],
         macros: data?.macros || [],
@@ -1646,29 +1668,24 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   }, [selectedProjectId])
 
-  // Un filtre mémorisé peut ne plus exister : sprint clos, équipe renommée. Sans
-  // ce garde-fou, le tableau paraîtrait vide avec un sélecteur qui n'affiche
-  // rien de sélectionné.
+  // A remembered filter can outlive its value: a closed sprint, a renamed team.
+  // Kept, it would empty the board behind a selector showing nothing selected.
+  // A person's name matters most: it filters every view, the roadmap included,
+  // which has no filter bar to clear it from. The check runs only against the
+  // values of the filter's own scope: right after a switch the facets are still
+  // the previous project's, and checking against them dropped, and stored as
+  // dropped, what the new project had just restored (#581).
   useEffect(() => {
-    if (sprintFilter && taskFacets.sprints.length > 0 && !taskFacets.sprints.includes(sprintFilter)) {
-      setSprintFilter(null)
-    }
-    if (teamFilter && taskFacets.teams.length > 0 && !taskFacets.teams.includes(teamFilter)) {
-      setTeamFilter(null)
-    }
-    // Le filtre par personne était mémorisé sans être appliqué : une valeur
-    // héritée de cette époque amputerait maintenant toutes les vues, dont la
-    // roadmap qui n'affiche pas de barre de filtres. Un nom que le projet ne
-    // porte plus est donc abandonné plutôt que gardé en silence.
-    if (
-      assigneeFilter &&
-      assigneeFilter !== UNASSIGNED_FILTER_VALUE &&
-      taskFacets.assignees.length > 0 &&
-      !taskFacets.assignees.includes(assigneeFilter)
-    ) {
-      setAssigneeFilter(null)
-    }
-  }, [taskFacets, sprintFilter, teamFilter, assigneeFilter, setSprintFilter, setTeamFilter, setAssigneeFilter])
+    const stale = staleFilters(
+      { sprint: sprintFilter, team: teamFilter, assignee: assigneeFilter },
+      taskFacets,
+      filterScope,
+      UNASSIGNED_FILTER_VALUE,
+    )
+    if (stale.includes('sprint')) setSprintFilter(null)
+    if (stale.includes('team')) setTeamFilter(null)
+    if (stale.includes('assignee')) setAssigneeFilter(null)
+  }, [taskFacets, filterScope, sprintFilter, teamFilter, assigneeFilter, setSprintFilter, setTeamFilter, setAssigneeFilter])
 
   const fetchBoardViews = useCallback(async () => {
     const outcome = await readJson<BoardView[]>(`${API_BASE}/me/board-views`)
@@ -1877,16 +1894,19 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           })
 
           if (needTaskRefresh) {
-            // Même requête que le chargement normal : sans les paramètres, ce
-            // rafraîchissement remplaçait la liste par tout le board, tous
-            // projets et tous filtres confondus.
+            // The same query as the normal load: without its parameters, this
+            // refresh replaced the list with the whole board, every project and
+            // every filter mixed. It joins the newest read instead of starting
+            // one: a filter changed while it runs wins over it, and a load it
+            // overlaps still clears its own spinner (#581).
+            const ticket = tasksRequestRef.current.current()
             const taskRes = await fetch(`${API_BASE}/tasks?${buildTaskQuery()}`)
-            if (taskRes.ok) {
-              const freshTasks = await taskRes.json()
+            const freshTasks: Task[] | null = taskRes.ok ? await taskRes.json() : null
+            if (freshTasks && tasksRequestRef.current.isLatest(ticket)) {
               setTasks(freshTasks)
               setSelectedTask(curr => {
                 if (!curr) return null
-                return freshTasks.find((t: Task) => t.id === curr.id) || curr
+                return freshTasks.find(t => t.id === curr.id) || curr
               })
             }
           }
