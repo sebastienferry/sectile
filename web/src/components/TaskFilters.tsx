@@ -138,7 +138,7 @@ export const TaskFilters: React.FC = () => {
   }, [parentFilter, taskFacets.macros, availableParents, F])
 
   return (
-    <div className="flex items-center gap-2 shrink-0">
+    <div className="flex flex-wrap items-center justify-end gap-2 min-w-0">
       {/* Épinglés : le retour immédiat aux chantiers en cours quand le board en
           porte trois cents. Le filtre est tenu par le serveur, sur la colonne
           indexée, donc il vaut aussi pour la recherche et les autres filtres. */}
