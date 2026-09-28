@@ -3,6 +3,7 @@
 ## Architecture Decisions & Constraints
 
 ### Go CI Timeouts and MCP Keepalive Fixtures (2026-09-28)
+- GitLab job 16780342190 exposed a second initialization race: the SDK returns HTTP 202 for `notifications/initialized` before its handler finishes. Before manually driving pings, wait for both the registry entry and its non-nil transport: `Watch` publishes them in separate critical sections. Disabling the periodic keepalive alone does not synchronize initialization.
 - `go test -timeout` limits the whole package binary. In GitLab job 16775660955, `internal/db` exhausted 30 minutes while its tests kept passing; the final test had run for only four seconds and was still migrating its fixture. Read the duration and stack before treating the last named test as hung. The CI package budget is now 60 minutes, with a 90-minute job budget for compilation and reporting.
 - A raw MCP client never answers pings. Starting a 50 ms keepalive before checking its registration can delete the session before initialization returns on a slow runner. The orphan-release test drives `pingSessions` after initialization and checks every failure up to the threshold; the stream test still covers the periodic loop.
 
