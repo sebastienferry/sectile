@@ -234,10 +234,11 @@ aside{flex-shrink:0}.sidebar-hidden #sidebar-resizer{display:none}#sidebar-resiz
 .project-capacity{flex-shrink:0;color:var(--text-muted);font-size:11px;font-weight:400;white-space:nowrap}
 
 
-#toolbar{height:auto;min-height:72px;flex-wrap:wrap;overflow:visible;align-items:center;gap:12px}
-/* Identity on the left, every control on the right: the header reads as one
-   line of "what am I looking at" and one row of "what can I do with it". */
-.toolbar-identity{flex:1 1 220px;min-width:0;display:flex;flex-direction:column;gap:3px}
+#toolbar{height:auto;min-height:72px;flex-direction:column;overflow:visible;align-items:stretch;gap:3px;padding:8px 22px}
+.toolbar-row{display:flex;align-items:center;justify-content:space-between;gap:12px;min-width:0;width:100%}
+.toolbar-primary .terminal-title-line,.toolbar-secondary .worktree-line{flex:1;min-width:0}
+.toolbar-meta{display:flex;align-items:center;justify-content:flex-end;gap:8px;min-width:0;flex-shrink:0}
+.toolbar-secondary{flex-wrap:wrap}
 .toolbar-actions{display:flex;align-items:center;flex-wrap:wrap;justify-content:flex-end;gap:4px;min-width:0}
 .toolbar-actions>button,.toolbar-actions>select{flex-shrink:0;max-width:100%;margin:0}
 #title{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -246,13 +247,24 @@ aside{flex-shrink:0}.sidebar-hidden #sidebar-resizer{display:none}#sidebar-resiz
 .execution-views [aria-pressed="true"]{background:var(--view-pressed-bg);color:var(--view-pressed-text)}
 .execution-views .icon-button{width:32px;height:32px;padding:6px;border-radius:6px}
 .execution-views .icon-button svg{width:18px;height:18px}
-#changes{flex:1;min-height:0;overflow:auto;padding:12px;min-width:0}
+#execution-content{display:flex;flex:1;min-height:0;min-width:0}
+#execution-content #terminal,#execution-content #changes{flex:1;min-width:0}
+#execution-content.split #terminal{flex:none;width:50%}
+#execution-content.split #changes{flex:1}
+#execution-divider{width:7px;flex-shrink:0;background:var(--border-strong);cursor:col-resize;touch-action:none}
+#execution-divider:hover,#execution-divider:focus-visible{background:var(--accent)}
+.resizing-execution{cursor:col-resize;user-select:none}
+#changes{min-height:0;overflow:auto;padding:12px;min-width:0}
 #changes[hidden],#terminal[hidden]{display:none}
 .changes-toolbar{display:flex;align-items:center;gap:12px}
 .diff-context{font-size:11px;overflow-wrap:anywhere;color:var(--diff-context)}
 .diff-summary,.diff-file-info{overflow-wrap:anywhere}
 .diff-error{color:var(--diff-error)}
 .diff-body{display:grid;grid-template-columns:minmax(150px,25%) minmax(0,1fr);gap:12px;min-height:0}
+.split .diff-body{display:block}
+.split .diff-files{max-height:150px}
+.split .diff-detail{width:100%}
+.split .changes-toolbar{flex-wrap:wrap}
 .diff-files{display:flex;flex-direction:column;align-items:stretch;gap:4px;min-width:0;max-height:65vh;overflow:auto}
 .diff-files button{white-space:pre-wrap;overflow-wrap:anywhere;text-align:left;flex-shrink:0}
 .diff-files [aria-pressed="true"]{background:var(--view-pressed-bg)}

@@ -110,6 +110,10 @@ test('TTY header follows metadata and selection without disturbing the console',
   await expect.poll(()=>page.evaluate(()=>window.innerWidth)).toBe(800)
   await expect(header()).toHaveAttribute('title','#82 · '+longTitle.trim()+' · clarify')
   assert.ok(await header().evaluate(el=>el.scrollWidth>el.clientWidth&&getComputedStyle(el).whiteSpace==='nowrap'))
+  assert.equal(await page.locator('.toolbar-primary #title, .toolbar-primary #execution-history, .toolbar-primary #next-step-label').count(),3)
+  assert.equal(await page.locator('.toolbar-secondary #worktree, .toolbar-secondary .toolbar-actions').count(),2)
+  const first=await page.locator('.toolbar-primary').boundingBox(),second=await page.locator('.toolbar-secondary').boundingBox()
+  assert.ok(first.y+first.height<=second.y+1,'Task header rows remain ordered')
   const selectors=['#execution-history','#selected-pr','#rerun','#save-log','#stop']
   for(const selector of selectors){
    const control=page.locator(selector);await expect(control).toBeVisible()

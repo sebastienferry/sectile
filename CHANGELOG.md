@@ -24,6 +24,8 @@ test fixtures or internal plumbing.
 
 - Each clarification round now publishes its full report section on the ticket, retaining Markdown history and avoiding duplicate final-round comments. (#459)
 
+- Desktop task headers now put the title and execution history above the worktree path and actions; Console and Changes can be shown together with an adjustable divider. (#574)
+
 - Desktop execution and skill-result indicators now appear in the task’s bottom status bar; the redundant current-skill badge is hidden. (#560)
 
 - AI engine profiles have their own desktop settings page, separate from execution defaults.

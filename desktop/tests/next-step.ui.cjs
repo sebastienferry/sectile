@@ -226,8 +226,8 @@ test('console next step rechecks task state, guards active history and handles f
   assert.equal(await page.locator('#task-status button').count(),0,'The footer keeps the status text alone')
   assert.equal(await page.evaluate(()=>document.querySelector('#stop').nextElementSibling.id),'next-step','The closing control precedes the next action')
   assert.equal(await page.evaluate(()=>document.querySelector('#next-step').nextElementSibling.id),'pickup-chain')
-  assert.equal(await page.evaluate(()=>document.querySelector('#pickup-chain').nextElementSibling.id),'next-step-label')
-  assert.equal(await page.evaluate(()=>document.querySelector('#next-step-label').nextElementSibling.id),'mark-reviewed')
+  assert.equal(await page.evaluate(()=>document.querySelector('#pickup-chain').nextElementSibling.id),'mark-reviewed')
+  assert.equal(await page.evaluate(()=>document.querySelector('#next-step-label').parentElement.className),'toolbar-meta')
   assert.equal(await page.evaluate(()=>document.querySelector('#mark-reviewed').nextElementSibling.id),'retry-next-step')
   assert.equal(await page.evaluate(()=>document.querySelector('#retry-next-step').nextElementSibling.id),'force-next-step')
   // Closing the current step comes before launching the next one, in the order the user acts.

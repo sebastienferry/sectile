@@ -62,13 +62,14 @@ for(const colorScheme of ['dark','light']){
    await page.locator('#terminal').hover()
    await expect(history).toHaveCSS('background-color',TRANSPARENT)
 
-   // Keyboard focus from the preceding toolbar control draws the accent ring.
-   await page.locator('#worktree').focus()
-   await page.keyboard.press('Tab')
+   // The history control starts the first row's keyboard controls.
+   await history.focus()
    await expect(history).toBeFocused()
    await expect(history).toHaveCSS('outline-style','solid')
    await expect(history).toHaveCSS('outline-color',await token(page,'--accent'))
    await expect(history).toHaveCSS('outline-offset','2px')
+   await page.keyboard.press('Tab')
+   await expect(page.locator('#worktree')).toBeFocused()
 
    // Every other select keeps the boxed look of the global rule.
    const other=await page.evaluate(()=>{const select=document.createElement('select');document.body.append(select);const computed=getComputedStyle(select);const value={style:computed.borderTopStyle,width:computed.borderTopWidth};select.remove();return value})

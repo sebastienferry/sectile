@@ -1,6 +1,6 @@
 // Results belong only to the selected execution and latest explicit request.
-export function createGitDiff({api,container,terminal,consoleButton,changesButton,onConsole}){
- let runID=null,generation=0,active=false,result=null,selection=null
+export function createGitDiff({api,container,terminal,panel,divider,consoleButton,changesButton,onConsole}){
+ let runID=null,generation=0,active=false,consoleVisible=true,result=null,selection=null
  container.innerHTML='<div class="changes-toolbar"><button type="button" class="diff-refresh">Refresh</button><span class="diff-status" role="status" aria-live="polite"></span></div><p class="diff-error" role="alert" hidden></p><p class="diff-context"></p><p class="diff-summary"></p><div class="diff-body"><nav class="diff-files" aria-label="Changed files"></nav><div class="diff-detail"><p class="diff-file-info"></p><pre class="diff-patch" tabindex="0" aria-label="Selected file diff"></pre></div></div>'
  const find=s=>container.querySelector(s)
  function clear(){result=null;find('.diff-context').textContent='';find('.diff-summary').textContent='';find('.diff-files').replaceChildren();find('.diff-patch').replaceChildren();find('.diff-file-info').textContent=''}
@@ -37,15 +37,34 @@ export function createGitDiff({api,container,terminal,consoleButton,changesButto
    clear();find('.diff-error').textContent=err.message||String(err);find('.diff-error').hidden=false;find('.diff-status').textContent='Changes unavailable. Refresh to retry.'
   }finally{if(request===generation)container.setAttribute('aria-busy','false')}
  }
- function view(changes){
-  active=changes;generation++;container.hidden=!active;terminal.hidden=active
-  consoleButton.setAttribute('aria-pressed',String(!active));changesButton.setAttribute('aria-pressed',String(active))
-  if(active)refresh();else onConsole()
+ function renderViews(focusConsole=false){
+  terminal.hidden=!consoleVisible;container.hidden=!active;divider.hidden=!(consoleVisible&&active)
+  panel.classList.toggle('split',consoleVisible&&active)
+  consoleButton.setAttribute('aria-pressed',String(consoleVisible));changesButton.setAttribute('aria-pressed',String(active))
+  if(consoleVisible)requestAnimationFrame(()=>onConsole(focusConsole))
  }
- consoleButton.onclick=()=>view(false);changesButton.onclick=()=>view(true);find('.diff-refresh').onclick=refresh
+ function setSplit(percent){
+  const value=Math.max(25,Math.min(75,Math.round(percent)))
+  terminal.style.width=value+'%'
+  divider.setAttribute('aria-valuenow',String(value))
+  requestAnimationFrame(()=>onConsole(false))
+ }
+ function toggleConsole(){if(consoleVisible&&!active)return;consoleVisible=!consoleVisible;renderViews(consoleVisible)}
+ function toggleChanges(){
+  if(active&&!consoleVisible)return
+  active=!active;generation++;container.setAttribute('aria-busy','false');renderViews()
+  if(active)refresh()
+ }
+ consoleButton.onclick=toggleConsole;changesButton.onclick=toggleChanges;find('.diff-refresh').onclick=refresh
+ divider.onpointerdown=event=>{divider.setPointerCapture(event.pointerId);document.body.classList.add('resizing-execution')}
+ divider.onpointermove=event=>{if(divider.hasPointerCapture(event.pointerId)){const rect=panel.getBoundingClientRect();setSplit((event.clientX-rect.left)/rect.width*100)}}
+ divider.onpointerup=event=>{divider.releasePointerCapture(event.pointerId)}
+ divider.onlostpointercapture=()=>document.body.classList.remove('resizing-execution')
+ divider.onkeydown=event=>{if(event.key==='ArrowLeft'||event.key==='ArrowRight'){event.preventDefault();setSplit(Number(divider.getAttribute('aria-valuenow'))+(event.key==='ArrowRight'?5:-5))}}
  return {
   get active(){return active},
-  select(id){if(id===runID)return;runID=id;generation++;selection=null;clear();find('.diff-error').hidden=true;find('.diff-status').textContent='';consoleButton.disabled=!id;changesButton.disabled=!id;if(active){if(id)refresh();else view(false)}},
+  get consoleVisible(){return consoleVisible},
+  select(id){if(id===runID)return;runID=id;generation++;selection=null;clear();find('.diff-error').hidden=true;find('.diff-status').textContent='';consoleButton.disabled=!id;changesButton.disabled=!id;if(active){if(id)refresh();else{active=false;consoleVisible=true;renderViews()}}},
   disconnect(){generation++;clear();container.setAttribute('aria-busy','false');find('.diff-status').textContent='Changes unavailable. Reconnect and refresh.';if(active){find('.diff-error').textContent='Local agent disconnected. Reconnect and refresh.';find('.diff-error').hidden=false}}
  }
 }
