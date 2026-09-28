@@ -4,14 +4,15 @@ Ordered. Each task names the requirements it covers and its tests.
 
 ## Phase 1 - Reproduce
 
-- [ ] **T1** Merge `origin/main` into `feat/589` (no rebase: memory "Force
+- [x] **T1** Merge `origin/main` into `feat/589` (no rebase: memory "Force
   push refused after rebase").
-- [ ] **T2** Test `TestAttachingAFolderAppliesToTheNextOperation`
+- [x] **T2** Test `TestAttachingAFolderAppliesToTheNextOperation`
   (`internal/agent/agent_desktop_repositories_test.go`): refused, attach via
   `POST /desktop/folders`, accepted, detach, refused, all on one daemon with
   no restart. (FR1, FR2, US1-1, US1-3)
   - Red: the cause is in the agent, go to T9 with it.
   - Green: caching is ruled out; keep the test as the FR2 guard.
+  - Result (2026-09-28): green on the code as it was. Caching is ruled out.
 - [ ] **T3** Manual repro on the owner's workstation (needs the owner): agent
   connections for user and project, the MCP bridge's server against the
   desktop's, ticket steps 1 to 5, device that answered. Best done after T6 so
@@ -19,7 +20,7 @@ Ordered. Each task names the requirements it covers and its tests.
 
 ## Phase 2 - Folder diagnosis and refusals
 
-- [ ] **T4** `describeFolder` records `Err` for a `git` failure that is
+- [x] **T4** `describeFolder` records `Err` for a `git` failure that is
   neither "not a git repository" nor "no such remote"; kinds unchanged.
   (FR4)
   - Test `TestDescribeFolderKeepsTheGitError` (`repositories_test.go`):
@@ -28,7 +29,7 @@ Ordered. Each task names the requirements it covers and its tests.
     nowhere) that sets `Err` and is not reported as "no origin".
   - `TestAttachedFoldersAreReadFromTheDisk` and the `/desktop/folders` tests
     stay green: the desktop sees the same kinds.
-- [ ] **T5** `repositoryWorktree` builds its refusal from the diagnosis
+- [x] **T5** `repositoryWorktree` builds its refusal from the diagnosis
   (US2-1 to US2-9), in French, naming the device. (FR5)
   - Test `TestRepositoryWorktreeRefusalNamesTheReason`: one subtest per case
     US2-1 to US2-7; the "attachez son dossier" advice appears in US2-1 only;
@@ -37,13 +38,17 @@ Ordered. Each task names the requirements it covers and its tests.
     does not prevent success (US2-8).
   - `TestRepositoryWorktreeInAnAttachedFolder` and
     `TestRepositoryWorktreeReusesTheTaskBranch` stay green. (FR6)
-- [ ] **T6** `executeOperation` passes the device name and logs one line per
+- [x] **T6** `executeOperation` passes the device name and logs one line per
   operation (action, project, task, repository, outcome). (FR1, FR3)
+  - Only `repository_worktree` is logged: the other operations are frequent
+    (evidence reads) and are not what the repro needs.
 
 ## Phase 3 - Fix the confirmed cause
 
 - [ ] **T7** Record the cause confirmed by T2/T3 in
   `docs/clarifications/589.md` and in the PR description.
+  - Partial (2026-09-28): what T2 ruled out and how T3 will tell the
+    candidates apart are recorded; the cause itself waits for T3.
 - [ ] **T8** If another agent answered because of a stale or duplicate route:
   fix the route replacement in `AgentDispatcher`, with a test in
   `internal/handlers` where a second connection for the same user and project
@@ -56,15 +61,16 @@ Ordered. Each task names the requirements it covers and its tests.
 
 ## Phase 4 - Messages and documentation
 
-- [ ] **T11** `stageprs.go`: the prUrls refusal adds that a repository
+- [x] **T11** `stageprs.go`: the prUrls refusal adds that a repository
   becomes changed through `prepare_repository_worktree`. Update the tests
   matching "is not in a repository". (FR7, US3)
-- [ ] **T12** `taskmcp/server.go`: the tool description states US4-1; update
+- [x] **T12** `taskmcp/server.go`: the tool description states US4-1; update
   a test that pins it, if any. (FR8)
-- [ ] **T13** `CHANGELOG.md`: one `Fixed` line under `## [Unreleased]`,
+- [x] **T13** `CHANGELOG.md`: one `Fixed` line under `## [Unreleased]`,
   worded after the confirmed cause. (FR9)
-- [ ] **T14** Check `docs/contracts/server-agent-v1.md` for the error text of
-  `repository_worktree`; update only if it is quoted there.
+- [x] **T14** Check `docs/contracts/server-agent-v1.md` for the error text of
+  `repository_worktree`; update only if it is quoted there. Not quoted: no
+  change.
 
 ## Test plan
 

@@ -48,6 +48,7 @@ test fixtures or internal plumbing.
 
 ### Fixed
 
+- When `prepare_repository_worktree` cannot prepare a repository, the refusal now says why: it names the workstation that answered and each folder attached to the project with what it is (gone, not a Git checkout, without origin, another origin, or the Git error that kept it from being read), and only advises attaching the folder when that is what is missing. A `transition_stage` refused over a pull request of an unprepared repository says to call `prepare_repository_worktree` first. (#589)
 - The board again shows only the tickets its Sprint, Team and Assignee filters select, and each project or saved view keeps its remembered filters when you switch to it, even after a reload. (#581)
 - Agent reconnection now retries promptly after a dropped session, and a launch waits briefly for a reconnecting agent. Abnormal WebSocket losses no longer claim the server deliberately closed the connection. (#568)
 - Newly generated Sectile tracker reports use English headings for clarification, specification, implementation, review, and closure. (#549)
