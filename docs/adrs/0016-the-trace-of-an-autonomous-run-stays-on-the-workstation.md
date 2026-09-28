@@ -29,6 +29,9 @@ receives into xterm. Serving the trace there costs one handler on a route that
 already exists, and none of the server-side storage: no table, no migration, no
 cursor endpoint, no polling. The trace lives in the agent's memory, bounded at
 2000 rendered lines, and is forgotten with the run.
+*Amended by [ADR 0040](0040-consoles-survive-an-agent-restart.md): the trace
+is also kept in the workstation's run store, so it survives an agent restart;
+it still never leaves the workstation.*
 
 **The stream is parsed in the agent**, with `internal/runner/reasoning.go` — a
 port of Taskativ's reader, kept as it is because its comments record what was

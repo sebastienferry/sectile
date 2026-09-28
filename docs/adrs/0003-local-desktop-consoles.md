@@ -20,6 +20,9 @@ The agent is detached from the window lifecycle. Closing or quitting the app
 leaves executions alive; reopening reconnects. A daemon restart loses sessions
 and the in-memory run index. Console replay is bounded by the existing PTY
 history buffer; users can export visible scrollback.
+*Amended by [ADR 0040](0040-consoles-survive-an-agent-restart.md): the run
+index and each run's console output are kept on the workstation and restored,
+read-only, when the agent restarts; the sessions themselves are still lost.*
 
 One binary still provides server, agent, MCP bridge and supervisor commands.
 macOS/Linux supervision is supported; Windows remains unsupported. Packages

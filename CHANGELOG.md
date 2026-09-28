@@ -21,6 +21,7 @@ test fixtures or internal plumbing.
 - A user guide walks through Sectile sign-in, Jira access, project and workstation setup, Claude Code prompts, autonomous runs, and Desktop use. (#567)
 - Projects can optionally push clarification and specification commits after each stage commit; the setting is off by default. (#459)
 - Projects can open the draft pull request as soon as a clarification is confirmed: choose "Draft after clarification" as the PR creation stage in the project options. Update Sectile Desktop on every workstation first; older versions refuse the setting. (#580)
+- **Desktop consoles survive an agent restart.** After restarting or updating the local agent, the sidebar lists the same executions (skill runs, autonomous runs, macro runs, discussions and free consoles), and each one replays, read-only, what its console showed. A run that was still going when the agent stopped comes back canceled. The 100 most recently finished runs are kept, privately, in `~/.taskflow/runs/`, until **Clear finished consoles**. (#588)
 
 - Open desktop Configuration with Cmd+, on macOS or Ctrl+, on Windows/Linux, including from a terminal; an already-open settings page keeps its current category and unsaved edits. (#547)
 

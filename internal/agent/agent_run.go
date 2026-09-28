@@ -105,6 +105,18 @@ type controlledRun struct {
 	// answerWatched says the console's input is already observed, since a run
 	// may be given its console more than once.
 	answerWatched bool
+	// console is the run's own copy of its terminal output, kept for the run
+	// store (#588); nil when the daemon has no store or the run no terminal.
+	console *consoleTap
+	// restored marks a run loaded from the run store: it has exited, and is
+	// never written again.
+	restored bool
+	// finishedAt is when the run was first seen to have exited, which orders
+	// the store's retention. saved is what its last write held, and persistMu
+	// keeps two writes of the same run from overtaking each other.
+	finishedAt time.Time
+	saved      runSave
+	persistMu  sync.Mutex
 }
 
 func (d *agentDaemon) wrapRun(taskID, runID, command string) (string, error) {
@@ -128,6 +140,8 @@ func (d *agentDaemon) wrapRun(taskID, runID, command string) (string, error) {
 	if existing != nil {
 		existing.token = run.token
 		run = existing
+	} else {
+		d.trackRun(runID, run)
 	}
 	d.queue.runs[runID] = run
 	endpoint := d.loopback.url + "/control/runs/" + runID
@@ -279,6 +293,7 @@ func (d *agentDaemon) enqueueRunLocked(taskID string, payload agentconfig.Dispat
 	run := &controlledRun{taskID: taskID, exited: make(chan struct{}), sequence: d.queue.sequence, limit: limit, root: root, isolated: isolated,
 		desktop: desktopRun{CreatedAt: time.Now().UTC(), Prompt: payload.Prompt, ID: payload.RunID, TaskID: taskID, TaskKey: payload.TaskKey, MacroKey: payload.MacroKey, ProjectID: projectID, Skill: payload.SkillID, Directory: root, Status: "queued"}}
 	d.queue.runs[payload.RunID] = run
+	d.trackRun(payload.RunID, run)
 	if payload.MacroKey != "" {
 		d.rememberMacroRun(payload.RunID, projectID, payload.MacroKey)
 	}
