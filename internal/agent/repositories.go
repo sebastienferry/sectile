@@ -352,10 +352,13 @@ func resolveLegacyRepoPaths(ctx context.Context, paths []models.LegacyRepoPath) 
 // secondary repository, on the ticket's branch, created or reused like the
 // primary one. The repository is one of the project's, or a Git folder
 // attached to the project here (#484). The repository is echoed so the
-// server can tell this agent from one that ignored the question.
-func repositoryWorktree(ctx context.Context, config agentconfig.Config, overrides agentconfig.Settings, projectRoot string, task models.Task, repository string) (models.RepositoryWorktree, error) {
+// server can tell this agent from one that ignored the question. A refusal
+// names device, the workstation that answered, and what each attached folder
+// turned out to be (#589).
+func repositoryWorktree(ctx context.Context, config agentconfig.Config, overrides agentconfig.Settings, projectRoot string, task models.Task, repository, device string) (models.RepositoryWorktree, error) {
 	repository = strings.TrimSpace(repository)
-	for _, folder := range attachedFolders(ctx, overrides, config.ProjectID) {
+	folders := attachedFolders(ctx, overrides, config.ProjectID)
+	for _, folder := range folders {
 		if folder.Identity == "" && filepath.IsAbs(repository) && (sameDirectory(folder.Stored, repository) || sameDirectory(folder.Path, repository)) {
 			return models.RepositoryWorktree{}, fmt.Errorf("%s has no remote: change it in place, with no worktree and no pull request", folder.Stored)
 		}
@@ -366,7 +369,7 @@ func repositoryWorktree(ctx context.Context, config agentconfig.Config, override
 	}
 	root, ok := repositoryFolder(ctx, overrides, config.ProjectID, projectRoot, codeIdentity(config), identity)
 	if !ok || identity == "" {
-		return models.RepositoryWorktree{}, fmt.Errorf("Le dépôt %s n'est ni associé ni attaché à ce projet sur ce poste : attachez son dossier dans les réglages du projet de l'app desktop.", repository)
+		return models.RepositoryWorktree{}, repositoryNotFound(repository, device, folders)
 	}
 	target := models.ProjectRepository{URL: repository, Identity: identity}
 	if target.Identity != codeIdentity(config) {
@@ -379,6 +382,46 @@ func repositoryWorktree(ctx context.Context, config agentconfig.Config, override
 		return models.RepositoryWorktree{}, err
 	}
 	return models.RepositoryWorktree{Repository: target.Identity, Path: dir, Branch: branch}, nil
+}
+
+// repositoryNotFound is the refusal of a repository that no mapping and no
+// attached folder answers for. The advice to attach its folder is given only
+// when every attached folder could be read: a folder gone or a git failure
+// may be the repository's own folder, and attaching another would not help.
+// Plain folders and checkouts without an origin are read cleanly: they are
+// listed for what they are, beside the advice.
+func repositoryNotFound(repository, device string, folders []attachedFolder) error {
+	where := "sur ce poste"
+	if device = strings.TrimSpace(device); device != "" {
+		where = fmt.Sprintf("sur ce poste (%s)", device)
+	}
+	var lines strings.Builder
+	unread := false
+	for _, folder := range folders {
+		fmt.Fprintf(&lines, "\n- %s : ", folder.Stored)
+		switch {
+		case folder.Kind == folderKindMissing:
+			unread = true
+			lines.WriteString("introuvable, ou n'est pas un dossier")
+		case folder.Err != "":
+			unread = true
+			fmt.Fprintf(&lines, "git a échoué (%s)", folder.Err)
+		case folder.Kind == folderKindFolder:
+			lines.WriteString("n'est pas un checkout Git")
+		case folder.Identity == "":
+			lines.WriteString("checkout Git sans origin, qui se modifie sur place, sans worktree")
+		default:
+			fmt.Fprintf(&lines, "a pour origin %s", folder.Remote)
+		}
+	}
+	if unread {
+		return fmt.Errorf("Le dépôt %s n'a été trouvé dans aucun dossier lisible du projet %s ; des dossiers attachés n'ont pas pu être lus :%s", repository, where, lines.String())
+	}
+	message := fmt.Sprintf("Le dépôt %s n'est ni associé ni attaché au projet %s : attachez son dossier dans les réglages du projet de l'app desktop.", repository, where)
+	if len(folders) > 0 {
+		message += " Dossiers attachés au projet :" + lines.String()
+	}
+	return errors.New(message)
 }
 
 // removeRepositoryWorktrees answers remove_workspace for a ticket with

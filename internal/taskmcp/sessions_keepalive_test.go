@@ -245,9 +245,13 @@ func TestAnOrphanedSessionIsClosedAndReleased(t *testing.T) {
 	baseline := runtime.NumGoroutine()
 
 	c := connectRaw(t, s.url)
-	if _, ok := s.session(c.id); !ok {
-		t.Fatalf("session %s is not registered", c.id)
-	}
+	// The HTTP 202 accepts notifications/initialized before its handler has
+	// finished. Watch publishes the entry before attaching its transport, so
+	// wait for both before driving the first ping round.
+	eventually(t, 2*time.Second, "the session is registered with its transport", func() bool {
+		entry, ok := s.session(c.id)
+		return ok && entry.session != nil
+	})
 	for failures := 1; failures <= testFailures; failures++ {
 		s.registry.pingSessions(testKeepalive/2, testFailures)
 		if failures < testFailures {

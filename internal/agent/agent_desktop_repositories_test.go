@@ -2,6 +2,7 @@ package agent
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -14,12 +15,23 @@ import (
 	"testing"
 
 	"tasks/internal/agentconfig"
+	"tasks/internal/agentprotocol"
+	"tasks/internal/models"
 	"tasks/internal/testhome"
 )
 
 // desktopFixture serves multiRepoConfig to an agent whose project p lives in
 // root, and records every request the server receives.
 func desktopFixture(t *testing.T, root string) (func() []string, func(method, path string, body any) *httptest.ResponseRecorder) {
+	t.Helper()
+	_, requests, do := desktopAgent(t, root, models.Task{})
+	return requests, do
+}
+
+// desktopAgent is desktopFixture with the agent itself, whose server also
+// answers task, so the test can run operations on the agent the desktop
+// talks to.
+func desktopAgent(t *testing.T, root string, task models.Task) (*agentDaemon, func() []string, func(method, path string, body any) *httptest.ResponseRecorder) {
 	t.Helper()
 	var mu sync.Mutex
 	var received []string
@@ -33,6 +45,8 @@ func desktopFixture(t *testing.T, root string) (func() []string, func(method, pa
 			config := multiRepoConfig()
 			config.SchemaVersion = agentconfig.Version
 			_ = json.NewEncoder(w).Encode(config)
+		case task.ID != "" && r.URL.Path == "/api/tasks/"+task.ID:
+			_ = json.NewEncoder(w).Encode(task)
 		default:
 			http.NotFound(w, r)
 		}
@@ -57,7 +71,46 @@ func desktopFixture(t *testing.T, root string) (func() []string, func(method, pa
 		defer mu.Unlock()
 		return append([]string(nil), received...)
 	}
-	return requests, do
+	return d, requests, do
+}
+
+// A folder attached while a session runs applies to the session's next
+// repository_worktree, on the same agent and with no restart, and a folder
+// detached stops applying the same way (#589). Nothing kept since the agent
+// started decides whether a folder is attached.
+func TestAttachingAFolderAppliesToTheNextOperation(t *testing.T) {
+	testhome.Temp(t)
+	ctx := context.Background()
+	root := checkoutOf(t, "git@github.com:o/a.git")
+	lib := checkoutOf(t, "git@github.com:o/lib.git")
+	gitTest(t, lib, "branch", "feat/1")
+	if err := agentconfig.WriteSettings(agentconfig.Settings{ProjectSettings: map[string]agentconfig.ProjectSettings{"p": {Path: root}}}); err != nil {
+		t.Fatal(err)
+	}
+	task := models.Task{ID: "t", Key: "#1", ProjectID: "p", BranchName: branchOf("feat/1")}
+	d, _, do := desktopAgent(t, root, task)
+	d.link.deviceID = "laptop"
+	op := agentprotocol.Operation{ProjectID: "p", TaskID: "t", Action: "repository_worktree", Repository: "git@github.com:o/lib.git"}
+
+	if _, err := d.executeOperation(ctx, op); err == nil || !strings.Contains(err.Error(), "attachez") || !strings.Contains(err.Error(), "(laptop)") {
+		t.Fatalf("before attaching: %v", err)
+	}
+	if w := do("POST", "/desktop/folders", map[string]any{"projectId": "p", "path": lib}); w.Code != 204 {
+		t.Fatalf("attach: %d %s", w.Code, w.Body.String())
+	}
+	value, err := d.executeOperation(ctx, op)
+	if err != nil {
+		t.Fatalf("after attaching: %v", err)
+	}
+	if got := value.(models.RepositoryWorktree); got.Repository != "github.com/o/lib" || got.Branch != "feat/1" {
+		t.Fatalf("worktree = %+v", got)
+	}
+	if w := do("DELETE", "/desktop/folders?projectId=p&path="+url.QueryEscape(lib), nil); w.Code != 204 {
+		t.Fatalf("detach: %d %s", w.Code, w.Body.String())
+	}
+	if _, err := d.executeOperation(ctx, op); err == nil || !strings.Contains(err.Error(), "attachez") {
+		t.Fatalf("after detaching: %v", err)
+	}
 }
 
 func TestDesktopMapsARepositoryOnlyToACheckoutOfIt(t *testing.T) {
