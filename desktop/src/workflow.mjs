@@ -2,8 +2,10 @@ const stages=['new','clarified','specified','implemented','reviewed','finished']
 const skills={new:['clarify','Clarify'],clarified:['specify','Specify'],specified:['implement','Implement'],implemented:implementedStep,reviewed:['handoff','Handoff']}
 
 // An implemented task is adjusted once it records a pull request. Without one, the
-// pull request is recovered through the owner the project configured for its
-// creation: the stage-neutral create_pr skill never records the link, so it would
+// pull request is recovered through the specification when the project opens it
+// there, and through the implementation otherwise, a project that opens it at
+// clarification included: re-running a clarification to publish a branch makes no
+// sense. The stage-neutral create_pr skill never records the link, so it would
 // leave the task at implemented for good.
 function implementedStep(task,project){
  if(typeof task.prUrl==='string'&&task.prUrl.trim())return ['adjust','Adjust']
