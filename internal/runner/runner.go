@@ -431,8 +431,8 @@ INSTRUCTIONS D'EXÉCUTION OBLIGATOIRES :
 		promptTemplate += "\n\nInstructions supplémentaires fournies par l'utilisateur :\n" + customPrompt
 	}
 
-	if skillID == "specify" || skillID == "implement" {
-		promptTemplate += "\nRead the project PR creation policy through Sectile. Specification owns creation only for specified timing; otherwise implementation owns it. After required owner checks, commit/push, discover and reuse the branch PR or create a draft only on confirmed absence, and report prUrl. Lookup failure is not absence. Preserve a reused ready PR. On PR recovery, preserve accepted work and the attained stage; do not advance to reviewed."
+	if skillID == "clarify" || skillID == "specify" || skillID == "implement" {
+		promptTemplate += "\nRead the project PR creation policy through Sectile. Clarification owns creation only for clarified timing, and only in its final round; specification owns it only for specified timing; otherwise implementation owns it. After required owner checks, commit/push, discover and reuse the branch PR or create a draft only on confirmed absence, and report prUrl. Lookup failure is not absence. Preserve a reused ready PR. On PR recovery, preserve accepted work and the attained stage; do not advance to reviewed."
 	}
 	if skillID == "adjust" {
 		promptTemplate += "\n\n" + AdjustmentContract

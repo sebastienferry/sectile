@@ -31,6 +31,8 @@ test('missing PR recovery follows earlier creation policy', () => {
  assert.equal(prRecoverySkill(), 'implement')
  assert.equal(prRecoverySkill({ prCreationStage: 'specified' }), 'specify')
  assert.equal(prRecoverySkill({ prCreationStage: 'implemented' }), 'implement')
+ // A clarification never re-runs to publish a branch: implementation recovers it (#580).
+ assert.equal(prRecoverySkill({ prCreationStage: 'clarified' }), 'implement')
 })
 
 test('a ticket offers neither the macro nor the batch skills', () => {

@@ -20,6 +20,7 @@ test fixtures or internal plumbing.
 - When a project's custom skill ran, the desktop's settings button shows a warning dot and Execution defaults lists which skills ran; the run's activity says so too. (#267)
 - A user guide walks through Sectile sign-in, Jira access, project and workstation setup, Claude Code prompts, autonomous runs, and Desktop use. (#567)
 - Projects can optionally push clarification and specification commits after each stage commit; the setting is off by default. (#459)
+- Projects can open the draft pull request as soon as a clarification is confirmed: choose "Draft after clarification" as the PR creation stage in the project options. Update Sectile Desktop on every workstation first; older versions refuse the setting. (#580)
 
 - Open desktop Configuration with Cmd+, on macOS or Ctrl+, on Windows/Linux, including from a terminal; an already-open settings page keeps its current category and unsaved edits. (#547)
 

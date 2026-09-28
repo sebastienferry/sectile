@@ -151,9 +151,9 @@ func (d *DB) EffectiveProjectSkills(projectIDOrPath, specFramework string) []ski
 	}
 	overrides := d.projectSkillOverrides(projectID)
 
-	timing := "implemented"
-	if project, err := d.GetProjectByID(projectID); err == nil && project != nil && project.PRCreationStage == "specified" {
-		timing = "specified"
+	timing := models.PRCreationImplemented
+	if project, err := d.GetProjectByID(projectID); err == nil && project != nil && models.ValidPRCreationStage(project.PRCreationStage) {
+		timing = project.PRCreationStage
 	}
 	out := skills.ProjectSkillTemplates(framework)
 	for i := range out {
@@ -169,6 +169,10 @@ func (d *DB) EffectiveProjectSkills(projectIDOrPath, specFramework string) []ski
 		}
 	}
 	for i := range out {
+		// Clarification only hears about pull requests when it opens one (#580).
+		if out[i].ID == "clarify" && timing != models.PRCreationClarified {
+			continue
+		}
 		if skills.HasPullRequestPolicy(out[i].ID) {
 			out[i].Content += skills.ProjectPullRequestPolicy(timing)
 		}

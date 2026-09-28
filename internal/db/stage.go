@@ -79,7 +79,7 @@ func (d *DB) TransitionTaskStageWithPRs(actorID string, taskIDOrKey string, targ
 	if branchForPR == "" && task.BranchName != nil {
 		branchForPR = *task.BranchName
 	}
-	skillForStage := map[string]string{"specified": "specify", "implemented": "implement", "reviewed": "adjust"}[cleanStage]
+	skillForStage := map[string]string{"clarified": "clarify", "specified": "specify", "implemented": "implement", "reviewed": "adjust"}[cleanStage]
 	if skillForStage != "" {
 		set, err := d.validateStagePRs(task, actorID, skillForStage, d.adjustmentCheckout(task), branchForPR, prURLs)
 		if err != nil {

@@ -206,13 +206,14 @@ func pullRequestLinkLast(links []models.TaskPullRequest, url string) []models.Ta
 // specification artefacts and the branch therefore has nothing to show yet.
 const prDeferredNotice = "Pull request deferred to the implemented stage: the specification artefacts are dropped on this workstation."
 
-// prDeferredBySpecArtifacts says whether a specified transition may go without
-// its pull request (#487): the project opens it at specification, and the
-// agent of the reporting workstation says it drops the task's artefacts. Any
-// other answer, an agent too old to know the question included, keeps the
-// requirement as it was.
+// prDeferredBySpecArtifacts says whether a clarified or specified transition
+// may go without its pull request (#487, #580): the project opens it at one of
+// those stages, and the agent of the reporting workstation says it drops the
+// task's artefacts. Any other answer, an agent too old to know the question
+// included, keeps the requirement as it was.
 func (d *DB) prDeferredBySpecArtifacts(task *models.Task, actorID, skillID string) bool {
-	if models.NormalizeSkillID(skillID) != "specify" || d.prCreationOwner(task) != "specify" {
+	skillID = models.NormalizeSkillID(skillID)
+	if (skillID != "clarify" && skillID != "specify") || !d.stagePRRequired(task, skillID) {
 		return false
 	}
 	var answer struct {

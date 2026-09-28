@@ -150,6 +150,7 @@ const fr = {
     prHelp: "Étape du workflow à laquelle l'agent ouvre la Pull/Merge Request en brouillon.",
     draftAfterImplementation: "Brouillon après l'implémentation",
     draftAfterSpecification: 'Brouillon après la spécification',
+    draftAfterClarification: 'Brouillon après la clarification',
     dropSpecArtifacts: 'Garder les spécifications hors du dépôt',
     dropSpecArtifactsHelp:
       "Les clarifications et les spécifications restent dans le worktree de la tâche et ne sont jamais commitées. Celles déjà commitées restent dans l'historique.",
@@ -395,6 +396,7 @@ const en: ProjectSettingsStrings = {
     prHelp: 'Workflow stage at which the agent opens the draft Pull/Merge Request.',
     draftAfterImplementation: 'Draft after implementation',
     draftAfterSpecification: 'Draft after specification',
+    draftAfterClarification: 'Draft after clarification',
     dropSpecArtifacts: 'Keep specifications out of the repository',
     dropSpecArtifactsHelp:
       'Clarifications and specifications stay in the task worktree and are never committed. Those already committed stay in the history.',

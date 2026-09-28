@@ -1128,7 +1128,7 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 		}
 		payload.Prompt += "\nExisting PR identity: " + pr.URL + ". Update this same PR; never create or replace it."
 	}
-	if payload.SkillID == "specify" || payload.SkillID == "implement" {
+	if payload.SkillID == "specify" || payload.SkillID == "implement" || (payload.SkillID == "clarify" && models.PRCreationOwner(config.PRCreationStage) == "clarify") {
 		payload.Prompt += "\nPreserve accepted artifacts and code on retry. If this is PR recovery, retain the attained task stage and complete the configured creation owner checks without advancing to reviewed."
 	}
 	payload.Prompt += specArtifactsNotice(config, payload.SkillID)

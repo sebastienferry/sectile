@@ -15,6 +15,8 @@ test('next step follows canonical labels, status aliases and configured skills',
  assert.equal(nextTaskStep(withoutPR,{...project,server:{...project.server,prCreationStage:'implemented'}}).skillId,'implement')
  assert.equal(nextTaskStep(withoutPR,{...project,server:{...project.server,prCreationStage:'specified'}}).skillId,'specify')
  assert.equal(nextTaskStep(withoutPR,{...project,server:{...project.server,prCreationStage:'specified'}}).label,'Create PR')
+ // A clarification is never re-run to publish a branch: implementation recovers the pull request (#580).
+ assert.deepEqual([nextTaskStep(withoutPR,{...project,server:{...project.server,prCreationStage:'clarified'}}).skillId,nextTaskStep(withoutPR,{...project,server:{...project.server,prCreationStage:'clarified'}}).label],['implement','Create PR'])
  const withoutAdjust={configured:true,server:{skills:['implement'].map(id=>({id}))}}
  assert.equal(nextTaskStep(withPR,withoutAdjust).skillId,undefined)
  assert.equal(nextTaskStep(withPR,withoutAdjust).message,'Next skill is unavailable: Adjust')

@@ -15,11 +15,11 @@ var component = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]*$`)
 var commandName = regexp.MustCompile(`^(?:[A-Za-z0-9][A-Za-z0-9_-]*:)?[A-Za-z0-9][A-Za-z0-9_-]*$`)
 
 // Validate checks the downloaded contract before any local preparation or execution.
+//
+// PRCreationStage is not checked: a stage this build does not know leaves pull
+// request creation to implementation (models.PRCreationOwner), so a value added
+// on the server never stops a lagging agent from running a project (#580).
 func (c Config) Validate() error {
-	if c.PRCreationStage != "" && c.PRCreationStage != "specified" && c.PRCreationStage != "implemented" {
-		return fmt.Errorf("invalid prCreationStage")
-	}
-
 	if c.SchemaVersion != Version {
 		return fmt.Errorf("unsupported configuration version %d (agent supports %d)", c.SchemaVersion, Version)
 	}
