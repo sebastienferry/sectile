@@ -3,7 +3,9 @@ package agent
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -478,6 +480,45 @@ func TestDescribeFolderKeepsTheGitError(t *testing.T) {
 	got := describeFolder(ctx, broken)
 	if got.Kind != folderKindFolder || !strings.Contains(got.Err, "bad config") || got.Identity != "" {
 		t.Errorf("broken checkout = %+v", got)
+	}
+}
+
+// A git that speaks the workstation's language still has a plain folder read
+// as a plain folder and a checkout without origin as one: the diagnosis asks
+// git for its untranslated messages.
+func TestDescribeFolderReadsGitInEnglish(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the translated git is a shell script")
+	}
+	real, err := exec.LookPath("git")
+	if err != nil {
+		t.Skip(err)
+	}
+	ctx := context.Background()
+	noOrigin := t.TempDir()
+	gitTest(t, noOrigin, "init", "-q")
+	plain := t.TempDir()
+	bin := t.TempDir()
+	script := `#!/bin/sh
+if [ "$LC_ALL" != "C" ]; then
+  case "$*" in
+    *rev-parse*) echo "fatal: ni ceci ni aucun de ses répertoires parents n'est un dépôt git" >&2; exit 128 ;;
+    *get-url*) echo "erreur : Pas de dépôt distant 'origin'" >&2; exit 2 ;;
+  esac
+fi
+exec "` + real + `" "$@"
+`
+	if err := os.WriteFile(filepath.Join(bin, "git"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("LC_ALL", "fr_FR.UTF-8")
+
+	if got := describeFolder(ctx, plain); got.Kind != folderKindFolder || got.Err != "" {
+		t.Errorf("plain folder = %+v", got)
+	}
+	if got := describeFolder(ctx, noOrigin); got.Kind != folderKindGit || got.Identity != "" || got.Err != "" {
+		t.Errorf("checkout without origin = %+v", got)
 	}
 }
 

@@ -52,7 +52,7 @@ func describeFolder(ctx context.Context, path string) attachedFolder {
 		return folder
 	}
 	folder.Kind = folderKindFolder
-	top, err := gitLocal(ctx, path, "rev-parse", "--show-toplevel")
+	top, err := gitLocalEnv(ctx, gitInEnglish, path, "rev-parse", "--show-toplevel")
 	if err != nil {
 		if !gitSays(err, "not a git repository") {
 			folder.Err = err.Error()
@@ -63,7 +63,7 @@ func describeFolder(ctx context.Context, path string) attachedFolder {
 		return folder
 	}
 	folder.Kind, folder.Path = folderKindGit, filepath.Clean(strings.TrimSpace(top))
-	remote, err := gitLocal(ctx, folder.Path, "remote", "get-url", "origin")
+	remote, err := gitLocalEnv(ctx, gitInEnglish, folder.Path, "remote", "get-url", "origin")
 	switch {
 	case err != nil && !gitSays(err, "no such remote"):
 		folder.Err = err.Error()
@@ -73,6 +73,11 @@ func describeFolder(ctx context.Context, path string) attachedFolder {
 	}
 	return folder
 }
+
+// gitInEnglish keeps git's messages untranslated, since gitSays reads them: a
+// git speaking the workstation's language would otherwise report every plain
+// folder as a failure.
+var gitInEnglish = []string{"LC_ALL=C"}
 
 // gitSays reports whether err is git's own answer holding message, as opposed
 // to git failing to run or failing for another reason. The message is matched
