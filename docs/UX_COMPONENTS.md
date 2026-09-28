@@ -41,6 +41,9 @@ App.tsx
   5. **In Review / PR** (`#reviewed`)
   6. **Finished** (`#finished`)
 - **Behaviors**:
+  - Each column initially mounts up to 20 cards and adds 20 more when its end approaches the scroll viewport. A translated **Show more tasks** button supports keyboard use and browsers without IntersectionObserver. Loaded cards stay mounted; changing task membership or order resets the column to the first group.
+  - Counts, sorting, filtering, and batch selection use the complete task list, including cards not mounted yet. Task data is still fetched in full; this is progressive rendering, not server pagination.
+  - The board retains one engine report per distinct project and passes it to its cards. Pending requests are shared with task details; window focus and agent changes still refresh the reports.
   - Dragging a task card across columns executes an optimistic UI update and triggers `updateTask({ status })`.
   - Automatically updates external tracker status if configured in the background using the runner.
 

@@ -1,39 +1,15 @@
 import { useCallback, useEffect, useSyncExternalStore } from 'react'
 import type { EngineReport } from '../types'
-import { normalizeEngineReport, UNKNOWN_ENGINE } from '../lib/aiModels'
+import { createProjectEngineStore } from '../lib/projectEngineStore'
 import { getAgentStatus, subscribeAgentStatus, type AgentStatusState } from './useAgentStatus'
 
-const API_BASE = '/api'
+const store = createProjectEngineStore()
+const { refresh: refreshProjectEngine, subscribe } = store
+export { refreshProjectEngine }
 
-// One cache for the whole page, keyed by project: a board shows many cards of
-// the same project, and each would otherwise fetch the same report.
-const reports = new Map<string, EngineReport>()
-// Latest request per project, so an answer overtaken by a newer one is dropped.
-const requestSeq = new Map<string, number>()
 // Mounted readers per project; only these are refreshed.
 const retained = new Map<string, number>()
-const listeners = new Set<() => void>()
 let stopWatching: (() => void) | null = null
-
-function publish() {
-  for (const listener of listeners) listener()
-}
-
-/** Fetches the caller's own workstation report for one project. */
-export async function refreshProjectEngine(projectId: string): Promise<void> {
-  const seq = (requestSeq.get(projectId) || 0) + 1
-  requestSeq.set(projectId, seq)
-  let report: EngineReport
-  try {
-    const res = await fetch(`${API_BASE}/projects/${encodeURIComponent(projectId)}/engine`)
-    report = res.ok ? normalizeEngineReport(await res.json()) : UNKNOWN_ENGINE
-  } catch {
-    report = UNKNOWN_ENGINE
-  }
-  if (requestSeq.get(projectId) !== seq) return
-  reports.set(projectId, report)
-  publish()
-}
 
 function refreshRetained() {
   for (const projectId of retained.keys()) void refreshProjectEngine(projectId)
@@ -85,7 +61,7 @@ function startWatching(): () => void {
 function retain(projectId: string) {
   retained.set(projectId, (retained.get(projectId) || 0) + 1)
   if (!stopWatching) stopWatching = startWatching()
-  if (!reports.has(projectId)) void refreshProjectEngine(projectId)
+  if (!store.reports.has(projectId)) void refreshProjectEngine(projectId)
 }
 
 function release(projectId: string) {
@@ -98,13 +74,6 @@ function release(projectId: string) {
   }
 }
 
-function subscribe(listener: () => void): () => void {
-  listeners.add(listener)
-  return () => {
-    listeners.delete(listener)
-  }
-}
-
 /**
  * The engine the caller's own workstation reported for a project (#305), or
  * null while the first answer is pending. Refreshed when the agent status
@@ -113,7 +82,7 @@ function subscribe(listener: () => void): () => void {
  */
 export function useProjectEngine(projectId: string | null | undefined): EngineReport | null {
   const id = (projectId || '').trim()
-  const getSnapshot = useCallback(() => (id ? reports.get(id) ?? null : null), [id])
+  const getSnapshot = useCallback(() => (id ? store.reports.get(id) ?? null : null), [id])
   const report = useSyncExternalStore(subscribe, getSnapshot)
   useEffect(() => {
     if (!id) return
@@ -121,4 +90,16 @@ export function useProjectEngine(projectId: string | null | undefined): EngineRe
     return () => release(id)
   }, [id])
   return report
+}
+
+/** Retains each board project once; cards consume the resulting shared snapshot. */
+export function useProjectEngines(projectIds: readonly (string | null | undefined)[]): ReadonlyMap<string, EngineReport> {
+  const projectKey = JSON.stringify([...new Set(projectIds.map(id => (id || '').trim()).filter(Boolean))].sort())
+  const reports = useSyncExternalStore(subscribe, store.getSnapshot)
+  useEffect(() => {
+    const ids: string[] = JSON.parse(projectKey)
+    for (const id of ids) retain(id)
+    return () => { for (const id of ids) release(id) }
+  }, [projectKey])
+  return reports
 }
