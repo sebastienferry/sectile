@@ -1570,7 +1570,7 @@ function configurationNavigation(tabs,projectId){
 }
 function deploymentPanel(panel){
  const globalTitle=document.createElement('h3');globalTitle.textContent='Global AI engine setup'
- const globalHint=document.createElement('p');globalHint.textContent='Install skills and register MCP in your user configuration for the selected engine’s provider. Engines sharing a provider share this installation.'
+ const globalHint=document.createElement('p');globalHint.textContent='Install skills and register MCP in your user configuration for the selected engine’s provider. Engines sharing a provider share this installation. This setup is optional: for Claude, installing the sectile plugin does the same, and a dispatch never installs anything.'
  const engine=document.createElement('select');engine.setAttribute('aria-label','Setup AI engine')
  panel.append(globalTitle,globalHint,settingRow('AI engine',{},engine).section)
  const source=projects.find(project=>project.id===selectedProject)||projects[0]

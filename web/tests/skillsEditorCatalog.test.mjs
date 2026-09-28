@@ -21,15 +21,16 @@ test('the execution modes keep their French wording and read naturally in Englis
 
 test('the divergence indicator and its tooltip exist in both languages', () => {
   assert.equal(fr.indicators.diverged, 'DIVERGENTE')
-  assert.equal(fr.indicators.divergedTitle, 'Le fichier du dépôt diffère')
+  assert.equal(fr.indicators.divergedTitle, 'La copie directe diffère')
   assert.equal(en.indicators.diverged, 'DIVERGED')
-  assert.equal(en.indicators.divergedTitle, 'The repository file differs')
+  assert.equal(en.indicators.divergedTitle, 'The direct copy differs')
 })
 
 test('the French editor chrome is unchanged', () => {
   assert.equal(fr.list.noProject, 'Sélectionne un projet : les skills sont éditées par projet, et régénérées dans le dépôt de ce projet.')
   assert.equal(fr.indicators.custom, 'PERSO')
-  assert.equal(fr.indicators.notInstalled, 'NON INSTALLÉE')
+  // The badges describe the direct copy only since #267.
+  assert.equal(fr.indicators.notInstalled, 'SANS COPIE DIRECTE')
   assert.equal(fr.editor.reset, 'Réinitialiser')
   assert.equal(fr.editor.updatedAt, 'modifiée le {date}')
   assert.equal(fr.list.macroRealignment, 'Réalignement Macro')
