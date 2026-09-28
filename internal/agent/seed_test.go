@@ -259,7 +259,7 @@ func TestDesktopWorkstationValidatesAndRoundTrips(t *testing.T) {
 	if !strings.Contains(w.Body.String(), `"customSkillsUsed":[]`) {
 		t.Fatalf("customSkillsUsed must be an empty list: %s", w.Body.String())
 	}
-	d.noteCustomSkillUse(agentconfig.Config{ProjectID: "p1", ProjectName: "Sectile"}, agentconfig.Skill{ID: "implement", Directory: "code-issue"})
+	d.noteCustomSkillUse(agentconfig.Config{ProjectID: "p1", ProjectName: "Sectile"}, "implement", "code-issue")
 	w = httptest.NewRecorder()
 	d.desktopHandler(w, r)
 	view = workstationView{}

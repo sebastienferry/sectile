@@ -1168,15 +1168,13 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 		d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", err.Error())
 		return
 	}
-	if choice != nil && choice.Kind == skillKindCustom {
-		go d.postCustomSkillUse(payload.RunID, choice.Directory)
-	}
 	fullLine, err := dispatchCommand(config, taskRef, payload.SkillID, payload.Action, payload.Prompt, payload.Command, payload.Mode, payload.Model, agentCommandContext{Task: task, Branch: branch, Directory: workDir, Tracker: config.IssueTracker, Repo: config.GithubRepo, AddDirs: folderMapDirs(folders), Skill: choice})
 	if err != nil {
 		launchFailure = err
 		d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", err.Error())
 		return
 	}
+	d.recordCustomSkillUse(config, choice, payload.RunID)
 
 	// The engine this launch really uses, reported once the line is built. A
 	// discussion or a bare terminal is not a skill run: it resolves the project

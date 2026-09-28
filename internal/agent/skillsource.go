@@ -46,7 +46,9 @@ type skillChoice struct {
 	Command string
 	// File is the run-private SKILL.md of a custom skill.
 	File string
-	// Directory is the skill's directory, which names it in messages.
+	// SkillID and Directory name the skill, in messages and in the passive
+	// signal.
+	SkillID   string
 	Directory string
 }
 
@@ -73,7 +75,7 @@ func (e errSkillNotInstalled) Error() string {
 // workDirs are the folders the run works in, which decide whether a plugin
 // installed for one project folder applies.
 func chooseSkill(defaults agentconfig.Defaults, config agentconfig.Config, skill agentconfig.Skill, workDirs ...string) (skillChoice, error) {
-	choice := skillChoice{Directory: skill.Directory}
+	choice := skillChoice{SkillID: skill.ID, Directory: skill.Directory}
 	if skill.Custom && defaults.CustomSkillsWinOrDefault() {
 		choice.Kind = skillKindCustom
 		return choice, nil
@@ -310,7 +312,8 @@ func dispatchedSkill(config agentconfig.Config, skillID, action, prompt string) 
 // prepareSkill resolves what a launch runs and, for a custom skill, writes its
 // run-private file, removed once done is closed. It returns nil when the
 // launch runs no configured skill, which dispatchCommand then handles as it
-// always did.
+// always did. The use of a custom skill is recorded by recordCustomSkillUse,
+// once the command line is built.
 func (d *agentDaemon) prepareSkill(config agentconfig.Config, skillID, action, prompt, runID string, done <-chan struct{}, workDirs ...string) (*skillChoice, error) {
 	skill := dispatchedSkill(config, skillID, action, prompt)
 	if skill == nil {
@@ -337,7 +340,6 @@ func (d *agentDaemon) prepareSkill(config agentconfig.Config, skillID, action, p
 			<-done
 			removeRunSkills(runID)
 		}()
-		d.noteCustomSkillUse(config, *skill)
 	}
 	return &choice, nil
 }
@@ -360,14 +362,26 @@ type customSkillLog struct {
 	uses map[string]customSkillUse
 }
 
-func (d *agentDaemon) noteCustomSkillUse(config agentconfig.Config, skill agentconfig.Skill) {
+// recordCustomSkillUse records that a launch runs its project's custom skill:
+// on the desktop's passive signal and, for a run, on its activity. The caller
+// calls it once the command line is built, like the engine report, so a launch
+// that failed before that is not counted as a use.
+func (d *agentDaemon) recordCustomSkillUse(config agentconfig.Config, choice *skillChoice, runID string) {
+	if choice == nil || choice.Kind != skillKindCustom {
+		return
+	}
+	d.noteCustomSkillUse(config, choice.SkillID, choice.Directory)
+	go d.postCustomSkillUse(runID, choice.Directory)
+}
+
+func (d *agentDaemon) noteCustomSkillUse(config agentconfig.Config, skillID, directory string) {
 	d.customSkills.mu.Lock()
 	defer d.customSkills.mu.Unlock()
 	if d.customSkills.uses == nil {
 		d.customSkills.uses = map[string]customSkillUse{}
 	}
-	d.customSkills.uses[config.ProjectID+"\x00"+skill.ID] = customSkillUse{
-		ProjectID: config.ProjectID, ProjectName: config.ProjectName, SkillID: skill.ID, Directory: skill.Directory, LastRun: time.Now().UTC(),
+	d.customSkills.uses[config.ProjectID+"\x00"+skillID] = customSkillUse{
+		ProjectID: config.ProjectID, ProjectName: config.ProjectName, SkillID: skillID, Directory: directory, LastRun: time.Now().UTC(),
 	}
 }
 

@@ -434,7 +434,8 @@ func firstLine(s string) string {
 }
 
 // The passive signal lists the custom skills that ran, and only them: not an
-// installed skill, not a custom one the setting turned off (D9).
+// installed skill, not a custom one the setting turned off, not one resolved
+// for a launch that failed before its command line was built (D9).
 func TestCustomSkillsUsedRecordsCustomDispatchesOnly(t *testing.T) {
 	home := testhome.Temp(t)
 	installDirect(t, home, ".claude/skills", "clarify-issue")
@@ -446,15 +447,22 @@ func TestCustomSkillsUsedRecordsCustomDispatchesOnly(t *testing.T) {
 	}}
 	done := make(chan struct{})
 	defer close(done)
-	if _, err := d.prepareSkill(config, "clarify", "clarify", "", "run-1", done); err != nil {
+	installed, err := d.prepareSkill(config, "clarify", "clarify", "", "run-1", done)
+	if err != nil {
 		t.Fatal(err)
 	}
+	d.recordCustomSkillUse(config, installed, "")
 	if used := d.customSkillsUsed(); len(used) != 0 {
 		t.Fatalf("an installed skill was recorded: %+v", used)
 	}
-	if _, err := d.prepareSkill(config, "implement", "implement", "", "run-2", done); err != nil {
+	custom, err := d.prepareSkill(config, "implement", "implement", "", "run-2", done)
+	if err != nil {
 		t.Fatal(err)
 	}
+	if used := d.customSkillsUsed(); len(used) != 0 {
+		t.Fatalf("a custom skill was recorded before its command line was built: %+v", used)
+	}
+	d.recordCustomSkillUse(config, custom, "")
 	used := d.customSkillsUsed()
 	if len(used) != 1 || used[0].ProjectID != "p1" || used[0].ProjectName != "Sectile" || used[0].SkillID != "implement" || used[0].Directory != "code-issue" || used[0].LastRun.IsZero() {
 		t.Fatalf("custom use = %+v", used)
@@ -472,6 +480,7 @@ func TestCustomSkillsUsedRecordsCustomDispatchesOnly(t *testing.T) {
 	if err != nil || choice.Kind != skillKindDirect {
 		t.Fatalf("custom skills turned off: %+v %v", choice, err)
 	}
+	fresh.recordCustomSkillUse(config, choice, "")
 	if used := fresh.customSkillsUsed(); len(used) != 0 {
 		t.Fatalf("a skill run from its installed copy was recorded as custom: %+v", used)
 	}

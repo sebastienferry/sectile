@@ -105,15 +105,13 @@ func (d *agentDaemon) handleMacroDispatch(ctx context.Context, conn *websocket.C
 		launchFailure = err
 		return
 	}
-	if choice != nil && choice.Kind == skillKindCustom {
-		go d.postCustomSkillUse(payload.RunID, choice.Directory)
-	}
 	fullLine, err := dispatchCommand(config, macroKey, payload.SkillID, payload.Action, strings.TrimSpace(prompt), payload.Command, payload.Mode, payload.Model,
 		agentCommandContext{Branch: workspace.Branch, Directory: root, Tracker: config.IssueTracker, Repo: config.GithubRepo, Skill: choice})
 	if err != nil {
 		launchFailure = err
 		return
 	}
+	d.recordCustomSkillUse(config, choice, payload.RunID)
 	runProvider, runModel := launchEngine(config, payload.SkillID, payload.Model, payload.Mode)
 	go d.postRunEngine(payload.RunID, runProvider, runModel)
 	fullLine, err = d.wrapRun("", payload.RunID, fullLine)

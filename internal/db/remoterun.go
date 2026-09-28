@@ -750,10 +750,23 @@ func (d *DB) RecordRunCustomSkill(runID, directory string) error {
 	if activity == nil || activity.SkillID != "remote_run" || activity.Status != "running" {
 		return fmt.Errorf("remote run not found or no longer running")
 	}
-	steps := append(append([]string{}, activity.Steps...), "Skill personnalisé du projet utilisé : "+directory)
-	stepsJSON, _ := json.Marshal(steps)
+	// The steps are read on the locked row, as appendActivityStep does, so a
+	// step another writer or server instance appends meanwhile is kept.
+	var steps []string
 	d.mu.Lock()
-	_, err = d.conn.Exec("UPDATE task_activities SET steps=? WHERE id=? AND skill_id='remote_run' AND status='running'", string(stepsJSON), runID)
+	err = d.conn.WithTx(func(tx *sqlTx) error {
+		current, err := d.lockActivityStepsUnsafe(tx, runID)
+		if err != nil {
+			return err
+		}
+		steps = append(current, "Skill personnalisé du projet utilisé : "+directory)
+		payload, err := json.Marshal(steps)
+		if err != nil {
+			return err
+		}
+		_, err = tx.Exec("UPDATE task_activities SET steps=? WHERE id=? AND skill_id='remote_run' AND status='running'", string(payload), runID)
+		return err
+	})
 	d.mu.Unlock()
 	if err != nil {
 		return err
