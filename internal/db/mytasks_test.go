@@ -45,10 +45,13 @@ func seedMyTasksFixture(t *testing.T, database *DB) myTasksFixture {
 		{ProjectID: f.jira, Key: "PE-1", Title: "jira mine", Source: "jira", Assignee: "Sébastien Ferry"},
 		{ProjectID: f.jira, Key: "PE-2", Title: "jira by name", Source: "jira", Assignee: "Sébastien F."},
 		{ProjectID: f.jira, Key: "PE-3", Title: "jira by mail", Source: "jira", Assignee: "sferry@example.com"},
+		{ProjectID: f.jira, Key: "PE-4", Title: "jira by bare name", Source: "jira", Assignee: "SEBASTIEN F."},
 		{ProjectID: f.local, Key: "L-1", Title: "local by name", Source: "local", Assignee: "Sébastien F."},
 		{ProjectID: f.local, Key: "L-2", Title: "local by mail", Source: "local", Assignee: "SFerry@Example.com"},
 		{ProjectID: f.local, Key: "L-3", Title: "local by login", Source: "local", Assignee: "sebastienferry"},
 		{ProjectID: f.local, Key: "L-4", Title: "local nobody", Source: "local"},
+		{ProjectID: f.local, Key: "L-5", Title: "local by bare name", Source: "local", Assignee: " Sebastien f. "},
+		{ProjectID: f.local, Key: "L-6", Title: "local by another name", Source: "local", Assignee: "Sébastien G."},
 	}
 	for i := range imported {
 		imported[i].Status = models.StatusToClarify
@@ -96,15 +99,21 @@ func checkMyTasksMatching(t *testing.T, f myTasksFixture) {
 		assertTitles(t, f.titles(t, TaskScope{ProjectID: f.jira, Mine: &f.me}, ""), "jira mine")
 	})
 	t.Run("local tickets match the name and the e-mail, not a tracker login", func(t *testing.T) {
-		assertTitles(t, f.titles(t, TaskScope{ProjectID: f.local, Mine: &f.me}, ""), "local by name", "local by mail")
+		assertTitles(t, f.titles(t, TaskScope{ProjectID: f.local, Mine: &f.me}, ""), "local by name", "local by mail", "local by bare name")
 	})
 	t.Run("every project at once keeps each tracker's own", func(t *testing.T) {
 		assertTitles(t, f.titles(t, TaskScope{Mine: &f.me}, ""),
-			"gh mine", "gh mine spaced", "jira mine", "local by name", "local by mail")
+			"gh mine", "gh mine spaced", "jira mine", "local by name", "local by mail", "local by bare name")
+	})
+	t.Run("the name matches whatever its case and accents, a tracker identity does not", func(t *testing.T) {
+		bare := MyTasks{ByTracker: map[string]string{"jira": "Sebastien Ferry"}, Fallback: []string{"Sébastien FERRY"}}
+		assertTitles(t, f.titles(t, TaskScope{ProjectID: f.jira, Mine: &bare}, ""))
+		nameOnly := MyTasks{Fallback: []string{"sébastien f."}}
+		assertTitles(t, f.titles(t, TaskScope{Mine: &nameOnly}, ""), "gh by name", "jira by name", "jira by bare name", "local by name", "local by bare name")
 	})
 	t.Run("a tracker with no known identity falls back on the name and e-mail", func(t *testing.T) {
 		githubOnly := MyTasks{ByTracker: map[string]string{"github": "sebastienferry"}, Fallback: f.me.Fallback}
-		assertTitles(t, f.titles(t, TaskScope{ProjectID: f.jira, Mine: &githubOnly}, ""), "jira by name", "jira by mail")
+		assertTitles(t, f.titles(t, TaskScope{ProjectID: f.jira, Mine: &githubOnly}, ""), "jira by name", "jira by mail", "jira by bare name")
 	})
 	t.Run("My Tasks narrows the other filters and is narrowed by them", func(t *testing.T) {
 		nameOnly := MyTasks{Fallback: []string{"Sébastien F."}}
@@ -115,8 +124,8 @@ func checkMyTasksMatching(t *testing.T, f myTasksFixture) {
 		assertTitles(t, f.titles(t, TaskScope{Mine: &MyTasks{Fallback: []string{"  "}}}, ""))
 	})
 	t.Run("no My Tasks filter keeps everything", func(t *testing.T) {
-		if got := f.titles(t, TaskScope{ProjectID: f.local}, ""); len(got) != 4 {
-			t.Fatalf("got %q, want the four local tickets", got)
+		if got := f.titles(t, TaskScope{ProjectID: f.local}, ""); len(got) != 6 {
+			t.Fatalf("got %q, want the six local tickets", got)
 		}
 	})
 }

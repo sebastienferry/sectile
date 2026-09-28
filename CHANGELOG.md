@@ -51,6 +51,7 @@ test fixtures or internal plumbing.
 
 ### Fixed
 
+- **My Tasks** no longer shows an empty board when a tracker writes your name without its accents, as Jira often does ("Sebastien FERRY" for "Sébastien Ferry"): your account's name and e-mail now match regardless of case and accents.
 - Large boards share pending engine lookups across task cards, preventing duplicate requests from exhausting browser resources.
 
 - When `prepare_repository_worktree` cannot prepare a repository, the refusal now says why: it names the workstation that answered and each folder attached to the project with what it is (gone, not a Git checkout, without origin, another origin, or the Git error that kept it from being read), and only advises attaching the folder when that is what is missing. A `transition_stage` refused over a pull request of an unprepared repository says to call `prepare_repository_worktree` first. (#589)
