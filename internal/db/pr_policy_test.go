@@ -50,3 +50,40 @@ func TestProjectPRPolicy(t *testing.T) {
 		t.Fatalf("%+v %v", reread, err)
 	}
 }
+
+// A project may open its pull request at clarification (#580): the value is
+// stored, handed to agents, and an unknown value still leaves it unchanged.
+func TestProjectPRPolicyClarified(t *testing.T) {
+	database, err := NewDB(filepath.Join(t.TempDir(), "tasks.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	created, err := database.CreateProject(models.CreateProjectRequest{Name: "Early", PRCreationStage: "clarified"})
+	if err != nil || created.PRCreationStage != "clarified" {
+		t.Fatalf("%+v %v", created, err)
+	}
+	project, err := database.CreateProject(models.CreateProjectRequest{Name: "Policy"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	early := "clarified"
+	if _, err = database.UpdateProject(project.ID, models.UpdateProjectRequest{PRCreationStage: &early}); err != nil {
+		t.Fatal(err)
+	}
+	config, err := database.AgentConfig(project.ID, "")
+	if err != nil || config.PRCreationStage != "clarified" {
+		t.Fatalf("%+v %v", config, err)
+	}
+	invalid := "reviewed"
+	if _, err := database.UpdateProject(project.ID, models.UpdateProjectRequest{PRCreationStage: &invalid}); err == nil || !strings.Contains(err.Error(), "clarified, specified or implemented") {
+		t.Fatalf("invalid policy: %v", err)
+	}
+	if _, err := database.CreateProject(models.CreateProjectRequest{Name: "Bad", PRCreationStage: "new"}); err == nil {
+		t.Fatal("invalid policy accepted on create")
+	}
+	reread, err := database.GetProjectByID(project.ID)
+	if err != nil || reread.PRCreationStage != "clarified" {
+		t.Fatalf("%+v %v", reread, err)
+	}
+}
