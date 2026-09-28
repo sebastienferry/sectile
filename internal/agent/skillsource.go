@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"tasks/internal/agentconfig"
 	"tasks/internal/models"
 	"tasks/internal/skills"
@@ -324,6 +325,11 @@ func (d *agentDaemon) prepareSkill(config agentconfig.Config, skillID, action, p
 		return nil, err
 	}
 	if choice.Kind == skillKindCustom {
+		// A launch without a run still needs a folder of its own, so that two
+		// of them never share a file.
+		if strings.TrimSpace(runID) == "" {
+			runID = "local-" + uuid.NewString()
+		}
 		if choice.File, err = writeRunSkill(runID, *skill); err != nil {
 			return nil, err
 		}
