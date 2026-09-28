@@ -31,3 +31,20 @@ func TestConfigurationContractValidation(t *testing.T) {
 		})
 	}
 }
+
+func TestNamespacedCommandOnlyOnTheCommand(t *testing.T) {
+	base := Config{SchemaVersion: Version, ProjectID: "project", Skills: []Skill{{ID: "clarify", Directory: "clarify-issue", Command: "/sectile:clarify-issue"}}}
+	if err := base.Validate(); err != nil {
+		t.Fatalf("namespaced command refused: %v", err)
+	}
+	for name, skill := range map[string]Skill{
+		"id":        {ID: "sectile:clarify", Directory: "clarify-issue", Command: "/clarify-issue"},
+		"directory": {ID: "clarify", Directory: "sectile:clarify-issue", Command: "/clarify-issue"},
+	} {
+		c := base
+		c.Skills = []Skill{skill}
+		if c.Validate() == nil {
+			t.Errorf("namespaced %s accepted", name)
+		}
+	}
+}

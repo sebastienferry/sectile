@@ -5,7 +5,7 @@ const http=require('node:http'),fs=require('node:fs'),os=require('node:os'),path
 
 // A fake agent answering the workstation routes. The engine catalogue (#510)
 // is kept as the agent keeps it: a PUT replaces it and answers the new view.
-function fakeAgent({capabilities=['task-engines']}={}){
+function fakeAgent({capabilities=['task-engines'],customSkillsUsed=[],defaults={}}={}){
  const state={puts:[],enginePuts:[],refuse:'',engines:{
   catalogue:[
    {id:'e-opus',name:'Claude Opus',provider:'claude',model:'claude-opus-5',skillModels:{implement:'claude-sonnet-5'}},
@@ -15,9 +15,10 @@ function fakeAgent({capabilities=['task-engines']}={}){
  }}
  const view=()=>({
   globalConfiguration:true,
-  defaults:{editorCommand:'zed',setupProviders:null},
+  defaults:{editorCommand:'zed',setupProviders:null,...defaults,...state.skillSettings},
   effective:{defaultEngine:{id:'e-opus',name:'Claude Opus',provider:'claude',model:'claude-opus-5'},editorCommand:'zed',useWorktrees:true,parallelism:1,aiProviderModels:{}},
   providerModels:{claude:['claude-opus-5','claude-sonnet-5'],codex:['gpt-5']},setupProviders:['claude','codex','agy'],seeded:{},
+  customSkillsUsed,
  })
  const body=req=>new Promise(resolve=>{let data='';req.on('data',chunk=>data+=chunk);req.on('end',()=>resolve(JSON.parse(data)))})
  const server=http.createServer(async(req,res)=>{
@@ -25,7 +26,9 @@ function fakeAgent({capabilities=['task-engines']}={}){
   if(req.url==='/desktop/workstation'&&req.method==='PUT'){
    const input=await body(req)
    if(state.refuse){res.writeHead(400,{'Content-Type':'text/plain'}).end(state.refuse);return}
-   state.puts.push(input);res.writeHead(204).end();return
+   // The skill settings read back as saved, so a reset is seen to reset.
+   state.puts.push(input);state.skillSettings={customSkillsWin:input.customSkillsWin,installedSkillSource:input.installedSkillSource}
+   res.writeHead(204).end();return
   }
   if(req.url==='/desktop/workstation'){res.end(JSON.stringify(view()));return}
   if(req.url==='/desktop/engines'&&req.method==='PUT'){
@@ -109,6 +112,77 @@ test('execution defaults are read from and saved through the agent, which may re
   await page.keyboard.press('Enter')
   await expect(editor).toHaveValue('')
   await expect(custom).toBeHidden()
+ } finally {
+  await app?.close()
+  server.close()
+  fs.rmSync(root,{recursive:true,force:true})
+ }
+})
+
+// A project's custom skill that ran is a passive signal (#267): a badge on the
+// settings button and a notice beside the setting that allows it.
+test('custom skills used show as a badge and a notice, and not when none ran',async()=>{
+ for(const used of [[{projectId:'p',projectName:'Sectile',skillId:'implement',directory:'code-issue',lastRun:'2026-09-28T08:00:00Z'}],[]]){
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'sectile-custom-skills-ui-'))
+  const {server}=fakeAgent({customSkillsUsed:used})
+  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve))
+  let app
+  try {
+   let panel,page
+   ;({app,panel,page}=await openExecutionDefaults(server,root))
+   const notice=panel.getByRole('note')
+   if(used.length){
+    await expect(page.locator('#settings')).toHaveClass(/custom-skills-used/)
+    await expect(page.locator('#settings')).toHaveAttribute('aria-label','Settings, custom skills used')
+    await expect(notice).toBeVisible()
+    await expect(notice).toContainText('Custom skills used')
+    await expect(notice).toContainText('Sectile · code-issue')
+   }else{
+    await expect(page.locator('#settings')).not.toHaveClass(/custom-skills-used/)
+    await expect(page.locator('#settings')).toHaveAttribute('aria-label','Settings')
+    await expect(notice).toBeHidden()
+   }
+  } finally {
+   await app?.close()
+   server.close()
+   fs.rmSync(root,{recursive:true,force:true})
+  }
+ }
+})
+
+// The two skill settings are saved through the agent; a reset sends neither,
+// which the agent reads as its defaults (#267).
+test('the skill settings save through the agent and reset to their defaults',async()=>{
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'sectile-skill-settings-ui-'))
+ const {state,server}=fakeAgent()
+ await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve))
+ let app
+ try {
+  let panel
+  ;({app,panel}=await openExecutionDefaults(server,root))
+  const wins=panel.getByRole('group',{name:'Custom project skills win',exact:true})
+  await expect(wins.getByRole('button',{name:'Yes',exact:true})).toHaveAttribute('aria-pressed','true')
+  const source=panel.getByRole('combobox',{name:'Installed skills source',exact:true})
+  await expect(source).toHaveValue('direct')
+  await wins.getByRole('button',{name:'No',exact:true}).click()
+  await source.selectOption('plugin')
+  await panel.getByRole('button',{name:'Save execution defaults'}).click()
+  await expect(panel.locator('.workstation-notice')).toContainText('Execution defaults saved')
+  assert.equal(state.puts.length,1)
+  assert.equal(state.puts[0].customSkillsWin,false)
+  assert.equal(state.puts[0].installedSkillSource,'plugin')
+  // The panel refills from what the agent now serves.
+  await expect(wins.getByRole('button',{name:'No',exact:true})).toHaveAttribute('aria-pressed','true')
+  await expect(source).toHaveValue('plugin')
+
+  await panel.getByRole('button',{name:'Reset custom project skills win to default',exact:true}).click()
+  await panel.getByRole('button',{name:'Reset installed skills source to default',exact:true}).click()
+  await expect(source).toHaveValue('direct')
+  await panel.getByRole('button',{name:'Save execution defaults'}).click()
+  await expect(panel.locator('.workstation-notice')).toContainText('Execution defaults saved')
+  assert.equal(state.puts.length,2)
+  assert.equal(state.puts[1].customSkillsWin,undefined)
+  assert.equal(state.puts[1].installedSkillSource,undefined)
  } finally {
   await app?.close()
   server.close()

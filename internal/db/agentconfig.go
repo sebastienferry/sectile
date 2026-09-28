@@ -65,10 +65,15 @@ func (d *DB) AgentConfig(projectID, taskKey string, framework ...string) (*agent
 		}
 		c.SpecFramework = models.NormalizeSpecFramework(framework[0])
 	}
-	origin, _ := adjustmentOverrideOrigin(d.projectSkillOverrides(p.ID))
+	overrides := d.projectSkillOverrides(p.ID)
+	origin, _ := adjustmentOverrideOrigin(overrides)
 	reconcile := origin == "review" || (origin != "adjust" && strings.TrimSpace(s.PromptCreatePR) != "")
 	if origin != "adjust" && strings.TrimSpace(p.SkillOverrides["adjust"]) == "" && (strings.TrimSpace(p.SkillOverrides["review"]) != "") {
 		reconcile = true
+	}
+	builtIn := map[string]string{}
+	for _, template := range skills.ProjectSkillTemplates(c.SpecFramework) {
+		builtIn[template.ID] = template.Content
 	}
 	for _, skill := range d.EffectiveProjectSkills(p.ID, c.SpecFramework) {
 		stage, ok := skills.StageSkillByID(skill.ID)
@@ -78,7 +83,8 @@ func (d *DB) AgentConfig(projectID, taskKey string, framework ...string) (*agent
 		// The stage's standard command: a workstation's own command name is the
 		// workstation's to set (#305).
 		content, _ := commandContentFromSkill(stage, skill.Content, c.SpecFramework)
-		c.Skills = append(c.Skills, agentconfig.Skill{RequiresReconciliation: skill.ID == "adjust" && reconcile, ID: skill.ID, Directory: stage.DirName, Command: stage.Command, Content: skill.Content, CommandContent: content})
+		c.Skills = append(c.Skills, agentconfig.Skill{RequiresReconciliation: skill.ID == "adjust" && reconcile, ID: skill.ID, Directory: stage.DirName, Command: stage.Command, Content: skill.Content, CommandContent: content,
+			Custom: isCustomSkill(overrides, skill.ID, builtIn[skill.ID])})
 	}
 	if err := c.Validate(); err != nil {
 		return nil, err
@@ -165,4 +171,16 @@ func (d *DB) AgentProjects() (*agentconfig.Projects, error) {
 		result.Projects = append(result.Projects, agentconfig.Project{ID: p.ID, Name: p.Name, GitRemoteURL: p.GitRemoteUrl})
 	}
 	return result, nil
+}
+
+// isCustomSkill says a project edited a skill, the way the skills editor's
+// badge does: stored content that differs from the built-in one. A row holding
+// only a mode, or the built-in content an adjust reset stores, is not custom,
+// and neither is the pull-request policy every project gets appended.
+func isCustomSkill(overrides map[string]projectSkillOverride, skillID, builtIn string) bool {
+	ov, ok := resolvedSkillOverride(overrides, skillID)
+	if !ok || strings.TrimSpace(ov.content) == "" {
+		return false
+	}
+	return strings.TrimSpace(ov.content) != strings.TrimSpace(builtIn)
 }

@@ -17,7 +17,7 @@ VERSION_FLAGS := -X $(VERSION_PKG).Version=$(VERSION) -X $(VERSION_PKG).Commit=$
 DESKTOP_AGENT := desktop/bin/sectile-agent$(EXE)
 .PHONY: help version build-all build-server build-agent build-app build-app-package build-release image \
         all build server server-build agent agent-build binary-build desktop desktop-build desktop-package build-desktop build-desktop-package release \
-        web-deps desktop-deps start serve run fmt-check test render-skills clean reset-db
+        web-deps desktop-deps start serve run fmt-check test render-skills plugin clean reset-db
 
 # Node dependencies are reinstalled as soon as a lockfile moves, so a build never
 # starts with a package missing from node_modules. The stamp keeps repeat builds
@@ -118,6 +118,11 @@ version: ## Print the version this checkout would build
 
 render-skills: ## Render workflow skills to stdout or disk (ARGS=...)
 	go run ./cmd/render-skills $(ARGS)
+
+# The Claude plugin carrying the workflow skills and the MCP declaration. The
+# version is the plugin's own, given explicitly: no pipeline step publishes it.
+plugin: ## Write the Claude plugin (VERSION=X.Y.Z OUT=DIR [ARGS=-marketplace])
+	go run ./cmd/sectile-plugin -version $(VERSION) -out $(OUT) $(ARGS)
 
 # Both components cross-compile with pure Go dependencies.
 build-release: web-deps ## Cross-compile every binary into dist/

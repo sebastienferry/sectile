@@ -88,6 +88,9 @@ type agentDaemon struct {
 	openEditorFn func(editor, directory string) error
 	// capabilities serializes the engine reports sent to the server (#305).
 	capabilities capabilityReporter
+	// customSkills records the custom skills dispatches ran since the agent
+	// started (#267), the desktop's passive signal.
+	customSkills customSkillLog
 }
 
 // serverLink is the agent's attachment to the server: the identity it presents
@@ -346,6 +349,9 @@ func Run(args []string) {
 	if err := daemon.refreshMCPConnections(); err != nil {
 		log.Printf("[Agent] MCP configuration refresh failed: %v", err)
 	}
+	// Custom skills handed to a run are removed when it ends; a crash can
+	// skip that, so what is older than a week goes at start.
+	sweepRunSkills(runSkillsMaxAge)
 	if err := daemon.writeDesktopInfo(); err != nil {
 		log.Printf("Desktop connection: %v", err)
 		return
@@ -520,12 +526,10 @@ func (d *agentDaemon) connect(ctx context.Context) (bool, error) {
 		}
 	}
 	if d.link.projectID != "" && d.link.projectID != "default" && d.link.projectID != "all" {
-		config, err := d.fetchConfig(ctx, d.link.projectID, "")
-		if err != nil {
+		// The configuration is read to check the contract; it is no longer
+		// installed on connection (#267).
+		if _, err := d.fetchConfig(ctx, d.link.projectID, ""); err != nil {
 			return false, fmt.Errorf("configuration sync: %w", err)
-		}
-		if err := d.syncLocalProject(ctx, config); err != nil {
-			return false, err
 		}
 	}
 	wsURL, err := d.buildWSURL()
@@ -1153,12 +1157,24 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 	logIgnoredModel(config, taskRef, payload.Model)
 	folders := d.taskFolderMap(ctx, config, task, workDir)
 	payload.Prompt += folderMapPrompt(folders)
-	fullLine, err := dispatchCommand(config, taskRef, payload.SkillID, payload.Action, payload.Prompt, payload.Command, payload.Mode, payload.Model, agentCommandContext{Task: task, Branch: branch, Directory: workDir, Tracker: config.IssueTracker, Repo: config.GithubRepo, AddDirs: folderMapDirs(folders)})
+	// What runs for the skill is resolved here, from what is installed, and
+	// nothing is installed to make it resolve (#267).
+	d.queue.mu.Lock()
+	runRoot := run.root
+	d.queue.mu.Unlock()
+	choice, err := d.prepareSkill(config, payload.SkillID, payload.Action, payload.Prompt, payload.RunID, run.exited, workDir, runRoot)
 	if err != nil {
 		launchFailure = err
 		d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", err.Error())
 		return
 	}
+	fullLine, err := dispatchCommand(config, taskRef, payload.SkillID, payload.Action, payload.Prompt, payload.Command, payload.Mode, payload.Model, agentCommandContext{Task: task, Branch: branch, Directory: workDir, Tracker: config.IssueTracker, Repo: config.GithubRepo, AddDirs: folderMapDirs(folders), Skill: choice})
+	if err != nil {
+		launchFailure = err
+		d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", err.Error())
+		return
+	}
+	d.recordCustomSkillUse(config, choice, payload.RunID)
 
 	// The engine this launch really uses, reported once the line is built. A
 	// discussion or a bare terminal is not a skill run: it resolves the project

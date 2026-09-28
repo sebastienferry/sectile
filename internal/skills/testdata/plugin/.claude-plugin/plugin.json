@@ -1,0 +1,24 @@
+{
+  "author": {
+    "name": "Sectile"
+  },
+  "description": "Sectile workflow skills and the Sectile MCP server, for every project of a Sectile server.",
+  "name": "sectile",
+  "skills": "./skills/",
+  "userConfig": {
+    "api_key": {
+      "description": "Workstation API key, from the desktop Connection settings. Kept in Claude Code secure storage.",
+      "required": true,
+      "sensitive": true,
+      "title": "Workstation API key",
+      "type": "string"
+    },
+    "server_url": {
+      "description": "Sectile server URL, for example https://sectile.example.com",
+      "required": true,
+      "title": "Sectile server URL",
+      "type": "string"
+    }
+  },
+  "version": "0.0.0-test"
+}

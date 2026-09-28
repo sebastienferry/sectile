@@ -15,6 +15,9 @@ test fixtures or internal plumbing.
 
 ### Added
 
+- **Sectile installs in Claude as a plugin.** The `sectile` plugin carries the workflow skills and the MCP server declaration and asks for the server URL and API key at install; build it with `make plugin`. The agent's direct setup (`sectile-agent init`, desktop **Initialize**) remains the alternative, and the only route for other CLIs. (#267)
+- Two workstation settings under Settings → Execution defaults: **Custom project skills win** (a skill a project edited runs instead of the installed one, on by default) and **Installed skills source** (direct copy or Claude plugin, tried first). (#267)
+- When a project's custom skill ran, the desktop's settings button shows a warning dot and Execution defaults lists which skills ran; the run's activity says so too. (#267)
 - A user guide walks through Sectile sign-in, Jira access, project and workstation setup, Claude Code prompts, autonomous runs, and Desktop use. (#567)
 - Projects can optionally push clarification and specification commits after each stage commit; the setting is off by default. (#459)
 
@@ -22,6 +25,8 @@ test fixtures or internal plumbing.
 
 ### Changed
 
+- **The agent no longer writes skills or MCP registrations on its own.** A task or macro dispatch, an agent start or reconnection and a skills-editor save leave `~/.claude`, `~/.claude.json`, `~/.agents`, `~/.codex` and `~/.gemini` untouched. A dispatch runs the skill it finds installed, or fails with a message saying how to install one; a project's edited skill is handed to its run in a private file, so two projects no longer overwrite each other's skills. Saved desktop MCP connections are rewritten at start only when the server address, key or executable changed. (#267)
+- A skill command name may carry a plugin namespace, such as `sectile:clarify-issue`. (#267)
 - **Adjustment no longer forces corrections on a custom skill.** Sectile still makes every adjustment verify the existing pull request, never create one or push onto a merged one, collect review feedback and never merge; reviewing, fixing, running checks and pushing are now left to the adjustment skill. The bundled skill keeps doing all of it, and a custom skill that forbids corrections is obeyed. (#561)
 
 - Each clarification round now publishes its full report section on the ticket, retaining Markdown history and avoiding duplicate final-round comments. (#459)

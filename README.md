@@ -82,6 +82,30 @@ The agent owns local Git operations and launches. Keep tracker credentials on
 the server and personal write credentials in the profile; do not put tokens in
 the agent configuration.
 
+### Install Sectile in your coding CLI
+
+The agent runs the workflow skills it finds installed; it never installs them
+by itself. There are two ways to install them, with the Sectile MCP server:
+
+- **Claude: the `sectile` plugin.** Build it with
+  `make plugin VERSION=0.1.0 OUT=/tmp/sectile-plugin ARGS=-marketplace`, then
+  `claude plugin marketplace add /tmp/sectile-plugin` and
+  `claude plugin install sectile@sectile`. Claude asks for the server URL and
+  the workstation API key (from the desktop's Connection settings) and keeps
+  the key in its secure storage. The skills run as `/sectile:clarify-issue`
+  and so on.
+- **Any CLI: the direct setup.** `./bin/agent init --provider claude` (or
+  `codex`, `agy`, `gemini`, `cursor`, `vibe`), or **Initialize** in the
+  desktop's Deployment settings, copies the skills into the CLI's user folder
+  and registers the MCP server. It is the only route for CLIs other than
+  Claude.
+
+Under **Settings → Execution defaults**, the desktop chooses which source a
+dispatch tries first (direct copy by default) and whether a skill a project
+edited in Sectile runs instead of the installed one (on by default). An edited
+skill is handed to its run, so it needs no installation. See
+[ADR 0039](docs/adrs/0039-sectile-is-installed-as-a-claude-plugin.md).
+
 ## Common commands
 
 | Command | Purpose |
@@ -94,6 +118,7 @@ the agent configuration.
 | `make desktop-package` | Package the desktop application. |
 | `make test` | Run Go and web checks. |
 | `make release` | Cross-compile server and agent binaries into `dist/`. |
+| `make plugin VERSION=X.Y.Z OUT=DIR` | Write the Sectile Claude plugin (`ARGS=-marketplace` wraps it in a one-plugin marketplace). |
 | `make help` | List all supported targets. |
 
 ## Configuration

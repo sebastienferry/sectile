@@ -1,6 +1,8 @@
 package agent
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"os"
@@ -75,6 +77,7 @@ func (d *agentDaemon) desktopMCP(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), 400)
 			return
 		}
+		choice.Written = mcpFingerprint(server, d.link.token, executable)
 		_, err = agentconfig.UpdateSettings(d.localSettingsRoot(), func(settings *agentconfig.Settings) error {
 			if settings.MCPConnections == nil {
 				settings.MCPConnections = map[string]agentconfig.MCPConnection{}
@@ -92,7 +95,11 @@ func (d *agentDaemon) desktopMCP(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]any{"choice": choice, "path": filepath.Join(loc.Home, loc.MCPFile), "server": d.link.serverURL, "localURL": d.loopback.url})
 }
 
-// Refresh saved choices after a restart, including a changed loopback port.
+// refreshMCPConnections keeps the MCP connections the user saved from the
+// desktop working after a restart. A local choice points at the loopback,
+// whose port changes when 8091 is taken, and every choice carries the key and,
+// over stdio, the executable: an entry is rewritten only when one of them
+// changed since it was written, never merely because the agent started (#267).
 func (d *agentDaemon) refreshMCPConnections() error {
 	settings, err := agentconfig.ReadSettings(d.localSettingsRoot())
 	if err != nil {
@@ -102,14 +109,39 @@ func (d *agentDaemon) refreshMCPConnections() error {
 	if err != nil {
 		return err
 	}
+	rewritten := map[string]string{}
 	for provider, choice := range settings.MCPConnections {
 		server := d.link.serverURL
 		if choice.Target == "local" {
 			server = d.loopback.url
 		}
+		fingerprint := mcpFingerprint(server, d.link.token, executable)
+		if choice.Written == fingerprint {
+			continue
+		}
 		if _, err := agentconfig.ConfigureMCP(provider, executable, server, d.link.token, choice.Transport, choice.Target == "local"); err != nil {
 			return err
 		}
+		rewritten[provider] = fingerprint
 	}
-	return nil
+	if len(rewritten) == 0 {
+		return nil
+	}
+	_, err = agentconfig.UpdateSettings(d.localSettingsRoot(), func(settings *agentconfig.Settings) error {
+		for provider, fingerprint := range rewritten {
+			if choice, ok := settings.MCPConnections[provider]; ok {
+				choice.Written = fingerprint
+				settings.MCPConnections[provider] = choice
+			}
+		}
+		return nil
+	})
+	return err
+}
+
+// mcpFingerprint identifies what a registration was written with, without
+// keeping the key: a truncated SHA-256 of the three values.
+func mcpFingerprint(server, token, executable string) string {
+	sum := sha256.Sum256([]byte(server + "\x00" + token + "\x00" + executable))
+	return hex.EncodeToString(sum[:8])
 }

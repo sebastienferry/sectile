@@ -305,6 +305,7 @@ func TestDispatchPreparesFromAPIContract(t *testing.T) {
 	}))
 	defer srv.Close()
 	d := &agentDaemon{repoRoot: root, loopback: loopbackServer{url: "http://127.0.0.1:8091"}, link: serverLink{serverURL: srv.URL, token: "token", projectID: "remote-project"}}
+	homeBefore := treeHash(t, os.Getenv("HOME"), filepath.Join(".config", "sectile", "runs"))
 	effective, path, branch, task, err := d.prepareDispatch(ctx, "TASK-46")
 	if err != nil {
 		t.Fatal(err)
@@ -312,9 +313,10 @@ func TestDispatchPreparesFromAPIContract(t *testing.T) {
 	if task.ID != "task" || task.Key != "TASK-46" || effective.AIProvider != "claude" || effective.ExternalTerminalCommand != "pty" || branch != "feat/task-46" || !strings.HasPrefix(path, root) {
 		t.Fatalf("invalid execution config %+v %s %s", effective, path, branch)
 	}
-	// The override selects Claude, so the skills land in its user configuration.
-	if _, err := os.Stat(filepath.Join(os.Getenv("HOME"), ".claude/skills/code-issue/SKILL.md")); err != nil {
-		t.Fatal(err)
+	// A dispatch installs nothing (#267), not even for the provider it runs:
+	// no skill, no MCP registration, no setting.
+	if homeAfter := treeHash(t, os.Getenv("HOME"), filepath.Join(".config", "sectile", "runs")); homeAfter != homeBefore {
+		t.Fatal("a dispatch wrote into the user configuration")
 	}
 	if _, err := os.Stat(filepath.Join(path, ".agents/skills/code-issue/SKILL.md")); !os.IsNotExist(err) {
 		t.Fatal("the checkout must receive no managed skill")

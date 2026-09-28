@@ -466,3 +466,9 @@ dialog.workstation-settings{width:min(1100px,94vw);max-height:90vh}
 .engine-editor{border:1px solid var(--border-strong);border-radius:8px;margin-bottom:10px;padding:10px 12px}
 .cli-presets-bar{flex-wrap:wrap;gap:6px;margin-top:8px;display:flex}.cli-presets-bar button{padding:4px 8px;font-size:11.5px}
 .attached-folders{list-style:none;margin:0 0 8px;padding:0;display:flex;flex-direction:column;gap:6px}.attached-folder{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:7px 10px;background:var(--button-bg);border:1px solid var(--border-strong);border-radius:8px}.attached-folder>div{display:flex;flex-direction:column;min-width:0}.attached-folder-path{font-size:12.5px;color:var(--text);overflow-wrap:anywhere}.attached-folder-kind{font-size:11.5px;color:var(--text-faint);overflow-wrap:anywhere}.attached-folder[data-kind=git] .attached-folder-kind{color:var(--accent-text)}.attached-folder[data-kind=missing] .attached-folder-kind,.attached-folder[data-kind=duplicate] .attached-folder-kind{color:var(--warn-text)}.attached-folder button{flex-shrink:0}.attached-folder-empty{font-size:12px;color:var(--text-faint)}.setting-row .attached-folder-status{margin:6px 0 0;font-size:11.5px;color:var(--text-secondary);overflow-wrap:anywhere}.attached-folder-status:empty{display:none}
+/* A project's custom skill ran instead of the installed one (#267). */
+#settings.custom-skills-used{position:relative}
+#settings.custom-skills-used::after{content:'';position:absolute;top:3px;right:3px;width:7px;height:7px;border-radius:50%;background:var(--warn-text)}
+.setting-row p.setting-help{color:var(--text-faint);font-size:11.5px;margin:4px 0 0}
+.custom-skills-notice{margin-top:8px;padding:8px 10px;border:1px solid var(--warn-text);border-radius:8px;color:var(--warn-text);font-size:12px}
+.custom-skills-notice ul{margin:4px 0 0;padding-left:16px;color:var(--text-secondary)}

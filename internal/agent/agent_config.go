@@ -355,20 +355,14 @@ func (d *agentDaemon) prepareDispatchLocked(ctx context.Context, taskKey string,
 	if err := applySpecArtifacts(ctx, &config, root, task.Key); err != nil {
 		return config, "", "", "", task, err
 	}
-	preserved, err := agentconfig.Scaffold(workDir, config)
-	for _, path := range preserved {
-		log.Printf("[Agent] Saved previous skill content: %s", path)
-	}
-	if err != nil {
-		return config, root, workDir, branch, task, err
-	}
-	err = d.bootstrapLocalMCP(&config)
-	return config, root, workDir, branch, task, err
+	// Nothing is installed here (#267): the skills and the MCP registration are
+	// the user's to set up, through the Claude plugin or the agent's init.
+	return config, root, workDir, branch, task, nil
 }
 
 // bootstrapLocalMCP registers the Sectile MCP server for every agent the project
-// sets up. A registration that cannot be written aborts the dispatch: an agent
-// without MCP cannot transition stages or finish its run.
+// sets up. Only an explicit install request (sync_config) calls it since #267:
+// a dispatch neither writes the registration nor fails for want of it.
 func (d *agentDaemon) bootstrapLocalMCP(config *agentconfig.Config) error {
 	executable, err := os.Executable()
 	if err != nil {
@@ -754,12 +748,27 @@ func dispatchCommand(config agentconfig.Config, taskKey, skillID, action, prompt
 	if skillCmd == "" {
 		return "", fmt.Errorf("unknown configured skill %q", skillID)
 	}
+	var choice *skillChoice
+	if len(contexts) > 0 {
+		choice = contexts[0].Skill
+	}
+	if choice != nil && choice.Command != "" {
+		skillCmd = choice.Command
+	}
 	if !strings.HasPrefix(skillCmd, "/") {
 		skillCmd = "/" + skillCmd
 	}
 	promptArg := skillCmd + " " + taskKey
 	if strings.HasPrefix(strings.TrimSpace(prompt), "/") {
 		promptArg = prompt
+	} else if choice != nil && choice.Kind == skillKindCustom {
+		// The custom skill is a file of this run, not an installed command.
+		// Claude is let into its folder, so an interactive session reads it
+		// without asking.
+		promptArg = customSkillPrompt(taskKey, choice.File, prompt)
+		launch := contexts[0]
+		launch.AddDirs = append(append([]string{}, launch.AddDirs...), filepath.Dir(choice.File))
+		contexts = append([]agentCommandContext{launch}, contexts[1:]...)
 	} else if strings.TrimSpace(prompt) != "" {
 		promptArg += "\n\n" + prompt
 	}
@@ -779,27 +788,6 @@ func (d *agentDaemon) discoverProjects(ctx context.Context) (agentconfig.Project
 	}
 	d.contract.clear()
 	return projects, nil
-}
-
-// syncLocalProject does not redeploy a disconnected project during reconnection.
-func (d *agentDaemon) syncLocalProject(ctx context.Context, config agentconfig.Config) error {
-	d.prepareMu.Lock()
-	defer d.prepareMu.Unlock()
-	root, overrides, err := d.localProjectRoot(ctx, config)
-	if overrides.DisconnectedProjects[config.ProjectID] {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	config = agentconfig.Resolve(config, overrides)
-	if err := config.Validate(); err != nil {
-		return err
-	}
-	if _, err := agentconfig.Scaffold(root, config); err != nil {
-		return err
-	}
-	return d.bootstrapLocalMCP(&config)
 }
 
 // temporaryExecutable reports a binary the toolchain may delete, such as what

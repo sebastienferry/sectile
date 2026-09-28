@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "sectile": {
+      "headers": {
+        "Authorization": "Bearer ${user_config.api_key}"
+      },
+      "type": "http",
+      "url": "${user_config.server_url}/mcp"
+    }
+  }
+}

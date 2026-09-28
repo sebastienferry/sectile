@@ -230,6 +230,9 @@ type workstationView struct {
 	ProviderModels      map[string][]string  `json:"providerModels"`
 	SetupProviders      []string             `json:"setupProviders"`
 	Seeded              agentconfig.Seeded   `json:"seeded"`
+	// CustomSkillsUsed lists the project custom skills dispatches ran since
+	// the agent started, the latest first: the desktop's passive signal (#267).
+	CustomSkillsUsed []customSkillUse `json:"customSkillsUsed"`
 }
 
 // workstationEffective is what a project without a section of its own runs.
@@ -241,6 +244,10 @@ type workstationEffective struct {
 	UseWorktrees     bool                `json:"useWorktrees"`
 	Parallelism      int                 `json:"parallelism"`
 	AIProviderModels map[string][]string `json:"aiProviderModels"`
+	// CustomSkillsWin and InstalledSkillSource are the two skill settings with
+	// their defaults applied.
+	CustomSkillsWin      bool   `json:"customSkillsWin"`
+	InstalledSkillSource string `json:"installedSkillSource"`
 }
 
 // desktopWorkstation reads and writes the workstation defaults. The agent is
@@ -324,10 +331,13 @@ func (d *agentDaemon) workstationViewOf(settings agentconfig.Settings) workstati
 			DefaultEngine: summaryOf(settings.DefaultEngine()),
 			Terminal:      terminal, EditorCommand: editor, UseWorktrees: effective.UseWorktrees,
 			Parallelism: agentconfig.ExecutionLimit("", true, settings), AIProviderModels: configured,
+			CustomSkillsWin:      settings.Defaults.CustomSkillsWinOrDefault(),
+			InstalledSkillSource: settings.Defaults.InstalledSkillSourceOrDefault(),
 		},
-		ProviderModels: shipped,
-		SetupProviders: append([]string{}, models.SetupProviders...),
-		Seeded:         settings.Seeded,
+		ProviderModels:   shipped,
+		SetupProviders:   append([]string{}, models.SetupProviders...),
+		Seeded:           settings.Seeded,
+		CustomSkillsUsed: d.customSkillsUsed(),
 	}
 }
 
@@ -347,6 +357,7 @@ func normalizeDefaults(in agentconfig.Defaults) agentconfig.Defaults {
 	in.AISkillModels = compactStrings(in.AISkillModels)
 	in.Terminal = strings.TrimSpace(in.Terminal)
 	in.EditorCommand = strings.TrimSpace(in.EditorCommand)
+	in.InstalledSkillSource = strings.TrimSpace(in.InstalledSkillSource)
 	if in.SetupProviders != nil {
 		in.SetupProviders = trimList(in.SetupProviders)
 	}

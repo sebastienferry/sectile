@@ -13,7 +13,9 @@ import (
 )
 
 // Init runs `sectile-agent init`: it bootstraps native MCP and managed skills locally
-// for the specified AI provider.
+// for the specified AI provider. This direct setup is optional since #267: a
+// Claude user can install the `sectile` plugin instead, and it stays the only
+// route for the other CLIs.
 func Init(args []string) (string, error) {
 	return InitContext(context.Background(), args)
 }
@@ -21,7 +23,7 @@ func Init(args []string) (string, error) {
 // InitContext executes the initialization with the provided context.
 func InitContext(ctx context.Context, args []string) (string, error) {
 	fs := flag.NewFlagSet("init", flag.ContinueOnError)
-	providerFlag := fs.String("provider", "", "Provider identifier to bootstrap (e.g. claude, agy, codex, cursor, gemini, vibe)")
+	providerFlag := fs.String("provider", "", "Provider identifier to bootstrap (e.g. claude, agy, codex, cursor, gemini, vibe). Optional for Claude, which can use the sectile plugin instead")
 	serverURL := fs.String("url", "", "Remote Sectile server URL (e.g. https://sectile.example.com); defaults to the paired server")
 	token := fs.String("token", "", "Workstation API key (defaults to TOKEN, then to the key stored by `sectile-agent pair`)")
 	projectID := fs.String("project", "", "Project primary key (defaults to matching local repository or the first project)")
@@ -144,7 +146,20 @@ func InitContext(ctx context.Context, args []string) (string, error) {
 		root, _ = os.Getwd()
 	}
 	result, err := d.initializeProvider(root, config, provider)
-	return result.Message, err
+	if err != nil {
+		return result.Message, err
+	}
+	return result.Message + "\n" + directSetupNote(provider), nil
+}
+
+// directSetupNote says what the direct setup is: optional, and, for Claude,
+// an alternative to the plugin that does not replace an earlier registration.
+func directSetupNote(provider string) string {
+	if provider == "claude" {
+		return "This direct setup is optional: installing the `sectile` plugin in Claude gives the same skills and MCP server. " +
+			"The plugin does not remove a `sectile` entry this setup wrote in ~/.claude.json."
+	}
+	return "This direct setup is optional; it is how " + provider + " gets Sectile's skills and MCP server."
 }
 
 // initializationStep distinguishes a failure from a step that was never attempted.

@@ -9,6 +9,11 @@ import (
 
 var component = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]*$`)
 
+// commandName is a skill command: a component, optionally namespaced by the
+// plugin that ships it (sectile:clarify-issue). IDs and directories stay plain
+// components, since they become paths.
+var commandName = regexp.MustCompile(`^(?:[A-Za-z0-9][A-Za-z0-9_-]*:)?[A-Za-z0-9][A-Za-z0-9_-]*$`)
+
 // Validate checks the downloaded contract before any local preparation or execution.
 func (c Config) Validate() error {
 	if c.PRCreationStage != "" && c.PRCreationStage != "specified" && c.PRCreationStage != "implemented" {
@@ -51,7 +56,7 @@ func validateSkills(skills []Skill) error {
 		}
 		dirs[s.Directory] = true
 		cmd := skillCommand(s)
-		if !component.MatchString(cmd) || commands[cmd] {
+		if !commandName.MatchString(cmd) || commands[cmd] {
 			return fmt.Errorf("invalid or duplicate skill command %q", s.Command)
 		}
 		commands[cmd] = true
