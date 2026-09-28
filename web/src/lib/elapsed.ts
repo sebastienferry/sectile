@@ -1,3 +1,6 @@
+import { format } from './i18n.ts'
+import { shell } from '../locales/shell.ts'
+
 /**
  * Temps écoulé, dit comme on le dirait à l'oral.
  *
@@ -6,20 +9,32 @@
  * attention, et la date brute oblige à faire le calcul de tête.
  */
 
-/** Durée courte, pour une étiquette : « 3 j », « 2 sem. », « 5 mois ». */
-export const shortElapsed = (since?: string): string => {
+/** The units of a short elapsed time, from `t.shell.elapsed`. */
+export interface ElapsedUnits {
+  lessThanHour: string
+  hours: string
+  days: string
+  weeks: string
+  months: string
+}
+
+/**
+ * Short duration for a label: "3 j", "2 sem.", "5 mois" in French. Callers that
+ * do not pass the catalog get the French units.
+ */
+export const shortElapsed = (since?: string, units: ElapsedUnits = shell.fr.elapsed): string => {
   if (!since) return ''
   const start = new Date(since)
   if (Number.isNaN(start.getTime())) return ''
 
   const hours = Math.max(0, (Date.now() - start.getTime()) / 3_600_000)
-  if (hours < 1) return "moins d'1 h"
-  if (hours < 24) return `${Math.floor(hours)} h`
+  if (hours < 1) return units.lessThanHour
+  if (hours < 24) return format(units.hours, { count: Math.floor(hours) })
 
   const days = Math.floor(hours / 24)
-  if (days < 14) return `${days} j`
-  if (days < 60) return `${Math.floor(days / 7)} sem.`
-  return `${Math.floor(days / 30)} mois`
+  if (days < 14) return format(units.days, { count: days })
+  if (days < 60) return format(units.weeks, { count: Math.floor(days / 7) })
+  return format(units.months, { count: Math.floor(days / 30) })
 }
 
 /**

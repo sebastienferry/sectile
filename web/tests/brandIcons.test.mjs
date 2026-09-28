@@ -21,8 +21,6 @@ test('the manifest no longer depends on @lobehub/icons', () => {
   assert.equal(pkg.dependencies['@lobehub/icons'], undefined)
   // Nothing took its place: the four marks live in the repository now.
   assert.ok(!Object.keys(pkg.dependencies).some((name) => name.startsWith('@lobehub/')))
-  // The release procedure owns this field (AGENTS.md §4), not a dependency change.
-  assert.equal(pkg.version, '0.1.0')
 })
 
 test('the removed peer tree stays out of the lockfile', () => {

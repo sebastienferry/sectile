@@ -28,6 +28,7 @@ var migrationTables = []string{
 	"projects",
 	"tasks",
 	"task_activities",
+	"batch_members",
 	"task_comments",
 	"teams",
 	"team_members",

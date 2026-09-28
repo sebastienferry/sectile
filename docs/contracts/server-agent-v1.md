@@ -24,7 +24,11 @@ ambiguous tracker keys. A task lookup resolves the actual owning project.
 | `specFramework` | Specification framework used by the project skills. |
 | `skills` | Array of `{id, directory, command, content, commandContent}`. IDs and installation destinations must be unique and safe. `command` is the stage's standard command; a workstation replaces it with its own command name (see *Execution defaults and local overrides*). |
 | `specArtifacts` | Optional, `keep` or `drop`. `drop` keeps the tasks' clarification and specification files out of the repository: before a task's session starts, the agent writes their ignore rules in a Sectile-managed block of the primary checkout's `.git/info/exclude`, and removes the block when the effective value is `keep`. Absent (an older server) reads as `keep`. A workstation may override it (see *Execution defaults and local overrides*). |
-| `monoRepo` | Optional repository layout. `true` lets the code checkout carry the macro specifications when no specifications folder is set on the workstation; `false` requires that folder for every macro operation. Absent (an older server) reads as `true`. |
+
+**No longer sent since #484** (ADR 0036): `monoRepo`. Every project uses its
+code checkout as specifications folder unless the workstation sets another one,
+and a ticket runs in its pinned repository else in the code repository; an
+agent that still receives the key from an older server ignores it.
 
 **No longer sent since #305** (ADR 0031): `useWorktrees`, `aiProvider`,
 `aiCommandTemplate`, `aiCommandTemplateAutonomous`, `aiModel`, `aiSkillModels`,
@@ -87,8 +91,7 @@ agent's default terminal, then environment/platform detection. The server sends
 no terminal since #305 (`terminalOverride` is gone from the dispatch). The
 editor that `open_editor` runs is the workstation default `editorCommand`, else
 the `editor` an older server still sends, else `code`. Selecting `pty` or `none` uses a local PTY;
-the explicit `open_terminal` action requires an external window. Legacy
-`.taskflow/config.json` is not a second terminal-settings source.
+the explicit `open_terminal` action requires an external window.
 
 ## Skill ownership and recovery
 
@@ -239,11 +242,10 @@ Without `origin` in the task checkout, the lookup fails with
 macro's specification checkout on the workstation and answers
 `{"path", "branch", "worktree", "warning"}`. The specifications folder is the
 workstation's own setting for the project (`specRepos` in the local settings,
-edited as "Specifications folder" in the desktop project dialog), else, on a
-mono-repo project, the project's mapped checkout; a multi-repo project without
-one is refused with a message naming the setting. The server holds no
+edited as "Specifications folder" in the desktop project dialog), else the
+project's mapped checkout (#484). The server holds no
 specifications path (#443). On a Git folder the worktree is
-`.tasks/worktrees/<KEY>` in that repository, on the existing branch named after
+`.tasks/worktrees/<safe-name>` in that repository, on the existing branch named after
 the key or a new `<KEY>-<slug>` from the fetched default branch; an existing tree
 is reused as is. With worktrees off, the checkout itself is returned with
 `worktree: false` and nothing is created. On a folder outside any Git checkout,
@@ -266,29 +268,42 @@ French, and shown as they are. An agent that predates the action answers
 request to update the desktop app; no agent connected for the requesting user
 is likewise reported as the desktop app to connect.
 
+New task and macro directory names use `issue-<number>` for canonical numeric
+GitHub keys and `key-<slug>-<sha256>` otherwise (at most 120 ASCII bytes).
+The digest uses the original key, preserving case and normalization distinctions.
+Branch lookup takes precedence over predicted names for workspace information,
+launches, editor/diff operations and cleanup. Legacy checkouts remain in place;
+occupied task destinations use bounded safe siblings, while macros retain their
+nonempty-path refusal. Safe directory naming requires safe ancestor paths for
+Vite compatibility and does not repair existing unsafe checkouts.
+
 `repository_worktree` (`payload.taskId`, `payload.repository`, `payload.branch`)
-prepares a task's worktree in a secondary repository of a multi-repo project
-(#456), with the logic of the primary worktree: the worktree that already has
-the task branch checked out is reused, else `.tasks/worktrees/<KEY>` is created
-in that repository's mapped folder. It answers `{"repository", "path", "branch"}`,
-`repository` echoing the request; the server reads a missing echo as an agent
-too old to answer. A repository outside the project, not mapped on the
-workstation, or on a mono-repo project is refused. `remove_workspace` with
+prepares a task's worktree in a secondary repository (#456): one of the
+project's repositories, or a Git folder attached to the project on the
+workstation (#484), with the logic of the primary worktree: the worktree that
+already has the task branch checked out is reused, else `.tasks/worktrees/<safe-name>`
+is created in that repository's mapped folder, else in its attached folder. It
+answers `{"repository", "path", "branch"}`, `repository` echoing the request;
+the server reads a missing echo as an agent too old to answer. A repository
+neither mapped nor attached on the workstation, and an attached folder without
+a remote, are refused; the server refuses a path or a bare name before relaying,
+and records the repository on the task only once the agent answered. `remove_workspace` with
 `payload.repositories` removes the task worktree in each of those repositories
 and answers `{"removed": [...], "failed": [{"repository", "error"}]}`.
 
 Each dispatch resolves the task's primary repository before anything starts:
-its pin (`task.repository`), else the project's only repository, else the code
-remote of a mono-repo project, else the only repository mapped on the
-workstation, which the agent then pins. When several are mapped and none is
-pinned, the agent parks the dispatch, marks the run through
-`POST /api/activities/{id}/awaiting-repository` `{"waiting": true}` (autonomous
-runs included), releases its run slot, and reads the task back every five
-seconds until it is pinned; it then clears the mark and resumes the same run.
+its pin (`task.repository`) when it names one of the project's repositories,
+else the code repository (#484). No dispatch waits for a repository choice; the
+`awaiting-repository` route of #456 is gone, and an older agent posting to it
+gets a 404 it logs and ignores.
 The launch receives the task's folder map as `SECTILE_REPOSITORIES`, a JSON
-array of `{"remote", "identity", "role", "path", "worktree"}` where `role` is
-`primary`, `changed`, `context` or `spec` and `path` is empty when the
-repository is not mapped here. The first agent to see a project whose
+array of `{"remote", "identity", "role", "path", "worktree", "kind", "attached"}`
+where `role` is `primary`, `changed`, `context`, `local` or `spec` and `path` is
+empty when the repository is not mapped here. The folders attached to the
+project on the workstation follow the project's repositories with
+`"attached": true` and a `kind` of `git`, `folder` or `missing`; a folder
+without a remote has the role `local`. Consumers that ignore the two new keys
+read the map as before. The first agent to see a project whose
 `repositoriesMigration` is empty reads `GET /api/projects/{id}/legacy-repo-paths`,
 resolves each path's `origin` locally and posts the result to
 `POST /api/projects/{id}/repositories/convert`; the server applies the first
@@ -418,8 +433,8 @@ framework, pull-request creation stage and skill references (`id`, `directory`,
 `command`), plus `skillDirectories`, the directories the agent writes skill files
 into. Skill and command bodies are not inlined: a caller that needs one opens
 `<skill directory>/SKILL.md` under one of those directories in its checkout. The
-`.taskflow/config.json` and `AGENTS.md` writers keep using the full agent
-configuration, which is unchanged.
+agent uses its full configuration when it installs skills or updates the marked
+section of `AGENTS.md`; that configuration is unchanged.
 
 `transition_stage` accepts `prUrl` for either a pull request or a merge
 request. A task holds an ordered set of such links, oldest first, each keeping
@@ -456,6 +471,15 @@ workflow chain.
 Nested skills reuse their owner's run; intermediate transitions do not close it.
 These activities never acquire the managed-stage transition guard.
 
+A batch pickup (`pickup_issues`) is one run on the batch's first ticket, whose
+other tickets the server records as its members (ADR 0034). The agent reuses the
+launch run ID on every ticket: `start_run(taskKey, skill, runId)` on a member
+with the batch run's ID returns the batch run, creates no run, and marks that
+member as the one being processed, the previous one becoming done. The same call
+on a ticket outside the batch, or with a batch run that ended, is refused as any
+unmatched `runId` is. `finish_run` is called once, on the first ticket, when the
+whole batch ends; every member stops showing the batch then.
+
 Cards and list rows display a single run icon while a run is active: running takes
 precedence over queued, and a cancellation stays visible briefly, updated
 through server events and polling. Reading a task alone never marks it running.
@@ -488,6 +512,17 @@ and carries on. A message sent while no agent is connected is lost, and the
 agent's list catches up on the next change.
 
 ## MCP session ownership
+
+The server protects loopback MCP connections against DNS rebinding: their Host
+must be a loopback address or an explicit entry in `SECTILE_MCP_ALLOWED_HOSTS`.
+This server-only variable supports hosting ingresses that connect locally while
+preserving the public Host. It is read when the shared MCP transport is built,
+so changes require a server restart. Entries are comma-separated exact Host
+authorities, case-insensitive, including the port when present; schemes, paths
+and wildcard expansion are not supported. Forwarded headers cannot grant an
+exception. Non-loopback connections keep their existing behavior, and both
+`/mcp` and `/internal/mcp` retain their authentication and browser-Origin checks.
+The workstation gateway's separate loopback Host guard is unchanged.
 
 `/mcp` is served statefully: each client holds one server session, identified by
 `Mcp-Session-Id` and told apart from any other session sharing the same bearer
@@ -745,12 +780,31 @@ catalogue. The desktop then uses:
   task's engine, none when it is the project default engine; 404 when the
   engine is not in the catalogue. The capability report does not change.
 
-`repositories` maps each repository of a multi-repo project, by its
-`host/path` identity, to the folder holding its checkout on this workstation
-(#456). It is keyed by repository rather than by project, so one checkout
-serves every project that works in it; the desktop project settings write it,
-and refuse a folder whose `origin` is another repository. The project's own
-repository keeps its folder in its project section's `path`.
+`GET /desktop/status` advertises `open-editor` when the agent opens an
+execution's folder in the workstation editor (#535). `POST
+/desktop/open-editor` with `{runId}` takes the folder from the run, never from
+the request, and starts `defaults.editorCommand` on it the way the
+`open_editor` operation does. It answers `{editor, directory}`; 400 without a
+run ID, 404 for an unknown run, 409 when the run has no folder or no editor is
+set (it never falls back to `code`), 410 when the folder no longer exists, and
+500 with the launch error.
+
+`repositories` maps each repository a project declares, by its `host/path`
+identity, to the folder holding its checkout on this workstation (#456). It is
+keyed by repository rather than by project, so one checkout serves every
+project that works in it; the desktop project settings write it, and refuse a
+folder whose `origin` is another repository. The project's own repository
+keeps its folder in its project section's `path`.
+
+`projectSettings.<id>.folders` lists the folders attached to a project on this
+workstation (#484), edited through `GET`/`POST`/`DELETE /desktop/folders`
+(`?projectId=`, `{projectId, path}`, `?projectId=&path=`). The list answers
+`[{"path", "kind", "remote", "identity", "duplicate"}]`; an attachment answers
+204, or `{"mappedAs"}` when the folder is a checkout of one of the project's
+repositories and was stored as its folder instead, and 400 or 409 with a
+message naming what the folder already is. The agent reports the
+`attached-folders` capability on `/desktop/status`. No request to the server
+carries these paths.
 
 Without effective worktrees, the agent enforces one execution and the UI
 disables parallelism selection. Requests are acknowledged when queued; their
@@ -962,8 +1016,9 @@ available; custom adjustment content also receives the current built-in contract
 
 Managed adjustment verifies the PR identity against the task's recorded set:
 the same PR, or a newer one on a branch the task already used, together with the
-branch, pushed commit, clean checkout and reported build/lint/test checks at
-completion. A branch carrying several merged pull requests and none open is
+branch, pushed commit and clean checkout at completion, and records whatever
+build/lint/test checks the adjustment skill reports; running them is the skill's
+call (ADR 0038). A branch carrying several merged pull requests and none open is
 evidenced by its most recent merge; several *open* pull requests on one branch
 remain an unresolvable ambiguity and fail the lookup. Standalone transitions verify forge identity and readiness;
 check output remains agent-reported. Human merge and handoff remain separate.

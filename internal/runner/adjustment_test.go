@@ -7,7 +7,44 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"tasks/internal/models"
 )
+
+// A configured adjustment prompt gets the guardrails, never the work: whether
+// it reviews, corrects, checks or pushes is its own call (ADR 0038).
+func TestAdjustmentContractCarriesGuardrailsOnly(t *testing.T) {
+	settings := &models.Settings{AIProvider: "claude", RepoPath: t.TempDir(), PromptAdjust: "Review the PR and report, never correct anything."}
+	inv, err := NewRunner().PrepareAI(settings, "adjust", &models.Task{Key: "TEST-1"}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, guardrail := range []string{"verify the existing matching task-branch PR", "Never push onto a merged PR", "Never create or replace a PR", "record a disposition for each", "Preserve work on failure", "Never merge, approve, close the task"} {
+		if !strings.Contains(inv.Prompt, guardrail) {
+			t.Fatalf("missing guardrail %q: %s", guardrail, inv.Prompt)
+		}
+	}
+	for _, work := range []string{"commit", "push and", "build", "lint", "reconcile", "against the specification", "readiness"} {
+		if strings.Contains(AdjustmentContract, work) {
+			t.Fatalf("contract prescribes %q: %s", work, AdjustmentContract)
+		}
+	}
+}
+
+// Without a skill or a configured prompt, the built-in fallback still spells out
+// the whole adjustment, so trimming the contract changes nothing there.
+func TestAdjustmentFallbackKeepsTheWork(t *testing.T) {
+	settings := &models.Settings{AIProvider: "claude", RepoPath: t.TempDir()}
+	inv, err := NewRunner().PrepareAI(settings, "adjust", &models.Task{Key: "TEST-1"}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, work := range []string{"reconcile the remote default branch", "Run build, lint and tests", "commit and push", "verify it is ready", AdjustmentContract} {
+		if !strings.Contains(inv.Prompt, work) {
+			t.Fatalf("fallback lost %q: %s", work, inv.Prompt)
+		}
+	}
+}
 
 func TestForgeAdjustmentEvidence(t *testing.T) {
 	for _, tc := range []struct {

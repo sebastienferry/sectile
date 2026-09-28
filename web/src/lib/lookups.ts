@@ -90,6 +90,20 @@ export const targetProjectOptions = (macroProject: Project, projects: Project[],
  * familles de la même façon.
  */
 
+/**
+ * The words a sprint option shows beside its name: its GitLab kind and whether
+ * it is the active one. Callers pass the UI language's catalog entry
+ * (`t.taskDetail.lookups.sprintKinds`); the French default keeps callers that
+ * have no catalog at hand unchanged.
+ */
+export interface SprintKindLabels {
+  milestone: string
+  iteration: string
+  active: string
+}
+
+const FRENCH_SPRINT_LABELS: SprintKindLabels = { milestone: 'Jalon', iteration: 'Itération', active: 'sprint en cours' }
+
 /** Nombre de propositions rendues sans frappe : au delà, la liste ne se lit plus. */
 const DEFAULT_LIMIT = 40
 
@@ -124,12 +138,12 @@ export const epicLookup = macroLookup
  * identifiant, donc un sprint sans le sien ne serait pas applicable.
  */
 export const sprintLookup =
-  (sprints: TrackerSprint[]) =>
+  (sprints: TrackerSprint[], labels: SprintKindLabels = FRENCH_SPRINT_LABELS) =>
   async (query: string): Promise<LookupOption[]> => {
     const pool = sprints.filter(sprint => sprint.id && sprint.state !== 'closed')
     const found = pool.filter(sprint => (query.trim() ? matches(sprint.name, query) : true))
     return found.slice(0, DEFAULT_LIMIT).map(sprint => {
-      const parts = [sprintKindLabel(sprint.id), sprint.state === 'active' ? 'sprint en cours' : ''].filter(Boolean)
+      const parts = [sprintKindLabel(sprint.id, labels), sprint.state === 'active' ? labels.active : ''].filter(Boolean)
       return {
         id: sprint.id as string,
         label: sprint.name,
@@ -143,9 +157,9 @@ export const sprintLookup =
  * iteration:<id>): both are sprints there, and the picker says which. Any
  * other tracker's sprint has one kind and no label.
  */
-export const sprintKindLabel = (id: string | undefined): string => {
-  if (id?.startsWith('milestone:')) return 'Jalon'
-  if (id?.startsWith('iteration:')) return 'Itération'
+export const sprintKindLabel = (id: string | undefined, labels: SprintKindLabels = FRENCH_SPRINT_LABELS): string => {
+  if (id?.startsWith('milestone:')) return labels.milestone
+  if (id?.startsWith('iteration:')) return labels.iteration
   return ''
 }
 

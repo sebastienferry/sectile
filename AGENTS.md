@@ -1,15 +1,3 @@
-<!-- sectile:project-context:start -->
-## Sectile workflow
-
-Sectile operates the development workflow for this repository. Use `.taskflow/config.json` as the source of truth for the project and remote tracker context.
-
-- Tracker: `github`
-- GitHub repository: `sebastienferry/sectile`
-- Git remote: `git@github.com:sebastienferry/sectile.git`
-
-Development work follows Sectile's stages: clarify, specify, implement, adjust the existing pull request, then human merge and handoff. Keep the assigned branch/worktree, use Sectile's local stage handler for standalone runs, and let managed Sectile runs own stage transitions and tracker synchronization.
-<!-- sectile:project-context:end -->
-
 ## Everything written in the repository is in English
 
 Code comments, doc comments, identifiers, test names and failure messages,
@@ -122,7 +110,17 @@ does not have.
 
 ### 6. Say what happens next
 
-The tag pipeline builds and publishes the binaries and the server image under
-`vX.Y.Z`. A merge into `main` publishes the image only — binaries come from
-tags and from nowhere else. See `.gitlab-ci.yml` and
-`docs/adrs/0018-semver-tags-and-changelog.md`.
+The tag is published twice, by two independent builds:
+
+- the GitLab tag pipeline builds and publishes the server image under
+  `vX.Y.Z`, and uploads the agent and server binaries, the four Sectile Desktop
+  archives and `SHA256SUMS` to the package `sectile`, version `vX.Y.Z`;
+- the GitHub workflow `.github/workflows/release.yml` builds the same files on
+  GitHub's runners and creates the GitHub Release of the tag, with the tag's
+  changelog section as its notes.
+
+Both refuse a tag whose `desktop/package.json` does not match it, which is why
+step 4 matters. A merge into `main` publishes the image only: binaries and
+desktop archives come from tags and from nowhere else. See `.gitlab-ci.yml`,
+`docs/adrs/0018-semver-tags-and-changelog.md` and
+`docs/adrs/0034-a-release-is-published-on-both-forges.md`.

@@ -2,6 +2,8 @@ import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { GitCompareArrows, Loader2, Square } from 'lucide-react'
 import { useAgentStatus } from '../hooks/useAgentStatus'
 import { useCurrentUser } from '../hooks/useCurrentUser'
+import { useApp } from '../context/AppContext'
+import { format } from '../lib/i18n'
 import { activeMacroRun, cancelMacroRun, fetchMacroRuns, launchMacroSkill, macroLaunchBlocker, type MacroRun } from '../lib/macroRuns'
 
 interface Props {
@@ -24,6 +26,8 @@ const IDLE_POLL_MS = 30000
 export const MacroRealignButton: React.FC<Props> = ({ projectId, macroKey, onError, onLaunched }) => {
   const { agents } = useAgentStatus()
   const { user } = useCurrentUser()
+  const { t } = useApp()
+  const strings = t.planning.macro.realign
   const [runs, setRuns] = useState<MacroRun[]>([])
   const [launching, setLaunching] = useState(false)
   const [stopping, setStopping] = useState(false)
@@ -49,12 +53,12 @@ export const MacroRealignButton: React.FC<Props> = ({ projectId, macroKey, onErr
     return () => clearInterval(id)
   }, [active, refresh])
 
-  const blocker = macroLaunchBlocker(agents, projectId, runs, user?.userId || '')
+  const blocker = macroLaunchBlocker(agents, projectId, runs, strings, user?.userId || '')
   const launch = async () => {
     setLaunching(true)
     try {
-      await launchMacroSkill(projectId, macroKey, 'realign_macro')
-      onLaunched(`Réalignement de ${macroKey} lancé sur l'agent local.`)
+      await launchMacroSkill(projectId, macroKey, 'realign_macro', strings.launchRefused)
+      onLaunched(format(strings.launched, { key: macroKey }))
     } catch (err) {
       onError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -67,13 +71,13 @@ export const MacroRealignButton: React.FC<Props> = ({ projectId, macroKey, onErr
     setStopping(true)
     try {
       try {
-        await cancelMacroRun(projectId, macroKey, active.id)
+        await cancelMacroRun(projectId, macroKey, active.id, strings.stopRefused)
       } catch (err) {
         // An agent that cannot be reached cannot confirm the stop; closing
         // anyway is the person's explicit choice.
         const message = err instanceof Error ? err.message : String(err)
-        if (!window.confirm(`${message}\n\nFermer quand même cette exécution ? Aucun processus local ne sera arrêté.`)) throw err
-        await cancelMacroRun(projectId, macroKey, active.id, true)
+        if (!window.confirm(format(strings.forceClose, { message }))) throw err
+        await cancelMacroRun(projectId, macroKey, active.id, strings.stopRefused, true)
       }
     } catch (err) {
       onError(err instanceof Error ? err.message : String(err))
@@ -90,11 +94,11 @@ export const MacroRealignButton: React.FC<Props> = ({ projectId, macroKey, onErr
         disabled={launching || blocker !== null}
         onClick={launch}
         className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold text-sky-300 bg-sky-500/10 border border-sky-500/30 hover:bg-sky-500/20 disabled:opacity-50 cursor-pointer"
-        title={blocker || 'Réaligner la spécification sur la découpe, dans le worktree de la macro'}
+        title={blocker || strings.title}
         data-macro-run={active ? active.status : undefined}
       >
         {launching || active ? <Loader2 size={10} className="animate-spin text-sky-400" /> : <GitCompareArrows size={10} className="text-sky-400" />}
-        <span>{active ? 'Réalignement en cours' : 'Réaligner la spec'}</span>
+        <span>{active ? strings.running : strings.action}</span>
       </button>
       {active && (
         <button
@@ -102,8 +106,8 @@ export const MacroRealignButton: React.FC<Props> = ({ projectId, macroKey, onErr
           disabled={stopping}
           onClick={stop}
           className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold text-rose-300 bg-rose-500/10 border border-rose-500/30 hover:bg-rose-500/20 disabled:opacity-50 cursor-pointer"
-          title="Arrêter le réalignement en cours"
-          aria-label="Arrêter le réalignement"
+          title={strings.stopTitle}
+          aria-label={strings.stopLabel}
         >
           <Square size={9} />
         </button>

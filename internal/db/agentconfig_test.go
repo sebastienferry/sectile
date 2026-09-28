@@ -151,32 +151,6 @@ func TestLegacyWorkstationExecutionTakesTheCallersTerminalAndEditor(t *testing.T
 	}
 }
 
-// The repository layout reaches the agent, which decides from it whether the
-// code checkout carries the specifications.
-func TestAgentConfigCarriesTheRepositoryLayout(t *testing.T) {
-	database, err := NewDB(filepath.Join(t.TempDir(), "tasks.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer database.Close()
-	project, err := database.CreateProject(models.CreateProjectRequest{Name: "Layout"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, mono := range []bool{false, true} {
-		if _, err = database.UpdateProject(project.ID, models.UpdateProjectRequest{MonoRepo: &mono}); err != nil {
-			t.Fatal(err)
-		}
-		config, err := database.AgentConfig(project.ID, "")
-		if err != nil {
-			t.Fatal(err)
-		}
-		if config.MonoRepo == nil || *config.MonoRepo != mono || config.IsMonoRepo() != mono {
-			t.Fatalf("monoRepo %v expected, got %v", mono, config.MonoRepo)
-		}
-	}
-}
-
 // A skill is custom when the project stored content that differs from the
 // built-in one: not for a mode-only row, not for the pull-request policy every
 // project gets, not for the built-in content an adjust reset stores.

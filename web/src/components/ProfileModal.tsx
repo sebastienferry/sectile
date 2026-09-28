@@ -115,9 +115,9 @@ export const ProfileModal: React.FC = () => {
   if (!isProfileOpen) return null
 
   const densities: { id: Density; label: string; desc: string }[] = [
-    { id: 'compact', label: language === 'fr' ? 'Compact' : 'Compact', desc: t.profileModal.densityDesc?.compact || '13px font, padding réduit' },
-    { id: 'standard', label: language === 'fr' ? 'Standard' : 'Standard', desc: t.profileModal.densityDesc?.standard || '14px font, équilibre optimal' },
-    { id: 'comfortable', label: language === 'fr' ? 'Confortable' : 'Comfortable', desc: t.profileModal.densityDesc?.comfortable || '15px font, grands espacements' },
+    { id: 'compact', label: t.signIn.profile.density.compact, desc: t.profileModal.densityDesc?.compact || '13px font, padding réduit' },
+    { id: 'standard', label: t.signIn.profile.density.standard, desc: t.profileModal.densityDesc?.standard || '14px font, équilibre optimal' },
+    { id: 'comfortable', label: t.signIn.profile.density.comfortable, desc: t.profileModal.densityDesc?.comfortable || '15px font, grands espacements' },
   ]
 
   const handleSave = async () => {
@@ -177,6 +177,8 @@ export const ProfileModal: React.FC = () => {
           <button
             type="button"
             onClick={() => setIsProfileOpen(false)}
+            aria-label={t.signIn.profile.close}
+            title={t.signIn.profile.close}
             className="p-1.5 rounded-lg text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] transition-colors cursor-pointer"
           >
             <X size={17} />

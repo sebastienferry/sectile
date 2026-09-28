@@ -6,6 +6,10 @@ Welcome to the comprehensive technical documentation for **Sectile** (formerly S
 
 ## 📚 Documentation Index
 
+- [**User guide** (`USER_GUIDE.md`)](./USER_GUIDE.md): sign in, configure
+  tracker access and projects, pair a workstation, and work on tickets from
+  Claude Code or Desktop.
+
 1. [**Architecture & System Design** (`ARCHITECTURE.md`)](./ARCHITECTURE.md)
    - High-level architecture, design philosophy, and core invariants.
    - Backend Go service layer, SQLite persistence, and concurrency model.

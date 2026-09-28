@@ -40,12 +40,14 @@ test('icon assets exist with valid headers and sizes', () => {
 })
 
 test('packager configuration sets branded icon path without extension', () => {
-	const packageCjs = fs.readFileSync(path.resolve(__dirname, '../electron/package.cjs'), 'utf8')
-	assert.match(
-		packageCjs,
-		/icon:\s*path\.resolve\(__dirname,\s*['"]\.\.\/assets\/icon['"]\)/,
-		'package.cjs must configure icon pointing to ../assets/icon'
-	)
+	const {packageOptions} = require('../electron/package-options.cjs')
+	for (const platform of [undefined, 'darwin', 'linux', 'win32']) {
+		assert.equal(
+			packageOptions({platform}).icon,
+			path.resolve(__dirname, '../assets/icon'),
+			'packager must be given ../assets/icon, packager adds the platform extension'
+		)
+	}
 })
 
 test('electron runtime configures window icon and darwin dock icon', () => {

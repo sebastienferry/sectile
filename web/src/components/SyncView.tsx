@@ -18,6 +18,8 @@ import {
 import { useApp } from '../context/AppContext'
 import type { IssueTracker, TaskActivity } from '../types'
 import { PROJECT_TRACKERS } from '../lib/trackers'
+import { format, formatDateTime, isLocale, plural } from '../lib/i18n'
+import { localizeActivityText } from '../lib/activityText'
 
 export const SyncView: React.FC = () => {
   const {
@@ -36,6 +38,8 @@ export const SyncView: React.FC = () => {
     activeJobCount,
     t,
   } = useApp()
+  const locale = isLocale(settings.language) ? settings.language : 'fr'
+  const op = t.operations.sync
 
   // Active project issue tracker
   const activeTracker: IssueTracker = currentProject?.issueTracker || 'local'
@@ -95,26 +99,26 @@ export const SyncView: React.FC = () => {
       case 'running':
         return (
           <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-500/15 text-amber-400 border border-amber-500/30">
-            <RefreshCw size={11} className="animate-spin" /> En cours
+            <RefreshCw size={11} className="animate-spin" /> {op.status.running}
           </span>
         )
       case 'queued':
       case 'pending':
         return (
           <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-500/15 text-blue-400 border border-blue-500/30">
-            <Clock size={11} /> En file d'attente
+            <Clock size={11} /> {op.status.queued}
           </span>
         )
       case 'completed':
         return (
           <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
-            <CheckCircle2 size={11} /> Terminé
+            <CheckCircle2 size={11} /> {op.status.completed}
           </span>
         )
       case 'failed':
         return (
           <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-rose-500/15 text-rose-400 border border-rose-500/30">
-            <AlertCircle size={11} /> Échoué
+            <AlertCircle size={11} /> {op.status.failed}
           </span>
         )
       default:
@@ -145,11 +149,11 @@ export const SyncView: React.FC = () => {
                 <h1 className="text-xl font-bold text-[var(--text-primary)] flex items-center gap-2">
                   {t.syncView.title}
                   <span className="text-xs px-2 py-0.5 rounded-full font-mono font-medium bg-[var(--accent-light)] accent-text border border-[var(--accent-color)]/30">
-                    {currentProject?.name || 'Projet Actif'}
+                    {currentProject?.name || op.activeProject}
                   </span>
                 </h1>
                 <p className="text-xs text-[var(--text-muted)] mt-0.5">
-                  Synchronisation ciblée pour le gestionnaire de tickets du projet en cours ({activeTracker.toUpperCase()})
+                  {format(op.subtitle, { tracker: activeTracker.toUpperCase() })}
                 </p>
               </div>
             </div>
@@ -162,7 +166,7 @@ export const SyncView: React.FC = () => {
                 className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold bg-blue-500/15 text-blue-400 border border-blue-500/30 hover:bg-blue-500/25 transition-all animate-pulse"
               >
                 <ActivityIcon size={14} className="animate-spin" />
-                <span>{activeJobCount} job(s) actif(s)</span>
+                <span>{plural(locale, activeJobCount, op.activeJobs)}</span>
                 <ChevronRight size={13} />
               </button>
             )}
@@ -171,17 +175,17 @@ export const SyncView: React.FC = () => {
               onClick={syncCurrentProject}
               disabled={isSyncing}
               className="flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold text-white shadow-md accent-bg hover:opacity-90 transition-all disabled:opacity-50 cursor-pointer"
-              title={`Synchroniser le projet ${currentProject?.name || ''}`}
+              title={format(op.syncProject, { name: currentProject?.name || '' })}
             >
               <Zap size={14} className={isSyncing ? 'animate-spin' : ''} />
               <span>
                 {activeTracker === 'github'
-                  ? 'Synchroniser GitHub'
+                  ? op.syncGithub
                   : activeTracker === 'jira'
-                  ? 'Synchroniser Jira'
+                  ? op.syncJira
                   : activeTracker === 'gitlab'
-                  ? 'Synchroniser GitLab'
-                  : 'Recharger les tâches'}
+                  ? op.syncGitlab
+                  : op.reloadTasks}
               </span>
             </button>
           </div>
@@ -199,9 +203,9 @@ export const SyncView: React.FC = () => {
               </div>
               <div>
                 <div className="flex items-center gap-2">
-                  <span className="text-xs font-bold uppercase tracking-wider text-[var(--accent-color)]">Projet Actif</span>
+                  <span className="text-xs font-bold uppercase tracking-wider text-[var(--accent-color)]">{op.activeProject}</span>
                   <span className="text-[10px] px-2 py-0.2 rounded-full font-mono bg-[var(--bg-tertiary)] text-[var(--text-secondary)]">
-                    {tasks.length} tâches
+                    {plural(locale, tasks.length, op.taskCount)}
                   </span>
                   <span className={`text-[10px] px-2 py-0.2 rounded-full font-bold uppercase ${
                     activeTracker === 'github'
@@ -235,7 +239,7 @@ export const SyncView: React.FC = () => {
               }}
               className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-[var(--bg-secondary)] hover:bg-[var(--bg-tertiary)] text-[var(--text-primary)] border border-[var(--border-color)] transition-all cursor-pointer shrink-0"
             >
-              ⚙️ Modifier le projet
+              {op.editProject}
             </button>
           </div>
         )}
@@ -250,21 +254,21 @@ export const SyncView: React.FC = () => {
                 </div>
                 <div>
                   <h2 className="text-base font-bold text-[var(--text-primary)]">
-                    Synchronisation GitHub Issues
+                    {op.githubTitle}
                   </h2>
                   <span className="text-xs text-emerald-400 flex items-center gap-1.5 font-medium">
                     <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-                    Connecté à GitHub · Dépôt {customGithubRepo || currentProject?.githubRepo || 'Non configuré'}
+                    {format(op.githubConnected, { repo: customGithubRepo || currentProject?.githubRepo || op.notConfigured })}
                   </span>
                 </div>
               </div>
               <span className="text-xs px-2.5 py-1 rounded-md font-mono bg-purple-500/15 text-purple-300 font-bold border border-purple-500/30">
-                {githubCount} issues synchronisées
+                {plural(locale, githubCount, op.githubCount)}
               </span>
             </div>
 
             <p className="text-xs text-[var(--text-secondary)] leading-relaxed">
-              Synchronise les issues ouvertes et Pull Requests du dépôt GitHub associé à ce projet via la CLI GitHub officielle.
+              {op.githubDescription}
             </p>
           </div>
         )}
@@ -278,21 +282,21 @@ export const SyncView: React.FC = () => {
                 </div>
                 <div>
                   <h2 className="text-base font-bold text-[var(--text-primary)]">
-                    Synchronisation Jira
+                    {op.jiraTitle}
                   </h2>
                   <span className="text-xs text-emerald-400 flex items-center gap-1.5 font-medium">
                     <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-                    Connecté à Jira · Projet {customJiraKey || currentProject?.jiraProject || 'Non défini'}
+                    {format(op.jiraConnected, { key: customJiraKey || currentProject?.jiraProject || op.notDefined })}
                   </span>
                 </div>
               </div>
               <span className="text-xs px-2.5 py-1 rounded-md font-mono bg-blue-500/15 text-blue-300 font-bold border border-blue-500/30">
-                {jiraCount} tickets Jira
+                {plural(locale, jiraCount, op.jiraCount)}
               </span>
             </div>
 
             <p className="text-xs text-[var(--text-secondary)] leading-relaxed">
-              Synchronise les tickets et anomalies de votre projet Jira via l'API REST Atlassian.
+              {op.jiraDescription}
             </p>
           </div>
         )}
@@ -306,21 +310,21 @@ export const SyncView: React.FC = () => {
                 </div>
                 <div>
                   <h2 className="text-base font-bold text-[var(--text-primary)]">
-                    Synchronisation GitLab
+                    {op.gitlabTitle}
                   </h2>
                   <span className="text-xs text-emerald-400 flex items-center gap-1.5 font-medium">
                     <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-                    Connecté à GitLab · Projet {currentProject?.gitlabProject || settings.gitlabProject || 'Non configuré'}
+                    {format(op.gitlabConnected, { path: currentProject?.gitlabProject || settings.gitlabProject || op.notConfigured })}
                   </span>
                 </div>
               </div>
               <span className="text-xs px-2.5 py-1 rounded-md font-mono bg-orange-500/15 text-orange-300 font-bold border border-orange-500/30">
-                {gitlabCount} issues GitLab
+                {plural(locale, gitlabCount, op.gitlabCount)}
               </span>
             </div>
 
             <p className="text-xs text-[var(--text-secondary)] leading-relaxed">
-              Synchronise les issues du projet GitLab via son API REST, sur gitlab.com ou une instance auto-hébergée.
+              {op.gitlabDescription}
             </p>
           </div>
         )}
@@ -334,21 +338,21 @@ export const SyncView: React.FC = () => {
                 </div>
                 <div>
                   <h2 className="text-base font-bold text-[var(--text-primary)]">
-                    Gestionnaire Local (SQLite)
+                    {op.localTitle}
                   </h2>
                   <span className="text-xs text-emerald-400 flex items-center gap-1.5 font-medium">
                     <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
-                    Base de données locale active
+                    {op.localActive}
                   </span>
                 </div>
               </div>
               <span className="text-xs px-2.5 py-1 rounded-md font-mono bg-emerald-500/15 text-emerald-300 font-bold border border-emerald-500/30">
-                {localCount} tâches locales
+                {plural(locale, localCount, op.localCount)}
               </span>
             </div>
 
             <p className="text-xs text-[var(--text-secondary)] leading-relaxed">
-              Ce projet est configuré pour fonctionner exclusivement en local. Les tâches, spécifications et activités sont stockées directement dans la base SQLite locale sans dépendance à un service externe.
+              {op.localDescription}
             </p>
           </div>
         )}
@@ -362,17 +366,17 @@ export const SyncView: React.FC = () => {
               </div>
               <div>
                 <h3 className="text-sm font-bold text-[var(--text-primary)]">
-                  Configuration du gestionnaire de tickets du projet
+                  {op.configTitle}
                 </h3>
                 <p className="text-xs text-[var(--text-muted)]">
-                  Modifiez le suivi des tickets et les paramètres propres à {currentProject?.name || 'ce projet'}
+                  {format(op.configSubtitle, { name: currentProject?.name || op.thisProject })}
                 </p>
               </div>
             </div>
 
             {isSaved && (
               <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 animate-fade-in">
-                <Check size={13} /> Enregistré pour ce projet
+                <Check size={13} /> {op.savedForProject}
               </span>
             )}
           </div>
@@ -382,7 +386,7 @@ export const SyncView: React.FC = () => {
               {/* Issue Tracker Selector */}
               <div>
                 <label className="block text-xs font-semibold text-[var(--text-secondary)] mb-1.5">
-                  Gestionnaire de tickets du projet
+                  {op.trackerLabel}
                 </label>
                 <select
                   value={issueTracker}
@@ -401,7 +405,7 @@ export const SyncView: React.FC = () => {
               {issueTracker === 'github' && (
                 <div>
                   <label className="block text-xs font-semibold text-[var(--text-secondary)] mb-1.5">
-                    Dépôt GitHub (owner/repo)
+                    {op.githubRepoLabel}
                   </label>
                   <input
                     type="text"
@@ -410,7 +414,7 @@ export const SyncView: React.FC = () => {
                       setGithubRepo(e.target.value)
                       setCustomGithubRepo(e.target.value)
                     }}
-                    placeholder="Ex: owner/repo"
+                    placeholder={op.githubRepoPlaceholder}
                     className="w-full px-3 py-2 text-xs font-mono rounded-lg bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)]"
                   />
                 </div>
@@ -419,7 +423,7 @@ export const SyncView: React.FC = () => {
               {issueTracker === 'jira' && (
                 <div>
                   <label className="block text-xs font-semibold text-[var(--text-secondary)] mb-1.5">
-                    Clé du projet Jira
+                    {op.jiraKeyLabel}
                   </label>
                   <input
                     type="text"
@@ -428,7 +432,7 @@ export const SyncView: React.FC = () => {
                       setJiraKey(e.target.value)
                       setCustomJiraKey(e.target.value)
                     }}
-                    placeholder="Ex: PROJ"
+                    placeholder={op.jiraKeyPlaceholder}
                     className="w-full px-3 py-2 text-xs font-mono rounded-lg bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)] uppercase"
                   />
                 </div>
@@ -436,7 +440,7 @@ export const SyncView: React.FC = () => {
 
               {issueTracker === 'local' && (
                 <div className="flex items-center p-2.5 rounded-lg bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-xs text-[var(--text-muted)]">
-                  <span>Stockage SQLite autonome sans clé distante requise.</span>
+                  <span>{op.localHint}</span>
                 </div>
               )}
             </div>
@@ -447,7 +451,7 @@ export const SyncView: React.FC = () => {
                 className="flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold text-white shadow-xs accent-bg hover:opacity-90 transition-all cursor-pointer"
               >
                 <Save size={14} />
-                <span>Enregistrer pour ce projet</span>
+                <span>{op.saveForProject}</span>
               </button>
             </div>
           </form>
@@ -462,10 +466,10 @@ export const SyncView: React.FC = () => {
               </div>
               <div>
                 <h3 className="text-sm font-bold text-[var(--text-primary)]">
-                  Historique des synchronisations de ce projet
+                  {op.historyTitle}
                 </h3>
                 <p className="text-xs text-[var(--text-muted)]">
-                  Journal des tâches de synchronisation exécutées en arrière-plan
+                  {op.historySubtitle}
                 </p>
               </div>
             </div>
@@ -474,7 +478,7 @@ export const SyncView: React.FC = () => {
               onClick={() => setActiveView('activities')}
               className="text-xs text-[var(--accent-color)] hover:underline flex items-center gap-1 font-medium cursor-pointer"
             >
-              <span>Voir dans Activités</span>
+              <span>{op.openActivities}</span>
               <ChevronRight size={13} />
             </button>
           </div>
@@ -482,7 +486,7 @@ export const SyncView: React.FC = () => {
           {syncActivities.length === 0 ? (
             <div className="text-center py-8 text-[var(--text-muted)]">
               <RefreshCw size={24} className="mx-auto mb-2 opacity-40" />
-              <p className="text-xs">Aucune activité de synchronisation récente pour ce projet</p>
+              <p className="text-xs">{op.historyEmpty}</p>
             </div>
           ) : (
             <div className="divide-y divide-[var(--border-color)]">
@@ -505,12 +509,12 @@ export const SyncView: React.FC = () => {
                     <div className="min-w-0">
                       <div className="flex items-center gap-2">
                         <span className="text-xs font-bold text-[var(--text-primary)] truncate">
-                          {act.skillName}
+                          {localizeActivityText(act.skillName, locale)}
                         </span>
                         {getStatusBadge(act.status)}
                       </div>
                       <p className="text-xs text-[var(--text-secondary)] truncate mt-0.5">
-                        {act.summary || act.action}
+                        {localizeActivityText(act.summary || act.action, locale)}
                       </p>
                     </div>
                   </div>
@@ -522,7 +526,7 @@ export const SyncView: React.FC = () => {
                       </span>
                     )}
                     <span className="text-[11px]">
-                      {new Date(act.createdAt).toLocaleString(settings.language === 'fr' ? 'fr-FR' : 'en-US', {
+                      {formatDateTime(locale, act.createdAt, {
                         hour: '2-digit',
                         minute: '2-digit',
                         day: '2-digit',
@@ -535,7 +539,7 @@ export const SyncView: React.FC = () => {
                         handleInspectActivity(act)
                       }}
                       className="p-1 rounded-md text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]"
-                      title="Inspecter dans Activités"
+                      title={op.inspect}
                     >
                       <ExternalLink size={13} />
                     </button>

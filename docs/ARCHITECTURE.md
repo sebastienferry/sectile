@@ -223,21 +223,32 @@ or tracker credentials. Local repositories are mapped by project primary key in
 engine per project and the engine each task was switched to from the desktop
 ticket table. The agent applies the task's engine at dispatch, so the server
 and the dispatch contract know nothing of it. Git remote identity can match the current repository.
-Repositories are never cloned implicitly. On a multi-repo project, each
-repository the project declares is mapped by its remote identity instead
-(`repositories`), and a task runs in a worktree of the repository it is pinned
-to; a launch that cannot tell which waits for the pin (ADR 0028).
+Repositories are never cloned implicitly. Each other repository a project
+declares is mapped by its remote identity instead (`repositories`), and a task
+runs in a worktree of the repository it is pinned to, else of the code
+repository (ADR 0028, ADR 0036). A workstation can also attach folders to a
+project (`projectSettings.<id>.folders`): they are handed to every launch in
+the folder map and never leave the workstation (ADR 0036).
 
-Task preparation reuses the assigned branch's existing checkout where possible.
-Otherwise it creates `.tasks/worktrees/<taskKey>` locally. Existing mismatched
-worktrees fail visibly; preparation does not reset a branch to accommodate a
-request. Shared checkouts execute serially. Worktree projects admit up to five
+Task and macro preparation resolve the selected branch through Git's worktree
+inventory before creating a checkout. This preserves arbitrary, legacy (including
+`#289`), main-checkout and shared batch locations and their uncommitted work.
+New primary and secondary task worktrees and macro specification worktrees use
+filesystem-safe names under `.tasks/worktrees/`: canonical numeric GitHub keys
+use `issue-289`; other keys use a bounded ASCII slug and the full SHA-256 digest
+of the original key. Names are independent of tracker identity and branch names.
+Occupied task destinations use safe siblings; macro preparation refuses nonempty
+occupied destinations. Lookup, desktop launches and explicit cleanup use the
+actual branch checkout, with Git's dirty-removal protection retained. No legacy
+path is automatically moved or removed. Safe basenames cannot repair an unsafe
+ancestor repository path, nor make Vite work in a retained legacy path.
+Shared checkouts execute serially. Worktree projects admit up to five
 parallel executions according to the workstation setting, which defaults to one. Tasks using the same checkout cannot execute concurrently.
 
-Only the agent writes repository skills and `.taskflow/config.json` or updates
-the marked section of `AGENTS.md`. It preserves unrelated configuration keys and
-personal instructions. Modified managed skills are backed up before replacement;
-retired modified skills remain personal. Root-bound file access rejects escaping
+Only the agent writes repository skills or updates the marked section of
+`AGENTS.md`. It preserves unrelated configuration keys and personal
+instructions. Modified managed skills are backed up before replacement; retired
+modified skills remain personal. Root-bound file access rejects escaping
 symlinks. The downloaded `.taskflow/remote-config.json` is diagnostic, never an
 offline configuration fallback.
 

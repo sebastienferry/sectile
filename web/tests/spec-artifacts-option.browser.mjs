@@ -15,7 +15,7 @@ const { root, preserveSymlinks } = browserRoot(import.meta.url);
 const modalHarness = `import React from 'react'; import {createRoot} from 'react-dom/client'; import {ProjectModal} from '/src/components/ProjectModal.tsx'; import {translations} from '/src/locales/translations.ts'; import '/src/index.css';
 const noop=()=>{};window.saved=null;
 window.project={id:'p1',name:'Demo',slug:'demo',color:'indigo',icon:'Folder',issueTracker:'local',isDefault:true,githubRepo:'',description:'',repoPath:'',enabledViews:[]};
-window.ctx={isProjectModalOpen:true,setIsProjectModalOpen:noop,get editingProject(){return window.project},setEditingProject:noop,createProject:async p=>{window.saved=p},updateProject:async(id,p)=>{window.saved=p},deleteProject:async()=>{},fetchProjectIssueTypes:async()=>[],setIsTrackerSetupOpen:noop,userCredentials:[],refreshUserCredentials:async()=>{},settings:{userName:'Alice',density:'standard',theme:'dark',aiProvider:'claude'},t:translations.fr};
+window.ctx={isProjectModalOpen:true,setIsProjectModalOpen:noop,get editingProject(){return window.project},setEditingProject:noop,createProject:async p=>{window.saved=p},updateProject:async(id,p)=>{window.saved=p},deleteProject:async()=>{},fetchProjectIssueTypes:async()=>[],setIsTrackerSetupOpen:noop,userCredentials:[],refreshUserCredentials:async()=>{},settings:{userName:'Alice',density:'standard',theme:'dark',aiProvider:'claude'},t:translations.en};
 const app=createRoot(document.getElementById('root'));
 window.open=(project)=>{window.project=project;app.render(<ProjectModal key={project.specArtifacts||'none'}/>)};
 window.open(window.project);`;

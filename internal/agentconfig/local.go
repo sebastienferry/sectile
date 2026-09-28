@@ -120,12 +120,17 @@ func (l legacySettings) fold() Settings {
 func overlay(base, top Settings) Settings {
 	out := top
 	out.Defaults = Defaults{
-		Execution:        overlayExecution(base.Defaults.Execution, top.Defaults.Execution),
-		AIProviderModels: top.Defaults.AIProviderModels,
-		EditorCommand:    firstSet(top.Defaults.EditorCommand, base.Defaults.EditorCommand),
+		InitializationProvider: firstSet(top.Defaults.InitializationProvider, base.Defaults.InitializationProvider),
+		SkillCommands:          top.Defaults.SkillCommands,
+		Execution:              overlayExecution(base.Defaults.Execution, top.Defaults.Execution),
+		AIProviderModels:       top.Defaults.AIProviderModels,
+		EditorCommand:          firstSet(top.Defaults.EditorCommand, base.Defaults.EditorCommand),
 		// No legacy layout knows the skill settings: the current file states them.
 		CustomSkillsWin:      top.Defaults.CustomSkillsWin,
 		InstalledSkillSource: top.Defaults.InstalledSkillSource,
+	}
+	if out.Defaults.SkillCommands == nil {
+		out.Defaults.SkillCommands = base.Defaults.SkillCommands
 	}
 	if out.Defaults.AIProviderModels == nil {
 		out.Defaults.AIProviderModels = base.Defaults.AIProviderModels
@@ -139,6 +144,7 @@ func overlay(base, top Settings) Settings {
 		out.SetProject(id, ProjectSettings{
 			Path:          firstSet(p.Path, b.Path),
 			SpecPath:      firstSet(p.SpecPath, b.SpecPath),
+			Folders:       firstList(p.Folders, b.Folders),
 			Execution:     overlayExecution(b.Execution, p.Execution),
 			SkillCommands: mergeStrings(b.SkillCommands, p.SkillCommands),
 			SpecArtifacts: firstSet(p.SpecArtifacts, b.SpecArtifacts),
@@ -180,6 +186,17 @@ func firstSet(values ...string) string {
 		}
 	}
 	return ""
+}
+
+// firstList is the first list that has an entry: a list is stated whole, never
+// merged entry by entry.
+func firstList(lists ...[]string) []string {
+	for _, list := range lists {
+		if len(list) > 0 {
+			return list
+		}
+	}
+	return nil
 }
 
 func mergeStrings(base, top map[string]string) map[string]string {

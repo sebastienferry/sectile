@@ -151,15 +151,13 @@ func (d *agentDaemon) executeOperation(ctx context.Context, op agentprotocol.Ope
 		// A ticket pinned to another repository has its worktree there.
 		taskRoot := root
 		if strings.TrimSpace(task.Repository) != "" {
-			pinned, _, _, err := primaryRoot(ctx, config, overrides, root, task)
-			if err != nil && !errors.Is(err, errRepositoryAmbiguous) {
+			pinned, _, err := primaryRoot(ctx, config, overrides, root, task)
+			if err != nil {
 				// Reporting on the project root would describe another
 				// repository's checkout as this ticket's.
 				return nil, err
 			}
-			if err == nil {
-				taskRoot = pinned
-			}
+			taskRoot = pinned
 		}
 		if config.UseWorktrees {
 			if !filepath.IsLocal(task.Key) || strings.ContainsAny(task.Key, "/\\") {
@@ -309,7 +307,9 @@ func (d *agentDaemon) executeOperation(ctx context.Context, op agentprotocol.Ope
 		return models.WorktreeInfo{TaskKey: t.Key, Branch: branch, WorktreePath: dir, MainRepoPath: root, Exists: config.UseWorktrees}, nil
 	case "workspace_info":
 		branch := ""
-		if task.BranchName != nil {
+		if config.UseWorktrees {
+			branch, _ = taskWorktreeBranch(task)
+		} else if task.BranchName != nil {
 			branch = *task.BranchName
 		}
 		fi, err := os.Stat(target)
@@ -335,16 +335,17 @@ func (d *agentDaemon) executeOperation(ctx context.Context, op agentprotocol.Ope
 			if err != nil {
 				return nil, err
 			}
-			// This workstation's own mapping of that repository is the first
-			// place to look (#456); the legacy paths stay hints behind it.
-			if mapped, ok := repositoryRoot(overrides, root, codeIdentity(config), models.RepositoryIdentity(repository)); ok {
+			// This workstation's own mapping of that repository, or the folder
+			// attached for it (#484), is the first place to look (#456); the
+			// legacy paths stay hints behind it.
+			if mapped, ok := repositoryFolder(ctx, overrides, config.ProjectID, root, codeIdentity(config), models.RepositoryIdentity(repository)); ok {
 				candidates = append([]string{mapped}, candidates...)
 			}
 			checkout, found, err := verifiedCheckout(ctx, repository, strings.TrimSpace(op.Branch), candidates)
 			if err != nil {
 				return nil, err
 			}
-			return map[string]any{"repository": repository, "found": found, "path": checkout.Path, "sha": checkout.SHA, "branch": checkout.Branch, "clean": checkout.Clean}, nil
+			return map[string]any{"repository": repository, "found": found, "path": checkout.Path, "sha": checkout.SHA, "branch": checkout.Branch, "clean": checkout.Clean, "status": checkout.Status}, nil
 		}
 		sha, err := gitLocal(ctx, target, "rev-parse", "HEAD")
 		if err != nil {
@@ -355,7 +356,7 @@ func (d *agentDaemon) executeOperation(ctx context.Context, op agentprotocol.Ope
 			return nil, err
 		}
 		branch, err := gitLocal(ctx, target, "branch", "--show-current")
-		return map[string]any{"sha": strings.TrimSpace(sha), "branch": strings.TrimSpace(branch), "clean": strings.TrimSpace(status) == ""}, err
+		return map[string]any{"sha": strings.TrimSpace(sha), "branch": strings.TrimSpace(branch), "clean": strings.TrimSpace(status) == "", "path": target, "status": strings.TrimRight(status, "\r\n")}, err
 	case "pr_evidence":
 		// The server verifies stage evidence on forges it cannot reach itself, with
 		// the CLI login this workstation already has. A forge that answered without
@@ -401,38 +402,6 @@ func (d *agentDaemon) executeOperation(ctx context.Context, op agentprotocol.Ope
 		return r.CheckCliTools(root), nil
 	}
 	return nil, fmt.Errorf("unsupported operation")
-}
-
-// Resolve the checkout from local Git metadata. A server path is never trusted,
-// and an assigned branch already checked out elsewhere must be reused.
-func localTaskPath(ctx context.Context, root string, task models.Task) (string, error) {
-	target := filepath.Join(root, ".tasks", "worktrees", task.Key)
-	branch := ""
-	if task.BranchName != nil {
-		branch = strings.TrimSpace(*task.BranchName)
-	}
-	if branch != "" {
-		out, err := gitLocal(ctx, root, "worktree", "list", "--porcelain")
-		if err != nil {
-			return "", err
-		}
-		current := ""
-		for _, line := range strings.Split(out, "\n") {
-			if strings.HasPrefix(line, "worktree ") {
-				current = strings.TrimPrefix(line, "worktree ")
-			}
-			if line == "branch refs/heads/"+branch && current != "" {
-				return current, nil
-			}
-		}
-	}
-	if fi, err := os.Stat(target); err == nil && fi.IsDir() && branch != "" {
-		actual, err := gitLocal(ctx, target, "branch", "--show-current")
-		if err != nil || actual != branch {
-			return "", fmt.Errorf("task checkout does not match assigned branch %s", branch)
-		}
-	}
-	return target, nil
 }
 
 // editorFor picks the editor an open_editor operation runs: the workstation's

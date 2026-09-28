@@ -2,6 +2,7 @@ import React, { useEffect } from 'react'
 import { Pin, Terminal as TerminalIcon, X } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { priorityColor } from '../lib/priority'
+import { format } from '../lib/i18n'
 
 /**
  * Barre des tickets épinglés, sous l'en-tête.
@@ -14,7 +15,7 @@ import { priorityColor } from '../lib/priority'
  * quand les filtres du board le cachent ou qu'il appartient à un autre projet.
  */
 export const PinnedBar: React.FC = () => {
-  const { pinnedTasks, togglePin, hotSwitch, selectedTask, setSelectedTask } = useApp()
+  const { pinnedTasks, togglePin, hotSwitch, selectedTask, setSelectedTask, t } = useApp()
 
   useEffect(() => {
     if (pinnedTasks.length === 0) return
@@ -37,7 +38,7 @@ export const PinnedBar: React.FC = () => {
     <div className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 border-b border-[var(--border-color)] bg-[var(--bg-secondary)] overflow-x-auto scrollbar-none">
       <span className="flex items-center gap-1 text-[9px] font-bold uppercase tracking-[.08em] text-[var(--text-muted)] shrink-0 pr-1">
         <Pin size={10} className="text-[var(--accent-color)]" />
-        <span>Épinglés</span>
+        <span>{t.shell.pinned.title}</span>
       </span>
 
       {pinnedTasks.map((task, index) => {
@@ -62,7 +63,7 @@ export const PinnedBar: React.FC = () => {
               type="button"
               onClick={() => hotSwitch(task.id)}
               className="flex items-center gap-1.5 cursor-pointer min-w-0"
-              title={`Ouvrir la tâche ${task.key} (${index < 9 ? `Cmd+${index + 1}` : 'clic'})`}
+              title={format(t.shell.pinned.open, { key: task.key, shortcut: index < 9 ? `Cmd+${index + 1}` : t.shell.pinned.click })}
             >
               <span
                 className={`text-[10px] font-mono font-bold ${
@@ -81,7 +82,7 @@ export const PinnedBar: React.FC = () => {
               type="button"
               onClick={() => setSelectedTask(task)}
               className="p-0.5 rounded text-[var(--text-muted)] hover:text-[var(--text-primary)] cursor-pointer shrink-0"
-              title={`Ouvrir la fiche de ${task.key}`}
+              title={format(t.shell.pinned.openDetail, { key: task.key })}
             >
               <TerminalIcon size={10} />
             </button>
@@ -89,7 +90,7 @@ export const PinnedBar: React.FC = () => {
               type="button"
               onClick={() => togglePin(task.id)}
               className="p-0.5 rounded text-[var(--text-muted)] hover:text-rose-400 cursor-pointer shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
-              title={`Désépingler ${task.key}`}
+              title={format(t.shell.pinned.unpin, { key: task.key })}
             >
               <X size={10} />
             </button>

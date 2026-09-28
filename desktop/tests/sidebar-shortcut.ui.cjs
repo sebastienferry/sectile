@@ -6,7 +6,7 @@ const http=require('node:http'),fs=require('node:fs'),os=require('node:os'),path
 // #474: Cmd+B on macOS, Ctrl+B elsewhere, toggles the projects sidebar as its
 // button does. Cmd+B never reaches the terminal; Ctrl+B stays with a focused
 // terminal outside macOS; nothing moves behind a dialog.
-test('Cmd+B / Ctrl+B toggles the projects sidebar and leaves the terminal its keys',async()=>{
+test('desktop shortcuts control the sidebar and open configuration without leaking into the terminal',async()=>{
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'sectile-sidebar-shortcut-'))
  const runs=[{id:'run-42',projectId:'project',taskId:'task-42',taskKey:'#42',skill:'implement',directory:'/tmp/repo',status:'running',createdAt:'2026-09-25T06:00:05Z'}]
  const server=http.createServer((req,res)=>{
@@ -87,6 +87,35 @@ test('Cmd+B / Ctrl+B toggles the projects sidebar and leaves the terminal its ke
   await page.keyboard.press('Control+b')
   await expect.poll(inputs).toEqual(['\x02','\x02'])
   assert.equal(await hidden(),false,'a focused terminal keeps Ctrl+B')
+
+  // Ctrl+, opens configuration from a terminal on Windows/Linux and never
+  // forwards the intercepted chord to the run.
+  await page.keyboard.press('Control+,')
+  await expect(page.locator('.configuration-page')).toHaveCount(1)
+  await expect(page.locator('#settings-tab-Profile')).toHaveAttribute('aria-selected','true')
+  assert.deepEqual(await inputs(),['\x02','\x02'])
+  await page.locator('#settings-tab-Connection').click()
+  const serverInput=page.locator('#settings-panel-Connection input[name="server"]')
+  await serverInput.fill('http://draft.local')
+  await expect(page.locator('#settings-tab-Connection')).toHaveAttribute('aria-selected','true')
+  await page.keyboard.press('Control+,')
+  await expect(page.locator('#settings-tab-Connection')).toHaveAttribute('aria-selected','true')
+  await expect(serverInput).toHaveValue('http://draft.local')
+  await page.keyboard.press('Escape')
+  await expect(page.locator('.configuration-page')).toHaveCount(0)
+
+  // The macOS chord reaches the same destination; extra modifiers do not.
+  await platform('MacIntel')
+  await page.locator('#title').click()
+  await page.keyboard.press('Meta+Shift+,')
+  await expect(page.locator('.configuration-page')).toHaveCount(0)
+  await page.keyboard.press('Meta+,')
+  await expect(page.locator('#settings-tab-Profile')).toHaveAttribute('aria-selected','true')
+  await page.keyboard.press('Escape')
+  await page.keyboard.press('Meta+k')
+  await expect(page.locator('#project-dialog')).toHaveJSProperty('open',true)
+  await page.keyboard.press('Meta+,')
+  await expect(page.locator('.configuration-page')).toHaveCount(0)
  }finally{
   await app?.close();server.close();fs.rmSync(root,{recursive:true,force:true})
  }

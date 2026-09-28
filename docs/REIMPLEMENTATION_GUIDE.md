@@ -32,7 +32,7 @@ This document is an actionable, step-by-step blueprint designed to enable anothe
    - Check if `repo_path` has a `.git` folder.
    - Append `.tasks/` to `.gitignore` automatically.
    - Compute task branch name `fmt.Sprintf("%s-%s", task.Key, slugifiedTitle)`.
-   - Run `git worktree add .tasks/worktrees/<taskKey> -b <branchName> main`.
+   - Run `git worktree add .tasks/worktrees/<safe-name> -b <branchName> main`.
    - Install JavaScript dependencies inside the worktree (the local agent does this in `internal/agent/provision.go`, after resolving the worktree and before the session starts): for the worktree root and each direct, non-hidden subdirectory holding a `package.json` and a `package-lock.json`, run `npm ci` and write `node_modules/.install-stamp`. Reinstall only when `package.json` or `package-lock.json` is newer than the stamp. Skip the main checkout, and skip any `node_modules` that is a link rather than a plain directory. Nothing is linked from the main checkout, and `.env` / `.env.local` are neither linked nor copied. A failed or timed-out install is logged and never blocks the launch.
    - Symlink `.gemini`, `.agents`, `.agy`, `.taskflow` folders.
    - Ensure the 5 default skill templates (`clarify-issue`, `specify-issue`, `code-issue`, `adjust-issue`, `pick-issue`) are written into `.gemini/skills/` and `.agents/skills/`.
@@ -82,7 +82,7 @@ This document is an actionable, step-by-step blueprint designed to enable anothe
 > 1. **No Personal References in Code**: Never commit hardcoded user home directories (`/Users/...`), personal emails, or private company names.
 > 2. **Project-Bound Tracker**: The task creation modal must **never** ask the user to pick an issue tracker manually. The user chooses the **Project**, and the tracker is inherited 100% from the project configuration.
 > 3. **Never Commit Binaries or DBs**: Ensure `tasks.db*`, `bin/`, and `node_modules` are excluded via `.gitignore`.
-> 4. **Always Test Worktree Independence**: AI agents executing code in `.tasks/worktrees/<taskKey>` must never corrupt or modify the main working tree repository.
+> 4. **Always Test Worktree Independence**: AI agents executing code in `.tasks/worktrees/<safe-name>` must never corrupt or modify the main working tree repository.
 
 ---
 
@@ -92,5 +92,5 @@ This document is an actionable, step-by-step blueprint designed to enable anothe
 - [ ] `go build -o /dev/null ./cmd/server` succeeds with 0 warnings.
 - [ ] `cd web && npm run build` compiles TypeScript with 0 errors.
 - [ ] Starting server (`go run ./cmd/server`) listens on port 8090.
-- [ ] Creating a task generates an isolated worktree under `.tasks/worktrees/<KEY>`.
+- [ ] Creating a task generates an isolated worktree under `.tasks/worktrees/<safe-name>`.
 - [ ] Opening the Terminal tab in the drawer establishes a live WebSocket connection to ZSH with working keystrokes and `agy` triggers.

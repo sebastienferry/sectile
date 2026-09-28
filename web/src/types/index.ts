@@ -245,6 +245,7 @@ export interface Project {
   defaultSkillMode?: SkillMode
   /** Étape où s'arrête une exécution en chaîne. Vide vaut « reviewed ». */
   fullChainStopStage?: 'implemented' | 'reviewed'
+  pushStageCommits?: boolean
   /** Board du tracker retenu pour ce projet. */
   boardId?: string
   /**
@@ -275,7 +276,6 @@ export interface Project {
    * Le projet tient dans un seul dépôt. La branche courante, son sélecteur et la
    * branche affichée sur une carte n'ont de sens que dans ce cas.
    */
-  monoRepo?: boolean
   /** Étape du workflow agentique -> colonnes concernées (une ou plusieurs). */
   stageColumns?: Record<string, string[]>
   gitRemoteUrl?: string
@@ -403,6 +403,21 @@ export interface PullRequestLink {
   branch?: string
 }
 
+/** Where a ticket stands in the batch run that covers it. */
+export type BatchMemberState = 'waiting' | 'processing' | 'done'
+
+/** A ticket's place in a running batch, as the server reports it on the task. */
+export interface TaskBatch {
+  /** The batch run, which sits on the lead ticket. */
+  runId: string
+  leadTaskId: string
+  leadKey: string
+  /** 1 for the lead, in launch order. */
+  position: number
+  size: number
+  state: BatchMemberState
+}
+
 export interface Task {
   id: string
   projectId?: string
@@ -458,6 +473,8 @@ export interface Task {
   parentTitle?: string
   parentType?: string
   activities?: TaskActivity[]
+  /** The ticket's place in a running batch (#522); absent when it is in none. */
+  batch?: TaskBatch
   createdAt: string
   updatedAt: string
 }

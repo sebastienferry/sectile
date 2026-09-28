@@ -155,7 +155,7 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 		// contractError separates a server that is merely unreachable from one
 		// that cannot be talked to at all. Without it the desktop reports both
 		// as a disconnection and the user has no reason to look at the build.
-		_ = json.NewEncoder(w).Encode(map[string]any{"connected": connected, "server": d.link.serverURL, "contractError": d.contract.current(), "capabilities": []string{"git-diff", "create-task", "remove-project", "free-console", "transition-stage", "repositories", "git-init", taskEnginesCapability}, "disconnectedProjects": disconnected})
+		_ = json.NewEncoder(w).Encode(map[string]any{"connected": connected, "server": d.link.serverURL, "contractError": d.contract.current(), "capabilities": []string{"git-diff", "create-task", "remove-project", "free-console", "transition-stage", "repositories", attachedFoldersCapability, "git-init", taskEnginesCapability, openEditorCapability}, "disconnectedProjects": disconnected})
 		return
 	}
 	if (r.URL.Path == "/desktop/restart" || r.URL.Path == "/desktop/shutdown") && r.Method == http.MethodPost {
@@ -212,6 +212,10 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 		d.desktopTerminalDetach(w, r)
 		return
 	}
+	if r.URL.Path == "/desktop/open-editor" {
+		d.desktopOpenEditor(w, r)
+		return
+	}
 	if r.URL.Path == "/desktop/tasks" {
 		d.desktopTasks(w, r)
 		return
@@ -238,6 +242,10 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	if r.URL.Path == "/desktop/repositories" {
 		d.desktopRepositories(w, r)
+		return
+	}
+	if r.URL.Path == "/desktop/folders" {
+		d.desktopFolders(w, r)
 		return
 	}
 	if r.URL.Path == "/desktop/git-init" {
@@ -275,7 +283,7 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 			entry := run.desktop
 			entry.ID = key
 			entry.QueueSequence = run.sequence
-			entry.CancelRequested = run.canceled && (entry.Status == "queued" || entry.Status == "preparing" || entry.Status == "running" || entry.Status == "waiting")
+			entry.CancelRequested = run.canceled && (entry.Status == "queued" || entry.Status == "preparing" || entry.Status == "running")
 			if entry.Status != "" {
 				runs = append(runs, entry)
 			}
@@ -683,7 +691,7 @@ func normalizeSpecFolder(ctx context.Context, raw string) (string, error) {
 // specFolderKind says what the effective specifications folder is, for the
 // desktop settings to show next to the field: "git" inside a Git checkout,
 // "folder" for a plain directory, "missing" when it no longer exists, and
-// "unset" when a multi-repo project has none.
+// "unset" when the project folder itself is not mapped here.
 func specFolderKind(ctx context.Context, folder string) string {
 	if strings.TrimSpace(folder) == "" {
 		return "unset"
@@ -717,17 +725,13 @@ func (d *agentDaemon) desktopProject(w http.ResponseWriter, r *http.Request) {
 	defer d.prepareMu.Unlock()
 	root, overrides, mappingErr := d.localProjectRoot(r.Context(), config)
 	if r.Method == http.MethodGet {
-		var project models.Project
-		if err := d.readAPI(r.Context(), "/api/projects/"+url.PathEscape(id), &project); err != nil {
-			http.Error(w, err.Error(), 502)
-			return
-		}
 		effective := agentconfig.Resolve(config, overrides)
 		section := overrides.Project(id)
-		// The inherited folder follows the code checkout: only an override is
-		// stored, so a later change of the local repository carries it along.
+		// The inherited folder follows the code checkout, on every project
+		// (#484): only an override is stored, so a later change of the local
+		// repository carries it along.
 		specDefault := ""
-		if project.MonoRepo && mappingErr == nil {
+		if mappingErr == nil {
 			specDefault = root
 		}
 		specEffective := section.SpecPath
@@ -738,7 +742,6 @@ func (d *agentDaemon) desktopProject(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"server":                      withoutExecution(config),
-			"monoRepo":                    project.MonoRepo,
 			"path":                        root,
 			"specPath":                    section.SpecPath,
 			"specDefault":                 specDefault,
@@ -786,6 +789,17 @@ func (d *agentDaemon) desktopProject(w http.ResponseWriter, r *http.Request) {
 	switch r.URL.Query().Get("action") {
 	case "initialize":
 		provider := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("provider")))
+		if provider == "" {
+			settings, err := agentconfig.ReadSettings(d.localSettingsRoot())
+			if err != nil {
+				http.Error(w, err.Error(), 500)
+				return
+			}
+			provider = settings.Defaults.InitializationProvider
+			if provider == "" {
+				provider = agentconfig.DefaultProvider
+			}
+		}
 		if _, err := agentconfig.ResolveLocations(provider); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
@@ -1197,13 +1211,23 @@ func (d *agentDaemon) desktopTasksTerminalExternal(w http.ResponseWriter, r *htt
 		return
 	}
 
+	root, _, err = primaryRoot(r.Context(), config, overrides, root, task)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
 	workDir := root
 	branch := "main"
 	if task.BranchName != nil && *task.BranchName != "" {
 		branch = *task.BranchName
 	}
 	if config.UseWorktrees {
-		worktreeDir := filepath.Join(root, ".tasks", "worktrees", task.Key)
+		worktreeDir, pathErr := localTaskPath(r.Context(), root, task)
+		if pathErr != nil {
+			http.Error(w, pathErr.Error(), http.StatusConflict)
+			return
+		}
+		branch, _ = taskWorktreeBranch(task)
 		if info, err := os.Stat(worktreeDir); err == nil && info.IsDir() {
 			workDir = worktreeDir
 		}

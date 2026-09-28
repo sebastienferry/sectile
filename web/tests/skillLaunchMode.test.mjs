@@ -31,10 +31,11 @@ test('each skill card can be started in either mode', () => {
   // The card body still launches in whatever the precedence resolves.
   assert.match(modal, /onClick=\{\(\) => handleTriggerSkill\(s\.id\)\}/)
   // Every control is named, since three buttons per card are otherwise
-  // indistinguishable to a screen reader.
-  assert.match(modal, /aria-label=\{`Lancer \$\{s\.name\} en interactif`\}/)
-  assert.match(modal, /aria-label=\{`Lancer \$\{s\.name\} en autonome`\}/)
-  assert.match(modal, /aria-label=\{`Lancer \$\{s\.name\} dans le mode configuré`\}/)
+  // indistinguishable to a screen reader. The names come from the catalog
+  // (#527, see taskDetailCatalog.test.mjs for their wording).
+  assert.match(modal, /aria-label=\{format\(td\.workflow\.launchInteractive, \{ skill: s\.name \}\)\}/)
+  assert.match(modal, /aria-label=\{format\(td\.workflow\.launchAutonomous, \{ skill: s\.name \}\)\}/)
+  assert.match(modal, /aria-label=\{format\(td\.workflow\.launchConfigured, \{ skill: s\.name \}\)\}/)
 })
 
 test('a card choice is the only mode override of the detail view', () => {
@@ -56,7 +57,7 @@ test('both card shapes share one definition of the mode entries', () => {
   // override unreachable on an expanded card: its inline chevrons carry no mode.
   // They are now one fragment rendered from both branches. The assertions above
   // match whether that fragment is rendered once or twice, so they cannot catch
-  // the expanded branch going missing again — these can.
+  // the expanded branch going missing again; these can.
   const definitions = card.match(/const modeActions = \(/g) ?? []
   assert.equal(definitions.length, 1, 'the mode entries are defined once, not duplicated per shape')
 
@@ -87,6 +88,7 @@ test('the project modal edits both execution settings', () => {
 test('the skill editor writes a ternary mode', () => {
   assert.match(skills, /saveSkillMode\(selected\.id, e\.target\.value as SkillMode\)/)
   // The empty option is what hands the decision back to the project default.
-  assert.match(skills, /\{ value: '', label: 'Défaut du projet'/)
+  // Its label comes from the catalog (#531, see skillsEditorCatalog.test.mjs).
+  assert.match(skills, /\{ value: '', label: modes\.projectDefault/)
   assert.match(context, /\/mode`/)
 })

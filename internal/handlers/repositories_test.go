@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -19,8 +20,7 @@ func TestProjectRepositoriesOverHTTP(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer database.Close()
-	no := false
-	project, err := database.CreateProject(models.CreateProjectRequest{Name: "Multi", MonoRepo: &no, GitRemoteUrl: "git@github.com:o/a.git"})
+	project, err := database.CreateProject(models.CreateProjectRequest{Name: "Multi", GitRemoteUrl: "git@github.com:o/a.git"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,19 +56,38 @@ func TestProjectRepositoriesOverHTTP(t *testing.T) {
 	}
 }
 
-// The local agent marks a parked launch with its own credential, as it
-// reports the engine: the route answers it, and says when the run is gone.
-func TestRunAwaitingRepositoryOverHTTP(t *testing.T) {
+// The mono-repo setting is gone (#484), but a client written before its
+// removal still sends it: creating and saving a project with it succeeds, the
+// key is ignored, and no project answers with it any more. The route a local
+// agent used to park a launch on a repository choice no longer exists.
+func TestProjectIgnoresTheRemovedMonoRepoKey(t *testing.T) {
 	database, err := db.NewDB(filepath.Join(t.TempDir(), "tasks.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer database.Close()
-	project, err := database.CreateProject(models.CreateProjectRequest{Name: "Multi"})
-	if err != nil {
+	h := NewHandler(database)
+
+	rec := httptest.NewRecorder()
+	h.HandleProjects(rec, httptest.NewRequest(http.MethodPost, "/api/projects", strings.NewReader(`{"name":"Legacy client","monoRepo":false}`)))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create with monoRepo: %d %s", rec.Code, rec.Body.String())
+	}
+	if strings.Contains(rec.Body.String(), "monoRepo") {
+		t.Errorf("the created project still reports monoRepo: %s", rec.Body.String())
+	}
+	var created models.Project
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
 		t.Fatal(err)
 	}
-	task, err := database.CreateTask(models.CreateTaskRequest{ProjectID: project.ID, Title: "parked"})
+
+	rec = httptest.NewRecorder()
+	h.HandleProjectDetail(rec, httptest.NewRequest(http.MethodPatch, "/api/projects/"+created.ID, strings.NewReader(`{"description":"saved","monoRepo":true}`)))
+	if rec.Code != http.StatusOK || strings.Contains(rec.Body.String(), "monoRepo") || !strings.Contains(rec.Body.String(), `"description":"saved"`) {
+		t.Errorf("update with monoRepo: %d %s", rec.Code, rec.Body.String())
+	}
+
+	task, err := database.CreateTask(models.CreateTaskRequest{ProjectID: created.ID, Title: "parked"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,19 +95,9 @@ func TestRunAwaitingRepositoryOverHTTP(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	h := NewHandler(database)
-	post := func(id, body string) *httptest.ResponseRecorder {
-		rec := httptest.NewRecorder()
-		h.HandleActivityDetail(rec, httptest.NewRequest(http.MethodPost, "/api/activities/"+id+"/awaiting-repository", strings.NewReader(body)))
-		return rec
-	}
-	if rec := post(run.ID, `{"waiting":true}`); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"waitingReason":"repository"`) {
-		t.Errorf("mark: %d %s", rec.Code, rec.Body.String())
-	}
-	if rec := post(run.ID, `{}`); rec.Code != http.StatusBadRequest {
-		t.Errorf("no waiting field: %d", rec.Code)
-	}
-	if rec := post("missing", `{"waiting":true}`); rec.Code != http.StatusNotFound {
-		t.Errorf("unknown run: %d", rec.Code)
+	rec = httptest.NewRecorder()
+	h.HandleActivityDetail(rec, httptest.NewRequest(http.MethodPost, "/api/activities/"+run.ID+"/awaiting-repository", strings.NewReader(`{"waiting":true}`)))
+	if rec.Code == http.StatusOK {
+		t.Errorf("the repository wait route still answers: %d %s", rec.Code, rec.Body.String())
 	}
 }

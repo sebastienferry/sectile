@@ -18,6 +18,7 @@ type checkoutEvidence struct {
 	SHA    string
 	Branch string
 	Clean  bool
+	Status string
 }
 
 // verifiedCheckout looks for a checkout of repository with branch checked out.
@@ -61,7 +62,7 @@ func verifiedCheckout(ctx context.Context, repository, branch string, candidates
 		if err != nil {
 			return checkoutEvidence{}, false, err
 		}
-		return checkoutEvidence{Path: path, SHA: strings.TrimSpace(sha), Branch: branch, Clean: strings.TrimSpace(status) == ""}, true, nil
+		return checkoutEvidence{Path: path, SHA: strings.TrimSpace(sha), Branch: branch, Clean: strings.TrimSpace(status) == "", Status: strings.TrimRight(status, "\r\n")}, true, nil
 	}
 	return checkoutEvidence{}, false, nil
 }

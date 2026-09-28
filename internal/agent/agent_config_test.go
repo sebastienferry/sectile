@@ -50,7 +50,7 @@ func TestLocalWorktreeCreationAndBranchGuard(t *testing.T) {
 	branch := "feat/test-task"
 	task := models.Task{Key: "#46", BranchName: &branch}
 	path, got, err := ensureLocalWorktree(ctx, root, task, true)
-	if err != nil || got != branch || path != filepath.Join(root, ".tasks/worktrees/#46") {
+	if err != nil || got != branch || path != filepath.Join(root, ".tasks/worktrees/issue-46") {
 		t.Fatalf("prepare %s %s %v", path, got, err)
 	}
 	if _, _, err := ensureLocalWorktree(ctx, root, task, true); err != nil {
@@ -63,7 +63,7 @@ func TestLocalWorktreeCreationAndBranchGuard(t *testing.T) {
 	if err != nil || got != branch {
 		t.Fatalf("stale key path refused the launch: %s %s %v", beside, got, err)
 	}
-	if beside == filepath.Join(root, ".tasks/worktrees/#46") {
+	if beside == filepath.Join(root, ".tasks/worktrees/issue-46") {
 		t.Fatalf("new worktree collided with the stale path: %s", beside)
 	}
 	if current, err := gitLocal(ctx, beside, "branch", "--show-current"); err != nil || current != branch {
@@ -126,6 +126,7 @@ func TestLocalWorktreeReusesMainCheckoutForDerivedBranch(t *testing.T) {
 }
 
 func TestGatewayForwardsMCPAndOwnCredential(t *testing.T) {
+	testhome.Temp(t)
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer daemon-token" {
 			t.Errorf("wrong upstream token")
@@ -473,7 +474,7 @@ func TestInvalidProjectFailsBeforeAgentRegistration(t *testing.T) {
 	}))
 	defer srv.Close()
 	d := &agentDaemon{repoRoot: t.TempDir(), link: serverLink{serverURL: srv.URL, token: "test", projectID: "taskativ"}}
-	err := d.connect(context.Background())
+	_, err := d.connect(context.Background())
 	if err == nil || !strings.Contains(err.Error(), "project not found: taskativ") {
 		t.Fatalf("missing initialization error: %v", err)
 	}
@@ -503,6 +504,15 @@ func TestNativeAdjustmentAliasesAndReconciliation(t *testing.T) {
 		line, err := dispatchCommand(c, "task-61", id, "", "", "", models.SkillModeInteractive, "")
 		if err != nil || !strings.Contains(line, "adjust-issue") || !strings.Contains(line, "Never create or replace a PR") {
 			t.Fatalf("%s: %s %v", id, line, err)
+		}
+		// The contract only sets guardrails: correcting, checking and pushing are the skill's call.
+		if !strings.Contains(line, "Preserve work on failure") || !strings.Contains(line, "Never merge, approve, close the task") {
+			t.Fatalf("%s: contract lost a guardrail: %s", id, line)
+		}
+		for _, work := range []string{"commit and push", "build/lint/test", "Review the complete branch", "reconcile"} {
+			if strings.Contains(line, work) {
+				t.Fatalf("%s: contract prescribes %q: %s", id, work, line)
+			}
 		}
 	}
 	c.Skills[0].RequiresReconciliation = true

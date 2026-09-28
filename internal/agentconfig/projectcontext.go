@@ -12,6 +12,21 @@ import (
 
 const contextStart = "<!-- taskflow:project-context:start -->"
 const contextEnd = "<!-- taskflow:project-context:end -->"
+const sectileContextStart = "<!-- sectile:project-context:start -->"
+const sectileContextEnd = "<!-- sectile:project-context:end -->"
+
+type contextMarker struct {
+	text  string
+	start bool
+	end   string
+}
+
+var contextMarkers = []contextMarker{
+	{contextStart, true, contextEnd},
+	{contextEnd, false, ""},
+	{sectileContextStart, true, sectileContextEnd},
+	{sectileContextEnd, false, ""},
+}
 
 // checkoutMCPFiles are the registration files the previous release could write
 // inside a repository. They are read to remove the managed entry from them.
@@ -87,22 +102,44 @@ func retireContextBlock(work *os.Root) error {
 		return err
 	}
 	content := string(raw)
-	start, end := strings.Index(content, contextStart), strings.Index(content, contextEnd)
-	if start < 0 && end < 0 {
+	first, marker := nextContextMarker(content, 0)
+	if first < 0 {
 		return nil
 	}
-	if start < 0 || end < start {
-		return fmt.Errorf("incomplete project context block in AGENTS.md")
+	var kept strings.Builder
+	cursor := 0
+	for first >= 0 {
+		if !marker.start {
+			return fmt.Errorf("incomplete project context block in AGENTS.md")
+		}
+		kept.WriteString(content[cursor:first])
+		next, closing := nextContextMarker(content, first+len(marker.text))
+		if next < 0 || closing.text != marker.end {
+			return fmt.Errorf("incomplete project context block in AGENTS.md")
+		}
+		cursor = next + len(closing.text)
+		if cursor < len(content) && content[cursor] == '\n' {
+			cursor++
+		}
+		first, marker = nextContextMarker(content, cursor)
 	}
-	end += len(contextEnd)
-	if end < len(content) && content[end] == '\n' {
-		end++
-	}
-	content = strings.TrimRight(content[:start], "\n") + "\n" + content[end:]
-	if strings.TrimSpace(content) == "" {
+	kept.WriteString(content[cursor:])
+	if strings.TrimSpace(kept.String()) == "" {
 		return work.Remove("AGENTS.md")
 	}
-	return atomicWrite(work, "AGENTS.md", []byte(content))
+	return atomicWrite(work, "AGENTS.md", []byte(kept.String()))
+}
+
+func nextContextMarker(content string, from int) (int, contextMarker) {
+	index := -1
+	var found contextMarker
+	for _, marker := range contextMarkers {
+		pos := strings.Index(content[from:], marker.text)
+		if pos >= 0 && (index < 0 || from+pos < index) {
+			index, found = from+pos, marker
+		}
+	}
+	return index, found
 }
 
 // retireCheckoutMCP drops the managed registration from a repository file while

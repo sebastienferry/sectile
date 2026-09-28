@@ -37,8 +37,10 @@ async function api(route,method='GET',body){
  const response=await fetch(connection.url+route,{method,headers:{Authorization:'Bearer '+connection.token,'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined,signal:AbortSignal.timeout(route==="/desktop/create-task"?120000:route.startsWith("/desktop/tasks")&&method==="POST"?60000:route.startsWith("/desktop/project?")&&method==="POST"?420000:15000),redirect:'error'})
  if(!response.ok){
   const detail=await response.text().catch(()=>'')
-  // Keep the raw body as the message so callers can parse structured errors; name the call when it is empty.
-  const failure=Error(detail||method+' '+route+' failed with HTTP '+response.status)
+  // Display plain API errors; preserve structured refusals for callers that read their fields.
+  let message=detail
+  try{const parsed=JSON.parse(detail);if(typeof parsed.error==='string'&&Object.keys(parsed).length===1)message=parsed.error}catch{}
+  const failure=Error(message||method+' '+route+' failed with HTTP '+response.status)
   Object.assign(failure,{status:response.status,route,method,body:detail})
   throw failure
  }
@@ -344,6 +346,14 @@ ipcMain.handle('launch-console',(_,projectId,provider,engineId)=>api('/desktop/c
 ipcMain.handle('launch-server-task',(_,id,taskID,skillID,prompt,mode,force)=>api('/desktop/tasks?projectId='+encodeURIComponent(id),'POST',Object.assign({taskID,skillID,prompt},mode?{mode}:null,force?{force:true}:null)))
 ipcMain.handle('launch-native-discussion',async(_,{projectId,taskId,terminal}={})=>api('/desktop/tasks/terminal-external','POST',{projectId,taskId,skillId:'discuss',terminal}))
 ipcMain.handle('detach-to-native-terminal',async(_,{runId,terminal}={})=>api('/desktop/terminal/detach','POST',{runId,terminal}))
+// Opening a worktree in the editor (#535) names the run, never a path: the
+// agent resolves the folder itself. An older agent has no such route.
+ipcMain.handle('open-editor',async(_,runId)=>{
+ if(typeof runId!=='string'||!runId)throw Error('Run ID required')
+ const status=await api('/desktop/status')
+ if(!status.capabilities?.includes('open-editor'))throw Error('Update and restart the local agent to open the editor.')
+ return api('/desktop/open-editor','POST',{runId})
+})
 ipcMain.handle('open-board',async()=>{
  const status=await api('/desktop/status')
  if(!status.connected)throw Error('Server disconnected')
@@ -389,14 +399,24 @@ ipcMain.handle('remove-project',async(_,id)=>{
  return api('/desktop/projects?id='+encodeURIComponent(id),'DELETE')
 })
 ipcMain.handle('map-project',(_,mapping)=>api('/desktop/projects','POST',mapping))
-// The folders of a multi-repo project's repositories on this workstation
-// (#456). An agent that predates them answers nothing useful, so it is named.
+// The folders of a project's repositories on this workstation (#456). An
+// agent that predates them answers nothing useful, so it is named.
 async function requireRepositories(){
  const status=await api('/desktop/status')
- if(!status.capabilities?.includes('repositories'))throw Error('Update and restart the local agent to map the repositories of a multi-repo project.')
+ if(!status.capabilities?.includes('repositories'))throw Error('Update and restart the local agent to map the repositories of this project.')
 }
 ipcMain.handle('repositories',async(_,projectId)=>{await requireRepositories();return api('/desktop/repositories?projectId='+encodeURIComponent(projectId))})
 ipcMain.handle('map-repository',async(_,mapping)=>{await requireRepositories();return api('/desktop/repositories','POST',mapping)})
+// The folders attached to a project on this workstation (#484). They stay
+// between the desktop and its local agent, which an older version of does not
+// serve them.
+async function requireAttachedFolders(){
+ const status=await api('/desktop/status')
+ if(!status.capabilities?.includes('attached-folders'))throw Error('Update and restart the local agent to attach folders to a project.')
+}
+ipcMain.handle('folders',async(_,projectId)=>{await requireAttachedFolders();return api('/desktop/folders?projectId='+encodeURIComponent(projectId))})
+ipcMain.handle('attach-folder',async(_,{projectId,path:folder})=>{await requireAttachedFolders();return api('/desktop/folders','POST',{projectId,path:folder})})
+ipcMain.handle('detach-folder',async(_,{projectId,path:folder})=>{await requireAttachedFolders();return api('/desktop/folders?projectId='+encodeURIComponent(projectId)+'&path='+encodeURIComponent(folder),'DELETE')})
 // The Git initialization of a project folder (#481). An agent that predates
 // it reports no state, so the settings offer nothing and behave as before.
 async function hasGitInit(){
@@ -419,7 +439,7 @@ ipcMain.handle('git-diff',async(_,id)=>{
  try{return await api('/desktop/git-diff?id='+encodeURIComponent(id))}
  catch(err){
   let detail
-  try{detail=JSON.parse(err.message)}catch{throw err}
+  try{detail=JSON.parse(err.body||err.message)}catch{throw err}
   throw Error(detail.error?.message||'Inspection failed. Refresh to retry.')
  }
 })

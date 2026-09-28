@@ -457,6 +457,41 @@ var migrations = []migration{
 			);`,
 		},
 	},
+	{
+		// The tickets of a batch launched from the web, in launch order, and
+		// where each one stands (#522, ADR 0034). The rows hang on the batch
+		// run: a batch is running exactly while that run is, so nothing needs
+		// deleting when it ends. The lead ticket is position 1.
+		version: 30,
+		name:    "batch_members",
+		statements: []string{
+			`CREATE TABLE batch_members (
+				run_id TEXT NOT NULL,
+				task_id TEXT NOT NULL,
+				position INTEGER NOT NULL,
+				state TEXT NOT NULL DEFAULT 'waiting',
+				PRIMARY KEY (run_id, task_id)
+			);`,
+			"CREATE INDEX idx_batch_members_task ON batch_members (task_id);",
+		},
+	},
+	{
+		// One kind of project (#484, ADR 0036): the mono-repo/multi-repo
+		// setting goes, a ticket runs in its code repository unless pinned,
+		// and no launch waits for a repository choice any more. A wait parked
+		// on one before the upgrade would never be answered, so it is cleared.
+		version: 31,
+		name:    "projects.mono_repo_removed",
+		statements: []string{
+			"ALTER TABLE projects DROP COLUMN mono_repo;",
+			"UPDATE task_activities SET waiting_since = NULL, waiting_session = '', waiting_reason = '' WHERE waiting_reason = 'repository';",
+		},
+	},
+	{
+		version:    32,
+		name:       "projects.push_stage_commits",
+		statements: []string{"ALTER TABLE projects ADD COLUMN push_stage_commits INTEGER NOT NULL DEFAULT 0;"},
+	},
 }
 
 // migrateSchema brings the database to the schema this binary expects, and is

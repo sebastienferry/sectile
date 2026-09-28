@@ -11,7 +11,7 @@ test('desktop console reconnects, accepts input and stops the owned run',async()
   if(req.headers.authorization!=='Bearer test-secret'){res.writeHead(401).end();return}
   res.setHeader('Content-Type','application/json')
   if(req.url==='/desktop/projects'){res.end(JSON.stringify([{id:'project-a',name:'Example project',path:'/tmp/spec-worktree'},{id:'project-b',name:'Other project',path:'/tmp/other-worktree'}]));return}
-  if(req.url==='/desktop/project?id=project-a'||req.url==='/desktop/project?id=project-b'){res.end(JSON.stringify({server:{projectName:'Example project',gitRemoteUrl:'https://example.test/repo.git',specFramework:'openspec',useWorktrees:true,skills:[{id:'specify',content:'Specification instructions'}]},monoRepo:true,path:'/tmp/spec-worktree',configured:true,useWorktrees:true,
+  if(req.url==='/desktop/project?id=project-a'||req.url==='/desktop/project?id=project-b'){res.end(JSON.stringify({server:{projectName:'Example project',gitRemoteUrl:'https://example.test/repo.git',specFramework:'openspec',useWorktrees:true,skills:[{id:'specify',content:'Specification instructions'}]},path:'/tmp/spec-worktree',configured:true,useWorktrees:true,
    // Since #305 the agent says where each execution value comes from; since
    // #510 the project runs the workstation default engine unless it picks one.
    fields:{defaultEngine:{value:'e-opus',inherited:'e-opus',source:'workstation'},
@@ -72,14 +72,14 @@ test('desktop console reconnects, accepts input and stops the owned run',async()
   await page.getByRole('tab',{name:'Agent connection',exact:true}).click()
   await expect(page.locator('.settings-connection-status')).toHaveText('Connected')
   await expect(page.locator('.settings-connection-status .connection-dot')).toHaveCSS('background-color','rgb(98, 211, 190)')
-  await expect(page.locator('#project-dialog #start')).toBeVisible()
+  await expect(page.locator('.configuration-page #start')).toBeVisible()
   assert.equal(await page.locator('#start input').count(),2)
   assert.equal(await page.getByLabel('API key',{exact:true}).count(),0)
   await page.getByLabel('Pairing code',{exact:true}).waitFor()
   // A running agent owns the link, so the form states what to do before re-pairing.
   assert.equal(await page.getByRole('button',{name:'Connect',exact:true}).isDisabled(),true)
   await page.getByText('Stop the local agent before connecting it to another server.',{exact:true}).waitFor()
-  await page.getByRole('button',{name:'Close',exact:true}).click()
+  await page.getByRole('button',{name:'Back',exact:true}).click()
   // The form goes back to the connection screen it was borrowed from.
   await expect(page.locator('#setup #start')).toHaveCount(1)
   await expect(page.locator('#workspace')).toBeVisible()
@@ -87,14 +87,13 @@ test('desktop console reconnects, accepts input and stops the owned run',async()
   assert.equal(await page.getByRole('button',{name:'Example project · Already added',exact:true}).isDisabled(),true)
   await page.getByRole('button',{name:'Close',exact:true}).click()
   await page.getByRole('button',{name:'Actions for Example project',exact:true}).click();await page.getByRole('menuitem',{name:'Project settings…',exact:true}).click()
-  await page.getByRole('tab',{name:'Server',exact:true}).click()
-  await page.getByText('Server configuration · Read only',{exact:true}).waitFor()
-  await page.getByRole('tab',{name:'General',exact:true}).click()
+  await page.getByText('Git remote',{exact:true}).waitFor()
+  await page.getByRole('tab',{name:'Folders',exact:true}).click()
   await application.evaluate(({dialog})=>{dialog.showOpenDialog=async()=>({canceled:false,filePaths:['/tmp/chosen-repository']})})
   await page.getByRole('button',{name:'Choose folder…',exact:true}).click()
   await page.waitForFunction(()=>document.querySelector('[aria-label="Local repository"]').value==='/tmp/chosen-repository')
   // Each category shows its own panel, so worktrees and parallelism are reached
-  // from Execution and the command templates from AI agent.
+  // from Execution and the default engine from General.
   await page.getByRole('tab',{name:'Execution',exact:true}).click()
   const parallel=page.getByRole('slider',{name:'Parallel executions',exact:true})
   await page.getByRole('button',{name:'No',exact:true}).click()
@@ -107,7 +106,7 @@ test('desktop console reconnects, accepts input and stops the owned run',async()
   assert.equal(await parallel.inputValue(),'3')
   // Parallelism inherits the workstation default, which a reset brings back.
   assert.equal(await page.getByRole('button',{name:'Reset parallel executions to workstation default',exact:true}).count(),1)
-  await page.getByRole('tab',{name:'AI agent',exact:true}).click()
+  await page.getByRole('tab',{name:'General',exact:true}).click()
   // The project picks a default engine from the workstation catalogue (#510);
   // the engine itself, templates included, is edited in Settings.
   const engine=page.getByRole('combobox',{name:'Default engine',exact:true})
@@ -125,7 +124,7 @@ test('desktop console reconnects, accepts input and stops the owned run',async()
   // The workstation parallelism selection survives a server refresh.
   await page.getByRole('tab',{name:'Execution',exact:true}).click()
   assert.equal(await parallel.inputValue(),'3')
-  await page.getByRole('button',{name:'Close',exact:true}).click()
+  await page.getByRole('button',{name:'Back',exact:true}).click()
   // The control is named for the click it offers, so its name flips with the panel.
   await page.getByRole('button',{name:'Hide projects',exact:true}).click()
   // Collapsing hides the projects, not the footer: the agent controls, the
@@ -140,13 +139,13 @@ test('desktop console reconnects, accepts input and stops the owned run',async()
   assert.equal(await page.locator('.sidebar-scroll').isVisible(),true)
   assert.equal(await page.locator('.connection-label').isVisible(),true)
   await page.locator('#settings').click()
-  await page.getByRole('heading',{name:'Settings',exact:true}).waitFor()
+  await page.getByRole('heading',{name:'User profile',exact:true}).waitFor()
   // User profile opens first; release notes remain available in Changelog.
   await expect(page.getByRole('tab',{name:'User profile',exact:true})).toHaveAttribute('aria-selected','true')
   await expect(page.locator('.settings-versions .version-value')).toHaveCount(2)
   await page.getByRole('tab',{name:'User profile',exact:true}).click()
   await page.getByRole('button',{name:'Open the web interface',exact:true}).waitFor()
-  await page.getByRole('button',{name:'Close',exact:true}).click()
+  await page.getByRole('button',{name:'Back',exact:true}).click()
   await page.waitForTimeout(300)
   await page.evaluate(()=>window.localAgent.input('hello'))
   await page.waitForTimeout(100)

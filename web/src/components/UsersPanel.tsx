@@ -3,6 +3,7 @@ import { Ban, Trash2, Undo2, Users } from 'lucide-react'
 import type { Role } from '../lib/session'
 import { useApp } from '../context/AppContext'
 import { relativeTime } from '../lib/adminStats'
+import { format, formatDateTime, parseDateInput, type Locale } from '../lib/i18n'
 
 interface UserRow {
   id: string
@@ -20,10 +21,10 @@ interface UserRow {
   active?: boolean
 }
 
-function when(value?: string): string {
-  if (!value) return 'never'
-  const at = Date.parse(value)
-  return Number.isNaN(at) ? value : new Date(at).toLocaleString()
+// A date the server sent, in the UI language; an unreadable one is shown as it came.
+function when(value: string | undefined, locale: Locale, never: string): string {
+  if (!value) return never
+  return parseDateInput(value) ? formatDateTime(locale, value) : value
 }
 
 /**
@@ -46,12 +47,16 @@ interface UsersPanelProps {
 
 export function UsersPanel({ currentUserId, embedded = false, reloadKey = 0, onChange }: UsersPanelProps) {
   const { t, settings } = useApp()
+  const text = t.signIn.users
   const [users, setUsers] = useState<UserRow[]>([])
   const [rolesFromProvider, setRolesFromProvider] = useState(false)
   const [status, setStatus] = useState('')
   // The instant the list was read: "seen 3 minutes ago" is measured against it,
   // so a render never reads the clock.
   const [loadedAt, setLoadedAt] = useState(0)
+  // A flag rather than a message, so the text follows a language switch
+  // without reloading the list.
+  const [loadFailed, setLoadFailed] = useState(false)
 
   const load = useCallback(async () => {
     try {
@@ -61,8 +66,9 @@ export function UsersPanel({ currentUserId, embedded = false, reloadKey = 0, onC
       setUsers(body.users || [])
       setLoadedAt(Date.now())
       setRolesFromProvider(!!body.rolesFromProvider)
+      setLoadFailed(false)
     } catch {
-      setStatus('Could not load the users.')
+      setLoadFailed(true)
     }
   }, [])
 
@@ -79,7 +85,7 @@ export function UsersPanel({ currentUserId, embedded = false, reloadKey = 0, onC
       const res = await fetch('/api/users/' + encodeURIComponent(user.id), init)
       if (!res.ok) {
         const body = await res.json().catch(() => ({}))
-        throw new Error(body.error || `HTTP ${res.status}`)
+        throw new Error(body.error || format(text.httpFailure, { message: failed, status: res.status }))
       }
       await load()
       onChange?.()
@@ -92,46 +98,45 @@ export function UsersPanel({ currentUserId, embedded = false, reloadKey = 0, onC
   async function changeRole(user: UserRow, role: Role) {
     await apply(user, {
       method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ role }),
-    }, `${label(user)} is now ${role}.`, 'Could not change the role.')
+    }, format(text.roleChanged, { name: label(user), role: t.signIn.status.roles[role].toLowerCase() }), text.roleFailed)
   }
 
   async function setBlocked(user: UserRow, blocked: boolean) {
-    if (blocked && !window.confirm(`Block ${label(user)}? Their sessions end immediately and their workstation keys stop working. Nothing they own is deleted.`)) {
+    if (blocked && !window.confirm(format(text.confirmBlock, { name: label(user) }))) {
       return
     }
     await apply(user, {
       method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ blocked }),
-    }, blocked ? `${label(user)} is blocked.` : `${label(user)} can sign in again.`, 'Could not change the account.')
+    }, format(blocked ? text.blockedDone : text.unblockedDone, { name: label(user) }), text.accountFailed)
   }
 
   async function remove(user: UserRow) {
-    if (!window.confirm(`Delete ${label(user)}? The account, its sessions and its workstation keys are removed for good. The tasks, comments and executions it owns stay on the board, with no owner.`)) {
+    if (!window.confirm(format(text.confirmDelete, { name: label(user) }))) {
       return
     }
-    await apply(user, { method: 'DELETE' }, `${label(user)} is deleted.`, 'Could not delete the account.')
+    await apply(user, { method: 'DELETE' }, format(text.deletedDone, { name: label(user) }), text.deleteFailed)
   }
 
   return (
     <section className={embedded ? 'space-y-4' : 'space-y-3 rounded-xl border border-[var(--border-color)] bg-[var(--bg-secondary)] p-4'} aria-labelledby="users-title">
       {!embedded && (
         <h3 id="users-title" className="flex items-center gap-2 font-bold text-[var(--text-primary)]">
-          <Users size={16} /> Users
+          <Users size={16} /> {text.title}
         </h3>
       )}
       <p className="text-[var(--text-muted)]">
-        Admins manage the accounts: who exists, what role they hold, and whether their account still opens.
-        Members work on the shared board, open and configure projects, and act only on their own agent and executions.
-        {rolesFromProvider && ' Roles come from the identity provider: a change here lasts until that person signs in again.'}
+        {text.intro}
+        {rolesFromProvider && ` ${text.rolesFromProvider}`}
       </p>
       <div className="overflow-x-auto">
         <table className="w-full text-left text-xs">
           <thead className="text-[var(--text-muted)]">
             <tr>
-              <th scope="col" className="py-1 pr-3 font-medium">User</th>
+              <th scope="col" className="py-1 pr-3 font-medium">{text.columnUser}</th>
               <th scope="col" className="py-1 pr-3 font-medium">{t.admin.activity}</th>
-              <th scope="col" className="py-1 pr-3 font-medium">Last sign-in</th>
-              <th scope="col" className="py-1 pr-3 font-medium">Role</th>
-              <th scope="col" className="py-1 font-medium">Account</th>
+              <th scope="col" className="py-1 pr-3 font-medium">{text.columnLastSignIn}</th>
+              <th scope="col" className="py-1 pr-3 font-medium">{text.columnRole}</th>
+              <th scope="col" className="py-1 font-medium">{text.columnAccount}</th>
             </tr>
           </thead>
           <tbody>
@@ -139,14 +144,14 @@ export function UsersPanel({ currentUserId, embedded = false, reloadKey = 0, onC
               <tr key={user.id} className="border-t border-[var(--border-color)]">
                 <td className="py-2 pr-3">
                   <div className="flex items-center gap-1.5 font-semibold text-[var(--text-primary)]">
-                    <span>{user.displayName || user.email || user.id}{user.id === currentUserId ? ' (you)' : ''}</span>
+                    <span>{user.displayName || user.email || user.id}{user.id === currentUserId ? ` ${text.you}` : ''}</span>
                     {user.blocked && (
-                      <span className="rounded bg-rose-500/20 px-1 py-0.5 text-[9px] font-bold uppercase tracking-wider text-rose-500">Blocked</span>
+                      <span className="rounded bg-rose-500/20 px-1 py-0.5 text-[9px] font-bold uppercase tracking-wider text-rose-500">{text.blocked}</span>
                     )}
                   </div>
                   {user.email && user.displayName && user.displayName !== user.email && <div className="text-[var(--text-muted)]">{user.email}</div>}
                 </td>
-                <td className="py-2 pr-3" title={user.lastActiveAt ? when(user.lastActiveAt) : undefined}>
+                <td className="py-2 pr-3" title={user.lastActiveAt ? when(user.lastActiveAt, settings.language, text.never) : undefined}>
                   {user.active ? (
                     <span className="inline-flex items-center gap-1.5 font-semibold text-emerald-400">
                       <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" aria-hidden="true" />
@@ -158,16 +163,16 @@ export function UsersPanel({ currentUserId, embedded = false, reloadKey = 0, onC
                     </span>
                   )}
                 </td>
-                <td className="py-2 pr-3 text-[var(--text-muted)]">{when(user.lastSignIn)}</td>
+                <td className="py-2 pr-3 text-[var(--text-muted)]">{when(user.lastSignIn, settings.language, text.never)}</td>
                 <td className="py-2 pr-3">
                   <select
-                    aria-label={`Role of ${label(user)}`}
+                    aria-label={format(text.roleOf, { name: label(user) })}
                     value={user.role}
                     onChange={event => void changeRole(user, event.target.value as Role)}
                     className="rounded-lg border border-[var(--border-color)] bg-[var(--bg-tertiary)] px-2 py-1 text-[var(--text-primary)]"
                   >
-                    <option value="admin">Admin</option>
-                    <option value="member">Member</option>
+                    <option value="admin">{t.signIn.status.roles.admin}</option>
+                    <option value="member">{t.signIn.status.roles.member}</option>
                   </select>
                 </td>
                 <td className="py-2">
@@ -181,22 +186,22 @@ export function UsersPanel({ currentUserId, embedded = false, reloadKey = 0, onC
                       <button
                         type="button"
                         onClick={() => void setBlocked(user, !user.blocked)}
-                        aria-label={`${user.blocked ? 'Unblock' : 'Block'} ${label(user)}`}
-                        title={user.blocked ? 'Let this account sign in again' : 'Close this account without deleting anything'}
+                        aria-label={format(user.blocked ? text.unblockAria : text.blockAria, { name: label(user) })}
+                        title={user.blocked ? text.unblockTitle : text.blockTitle}
                         className="flex items-center gap-1 rounded-lg border border-[var(--border-color)] px-2 py-1 text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)] cursor-pointer"
                       >
                         {user.blocked ? <Undo2 size={12} /> : <Ban size={12} />}
-                        <span>{user.blocked ? 'Unblock' : 'Block'}</span>
+                        <span>{user.blocked ? text.unblock : text.block}</span>
                       </button>
                       <button
                         type="button"
                         onClick={() => void remove(user)}
-                        aria-label={`Delete ${label(user)}`}
-                        title="Remove the account and its credentials for good"
+                        aria-label={format(text.deleteAria, { name: label(user) })}
+                        title={text.deleteTitle}
                         className="flex items-center gap-1 rounded-lg border border-[var(--border-color)] px-2 py-1 text-rose-500 transition-colors hover:bg-rose-500/10 cursor-pointer"
                       >
                         <Trash2 size={12} />
-                        <span>Delete</span>
+                        <span>{text.delete}</span>
                       </button>
                     </div>
                   )}
@@ -206,7 +211,7 @@ export function UsersPanel({ currentUserId, embedded = false, reloadKey = 0, onC
           </tbody>
         </table>
       </div>
-      <p role="status" className="text-[var(--text-muted)]">{status}</p>
+      <p role="status" className="text-[var(--text-muted)]">{status || (loadFailed ? t.signIn.users.loadFailed : '')}</p>
     </section>
   )
 }

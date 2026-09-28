@@ -9,7 +9,7 @@ const http=require('node:http'),fs=require('node:fs'),os=require('node:os'),path
 // leave the settings as they were (#481).
 test('desktop offers to initialize a project folder as a Git repository',async()=>{
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'sectile-git-init-ui-')),saves=[],inits=[]
- let project={configured:true,monoRepo:true,path:'/test/repo',specPath:'',specDefault:'/test/repo',specKind:'git',aiProvider:'agy',server:{projectId:'p',projectName:'Test project',aiProvider:'agy',skills:[]}}
+ let project={configured:true,path:'/test/repo',specPath:'',specDefault:'/test/repo',specKind:'git',aiProvider:'agy',server:{projectId:'p',projectName:'Test project',aiProvider:'agy',skills:[]}}
  // What the fake agent knows of each folder; anything else is missing.
  const states={'/test/repo':'ready','/test/plain':'folder','/test/other':'folder','/test/unborn-specs':'unborn'}
  let capable=true,failCommit=false
@@ -52,6 +52,7 @@ test('desktop offers to initialize a project folder as a Git repository',async()
   const page=await app.firstWindow();page.setDefaultTimeout(10000)
   const open=async()=>{
    await page.getByRole('button',{name:'Actions for Test project',exact:true}).click();await page.getByRole('menuitem',{name:'Project settings…',exact:true}).click()
+   await page.getByRole('tab',{name:'Folders',exact:true}).click()
    const offer=name=>page.getByRole('group',{name:name+' Git initialization',exact:true})
    return {
     local:page.getByRole('textbox',{name:'Local repository',exact:true}),

@@ -7,6 +7,11 @@
  * preview is to be right: keep the two in step.
  */
 
+import { skillsEditor, type SkillsEditorStrings } from '../locales/skillsEditor.ts'
+
+/** Why a mode has no command line, in the UI language. English by default. */
+export type CommandPreviewMessages = SkillsEditorStrings['feedback']
+
 /**
  * The words that make claude report what it is doing while it does it, one JSON
  * object per line, so the agent can trace a headless run. Mirrors
@@ -181,6 +186,9 @@ function words(...parts: string[]): string {
  * for itself, needing no {mode:...} marker, because its author wrote it for that
  * mode; only the general command, asked to serve a mode it may not have been
  * written for, has to declare that it can.
+ *
+ * `messages` words the errors; only they are translated, the command lines
+ * never are.
  */
 export function commandPreview(
   provider: string,
@@ -188,6 +196,7 @@ export function commandPreview(
   model: string,
   autonomous: boolean,
   autonomousTemplate = '',
+  messages: CommandPreviewMessages = skillsEditor.en.feedback,
 ): CommandPreview {
   const cli = provider.trim().toLowerCase()
   const dedicated = autonomousTemplate.trim()
@@ -200,7 +209,7 @@ export function commandPreview(
     if (autonomous && !templateCarriesMode(trimmed)) {
       return {
         command: '',
-        error: 'This command decides the mode itself. Set an autonomous command, or add a {mode:AUTONOMOUS|INTERACTIVE} placeholder to this one.',
+        error: messages.modeDecidedByCommand,
       }
     }
     return { command: expandModel(resolveTemplateMode(trimmed, autonomous), model).replace(/ {2,}/g, ' ').trim() }
@@ -218,7 +227,7 @@ export function commandPreview(
       default:
         return {
           command: '',
-          error: `${cli || 'This provider'} has no attested headless mode. Run interactively, or write a template carrying {mode:AUTONOMOUS|INTERACTIVE}.`,
+          error: messages.noHeadlessMode.replace('{provider}', cli || messages.thisProvider),
         }
     }
   }
@@ -235,6 +244,6 @@ export function commandPreview(
     case 'cursor':
       return { command: words('cursor', 'agent', flag, PROMPT) }
     default:
-      return { command: '', error: `Unsupported provider ${cli || '(none)'}: configure an AI command template.` }
+      return { command: '', error: messages.unsupportedProvider.replace('{provider}', cli || messages.noProvider) }
   }
 }

@@ -18,9 +18,14 @@ function getEnv(key: string, fallback: string, viteFallbackKey?: string): string
   return fallback
 }
 
-export function getCommandPresets(): CommandPreset[] {
+/**
+ * The command presets. `defaultLabel` names the empty preset in the UI
+ * language (`t.skillsEditor.modes.providerDefault`); the French default keeps
+ * existing callers unchanged. The other labels are product names.
+ */
+export function getCommandPresets(defaultLabel = 'Défaut du fournisseur'): CommandPreset[] {
   return [
-    { label: 'Défaut du fournisseur', cmd: '', autonomous: '' },
+    { label: defaultLabel, cmd: '', autonomous: '' },
     {
       label: 'Claude',
       cmd: getEnv(

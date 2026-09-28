@@ -3,15 +3,16 @@ import { useApp } from '../context/AppContext'
 import { ChangelogModal } from './ChangelogModal'
 import { useVersion } from '../hooks/useVersion'
 import { DisplayScaleMenu } from './DisplayScaleMenu'
+import { format } from '../lib/i18n'
 
 export function StatusBar() {
-  const { currentProject, setIsProfileOpen, settings } = useApp()
+  const { currentProject, setIsProfileOpen, settings, t } = useApp()
   const { version } = useVersion()
   const [isChangelogOpen, setIsChangelogOpen] = useState(false)
 
   return <>
     <footer className="flex items-center justify-between border-t border-[var(--border-color)] bg-[var(--bg-secondary)] px-4 py-2 text-xs text-[var(--text-muted)]">
-      <span>{currentProject?.name || 'All projects'}</span>
+      <span>{currentProject?.name || t.shell.statusBar.allProjects}</span>
       <div className="flex items-center gap-4">
         {/* Le zoom et la densité, à portée du regard qui trouve l'écran trop
             petit plutôt qu'à quatre clics dans les réglages. */}
@@ -23,7 +24,7 @@ export function StatusBar() {
           <button
             type="button"
             onClick={() => setIsChangelogOpen(true)}
-            title={`Sectile ${version.version}${version.commit ? ` · ${version.commit.slice(0, 12)}` : ''} — release notes`}
+            title={format(t.shell.statusBar.releaseNotes, { version: version.version, commit: version.commit ? ` · ${version.commit.slice(0, 12)}` : '' })}
             className="font-mono hover:text-[var(--text-primary)] transition-colors cursor-pointer"
           >
             {version.version}

@@ -56,9 +56,14 @@ var ErrTaskBusy = errors.New("task already has an active run")
 
 // TaskBusyError is ErrTaskBusy with the run that makes the task busy, for an
 // answer that names it. Active is nil when the run ended between the refused
-// insert and the read that looked for it.
+// insert and the read that looked for it. Batch is set when the task belongs to
+// a running batch, whose run is then what makes it busy (#522).
 type TaskBusyError struct {
-	Active *models.TaskActivity
+	// TaskKey is the key of the task that was refused, for a message that
+	// names it next to its batch's lead.
+	TaskKey string
+	Active  *models.TaskActivity
+	Batch   *models.TaskBatch
 }
 
 func (e *TaskBusyError) Error() string {
@@ -73,12 +78,12 @@ func (e *TaskBusyError) Is(target error) bool { return target == ErrTaskBusy }
 // taskBusy turns a refused insert into the error its caller answers with, and
 // leaves any other error as it is. It reads the active run with the plain
 // connection, so the caller must not hold DB.mu.
-func (d *DB) taskBusy(taskID string, err error) error {
+func (d *DB) taskBusy(task *models.Task, err error) error {
 	if !isUniqueViolation(err, activeRunIndex) {
 		return err
 	}
-	active, _ := d.ActiveRunOnTask(taskID)
-	return &TaskBusyError{Active: active}
+	active, batch, _ := d.ActiveBusyCause(task.ID)
+	return &TaskBusyError{TaskKey: task.Key, Active: active, Batch: batch}
 }
 
 // boolToInt writes a flag into an INTEGER column the same way on both engines.

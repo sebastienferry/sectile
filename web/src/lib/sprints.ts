@@ -1,4 +1,9 @@
 import type { TrackerSprint } from '../types'
+import type { SprintsStrings } from '../locales/sprints.ts'
+import { format, plural, type Locale } from './i18n.ts'
+
+/** Labels of the relative badge, from the `sprints.timeline.relative` catalog entry. */
+export type SprintRelativeLabels = SprintsStrings['timeline']['relative']
 
 export interface SprintTimelineConfig {
   durationDays: number
@@ -21,18 +26,6 @@ export const getMonday = (d: Date): Date => {
   date.setDate(diff)
   date.setHours(0, 0, 0, 0)
   return date
-}
-
-/** Formate une date en français lisible (ex: 1 sept. 2026) */
-export const formatDateFR = (dateStr?: string): string => {
-  if (!dateStr) return ''
-  const d = new Date(dateStr)
-  if (isNaN(d.getTime())) return dateStr
-  return d.toLocaleDateString('fr-FR', {
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-  })
 }
 
 /** Formate une date pour input type="date" */
@@ -149,18 +142,25 @@ export const generateDefaultSprints = (
   return calculateSprintDates(placeholders, formatDateISO(start), durationDays)
 }
 
-/** Calcule les jours restants ou le délai jusqu'à un sprint */
-export const getSprintRelativeInfo = (sprint: TrackerSprint): { label: string; type: 'current' | 'future' | 'past' } => {
+/**
+ * The days left in a sprint or until it starts, worded with the catalog labels
+ * of the UI language.
+ */
+export const getSprintRelativeInfo = (
+  sprint: TrackerSprint,
+  labels: SprintRelativeLabels,
+  locale: Locale,
+): { label: string; type: 'current' | 'future' | 'past' } => {
   if (sprint.state === 'closed') {
     return {
-      label: 'Sprint clôturé',
+      label: labels.closed,
       type: 'past',
     }
   }
 
   if (!sprint.startDate || !sprint.endDate) {
     return {
-      label: sprint.state === 'active' ? 'En cours' : 'À venir',
+      label: sprint.state === 'active' ? labels.active : labels.future,
       type: sprint.state === 'active' ? 'current' : 'future',
     }
   }
@@ -175,10 +175,10 @@ export const getSprintRelativeInfo = (sprint: TrackerSprint): { label: string; t
     const diffMs = end.getTime() - today.getTime()
     const daysLeft = Math.ceil(diffMs / (1000 * 60 * 60 * 24))
     if (daysLeft < 0) {
-      return { label: `En cours (dépassé de ${Math.abs(daysLeft)}j)`, type: 'current' }
+      return { label: format(labels.overdue, { count: Math.abs(daysLeft) }), type: 'current' }
     }
     return {
-      label: daysLeft <= 1 ? "Dernier jour du sprint !" : `En cours (${daysLeft} jours restants)`,
+      label: daysLeft <= 1 ? labels.lastDay : plural(locale, daysLeft, labels.daysLeft),
       type: 'current',
     }
   }
@@ -187,13 +187,13 @@ export const getSprintRelativeInfo = (sprint: TrackerSprint): { label: string; t
     const diffMs = start.getTime() - today.getTime()
     const daysUntil = Math.ceil(diffMs / (1000 * 60 * 60 * 24))
     return {
-      label: daysUntil === 1 ? "Débute demain" : `Débute dans ${daysUntil} jours`,
+      label: daysUntil === 1 ? labels.startsTomorrow : plural(locale, daysUntil, labels.startsIn),
       type: 'future',
     }
   }
 
   return {
-    label: "Échéance dépassée",
+    label: labels.pastDue,
     type: 'past',
   }
 }

@@ -27,6 +27,7 @@ type Config struct {
 	PRCreationStage    string   `json:"prCreationStage"`
 	DefaultSkillMode   string   `json:"defaultSkillMode,omitempty"`
 	FullChainStopStage string   `json:"fullChainStopStage,omitempty"`
+	PushStageCommits   bool     `json:"pushStageCommits"`
 	SchemaVersion      int      `json:"schemaVersion"`
 	ProjectID          string   `json:"projectId"`
 	ProjectName        string   `json:"projectName"`
@@ -47,11 +48,6 @@ type Config struct {
 	AISkillModels           map[string]string `json:"aiSkillModels,omitempty"`
 	ExternalTerminalCommand string            `json:"externalTerminalCommand"`
 	Skills                  []Skill           `json:"skills"`
-	// MonoRepo says the project lives in a single repository, which decides
-	// whether the code checkout also carries the specifications. Absent (a
-	// server that predates it) reads as mono-repo, the server's own default,
-	// so a newer agent never starts refusing what used to work.
-	MonoRepo *bool `json:"monoRepo,omitempty"`
 	// Repositories are the remotes the project's tickets work in, the code
 	// remote first (#456). Remotes only: the workstation maps them to folders.
 	// Absent (an older server) means the code remote alone, as before.
@@ -72,9 +68,6 @@ type Config struct {
 
 // DropsSpecArtifacts reads SpecArtifacts with its default: keep.
 func (c Config) DropsSpecArtifacts() bool { return c.SpecArtifacts == "drop" }
-
-// IsMonoRepo reads MonoRepo with its default.
-func (c Config) IsMonoRepo() bool { return c.MonoRepo == nil || *c.MonoRepo }
 
 // Dispatch carries launch intent only. Execution settings are fetched separately.
 // A zero version is accepted for legacy senders; new senders always emit Version.

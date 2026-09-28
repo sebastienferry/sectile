@@ -81,40 +81,55 @@ export function needsSignIn(user: CurrentUser | null): boolean {
   return !user.signedIn
 }
 
-export function describeSignInMode(mode: SignInMode): string {
+/** The caller's catalog words for each sign-in mode. */
+export type SignInModeLabels = Record<SignInMode, string>
+
+/** The caller's catalog words for each role. */
+export type RoleLabels = Record<Role, string>
+
+export function describeSignInMode(mode: SignInMode, labels: SignInModeLabels): string {
   switch (mode) {
-    case 'oidc': return 'Identity provider'
-    default: return 'Local e-mail sign-in (temporary)'
+    case 'oidc': return labels.oidc
+    default: return labels.local
   }
 }
 
-export function describeRole(role: Role | ''): string {
+export function describeRole(role: Role | '', labels: RoleLabels): string {
   switch (role) {
-    case 'admin': return 'Admin'
-    case 'member': return 'Member'
+    case 'admin': return labels.admin
+    case 'member': return labels.member
     default: return ''
   }
 }
 
 /**
+ * Why sealed tokens stay locked after sign-in, for the screen to word in its
+ * language: they could not be listed, or the passphrase was refused for the
+ * named trackers.
+ */
+export type UnlockRefusal =
+  | { code: 'unreadable' }
+  | { code: 'refused'; trackers: string[] }
+
+/**
  * Unlocks the sealed tracker tokens of the person who just signed in, one call
  * per sealed tracker since the route takes one at a time. It reports, it never
- * blocks: the session is already open.
+ * blocks: the session is already open. `null` means there is nothing to say.
  */
-export async function unlockSealedCredentials(passphrase: string): Promise<string> {
+export async function unlockSealedCredentials(passphrase: string): Promise<UnlockRefusal | null> {
   const phrase = passphrase.trim()
-  if (!phrase) return ''
+  if (!phrase) return null
   let sealed: SealedCredential[] = []
   try {
     const res = await fetch('/api/me/tracker-credentials')
-    if (!res.ok) return ''
+    if (!res.ok) return null
     const body = await res.json().catch(() => ({}))
     const list: SealedCredential[] = Array.isArray(body.credentials) ? body.credentials : []
     sealed = list.filter(credential => credential.sealed && !credential.unlocked)
   } catch {
-    return 'Sealed tokens could not be read; unlock them from your profile.'
+    return { code: 'unreadable' }
   }
-  if (sealed.length === 0) return ''
+  if (sealed.length === 0) return null
   const refused: string[] = []
   for (const credential of sealed) {
     try {
@@ -128,8 +143,8 @@ export async function unlockSealedCredentials(passphrase: string): Promise<strin
       refused.push(credential.tracker)
     }
   }
-  if (refused.length === 0) return ''
-  return `Sealing passphrase refused for ${refused.join(', ')}: those tokens stay locked, unlock them from your profile.`
+  if (refused.length === 0) return null
+  return { code: 'refused', trackers: refused }
 }
 
 /**

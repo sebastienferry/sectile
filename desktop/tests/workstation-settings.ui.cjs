@@ -14,6 +14,7 @@ function fakeAgent({capabilities=['task-engines']}={}){
   default:'e-opus',providers:['claude','codex','agy','custom'],providerModels:{},projects:{p:'e-codex'},taskCounts:{'e-codex':2},
  }}
  const view=()=>({
+  globalConfiguration:true,
   defaults:{editorCommand:'zed',setupProviders:null},
   effective:{defaultEngine:{id:'e-opus',name:'Claude Opus',provider:'claude',model:'claude-opus-5'},editorCommand:'zed',useWorktrees:true,parallelism:1,aiProviderModels:{}},
   providerModels:{claude:['claude-opus-5','claude-sonnet-5'],codex:['gpt-5']},setupProviders:['claude','codex','agy'],seeded:{},
@@ -48,14 +49,14 @@ function fakeAgent({capabilities=['task-engines']}={}){
  return {state,server}
 }
 
-async function openExecutionDefaults(server,root){
+async function openExecutionDefaults(server,root,category='Execution defaults'){
  fs.writeFileSync(path.join(root,'agent-connection.json'),JSON.stringify({url:'http://127.0.0.1:'+server.address().port,token:'private'}))
  const env={...process.env,SECTILE_DESKTOP_DATA_DIR:root,SECTILE_DESKTOP_TEST:'1'};delete env.ELECTRON_RUN_AS_NODE
  const app=await electron.launch({args:[path.resolve(__dirname,'..')],env})
  const page=await app.firstWindow();page.setDefaultTimeout(10000)
  await page.locator('#settings').click()
- await page.getByRole('tab',{name:'Execution defaults',exact:true}).click()
- return {app,page,panel:page.locator('.execution-defaults')}
+ await page.getByRole('tab',{name:category,exact:true}).click()
+ return {app,page,panel:page.locator(category==='AI engines'?'#settings-panel-Engines':'.execution-defaults')}
 }
 
 // The workstation level of every execution setting is edited from Settings,
@@ -67,23 +68,47 @@ test('execution defaults are read from and saved through the agent, which may re
  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve))
  let app
  try {
-  let panel
-  ;({app,panel}=await openExecutionDefaults(server,root))
-  await expect(panel.getByRole('textbox',{name:'Editor command',exact:true})).toHaveValue('zed')
+  let panel,page
+  ;({app,panel,page}=await openExecutionDefaults(server,root))
+  await expect(panel.locator('.engines-section')).toHaveCount(0)
+  // The editor is a picker (#535): a stored preset loads as that preset.
+  await expect(panel.getByRole('combobox',{name:'Editor',exact:true})).toHaveValue('zed')
+  await expect(panel.getByRole('textbox',{name:'Custom editor command',exact:true})).toBeHidden()
   await panel.getByRole('textbox',{name:'Models offered for codex',exact:true}).fill('gpt-5, o4-mini')
+  await panel.getByRole('combobox',{name:'Initialization provider',exact:true}).selectOption('codex')
   await panel.getByRole('button',{name:'Save execution defaults'}).click()
   await expect(panel.locator('.workstation-notice')).toContainText('Execution defaults saved')
   assert.equal(state.puts.length,1)
+  assert.equal(state.puts[0].initializationProvider,'codex')
+  assert.deepEqual(state.puts[0].skillCommands,{})
   assert.equal(state.puts[0].aiProvider,undefined)
   assert.equal(state.puts[0].aiModel,undefined)
   assert.deepEqual(state.puts[0].aiProviderModels,{codex:['gpt-5','o4-mini']})
   assert.equal(state.puts[0].setupProviders,null)
+  assert.equal(state.puts[0].editorCommand,'zed')
 
   // A value the agent refuses is reported with its reason.
   state.refuse='parallelism must be between 1 and 10'
   await panel.getByRole('button',{name:'Save execution defaults'}).click()
   await expect(panel.locator('.workstation-notice')).toContainText('Not saved: parallelism must be between 1 and 10')
   assert.equal(state.puts.length,1)
+
+  // A command that matches no preset is a custom one, saved as typed.
+  state.refuse=''
+  const editor=panel.getByRole('combobox',{name:'Editor',exact:true})
+  await editor.selectOption({label:'Custom command…'})
+  const custom=panel.getByRole('textbox',{name:'Custom editor command',exact:true})
+  await expect(custom).toBeVisible()
+  await custom.fill('  cursor -n  ')
+  await panel.getByRole('button',{name:'Save execution defaults'}).click()
+  await expect(panel.locator('.workstation-notice')).toContainText('Execution defaults saved')
+  assert.equal(state.puts[1].editorCommand,'cursor -n')
+  // The reset control returns the row to None. The save refills the panel,
+  // which moves the rows: the control is activated from the keyboard.
+  await panel.getByRole('button',{name:'Reset editor to default',exact:true}).focus()
+  await page.keyboard.press('Enter')
+  await expect(editor).toHaveValue('')
+  await expect(custom).toBeHidden()
  } finally {
   await app?.close()
   server.close()
@@ -98,7 +123,7 @@ test('the engines section adds, edits, reorders, makes default and removes engin
  let app
  try {
   let panel
-  ;({app,panel}=await openExecutionDefaults(server,root))
+  ;({app,panel}=await openExecutionDefaults(server,root,'AI engines'))
   const engines=panel.getByRole('list',{name:'Engines'})
   await expect(engines.locator('.engine-item')).toHaveCount(2)
   await expect(engines.locator('.engine-item').first()).toContainText('Claude Opus')
@@ -167,7 +192,7 @@ test('an agent without an engine catalogue is asked to update',async()=>{
  let app
  try {
   let panel
-  ;({app,panel}=await openExecutionDefaults(server,root))
+  ;({app,panel}=await openExecutionDefaults(server,root,'AI engines'))
   await expect(panel.locator('.engines-section')).toContainText('Update and restart the local agent to manage engines.')
   await expect(panel.getByRole('button',{name:'Add an engine'})).toBeHidden()
  } finally {

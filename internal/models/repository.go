@@ -132,23 +132,30 @@ func FindProjectRepository(repositories []ProjectRepository, remote string) (Pro
 	return ProjectRepository{}, false
 }
 
-// Folder map roles, as the agent receives them at launch.
+// Folder map roles, as the agent receives them at launch. A local folder has
+// no remote: it is changed in place, with no worktree and no pull request
+// (#484).
 const (
 	FolderRolePrimary = "primary"
 	FolderRoleChanged = "changed"
 	FolderRoleContext = "context"
 	FolderRoleSpec    = "spec"
+	FolderRoleLocal   = "local"
 )
 
 // FolderMapEntry describes one folder of a task to the agent. Path is empty
 // when the repository is not mapped on the workstation; Worktree is set when
-// the task has a worktree in it.
+// the task has a worktree in it. Attached marks a folder attached to the
+// project on the workstation (#484), whose Kind says "git", "folder", or
+// "missing" when it is no longer there.
 type FolderMapEntry struct {
 	Remote   string `json:"remote"`
 	Identity string `json:"identity"`
 	Role     string `json:"role"`
 	Path     string `json:"path"`
 	Worktree string `json:"worktree,omitempty"`
+	Kind     string `json:"kind,omitempty"`
+	Attached bool   `json:"attached,omitempty"`
 }
 
 // PrimaryResolution is the outcome of ResolvePrimaryRepository.
@@ -157,55 +164,31 @@ type PrimaryResolution int
 const (
 	// PrimaryResolved names the repository the task runs in.
 	PrimaryResolved PrimaryResolution = iota
-	// PrimaryDefault keeps today's behaviour: the project's own root.
+	// PrimaryDefault is the project's own root: the code repository.
 	PrimaryDefault
 	// PrimaryUnmapped means the task's repository is known but has no folder
 	// on this workstation.
 	PrimaryUnmapped
-	// PrimaryAmbiguous means several mapped repositories could be the task's.
-	PrimaryAmbiguous
 )
 
 // ResolvePrimaryRepository decides which repository a task runs in, before
 // anything is launched. pinned is the task's repository identity, "" when not
 // pinned; mapped tells whether a repository has a folder on this workstation.
-// The order is: a mono-repo project's code remote whatever the pin (its tickets
-// live in one repository, and a pin left from a legacy path must not send them
-// elsewhere), the pin, the only repository, the only mapped repository (which
-// the caller should pin), else unmapped when nothing is mapped and ambiguous
-// otherwise. The returned
-// repository is set for PrimaryResolved and PrimaryUnmapped; pin is true when
-// the choice came from the workstation and should be recorded on the task.
-func ResolvePrimaryRepository(pinned string, repositories []ProjectRepository, monoRepo bool, mapped func(identity string) bool) (repository ProjectRepository, outcome PrimaryResolution, pin bool) {
-	if monoRepo {
-		return ProjectRepository{}, PrimaryDefault, false
-	}
+// A pin to a listed repository names it, resolved when it has a folder here
+// and unmapped otherwise; anything else is the code repository (#484). The
+// returned repository is set for PrimaryResolved and PrimaryUnmapped.
+func ResolvePrimaryRepository(pinned string, repositories []ProjectRepository, mapped func(identity string) bool) (ProjectRepository, PrimaryResolution) {
 	if pinned = strings.TrimSpace(pinned); pinned != "" {
 		if found, ok := FindProjectRepository(repositories, pinned); ok {
 			if mapped(found.Identity) {
-				return found, PrimaryResolved, false
+				return found, PrimaryResolved
 			}
-			return found, PrimaryUnmapped, false
+			return found, PrimaryUnmapped
 		}
 		// A pin outside the list cannot be stored (the server refuses it); an
 		// old one is treated as absent rather than trusted.
 	}
-	if len(repositories) <= 1 {
-		return ProjectRepository{}, PrimaryDefault, false
-	}
-	var candidates []ProjectRepository
-	for _, repository := range repositories {
-		if mapped(repository.Identity) {
-			candidates = append(candidates, repository)
-		}
-	}
-	switch len(candidates) {
-	case 0:
-		return ProjectRepository{}, PrimaryUnmapped, false
-	case 1:
-		return candidates[0], PrimaryResolved, true
-	}
-	return ProjectRepository{}, PrimaryAmbiguous, false
+	return ProjectRepository{}, PrimaryDefault
 }
 
 // LegacyRepoPath is one working directory typed before repositories existed:

@@ -2,6 +2,62 @@
 
 Local task execution consoles without a separate chatbot UI.
 
+## Install a release
+
+Every release `vX.Y.Z` publishes a Sectile Desktop archive per platform. Each
+one holds the app and the Sectile agent built for the same platform, so nothing
+else needs installing: no Node, no Go, no clone of this repository.
+
+| Platform | Archive |
+| --- | --- |
+| macOS, Apple Silicon | `sectile-desktop-darwin-arm64.zip` |
+| macOS, Intel | `sectile-desktop-darwin-amd64.zip` |
+| Linux, x86-64 | `sectile-desktop-linux-amd64.tar.gz` |
+| Windows, 64-bit | `sectile-desktop-windows-amd64.zip` |
+
+Download it from either place, they carry the same release:
+
+- the GitHub Release of the tag, on the repository's **Releases** page;
+- the GitLab mirror's package registry, package `sectile`, version `vX.Y.Z`,
+  next to the `sectile-agent-*` and `sectile-server-*` binaries.
+
+Take the `SHA256SUMS` file from the same place as the archive (each place
+builds its own files and vouches for those only), and check the archive
+against it in the download directory:
+
+```sh
+shasum -a 256 -c --ignore-missing SHA256SUMS      # macOS
+sha256sum -c --ignore-missing SHA256SUMS          # Linux
+```
+
+On Windows, compare `Get-FileHash .\sectile-desktop-windows-amd64.zip` in
+PowerShell with the archive's line in `SHA256SUMS`.
+
+The packages are not signed with a publisher identity, so each system warns
+once before opening them:
+
+- **macOS.** Extract the zip (double-click it in Finder, or `unzip`), move
+  `Sectile.app` where you want it, then remove the quarantine mark macOS put
+  on the download, once, before the first launch:
+
+  ```sh
+  xattr -dr com.apple.quarantine /path/to/Sectile.app
+  ```
+
+  Then open `Sectile.app`. Without that command, macOS reports the app as
+  damaged or from an unidentified developer and refuses to open it.
+- **Linux.** Extract with `tar -xzf sectile-desktop-linux-amd64.tar.gz` and run
+  `Sectile-linux-x64/Sectile`. The archive keeps the executable bits: no
+  `chmod` is needed.
+- **Windows.** Extract the zip with Explorer (**Extract All**) and run
+  `Sectile-win32-x64\Sectile.exe`. SmartScreen warns that the publisher is
+  unknown: click **More info**, then **Run anyway**. Windows supervision is
+  not supported yet (see
+  [ADR 0003](../docs/adrs/0003-local-desktop-consoles.md)).
+
+The app starts its bundled agent. **Settings → General** shows the desktop
+version (`X.Y.Z`) and the agent's (`vX.Y.Z`): both come from the release.
+
 ## Start
 
 From the repository root:
@@ -73,8 +129,12 @@ Closing the window or quitting Electron keeps the detached agent and tasks alive
 If a terminal supervisor receives a hangup or termination signal, it stops and
 waits for its child process before reporting the execution outcome. A transient
 failure to deliver that report is retried.
-Reopening restores the connection. The gear at the bottom of the project sidebar
-opens **Settings**, the workstation-wide panel: **User profile** (opened first), **Appearance**, **Agent connection**, **Execution defaults**,
+Reopening restores the connection. **Cmd+,** on macOS or **Ctrl+,** on Windows/Linux
+opens Configuration at User profile, even from an input or terminal. Pressing
+the shortcut within Configuration preserves the category and unsaved edits.
+
+The gear at the bottom of the project sidebar
+opens **Settings**, the workstation-wide panel: **User profile** (opened first), **Appearance**, **Agent connection**, **Execution defaults**, **AI engines**, **Deployment**,
 **Agent logs** and **Changelog** (installed versions and release notes, pinned
 to the bottom of the sidebar). The larger settings dialog adapts to the window. Stop and restart sit in that same footer, and
 the connection state leads it: a green dot reading **Connected**, an orange one
@@ -152,8 +212,9 @@ need a new execution. A failed refresh clears the previous result.
 
 ### Skill result indicator
 
-The terminal header and each visible task row show the skill's result independently of its console
-process. A checkmark means the server reports that exact execution completed;
+The bottom task status bar and each visible task row show the skill's result
+independently of its console process. A checkmark means the server reports that
+exact execution completed;
 for workflow stages, the task must also have reached the corresponding stage.
 An open console can therefore show **Skill completed**. Process exit alone shows
 **Execution ended · skill completion unconfirmed**, and pending stage validation,
@@ -166,8 +227,9 @@ already carried by the run state, and a second glyph restating it in other words
 only looks like a second fact. A free console runs no skill and shows no
 indicator either, except while a requested stop has not taken effect — the one
 transient the run state has no word for.
-Task-row icons use the same completion rules as the header, with the skill name
-and result in their tooltip and accessible label. Visible rows refresh even when
+Task-row icons use the same completion rules as the task status bar, with the
+skill name and result in their tooltip and accessible label. Visible rows refresh
+even when
 they are not selected, with at most four concurrent result lookups. A task row
 represents its current execution; selecting older history does not replace that
 row's result. Updates preserve selection and keyboard focus without reattaching
@@ -210,8 +272,17 @@ cd desktop
 npm run test:ui
 ```
 
-The unsigned package is in desktop/release. Tests use an isolated temporary
-profile and mock agent. Go tests exercise real PTY replay and supervision.
+The unsigned package is in desktop/release, for the host platform only. Tests
+use an isolated temporary profile and mock agent. Go tests exercise real PTY
+replay and supervision.
+
+The release archives are built by the release pipelines, never from a branch.
+To reproduce one locally, build the agent for the target and package it:
+
+```sh
+cd desktop && npm run build && cd ..
+scripts/release/package-desktop.sh v0.0.0 linux amd64 path/to/sectile-agent-linux-amd64 dist-desktop
+```
 
 ### Restarting the agent
 
@@ -275,8 +346,8 @@ for the desktop development assets. On Apple Silicon the app is produced at
 The optional companion groups local executions under projects in a collapsible
 sidebar. Add projects by discovering the server catalog and mapping a local Git
 directory. Local worktree preferences are stored per project in
-`~/.config/sectile/settings.json`. Repository layout, remote URL, SDD selection and skill
-content remain server-owned and read-only. Explicit deployment buttons install
+`~/.config/sectile/settings.json`. The remote URL, the project's repositories,
+SDD selection and skill content remain server-owned and read-only. Explicit deployment buttons install
 the server skills or initialize its SDD framework in the mapped directory.
 **Settings → User profile** states what this workstation knows about the
 account: the paired server and the workstation identifier. Display name,
@@ -310,11 +381,14 @@ and restarted before this action is available.
 Every execution setting belongs to the workstation (ADR 0031): the engines,
 the model list of each provider, the terminal, the editor, worktrees, parallel
 executions (1 to 10), the extra agents that get the skills and MCP, and the
-command name each stage runs. The web interface offers none of them and the
+command name each stage runs. The editor is picked from **None**, **VS Code**,
+**Cursor**, **Zed**, **Sublime Text** or **Custom command…**, whose text is
+run with the folder appended; **None**, the default, hides the toolbar's
+editor button. The web interface offers none of them and the
 server neither stores nor uses them.
 
 An engine (ADR 0033) is a named AI CLI profile: provider, model, per-skill
-models, interactive and headless commands. **Settings → Execution defaults**
+models, interactive and headless commands. **Settings → AI engines**
 opens with the **Engines** list, in the order a task cycles through them, the
 workstation default engine marked **Default**. **Add an engine** and **Edit**
 open the engine editor, with the provider presets and a preview of the command
@@ -325,7 +399,14 @@ once. Existing provider, model and command settings became engines on the
 first start of the upgraded agent, which kept a copy of the previous file
 beside it.
 
-The rest of **Settings → Execution defaults** edits the workstation level,
+**Settings → Execution defaults** edits the workstation level,
+including **Initialization provider** and **Skill command names**, which apply
+to all projects. Initialization without an explicit provider uses the saved
+initialization provider; Deployment explicitly selects an engine for global setup.
+Existing project command names remain active until workstation command settings
+are saved; saving replaces those project overrides with the global commands.
+These controls require the updated local agent and are disabled on older agents.
+Other workstation defaults are
 applied to every project without a value of its own. The project settings edit one project:
 each field says whether it is set for the project or inherited, shows the
 inherited value (the workstation default, else the provider default) and has a
@@ -354,10 +435,9 @@ console history are held in memory for the agent lifetime.
 project's specifications: the slicing imported from the web, the macro worktree
 and `realign-macro`. It is set on the workstation only; the server stores no
 such path. Only a folder you choose is saved, under `specRepos` in the
-workstation settings. Without one, a mono-repo project inherits its local
-repository, shown as the placeholder, and keeps following it; a multi-repo
-project has none, the field is flagged, and macro operations refuse to run until
-it is set. Clearing the field removes the override.
+workstation settings. Without one, the project inherits its local repository,
+behind the ticked *Specifications live in the code repository* box, and keeps
+following it. Clearing the field removes the override.
 
 The folder must be an absolute path to an existing directory. A folder inside a
 Git repository is saved as that repository's top level; any other folder is
@@ -367,6 +447,29 @@ was deleted since. In a plain folder, macro skills write in place, with no
 worktree, branch, commit or push.
 A plain folder can also be made a Git repository from the settings; see
 below.
+
+### Attached folders
+
+**General → Attached folders** lists the other folders of this workstation
+handed to every execution of the project (#484): another repository, a
+library, notes. **Add folder…** attaches one at once and **Remove** detaches
+it, with no need to save. Each line says what the folder is: *Git repository*
+with its remote, *Git repository, no remote*, *Folder, not a Git repository*,
+*Folder not found* for a folder deleted since, which can still be removed, or
+*Duplicate* when its remote became one of the project's repositories that this
+workstation maps elsewhere.
+
+A folder that is already the project's local repository, its specifications
+folder, the folder of one of its repositories or an attached folder is
+refused, saying which one it is. A checkout of one of the project's
+repositories is not attached: it becomes that repository's folder under
+*Other repositories*.
+
+The folders are stored under `projectSettings.<id>.folders` in the workstation
+settings and never sent to the server. Every execution receives them with the
+project's repositories; a Git repository with a remote is changed through a
+worktree on the ticket's branch and needs its own pull request, and a folder
+without a remote is changed in place.
 
 ### Initializing a Git repository for a project folder
 
@@ -416,7 +519,7 @@ arguments with, for example, `make start ARGS="--url http://localhost:8090"`; pr
 authentication through `TOKEN`.
 
 Workstation settings open from the gear at the bottom of the project sidebar and
-use the same side navigation: **User profile**, **Agent connection**, **Execution defaults**, **Agent logs** and
+use the same side navigation: **User profile**, **Agent connection**, **Execution defaults**, **AI engines**, **Deployment**, **Agent logs** and
 **Changelog**, with **User profile** first. **Agent connection** reports the local
 agent with Start, Stop, and Restart controls, the server link (green when connected, orange otherwise), and the connect form itself: the same form the
 connection screen shows, borrowed while the category is open and returned when
@@ -426,12 +529,14 @@ the credential a pairing leaves behind is what restarts a stopped agent, with no
 code to type again. A running agent owns the link, so **Connect** stays disabled
 until the agent is stopped, and the panel says so.
 
+Project names in the configuration sidebar toggle collapsible sections. Only
+one project section is expanded at a time; global settings remain visible.
 Project configuration lists its categories in a side navigation, one panel at a
-time: **General** (local repository, removal from the desktop), **Execution**
+time: **General** (Git remote, SDD framework, default engine, removal from the desktop),
+**Folders** (local repositories and specification folders), **Execution**
 (worktrees, parallel executions, terminal emulator, extra setup providers),
-**AI agent** (the project's **Default engine**, picked from the engines or
-inherited from the workstation default one, and skill command names),
-**Deployment** and **Server**. **General** opens
+with the project's default engine picked from the workstation catalogue or
+inherited from its default. **General** opens
 first. Use **Choose folder…** to select a repository through the native directory
 dialog. Worktrees use Yes/No buttons; parallel executions use a 1 to 10 slider.
 Each setting is one row: its name with the inherited value in small type on the
@@ -440,8 +545,11 @@ workstation defaults. The placeholder
 reference sits behind the **Placeholders** disclosure under the interactive
 command. The three storing categories share one form, so
 **Save local configuration** in the dialog footer writes them all at once,
-whichever category is open; **Deployment** and **Server** hide it because they
-store nothing. Server metadata and skill content remain read-only.
+whichever project category is open. Server metadata remains read-only; the
+configuration does not display skill content. **Deployment** separates global
+AI engine setup (user-level skills and MCP, shared by engines with the same
+provider) from local SDD setup (a selected project's repository). Global setup
+uses the current project's server skills as its source, shown in the panel.
 
 Hover or keyboard-focus a project row and activate **Open tasks** to list its
 open server tasks in the **Tickets** pane, which takes the console's place; the
@@ -554,11 +662,19 @@ reconnecting the console; unavailable titles fall back to identity and skill.
 Long headers truncate on one line, with their full text available on hover and
 to assistive technology. Toolbar controls wrap at narrow window widths.
 
-Beside the title, the header shows the selected execution's run state with the
-same glyph and wording as the sidebar row and the desktop notification. Below
-it, the execution's checkout path is a control: click it to copy the path to
-the clipboard, confirmed by a short **Copied**; the text also stays selectable
+The bottom task status bar shows the selected execution's run state and skill
+result. The run state uses the same glyph and wording as the sidebar row and the
+desktop notification. Below the title, the execution's checkout path is a control:
+click it to copy the path to the clipboard, confirmed by a short **Copied**; the
+text also stays selectable
 for a manual copy.
+
+When an editor is chosen in **Settings → Execution defaults**, a code icon
+follows the path: **Open in <editor>** opens the execution's checkout in that
+editor. The desktop only names the execution; the local agent looks up its
+folder and refuses, with its reason, when the folder is gone or no editor is
+set. Without a chosen editor, or with an agent that predates the button, the
+path stands alone.
 
 The controls whose action does not depend on the workflow stage — relaunch, log
 export, the **Console** / **Changes** switch, and the linked pull request — are
@@ -596,6 +712,9 @@ project (implementation by default, specification when the project creates its
 pull request there), which records the link and unlocks **Next: Adjust**.
 Historical consoles use the task's current state too. The action
 is disabled while that task has an active execution or a launch is pending.
+Its accessible name identifies the current skill; the decorative current-skill
+badge is hidden because the execution title already names the skill. Available
+next steps retain their **Next: <skill>** badge.
 The desktop rechecks state before submission; if the next step changed, review
 the updated button and click again. Metadata failures offer **Retry**.
 Reviewed tasks show **Awaiting human merge**; finished tasks have no next action.

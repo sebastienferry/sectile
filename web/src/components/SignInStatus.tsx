@@ -66,7 +66,7 @@ export function SignInStatus({ projects: _projects, onOpenAdmin: _onOpenAdmin }:
                   </h4>
                   {user.role && (
                     <span className="text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-wider bg-amber-500/15 text-amber-500 border border-amber-500/30 shrink-0">
-                      {describeRole(user.role)}
+                      {describeRole(user.role, t.signIn.status.roles)}
                     </span>
                   )}
                 </div>

@@ -77,7 +77,7 @@ export const QuickAddModal: React.FC = () => {
     return combined
   }, [projects, taskProjectId, tasks])
 
-  const searchSprint = useMemo(() => sprintLookup(availableSprints), [availableSprints])
+  const searchSprint = useMemo(() => sprintLookup(availableSprints, t.taskDetail.lookups.sprintKinds), [availableSprints, t])
 
   useEffect(() => {
     if (isQuickAddOpen) {

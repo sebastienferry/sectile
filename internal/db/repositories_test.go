@@ -11,12 +11,11 @@ import (
 	"tasks/internal/models"
 )
 
-// multiRepoProject is a multi-repo project whose code remote is o/a and which
-// declares o/b, with one ticket on feat/12.
+// multiRepoProject is a project whose code remote is o/a and which declares
+// o/b, with one ticket on feat/12.
 func multiRepoProject(t *testing.T, d *DB) (*models.Project, *models.Task) {
 	t.Helper()
-	no := false
-	p, err := d.CreateProject(models.CreateProjectRequest{Name: "Multi", IssueTracker: "local", MonoRepo: &no,
+	p, err := d.CreateProject(models.CreateProjectRequest{Name: "Multi", IssueTracker: "local",
 		GitRemoteUrl: "git@github.com:o/a.git", Repositories: []string{"https://github.com/o/b"}})
 	if err != nil {
 		t.Fatal(err)
@@ -111,8 +110,7 @@ func TestPostgresRepositoryConversion(t *testing.T) {
 }
 
 func testRepositoryConversion(t *testing.T, d *DB) {
-	no := false
-	p, err := d.CreateProject(models.CreateProjectRequest{Name: "Legacy", IssueTracker: "local", MonoRepo: &no,
+	p, err := d.CreateProject(models.CreateProjectRequest{Name: "Legacy", IssueTracker: "local",
 		GitRemoteUrl: "git@github.com:o/a.git"})
 	if err != nil {
 		t.Fatal(err)
@@ -170,46 +168,19 @@ func testRepositoryConversion(t *testing.T, d *DB) {
 	}
 }
 
-func TestRunAwaitingRepositoryMarksAnAutonomousRun(t *testing.T) {
-	d := testDB(t)
-	_, task := multiRepoProject(t, d)
-	run, err := d.StartRemoteRunBy("usr_1", task.ID, "code-issue", "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := d.conn.Exec("UPDATE task_activities SET run_mode = 'autonomous' WHERE id = ?", run.ID); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := d.MarkRunAwaitingRepository(Actor{ID: "usr_2"}, false, run.ID, true); !errors.Is(err, ErrRunNotYours) {
-		t.Errorf("another user: err = %v", err)
-	}
-	waiting, err := d.MarkRunAwaitingRepository(Actor{ID: "usr_1"}, false, run.ID, true)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if waiting.WaitingSince == nil || waiting.WaitingReason != "repository" {
-		t.Errorf("waiting = %v, %q", waiting.WaitingSince, waiting.WaitingReason)
-	}
-	if err := d.SetRemoteRunWaiting(run.ID, true); err != nil {
-		t.Fatal(err)
-	}
-	if again, _ := d.GetActivityByID(run.ID); again.WaitingReason != "" || again.WaitingSince == nil {
-		t.Errorf("a session wait must drop the repository reason: %v, %q", again.WaitingSince, again.WaitingReason)
-	}
-	released, err := d.MarkRunAwaitingRepository(Actor{ID: "usr_1"}, false, run.ID, false)
-	if err != nil || released.WaitingSince != nil || released.WaitingReason != "" {
-		t.Errorf("released = %v, %q, %v", released.WaitingSince, released.WaitingReason, err)
-	}
-}
-
-// fakeWorktreeAgent answers repository_worktree like a current agent.
+// fakeWorktreeAgent answers repository_worktree like a current agent, or
+// fails with err as an agent that neither maps nor attaches the repository.
 type fakeWorktreeAgent struct {
 	calls  []agentprotocol.Operation
 	noEcho bool
+	err    error
 }
 
 func (f *fakeWorktreeAgent) call(_ context.Context, op agentprotocol.Operation) (json.RawMessage, error) {
 	f.calls = append(f.calls, op)
+	if f.err != nil {
+		return nil, f.err
+	}
 	repository := op.Repository
 	if f.noEcho {
 		repository = ""
@@ -237,33 +208,69 @@ func TestPrepareRepositoryWorktree(t *testing.T) {
 		t.Errorf("changed = %v, want github.com/o/b once", reread.ChangedRepositories)
 	}
 
+	// Neither the primary repository nor what names no repository is relayed.
+	calls := len(agent.calls)
 	for name, repository := range map[string]string{
-		"outside the project": "https://github.com/o/elsewhere",
-		"primary repository":  "git@github.com:o/a.git",
+		"primary repository": "git@github.com:o/a.git",
+		"folder path":        "/src/elsewhere",
+		"bare name":          "elsewhere",
+		"relative path":      "./elsewhere",
+		"home path":          "~/src/elsewhere",
 	} {
 		if _, err := d.PrepareRepositoryWorktree(context.Background(), "", task.Key, repository); err == nil {
 			t.Errorf("%s: accepted", name)
 		}
+	}
+	if len(agent.calls) != calls {
+		t.Errorf("a refused repository reached the agent: %+v", agent.calls[calls:])
 	}
 	agent.noEcho = true
 	if _, err := d.PrepareRepositoryWorktree(context.Background(), "", task.Key, "github.com/o/b"); err == nil || !strings.Contains(err.Error(), "too old") {
 		t.Errorf("no echo: err = %v", err)
 	}
 	agent.noEcho = false
-
-	yes := true
-	if _, err := d.UpdateProjectAs("", p.ID, models.UpdateProjectRequest{MonoRepo: &yes}); err != nil {
-		t.Fatal(err)
+	if p.Repositories[0].Identity != "github.com/o/a" {
+		t.Fatalf("repositories = %+v", p.Repositories)
 	}
-	if _, err := d.PrepareRepositoryWorktree(context.Background(), "", task.Key, "github.com/o/b"); err == nil || !strings.Contains(err.Error(), "mono-repo") {
-		t.Errorf("mono-repo: err = %v", err)
+}
+
+// A repository outside the project's list is a folder attached on the
+// caller's workstation (#484): the agent decides, and the server records its
+// identity only once a worktree came back.
+func TestPrepareRepositoryWorktreeInAnAttachedFolder(t *testing.T) {
+	d := testDB(t)
+	_, task := multiRepoProject(t, d)
+	agent := &fakeWorktreeAgent{err: errors.New("github.com/o/lib is not attached to this project on this workstation")}
+	d.SetAgentOperations(agent.call)
+
+	if _, err := d.PrepareRepositoryWorktree(context.Background(), "", task.Key, "git@github.com:o/lib.git"); err == nil || !strings.Contains(err.Error(), "not attached") {
+		t.Fatalf("unattached: err = %v", err)
+	}
+	if len(agent.calls) != 1 || agent.calls[0].Repository != "github.com/o/lib" {
+		t.Fatalf("calls = %+v", agent.calls)
+	}
+	if reread, _ := d.GetTaskByID(task.ID); len(reread.ChangedRepositories) != 0 {
+		t.Fatalf("an agent error recorded %v", reread.ChangedRepositories)
+	}
+
+	agent.err = nil
+	worktree, err := d.PrepareRepositoryWorktree(context.Background(), "", task.Key, "https://github.com/o/lib")
+	if err != nil || worktree.Repository != "github.com/o/lib" || worktree.Branch != "feat/12" {
+		t.Fatalf("attached: %+v %v", worktree, err)
+	}
+	reread, _ := d.GetTaskByID(task.ID)
+	if len(reread.ChangedRepositories) != 1 || reread.ChangedRepositories[0] != "github.com/o/lib" {
+		t.Fatalf("changed = %v", reread.ChangedRepositories)
+	}
+	project, _ := d.GetProjectByID(task.ProjectID)
+	if changed := taskChangedRepositories(project, reread); len(changed) != 1 || changed[0] != "github.com/o/lib" {
+		t.Errorf("an identity outside the project's list is not a changed repository: %v", changed)
 	}
 }
 
 func TestAProjectKnownByItsGitHubRepositorySavesItsOwnList(t *testing.T) {
 	d := testDB(t)
-	no := false
-	p, err := d.CreateProject(models.CreateProjectRequest{Name: "GitHub only", IssueTracker: "local", MonoRepo: &no, GithubRepo: "o/a", Repositories: []string{"git@github.com:o/b.git"}})
+	p, err := d.CreateProject(models.CreateProjectRequest{Name: "GitHub only", IssueTracker: "local", GithubRepo: "o/a", Repositories: []string{"git@github.com:o/b.git"}})
 	if err != nil {
 		t.Fatal(err)
 	}

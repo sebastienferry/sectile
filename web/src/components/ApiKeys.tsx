@@ -2,6 +2,8 @@ import React, { useCallback, useEffect, useState } from 'react'
 import { Check, Copy, Laptop, Plus, RefreshCw, Trash2 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { DEFAULT_KEY_TTL_DAYS, describeExpiry, expiryState, type ApiKey } from '../lib/apiKeys'
+import { format, formatDateTime, formatTime, parseDateInput, plural, type Locale } from '../lib/i18n'
+import type { SignInStrings } from '../locales/signIn'
 
 type PairingCode = {
   code: string
@@ -13,9 +15,9 @@ type IssuedKey = {
   device: ApiKey
 }
 
-function codeExpiry(expiresAt: string): string {
-  const date = new Date(expiresAt)
-  return Number.isNaN(date.getTime()) ? 'expiry unknown' : `Valid until ${date.toLocaleTimeString()}`
+function codeExpiry(expiresAt: string, text: SignInStrings['apiKeys'], locale: Locale): string {
+  const date = parseDateInput(expiresAt)
+  return date ? format(text.validUntil, { time: formatTime(locale, date) }) : text.expiryUnknown
 }
 
 /**
@@ -29,7 +31,9 @@ export function WorkstationsPanel({
   refreshTrigger?: number
   onDeviceChange?: () => void
 }) {
-  const { t } = useApp()
+  const { t, settings } = useApp()
+  const locale: Locale = settings.language
+  const text = t.signIn.apiKeys
   const serverOrigin = window.location.origin
   const [keys, setKeys] = useState<ApiKey[]>([])
   const [code, setCode] = useState<PairingCode | null>(null)
@@ -45,7 +49,7 @@ export function WorkstationsPanel({
       const body = await res.json()
       setKeys(body.devices ?? [])
     } catch {
-      setStatus(t.profileModal.workstations?.noWorkstations || 'Could not load workstations.')
+      setStatus(t.signIn.apiKeys.loadFailed)
     }
   }, [t])
 
@@ -67,7 +71,7 @@ export function WorkstationsPanel({
       setStatus(doneMsg)
       setTimeout(() => setCopiedCode(false), 2000)
     } catch {
-      setStatus(t.profileModal.workstations?.copyCommandBtn ? 'Copy unavailable.' : 'Copy unavailable.')
+      setStatus(text.copyUnavailable)
     }
   }
 
@@ -79,7 +83,7 @@ export function WorkstationsPanel({
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       setCode(await res.json())
     } catch {
-      setStatus('Could not issue a pairing code.')
+      setStatus(text.pairingFailed)
     } finally {
       setBusy(false)
     }
@@ -94,11 +98,14 @@ export function WorkstationsPanel({
         body: JSON.stringify({ ttlDays: days }),
       })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      setStatus(days > 0 ? `${key.Label || key.ID} renewed for ${days} days.` : `${key.Label || key.ID} no longer expires.`)
+      const name = key.Label || key.ID
+      setStatus(days > 0
+        ? plural(locale, days, text.renewed, { label: name })
+        : format(text.noLongerExpires, { label: name }))
       await loadKeys()
       onDeviceChange?.()
     } catch {
-      setStatus('Could not renew that workstation.')
+      setStatus(text.renewFailed)
     }
   }
 
@@ -107,11 +114,11 @@ export function WorkstationsPanel({
     try {
       const res = await fetch(`/api/devices?id=${encodeURIComponent(key.ID)}`, { method: 'DELETE' })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      setStatus(`${key.Label || key.ID} revoked.`)
+      setStatus(format(text.revoked, { label: key.Label || key.ID }))
       await loadKeys()
       onDeviceChange?.()
     } catch {
-      setStatus('Could not revoke that workstation.')
+      setStatus(text.revokeFailed)
     }
   }
 
@@ -164,10 +171,10 @@ export function WorkstationsPanel({
         <div className="p-3.5 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-color)] space-y-3">
           <div className="flex items-center justify-between text-[11px]">
             <span className="font-semibold text-[var(--text-primary)]">
-              {t.profileModal.workstations?.onWorkstationTitle || 'Temporary Pairing Code'}
+              {text.pairingCodeTitle}
             </span>
             <span className="text-[10px] text-[var(--text-muted)] font-mono">
-              {codeExpiry(code.expiresAt)}
+              {codeExpiry(code.expiresAt, text, locale)}
             </span>
           </div>
 
@@ -177,17 +184,17 @@ export function WorkstationsPanel({
             </code>
             <button
               type="button"
-              onClick={() => copy(code.code, t.profileModal.workstations?.copiedCommand || 'Pairing code copied.')}
+              onClick={() => copy(code.code, text.codeCopied)}
               className="px-3 py-2 rounded-lg text-xs font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)] bg-[var(--bg-tertiary)] hover:bg-[var(--bg-hover)] border border-[var(--border-color)] transition-all cursor-pointer flex items-center gap-1.5 shrink-0"
             >
               {copiedCode ? <Check size={13} className="text-emerald-400" /> : <Copy size={13} />}
-              <span>{copiedCode ? 'Copied' : 'Copy'}</span>
+              <span>{copiedCode ? text.copied : text.copy}</span>
             </button>
           </div>
 
           <div className="space-y-1.5 text-[11px] text-[var(--text-secondary)] pt-1">
             <div className="font-semibold text-[var(--text-primary)]">
-              {t.profileModal.workstations?.onWorkstationTitle || 'On the workstation'} :
+              {t.signIn.agent.onWorkstationLabel}
             </div>
             <div className="space-y-1 pl-1">
               <div className="flex items-start gap-1.5">
@@ -220,7 +227,7 @@ export function WorkstationsPanel({
             {t.profileModal.workstations?.pairedListTitle || 'Connected Machines'}
           </span>
           <span className="text-[10px] font-mono text-[var(--text-muted)]">
-            {keys.length} {keys.length === 1 ? 'machine' : 'machines'}
+            {plural(locale, keys.length, text.machines)}
           </span>
         </div>
 
@@ -244,15 +251,15 @@ export function WorkstationsPanel({
                     <div className="flex items-center gap-2 flex-wrap">
                       <Laptop size={14} className="text-blue-400 shrink-0" />
                       <span className="font-semibold text-xs text-[var(--text-primary)] truncate">
-                        {key.Label || 'Unnamed Workstation'}
+                        {key.Label || text.unnamedWorkstation}
                       </span>
                       <span className={`px-1.5 py-0.5 rounded text-[9.5px] font-medium border ${badgeClass}`}>
-                        {describeExpiry(key.ExpiresAt)}
+                        {describeExpiry(key.ExpiresAt, text, locale)}
                       </span>
                     </div>
                     <div className="text-[10.5px] text-[var(--text-muted)]">
                       {t.profileModal.workstations?.lastSeen || 'last seen'}{' '}
-                      {new Date(key.LastSeen).toLocaleString()}
+                      {formatDateTime(locale, key.LastSeen)}
                     </div>
                   </div>
 
@@ -260,7 +267,7 @@ export function WorkstationsPanel({
                     <button
                       type="button"
                       onClick={() => renew(key, DEFAULT_KEY_TTL_DAYS)}
-                      aria-label={`Renew ${key.Label || key.ID}`}
+                      aria-label={format(text.renewAria, { label: key.Label || key.ID })}
                       className="px-2.5 py-1 rounded-lg text-[11px] font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)] bg-[var(--bg-tertiary)] hover:bg-[var(--bg-hover)] border border-[var(--border-color)] transition-all cursor-pointer flex items-center gap-1"
                     >
                       <RefreshCw size={11} />
@@ -273,7 +280,7 @@ export function WorkstationsPanel({
                     <button
                       type="button"
                       onClick={() => revoke(key)}
-                      aria-label={`Revoke ${key.Label || key.ID}`}
+                      aria-label={format(text.revokeAria, { label: key.Label || key.ID })}
                       className="px-2.5 py-1 rounded-lg text-[11px] font-medium text-red-400 hover:text-red-300 bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 transition-all cursor-pointer flex items-center gap-1"
                     >
                       <Trash2 size={11} />
@@ -306,7 +313,9 @@ export function MCPApiKeyForm({
 }: {
   onKeyCreated?: () => void
 }) {
-  const { t } = useApp()
+  const { t, settings } = useApp()
+  const locale: Locale = settings.language
+  const text = t.signIn.apiKeys
   const [label, setLabel] = useState('')
   const [ttlDays, setTtlDays] = useState<number>(DEFAULT_KEY_TTL_DAYS)
   const [issued, setIssued] = useState<IssuedKey | null>(null)
@@ -330,7 +339,7 @@ export function MCPApiKeyForm({
       setLabel('')
       onKeyCreated?.()
     } catch {
-      setStatus('Could not create an API key.')
+      setStatus(text.createFailed)
     } finally {
       setBusy(false)
     }
@@ -342,7 +351,7 @@ export function MCPApiKeyForm({
       setCopiedKey(true)
       setTimeout(() => setCopiedKey(false), 2000)
     } catch {
-      setStatus('Copy unavailable. Please copy manually.')
+      setStatus(text.copyUnavailableManual)
     }
   }
 
@@ -402,11 +411,11 @@ export function MCPApiKeyForm({
         <div className="p-3.5 rounded-xl border border-emerald-500/30 bg-emerald-500/10 space-y-2.5">
           <div className="flex items-center justify-between">
             <span className="text-xs font-bold text-emerald-400">
-              {t.profileModal.workstations?.keyCreatedSuccess?.replace('{label}', issued.device.Label || 'Client') ||
-                `API key generated for ${issued.device.Label || 'Client'}. Copy it now: it will never be displayed again.`}
+              {t.profileModal.workstations?.keyCreatedSuccess?.replace('{label}', issued.device.Label || text.clientFallback) ||
+                `API key generated for ${issued.device.Label || text.clientFallback}. Copy it now: it will never be displayed again.`}
             </span>
             <span className="text-[10px] text-emerald-300/80 font-mono">
-              {describeExpiry(issued.device.ExpiresAt)}
+              {describeExpiry(issued.device.ExpiresAt, text, locale)}
             </span>
           </div>
 
@@ -420,7 +429,7 @@ export function MCPApiKeyForm({
               className="px-3 py-2 rounded-lg text-xs font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)] bg-[var(--bg-secondary)] hover:bg-[var(--bg-hover)] border border-[var(--border-color)] transition-all cursor-pointer flex items-center gap-1.5 shrink-0"
             >
               {copiedKey ? <Check size={13} className="text-emerald-400" /> : <Copy size={13} />}
-              <span>{copiedKey ? 'Copied' : (t.profileModal.workstations?.copyKeyBtn || 'Copy Key')}</span>
+              <span>{copiedKey ? text.copied : (t.profileModal.workstations?.copyKeyBtn || 'Copy Key')}</span>
             </button>
           </div>
         </div>

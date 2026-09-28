@@ -3,13 +3,15 @@ import { foldForSearch } from './searchFold.ts'
 import { WORKFLOW_ORDER, resolveTaskStage } from './workflow.ts'
 
 /**
- * Agrégation des épics pour la vue Roadmap.
+ * Epic aggregation for the Roadmap view.
  *
- * Sectile n'importe pas les épics comme cartes — ce sont des conteneurs, portés
- * par les tickets sous forme de `parentKey` / `parentTitle`. Un épic est donc
- * reconstruit ici depuis ses enfants, et tout ce que la vue affiche est déduit
- * d'eux : c'est la seule source disponible, et elle a l'avantage d'être toujours
- * à jour après une synchro.
+ * Sectile does not import epics as cards: they are containers, carried by the
+ * tickets as `parentKey` / `parentTitle`. An epic is therefore rebuilt here
+ * from its children, and everything the view shows is derived from them: it is
+ * the only source available, and it is always up to date after a sync.
+ *
+ * Display text (horizon hints, placement and priority labels, "no sprint")
+ * lives in the `planning` catalog; this module only holds keys and colours.
  */
 
 export type Horizon = 'now' | 'next' | 'later' | 'hidden'
@@ -49,39 +51,36 @@ export type MacroRow = EpicRow
 const PRIORITY_RANK: Record<Priority, number> = { urgent: 4, high: 3, medium: 2, low: 1 }
 
 /**
- * Couleurs de la vue : uniquement des variables globales de l'app, jamais de
- * valeur en dur. Le thème du produit vit déjà dans index.css : accent,
- * couleurs de signal, thèmes clair et sombre, variantes par projet — donc figer
- * la palette du design ici priverait la vue du thème et de l'accent choisis.
+ * Colours of the view: only the app's global variables, never a hardcoded
+ * value. The product theme already lives in index.css (accent, signal
+ * colours, light and dark themes, per-project variants), so freezing the
+ * design palette here would deprive the view of the chosen theme and accent.
  *
- * L'accent porte NOW, puisque c'est l'orange de la marque par défaut et qu'un
- * projet peut légitimement en changer.
+ * The accent carries NOW, since it is the brand orange by default and a
+ * project may legitimately change it. The labels are product vocabulary and
+ * read the same in every language; the hints come from the catalog.
  */
-export const HORIZON_META: Record<Horizon, { label: string; hint: string; color: string; bg: string; border: string }> = {
+export const HORIZON_META: Record<Horizon, { label: string; color: string; bg: string; border: string }> = {
   now: {
     label: 'NOW',
-    hint: 'Sprint en cours',
     color: 'var(--accent-color)',
     bg: 'var(--accent-light)',
     border: 'rgb(var(--accent-rgb) / 0.45)',
   },
   next: {
     label: 'NEXT',
-    hint: 'Sprints à venir',
     color: 'var(--status-info)',
     bg: 'rgb(var(--status-info-rgb) / 0.13)',
     border: 'rgb(var(--status-info-rgb) / 0.4)',
   },
   later: {
     label: 'LATER',
-    hint: 'Cadrage',
     color: 'var(--status-warn)',
     bg: 'rgb(var(--status-warn-rgb) / 0.12)',
     border: 'rgb(var(--status-warn-rgb) / 0.32)',
   },
   hidden: {
     label: 'HIDDEN',
-    hint: 'Tout-venant',
     color: 'var(--text-muted)',
     bg: 'var(--bg-tertiary)',
     border: 'var(--border-color)',
@@ -95,11 +94,11 @@ export const MATURITY_META: Record<Maturity, { pct: number; color: string; bg: s
   Ready: { pct: 100, color: 'var(--status-ok)', bg: 'rgb(var(--status-ok-rgb) / 0.13)', border: 'rgb(var(--status-ok-rgb) / 0.32)' },
 }
 
-export const PRIORITY_META: Record<Priority, { label: string; color: string; bg: string }> = {
-  urgent: { label: 'Critical', color: 'var(--status-danger)', bg: 'rgb(var(--status-danger-rgb) / 0.13)' },
-  high: { label: 'High', color: 'var(--accent-color)', bg: 'var(--accent-light)' },
-  medium: { label: 'Medium', color: 'var(--status-info)', bg: 'rgb(var(--status-info-rgb) / 0.12)' },
-  low: { label: 'Low', color: 'var(--text-muted)', bg: 'var(--bg-tertiary)' },
+export const PRIORITY_META: Record<Priority, { color: string; bg: string }> = {
+  urgent: { color: 'var(--status-danger)', bg: 'rgb(var(--status-danger-rgb) / 0.13)' },
+  high: { color: 'var(--accent-color)', bg: 'var(--accent-light)' },
+  medium: { color: 'var(--status-info)', bg: 'rgb(var(--status-info-rgb) / 0.12)' },
+  low: { color: 'var(--text-muted)', bg: 'var(--bg-tertiary)' },
 }
 
 const isOpen = (task: Task): boolean => task.status !== 'finished' && task.status !== 'done'
@@ -207,7 +206,7 @@ export const buildEpicRows = (
       const team = (t.team || '').trim()
       if (team) teamCounts.set(team, (teamCounts.get(team) || 0) + 1)
     })
-    const squad = Array.from(teamCounts.entries()).sort((a, b) => b[1] - a[1])[0]?.[0] || '—'
+    const squad = Array.from(teamCounts.entries()).sort((a, b) => b[1] - a[1])[0]?.[0] || '-'
     // Un épic vide n'a ni équipe ni priorité déduite : on l'assume plutôt que de
     // fabriquer une valeur.
 
@@ -307,27 +306,23 @@ export const placementOf = (task: Task, row: EpicRow, horizon: Horizon): Placeme
   return 'ok'
 }
 
-export const PLACEMENT_META: Record<PlacementState, { label: string; color: string; bg: string; border: string }> = {
+export const PLACEMENT_META: Record<PlacementState, { color: string; bg: string; border: string }> = {
   ok: {
-    label: 'placé',
     color: 'var(--status-ok)',
     bg: 'rgb(var(--status-ok-rgb) / 0.13)',
     border: 'rgb(var(--status-ok-rgb) / 0.32)',
   },
   'other-horizon': {
-    label: 'autre horizon',
     color: 'var(--status-info)',
     bg: 'rgb(var(--status-info-rgb) / 0.12)',
     border: 'rgb(var(--status-info-rgb) / 0.32)',
   },
   stale: {
-    label: 'sprint clos',
     color: 'var(--status-warn)',
     bg: 'rgb(var(--status-warn-rgb) / 0.14)',
     border: 'rgb(var(--status-warn-rgb) / 0.34)',
   },
   missing: {
-    label: 'sans sprint',
     color: 'var(--status-danger)',
     bg: 'rgb(var(--status-danger-rgb) / 0.13)',
     border: 'rgb(var(--status-danger-rgb) / 0.32)',
@@ -417,5 +412,5 @@ export const tasksBySprintOrder = (tasks: Task[], project?: Project | null): Tas
   })
 }
 
-/** Libellé du sprint d'un ticket, pour l'affichage groupé. */
-export const sprintLabelOf = (task: Task): string => (task.sprint || '').trim() || 'Sans sprint'
+/** A ticket's sprint label for the grouped display; `noSprint` names the missing one. */
+export const sprintLabelOf = (task: Task, noSprint: string): string => (task.sprint || '').trim() || noSprint

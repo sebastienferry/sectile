@@ -26,23 +26,19 @@ export const LABEL_AXES = {
 
 export type LabelAxis = keyof typeof LABEL_AXES
 
-/** Les mots d'un axe, tels que le panneau les emploie. */
-export const axisWords = (
-  axis: LabelAxis
-): { singular: string; plural: string; none: string; placeholder: string } =>
-  axis === 'phase'
-    ? {
-        singular: 'Phase',
-        plural: 'Phases',
-        none: 'Sans phase',
-        placeholder: 'Nommer une phase…',
-      }
-    : {
-        singular: 'Objectif',
-        plural: 'Objectifs',
-        none: 'Sans objectif',
-        placeholder: 'Nommer un objectif…',
-      }
+/** The words the panel uses for one axis, in the UI language. */
+export interface AxisWords {
+  singular: string
+  plural: string
+  none: string
+  placeholder: string
+}
+
+/**
+ * The words of an axis, as the panel uses them. They come from the catalog
+ * (`t.planning.macro.axes`), keyed by axis, so this module holds no language.
+ */
+export const axisWords = (axis: LabelAxis, words: Record<LabelAxis, AxisWords>): AxisWords => words[axis]
 
 /** Le label porte-t-il cet axe ? La casse est ignorée, le tracker n'en garantit aucune. */
 export const isAxisLabel = (axis: LabelAxis, label: string): boolean =>

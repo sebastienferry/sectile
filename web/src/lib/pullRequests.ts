@@ -22,13 +22,3 @@ export function addPullRequestLink(links: PullRequestLink[], url: string, branch
 export function currentPullRequestLink(task: Pick<Task, 'prLinks' | 'prUrl' | 'branchName'>): PullRequestLink | undefined {
   return taskPullRequestLinks(task).at(-1)
 }
-
-export function pullRequestStateLabel(state?: string): string {
-  switch (state) {
-    case 'open': return 'PR ouverte'
-    case 'conflicting': return 'PR en conflits'
-    case 'merged': return 'PR fusionnée'
-    case 'closed': return 'PR fermée sans fusion'
-    default: return 'État de la PR inconnu'
-  }
-}

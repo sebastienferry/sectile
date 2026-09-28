@@ -24,7 +24,8 @@ Sectile supports multiple concurrent software repositories and projects from a s
   - `issue_tracker`: Tracker provider (`github`, `gitlab`, `jira`, or `local`).
   - `tracker_columns` / `stage_columns`: Board columns, the tracker statuses they group, and the workflow stage each column carries. This is what maps a Sectile stage onto an external tracker state.
   - `skill_overrides`: Project-specific prompt template overrides.
-  - `repositories`: On a multi-repo project, the remotes its tickets work in, the code remote first. A ticket is pinned to one of them and runs in a worktree of it; the others are context the agent is told not to change (an instruction, not enforced), and a skill asks for a worktree in one before changing it, which then needs its own pull request (#456, ADR 0028).
+  - `repositories`: The remotes its tickets work in, the code remote first. A ticket pinned to one of them runs in a worktree of it, an unpinned one in the code repository; the others are context the agent is told not to change (an instruction, not enforced), and a skill asks for a worktree in one before changing it, which then needs its own pull request (#456, ADR 0028, ADR 0036).
+  - Attached folders: other folders a workstation attaches to the project in the desktop settings, kept on that workstation only and handed to every launch as context. An attached Git repository with a remote is changed through a worktree and its own pull request, a folder without a remote in place (#484, ADR 0036).
 
 - **Dynamic Workspace Switcher**:
   - The UI allows filtering tasks by project (`All Projects` vs individual projects).
@@ -144,7 +145,10 @@ flowchart LR
 Local skills execute on the agent. Background jobs dispatch the same native skill
 contract and track launch acknowledgement separately from remote completion.
 Skills call MCP `start_run`, submit verified stages through `transition_stage`,
-and call `finish_run` when the invocation ends. A process exit or launch
+and call `finish_run` when the invocation ends. A batch pickup reuses its launch
+run on every ticket, calling `start_run` with that run's ID when it begins a
+ticket, which is how the web board shows which ticket of a running batch is being
+processed and which ones wait their turn (ADR 0034). A process exit or launch
 acknowledgement alone never advances the ticket. The former server-side result-file
 worker is retired; the server does not open an agent checkout or receipt file.
 
@@ -450,3 +454,17 @@ how long the wait has lasted, and the activities view has a matching filter.
 - **Side-by-Side & Inline Git Diff Inspector**: Displays real-time file diffs between the active task branch and `main` using syntax highlighting.
 - **Branch Checkout & Worktree Switcher**: Allows the developer to switch their main editor CWD or inspect the worktree directory in one click.
 - **Auto-Pruning**: Safely removes worktrees when tasks are marked as finished or deleted.
+
+### Clarification round reports and stage publication
+
+Each clarification round publishes its complete section on the ticket, while the
+Markdown report preserves the history. Intermediate standalone rounds use comments;
+the final round uses the stage transition note once. Large sections are divided into
+numbered parts. Managed runs report through their supplied result contract.
+
+The project workflow setting `pushStageCommits` is off by default. When enabled,
+clarify and specify push their assigned branch after each artifact commit, setting
+the upstream on first publication and never forcing. A refused push is reported
+without blocking the stage. Ignored artifacts remain local and cause no commit or
+push. Required pull request publication still follows the project's creation stage.
+Agents receive these instructions when their installed skills are regenerated.

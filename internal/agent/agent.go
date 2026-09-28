@@ -84,6 +84,8 @@ type agentDaemon struct {
 	done             chan struct{}
 	contract         contractState
 	launchTerminalFn func(terminalApp, sessionID string) error
+	// openEditorFn replaces the editor launch in tests (#535).
+	openEditorFn func(editor, directory string) error
 	// capabilities serializes the engine reports sent to the server (#305).
 	capabilities capabilityReporter
 	// customSkills records the custom skills dispatches ran since the agent
@@ -379,10 +381,10 @@ func (d *agentDaemon) connectLoop(ctx context.Context) {
 		default:
 		}
 
-		err := d.connect(ctx)
+		connected, err := d.connect(ctx)
 		if err != nil {
-			attempt++
-			backoff := time.Duration(math.Min(float64(time.Second)*math.Pow(2, float64(attempt)), float64(60*time.Second)))
+			attempt = nextConnectionAttempt(attempt, connected)
+			backoff := connectionBackoff(attempt)
 			if agentconfig.IsMismatch(err) {
 				// Retrying is still right, since updating and restarting the
 				// server is what clears this, but calling it a lost connection
@@ -409,6 +411,17 @@ func (d *agentDaemon) connectLoop(ctx context.Context) {
 			attempt = 0
 		}
 	}
+}
+
+func nextConnectionAttempt(previous int, connected bool) int {
+	if connected {
+		return 1
+	}
+	return previous + 1
+}
+
+func connectionBackoff(attempt int) time.Duration {
+	return time.Duration(math.Min(float64(time.Second)*math.Pow(2, float64(attempt)), float64(60*time.Second)))
 }
 
 // startLocalProxy starts an embedded HTTP reverse proxy on 127.0.0.1 (default port 8091 or dynamic)
@@ -492,16 +505,16 @@ func (d *agentDaemon) startLocalProxy(ctx context.Context) error {
 
 // connect establishes a single WebSocket connection and runs the message loop
 // until the connection is lost or the context is cancelled.
-func (d *agentDaemon) connect(ctx context.Context) error {
+func (d *agentDaemon) connect(ctx context.Context) (bool, error) {
 	if err := d.checkIdentity(ctx); err != nil {
-		return err
+		return false, err
 	}
 	// The workstation defaults take over the server's values once (#305).
 	d.seedSettings(ctx, agentconfig.Config{})
 	if d.link.projectID == "all" {
 		projects, err := d.discoverProjects(ctx)
 		if err != nil {
-			return fmt.Errorf("project discovery: %w", err)
+			return false, fmt.Errorf("project discovery: %w", err)
 		}
 		for _, p := range projects.Projects {
 			_, _, err := d.localProjectRoot(ctx, agentconfig.Config{ProjectID: p.ID, GitRemoteURL: p.GitRemoteURL})
@@ -516,12 +529,12 @@ func (d *agentDaemon) connect(ctx context.Context) error {
 		// The configuration is read to check the contract; it is no longer
 		// installed on connection (#267).
 		if _, err := d.fetchConfig(ctx, d.link.projectID, ""); err != nil {
-			return fmt.Errorf("configuration sync: %w", err)
+			return false, fmt.Errorf("configuration sync: %w", err)
 		}
 	}
 	wsURL, err := d.buildWSURL()
 	if err != nil {
-		return fmt.Errorf("invalid server URL: %w", err)
+		return false, fmt.Errorf("invalid server URL: %w", err)
 	}
 
 	header := http.Header{}
@@ -531,7 +544,7 @@ func (d *agentDaemon) connect(ctx context.Context) error {
 
 	conn, _, err := websocket.DefaultDialer.DialContext(ctx, wsURL, header)
 	if err != nil {
-		return fmt.Errorf("WebSocket dial failed: %w", err)
+		return false, fmt.Errorf("WebSocket dial failed: %w", err)
 	}
 
 	d.link.mu.Lock()
@@ -565,14 +578,14 @@ func (d *agentDaemon) connect(ctx context.Context) error {
 	for {
 		select {
 		case <-ctx.Done():
-			return nil
+			return true, nil
 		default:
 		}
 
 		_, msgData, err := conn.ReadMessage()
 		if err != nil {
 			logDisconnect(err)
-			return fmt.Errorf("read error: %w", err)
+			return true, fmt.Errorf("read error: %w", err)
 		}
 
 		var msg agentprotocol.Message
@@ -696,13 +709,26 @@ func pongLoop(ctx context.Context, conn *websocket.Conn, pongs <-chan []byte) {
 // without this the log only ever showed "close 1006 (abnormal closure)", which
 // names neither.
 func logDisconnect(err error) {
-	var closeErr *websocket.CloseError
-	if errors.As(err, &closeErr) && closeErr.Text != "" {
+	if closeErr := receivedServerClose(err); closeErr != nil {
 		log.Printf("[Agent] Disconnected by the server: code %d, %s", closeErr.Code, closeErr.Text)
 		fmt.Printf("\n⚠️  [Agent] Déconnecté par le serveur (code %d) : %s\n\n", closeErr.Code, closeErr.Text)
 		return
 	}
+	var closeErr *websocket.CloseError
+	if errors.As(err, &closeErr) && closeErr.Code == websocket.CloseAbnormalClosure {
+		log.Printf("[Agent] Connection lost without a server close frame: %v", err)
+		fmt.Printf("\n⚠️  [Agent] Connexion au serveur interrompue sans motif de fermeture reçu : %v\n\n", err)
+		return
+	}
 	log.Printf("[Agent] Connection closed without a reason from the server: %v", err)
+}
+
+func receivedServerClose(err error) *websocket.CloseError {
+	var closeErr *websocket.CloseError
+	if errors.As(err, &closeErr) && closeErr.Code != websocket.CloseAbnormalClosure && closeErr.Text != "" {
+		return closeErr
+	}
+	return nil
 }
 
 // handleMessage processes a single message received from the remote server.
@@ -1052,15 +1078,6 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 	}
 	d.convertLegacyRepoPaths(ctx, queueConfig)
 	config, workDir, branch, task, err := d.prepareDispatch(ctx, taskRef, run.isolated)
-	// A ticket whose repository cannot be chosen here waits to be pinned, on
-	// the same run, instead of starting in a guessed repository (#456).
-	for errors.Is(err, errRepositoryAmbiguous) {
-		if waitErr := d.awaitRepository(ctx, queueConfig, run, taskRef, payload.RunID); waitErr != nil {
-			err = waitErr
-			break
-		}
-		config, workDir, branch, task, err = d.prepareDispatch(ctx, taskRef, run.isolated)
-	}
 	if err != nil {
 		launchFailure = err
 		d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", err.Error())

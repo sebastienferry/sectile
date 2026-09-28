@@ -73,6 +73,7 @@ try {
   assert.equal(requests[0].body.skillId, 'pickup_issues')
   assert.ok(requests[0].body.prompt.startsWith('/pickup-issues two one\n'))
   assert.ok(requests[0].body.prompt.includes('.tasks/worktrees/batch-chosen'))
+  assert.deepEqual(requests[0].body.batchTaskIds, ['two', 'one'], 'the batch tickets reach the server in the chosen order')
   assert.equal(await page.getByLabel('Nom du worktree').inputValue(), 'batch-chosen')
   assert.equal(await page.evaluate(() => result), false, 'failed launch leaves the pending caller unresolved')
   accept = true
@@ -81,7 +82,7 @@ try {
   assert.equal(await page.evaluate(() => result), true, 'accepted launch resolves true to clear the caller selection')
   assert.deepEqual(requests[1], requests[0])
   assert.deepEqual(errors, [])
-  console.log('PASS: real AppProvider opens before dispatch, cancellation resolves false, selected order/name reach run-skill, failed launch can retry, acceptance resolves true')
+  console.log('PASS: real AppProvider opens before dispatch, cancellation resolves false, selected order/name and batch tickets reach run-skill, failed launch can retry, acceptance resolves true')
 
 } finally {
   await browser?.close()

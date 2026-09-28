@@ -8,17 +8,20 @@ import {
   Terminal,
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
+import { format, formatDateTime, plural } from '../lib/i18n'
+import type { SkillsEditorStrings } from '../locales/skillsEditor'
 import type { SkillEditorEntry, SkillMode } from '../types'
 
 /**
- * Les trois valeurs du réglage par skill. « Défaut du projet » est le troisième
- * état dont la précédence a besoin : sans lui, aucune skill ne peut dire « pas
- * d'avis » et retomber sur le réglage du projet.
+ * The three values of the per-skill setting. "Project default" is the third
+ * state the precedence needs: without it, no skill could say "no opinion" and
+ * fall back to the project setting. The stored values never change with the
+ * UI language, only their labels do.
  */
-const SKILL_MODE_OPTIONS: { value: SkillMode; label: string; title: string }[] = [
-  { value: '', label: 'Défaut du projet', title: "La skill ne fixe rien : le défaut du projet décide" },
-  { value: 'interactive', label: 'Interactif', title: 'Ouvre un terminal que tu réponds, et tu confirmes la transition' },
-  { value: 'autonomous', label: 'Autonome', title: "Lance la CLI en headless, sans terminal ; le worker pose la transition" },
+const skillModeOptions = (modes: SkillsEditorStrings['modes']): { value: SkillMode; label: string; title: string }[] => [
+  { value: '', label: modes.projectDefault, title: modes.projectDefaultHelp },
+  { value: 'interactive', label: modes.interactive, title: modes.interactiveHelp },
+  { value: 'autonomous', label: modes.autonomous, title: modes.autonomousHelp },
 ]
 
 /**
@@ -30,7 +33,8 @@ const SKILL_MODE_OPTIONS: { value: SkillMode; label: string; title: string }[] =
  * silence, il est signalé comme divergent et peut être réimporté.
  */
 export const SkillsView: React.FC = () => {
-  const { currentProject, fetchSkillEditor, saveSkillContent, resetSkillContent, saveSkillMode } = useApp()
+  const { t, settings, currentProject, fetchSkillEditor, saveSkillContent, resetSkillContent, saveSkillMode } = useApp()
+  const { modes, list, indicators, editor } = t.skillsEditor
 
   const [entries, setEntries] = useState<SkillEditorEntry[]>([])
   const [isLoading, setIsLoading] = useState(false)
@@ -51,7 +55,7 @@ export const SkillsView: React.FC = () => {
 
   useEffect(() => {
     load()
-    // Rechargé au changement de projet : les skills sont propres au projet.
+    // Reloaded when the project changes: skills belong to the project.
   }, [currentProject?.id])
 
   const selected = useMemo(() => entries.find(e => e.id === selectedId) || null, [entries, selectedId])
@@ -79,38 +83,33 @@ export const SkillsView: React.FC = () => {
   if (!currentProject) {
     return (
       <div className="flex-1 flex items-center justify-center p-8 text-center">
-        <p className="text-xs text-[var(--text-muted)] max-w-sm">
-          Sélectionne un projet : les skills sont éditées par projet, et régénérées dans le dépôt de ce
-          projet.
-        </p>
+        <p className="text-xs text-[var(--text-muted)] max-w-sm">{list.noProject}</p>
       </div>
     )
   }
 
   return (
     <div className="flex-1 flex min-h-0">
-      {/* Les pas du workflow, dans l'ordre */}
+      {/* The workflow steps, in order */}
       <div className="w-72 shrink-0 border-r border-[var(--border-color)] flex flex-col min-h-0">
         <div className="px-3 py-2.5 border-b border-[var(--border-color)]">
           <h2 className="text-[11px] font-bold uppercase tracking-wider text-[var(--text-secondary)] flex items-center gap-1.5">
             <FileCode2 size={13} className="text-[var(--accent-color)]" />
-            <span>Workflow skills</span>
+            <span>{list.title}</span>
           </h2>
-          <p className="text-[10px] text-[var(--text-muted)] mt-1 leading-snug">
-            Clarify → Specify → Implement → Adjust → Handoff.
-          </p>
+          <p className="text-[10px] text-[var(--text-muted)] mt-1 leading-snug">{list.pipeline}</p>
         </div>
 
         <div className="flex-1 overflow-y-auto p-2 space-y-1">
           {isLoading && entries.length === 0 ? (
             <div className="flex items-center gap-2 px-2 py-3 text-[var(--text-muted)]">
               <Loader2 size={13} className="animate-spin text-[var(--accent-color)]" />
-              <span className="text-[11px]">Lecture des skills…</span>
+              <span className="text-[11px]">{list.loading}</span>
             </div>
           ) : (
             entries.map((entry, index) => (
               <React.Fragment key={entry.id}>
-                {index === 5 && <h3 className="px-2 pt-4 pb-1 text-[10px] font-bold uppercase text-[var(--text-muted)]">Additional skills</h3>}
+                {index === 5 && <h3 className="px-2 pt-4 pb-1 text-[10px] font-bold uppercase text-[var(--text-muted)]">{list.additionalSkills}</h3>}
                 <button
                   type="button"
                   onClick={() => select(entry)}
@@ -126,50 +125,50 @@ export const SkillsView: React.FC = () => {
                     {entry.scope === 'macro' && (
                       <span
                         className="ml-auto text-[8px] font-bold px-1 rounded text-orange-400 bg-orange-500/10 border border-orange-500/30 shrink-0"
-                        title="Skill de cadrage et raffinage Macro"
+                        title={indicators.macroTitle}
                       >
-                        MACRO
+                        {indicators.macro}
                       </span>
                     )}
                     {entry.isCustom && (
                       <span
                         className={`${entry.scope === 'macro' ? '' : 'ml-auto'} text-[8px] font-bold px-1 rounded text-[var(--accent-color)] bg-[var(--accent-light)] border border-[var(--accent-color)]/30 shrink-0`}
-                        title="Contenu propre à ce projet"
+                        title={indicators.customTitle}
                       >
-                        PERSO
+                        {indicators.custom}
                       </span>
                     )}
                   </div>
                   <div className="mt-1 flex items-center gap-1 text-[9px] font-mono text-[var(--text-muted)]">
                     {entry.scope === 'macro' ? (
-                      <span className="text-orange-400 font-bold">{entry.id === 'realign_macro' ? 'Réalignement Macro' : 'Raffinage Macro'}</span>
+                      <span className="text-orange-400 font-bold">{entry.id === 'realign_macro' ? list.macroRealignment : list.macroRefinement}</span>
                     ) : entry.fromStage && entry.toStage ? (
                       <>
                         <span>#{entry.fromStage}</span>
                         <span className="text-[var(--accent-color)]">➔</span>
                         <span>#{entry.toStage}</span>
                       </>
-                    ) : <span>Additional skill</span>}
+                    ) : <span>{list.additionalSkill}</span>}
                     {entry.mode && (
                       <span
                         className="ml-1 flex items-center gap-0.5 text-[var(--text-secondary)]"
-                        title={entry.mode === 'autonomous' ? 'Exécution autonome (headless)' : 'Session interactive'}
+                        title={entry.mode === 'autonomous' ? modes.autonomousRun : modes.interactiveSession}
                       >
                         {entry.mode === 'autonomous' ? <Bot size={8} /> : <Terminal size={8} />}
-                        {entry.mode === 'autonomous' ? 'Autonome' : 'Interactif'}
+                        {entry.mode === 'autonomous' ? modes.autonomous : modes.interactive}
                       </span>
                     )}
                   </div>
                   <div className="mt-1 flex items-center gap-1.5">
                     <code className="text-[9px] text-[var(--text-secondary)]">{entry.command}</code>
                     {!entry.installed && (
-                      <span className="text-[8px] font-bold text-amber-400" title="Aucun SKILL.md dans le dépôt">
-                        NON INSTALLÉE
+                      <span className="text-[8px] font-bold text-amber-400" title={indicators.notInstalledTitle}>
+                        {indicators.notInstalled}
                       </span>
                     )}
                     {entry.diverged && (
-                      <span className="text-[8px] font-bold text-rose-400" title="Le fichier du dépôt diffère">
-                        DIVERGENTE
+                      <span className="text-[8px] font-bold text-rose-400" title={indicators.divergedTitle}>
+                        {indicators.diverged}
                       </span>
                     )}
                   </div>
@@ -180,33 +179,40 @@ export const SkillsView: React.FC = () => {
         </div>
       </div>
 
-      {/* L'éditeur */}
+      {/* The editor */}
       <div className="flex-1 flex flex-col min-h-0">
         {!selected ? (
           <div className="flex-1 flex items-center justify-center text-[11px] text-[var(--text-muted)]">
-            Choisis une skill à gauche.
+            {list.noSelection}
           </div>
         ) : (
           <>
             <div className="px-4 py-2.5 border-b border-[var(--border-color)] flex items-center gap-2 flex-wrap">
               <div className="min-w-0">
-                {selected.requiresReconciliation && <p role="alert" className="text-amber-400 text-xs">Legacy customization requires reconciliation. Review the complete content and save under Adjust, or reset to the default. Automatic adjustment is blocked.</p>}
-                {selected.overrideOrigin && <p className="text-xs">Source: {selected.overrideOrigin}. Other saved entries: {selected.legacyConflicts?.join(', ') || 'none'}</p>}
+                {selected.requiresReconciliation && <p role="alert" className="text-amber-400 text-xs">{editor.reconciliationRequired}</p>}
+                {selected.overrideOrigin && (
+                  <p className="text-xs">
+                    {format(editor.overrideOrigin, {
+                      origin: selected.overrideOrigin,
+                      entries: selected.legacyConflicts?.join(', ') || editor.noOtherEntries,
+                    })}
+                  </p>
+                )}
                 <h3 className="text-[13px] font-bold text-[var(--text-primary)] truncate">{selected.name}</h3>
                 <p className="text-[10px] text-[var(--text-muted)] truncate">{selected.description}</p>
               </div>
 
               <div className="ml-auto flex items-center gap-1.5">
                 <label className="flex items-center gap-1 text-[10px] text-[var(--text-secondary)]">
-                  <span>Mode</span>
+                  <span>{modes.label}</span>
                   <select
                     value={selected.mode || ''}
                     disabled={busy !== null}
                     onChange={e => run('mode', () => saveSkillMode(selected.id, e.target.value as SkillMode))}
                     className="px-1.5 py-1 rounded-lg text-[10px] bg-[var(--bg-tertiary)] text-[var(--text-primary)] border border-[var(--border-color)] disabled:opacity-40 cursor-pointer"
-                    title="Mode d'exécution de cette skill. Une surcharge au lancement le remplace pour ce lancement seulement."
+                    title={modes.selectTitle}
                   >
-                    {SKILL_MODE_OPTIONS.map(option => (
+                    {skillModeOptions(modes).map(option => (
                       <option key={option.value} value={option.value} title={option.title}>
                         {option.label}
                       </option>
@@ -220,10 +226,10 @@ export const SkillsView: React.FC = () => {
                     onClick={() => run('reset', () => resetSkillContent(selected.id))}
                     disabled={busy !== null}
                     className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-[11px] font-bold text-[var(--text-secondary)] bg-[var(--bg-tertiary)] border border-[var(--border-color)] hover:text-[var(--text-primary)] disabled:opacity-40 cursor-pointer"
-                    title="Revenir au modèle intégré de Sectile"
+                    title={editor.resetTitle}
                   >
                     {busy === 'reset' ? <Loader2 size={11} className="animate-spin" /> : <RotateCcw size={11} />}
-                    <span>Réinitialiser</span>
+                    <span>{editor.reset}</span>
                   </button>
                 )}
                 <button
@@ -231,17 +237,17 @@ export const SkillsView: React.FC = () => {
                   onClick={() => run('save', () => saveSkillContent(selected.id, draft))}
                   disabled={busy !== null || !isDirty}
                   className="flex items-center gap-1 px-3 py-1.5 rounded-xl text-[11px] font-bold text-white accent-bg hover:opacity-90 disabled:opacity-40 cursor-pointer"
-                  title="Save skill instructions for the local agent"
+                  title={editor.saveTitle}
                 >
                   {busy === 'save' ? <Loader2 size={11} className="animate-spin" /> : <Save size={11} />}
-                  <span>{isDirty ? 'Enregistrer' : 'À jour'}</span>
+                  <span>{isDirty ? editor.save : editor.upToDate}</span>
                 </button>
               </div>
             </div>
 
 
 
-            {Object.entries(selected.legacyContents || {}).map(([id, content]) => <details key={id} className="px-4 text-xs"><summary>Preserved customization: {id}</summary><pre className="whitespace-pre-wrap">{content}</pre></details>)}
+            {Object.entries(selected.legacyContents || {}).map(([id, content]) => <details key={id} className="px-4 text-xs"><summary>{format(editor.preservedCustomization, { id })}</summary><pre className="whitespace-pre-wrap">{content}</pre></details>)}
             <textarea
               value={draft}
               onChange={e => setDraft(e.target.value)}
@@ -250,11 +256,13 @@ export const SkillsView: React.FC = () => {
             />
 
             <div className="px-4 py-1.5 border-t border-[var(--border-color)] flex items-center gap-3 text-[9px] font-mono text-[var(--text-muted)] flex-wrap">
-              <span>{draft.split('\n').length} lignes</span>
+              <span>{plural(settings.language, draft.split('\n').length, editor.lines)}</span>
 
-              {selected.updatedAt && <span>modifiée le {new Date(selected.updatedAt).toLocaleString()}</span>}
+              {selected.updatedAt && (
+                <span>{format(editor.updatedAt, { date: formatDateTime(settings.language, selected.updatedAt) })}</span>
+              )}
               <span className="ml-auto">
-                {selected.isCustom ? 'contenu propre à ce projet' : 'modèle intégré de Sectile'}
+                {selected.isCustom ? editor.customContent : editor.builtInTemplate}
               </span>
             </div>
           </>

@@ -1,7 +1,10 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { KeyRound, LogIn, Mail, ShieldAlert } from 'lucide-react'
-import type { CurrentUser } from '../lib/session'
+import type { CurrentUser, UnlockRefusal } from '../lib/session'
 import { redirectFromSearch, unlockSealedCredentials } from '../lib/session'
+import { applyDocumentLocale, format, rememberLocale, resolveInitialLocale, type Locale } from '../lib/i18n'
+import { translations } from '../locales/translations'
+import type { SignInStrings } from '../locales/signIn'
 
 /**
  * The sign-in screen. Signing in is mandatory (ADR 0015): a signed-out visitor
@@ -13,9 +16,24 @@ import { redirectFromSearch, unlockSealedCredentials } from '../lib/session'
  * The only secret the form ever asks for is the sealing passphrase of ADR 0014,
  * and only for whoever chose to seal their tracker tokens. It is optional, and
  * a wrong one never refuses the sign-in: that would turn it into a password.
+ *
+ * The screen is rendered before the application context, so it has no personal
+ * language setting to read: it starts from the language this browser used last,
+ * else the browser's own, and offers a French/English switch that is remembered.
  */
 
+const LOCALES: Locale[] = ['fr', 'en']
+
+function describeRefusal(refusal: UnlockRefusal, text: SignInStrings['screen']): string {
+  return refusal.code === 'unreadable'
+    ? text.unlockUnreadable
+    : format(text.unlockRefused, { trackers: refusal.trackers.join(', ') })
+}
+
 export function SignInScreen({ user, onSignedIn }: { user: CurrentUser; onSignedIn: () => void }) {
+  const [locale, setLocale] = useState<Locale>(() => resolveInitialLocale())
+  const t = translations[locale]
+  const text = t.signIn.screen
   const [email, setEmail] = useState('')
   const [passphrase, setPassphrase] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -23,8 +41,18 @@ export function SignInScreen({ user, onSignedIn }: { user: CurrentUser; onSigned
   // A refused passphrase holds the screen instead of handing over to the
   // application: the session is open, but the notice has to be read, and
   // signalling the sign-in would unmount this screen along with the message.
-  const [notice, setNotice] = useState('')
+  // The refusal is kept rather than its words, so a language switch rewords it.
+  const [refusal, setRefusal] = useState<UnlockRefusal | null>(null)
   const returnTo = redirectFromSearch(window.location.search)
+
+  useEffect(() => {
+    applyDocumentLocale(locale, t.app.documentTitle)
+  }, [locale, t.app.documentTitle])
+
+  function chooseLocale(next: Locale) {
+    setLocale(next)
+    rememberLocale(next)
+  }
 
   async function signInLocally(event: React.FormEvent) {
     event.preventDefault()
@@ -36,18 +64,19 @@ export function SignInScreen({ user, onSignedIn }: { user: CurrentUser; onSigned
       })
       if (!res.ok) {
         const body = await res.json().catch(() => ({}))
-        throw new Error(body.error || `HTTP ${res.status}`)
+        // The server's own reason is quoted as it comes; only its absence is worded here.
+        throw new Error(body.error || format(text.signInFailedStatus, { status: res.status }))
       }
       // A refused passphrase is reported and nothing else: the session is open
       // and the tokens simply stay locked.
-      const refusal = await unlockSealedCredentials(passphrase)
-      if (refusal) {
-        setNotice(refusal)
+      const refused = await unlockSealedCredentials(passphrase)
+      if (refused) {
+        setRefusal(refused)
         return
       }
       enterApplication()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not sign in.')
+      setError(err instanceof Error ? err.message : text.signInFailed)
     } finally {
       setSubmitting(false)
     }
@@ -65,33 +94,55 @@ export function SignInScreen({ user, onSignedIn }: { user: CurrentUser; onSigned
   return (
     <main className="flex h-[var(--app-h)] w-[var(--app-w)] items-center justify-center bg-[var(--bg-primary)] p-6" aria-labelledby="signin-heading">
       <section className={card}>
-        <div>
-          <h1 id="signin-heading" className="text-lg font-bold text-[var(--text-primary)]">Sign in to Sectile</h1>
-          <p className="mt-1 text-xs text-[var(--text-muted)]">
-            {user.mode === 'oidc'
-              ? 'This deployment signs people in through its identity provider.'
-              : 'This deployment uses the temporary local sign-in.'}
-          </p>
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h1 id="signin-heading" className="text-lg font-bold text-[var(--text-primary)]">{text.title}</h1>
+            <p className="mt-1 text-xs text-[var(--text-muted)]">
+              {user.mode === 'oidc' ? text.oidcNotice : text.localNotice}
+            </p>
+          </div>
+          <div
+            role="group"
+            aria-label={t.signIn.language.switchLabel}
+            className="inline-flex shrink-0 gap-0.5 rounded-lg border border-[var(--border-color)] bg-[var(--bg-tertiary)] p-0.5"
+          >
+            {LOCALES.map(option => (
+              <button
+                key={option}
+                type="button"
+                lang={option}
+                aria-pressed={locale === option}
+                aria-label={t.signIn.language[option]}
+                title={t.signIn.language[option]}
+                onClick={() => chooseLocale(option)}
+                className={`rounded-md px-2 py-0.5 text-[10.5px] font-semibold uppercase transition-colors cursor-pointer ${locale === option
+                  ? 'bg-[var(--bg-secondary)] text-[var(--text-primary)] shadow-xs'
+                  : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]'}`}
+              >
+                {option}
+              </button>
+            ))}
+          </div>
         </div>
 
-        {notice ? (
+        {refusal ? (
           <div className="space-y-4">
             <p role="alert" className="flex gap-2 rounded-xl border border-amber-500/40 bg-amber-500/10 p-3 text-[11px] leading-relaxed text-[var(--text-secondary)]">
               <ShieldAlert size={16} className="mt-0.5 shrink-0 text-amber-400" aria-hidden="true" />
-              <span>{notice}</span>
+              <span>{describeRefusal(refusal, text)}</span>
             </p>
             <button type="button" onClick={enterApplication} className={button}>
-              <LogIn size={16} /> Continue
+              <LogIn size={16} /> {text.continue}
             </button>
           </div>
         ) : user.mode === 'oidc' ? (
           <a href={`/auth/login?redirect=${encodeURIComponent(returnTo)}`} className={button}>
-            <LogIn size={16} /> Continue with the identity provider
+            <LogIn size={16} /> {text.continueWithProvider}
           </a>
         ) : (
           <form onSubmit={signInLocally} className="space-y-4">
             <label className="block text-xs font-medium text-[var(--text-secondary)]">
-              E-mail address
+              {text.email}
               <div className="relative mt-1">
                 <input
                   type="email" required autoFocus autoComplete="email" value={email}
@@ -102,27 +153,22 @@ export function SignInScreen({ user, onSignedIn }: { user: CurrentUser; onSigned
               </div>
             </label>
             <label className="block text-xs font-medium text-[var(--text-secondary)]">
-              Sealing passphrase <span className="text-[var(--text-muted)]">(optional)</span>
+              {text.passphrase} <span className="text-[var(--text-muted)]">{text.optional}</span>
               <div className="relative mt-1">
                 <input
                   type="password" autoComplete="off" value={passphrase}
                   onChange={event => setPassphrase(event.target.value)}
-                  placeholder="Only if you sealed your tracker tokens" className={field}
+                  placeholder={text.passphrasePlaceholder} className={field}
                 />
                 <KeyRound size={15} className="absolute left-3 top-2.5 text-[var(--text-muted)]" />
               </div>
             </label>
             <button type="submit" disabled={submitting || !email.trim()} className={button}>
-              <LogIn size={16} /> {submitting ? 'Signing in' : 'Sign in'}
+              <LogIn size={16} /> {submitting ? text.submitting : text.submit}
             </button>
             <p role="note" className="flex gap-2 rounded-xl border border-amber-500/40 bg-amber-500/10 p-3 text-[11px] leading-relaxed text-[var(--text-secondary)]">
               <ShieldAlert size={16} className="mt-0.5 shrink-0 text-amber-400" aria-hidden="true" />
-              <span>
-                No login password is asked: this mode identifies people without authenticating them
-                and is meant for a trusted network until an identity provider is connected. The first
-                account created becomes the admin. The passphrase above is only the one sealing your
-                own tracker tokens; leaving it empty signs you in with those tokens locked.
-              </span>
+              <span>{text.localWarning}</span>
             </p>
           </form>
         )}

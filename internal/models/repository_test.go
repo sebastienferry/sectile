@@ -109,30 +109,26 @@ func TestResolvePrimaryRepository(t *testing.T) {
 		}
 	}
 	cases := []struct {
-		name     string
-		pinned   string
-		repos    []ProjectRepository
-		monoRepo bool
-		mapped   func(string) bool
-		want     string
-		outcome  PrimaryResolution
-		pin      bool
+		name    string
+		pinned  string
+		repos   []ProjectRepository
+		mapped  func(string) bool
+		want    string
+		outcome PrimaryResolution
 	}{
-		{"pinned and mapped", "github.com/o/b", repositories, false, mappedSet("github.com/o/b"), "github.com/o/b", PrimaryResolved, false},
-		{"pinned by URL", "https://github.com/o/b.git", repositories, false, mappedSet("github.com/o/b"), "github.com/o/b", PrimaryResolved, false},
-		{"pinned, not mapped", "github.com/o/c", repositories, false, mappedSet("github.com/o/a"), "github.com/o/c", PrimaryUnmapped, false},
-		{"single repository", "", repositories[:1], false, mappedSet(), "", PrimaryDefault, false},
-		{"mono-repo", "", repositories, true, mappedSet("github.com/o/a", "github.com/o/b"), "", PrimaryDefault, false},
-		{"mono-repo ignores a pin", "github.com/o/c", repositories, true, mappedSet(), "", PrimaryDefault, false},
-		{"one mapped", "", repositories, false, mappedSet("github.com/o/c"), "github.com/o/c", PrimaryResolved, true},
-		{"none mapped", "", repositories, false, mappedSet(), "", PrimaryUnmapped, false},
-		{"ambiguous", "", repositories, false, mappedSet("github.com/o/a", "github.com/o/b"), "", PrimaryAmbiguous, false},
-		{"stale pin reads as absent", "github.com/o/gone", repositories, false, mappedSet("github.com/o/a", "github.com/o/b"), "", PrimaryAmbiguous, false},
+		{"pinned and mapped", "github.com/o/b", repositories, mappedSet("github.com/o/b"), "github.com/o/b", PrimaryResolved},
+		{"pinned by URL", "https://github.com/o/b.git", repositories, mappedSet("github.com/o/b"), "github.com/o/b", PrimaryResolved},
+		{"pinned, not mapped", "github.com/o/c", repositories, mappedSet("github.com/o/a"), "github.com/o/c", PrimaryUnmapped},
+		{"single repository", "", repositories[:1], mappedSet(), "", PrimaryDefault},
+		{"no pin, several mapped", "", repositories, mappedSet("github.com/o/a", "github.com/o/b"), "", PrimaryDefault},
+		{"no pin, only another mapped", "", repositories, mappedSet("github.com/o/c"), "", PrimaryDefault},
+		{"no pin, none mapped", "", repositories, mappedSet(), "", PrimaryDefault},
+		{"stale pin reads as absent", "github.com/o/gone", repositories, mappedSet("github.com/o/a", "github.com/o/b"), "", PrimaryDefault},
 	}
 	for _, c := range cases {
-		got, outcome, pin := ResolvePrimaryRepository(c.pinned, c.repos, c.monoRepo, c.mapped)
-		if got.Identity != c.want || outcome != c.outcome || pin != c.pin {
-			t.Errorf("%s: got %q, %v, pin %v; want %q, %v, pin %v", c.name, got.Identity, outcome, pin, c.want, c.outcome, c.pin)
+		got, outcome := ResolvePrimaryRepository(c.pinned, c.repos, c.mapped)
+		if got.Identity != c.want || outcome != c.outcome {
+			t.Errorf("%s: got %q, %v; want %q, %v", c.name, got.Identity, outcome, c.want, c.outcome)
 		}
 	}
 }

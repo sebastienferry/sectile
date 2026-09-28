@@ -1,4 +1,5 @@
 import type { Project, Status, Task, WorkflowStage } from '../types'
+import { shell } from '../locales/shell.ts'
 
 /**
  * Étape du workflow agentique d'une tâche, et skill qui en découle.
@@ -203,75 +204,47 @@ export interface NextStepInfo {
   remainingSteps: string[]
 }
 
-/**
- * Informations descriptives et tooltips détaillés pour avancer d'un pas
- * ou en autonomie dans le workflow agentique.
- */
-export const getNextStepInfo = (task: Task, project?: Project | null): NextStepInfo => {
-  const currentStage = resolveTaskStage(task, project)
+/** The wording of one stage's next step, from `t.shell.nextStep`. */
+export interface NextStepText {
+  stepLabel: string
+  stepDescription: string
+  stepTooltip: string
+  autoTooltip: string
+  remainingSteps: string[]
+}
 
-  switch (currentStage) {
-    case 'new':
-      return {
-        currentStage: 'new',
-        nextSkillId: 'clarify',
-        stepLabel: 'Clarifier',
-        stepDescription: 'Clarifier les exigences et questions non tranchées',
-        stepTooltip: "Avancer d'un pas : Clarifier les exigences (clarify-issue)",
-        autoTooltip: "Avancer en autonomie : Clarifier ➔ Spécifier ➔ Coder ➔ Adjust",
-        remainingSteps: ['Clarifier', 'Spécifier', 'Coder', 'Adjust'],
-      }
-    case 'clarified':
-      return {
-        currentStage: 'clarified',
-        nextSkillId: 'specify',
-        stepLabel: 'Spécifier',
-        stepDescription: 'Rédiger la spécification technique (Spec Kit / OpenSpec)',
-        stepTooltip: "Avancer d'un pas : Spécifier la solution technique (specify-issue)",
-        autoTooltip: "Avancer en autonomie : Spécifier ➔ Coder ➔ Adjust",
-        remainingSteps: ['Spécifier', 'Coder', 'Adjust'],
-      }
-    case 'specified':
-      return {
-        currentStage: 'specified',
-        nextSkillId: 'implement',
-        stepLabel: 'Coder',
-        stepDescription: 'Implémenter le code sur la branche et passer les tests',
-        stepTooltip: "Avancer d'un pas : Implémenter le code et tests (code-issue)",
-        autoTooltip: "Avancer en autonomie : Coder ➔ Adjust",
-        remainingSteps: ['Coder', 'Adjust'],
-      }
-    case 'implemented':
-      return {
-        currentStage: 'implemented',
-        nextSkillId: 'adjust',
-        stepLabel: 'Adjust',
-        stepDescription: 'Review the complete branch and update the existing pull request',
-        stepTooltip: "Adjust the existing pull request (adjust-issue)",
-        autoTooltip: "Adjust the existing PR and stop for human review",
-        remainingSteps: ['Adjust'],
-      }
-    case 'reviewed':
-      return {
-        currentStage: 'reviewed',
-        nextSkillId: null,
-        stepLabel: 'Merge',
-        stepDescription: 'Fusionner la Pull Request / branche et finaliser (#finished)',
-        stepTooltip: "Avancer d'un pas : Fusionner la PR et finaliser le ticket (#finished)",
-        autoTooltip: "PR prête : la fusion finale reste manuelle (#finished)",
-        remainingSteps: ['Merge / Finaliser'],
-      }
-    case 'finished':
-    default:
-      return {
-        currentStage: 'finished',
-        nextSkillId: null,
-        stepLabel: 'Terminé',
-        stepDescription: 'Ticket finalisé et validé',
-        stepTooltip: 'Ticket terminé (#finished)',
-        autoTooltip: 'Ticket déjà terminé',
-        remainingSteps: [],
-      }
+export type NextStepStrings = Record<'new' | 'clarified' | 'specified' | 'implemented' | 'reviewed' | 'finished', NextStepText>
+
+const NEXT_SKILL: Record<keyof NextStepStrings, string | null> = {
+  new: 'clarify',
+  clarified: 'specify',
+  specified: 'implement',
+  implemented: 'adjust',
+  reviewed: null,
+  finished: null,
+}
+
+/**
+ * Describes the next step of the agentic workflow and the tooltips of the
+ * one-step and autonomous advance buttons. The wording comes from the catalog;
+ * callers that do not pass it get the French one.
+ */
+export const getNextStepInfo = (
+  task: Task,
+  project?: Project | null,
+  strings: NextStepStrings = shell.fr.nextStep,
+): NextStepInfo => {
+  const resolved = resolveTaskStage(task, project)
+  const currentStage: keyof NextStepStrings = resolved in NEXT_SKILL ? resolved as keyof NextStepStrings : 'finished'
+  const text = strings[currentStage]
+  return {
+    currentStage,
+    nextSkillId: NEXT_SKILL[currentStage],
+    stepLabel: text.stepLabel,
+    stepDescription: text.stepDescription,
+    stepTooltip: text.stepTooltip,
+    autoTooltip: text.autoTooltip,
+    remainingSteps: [...text.remainingSteps],
   }
 }
 

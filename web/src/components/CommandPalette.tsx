@@ -30,6 +30,7 @@ import { accentTextStyle } from '../lib/accents'
 import { enabledOptionalViews } from '../lib/optionalViews'
 import { useBackdropDismiss } from '../hooks/useBackdropDismiss'
 import { isMacPlatform, sidebarShortcutLabel } from '../../../shared/sidebarShortcut.mjs'
+import { format } from '../lib/i18n'
 
 export const CommandPalette: React.FC = () => {
   const {
@@ -100,7 +101,7 @@ export const CommandPalette: React.FC = () => {
 
     addToast({
       type: 'info',
-      title: `Installation de ${label}...`,
+      title: format(t.shell.palette.installing, { label }),
       description: currentProject.name,
     })
 
@@ -112,17 +113,17 @@ export const CommandPalette: React.FC = () => {
       })
       const result = await res.json()
       if (!res.ok) {
-        throw new Error(result?.error || `Installation de ${label} impossible`)
+        throw new Error(result?.error || format(t.shell.palette.installImpossible, { label }))
       }
       addToast({
         type: result.installed ? 'success' : 'error',
-        title: result.installed ? `${label} prêt` : `Échec de l'installation de ${label}`,
+        title: format(result.installed ? t.shell.palette.installReady : t.shell.palette.installFailed, { label }),
         description: result.message,
       })
     } catch (err: any) {
       addToast({
         type: 'error',
-        title: `Échec de l'installation de ${label}`,
+        title: format(t.shell.palette.installFailed, { label }),
         description: err.message,
       })
     }
@@ -173,7 +174,7 @@ export const CommandPalette: React.FC = () => {
     },
     {
       id: 'switch_board',
-      title: '📊 Vue Board (colonnes et workflow)',
+      title: t.shell.palette.board,
       icon: <Columns size={16} className="text-indigo-400" />,
       shortcut: 'B',
       keywords: ['board', 'tableau', 'kanban', 'sprint', 'colonnes', 'workflow', 'cards'],
@@ -184,7 +185,7 @@ export const CommandPalette: React.FC = () => {
     },
     {
       id: 'switch_list',
-      title: '📋 Vue Backlog (Toutes les tâches)',
+      title: t.shell.palette.backlog,
       icon: <ListFilter size={16} className="text-blue-400" />,
       shortcut: 'L',
       keywords: ['backlog', 'liste', 'list', 'table', 'lignes', 'taches', 'tasks', 'vue'],
@@ -195,7 +196,7 @@ export const CommandPalette: React.FC = () => {
     },
     ...(optionalViews.includes('triage') ? [{
       id: 'switch_triage',
-      title: '🗂️ Vue Triage (tickets non classés)',
+      title: t.shell.palette.triage,
       icon: <Inbox size={16} className="text-rose-400" />,
       shortcut: 'TR',
       keywords: ['triage', 'trier', 'non classe', 'sans sprint', 'sans macro', 'sans equipe', 'orphelin', 'vue'],
@@ -206,7 +207,7 @@ export const CommandPalette: React.FC = () => {
     }] : []),
     ...(optionalViews.includes('roadmap') ? [{
       id: 'switch_roadmap',
-      title: '🗺️ Vue Roadmap (Macros : NOW / NEXT / FUTURE)',
+      title: t.shell.palette.roadmap,
       icon: <Map size={16} className="text-emerald-400" />,
       shortcut: 'R',
       keywords: ['roadmap', 'macros', 'macro', 'horizon', 'now', 'next', 'future', 'vue', 'plan'],
@@ -217,7 +218,7 @@ export const CommandPalette: React.FC = () => {
     }] : []),
     ...(optionalViews.includes('timeline') ? [{
       id: 'switch_timeline',
-      title: '⏱️ Vue Timeline Sprints',
+      title: t.shell.palette.timeline,
       icon: <Clock size={16} className="text-blue-400" />,
       shortcut: 'TL',
       keywords: ['timeline', 'sprint', 'sprints', 'planning', 'vue', 'horizons', 'duree', 'chronologie'],
@@ -228,7 +229,7 @@ export const CommandPalette: React.FC = () => {
     }] : []),
     {
       id: 'switch_activities',
-      title: '⚡ Vue Activités (File d\'exécution & IA)',
+      title: t.shell.palette.activities,
       icon: <Activity size={16} className="text-cyan-400" />,
       shortcut: 'A',
       keywords: ['activites', 'activities', 'ia', 'jobs', 'runner', 'logs', 'file', 'agents', 'historique'],
@@ -239,7 +240,7 @@ export const CommandPalette: React.FC = () => {
     },
     {
       id: 'switch_sync',
-      title: '🔄 Vue Synchronisation (GitHub / Jira)',
+      title: t.shell.palette.sync,
       icon: <RefreshCw size={16} className="text-indigo-400" />,
       shortcut: 'S',
       keywords: ['synchronisation', 'synchro', 'sync', 'github', 'jira', 'tracker', 'integration'],
@@ -250,7 +251,7 @@ export const CommandPalette: React.FC = () => {
     },
     ...(currentUser?.role === 'admin' ? [{
       id: 'open_admin',
-      title: '🛡️ Administration (utilisateurs et rôles)',
+      title: t.shell.palette.admin,
       icon: <Shield size={16} className="text-amber-400" />,
       keywords: ['admin', 'administration', 'utilisateurs', 'roles', 'users'],
       action: () => {
@@ -260,7 +261,7 @@ export const CommandPalette: React.FC = () => {
     }] : []),
     {
       id: 'sync_now',
-      title: '🚀 Lancer la synchronisation du projet actif',
+      title: t.shell.palette.syncNow,
       icon: <RefreshCw size={16} className="text-emerald-400" />,
       shortcut: 'Shift+S',
       keywords: ['synchroniser', 'sync now', 'refresh', 'actualiser', 'telecharger', 'github', 'jira'],
@@ -271,7 +272,7 @@ export const CommandPalette: React.FC = () => {
     },
     {
       id: 'sync_jira',
-      title: `🔷 Synchroniser Jira${currentProject?.jiraProject ? ` (${currentProject.jiraProject})` : ''}`,
+      title: format(t.shell.palette.syncJira, { project: currentProject?.jiraProject ? ` (${currentProject.jiraProject})` : '' }),
       icon: <RefreshCw size={16} className="text-blue-400" />,
       shortcut: 'J',
       keywords: ['jira', 'atlassian', 'synchroniser', 'sync', 'tickets', 'workitem'],
@@ -284,7 +285,7 @@ export const CommandPalette: React.FC = () => {
     ...(currentProject ? [
       {
         id: 'install_speckit',
-        title: '📑 Installer GitHub Spec Kit dans le projet actif',
+        title: t.shell.palette.installSpeckit,
         icon: <Download size={16} className="text-blue-400" />,
         shortcut: 'K',
         keywords: ['speckit', 'spec kit', 'specify', 'sdd', 'installer', 'install', 'scaffold', 'uv', 'uvx'],
@@ -295,7 +296,7 @@ export const CommandPalette: React.FC = () => {
       },
       {
         id: 'install_openspec',
-        title: '🧭 Installer OpenSpec dans le projet actif',
+        title: t.shell.palette.installOpenspec,
         icon: <Download size={16} className="text-emerald-400" />,
         shortcut: 'Shift+K',
         keywords: ['openspec', 'open spec', 'sdd', 'installer', 'install', 'scaffold', 'npx', 'npm'],
@@ -309,7 +310,7 @@ export const CommandPalette: React.FC = () => {
     ...[],
     {
       id: 'new_project',
-      title: '📁 Créer un nouveau projet...',
+      title: t.shell.palette.newProject,
       icon: <Plus size={16} className="text-indigo-400" />,
       shortcut: 'Shift+P',
       keywords: ['projet', 'nouveau', 'project', 'new'],
@@ -321,7 +322,7 @@ export const CommandPalette: React.FC = () => {
     },
     ...projects.map(p => ({
       id: `switch_proj_${p.id}`,
-      title: `Basculer sur le projet: ${p.name}${p.githubRepo ? ` (${p.githubRepo})` : ''}`,
+      title: format(t.shell.palette.switchProject, { name: p.name, repo: p.githubRepo ? ` (${p.githubRepo})` : '' }),
       icon: <Layers size={16} style={accentTextStyle(p.color)} />,
       shortcut: p.slug.substring(0, 3).toUpperCase(),
       keywords: ['projet', 'project', p.name.toLowerCase(), p.slug.toLowerCase(), p.githubRepo?.toLowerCase() || ''],
@@ -332,7 +333,7 @@ export const CommandPalette: React.FC = () => {
     })),
     {
       id: 'switch_proj_all',
-      title: 'Voir tous les projets combinés',
+      title: t.shell.palette.allProjects,
       icon: <Layers size={16} className="text-slate-400" />,
       shortcut: 'ALL',
       keywords: ['tous', 'all', 'projets', 'combiné', 'vue globale'],
@@ -343,7 +344,7 @@ export const CommandPalette: React.FC = () => {
     },
     {
       id: 'toggle_theme',
-      title: `${t.commandPalette.toggleTheme} (${settings.theme === 'dark' ? 'Light' : 'Dark'})`,
+      title: `${t.commandPalette.toggleTheme} (${settings.theme === 'dark' ? t.shell.palette.themeLight : t.shell.palette.themeDark})`,
       icon: settings.theme === 'dark' ? <Sun size={16} className="text-amber-400" /> : <Moon size={16} className="text-indigo-400" />,
       shortcut: 'T',
       keywords: ['theme', 'dark', 'light', 'sombre', 'clair'],
@@ -378,7 +379,7 @@ export const CommandPalette: React.FC = () => {
       ? [
           {
             id: 'open_admin',
-            title: 'Administration : Utilisateurs & Rôles',
+            title: t.shell.palette.adminUsers,
             icon: <Shield size={16} className="text-amber-400" />,
             shortcut: 'A',
             keywords: ['admin', 'administration', 'users', 'utilisateurs', 'roles', 'membres', 'comptes'],
@@ -396,7 +397,7 @@ export const CommandPalette: React.FC = () => {
     const label = skillLabel(sk.id, sk.name)
     return {
     id: `skill_${sk.id}`,
-    title: `⚡ Lancer ${label} (${sk.command})`,
+    title: format(t.shell.palette.runSkill, { label, command: sk.command }),
     icon: getSkillIcon(sk.icon),
     shortcut: sk.command.replace('/', ''),
     // Keep the default name searchable too, so a renamed skill stays findable

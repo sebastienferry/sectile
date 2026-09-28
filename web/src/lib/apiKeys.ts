@@ -1,5 +1,7 @@
-// Wording for the API keys panel. Kept free of React so the rules can be
+// Expiry rules for the API keys panel. Kept free of React so the rules can be
 // tested as plain functions.
+
+import { format, formatDate, plural, type Locale, type PluralForms } from './i18n.ts'
 
 export type ApiKey = {
   ID: string
@@ -30,13 +32,45 @@ export function expiryState(expiresAt: string | null, now: Date = new Date()): E
   return 'valid'
 }
 
-// One line a person can act on: how long is left, or that nothing is.
-export function describeExpiry(expiresAt: string | null, now: Date = new Date()): string {
+/** What the expiry of a key amounts to, for the panel to put into words. */
+export type ExpiryStatus =
+  | { state: 'none' }
+  | { state: 'expired'; date: Date }
+  | { state: 'soon' | 'valid'; date: Date; days: number }
+
+export function expiryStatus(expiresAt: string | null, now: Date = new Date()): ExpiryStatus {
   const state = expiryState(expiresAt, now)
-  if (state === 'none') return 'No expiry'
+  if (state === 'none') return { state }
   const date = new Date(expiresAt as string)
-  if (state === 'expired') return `Expired ${date.toLocaleDateString()}`
-  const days = Math.ceil((date.getTime() - now.getTime()) / DAY)
-  const left = days === 1 ? '1 day' : `${days} days`
-  return state === 'soon' ? `Expires in ${left}, renew it` : `Expires ${date.toLocaleDateString()} (${left})`
+  if (state === 'expired') return { state, date }
+  return { state, date, days: Math.ceil((date.getTime() - now.getTime()) / DAY) }
+}
+
+/** The catalog strings `describeExpiry` words a status with. */
+export interface ExpiryStrings {
+  noExpiry: string
+  /** With `{date}`. */
+  expired: string
+  /** With `{count}`. */
+  expiresSoon: PluralForms
+  /** With `{date}` and `{count}`. */
+  expiresOn: PluralForms
+}
+
+// One line a person can act on: how long is left, or that nothing is. The
+// words come from the caller's catalog, so the rule is tested in both
+// languages without React.
+export function describeExpiry(
+  expiresAt: string | null,
+  strings: ExpiryStrings,
+  locale: Locale,
+  now: Date = new Date(),
+): string {
+  const status = expiryStatus(expiresAt, now)
+  switch (status.state) {
+    case 'none': return strings.noExpiry
+    case 'expired': return format(strings.expired, { date: formatDate(locale, status.date) })
+    case 'soon': return plural(locale, status.days, strings.expiresSoon)
+    case 'valid': return plural(locale, status.days, strings.expiresOn, { date: formatDate(locale, status.date) })
+  }
 }

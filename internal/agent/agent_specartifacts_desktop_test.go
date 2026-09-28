@@ -43,7 +43,7 @@ func newSpecArtifactsDesktop(t *testing.T, serverValue string) *specArtifactsDes
 		case strings.HasPrefix(r.URL.Path, "/api/v1/agent/config"):
 			json.NewEncoder(w).Encode(agentconfig.Config{SchemaVersion: agentconfig.Version, ProjectID: "p", GitRemoteURL: "https://example.test/project.git", AIProvider: "claude", SpecArtifacts: serverValue})
 		case strings.HasPrefix(r.URL.Path, "/api/projects/"):
-			json.NewEncoder(w).Encode(models.Project{ID: "p", Name: "Project P", MonoRepo: true})
+			json.NewEncoder(w).Encode(models.Project{ID: "p", Name: "Project P"})
 		default:
 			http.NotFound(w, r)
 		}

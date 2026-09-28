@@ -1,6 +1,9 @@
 # ADR 0027: The specifications folder is a workstation setting
 
-Status: Accepted
+Status: Accepted. Superseded in part by
+[ADR 0036](0036-attached-folders-and-one-kind-of-project.md): the repository
+layout is gone, and every project's specifications folder defaults to its code
+checkout.
 
 Supersedes in part: [ADR 0026](0026-macro-runs-and-macro-worktrees.md), its
 paragraph "The specifications repository has two declarations".

@@ -1,4 +1,6 @@
 import React, { useState } from 'react'
+import { useApp } from '../context/AppContext'
+import { format } from '../lib/i18n'
 
 /**
  * Visage d'une personne, avec ses initiales en repli.
@@ -16,9 +18,10 @@ export const Avatar: React.FC<{
   title?: string
   className?: string
 }> = ({ name, url, size = 20, title, className }) => {
+  const { t } = useApp()
   const [failed, setFailed] = useState(false)
   const initials = (name || '?').trim().substring(0, 2).toUpperCase()
-  const label = title || (name ? `Assigné à : ${name}` : 'Non assigné')
+  const label = title || (name ? format(t.shell.avatar.assignedTo, { name }) : t.shell.avatar.unassigned)
 
   if (url && !failed) {
     return (

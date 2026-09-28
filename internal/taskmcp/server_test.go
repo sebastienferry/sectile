@@ -736,3 +736,23 @@ func TestCreateTaskRefusesAPersonWithoutATrackerCredential(t *testing.T) {
 		t.Fatalf("a refused creation must reach nothing, GitHub received %d request(s)", requests)
 	}
 }
+
+func TestProjectContextPushStageCommits(t *testing.T) {
+	database, err := db.NewDB(filepath.Join(t.TempDir(), "tasks.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	for _, enabled := range []bool{false, true, false} {
+		if _, err := database.UpdateProject("default", models.UpdateProjectRequest{PushStageCommits: &enabled}); err != nil {
+			t.Fatal(err)
+		}
+		result, err := call(t, database, "get_project_context", map[string]any{"projectId": "default"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result["pushStageCommits"] != enabled {
+			t.Fatalf("context setting = %v, want %v", result["pushStageCommits"], enabled)
+		}
+	}
+}

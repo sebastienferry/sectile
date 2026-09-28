@@ -35,8 +35,8 @@ func lockMacroRepository(repo string) func() {
 //
 // Two macros specified in one checkout share its untracked files, which Git
 // carries across a branch switch without a word: each macro therefore gets its
-// own worktree at .tasks/worktrees/<KEY>, on its own branch. The branch is the
-// existing one named after the key when there is one, else a new
+// own worktree at a filesystem-safe path under .tasks/worktrees/, on its own
+// branch. The branch is the existing one named after the key when there is one, else a new
 // "<KEY>-<slug>" started from the remote default branch, fetched first. An
 // existing tree is reused as it is, uncommitted work included: it is never
 // reset. With worktrees off, the checkout itself is returned with the macro
@@ -48,7 +48,11 @@ func ensureMacroWorktree(ctx context.Context, specRepo, macroKey, title string, 
 	if specRepo == "" {
 		return macroWorkspace{}, fmt.Errorf("aucun dossier des spécifications configuré pour ce projet")
 	}
-	if key == "" || key == "." || key == ".." || strings.ContainsAny(key, "/\\") {
+	if _, err := safeWorktreeName(key); err != nil {
+		return macroWorkspace{}, fmt.Errorf("clé de macro invalide : %q", macroKey)
+	}
+	name, err := safeWorktreeName(macroKey)
+	if err != nil {
 		return macroWorkspace{}, fmt.Errorf("clé de macro invalide : %q", macroKey)
 	}
 	if info, err := os.Stat(specRepo); err != nil || !info.IsDir() {
@@ -124,7 +128,7 @@ func ensureMacroWorktree(ctx context.Context, specRepo, macroKey, title string, 
 	if err := excludeTaskWorktrees(ctx, specRepo); err != nil {
 		return macroWorkspace{}, err
 	}
-	target := filepath.Join(specRepo, ".tasks", "worktrees", key)
+	target := filepath.Join(specRepo, ".tasks", "worktrees", name)
 	if err := clearStaleMacroPath(ctx, specRepo, target); err != nil {
 		return macroWorkspace{}, err
 	}
@@ -207,7 +211,7 @@ func existingMacroBranch(ctx context.Context, repo, key, defaultBranch string) (
 // that still holds something is never deleted: it may be somebody's work, and
 // the refusal names it instead.
 func clearStaleMacroPath(ctx context.Context, repo, target string) error {
-	info, err := os.Stat(target)
+	info, err := os.Lstat(target)
 	if os.IsNotExist(err) {
 		return nil
 	}

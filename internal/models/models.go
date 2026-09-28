@@ -149,16 +149,13 @@ type Project struct {
 	// "implemented" and "reviewed" mean anything; anything else reads as
 	// "reviewed" so a bad stored value cannot wedge a board.
 	FullChainStopStage string `json:"fullChainStopStage"`
+	// PushStageCommits publishes clarify and specify commits when enabled.
+	PushStageCommits bool `json:"pushStageCommits"`
 	// BoardID / TrackerColumns mirror the tracker's board: its columns in order,
 	// with the statuses each one groups. Imported from the tracker, not typed by
 	// hand.
 	BoardID        string          `json:"boardId,omitempty"`
 	TrackerColumns []TrackerColumn `json:"trackerColumns,omitempty"`
-	// MonoRepo says the project lives in a single repository. The current branch,
-	// the branch switcher and the branch shown on a card only mean something
-	// there: on a project whose tickets span several repositories, they display
-	// the branch of whichever repository happens to be configured.
-	MonoRepo bool `json:"monoRepo"`
 	// IssueTypes names the tracker work item types this project imports as cards.
 	// Empty means the default (Task and Story). A project whose tracker exposes
 	// its own type imports nothing without it: a feedback project may carry a
@@ -407,10 +404,7 @@ type CreateProjectRequest struct {
 	// EpicColors paints each card with the colour of its epic. Off when absent.
 	EpicColors bool `json:"epicColors,omitempty"`
 	// RoadmapProjects are the Jira project keys the slicing also reads.
-	RoadmapProjects []string `json:"roadmapProjects,omitempty"`
-	// MonoRepo defaults to true when absent: a single repository is the common
-	// case, and it is what the tool did before the setting existed.
-	MonoRepo            *bool    `json:"monoRepo,omitempty"`
+	RoadmapProjects     []string `json:"roadmapProjects,omitempty"`
 	Name                string   `json:"name"`
 	Slug                string   `json:"slug,omitempty"`
 	Description         string   `json:"description,omitempty"`
@@ -421,6 +415,7 @@ type CreateProjectRequest struct {
 	SpecArtifacts       string   `json:"specArtifacts,omitempty"`
 	DefaultSkillMode    string   `json:"defaultSkillMode,omitempty"`
 	FullChainStopStage  string   `json:"fullChainStopStage,omitempty"`
+	PushStageCommits    bool     `json:"pushStageCommits,omitempty"`
 	BoardID             string   `json:"boardId,omitempty"`
 	GitRemoteUrl        string   `json:"gitRemoteUrl,omitempty"`
 	GithubRepo          string   `json:"githubRepo,omitempty"`
@@ -448,13 +443,13 @@ type UpdateProjectRequest struct {
 	SpecArtifacts       *string              `json:"specArtifacts,omitempty"`
 	DefaultSkillMode    *string              `json:"defaultSkillMode,omitempty"`
 	FullChainStopStage  *string              `json:"fullChainStopStage,omitempty"`
+	PushStageCommits    *bool                `json:"pushStageCommits,omitempty"`
 	BoardID             *string              `json:"boardId,omitempty"`
 	TrackerColumns      *[]TrackerColumn     `json:"trackerColumns,omitempty"`
 	Sprints             *[]TrackerSprint     `json:"sprints,omitempty"`
 	IssueTypes          *[]string            `json:"issueTypes,omitempty"`
 	EnabledViews        *[]string            `json:"enabledViews,omitempty"`
 	EpicColors          *bool                `json:"epicColors,omitempty"`
-	MonoRepo            *bool                `json:"monoRepo,omitempty"`
 	StageColumns        *map[string][]string `json:"stageColumns,omitempty"`
 	GitRemoteUrl        *string              `json:"gitRemoteUrl,omitempty"`
 	GithubRepo          *string              `json:"githubRepo,omitempty"`
@@ -804,8 +799,9 @@ type Task struct {
 	// project's repoPath, for trackers where one epic spans several codebases.
 	// Empty means "inherit the project, then the global setting".
 	RepoPath *string `json:"repoPath,omitempty"`
-	// Repository pins the repository, by identity, this ticket works in on a
-	// multi-repo project. Empty means not pinned.
+	// Repository pins the repository, by identity, this ticket works in, one
+	// of its project's repositories. Empty means not pinned: the ticket works
+	// in the code repository.
 	Repository string `json:"repository,omitempty"`
 	// ChangedRepositories are the other repositories, by identity, in which
 	// the ticket has a worktree on its branch. Each needs its pull request.
@@ -846,9 +842,12 @@ type Task struct {
 	// review column and a merge column, do not move it.
 	StatusChangedAt *time.Time     `json:"statusChangedAt,omitempty"`
 	Activities      []TaskActivity `json:"activities,omitempty"`
-	Pinned          bool           `json:"pinned,omitempty"`
-	CreatedAt       time.Time      `json:"createdAt"`
-	UpdatedAt       time.Time      `json:"updatedAt"`
+	// Batch is the task's place in a running batch, nil when it is in none.
+	// An ended batch fills nothing.
+	Batch     *TaskBatch `json:"batch,omitempty"`
+	Pinned    bool       `json:"pinned,omitempty"`
+	CreatedAt time.Time  `json:"createdAt"`
+	UpdatedAt time.Time  `json:"updatedAt"`
 }
 
 type Settings struct {
@@ -1120,6 +1119,31 @@ type RunSkillRequest struct {
 	// workspace checks still apply. It is reserved to the owner of the active
 	// run or to an admin, and it never closes the run it steps over.
 	Force bool `json:"force,omitempty"`
+	// BatchTaskIDs are the tickets of a batch launch, in order, the first being
+	// the task the launch is made on. Only pickup_issues takes them. Empty for
+	// any other launch.
+	BatchTaskIDs []string `json:"batchTaskIds,omitempty"`
+}
+
+// Batch member states (#522). The lead starts processing, the others waiting;
+// the agent moves the processing mark by starting the batch run on a member.
+const (
+	BatchMemberWaiting    = "waiting"
+	BatchMemberProcessing = "processing"
+	BatchMemberDone       = "done"
+)
+
+// TaskBatch is a task's place in a running batch.
+type TaskBatch struct {
+	// RunID is the batch run, which sits on the lead ticket.
+	RunID      string `json:"runId"`
+	LeadTaskID string `json:"leadTaskId"`
+	LeadKey    string `json:"leadKey"`
+	// Position counts from 1, the lead, in launch order; Size is the number of
+	// tickets in the batch.
+	Position int    `json:"position"`
+	Size     int    `json:"size"`
+	State    string `json:"state"`
 }
 
 type RunSkillResponse struct {

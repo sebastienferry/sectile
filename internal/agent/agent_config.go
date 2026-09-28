@@ -234,20 +234,13 @@ func ensureLocalWorktree(ctx context.Context, root string, task models.Task, use
 		}
 		return root, current, err
 	}
-	if task.Key == "" || task.Key == "." || task.Key == ".." || strings.ContainsAny(task.Key, "/\\") {
-		return "", "", fmt.Errorf("invalid task key for worktree")
+	name, err := safeWorktreeName(task.Key)
+	if err != nil {
+		return "", "", err
 	}
-	if branch == "" {
-		slug := strings.Trim(strings.Map(func(r rune) rune {
-			if r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '-' {
-				return r
-			}
-			return '-'
-		}, strings.ToLower(task.Key)), "-")
-		if slug == "" {
-			return "", "", fmt.Errorf("task key cannot produce a branch name")
-		}
-		branch = "feat/" + slug
+	branch, err = taskWorktreeBranch(task)
+	if err != nil {
+		return "", "", err
 	}
 	if _, err := gitLocal(ctx, root, "check-ref-format", "--branch", branch); err != nil {
 		return "", "", err
@@ -271,23 +264,8 @@ func ensureLocalWorktree(ctx context.Context, root string, task models.Task, use
 		return existing, branch, nil
 	}
 
-	// The branch is checked out nowhere, so a worktree has to be created. The
-	// key path is the natural home; when it is taken by an unrelated branch the
-	// launch still proceeds, on a sibling path, and the stale path is named in
-	// the log rather than turned into a refusal.
-	target := filepath.Join(root, ".tasks", "worktrees", task.Key)
-	if _, err := os.Stat(target); err == nil {
-		occupant, occErr := gitLocal(ctx, target, "branch", "--show-current")
-		if occErr != nil {
-			occupant = "an unknown branch"
-		}
-		suffix := strings.ReplaceAll(models.SanitizeBranchName(branch), "/", "-")
-		if suffix == "" {
-			suffix = "branch"
-		}
-		log.Printf("[Agent] Stale worktree path %s carries %s, not the assigned branch %s; creating the worktree beside it", target, occupant, branch)
-		target = filepath.Join(root, ".tasks", "worktrees", task.Key+"-"+suffix)
-	} else if !os.IsNotExist(err) {
+	target, err := availableTaskWorktreePath(root, name, branch)
+	if err != nil {
 		return "", "", err
 	}
 	if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
@@ -316,7 +294,7 @@ func (d *agentDaemon) prepareDispatch(ctx context.Context, taskKey string, useWo
 	config, root, workDir, branch, task, err := d.prepareWorkspace(ctx, taskKey, useWorktrees...)
 	if err == nil {
 		provisionWorktree(ctx, root, workDir)
-		// A multi-repo ticket may work in another checkout than the one it
+		// A pinned ticket may work in another checkout than the one it
 		// was admitted against: the queue compares checkouts through this.
 		d.queue.mu.Lock()
 		for _, run := range d.queue.runs {
@@ -363,18 +341,11 @@ func (d *agentDaemon) prepareDispatchLocked(ctx context.Context, taskKey string,
 	if err := config.Validate(); err != nil {
 		return config, "", "", "", task, err
 	}
-	// The worktree lives in the ticket's own repository, which on a multi-repo
-	// project is not necessarily the project root (#456).
-	primary, _, pin, err := primaryRoot(ctx, config, overrides, root, task)
+	// The worktree lives in the ticket's own repository: the one it is pinned
+	// to, else the project root (#456, #484).
+	primary, _, err := primaryRoot(ctx, config, overrides, root, task)
 	if err != nil {
 		return config, "", "", "", task, err
-	}
-	if pin != "" {
-		// The only repository mapped here: later stages must stay in it.
-		if patchErr := d.patchTask(ctx, taskKey, map[string]string{"repository": pin}); patchErr != nil {
-			log.Printf("[Agent] Could not pin task %s to %s: %v", taskKey, pin, patchErr)
-		}
-		task.Repository = pin
 	}
 	root = primary
 	workDir, branch, err := ensureLocalWorktree(ctx, root, task, config.UseWorktrees)
@@ -486,7 +457,7 @@ func headlessCommandLine(provider, model, prompt string, addDirs ...string) (str
 	case "codex":
 		// codex exec is non-interactive, but its approval bypass flag is not
 		// attested here: it is left to a custom template until it is verified.
-		return words("codex", "exec", reasoning, modelFlag, quoteShell(prompt)), nil
+		return words("codex", "exec", reasoning, modelFlag, quoteShell(prompt), dirFlags), nil
 	case "vibe":
 		// vibe takes no model flag, so ModelArgs returns nothing for it.
 		return words("vibe", "-p", "--auto-approve", reasoning, quoteShell(prompt)), nil
@@ -496,16 +467,21 @@ func headlessCommandLine(provider, model, prompt string, addDirs ...string) (str
 }
 
 // addDirArgs passes the task's other folders to a provider whose option for it
-// is attested: Claude Code's --add-dir. Every other provider gets nothing,
-// which is what headlessCommandLine does for any unattested flag; the folder
-// map in the prompt still names the folders.
+// is attested: Claude Code's and Codex's --add-dir (#484; Codex declares it
+// in codex-rs/utils/cli/src/shared_options.rs, for codex and codex exec
+// alike). Every other provider gets nothing, which is what
+// headlessCommandLine does for any unattested flag; the folder map in the
+// prompt still names the folders. Codex makes these folders writable in its
+// sandbox: a context folder stays read-only by the prompt's instruction only.
 //
-// --add-dir takes several values: written "--add-dir <path>", it goes on
-// swallowing every argument that follows, the prompt included. The
+// Claude's --add-dir takes several values: written "--add-dir <path>", it
+// goes on swallowing every argument that follows, the prompt included. The
 // "--add-dir=<path>" form takes exactly one, wherever a template places it,
 // and the built-in lines also put the options after the prompt.
 func addDirArgs(provider string, dirs []string) string {
-	if !strings.EqualFold(strings.TrimSpace(provider), "claude") {
+	switch strings.ToLower(strings.TrimSpace(provider)) {
+	case "claude", "codex":
+	default:
 		return ""
 	}
 	var args []string
@@ -595,7 +571,9 @@ func modeCommandLine(provider, template, model, prompt, mode string, contexts ..
 		return words("agy", "-i", quoteShell(prompt)), nil
 	case "claude":
 		return words(provider, modelFlag, quoteShell(prompt), addDirArgs(provider, addDirs)), nil
-	case "codex", "gemini":
+	case "codex":
+		return words(provider, modelFlag, quoteShell(prompt), addDirArgs(provider, addDirs)), nil
+	case "gemini":
 		return words(provider, modelFlag, quoteShell(prompt)), nil
 	case "vibe":
 		return words("vibe", "-p", quoteShell(prompt)), nil

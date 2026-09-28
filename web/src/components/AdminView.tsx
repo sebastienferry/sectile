@@ -4,6 +4,7 @@ import { useApp } from '../context/AppContext'
 import { useCurrentUser } from '../hooks/useCurrentUser'
 import { useAdminStats } from '../hooks/useAdminStats'
 import { fill, RUN_STATUSES, windowMinutes } from '../lib/adminStats'
+import { formatTime } from '../lib/i18n'
 import { UsersPanel } from './UsersPanel'
 import { ServerTrackerCredentialsPanel } from './ServerTrackerCredentialsPanel'
 
@@ -37,7 +38,7 @@ function StatCard({ icon, label, value, detail }: StatCardProps) {
  * replicas the page reads the same whichever one answers.
  */
 export const AdminView: React.FC = () => {
-  const { t } = useApp()
+  const { t, settings } = useApp()
   const { user: currentUser } = useCurrentUser()
   const isAdmin = currentUser?.role === 'admin'
   const { stats, error, isLoading, revision, refresh } = useAdminStats(isAdmin)
@@ -69,7 +70,7 @@ export const AdminView: React.FC = () => {
         <div className="ml-auto flex items-center gap-2 text-[11px] text-[var(--text-muted)]">
           {error
             ? <span className="text-amber-400">{t.admin.statsUnavailable} ({error})</span>
-            : stats && <span>{t.admin.updatedAt} {new Date(stats.generatedAt).toLocaleTimeString()}</span>}
+            : stats && <span>{t.admin.updatedAt} {formatTime(settings.language, stats.generatedAt, { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>}
           <button
             type="button"
             onClick={() => void refresh()}
