@@ -193,6 +193,9 @@ configuration, read the [Desktop guide](./desktop/README.md).
 
 ## Testing
 
+See [database test fixtures and performance](docs/TESTING.md) for isolated SQLite
+fixtures, migration-test exceptions, and reproducible timing commands.
+
 Run the standard validation suite:
 
 ```sh

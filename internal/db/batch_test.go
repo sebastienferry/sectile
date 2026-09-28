@@ -7,13 +7,14 @@ import (
 	"time"
 
 	"tasks/internal/models"
+	"tasks/internal/testsqlite"
 )
 
 // batchEngines runs a batch test on SQLite, and on PostgreSQL when a test
 // server is configured.
 func batchEngines(t *testing.T, test func(t *testing.T, d *DB)) {
 	t.Run("sqlite", func(t *testing.T) {
-		d, err := NewDB(filepath.Join(t.TempDir(), "batch.db"))
+		d, err := testsqlite.New(t, filepath.Join(t.TempDir(), "batch.db"), NewDB)
 		if err != nil {
 			t.Fatalf("opening: %v", err)
 		}

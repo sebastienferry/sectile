@@ -6,13 +6,14 @@ import (
 	"testing"
 
 	"tasks/internal/models"
+	"tasks/internal/testsqlite"
 )
 
 // No request writes an execution setting any more (#305): the stored values
 // stay as they are, read only for the seed, and the rest of each request is
 // applied.
 func TestExecutionSettingsAreNeverWritten(t *testing.T) {
-	database, err := NewDB(filepath.Join(t.TempDir(), "tasks.db"))
+	database, err := testsqlite.New(t, filepath.Join(t.TempDir(), "tasks.db"), NewDB)
 	if err != nil {
 		t.Fatal(err)
 	}

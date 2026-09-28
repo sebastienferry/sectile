@@ -5,11 +5,12 @@ import (
 	"testing"
 
 	"tasks/internal/models"
+	"tasks/internal/testsqlite"
 )
 
 func openUserSettingsDB(t *testing.T) *DB {
 	t.Helper()
-	database, err := NewDB(filepath.Join(t.TempDir(), "usersettings.db"))
+	database, err := testsqlite.New(t, filepath.Join(t.TempDir(), "usersettings.db"), NewDB)
 	if err != nil {
 		t.Fatalf("open database: %v", err)
 	}

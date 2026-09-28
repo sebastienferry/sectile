@@ -11,6 +11,7 @@ import (
 	"tasks/internal/db"
 	"tasks/internal/handlers"
 	"tasks/internal/models"
+	"tasks/internal/testsqlite"
 	"tasks/internal/tracker"
 )
 
@@ -60,7 +61,7 @@ func detect(t *testing.T, h *handlers.Handler, query string) detectedStatuses {
 }
 
 func TestDetectedStatusesMirrorsTheBoardColumns(t *testing.T) {
-	database, err := db.NewDB(filepath.Join(t.TempDir(), "test.db"))
+	database, err := testsqlite.New(t, filepath.Join(t.TempDir(), "test.db"), db.NewDB)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -98,7 +99,7 @@ func TestDetectedStatusesMirrorsTheBoardColumns(t *testing.T) {
 // A tracker without boards keeps the payload it had: no columns field, and the
 // GitHub fallback untouched.
 func TestDetectedStatusesKeepsTheGithubShape(t *testing.T) {
-	database, err := db.NewDB(filepath.Join(t.TempDir(), "test.db"))
+	database, err := testsqlite.New(t, filepath.Join(t.TempDir(), "test.db"), db.NewDB)
 	if err != nil {
 		t.Fatal(err)
 	}

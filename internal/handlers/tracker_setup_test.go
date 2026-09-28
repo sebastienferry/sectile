@@ -10,6 +10,7 @@ import (
 
 	"tasks/internal/db"
 	"tasks/internal/handlers"
+	"tasks/internal/testsqlite"
 )
 
 // The setup screen checks a credential against the instance, and saves no
@@ -27,7 +28,7 @@ func TestHandleTrackerSetupChecksBeforeSaving(t *testing.T) {
 	}))
 	defer instance.Close()
 
-	database, err := db.NewDB(filepath.Join(t.TempDir(), "test.db"))
+	database, err := testsqlite.New(t, filepath.Join(t.TempDir(), "test.db"), db.NewDB)
 	if err != nil {
 		t.Fatal(err)
 	}

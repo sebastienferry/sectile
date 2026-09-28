@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"tasks/internal/models"
+	"tasks/internal/testsqlite"
 	"tasks/internal/tracker"
 	"tasks/internal/trackerapi"
 )
@@ -80,7 +81,7 @@ func newIsolationFixture(t *testing.T) *isolationFixture {
 	t.Cleanup(server.Close)
 	t.Setenv("SECTILE_GITHUB_API_URL", server.URL)
 	t.Setenv("SECTILE_GITHUB_TOKEN", "server-token")
-	d, err := NewDB(filepath.Join(t.TempDir(), "tasks.db"))
+	d, err := testsqlite.New(t, filepath.Join(t.TempDir(), "tasks.db"), NewDB)
 	if err != nil {
 		t.Fatal(err)
 	}

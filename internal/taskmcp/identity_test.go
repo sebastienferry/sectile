@@ -10,6 +10,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"tasks/internal/db"
+	"tasks/internal/testsqlite"
 )
 
 // A session id is the only thing a request carries that can lead another
@@ -31,7 +32,7 @@ func TestSessionOwnerReadsTheInstanceOffTheID(t *testing.T) {
 // Every session this server creates names the instance it lives on, whatever
 // the storage engine, and the sessions view says which instance that is.
 func TestSessionsNameTheirInstance(t *testing.T) {
-	database, err := db.NewDB(filepath.Join(t.TempDir(), "tasks.db"))
+	database, err := testsqlite.New(t, filepath.Join(t.TempDir(), "tasks.db"), db.NewDB)
 	if err != nil {
 		t.Fatal(err)
 	}

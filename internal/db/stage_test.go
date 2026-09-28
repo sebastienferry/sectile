@@ -7,13 +7,14 @@ import (
 
 	"tasks/internal/db"
 	"tasks/internal/models"
+	"tasks/internal/testsqlite"
 )
 
 func TestTransitionTaskStage(t *testing.T) {
 	tempDir := t.TempDir()
 	dbPath := filepath.Join(tempDir, "test.db")
 
-	database, err := db.NewDB(dbPath)
+	database, err := testsqlite.New(t, dbPath, db.NewDB)
 	if err != nil {
 		t.Fatalf("Failed to initialize db: %v", err)
 	}
