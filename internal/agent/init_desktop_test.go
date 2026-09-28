@@ -148,3 +148,16 @@ func TestInitializationPreservesOtherProviderSkills(t *testing.T) {
 		t.Fatalf("other provider skill retired: %v", err)
 	}
 }
+
+// The direct setup says it is optional, and only a Claude user is pointed at
+// the plugin (#267).
+func TestDirectSetupNote(t *testing.T) {
+	claude := directSetupNote("claude")
+	if !strings.Contains(claude, "optional") || !strings.Contains(claude, "`sectile` plugin") || !strings.Contains(claude, ".claude.json") {
+		t.Fatalf("claude: %s", claude)
+	}
+	codex := directSetupNote("codex")
+	if !strings.Contains(codex, "optional") || strings.Contains(codex, "plugin") || !strings.Contains(codex, "codex") {
+		t.Fatalf("codex: %s", codex)
+	}
+}

@@ -3457,6 +3457,25 @@ func (h *Handler) HandleActivityDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Sub-action: /api/activities/{id}/custom-skill
+	// Reported by the local agent when it launched the run with the project's
+	// custom skill (#267). It names the skill; the step's wording is the server's.
+	if len(parts) >= 2 && parts[1] == "custom-skill" && r.Method == http.MethodPost {
+		var body struct {
+			Directory string `json:"directory"`
+		}
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&body); err != nil || strings.TrimSpace(body.Directory) == "" {
+			writeError(w, http.StatusBadRequest, "Body must be {\"directory\": string}")
+			return
+		}
+		if err := h.db.RecordRunCustomSkill(id, body.Directory); err != nil {
+			writeError(w, http.StatusNotFound, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"directory": strings.TrimSpace(body.Directory)})
+		return
+	}
+
 	switch r.Method {
 	case http.MethodGet:
 		act, err := h.db.GetActivityByID(id)

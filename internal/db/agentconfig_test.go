@@ -150,3 +150,47 @@ func TestLegacyWorkstationExecutionTakesTheCallersTerminalAndEditor(t *testing.T
 		t.Fatalf("the caller's own terminal and editor: %+v", seed)
 	}
 }
+
+// A skill is custom when the project stored content that differs from the
+// built-in one: not for a mode-only row, not for the pull-request policy every
+// project gets, not for the built-in content an adjust reset stores.
+func TestAgentConfigMarksCustomSkills(t *testing.T) {
+	database, err := NewDB(filepath.Join(t.TempDir(), "tasks.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	project, err := database.CreateProject(models.CreateProjectRequest{Name: "Custom"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.SaveProjectSkillContent(project.ID, "clarify", "---\nname: clarify-issue\n---\nProject clarification."); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.SetProjectSkillMode(project.ID, "specify", models.SkillModeInteractive); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.ResetProjectSkillContent(project.ID, "adjust"); err != nil {
+		t.Fatal(err)
+	}
+	config, err := database.AgentConfig(project.ID, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	custom := map[string]bool{}
+	for _, skill := range config.Skills {
+		custom[skill.ID] = skill.Custom
+	}
+	if !custom["clarify"] {
+		t.Fatal("an edited skill is not marked custom")
+	}
+	for _, id := range []string{"specify", "implement", "adjust", "pickup"} {
+		if custom[id] {
+			t.Errorf("%s is marked custom", id)
+		}
+	}
+	raw, _ := json.Marshal(config)
+	if strings.Count(string(raw), `"custom":true`) != 1 {
+		t.Fatalf("the custom flag must be sent for the edited skill only: %s", raw)
+	}
+}

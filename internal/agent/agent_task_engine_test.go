@@ -70,9 +70,10 @@ func TestDiscussionOpensTheTaskEngine(t *testing.T) {
 	}
 }
 
-// Two tasks of one project are dispatched with their own engines, and the
-// switched task finds its provider's skills installed before its CLI starts.
-func TestDispatchRunsTheTaskEngineAndSetsItUp(t *testing.T) {
+// Two tasks of one project are dispatched with their own engines. Neither
+// dispatch installs anything for its provider (#267): the skills are the
+// user's to set up, through the Claude plugin or the agent's init.
+func TestDispatchRunsTheTaskEngineWithoutSettingItUp(t *testing.T) {
 	ctx := context.Background()
 	root := t.TempDir()
 	testhome.Temp(t)
@@ -120,10 +121,9 @@ func TestDispatchRunsTheTaskEngineAndSetsItUp(t *testing.T) {
 	if plain.AIProvider != "agy" || plain.EngineID != "e-agy" {
 		t.Fatalf("plain task: %+v", plain)
 	}
-	// Every catalogue provider that takes skills has them, whichever task ran.
-	for _, path := range []string{".agents/skills/code-issue/SKILL.md", ".gemini/config/skills/code-issue/SKILL.md"} {
-		if _, err := os.Stat(filepath.Join(os.Getenv("HOME"), path)); err != nil {
-			t.Fatalf("%s not installed: %v", path, err)
+	for _, path := range []string{".agents/skills/code-issue/SKILL.md", ".gemini/config/skills/code-issue/SKILL.md", ".claude/skills/code-issue/SKILL.md"} {
+		if _, err := os.Stat(filepath.Join(os.Getenv("HOME"), path)); !os.IsNotExist(err) {
+			t.Fatalf("a dispatch installed %s: %v", path, err)
 		}
 	}
 }

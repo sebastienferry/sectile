@@ -104,9 +104,7 @@ func TestProjectDisconnectionPersistenceAndReadd(t *testing.T) {
 	if len(d.queue.runs) != 1 {
 		t.Fatal("history deleted")
 	}
-	if err := d.syncLocalProject(context.Background(), config); err != nil {
-		t.Fatal("disconnected project prevented agent reconnection", err)
-	}
+	// A reconnection installs nothing for any project since #267.
 	if _, err := os.Stat(filepath.Join(d.repoRoot, ".taskflow", "remote-config.json")); !os.IsNotExist(err) {
 		t.Fatal("reconnection deployed tooling")
 	}

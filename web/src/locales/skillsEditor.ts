@@ -39,10 +39,10 @@ const fr = {
     macroTitle: 'Skill de cadrage et raffinage Macro',
     custom: 'PERSO',
     customTitle: 'Contenu propre à ce projet',
-    notInstalled: 'NON INSTALLÉE',
-    notInstalledTitle: 'Aucun SKILL.md dans le dépôt',
+    notInstalled: 'SANS COPIE DIRECTE',
+    notInstalledTitle: 'Aucune copie directe (SKILL.md) sur ce poste',
     diverged: 'DIVERGENTE',
-    divergedTitle: 'Le fichier du dépôt diffère',
+    divergedTitle: 'La copie directe diffère',
   },
   editor: {
     reconciliationRequired:
@@ -104,10 +104,10 @@ const en: SkillsEditorStrings = {
     macroTitle: 'Macro scoping and refinement skill',
     custom: 'CUSTOM',
     customTitle: 'Content specific to this project',
-    notInstalled: 'NOT INSTALLED',
-    notInstalledTitle: 'No SKILL.md in the repository',
+    notInstalled: 'NO DIRECT COPY',
+    notInstalledTitle: 'No direct copy (SKILL.md) on this workstation',
     diverged: 'DIVERGED',
-    divergedTitle: 'The repository file differs',
+    divergedTitle: 'The direct copy differs',
   },
   editor: {
     reconciliationRequired:

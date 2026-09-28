@@ -248,3 +248,36 @@ func TestSettingsSpecArtifactsAddNoKeyUntilUsed(t *testing.T) {
 		t.Fatalf("the legacy map must be folded: %+v %v", got.Project("p"), err)
 	}
 }
+
+func TestSkillSourceSettingsRoundTrip(t *testing.T) {
+	testhome.Temp(t)
+	root := t.TempDir()
+	settings, err := ReadSettings(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if settings.Defaults.CustomSkillsWin != nil || settings.Defaults.InstalledSkillSource != "" {
+		t.Fatalf("a fresh file states the skill settings: %+v", settings.Defaults)
+	}
+	settings.Defaults.CustomSkillsWin = boolPtr(false)
+	settings.Defaults.InstalledSkillSource = SkillSourcePlugin
+	if err := WriteSettings(settings); err != nil {
+		t.Fatal(err)
+	}
+	settings, err = ReadSettings(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if settings.Defaults.CustomSkillsWinOrDefault() || settings.Defaults.InstalledSkillSourceOrDefault() != SkillSourcePlugin {
+		t.Fatalf("skill settings lost: %+v", settings.Defaults)
+	}
+	settings.Defaults.CustomSkillsWin, settings.Defaults.InstalledSkillSource = nil, ""
+	if err := WriteSettings(settings); err != nil {
+		t.Fatal(err)
+	}
+	path, _ := SettingsPath()
+	raw, _ := os.ReadFile(path)
+	if strings.Contains(string(raw), "customSkillsWin") || strings.Contains(string(raw), "installedSkillSource") {
+		t.Fatalf("absent settings were written: %s", raw)
+	}
+}

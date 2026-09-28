@@ -141,7 +141,7 @@ func TestSeedReproducesThePreUpgradeResolution(t *testing.T) {
 			same := got.AIProvider == want.AIProvider && got.AICommandTemplate == want.AICommandTemplate &&
 				got.AICommandTemplateAutonomous == want.AICommandTemplateAutonomous && got.ExternalTerminalCommand == want.ExternalTerminalCommand &&
 				got.UseWorktrees == want.UseWorktrees && reflect.DeepEqual(configuredSetupProviders(settings, settings.Project("p")), want.SetupProviders) &&
-				reflect.DeepEqual(got.Skills, want.Skills)
+				reflect.DeepEqual(withoutCommandOverridden(got.Skills), want.Skills)
 			for _, skill := range []string{"", "clarify", "implement", "specify"} {
 				same = same && ResolveModel(got, skill) == ResolveModel(want, skill)
 			}
@@ -255,4 +255,14 @@ func TestProjectSeedReusesAnEntryAndKeepsAPick(t *testing.T) {
 	if engine, _ := settings.Engine(picked); engine.Model != "" {
 		t.Fatalf("the seed edited an existing engine: %+v", engine)
 	}
+}
+
+// withoutCommandOverridden drops the mark Resolve leaves on an explicit command,
+// which the pre-upgrade resolution did not have and which is not in the contract.
+func withoutCommandOverridden(skills []Skill) []Skill {
+	out := append([]Skill{}, skills...)
+	for i := range out {
+		out[i].CommandOverridden = false
+	}
+	return out
 }

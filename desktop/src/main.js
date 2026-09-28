@@ -368,8 +368,20 @@ async function loadEditorSetting(){
   const [status,view]=await Promise.all([api.status(),api.workstationSettings()])
   openEditorAvailable=!!status.capabilities?.includes('open-editor')
   configuredEditor=String(view?.defaults?.editorCommand||'').trim()
+  renderCustomSkillSignal(view?.customSkillsUsed)
  }catch{openEditorAvailable=false;configuredEditor=''}
  renderOpenEditor()
+}
+// A project's custom skill ran instead of the installed one (#267): a passive
+// signal on the settings button, never an interruption. The list itself is
+// in Execution defaults.
+function renderCustomSkillSignal(list){
+ const button=document.querySelector('#settings'),used=Array.isArray(list)&&list.length>0
+ button.classList.toggle('custom-skills-used',used)
+ button.setAttribute('aria-label',used?'Settings, custom skills used':'Settings')
+}
+async function loadCustomSkillSignal(){
+ try{renderCustomSkillSignal((await api.workstationSettings())?.customSkillsUsed)}catch{}
 }
 document.querySelector('#open-editor').onclick=async()=>{
  if(!selected||openingEditor)return
@@ -678,6 +690,7 @@ async function refresh(){
   if(current&&((current.status!==previous?.status&&(current.status==='running'||!current.sessionId))||current.sessionId!==previous?.sessionId))select(current,true,{deferrable:true})
   if(!selected){const visible=runs.find(run=>!hiddenRun(run));if(visible)select(visible,true,{deferrable:true})}
   if(changed||Date.now()-nextStepUpdated>15000)refreshNextStep()
+  if(changed)loadCustomSkillSignal()
   refreshVisibleSkillResults()
  }catch{agentUnavailable()}
  finally{refreshing=false}
@@ -1344,6 +1357,44 @@ function executionDefaultsPanel(panel){
  const globalCommands=entryList({keyLabel:'Skill',valueLabel:'Command for skill',addLabel:'Add a skill command',validate:validSkillCommand,onChange:changed,placeholder:()=> 'Standard command'})
  const commandsRow=settingRow('Skill command names',{stacked:true,resetLabel:'Reset skill command names to the standard ones',onReset:()=>{globalCommands.set({});changed()}},globalCommands.box)
  commandsRow.hint.textContent='Commands used for all projects on this workstation. Empty entries run the standard command.'
+ // Which skill a dispatch runs (#267): a project's edited skill, or the one
+ // installed on this workstation, from the direct copy or the Claude plugin.
+ let customSkillsWin=null
+ const customGroup=document.createElement('div');customGroup.className='segmented'
+ customGroup.setAttribute('role','group');customGroup.setAttribute('aria-label','Custom project skills win')
+ const customButtons=['Yes','No'].map(value=>{
+  const button=document.createElement('button');button.type='button';button.textContent=value
+  button.onclick=()=>{customSkillsWin=value==='Yes';changed();render()}
+  customGroup.append(button);return button
+ })
+ const customRow=settingRow('Custom project skills win',{resetLabel:'Reset custom project skills win to default',onReset:()=>{customSkillsWin=null;changed();render()}},customGroup)
+ const customHelp=document.createElement('p');customHelp.className='setting-help'
+ customHelp.textContent='A skill a project edited in Sectile runs instead of the one installed on this workstation.'
+ const customUsedList=document.createElement('ul')
+ const customUsedTitle=document.createElement('strong');customUsedTitle.textContent='Custom skills used'
+ const customUsed=document.createElement('div');customUsed.className='custom-skills-notice';customUsed.setAttribute('role','note');customUsed.hidden=true
+ customUsed.append(customUsedTitle,customUsedList)
+ customRow.section.querySelector('.setting-text').append(customHelp,customUsed)
+ let installedSkillSource=''
+ const sourceSelect=document.createElement('select');sourceSelect.setAttribute('aria-label','Installed skills source')
+ for(const [value,label] of [['direct','Direct copy'],['plugin','Claude plugin']]){
+  const option=document.createElement('option');option.value=value;option.textContent=label;sourceSelect.append(option)
+ }
+ sourceSelect.onchange=()=>{installedSkillSource=sourceSelect.value;changed();render()}
+ const sourceRow=settingRow('Installed skills source',{resetLabel:'Reset installed skills source to default',onReset:()=>{installedSkillSource='';changed();render()}},sourceSelect)
+ const sourceHelp=document.createElement('p');sourceHelp.className='setting-help'
+ sourceHelp.textContent='Tried first when a skill is not custom; the other one is the fallback. The Claude plugin serves Claude only.'
+ sourceRow.section.querySelector('.setting-text').append(sourceHelp)
+ function renderCustomSkillsUsed(list){
+  customUsedList.replaceChildren()
+  for(const use of list){
+   const item=document.createElement('li')
+   const when=use.lastRun?new Date(use.lastRun).toLocaleString():''
+   item.textContent=(use.projectName||use.projectId)+' · '+use.directory+(when?' · '+when:'')
+   customUsedList.append(item)
+  }
+  customUsed.hidden=!list.length
+ }
  function renderSetupChoices(choices){
   setupBox.replaceChildren()
   for(const id of choices){
@@ -1358,7 +1409,7 @@ function executionDefaultsPanel(panel){
  const save=document.createElement('button');save.type='button';save.className='dialog-action primary';save.textContent='Save execution defaults'
  const actions=document.createElement('div');actions.className='deployment-actions';actions.style.marginTop='16px'
  actions.append(save,notice)
- body.append(listsRow.section,terminalRow.section,editorRow.section,worktreeRow.section,parallelRow.section,setupRow.section,initializationRow.section,commandsRow.section,actions)
+ body.append(listsRow.section,terminalRow.section,editorRow.section,worktreeRow.section,parallelRow.section,setupRow.section,initializationRow.section,commandsRow.section,customRow.section,sourceRow.section,actions)
 
  function hint(row,set,defaultText,setText){row.hint.textContent=set?(setText||'Workstation default'):'Default · '+defaultText}
  function render(){
@@ -1377,6 +1428,11 @@ function executionDefaultsPanel(panel){
   hint(parallelRow,parallelism!==0,'1 execution')
   for(const [id,box] of Object.entries(setupChecks))box.checked=!!setupProviders?.includes(id)
   setupRow.hint.textContent=setupProviders===null?'Default · None beyond the provider':setupProviders.length?'Workstation default':'Workstation default · None'
+  const customWins=customSkillsWin??true
+  customButtons.forEach((button,i)=>button.setAttribute('aria-pressed',String(customWins===(i===0))))
+  hint(customRow,customSkillsWin!==null,'Yes')
+  sourceSelect.value=installedSkillSource||'direct'
+  hint(sourceRow,!!installedSkillSource,'Direct copy')
  }
 
  function fill(){
@@ -1397,6 +1453,10 @@ function executionDefaultsPanel(panel){
   useWorktrees=typeof defaults.useWorktrees==='boolean'?defaults.useWorktrees:null
   parallelism=Number(defaults.parallelism)||0
   setupProviders=Array.isArray(defaults.setupProviders)?[...defaults.setupProviders]:null
+  customSkillsWin=typeof defaults.customSkillsWin==='boolean'?defaults.customSkillsWin:null
+  installedSkillSource=defaults.installedSkillSource||''
+  renderCustomSkillsUsed(Array.isArray(view.customSkillsUsed)?view.customSkillsUsed:[])
+  renderCustomSkillSignal(view.customSkillsUsed)
   renderSetupChoices(view.setupProviders?.length?view.setupProviders:SETUP_PROVIDERS)
   listsBox.replaceChildren()
   for(const key of Object.keys(listInputs))delete listInputs[key]
@@ -1416,11 +1476,11 @@ function executionDefaultsPanel(panel){
   const lists={}
   for(const [id,entry] of Object.entries(listInputs))if(stated['models:'+id])lists[id]=parseModelList(entry.input.value)
   return {
-   terminal:terminal.get(),editorCommand:editor.get(),useWorktrees,parallelism,setupProviders,aiProviderModels:lists,...(view.globalConfiguration?{skillCommands:compact(globalCommands.get()),initializationProvider:initializationProvider.value}:{})
+   terminal:terminal.get(),editorCommand:editor.get(),useWorktrees,parallelism,setupProviders,aiProviderModels:lists,customSkillsWin,installedSkillSource,...(view.globalConfiguration?{skillCommands:compact(globalCommands.get()),initializationProvider:initializationProvider.value}:{})
   }
  }
  save.onclick=async()=>{
-  if(globalCommands.invalid()){notice.textContent='A skill command name is a single word, optionally led by /.';notice.dataset.tone='error';return}
+  if(globalCommands.invalid()){notice.textContent='A skill command name is a single word, optionally led by / and by a plugin name such as sectile:.';notice.dataset.tone='error';return}
   const invalidList=Object.entries(listInputs).find(([id,entry])=>stated['models:'+id]&&parseModelList(entry.input.value).some(model=>!validateModel(model)))
   if(invalidList){notice.textContent='Invalid model in the list of '+invalidList[0];notice.dataset.tone='error';return}
   save.disabled=true;notice.textContent='Saving…';notice.dataset.tone=''
@@ -1510,7 +1570,7 @@ function configurationNavigation(tabs,projectId){
 }
 function deploymentPanel(panel){
  const globalTitle=document.createElement('h3');globalTitle.textContent='Global AI engine setup'
- const globalHint=document.createElement('p');globalHint.textContent='Install skills and register MCP in your user configuration for the selected engine’s provider. Engines sharing a provider share this installation.'
+ const globalHint=document.createElement('p');globalHint.textContent='Install skills and register MCP in your user configuration for the selected engine’s provider. Engines sharing a provider share this installation. This setup is optional: for Claude, installing the sectile plugin does the same, and a dispatch never installs anything.'
  const engine=document.createElement('select');engine.setAttribute('aria-label','Setup AI engine')
  panel.append(globalTitle,globalHint,settingRow('AI engine',{},engine).section)
  const source=projects.find(project=>project.id===selectedProject)||projects[0]
