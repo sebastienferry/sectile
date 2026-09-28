@@ -4,12 +4,12 @@ Ordered. Each task names the requirements it covers and its tests.
 
 ## Phase 1 - Pure helpers
 
-- [ ] **T1** `web/src/lib/latestRequest.ts`: `createLatestRequest()` with
+- [x] **T1** `web/src/lib/latestRequest.ts`: `createLatestRequest()` with
   `begin()` and `isLatest(ticket)`. (FR1, FR2, FR3)
   - Test `web/tests/latestRequest.test.mjs`: a first ticket is latest; a
     second `begin` makes the first stale and the second latest; two instances
     do not share tickets.
-- [ ] **T2** `web/src/lib/filterPruning.ts`: `staleFilters(filters, facets,
+- [x] **T2** `web/src/lib/filterPruning.ts`: `staleFilters(filters, facets,
   scope, unassignedValue)`. (FR4, FR5, FR6)
   - Test `web/tests/filterPruning.test.mjs`: facets of another scope or with
     a `null` scope drop nothing; same scope drops a sprint, team or assignee
@@ -18,37 +18,41 @@ Ordered. Each task names the requirements it covers and its tests.
 
 ## Phase 2 - Wiring in `AppContext.tsx`
 
-- [ ] **T3** Gate `fetchTasks` with `tasksRequestRef`: ignore a stale answer
+- [x] **T3** Gate `fetchTasks` with `tasksRequestRef`: ignore a stale answer
   before any state write, toast or view fallback; clear the loading state only
   for the latest request. (FR1, FR2)
-- [ ] **T4** Gate the activity poll refresh with the same `tasksRequestRef`
-  before `setTasks` / `setSelectedTask`. (FR1)
-- [ ] **T5** Gate `fetchTaskFacets` with `facetsRequestRef`, and record
+- [x] **T4** Gate the activity poll refresh with the same `tasksRequestRef`
+  before `setTasks` / `setSelectedTask`, joining the newest read with
+  `current()` rather than starting one. (FR1)
+- [x] **T5** Gate `fetchTaskFacets` with `facetsRequestRef`, and record
   `scope: filterScopeKey(selectedProjectId, selectedViewId)` on the facets;
   add `scope` to the `taskFacets` state, its initial value (`null`) and the
   `AppContextType` type. (FR3, FR4)
-- [ ] **T6** Pruning effect: call `staleFilters` with `filterScope` and clear
+- [x] **T6** Pruning effect: call `staleFilters` with `filterScope` and clear
   only what it returns; add `filterScope` to the dependencies. Rewrite the
   touched French comments in English. (FR4, FR5, FR6)
-- [ ] **T7** Check that the mutation paths using `setTasks(prev => ...)` are
+- [x] **T7** Check that the mutation paths using `setTasks(prev => ...)` are
   untouched. (FR7)
 
 ## Phase 3 - Regression and documentation
 
-- [ ] **T8** `web/tests/board-filters.browser.mjs` (US1, US2):
+- [x] **T8** `web/tests/board-filters.browser.mjs` (US1, US2):
   - opening a project with a remembered sprint while the unfiltered answer is
     delayed shows only that sprint's cards (US1-1);
   - a filter change during a delayed older answer shows the newer filters'
     cards (US1-2, US1-3);
-  - switching from A to B with A's answer delayed shows B (US1-4);
+  - switching from A to B with A's answer delayed shows B (US1-4): same gate
+    as US1-1 and US1-2, not a browser scenario of its own;
   - switching B to A keeps A's remembered sprint, team and assignee on screen
     and in `localStorage`, also after a reload (US2-1, US2-3);
   - a saved view keeps its remembered team when opened from a project without
-    it (US2-2);
+    it (US2-2): not a browser scenario of its own, the view scope goes through
+    the same `staleFilters` path and is covered by the unit test "a view and a
+    project are different scopes";
   - a remembered sprint absent from its own project's facets is dropped and
     forgotten (US2-4); "Unassigned" is kept (US2-5).
-- [ ] **T9** `CHANGELOG.md`: under `## [Unreleased]` / `### Fixed`, one line:
+- [x] **T9** `CHANGELOG.md`: under `## [Unreleased]` / `### Fixed`, one line:
   the board again respects its Sprint, Team and Assignee filters, and keeps
   them when switching projects or views (#581). (FR8)
-- [ ] **T10** Run in `web/`: `npm test`, `npx tsc --noEmit`, the new and the
+- [x] **T10** Run in `web/`: `npm test`, `npx tsc --noEmit`, the new and the
   existing `board-views.browser.mjs` browser tests.

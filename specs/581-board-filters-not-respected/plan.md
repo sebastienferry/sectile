@@ -50,6 +50,8 @@ New module `web/src/lib/latestRequest.ts`:
 export interface LatestRequest {
   /** Starts a request and returns its ticket. */
   begin(): number
+  /** The newest ticket, for a read that joins it instead of superseding it. */
+  current(): number
   /** True while no request was started after the one holding `ticket`. */
   isLatest(ticket: number): boolean
 }
@@ -63,10 +65,13 @@ Pure, no React, unit-tested. In `AppContext.tsx`, two instances held in refs:
   request; after `await`, return early unless `isLatest(ticket)`, before any
   `leaveUnavailableView`, toast, `trackRead`, `setError` or `setTasks`; in
   `finally`, `setIsLoading(false)` only when `isLatest(ticket)`.
-- Activity poll refresh: take a ticket from the same `tasksRequestRef` before
-  its `fetch`, and apply `setTasks` / `setSelectedTask` only when it is still
-  the latest. Sharing the counter is what makes a poll answer lose against a
-  later filter change, and a filter change answer win against an earlier poll.
+- Activity poll refresh: it joins the newest read instead of starting one,
+  reading `tasksRequestRef.current.current()` before its `fetch`, and applies
+  `setTasks` / `setSelectedTask` only when that ticket is still the latest.
+  A filter change started meanwhile therefore wins over it. It does not call
+  `begin()`: superseding an overlapping `fetchTasks` would leave that load's
+  spinner on, since only the latest request clears it (changed during
+  implementation).
 - `fetchTaskFacets`: same with `facetsRequestRef` around `setTaskFacets`.
 - The functional updates `setTasks(prev => ...)` of the mutation paths are
   untouched (FR7). They apply to whatever list is current, which is the point.
