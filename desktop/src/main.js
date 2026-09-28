@@ -37,6 +37,9 @@ const api=window.localAgent
 // Concurrent execution workers ceiling per project, aligned with agentconfig.MaxParallelism.
 // Parallelism is a workstation setting: the server neither stores nor supplies it.
 const MAX_PARALLELISM=10
+// Parallel executions of a project when no setting states one, aligned with
+// agentconfig.DefaultParallelism.
+const DEFAULT_PARALLELISM=5
 document.querySelector('#app').innerHTML=`
 <header><div><button id="toggle-sidebar" aria-expanded="true"></button><strong id="app-title">Sectile Desktop</strong><small>Execution consoles</small></div><button id="command-palette" title="Commands (⌘K / Ctrl+K)">⌘K</button></header>
 <section id="setup" hidden><div class="setup-toolbar"><button id="setup-logs" type="button" title="View local-agent diagnostics">Agent logs</button></div><div id="agent-offline" role="status" hidden><strong>Local agent is stopped</strong><p>Start the agent to run tasks and access your local consoles.</p></div><h1>Connect to Sectile</h1><p>In the Sectile web interface, under your profile, choose <strong>Pair a workstation</strong> and paste the code here. A code is single use and expires within ten minutes; this machine keeps the credential it receives, so the code is never needed again.</p>
@@ -1422,10 +1425,10 @@ function executionDefaultsPanel(panel){
   const worktrees=useWorktrees??true
   worktreeButtons.forEach((button,i)=>button.setAttribute('aria-pressed',String(worktrees===(i===0))))
   hint(worktreeRow,useWorktrees!==null,'Yes')
-  const limit=parallelism||1
+  const limit=parallelism||DEFAULT_PARALLELISM
   parallelInput.value=String(limit)
   parallelReadout.textContent=limit+(limit===1?' execution':' executions')
-  hint(parallelRow,parallelism!==0,'1 execution')
+  hint(parallelRow,parallelism!==0,DEFAULT_PARALLELISM+' executions')
   for(const [id,box] of Object.entries(setupChecks))box.checked=!!setupProviders?.includes(id)
   setupRow.hint.textContent=setupProviders===null?'Default · None beyond the provider':setupProviders.length?'Workstation default':'Workstation default · None'
   const customWins=customSkillsWin??true
@@ -2161,7 +2164,7 @@ async function openProject(id,initial='Remove'){
   const inherits=name=>fields[name].source!=='project'
 
   let useWorktrees=fields.useWorktrees.value??true,inheritWorktrees=inherits('useWorktrees')
-  let parallelism=Number(fields.parallelism.value)||1,inheritParallelism=inherits('parallelism')
+  let parallelism=Number(fields.parallelism.value)||DEFAULT_PARALLELISM,inheritParallelism=inherits('parallelism')
   const controls={}
   const worktreeGroup=document.createElement('div');worktreeGroup.className='segmented'
   worktreeGroup.setAttribute('role','group');worktreeGroup.setAttribute('aria-label','Worktrees')

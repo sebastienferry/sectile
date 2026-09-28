@@ -555,7 +555,7 @@ time: **General** (Git remote, SDD framework, default engine, removal from the d
 with the project's default engine picked from the workstation catalogue or
 inherited from its default. **General** opens
 first. Use **Choose folder…** to select a repository through the native directory
-dialog. Worktrees use Yes/No buttons; parallel executions use a 1 to 10 slider.
+dialog. Worktrees use Yes/No buttons; parallel executions use a 1 to 10 slider, 5 when nothing is set.
 Each setting is one row: its name with the inherited value in small type on the
 left, its control on the right. Reset icons restore inheritance from the
 workstation defaults. The placeholder

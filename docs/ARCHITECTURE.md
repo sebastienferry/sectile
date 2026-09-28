@@ -242,8 +242,8 @@ occupied destinations. Lookup, desktop launches and explicit cleanup use the
 actual branch checkout, with Git's dirty-removal protection retained. No legacy
 path is automatically moved or removed. Safe basenames cannot repair an unsafe
 ancestor repository path, nor make Vite work in a retained legacy path.
-Shared checkouts execute serially. Worktree projects admit up to five
-parallel executions according to the workstation setting, which defaults to one. Tasks using the same checkout cannot execute concurrently.
+Shared checkouts execute serially. Worktree projects admit up to ten
+parallel executions according to the workstation setting, which defaults to five. Tasks using the same checkout cannot execute concurrently.
 
 Only the agent writes repository skills or updates the marked section of
 `AGENTS.md`. It preserves unrelated configuration keys and personal
