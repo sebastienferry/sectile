@@ -38,6 +38,9 @@ type runTrace struct {
 	lines   []string
 	clients map[chan string]struct{}
 	closed  bool
+	// version changes on every line, so the run store can tell whether the
+	// trace moved since its last write.
+	version uint64
 }
 
 func newRunTrace() *runTrace {
@@ -66,6 +69,7 @@ func (t *runTrace) write(line string) {
 		return
 	}
 	t.lines = append(t.lines, line)
+	t.version++
 	if len(t.lines) > traceRetained {
 		t.lines = append([]string(nil), t.lines[len(t.lines)-traceRetained:]...)
 	}
@@ -95,6 +99,16 @@ func (t *runTrace) attach() ([]string, chan string) {
 	}
 	t.clients[client] = struct{}{}
 	return replay, client
+}
+
+// snapshot copies the lines shown so far, with the version they are at.
+func (t *runTrace) snapshot() ([]string, uint64) {
+	if t == nil {
+		return nil, 0
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return append([]string(nil), t.lines...), t.version
 }
 
 // detach drops one watcher, whether it left or was dropped for falling behind.

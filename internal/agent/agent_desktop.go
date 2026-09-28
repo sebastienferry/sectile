@@ -116,6 +116,10 @@ type desktopRun struct {
 	// reads it to raise its notification and to mark the run in its list. The
 	// server sends it, as the session declares it over MCP (#318).
 	WaitingSince time.Time `json:"waitingSince,omitzero"`
+	// Restored marks a run the agent loaded from its run store at start
+	// (#588). It has no session: the desktop attaches to it read-only and is
+	// replayed what its console showed when the previous agent last wrote it.
+	Restored bool `json:"restored,omitempty"`
 }
 
 func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
@@ -155,7 +159,11 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 		// contractError separates a server that is merely unreachable from one
 		// that cannot be talked to at all. Without it the desktop reports both
 		// as a disconnection and the user has no reason to look at the build.
-		_ = json.NewEncoder(w).Encode(map[string]any{"connected": connected, "server": d.link.serverURL, "contractError": d.contract.current(), "capabilities": []string{"git-diff", "create-task", "remove-project", "free-console", "transition-stage", "repositories", attachedFoldersCapability, "git-init", taskEnginesCapability, openEditorCapability}, "disconnectedProjects": disconnected})
+		capabilities := []string{"git-diff", "create-task", "remove-project", "free-console", "transition-stage", "repositories", attachedFoldersCapability, "git-init", taskEnginesCapability, openEditorCapability}
+		if d.store != nil {
+			capabilities = append(capabilities, runStoreCapability)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"connected": connected, "server": d.link.serverURL, "contractError": d.contract.current(), "capabilities": capabilities, "disconnectedProjects": disconnected})
 		return
 	}
 	if (r.URL.Path == "/desktop/restart" || r.URL.Path == "/desktop/shutdown") && r.Method == http.MethodPost {
@@ -267,6 +275,7 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		d.queue.mu.Unlock()
+		d.store.remove(removed...)
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{"removed": removed})
 		return
@@ -1279,11 +1288,15 @@ func (d *agentDaemon) desktopTasksTerminalExternal(w http.ResponseWriter, r *htt
 	if d.terminal.manager != nil {
 		if _, err := d.terminal.manager.GetOrCreateSession(runID, workDir, envVars); err != nil {
 			d.queue.mu.Lock()
+			// Closed so the run store's exit watcher lets go of it.
+			run.once.Do(func() { close(run.exited) })
 			delete(d.queue.runs, runID)
 			d.queue.mu.Unlock()
+			d.store.remove(runID)
 			http.Error(w, fmt.Sprintf("Failed to initialize PTY session: %v", err), http.StatusInternalServerError)
 			return
 		}
+		d.tapConsole(runID)
 	}
 
 	if err := d.launchExternalTerminal(termChoice, runID); err != nil {
