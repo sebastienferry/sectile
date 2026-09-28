@@ -90,7 +90,7 @@ func (d *DB) validateStagePRs(task *models.Task, actorID, skillID, repoPath, bra
 	for _, url := range given {
 		link, ok := models.ParsePullRequestLink(url, "")
 		if !ok || !slices.Contains(required, link.Identity()) {
-			return stagePRSet{}, fmt.Errorf("pull request %s is not in a repository %s changed (%s)", url, task.Key, strings.Join(required, ", "))
+			return stagePRSet{}, fmt.Errorf("pull request %s is not in a repository %s changed (%s); a repository becomes changed when prepare_repository_worktree is called for it", url, task.Key, strings.Join(required, ", "))
 		}
 		if previous, twice := chosen[link.Identity()]; twice && previous != url {
 			return stagePRSet{}, fmt.Errorf("two pull requests given for %s: %s and %s", link.Identity(), previous, url)

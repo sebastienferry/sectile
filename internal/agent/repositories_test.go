@@ -3,7 +3,9 @@ package agent
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -155,7 +157,7 @@ func TestRepositoryWorktreeReusesTheTaskBranch(t *testing.T) {
 	overrides := agentconfig.Settings{Repositories: map[string]string{"github.com/o/b": b}}
 	task := models.Task{Key: "#1", BranchName: branchOf("feat/1")}
 
-	first, err := repositoryWorktree(ctx, multiRepoConfig(), overrides, projectRoot, task, "https://github.com/o/b")
+	first, err := repositoryWorktree(ctx, multiRepoConfig(), overrides, projectRoot, task, "https://github.com/o/b", "laptop")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -165,14 +167,14 @@ func TestRepositoryWorktreeReusesTheTaskBranch(t *testing.T) {
 	if got := gitTest(t, first.Path, "branch", "--show-current"); got != "feat/1" {
 		t.Errorf("worktree branch = %q", got)
 	}
-	again, err := repositoryWorktree(ctx, multiRepoConfig(), overrides, projectRoot, task, "github.com/o/b")
+	again, err := repositoryWorktree(ctx, multiRepoConfig(), overrides, projectRoot, task, "github.com/o/b", "laptop")
 	if err != nil || !samePath(t, again.Path, first.Path) {
 		t.Errorf("second request = %+v, %v", again, err)
 	}
-	if _, err := repositoryWorktree(ctx, multiRepoConfig(), overrides, projectRoot, task, "github.com/o/c"); err == nil || !strings.Contains(err.Error(), "github.com/o/c") {
+	if _, err := repositoryWorktree(ctx, multiRepoConfig(), overrides, projectRoot, task, "github.com/o/c", "laptop"); err == nil || !strings.Contains(err.Error(), "github.com/o/c") {
 		t.Errorf("unmapped: %v", err)
 	}
-	if _, err := repositoryWorktree(ctx, multiRepoConfig(), overrides, projectRoot, task, "github.com/o/elsewhere"); err == nil {
+	if _, err := repositoryWorktree(ctx, multiRepoConfig(), overrides, projectRoot, task, "github.com/o/elsewhere", "laptop"); err == nil {
 		t.Error("a repository neither mapped nor attached was accepted")
 	}
 
@@ -407,7 +409,7 @@ func TestRepositoryWorktreeInAnAttachedFolder(t *testing.T) {
 	overrides := attachedTo(agentconfig.Settings{}, lib, noOrigin)
 	task := models.Task{Key: "#1", BranchName: branchOf("feat/1")}
 
-	first, err := repositoryWorktree(ctx, multiRepoConfig(), overrides, projectRoot, task, "git@github.com:o/lib.git")
+	first, err := repositoryWorktree(ctx, multiRepoConfig(), overrides, projectRoot, task, "git@github.com:o/lib.git", "laptop")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -421,14 +423,14 @@ func TestRepositoryWorktreeInAnAttachedFolder(t *testing.T) {
 	if !strings.Contains(string(exclude), "/.tasks/") {
 		t.Errorf("the attached checkout does not ignore .tasks/: %q", exclude)
 	}
-	if again, err := repositoryWorktree(ctx, multiRepoConfig(), overrides, projectRoot, task, "https://github.com/o/lib"); err != nil || !samePath(t, again.Path, first.Path) {
+	if again, err := repositoryWorktree(ctx, multiRepoConfig(), overrides, projectRoot, task, "https://github.com/o/lib", "laptop"); err != nil || !samePath(t, again.Path, first.Path) {
 		t.Errorf("second request = %+v, %v", again, err)
 	}
 
-	if _, err := repositoryWorktree(ctx, multiRepoConfig(), overrides, projectRoot, task, noOrigin); err == nil || !strings.Contains(err.Error(), "change it in place") {
+	if _, err := repositoryWorktree(ctx, multiRepoConfig(), overrides, projectRoot, task, noOrigin, "laptop"); err == nil || !strings.Contains(err.Error(), "change it in place") {
 		t.Errorf("folder without a remote: %v", err)
 	}
-	if _, err := repositoryWorktree(ctx, multiRepoConfig(), overrides, projectRoot, task, "github.com/o/elsewhere"); err == nil || !strings.Contains(err.Error(), "attachez") {
+	if _, err := repositoryWorktree(ctx, multiRepoConfig(), overrides, projectRoot, task, "github.com/o/elsewhere", "laptop"); err == nil || !strings.Contains(err.Error(), "attachez") {
 		t.Errorf("neither mapped nor attached: %v", err)
 	}
 
@@ -438,5 +440,139 @@ func TestRepositoryWorktreeInAnAttachedFolder(t *testing.T) {
 	}
 	if _, err := os.Stat(first.Path); !os.IsNotExist(err) {
 		t.Errorf("the attached worktree is still there: %v", err)
+	}
+}
+
+// brokenCheckout is a Git checkout git refuses to read for another reason
+// than "not a checkout" or "no origin": its configuration does not parse.
+func brokenCheckout(t *testing.T) string {
+	t.Helper()
+	dir := checkoutOf(t, "git@github.com:o/broken.git")
+	if err := os.WriteFile(filepath.Join(dir, ".git", "config"), []byte("garbage[\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
+// A git failure on an attached folder is kept, and never read as a plain
+// folder or a checkout without origin (#589). The kinds stay the ones the
+// desktop lists.
+func TestDescribeFolderKeepsTheGitError(t *testing.T) {
+	ctx := context.Background()
+	lib := checkoutOf(t, "git@github.com:o/lib.git")
+	noOrigin := t.TempDir()
+	gitTest(t, noOrigin, "init", "-q")
+	plain := t.TempDir()
+	missing := filepath.Join(t.TempDir(), "gone")
+	broken := brokenCheckout(t)
+
+	for path, want := range map[string]attachedFolder{
+		lib:      {Kind: folderKindGit, Identity: "github.com/o/lib"},
+		noOrigin: {Kind: folderKindGit},
+		plain:    {Kind: folderKindFolder},
+		missing:  {Kind: folderKindMissing},
+	} {
+		got := describeFolder(ctx, path)
+		if got.Kind != want.Kind || got.Identity != want.Identity || got.Err != "" {
+			t.Errorf("%s = %+v, want kind %q identity %q and no error", path, got, want.Kind, want.Identity)
+		}
+	}
+	got := describeFolder(ctx, broken)
+	if got.Kind != folderKindFolder || !strings.Contains(got.Err, "bad config") || got.Identity != "" {
+		t.Errorf("broken checkout = %+v", got)
+	}
+}
+
+// A git that speaks the workstation's language still has a plain folder read
+// as a plain folder and a checkout without origin as one: the diagnosis asks
+// git for its untranslated messages.
+func TestDescribeFolderReadsGitInEnglish(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the translated git is a shell script")
+	}
+	real, err := exec.LookPath("git")
+	if err != nil {
+		t.Skip(err)
+	}
+	ctx := context.Background()
+	noOrigin := t.TempDir()
+	gitTest(t, noOrigin, "init", "-q")
+	plain := t.TempDir()
+	bin := t.TempDir()
+	script := `#!/bin/sh
+if [ "$LC_ALL" != "C" ]; then
+  case "$*" in
+    *rev-parse*) echo "fatal: ni ceci ni aucun de ses répertoires parents n'est un dépôt git" >&2; exit 128 ;;
+    *get-url*) echo "erreur : Pas de dépôt distant 'origin'" >&2; exit 2 ;;
+  esac
+fi
+exec "` + real + `" "$@"
+`
+	if err := os.WriteFile(filepath.Join(bin, "git"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("LC_ALL", "fr_FR.UTF-8")
+
+	if got := describeFolder(ctx, plain); got.Kind != folderKindFolder || got.Err != "" {
+		t.Errorf("plain folder = %+v", got)
+	}
+	if got := describeFolder(ctx, noOrigin); got.Kind != folderKindGit || got.Identity != "" || got.Err != "" {
+		t.Errorf("checkout without origin = %+v", got)
+	}
+}
+
+// A refusal of repository_worktree says what stands in the way (#589): the
+// advice to attach the folder comes only when every attached folder was read,
+// with the workstation that answered, and each folder is named with its own
+// reason.
+func TestRepositoryWorktreeRefusalNamesTheReason(t *testing.T) {
+	ctx := context.Background()
+	projectRoot := checkoutOf(t, "git@github.com:o/a.git")
+	other := checkoutOf(t, "git@github.com:o/other.git")
+	noOrigin := t.TempDir()
+	gitTest(t, noOrigin, "init", "-q")
+	plain := t.TempDir()
+	missing := filepath.Join(t.TempDir(), "gone")
+	broken := brokenCheckout(t)
+	task := models.Task{Key: "#1", BranchName: branchOf("feat/1")}
+	const advice = "attachez son dossier"
+
+	for _, c := range []struct {
+		name    string
+		folders []string
+		want    []string
+		advice  bool
+	}{
+		{"nothing attached", nil, []string{"github.com/o/lib", "ni associé ni attaché", "(laptop)"}, true},
+		{"another origin", []string{other}, []string{"(laptop)", other + " : a pour origin git@github.com:o/other.git"}, true},
+		{"plain folder", []string{plain}, []string{plain + " : n'est pas un checkout Git"}, true},
+		{"no origin", []string{noOrigin}, []string{noOrigin + " : checkout Git sans origin", "sur place"}, true},
+		{"missing", []string{missing}, []string{"(laptop)", missing + " : introuvable"}, false},
+		{"git failing", []string{broken}, []string{broken + " : git a échoué", "bad config"}, false},
+		{"several reasons", []string{missing, broken, other}, []string{missing + " : introuvable", broken + " : git a échoué", other + " : a pour origin"}, false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			_, err := repositoryWorktree(ctx, multiRepoConfig(), attachedTo(agentconfig.Settings{}, c.folders...), projectRoot, task, "github.com/o/lib", "laptop")
+			if err == nil {
+				t.Fatal("refusal expected")
+			}
+			for _, want := range c.want {
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("refusal misses %q:\n%s", want, err)
+				}
+			}
+			if got := strings.Contains(err.Error(), advice); got != c.advice {
+				t.Errorf("advice to attach = %v, want %v:\n%s", got, c.advice, err)
+			}
+		})
+	}
+
+	// A folder that answers for the repository wins over one that fails.
+	lib := checkoutOf(t, "git@github.com:o/lib.git")
+	gitTest(t, lib, "branch", "feat/1")
+	got, err := repositoryWorktree(ctx, multiRepoConfig(), attachedTo(agentconfig.Settings{}, missing, broken, lib), projectRoot, task, "github.com/o/lib", "laptop")
+	if err != nil || got.Repository != "github.com/o/lib" || got.Branch != "feat/1" {
+		t.Errorf("a failing folder beside the repository's: %+v, %v", got, err)
 	}
 }

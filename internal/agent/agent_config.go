@@ -134,7 +134,15 @@ func (d *agentDaemon) fetchConfig(ctx context.Context, projectID, taskKey string
 }
 
 func gitLocal(ctx context.Context, root string, args ...string) (string, error) {
+	return gitLocalEnv(ctx, nil, root, args...)
+}
+
+// gitLocalEnv is gitLocal with env added to the agent's environment.
+func gitLocalEnv(ctx context.Context, env []string, root string, args ...string) (string, error) {
 	cmd := agentexec.Hidden(exec.CommandContext(ctx, "git", append([]string{"-C", root}, args...)...))
+	if env != nil {
+		cmd.Env = append(os.Environ(), env...)
+	}
 	raw, err := cmd.CombinedOutput()
 	if err != nil {
 		return "", fmt.Errorf("git %s: %w: %s", args[0], err, strings.TrimSpace(string(raw)))
