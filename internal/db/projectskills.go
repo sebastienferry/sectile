@@ -12,13 +12,14 @@ import (
 	"tasks/internal/skills"
 )
 
-// Contenu des skills édité dans l'outil.
+// Skill content edited in the tool.
 //
-// La base est la source de vérité, par projet, et le template intégré sert de
-// valeur par défaut. Les SKILL.md du dépôt sont un produit de cette source :
-// l'installation les régénère. Une édition faite à la main sur disque n'est pas
-// écrasée en silence pour autant, elle est signalée comme divergente et peut
-// être réimportée.
+// The database is the source of truth, per project, and the built-in template
+// is the default. The copies on a workstation are a product of this source,
+// written only by an explicit setup (the agent's init, the desktop's Initialize,
+// an install request); a dispatch hands a custom skill to its run instead
+// (#267). A copy edited by hand on disk is never overwritten silently: it is
+// reported as diverged and can be imported back.
 func (d *DB) ensureProjectSkillsTable() {
 	_, _ = d.conn.Exec(`CREATE TABLE IF NOT EXISTS project_skills (
 		mode TEXT NOT NULL DEFAULT '',
@@ -260,8 +261,8 @@ func (d *DB) ListProjectSkillEditor(projectIDOrPath string) ([]models.SkillEdito
 	return entries, nil
 }
 
-// SaveProjectSkillContent stores the edited content and regenerates the file in
-// the repository, so the agent reads what the editor shows.
+// SaveProjectSkillContent stores the edited content. Nothing is written on any
+// workstation (#267): the next dispatch of the skill hands it to its run.
 func (d *DB) SaveProjectSkillContent(projectIDOrPath, skillID, content string) (*models.SkillEditorEntry, error) {
 	stage, ok := skills.StageSkillByID(skillID)
 	if !ok {
@@ -288,21 +289,11 @@ func (d *DB) SaveProjectSkillContent(projectIDOrPath, skillID, content string) (
 		return nil, err
 	}
 
-	written, writeErr := d.WriteProjectSkillToRepo(projectIDOrPath, stage.ID)
-	entry, findErr := d.projectSkillEntry(projectIDOrPath, stage.ID)
-	if findErr != nil {
-		return nil, findErr
-	}
-	if writeErr != nil && written == 0 {
-		// La base a bien enregistré : l'éditeur reste utilisable même si le
-		// dépôt n'est pas accessible, on le dit dans l'entrée renvoyée.
-		entry.RepoPath = ""
-	}
-	return entry, nil
+	return d.projectSkillEntry(projectIDOrPath, stage.ID)
 }
 
 // ResetProjectSkillContent drops the override and puts the built-in template
-// back, in the database and in the repository.
+// back. Like a save, it writes nothing on any workstation.
 func (d *DB) ResetProjectSkillContent(projectIDOrPath, skillID string) (*models.SkillEditorEntry, error) {
 	stage, ok := skills.StageSkillByID(skillID)
 	if !ok {
@@ -323,7 +314,6 @@ func (d *DB) ResetProjectSkillContent(projectIDOrPath, skillID string) (*models.
 	if err != nil && err != sql.ErrNoRows {
 		return nil, err
 	}
-	_, _ = d.WriteProjectSkillToRepo(projectIDOrPath, stage.ID)
 	return d.projectSkillEntry(projectIDOrPath, stage.ID)
 }
 
@@ -335,16 +325,6 @@ func (d *DB) ImportProjectSkillFromRepo(projectIDOrPath, skillID string) (*model
 		return nil, err
 	}
 	return d.SaveProjectSkillContent(projectIDOrPath, skillID, result.Content)
-}
-
-func (d *DB) WriteProjectSkillToRepo(projectIDOrPath, skillID string) (int, error) {
-	var result struct{ Written int }
-	err := d.callAgent(agentprotocol.Operation{ProjectID: projectIDOrPath, Action: "sync_config", SkillID: skillID}, &result)
-	return result.Written, err
-}
-
-func (d *DB) WriteAllProjectSkillsToRepo(projectIDOrPath string) (int, error) {
-	return d.WriteProjectSkillToRepo(projectIDOrPath, "")
 }
 
 func (d *DB) projectSkillEntry(projectIDOrPath, skillID string) (*models.SkillEditorEntry, error) {

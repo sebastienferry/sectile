@@ -92,8 +92,9 @@ func TestMacroWorkspacePreparesWithoutATask(t *testing.T) {
 	if !workspace.Worktree || workspace.Branch != "M-7-ux-improvements" || !samePath(t, workspace.Path, filepath.Join(root, ".tasks", "worktrees", "M-7")) {
 		t.Fatalf("unexpected macro workspace %+v", workspace)
 	}
-	if _, err := os.Stat(filepath.Join(os.Getenv("HOME"), ".claude/skills/realign-macro/SKILL.md")); err != nil {
-		t.Fatalf("the macro skill must be installed: %v", err)
+	// A macro launch installs nothing either (#267).
+	if _, err := os.Stat(filepath.Join(os.Getenv("HOME"), ".claude/skills/realign-macro/SKILL.md")); !os.IsNotExist(err) {
+		t.Fatalf("a macro launch installed its skill: %v", err)
 	}
 	line, err := dispatchCommand(effective, "M-7", "realign_macro", "realign_macro", "", "", models.SkillModeInteractive, "",
 		agentCommandContext{Branch: workspace.Branch, Directory: cwd})

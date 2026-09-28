@@ -19,6 +19,9 @@ type agentCommandContext struct {
 	// context repositories, its secondary worktrees and its specifications
 	// folder. Only a provider whose flag is attested receives them.
 	AddDirs []string
+	// Skill is what the dispatch runs for its workflow skill (#267), nil when
+	// it was not resolved, which runs the configured command as before.
+	Skill *skillChoice
 }
 
 func (c agentCommandContext) values(prompt string) map[string]string {

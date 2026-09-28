@@ -2,8 +2,10 @@ package db
 
 import (
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
@@ -672,6 +674,42 @@ func (d *DB) SetRemoteRunEngine(runID, provider, model string) error {
 		return nil
 	}
 	d.notifyPostBackListeners(task, activity, nil)
+	return nil
+}
+
+// runSkillDirectory is the shape of a skill directory an agent may report: a
+// single word, as the agent's own skill validation requires.
+var runSkillDirectory = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$`)
+
+// RecordRunCustomSkill adds the step saying a run was launched with its
+// project's custom skill rather than an installed one (#267). The agent names
+// the skill directory only and the wording is the server's, so a report can
+// never put free text on the activity. Like the engine report, it only lands
+// on a run that is still running.
+func (d *DB) RecordRunCustomSkill(runID, directory string) error {
+	directory = strings.TrimSpace(directory)
+	if strings.TrimSpace(runID) == "" || !runSkillDirectory.MatchString(directory) {
+		return fmt.Errorf("run id and a skill directory are required")
+	}
+	activity, err := d.GetActivityByID(runID)
+	if err != nil {
+		return err
+	}
+	if activity == nil || activity.SkillID != "remote_run" || activity.Status != "running" {
+		return fmt.Errorf("remote run not found or no longer running")
+	}
+	steps := append(append([]string{}, activity.Steps...), "Skill personnalisé du projet utilisé : "+directory)
+	stepsJSON, _ := json.Marshal(steps)
+	d.mu.Lock()
+	_, err = d.conn.Exec("UPDATE task_activities SET steps=? WHERE id=? AND skill_id='remote_run' AND status='running'", string(stepsJSON), runID)
+	d.mu.Unlock()
+	if err != nil {
+		return err
+	}
+	if task, err := d.GetTaskByID(activity.TaskID); err == nil && task != nil {
+		activity.Steps = steps
+		d.notifyPostBackListeners(task, activity, nil)
+	}
 	return nil
 }
 

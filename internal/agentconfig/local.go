@@ -15,6 +15,10 @@ import (
 type MCPConnection struct {
 	Transport string `json:"transport"`
 	Target    string `json:"target"`
+	// Written fingerprints what the registration was last written with (the
+	// server address, the key and the executable), never the key itself. The
+	// agent rewrites a saved choice at start only when it changed (#267).
+	Written string `json:"written,omitempty"`
 }
 
 // Settings is the workstation's configuration, read from

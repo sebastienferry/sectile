@@ -110,8 +110,16 @@ func (d *agentDaemon) handleMacroDispatch(ctx context.Context, conn *websocket.C
 		prompt += "\nMacro workspace notice: " + workspace.Warning + "."
 	}
 	prompt += fmt.Sprintf("\nRemote execution runId: %s. Reuse this ID with start_run and finish it using finish_run (projectId %s, macroKey %s) when the entire skill ends.", payload.RunID, config.ProjectID, macroKey)
+	choice, err := d.prepareSkill(config, payload.SkillID, payload.Action, strings.TrimSpace(prompt), payload.RunID, run.exited, root, workspace.Path)
+	if err != nil {
+		launchFailure = err
+		return
+	}
+	if choice != nil && choice.Kind == skillKindCustom {
+		go d.postCustomSkillUse(payload.RunID, choice.Directory)
+	}
 	fullLine, err := dispatchCommand(config, macroKey, payload.SkillID, payload.Action, strings.TrimSpace(prompt), payload.Command, payload.Mode, payload.Model,
-		agentCommandContext{Branch: workspace.Branch, Directory: root, Tracker: config.IssueTracker, Repo: config.GithubRepo})
+		agentCommandContext{Branch: workspace.Branch, Directory: root, Tracker: config.IssueTracker, Repo: config.GithubRepo, Skill: choice})
 	if err != nil {
 		launchFailure = err
 		return
@@ -160,9 +168,9 @@ func (d *agentDaemon) handleMacroDispatch(ctx context.Context, conn *websocket.C
 	log.Printf("[Agent] Macro skill %s launched for %s in %s (spec checkout %s on %s)", payload.SkillID, macroKey, root, workspace.Path, workspace.Branch)
 }
 
-// prepareMacroWorkspace installs the project's skills and MCP registration, as
-// a task dispatch does, then prepares the macro worktree in the specifications
-// repository. It returns the project checkout the skill runs in.
+// prepareMacroWorkspace resolves the project's configuration, then prepares the
+// macro worktree in the specifications repository. It returns the project
+// checkout the skill runs in. Like a task dispatch, it installs nothing (#267).
 func (d *agentDaemon) prepareMacroWorkspace(ctx context.Context, config agentconfig.Config, macroKey, title string) (agentconfig.Config, string, macroWorkspace, error) {
 	config, root, spec, err := d.prepareMacroSkills(ctx, config)
 	if err != nil {
@@ -176,7 +184,7 @@ func (d *agentDaemon) prepareMacroWorkspace(ctx context.Context, config agentcon
 }
 
 // prepareMacroSkills is the part of a macro launch that runs under prepareMu:
-// the checkout mapping, the skills and the MCP registration.
+// the checkout mapping and the resolved configuration.
 func (d *agentDaemon) prepareMacroSkills(ctx context.Context, config agentconfig.Config) (agentconfig.Config, string, string, error) {
 	d.prepareMu.Lock()
 	defer d.prepareMu.Unlock()
@@ -186,16 +194,6 @@ func (d *agentDaemon) prepareMacroSkills(ctx context.Context, config agentconfig
 	}
 	config = agentconfig.Resolve(config, overrides)
 	if err := config.Validate(); err != nil {
-		return config, "", "", err
-	}
-	preserved, err := agentconfig.Scaffold(root, config)
-	for _, path := range preserved {
-		log.Printf("[Agent] Saved previous skill content: %s", path)
-	}
-	if err != nil {
-		return config, "", "", err
-	}
-	if err := d.bootstrapLocalMCP(&config); err != nil {
 		return config, "", "", err
 	}
 	spec, err := localSpecRepo(overrides, config.ProjectID, root, config.IsMonoRepo())

@@ -311,9 +311,9 @@ func TestDispatchPreparesFromAPIContract(t *testing.T) {
 	if task.ID != "task" || task.Key != "TASK-46" || effective.AIProvider != "claude" || effective.ExternalTerminalCommand != "pty" || branch != "feat/task-46" || !strings.HasPrefix(path, root) {
 		t.Fatalf("invalid execution config %+v %s %s", effective, path, branch)
 	}
-	// The override selects Claude, so the skills land in its user configuration.
-	if _, err := os.Stat(filepath.Join(os.Getenv("HOME"), ".claude/skills/code-issue/SKILL.md")); err != nil {
-		t.Fatal(err)
+	// A dispatch installs nothing (#267), not even for the provider it runs.
+	if _, err := os.Stat(filepath.Join(os.Getenv("HOME"), ".claude/skills/code-issue/SKILL.md")); !os.IsNotExist(err) {
+		t.Fatal("a dispatch installed a skill into the user configuration", err)
 	}
 	if _, err := os.Stat(filepath.Join(path, ".agents/skills/code-issue/SKILL.md")); !os.IsNotExist(err) {
 		t.Fatal("the checkout must receive no managed skill")
