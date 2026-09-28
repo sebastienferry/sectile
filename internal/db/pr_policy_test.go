@@ -87,3 +87,41 @@ func TestProjectPRPolicyClarified(t *testing.T) {
 		t.Fatalf("%+v %v", reread, err)
 	}
 }
+
+// The clarification skill carries the pull request policy only when it opens
+// the pull request; every later stage skill then keeps the same draft (#580).
+func TestProjectPRPolicyTextFollowsTheCreationStage(t *testing.T) {
+	database, err := NewDB(filepath.Join(t.TempDir(), "tasks.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	contents := func(timing string) map[string]string {
+		project, err := database.CreateProject(models.CreateProjectRequest{Name: "Policy " + timing, PRCreationStage: timing})
+		if err != nil {
+			t.Fatal(err)
+		}
+		out := map[string]string{}
+		for _, skill := range database.EffectiveProjectSkills(project.ID, "") {
+			out[skill.ID] = skill.Content
+		}
+		return out
+	}
+	early := contents("clarified")
+	for _, id := range []string{"clarify", "specify", "implement", "adjust", "pickup", "pickup_issues"} {
+		for _, phrase := range []string{"PR creation stage: clarified.", "In the final clarification round only", "clarified transition", "never force", "Intermediate rounds open no PR", "When the clarification report or the specification files are ignored by Git"} {
+			if !strings.Contains(early[id], phrase) {
+				t.Errorf("%s under clarified lacks %q", id, phrase)
+			}
+		}
+	}
+	for _, timing := range []string{"specified", "implemented"} {
+		later := contents(timing)
+		if strings.Contains(later["clarify"], "Project pull request policy") {
+			t.Errorf("clarify under %s must not carry the pull request policy", timing)
+		}
+		if !strings.Contains(later["specify"], "PR creation stage: "+timing+".") || strings.Contains(later["specify"], "final clarification round") {
+			t.Errorf("specify under %s has the wrong policy:\n%s", timing, later["specify"])
+		}
+	}
+}
