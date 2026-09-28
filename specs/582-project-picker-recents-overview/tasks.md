@@ -81,6 +81,17 @@
 - [x] T15 `ProjectIcon.tsx`: `renderProjectIcon` shared by the sidebar, the
       picker and the overview.
 
+## Adjustment review fixes
+
+- [x] T16 Esc closes the overview wherever the focus is, after a click on the
+      dialog's empty space too (window listener, browser regression).
+- [x] T17 `projectLocation`: a Jira key or slug match is shown and highlighted
+      in the row and the card, not hidden behind the repository (unit test).
+- [x] T18 The picker highlight follows an option key, not a position, so Enter
+      opens the highlighted row after a star reorders the list.
+- [x] T19 An opening starts from the stored history, so two tabs keep each
+      other's openings (browser regression).
+
 ## Docs
 
 - [x] T12 `CHANGELOG.md` `[Unreleased]` → `Changed`: one line for the new

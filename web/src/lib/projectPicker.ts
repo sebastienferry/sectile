@@ -88,6 +88,38 @@ export function matchProject(project: Project, query: string): ProjectMatch | nu
 }
 
 /**
+ * The "tracker · repository" line of a row or a card, showing the field that
+ * matched whenever it is one of them: the Jira key next to the tracker, the
+ * slug or the matching repository in place of the first repository.
+ */
+export interface ProjectLocation {
+  tracker: string
+  /** The Jira key, shown only when the query matched it. */
+  key: string
+  location: string
+  /** Which part holds the match, to highlight it; null when none does. */
+  matched: 'tracker' | 'key' | 'location' | null
+}
+
+export function projectLocation(project: Project, match: ProjectMatch | null): ProjectLocation {
+  const tracker = trackerLabel(project.issueTracker)
+  const key = match?.field === 'tracker' && match.text !== tracker ? match.text : ''
+  const location = match?.field === 'slug'
+    ? project.slug
+    : match?.field === 'repository'
+    ? match.text
+    : projectRepositories(project)[0] || project.slug
+  const matched = key
+    ? 'key'
+    : match?.field === 'tracker'
+    ? 'tracker'
+    : match?.field === 'slug' || match?.field === 'repository'
+    ? 'location'
+    : null
+  return { tracker, key, location, matched }
+}
+
+/**
  * Favorites first, A–Z; then the other projects, the most recently opened
  * first, and A–Z for those never opened in this browser.
  */

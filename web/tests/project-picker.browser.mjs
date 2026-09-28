@@ -180,6 +180,9 @@ try {
     await inventoryStar.click();
     await dialog.getByRole('button', { name: 'Open Inventory' }).getByRole('button', { name: 'Remove from favorites' }).waitFor();
     assert.ok(await dialog.isVisible(), 'the star does not open the project');
+    // A click on the dialog's empty space leaves the focus on the page.
+    await dialog.locator('#project-overview-title').click();
+    assert.equal(await page.evaluate(() => document.activeElement === document.body), true);
     await page.keyboard.press('Escape');
     await dialog.waitFor({ state: 'detached' });
     assert.equal(await current(), 'Notes', 'Escape changes nothing');
@@ -239,6 +242,22 @@ try {
     await page.getByRole('button', { name: /All projects/ }).click();
     assert.equal(await current(), 'All projects');
     assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('sectile_recent_project_ids'))[0].id), 'inventory', '"All projects" is not an opening');
+
+    // Two tabs: an opening in one does not erase what the other recorded.
+    const other = await context.newPage();
+    await other.goto(`${base}/board`);
+    const otherTrigger = other.locator('button[aria-haspopup="listbox"]');
+    await otherTrigger.click();
+    await other.getByRole('combobox', { name: 'Search a project' }).fill('charlie');
+    await other.getByRole('combobox', { name: 'Search a project' }).press('Enter');
+    await other.waitForFunction(() => JSON.parse(localStorage.getItem('sectile_recent_project_ids'))[0].id === 'charlie');
+    await openPicker();
+    await search.fill('delta');
+    await search.press('Enter');
+    await listbox.waitFor({ state: 'detached' });
+    const ids = await page.evaluate(() => JSON.parse(localStorage.getItem('sectile_recent_project_ids')).map(e => e.id));
+    assert.deepEqual(ids.slice(0, 3), ['delta', 'charlie', 'inventory'], 'both tabs’ openings are kept');
+    await other.close();
 
     assert.deepEqual(errors, [], 'no page error');
     await context.close();

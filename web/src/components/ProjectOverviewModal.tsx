@@ -1,13 +1,13 @@
-import React, { useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { LayoutGrid, Search, Star, X } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { useBackdropDismiss } from '../hooks/useBackdropDismiss'
 import { accentBadgeStyle } from '../lib/accents'
 import { shortElapsed } from '../lib/elapsed'
 import { format, plural } from '../lib/i18n'
-import { PROJECT_TRACKERS, matchProject, overviewProjects, projectRepositories, trackerLabel } from '../lib/projectPicker'
+import { PROJECT_TRACKERS, matchProject, overviewProjects, trackerLabel } from '../lib/projectPicker'
 import type { IssueTracker, Project } from '../types'
-import { Highlighted } from './ProjectPicker'
+import { Highlighted, ProjectLocationLine } from './ProjectPicker'
 import { renderProjectIcon } from './ProjectIcon'
 
 /**
@@ -62,6 +62,16 @@ const ProjectOverviewDialog: React.FC = () => {
       closeProjectOverview()
     }
   }
+
+  // A click on the dialog's empty space leaves the focus on the page, where
+  // the handler above never hears Escape: the window does.
+  useEffect(() => {
+    const onWindowKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') closeProjectOverview()
+    }
+    window.addEventListener('keydown', onWindowKeyDown)
+    return () => window.removeEventListener('keydown', onWindowKeyDown)
+  }, [closeProjectOverview])
 
   const chips: { id: IssueTracker | 'all'; label: string }[] = [
     { id: 'all', label: strings.overviewAllTrackers },
@@ -141,7 +151,6 @@ const ProjectOverviewDialog: React.FC = () => {
             <div className="grid grid-cols-[repeat(auto-fill,minmax(min(230px,100%),1fr))] gap-2.5">
               {shown.map(p => {
                 const match = matchProject(p, query)
-                const repository = match?.field === 'repository' ? match.text : projectRepositories(p)[0]
                 const opened = openedAt.get(p.id)
                 const isSel = selectedProjectId === p.id || selectedProjectId === p.slug
                 return (
@@ -182,7 +191,6 @@ const ProjectOverviewDialog: React.FC = () => {
                         }`}
                         title={p.bookmarked ? strings.removeFavorite : strings.addFavorite}
                         aria-label={p.bookmarked ? strings.removeFavorite : strings.addFavorite}
-                        aria-pressed={!!p.bookmarked}
                       >
                         <Star size={13} className={p.bookmarked ? 'fill-current' : ''} />
                       </button>
@@ -193,14 +201,7 @@ const ProjectOverviewDialog: React.FC = () => {
                     </p>
 
                     <div className="text-[10.5px] text-[var(--text-muted)] truncate">
-                      <Highlighted text={trackerLabel(p.issueTracker)} query={match?.field === 'tracker' ? query : ''} />
-                      {' · '}
-                      <span className="font-mono">
-                        <Highlighted
-                          text={repository || p.slug}
-                          query={match?.field === 'repository' || (match?.field === 'slug' && !repository) ? query : ''}
-                        />
-                      </span>
+                      <ProjectLocationLine project={p} match={match} query={query} />
                     </div>
 
                     <div className="flex items-center justify-between gap-2 text-[10.5px] text-[var(--text-muted)]">

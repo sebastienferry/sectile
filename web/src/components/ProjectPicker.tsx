@@ -8,9 +8,9 @@ import {
   descriptionExcerpt,
   highlightParts,
   pickerModel,
-  projectRepositories,
-  trackerLabel,
+  projectLocation,
   type PickerRow,
+  type ProjectMatch,
 } from '../lib/projectPicker'
 import type { Project } from '../types'
 import { renderProjectIcon } from './ProjectIcon'
@@ -26,30 +26,34 @@ export const Highlighted: React.FC<{ text: string; query: string }> = ({ text, q
   </>
 )
 
-/**
- * The line under a project's name: where the query matched when it matched in
- * the description, the tracker and the repository otherwise.
- */
-export const ProjectSubline: React.FC<{ row: PickerRow; query: string }> = ({ row, query }) => {
-  const { project, match } = row
-  if (match.field === 'description') {
-    return <Highlighted text={descriptionExcerpt(project.description, query)} query={query} />
-  }
-  const tracker = trackerLabel(project.issueTracker)
-  const repository = match.field === 'repository' ? match.text : projectRepositories(project)[0]
-  const location = repository || project.slug
-  const locationMatches = match.field === 'repository' || (match.field === 'slug' && !repository)
+/** "Tracker · repository", with the part the query matched highlighted. */
+export const ProjectLocationLine: React.FC<{ project: Project; match: ProjectMatch | null; query: string }> = ({ project, match, query }) => {
+  const { tracker, key, location, matched } = projectLocation(project, match)
+  const mark = (text: string, part: typeof matched) => (matched === part ? <Highlighted text={text} query={query} /> : text)
   return (
     <>
-      {match.field === 'tracker' && match.text === tracker ? <Highlighted text={tracker} query={query} /> : tracker}
+      {mark(tracker, 'tracker')}
+      {key && <> <span className="font-mono">{mark(key, 'key')}</span></>}
       {' · '}
-      <span className="font-mono">{locationMatches ? <Highlighted text={location} query={query} /> : location}</span>
+      <span className="font-mono">{mark(location, 'location')}</span>
     </>
   )
 }
 
+/**
+ * The line under a project's name: where the query matched when it matched in
+ * the description, the tracker and the repository otherwise.
+ */
+export const ProjectSubline: React.FC<{ row: PickerRow; query: string }> = ({ row, query }) =>
+  row.match.field === 'description'
+    ? <Highlighted text={descriptionExcerpt(row.project.description, query)} query={query} />
+    : <ProjectLocationLine project={row.project} match={row.match} query={query} />
+
 type PickerOption = { kind: 'project'; row: PickerRow } | { kind: 'more' }
 
+/** What the highlight follows: a project id, or the "more" link. */
+const MORE_KEY = '#more'
+const optionKey = (option: PickerOption) => (option.kind === 'project' ? option.row.project.id : MORE_KEY)
 const optionId = (index: number) => `project-picker-option-${index}`
 
 /**
@@ -82,7 +86,9 @@ export const ProjectPicker: React.FC<{
   const strings = t.shell.projectPicker
 
   const [query, setQuery] = useState('')
-  const [active, setActive] = useState(-1)
+  // The highlighted option, by key rather than position: a star toggled from
+  // the menu reorders the rows, and Enter must still open the row it shows.
+  const [activeKey, setActiveKey] = useState<string | null>(null)
 
   const model = useMemo(
     () => pickerModel(projects, projectHistory, query, settings.language),
@@ -96,6 +102,8 @@ export const ProjectPicker: React.FC<{
     ...[...model.recent, ...model.favorites, ...model.others].map(row => ({ kind: 'project' as const, row })),
     ...(hidden > 0 ? [{ kind: 'more' as const }] : []),
   ]
+  const active = activeKey === null ? -1 : options.findIndex(option => optionKey(option) === activeKey)
+  const setActive = (index: number) => setActiveKey(index >= 0 && options[index] ? optionKey(options[index]) : null)
   const indexOf = (project: Project) =>
     options.findIndex(option => option.kind === 'project' && option.row.project.id === project.id)
 
@@ -126,7 +134,7 @@ export const ProjectPicker: React.FC<{
       if (options.length === 0) return
       const step = e.key === 'ArrowDown' ? 1 : -1
       // From no highlight, ↓ goes to the first option and ↑ to the last.
-      setActive(prev => (prev < 0 ? (step > 0 ? 0 : options.length - 1) : (prev + step + options.length) % options.length))
+      setActive(active < 0 ? (step > 0 ? 0 : options.length - 1) : (active + step + options.length) % options.length)
     } else if (e.key === 'Enter') {
       e.preventDefault()
       e.stopPropagation()

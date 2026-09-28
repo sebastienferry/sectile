@@ -735,8 +735,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     setSelectedViewId(null)
     setSelectedProjectIdState(id)
     if (id !== 'all') {
+      // From the stored history when there is one, so an opening does not
+      // erase those another tab recorded meanwhile; from memory otherwise.
       const now = new Date()
-      setProjectHistory(prev => recordProjectOpening(prev, id, now))
+      const stored = readProjectHistory()
+      setProjectHistory(prev => recordProjectOpening(stored.length > 0 ? stored : prev, id, now))
     }
     try {
       localStorage.setItem('sectile_selected_project_id', id)
