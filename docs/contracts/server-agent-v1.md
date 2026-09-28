@@ -603,17 +603,27 @@ process-stop button. Supervised native execution is not supported on Windows.
 
 ## PR/MR creation timing
 
-Projects persist `prCreationStage`: `implemented` (default, existing behavior)
-or `specified`. This setting is included in the agent/MCP project configuration
-and effective project skill instructions. With `specified`, the specification
-skill commits and pushes validated specs, opens or reuses a draft PR/MR, and
-attaches its URL in the specified transition. Implementation and review update
-that same PR/MR; only completed review makes it ready. Opening the draft alone
-does not advance the task to reviewed. Tracker synchronization remains server-owned.
+Projects persist `prCreationStage`: `implemented` (default, existing behavior),
+`specified` or `clarified`. This setting is included in the agent/MCP project
+configuration and effective project skill instructions. With `specified`, the
+specification skill commits and pushes validated specs, opens or reuses a draft
+PR/MR, and attaches its URL in the specified transition. With `clarified`, the
+clarification skill does the same in its final round only, once the owner has
+confirmed the clarification, and attaches the URL in the clarified transition;
+intermediate rounds open no PR/MR, and the specified transition then requires
+that same PR/MR. Implementation and review update it; only completed review
+makes it ready. Opening the draft alone does not advance the task to reviewed.
+Tracker synchronization remains server-owned.
+
+An agent does not reject a configuration whose `prCreationStage` it does not
+know: it leaves creation to implementation. Agents built before `clarified`
+existed still reject that value, so a project should choose it only once its
+workstations run a current Sectile Desktop.
 
 A workstation that drops the specification artefacts (`specArtifacts`) has
-nothing to show on the branch at specification. When a `specified` transition
-of such a project names no pull request, the server asks the actor's agent
+nothing to show on the branch at clarification or specification. When a
+`clarified` or `specified` transition that the project's `prCreationStage`
+holds to a pull request names none, the server asks the actor's agent
 with the `spec_artifacts` operation, which answers `{"mode":"keep"|"drop"}`
 with its effective value for the task. On `drop` the transition is accepted
 without a pull request and its note says that it is deferred to the
@@ -1002,8 +1012,8 @@ The canonical review action is `adjust` (`adjust-issue`). Legacy `review` normal
 States remain `new`, `clarified`, `specified`, `implemented`, `reviewed`, `finished`.
 A reviewed task offers Handoff; repeat Adjust is explicit and requires an open PR.
 
-The `prCreationStage` policy assigns draft creation to specification or implementation
-(default). Adjustment requires an existing matching PR (open, or already merged by the
+The `prCreationStage` policy assigns draft creation to clarification, specification or
+implementation (default). Adjustment requires an existing matching PR (open, or already merged by the
 human, in which case it reviews the merged state without pushing), performs full review
 and feedback disposition, checks the final code, updates the same PR and verifies
 readiness. Lookup failure is not absence. Creation-owner recovery retains an already

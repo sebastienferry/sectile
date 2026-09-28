@@ -6,27 +6,27 @@ the tree buildable. Merge `origin/main` first (it carries #561, which edited
 
 ## 1. The rule in one place (FR1, FR11)
 
-- [ ] T1.1 `models.PRCreationStages`, `ValidPRCreationStage`,
+- [x] T1.1 `models.PRCreationStages`, `ValidPRCreationStage`,
   `PRCreationOwner` in `internal/models`. Table test: the three values map to
   `clarify`, `specify`, `implement`; empty and unknown values map to
   `implement`; `ValidPRCreationStage` refuses `""`, `new`, `reviewed`.
 
 ## 2. Server setting (FR1, US1)
 
-- [ ] T2.1 `CreateProject` and `UpdateProject` validate with
+- [x] T2.1 `CreateProject` and `UpdateProject` validate with
   `ValidPRCreationStage`; error lists the three values.
-- [ ] T2.2 Extend `internal/db/pr_policy_test.go`: `clarified` round trip
+- [x] T2.2 Extend `internal/db/pr_policy_test.go`: `clarified` round trip
   through `UpdateProject`, `GetProjectByID` and `AgentConfig`; `new` still
   refused and leaves the stored value unchanged; create with `clarified`.
 
 ## 3. Ownership and transition check (FR5, FR6, FR9, US2, US3)
 
-- [ ] T3.1 `prCreationOwner` via `models.PRCreationOwner`;
+- [x] T3.1 `prCreationOwner` via `models.PRCreationOwner`;
   `stagePRRequired` covers `clarify` (owner `clarify`) and `specify` (owner
   `clarify` or `specify`).
-- [ ] T3.2 `"clarified": "clarify"` in the stage-to-skill maps of
+- [x] T3.2 `"clarified": "clarify"` in the stage-to-skill maps of
   `stage.go` and `postback.go`.
-- [ ] T3.3 Tests (next to `adjustment_test.go` and the stage-PR tests):
+- [x] T3.3 Tests (next to `adjustment_test.go` and the stage-PR tests):
   - owner `clarify`: a `clarified` transition without PR evidence is refused,
     the task stays `new`; with an open PR on the branch it is accepted and the
     PR recorded; the managed post-back path behaves the same;
@@ -36,52 +36,52 @@ the tree buildable. Merge `origin/main` first (it carries #561, which edited
 
 ## 4. Dropped artefacts (FR7, US4)
 
-- [ ] T4.1 `prDeferredBySpecArtifacts` accepts `clarify` and `specify` when
+- [x] T4.1 `prDeferredBySpecArtifacts` accepts `clarify` and `specify` when
   the owner is `clarify`.
-- [ ] T4.2 Extend `internal/db/specartifacts_test.go`: owner `clarify`,
+- [x] T4.2 Extend `internal/db/specartifacts_test.go`: owner `clarify`,
   agent answers `drop` -> `clarified` and `specified` accepted without PR
   with `prDeferredNotice` in the note; agent answers `keep` or errors -> the
   requirement holds; `implemented` still requires the PR.
 
 ## 5. Skill instructions (FR3, FR4, FR9, OP1)
 
-- [ ] T5.1 `EffectiveProjectSkills`: validated timing; policy paragraph on
+- [x] T5.1 `EffectiveProjectSkills`: validated timing; policy paragraph on
   `clarify` only for `clarified`; `clarified` wording from `plan.md`.
-- [ ] T5.2 Tests: with `clarified`, `clarify`, `specify`, `implement`,
+- [x] T5.2 Tests: with `clarified`, `clarify`, `specify`, `implement`,
   `adjust`, `pickup`, `pickup_issues` contain "final clarification round",
   "clarified transition", "never force", "Intermediate rounds open no PR" and
   the dropped-artefacts sentence; with `specified` and `implemented`, the
   `clarify` content has no "Project pull request policy" section and the other
   skills' wording is unchanged (existing assertions still pass).
-- [ ] T5.3 Runner and agent prompt lines (`runner.go`, `agent.go`) include
+- [x] T5.3 Runner and agent prompt lines (`runner.go`, `agent.go`) include
   `clarify` and the three-owner wording; update their tests if they assert on
   the text.
 
 ## 6. Agent tolerance (FR11)
 
-- [ ] T6.1 `agentconfig.Config.Validate` no longer rejects the creation
+- [x] T6.1 `agentconfig.Config.Validate` no longer rejects the creation
   stage. Test: a config with `clarified` and one with an unknown value both
   validate; the unknown value resolves to owner `implement`.
 
 ## 7. Web and desktop (FR2, FR8, US1, US5)
 
-- [ ] T7.1 `PRCreationStage` type alias; `ProjectModal` third option first;
+- [x] T7.1 `PRCreationStage` type alias; `ProjectModal` third option first;
   `draftAfterClarification` in both locales.
-- [ ] T7.2 `prRecoverySkill` test: `clarified` -> `implement`, `specified`
+- [x] T7.2 `prRecoverySkill` test: `clarified` -> `implement`, `specified`
   -> `specify`, absent -> `implement`.
-- [ ] T7.3 `desktop/tests/workflow.test.mjs` (and `workflow.ui.cjs` if it
+- [x] T7.3 `desktop/tests/workflow.test.mjs` (and `workflow.ui.cjs` if it
   enumerates stages): `implemented` task without `prUrl` under `clarified` ->
   `implement` / "Create PR".
-- [ ] T7.4 Web type check and lint (`tsc`, `oxlint`) with the main checkout's
+- [x] T7.4 Web type check and lint (`tsc`, `oxlint`) with the main checkout's
   `node_modules` if the worktree has none; desktop tests need
   `npx vite build` first.
 
 ## 8. Documentation (FR12)
 
-- [ ] T8.1 `docs/contracts/server-agent-v1.md`: three values, `clarify`
+- [x] T8.1 `docs/contracts/server-agent-v1.md`: three values, `clarify`
   owner, final-round rule, deferral, tolerant validation.
-- [ ] T8.2 ADR 0004 amendment section for #580.
-- [ ] T8.3 `CHANGELOG.md` `[Unreleased]` / `Added` line (see `plan.md`).
+- [x] T8.2 ADR 0004 amendment section for #580.
+- [x] T8.3 `CHANGELOG.md` `[Unreleased]` / `Added` line (see `plan.md`).
 
 ## Test plan
 
