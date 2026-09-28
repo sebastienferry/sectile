@@ -17,7 +17,8 @@ import assert from 'node:assert/strict';
 const { root, preserveSymlinks } = browserRoot(import.meta.url);
 
 // `fakeSlow` in localStorage holds back matching answers: a list of
-// [path, predicate source, delay in ms], the predicate taking the query.
+// [path, predicate source, delay], the predicate taking the query and the
+// delay in ms, or 'manual' to hold the answer until the test releases it.
 const harness = `
 const json = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 const project = (id, name) => ({ id, name, slug: id, color: 'indigo', icon: 'Folder', issueTracker: 'local', isDefault: id === 'a', githubRepo: '', description: '', repoPath: '', enabledViews: [], bookmarked: true, taskCount: 2 });
@@ -32,6 +33,11 @@ window.fake = {
     task('b1', 'b', '#4', 'Beta sprint twenty', 'S20', 'Web', 'Carol'),
   ],
   requests: [],
+  // Answers held back and since delivered, so a test waits for them rather
+  // than for a guessed delay.
+  released: 0,
+  held: [],
+  release: () => fake.held.splice(0).forEach(resolve => resolve()),
 };
 const distinct = values => [...new Set(values.filter(Boolean))];
 window.fetch = async (input, init = {}) => {
@@ -40,7 +46,12 @@ window.fetch = async (input, init = {}) => {
   fake.requests.push({ method, path: url.pathname, query: url.search });
   const q = url.searchParams;
   const hold = slow.find(([path, match]) => path === url.pathname && match(q));
-  if (hold) await new Promise(resolve => setTimeout(resolve, hold[2]));
+  if (hold) {
+    await new Promise(resolve => hold[2] === 'manual' ? fake.held.push(resolve) : setTimeout(resolve, hold[2]));
+    // Counted once the page has had the answer: a microtask later, the app
+    // has applied it or dropped it.
+    setTimeout(() => { fake.released++ }, 50);
+  }
   if (url.pathname === '/api/projects') return json(fake.projects);
   if (url.pathname === '/api/me/board-views') return json([]);
   if ((url.pathname === '/api/tasks' || url.pathname === '/api/tasks/facets') && method === 'GET') {
@@ -118,8 +129,8 @@ try {
   };
   const stored = scope => page.evaluate(scope => JSON.parse(localStorage.getItem(`sectile_filters_${scope}`) || '{}'), scope);
   const taskQueries = () => page.evaluate(() => fake.requests.filter(r => r.method === 'GET' && r.path === '/api/tasks').map(r => r.query));
-  // Waits for every answer held back to have landed, and a little more.
-  const settle = ms => page.waitForTimeout(ms + 300);
+  // Waits until `count` answers held back were delivered to the app.
+  const released = count => page.waitForFunction(count => fake.released >= count, count);
   const titles = async () => (await page.getByText(/^(Alpha|Beta) /).allTextContents()).sort();
   const sprintInput = () => page.getByPlaceholder('Tous sprints');
   const teamInput = () => page.getByPlaceholder('Toutes équipes');
@@ -134,18 +145,21 @@ try {
   // ---------- US1-1: the unfiltered first answer arrives last ----------
   await open('a', { a: { sprint: 'S12' } }, [['/api/tasks', "q => q.get('projectId') === 'a' && !q.get('sprint')", 800]]);
   await page.getByText('Alpha sprint twelve').waitFor();
-  await settle(800);
+  await released(1);
   assert.ok((await taskQueries()).some(q => !new URLSearchParams(q).get('sprint')), 'the fixture did send an unfiltered first request');
   assert.deepEqual(await titles(), ['Alpha sprint twelve'], 'the late unfiltered answer does not replace the filtered board');
   assert.equal(await sprintInput().inputValue(), 'S12');
 
   // ---------- US1-2: a filter change wins over an older answer held back ----------
-  await open('a', {}, [['/api/tasks', "q => q.get('projectId') === 'a' && q.get('team') === 'Ops'", 800]]);
+  await open('a', {}, [['/api/tasks', "q => q.get('projectId') === 'a' && q.get('team') === 'Ops' && !q.get('assignee')", 'manual']]);
   await page.getByText('Alpha sprint twelve').waitFor();
   await pick(teamInput(), 'Ops');
+  await page.waitForFunction(() => fake.held.length === 1);
   await pick(personInput(), 'Non assigné');
-  await page.getByText('Alpha nobody').waitFor();
-  await settle(800);
+  // The team and person board is on screen before the team-only answer lands.
+  await page.getByText('Alpha sprint thirteen').waitFor({ state: 'detached' });
+  await page.evaluate(() => fake.release());
+  await released(1);
   assert.deepEqual(await titles(), ['Alpha nobody'], 'the team-only answer, landing last, does not replace the team and person board');
 
   // ---------- US2-1, US2-3: a switch keeps the destination's filters ----------
@@ -157,7 +171,7 @@ try {
   if (!(await alpha.isVisible())) await page.locator('button:has-text("Beta")').first().click();
   await alpha.click();
   await page.getByText('Alpha sprint twelve').waitFor();
-  await settle(800);
+  await released(1);
   assert.equal(await sprintInput().inputValue(), 'S12', 'the sprint is kept on screen');
   assert.equal(await teamInput().inputValue(), 'Core', 'the team is kept on screen');
   assert.equal(await personInput().inputValue(), 'Alice', 'the person is kept on screen');
