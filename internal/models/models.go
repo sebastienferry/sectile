@@ -63,6 +63,10 @@ type TaskActivity struct {
 	CompletedAt *time.Time `json:"completedAt,omitempty"`
 	Error       string     `json:"error,omitempty"`
 	Duration    string     `json:"duration,omitempty"`
+	// CredentialMissing names the provider ("github", "gitlab", "jira") a
+	// failed tracker write was refused for, because the person who asked for
+	// it has no token of their own there (#645). Empty otherwise.
+	CredentialMissing string `json:"credentialMissing,omitempty"`
 	// Provider and Model name the engine this run actually ran against. They are
 	// written at launch from what the server resolves, then corrected by the
 	// agent once it has built the command line: the agent is the only side that

@@ -11,6 +11,7 @@ import (
 
 	"tasks/internal/models"
 	"tasks/internal/tracker"
+	"tasks/internal/trackerapi"
 )
 
 // Every write on an existing work item goes through the activity queue, like the
@@ -530,8 +531,14 @@ func (d *DB) runMoveToEpicOp(ctx context.Context, op TrackerOp, steps *[]string)
 
 	moved := 0
 	var failures []string
+	var refused error
+	refusals := 0
 	for _, id := range op.TaskIDs {
 		if _, err := d.applyTaskEpic(ctx, id, targetEpicKey, steps); err != nil {
+			if isTrackerWriteRefusal(err) {
+				refused = err
+				refusals++
+			}
 			failures = append(failures, fmt.Sprintf("%s: %v", id, err))
 			*steps = append(*steps, fmt.Sprintf("❌ %s : %v", id, err))
 			continue
@@ -543,7 +550,7 @@ func (d *DB) runMoveToEpicOp(ctx context.Context, op TrackerOp, steps *[]string)
 	if len(failures) > 0 {
 		output += fmt.Sprintf(", %d échec(s) : %s", len(failures), strings.Join(failures, " | "))
 		if moved == 0 {
-			return output, fmt.Errorf("aucun ticket déplacé : %s", strings.Join(failures, " | "))
+			return output, refusalOrFailures("aucun ticket déplacé", failures, refused, refusals)
 		}
 	}
 	return output, nil
@@ -623,6 +630,8 @@ func (d *DB) runSetTeamOp(ctx context.Context, op TrackerOp, steps *[]string) (s
 	// cinquante tickets en produirait cinquante.
 	done := 0
 	var failures []string
+	var refused error
+	refusals := 0
 	for _, id := range ids {
 		task, err := d.GetTaskByID(id)
 		if err != nil || task == nil {
@@ -638,6 +647,10 @@ func (d *DB) runSetTeamOp(ctx context.Context, op TrackerOp, steps *[]string) (s
 			return "", tracker.Unsupported(writer.Name(), tracker.CapTeam)
 		}
 		if err := writer.SetTeam(ctx, task.Key, op.TeamID); err != nil {
+			if isTrackerWriteRefusal(err) {
+				refused = err
+				refusals++
+			}
 			failures = append(failures, fmt.Sprintf("%s: %v", task.Key, err))
 			*steps = append(*steps, fmt.Sprintf("❌ %s : %v", task.Key, err))
 			continue
@@ -650,7 +663,7 @@ func (d *DB) runSetTeamOp(ctx context.Context, op TrackerOp, steps *[]string) (s
 	if len(failures) > 0 {
 		output += fmt.Sprintf(", %d échec(s) : %s", len(failures), strings.Join(failures, " | "))
 		if done == 0 {
-			return output, fmt.Errorf("aucun ticket modifié : %s", strings.Join(failures, " | "))
+			return output, refusalOrFailures("aucun ticket modifié", failures, refused, refusals)
 		}
 	}
 	return output, nil
@@ -726,6 +739,12 @@ func (d *DB) runTransitionOp(ctx context.Context, op TrackerOp, steps *[]string)
 					RemovedLabels: StaleWorkflowLabels(targetLabel),
 				}); err != nil {
 					*steps = append(*steps, fmt.Sprintf("⚠️ Synchro distante %s échouée pour %s: %v, statut gardé en local", ts.Name(), task.Key, err))
+					// A write refused for want of the person's own token reached
+					// nothing: the activity fails, so the person learns which token
+					// to add, as a stage change does (#482, #645).
+					if isTrackerWriteRefusal(err) {
+						return "", err
+					}
 				} else {
 					*steps = append(*steps, fmt.Sprintf("✅ Ticket %s %s mis à jour avec le label « %s » (état: %s)", ts.Name(), task.Key, targetLabel, statusVal))
 				}
@@ -885,6 +904,17 @@ func (d *DB) runPushHorizonsOp(ctx context.Context, op TrackerOp, steps *[]strin
 	return output, nil
 }
 
+// refusalOrFailures is the error of a batch operation that wrote no ticket. When
+// every ticket was refused for want of a personal credential it keeps that
+// refusal in its chain, so the activity can say which token is missing (#645);
+// a batch that also failed for other reasons is not only a missing token.
+func refusalOrFailures(prefix string, failures []string, refused error, refusals int) error {
+	if refused != nil && refusals == len(failures) {
+		return fmt.Errorf("%s : %s: %w", prefix, strings.Join(failures, " | "), refused)
+	}
+	return fmt.Errorf("%s : %s", prefix, strings.Join(failures, " | "))
+}
+
 // finishTrackerOp closes the activity with what the write actually did.
 func (d *DB) finishTrackerOp(activityID string, steps []string, output string, opErr error) {
 	status := string(models.ActivityStatusCompleted)
@@ -912,9 +942,9 @@ func (d *DB) finishTrackerOp(activityID string, steps []string, output string, o
 		stepsJSON, _ := json.Marshal(append(existing, steps...))
 		_, err = tx.Exec(`
 			UPDATE task_activities
-			SET status = ?, summary = ?, output = ?, steps = ?, error = ?, completed_at = ?
+			SET status = ?, summary = ?, output = ?, steps = ?, error = ?, credential_missing = ?, completed_at = ?
 			WHERE id = ? AND status != 'canceled'
-		`, status, summary, output, string(stepsJSON), errText, time.Now(), activityID)
+		`, status, summary, output, string(stepsJSON), errText, trackerapi.MissingCredentialTracker(opErr), time.Now(), activityID)
 		return err
 	})
 }
