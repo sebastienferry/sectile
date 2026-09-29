@@ -499,6 +499,17 @@ var migrations = []migration{
 		name:       "projects.branch_name_format",
 		statements: []string{"ALTER TABLE projects ADD COLUMN branch_name_format TEXT NOT NULL DEFAULT '';"},
 	},
+	{
+		// An epic's own priority and quarter (#627). Empty is "none", which is
+		// what every epic had before: the roadmap used to show the highest
+		// priority among the children and knew no quarter.
+		version: 34,
+		name:    "macros.priority_quarter",
+		statements: []string{
+			"ALTER TABLE macros ADD COLUMN priority TEXT NOT NULL DEFAULT '';",
+			"ALTER TABLE macros ADD COLUMN quarter TEXT NOT NULL DEFAULT '';",
+		},
+	},
 }
 
 // migrateSchema brings the database to the schema this binary expects, and is

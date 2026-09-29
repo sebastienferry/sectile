@@ -102,7 +102,13 @@ func TestBranchNameFormatMigration(t *testing.T) {
 	if _, err := d.conn.Exec("ALTER TABLE projects DROP COLUMN branch_name_format"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := d.conn.Exec("DELETE FROM schema_migrations WHERE version = 33"); err != nil {
+	if _, err := d.conn.Exec("ALTER TABLE macros DROP COLUMN priority"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.conn.Exec("ALTER TABLE macros DROP COLUMN quarter"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.conn.Exec("DELETE FROM schema_migrations WHERE version >= 33"); err != nil {
 		t.Fatal(err)
 	}
 	d.Close()
