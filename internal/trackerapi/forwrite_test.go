@@ -186,3 +186,28 @@ func TestGithubReadsKeepTheServerTokenForAPersonWithoutOne(t *testing.T) {
 		t.Fatalf("reads keep the server token for a person without one, got %v", seen)
 	}
 }
+
+// A refusal for want of a personal credential names its provider through the
+// chain of wrappers a queued operation adds, and nothing else does (#645).
+func TestMissingCredentialTrackerReadsTheTypeNotTheMessage(t *testing.T) {
+	refusal := &MissingPersonalCredentialError{Tracker: "github"}
+	cases := []struct {
+		name string
+		err  error
+		want string
+	}{
+		{"bare refusal", refusal, "github"},
+		{"wrapped refusal", fmt.Errorf("aucun ticket modifié : #1: %w", refusal), "github"},
+		{"no acting user", ErrNoActingUser, ""},
+		{"locked credential", errors.New("credential is sealed: its owner must unlock it"), ""},
+		{"refusal flattened to text", fmt.Errorf("échec : %v", refusal), ""},
+		{"no error", nil, ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := MissingCredentialTracker(c.err); got != c.want {
+				t.Fatalf("MissingCredentialTracker(%v) = %q, want %q", c.err, got, c.want)
+			}
+		})
+	}
+}

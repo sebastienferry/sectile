@@ -276,16 +276,25 @@ func writeError(w http.ResponseWriter, status int, message string) {
 	writeJSON(w, status, map[string]string{"error": message})
 }
 
+// TrackerCredentialMissingCode marks a 403 refused for want of the caller's own
+// tracker credential, so a client can offer to add it rather than read the
+// message (#645).
+const TrackerCredentialMissingCode = "tracker_credential_missing"
+
 // writeTrackerError answers a failed request whose tracker write may have been
 // refused for want of the caller's own credential (#482). That refusal is a
 // 403 with its message: the caller has something to add, a personal credential
-// or a key tied to a user, and a 500 would say the server broke. Any other
-// error keeps the status the handler chose.
+// or a key tied to a user, and a 500 would say the server broke. The missing
+// credential also carries its code and provider (#645). Any other error keeps
+// the status the handler chose.
 func writeTrackerError(w http.ResponseWriter, status int, err error) {
-	var missing *trackerapi.MissingPersonalCredentialError
 	switch {
-	case errors.As(err, &missing):
-		writeError(w, http.StatusForbidden, err.Error())
+	case trackerapi.MissingCredentialTracker(err) != "":
+		writeJSON(w, http.StatusForbidden, map[string]string{
+			"error":   err.Error(),
+			"code":    TrackerCredentialMissingCode,
+			"tracker": trackerapi.MissingCredentialTracker(err),
+		})
 	case errors.Is(err, trackerapi.ErrNoActingUser):
 		// Over REST, a write that names nobody comes from a key tied to no
 		// user: say so, rather than name an internal invariant.

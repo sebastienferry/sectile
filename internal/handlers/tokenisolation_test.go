@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -51,11 +52,22 @@ func TestRESTTrackerWriteRefusalsAreForbiddenAndNamed(t *testing.T) {
 	if rr.Code != http.StatusForbidden || !strings.Contains(rr.Body.String(), "Profile → Tracker credentials") {
 		t.Fatalf("a web session without a token must get a named 403, got %d %s", rr.Code, rr.Body.String())
 	}
+	// And it says which token to add, for the web to offer it (#645).
+	var refusal map[string]string
+	if err := json.Unmarshal(rr.Body.Bytes(), &refusal); err != nil {
+		t.Fatal(err)
+	}
+	if refusal["code"] != TrackerCredentialMissingCode || refusal["tracker"] != "github" {
+		t.Fatalf("a missing token must carry its code and provider, got %v", refusal)
+	}
 
 	// The shared server key names nobody.
 	rr = create(func(r *http.Request) { r.Header.Set("Authorization", "Bearer shared-secret") })
 	if rr.Code != http.StatusForbidden || !strings.Contains(rr.Body.String(), taskmcp.AnonymousWriteRefusal) {
 		t.Fatalf("a key tied to no user must get a named 403, got %d %s", rr.Code, rr.Body.String())
+	}
+	if strings.Contains(rr.Body.String(), TrackerCredentialMissingCode) {
+		t.Fatalf("a key tied to no user has no token to add, got %s", rr.Body.String())
 	}
 
 	if n := requests.Load(); n != 0 {
