@@ -1231,12 +1231,12 @@ func (d *agentDaemon) desktopTasksTerminalExternal(w http.ResponseWriter, r *htt
 		branch = *task.BranchName
 	}
 	if config.UseWorktrees {
-		worktreeDir, pathErr := localTaskPath(r.Context(), root, task)
+		worktreeDir, pathErr := localTaskPath(r.Context(), root, task, config.BranchNameFormat)
 		if pathErr != nil {
 			http.Error(w, pathErr.Error(), http.StatusConflict)
 			return
 		}
-		branch, _ = taskWorktreeBranch(task)
+		branch, _ = taskWorktreeBranch(task, config.BranchNameFormat)
 		if info, err := os.Stat(worktreeDir); err == nil && info.IsDir() {
 			workDir = worktreeDir
 		}

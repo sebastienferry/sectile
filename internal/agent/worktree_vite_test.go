@@ -38,7 +38,7 @@ func TestGeneratedWorktreeLoadsViteInBrowser(t *testing.T) {
 	gitTest(t, root, "add", ".")
 	gitTest(t, root, "commit", "-q", "-m", "fixture")
 	branch := "feat/289"
-	path, _, err := ensureLocalWorktree(ctx, root, models.Task{Key: "#289", BranchName: &branch}, true)
+	path, _, err := ensureLocalWorktree(ctx, root, models.Task{Key: "#289", BranchName: &branch}, true, "")
 	if err != nil {
 		t.Fatal(err)
 	}

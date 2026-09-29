@@ -757,3 +757,23 @@ func TestProjectContextPushStageCommits(t *testing.T) {
 		}
 	}
 }
+
+func TestProjectContextBranchNameFormat(t *testing.T) {
+	database, err := testsqlite.New(t, filepath.Join(t.TempDir(), "tasks.db"), db.NewDB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	for _, format := range []string{"{key}", ""} {
+		if _, err := database.UpdateProject("default", models.UpdateProjectRequest{BranchNameFormat: &format}); err != nil {
+			t.Fatal(err)
+		}
+		result, err := call(t, database, "get_project_context", map[string]any{"projectId": "default"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result["branchNameFormat"] != format {
+			t.Fatalf("context format = %v, want %q", result["branchNameFormat"], format)
+		}
+	}
+}

@@ -603,6 +603,22 @@ Stopping a run preserves repository changes and does not change workflow stages.
 Independently launched native clients are not owned by the agent and have no
 process-stop button. Supervised native execution is not supported on Windows.
 
+## Task branch name format
+
+Projects persist `branchNameFormat` (#621), empty by default. The agent
+configuration carries it as an additive field, and `get_project_context` returns
+it. When the agent prepares a worktree for a task that has no branch yet, it
+renders the format with the placeholders `{key}` (the task key without its
+leading `#`, case preserved), `{key_lower}` (the same, lower-cased) and `{title}`
+(the lower-case title slug, 30 characters at most); an empty format renders
+`feat/{key_lower}`, the names every agent created before. The rendered branch
+still goes through `git check-ref-format --branch`, and is recorded on the task
+like any prepared branch. An assigned branch is never re-rendered. An agent
+that predates the field keeps `feat/<key>`; a server that predates it sends
+nothing, which is the default. The server refuses on save a format with an
+unknown placeholder, no key placeholder, or a sample render that is not a
+usable Git branch.
+
 ## PR/MR creation timing
 
 Projects persist `prCreationStage`: `implemented` (default, existing behavior),
