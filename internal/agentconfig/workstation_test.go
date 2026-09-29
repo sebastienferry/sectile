@@ -50,7 +50,7 @@ func TestResolveDoesNotMutateContract(t *testing.T) {
 
 func TestResolveProjectOverDefaults(t *testing.T) {
 	s := Settings{
-		Defaults: Defaults{Execution: Execution{AIProvider: "gemini", AIModel: "gemini-pro", AICommandTemplate: "gemini --x {prompt}", AICommandTemplateAutonomous: "gemini -p {prompt}"}},
+		Defaults: Defaults{Execution: Execution{AIProvider: "codex", AIModel: "gpt-5", AICommandTemplate: "codex --x {prompt}", AICommandTemplateAutonomous: "codex -p {prompt}"}},
 		ProjectSettings: map[string]ProjectSettings{
 			"p1": {Execution: Execution{AIProvider: "claude", AIModel: "claude-opus-5"}},
 		},
@@ -59,12 +59,12 @@ func TestResolveProjectOverDefaults(t *testing.T) {
 	if p1.AIProvider != "claude" || p1.AIModel != "claude-opus-5" {
 		t.Fatalf("project section ignored: %+v", p1)
 	}
-	// A command written for gemini never serves claude.
+	// A command written for codex never serves claude.
 	if p1.AICommandTemplate != "" || p1.AICommandTemplateAutonomous != "" {
 		t.Fatalf("the inherited commands must be dropped on a provider change: %+v", p1)
 	}
 	p2 := Resolve(Config{ProjectID: "p2"}, converted(s))
-	if p2.AIProvider != "gemini" || p2.AIModel != "gemini-pro" || p2.AICommandTemplate != "gemini --x {prompt}" || p2.AICommandTemplateAutonomous != "gemini -p {prompt}" {
+	if p2.AIProvider != "codex" || p2.AIModel != "gpt-5" || p2.AICommandTemplate != "codex --x {prompt}" || p2.AICommandTemplateAutonomous != "codex -p {prompt}" {
 		t.Fatalf("workstation defaults ignored: %+v", p2)
 	}
 	// The project's own command survives its provider change, each template independently.
@@ -74,9 +74,9 @@ func TestResolveProjectOverDefaults(t *testing.T) {
 		t.Fatalf("project command lost or the other template kept: %+v", own)
 	}
 	// Same provider: the templates the project leaves empty are inherited.
-	s.ProjectSettings["p1"] = ProjectSettings{Execution: Execution{AIProvider: "gemini", AICommandTemplateAutonomous: "gemini -p --y {prompt}"}}
+	s.ProjectSettings["p1"] = ProjectSettings{Execution: Execution{AIProvider: "codex", AICommandTemplateAutonomous: "codex -p --y {prompt}"}}
 	same := Resolve(Config{ProjectID: "p1"}, converted(s))
-	if same.AICommandTemplate != "gemini --x {prompt}" || same.AICommandTemplateAutonomous != "gemini -p --y {prompt}" {
+	if same.AICommandTemplate != "codex --x {prompt}" || same.AICommandTemplateAutonomous != "codex -p --y {prompt}" {
 		t.Fatalf("same-provider inheritance broken: %+v", same)
 	}
 }
@@ -207,8 +207,14 @@ func TestProviderModelsEmptyKeyIsAChoice(t *testing.T) {
 	if got := ProviderModels(d, "Codex"); !reflect.DeepEqual(got, []string{"gpt-5"}) {
 		t.Fatalf("configured list ignored: %v", got)
 	}
-	if got := ProviderModels(d, "cursor"); !reflect.DeepEqual(got, DefaultProviderModels["cursor"]) {
+	if got := ProviderModels(d, "agy"); !reflect.DeepEqual(got, DefaultProviderModels["agy"]) {
 		t.Fatalf("shipped list expected: %v", got)
+	}
+	// A retired provider ships no list (#614).
+	for provider := range RetiredProviders {
+		if got := ProviderModels(Defaults{}, provider); len(got) != 0 {
+			t.Fatalf("%s: a retired provider must ship no list: %v", provider, got)
+		}
 	}
 }
 

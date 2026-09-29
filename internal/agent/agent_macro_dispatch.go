@@ -111,7 +111,6 @@ func (d *agentDaemon) handleMacroDispatch(ctx context.Context, conn *websocket.C
 		launchFailure = err
 		return
 	}
-	d.recordCustomSkillUse(config, choice, payload.RunID)
 	runProvider, runModel := launchEngine(config, payload.SkillID, payload.Model, payload.Mode)
 	go d.postRunEngine(payload.RunID, runProvider, runModel)
 	fullLine, err = d.wrapRun("", payload.RunID, fullLine)
@@ -153,6 +152,7 @@ func (d *agentDaemon) handleMacroDispatch(ctx context.Context, conn *websocket.C
 		return
 	}
 	launched = true
+	d.recordCustomSkillUse(config, choice, payload.RunID)
 	log.Printf("[Agent] Macro skill %s launched for %s in %s (spec checkout %s on %s)", payload.SkillID, macroKey, root, workspace.Path, workspace.Branch)
 }
 

@@ -3,6 +3,7 @@ import { RemoteRunBadge } from './RemoteRunBadge'
 import { BatchBadge } from './BatchBadge'
 import { batchIndicator } from '../lib/batchMembership'
 import { CopyTaskSkillMenu } from './CopyTaskSkillMenu'
+import { CopyStepPromptButton } from './CopyStepPromptButton'
 import React, { useState, useRef, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import {
@@ -42,6 +43,7 @@ import { format, formatDate } from '../lib/i18n'
 import { resolveTaskStage, getNextStepInfo, prRecoverySkill, skillForStage } from '../lib/workflow'
 import { reportedModel, reportedPickerModels, shortModelLabel } from '../lib/aiModels'
 import { loadLaunchModel, saveLaunchModel } from '../lib/launchModel'
+import { anchoredMenuPosition, moveMenuFocus, type AnchoredMenuPosition } from '../lib/anchoredMenu'
 import { isSelectionClick } from '../lib/boardSelection'
 
 interface TaskCardProps {
@@ -109,56 +111,38 @@ export const TaskCard: React.FC<TaskCardProps> = ({
   const [launchModel, setLaunchModel] = useState(() => loadLaunchModel(task.id))
   const modelMenuRef = useRef<HTMLDivElement>(null)
   const modelEntryRef = useRef<HTMLButtonElement>(null)
-  const [menuPos, setMenuPos] = useState<{ left: number; top?: number; bottom?: number; maxHeight: number } | null>(null)
+  const [menuPos, setMenuPos] = useState<AnchoredMenuPosition | null>(null)
   const menuRef = useRef<HTMLDivElement>(null)
   const menuNodeRef = useRef<HTMLDivElement>(null)
   const menuButtonRef = useRef<HTMLButtonElement>(null)
+  // The model indicator opens the same model list as the menu's sub-list, in a
+  // popup of its own (#612). One popup at a time per card.
+  const [isIndicatorMenuOpen, setIsIndicatorMenuOpen] = useState(false)
+  const [indicatorPos, setIndicatorPos] = useState<AnchoredMenuPosition | null>(null)
+  const indicatorRef = useRef<HTMLButtonElement>(null)
+  const indicatorMenuRef = useRef<HTMLDivElement>(null)
 
   const MENU_WIDTH = 214
-  const MENU_MAX_HEIGHT = 380
-  const MENU_GAP = 6
-  const MARGIN = 8
-  const BOTTOM_RESERVE = 36 // Reserve space for global bottom StatusBar
+  const INDICATOR_MENU_WIDTH = 200
 
   const openMenuAt = () => {
     const btn = menuButtonRef.current
     if (!btn) return
-    const rect = btn.getBoundingClientRect()
-
-    // Annuler l'effet de zoom de l'interface car le portail subit le zoom à son tour
-    const zoomRaw = getComputedStyle(document.documentElement).getPropertyValue('--ui-zoom')
-    const zoom = parseFloat(zoomRaw) || 1
-
-    const btnTop = rect.top / zoom
-    const btnBottom = rect.bottom / zoom
-    const btnRight = rect.right / zoom
-
-    const vpHeight = window.innerHeight / zoom
-    const vpWidth = window.innerWidth / zoom
-
-    const spaceAbove = btnTop - MARGIN
-    const spaceBelow = vpHeight - btnBottom - BOTTOM_RESERVE
-
-    // Aligner à droite du bouton tout en restant dans les limites horizontales de l'écran
-    const left = Math.max(MARGIN, Math.min(btnRight - MENU_WIDTH, vpWidth - MENU_WIDTH - MARGIN))
-
-    // Préférer l'ouverture vers le bas si l'espace est suffisant ou plus grand que vers le haut
-    if (spaceBelow >= 220 || spaceBelow >= spaceAbove) {
-      const maxHeight = Math.max(140, Math.min(MENU_MAX_HEIGHT, spaceBelow - MENU_GAP))
-      setMenuPos({
-        left,
-        top: btnBottom + MENU_GAP,
-        maxHeight,
-      })
-    } else {
-      const maxHeight = Math.max(140, Math.min(MENU_MAX_HEIGHT, spaceAbove - MENU_GAP))
-      setMenuPos({
-        left,
-        bottom: vpHeight - btnTop + MENU_GAP,
-        maxHeight,
-      })
-    }
+    setIsIndicatorMenuOpen(false)
+    setMenuPos(anchoredMenuPosition(btn, MENU_WIDTH))
     setIsMenuOpen(true)
+  }
+
+  const toggleIndicatorMenu = () => {
+    if (isIndicatorMenuOpen) {
+      setIsIndicatorMenuOpen(false)
+      return
+    }
+    const anchor = indicatorRef.current
+    if (!anchor) return
+    setIsMenuOpen(false)
+    setIndicatorPos(anchoredMenuPosition(anchor, INDICATOR_MENU_WIDTH))
+    setIsIndicatorMenuOpen(true)
   }
 
   const taskProject = projects.find(p => p.id === task.projectId)
@@ -247,6 +231,37 @@ export const TaskCard: React.FC<TaskCardProps> = ({
     // dépendances, le gestionnaire garderait la valeur du premier rendu et
     // fermerait tout le menu alors que le sous-menu est ouvert.
   }, [isMenuOpen, isModelMenuOpen])
+
+  // The indicator's menu takes the focus on the model in effect, and gives it
+  // back to the indicator when Escape closes it. An outside click, a scroll or
+  // a resize closes it, as they close the actions menu.
+  useEffect(() => {
+    if (!isIndicatorMenuOpen) return
+    const menu = indicatorMenuRef.current
+    ;(menu?.querySelector<HTMLElement>('[aria-checked="true"]') || menu?.querySelector<HTMLElement>('[role="menuitemradio"]'))?.focus({ preventScroll: true })
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return
+      e.preventDefault()
+      setIsIndicatorMenuOpen(false)
+      indicatorRef.current?.focus({ preventScroll: true })
+    }
+    const close = (e: Event) => {
+      const target = e.target as Node
+      if (indicatorMenuRef.current?.contains(target) || indicatorRef.current?.contains(target)) return
+      setIsIndicatorMenuOpen(false)
+    }
+    const closeOnResize = () => setIsIndicatorMenuOpen(false)
+    document.addEventListener('keydown', handleKeyDown)
+    document.addEventListener('mousedown', close)
+    window.addEventListener('scroll', close, true)
+    window.addEventListener('resize', closeOnResize)
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown)
+      document.removeEventListener('mousedown', close)
+      window.removeEventListener('scroll', close, true)
+      window.removeEventListener('resize', closeOnResize)
+    }
+  }, [isIndicatorMenuOpen])
 
   const latestActivity = React.useMemo(() => {
     if (!activities || activities.length === 0) return null
@@ -469,30 +484,104 @@ export const TaskCard: React.FC<TaskCardProps> = ({
     setLaunchModel(model)
     saveLaunchModel(task.id, model)
     closeMenu()
+    setIsIndicatorMenuOpen(false)
   }
+
+  // The launch models, rendered by both lists that choose one: the actions
+  // menu's sub-list and the indicator's menu. Both read the card's launchModel,
+  // so a pick made in one is checked in the other.
+  const modelRadioItems = () => (
+    <>
+      <button
+        type="button"
+        role="menuitemradio"
+        aria-checked={effectiveLaunchModel === ''}
+        className={compactActionClass}
+        onClick={() => chooseModel('')}>
+        <Check size={12} className={effectiveLaunchModel === '' ? 'opacity-100' : 'opacity-0'} />
+        <span className="truncate">
+          {configuredCardModel ? `${configuredCardModel} ${t.compactCard.currentModel}` : t.compactCard.currentModel}
+        </span>
+      </button>
+      {offeredModels.map(model => (
+        <button
+          key={model}
+          type="button"
+          role="menuitemradio"
+          aria-checked={effectiveLaunchModel === model}
+          className={compactActionClass}
+          onClick={() => chooseModel(model)}>
+          <Check size={12} className={effectiveLaunchModel === model ? 'opacity-100' : 'opacity-0'} />
+          <span className="truncate">{model}</span>
+        </button>
+      ))}
+    </>
+  )
 
   // Le modèle que les boutons d'action utiliseront, annoncé devant eux. Une
   // seule définition pour les deux formes de carte : sur une carte condensée les
   // actions vivent derrière le menu, donc l'indicateur précède ce menu.
-  const modelIndicator = launchedModel ? (
-    <span
-      className={`ml-auto shrink-0 text-[9px] font-mono tracking-wide ${
-        effectiveLaunchModel ? 'accent-text' : 'text-[var(--text-muted)]'
-      }`}
-      title={
-        effectiveLaunchModel
-          ? format(t.shell.card.modelChosen, { model: launchedModel })
-          : format(t.shell.card.modelConfigured, { model: launchedModel })
-      }
+  // When the engine offers models, the indicator is also where one is chosen
+  // (#612); with no model known yet a chip stands in for the name, so the list
+  // stays reachable. With nothing to pick it stays a plain label.
+  const indicatorPickable = cardModels.length > 0
+  const indicatorClass = `ml-auto shrink-0 text-[9px] font-mono tracking-wide ${
+    effectiveLaunchModel ? 'accent-text' : 'text-[var(--text-muted)]'
+  }`
+  const indicatorControl = (content: React.ReactNode, title: string) => indicatorPickable ? (
+    <button
+      type="button"
+      ref={indicatorRef}
+      aria-haspopup="menu"
+      aria-expanded={isIndicatorMenuOpen}
+      aria-label={title}
+      title={title}
+      onClick={e => {
+        e.stopPropagation()
+        toggleIndicatorMenu()
+      }}
+      className={`${indicatorClass} flex items-center cursor-pointer hover:text-[var(--accent-color)] focus-visible:outline-2 focus-visible:outline-[var(--accent-color)]`}
     >
-      {shortModelLabel(launchedModel)}
-    </span>
+      {content}
+    </button>
+  ) : (
+    <span className={indicatorClass} title={title}>{content}</span>
+  )
+  const modelIndicator = launchedModel ? indicatorControl(
+    shortModelLabel(launchedModel),
+    effectiveLaunchModel
+      ? format(t.shell.card.modelChosen, { model: launchedModel })
+      : format(t.shell.card.modelConfigured, { model: launchedModel }),
   ) : engineUnknown ? (
     // No agent of the caller serves this project: what would run is unknown.
     <span className="ml-auto shrink-0 text-[9px] font-mono tracking-wide text-[var(--text-muted)]" title={t.compactCard.engineUnknown}>
       {t.compactCard.engineUnknownShort}
     </span>
-  ) : null
+  ) : indicatorPickable ? indicatorControl(<Cpu size={11} />, t.shell.card.chooseModel) : null
+
+  const indicatorMenu = isIndicatorMenuOpen && indicatorPos && createPortal(
+    <div
+      ref={indicatorMenuRef}
+      role="menu"
+      aria-label={t.compactCard.advanceWithModel}
+      onClick={e => e.stopPropagation()}
+      onMouseDown={e => e.stopPropagation()}
+      onKeyDown={e => {
+        if (indicatorMenuRef.current && moveMenuFocus(indicatorMenuRef.current, e.key)) e.preventDefault()
+      }}
+      style={{
+        position: 'fixed',
+        left: indicatorPos.left,
+        top: indicatorPos.top,
+        bottom: indicatorPos.bottom,
+        width: INDICATOR_MENU_WIDTH,
+        maxHeight: indicatorPos.maxHeight,
+      }}
+      className="overflow-y-auto rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-color)] shadow-2xl p-1 z-[100] animate-in fade-in-0 zoom-in-95 duration-100 text-xs">
+      {modelRadioItems()}
+    </div>,
+    document.body,
+  )
 
   const modeActions = (
     <>
@@ -534,32 +623,12 @@ export const TaskCard: React.FC<TaskCardProps> = ({
                   e.preventDefault()
                   setIsModelMenuOpen(false)
                   modelEntryRef.current?.focus({ preventScroll: true })
+                } else if (modelMenuRef.current && moveMenuFocus(modelMenuRef.current, e.key)) {
+                  e.preventDefault()
                 }
               }}
               className="mt-0.5 ml-2 border-l border-[var(--border-color)] pl-1">
-              <button
-                type="button"
-                role="menuitemradio"
-                aria-checked={effectiveLaunchModel === ''}
-                className={compactActionClass}
-                onClick={() => chooseModel('')}>
-                <Check size={12} className={effectiveLaunchModel === '' ? 'opacity-100' : 'opacity-0'} />
-                <span className="truncate">
-                  {configuredCardModel ? `${configuredCardModel} ${t.compactCard.currentModel}` : t.compactCard.currentModel}
-                </span>
-              </button>
-              {offeredModels.map(model => (
-                <button
-                  key={model}
-                  type="button"
-                  role="menuitemradio"
-                  aria-checked={effectiveLaunchModel === model}
-                  className={compactActionClass}
-                  onClick={() => chooseModel(model)}>
-                  <Check size={12} className={effectiveLaunchModel === model ? 'opacity-100' : 'opacity-0'} />
-                  <span className="truncate">{model}</span>
-                </button>
-              ))}
+              {modelRadioItems()}
             </div>
           )}
         </div>
@@ -599,7 +668,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({
             top: menuPos.top,
             bottom: menuPos.bottom,
             width: MENU_WIDTH,
-            maxHeight: menuPos.maxHeight || MENU_MAX_HEIGHT,
+            maxHeight: menuPos.maxHeight,
           }}
           className="overflow-y-auto rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-color)] shadow-2xl p-1 z-[100] animate-in fade-in-0 zoom-in-95 duration-100 text-xs">
           {isCondensed && (
@@ -828,6 +897,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({
           <RemoteRunBadge taskId={task.id} />
           {modelIndicator}
           {actionsMenu}
+          {indicatorMenu}
         </div>
       ) : (
         <>
@@ -989,6 +1059,12 @@ export const TaskCard: React.FC<TaskCardProps> = ({
         </button>
 
         {modelIndicator}
+        {indicatorMenu}
+
+        {/* The prompt of the column's step, to paste into an AI engine's
+            desktop app (#612). A finished task has none. The first control
+            of this group pushes the group to the right of the row. */}
+        {!isFinishedTask && <CopyStepPromptButton task={task} className={modelIndicator ? '' : 'ml-auto'} />}
 
         {/* Le terminal de la tâche est l'action la plus fréquente : elle mérite
             son icône, le reste vit dans le menu (...) */}
@@ -999,7 +1075,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({
             e.stopPropagation()
             handleAdvance(false)
           }}
-          className={`${launchedModel ? '' : 'ml-auto '}p-1 rounded-md text-[var(--text-muted)] hover:text-[var(--accent-color)] hover:bg-[var(--accent-light)] border border-transparent hover:border-[var(--accent-color)]/30 transition-colors cursor-pointer disabled:opacity-40`}
+          className={`${modelIndicator || !isFinishedTask ? '' : 'ml-auto '}p-1 rounded-md text-[var(--text-muted)] hover:text-[var(--accent-color)] hover:bg-[var(--accent-light)] border border-transparent hover:border-[var(--accent-color)]/30 transition-colors cursor-pointer disabled:opacity-40`}
           title={nextStepInfo.stepTooltip}
         >
           {advancing === 'step' ? <Loader2 size={14} className="animate-spin" /> : <ChevronRight size={14} />}

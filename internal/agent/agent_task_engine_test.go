@@ -189,9 +189,24 @@ func TestDesktopEnginesEndpoints(t *testing.T) {
 		"bad model":      {map[string]any{"catalogue": append(view.Catalogue, agentconfig.Engine{Name: "Opus", Provider: "claude", Model: "a b"}), "default": view.Default}, 400},
 		"drop default":   {map[string]any{"catalogue": view.Catalogue[1:], "default": view.Default}, 409},
 		"empty":          {map[string]any{"catalogue": []agentconfig.Engine{}, "default": ""}, 400},
+		"retired":        {map[string]any{"catalogue": append(view.Catalogue, agentconfig.Engine{Name: "Gemini", Provider: "gemini"}), "default": view.Default}, 400},
 	} {
 		if w := put("/desktop/engines", tc.body); w.Code != tc.code {
 			t.Errorf("%s: %d %s", name, w.Code, w.Body.String())
+		}
+	}
+	// A retired provider (#614) is refused by name, and never offered.
+	if w := put("/desktop/engines", map[string]any{"catalogue": append(view.Catalogue, agentconfig.Engine{Name: "Mistral", Provider: "vibe"}), "default": view.Default}); !strings.Contains(w.Body.String(), `engine "Mistral": unsupported AI provider "vibe"`) {
+		t.Errorf("retired provider refusal: %d %s", w.Code, w.Body.String())
+	}
+	for _, provider := range view.Providers {
+		if agentconfig.RetiredProviders[provider] {
+			t.Errorf("retired provider %q offered", provider)
+		}
+	}
+	for provider := range view.ProviderModels {
+		if agentconfig.RetiredProviders[provider] {
+			t.Errorf("retired provider %q has a model list", provider)
 		}
 	}
 	var unchanged enginesView

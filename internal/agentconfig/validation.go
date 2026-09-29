@@ -95,8 +95,16 @@ func skillFiles(skills []Skill, loc Locations) (map[string]string, error) {
 
 // skillBody picks the text to install. An agent that substitutes arguments gets
 // the body carrying the ticket reference; the others would render the
-// placeholder literally, so they get the plain instructions.
+// placeholder literally, so they get the plain instructions. The generic
+// content wins over the project's when the server sends it: the folder is
+// shared by every project of the workstation.
 func skillBody(s Skill, loc Locations) string {
+	if strings.TrimSpace(s.DirectContent) != "" {
+		if loc.SubstitutesArguments && s.DirectCommandContent != "" {
+			return s.DirectCommandContent
+		}
+		return s.DirectContent
+	}
 	if loc.SubstitutesArguments && s.CommandContent != "" {
 		return s.CommandContent
 	}
@@ -161,7 +169,7 @@ func managedLegacyPath(p string) bool {
 // ValidProvider checks that provider is a supported AI provider or empty.
 func ValidProvider(provider string) error {
 	switch provider {
-	case "", "agy", "codex", "claude", "gemini", "cursor", "vibe", "custom":
+	case "", "agy", "codex", "claude", "custom":
 		return nil
 	default:
 		return fmt.Errorf("unsupported AI provider %q", provider)

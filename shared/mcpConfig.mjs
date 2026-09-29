@@ -2,9 +2,6 @@ export const mcpProviders = {
  claude: {label:'Claude', path:'~/.claude.json'},
  agy: {label:'Antigravity', path:'~/.gemini/config/mcp_config.json'},
  codex: {label:'Codex', path:'~/.codex/config.toml'},
- cursor: {label:'Cursor', path:'~/.cursor/mcp.json'},
- gemini: {label:'Gemini', path:'~/.gemini/settings.json'},
- vibe: {label:'Mistral Vibe', path:'~/.vibe/config.toml'},
 }
 
 // JSON string escaping is also valid for these TOML basic strings.
@@ -16,17 +13,15 @@ export function mcpSnippet(provider, transport, server, local = false) {
  if (transport === 'stdio') {
   entry = {command:'sectile-agent', args:['mcp','--url',base], env:{SECTILE_AGENT_TOKEN:local?'':token}}
  } else {
-  const urlField = provider === 'agy' ? 'serverUrl' : provider === 'gemini' ? 'httpUrl' : 'url'
+  const urlField = provider === 'agy' ? 'serverUrl' : 'url'
   entry = {[urlField]:base+'/mcp'}
   if (provider === 'claude') entry.type = 'http'
   if (!local) entry[provider === 'codex' ? 'http_headers' : 'headers'] = {Authorization:'Bearer '+token}
  }
- if (provider === 'codex' || provider === 'vibe') {
-  const lines = provider === 'vibe'
-   ? ['[[mcp_servers]]','name = "sectile"',`transport = ${quote(transport === 'http' ? 'streamable-http' : 'stdio')}`]
-   : ['[mcp_servers.sectile]', 'enabled = true']
+ if (provider === 'codex') {
+  const lines = ['[mcp_servers.sectile]', 'enabled = true']
   for (const [key,value] of Object.entries(entry)) {
-   if (provider === 'codex' && key === 'http_headers') {
+   if (key === 'http_headers') {
     lines.push('', '[mcp_servers.sectile.http_headers]', 'Authorization = '+quote(value.Authorization))
     continue
    }

@@ -149,15 +149,9 @@ func (r *Runner) CheckCliTools(repoPath string) []models.CliStatus {
 			case "agy":
 				status.AuthStatus = "Ready"
 				status.Details = "Antigravity CLI Agent ready"
-			case "vibe":
-				status.AuthStatus = "Ready"
-				status.Details = "Mistral Vibe CLI Agent ready"
 			case "claude":
 				status.AuthStatus = "Ready"
 				status.Details = "Claude Code CLI Agent ready"
-			case "gemini":
-				status.AuthStatus = "Ready"
-				status.Details = "Gemini CLI Agent ready"
 			case "codex":
 				status.AuthStatus = "Ready"
 				status.Details = "Codex CLI Agent ready"
@@ -560,28 +554,10 @@ func (r *Runner) execAgentCommand(ctx context.Context, repoDir string, provider 
 		out, err := r.runCommand(ctx, repoDir, agyPath, "-p", finalPrompt, "--dangerously-skip-permissions")
 		return out, steps, err
 
-	case "vibe":
-		vibePath, _ := FindCliTool("vibe")
-		steps = append(steps, fmt.Sprintf("Exécution de : vibe -p \"...\" dans %s", filepath.Base(repoDir)))
-		out, err := r.runCommand(ctx, repoDir, vibePath, "-p", finalPrompt, "--auto-approve")
-		return out, steps, err
-
 	case "claude":
 		claudePath, _ := FindCliTool("claude")
 		steps = append(steps, fmt.Sprintf("Exécution de : claude -p \"...\" dans %s", filepath.Base(repoDir)))
 		out, err := r.runCommand(ctx, repoDir, claudePath, append(modelArgs, "-p", finalPrompt)...)
-		return out, steps, err
-
-	case "gemini":
-		geminiPath, _ := FindCliTool("gemini")
-		steps = append(steps, fmt.Sprintf("Exécution de : gemini -p \"...\" dans %s", filepath.Base(repoDir)))
-		out, err := r.runCommand(ctx, repoDir, geminiPath, append(modelArgs, "-p", finalPrompt)...)
-		return out, steps, err
-
-	case "cursor":
-		cursorPath, _ := FindCliTool("cursor")
-		steps = append(steps, fmt.Sprintf("Exécution de : cursor agent -p \"...\" dans %s", filepath.Base(repoDir)))
-		out, err := r.runCommand(ctx, repoDir, cursorPath, append([]string{"agent"}, append(modelArgs, "-p", finalPrompt)...)...)
 		return out, steps, err
 
 	default:
@@ -1144,18 +1120,9 @@ func (r *Runner) SessionCommandLine(inv *AIInvocation) (string, func(), error) {
 	case "agy":
 		bin, _ := FindCliTool("agy")
 		return fmt.Sprintf("%s -p %s --dangerously-skip-permissions", shellQuote(bin), promptRef), cleanup, nil
-	case "vibe":
-		bin, _ := FindCliTool("vibe")
-		return fmt.Sprintf("%s -p %s --auto-approve", shellQuote(bin), promptRef), cleanup, nil
 	case "claude":
 		bin, _ := FindCliTool("claude")
 		return fmt.Sprintf("%s %s-p %s --dangerously-skip-permissions", shellQuote(bin), modelFlag, promptRef), cleanup, nil
-	case "gemini":
-		bin, _ := FindCliTool("gemini")
-		return fmt.Sprintf("%s %s-p %s", shellQuote(bin), modelFlag, promptRef), cleanup, nil
-	case "cursor":
-		bin, _ := FindCliTool("cursor")
-		return fmt.Sprintf("%s agent %s-p %s", shellQuote(bin), modelFlag, promptRef), cleanup, nil
 	}
 
 	if template == "" {
@@ -1194,24 +1161,18 @@ func InteractiveAgentLaunch(settings *models.Settings) (string, error) {
 	}
 
 	switch provider {
-	case "agy", "vibe", "claude", "gemini", "codex":
+	case "agy", "claude", "codex":
 		line, err := resolveAgentBinary(provider, "")
 		if err != nil {
 			return "", err
 		}
 		return line + modelFlag, nil
-	case "cursor":
-		line, err := resolveAgentBinary("cursor", "")
-		if err != nil {
-			return "", err
-		}
-		return line + " agent" + modelFlag, nil
 	case "custom":
 		// Un moteur personnalisé n'a que son modèle de commande : son premier mot
 		// est le binaire, et c'est lui qu'on ouvre en interactif.
 		return resolveAgentBinary(firstWord(settings.AICommandTemplate), provider)
 	}
-	return "", fmt.Errorf("le moteur %q n'a pas de mode interactif connu : configure un moteur agy, claude, gemini, codex, cursor ou vibe sur le projet", provider)
+	return "", fmt.Errorf("le moteur %q n'a pas de mode interactif connu : configure un moteur agy, claude ou codex sur le projet", provider)
 }
 
 // resolveAgentBinary finds an engine binary and says where it looked when it

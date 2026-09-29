@@ -29,8 +29,8 @@ func TestSupportsAutonomousRun(t *testing.T) {
 	}{
 		{"claude", "", "", true},
 		{"codex", "", "", true},
-		{"vibe", "", "", true},
 		{"agy", "", "", false},
+		{"vibe", "", "", false},
 		{"gemini", "", "", false},
 		{"cursor", "", "", false},
 		{"", "", "", false},
@@ -40,7 +40,7 @@ func TestSupportsAutonomousRun(t *testing.T) {
 		// A command written for headless use answers for itself: it needs no
 		// marker, and it rescues a provider that has no attested mode.
 		{"agy", "agy -i '{prompt}'", "agy -p '{prompt}'", true},
-		{"gemini", "", "gemini -p '{prompt}'", true},
+		{"custom", "", "my-cli -p '{prompt}'", true},
 	}
 	for _, tc := range cases {
 		if got := models.SupportsAutonomousRun(tc.provider, tc.template, tc.autonomous); got != tc.want {

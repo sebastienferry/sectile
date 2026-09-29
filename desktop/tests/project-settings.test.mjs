@@ -74,7 +74,7 @@ test('command template auto-synchronization on provider change', () => {
 })
 
 test('previewLines generates previews for all supported providers and models', () => {
-  const providers = ['agy', 'claude', 'codex', 'gemini', 'cursor', 'vibe', 'custom']
+  const providers = ['agy', 'claude', 'codex', 'custom']
   for (const provider of providers) {
     const lines = previewLines(provider, provider === 'custom' ? "custom '{prompt}'" : '', 'test-model')
     assert.equal(lines.length, 2)
@@ -323,9 +323,6 @@ test('Agents CLI settings panel renders controls, presets, live preview, validat
     { id: 'agy', label: 'AGY CLI (Google Antigravity)' },
     { id: 'claude', label: 'Claude Code CLI' },
     { id: 'codex', label: 'Codex CLI' },
-    { id: 'gemini', label: 'Gemini CLI' },
-    { id: 'cursor', label: 'Cursor CLI' },
-    { id: 'vibe', label: 'Mistral Vibe CLI' },
     { id: 'custom', label: 'Custom Command' },
   ]
   for (const p of CLI_PROVIDERS) {
@@ -371,8 +368,6 @@ test('Agents CLI settings panel renders controls, presets, live preview, validat
     { label: 'AGY', provider: 'agy', cmd: 'agy --dangerously-skip-permissions --model {model} "{prompt}"', auto: 'agy --dangerously-skip-permissions --model {model} -p "{prompt}"' },
     { label: 'Claude', provider: 'claude', cmd: "claude --model {model} '{prompt}'", auto: "claude -p --permission-mode bypassPermissions --model {model} '{prompt}'" },
     { label: 'Codex', provider: 'codex', cmd: "codex --model {model} '{prompt}'", auto: "codex exec --model {model} '{prompt}'" },
-    { label: 'Gemini', provider: 'gemini', cmd: "gemini --model {model} '{prompt}'", auto: "gemini -y --model {model} -p '{prompt}'" },
-    { label: 'Vibe', provider: 'vibe', cmd: "vibe '{prompt}'", auto: "vibe -p --auto-approve '{prompt}'" },
     { label: 'Custom', provider: 'custom', cmd: "/path/to/custom-cli {mode:-p|-i} '{prompt}'", auto: '' },
     { label: 'Clear to defaults', provider: 'agy', cmd: '', auto: '' },
   ]
@@ -390,7 +385,7 @@ test('Agents CLI settings panel renders controls, presets, live preview, validat
   })
 
   cliProviderSelect.onchange = () => {
-    const KNOWN = ['', "/path/to/custom-cli {mode:-p|-i} '{prompt}'", "claude --model {model} '{prompt}'", 'agy --dangerously-skip-permissions --model {model} "{prompt}"', "codex --model {model} '{prompt}'", "gemini --model {model} '{prompt}'", "vibe '{prompt}'"]
+    const KNOWN = ['', "/path/to/custom-cli {mode:-p|-i} '{prompt}'", "claude --model {model} '{prompt}'", 'agy --dangerously-skip-permissions --model {model} "{prompt}"', "codex --model {model} '{prompt}'"]
     if (cliCommand.value.trim() === '' || KNOWN.includes(cliCommand.value.trim())) {
       if (cliProviderSelect.value === 'custom') {
         cliCommand.value = "/path/to/custom-cli {mode:-p|-i} '{prompt}'"

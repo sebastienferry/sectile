@@ -20,7 +20,7 @@ func TestDesktopInitialization(t *testing.T) {
 		mcp, skills           string
 	}{
 		{"success and retry", "claude", "", 200, "success", "success"},
-		{"MCP only", "cursor", "", 200, "success", "skipped"},
+		{"retired provider", "cursor", "", 400, "", ""},
 		{"invalid provider", "custom", "", 400, "", ""},
 		{"workstation provider", "", "", 200, "success", "success"},
 		{"busy", "claude", "busy", 409, "", ""},
@@ -125,7 +125,7 @@ func TestInitializationPreservesOtherProviderSkills(t *testing.T) {
 	root := t.TempDir()
 	config := agentconfig.Config{SchemaVersion: agentconfig.Version, Skills: []agentconfig.Skill{{ID: "implement", Directory: "code-issue", Content: "Original"}}}
 	d := &agentDaemon{link: serverLink{serverURL: "https://example.test", token: "test-token"}}
-	for _, provider := range []string{"codex", "claude", "cursor"} {
+	for _, provider := range []string{"codex", "claude", "agy"} {
 		if _, err := d.initializeProvider(root, config, provider); err != nil {
 			t.Fatal(err)
 		}

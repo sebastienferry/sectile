@@ -111,7 +111,7 @@ func TestSeedReproducesThePreUpgradeResolution(t *testing.T) {
 			deployment: serverRow{provider: "agy", command: "agy --x {prompt}", autonomous: "agy -p {prompt}"}, project: serverRow{provider: "claude", useWorktrees: true}},
 		{name: "local project provider over a global command",
 			deployment: serverRow{provider: "codex", command: "codex {prompt}"}, project: serverRow{useWorktrees: true},
-			global: Execution{AIProvider: "claude", AICommandTemplate: "claude --y {prompt}"}, local: Execution{AIProvider: "gemini"}},
+			global: Execution{AIProvider: "claude", AICommandTemplate: "claude --y {prompt}"}, local: Execution{AIProvider: "agy"}},
 		{name: "models at every level",
 			deployment: serverRow{model: "m1", skillModels: map[string]string{"implement": "m2"}}, project: serverRow{model: "m3", useWorktrees: true},
 			global: Execution{AISkillModels: map[string]string{"clarify": "m4"}}, local: Execution{AIModel: "m5"}},
@@ -198,15 +198,15 @@ func TestSeedDoesNotTreatAChangedSeededDefaultAsTheServers(t *testing.T) {
 	if err := settings.ReplaceCatalogue([]Engine{seeded}, seeded.ID); err != nil {
 		t.Fatal(err)
 	}
-	ApplyProjectSeed(&settings, Config{ProjectID: "p"}, SeedProject{ProjectID: "p", AIProvider: "gemini"}, "now")
+	ApplyProjectSeed(&settings, Config{ProjectID: "p"}, SeedProject{ProjectID: "p", AIProvider: "agy"}, "now")
 	if got := Resolve(Config{ProjectID: "p"}, settings).AIProvider; got != "codex" {
 		t.Fatalf("a local choice lost against a server value: %q", got)
 	}
 	// While an untouched seeded default is the server's, and a project row outranks it.
 	other := converted(Settings{})
 	ApplyWorkstationSeed(&other, SeedDefaults{AIProvider: "claude"}, "https://server")
-	ApplyProjectSeed(&other, Config{ProjectID: "p"}, SeedProject{ProjectID: "p", AIProvider: "gemini"}, "now")
-	if got := Resolve(Config{ProjectID: "p"}, other).AIProvider; got != "gemini" {
+	ApplyProjectSeed(&other, Config{ProjectID: "p"}, SeedProject{ProjectID: "p", AIProvider: "agy"}, "now")
+	if got := Resolve(Config{ProjectID: "p"}, other).AIProvider; got != "agy" {
 		t.Fatalf("the project row must outrank the deployment: %q", got)
 	}
 }

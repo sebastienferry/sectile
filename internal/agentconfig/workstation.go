@@ -299,8 +299,6 @@ var DefaultProviderModels = map[string][]string{
 	"claude": {"claude-fable-5-1", "claude-fable-5", "claude-fable", "claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5"},
 	"codex":  {"gpt-5-codex", "gpt-5", "o4-mini"},
 	"agy":    {"gemini-3.8-pro", "gemini-3.8-flash", "gemini-3.8", "gemini-3.0-pro", "gemini-2.5-pro", "gemini-2.5-flash"},
-	"gemini": {"gemini-3.8-pro", "gemini-3.8-flash", "gemini-3.8", "gemini-3.0-pro", "gemini-2.5-pro", "gemini-2.5-flash"},
-	"cursor": {"auto", "claude-sonnet-5", "gpt-5"},
 }
 
 // ProviderModels is what a launch may pick for provider: the configured list,

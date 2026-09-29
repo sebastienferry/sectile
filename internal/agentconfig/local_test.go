@@ -204,3 +204,33 @@ func TestScaffoldInstallsSeparatePRSkills(t *testing.T) {
 		t.Fatal("creation override changed Adjust")
 	}
 }
+
+// The user-level folder is shared by every project of the workstation, so the
+// direct setup installs the generic content when the server sends it, and the
+// project's own content only from a server that predates it.
+func TestScaffoldInstallsTheGenericSkill(t *testing.T) {
+	root, home := t.TempDir(), t.TempDir()
+	testhome.Set(t, home)
+	c := Config{SchemaVersion: Version, AIProvider: "claude", Skills: []Skill{{ID: "specify", Directory: "specify-issue", Command: "/specify-issue",
+		Content: "Spec Kit steps", CommandContent: "Spec Kit command", DirectContent: "generic steps", DirectCommandContent: "generic command"}}}
+	if _, err := Scaffold(root, c); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(installed(t, home, "claude", "specify-issue/SKILL.md"))
+	if err != nil || string(raw) != "generic command" {
+		t.Fatalf("installed %q, %v", raw, err)
+	}
+	loc, _ := ResolveLocations("agy")
+	if got := skillBody(c.Skills[0], loc); got != "generic steps" {
+		t.Fatalf("a CLI that does not substitute arguments gets %q", got)
+	}
+
+	c.Skills[0].DirectContent, c.Skills[0].DirectCommandContent = "", ""
+	if _, err := Scaffold(root, c); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ = os.ReadFile(installed(t, home, "claude", "specify-issue/SKILL.md"))
+	if string(raw) != "Spec Kit command" {
+		t.Fatalf("a server without generic content installs %q", raw)
+	}
+}

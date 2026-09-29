@@ -32,11 +32,11 @@ func TestValidProviderModelsNamesTheProvider(t *testing.T) {
 	if err := ValidProviderModels(map[string][]string{"claude": {"claude-opus-5", "anthropic/claude-sonnet-5"}}); err != nil {
 		t.Fatalf("well-formed identifiers refused: %v", err)
 	}
-	err := ValidProviderModels(map[string][]string{"gemini": {"gemini-2.5-pro; rm -rf ~"}})
+	err := ValidProviderModels(map[string][]string{"agy": {"gemini-2.5-pro; rm -rf ~"}})
 	if err == nil {
 		t.Fatal("an identifier carrying shell metacharacters must be refused")
 	}
-	if want := "gemini"; !contains(err.Error(), want) {
+	if want := "agy"; !contains(err.Error(), want) {
 		t.Fatalf("error %q does not name the provider %q", err, want)
 	}
 }
@@ -60,6 +60,24 @@ func TestEffectiveModel(t *testing.T) {
 	for _, c := range cases {
 		if got := EffectiveModel(c.provider, c.template, c.resolve); got != c.want {
 			t.Fatalf("%s: got %q, want %q", c.name, got, c.want)
+		}
+	}
+}
+
+// A retired provider's list is dropped quietly when normalized, which a seed
+// relies on, and refused by name when a desktop save checks the keys (#614).
+func TestRetiredProviderModelLists(t *testing.T) {
+	got := NormalizeProviderModels(map[string][]string{"Gemini": {"gemini-2.5-pro"}, "cursor": {"auto"}, "vibe": {}, "claude": {"claude-opus-5"}})
+	if len(got) != 1 || len(got["claude"]) != 1 {
+		t.Fatalf("retired lists survived normalization: %v", got)
+	}
+	if err := ValidProviderKeys(map[string][]string{"claude": {}, "custom": {}}); err != nil {
+		t.Fatalf("supported providers refused: %v", err)
+	}
+	for provider := range RetiredProviders {
+		err := ValidProviderKeys(map[string][]string{provider: {"m"}})
+		if err == nil || !contains(err.Error(), provider) {
+			t.Fatalf("%s: a retired provider's list must be refused by name: %v", provider, err)
 		}
 	}
 }

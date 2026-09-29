@@ -24,6 +24,16 @@ func TestDesktopMCPChoiceSurvivesBootstrapAndRestart(t *testing.T) {
 			t.Fatal(w.Code, w.Body.String())
 		}
 	}
+	// A retired provider (#614) has no configuration to read or write.
+	for _, provider := range []string{"gemini", "cursor", "vibe"} {
+		retired := "/desktop/mcp?provider=" + provider
+		if w := disconnectRequest(d, "GET", retired, ""); w.Code != 400 {
+			t.Fatal(provider, w.Code, w.Body.String())
+		}
+		if w := disconnectRequest(d, "POST", retired, `{"target":"remote","transport":"http"}`); w.Code != 400 {
+			t.Fatal(provider, w.Code, w.Body.String())
+		}
+	}
 	if w := disconnectRequest(d, "POST", route, `{"target":"local","transport":"http"}`); w.Code != 200 {
 		t.Fatal(w.Code, w.Body.String())
 	}

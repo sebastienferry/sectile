@@ -32,6 +32,7 @@ test fixtures or internal plumbing.
 
 ### Changed
 
+- **A board card's model is where you change it.** On the web board, clicking the model shown on a card opens the list of models its launches can use; the pick is the same one the card's `(...)` menu offers and shows. Full cards also gain a copy button that puts the prompt of the task's next step on the clipboard, ready to paste into Claude Code, Codex or AGY. (#612)
 - **The implementation skill is now `implement-issue`**, like the other stages (`/implement-issue`, `/sectile:implement-issue` in the plugin). `code-issue` stays as an alias that runs it with the same arguments, and a workstation that has only `code-issue` installed keeps running the implementation stage until its next **Initialize** or plugin update. (#608)
 - **Five parallel executions by default.** A project that uses worktrees now runs up to five executions at a time when neither its settings nor the workstation's Execution defaults set a number, on the desktop app and on a headless agent alike; this applies to existing workstations that never changed the setting. A number you set, 1 included, is kept: set 1 under Parallel executions to go back to one execution at a time. (#594)
 - **The web interface loads faster.** The server now sends its pages, scripts, styles and API answers gzip-compressed to the browsers that accept it: the interface's script goes down from about 1.3 MB to about 330 KB on a first visit and after each update. Live board updates are unchanged. (#601)
@@ -58,9 +59,16 @@ test fixtures or internal plumbing.
 
 - **Desktop configuration opens as a full page.** Settings and a project's configuration now share one full-page Configuration view with a Back button. Its sidebar lists General workstation categories first, followed by the selected project's categories, while existing save actions and configuration controls remain available. (#545)
 
+### Removed
+
+- **Gemini CLI, Cursor CLI and Mistral Vibe CLI are no longer AI engines.** Sectile runs Antigravity, Claude Code, Codex or a custom command; the desktop settings, `sectile-agent init --provider` and the MCP setup no longer offer the other three. On its first start after the upgrade, the local agent removes a workstation's engines, model lists and MCP choices for them, keeping a backup of the settings file beside it; the projects and tasks that used such an engine run their default engine. The Cursor editor ("Open in editor") is unaffected. (#614)
+
 ### Fixed
 
 - While a ticket is being created from the quick-add dialog, its button now reads "Creating…" ("Création…" in French) instead of "Création CLI...", which named a CLI that is not involved and stayed in French in the English interface.
+- **The direct setup no longer installs one project's skills for all of them.** `sectile-agent init` and desktop **Initialize** now install the same generic skills as the Claude plugin, which read the project's specification framework and pull-request policy when they run, so a Spec Kit project and an OpenSpec project on one workstation each follow their own steps. Run **Initialize** (or `sectile-agent init`) once after updating: until then, a direct copy installed earlier keeps the steps of the project it was set up for, and the skills editor marks it DIVERGED. (#267)
+- A Claude plugin disabled in a project's `.claude/settings.json` or `.claude/settings.local.json` is no longer used for that project's runs: the launch falls back to the direct copy, or fails with the message that says how to install a skill. (#267)
+- A custom skill whose launch fails is no longer reported as used by the settings button's dot and the run's activity. (#267)
 - The web interface no longer logs a `409 Conflict` on `/api/cli-status` at every load. On a shared server, `GET /api/cli-status` and `POST /api/open-editor` now reach the signed-in person's workstation instead of answering that no local agent is connected.
 - The board and list toolbars fit on one line again: Pinned, In progress and priority stay in the toolbar, and status, types, macro, sprint, team and person move into a **Filters** panel whose button shows how many of them are active.
 - **My Tasks** no longer shows an empty board when a tracker writes your name without its accents, as Jira often does ("Sebastien FERRY" for "Sébastien Ferry"): your account's name and e-mail now match regardless of case and accents.

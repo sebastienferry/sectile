@@ -64,7 +64,7 @@ func TestConversionKeepsEveryProjectResolution(t *testing.T) {
 			ProjectSettings: map[string]ProjectSettings{"p": {Execution: Execution{AIProvider: "codex", AICommandTemplate: "codex {prompt}"}}, "plain": {Path: "/x"}},
 		}, 2},
 		"provider change drops the inherited templates": {Settings{
-			Defaults:        Defaults{Execution: Execution{AIProvider: "gemini", AICommandTemplate: "gemini --x {prompt}", AICommandTemplateAutonomous: "gemini -p {prompt}"}},
+			Defaults:        Defaults{Execution: Execution{AIProvider: "codex", AICommandTemplate: "codex --x {prompt}", AICommandTemplateAutonomous: "codex -p {prompt}"}},
 			ProjectSettings: map[string]ProjectSettings{"p": {Execution: Execution{AIProvider: "claude"}}},
 		}, 2},
 		"defaults without a provider, project on another one": {Settings{

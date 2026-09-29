@@ -29,7 +29,7 @@ const PROMPT = "'{prompt}'"
 const MODEL_PLACEHOLDER = '{model}'
 
 /** Providers whose model is passed as --model; the others take none. */
-const MODEL_FLAG_PROVIDERS = new Set(['claude', 'codex', 'gemini', 'cursor'])
+const MODEL_FLAG_PROVIDERS = new Set(['claude', 'codex'])
 
 export interface CommandPreview {
   /** The command line, empty when the configuration cannot produce one. */
@@ -222,8 +222,6 @@ export function commandPreview(
         return { command: words('claude', '-p', '--permission-mode', 'bypassPermissions', CLAUDE_REASONING_FLAGS, flag, PROMPT) }
       case 'codex':
         return { command: words('codex', 'exec', flag, PROMPT) }
-      case 'vibe':
-        return { command: 'vibe -p --auto-approve ' + PROMPT }
       default:
         return {
           command: '',
@@ -237,12 +235,7 @@ export function commandPreview(
       return { command: 'agy -i ' + PROMPT }
     case 'claude':
     case 'codex':
-    case 'gemini':
       return { command: words(cli, flag, PROMPT) }
-    case 'vibe':
-      return { command: 'vibe -p ' + PROMPT }
-    case 'cursor':
-      return { command: words('cursor', 'agent', flag, PROMPT) }
     default:
       return { command: '', error: messages.unsupportedProvider.replace('{provider}', cli || messages.noProvider) }
   }

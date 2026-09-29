@@ -8,7 +8,7 @@ import (
 )
 
 func TestMCPConnectionSwitchPreservesPolicy(t *testing.T) {
-	for _, provider := range []string{"claude", "codex", "agy", "cursor", "gemini", "vibe"} {
+	for _, provider := range []string{"claude", "codex", "agy"} {
 		t.Run(provider, func(t *testing.T) {
 			testhome.Temp(t)
 			path, err := BootstrapMCP(provider, "/opt/sectile-agent", testServer, testKey)
@@ -17,13 +17,10 @@ func TestMCPConnectionSwitchPreservesPolicy(t *testing.T) {
 			}
 			data := readMCPFixture(t, path)
 			key := "mcpServers"
-			if provider == "codex" || provider == "vibe" {
+			if provider == "codex" {
 				key = "mcp_servers"
 			}
 			entry := func(data map[string]any) map[string]any {
-				if provider == "vibe" {
-					return data[key].([]any)[0].(map[string]any)
-				}
 				return data[key].(map[string]any)["sectile"].(map[string]any)
 			}
 			data["unrelated"] = "keep"
@@ -55,16 +52,10 @@ func TestMCPConnectionSwitchPreservesPolicy(t *testing.T) {
 						if provider == "agy" {
 							urlField = "serverUrl"
 						}
-						if provider == "gemini" {
-							urlField = "httpUrl"
-						}
 						if current[urlField] != server+"/mcp" {
 							t.Fatalf("wrong endpoint: %#v", current)
 						}
-						if provider == "vibe" && current["transport"] != "streamable-http" {
-							t.Fatal("wrong Vibe transport")
-						}
-					} else if current["url"] != nil || current["headers"] != nil || current["http_headers"] != nil || current["serverUrl"] != nil || current["httpUrl"] != nil {
+					} else if current["url"] != nil || current["headers"] != nil || current["http_headers"] != nil || current["serverUrl"] != nil {
 						t.Fatal("stale HTTP transport")
 					}
 				}
