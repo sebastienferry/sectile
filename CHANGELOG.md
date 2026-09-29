@@ -29,6 +29,7 @@ test fixtures or internal plumbing.
 - Every workflow skill ends its replies with the same **Done / Remaining (Agent) / Pending (User)** block, so you always know what happened, what the agent still has to do and what waits for you.
 
 - Open desktop Configuration with Cmd+, on macOS or Ctrl+, on Windows/Linux, including from a terminal; an already-open settings page keeps its current category and unsaved edits. (#547)
+- **The roadmap shows an epic's labels.** On Jira projects, the labels an epic carries on the tracker appear as badges on its roadmap row, a **Labels** filter in the toolbar narrows the roadmap to the epics carrying one of the chosen labels, and the epic's panel adds or removes them on the tracker. The `roadmap:` horizon labels stay managed by the horizon tabs. (#626)
 
 ### Changed
 

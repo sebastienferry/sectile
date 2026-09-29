@@ -247,6 +247,27 @@ Web, `web/tests/roadmapEpicLabels.test.mjs` (new): `isEpicAxisLabel`,
 Manual, on a Jira project: US2, US3, US4.1, US4.2, US4.10; and a GitHub
 project's roadmap unchanged (AC4).
 
+## Deviations during implementation
+
+- `macroAxisPrefixes` and `IsMacroAxisLabel` live in the new
+  `internal/db/macrolabels.go`, beside the validation that uses them, rather
+  than in `macros.go`.
+- `RefineMacro` reads no `MacroMeta` it returns, so it does not select
+  `labels`.
+- The accepted delta is applied by `applyMacroLabelEdit`, its own transaction
+  under the row lock, rather than through `saveMacroMetaFull`, which only
+  replaces the list.
+- The rewind fixtures that drop the columns of recent migrations
+  (`activerun_test.go`, `migrations_test.go`, `specartifacts_test.go`,
+  `stagecommits_test.go`) also drop `macros.labels`; `TestPushStageCommitsMigration`
+  forgets versions from 32 up, since a database stamped 33 never replays 32.
+- `MacroMeta.labels` is optional on the web side, so a client talking to an
+  older server reads no labels instead of failing.
+- The toolbar filter and the panel editor are their own components,
+  `EpicLabelFilter.tsx` and `EpicLabelEditor.tsx`, mounted by `RoadmapView`.
+- A queued edit raises an info toast, so the click has visible feedback until
+  the activity completes and the roadmap reloads.
+
 ## Rejected alternatives
 
 - Filtering the horizon labels out before storing: `PendingHorizonPushes`

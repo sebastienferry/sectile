@@ -38,3 +38,32 @@ func TestPostgresMacroWorkflowColumns(t *testing.T) {
 		t.Fatalf("history: %+v %v", runs, err)
 	}
 }
+
+// TestPostgresMacroLabels runs #626's storage on PostgreSQL: the labels column
+// round-trips, a local save keeps it, and an accepted edit is applied under the
+// row lock.
+func TestPostgresMacroLabels(t *testing.T) {
+	d := openPostgres(t)
+	project, err := d.CreateProject(models.CreateProjectRequest{Name: "Labels", Slug: "labels-pg", IssueTracker: "jira", JiraProject: "PE"})
+	if err != nil {
+		t.Fatalf("project: %v", err)
+	}
+	labels := []string{"domain-billing", "roadmap:now"}
+	if _, err := d.saveMacroMetaFull(project.ID, "PE-7", nil, nil, nil, nil, nil, nil, nil, &labels); err != nil {
+		t.Fatal(err)
+	}
+	horizon := "later"
+	if _, err := d.SaveMacroMeta(project.ID, "PE-7", &horizon, nil, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.applyMacroLabelEdit(project.ID, "PE-7", []string{"client-acme"}, []string{"domain-billing"}); err != nil {
+		t.Fatalf("edit: %v", err)
+	}
+	metas, err := d.GetProjectMacros(project.ID)
+	if err != nil || len(metas) != 1 {
+		t.Fatalf("read back: %+v %v", metas, err)
+	}
+	if want := []string{"roadmap:now", "client-acme"}; !reflect.DeepEqual(metas[0].Labels, want) {
+		t.Fatalf("labels = %v, want %v", metas[0].Labels, want)
+	}
+}
