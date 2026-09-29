@@ -45,6 +45,7 @@ import { MarkdownEditor } from './Markdown'
 import { EpicBar, useEpicColors } from './EpicMarker'
 import { MacroLabelGroups } from './MacroLabelGroups'
 import { EpicLabelFilter } from './EpicLabelFilter'
+import { EpicLabelEditor } from './EpicLabelEditor'
 import { MacroTaskRow } from './MacroTaskRow'
 import { sprintLookup, isProjectCompatible, targetProjectOptions } from '../lib/lookups'
 import { format, plural } from '../lib/i18n'
@@ -413,6 +414,9 @@ export const RoadmapView: React.FC = () => {
   }, [allRows, showClosed, searchQuery])
 
   const labelInventory = useMemo(() => epicLabelInventory(unlabelledRows), [unlabelledRows])
+  // The editor suggests every free label of the project's epics, closed and
+  // searched-away ones included: a label is reused, not typed anew.
+  const labelSuggestions = useMemo(() => epicLabelInventory(allRows).map(entry => entry.label), [allRows])
 
   // A picked label no epic of the view carries any more stops being picked,
   // rather than leaving an empty list nobody can explain.
@@ -1359,6 +1363,9 @@ export const RoadmapView: React.FC = () => {
             </div>
 
             <div className="flex-1 overflow-y-auto px-4 pt-3.5 pb-7 flex flex-col gap-4">
+              {currentProject && (
+                <EpicLabelEditor key={selected.key} project={currentProject} row={selected} suggestions={labelSuggestions} />
+              )}
               {/* La clé porte l'axe, et ce n'est pas cosmétique : les deux vues
                   montent le même composant au même endroit de l'arbre, donc
                   React le réutiliserait en ne changeant que la prop. Son état
