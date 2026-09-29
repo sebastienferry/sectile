@@ -370,7 +370,11 @@ precedence decide, since a chain nobody is watching must not open a terminal.
 Two entry points exist and they do not do the same thing:
 
 - The web card's `>>` launches the `pickup` skill, which walks the workflow
-  itself. The stop stage reaches it through `get_project_context`.
+  itself. The stop stage reaches it through `get_project_context`. On a task
+  already at or past the stop stage the card offers no `>>`: the full card shows
+  a button running the next step autonomously in its place, and the condensed
+  card's menu drops its **Full chain** entry (`fullChainHasWork` in
+  `web/src/lib/workflow.ts`).
 - `POST /api/tasks/{id}/advance` with `{"auto": true}` goes through the server's
   own chain entry, which reads `fullChainStopStage` directly and refuses to start
   on a task already at or past that stage, or on a provider with no attested
