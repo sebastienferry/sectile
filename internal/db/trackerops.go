@@ -35,6 +35,8 @@ const (
 	TrackerOpMoveToEpic TrackerOpKind = "move_to_epic"
 	// TrackerOpEpicHorizon mirrors the roadmap horizon of one epic as a label.
 	TrackerOpEpicHorizon TrackerOpKind = "epic_horizon"
+	// TrackerOpEpicLabels adds and removes free labels on one epic (#626).
+	TrackerOpEpicLabels TrackerOpKind = "epic_labels"
 	// TrackerOpPushHorizons mirrors every locally classified epic whose label is
 	// missing or stale.
 	TrackerOpPushHorizons TrackerOpKind = "push_horizons"
@@ -71,6 +73,10 @@ type TrackerOp struct {
 	Fields       map[string]string
 	// Horizon is the roadmap horizon of an epic_horizon.
 	Horizon string
+	// Labels / RemovedLabels are the free labels an epic_labels adds and
+	// removes.
+	Labels        []string
+	RemovedLabels []string
 	// TargetStatus is the tracker status of a transition, in the tracker's own
 	// spelling ("Dev Test", "To Merge").
 	TargetStatus string
@@ -203,6 +209,15 @@ func buildTrackerOpJob(op TrackerOp) (*models.TaskActivity, SkillJob, error) {
 		action = fmt.Sprintf("Découpe d'épic : %d ticket(s) ➔ %s", len(op.TaskIDs), target)
 		summary = fmt.Sprintf("Déplacement de %d ticket(s) vers %s en file d'attente", len(op.TaskIDs), target)
 		steps = append(steps, fmt.Sprintf("Cible : %s", target), fmt.Sprintf("%d ticket(s) à déplacer", len(op.TaskIDs)))
+	case TrackerOpEpicLabels:
+		action = fmt.Sprintf("Labels de %s", op.EpicKey)
+		summary = fmt.Sprintf("Labels de %s en file d'attente", op.EpicKey)
+		for _, label := range op.Labels {
+			steps = append(steps, "+ "+label)
+		}
+		for _, label := range op.RemovedLabels {
+			steps = append(steps, "- "+label)
+		}
 	case TrackerOpEpicHorizon:
 		action = fmt.Sprintf("Horizon de %s ➔ %s", op.EpicKey, op.Horizon)
 		summary = fmt.Sprintf("Label d'horizon de %s en file d'attente", op.EpicKey)
@@ -330,6 +345,8 @@ func (d *DB) processTrackerOpJob(ctx context.Context, job SkillJob) {
 		output, err = d.runMoveToEpicOp(ctx, op, &steps)
 	case TrackerOpEpicHorizon:
 		output, err = d.runEpicHorizonOp(ctx, op, &steps)
+	case TrackerOpEpicLabels:
+		output, err = d.runEpicLabelsOp(ctx, op, &steps)
 	case TrackerOpPushHorizons:
 		output, err = d.runPushHorizonsOp(ctx, op, &steps)
 	case TrackerOpTransition:
@@ -820,6 +837,15 @@ func (d *DB) runStageOp(ctx context.Context, op TrackerOp, steps *[]string) (str
 
 	*steps = append(*steps, fmt.Sprintf("✅ %s passé à l'étape « %s » [%s]", task.Key, cleanStage, targetLabel))
 	return fmt.Sprintf("%s passé à l'étape « %s » [%s]", task.Key, cleanStage, targetLabel), nil
+}
+
+func (d *DB) runEpicLabelsOp(ctx context.Context, op TrackerOp, steps *[]string) (string, error) {
+	note, err := d.PushMacroLabels(ctx, op.ProjectID, op.EpicKey, op.Labels, op.RemovedLabels)
+	if err != nil {
+		return "", err
+	}
+	*steps = append(*steps, "✅ "+note)
+	return note, nil
 }
 
 func (d *DB) runEpicHorizonOp(ctx context.Context, op TrackerOp, steps *[]string) (string, error) {
