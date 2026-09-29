@@ -341,6 +341,84 @@ export const belongsToProjectKey = (row: EpicRow, projectKey: string): boolean =
 }
 
 /**
+ * Label prefixes the roadmap owns on an epic. A label under one of them is set
+ * by its own control, the horizon tabs for `roadmap:`, and is never shown,
+ * filtered or edited as a free label. Mirrors `macroAxisPrefixes` in
+ * `internal/db/macrolabels.go`, which refuses them on the server too.
+ */
+export const EPIC_AXIS_LABEL_PREFIXES = ['roadmap:']
+
+/** The match ignores case and a leading `#`, as the server's does. */
+export const isEpicAxisLabel = (label: string): boolean => {
+  const clean = label.trim().replace(/^#/, '').trim().toLowerCase()
+  return EPIC_AXIS_LABEL_PREFIXES.some(prefix => clean.startsWith(prefix))
+}
+
+/** An epic's free labels, in the order the tracker returned them. */
+export const freeEpicLabels = (meta?: EpicMeta | null): string[] =>
+  (meta?.labels || []).filter(label => label.trim() !== '' && !isEpicAxisLabel(label))
+
+export interface EpicLabelCount {
+  label: string
+  count: number
+}
+
+/**
+ * The free labels the given epics carry, with how many carry each. Two
+ * spellings differing only by case are one label, shown as first met; the list
+ * is sorted by label.
+ */
+export const epicLabelInventory = (rows: EpicRow[]): EpicLabelCount[] => {
+  const byKey = new Map<string, EpicLabelCount>()
+  rows.forEach(row => {
+    const seen = new Set<string>()
+    freeEpicLabels(row.meta).forEach(label => {
+      const key = label.toLowerCase()
+      if (seen.has(key)) return
+      seen.add(key)
+      const entry = byKey.get(key)
+      if (entry) entry.count++
+      else byKey.set(key, { label, count: 1 })
+    })
+  })
+  return [...byKey.values()].sort((a, b) => a.label.localeCompare(b.label))
+}
+
+/**
+ * Whether an epic passes the label filter. The filter is an OR: the labels of
+ * one axis are exclusive on an epic, so an AND would empty the view as soon as
+ * two were picked. No selected label filters nothing.
+ */
+export const matchesEpicLabels = (row: EpicRow, selected: string[]): boolean => {
+  if (selected.length === 0) return true
+  const carried = new Set(freeEpicLabels(row.meta).map(label => label.toLowerCase()))
+  return selected.some(label => carried.has(label.toLowerCase()))
+}
+
+/**
+ * Drops the selected labels no epic of the view carries any more, so that
+ * changing another filter never leaves the list empty for a reason nobody sees.
+ * Returns the same array when nothing changes, which lets a state setter bail.
+ */
+export const pruneSelectedLabels = (selected: string[], inventory: EpicLabelCount[]): string[] => {
+  const offered = new Set(inventory.map(entry => entry.label.toLowerCase()))
+  const kept = selected.filter(label => offered.has(label.toLowerCase()))
+  return kept.length === selected.length ? selected : kept
+}
+
+/**
+ * Whether the roadmap offers to edit an epic's labels: only on Jira, the one
+ * tracker whose epics are read, and only on an epic of the project itself, not
+ * a milestone-shaped or local `M-<n>` key. A hint for the view: the server
+ * refuses the rest anyway, with the reason.
+ */
+export const canEditEpicLabels = (project: Project | null | undefined, row: EpicRow): boolean => {
+  if (!project || project.issueTracker !== 'jira') return false
+  if (/^M-\d+$/i.test(row.key.trim())) return false
+  return belongsToProjectKey(row, project.jiraProject || '')
+}
+
+/**
  * Rang chronologique des sprints du projet.
  *
  * La date de début du board fait référence quand elle est là. À défaut, on lit

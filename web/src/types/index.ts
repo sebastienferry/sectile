@@ -191,6 +191,11 @@ export interface MacroMeta {
   description: string
   framingComment?: string
   todos: MacroTodo[]
+  /**
+   * The epic's labels as the tracker returns them, horizon labels included.
+   * Absent from a server older than #626.
+   */
+  labels?: string[]
   updatedAt: string
 }
 export type EpicMeta = MacroMeta
