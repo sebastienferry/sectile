@@ -19,12 +19,12 @@ where it goes and how.
 
 ### Schema
 
-Migration 34 (33 when specified; #621 took 33 first) in `internal/db/migrations.go`, never in the baseline
+Migration 35 (33 when specified; #621 and #627 took 33 and 34 first) in `internal/db/migrations.go`, never in the baseline
 `CREATE TABLE` of `ensureMacrosTable`:
 
 ```go
 {
-    version:    34,
+    version:    35,
     name:       "macros.labels",
     statements: []string{"ALTER TABLE macros ADD COLUMN labels TEXT NOT NULL DEFAULT '[]';"},
 },
@@ -244,6 +244,12 @@ Web, `web/tests/roadmapEpicLabels.test.mjs` (new): `isEpicAxisLabel`,
 `freeEpicLabels`, `epicLabelInventory`, `matchesEpicLabels`,
 `pruneSelectedLabels`, `canEditEpicLabels`.
 
+Web, `web/tests/roadmap-epic-labels.browser.mjs` (added at review, opt-in
+like the other `*.browser.mjs`): the real `RoadmapView` with a mocked context
+checks the badges, the axis labels left out, the OR filter and its chips, the
+editor's refusals before anything is sent, the add and remove calls, and the
+read-only epic.
+
 Manual, on a Jira project: US2, US3, US4.1, US4.2, US4.10; and a GitHub
 project's roadmap unchanged (AC4).
 
@@ -268,6 +274,10 @@ project's roadmap unchanged (AC4).
 - A queued edit raises an info toast, so the click has visible feedback until
   the activity completes and the roadmap reloads.
 
+- After #627 merged, the protected axes are `roadmap:`, `priority:`,
+  `quarter:` and the bare quarter form (`2026-Q3`), which its import reads as
+  the epic's quarter, on both the server and the web side.
+
 ## Rejected alternatives
 
 - Filtering the horizon labels out before storing: `PendingHorizonPushes`
@@ -278,5 +288,7 @@ project's roadmap unchanged (AC4).
 - Refreshing the edited epic from the tracker after the write: no single-epic
   read exists on the interface, and applying the confirmed delta is exact.
 - A `labelsEditable` flag computed by the server on every macro read: it would
-  resolve the tracker on each `GET`. The client rule is a hint only; the
-  server refuses anyway.
+  resolve the tracker on each `GET`. Superseded: #627 added such a flag,
+  `labelsWritable`, on main while this branch was open, and
+  `canEditEpicLabels` now prefers it, keeping the client rule for a server
+  that does not send it.

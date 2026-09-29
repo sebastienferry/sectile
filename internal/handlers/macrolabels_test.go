@@ -99,7 +99,7 @@ func TestEpicLabelEditRefusesAnAxisLabelWithoutQueuing(t *testing.T) {
 	database, h, project := epicLabelsFixture(t)
 
 	rr := postEpicLabels(t, h, project.ID, `{"add":["roadmap:later"]}`)
-	if rr.Code != http.StatusBadRequest || !strings.Contains(rr.Body.String(), "appartient à la roadmap") {
+	if rr.Code != http.StatusBadRequest || !strings.Contains(rr.Body.String(), "appartient à un axe de la roadmap") {
 		t.Fatalf("got %d %s, want 400 naming the roadmap axis", rr.Code, rr.Body.String())
 	}
 	if got := epicLabelActivities(t, database, project.ID); got != 0 {

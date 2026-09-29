@@ -187,7 +187,10 @@ explicit unsupported-capability error.
 ### 2.2 Activities API
 
 Every write on an existing work item goes through this queue: field sync,
-assignment, epic attachment, epic split, roadmap horizon labels. A tracker call
+assignment, epic attachment, epic split, roadmap horizon, epic priority and
+epic quarter labels, and the free labels of an epic (`POST
+/api/projects/{id}/macros/{key}/labels` with `{add, remove}`; a label of one of
+the roadmap's axes is refused with `400`). A tracker call
 takes seconds and a batch of them far longer, so the HTTP endpoints answer `202`
 with the activity to follow, and the activity's steps carry what was attempted
 and the tracker's own refusal when it fails.

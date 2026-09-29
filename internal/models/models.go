@@ -284,7 +284,14 @@ type MacroMeta struct {
 	Title  string `json:"title,omitempty"`
 	Status string `json:"status,omitempty"`
 	Closed bool   `json:"closed"`
-	// Labels are the epic's labels as the tracker returns them, horizon labels
+	// Priority is the epic's own priority, "p0" to "p3", "" when none.
+	Priority string `json:"priority"`
+	// Quarter is the epic's quarter, "2026-Q4", "" when none.
+	Quarter string `json:"quarter"`
+	// LabelsWritable tells whether Sectile writes the epic axes on the tracker.
+	// It is computed when the macros are read, never stored.
+	LabelsWritable bool `json:"labelsWritable"`
+	// Labels are the epic's labels as the tracker returns them, axis labels
 	// included. Only the epic sync and a successful label edit write them.
 	Labels    []string  `json:"labels"`
 	UpdatedAt time.Time `json:"updatedAt"`

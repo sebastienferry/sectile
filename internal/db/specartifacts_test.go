@@ -125,6 +125,8 @@ func TestMigrationTwentyFiveKeepsExistingProjectsArtefacts(t *testing.T) {
 		"ALTER TABLE macros DROP COLUMN labels",
 		"ALTER TABLE projects DROP COLUMN push_stage_commits",
 		"ALTER TABLE projects DROP COLUMN branch_name_format",
+		"ALTER TABLE macros DROP COLUMN priority",
+		"ALTER TABLE macros DROP COLUMN quarter",
 		"DELETE FROM schema_migrations WHERE version >= 25",
 	} {
 		if _, err := d.conn.Exec(stmt); err != nil {

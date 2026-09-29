@@ -102,8 +102,14 @@ func TestBranchNameFormatMigration(t *testing.T) {
 	if _, err := d.conn.Exec("ALTER TABLE projects DROP COLUMN branch_name_format"); err != nil {
 		t.Fatal(err)
 	}
-	// Migration 34 comes after it and is replayed too: a database stamped 34
-	// would never run 33 again.
+	// Migrations 34 and 35 come after it and are replayed too: a database
+	// stamped 35 would never run 33 again.
+	if _, err := d.conn.Exec("ALTER TABLE macros DROP COLUMN priority"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.conn.Exec("ALTER TABLE macros DROP COLUMN quarter"); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := d.conn.Exec("ALTER TABLE macros DROP COLUMN labels"); err != nil {
 		t.Fatal(err)
 	}

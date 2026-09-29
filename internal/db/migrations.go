@@ -500,10 +500,21 @@ var migrations = []migration{
 		statements: []string{"ALTER TABLE projects ADD COLUMN branch_name_format TEXT NOT NULL DEFAULT '';"},
 	},
 	{
+		// An epic's own priority and quarter (#627). Empty is "none", which is
+		// what every epic had before: the roadmap used to show the highest
+		// priority among the children and knew no quarter.
+		version: 34,
+		name:    "macros.priority_quarter",
+		statements: []string{
+			"ALTER TABLE macros ADD COLUMN priority TEXT NOT NULL DEFAULT '';",
+			"ALTER TABLE macros ADD COLUMN quarter TEXT NOT NULL DEFAULT '';",
+		},
+	},
+	{
 		// The labels a tracker epic carries (#626), kept as the tracker returns
 		// them so the roadmap can show and filter them. An existing macro reads
 		// as carrying none until the next sync.
-		version:    34,
+		version:    35,
 		name:       "macros.labels",
 		statements: []string{"ALTER TABLE macros ADD COLUMN labels TEXT NOT NULL DEFAULT '[]';"},
 	},

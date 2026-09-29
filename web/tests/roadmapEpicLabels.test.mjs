@@ -11,11 +11,16 @@ import {
 
 const row = (key, labels) => ({ key, meta: labels === undefined ? undefined : { labels } })
 
-test('the roadmap prefix is an axis, whatever its case or a leading #', () => {
+test('the roadmap, priority and quarter axes are protected, whatever the case or a leading #', () => {
   assert.equal(isEpicAxisLabel('roadmap:now'), true)
   assert.equal(isEpicAxisLabel('Roadmap:Later'), true)
   assert.equal(isEpicAxisLabel('#roadmap:next'), true)
   assert.equal(isEpicAxisLabel(' roadmap:hidden '), true)
+  assert.equal(isEpicAxisLabel('priority:p2'), true)
+  assert.equal(isEpicAxisLabel('Quarter:2026-q1'), true)
+  assert.equal(isEpicAxisLabel('2026-Q3'), true)
+  assert.equal(isEpicAxisLabel('#2026.q4'), true)
+  assert.equal(isEpicAxisLabel('2026-Q5'), false)
   assert.equal(isEpicAxisLabel('roadmap'), false)
   assert.equal(isEpicAxisLabel('client-acme'), false)
 })
@@ -23,6 +28,7 @@ test('the roadmap prefix is an axis, whatever its case or a leading #', () => {
 test('free labels keep the tracker order and leave the axes out', () => {
   assert.deepEqual(freeEpicLabels({ labels: ['domain-billing', 'roadmap:now', 'client-acme', ' '] }), ['domain-billing', 'client-acme'])
   assert.deepEqual(freeEpicLabels({ labels: ['#roadmap:later'] }), [])
+  assert.deepEqual(freeEpicLabels({ labels: ['priority:p1', '2026-Q3', 'client-acme'] }), ['client-acme'])
   assert.deepEqual(freeEpicLabels(undefined), [])
   assert.deepEqual(freeEpicLabels({}), [])
 })
@@ -68,4 +74,8 @@ test('labels are editable only on a Jira epic of the project', () => {
   assert.equal(canEditEpicLabels({ issueTracker: 'github' }, row('M-3', [])), false)
   assert.equal(canEditEpicLabels({ issueTracker: 'gitlab' }, row('12', [])), false)
   assert.equal(canEditEpicLabels(null, row('PE-1', [])), false)
+  // The server's verdict wins when it sends one.
+  assert.equal(canEditEpicLabels(jira, { key: 'PE-1', meta: { labels: [], labelsWritable: false } }), false)
+  assert.equal(canEditEpicLabels(jira, { key: 'OPS-4', meta: { labels: [], labelsWritable: true } }), true)
+  assert.equal(canEditEpicLabels({ issueTracker: 'github' }, { key: 'M-3', meta: { labelsWritable: true } }), false)
 })

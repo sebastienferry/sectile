@@ -16,25 +16,28 @@ import (
 // write, so there is nothing to push again later and nothing to reconcile.
 //
 // The labels of the axes the roadmap owns are the exception. They are written
-// by their own control, the horizon tabs for "roadmap:", and an edit of free
-// labels may neither add nor remove one.
+// by their own control, the horizon tabs for "roadmap:", the panel's priority
+// and quarter fields for the axes of #627, and an edit of free labels may
+// neither add nor remove one.
 
 // macroAxisPrefixes are the label prefixes the roadmap owns on an epic. The
-// priority and quarter axes (#627) and the per-project prefixes (#635) extend
-// this list; the web mirrors it in EPIC_AXIS_LABEL_PREFIXES.
-var macroAxisPrefixes = []string{RoadmapLabelPrefix}
+// per-project prefixes (#635) extend this list; the web mirrors it in
+// EPIC_AXIS_LABEL_PREFIXES.
+var macroAxisPrefixes = []string{RoadmapLabelPrefix, PriorityLabelPrefix, QuarterLabelPrefix}
 
 // IsMacroAxisLabel tells a label written by one of the roadmap's own axes from a
 // free label. The match ignores case and a leading "#", as HorizonFromLabels
-// does.
+// does. A bare quarter such as "2026-Q3" belongs to the quarter axis too: the
+// import reads it as the epic's quarter (#627), so editing it as a free label
+// would change the quarter behind the panel's back.
 func IsMacroAxisLabel(label string) bool {
-	clean := strings.ToLower(strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(label), "#")))
+	clean := cleanLabel(label)
 	for _, prefix := range macroAxisPrefixes {
 		if strings.HasPrefix(clean, prefix) {
 			return true
 		}
 	}
-	return false
+	return quarterPattern.MatchString(clean)
 }
 
 // containsLabelFold tells whether a list carries a label, ignoring case: Jira
@@ -75,7 +78,7 @@ func cleanLabelEdit(labels []string) ([]string, error) {
 			return nil, fmt.Errorf("un label ne peut pas contenir d'espace : « %s »", label)
 		}
 		if IsMacroAxisLabel(label) {
-			return nil, fmt.Errorf("« %s » appartient à la roadmap : il se règle depuis les onglets d'horizon", label)
+			return nil, fmt.Errorf("« %s » appartient à un axe de la roadmap : il se règle depuis l'horizon, la priorité ou le trimestre", label)
 		}
 		if !containsLabelFold(out, label) {
 			out = append(out, label)

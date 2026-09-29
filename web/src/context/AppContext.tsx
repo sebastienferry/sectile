@@ -35,6 +35,7 @@ import type {
   TaskComment,
   MacroMeta,
   MacroHorizon,
+  EpicPriority,
   MacroTodo,
   MacroTodoSource,
   TrackerTeam,
@@ -322,7 +323,12 @@ interface AppContextType {
   refineMacro: (key: string, projectId?: string) => Promise<RefineMacroResult | null>
   createBatchTasks: (reqs: CreateTaskPayload[]) => Promise<Task[]>
 
-  saveMacroMeta: (projectId: string, key: string, patch: { title?: string; horizon?: MacroHorizon | ''; description?: string; framingComment?: string; todos?: MacroTodo[]; closed?: boolean }) => Promise<MacroMeta | null>
+  saveMacroMeta: (
+    projectId: string,
+    key: string,
+    patch: { title?: string; horizon?: MacroHorizon | ''; description?: string; framingComment?: string; todos?: MacroTodo[]; closed?: boolean; priority?: EpicPriority | ''; quarter?: string },
+    options?: { quiet?: boolean }
+  ) => Promise<MacroMeta | null>
   saveEpicMeta: (projectId: string, key: string, patch: { title?: string; horizon?: MacroHorizon | ''; description?: string; framingComment?: string; todos?: MacroTodo[]; closed?: boolean }) => Promise<MacroMeta | null>
   /**
    * Queues an edit of an epic's free labels (#626). The labels change on the
@@ -2640,7 +2646,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const saveMacroMeta = async (
     projectId: string,
     key: string,
-    patch: { title?: string; horizon?: MacroHorizon | ''; description?: string; framingComment?: string; todos?: MacroTodo[]; closed?: boolean }
+    patch: { title?: string; horizon?: MacroHorizon | ''; description?: string; framingComment?: string; todos?: MacroTodo[]; closed?: boolean; priority?: EpicPriority | ''; quarter?: string },
+    options?: { quiet?: boolean }
   ): Promise<MacroMeta | null> => {
     try {
       const res = await fetch(`${API_BASE}/projects/${encodeURIComponent(projectId)}/macros`, {
@@ -2656,7 +2663,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       }
       return macro || null
     } catch (err: any) {
-      addToast({ type: 'error', title: t.operations.notifications.macros.saveFailed, description: err.message })
+      // A batch caller (the seeding) collects the refusals and reports them
+      // once, rather than stacking one toast per epic.
+      if (!options?.quiet) addToast({ type: 'error', title: t.operations.notifications.macros.saveFailed, description: err.message })
       return null
     }
   }

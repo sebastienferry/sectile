@@ -15,6 +15,7 @@ test fixtures or internal plumbing.
 
 ### Added
 
+- **Epics have their own priority and quarter.** On the roadmap, an epic takes a P0 to P3 priority and a quarter (for example 2026-Q4), set from its panel. On Jira they are written on the epic as `priority:pN` and `quarter:yyyy-qn` labels and read back, a bare `2026-Q3` label included. On GitHub milestones, GitLab and local projects they stay in Sectile. The toolbar filters and sorts epics on the priority, and **Seed from titles** proposes the values already written in epic titles such as `2026.Q4 [P2]`, writing only the ones you keep. (#627)
 - **Sectile installs in Claude as a plugin.** The `sectile` plugin carries the workflow skills and the MCP server declaration and asks for the server URL and API key at install; build it with `make plugin`. The agent's direct setup (`sectile-agent init`, desktop **Initialize**) remains the alternative, and the only route for other CLIs. (#267)
 - Two workstation settings under Settings → Execution defaults: **Custom project skills win** (a skill a project edited runs instead of the installed one, on by default) and **Installed skills source** (direct copy or Claude plugin, tried first). (#267)
 - When a project's custom skill ran, the desktop's settings button shows a warning dot and Execution defaults lists which skills ran; the run's activity says so too. (#267)
@@ -30,10 +31,11 @@ test fixtures or internal plumbing.
 - Every workflow skill ends its replies with the same **Done / Remaining (Agent) / Pending (User)** block, so you always know what happened, what the agent still has to do and what waits for you.
 
 - Open desktop Configuration with Cmd+, on macOS or Ctrl+, on Windows/Linux, including from a terminal; an already-open settings page keeps its current category and unsaved edits. (#547)
-- **The roadmap shows an epic's labels.** On Jira projects, the labels an epic carries on the tracker appear as badges on its roadmap row, a **Labels** filter in the toolbar narrows the roadmap to the epics carrying one of the chosen labels, and the epic's panel adds or removes them on the tracker. The `roadmap:` horizon labels stay managed by the horizon tabs. (#626)
+- **The roadmap shows an epic's labels.** On Jira projects, the labels an epic carries on the tracker appear as badges on its roadmap row, a **Labels** filter in the toolbar narrows the roadmap to the epics carrying one of the chosen labels, and the epic's panel adds or removes them on the tracker. The horizon, priority and quarter labels (`roadmap:`, `priority:`, `quarter:`, and a bare `2026-Q3`) stay managed by their own controls. (#626)
 
 ### Changed
 
+- The roadmap priority is now the epic's own. It no longer shows the highest priority among the epic's tickets, so an epic without a priority reads "No priority" until one is set or seeded. (#627)
 - **Board cards no longer show the task's description.** A card now shows its key, title, badges and links, on every density; open the task to read its description. The list view keeps its one-line excerpt. (#622)
 - **A board card's model is where you change it.** On the web board, clicking the model shown on a card opens the list of models its launches can use; the pick is the same one the card's `(...)` menu offers and shows. Full cards also gain a copy button that puts the prompt of the task's next step on the clipboard, ready to paste into Claude Code, Codex or AGY. (#612)
 - **The implementation skill is now `implement-issue`**, like the other stages (`/implement-issue`, `/sectile:implement-issue` in the plugin). `code-issue` stays as an alias that runs it with the same arguments, and a workstation that has only `code-issue` installed keeps running the implementation stage until its next **Initialize** or plugin update. (#608)

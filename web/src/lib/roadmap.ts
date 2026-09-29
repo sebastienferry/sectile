@@ -1,4 +1,4 @@
-import type { EpicMeta, Priority, Project, Task, TrackerSprint, WorkflowStage } from '../types'
+import type { EpicMeta, EpicPriority, Priority, Project, Task, TrackerSprint, WorkflowStage } from '../types'
 import { foldForSearch } from './searchFold.ts'
 import { WORKFLOW_ORDER, resolveTaskStage } from './workflow.ts'
 
@@ -7,8 +7,10 @@ import { WORKFLOW_ORDER, resolveTaskStage } from './workflow.ts'
  *
  * Sectile does not import epics as cards: they are containers, carried by the
  * tickets as `parentKey` / `parentTitle`. An epic is therefore rebuilt here
- * from its children, and everything the view shows is derived from them: it is
- * the only source available, and it is always up to date after a sync.
+ * from its children, and what the view shows about its progress is derived
+ * from them: it is the only source available, and it is always up to date
+ * after a sync. What a person decides about the epic itself (its horizon, its
+ * priority and its quarter) comes from its meta instead.
  *
  * Display text (horizon hints, placement and priority labels, "no sprint")
  * lives in the `planning` catalog; this module only holds keys and colours.
@@ -29,7 +31,10 @@ export interface EpicRow {
   /** Classification que les données suggèrent, pour proposer un arbitrage. */
   suggested: Horizon
   maturity: Maturity
-  priority: Priority
+  /** The epic's own priority, empty when none. Never derived from the children (#627). */
+  priority: EpicPriority | ''
+  /** The epic's quarter, "2026-Q4", empty when none. */
+  quarter: string
   tasks: Task[]
   /** Enfants encore ouverts : ceux dont le placement en sprint est à vérifier. */
   open: Task[]
@@ -47,8 +52,6 @@ export interface EpicRow {
   closed: boolean
 }
 export type MacroRow = EpicRow
-
-const PRIORITY_RANK: Record<Priority, number> = { urgent: 4, high: 3, medium: 2, low: 1 }
 
 /**
  * Colours of the view: only the app's global variables, never a hardcoded
@@ -207,14 +210,8 @@ export const buildEpicRows = (
       if (team) teamCounts.set(team, (teamCounts.get(team) || 0) + 1)
     })
     const squad = Array.from(teamCounts.entries()).sort((a, b) => b[1] - a[1])[0]?.[0] || '-'
-    // Un épic vide n'a ni équipe ni priorité déduite : on l'assume plutôt que de
-    // fabriquer une valeur.
-
-    let priority: Priority = 'low'
-    children.forEach(t => {
-      if ((PRIORITY_RANK[t.priority] || 0) > (PRIORITY_RANK[priority] || 0)) priority = t.priority
-    })
-
+    // An empty epic has no team; the priority and the quarter are the epic's
+    // own, read from its meta and never deduced from its children.
     const meta = metaByKey.get(key)
     rows.push({
       key,
@@ -225,7 +222,8 @@ export const buildEpicRows = (
       horizon: (meta?.horizon as Horizon | '') || '',
       suggested: suggestHorizon(inActiveSprint, inFutureSprint),
       maturity: maturityOf(open, children.length, project),
-      priority,
+      priority: meta?.priority || '',
+      quarter: meta?.quarter || '',
       tasks: children,
       open,
       inActiveSprint,
@@ -342,16 +340,20 @@ export const belongsToProjectKey = (row: EpicRow, projectKey: string): boolean =
 
 /**
  * Label prefixes the roadmap owns on an epic. A label under one of them is set
- * by its own control, the horizon tabs for `roadmap:`, and is never shown,
- * filtered or edited as a free label. Mirrors `macroAxisPrefixes` in
- * `internal/db/macrolabels.go`, which refuses them on the server too.
+ * by its own control (the horizon tabs for `roadmap:`, the panel's priority and
+ * quarter fields for the axes of #627) and is never shown, filtered or edited
+ * as a free label. Mirrors `macroAxisPrefixes` in `internal/db/macrolabels.go`,
+ * which refuses them on the server too.
  */
-export const EPIC_AXIS_LABEL_PREFIXES = ['roadmap:']
+export const EPIC_AXIS_LABEL_PREFIXES = ['roadmap:', 'priority:', 'quarter:']
+
+/** A bare quarter, "2026-Q3", which the import reads as the epic's quarter. */
+const BARE_QUARTER = /^\d{4}[.\- ]q[1-4]$/
 
 /** The match ignores case and a leading `#`, as the server's does. */
 export const isEpicAxisLabel = (label: string): boolean => {
   const clean = label.trim().replace(/^#/, '').trim().toLowerCase()
-  return EPIC_AXIS_LABEL_PREFIXES.some(prefix => clean.startsWith(prefix))
+  return EPIC_AXIS_LABEL_PREFIXES.some(prefix => clean.startsWith(prefix)) || BARE_QUARTER.test(clean)
 }
 
 /** An epic's free labels, in the order the tracker returned them. */
@@ -409,11 +411,14 @@ export const pruneSelectedLabels = (selected: string[], inventory: EpicLabelCoun
 /**
  * Whether the roadmap offers to edit an epic's labels: only on Jira, the one
  * tracker whose epics are read, and only on an epic of the project itself, not
- * a milestone-shaped or local `M-<n>` key. A hint for the view: the server
- * refuses the rest anyway, with the reason.
+ * a milestone-shaped or local `M-<n>` key. The server says so in
+ * `labelsWritable` (#627); a server that does not send it gets the same rule
+ * applied here. A hint for the view: the server refuses the rest anyway, with
+ * the reason.
  */
 export const canEditEpicLabels = (project: Project | null | undefined, row: EpicRow): boolean => {
   if (!project || project.issueTracker !== 'jira') return false
+  if (typeof row.meta?.labelsWritable === 'boolean') return row.meta.labelsWritable
   if (/^M-\d+$/i.test(row.key.trim())) return false
   return belongsToProjectKey(row, project.jiraProject || '')
 }

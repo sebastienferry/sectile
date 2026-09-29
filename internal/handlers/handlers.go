@@ -1380,10 +1380,26 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 				FramingComment *string             `json:"framingComment,omitempty"`
 				Todos          *[]models.MacroTodo `json:"todos,omitempty"`
 				Closed         *bool               `json:"closed,omitempty"`
+				Priority       *string             `json:"priority,omitempty"`
+				Quarter        *string             `json:"quarter,omitempty"`
 			}
 			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 				writeError(w, http.StatusBadRequest, "Invalid macro payload: "+err.Error())
 				return
+			}
+			// The epic axes are checked before anything is saved: a refused quarter
+			// must not leave the rest of the edit half applied.
+			if req.Priority != nil {
+				if _, err := db.NormalizeEpicPriority(*req.Priority); err != nil {
+					writeError(w, http.StatusBadRequest, err.Error())
+					return
+				}
+			}
+			if req.Quarter != nil {
+				if _, err := db.NormalizeQuarter(*req.Quarter); err != nil {
+					writeError(w, http.StatusBadRequest, err.Error())
+					return
+				}
 			}
 			key := req.Key
 			if len(parts) >= 3 && parts[2] != "" {
@@ -1409,6 +1425,20 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 					labelNote = "label roadmap non mis en file : " + err.Error()
 					log.Printf("[macros] label roadmap non mis en file pour %s: %v", key, err)
 				}
+			}
+			if req.Priority != nil || req.Quarter != nil {
+				axes, err := h.db.SaveMacroAxes(id, key, req.Priority, req.Quarter)
+				if err != nil {
+					writeError(w, http.StatusBadRequest, err.Error())
+					return
+				}
+				axes.LabelsWritable = h.db.MacroLabelsWritable(id, key)
+				saved = axes
+				labelNote = h.enqueueMacroAxes(r, id, key, saved, req.Priority != nil, req.Quarter != nil)
+			} else if saved != nil {
+				// The client replaces its copy of the macro with this one, so it
+				// carries the computed flag whatever field the request changed.
+				saved.LabelsWritable = h.db.MacroLabelsWritable(id, key)
 			}
 			writeJSON(w, http.StatusOK, map[string]interface{}{"macro": saved, "epic": saved, "labelNote": labelNote})
 			return

@@ -4,7 +4,7 @@ Ordered checklist. Each group is one commit and leaves the tree buildable.
 
 ## 1. Storage and sync (US1, FR1-FR4)
 
-- [x] T1.1 Migration 34 `macros.labels` in `internal/db/migrations.go`;
+- [x] T1.1 Migration 35 `macros.labels` in `internal/db/migrations.go`;
   `dropCredentialAccountColumn` in `migrations_test.go` drops the column.
 - [x] T1.2 `MacroMeta.Labels` in `internal/models/models.go`, always an array.
 - [x] T1.3 `parseMacroLabels`; select and parse `labels` in every macro read
@@ -66,6 +66,8 @@ Ordered checklist. Each group is one commit and leaves the tree buildable.
 - [x] T6.1 `CHANGELOG.md`: the `Added` line under `Unreleased`.
 - [x] T6.2 `go test ./...` (with the sandbox off for `httptest`), web type
   check, lint, `node --test web/tests`.
+- [x] T6.4 Browser regression `web/tests/roadmap-epic-labels.browser.mjs`
+  (added at review): badges, filter, editor refusals and calls, read-only epic.
 - [ ] T6.3 Manual check on a Jira project: badges, filter, add and remove, a
   refused axis label, a read-only milestone; a GitHub project's roadmap
   unchanged.

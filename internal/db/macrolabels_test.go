@@ -146,15 +146,21 @@ func syncedEpic(t *testing.T, labels ...string) (*DB, *models.Project, *horizonT
 	return database, proj, fake
 }
 
-func TestIsMacroAxisLabelRecognisesTheRoadmapPrefix(t *testing.T) {
+func TestIsMacroAxisLabelRecognisesTheRoadmapAxes(t *testing.T) {
 	for label, want := range map[string]bool{
-		"roadmap:now":    true,
-		"Roadmap:Later":  true,
-		"#roadmap:next":  true,
-		" roadmap:x ":    true,
-		"roadmap":        false,
-		"client-acme":    false,
-		"phase:discover": false,
+		"roadmap:now":     true,
+		"Roadmap:Later":   true,
+		"#roadmap:next":   true,
+		" roadmap:x ":     true,
+		"priority:p1":     true,
+		"quarter:2026-q3": true,
+		"2026-Q3":         true,
+		"#2026.q4":        true,
+		"roadmap":         false,
+		"client-acme":     false,
+		"phase:discover":  false,
+		"2026-Q5":         false,
+		"release-2026":    false,
 	} {
 		if got := IsMacroAxisLabel(label); got != want {
 			t.Errorf("IsMacroAxisLabel(%q) = %v, want %v", label, got, want)
@@ -170,8 +176,10 @@ func TestValidateMacroLabelEditRefusesWhatCannotBeWritten(t *testing.T) {
 		add, remove []string
 		want        string
 	}{
-		{"axis label added", "PE-1", []string{"roadmap:later"}, nil, "appartient à la roadmap"},
-		{"axis label removed", "PE-1", nil, []string{"#Roadmap:now"}, "appartient à la roadmap"},
+		{"axis label added", "PE-1", []string{"roadmap:later"}, nil, "appartient à un axe de la roadmap"},
+		{"axis label removed", "PE-1", nil, []string{"#Roadmap:now"}, "appartient à un axe de la roadmap"},
+		{"priority label", "PE-1", []string{"priority:p0"}, nil, "appartient à un axe de la roadmap"},
+		{"bare quarter", "PE-1", []string{"2026-Q3"}, nil, "appartient à un axe de la roadmap"},
 		{"empty label", "PE-1", []string{"  "}, nil, "vide"},
 		{"label with a space", "PE-1", []string{"client acme"}, nil, "espace"},
 		{"nothing to change", "PE-1", []string{"Domain-Billing"}, []string{"absent"}, "rien à modifier"},
