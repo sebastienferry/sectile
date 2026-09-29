@@ -157,3 +157,5 @@ company that uses Taskativ.
   (`parentType` is `macro` without a key). It only matters for US3.4: before
   creating approved tickets, ask the owner which macro they go under, or
   whether they go under none. It blocks nothing else.
+  Resolved at implementation: the owner chose a new "Roadmap" macro (GitHub
+  milestone 11) for tickets #626 to #636.

@@ -4,7 +4,7 @@ This study lists the Roadmap and Timeline features of Taskativ, Sectile's
 predecessor, and says for each one whether Sectile offers it. It looks in one
 direction only: what Taskativ has that Sectile lacks or covers in part. Each gap
 points to the Sectile issue that already tracks it, or to a proposed ticket.
-Written for #619 on 2026-09-29, against Sectile `origin/main` at `a0cbc14e` and
+Written for #619 on 2026-09-29, against Sectile `origin/main` at `acdf4d18` and
 Taskativ at `e6dc72f`.
 
 ## Summary
@@ -75,14 +75,14 @@ or Taskativ files, relative to the Taskativ repository.
 | 20 | Each slicing line can aim its story at another project on the same tracker; the target is frozen once the story exists. | `changes/taskativ-29-target-project-in-epic-todos` | covered | `web/src/components/RoadmapView.tsx:1846`; `internal/db/macros.go:431` | - | #426 (closed, delivered) |
 | 21 | Produce the slicing from the repository's specification (`tasks.md`, `spec.md`, user stories), keeping lines already validated. | `changes/archive/2026-09-09-taskativ-69-slicing-from-sdd` | covered | `web/src/components/RoadmapView.tsx:1984`; `internal/db/sddslicing.go:229`; `internal/db/sddentries.go:190` | - | #423 (closed, delivered) |
 | 22 | Specifications can live in another repository, and a ticket key in an entry title attaches the line to that story. | `changes/taskativ-78-spec-repo-and-key-attach` | covered | `internal/agent/agent_macro_dispatch.go:23`; `internal/db/sddentries.go:59` | - | #426 (closed, delivered) |
-| 23 | Each slicing line shows where it came from (specification, scenarios, typed by hand). | `changes/taskativ-77-realign-spec-on-slicing` (visible part) | partial | `internal/models/models.go:324`; `web/src/types/index.ts:141` | The origin is stored but never shown on the line. | #634 (open, P9) |
+| 23 | Each slicing line shows where it came from (specification, scenarios, typed by hand). | `changes/taskativ-77-realign-spec-on-slicing` (visible part) | partial | `internal/models/models.go:327`; `web/src/types/index.ts:141` | The origin is stored but never shown on the line. | #634 (open, P9) |
 | 24 | Turn the ticked slicing lines into stories in one gesture, with a report per line; lines that already have a story are skipped. | `specs/batch-story-creation`, `changes/archive/2026-09-09-taskativ-74-batch-story-creation` | missing | No counterpart: only the single-line action exists (`web/src/components/RoadmapView.tsx:1917`); a batch route would sit beside `internal/db/macros.go:386`. | - | #634 (open, P9) |
 
 ### Epic labels and classification axes
 
 | # | Feature | Taskativ source | Sectile | Evidence | Gap | Ticket |
 | --- | --- | --- | --- | --- | --- | --- |
-| 25 | The sync keeps an epic's tracker labels, and the row shows them as badges. | `changes/taskativ-38-macro-labels-in-roadmap`, Taskativ `internal/db/epics.go` | missing | No counterpart: the epic record has no labels (`internal/models/models.go:271`); the panel only groups the child tickets' phase and goal labels (`web/src/components/RoadmapView.tsx:1303`). | - | #626 (open, P1) |
+| 25 | The sync keeps an epic's tracker labels, and the row shows them as badges. | `changes/taskativ-38-macro-labels-in-roadmap`, Taskativ `internal/db/epics.go` | missing | No counterpart: the epic record has no labels (`internal/models/models.go:274`); the panel only groups the child tickets' phase and goal labels (`web/src/components/RoadmapView.tsx:1303`). | - | #626 (open, P1) |
 | 26 | Filter the roadmap on epic labels, and edit an epic's free labels while the axis prefixes stay protected. | `changes/taskativ-38-macro-labels-in-roadmap`, Taskativ `internal/db/epics.go` | missing | No counterpart; it would belong in the `web/src/components/RoadmapView.tsx` toolbar and panel and in `internal/db/macros.go`. | - | #626 (open, P1) |
 | 27 | An epic has its own P0 to P3 priority, set and cleared from its panel and written to the tracker as a label. | `changes/epic-priority-label`, `changes/taskativ-85-condensed-horizon-chips` | missing | No counterpart: the priority shown is the highest among the children (`web/src/lib/roadmap.ts:213`). | - | #627 (open, P2) |
 | 28 | An epic has a quarter, read from a prefixed or a bare label and set from its panel. | `specs/epic-quarter-label` | missing | No counterpart: "quarter" appears nowhere in `web/src/components/RoadmapView.tsx` or `internal/db/macros.go`. | - | #627 (open, P2) |
@@ -101,7 +101,7 @@ or Taskativ files, relative to the Taskativ repository.
 
 | # | Feature | Taskativ source | Sectile | Evidence | Gap | Ticket |
 | --- | --- | --- | --- | --- | --- | --- |
-| 39 | A project declares other tracker projects, and the roadmap also reads their epics; one unreachable project does not stop the others. | `specs/roadmap-remote-projects`, `changes/archive/2026-09-09-taskativ-68-roadmap-remote-projects` | partial | `web/src/components/ProjectModal.tsx:1127`; `internal/db/roadmapprojects.go:20`; `internal/db/macrohorizons.go:180` | The projects can be declared, but only to attach story keys to slicing lines (`internal/db/sddentries.go:120`); their epics never reach the roadmap. | #632 (open, P7) |
+| 39 | A project declares other tracker projects, and the roadmap also reads their epics; one unreachable project does not stop the others. | `specs/roadmap-remote-projects`, `changes/archive/2026-09-09-taskativ-68-roadmap-remote-projects` | partial | `web/src/components/ProjectModal.tsx:1193`; `internal/db/roadmapprojects.go:20`; `internal/db/macrohorizons.go:180` | The projects can be declared, but only to attach story keys to slicing lines (`internal/db/sddentries.go:120`); their epics never reach the roadmap. | #632 (open, P7) |
 | 40 | Pick which declared projects the roadmap shows, with a count per project, remembered between visits. | `changes/taskativ-80-roadmap-origin-selection` | missing | No counterpart; it would belong in the `web/src/components/RoadmapView.tsx` toolbar. | - | #632 (open, P7) |
 | 41 | An epic from another project is marked read only, its write actions are hidden, and its classification stays local. | `specs/roadmap-remote-projects` | partial | `internal/db/macrohorizons.go:60`, `:265`; `internal/db/macros.go:423` | Writes and pending pushes already skip those epics, but since they never appear, the panel has no mark and hides nothing. | #632 (open, P7) |
 | 42 | A project can allow writing the priority and the quarter on another project's epics, one epic at a time; otherwise the panel says why the controls are missing. | `changes/taskativ-90-remote-axis-writes` | missing | No counterpart; it would belong in `web/src/components/ProjectModal.tsx` and the roadmap panel. | - | #632 (open, P7) |
@@ -111,7 +111,7 @@ or Taskativ files, relative to the Taskativ repository.
 
 | # | Feature | Taskativ source | Sectile | Evidence | Gap | Ticket |
 | --- | --- | --- | --- | --- | --- | --- |
-| 44 | A project maps its epic template sections (context, value, description, specifications, decisions) to tracker fields, and the panel shows them. | `specs/epic-template-fields`, `changes/archive/2026-09-09-taskativ-65-todos-from-epic-template-fields` | missing | No counterpart: the epic record has no sections (`internal/models/models.go:271`). | - | #426 (closed, left out on purpose) |
+| 44 | A project maps its epic template sections (context, value, description, specifications, decisions) to tracker fields, and the panel shows them. | `specs/epic-template-fields`, `changes/archive/2026-09-09-taskativ-65-todos-from-epic-template-fields` | missing | No counterpart: the epic record has no sections (`internal/models/models.go:274`). | - | #426 (closed, left out on purpose) |
 | 45 | Produce the slicing from the epic's Functional Scenarios table. | `specs/epic-template-fields`, `changes/archive/2026-09-09-taskativ-65-todos-from-epic-template-fields` | missing | No counterpart: the `scenarios` source was removed (`web/src/components/RoadmapView.tsx:1984`). | - | #426 (closed, left out on purpose) |
 | 46 | Edit a template section from the panel and save it to its tracker field, refusing a concurrent change. | `specs/epic-template-fields`, `changes/archive/2026-09-09-taskativ-76-editable-epic-fields` | missing | No counterpart. | - | #426 (closed, left out on purpose) |
 | 47 | The framing and the slicing checklist are published as comments on the epic ticket and kept up to date. | Taskativ `internal/db/epiccomments.go` | missing | No counterpart: the framing is stored locally only (`internal/db/macros.go:320`). | - | #636 (open, P11) |
@@ -156,7 +156,7 @@ Ranking rule: first the gaps other gaps depend on, then by user value (a
 feature used at every roadmap review before an occasional one), then by
 smaller size. Titles follow the `Area | Summary` style of the Sectile issues.
 The owner approved all eleven on 2026-09-29; they were created as #626 to
-#636 under the Roadmap milestone.
+#636 for the Roadmap macro.
 
 **P1. Roadmap | Keep and show an epic's labels** (#626) (rows 25, 26). The sync
 throws away the labels an epic carries on the tracker. Keep them, show them as
@@ -247,7 +247,7 @@ Not proposed:
   `internal/db/epics.go`, `epiccomments.go` and `sprints.go` that no openspec
   entry describes. Entries that refine one feature share a row.
 - **Evidence.** Read in Sectile's code; each path exists on `origin/main` at
-  `a0cbc14e`. Line numbers point at the place that proves the status.
+  `acdf4d18`. Line numbers point at the place that proves the status.
 - **Tickets.** All 275 Sectile GitHub issues, open and closed, read on
   2026-09-29 with `gh issue list --repo sebastienferry/sectile --state all
   --limit 1000 --json number,title,state,body`, filtered on roadmap, timeline,
