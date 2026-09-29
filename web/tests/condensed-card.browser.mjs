@@ -33,7 +33,7 @@ await page.getByRole('button',{name:'Actions',exact:true}).click();await page.ge
 await page.waitForTimeout(600);
 await page.evaluate(()=>{ctx.activities=[{taskId:'fixture',status:'running'}];render()});assert(await page.locator('[draggable]').evaluate(e=>e.className.includes('border-indigo-500/60')));assert.equal(await page.getByText('Live',{exact:true}).count(),0);
 await page.evaluate(()=>{task.status='finished';task.labels=['finished'];render()});await page.getByRole('button',{name:'Actions',exact:true}).click();assert(await page.getByRole('button',{name:'Avancer une étape'}).isDisabled());await page.keyboard.press('Escape');
-for(const density of ['standard','comfortable']) {await page.evaluate(d=>{condensed=false;ctx.settings.density=d;render()},density);await page.getByText('Hidden description').waitFor();}
+for(const density of ['standard','comfortable']) {await page.evaluate(d=>{condensed=false;ctx.settings.density=d;render()},density);await page.locator('h4').filter({hasText:'A long title'}).waitFor();assert.equal(await page.getByText('Hidden description').count(),0);}
 await page.evaluate(()=>{condensed=true;ctx.settings.density='compact';task.externalUrl=undefined;task.source='local';task.parentKey=undefined;task.prUrl=undefined;render()});assert.equal(await page.getByRole('link',{name:'#39',exact:true}).count(),0);assert.equal(await page.getByText('Hidden description').count(),0);
 await page.evaluate(()=>{task.status='to_clarify';task.labels=['new'];ctx.settings.density='compact';render()});
 assert.deepEqual(await page.locator('[draggable]').evaluate(e=>{const d=new DataTransfer();e.dispatchEvent(new DragEvent('dragstart',{bubbles:true,dataTransfer:d}));return d.getData('text/plain')}),'fixture');
