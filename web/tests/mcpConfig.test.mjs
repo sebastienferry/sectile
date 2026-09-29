@@ -1,9 +1,9 @@
 import {test} from 'node:test'
 import assert from 'node:assert/strict'
-import {mcpSnippet} from '../../shared/mcpConfig.mjs'
+import {mcpProviders, mcpSnippet} from '../../shared/mcpConfig.mjs'
 
 test('JSON examples use provider-specific HTTP fields and escape URLs',()=>{
- for(const [provider,field] of [['claude','url'],['cursor','url'],['agy','serverUrl'],['gemini','httpUrl']]) {
+ for(const [provider,field] of [['claude','url'],['agy','serverUrl']]) {
   const remote=JSON.parse(mcpSnippet(provider,'http','https://example.test/base/')).mcpServers.sectile
   assert.equal(remote[field],'https://example.test/base/mcp')
   assert.equal(remote.headers.Authorization,'Bearer <SECTILE_API_KEY>')
@@ -17,12 +17,13 @@ test('JSON examples use provider-specific HTTP fields and escape URLs',()=>{
 
 test('TOML examples distinguish HTTP and STDIO and clear inherited local keys',()=>{
  assert.match(mcpSnippet('codex','http','https://example.test'),/\[mcp_servers.sectile.http_headers\]\nAuthorization =/)
- assert.match(mcpSnippet('vibe','http','https://example.test'),/transport = "streamable-http"/)
- for(const provider of ['codex','vibe']) {
-  const local=mcpSnippet(provider,'stdio','http://127.0.0.1:4567',true)
-  assert.match(local,/"SECTILE_AGENT_TOKEN" = ""/)
-  assert.doesNotMatch(local,/<SECTILE_API_KEY>|http_headers/)
- }
+ const local=mcpSnippet('codex','stdio','http://127.0.0.1:4567',true)
+ assert.match(local,/"SECTILE_AGENT_TOKEN" = ""/)
+ assert.doesNotMatch(local,/<SECTILE_API_KEY>|http_headers/)
+})
+
+test('only the supported providers have a configuration file (#614)',()=>{
+ assert.deepEqual(Object.keys(mcpProviders).sort(),['agy','claude','codex'])
 })
 
 test('Codex remote HTTP example separates headers and explicitly enables the server',()=>{

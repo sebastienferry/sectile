@@ -51,7 +51,7 @@ This document is an actionable, step-by-step blueprint designed to enable anothe
 
 ### Step 4: Subprocess Execution Runner (`internal/runner/runner.go`)
 1. Implement `GetDynamicCustomPath()` to search `~/.local/bin`, `/opt/homebrew/bin`, `/usr/local/bin`, `/usr/bin`, `/bin`.
-2. Implement `FindCliTool(tool)` to locate `agy`, `claude`, `vibe`, etc.
+2. Implement `FindCliTool(tool)` to locate `agy`, `claude`, `codex`, etc.
 3. Execute agent skills with stdout/stderr capture and cancellation context.
 
 ### Step 5: Frontend State & Context (`web/src/context/AppContext.tsx`)

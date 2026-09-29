@@ -597,7 +597,7 @@ export type WorkflowStage = 'new' | 'clarified' | 'specified' | 'implemented' | 
 
 export type DetailMode = 'modal' | 'panel'
 
-export type AIProvider = 'agy' | 'vibe' | 'claude' | 'gemini' | 'codex' | 'cursor' | 'custom'
+export type AIProvider = 'agy' | 'claude' | 'codex' | 'custom'
 
 export type IssueTracker = 'github' | 'gitlab' | 'jira' | 'local'
 

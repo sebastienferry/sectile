@@ -29,10 +29,12 @@ test('a task runs its stored engine, else its project default one', () => {
 })
 
 test('every provider has a mark and the tooltip names engine, provider and model', () => {
-  for (const [provider, mark] of Object.entries({ claude: 'Cl', codex: 'Cx', agy: 'Ag', gemini: 'Ge', cursor: 'Cu', vibe: 'Vi', custom: '{}' })) {
+  for (const [provider, mark] of Object.entries({ claude: 'Cl', codex: 'Cx', agy: 'Ag', custom: '{}' })) {
     assert.equal(engineMark(provider), mark)
   }
   assert.equal(engineMark('Other'), 'Ot')
+  // A retired provider (#614) has no mark of its own any more.
+  assert.equal(engineMark('gemini'), 'Ge')
   assert.equal(engineMark(''), '?')
   assert.equal(engineTooltip(catalogue[0], false), 'Claude Opus - claude · claude-opus-5')
   assert.equal(engineTooltip(catalogue[1], true), 'Codex - codex · provider default (project default)')

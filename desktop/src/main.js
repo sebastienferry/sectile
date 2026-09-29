@@ -1080,7 +1080,7 @@ const CLI_PRESETS=[
  {label:'Codex',provider:'codex',cmd:"codex --model {model} '{prompt}'",auto:"codex exec --model {model} '{prompt}'"},
  {label:'Clear to defaults',provider:'agy',cmd:'',auto:''}
 ]
-const KNOWN_COMMANDS=['',"/path/to/custom-cli {mode:-p|-i} '{prompt}'","claude --model {model} '{prompt}'",'agy --dangerously-skip-permissions --model {model} "{prompt}"',"codex --model {model} '{prompt}'","gemini --model {model} '{prompt}'","vibe '{prompt}'"]
+const KNOWN_COMMANDS=['',"/path/to/custom-cli {mode:-p|-i} '{prompt}'","claude --model {model} '{prompt}'",'agy --dangerously-skip-permissions --model {model} "{prompt}"',"codex --model {model} '{prompt}'"]
 const PLACEHOLDER_HELP='Required in a command: {prompt} (instructions). Also: {issueKey}, {issueTitle}, {issueDesc}, {branchName}, {repoPath} (local directory), {tracker}, {repo}, {model}, {mode:AUTONOMOUS|INTERACTIVE}, {addDirs} (the other folders of the task, as --add-dir options for Claude).'
 const INVALID_MODEL='Invalid model: must only contain letters, digits, and allowed punctuation (. _ - : @ /)'
 
@@ -1352,7 +1352,7 @@ function executionDefaultsPanel(panel){
  const setupChecks={}
  const setupRow=settingRow('Extra setup providers',{resetLabel:'Reset setup providers to default',onReset:()=>{setupProviders=null;render()}},setupBox)
  const initializationProvider=document.createElement('select');initializationProvider.setAttribute('aria-label','Initialization provider')
- for(const provider of ['agy','claude','codex','cursor','gemini','vibe']){
+ for(const provider of SETUP_PROVIDERS.slice().sort()){
   const option=document.createElement('option');option.value=provider;option.textContent=provider;initializationProvider.append(option)
  }
  const initializationRow=settingRow('Initialization provider',{},initializationProvider)

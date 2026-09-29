@@ -73,10 +73,11 @@ The log line is written where `MigrateSettings` is called at agent start
 (`internal/agent/agent.go`, its only caller), from the report
 `dropRetiredProviders` returns. To carry that report out, `readConverted`
 returns it, and `MigrateSettings` returns it beside its `bool`; the caller
-logs it when it is not empty. The log
-line follows the agent's existing log language (French today, per
-`AGENTS.md`), for example:
-`paramètres : moteurs retirés supprimés (Gemini [gemini], Vibe [vibe]) ; listes de modèles : cursor ; connexions MCP : gemini ; fournisseur d'initialisation : vibe`.
+logs it when it is not empty. The log line follows the start-up log lines
+around it, which are in English, for example:
+`[Agent] Settings for retired AI providers (Gemini, Cursor, Vibe) removed: engines: Gemini [gemini]; model lists: cursor; MCP connections: gemini; initialization provider: vibe`.
+`MigrateSettings` keeps its signature for its tests; `MigrateSettingsReport`
+returns the report beside it.
 
 A file with nothing to drop and nothing to convert keeps today's behaviour:
 no rewrite, no backup.
@@ -88,10 +89,11 @@ compose a legacy engine from the seed. When the composed provider is retired,
 the seed creates no engine: the workstation default stays the implicit
 engine, and a seeded project gets no engine choice. `NormalizeProviderModels`
 (`internal/agentconfig/model.go`) skips retired keys, which covers the seed's
-model lists. `ValidProviderModels` checks only the model identifiers today;
-it gains a provider check (`ValidProvider` on each key), so a desktop save
-naming a retired provider fails loudly (US3.2) before normalization, while a
-seed is filtered quietly (US4.2).
+model lists. The desktop save of the execution defaults normalizes before it
+validates, so a check inside `ValidProviderModels` would only ever see the
+normalized map: a new `ValidProviderKeys` runs in the `PUT /desktop/workstation`
+handler before normalization instead, so a desktop save naming a retired
+provider fails loudly (US3.2) while a seed is filtered quietly (US4.2).
 
 ### Launch and setup paths
 

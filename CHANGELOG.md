@@ -58,6 +58,10 @@ test fixtures or internal plumbing.
 
 - **Desktop configuration opens as a full page.** Settings and a project's configuration now share one full-page Configuration view with a Back button. Its sidebar lists General workstation categories first, followed by the selected project's categories, while existing save actions and configuration controls remain available. (#545)
 
+### Removed
+
+- **Gemini CLI, Cursor CLI and Mistral Vibe CLI are no longer AI engines.** Sectile runs Antigravity, Claude Code, Codex or a custom command; the desktop settings, `sectile-agent init --provider` and the MCP setup no longer offer the other three. On its first start after the upgrade, the local agent removes a workstation's engines, model lists and MCP choices for them, keeping a backup of the settings file beside it; the projects and tasks that used such an engine run their default engine. The Cursor editor ("Open in editor") is unaffected. (#614)
+
 ### Fixed
 
 - The web interface no longer logs a `409 Conflict` on `/api/cli-status` at every load. On a shared server, `GET /api/cli-status` and `POST /api/open-editor` now reach the signed-in person's workstation instead of answering that no local agent is connected.

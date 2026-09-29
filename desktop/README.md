@@ -99,9 +99,9 @@ Custom providers require manual configuration.
 
 Click **Project prompt** in a configured project's menu, choose any engine from
 the workstation catalogue, and click **Open console**. The project default engine
-is selected initially. Codex, Claude, Antigravity, Gemini, Cursor, Vibe and custom
-engines use their configured model and interactive command in the project's mapped
-repository. Type instructions directly in the TTY. The CLI must be installed
+is selected initially. Codex, Claude, Antigravity and custom engines use their
+configured model and interactive command in the project's mapped repository.
+Type instructions directly in the TTY. The CLI must be installed
 locally; its sign-in and permission prompts remain available.
 
 Each launch is a separate local console. It uses no task, skill, initial prompt,
