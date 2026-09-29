@@ -35,6 +35,7 @@ import {
   Tag,
   RefreshCw,
   Rows3,
+  Copy,
 } from 'lucide-react'
 import type { RefineMacroResult } from '../types'
 import { useApp } from '../context/AppContext'
@@ -61,6 +62,7 @@ import {
   type HorizonTab,
   tasksBySprintOrder,
   sprintLabelOf,
+  macroCopyPayload,
 } from '../lib/roadmap'
 import {
   CONDENSED_HORIZONS,
@@ -205,6 +207,34 @@ export const RoadmapView: React.FC = () => {
   const closeRefinePreview = useCallback(() => setRefinePreview(null), [])
   const refinePreviewBackdrop = useBackdropDismiss(closeRefinePreview)
   useEscapeKey(refinePreview !== null, closeRefinePreview)
+
+  // Copy the macro's own link, or its reference when the tracker gives no
+  // page. Writing to the clipboard needs a secure context and the API can be
+  // missing behind a plain-HTTP proxy: the failure is said, with the text to
+  // copy by hand, rather than letting one believe the copy happened.
+  const [copiedLink, setCopiedLink] = useState(false)
+  const copyMacroLink = async (row: MacroRow) => {
+    const payload = macroCopyPayload(row)
+    try {
+      if (!navigator.clipboard) throw new Error(strings.panel.clipboardUnavailable)
+      await navigator.clipboard.writeText(payload.text)
+      setCopiedLink(true)
+      window.setTimeout(() => setCopiedLink(false), 1800)
+      addToast({
+        type: 'success',
+        title: payload.kind === 'link' ? strings.panel.linkCopied : strings.panel.refCopied,
+        description: payload.text,
+      })
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err)
+      addToast({
+        type: 'error',
+        title: strings.panel.copyFailed,
+        description: `${reason} ${format(strings.panel.copyByHand, { text: payload.text })}`,
+        duration: 9000,
+      })
+    }
+  }
 
   const [isEditingTitle, setIsEditingTitle] = useState(false)
   const [editingTitleValue, setEditingTitleValue] = useState('')
@@ -1142,8 +1172,18 @@ export const RoadmapView: React.FC = () => {
                     <span>{isPanelExpanded ? strings.panel.collapse : strings.panel.expand}</span>
                   </button>
 
-                  {selected.tasks[0]?.externalUrl && (
-                    <a href={selected.tasks[0].externalUrl} target="_blank" rel="noreferrer"
+                  <button
+                    type="button"
+                    onClick={() => copyMacroLink(selected)}
+                    className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-semibold text-[var(--text-secondary)] hover:text-[var(--text-primary)] cursor-pointer border border-[var(--border-color)] hover:border-[var(--accent-color)]/50 transition-colors"
+                    title={format(selected.externalUrl ? strings.panel.copyLinkTitle : strings.panel.copyRefTitle, { key: selected.key })}
+                  >
+                    {copiedLink ? <Check size={12} className="text-[var(--status-ok)]" /> : <Copy size={12} />}
+                    <span>{strings.panel.copy}</span>
+                  </button>
+
+                  {selected.externalUrl && (
+                    <a href={selected.externalUrl} target="_blank" rel="noreferrer"
                       className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-semibold transition-colors"
                       style={{
                         color: 'var(--status-info)',

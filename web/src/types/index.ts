@@ -192,6 +192,8 @@ export interface MacroMeta {
   framingComment?: string
   todos: MacroTodo[]
   updatedAt: string
+  /** The macro's own page on its tracker, absent when the tracker gives none. */
+  externalUrl?: string
 }
 export type EpicMeta = MacroMeta
 
