@@ -387,6 +387,14 @@ const fr = {
     allTeams: 'Toutes équipes',
     wholeTeam: "Toute l'équipe",
     allPeople: 'Toutes personnes',
+    panel: 'Filtres',
+    panelTitle: 'Filtrer par statut, type, macro, sprint, équipe ou personne',
+    status: 'Statut',
+    macro: 'Macro',
+    sprint: 'Sprint',
+    team: 'Équipe',
+    person: 'Personne',
+    reset: 'Réinitialiser',
   },
 }
 
@@ -773,6 +781,14 @@ const en: ShellStrings = {
     allTeams: 'All teams',
     wholeTeam: 'Whole team',
     allPeople: 'Everyone',
+    panel: 'Filters',
+    panelTitle: 'Filter by status, type, macro, sprint, team or person',
+    status: 'Status',
+    macro: 'Macro',
+    sprint: 'Sprint',
+    team: 'Team',
+    person: 'Person',
+    reset: 'Reset',
   },
 }
 

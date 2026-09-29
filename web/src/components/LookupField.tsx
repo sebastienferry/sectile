@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { useClickOutside } from '../hooks/useClickOutside'
+import { PORTALED_PANEL_ATTRIBUTE, useClickOutside } from '../hooks/useClickOutside'
 import { Loader2, Search, X } from 'lucide-react'
 import { Avatar } from './Avatar'
 import { useApp } from '../context/AppContext'
@@ -173,6 +173,7 @@ export const LookupField: React.FC<{
       {isOpen && panelBox && createPortal(
         <div
           ref={panelRef}
+          {...{ [PORTALED_PANEL_ATTRIBUTE]: '' }}
           style={{ position: 'fixed', top: panelBox.top, left: panelBox.left, width: panelBox.width, zIndex: 90 }}
           className="max-h-[240px] overflow-auto rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-color)] shadow-lg">
           {isSearching && options.length === 0 ? (

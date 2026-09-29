@@ -54,7 +54,7 @@ test fixtures or internal plumbing.
 
 ### Fixed
 
-- The board and list toolbars wrap their filters onto a second line when the window is too narrow, instead of pushing them out of view.
+- The board and list toolbars fit on one line again: Pinned, In progress and priority stay in the toolbar, and status, types, macro, sprint, team and person move into a **Filters** panel whose button shows how many of them are active.
 - **My Tasks** no longer shows an empty board when a tracker writes your name without its accents, as Jira often does ("Sebastien FERRY" for "Sébastien Ferry"): your account's name and e-mail now match regardless of case and accents.
 - Large boards share pending engine lookups across task cards, preventing duplicate requests from exhausting browser resources.
 
