@@ -10,6 +10,7 @@ import (
 
 	"tasks/internal/db"
 	"tasks/internal/models"
+	"tasks/internal/testsqlite"
 )
 
 // TestProjectEnabledViewsOverHTTP covers the contract the settings screen talks
@@ -17,7 +18,7 @@ import (
 // database as "show none", not as "the caller said nothing", or a view could be
 // switched on and never switched off again.
 func TestProjectEnabledViewsOverHTTP(t *testing.T) {
-	database, err := db.NewDB(filepath.Join(t.TempDir(), "tasks.db"))
+	database, err := testsqlite.New(t, filepath.Join(t.TempDir(), "tasks.db"), db.NewDB)
 	if err != nil {
 		t.Fatal(err)
 	}

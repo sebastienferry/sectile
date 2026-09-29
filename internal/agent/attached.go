@@ -2,7 +2,9 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -35,26 +37,55 @@ type attachedFolder struct {
 	// Remote is the origin URL of a Git folder, "" when it has none.
 	Remote   string
 	Identity string
+	// Err is the git failure that kept the folder from being read, "" when
+	// git answered (#589). A folder with an error keeps the kind git let
+	// through, so the desktop lists it as before.
+	Err string
 }
 
 // describeFolder reads what a folder is: a Git checkout with or without an
-// origin, a plain folder, or missing.
+// origin, a plain folder, or missing. A git failure that is neither "not a
+// checkout" nor "no origin" is kept in Err rather than read as one of them.
 func describeFolder(ctx context.Context, path string) attachedFolder {
 	folder := attachedFolder{Stored: path, Path: path, Kind: folderKindMissing}
 	if info, err := os.Stat(path); err != nil || !info.IsDir() || !filepath.IsAbs(path) {
 		return folder
 	}
 	folder.Kind = folderKindFolder
-	top, err := gitLocal(ctx, path, "rev-parse", "--show-toplevel")
-	if err != nil || strings.TrimSpace(top) == "" {
+	top, err := gitLocalEnv(ctx, gitInEnglish, path, "rev-parse", "--show-toplevel")
+	if err != nil {
+		if !gitSays(err, "not a git repository") {
+			folder.Err = err.Error()
+		}
+		return folder
+	}
+	if strings.TrimSpace(top) == "" {
 		return folder
 	}
 	folder.Kind, folder.Path = folderKindGit, filepath.Clean(strings.TrimSpace(top))
-	if remote, err := gitLocal(ctx, folder.Path, "remote", "get-url", "origin"); err == nil && strings.TrimSpace(remote) != "" {
+	remote, err := gitLocalEnv(ctx, gitInEnglish, folder.Path, "remote", "get-url", "origin")
+	switch {
+	case err != nil && !gitSays(err, "no such remote"):
+		folder.Err = err.Error()
+	case err == nil && strings.TrimSpace(remote) != "":
 		folder.Remote = strings.TrimSpace(remote)
 		folder.Identity = models.RepositoryIdentity(folder.Remote)
 	}
 	return folder
+}
+
+// gitInEnglish keeps git's messages untranslated, since gitSays reads them: a
+// git speaking the workstation's language would otherwise report every plain
+// folder as a failure.
+var gitInEnglish = []string{"LC_ALL=C"}
+
+// gitSays reports whether err is git's own answer holding message, as opposed
+// to git failing to run or failing for another reason. The message is matched
+// rather than the exit code, which changed across git versions for a missing
+// remote.
+func gitSays(err error, message string) bool {
+	var exit *exec.ExitError
+	return errors.As(err, &exit) && strings.Contains(strings.ToLower(err.Error()), message)
 }
 
 // attachedFolders describes the folders attached to a project here, in the

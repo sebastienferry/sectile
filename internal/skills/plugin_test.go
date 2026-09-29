@@ -332,7 +332,7 @@ func TestGenericSkillsCarryAGenericPullRequestPolicy(t *testing.T) {
 		if strings.Contains(generic, "PR creation stage: ") {
 			t.Fatalf("%s: the generic policy names a project's creation stage", s.ID)
 		}
-		for _, timing := range []string{"specified", "implemented"} {
+		for _, timing := range []string{"clarified", "specified", "implemented"} {
 			policy := skills.ProjectPullRequestPolicy(timing)
 			wording := policy[strings.Index(policy, "before executing. ")+len("before executing. "):]
 			if !strings.Contains(generic, wording) {

@@ -11,6 +11,7 @@ import (
 
 	"tasks/internal/db"
 	"tasks/internal/models"
+	"tasks/internal/testsqlite"
 )
 
 // fakeTracker answers GitHub's /user and Jira's /myself for the tokens it
@@ -65,7 +66,7 @@ func credentialAccounts(t *testing.T, rr *httptest.ResponseRecorder) map[string]
 // Saving a personal credential asks the tracker whose it is (#468); a failed
 // answer still saves it, with no account.
 func TestSavingAPersonalCredentialLearnsItsAccount(t *testing.T) {
-	database, err := db.NewDB(filepath.Join(t.TempDir(), "tasks.db"))
+	database, err := testsqlite.New(t, filepath.Join(t.TempDir(), "tasks.db"), db.NewDB)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,7 +105,7 @@ func TestSavingAPersonalCredentialLearnsItsAccount(t *testing.T) {
 // GET /api/tasks?mine=1 resolves "me" on the server, from what is stored:
 // loading the board never reaches a tracker.
 func TestMyTasksFilterAndIdentities(t *testing.T) {
-	database, err := db.NewDB(filepath.Join(t.TempDir(), "tasks.db"))
+	database, err := testsqlite.New(t, filepath.Join(t.TempDir(), "tasks.db"), db.NewDB)
 	if err != nil {
 		t.Fatal(err)
 	}

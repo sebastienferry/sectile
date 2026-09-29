@@ -518,9 +518,14 @@ func refresh(fs, work *os.Root, files, manifest map[string]string, backups *[]st
 // supplies it, so every surface that accepts or clamps a value reads this.
 const MaxParallelism = 10
 
+// DefaultParallelism is the limit of a project that uses worktrees when neither
+// its section nor the workstation defaults set one. An explicit value, 1
+// included, always wins over it.
+const DefaultParallelism = 5
+
 // ExecutionLimit is workstation-owned and serializes shared checkout execution.
 // The project section speaks over the workstation defaults; without either a
-// project runs a single execution at a time.
+// project runs DefaultParallelism executions at a time.
 func ExecutionLimit(projectID string, useWorktrees bool, settings Settings) int {
 	if !useWorktrees {
 		return 1
@@ -528,6 +533,9 @@ func ExecutionLimit(projectID string, useWorktrees bool, settings Settings) int 
 	n := settings.ProjectSettings[projectID].Parallelism
 	if n == 0 {
 		n = settings.Defaults.Parallelism
+	}
+	if n == 0 {
+		n = DefaultParallelism
 	}
 	if n < 1 {
 		return 1

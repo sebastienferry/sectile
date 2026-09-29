@@ -12,6 +12,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"tasks/internal/db"
 	"tasks/internal/models"
+	"tasks/internal/testsqlite"
 	sectiletracker "tasks/internal/tracker"
 )
 
@@ -113,7 +114,7 @@ func TestTaskReadSurvivesUnreachableTracker(t *testing.T) {
 	defer tracker.Close()
 	t.Setenv("SECTILE_GITHUB_API_URL", tracker.URL)
 	t.Setenv("SECTILE_GITHUB_TOKEN", "server-secret")
-	database, err := db.NewDB(filepath.Join(t.TempDir(), "tasks.db"))
+	database, err := testsqlite.New(t, filepath.Join(t.TempDir(), "tasks.db"), db.NewDB)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -149,7 +150,7 @@ func TestTaskReadSurvivesUnreachableTracker(t *testing.T) {
 
 // A local task reads its comments without any tracker involved.
 func TestTaskReadReturnsCommentsWhenAvailable(t *testing.T) {
-	database, err := db.NewDB(filepath.Join(t.TempDir(), "tasks.db"))
+	database, err := testsqlite.New(t, filepath.Join(t.TempDir(), "tasks.db"), db.NewDB)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -176,7 +177,7 @@ func TestTaskReadReturnsCommentsWhenAvailable(t *testing.T) {
 
 // The context a session is told to read must fit in what a session can read.
 func TestProjectContextOmitsSkillBodies(t *testing.T) {
-	database, err := db.NewDB(filepath.Join(t.TempDir(), "tasks.db"))
+	database, err := testsqlite.New(t, filepath.Join(t.TempDir(), "tasks.db"), db.NewDB)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -231,7 +232,7 @@ func TestCreateTaskReachesTheTracker(t *testing.T) {
 	defer tracker.Close()
 	t.Setenv("SECTILE_GITHUB_API_URL", tracker.URL)
 	t.Setenv("SECTILE_GITHUB_TOKEN", "server-secret")
-	database, err := db.NewDB(filepath.Join(t.TempDir(), "tasks.db"))
+	database, err := testsqlite.New(t, filepath.Join(t.TempDir(), "tasks.db"), db.NewDB)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -309,7 +310,7 @@ func TestCreateTaskReachesTheTracker(t *testing.T) {
 // project when the identifier does not resolve, so an unknown one must be
 // refused here rather than filed on someone else's board.
 func TestCreateTaskRefusesAnUnnamedOrUnknownProject(t *testing.T) {
-	database, err := db.NewDB(filepath.Join(t.TempDir(), "tasks.db"))
+	database, err := testsqlite.New(t, filepath.Join(t.TempDir(), "tasks.db"), db.NewDB)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -340,7 +341,7 @@ func TestCreateTaskRefusesAnUnnamedOrUnknownProject(t *testing.T) {
 // local-only ticket would leave the agent believing it filed something the
 // reviewer will never find.
 func TestCreateTaskFailsRatherThanFilingLocally(t *testing.T) {
-	database, err := db.NewDB(filepath.Join(t.TempDir(), "tasks.db"))
+	database, err := testsqlite.New(t, filepath.Join(t.TempDir(), "tasks.db"), db.NewDB)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -373,7 +374,7 @@ func TestCreateTaskFailsRatherThanFilingLocally(t *testing.T) {
 }
 
 func TestUpdateTaskFields(t *testing.T) {
-	database, err := db.NewDB(filepath.Join(t.TempDir(), "tasks.db"))
+	database, err := testsqlite.New(t, filepath.Join(t.TempDir(), "tasks.db"), db.NewDB)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -512,7 +513,7 @@ func TestUpdateTaskFields(t *testing.T) {
 }
 
 func TestUpdateTaskValidation(t *testing.T) {
-	database, err := db.NewDB(filepath.Join(t.TempDir(), "tasks.db"))
+	database, err := testsqlite.New(t, filepath.Join(t.TempDir(), "tasks.db"), db.NewDB)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -585,7 +586,7 @@ func TestUpdateTaskCallerAttributionAndTrackerSync(t *testing.T) {
 	t.Setenv("SECTILE_GITHUB_API_URL", tracker.URL)
 	t.Setenv("SECTILE_GITHUB_TOKEN", "server-secret")
 
-	database, err := db.NewDB(filepath.Join(t.TempDir(), "tasks.db"))
+	database, err := testsqlite.New(t, filepath.Join(t.TempDir(), "tasks.db"), db.NewDB)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -668,7 +669,7 @@ func TestUpdateTaskCallerAttributionAndTrackerSync(t *testing.T) {
 // refused before any change, while reads still answer (#482). The shared server
 // key is one such caller; a transport that names nobody is another.
 func TestWriteToolsRefuseACallerThatNamesNobody(t *testing.T) {
-	database, err := db.NewDB(filepath.Join(t.TempDir(), "tasks.db"))
+	database, err := testsqlite.New(t, filepath.Join(t.TempDir(), "tasks.db"), db.NewDB)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -715,7 +716,7 @@ func TestCreateTaskRefusesAPersonWithoutATrackerCredential(t *testing.T) {
 	defer tracker.Close()
 	t.Setenv("SECTILE_GITHUB_API_URL", tracker.URL)
 	t.Setenv("SECTILE_GITHUB_TOKEN", "server-secret")
-	database, err := db.NewDB(filepath.Join(t.TempDir(), "tasks.db"))
+	database, err := testsqlite.New(t, filepath.Join(t.TempDir(), "tasks.db"), db.NewDB)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -738,7 +739,7 @@ func TestCreateTaskRefusesAPersonWithoutATrackerCredential(t *testing.T) {
 }
 
 func TestProjectContextPushStageCommits(t *testing.T) {
-	database, err := db.NewDB(filepath.Join(t.TempDir(), "tasks.db"))
+	database, err := testsqlite.New(t, filepath.Join(t.TempDir(), "tasks.db"), db.NewDB)
 	if err != nil {
 		t.Fatal(err)
 	}

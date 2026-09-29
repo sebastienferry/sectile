@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"tasks/internal/db"
+	"tasks/internal/testsqlite"
 )
 
 // credentialHandler is a handler and the session cookie of one signed-in
@@ -18,7 +19,7 @@ import (
 // without a session any more.
 func credentialHandler(t *testing.T) (*Handler, *http.Cookie) {
 	t.Helper()
-	database, err := db.NewDB(filepath.Join(t.TempDir(), "test.db"))
+	database, err := testsqlite.New(t, filepath.Join(t.TempDir(), "test.db"), db.NewDB)
 	if err != nil {
 		t.Fatal(err)
 	}

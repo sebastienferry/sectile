@@ -7,11 +7,12 @@ import (
 	"path/filepath"
 	"tasks/internal/agentprotocol"
 	"tasks/internal/models"
+	"tasks/internal/testsqlite"
 	"testing"
 )
 
 func TestTTYRequestsRequireAgentConfirmation(t *testing.T) {
-	d, err := NewDB(filepath.Join(t.TempDir(), "tasks.db"))
+	d, err := testsqlite.New(t, filepath.Join(t.TempDir(), "tasks.db"), NewDB)
 	if err != nil {
 		t.Fatal(err)
 	}

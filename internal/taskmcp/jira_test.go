@@ -15,6 +15,7 @@ import (
 
 	"tasks/internal/db"
 	"tasks/internal/models"
+	"tasks/internal/testsqlite"
 	sectiletracker "tasks/internal/tracker"
 )
 
@@ -97,7 +98,7 @@ func jiraDatabase(t *testing.T, site *fakeJira) (*db.DB, *models.Project) {
 	t.Setenv("SECTILE_JIRA_URL", site.server.URL)
 	t.Setenv("SECTILE_JIRA_EMAIL", "server@example.com")
 	t.Setenv("SECTILE_JIRA_TOKEN", "server-secret")
-	database, err := db.NewDB(filepath.Join(t.TempDir(), "tasks.db"))
+	database, err := testsqlite.New(t, filepath.Join(t.TempDir(), "tasks.db"), db.NewDB)
 	if err != nil {
 		t.Fatal(err)
 	}

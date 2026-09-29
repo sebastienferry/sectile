@@ -16,6 +16,8 @@ import {
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { TaskCard } from './TaskCard'
+import { ProgressiveTaskList } from './ProgressiveTaskList'
+import { useProjectEngines } from '../hooks/useProjectEngine'
 import { TaskFilters } from './TaskFilters'
 import type { Task, Status, WorkflowStage } from '../types'
 import { resolveTaskStage, stageFromLabels } from '../lib/workflow'
@@ -430,6 +432,7 @@ export const BoardView: React.FC = () => {
           .flatMap(col => statusColumnTasks.get(col.id) || []),
         ...unassignedTasks,
       ]
+  const engines = useProjectEngines(boardCards.map(task => task.projectId))
   const boardOrder = Array.from(new Set(boardCards.map(task => task.id)))
   const selectableIds = Array.from(new Set(
     boardCards
@@ -500,6 +503,7 @@ export const BoardView: React.FC = () => {
     <TaskCard
       key={task.id}
       task={task}
+      engine={engines.get(task.projectId || '') ?? null}
       compact={isCondensed}
       isDragging={draggingTaskId === task.id}
       onDragStart={() => setDraggingTaskId(task.id)}
@@ -562,13 +566,13 @@ export const BoardView: React.FC = () => {
     <div className="flex-1 flex flex-col h-full overflow-hidden bg-[var(--bg-primary)] select-none">
       {/* Board Top Toolbar: Grouping Mode Switcher */}
       {/* View Subheader: View Mode Switcher (Icon-only) & Hide/Show Done Filter */}
-      <div className="flex items-center justify-between px-4 py-2 border-b border-[var(--border-color)] bg-[var(--bg-secondary)]/50 shrink-0">
+      <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-2 border-b border-[var(--border-color)] bg-[var(--bg-secondary)]/50 shrink-0">
         <div className="flex items-center gap-3">
           <BoardGroupingToggle size="md" />
           <BoardSortSelect size="md" />
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-1 flex-wrap items-center justify-end gap-2 min-w-0">
           <button
             type="button"
             onClick={toggleBoardCardDisplayMode}
@@ -727,17 +731,12 @@ export const BoardView: React.FC = () => {
                   </div>
 
                   {/* Task Cards Column Body */}
-                  <div className="flex-1 overflow-y-auto p-2.5 space-y-2.5">
-                    {colTasks.map(renderCard)}
-
-                    {colTasks.length === 0 && (
-                      <div className="h-32 flex flex-col items-center justify-center text-center p-4 border border-dashed border-[var(--border-color)]/60 rounded-xl">
-                        <p className="text-xs text-[var(--text-muted)]">
-                          {t.board.emptyColumn}
-                        </p>
-                      </div>
-                    )}
-                  </div>
+                  <ProgressiveTaskList
+                    tasks={colTasks}
+                    renderTask={renderCard}
+                    emptyLabel={t.board.emptyColumn}
+                    moreLabel={t.board.loadMore}
+                  />
                 </div>
               )
             })}
@@ -839,17 +838,12 @@ export const BoardView: React.FC = () => {
                   </div>
 
                   {/* Task Cards Column Body */}
-                  <div className="flex-1 overflow-y-auto p-2.5 space-y-2.5">
-                    {colTasks.map(renderCard)}
-
-                    {colTasks.length === 0 && (
-                      <div className="h-32 flex flex-col items-center justify-center text-center p-4 border border-dashed border-[var(--border-color)]/60 rounded-xl">
-                        <p className="text-xs text-[var(--text-muted)]">
-                          {t.board.emptyColumn}
-                        </p>
-                      </div>
-                    )}
-                  </div>
+                  <ProgressiveTaskList
+                    tasks={colTasks}
+                    renderTask={renderCard}
+                    emptyLabel={t.board.emptyColumn}
+                    moreLabel={t.board.loadMore}
+                  />
                 </div>
               )
             })}
@@ -872,9 +866,12 @@ export const BoardView: React.FC = () => {
               <div className="px-3 py-1.5 text-[10px] text-[var(--text-muted)] border-b border-[var(--border-color)]/60">
                 {format(t.shell.board.unassignedStatuses, { statuses: Array.from(new Set(unassignedTasks.map(task => task.trackerStatus || t.shell.board.noStatus))).join(', ') })}
               </div>
-              <div className="flex-1 overflow-y-auto p-2.5 space-y-2.5">
-                {unassignedTasks.map(renderCard)}
-              </div>
+              <ProgressiveTaskList
+                tasks={unassignedTasks}
+                renderTask={renderCard}
+                emptyLabel={t.board.emptyColumn}
+                moreLabel={t.board.loadMore}
+              />
             </div>
           )}
         </div>

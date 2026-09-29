@@ -91,6 +91,9 @@ type agentDaemon struct {
 	// customSkills records the custom skills dispatches ran since the agent
 	// started (#267), the desktop's passive signal.
 	customSkills customSkillLog
+	// store keeps the runs the desktop lists across a restart (#588). Nil
+	// disables it, which is what a daemon built by hand gets.
+	store *runStore
 }
 
 // serverLink is the agent's attachment to the server: the identity it presents
@@ -288,6 +291,11 @@ func Run(args []string) {
 		log.Printf("[Agent] An agent is already available through %s; connect the companion to it or stop it first", daemon.loopback.desktopInfo)
 		return
 	}
+	// The runs of the previous process come back before the desktop can list
+	// anything, from the store next to the connection file.
+	daemon.store = openRunStore(filepath.Join(filepath.Dir(daemon.loopback.desktopInfo), "runs"))
+	daemon.restoreRuns()
+	daemon.pruneRuns()
 	// Graceful shutdown on SIGINT / SIGTERM.
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -367,6 +375,10 @@ func Run(args []string) {
 			_ = daemon.terminal.manager.CloseSession(session.ID)
 		}
 	}()
+	// Deferred after the sessions are closed, so it runs before: what the
+	// consoles show is written while they still show it.
+	defer daemon.persistRuns()
+	go daemon.persistLoop(ctx)
 	daemon.connectLoop(ctx)
 }
 
@@ -1128,7 +1140,7 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 		}
 		payload.Prompt += "\nExisting PR identity: " + pr.URL + ". Update this same PR; never create or replace it."
 	}
-	if payload.SkillID == "specify" || payload.SkillID == "implement" {
+	if payload.SkillID == "specify" || payload.SkillID == "implement" || (payload.SkillID == "clarify" && models.PRCreationOwner(config.PRCreationStage) == "clarify") {
 		payload.Prompt += "\nPreserve accepted artifacts and code on retry. If this is PR recovery, retain the attained task stage and complete the configured creation owner checks without advancing to reviewed."
 	}
 	payload.Prompt += specArtifactsNotice(config, payload.SkillID)
@@ -1262,6 +1274,7 @@ func (d *agentDaemon) runInPty(sessionID, workDir string, envVars map[string]str
 	}
 
 	d.watchAnswers(sessionID)
+	d.tapConsole(sessionID)
 
 	// The console output already reaches the desktop over the WebSocket and is
 	// kept in the session history. Echoing it here as well buries the agent's

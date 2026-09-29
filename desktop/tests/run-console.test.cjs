@@ -57,3 +57,27 @@ test('a finished autonomous run still shows what it did',async()=>{
  assert.equal(needsConsoleNotice({status:'completed',headless:true,trace:true}),false)
  assert.equal(needsConsoleNotice({status:'failed',headless:true,trace:true}),false)
 })
+
+// A run the agent restored after a restart replays what its console showed,
+// whatever kind of run it was, and nobody can answer it any more (#588).
+test('a restored run is attached to read-only',async()=>{
+ const {needsConsoleNotice,readOnlyConsole}=await load()
+ for(const run of [
+  {status:'completed',restored:true,sessionId:''},
+  {status:'canceled',restored:true,sessionId:''},
+  {status:'failed',restored:true,headless:true,trace:true},
+  {status:'completed',restored:true,headless:true},
+ ]){
+  assert.equal(needsConsoleNotice(run),false)
+  assert.equal(readOnlyConsole(run),true)
+ }
+})
+
+// An agent that does not restore runs sends no flag: a finished run without a
+// session keeps the notice it always had.
+test('a finished run the agent does not mark restored keeps its notice',async()=>{
+ const {needsConsoleNotice,readOnlyConsole}=await load()
+ assert.equal(needsConsoleNotice({status:'completed',sessionId:''}),true)
+ assert.equal(readOnlyConsole({status:'completed',sessionId:''}),false)
+ assert.equal(readOnlyConsole({status:'completed',sessionId:'s1',restored:false}),false)
+})

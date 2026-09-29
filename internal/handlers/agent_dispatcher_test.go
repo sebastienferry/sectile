@@ -15,6 +15,7 @@ import (
 	"tasks/internal/db"
 	"tasks/internal/handlers"
 	"tasks/internal/models"
+	"tasks/internal/testsqlite"
 
 	"github.com/gorilla/websocket"
 )
@@ -129,7 +130,7 @@ func TestAgentDispatcher_SessionRebound(t *testing.T) {
 func TestHandleAgentStatus(t *testing.T) {
 	tempDir := t.TempDir()
 	dbPath := filepath.Join(tempDir, "test.db")
-	database, err := db.NewDB(dbPath)
+	database, err := testsqlite.New(t, dbPath, db.NewDB)
 	if err != nil {
 		t.Fatalf("db error: %v", err)
 	}
@@ -189,7 +190,7 @@ func defaultAgentKey(t *testing.T, database *db.DB) string {
 func TestHandleAgentDispatch_DisconnectedGuard(t *testing.T) {
 	tempDir := t.TempDir()
 	dbPath := filepath.Join(tempDir, "test.db")
-	database, err := db.NewDB(dbPath)
+	database, err := testsqlite.New(t, dbPath, db.NewDB)
 	if err != nil {
 		t.Fatalf("db error: %v", err)
 	}
@@ -218,7 +219,7 @@ func TestHandleAgentDispatch_DisconnectedGuard(t *testing.T) {
 func TestHandleAgentConnect_WebSocketHandshake(t *testing.T) {
 	tempDir := t.TempDir()
 	dbPath := filepath.Join(tempDir, "test.db")
-	database, err := db.NewDB(dbPath)
+	database, err := testsqlite.New(t, dbPath, db.NewDB)
 	if err != nil {
 		t.Fatalf("db error: %v", err)
 	}
@@ -296,7 +297,7 @@ func TestHandleAgentConnect_WebSocketHandshake(t *testing.T) {
 func TestHandleTaskDetail_RunSkill_DispatchesToAgent(t *testing.T) {
 	tempDir := t.TempDir()
 	dbPath := filepath.Join(tempDir, "test.db")
-	database, err := db.NewDB(dbPath)
+	database, err := testsqlite.New(t, dbPath, db.NewDB)
 	if err != nil {
 		t.Fatalf("db error: %v", err)
 	}
@@ -447,7 +448,7 @@ func TestHandleTaskDetail_RunSkill_DispatchesToAgent(t *testing.T) {
 func TestPullTasks_WebSocketExchange(t *testing.T) {
 	tempDir := t.TempDir()
 	dbPath := filepath.Join(tempDir, "test.db")
-	database, err := db.NewDB(dbPath)
+	database, err := testsqlite.New(t, dbPath, db.NewDB)
 	if err != nil {
 		t.Fatalf("db error: %v", err)
 	}
@@ -538,7 +539,7 @@ func TestPullTasks_WebSocketExchange(t *testing.T) {
 func TestTryPullLocalAgentTasks(t *testing.T) {
 	tempDir := t.TempDir()
 	dbPath := filepath.Join(tempDir, "test.db")
-	database, err := db.NewDB(dbPath)
+	database, err := testsqlite.New(t, dbPath, db.NewDB)
 	if err != nil {
 		t.Fatalf("db error: %v", err)
 	}
@@ -600,7 +601,7 @@ func TestTryPullLocalAgentTasks(t *testing.T) {
 // connection and reported by /api/agent/status; an agent that announces
 // nothing is listed as outdated with no build.
 func TestHandleAgentConnectKeepsTheAnnouncedBuild(t *testing.T) {
-	database, err := db.NewDB(filepath.Join(t.TempDir(), "test.db"))
+	database, err := testsqlite.New(t, filepath.Join(t.TempDir(), "test.db"), db.NewDB)
 	if err != nil {
 		t.Fatalf("db error: %v", err)
 	}

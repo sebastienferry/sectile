@@ -10,13 +10,14 @@ import (
 
 	"tasks/internal/db"
 	"tasks/internal/models"
+	"tasks/internal/testsqlite"
 )
 
 // TestProjectEpicColorsOverHTTP covers the contract the settings screen talks
 // to. Switching the colour off is the case worth pinning: false has to reach
 // the database as "off", not as "the caller said nothing".
 func TestProjectEpicColorsOverHTTP(t *testing.T) {
-	database, err := db.NewDB(filepath.Join(t.TempDir(), "tasks.db"))
+	database, err := testsqlite.New(t, filepath.Join(t.TempDir(), "tasks.db"), db.NewDB)
 	if err != nil {
 		t.Fatal(err)
 	}

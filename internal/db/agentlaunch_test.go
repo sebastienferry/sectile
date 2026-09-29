@@ -3,12 +3,13 @@ package db
 import (
 	"path/filepath"
 	"tasks/internal/models"
+	"tasks/internal/testsqlite"
 	"testing"
 	"time"
 )
 
 func TestLocalLaunchDoesNotOwnStageTransition(t *testing.T) {
-	d, err := NewDB(filepath.Join(t.TempDir(), "tasks.db"))
+	d, err := testsqlite.New(t, filepath.Join(t.TempDir(), "tasks.db"), NewDB)
 	if err != nil {
 		t.Fatal(err)
 	}

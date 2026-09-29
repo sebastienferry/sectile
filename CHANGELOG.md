@@ -20,10 +20,16 @@ test fixtures or internal plumbing.
 - When a project's custom skill ran, the desktop's settings button shows a warning dot and Execution defaults lists which skills ran; the run's activity says so too. (#267)
 - A user guide walks through Sectile sign-in, Jira access, project and workstation setup, Claude Code prompts, autonomous runs, and Desktop use. (#567)
 - Projects can optionally push clarification and specification commits after each stage commit; the setting is off by default. (#459)
+- Projects can open the draft pull request as soon as a clarification is confirmed: choose "Draft after clarification" as the PR creation stage in the project options. Update Sectile Desktop on every workstation first; older versions refuse the setting. (#580)
+- **Desktop consoles survive an agent restart.** After restarting or updating the local agent, the sidebar lists the same executions (skill runs, autonomous runs, macro runs, discussions and free consoles), and each one replays, read-only, what its console showed. A run that was still going when the agent stopped comes back canceled. The 100 most recently finished runs are kept, privately, in `~/.taskflow/runs/`, until **Clear finished consoles**. (#588)
 
 - Open desktop Configuration with Cmd+, on macOS or Ctrl+, on Windows/Linux, including from a terminal; an already-open settings page keeps its current category and unsaved edits. (#547)
 
 ### Changed
+
+- **Five parallel executions by default.** A project that uses worktrees now runs up to five executions at a time when neither its settings nor the workstation's Execution defaults set a number, on the desktop app and on a headless agent alike; this applies to existing workstations that never changed the setting. A number you set, 1 included, is kept: set 1 under Parallel executions to go back to one execution at a time. (#594)
+- **The web interface loads faster.** The server now sends its pages, scripts, styles and API answers gzip-compressed to the browsers that accept it: the interface's script goes down from about 1.3 MB to about 330 KB on a first visit and after each update. Live board updates are unchanged. (#601)
+- Large boards display cards progressively as each column scrolls, while keeping complete column counts and batch selections. Engine reports are loaded once per project for the board.
 
 - **The agent no longer writes skills or MCP registrations on its own.** A task or macro dispatch, an agent start or reconnection and a skills-editor save leave `~/.claude`, `~/.claude.json`, `~/.agents`, `~/.codex` and `~/.gemini` untouched. A dispatch runs the skill it finds installed, or fails with a message saying how to install one; a project's edited skill is handed to its run in a private file, so two projects no longer overwrite each other's skills. Saved desktop MCP connections are rewritten at start only when the server address, key or executable changed. (#267)
 - A skill command name may carry a plugin namespace, such as `sectile:clarify-issue`. (#267)
@@ -48,6 +54,11 @@ test fixtures or internal plumbing.
 
 ### Fixed
 
+- The board and list toolbars wrap their filters onto a second line when the window is too narrow, instead of pushing them out of view.
+- **My Tasks** no longer shows an empty board when a tracker writes your name without its accents, as Jira often does ("Sebastien FERRY" for "Sébastien Ferry"): your account's name and e-mail now match regardless of case and accents.
+- Large boards share pending engine lookups across task cards, preventing duplicate requests from exhausting browser resources.
+
+- When `prepare_repository_worktree` cannot prepare a repository, the refusal now says why: it names the workstation that answered and each folder attached to the project with what it is (gone, not a Git checkout, without origin, another origin, or the Git error that kept it from being read), and only advises attaching the folder when that is what is missing. A `transition_stage` refused over a pull request of an unprepared repository says to call `prepare_repository_worktree` first. (#589)
 - The board again shows only the tickets its Sprint, Team and Assignee filters select, and each project or saved view keeps its remembered filters when you switch to it, even after a reload. (#581)
 - Agent reconnection now retries promptly after a dropped session, and a launch waits briefly for a reconnecting agent. Abnormal WebSocket losses no longer claim the server deliberately closed the connection. (#568)
 - Newly generated Sectile tracker reports use English headings for clarification, specification, implementation, review, and closure. (#549)

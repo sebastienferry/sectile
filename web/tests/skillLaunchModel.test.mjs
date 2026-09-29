@@ -10,6 +10,7 @@ const read = name => readFile(new URL(`../src/${name}`, import.meta.url), 'utf8'
 const models = await read('lib/aiModels.ts')
 const context = await read('context/AppContext.tsx')
 const card = await read('components/TaskCard.tsx')
+const board = await read('components/BoardView.tsx')
 const modal = await read('components/TaskDetailModal.tsx')
 const profile = await read('components/ProfileModal.tsx')
 const activities = await read('components/ActivitiesView.tsx')
@@ -41,7 +42,7 @@ test('the detail view offers no model selector', () => {
 })
 
 test('the card submenu selects a model and launches nothing', () => {
-  assert.match(card, /const engine = useProjectEngine\(task\.projectId\)/)
+  assert.match(board, /const engines = useProjectEngines\(boardCards\.map/)
   assert.match(card, /const cardModels = engine\?\.state === 'reported' && engine\.modelSlot \? engine\.models \|\| \[\] : \[\]/)
   // The model is resolved for the skill the card actually launches, not for the
   // one the next-step label names: at stage reviewed they differ.

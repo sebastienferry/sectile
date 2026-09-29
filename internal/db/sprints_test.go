@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"tasks/internal/models"
+	"tasks/internal/testsqlite"
 	"tasks/internal/tracker"
 )
 
@@ -291,7 +292,7 @@ func TestDeletingASprintForgetsIt(t *testing.T) {
 }
 
 func TestAProjectWithoutManagedSprintsIsRefused(t *testing.T) {
-	database, err := NewDB(t.TempDir() + "/tasks.db")
+	database, err := testsqlite.New(t, t.TempDir()+"/tasks.db", NewDB)
 	if err != nil {
 		t.Fatal(err)
 	}

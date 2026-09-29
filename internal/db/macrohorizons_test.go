@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"tasks/internal/models"
+	"tasks/internal/testsqlite"
 	"tasks/internal/tracker"
 )
 
@@ -47,7 +48,7 @@ func newHorizonTracker(epics []models.Task) *horizonTracker {
 // tracker is the fake, which is what every test here starts from.
 func jiraProjectWithTracker(t *testing.T, fake *horizonTracker) (*DB, *models.Project) {
 	t.Helper()
-	database, err := NewDB(filepath.Join(t.TempDir(), "test.db"))
+	database, err := testsqlite.New(t, filepath.Join(t.TempDir(), "test.db"), NewDB)
 	if err != nil {
 		t.Fatalf("database not initialised: %v", err)
 	}

@@ -148,8 +148,8 @@ func TestAChangedRepositoryWithoutPullRequestIsRefused(t *testing.T) {
 func TestAPullRequestOutsideTheChangedRepositoriesIsRefused(t *testing.T) {
 	d, task, _ := twoRepoTask(t)
 	_, _, err := d.TransitionTaskStageWithPRs("", task.ID, "implemented", "done", []string{mrA, "https://gitlab.com/g/c/-/merge_requests/3"}, "feat/12")
-	if err == nil || !strings.Contains(err.Error(), "not in a repository") {
-		t.Fatalf("err = %v", err)
+	if err == nil || !strings.Contains(err.Error(), "not in a repository") || !strings.Contains(err.Error(), "prepare_repository_worktree is called") {
+		t.Fatalf("err = %v, want a refusal saying how a repository becomes changed", err)
 	}
 }
 

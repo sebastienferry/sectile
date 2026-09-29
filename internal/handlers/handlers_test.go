@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"tasks/internal/agentprotocol"
+	"tasks/internal/testsqlite"
 	"testing"
 
 	"tasks/internal/db"
@@ -19,7 +20,7 @@ func TestHandleGitStatus(t *testing.T) {
 	tempDir := t.TempDir()
 	dbPath := filepath.Join(tempDir, "test.db")
 
-	database, err := db.NewDB(dbPath)
+	database, err := testsqlite.New(t, dbPath, db.NewDB)
 	if err != nil {
 		t.Fatalf("Failed to initialize database: %v", err)
 	}
@@ -60,7 +61,7 @@ func TestCreateTaskWithCustomTrackerSource(t *testing.T) {
 	tempDir := t.TempDir()
 	dbPath := filepath.Join(tempDir, "test.db")
 
-	database, err := db.NewDB(dbPath)
+	database, err := testsqlite.New(t, dbPath, db.NewDB)
 	if err != nil {
 		t.Fatalf("Failed to initialize database: %v", err)
 	}
@@ -131,7 +132,7 @@ func TestHandleOpenEditor(t *testing.T) {
 	tempDir := t.TempDir()
 	dbPath := filepath.Join(tempDir, "test.db")
 
-	database, err := db.NewDB(dbPath)
+	database, err := testsqlite.New(t, dbPath, db.NewDB)
 	if err != nil {
 		t.Fatalf("Failed to initialize database: %v", err)
 	}
@@ -176,7 +177,7 @@ func TestHandleTaskPinAndListPins(t *testing.T) {
 	tempDir := t.TempDir()
 	dbPath := filepath.Join(tempDir, "test.db")
 
-	database, err := db.NewDB(dbPath)
+	database, err := testsqlite.New(t, dbPath, db.NewDB)
 	if err != nil {
 		t.Fatalf("Failed to initialize database: %v", err)
 	}
@@ -253,7 +254,7 @@ func TestHandleTaskStageTransition(t *testing.T) {
 	tempDir := t.TempDir()
 	dbPath := filepath.Join(tempDir, "test.db")
 
-	database, err := db.NewDB(dbPath)
+	database, err := testsqlite.New(t, dbPath, db.NewDB)
 	if err != nil {
 		t.Fatalf("Failed to initialize db: %v", err)
 	}
@@ -341,7 +342,7 @@ func TestHandleGitBranchesAndCheckoutWithAll(t *testing.T) {
 	tempDir := t.TempDir()
 	dbPath := filepath.Join(tempDir, "test.db")
 
-	database, err := db.NewDB(dbPath)
+	database, err := testsqlite.New(t, dbPath, db.NewDB)
 	if err != nil {
 		t.Fatalf("Failed to initialize database: %v", err)
 	}
@@ -406,7 +407,7 @@ func TestCloneTaskHandler(t *testing.T) {
 	tempDir := t.TempDir()
 	dbPath := filepath.Join(tempDir, "test.db")
 
-	database, err := db.NewDB(dbPath)
+	database, err := testsqlite.New(t, dbPath, db.NewDB)
 	if err != nil {
 		t.Fatalf("Failed to initialize database: %v", err)
 	}
@@ -492,7 +493,7 @@ func TestHealthEndpointReturnsSectileAPI(t *testing.T) {
 	tempDir := t.TempDir()
 	dbPath := filepath.Join(tempDir, "test.db")
 
-	database, err := db.NewDB(dbPath)
+	database, err := testsqlite.New(t, dbPath, db.NewDB)
 	if err != nil {
 		t.Fatalf("Failed to initialize database: %v", err)
 	}
@@ -528,7 +529,7 @@ func TestCreateTaskPopulatesCreatorFromAuthenticatedPrincipal(t *testing.T) {
 	tempDir := t.TempDir()
 	dbPath := filepath.Join(tempDir, "test.db")
 
-	database, err := db.NewDB(dbPath)
+	database, err := testsqlite.New(t, dbPath, db.NewDB)
 	if err != nil {
 		t.Fatalf("Failed to initialize database: %v", err)
 	}

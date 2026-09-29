@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/gorilla/websocket"
+	"log"
 	"os"
 	"path/filepath"
 	"slices"
@@ -76,6 +77,9 @@ func (d *agentDaemon) handleOperation(ctx context.Context, conn *websocket.Conn,
 		res.Error = "invalid operation request"
 	} else {
 		value, err := d.executeOperation(ctx, op)
+		if op.Action == "repository_worktree" {
+			logRepositoryWorktree(d.link.deviceID, op, err)
+		}
 		if err != nil {
 			res.Error = err.Error()
 		} else {
@@ -88,6 +92,18 @@ func (d *agentDaemon) handleOperation(ctx context.Context, conn *websocket.Conn,
 	raw, _ := json.Marshal(res)
 	_ = d.link.write(conn, agentprotocol.Message{MsgID: msg.MsgID, TaskID: msg.TaskID, Type: "workspace_result", Payload: raw})
 }
+
+// logRepositoryWorktree records which workstation answered a
+// repository_worktree operation and how, so an owner who attached a folder can
+// tell whether this agent is the one that was asked (#589).
+func logRepositoryWorktree(device string, op agentprotocol.Operation, err error) {
+	outcome := "prepared"
+	if err != nil {
+		outcome = "refused: " + err.Error()
+	}
+	log.Printf("[Agent] repository_worktree on %s (project=%s, task=%s, repository=%s): %s", device, op.ProjectID, op.TaskID, op.Repository, outcome)
+}
+
 func (d *agentDaemon) executeOperation(ctx context.Context, op agentprotocol.Operation) (any, error) {
 	if op.ProjectID == "" {
 		return nil, fmt.Errorf("project primary key is required")
@@ -143,7 +159,7 @@ func (d *agentDaemon) executeOperation(ctx context.Context, op agentprotocol.Ope
 			return specArtifactsMode(config, task.Key), nil
 		}
 		if op.Action == "repository_worktree" {
-			return repositoryWorktree(ctx, config, overrides, root, task, op.Repository)
+			return repositoryWorktree(ctx, config, overrides, root, task, op.Repository, d.link.deviceID)
 		}
 		if op.Action == "remove_workspace" && len(op.Repositories) > 0 {
 			return removeRepositoryWorktrees(ctx, config, overrides, root, task, op.Repositories), nil

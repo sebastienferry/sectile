@@ -20,6 +20,7 @@ import (
 	"tasks/internal/auth"
 	"tasks/internal/db"
 	"tasks/internal/handlers"
+	"tasks/internal/httpgzip"
 	"tasks/internal/metrics"
 	"tasks/internal/trackerapi"
 	"tasks/internal/version"
@@ -427,9 +428,11 @@ func main() {
 	}
 
 	// The instrumentation wraps the whole chain, so a request the session
-	// guard refuses is counted as the 401 or 403 it received.
+	// guard refuses is counted as the 401 or 403 it received. Compression sits
+	// just inside it, so every answer, the refusals included, leaves compressed
+	// for a client that accepts it.
 
-	handlerWithCORS := serverMetrics.Instrument(h.EnableCORS(h.RequireSession(mux)), routeOf(mux))
+	handlerWithCORS := serverMetrics.Instrument(httpgzip.Handler(h.EnableCORS(h.RequireSession(mux))), routeOf(mux))
 
 	addr := ":" + port
 	url := fmt.Sprintf("http://localhost%s", addr)
@@ -444,7 +447,7 @@ func main() {
 	}
 
 	log.Printf("🚀 Sectile Server listening on %s", url)
-	log.Printf("   base : %s — %s (%s)", database.EngineName(), dbTarget, dbOrigin)
+	log.Printf("   base : %s - %s (%s)", database.EngineName(), dbTarget, dbOrigin)
 
 	// A stop asked by the orchestrator, or by Ctrl+C, drains the instance
 	// rather than dropping it: see drain.

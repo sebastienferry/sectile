@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"tasks/internal/models"
+	"tasks/internal/testsqlite"
 	"tasks/internal/tracker"
 )
 
@@ -61,7 +62,7 @@ func TestProjectStatusesAreEmptyWithoutBoards(t *testing.T) {
 // GitHub keeps the path it had, fallback included: nothing of its observable
 // behaviour changes with the capability dispatch.
 func TestGithubProjectStatusesKeepTheirFallback(t *testing.T) {
-	database, err := NewDB(filepath.Join(t.TempDir(), "tasks.db"))
+	database, err := testsqlite.New(t, filepath.Join(t.TempDir(), "tasks.db"), NewDB)
 	if err != nil {
 		t.Fatal(err)
 	}

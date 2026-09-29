@@ -133,6 +133,7 @@ flowchart LR
 - **Objective**: Resolves functional gaps, edge cases, and architectural ambiguities through an iterative feedback loop between the agent and the work item owner (analogous to how `adjust-issue` iterates on code reviews).
 - **Rounds & Reports**: Clarification executes in numbered rounds (Round 1, Round N). Findings are stored in `docs/clarifications/<n>.md` on the assigned work branch (`feat/<n>`), with dated sections `## Round N - answers from the owner (<date>)` appended as feedback arrives. Each round commits incrementally with `docs(spec): clarify #<n> (round <r>)`.
 - **Exit Condition & Transition Guard**: Clarification ends only when the owner explicitly confirms that the clarification is satisfactory (or zero open product questions remain in unattended pickup). A task must **never** be transitioned `new → clarified` while any product question or decision remains open.
+- **Pull request**: When the project's PR creation stage is `clarified` ("Draft after clarification"), the final round pushes the task branch and opens or reuses its draft pull request, and the `clarified` transition is refused without it. Intermediate rounds open none; a workstation that drops the specification artefacts defers it to implementation. (#580)
 - **Interactive vs. Unattended Execution**:
   - *Interactive*: In a session with the owner present, the agent asks blocking questions directly and records answers in the next round.
   - *Unattended*: The agent records ambiguities, posts essential product questions to the ticket via `add_comment`, and terminates the run without transitioning.
@@ -207,7 +208,7 @@ framework value; the database migrates that value to `openspec` on startup.
 
 ### Stage 3: Implementation (`code-issue` / `/code`)
 - **Objective**: Implements the required code changes directly inside the task's isolated Git worktree.
-- **Output**: Edits codebase, verifies build, prepares clean atomic commits, and creates or reuses a draft PR when implementation owns PR creation. The specification-time policy creates the draft earlier.
+- **Output**: Edits codebase, verifies build, prepares clean atomic commits, and creates or reuses a draft PR when implementation owns PR creation. The specification-time and clarification-time policies create the draft earlier.
 
 ### Stage 4: Adjust (`adjust-issue`)
 - **Objective**: Reviews and repairs the diff, updates affected documentation, runs final checks, then pushes and updates the same existing branch PR and verifies readiness. Available review feedback is addressed; absence of comments does not block review.

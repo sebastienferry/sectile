@@ -90,6 +90,7 @@ func (d *agentDaemon) registerHeadlessRun(taskRef string, payload agentconfig.Di
 	if run == nil {
 		run = &controlledRun{taskID: taskRef, exited: make(chan struct{})}
 		d.queue.runs[payload.RunID] = run
+		d.trackRun(payload.RunID, run)
 	}
 	run.taskID = taskRef
 	if traced && run.trace == nil {

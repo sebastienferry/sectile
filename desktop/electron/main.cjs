@@ -243,9 +243,13 @@ async function lifecycle(action,{reason}={}){
  try{
   const runs=await api('/desktop/runs')
   const active=runs.filter(run=>['running','queued','preparing'].includes(run.status))
+  // An agent with a run store keeps the consoles for the next one (#588).
+  let kept=false
+  try{kept=!!(await api('/desktop/status')).capabilities?.includes('run-store')}catch{}
+  const history=kept?'Consoles are kept and can be read, read-only, once the agent is back.':'Console history will be cleared.'
   const detail=active.length
-   ? active.length+' active execution(s) will be stopped. Console history will be cleared.'
-   : 'Console history will be cleared. Server settings and local project directories are preserved.'
+   ? active.length+' active execution(s) will be stopped. '+history
+   : history+' Server settings and local project directories are preserved.'
   const result=await dialog.showMessageBox(window,{type:'warning',buttons:['Cancel',action==='restart'?'Restart agent':'Stop agent'],defaultId:0,cancelId:0,message:action==='restart'?'Restart the local agent?':'Stop the local agent?',detail:reason==='outdated'
    ? 'The running agent is not the one bundled with this app.\n'+detail
    : detail})

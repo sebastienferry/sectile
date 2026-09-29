@@ -10,6 +10,11 @@
 // to, and the pane shows the run working instead of a sentence saying it cannot
 // be answered. An agent that does not send a trace — an older one, or an engine
 // whose stream is not read — keeps the notice.
+//
+// A run the agent restored after a restart has no process behind it either. The
+// agent replays what its console showed on the same route, so the pane attaches
+// to it read-only as well (#588). An agent that does not restore runs never
+// marks one, and its runs keep the answers they had.
 
 // tracedRun says whether an autonomous run has a trace to attach to.
 function tracedRun(run){
@@ -18,6 +23,7 @@ function tracedRun(run){
 
 // needsConsoleNotice says whether the pane shows a message instead of attaching.
 export function needsConsoleNotice(run){
+ if(run.restored===true)return false
  if(run.status==='queued'||run.status==='preparing')return true
  if(run.headless===true)return !tracedRun(run)
  return !run.sessionId
@@ -27,7 +33,7 @@ export function needsConsoleNotice(run){
 // Nobody is answering an autonomous run, so its pane is never given the focus:
 // a cursor waiting in it is an invitation to type at a process with no ear.
 export function readOnlyConsole(run){
- return tracedRun(run)
+ return run.restored===true||tracedRun(run)
 }
 
 export function consoleNotice(run){

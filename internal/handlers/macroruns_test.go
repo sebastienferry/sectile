@@ -13,13 +13,14 @@ import (
 	"tasks/internal/db"
 	"tasks/internal/handlers"
 	"tasks/internal/models"
+	"tasks/internal/testsqlite"
 
 	"github.com/gorilla/websocket"
 )
 
 func macroRunFixture(t *testing.T) (*db.DB, *handlers.Handler, *httptest.Server, *models.Project) {
 	t.Helper()
-	database, err := db.NewDB(filepath.Join(t.TempDir(), "test.db"))
+	database, err := testsqlite.New(t, filepath.Join(t.TempDir(), "test.db"), db.NewDB)
 	if err != nil {
 		t.Fatalf("db error: %v", err)
 	}

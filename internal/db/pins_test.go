@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"tasks/internal/models"
+	"tasks/internal/testsqlite"
 )
 
 func TestPinnedLabelHelpers(t *testing.T) {
@@ -44,7 +45,7 @@ func TestSetTaskPinnedAndToggle(t *testing.T) {
 	tempDir := t.TempDir()
 	dbPath := filepath.Join(tempDir, "test.db")
 
-	database, err := NewDB(dbPath)
+	database, err := testsqlite.New(t, dbPath, NewDB)
 	if err != nil {
 		t.Fatalf("Failed to initialize database: %v", err)
 	}
@@ -139,7 +140,7 @@ func TestImportOrUpdateTasksPinnedSync(t *testing.T) {
 	tempDir := t.TempDir()
 	dbPath := filepath.Join(tempDir, "test.db")
 
-	database, err := NewDB(dbPath)
+	database, err := testsqlite.New(t, dbPath, NewDB)
 	if err != nil {
 		t.Fatalf("Failed to initialize database: %v", err)
 	}

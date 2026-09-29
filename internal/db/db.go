@@ -1811,7 +1811,10 @@ func (d *DB) GetTasksInScope(scope TaskScope, query, status, priority, label, sp
 	}
 
 	if scope.Mine != nil {
-		cond, mineArgs := d.myTasksCondition(*scope.Mine)
+		cond, mineArgs, err := d.myTasksCondition(*scope.Mine)
+		if err != nil {
+			return nil, err
+		}
 		conditions = append(conditions, cond)
 		args = append(args, mineArgs...)
 	}
@@ -6404,11 +6407,11 @@ func (d *DB) CreateProjectAs(ownerUserID string, req models.CreateProjectRequest
 	}
 	prCreationStage := req.PRCreationStage
 	if prCreationStage == "" {
-		prCreationStage = "implemented"
+		prCreationStage = models.PRCreationImplemented
 	}
-	if prCreationStage != "implemented" && prCreationStage != "specified" {
+	if !models.ValidPRCreationStage(prCreationStage) {
 		d.mu.Unlock()
-		return nil, fmt.Errorf("prCreationStage must be specified or implemented")
+		return nil, fmt.Errorf("prCreationStage must be clarified, specified or implemented")
 	}
 	if !models.ValidSpecArtifacts(req.SpecArtifacts) {
 		d.mu.Unlock()
@@ -6551,9 +6554,9 @@ func (d *DB) UpdateProjectAs(actingUserID string, id string, req models.UpdatePr
 	}
 	p.Repositories = models.NormalizeProjectRepositories(projectCodeRemote(p), repositoryURLs)
 	if req.PRCreationStage != nil {
-		if *req.PRCreationStage != "specified" && *req.PRCreationStage != "implemented" {
+		if !models.ValidPRCreationStage(*req.PRCreationStage) {
 			d.mu.Unlock()
-			return nil, fmt.Errorf("prCreationStage must be specified or implemented")
+			return nil, fmt.Errorf("prCreationStage must be clarified, specified or implemented")
 		}
 		p.PRCreationStage = *req.PRCreationStage
 	}

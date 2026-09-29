@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 	"tasks/internal/models"
+	"tasks/internal/testsqlite"
 	"tasks/internal/tracker"
 	"testing"
 	"time"
@@ -250,7 +251,7 @@ func (f *fakeTracker) TeamMembers(ctx context.Context, req tracker.TeamRequest) 
 // project already configured for it.
 func jiraTestDB(t *testing.T, fake *fakeTracker) (*DB, *models.Project) {
 	t.Helper()
-	database, err := NewDB(filepath.Join(t.TempDir(), "tasks.db"))
+	database, err := testsqlite.New(t, filepath.Join(t.TempDir(), "tasks.db"), NewDB)
 	if err != nil {
 		t.Fatal(err)
 	}
