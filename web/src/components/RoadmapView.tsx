@@ -73,6 +73,17 @@ import {
   toggleRoadmapRowDisplayMode,
   type RoadmapRowDisplayMode,
 } from '../lib/roadmapDisplayMode'
+import {
+  ROADMAP_DESCRIPTION_OPEN_STORAGE_KEY,
+  ROADMAP_FRAMING_OPEN_STORAGE_KEY,
+  ROADMAP_PANEL_EXPANDED_STORAGE_KEY,
+  loadRoadmapFlag,
+  loadRoadmapSelectedKey,
+  loadRoadmapTab,
+  saveRoadmapFlag,
+  saveRoadmapSelectedKey,
+  saveRoadmapTab,
+} from '../lib/roadmapViewPrefs'
 import type { MacroHorizon, MacroMeta, MacroTodo, MacroTodoSource } from '../types'
 import { MacroRealignButton } from './MacroRealignButton'
 
@@ -99,6 +110,25 @@ const TABS: { id: HorizonTab; label?: string; icon: React.ReactNode }[] = [
   { id: 'unclassified', icon: <HelpCircle size={14} /> },
   { id: 'hidden', icon: <EyeOff size={14} /> },
 ]
+
+/**
+ * An on or off state of the view, kept across visits (see roadmapViewPrefs).
+ * The setter takes a value or an updater, like the one of useState.
+ */
+function usePersistedFlag(key: string, fallback: boolean) {
+  const [value, setValue] = useState(() => loadRoadmapFlag(key, fallback))
+  const set = useCallback(
+    (next: boolean | ((prev: boolean) => boolean)) => {
+      setValue(prev => {
+        const resolved = typeof next === 'function' ? next(prev) : next
+        saveRoadmapFlag(key, resolved)
+        return resolved
+      })
+    },
+    [key]
+  )
+  return [value, set] as const
+}
 
 export const RoadmapView: React.FC = () => {
   const {
@@ -147,10 +177,33 @@ export const RoadmapView: React.FC = () => {
   // Les macros sont celles du projet affiché : c'est son réglage qui compte.
   const epicColorsOn = useEpicColors()()
 
-  const [tab, setTab] = useState<HorizonTab>('now')
+  // The tab and the selected macro survive a change of view (see
+  // roadmapViewPrefs). The tab is saved by its setter, whoever calls it: a
+  // click, the search going where it finds, the creation of a macro. Keeping
+  // only the click would make the memory unpredictable.
+  const [tab, setTabState] = useState<HorizonTab>(() => loadRoadmapTab())
+  const setTab = useCallback((next: HorizonTab) => {
+    setTabState(next)
+    saveRoadmapTab(next)
+  }, [])
   const [displayMode, setDisplayMode] = useState<'framing' | 'execution' | 'phases' | 'goals'>('execution')
   const [macroMeta, setMacroMeta] = useState<MacroMeta[]>([])
-  const [selectedKey, setSelectedKey] = useState<string | null>(null)
+  // The selected macro is kept per project, and read again when the project
+  // changes. Only a choice writes it: the fallback on the first visible macro
+  // does not, so a remembered macro that is filtered out for a while is
+  // selected again once it shows.
+  // The choice is held with its project, so switching project reads the other
+  // project's memory during the render instead of from an effect.
+  const projectId = currentProject?.id || ''
+  const [selection, setSelection] = useState(() => ({ projectId, key: loadRoadmapSelectedKey(projectId) }))
+  const selectedKey = selection.projectId === projectId ? selection.key : loadRoadmapSelectedKey(projectId)
+  const setSelectedKey = useCallback(
+    (key: string | null) => {
+      setSelection({ projectId, key })
+      saveRoadmapSelectedKey(projectId, key)
+    },
+    [projectId]
+  )
   const [onlyIssues, setOnlyIssues] = useState(false)
   const [showClosed, setShowClosed] = useState(false)
 
@@ -244,10 +297,11 @@ export const RoadmapView: React.FC = () => {
     setEditingTitleValue('')
   }, [selectedKey])
 
-  // Plein écran / Expand du panneau de droite et repli des zones de texte
-  const [isPanelExpanded, setIsPanelExpanded] = useState(false)
-  const [isDescExpanded, setIsDescExpanded] = useState(true)
-  const [isFramingExpanded, setIsFramingExpanded] = useState(true)
+  // The room the panel takes and the folded framing sections, kept across
+  // visits. Sections open by default: folding is something one asks for.
+  const [isPanelExpanded, setIsPanelExpanded] = usePersistedFlag(ROADMAP_PANEL_EXPANDED_STORAGE_KEY, false)
+  const [isDescExpanded, setIsDescExpanded] = usePersistedFlag(ROADMAP_DESCRIPTION_OPEN_STORAGE_KEY, true)
+  const [isFramingExpanded, setIsFramingExpanded] = usePersistedFlag(ROADMAP_FRAMING_OPEN_STORAGE_KEY, true)
 
   // Le cadrage n'est enregistré qu'à la demande
   const [draftDescription, setDraftDescription] = useState('')
@@ -470,7 +524,7 @@ export const RoadmapView: React.FC = () => {
         : rows.some(r => r.horizon === candidate.id)
     )
     if (target && target.id !== tab) setTab(target.id)
-  }, [searchQuery, visibleRows.length, rows, tab])
+  }, [searchQuery, visibleRows.length, rows, tab, setTab])
 
   const selected: MacroRow | null = visibleRows.find(r => r.key === selectedKey) || visibleRows[0] || null
 
