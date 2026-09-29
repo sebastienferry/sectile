@@ -492,6 +492,14 @@ var migrations = []migration{
 		name:       "projects.push_stage_commits",
 		statements: []string{"ALTER TABLE projects ADD COLUMN push_stage_commits INTEGER NOT NULL DEFAULT 0;"},
 	},
+	{
+		// The labels a tracker epic carries (#626), kept as the tracker returns
+		// them so the roadmap can show and filter them. An existing macro reads
+		// as carrying none until the next sync.
+		version:    33,
+		name:       "macros.labels",
+		statements: []string{"ALTER TABLE macros ADD COLUMN labels TEXT NOT NULL DEFAULT '[]';"},
+	},
 }
 
 // migrateSchema brings the database to the schema this binary expects, and is

@@ -194,8 +194,8 @@ func (d *DB) remoteMacros(ctx context.Context, proj *models.Project) (map[string
 
 // ImportMacroHorizons reads the roadmap labels of a project's epics and records
 // them locally, along with what the local roadmap has no other way of learning:
-// the epic's own title and whether it is closed, since the sync imports stories
-// and never the epic itself.
+// the epic's own title, whether it is closed and its labels, since the sync
+// imports stories and never the epic itself.
 //
 // The tracker wins when an epic carries a label, that being the shared source.
 // An epic without one keeps whatever was decided locally, and that decision
@@ -227,7 +227,11 @@ func (d *DB) ImportMacroHorizons(ctx context.Context, projectID string) (string,
 		if isClosed {
 			closed++
 		}
-		if _, err := d.saveMacroMetaFull(proj.ID, key, horizonPtr, nil, nil, nil, &title, &status, &isClosed); err != nil {
+		// The whole list is kept, horizon label included: hiding it is the
+		// view's business, and a non-nil copy clears the labels of an epic that
+		// lost them all on the tracker.
+		labels := append([]string{}, epic.Labels...)
+		if _, err := d.saveMacroMetaFull(proj.ID, key, horizonPtr, nil, nil, nil, &title, &status, &isClosed, &labels); err != nil {
 			return "", err
 		}
 	}

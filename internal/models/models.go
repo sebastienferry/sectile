@@ -278,9 +278,12 @@ type MacroMeta struct {
 	// Title et Status viennent du ticket macro lui-même, que la synchro n'importe
 	// pas comme carte. Closed permet de sortir de la roadmap ce qui est terminé
 	// sans avoir à deviner depuis l'état des enfants.
-	Title     string    `json:"title,omitempty"`
-	Status    string    `json:"status,omitempty"`
-	Closed    bool      `json:"closed"`
+	Title  string `json:"title,omitempty"`
+	Status string `json:"status,omitempty"`
+	Closed bool   `json:"closed"`
+	// Labels are the epic's labels as the tracker returns them, horizon labels
+	// included. Only the epic sync and a successful label edit write them.
+	Labels    []string  `json:"labels"`
 	UpdatedAt time.Time `json:"updatedAt"`
 }
 

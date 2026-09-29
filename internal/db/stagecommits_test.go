@@ -67,10 +67,13 @@ func TestPushStageCommitsMigration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if _, err := d.conn.Exec("ALTER TABLE macros DROP COLUMN labels"); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := d.conn.Exec("ALTER TABLE projects DROP COLUMN push_stage_commits"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := d.conn.Exec("DELETE FROM schema_migrations WHERE version = 32"); err != nil {
+	if _, err := d.conn.Exec("DELETE FROM schema_migrations WHERE version >= 32"); err != nil {
 		t.Fatal(err)
 	}
 	d.Close()
