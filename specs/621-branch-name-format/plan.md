@@ -67,11 +67,14 @@ func ValidBranchName(name string) bool
   non-alphanumerics become one `-`, trimmed, cut at 30 characters then
   trimmed). `MacroBranchName` is refactored to call the same helper
   (`titleSlug`); its output does not change.
-- Empty `{title}`: rendered empty, and the run of separators (`-`, `_`, `.`)
-  immediately before the placeholder in the rendered text is dropped with it.
-  If the placeholder starts the format, the run immediately after it is
-  dropped instead. `feat/{key}-{title}` -> `feat/AUC-1234`,
-  `{title}-{key}` -> `AUC-1234`.
+- Empty `{title}`: rendered empty, with the run of separators (`-`, `_`, `.`,
+  `/`) left dangling next to it. When the placeholder starts a path segment
+  (nothing rendered before it, or a `/`), the run right after it is dropped;
+  otherwise, or when nothing follows, the run right before it.
+  `feat/{key}-{title}` -> `feat/AUC-1234`, `{title}-{key}` -> `AUC-1234`,
+  `feat/{title}/{key}` -> `feat/AUC-1234`, `{key}/{title}` -> `AUC-1234`.
+  (Implementation note: the set includes `/` so that no `//` or trailing `/`
+  is left behind.)
 - Parsing: scan the format once; `{name}` must be a known placeholder; a `{`
   without `}` or a stray `}` is an error.
 - The render is not re-sanitized: the literal parts are the owner's choice and
