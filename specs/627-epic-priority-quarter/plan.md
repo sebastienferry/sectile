@@ -13,7 +13,8 @@ tracker adapter change: Jira already supports `UpdateIssue` with `Labels` and
 
 ### 1. Storage
 
-- **Migration 33** `macros.priority_quarter` in `internal/db/migrations.go`,
+- **Migration 34** `macros.priority_quarter` (33 was taken by #621 while this
+  ticket was in progress) in `internal/db/migrations.go`,
   nowhere else (not in `ensureMacrosTable`, which is the frozen baseline):
 
   ```sql
@@ -39,11 +40,12 @@ tracker adapter change: Jira already supports `UpdateIssue` with `Labels` and
   uppercase `Q`.
 - Every `SELECT ... FROM macros` that fills a `MacroMeta` reads the two new
   columns (`macros.go`, `GetProjectMacros` and the single-macro read).
-- A narrow writer, `saveMacroAxes(projectID, key string, priority, quarter
+- A narrow writer, `SaveMacroAxes(projectID, key string, priority, quarter
   *string) (*models.MacroMeta, error)`, in the style of `saveMacroMetaFull`
   (insert-if-missing, lock the row, merge, update `updated_at`). It leaves
-  `saveMacroMetaFull` and its many callers untouched. `UpdateMacro` gains the
-  two pointers and calls it when either is set.
+  `saveMacroMetaFull`, `UpdateMacro` and their callers untouched: the handler
+  calls it after `UpdateMacro` when either field is present. The macro move
+  between projects carries both columns.
 
 ### 2. Axis vocabulary (`internal/db/macroaxes.go`, new)
 
@@ -77,12 +79,15 @@ the queued op runs, as an error. The handler needs the answer before
 enqueuing, and the panel needs it before any edit. Add:
 
 ```go
-// macroLabelsWritable tells whether the epic axes of this macro go to the tracker.
-func (d *DB) macroLabelsWritable(proj *models.Project, key string) bool
+// macroKeyLabelable: not a milestone key, and belongsToProject holds.
+func macroKeyLabelable(key string, proj *models.Project) bool
+// epicLabelsSupported: the tracker supports CapEpic, CapUpdate and CapLabels.
+func (d *DB) epicLabelsSupported(proj *models.Project) bool
+// MacroLabelsWritable: both, for the handler.
+func (d *DB) MacroLabelsWritable(projectID string, key string) bool
 ```
 
-true when the key is not a milestone key, `belongsToProject` holds, and the
-project's tracker supports `CapEpic`, `CapUpdate` and `CapLabels`. It resolves
+A macro is writable when both hold. It resolves
 the tracker once per project; `GetProjectMacros` computes the tracker support
 once and sets `LabelsWritable` on every macro it returns.
 
@@ -121,13 +126,17 @@ once and sets `LabelsWritable` on every macro it returns.
   (`HorizonFromLabels`, `PriorityFromLabels`, `QuarterFromLabels`).
   `PushPendingHorizons` pushes each differing axis of each pending macro and
   names each failure as `<key> (<axe>) : <erreur>`. The toolbar button label
-  keeps its meaning ("labels to push"); its string drops the word horizon if
-  it has one.
+  keeps its meaning ("labels to push"); its tooltip names the three axes. The
+  push-all activity keeps its texts, which the web already translates.
+- The new activity texts get their English rendering in
+  `web/src/locales/operations.ts` (`priorityAction`, `priorityClearAction`,
+  `prioritySummary`, the quarter ones and the two "➔ aucun(e)" targets), with
+  their samples in `web/tests/activityText.test.mjs`.
 
 ### 5. Read-back
 
 `ImportMacroHorizons` reads `PriorityFromLabels` and `QuarterFromLabels` on
-each epic and, when non-empty, stores them with `saveMacroAxes`. An empty
+each epic and, when non-empty, stores them with `SaveMacroAxes`. An empty
 reading keeps the local value (FR8). The summary gains the counts:
 `%d macro(s) lue(s) (%d classée(s), %d priorisée(s), %d datée(s), %d terminée(s))`.
 The read never writes to the tracker, so a bare quarter label is left as is
@@ -144,7 +153,7 @@ accepts two more optional fields:
 
 The handler normalizes both (400 with the normalizer's message on an invalid
 value), saves, then for each field present enqueues `TrackerOpEpicPriority`
-or `TrackerOpEpicQuarter` **only when** `macroLabelsWritable` holds. The
+or `TrackerOpEpicQuarter` **only when** `MacroLabelsWritable` holds. The
 response keeps its shape `{ macro, epic, labelNote }`; `labelNote` becomes
 `"labels en file d'attente"` when something was queued, and
 `"conservé dans Sectile, non écrit sur le tracker"` when an axis was saved on
@@ -188,7 +197,11 @@ a non-writable macro. No new route: the seeding uses this one per epic.
     after save. When `meta.labelsWritable === false`, one muted line under
     both controls says the values stay in Sectile.
   - Both call the existing `saveMacroMeta(projectId, key, patch)`
-    (`AppContext.tsx`), whose patch type gains `priority` and `quarter`.
+    (`AppContext.tsx`), whose patch type gains `priority` and `quarter`, and
+    which takes an optional `{ quiet: true }` so that the seeding reports its
+    refusals once instead of one toast per epic. The handler always returns
+    `labelsWritable` on the saved macro, since the client replaces its copy
+    with it.
   - Toolbar: a priority filter select and a sort select, local `useState`, not
     persisted. The filter applies in the same place as `showClosed` and the
     search (`:385`), so the tab counts follow; the sort applies to the list of
@@ -239,11 +252,12 @@ comment next to the prefix constants saying so.
 - `web/src/types/index.ts`, `web/src/lib/epicAxes.ts` (new),
   `web/src/lib/roadmap.ts`, `web/src/components/RoadmapView.tsx`,
   `web/src/context/AppContext.tsx`, `web/src/locales/planning.ts`
-- `web/tests/epicAxes.test.mjs` (new), `web/tests/roadmapProjects.test.mjs`
-  and `web/tests/roadmapDisplayMode.test.mjs` if they assert the derived
-  priority
-- `CHANGELOG.md`, `docs/USER_GUIDE.md` (roadmap section),
-  `docs/API_AND_DATA_SPEC.md` (macro payload and table)
+- `web/tests/epicAxes.test.mjs` (new), `web/tests/roadmap-epic-axes.browser.mjs`
+  (new, opt-in Playwright test of the panel, filter, sort and seeding),
+  `web/src/locales/operations.ts` and `web/tests/activityText.test.mjs`
+- `CHANGELOG.md`, `docs/API_AND_DATA_SPEC.md` (the activity queue list; the
+  document describes no macro endpoint, and `docs/USER_GUIDE.md` has no
+  roadmap section to extend)
 
 ## Risks
 
