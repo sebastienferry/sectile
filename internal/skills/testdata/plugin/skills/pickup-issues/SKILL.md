@@ -30,6 +30,15 @@ Stage: new -> reviewed.
 - When the skill runs nested in pickup-issue or pickup-issues, write neither line: the outer skill writes the ticket line, and the PR line once a stage returns with a new pull request.
 - If the host cannot bind a pull request, or the binding is refused, keep the line and continue. Links never block, delay or replace the work of the skill.
 
+## Session experience
+These make the session read like a Sectile Desktop execution. Use whatever the host exposes for each (in the Claude desktop app: its sidebar group, chapter, pane and notification tools); when the host has no such capability, or a call is refused, skip that item silently. None of them ever blocks, delays or replaces the work of the skill.
+- **Project group.** Right after the session links, file the current session under the sidebar group named after the Sectile project (`projectName` from get_project_context). Reuse an existing group with that exact name; create it only when none exists. Move only the current session.
+- **One chapter per stage.** Before invoking each stage skill, mark a chapter titled `<Stage> <ticket ID>`, for example `Specify #47`.
+- **Changes.** When the skill ends after changing code, show the session's diff pane, provided it covers the worktree the skill worked in; otherwise name the worktree path in the reply instead.
+- **Next step.** When the skill ends with `✅`, finish the reply with the next step, ready to copy, with the full task ID and the command name the skills were invoked under (`/sectile:<skill>` when installed as a plugin): review and merge the pull request, then `/handoff-issue <task ID>` for each ticket. When it ends on `❓` or `❌`, the next step is what the owner has to answer or fix; say that instead.
+- **Notification.** When the title gets `❓`, `✅` or `❌`, send one desktop notification, under 200 characters, leading with what the owner has to do (for example `#47 waits for your answer: 2 product questions`). Send none for routine progress; the host drops it anyway when the owner is watching.
+- When the skill runs nested in pickup-issue or pickup-issues, do none of the above: the outer skill owns the group, the chapters, the pane, the next step and the notifications.
+
 ## Goal
 Autonomously process a batch of tickets selected from the board sequentially in the exact order provided inside a single dedicated batch worktree.
 
