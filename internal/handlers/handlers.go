@@ -1398,6 +1398,10 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 				axes.LabelsWritable = h.db.MacroLabelsWritable(id, key)
 				saved = axes
 				labelNote = h.enqueueMacroAxes(r, id, key, saved, req.Priority != nil, req.Quarter != nil)
+			} else if saved != nil {
+				// The client replaces its copy of the macro with this one, so it
+				// carries the computed flag whatever field the request changed.
+				saved.LabelsWritable = h.db.MacroLabelsWritable(id, key)
 			}
 			writeJSON(w, http.StatusOK, map[string]interface{}{"macro": saved, "epic": saved, "labelNote": labelNote})
 			return
