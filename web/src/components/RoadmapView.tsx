@@ -1906,6 +1906,8 @@ export const RoadmapView: React.FC = () => {
                             }}
                             minHeight={120}
                             placeholder={strings.framing.descriptionPlaceholder}
+                            maximizable
+                            maximizeTitle={strings.framing.descriptionHeading}
                           />
                         </div>
                       )}
@@ -1955,6 +1957,8 @@ export const RoadmapView: React.FC = () => {
                             }}
                             minHeight={100}
                             placeholder={strings.framing.commentPlaceholder}
+                            maximizable
+                            maximizeTitle={strings.framing.commentHeading}
                           />
                         </div>
                       )}
