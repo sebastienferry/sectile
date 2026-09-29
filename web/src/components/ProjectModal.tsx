@@ -50,6 +50,7 @@ import { ACCENT_COLORS, accentBadgeStyle, normalizeAccentColor, DEFAULT_PROJECT_
 import { PROJECT_TRACKERS, needsCredentialsFor } from '../lib/trackers'
 import { formatProjectKeyList, parseProjectKeyList } from '../lib/roadmapProjects'
 import { declaredRepositories, droppedRepositoryPaths, duplicateRepository, repositoryIdentity } from '../lib/repositories'
+import { BRANCH_NAME_PRESETS, BRANCH_NAME_SAMPLE, checkBranchNameFormat } from '../lib/branchNameFormat'
 
 type ProjectTab = 'general' | 'tracker' | 'workflow' | 'skills'
 
@@ -161,6 +162,7 @@ export const ProjectModal: React.FC = () => {
   const [prCreationStage, setPRCreationStage] = useState<PRCreationStage>('implemented')
   const [defaultSkillMode, setDefaultSkillMode] = useState<SkillMode>('')
   const [pushStageCommits, setPushStageCommits] = useState(false)
+  const [branchNameFormat, setBranchNameFormat] = useState('')
   const [fullChainStopStage, setFullChainStopStage] = useState<'implemented' | 'reviewed'>('reviewed')
   const [trackerColumns, setTrackerColumns] = useState<TrackerColumn[]>([])
   const [stageColumns, setStageColumns] = useState<Record<string, string[]>>({})
@@ -260,6 +262,7 @@ export const ProjectModal: React.FC = () => {
       setDefaultSkillMode(editingProject.defaultSkillMode || '')
       setFullChainStopStage(editingProject.fullChainStopStage || 'reviewed')
       setPushStageCommits(editingProject.pushStageCommits === true)
+      setBranchNameFormat(editingProject.branchNameFormat || '')
       setTrackerColumns(editingProject.trackerColumns || [])
       setStageColumns(editingProject.stageColumns || {})
       setGitRemoteUrl(editingProject.gitRemoteUrl || '')
@@ -301,6 +304,7 @@ export const ProjectModal: React.FC = () => {
     } else {
       setPRCreationStage('implemented')
       setPushStageCommits(false)
+      setBranchNameFormat('')
       setName('')
       setSlug('')
       setDescription('')
@@ -407,6 +411,7 @@ export const ProjectModal: React.FC = () => {
         defaultSkillMode,
         fullChainStopStage,
         pushStageCommits,
+        branchNameFormat: branchNameFormat.trim(),
         trackerColumns,
         stageColumns,
         gitRemoteUrl: gitRemoteUrl.trim(),
@@ -884,6 +889,67 @@ export const ProjectModal: React.FC = () => {
                   <option value="specified">{ps.workflow.draftAfterSpecification}</option>
                   <option value="implemented">{ps.workflow.draftAfterImplementation}</option>
                 </select>
+              </div>
+
+              {/* Format of the branch created for a task that has none yet (#621) */}
+              <div className="p-3.5 rounded-xl bg-[var(--bg-tertiary)]/70 border border-[var(--border-color)] space-y-2">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-xl bg-[var(--accent-light)] accent-text flex items-center justify-center shrink-0 border border-[var(--accent-color)]/30">
+                    <GitBranch size={16} />
+                  </div>
+                  <div>
+                    <label htmlFor="branchNameFormat" className="text-xs font-bold text-[var(--text-primary)] block">
+                      {ps.workflow.branchFormatTitle}
+                    </label>
+                    <span className="text-[10px] text-[var(--text-muted)] block">
+                      {ps.workflow.branchFormatHelp}
+                    </span>
+                  </div>
+                </div>
+                <input
+                  id="branchNameFormat"
+                  type="text"
+                  value={branchNameFormat}
+                  onChange={e => setBranchNameFormat(e.target.value)}
+                  placeholder={BRANCH_NAME_PRESETS[0]}
+                  spellCheck={false}
+                  className="w-full px-3 py-1.5 text-xs font-mono rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)]"
+                />
+                <div className="flex flex-wrap items-center gap-1.5 text-[10px] text-[var(--text-muted)]">
+                  <span>{ps.workflow.branchFormatPresets}</span>
+                  {BRANCH_NAME_PRESETS.map(preset => (
+                    <button
+                      key={preset}
+                      type="button"
+                      onClick={() => setBranchNameFormat(preset)}
+                      className="px-2 py-0.5 rounded-lg font-mono border border-[var(--border-color)] bg-[var(--bg-secondary)] text-[var(--text-secondary)] hover:border-[var(--accent-color)]"
+                    >
+                      {preset}
+                    </button>
+                  ))}
+                </div>
+                <ul className="text-[10px] text-[var(--text-muted)] space-y-0.5">
+                  <li><code className="font-mono">{'{key}'}</code> : {ps.workflow.branchFormatKey}</li>
+                  <li><code className="font-mono">{'{key_lower}'}</code> : {ps.workflow.branchFormatKeyLower}</li>
+                  <li><code className="font-mono">{'{title}'}</code> : {ps.workflow.branchFormatTitleSlug}</li>
+                </ul>
+                {(() => {
+                  const check = checkBranchNameFormat(branchNameFormat)
+                  if (check.ok) {
+                    return (
+                      <p className="text-[10px] text-[var(--text-secondary)]">
+                        {ps.workflow.branchFormatExample} : <code className="font-mono">{BRANCH_NAME_SAMPLE.key}</code> → <code className="font-mono">{check.branch}</code>
+                      </p>
+                    )
+                  }
+                  const problem = {
+                    brace: ps.workflow.branchFormatProblemBrace,
+                    placeholder: `${ps.workflow.branchFormatProblemPlaceholder} ${check.detail ?? ''}`,
+                    key: ps.workflow.branchFormatProblemKey,
+                    git: ps.workflow.branchFormatProblemGit,
+                  }[check.problem]
+                  return <p role="alert" className="text-[10px] text-red-500">{problem}</p>
+                })()}
               </div>
 
               <label className="flex items-start gap-2 text-xs text-[var(--text-secondary)] cursor-pointer">
