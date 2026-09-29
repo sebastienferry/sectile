@@ -9,7 +9,7 @@
 
 Insert the two lines of FR1 between the last line of the **UX components**
 bullet (`  experience.`) and the first line of the **Desktop guide** bullet.
-The text is used verbatim from the ticket; its first line is 78 columns and
+The text is used verbatim from the ticket; its first line is 77 columns and
 the continuation line uses the same two-space indent as the neighbours.
 
 ## Data contracts
