@@ -850,8 +850,7 @@ type Task struct {
 	// which is what "in progress for four days" counts from. It is the category
 	// and not the precise status: two statuses of the same category, such as a
 	// review column and a merge column, do not move it.
-	StatusChangedAt *time.Time     `json:"statusChangedAt,omitempty"`
-	Activities      []TaskActivity `json:"activities,omitempty"`
+	StatusChangedAt *time.Time `json:"statusChangedAt,omitempty"`
 	// Batch is the task's place in a running batch, nil when it is in none.
 	// An ended batch fills nothing.
 	Batch     *TaskBatch `json:"batch,omitempty"`

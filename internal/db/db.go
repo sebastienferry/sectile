@@ -2113,8 +2113,6 @@ func (d *DB) GetTaskByID(id string) (*models.Task, error) {
 	}
 	t.Pinned = HasPinnedLabel(t.Labels)
 
-	activities, _ := d.getTaskActivitiesUnsafe(t.ID)
-	t.Activities = activities
 	t.Batch, _ = d.activeBatchOfUnsafe(t.ID)
 
 	return &t, nil
@@ -2710,7 +2708,6 @@ func (d *DB) CreateTaskAs(ctx context.Context, req models.CreateTaskRequest) (*m
 		ParentKey:      parentKey,
 		ParentTitle:    parentTitle,
 		ParentType:     parentType,
-		Activities:     []models.TaskActivity{},
 		CreatedAt:      now,
 		UpdatedAt:      now,
 	}
@@ -3156,9 +3153,6 @@ func (d *DB) updateTaskBy(actor Actor, id string, req models.UpdateTaskRequest) 
 		}
 	}
 
-	acts, _ := d.getTaskActivitiesUnsafe(existing.ID)
-	existing.Activities = acts
-
 	return existing, nil
 }
 
@@ -3359,9 +3353,6 @@ func (d *DB) MoveTaskBy(actor Actor, id string, newStatus models.Status, newPosi
 	// Enqueue async CLI tracker sync in task activities queue
 	// Déplacement d'étape : seuls le statut et les labels bougent.
 	d.enqueueTrackerUpdateAsUnsafe(actor.ID, existing, &newStatus, existing.Labels, removedLabels, TrackerFieldChanges{})
-
-	acts, _ := d.getTaskActivitiesUnsafe(existing.ID)
-	existing.Activities = acts
 
 	return existing, nil
 }
@@ -5886,8 +5877,6 @@ func (d *DB) ConvertTaskToRemote(ctx context.Context, taskID string, target stri
 		CreatedAt: now,
 	}
 	_ = d.addTaskActivityDirect(act)
-	acts, _ := d.getTaskActivitiesUnsafe(task.ID)
-	task.Activities = acts
 
 	return task, nil
 }

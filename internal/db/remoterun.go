@@ -785,13 +785,10 @@ func (d *DB) AppendRemoteRunOutput(taskKey, runID, chunk string) error {
 	if strings.TrimSpace(chunk) == "" {
 		return nil
 	}
-	task, err := d.GetTaskByID(taskKey)
-	if err != nil {
-		return err
-	}
-	if task == nil {
-		return fmt.Errorf("task not found")
-	}
+	// The task is not read first: the agent posts a chunk every few seconds for
+	// each headless run, and the statement below already ties the run to its
+	// task, so an unknown task or run matches no row and fails the same way.
+	//
 	// One statement, so two instances appending to the same run at once both
 	// land: the row lock of the UPDATE orders them, and each appends to what the
 	// other committed. LENGTH and SUBSTR count characters on both engines, so a
@@ -806,7 +803,7 @@ func (d *DB) AppendRemoteRunOutput(taskKey, runID, chunk string) error {
 			ELSE output || CAST(? AS TEXT)
 		END
 		WHERE id = ? AND task_id = ? AND skill_id = 'remote_run'`,
-		remoteRunOutputTruncated, chunk, RemoteRunOutputLimit, chunk, RemoteRunOutputLimit, remoteRunOutputTruncated, chunk, runID, task.ID)
+		remoteRunOutputTruncated, chunk, RemoteRunOutputLimit, chunk, RemoteRunOutputLimit, remoteRunOutputTruncated, chunk, runID, taskKey)
 	if err != nil {
 		return err
 	}

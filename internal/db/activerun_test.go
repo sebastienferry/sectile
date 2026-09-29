@@ -223,6 +223,25 @@ func TestRunOutputIsCutOnACharacterBoundary(t *testing.T) {
 	}
 }
 
+// The append no longer reads the task first, so the statement alone must keep
+// a chunk off a run that belongs to another task, or to no task at all.
+func TestRunOutputOnlyLandsOnTheRunOfItsTask(t *testing.T) {
+	d, _ := activeRunDB(t)
+	if err := addRun(d, "r1", "remote_run", "running", true); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.AppendRemoteRunOutput("t1", "r1", "kept"); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.AppendRemoteRunOutput("unknown-task", "r1", "stray"); err == nil {
+		t.Fatal("appending under a task the run does not belong to must fail")
+	}
+	run, _ := d.GetActivityByID("r1")
+	if run.Output != "kept" {
+		t.Fatalf("the run's output is %q, want only the chunk of its own task", run.Output)
+	}
+}
+
 // FR5 on the queued path: a session somebody declared by hand is concurrent,
 // so the index lets it through, but the task is still busy for a new run.
 func TestEnqueueNextToAConcurrentRunIsRefused(t *testing.T) {
