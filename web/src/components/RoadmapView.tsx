@@ -191,12 +191,11 @@ export const RoadmapView: React.FC = () => {
   }, [])
   const [displayMode, setDisplayMode] = useState<'framing' | 'execution' | 'phases' | 'goals'>('execution')
   const [macroMeta, setMacroMeta] = useState<MacroMeta[]>([])
-  // The selected macro is kept per project, and read again when the project
-  // changes. Only a choice writes it: the fallback on the first visible macro
-  // does not, so a remembered macro that is filtered out for a while is
-  // selected again once it shows.
-  // The choice is held with its project, so switching project reads the other
-  // project's memory during the render instead of from an effect.
+  // The selected macro is kept per project. The choice is held with its
+  // project, so switching project reads the other project's memory during the
+  // render instead of from an effect. Only a choice writes it: the fallback on
+  // the first visible macro does not, so a remembered macro that is filtered
+  // out for a while is selected again once it shows.
   const projectId = currentProject?.id || ''
   const [selection, setSelection] = useState(() => ({ projectId, key: loadRoadmapSelectedKey(projectId) }))
   const selectedKey = selection.projectId === projectId ? selection.key : loadRoadmapSelectedKey(projectId)

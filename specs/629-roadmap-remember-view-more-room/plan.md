@@ -22,7 +22,7 @@ export type RoadmapTab = 'now' | 'next' | 'later' | 'unclassified' | 'hidden'
 export const ROADMAP_TAB_KEY = 'sectile_roadmap_tab'
 export const ROADMAP_PANEL_EXPANDED_KEY = 'sectile_roadmap_panel_expanded'
 export const ROADMAP_PANEL_HIDDEN_KEY = 'sectile_roadmap_panel_hidden'
-export const ROADMAP_DESC_OPEN_KEY = 'sectile_roadmap_desc_open'
+export const ROADMAP_DESC_OPEN_KEY = 'sectile_roadmap_description_open'
 export const ROADMAP_FRAMING_OPEN_KEY = 'sectile_roadmap_framing_open'
 export const roadmapSelectedKeyKey = (projectId: string) =>
   `sectile_roadmap_selected_key:${projectId}`
@@ -222,3 +222,15 @@ the translation checks of `docs/web-translation-checks.md`.
 - The toolbar block is long and interleaved with conditionals; hiding it must
   not unmount state the list needs (all state lives in the component, so
   unmounting the toolbar JSX is safe).
+
+## Implementation notes
+
+- The storage keys are exported as `ROADMAP_*_STORAGE_KEY`, and the
+  Description flag is stored under `sectile_roadmap_description_open`.
+- The selected macro is not reloaded from an effect on project change: the
+  state holds `{ projectId, key }`, and a render for another project reads that
+  project's stored key directly. This avoids a `set-state-in-effect` lint
+  warning and one extra render.
+- `MarkdownEditor` resolves its two textareas by a surface name (`inline`,
+  `maximized`) inside the event handlers, rather than passing ref objects to
+  render helpers, which the `react(refs)` lint rule flags.
