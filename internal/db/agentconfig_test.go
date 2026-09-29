@@ -76,7 +76,7 @@ func TestAgentConfigCarriesNoExecutionSetting(t *testing.T) {
 		t.Fatalf("an execution value reached the configuration: %+v", config)
 	}
 	for _, skill := range config.Skills {
-		if skill.ID == "implement" && skill.Command != "/code-issue" {
+		if skill.ID == "implement" && skill.Command != "/implement-issue" {
 			t.Fatalf("implement must run its standard command, got %q", skill.Command)
 		}
 	}

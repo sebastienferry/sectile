@@ -611,30 +611,40 @@ type InstalledSkillInfo struct {
 // database (which renders the files) and the runner (which invokes the agent)
 // need it, and a second list would drift.
 var SkillDirNames = map[string]string{
-	"clarify":       "clarify-issue",
-	"specify":       "specify-issue",
-	"implement":     "code-issue",
-	"adjust":        "adjust-issue",
-	"adjust-issue":  "adjust-issue",
-	"create-pr":     "create-pr",
-	"create_pr":     "create-pr",
-	"review":        "adjust-issue",
-	"handoff":       "handoff-issue",
-	"pickup":        "pickup-issue",
-	"pick":          "pickup-issue",
-	"pickup_issues": "pickup-issues",
-	"pickup-issues": "pickup-issues",
-	"pick_issues":   "pickup-issues",
-	"pick-issues":   "pickup-issues",
-	"rewrite_story": "rewrite-story",
-	"rewrite-story": "rewrite-story",
-	"rewrite":       "rewrite-story",
-	"realign_macro": "realign-macro",
-	"realign-macro": "realign-macro",
-	"realign":       "realign-macro",
-	"refine_macro":  "refine-macro",
-	"refine-macro":  "refine-macro",
-	"refine":        "refine-macro",
+	"clarify":         "clarify-issue",
+	"specify":         "specify-issue",
+	"implement":       "implement-issue",
+	"implement-issue": "implement-issue",
+	"code-issue":      "implement-issue",
+	"adjust":          "adjust-issue",
+	"adjust-issue":    "adjust-issue",
+	"create-pr":       "create-pr",
+	"create_pr":       "create-pr",
+	"review":          "adjust-issue",
+	"handoff":         "handoff-issue",
+	"pickup":          "pickup-issue",
+	"pick":            "pickup-issue",
+	"pickup_issues":   "pickup-issues",
+	"pickup-issues":   "pickup-issues",
+	"pick_issues":     "pickup-issues",
+	"pick-issues":     "pickup-issues",
+	"rewrite_story":   "rewrite-story",
+	"rewrite-story":   "rewrite-story",
+	"rewrite":         "rewrite-story",
+	"realign_macro":   "realign-macro",
+	"realign-macro":   "realign-macro",
+	"realign":         "realign-macro",
+	"refine_macro":    "refine-macro",
+	"refine-macro":    "refine-macro",
+	"refine":          "refine-macro",
+}
+
+// LegacySkillDirs maps a skill directory to the name it had before, which is
+// still installed as an alias forwarding to it (#608). A workstation or a
+// checkout set up before the rename has only the former directory, so a lookup
+// that misses the current one tries this one before giving up.
+var LegacySkillDirs = map[string]string{
+	"implement-issue": "code-issue",
 }
 
 // SkillAgentDirs are the per-repository directories the agent CLIs read their
@@ -1224,6 +1234,8 @@ func NormalizeSkillID(id string) string {
 		return "create_pr"
 	case "adjust", "adjust-issue", "review":
 		return "adjust"
+	case "implement-issue", "code-issue":
+		return "implement"
 	default:
 		return strings.TrimSpace(id)
 	}
