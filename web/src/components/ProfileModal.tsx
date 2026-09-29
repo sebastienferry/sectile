@@ -535,7 +535,7 @@ export const ProfileModal: React.FC = () => {
                       </p>
 
                       <div className="pt-2 flex items-center justify-between text-[10px] text-[var(--text-muted)]">
-                        <span>{t.profileModal.sdd?.speckitCommands || 'Commandes : /specify-issue, /code-issue'}</span>
+                        <span>{t.profileModal.sdd?.speckitCommands || 'Commandes : /specify-issue, /implement-issue'}</span>
                         <span className="px-1.5 py-0.5 rounded bg-[var(--bg-secondary)] font-mono">.specify/</span>
                       </div>
                     </button>
@@ -612,7 +612,7 @@ export const ProfileModal: React.FC = () => {
                     </div>
                     <div className="p-2 rounded-lg bg-[var(--bg-secondary)] border border-[var(--border-color)]">
                       <div className="font-bold text-indigo-400">{t.profileModal.sdd?.steps.code || '3. Coder'}</div>
-                      <div className="text-[9.5px] font-mono text-[var(--text-muted)] mt-0.5">/code-issue</div>
+                      <div className="text-[9.5px] font-mono text-[var(--text-muted)] mt-0.5">/implement-issue</div>
                     </div>
                     <div className="p-2 rounded-lg bg-[var(--bg-secondary)] border border-[var(--border-color)]">
                       <div className="font-bold text-purple-400">{t.profileModal.sdd?.steps.adjust || '4. Ajuster'}</div>
@@ -680,7 +680,7 @@ export const ProfileModal: React.FC = () => {
                     <label className="block text-[11px] font-bold text-[var(--text-primary)] flex items-center justify-between">
                       <span className="flex items-center gap-1.5 text-indigo-400">
                         <Flame size={13} />
-                        <span>{t.profileModal.sdd?.prompts.implement.label || "Prompt d'Implémentation (/code-issue)"}</span>
+                        <span>{t.profileModal.sdd?.prompts.implement.label || "Prompt d'Implémentation (/implement-issue)"}</span>
                       </span>
                       <span className="text-[10px] text-[var(--text-muted)] font-mono">{t.profileModal.sdd?.prompts.implement.hint || 'Développement & Tests'}</span>
                     </label>

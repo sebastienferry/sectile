@@ -153,7 +153,7 @@ const fr = {
     specified: {
       stepLabel: 'Coder',
       stepDescription: 'Implémenter le code sur la branche et passer les tests',
-      stepTooltip: "Avancer d'un pas : Implémenter le code et tests (code-issue)",
+      stepTooltip: "Avancer d'un pas : Implémenter le code et tests (implement-issue)",
       autoTooltip: 'Avancer en autonomie : Coder ➔ Adjust',
       remainingSteps: ['Coder', 'Adjust'],
     },
@@ -547,7 +547,7 @@ const en: ShellStrings = {
     specified: {
       stepLabel: 'Code',
       stepDescription: 'Implement the code on the branch and pass the tests',
-      stepTooltip: 'Advance one step: Implement the code and tests (code-issue)',
+      stepTooltip: 'Advance one step: Implement the code and tests (implement-issue)',
       autoTooltip: 'Advance autonomously: Code ➔ Adjust',
       remainingSteps: ['Code', 'Adjust'],
     },

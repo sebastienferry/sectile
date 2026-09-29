@@ -28,7 +28,6 @@ import type {
   Skill,
   TaskActivity,
   ActivityStats,
-  CliStatus,
   TaskSource,
   Project,
   ProjectSavePayload,
@@ -110,7 +109,6 @@ interface AppContextType {
   setEditingProject: (p: Project | null) => void
   tasks: Task[]
   skills: Skill[]
-  cliStatuses: CliStatus[]
 
   isFetchingGitStatus: boolean
 
@@ -389,7 +387,6 @@ interface AppContextType {
   syncJira: (projectKey?: string) => Promise<void>
   syncCurrentProject: () => Promise<void>
   syncSingleTask: (taskId: string) => Promise<Task | null>
-  fetchCliStatus: () => Promise<void>
   refreshTasks: () => Promise<void>
   activities: TaskActivity[]
   activityStats: ActivityStats
@@ -473,7 +470,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   const [tasks, setTasks] = useState<Task[]>([])
   const [skills, setSkills] = useState<Skill[]>([])
-  const [cliStatuses, setCliStatuses] = useState<CliStatus[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [isSkillRunning, setIsSkillRunning] = useState(false)
   const [isSyncing, setIsSyncing] = useState(false)
@@ -1139,18 +1135,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   }, [])
 
-  const fetchCliStatus = useCallback(async () => {
-    try {
-      const res = await fetch(`${API_BASE}/cli-status`)
-      if (res.ok) {
-        const data: CliStatus[] = await res.json()
-        setCliStatuses(data)
-      }
-    } catch (err) {
-      console.warn('Failed to load CLI statuses', err)
-    }
-  }, [])
-
   const fetchProjects = useCallback(async () => {
     const outcome = await readJson<Project[]>(`${API_BASE}/projects`)
     trackRead('projects', outcome)
@@ -1791,10 +1775,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   useEffect(() => {
     fetchSettings()
     fetchSkills()
-    fetchCliStatus()
     fetchProjects()
     fetchBoardViews()
-  }, [fetchSettings, fetchSkills, fetchCliStatus, fetchProjects, fetchBoardViews])
+  }, [fetchSettings, fetchSkills, fetchProjects, fetchBoardViews])
 
   // Data reload on filter / project change
   useEffect(() => {
@@ -1972,7 +1955,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
             title: t.toasts.settingsSaved,
           })
         }
-        fetchCliStatus()
       }
     } catch (err) {
       addToast({
@@ -3943,7 +3925,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         setEditingProject,
         tasks: filteredTasks,
         skills,
-        cliStatuses,
 
         isFetchingGitStatus,
 
@@ -4112,7 +4093,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         syncJira,
         syncCurrentProject,
         syncSingleTask,
-        fetchCliStatus,
         refreshTasks: fetchTasks,
         activities,
         activityStats,

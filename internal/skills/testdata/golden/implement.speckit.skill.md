@@ -1,5 +1,5 @@
 ---
-name: code-issue
+name: implement-issue
 description: "Implement the ticket from its specification and prove it works with the project's own build, linters and tests."
 ---
 # Implement Code

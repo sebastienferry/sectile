@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+
+	"tasks/internal/models"
 )
 
 // PluginName is the name of the Claude plugin distributing Sectile: its skills
@@ -73,8 +75,23 @@ func RenderPlugin(version string) (map[string][]byte, error) {
 	}
 	for _, s := range StageSkills {
 		files["skills/"+s.DirName+"/SKILL.md"] = []byte(RenderGenericSkillContent(s))
+		if legacy := models.LegacySkillDirs[s.DirName]; legacy != "" {
+			files["skills/"+legacy+"/SKILL.md"] = []byte(renderPluginAlias(legacy, s.DirName))
+		}
 	}
 	return files, nil
+}
+
+// renderPluginAlias is a skill kept under a former name (#608): it only hands
+// its arguments to the skill that replaced it, so a command typed with the old
+// name keeps running the same stage.
+func renderPluginAlias(legacy, target string) string {
+	return fmt.Sprintf("---\nname: %s\ndescription: %s\n---\n"+
+		"# %s (alias)\n\n"+
+		"`%s` is the former name of `%s`. Invoke `%s:%s` with the same arguments (in Claude Code, the Skill tool). "+
+		"If the running agent cannot invoke skills, read the sibling `../%s/SKILL.md` and follow it as written.\n",
+		legacy, YAMLString("Former name of "+target+", kept as an alias."), legacy,
+		legacy, target, PluginName, target, target)
 }
 
 // MarketplacePluginDir is where RenderMarketplace expects the plugin, relative

@@ -100,7 +100,7 @@ const AVAILABLE_ICONS = [
 const WORKFLOW_SKILLS: { id: WorkflowSkillId; defaultName: string; code: string; icon: React.ComponentType<{ size?: number; className?: string }>; color: string }[] = [
   { id: 'clarify', defaultName: 'Clarify', code: 'clarify-issue', icon: HelpCircle, color: 'amber' },
   { id: 'specify', defaultName: 'Specify', code: 'specify-issue', icon: FileCode, color: 'blue' },
-  { id: 'implement', defaultName: 'Implement', code: 'code-issue', icon: Flame, color: 'indigo' },
+  { id: 'implement', defaultName: 'Implement', code: 'implement-issue', icon: Flame, color: 'indigo' },
   { id: 'adjust', defaultName: 'Adjust', code: 'adjust-issue', icon: ShieldCheck, color: 'purple' },
   { id: 'handoff', defaultName: 'Handoff', code: 'handoff-issue', icon: Sparkles, color: 'emerald' },
 ]

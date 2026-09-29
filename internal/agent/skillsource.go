@@ -100,17 +100,30 @@ func chooseSkill(defaults agentconfig.Defaults, config agentconfig.Config, skill
 	if defaults.InstalledSkillSourceOrDefault() == agentconfig.SkillSourcePlugin {
 		sources = []string{agentconfig.SkillSourcePlugin, agentconfig.SkillSourceDirect}
 	}
-	for _, source := range sources {
-		switch source {
-		case agentconfig.SkillSourceDirect:
-			if fileExists(filepath.Join(loc.Home, filepath.FromSlash(loc.SkillDir), skill.Directory, "SKILL.md")) {
-				choice.Kind, choice.Command = skillKindDirect, command
-				return choice, nil
-			}
-		case agentconfig.SkillSourcePlugin:
-			if provider == "claude" && claudePluginSkill(loc.Home, skill.Directory, workDirs...) {
-				choice.Kind, choice.Command = skillKindPlugin, skills.PluginName+":"+skill.Directory
-				return choice, nil
+	// A workstation set up before a skill was renamed has only its former
+	// directory, which still holds the full skill: it runs under that name
+	// until the next setup installs the new one (#608).
+	directories := []string{skill.Directory}
+	if legacy := models.LegacySkillDirs[skill.Directory]; legacy != "" {
+		directories = append(directories, legacy)
+	}
+	for _, directory := range directories {
+		directCommand := command
+		if directory != skill.Directory {
+			directCommand = directory
+		}
+		for _, source := range sources {
+			switch source {
+			case agentconfig.SkillSourceDirect:
+				if fileExists(filepath.Join(loc.Home, filepath.FromSlash(loc.SkillDir), directory, "SKILL.md")) {
+					choice.Kind, choice.Command = skillKindDirect, directCommand
+					return choice, nil
+				}
+			case agentconfig.SkillSourcePlugin:
+				if provider == "claude" && claudePluginSkill(loc.Home, directory, workDirs...) {
+					choice.Kind, choice.Command = skillKindPlugin, skills.PluginName+":"+directory
+					return choice, nil
+				}
 			}
 		}
 	}

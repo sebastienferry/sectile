@@ -405,7 +405,9 @@ func (h *Handler) HandleHealth(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) HandleCliStatus(w http.ResponseWriter, r *http.Request) {
 	var result []models.CliStatus
-	if err := h.db.AgentOperation(agentprotocol.Operation{ProjectID: r.URL.Query().Get("projectId"), Action: "cli_status"}, &result); err != nil {
+	// Routed to the signed-in person's agent: without the user, a shared
+	// server looks for the implicit account's agent and never finds theirs.
+	if err := h.db.AgentOperation(agentprotocol.Operation{UserID: h.webSessionUser(r), ProjectID: r.URL.Query().Get("projectId"), Action: "cli_status"}, &result); err != nil {
 		writeError(w, http.StatusConflict, err.Error())
 		return
 	}
@@ -3929,7 +3931,7 @@ func (h *Handler) HandleOpenEditor(w http.ResponseWriter, r *http.Request) {
 		}
 		req.ProjectID = task.ProjectID
 	}
-	if err := h.db.AgentOperation(agentprotocol.Operation{ProjectID: req.ProjectID, TaskID: req.TaskID, Action: "open_editor"}, nil); err != nil {
+	if err := h.db.AgentOperation(agentprotocol.Operation{UserID: h.webSessionUser(r), ProjectID: req.ProjectID, TaskID: req.TaskID, Action: "open_editor"}, nil); err != nil {
 		writeError(w, http.StatusConflict, err.Error())
 		return
 	}
