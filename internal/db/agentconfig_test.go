@@ -6,7 +6,9 @@ import (
 	"strings"
 	"testing"
 
+	"tasks/internal/agentconfig"
 	"tasks/internal/models"
+	"tasks/internal/skills"
 	"tasks/internal/testsqlite"
 )
 
@@ -193,5 +195,57 @@ func TestAgentConfigMarksCustomSkills(t *testing.T) {
 	raw, _ := json.Marshal(config)
 	if strings.Count(string(raw), `"custom":true`) != 1 {
 		t.Fatalf("the custom flag must be sent for the edited skill only: %s", raw)
+	}
+}
+
+// The direct copy is written in a folder every project of the workstation
+// shares: what the server sends for it is the built-in skill, generic, the same
+// for a Spec Kit and an OpenSpec project and whatever either edited.
+func TestAgentConfigDirectContentIsProjectNeutral(t *testing.T) {
+	database, err := testsqlite.New(t, filepath.Join(t.TempDir(), "tasks.db"), NewDB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	speckit, err := database.CreateProject(models.CreateProjectRequest{Name: "Spec Kit", SpecFramework: "speckit", PRCreationStage: "specified"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	openspec, err := database.CreateProject(models.CreateProjectRequest{Name: "OpenSpec", SpecFramework: "openspec"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.SaveProjectSkillContent(openspec.ID, "specify", "---\nname: specify-issue\n---\nProject specification."); err != nil {
+		t.Fatal(err)
+	}
+	direct := map[string]map[string]agentconfig.Skill{}
+	for _, id := range []string{speckit.ID, openspec.ID} {
+		config, err := database.AgentConfig(id, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		direct[id] = map[string]agentconfig.Skill{}
+		for _, skill := range config.Skills {
+			direct[id][skill.ID] = skill
+		}
+	}
+	for _, id := range []string{"specify", "implement", "pickup", "realign_macro"} {
+		a, b := direct[speckit.ID][id], direct[openspec.ID][id]
+		if a.DirectContent == "" || a.DirectCommandContent == "" {
+			t.Fatalf("%s: no direct content sent", id)
+		}
+		if a.DirectContent != b.DirectContent || a.DirectCommandContent != b.DirectCommandContent {
+			t.Errorf("%s: the direct copy depends on the project", id)
+		}
+		stage, _ := skills.StageSkillByID(id)
+		if a.DirectContent != skills.RenderDirectSkillContent(stage) {
+			t.Errorf("%s: the direct copy is not the generic skill", id)
+		}
+		if strings.Contains(a.DirectContent, "PR creation stage: ") || strings.Contains(a.DirectContent, "Project specification.") {
+			t.Errorf("%s: the direct copy carries a project's setting or edit", id)
+		}
+	}
+	if direct[openspec.ID]["specify"].Content == direct[openspec.ID]["specify"].DirectContent || !strings.Contains(direct[openspec.ID]["specify"].Content, "Project specification.") {
+		t.Fatal("the project's own content must still reach its runs")
 	}
 }

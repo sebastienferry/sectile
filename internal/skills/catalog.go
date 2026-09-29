@@ -478,6 +478,24 @@ func RenderSkillContent(s StageSkill, specFramework string) string {
 // project's value from get_project_context at run time. The pull-request
 // policy is generic for the same reason.
 func RenderGenericSkillContent(s StageSkill) string {
+	return renderGenericSkill(s, genericTaskAccessFallback)
+}
+
+// RenderDirectSkillContent builds the SKILL.md the direct setup installs in a
+// CLI's user-level skill folder. That folder is shared by every project of the
+// workstation, so the content is the generic one, as in the plugin, with the
+// HTTP fallback of a skill that runs beside a local agent.
+func RenderDirectSkillContent(s StageSkill) string {
+	return renderGenericSkill(s, directTaskAccessFallback)
+}
+
+// RenderDirectSkillCommand is RenderDirectSkillContent as a slash command, for
+// a CLI that substitutes $ARGUMENTS.
+func RenderDirectSkillCommand(s StageSkill) string {
+	return skillCommand(s, RenderDirectSkillContent(s))
+}
+
+func renderGenericSkill(s StageSkill, taskAccessFallback string) string {
 	name := s.Title
 	if name == "" {
 		name = s.Name
@@ -487,7 +505,7 @@ func RenderGenericSkillContent(s StageSkill) string {
 	if s.ID == "pickup" || s.ID == "pickup_issues" {
 		steps = renderGenericPickupSteps(s.ID == "pickup_issues")
 	}
-	content := assembleSkill(s, name, readFirst, steps, genericTaskAccessFallback)
+	content := assembleSkill(s, name, readFirst, steps, taskAccessFallback)
 	if HasPullRequestPolicy(s.ID) {
 		content += GenericPullRequestPolicy()
 	}
@@ -696,8 +714,10 @@ func SkillCommandPath(root, dirName string) string {
 // RenderSkillCommand turns a rendered SKILL.md into its slash command: same
 // instructions, a command frontmatter, and the ticket passed as $ARGUMENTS.
 func RenderSkillCommand(s StageSkill, specFramework string) string {
-	body := RenderSkillContent(s, specFramework)
+	return skillCommand(s, RenderSkillContent(s, specFramework))
+}
 
+func skillCommand(s StageSkill, body string) string {
 	if strings.HasPrefix(body, "---\n") {
 		if end := strings.Index(body[4:], "\n---\n"); end >= 0 {
 			body = body[4+end+5:]

@@ -535,3 +535,38 @@ func TestCustomSkillsUsedRecordsCustomDispatchesOnly(t *testing.T) {
 		t.Fatalf("a skill run from its installed copy was recorded as custom: %+v", used)
 	}
 }
+
+// Claude resolves a plugin's enablement from the user settings, then the
+// project's .claude/settings.json, then its settings.local.json, the later
+// stated key winning. The run's folder is the project.
+func TestPluginEnablementFollowsClaudeScopes(t *testing.T) {
+	cases := []struct {
+		name                 string
+		user, project, local *bool
+		enabled              bool
+	}{
+		{name: "nothing stated", enabled: true},
+		{name: "disabled for the user", user: skillBool(false), enabled: false},
+		{name: "disabled in the project", user: skillBool(true), project: skillBool(false), enabled: false},
+		{name: "disabled locally", project: skillBool(true), local: skillBool(false), enabled: false},
+		{name: "enabled locally over the project", project: skillBool(false), local: skillBool(true), enabled: true},
+		{name: "enabled in the project over the user", user: skillBool(false), project: skillBool(true), enabled: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			home := testhome.Temp(t)
+			work := t.TempDir()
+			installPlugin(t, home, tc.user, []pluginInstall{{Scope: "user", InstallPath: filepath.Join(home, "plugin-cache", "user")}}, "implement-issue")
+			state := func(path string, v *bool) {
+				if v != nil {
+					writeJSON(t, path, map[string]any{"enabledPlugins": map[string]bool{"sectile@sectile": *v}})
+				}
+			}
+			state(filepath.Join(work, ".claude", "settings.json"), tc.project)
+			state(filepath.Join(work, ".claude", "settings.local.json"), tc.local)
+			if got := claudePluginSkill(home, "implement-issue", work); got != tc.enabled {
+				t.Fatalf("plugin enabled = %v, want %v", got, tc.enabled)
+			}
+		})
+	}
+}

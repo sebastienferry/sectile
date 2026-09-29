@@ -255,7 +255,13 @@ func (d *DB) ListProjectSkillEditor(projectIDOrPath string) ([]models.SkillEdito
 			entry.Paths = file.Paths
 			entry.RepoPath = file.Paths[0]
 			entry.Installed = true
-			entry.Diverged = strings.TrimSpace(file.Content) != strings.TrimSpace(content)
+			// The direct copy is the generic skill, shared by every project of
+			// the workstation: it diverges when it is neither of the two forms
+			// the direct setup writes, which is a hand edit or a copy an
+			// earlier release rendered for one project.
+			installed := strings.TrimSpace(file.Content)
+			entry.Diverged = installed != strings.TrimSpace(skills.RenderDirectSkillContent(stage)) &&
+				installed != strings.TrimSpace(skills.RenderDirectSkillCommand(stage))
 			if entry.Diverged {
 				entry.RepoContent = file.Content
 			}

@@ -37,7 +37,10 @@ registrations on its own; a dispatch uses what it finds.**
 - The direct setup stays, but only on request: `sectile-agent init`, the
   desktop's **Initialize**, the `sync_config` operation and the MCP connection
   saved from the desktop. It is the only route for codex, agy, gemini, cursor
-  and vibe.
+  and vibe. It installs the same generic skills as the plugin, with the local
+  HTTP fallback (`directContent` in `GET /api/v1/agent/config`): the folder it
+  writes is shared by every project of the workstation, and nothing rewrites
+  it per project any more (see *Amendment* below).
 - At dispatch the agent resolves each workflow skill, in this order:
   1. the project's custom skill, when the workstation setting **Custom project
      skills win** is on (the default) and the project edited the skill; it is
@@ -57,8 +60,10 @@ registrations on its own; a dispatch uses what it finds.**
   reads as not custom and the installed one runs, which is what an unedited
   project ran before.
 - The agent reads Claude's plugin state
-  (`~/.claude/plugins/installed_plugins.json`, `enabledPlugins` in
-  `~/.claude/settings.json`) and never writes it. A plugin installed for
+  (`~/.claude/plugins/installed_plugins.json`, and `enabledPlugins` in
+  `~/.claude/settings.json`, then the run folder's `.claude/settings.json` and
+  `.claude/settings.local.json`, the later stated key winning, as Claude
+  resolves it) and never writes it. A plugin installed for
   another project, or disabled, is not a source.
 - A saved desktop MCP connection is rewritten at agent start only when the
   address, the key or the executable it was written with changed. A
@@ -85,6 +90,32 @@ registrations on its own; a dispatch uses what it finds.**
   setup is not removed by installing the plugin. Both then declare the same
   server; `init` says so.
 
+## Amendment: the direct copy is generic
+
+The first version of this decision kept the direct setup's content per
+project: `RenderSkillContent` picks the project's specification framework
+(`steps.speckit.md` or `steps.openspec.md`) and appends its pull-request
+policy, and a project's edit replaced the built-in skill. Before #267 every
+dispatch rewrote the copy for the project it launched; with dispatches no
+longer writing, the copy of whichever project was set up last ran for all of
+them. An OpenSpec project then followed the Spec Kit steps and another
+project's pull-request policy, silently.
+
+The server therefore sends, beside each skill's `content`, a `directContent`
+and `directCommandContent`: the built-in skill rendered as the plugin renders
+it (`RenderDirectSkillContent`, each framework variant under its own heading,
+the pull-request policy for every creation stage, both read from
+`get_project_context` at run time), with the local agent's HTTP fallback. The
+direct setup installs them; `content` remains the project's own, handed to a
+run when it is custom. The skills editor marks a direct copy as diverged when
+it is neither form of the generic skill, which is also how a copy an earlier
+release rendered for one project shows.
+
+A copy written before this change is not detected at dispatch: comparing
+installed skills with the server's is the reconciliation the owner rejected.
+It is replaced by the next `sectile-agent init`, **Initialize** or
+`sync_config`, which the changelog asks users of the direct setup to run.
+
 ## Alternatives rejected
 
 - **Keep writing at dispatch, and skip it when the plugin is present.** Still
@@ -97,4 +128,7 @@ registrations on its own; a dispatch uses what it finds.**
 - **Install the plugin from the agent** (`claude plugin install`). It is the
   user's choice, and it would tie the agent to the Claude CLI.
 - **Version or checksum reconciliation** between installed and server skills,
-  rejected by the owner during clarification.
+  rejected by the owner during clarification. This also rules out passing over
+  a direct copy that is not the generic skill at dispatch.
+- **Keep the direct copy per project and rewrite it at dispatch**, as before
+  #267. That is the unasked rewrite this decision removes.
