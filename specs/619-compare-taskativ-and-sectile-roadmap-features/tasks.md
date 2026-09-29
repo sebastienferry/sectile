@@ -60,8 +60,8 @@ statuses are decided before tickets are mapped.
 ## Delivery
 
 - [x] T19 Commit `docs: compare Taskativ and Sectile roadmap features (#619)`.
-- [ ] T20 Present the proposed tickets to the owner and ask for approval.
-- [ ] T21 Only on approval (AC-5): ask which macro they go under (OP-1),
+- [x] T20 Present the proposed tickets to the owner and ask for approval.
+- [x] T21 Only on approval (AC-5): ask which macro they go under (OP-1),
       create the approved tickets, record their numbers in the study, commit.
 
 ## Test plan
