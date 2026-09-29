@@ -20,20 +20,10 @@ import {
   Users,
   Layers,
   RefreshCw,
-  Folder,
-  Terminal,
-  Zap,
-  Box,
-  Code2,
-  Cpu,
   Sparkles,
-  Workflow,
   Plus,
-  Settings2,
   FileCode2,
   Shield,
-  Search,
-  Star,
   Bookmark,
   Pencil,
 } from 'lucide-react'
@@ -46,22 +36,9 @@ import { enabledOptionalViews } from '../lib/optionalViews'
 import { myTasksTooltip } from '../lib/myTasks'
 import type { Status, TaskSource } from '../types'
 import { SectileLogo } from './SectileLogo'
+import { ProjectPicker } from './ProjectPicker'
+import { renderProjectIcon } from './ProjectIcon'
 import { format, plural } from '../lib/i18n'
-
-const renderProjectIcon = (iconName: string, size = 15, className = '') => {
-  switch (iconName) {
-    case 'Terminal': return <Terminal size={size} className={className} />
-    case 'Zap': return <Zap size={size} className={className} />
-    case 'Flame': return <Flame size={size} className={className} />
-    case 'Layers': return <Layers size={size} className={className} />
-    case 'Box': return <Box size={size} className={className} />
-    case 'Code2': return <Code2 size={size} className={className} />
-    case 'Cpu': return <Cpu size={size} className={className} />
-    case 'Sparkles': return <Sparkles size={size} className={className} />
-    case 'Workflow': return <Workflow size={size} className={className} />
-    default: return <Folder size={size} className={className} />
-  }
-}
 
 /**
  * Section repliable de la barre latérale. Le repli est mémorisé par section : la
@@ -126,12 +103,8 @@ const SidebarSection: React.FC<{
 export const Sidebar: React.FC = () => {
   const {
     projects,
-    selectedProjectId,
-    setSelectedProjectId,
     currentProject,
     setIsProjectModalOpen,
-    setEditingProject,
-    toggleProjectBookmark,
     activities,
     activeJobCount,
     activeView,
@@ -174,33 +147,12 @@ export const Sidebar: React.FC = () => {
   const shortcutAria = sidebarShortcutAria(mac)
 
   const [isProjectDropdownOpen, setIsProjectDropdownOpen] = useState(false)
-  const [projectSearch, setProjectSearch] = useState('')
   const projectDropdownRef = useRef<HTMLDivElement>(null)
+  const projectTriggerRef = useRef<HTMLButtonElement>(null)
 
-  const closeProjectDropdown = useCallback(() => {
-    setIsProjectDropdownOpen(false)
-    setProjectSearch('')
-  }, [])
+  // The picker keeps its own query: closing it unmounts it, which clears it.
+  const closeProjectDropdown = useCallback(() => setIsProjectDropdownOpen(false), [])
   useClickOutside(projectDropdownRef, closeProjectDropdown)
-
-  const { searchBookmarked, searchOthers } = React.useMemo(() => {
-    const q = projectSearch.trim().toLowerCase()
-    if (!q) {
-      return {
-        searchBookmarked: projects.filter(p => p.bookmarked),
-        searchOthers: [],
-      }
-    }
-    const matches = projects.filter(p =>
-      p.name.toLowerCase().includes(q) ||
-      p.slug.toLowerCase().includes(q) ||
-      (p.description && p.description.toLowerCase().includes(q))
-    )
-    return {
-      searchBookmarked: matches.filter(p => p.bookmarked),
-      searchOthers: matches.filter(p => !p.bookmarked),
-    }
-  }, [projects, projectSearch])
 
   /**
    * Les compteurs viennent des facettes du serveur, qui ignorent les filtres et
@@ -380,7 +332,10 @@ export const Sidebar: React.FC = () => {
           <div className="relative">
             <button
               type="button"
+              ref={projectTriggerRef}
               onClick={() => setIsProjectDropdownOpen(prev => !prev)}
+              aria-haspopup="listbox"
+              aria-expanded={isProjectDropdownOpen}
               className="w-full flex items-center justify-between p-2 rounded-xl bg-[var(--bg-tertiary)]/70 hover:bg-[var(--bg-tertiary)] border border-[var(--sidebar-border)] hover:border-[var(--accent-color)]/50 transition-all text-left group shadow-xs cursor-pointer"
             >
               <div className="flex items-center gap-2 min-w-0">
@@ -405,236 +360,8 @@ export const Sidebar: React.FC = () => {
               <ChevronDown size={14} className={`text-[var(--text-muted)] group-hover:text-[var(--text-primary)] transition-transform duration-200 ${isProjectDropdownOpen ? 'rotate-180' : ''}`} />
             </button>
 
-            {/* Dropdown Menu */}
             {isProjectDropdownOpen && (
-              <div className="absolute left-0 top-full mt-1.5 w-72 rounded-2xl bg-[var(--bg-secondary)] border border-[var(--sidebar-border)] shadow-2xl p-1.5 z-50 animate-in fade-in zoom-in-95 duration-150">
-                <div className="px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] flex items-center justify-between">
-                  <span>{t.shell.projectPicker.title}</span>
-                  <span className="font-mono text-[9px]">{plural(settings.language, projects.length, t.shell.projectPicker.projectCount)}</span>
-                </div>
-
-                {/* Search Input */}
-                <div className="px-1.5 py-1">
-                  <div className="relative flex items-center">
-                    <Search size={12} className="absolute left-2.5 text-[var(--text-muted)] pointer-events-none" />
-                    <input
-                      type="text"
-                      value={projectSearch}
-                      onChange={e => setProjectSearch(e.target.value)}
-                      placeholder={t.shell.projectPicker.searchPlaceholder}
-                      className="w-full pl-7 pr-2 py-1 text-xs rounded-lg bg-[var(--bg-primary)] border border-[var(--border-color)] text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:border-[var(--accent-color)]"
-                      onClick={e => e.stopPropagation()}
-                    />
-                  </div>
-                </div>
-
-                {/* Project List: Bookmarked projects at the top */}
-                <div className="max-h-48 overflow-y-auto space-y-0.5 mt-1">
-                  {searchBookmarked.length === 0 && searchOthers.length === 0 ? (
-                    <div className="px-2 py-3 text-center text-xs text-[var(--text-muted)]">
-                      {projectSearch.trim() ? t.shell.projectPicker.noMatch : t.shell.projectPicker.noFavorite}
-                    </div>
-                  ) : (
-                    <>
-                      {searchBookmarked.length > 0 && (
-                        <div className="space-y-0.5">
-                          {projectSearch.trim() && searchOthers.length > 0 && (
-                            <div className="px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] flex items-center gap-1">
-                              <Star size={10} className="text-amber-400 fill-current" />
-                              <span>{t.shell.projectPicker.favorites}</span>
-                            </div>
-                          )}
-                          {searchBookmarked.map(p => {
-                            const isSel = selectedProjectId === p.id || selectedProjectId === p.slug
-                            return (
-                              <div
-                                key={p.id}
-                                onClick={() => {
-                                  setSelectedProjectId(p.id)
-                                  setIsProjectDropdownOpen(false)
-                                  setProjectSearch('')
-                                }}
-                                className={`group/item w-full flex items-center justify-between p-2 rounded-xl text-xs cursor-pointer transition-all ${
-                                  isSel
-                                    ? 'bg-[var(--accent-light)] accent-text font-bold border border-[var(--accent-color)]/30'
-                                    : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'
-                                }`}
-                              >
-                                <div className="flex items-center gap-2 min-w-0">
-                                  <div
-                                    className="w-5 h-5 rounded-md flex items-center justify-center shrink-0"
-                                    style={accentBadgeStyle(p.color)}
-                                  >
-                                    {renderProjectIcon(p.icon, 12)}
-                                  </div>
-                                  <div className="flex flex-col min-w-0">
-                                    <span className="truncate">{p.name}</span>
-                                    <span className="text-[9px] text-[var(--text-muted)] font-mono truncate max-w-[120px]">
-                                      {p.slug}
-                                    </span>
-                                  </div>
-                                </div>
-
-                                <div className="flex items-center gap-1">
-                                  <button
-                                    type="button"
-                                    onClick={async (e) => {
-                                      e.stopPropagation()
-                                      await toggleProjectBookmark(p.id)
-                                    }}
-                                    className={`p-1 rounded-md transition-colors cursor-pointer ${
-                                      p.bookmarked
-                                        ? 'text-amber-400 hover:text-amber-500'
-                                        : 'text-[var(--text-muted)] hover:text-amber-400 opacity-0 group-hover/item:opacity-100'
-                                    }`}
-                                    title={p.bookmarked ? t.shell.projectPicker.removeFavorite : t.shell.projectPicker.addFavorite}
-                                  >
-                                    <Star size={12} className={p.bookmarked ? 'fill-current' : ''} />
-                                  </button>
-                                  <span className="text-[10px] font-mono px-1.5 py-0.2 rounded-full bg-[var(--bg-primary)] text-[var(--text-muted)]">
-                                    {p.taskCount || 0}
-                                  </span>
-                                  <button
-                                    type="button"
-                                    onClick={(e) => {
-                                      e.stopPropagation()
-                                      setEditingProject(p)
-                                      setIsProjectModalOpen(true)
-                                      setIsProjectDropdownOpen(false)
-                                      setProjectSearch('')
-                                    }}
-                                    className="p-1 rounded-md text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-primary)] opacity-0 group-hover/item:opacity-100 transition-opacity cursor-pointer"
-                                    title={t.shell.projectPicker.configure}
-                                  >
-                                    <Settings2 size={12} />
-                                  </button>
-                                </div>
-                              </div>
-                            )
-                          })}
-                        </div>
-                      )}
-
-                      {searchOthers.length > 0 && (
-                        <div className="space-y-0.5 mt-1.5">
-                          <div className="px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
-                            {t.shell.projectPicker.otherProjects}
-                          </div>
-                          {searchOthers.map(p => {
-                            const isSel = selectedProjectId === p.id || selectedProjectId === p.slug
-                            return (
-                              <div
-                                key={p.id}
-                                onClick={() => {
-                                  setSelectedProjectId(p.id)
-                                  setIsProjectDropdownOpen(false)
-                                  setProjectSearch('')
-                                }}
-                                className={`group/item w-full flex items-center justify-between p-2 rounded-xl text-xs cursor-pointer transition-all ${
-                                  isSel
-                                    ? 'bg-[var(--accent-light)] accent-text font-bold border border-[var(--accent-color)]/30'
-                                    : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'
-                                }`}
-                              >
-                                <div className="flex items-center gap-2 min-w-0">
-                                  <div
-                                    className="w-5 h-5 rounded-md flex items-center justify-center shrink-0"
-                                    style={accentBadgeStyle(p.color)}
-                                  >
-                                    {renderProjectIcon(p.icon, 12)}
-                                  </div>
-                                  <div className="flex flex-col min-w-0">
-                                    <span className="truncate">{p.name}</span>
-                                    <span className="text-[9px] text-[var(--text-muted)] font-mono truncate max-w-[120px]">
-                                      {p.slug}
-                                    </span>
-                                  </div>
-                                </div>
-
-                                <div className="flex items-center gap-1">
-                                  <button
-                                    type="button"
-                                    onClick={async (e) => {
-                                      e.stopPropagation()
-                                      await toggleProjectBookmark(p.id)
-                                    }}
-                                    className={`p-1 rounded-md transition-colors cursor-pointer ${
-                                      p.bookmarked
-                                        ? 'text-amber-400 hover:text-amber-500'
-                                        : 'text-[var(--text-muted)] hover:text-amber-400 opacity-0 group-hover/item:opacity-100'
-                                    }`}
-                                    title={p.bookmarked ? t.shell.projectPicker.removeFavorite : t.shell.projectPicker.addFavorite}
-                                  >
-                                    <Star size={12} className={p.bookmarked ? 'fill-current' : ''} />
-                                  </button>
-                                  <span className="text-[10px] font-mono px-1.5 py-0.2 rounded-full bg-[var(--bg-primary)] text-[var(--text-muted)]">
-                                    {p.taskCount || 0}
-                                  </span>
-                                  <button
-                                    type="button"
-                                    onClick={(e) => {
-                                      e.stopPropagation()
-                                      setEditingProject(p)
-                                      setIsProjectModalOpen(true)
-                                      setIsProjectDropdownOpen(false)
-                                      setProjectSearch('')
-                                    }}
-                                    className="p-1 rounded-md text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-primary)] opacity-0 group-hover/item:opacity-100 transition-opacity cursor-pointer"
-                                    title={t.shell.projectPicker.configure}
-                                  >
-                                    <Settings2 size={12} />
-                                  </button>
-                                </div>
-                              </div>
-                            )
-                          })}
-                        </div>
-                      )}
-                    </>
-                  )}
-                </div>
-
-                <div className="my-1 border-t border-[var(--border-color)]"></div>
-
-                {/* All Projects Option (Below bookmarks) */}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSelectedProjectId('all')
-                    setIsProjectDropdownOpen(false)
-                    setProjectSearch('')
-                  }}
-                  className={`w-full flex items-center justify-between p-2 rounded-xl text-xs transition-all cursor-pointer ${
-                    selectedProjectId === 'all' && !selectedViewId
-                      ? 'bg-[var(--accent-light)] accent-text font-bold border border-[var(--accent-color)]/30'
-                      : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'
-                  }`}
-                >
-                  <div className="flex items-center gap-2">
-                    <div className="w-5 h-5 rounded-md bg-[var(--accent-color)]/20 text-[var(--accent-color)] flex items-center justify-center">
-                      <Layers size={12} />
-                    </div>
-                    <span>{t.shell.statusBar.allProjects}</span>
-                  </div>
-                  <span className="text-[10px] font-mono opacity-75">{counts.all}</span>
-                </button>
-
-                <div className="my-1 border-t border-[var(--border-color)]"></div>
-
-                {/* Add New Project Button */}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setEditingProject(null)
-                    setIsProjectModalOpen(true)
-                    setIsProjectDropdownOpen(false)
-                  }}
-                  className="w-full flex items-center gap-2 p-2 rounded-xl text-xs font-semibold text-[var(--accent-color)] hover:bg-[var(--accent-light)] transition-colors cursor-pointer"
-                >
-                  <Plus size={14} />
-                  <span>{t.shell.projectPicker.newProject}</span>
-                </button>
-              </div>
+              <ProjectPicker onClose={closeProjectDropdown} triggerRef={projectTriggerRef} allTasksCount={counts.all} />
             )}
           </div>
         ) : (

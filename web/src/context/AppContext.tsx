@@ -79,6 +79,13 @@ interface AppContextType {
   projects: Project[]
   selectedProjectId: string | 'all'
   setSelectedProjectId: (id: string | 'all') => void
+  /** Projects opened in this browser, most recent first (#582). */
+  projectHistory: ProjectOpening[]
+  isProjectOverviewOpen: boolean
+  /** The overview's text filter when it opens, the picker's query for "more matches". */
+  projectOverviewQuery: string
+  openProjectOverview: (query?: string) => void
+  closeProjectOverview: () => void
   currentProject: Project | null
   createProject: (data: ProjectSavePayload) => Promise<Project | null>
   updateProject: (id: string, updates: ProjectSavePayload) => Promise<Project | null>
@@ -454,6 +461,7 @@ import { applyDocumentLocale, format, isLocale, plural, rememberLocale, resolveI
 import { localizeActivityText } from '../lib/activityText'
 import { createLatestRequest } from '../lib/latestRequest'
 import { staleFilters } from '../lib/filterPruning'
+import { readProjectHistory, recordProjectOpening, writeProjectHistory, type ProjectOpening } from '../lib/projectHistory'
 
 // Le filtre « non assigné » a besoin d'une valeur : une chaîne vide voudrait dire
 // « aucun filtre ». La même sentinelle est reconnue côté serveur.
@@ -718,10 +726,21 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       return 'all'
     }
   })
-  // Choosing a project, or "all projects", leaves the open view.
+  const [projectHistory, setProjectHistory] = useState<ProjectOpening[]>(readProjectHistory)
+  useEffect(() => writeProjectHistory(projectHistory), [projectHistory])
+  // Choosing a project, or "all projects", leaves the open view. Choosing a
+  // project is also an opening that "Recent" remembers; the startup restore and
+  // leaving a view set the state directly, so they are not openings (#582).
   const setSelectedProjectId = useCallback((id: string | 'all') => {
     setSelectedViewId(null)
     setSelectedProjectIdState(id)
+    if (id !== 'all') {
+      // From the stored history when there is one, so an opening does not
+      // erase those another tab recorded meanwhile; from memory otherwise.
+      const now = new Date()
+      const stored = readProjectHistory()
+      setProjectHistory(prev => recordProjectOpening(stored.length > 0 ? stored : prev, id, now))
+    }
     try {
       localStorage.setItem('sectile_selected_project_id', id)
     } catch {}
@@ -854,6 +873,13 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   }, [persistFilter])
 
   const [isProjectModalOpen, setIsProjectModalOpen] = useState(false)
+  const [isProjectOverviewOpen, setIsProjectOverviewOpen] = useState(false)
+  const [projectOverviewQuery, setProjectOverviewQuery] = useState('')
+  const openProjectOverview = useCallback((query = '') => {
+    setProjectOverviewQuery(query)
+    setIsProjectOverviewOpen(true)
+  }, [])
+  const closeProjectOverview = useCallback(() => setIsProjectOverviewOpen(false), [])
   const [isBoardViewModalOpen, setIsBoardViewModalOpen] = useState(false)
   const [editingBoardView, setEditingBoardView] = useState<BoardView | null>(null)
   const openBoardViewModal = useCallback((view: BoardView | null) => {
@@ -1132,18 +1158,20 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     const projectList = outcome.data || []
     setProjects(projectList)
 
-    // Ensure a valid project is actively selected, preserving 'all' or active bookmarked project
+    // Ensure a valid project is actively selected, preserving 'all' or the
+    // selected project while it exists. A project opened from "Recent" or the
+    // overview need not be a favorite, and a refresh must not take it away (#582).
     setSelectedProjectIdState(prev => {
       if (prev === 'all') {
         return 'all'
       }
-      if (prev && projectList.some(p => (p.id === prev || p.slug === prev) && p.bookmarked)) {
+      if (prev && projectList.some(p => p.id === prev || p.slug === prev)) {
         return prev
       }
       try {
         const stored = localStorage.getItem('sectile_selected_project_id') || localStorage.getItem('taskacao_selected_project_id')
         if (stored === 'all') return 'all'
-        if (stored && projectList.some(p => (p.id === stored || p.slug === stored) && p.bookmarked)) {
+        if (stored && projectList.some(p => p.id === stored || p.slug === stored)) {
           return stored
         }
       } catch {}
@@ -1371,19 +1399,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         })
       )
 
-      if (!newStatus) {
-        setSelectedProjectIdState(prev => {
-          const isCurrent =
-            prev === projectId ||
-            projects.some(p => (p.id === projectId || p.slug === projectId) && (p.id === prev || p.slug === prev))
-          if (isCurrent) {
-            const remaining = projects.find(p => p.id !== projectId && p.slug !== projectId && p.bookmarked)
-            return remaining ? remaining.id : 'all'
-          }
-          return prev
-        })
-      }
-
+      // Removing the current project from the favorites keeps it selected: the
+      // current project need not be a favorite, it moves to "Recent" (#582).
       try {
         const res = await fetch(`${API_BASE}/me/project-bookmarks/${projectId}/toggle`, {
           method: 'POST',
@@ -1411,7 +1428,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         return !newStatus
       }
     },
-    [projects, fetchTasks, fetchTaskFacets]
+    [fetchTasks, fetchTaskFacets]
   )
 
   const [userCredentials, setUserCredentials] = useState<StoredUserCredential[]>([])
@@ -3898,6 +3915,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         projects,
         selectedProjectId,
         setSelectedProjectId,
+        projectHistory,
+        isProjectOverviewOpen,
+        projectOverviewQuery,
+        openProjectOverview,
+        closeProjectOverview,
         currentProject,
         createProject,
         updateProject,
