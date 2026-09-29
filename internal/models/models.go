@@ -294,8 +294,11 @@ type MacroMeta struct {
 	Quarter string `json:"quarter"`
 	// LabelsWritable tells whether Sectile writes the epic axes on the tracker.
 	// It is computed when the macros are read, never stored.
-	LabelsWritable bool      `json:"labelsWritable"`
-	UpdatedAt      time.Time `json:"updatedAt"`
+	LabelsWritable bool `json:"labelsWritable"`
+	// Labels are the epic's labels as the tracker returns them, axis labels
+	// included. Only the epic sync and a successful label edit write them.
+	Labels    []string  `json:"labels"`
+	UpdatedAt time.Time `json:"updatedAt"`
 	// ExternalURL is the macro's own page on its tracker, computed when the
 	// list is read and never stored. Empty when the tracker gives none.
 	ExternalURL string `json:"externalUrl,omitempty"`

@@ -511,10 +511,18 @@ var migrations = []migration{
 		},
 	},
 	{
+		// The labels a tracker epic carries (#626), kept as the tracker returns
+		// them so the roadmap can show and filter them. An existing macro reads
+		// as carrying none until the next sync.
+		version:    35,
+		name:       "macros.labels",
+		statements: []string{"ALTER TABLE macros ADD COLUMN labels TEXT NOT NULL DEFAULT '[]';"},
+	},
+	{
 		// The provider a failed tracker write was refused for, because the
 		// person who asked for it has no token of their own there (#645). Empty
 		// is "not refused for that", which every earlier activity reads as.
-		version:    35,
+		version:    36,
 		name:       "task_activities.credential_missing",
 		statements: []string{"ALTER TABLE task_activities ADD COLUMN credential_missing TEXT NOT NULL DEFAULT '';"},
 	},

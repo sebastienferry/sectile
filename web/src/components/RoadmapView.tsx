@@ -47,6 +47,8 @@ import { LookupField } from './LookupField'
 import { MarkdownEditor } from './Markdown'
 import { EpicBar, useEpicColors } from './EpicMarker'
 import { MacroLabelGroups } from './MacroLabelGroups'
+import { EpicLabelFilter } from './EpicLabelFilter'
+import { EpicLabelEditor } from './EpicLabelEditor'
 import { MacroTaskRow } from './MacroTaskRow'
 import { sprintLookup, isProjectCompatible, targetProjectOptions } from '../lib/lookups'
 import { format, plural } from '../lib/i18n'
@@ -55,6 +57,10 @@ import {
   placementIssues,
   placementOf,
   matchesMacroSearch,
+  epicLabelInventory,
+  freeEpicLabels,
+  matchesEpicLabels,
+  pruneSelectedLabels,
   HORIZON_META,
   MATURITY_META,
   PLACEMENT_META,
@@ -113,6 +119,12 @@ import { MacroRealignButton } from './MacroRealignButton'
  * Display text comes from `t.planning.roadmap`; horizon labels are product
  * vocabulary and read the same in both languages.
  */
+
+/** An epic's free label on its row (#626), styled like the squad chip. */
+const EPIC_LABEL_BADGE =
+  'text-[9.5px] px-1 rounded font-mono bg-[var(--bg-tertiary)] text-[var(--text-secondary)] border border-[var(--border-color)]'
+/** How many free labels the condensed row shows before counting the rest. */
+const CONDENSED_LABELS = 2
 
 /**
  * The tabs. Horizon tabs show the horizon label as is; the two others take
@@ -237,6 +249,10 @@ export const RoadmapView: React.FC = () => {
   // tied to the epic and value it started from, so selecting another epic or
   // saving drops it without an effect.
   const [quarterEdit, setQuarterEdit] = useState<{ origin: string; value: string; error: string } | null>(null)
+  // The epic labels picked in the toolbar filter (#626). Not remembered between
+  // visits: a label filter kept without the user knowing is what makes a
+  // roadmap look empty.
+  const [selectedLabels, setSelectedLabels] = useState<string[]>([])
 
   // The shape of the rows. Remembered per browser: it is a reading setting, it
   // depends neither on the project nor on the tab, and resetting it on every
@@ -431,8 +447,15 @@ export const RoadmapView: React.FC = () => {
       const value = priorityFilter === 'none' ? strings.axes.noPriority : epicPriorityLabel(priorityFilter)
       chips.push({ label: format(strings.axes.filterChip, { value }), clear: () => setPriorityFilter(null) })
     }
+    selectedLabels.forEach(label =>
+      chips.push({
+        label: format(strings.epicLabels.chip, { label }),
+        clear: () => setSelectedLabels(prev => prev.filter(l => l !== label)),
+      })
+    )
     return chips
   }, [
+    selectedLabels,
     assigneeFilter,
     myTasksOnly,
     sprintFilter,
@@ -530,13 +553,32 @@ export const RoadmapView: React.FC = () => {
 
   const allRows = useMemo(() => buildMacroRows(tasks, currentProject, macroMeta), [tasks, currentProject, macroMeta])
 
-  const rows = useMemo(() => {
+  // The label filter offers what the epics the other filters let through
+  // carry, across every horizon tab, so that its counts do not change with the
+  // tab being read.
+  const unlabelledRows = useMemo(() => {
     let list = allRows
     if (!showClosed) list = list.filter(r => !r.closed)
     if (searchQuery.trim()) list = list.filter(r => matchesMacroSearch(r, searchQuery))
     if (priorityFilter) list = list.filter(r => matchesPriority(r, priorityFilter))
     return list
   }, [allRows, showClosed, searchQuery, priorityFilter])
+
+  const labelInventory = useMemo(() => epicLabelInventory(unlabelledRows), [unlabelledRows])
+  // The editor suggests every free label of the project's epics, closed and
+  // searched-away ones included: a label is reused, not typed anew.
+  const labelSuggestions = useMemo(() => epicLabelInventory(allRows).map(entry => entry.label), [allRows])
+
+  // A picked label no epic of the view carries any more stops being picked,
+  // rather than leaving an empty list nobody can explain.
+  useEffect(() => {
+    setSelectedLabels(prev => pruneSelectedLabels(prev, labelInventory))
+  }, [labelInventory])
+
+  const rows = useMemo(
+    () => unlabelledRows.filter(r => matchesEpicLabels(r, selectedLabels)),
+    [unlabelledRows, selectedLabels]
+  )
 
   const hiddenMatches = useMemo(() => {
     const q = searchQuery.trim()
@@ -837,6 +879,9 @@ export const RoadmapView: React.FC = () => {
             style={{ color: mat.color, background: mat.bg, border: `1px solid ${mat.border}` }}>
             {strings.maturity[row.maturity]}
           </span>
+          {freeEpicLabels(row.meta).map(label => (
+            <span key={label} className={EPIC_LABEL_BADGE}>{label}</span>
+          ))}
 
           {displayMode === 'execution' ? (
             issues.length > 0 ? (
@@ -908,6 +953,28 @@ export const RoadmapView: React.FC = () => {
     )
   }
 
+  /**
+   * The condensed row keeps two free labels and counts the rest: it has one line
+   * to spend, and the tooltip names what the counter hides.
+   */
+  const renderCondensedLabels = (row: MacroRow) => {
+    const labels = freeEpicLabels(row.meta)
+    if (labels.length === 0) return null
+    const hidden = labels.slice(CONDENSED_LABELS)
+    return (
+      <>
+        {labels.slice(0, CONDENSED_LABELS).map(label => (
+          <span key={label} className={`shrink-0 max-w-[110px] truncate ${EPIC_LABEL_BADGE}`} title={label}>{label}</span>
+        ))}
+        {hidden.length > 0 && (
+          <span className={`shrink-0 ${EPIC_LABEL_BADGE}`} title={format(strings.epicLabels.moreTitle, { labels: hidden.join(', ') })}>
+            {format(strings.epicLabels.more, { count: hidden.length })}
+          </span>
+        )}
+      </>
+    )
+  }
+
   const renderCondensedRow = (row: MacroRow) => {
     const isSel = selected?.key === row.key
     const issues = placementIssues(row, horizonOfTab)
@@ -928,6 +995,7 @@ export const RoadmapView: React.FC = () => {
         <span className="flex-1 min-w-0 truncate text-[11.5px] text-[var(--text-primary)]" title={row.title}>
           {row.title}
         </span>
+        {renderCondensedLabels(row)}
         <span className="shrink-0 text-[9.5px] font-mono text-[var(--text-muted)]">
           {row.open.length}/{row.tasks.length}
         </span>
@@ -1085,6 +1153,8 @@ export const RoadmapView: React.FC = () => {
               {plural(language, closedCount, showClosed ? strings.closedShown : strings.closedHidden)}
             </button>
           )}
+
+          <EpicLabelFilter inventory={labelInventory} selected={selectedLabels} onChange={setSelectedLabels} />
 
           {/*
             The classification of a macro is written on the tracker as a
@@ -1728,6 +1798,9 @@ export const RoadmapView: React.FC = () => {
             </div>
 
             <div className="flex-1 overflow-y-auto px-4 pt-3.5 pb-7 flex flex-col gap-4">
+              {currentProject && (
+                <EpicLabelEditor key={selected.key} project={currentProject} row={selected} suggestions={labelSuggestions} />
+              )}
               {/* La clé porte l'axe, et ce n'est pas cosmétique : les deux vues
                   montent le même composant au même endroit de l'arbre, donc
                   React le réutiliserait en ne changeant que la prop. Son état

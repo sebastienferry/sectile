@@ -1299,6 +1299,43 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 		//
 		// Rien n'est écrit dans le dépôt ni sur le tracker, et aucune story
 		// n'est créée : c'est une lecture, et la découpe reste modifiable.
+		// The free labels of an epic (#626) are the tracker's: the edit is
+		// checked here, queued, and reaches the local copy only once the
+		// tracker accepted it. A refusal queues nothing.
+		if len(parts) >= 4 && parts[3] == "labels" && r.Method == http.MethodPost {
+			key := parts[2]
+			if decoded, err := url.PathUnescape(parts[2]); err == nil {
+				key = decoded
+			}
+			var req struct {
+				Add    []string `json:"add"`
+				Remove []string `json:"remove"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				writeError(w, http.StatusBadRequest, "Invalid labels payload: "+err.Error())
+				return
+			}
+			add, remove, err := h.db.ValidateMacroLabelEdit(id, key, req.Add, req.Remove)
+			if err != nil {
+				writeTrackerError(w, http.StatusBadRequest, err)
+				return
+			}
+			act, err := h.db.EnqueueTrackerOp(h.actingContext(r), db.TrackerOp{
+				Kind:          db.TrackerOpEpicLabels,
+				ProjectID:     id,
+				TaskKey:       key,
+				EpicKey:       key,
+				Labels:        add,
+				RemovedLabels: remove,
+			})
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			writeJSON(w, http.StatusAccepted, map[string]interface{}{"activity": act, "labelNote": "labels en file d'attente"})
+			return
+		}
+
 		if len(parts) >= 4 && parts[3] == "slicing" && r.Method == http.MethodPost {
 			key := parts[2]
 			if decoded, err := url.PathUnescape(parts[2]); err == nil {

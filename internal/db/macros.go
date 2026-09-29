@@ -150,7 +150,7 @@ func (d *DB) GetProjectMacros(projectID string) ([]models.MacroMeta, error) {
 
 	d.mu.RLock()
 	rows, err := d.conn.Query(`
-		SELECT project_id, key, horizon, description, framing_comment, todos, title, status, closed, priority, quarter, updated_at
+		SELECT project_id, key, horizon, description, framing_comment, todos, title, status, closed, priority, quarter, labels, updated_at
 		FROM macros WHERE project_id = ? ORDER BY key ASC
 	`, projectID)
 	d.mu.RUnlock()
@@ -165,15 +165,16 @@ func (d *DB) GetProjectMacros(projectID string) ([]models.MacroMeta, error) {
 	out := []models.MacroMeta{}
 	for rows.Next() {
 		var e models.MacroMeta
-		var todosJSON string
+		var todosJSON, labelsJSON string
 		var closed int
-		if err := rows.Scan(&e.ProjectID, &e.Key, &e.Horizon, &e.Description, &e.FramingComment, &todosJSON, &e.Title, &e.Status, &closed, &e.Priority, &e.Quarter, &e.UpdatedAt); err != nil {
+		if err := rows.Scan(&e.ProjectID, &e.Key, &e.Horizon, &e.Description, &e.FramingComment, &todosJSON, &e.Title, &e.Status, &closed, &e.Priority, &e.Quarter, &labelsJSON, &e.UpdatedAt); err != nil {
 			continue
 		}
 		e.Closed = closed == 1
 		e.Todos = parseMacroTodos(todosJSON)
 		e.ExternalURL = milestoneURLs[e.Key]
 		e.LabelsWritable = writable && macroKeyLabelable(e.Key, proj)
+		e.Labels = parseMacroLabels(labelsJSON)
 		out = append(out, e)
 	}
 	d.fillMacroURLsFromTasks(projectID, out)
@@ -248,6 +249,31 @@ func parseMacroTodos(raw string) []models.MacroTodo {
 	return list
 }
 
+// parseMacroLabels reads the stored label list; an empty or unreadable value
+// reads as no label, never as nil, so the clients always receive an array.
+func parseMacroLabels(raw string) []string {
+	var list []string
+	if strings.TrimSpace(raw) != "" {
+		_ = json.Unmarshal([]byte(raw), &list)
+	}
+	if list == nil {
+		return []string{}
+	}
+	return list
+}
+
+// cleanMacroLabels trims every label and drops the blank ones, keeping the
+// tracker's order.
+func cleanMacroLabels(labels []string) []string {
+	out := make([]string, 0, len(labels))
+	for _, label := range labels {
+		if label = strings.TrimSpace(label); label != "" {
+			out = append(out, label)
+		}
+	}
+	return out
+}
+
 func parseEpicTodos(raw string) []models.EpicTodo {
 	return parseMacroTodos(raw)
 }
@@ -262,7 +288,7 @@ func (d *DB) SaveMacroMeta(projectID string, key string, horizon *string, descri
 	if projectID == "" || key == "" {
 		return nil, fmt.Errorf("projet et clé de macro obligatoires")
 	}
-	return d.saveMacroMetaFull(projectID, key, horizon, description, framingComment, todos, nil, nil, nil)
+	return d.saveMacroMetaFull(projectID, key, horizon, description, framingComment, todos, nil, nil, nil, nil)
 }
 
 func (d *DB) SaveEpicMeta(projectID string, key string, horizon *string, description *string, todos *[]models.EpicTodo) (*models.EpicMeta, error) {
@@ -324,7 +350,7 @@ func (d *DB) UpdateMacro(ctx context.Context, projectID string, key string, titl
 		d.mu.Unlock()
 	}
 
-	saved, err := d.saveMacroMetaFull(projectID, key, horizon, description, framingComment, todos, title, nil, closed)
+	saved, err := d.saveMacroMetaFull(projectID, key, horizon, description, framingComment, todos, title, nil, closed, nil)
 	if err == nil && refused != nil {
 		return saved, fmt.Errorf("milestone GitHub de %s non mis à jour, modification gardée en local : %w", key, refused)
 	}
@@ -335,7 +361,10 @@ func (d *DB) UpdateEpic(ctx context.Context, projectID string, key string, title
 	return d.UpdateMacro(ctx, projectID, key, title, horizon, description, nil, todos, closed)
 }
 
-func (d *DB) saveMacroMetaFull(projectID string, key string, horizon *string, description *string, framingComment *string, todos *[]models.MacroTodo, title *string, status *string, closed *bool) (*models.MacroMeta, error) {
+// saveMacroMetaFull merges the given fields into the stored macro. A nil field
+// is left as it is, which is how a horizon or framing save keeps the labels the
+// sync recorded.
+func (d *DB) saveMacroMetaFull(projectID string, key string, horizon *string, description *string, framingComment *string, todos *[]models.MacroTodo, title *string, status *string, closed *bool, labels *[]string) (*models.MacroMeta, error) {
 	projectID = strings.TrimSpace(projectID)
 	key = strings.TrimSpace(key)
 	if projectID == "" || key == "" {
@@ -359,15 +388,19 @@ func (d *DB) saveMacroMetaFull(projectID string, key string, horizon *string, de
 		d.mu.Unlock()
 		return nil, err
 	}
-	current := models.MacroMeta{ProjectID: projectID, Key: key, Todos: []models.MacroTodo{}}
-	var todosJSON string
+	current := models.MacroMeta{ProjectID: projectID, Key: key, Todos: []models.MacroTodo{}, Labels: []string{}}
+	var todosJSON, labelsJSON string
 	var closedInt int
 	err = tx.QueryRow(`
-		SELECT horizon, description, framing_comment, todos, title, status, closed, priority, quarter FROM macros WHERE project_id = ? AND key = ?`+d.forUpdate(),
-		projectID, key).Scan(&current.Horizon, &current.Description, &current.FramingComment, &todosJSON, &current.Title, &current.Status, &closedInt, &current.Priority, &current.Quarter)
+		SELECT horizon, description, framing_comment, todos, title, status, closed, priority, quarter, labels FROM macros WHERE project_id = ? AND key = ?`+d.forUpdate(),
+		projectID, key).Scan(&current.Horizon, &current.Description, &current.FramingComment, &todosJSON, &current.Title, &current.Status, &closedInt, &current.Priority, &current.Quarter, &labelsJSON)
 	if err == nil {
 		current.Todos = parseMacroTodos(todosJSON)
 		current.Closed = closedInt == 1
+		current.Labels = parseMacroLabels(labelsJSON)
+	}
+	if labels != nil {
+		current.Labels = cleanMacroLabels(*labels)
 	}
 
 	if title != nil {
@@ -415,13 +448,14 @@ func (d *DB) saveMacroMetaFull(projectID string, key string, horizon *string, de
 	current.UpdatedAt = time.Now()
 
 	payload, _ := json.Marshal(current.Todos)
+	labelsPayload, _ := json.Marshal(current.Labels)
 	closedValue := 0
 	if current.Closed {
 		closedValue = 1
 	}
 	_, execErr := tx.Exec(`
-		INSERT INTO macros (project_id, key, horizon, description, framing_comment, todos, title, status, closed, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO macros (project_id, key, horizon, description, framing_comment, todos, title, status, closed, labels, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(project_id, key) DO UPDATE SET
 			horizon = excluded.horizon,
 			description = excluded.description,
@@ -430,8 +464,9 @@ func (d *DB) saveMacroMetaFull(projectID string, key string, horizon *string, de
 			title = excluded.title,
 			status = excluded.status,
 			closed = excluded.closed,
+			labels = excluded.labels,
 			updated_at = excluded.updated_at
-	`, projectID, key, current.Horizon, current.Description, current.FramingComment, string(payload), current.Title, current.Status, closedValue, current.UpdatedAt)
+	`, projectID, key, current.Horizon, current.Description, current.FramingComment, string(payload), current.Title, current.Status, closedValue, string(labelsPayload), current.UpdatedAt)
 	if execErr == nil {
 		execErr = tx.Commit()
 	}
@@ -444,7 +479,7 @@ func (d *DB) saveMacroMetaFull(projectID string, key string, horizon *string, de
 }
 
 func (d *DB) saveEpicMetaFull(projectID string, key string, horizon *string, description *string, todos *[]models.EpicTodo, title *string, status *string, closed *bool) (*models.EpicMeta, error) {
-	return d.saveMacroMetaFull(projectID, key, horizon, description, nil, todos, title, status, closed)
+	return d.saveMacroMetaFull(projectID, key, horizon, description, nil, todos, title, status, closed, nil)
 }
 
 // CreateStoryFromMacroTodo turns a line of macro shaping into a real story in the tracker
@@ -800,7 +835,7 @@ func (d *DB) CreateMacro(ctx context.Context, projectID string, title string, ho
 	if h == "" {
 		h = HorizonNow
 	}
-	created, err := d.saveMacroMetaFull(projectID, key, &h, nil, nil, nil, &title, &status, &closed)
+	created, err := d.saveMacroMetaFull(projectID, key, &h, nil, nil, nil, &title, &status, &closed, nil)
 	if err == nil && refused != nil {
 		return created, fmt.Errorf("milestone GitHub non créé, macro %s gardée en local : %w", key, refused)
 	}
@@ -997,13 +1032,14 @@ func (d *DB) MigrateMacro(ctx context.Context, sourceProjectID string, macroKey 
 
 	// 1. Read existing macro data from source project
 	var horizon, description, todosJSON, title, status, priority, quarter string
+	labelsJSON := "[]"
 	var closed int
 	d.mu.RLock()
 	err = d.conn.QueryRow(`
-		SELECT horizon, description, todos, title, status, closed, priority, quarter
+		SELECT horizon, description, todos, title, status, closed, priority, quarter, labels
 		FROM macros
 		WHERE project_id = ? AND key = ?
-	`, sourceProjectID, macroKey).Scan(&horizon, &description, &todosJSON, &title, &status, &closed, &priority, &quarter)
+	`, sourceProjectID, macroKey).Scan(&horizon, &description, &todosJSON, &title, &status, &closed, &priority, &quarter, &labelsJSON)
 	d.mu.RUnlock()
 
 	if err != nil {
@@ -1047,9 +1083,9 @@ func (d *DB) MigrateMacro(ctx context.Context, sourceProjectID string, macroKey 
 	err = d.conn.WithTx(func(tx *sqlTx) error {
 		var freshTitle string
 		readErr := tx.QueryRow(`
-			SELECT horizon, description, todos, title, status, closed, priority, quarter
+			SELECT horizon, description, todos, title, status, closed, priority, quarter, labels
 			FROM macros
-			WHERE project_id = ? AND key = ?`+d.forUpdate(), sourceProjectID, macroKey).Scan(&horizon, &description, &todosJSON, &freshTitle, &status, &closed, &priority, &quarter)
+			WHERE project_id = ? AND key = ?`+d.forUpdate(), sourceProjectID, macroKey).Scan(&horizon, &description, &todosJSON, &freshTitle, &status, &closed, &priority, &quarter, &labelsJSON)
 		if readErr != nil && readErr != sql.ErrNoRows {
 			return readErr
 		}
@@ -1057,8 +1093,8 @@ func (d *DB) MigrateMacro(ctx context.Context, sourceProjectID string, macroKey 
 			title = freshTitle
 		}
 		if _, err := tx.Exec(`
-			INSERT INTO macros (project_id, key, horizon, description, todos, title, status, closed, priority, quarter, updated_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+			INSERT INTO macros (project_id, key, horizon, description, todos, title, status, closed, priority, quarter, labels, updated_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
 			ON CONFLICT(project_id, key) DO UPDATE SET
 				horizon = excluded.horizon,
 				description = excluded.description,
@@ -1068,8 +1104,9 @@ func (d *DB) MigrateMacro(ctx context.Context, sourceProjectID string, macroKey 
 				closed = excluded.closed,
 				priority = excluded.priority,
 				quarter = excluded.quarter,
+				labels = excluded.labels,
 				updated_at = CURRENT_TIMESTAMP
-		`, targetProjectID, targetMacroKey, horizon, description, todosJSON, title, status, closed, priority, quarter); err != nil {
+		`, targetProjectID, targetMacroKey, horizon, description, todosJSON, title, status, closed, priority, quarter, labelsJSON); err != nil {
 			return err
 		}
 		// Delete from source project

@@ -48,7 +48,7 @@ calls `writeError` directly on that path is switched to it.
 
 ### 3. Queued writes: the activity records the refused provider (FR1, FR4)
 
-- **Migration 35** `task_activities.credential_missing` in
+- **Migration 36** `task_activities.credential_missing` in
   `internal/db/migrations.go`, nowhere else (not in the frozen baseline):
 
   ```sql
@@ -182,7 +182,7 @@ on that tracker's credentials. (#645)"
 
 - `internal/trackerapi/client.go` (helper)
 - `internal/handlers/handlers.go` (`writeTrackerError`)
-- `internal/db/migrations.go` (migration 35)
+- `internal/db/migrations.go` (migration 36)
 - `internal/db/migrations_test.go` (rewind helpers drop the new column)
 - `internal/models/models.go` (`TaskActivity.CredentialMissing`)
 - `internal/db/trackerops.go` (`finishTrackerOp`, runner wrapping)
@@ -213,7 +213,7 @@ on that tracker's credentials. (#645)"
 ## Risks
 
 - **Rewind tests** (memory: new ADD COLUMN breaks ~10 db tests): the helpers
-  in `migrations_test.go` that rewind below 35 must drop
+  in `migrations_test.go` that rewind below 36 must drop
   `task_activities.credential_missing`.
 - **PostgreSQL**: run the db suite with `SECTILE_TEST_POSTGRES_DSN` on a
   throwaway database, never on dev.

@@ -67,10 +67,13 @@ func TestPushStageCommitsMigration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if _, err := d.conn.Exec("ALTER TABLE macros DROP COLUMN labels"); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := d.conn.Exec("ALTER TABLE projects DROP COLUMN push_stage_commits"); err != nil {
 		t.Fatal(err)
 	}
-	// Migration 33 comes after it and is replayed too.
+	// Migrations 33 and 34 come after it and are replayed too.
 	if _, err := d.conn.Exec("ALTER TABLE projects DROP COLUMN branch_name_format"); err != nil {
 		t.Fatal(err)
 	}

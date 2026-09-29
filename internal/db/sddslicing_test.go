@@ -173,7 +173,7 @@ func localSpecReader(folder string) AgentOperations {
 func seedMacro(t *testing.T, database *DB, projectID, key string) {
 	t.Helper()
 	title := key
-	if _, err := database.saveMacroMetaFull(projectID, key, nil, nil, nil, nil, &title, nil, nil); err != nil {
+	if _, err := database.saveMacroMetaFull(projectID, key, nil, nil, nil, nil, &title, nil, nil, nil); err != nil {
 		t.Fatalf("préparation de la macro : %v", err)
 	}
 }

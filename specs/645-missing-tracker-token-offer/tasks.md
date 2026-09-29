@@ -20,10 +20,10 @@ the tests green.
 
 ## 2. Server: record it on the failed activity (FR1, FR4)
 
-- [x] T2.1 Migration 35 `task_activities.credential_missing` in
+- [x] T2.1 Migration 36 `task_activities.credential_missing` in
   `internal/db/migrations.go` only (next free number if 35 is taken).
 - [x] T2.2 `internal/db/migrations_test.go`: the rewind helpers drop the new
-  column wherever they rewind below 35.
+  column wherever they rewind below 36.
 - [x] T2.3 `models.TaskActivity.CredentialMissing` (`credentialMissing`).
 - [x] T2.4 `finishTrackerOp` writes the column from
   `MissingCredentialTracker(opErr)`.
@@ -94,7 +94,7 @@ the tests green.
 - T2.6: `runTransitionOp` on a tracker without `CapTransition` (GitHub) used
   to swallow the `UpdateIssue` error and complete; a missing-token refusal
   now fails the activity there, like the stage operation.
-- T2.7: `stagecommits_test.go` also rewinds below 35 and drops the column.
+- T2.7: `stagecommits_test.go` also rewinds below 36 and drops the column.
 - T3.6: task creation recognises the refusal but keeps its generic
   "La création a échoué" for every other failure, as before.
 - T4.2 / US2.3: the profile modal stays mounted and keeps the tab last shown
@@ -110,3 +110,4 @@ the tests green.
   identically on `origin/main` (e227c762), unrelated to this change.
 - T6.3: every `*.browser.mjs` passes except `board-filters`, which times out
   on the sprint filter placeholder identically on `origin/main`.
+- T2.1: renumbered from 35 to 36 when merging main, where #626 took 35 (`macros.labels`).

@@ -356,6 +356,11 @@ interface AppContextType {
     options?: { quiet?: boolean }
   ) => Promise<MacroMeta | null>
   saveEpicMeta: (projectId: string, key: string, patch: { title?: string; horizon?: MacroHorizon | ''; description?: string; framingComment?: string; todos?: MacroTodo[]; closed?: boolean }) => Promise<MacroMeta | null>
+  /**
+   * Queues an edit of an epic's free labels (#626). The labels change on the
+   * macro once the tracker accepted them, which the roadmap reloads on its own.
+   */
+  editMacroLabels: (projectId: string, key: string, patch: { add?: string[]; remove?: string[] }) => Promise<boolean>
   createStoryFromMacroTodo: (projectId: string, macroKey: string, todoId: string) => Promise<{ macro: MacroMeta | null; epic: MacroMeta | null; storyKey: string } | null>
   /** Produit la découpe d'une macro depuis les artefacts SDD du dépôt. */
   produceMacroSlicing: (projectId: string, macroKey: string, source: MacroTodoSource) => Promise<MacroMeta | null>
@@ -2748,6 +2753,24 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   }
   const saveEpicMeta = saveMacroMeta
 
+  const editMacroLabels = async (projectId: string, key: string, patch: { add?: string[]; remove?: string[] }): Promise<boolean> => {
+    const strings = t.planning.roadmap.epicLabels
+    try {
+      const res = await fetch(`${API_BASE}/projects/${encodeURIComponent(projectId)}/macros/${encodeURIComponent(key)}/labels`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ add: patch.add || [], remove: patch.remove || [] }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.error || strings.refused)
+      addToast({ type: 'info', title: format(strings.queued, { key }), description: strings.queuedBody })
+      return true
+    } catch (err: any) {
+      addToast({ type: 'error', title: strings.refused, description: err.message })
+      return false
+    }
+  }
+
   // Une ligne de TODO devient une story dans le tracker, sous sa macro.
   const createStoryFromMacroTodo = async (
     projectId: string,
@@ -4138,6 +4161,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         createBatchTasks,
 
         saveMacroMeta,
+        editMacroLabels,
         saveEpicMeta,
         createStoryFromMacroTodo,
         produceMacroSlicing,
