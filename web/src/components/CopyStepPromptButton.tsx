@@ -39,15 +39,21 @@ export function CopyStepPromptButton({ task, className = '' }: { task: Task; cla
       if (panelRef.current?.contains(target) || buttonRef.current?.contains(target)) return
       close()
     }
+    // A scroll or a resize moves the button away from the panel: close it, but
+    // leave the focus where it is, since the user is busy elsewhere.
+    const handleScroll = (e: Event) => {
+      if (e.target instanceof Node && panelRef.current?.contains(e.target)) return
+      setFallback('')
+    }
     const handleResize = () => setFallback('')
     document.addEventListener('keydown', handleKeyDown)
     document.addEventListener('mousedown', handleOutside)
-    window.addEventListener('scroll', handleOutside, true)
+    window.addEventListener('scroll', handleScroll, true)
     window.addEventListener('resize', handleResize)
     return () => {
       document.removeEventListener('keydown', handleKeyDown)
       document.removeEventListener('mousedown', handleOutside)
-      window.removeEventListener('scroll', handleOutside, true)
+      window.removeEventListener('scroll', handleScroll, true)
       window.removeEventListener('resize', handleResize)
     }
   }, [fallback])

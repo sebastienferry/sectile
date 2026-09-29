@@ -62,10 +62,12 @@ try {
   assert.equal(await page.evaluate(()=>JSON.parse(localStorage.getItem('sectile_launch_models')).fixture),'sonnet');
   assert.equal((await calls('setSelectedTask')).length,0,'the indicator does not open the task');
 
-  // The launch then uses the pick.
+  // The launch then uses the pick, from the card's own > button as from the menu.
+  await page.getByRole('button',{name:/^Avancer d'un pas/}).click();
+  await page.waitForFunction(()=>calls.filter(c=>c[0]==='advance').length===1);
   await page.getByRole('button',{name:'Actions',exact:true}).click();
   await page.getByRole('button',{name:'Avancer en interactif'}).click();
-  assert.deepEqual((await calls('advance')).map(c=>c.slice(1)),[['fixture',false,'interactive','sonnet']]);
+  assert.deepEqual((await calls('advance')).map(c=>c.slice(1)),[['fixture',false,undefined,'sonnet'],['fixture',false,'interactive','sonnet']]);
 
   // AC2: one selection behind both lists.
   await page.getByRole('button',{name:'Actions',exact:true}).click();
@@ -128,6 +130,12 @@ try {
   await page.keyboard.press('Escape');
   await panel.waitFor({state:'detached'});
   assert.equal(await copyIcon('/specify-issue').evaluate(e=>e===document.activeElement),true,'focus returns to the icon');
+  // A scroll closes it too, without pulling the focus back to the card.
+  await copyIcon('/specify-issue').click();
+  await panel.waitFor();
+  await page.evaluate(()=>{document.activeElement.blur();window.dispatchEvent(new Event('scroll'))});
+  await panel.waitFor({state:'detached'});
+  assert.equal(await copyIcon('/specify-issue').evaluate(e=>e===document.activeElement),false,'a scroll leaves the focus alone');
   await rerender(()=>{refuseClipboard=false;render()});
 
   // AC5: nothing to pick, nothing clickable.
@@ -154,7 +162,7 @@ try {
   await absent(page.getByRole('button',{name:/^Copier \//}),'the condensed card has no copy icon');
 
   assert.deepEqual(errors,[]);
-  console.log('PASS: indicator menu, keyboard and focus, pick without launch, shared selection, single popup, configured reset, copy icon prompt and toast, finished task, refused clipboard, passive indicators, chip placeholder, condensed card.');
+  console.log('PASS: indicator menu, keyboard and focus, pick without launch, shared selection, single popup, configured reset, copy icon prompt and toast, finished task, refused clipboard and its scroll close, passive indicators, chip placeholder, condensed card.');
 } finally {
   await browser?.close();
   await server.close();
