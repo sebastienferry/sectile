@@ -48,7 +48,7 @@ func TestSafeWorktreeNames(t *testing.T) {
 		if _, err := safeWorktreeName(key); err == nil {
 			t.Fatalf("accepted %q", key)
 		}
-		if _, err := localTaskPath(context.Background(), t.TempDir(), models.Task{Key: key}); err == nil {
+		if _, err := localTaskPath(context.Background(), t.TempDir(), models.Task{Key: key}, ""); err == nil {
 			t.Fatalf("lookup accepted %q", key)
 		}
 	}
@@ -83,15 +83,15 @@ func TestTaskOccupiedDestinationsAndReuse(t *testing.T) {
 			if err := os.WriteFile(sibling, []byte("preserved"), 0644); err != nil {
 				t.Fatal(err)
 			}
-			path, got, err := ensureLocalWorktree(context.Background(), root, task, true)
+			path, got, err := ensureLocalWorktree(context.Background(), root, task, true, "")
 			if err != nil || got != branch || filepath.Base(path) != occupiedWorktreeName("issue-289", branch, 2) {
 				t.Fatalf("%s %s %v", path, got, err)
 			}
-			again, _, err := ensureLocalWorktree(context.Background(), root, task, true)
+			again, _, err := ensureLocalWorktree(context.Background(), root, task, true, "")
 			if err != nil || !sameDirectory(path, again) {
 				t.Fatalf("reuse %s %v", again, err)
 			}
-			lookup, err := localTaskPath(context.Background(), root, task)
+			lookup, err := localTaskPath(context.Background(), root, task, "")
 			if err != nil || !sameDirectory(lookup, path) {
 				t.Fatalf("lookup %s %v", lookup, err)
 			}
@@ -124,8 +124,8 @@ func TestLocalTaskResolutionPreservesBranchLocations(t *testing.T) {
 				t.Fatal(err)
 			}
 			task := models.Task{Key: "#289", BranchName: &branch}
-			for _, lookup := range []func() (string, error){func() (string, error) { return localTaskPath(context.Background(), root, task) }, func() (string, error) {
-				p, _, e := ensureLocalWorktree(context.Background(), root, task, true)
+			for _, lookup := range []func() (string, error){func() (string, error) { return localTaskPath(context.Background(), root, task, "") }, func() (string, error) {
+				p, _, e := ensureLocalWorktree(context.Background(), root, task, true, "")
 				return p, e
 			}} {
 				got, err := lookup()
@@ -155,7 +155,7 @@ func TestWrongBranchAndDetachedPredictionsAreNotUsed(t *testing.T) {
 		}
 		branch := "feat/289"
 		task := models.Task{Key: "#289", BranchName: &branch}
-		path, err := localTaskPath(context.Background(), root, task)
+		path, err := localTaskPath(context.Background(), root, task, "")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -197,7 +197,7 @@ func TestWorktreeCreationFailurePreservesBlockingEntry(t *testing.T) {
 	if err := os.WriteFile(blocker, []byte("preserved"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := ensureLocalWorktree(context.Background(), root, models.Task{Key: "#289"}, true); err == nil {
+	if _, _, err := ensureLocalWorktree(context.Background(), root, models.Task{Key: "#289"}, true, ""); err == nil {
 		t.Fatal("blocking file overwritten")
 	}
 	if raw, err := os.ReadFile(blocker); err != nil || string(raw) != "preserved" {
@@ -210,13 +210,53 @@ func TestMissingAssignedBranchUsesPreparationFallback(t *testing.T) {
 	gitTest(t, root, "init", "-q", "-b", "main")
 	gitTest(t, root, "commit", "-q", "--allow-empty", "-m", "initial")
 	task := models.Task{Key: "#289"}
-	path, branch, err := ensureLocalWorktree(context.Background(), root, task, true)
+	path, branch, err := ensureLocalWorktree(context.Background(), root, task, true, "")
 	if err != nil || branch != "feat/289" {
 		t.Fatalf("%s %v", branch, err)
 	}
-	got, err := localTaskPath(context.Background(), root, task)
+	got, err := localTaskPath(context.Background(), root, task, "")
 	if err != nil || !sameDirectory(got, path) {
 		t.Fatalf("fallback lookup %s %v", got, err)
+	}
+}
+
+func TestTaskWorktreeBranchFollowsTheProjectFormat(t *testing.T) {
+	assigned := "feat/621"
+	cases := []struct {
+		task   models.Task
+		format string
+		want   string
+	}{
+		{models.Task{Key: "#621"}, "", "feat/621"},
+		{models.Task{Key: "AUC-1234"}, "", "feat/auc-1234"},
+		{models.Task{Key: "AUC-1234"}, "{key}", "AUC-1234"},
+		{models.Task{Key: "#621"}, "{key}", "621"},
+		{models.Task{Key: "AUC-1234", Title: "Choose the format"}, "feat/{key}-{title}", "feat/AUC-1234-choose-the-format"},
+		// An assigned branch is never renamed by a format.
+		{models.Task{Key: "#621", BranchName: &assigned}, "{key}", "feat/621"},
+	}
+	for _, c := range cases {
+		if got, err := taskWorktreeBranch(c.task, c.format); err != nil || got != c.want {
+			t.Errorf("taskWorktreeBranch(%s, %q) = %q, %v, want %q", c.task.Key, c.format, got, err, c.want)
+		}
+	}
+}
+
+func TestWorktreeIsCreatedOnTheFormattedBranch(t *testing.T) {
+	root := t.TempDir()
+	gitTest(t, root, "init", "-q", "-b", "main")
+	gitTest(t, root, "commit", "-q", "--allow-empty", "-m", "initial")
+	task := models.Task{Key: "AUC-1234", Title: "Choose the format"}
+	path, branch, err := ensureLocalWorktree(context.Background(), root, task, true, "{key}")
+	if err != nil || branch != "AUC-1234" {
+		t.Fatalf("%s %v", branch, err)
+	}
+	if current := strings.TrimSpace(gitTest(t, path, "branch", "--show-current")); current != "AUC-1234" {
+		t.Fatalf("the worktree is on %q, want AUC-1234", current)
+	}
+	got, err := localTaskPath(context.Background(), root, task, "{key}")
+	if err != nil || !sameDirectory(got, path) {
+		t.Fatalf("formatted lookup %s %v", got, err)
 	}
 }
 

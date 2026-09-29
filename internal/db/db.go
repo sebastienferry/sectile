@@ -2146,42 +2146,6 @@ func (d *DB) ResolveTaskRepoPath(task *models.Task) string {
 	return ""
 }
 
-// GenerateTaskBranchName formats a valid, clean git branch name for a task.
-func GenerateTaskBranchName(key, title string) string {
-	cleanKey := strings.TrimSpace(key)
-	var kb strings.Builder
-	for _, r := range strings.ToLower(cleanKey) {
-		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' || r == '_' {
-			kb.WriteRune(r)
-		}
-	}
-	cleanKey = kb.String()
-	if cleanKey == "" {
-		cleanKey = "task"
-	}
-
-	var tb strings.Builder
-	for _, r := range strings.ToLower(title) {
-		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
-			tb.WriteRune(r)
-		} else {
-			tb.WriteRune('-')
-		}
-	}
-	slug := tb.String()
-	for strings.Contains(slug, "--") {
-		slug = strings.ReplaceAll(slug, "--", "-")
-	}
-	slug = strings.Trim(slug, "-")
-	if len(slug) > 35 {
-		slug = strings.TrimRight(slug[:35], "-")
-	}
-	if slug == "" {
-		slug = "work"
-	}
-	return fmt.Sprintf("%s-%s", cleanKey, slug)
-}
-
 // SanitizeBranchName removes characters illegal in git branch names. The rule
 // itself lives in models: the agent needs it too, and the agent binary must not
 // link the database package.
