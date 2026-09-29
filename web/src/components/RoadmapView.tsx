@@ -1027,7 +1027,7 @@ export const RoadmapView: React.FC = () => {
           <select
             value={priorityFilter || ''}
             onChange={e => setPriorityFilter((e.target.value || null) as PriorityFilter)}
-            aria-label={strings.axes.priorityLabel}
+            aria-label={strings.axes.filterLabel}
             className="px-2 py-1 rounded-md text-[11px] font-semibold cursor-pointer border bg-[var(--bg-tertiary)] border-[var(--border-color)] text-[var(--text-secondary)]"
           >
             <option value="">{strings.axes.filterAll}</option>
@@ -1039,7 +1039,7 @@ export const RoadmapView: React.FC = () => {
           <select
             value={prioritySort}
             onChange={e => setPrioritySort(e.target.value as PrioritySort)}
-            aria-label={strings.axes.sortBacklog}
+            aria-label={strings.axes.sortLabel}
             className="px-2 py-1 rounded-md text-[11px] font-semibold cursor-pointer border bg-[var(--bg-tertiary)] border-[var(--border-color)] text-[var(--text-secondary)]"
           >
             <option value="backlog">{strings.axes.sortBacklog}</option>

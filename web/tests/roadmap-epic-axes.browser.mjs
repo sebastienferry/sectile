@@ -124,7 +124,7 @@ try {
   assert.equal(await quarter.inputValue(), '', 'the quarter field follows the selected epic');
 
   // US5: filter on "no priority".
-  const filter = page.getByRole('combobox', { name: 'Priorité' });
+  const filter = page.getByRole('combobox', { name: 'Filtrer les macros par priorité' });
   await filter.selectOption('none');
   await page.waitForFunction(() => !document.body.textContent.includes('Grafana decision'));
   assert.deepEqual(await rowOrder(), ['PE-3']);
@@ -132,7 +132,7 @@ try {
   await filter.selectOption('');
 
   // US6: sort on the priority, epics without one last.
-  await page.getByRole('combobox', { name: 'Ordre du backlog' }).selectOption('priority-desc');
+  await page.getByRole('combobox', { name: 'Trier les macros' }).selectOption('priority-desc');
   await page.waitForFunction(() => {
     const keys = [];
     for (const s of document.querySelectorAll('span')) {
