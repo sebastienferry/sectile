@@ -25,6 +25,8 @@ test fixtures or internal plumbing.
 - **Session titles show where a skill run stands.** The workflow skills prefix the agent session title with a status emoji: ❓ waiting for you, ✅ done, ❌ blocked. Among idle sessions, the sidebar tells which ones need you and how each run ended.
 - **Agent sessions link to their ticket and pull request.** A workflow skill writes a link to the ticket at the start of the conversation, and one to the pull request or merge request once it exists; in the Claude desktop app, a GitHub pull request is also bound to the session's PR bar.
 - **Claude desktop sessions follow work like Sectile Desktop.** A workflow skill files its session under a sidebar group named after the project, marks a chapter per stage, opens the diff pane once it changed code, ends with the command of the next step, and sends a notification when it waits for you, succeeds or is blocked.
+- The status emojis, links and session experience apply only to sessions you open yourself. A run launched from Sectile Desktop, which already shows all of this, only gets its plain `#47 - title` name.
+- Every workflow skill ends its replies with the same **Done / Remaining (Agent) / Pending (User)** block, so you always know what happened, what the agent still has to do and what waits for you.
 
 - Open desktop Configuration with Cmd+, on macOS or Ctrl+, on Windows/Linux, including from a terminal; an already-open settings page keeps its current category and unsaved edits. (#547)
 
