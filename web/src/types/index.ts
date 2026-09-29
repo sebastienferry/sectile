@@ -37,6 +37,8 @@ export interface TaskActivity {
   startedAt?: string
   completedAt?: string
   error?: string
+  /** The provider a failed tracker write was refused for, for want of the person's own token (#645). */
+  credentialMissing?: string
   duration?: string
   /** Set while a running session is blocked on the user. Cleared when it resumes or ends. */
   waitingSince?: string

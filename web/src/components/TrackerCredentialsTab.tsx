@@ -20,7 +20,10 @@ import { TrackerCredentialForm } from './TrackerCredentialForm'
  * Une seule section dédiée au sommet gère la phrase de scellement unique
  * pour l'ensemble des jetons de l'utilisateur.
  */
-export const TrackerCredentialsTab: React.FC = () => {
+export const TrackerCredentialsTab: React.FC<{
+  /** The provider whose entry starts open, when an offer to add its token sent the person here (#645). */
+  initialOpen?: TrackerKind
+}> = ({ initialOpen }) => {
   const {
     userCredentials,
     orphanedCredentials,
@@ -35,7 +38,13 @@ export const TrackerCredentialsTab: React.FC = () => {
 
   const { user: currentUser } = useCurrentUser()
 
-  const [open, setOpen] = useState<TrackerKind | null>(null)
+  const [open, setOpen] = useState<TrackerKind | null>(initialOpen ?? null)
+  // A new offer opens its provider's entry, also while the tab is shown.
+  const [seenInitialOpen, setSeenInitialOpen] = useState(initialOpen)
+  if (initialOpen !== seenInitialOpen) {
+    setSeenInitialOpen(initialOpen)
+    if (initialOpen) setOpen(initialOpen)
+  }
   const [unlockPhrase, setUnlockPhrase] = useState('')
   const [sharedPassphrase, setSharedPassphrase] = useState('')
   const [isUnlocking, setIsUnlocking] = useState(false)
