@@ -123,6 +123,7 @@ func TestMigrationTwentyFiveKeepsExistingProjectsArtefacts(t *testing.T) {
 		"ALTER TABLE projects ADD COLUMN mono_repo INTEGER NOT NULL DEFAULT 1",
 		`INSERT INTO projects (id, name, slug) VALUES ('p1', 'Old', 'old')`,
 		"ALTER TABLE projects DROP COLUMN push_stage_commits",
+		"ALTER TABLE projects DROP COLUMN branch_name_format",
 		"DELETE FROM schema_migrations WHERE version >= 25",
 	} {
 		if _, err := d.conn.Exec(stmt); err != nil {

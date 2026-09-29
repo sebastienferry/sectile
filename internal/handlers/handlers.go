@@ -4139,7 +4139,7 @@ func (h *Handler) HandleEventsSSE(w http.ResponseWriter, r *http.Request) {
 // repositoryErrorStatus answers 400 for a refused repository declaration or
 // pin (#456), and 500 for anything else.
 func repositoryErrorStatus(err error) int {
-	if errors.Is(err, db.ErrDuplicateRepository) || errors.Is(err, db.ErrRepositoryNotInProject) || errors.Is(err, db.ErrInvalidSpecArtifacts) {
+	if errors.Is(err, db.ErrDuplicateRepository) || errors.Is(err, db.ErrRepositoryNotInProject) || errors.Is(err, db.ErrInvalidSpecArtifacts) || errors.Is(err, db.ErrInvalidBranchNameFormat) {
 		return http.StatusBadRequest
 	}
 	return http.StatusInternalServerError
