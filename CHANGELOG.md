@@ -22,6 +22,8 @@ test fixtures or internal plumbing.
 - Projects can optionally push clarification and specification commits after each stage commit; the setting is off by default. (#459)
 - Projects can open the draft pull request as soon as a clarification is confirmed: choose "Draft after clarification" as the PR creation stage in the project options. Update Sectile Desktop on every workstation first; older versions refuse the setting. (#580)
 - **Desktop consoles survive an agent restart.** After restarting or updating the local agent, the sidebar lists the same executions (skill runs, autonomous runs, macro runs, discussions and free consoles), and each one replays, read-only, what its console showed. A run that was still going when the agent stopped comes back canceled. The 100 most recently finished runs are kept, privately, in `~/.taskflow/runs/`, until **Clear finished consoles**. (#588)
+- **Session titles show where a skill run stands.** The workflow skills prefix the agent session title with a status emoji: ❓ waiting for you, ✅ done, ❌ blocked. Among idle sessions, the sidebar tells which ones need you and how each run ended.
+- **Agent sessions link to their ticket and pull request.** A workflow skill writes a link to the ticket at the start of the conversation, and one to the pull request or merge request once it exists; in the Claude desktop app, a GitHub pull request is also bound to the session's PR bar.
 
 - Open desktop Configuration with Cmd+, on macOS or Ctrl+, on Windows/Linux, including from a terminal; an already-open settings page keeps its current category and unsaved edits. (#547)
 
