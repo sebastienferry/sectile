@@ -449,17 +449,13 @@ INSTRUCTIONS D'EXÉCUTION OBLIGATOIRES :
 	if skillID == "adjust" {
 		promptTemplate += "\n\n" + AdjustmentContract
 	}
-	branchName := ""
+	// A task without a branch yet gets the one the agent would create for it
+	// under the default format (#621); no project reaches this fallback.
+	branchName := task.Key
 	if task.BranchName != nil {
 		branchName = *task.BranchName
-	} else {
-		cleanTitle := strings.ToLower(task.Title)
-		cleanTitle = strings.ReplaceAll(cleanTitle, " ", "-")
-		cleanTitle = strings.ReplaceAll(cleanTitle, "'", "-")
-		if len(cleanTitle) > 30 {
-			cleanTitle = cleanTitle[:30]
-		}
-		branchName = fmt.Sprintf("%s-%s", task.Key, cleanTitle)
+	} else if rendered, err := models.TaskBranchName("", task.Key, task.Title); err == nil {
+		branchName = rendered
 	}
 
 	finalPrompt := promptTemplate

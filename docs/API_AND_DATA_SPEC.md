@@ -46,6 +46,7 @@ CREATE TABLE IF NOT EXISTS projects (
     default_skill_mode TEXT NOT NULL DEFAULT '',            -- '' (interactive) | 'interactive' | 'autonomous'
     full_chain_stop_stage TEXT NOT NULL DEFAULT 'reviewed', -- 'implemented' | 'reviewed'
     push_stage_commits INTEGER NOT NULL DEFAULT 0, -- boolean pushStageCommits in project/config/context JSON
+    branch_name_format TEXT NOT NULL DEFAULT '', -- branchNameFormat in project/config/context JSON; empty = feat/{key_lower}
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
