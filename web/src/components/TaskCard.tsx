@@ -40,7 +40,7 @@ import { Avatar } from './Avatar'
 import { EpicBar, useEpicColors } from './EpicMarker'
 import { shortElapsed, isElapsedStale } from '../lib/elapsed'
 import { format, formatDate } from '../lib/i18n'
-import { resolveTaskStage, getNextStepInfo, prRecoverySkill, skillForStage } from '../lib/workflow'
+import { resolveTaskStage, getNextStepInfo, prRecoverySkill, skillForStage, fullChainHasWork } from '../lib/workflow'
 import { reportedModel, reportedPickerModels, shortModelLabel } from '../lib/aiModels'
 import { loadLaunchModel, saveLaunchModel } from '../lib/launchModel'
 import { anchoredMenuPosition, moveMenuFocus, type AnchoredMenuPosition } from '../lib/anchoredMenu'
@@ -349,6 +349,17 @@ export const TaskCard: React.FC<TaskCardProps> = ({
 
   const nextStepInfo = getNextStepInfo(task, taskProject, t.shell.nextStep)
   const isFinishedTask = nextStepInfo.currentStage === 'finished'
+  // The full chain stops at the project's stop stage: from there on it has
+  // nothing to run, so the card offers the next step, autonomously, in its
+  // place (#637). A finished task keeps its disabled controls.
+  const offersAutonomousStep = !isFinishedTask && !fullChainHasWork(nextStepInfo.currentStage, taskProject)
+  const autonomousStepSkill = offersAutonomousStep ? skillForStage(nextStepInfo.currentStage) : null
+  const autonomousStepTitle = autonomousStepSkill
+    ? format(t.shell.card.autonomousStep, {
+      skill: skillLabel(autonomousStepSkill, t.shell.card.skills[autonomousStepSkill as keyof typeof t.shell.card.skills]),
+      description: nextStepInfo.stepDescription,
+    })
+    : ''
 
   // Un pas du workflow. Sans surcharge, le mode est celui que la précédence
   // résout (surcharge > skill > défaut du projet > interactif). La chaîne
@@ -356,9 +367,11 @@ export const TaskCard: React.FC<TaskCardProps> = ({
   // Tout lancement parti de cette carte utilise le modèle retenu : le pas
   // suivant, la chaîne complète et les deux modes. C'est ce qu'annonce
   // l'indicateur placé devant les boutons.
-  const handleAdvance = async (auto: boolean, mode?: SkillMode) => {
+  // `spinner` names the button that shows the pending launch: the autonomous
+  // step shortcut sits where the full chain was, and spins there.
+  const handleAdvance = async (auto: boolean, mode?: SkillMode, spinner: 'step' | 'auto' = auto ? 'auto' : 'step') => {
     if (advancing || isFinishedTask) return
-    setAdvancing(auto ? 'auto' : 'step')
+    setAdvancing(spinner)
     await advanceTask(task.id, auto, mode, effectiveLaunchModel)
     setAdvancing(null)
   }
@@ -680,9 +693,11 @@ export const TaskCard: React.FC<TaskCardProps> = ({
                 <ChevronRight size={12} /><span>{t.compactCard.advance}</span>
               </button>
               {modeActions}
-              <button type="button" className={compactActionClass} disabled={advancing !== null || isFinishedTask} onClick={() => { setIsMenuOpen(false); handleAdvance(true) }}>
-                <ChevronsRight size={12} /><span>{t.compactCard.advanceAuto}</span>
-              </button>
+              {!offersAutonomousStep && (
+                <button type="button" className={compactActionClass} disabled={advancing !== null || isFinishedTask} onClick={() => { setIsMenuOpen(false); handleAdvance(true) }}>
+                  <ChevronsRight size={12} /><span>{t.compactCard.advanceAuto}</span>
+                </button>
+              )}
               {task.parentKey && (
                 <button type="button" className={compactActionClass} onClick={() => { setIsMenuOpen(false); setParentFilter(parentFilter === task.parentKey ? null : task.parentKey!) }}>
                   <ListFilter size={12} /><span>{parentFilter === task.parentKey ? t.compactCard.clearParent : t.compactCard.filterParent} {task.parentKey}</span>
@@ -1074,18 +1089,34 @@ export const TaskCard: React.FC<TaskCardProps> = ({
           {advancing === 'step' ? <Loader2 size={14} className="animate-spin" /> : <ChevronRight size={14} />}
         </button>
 
-        <button
-          type="button"
-          disabled={advancing !== null || isFinishedTask}
-          onClick={e => {
-            e.stopPropagation()
-            handleAdvance(true)
-          }}
-          className="p-1 rounded-md text-[var(--text-muted)] hover:text-[var(--accent-color)] hover:bg-[var(--accent-light)] border border-transparent hover:border-[var(--accent-color)]/30 transition-colors cursor-pointer disabled:opacity-40"
-          title={nextStepInfo.autoTooltip}
-        >
-          {advancing === 'auto' ? <Loader2 size={14} className="animate-spin" /> : <ChevronsRight size={14} />}
-        </button>
+        {offersAutonomousStep ? (
+          <button
+            type="button"
+            disabled={advancing !== null}
+            onClick={e => {
+              e.stopPropagation()
+              handleAdvance(false, 'autonomous', 'auto')
+            }}
+            className="p-1 rounded-md text-[var(--text-muted)] hover:text-[var(--accent-color)] hover:bg-[var(--accent-light)] border border-transparent hover:border-[var(--accent-color)]/30 transition-colors cursor-pointer disabled:opacity-40"
+            title={autonomousStepTitle}
+            aria-label={autonomousStepTitle}
+          >
+            {advancing === 'auto' ? <Loader2 size={14} className="animate-spin" /> : <Bot size={14} />}
+          </button>
+        ) : (
+          <button
+            type="button"
+            disabled={advancing !== null || isFinishedTask}
+            onClick={e => {
+              e.stopPropagation()
+              handleAdvance(true)
+            }}
+            className="p-1 rounded-md text-[var(--text-muted)] hover:text-[var(--accent-color)] hover:bg-[var(--accent-light)] border border-transparent hover:border-[var(--accent-color)]/30 transition-colors cursor-pointer disabled:opacity-40"
+            title={nextStepInfo.autoTooltip}
+          >
+            {advancing === 'auto' ? <Loader2 size={14} className="animate-spin" /> : <ChevronsRight size={14} />}
+          </button>
+        )}
 
 
         {actionsMenu}

@@ -121,6 +121,17 @@ export const skillForStage = (stage: WorkflowStage): string | null => {
   }
 }
 
+/** Default of `Project.fullChainStopStage`, as documented in docs/CAPABILITIES.md. */
+export const DEFAULT_FULL_CHAIN_STOP_STAGE: WorkflowStage = 'reviewed'
+
+/**
+ * Whether the full chain still has a stage to run for a task at `stage`: the
+ * chain stops at the project's stop stage, so a task already there or past it
+ * has nothing left for it.
+ */
+export const fullChainHasWork = (stage: WorkflowStage, project?: Project | null): boolean =>
+  WORKFLOW_ORDER.indexOf(stage) < WORKFLOW_ORDER.indexOf(project?.fullChainStopStage || DEFAULT_FULL_CHAIN_STOP_STAGE)
+
 /**
  * Skills that act on a set of tickets rather than on one: the macro skills and
  * the batch pickup. A ticket's detail view does not offer them.
