@@ -10,6 +10,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"tasks/internal/agentexec"
 )
 
 // A task worktree is a fresh checkout: nothing gitignored comes with it, so
@@ -36,16 +38,23 @@ var (
 // npmInstall runs a clean install in dir. It is a variable so tests run without
 // npm and without the network.
 var npmInstall = func(ctx context.Context, dir string) error {
-	cmd := exec.CommandContext(ctx, "npm", "ci")
-	cmd.Dir = dir
-	// npm starts node, which may outlive a killed npm and keep the output pipe
-	// open; WaitDelay stops that from holding the launch past the timeout.
-	cmd.WaitDelay = 10 * time.Second
-	out, err := cmd.CombinedOutput()
+	out, err := npmCommand(ctx, dir).CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("%w: %s", err, outputTail(string(out), 5))
 	}
 	return nil
+}
+
+// npmCommand builds the clean install npmInstall runs in dir. On Windows npm is
+// npm.cmd, run by cmd.exe, and the install keeps a console child alive for
+// minutes: Hidden keeps it, node and the install scripts from opening a window.
+func npmCommand(ctx context.Context, dir string) *exec.Cmd {
+	cmd := agentexec.Hidden(exec.CommandContext(ctx, "npm", "ci"))
+	cmd.Dir = dir
+	// npm starts node, which may outlive a killed npm and keep the output pipe
+	// open; WaitDelay stops that from holding the launch past the timeout.
+	cmd.WaitDelay = 10 * time.Second
+	return cmd
 }
 
 // provisionLocks serialises provisioning per worktree, so two preparations of
