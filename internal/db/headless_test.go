@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"tasks/internal/agentprotocol"
 	"tasks/internal/models"
+	"tasks/internal/skills"
 	"testing"
 	"time"
 )
@@ -185,21 +186,38 @@ func TestSkillEditorUsesAgentEvidenceAndFrameworkOverride(t *testing.T) {
 		if op.Action != "skill_files" || op.ProjectID != p.ID {
 			t.Fatalf("snapshot request: %#v", op)
 		}
-		return json.Marshal(map[string]agentprotocol.SkillFile{"clarify": {Content: "personal instructions", Paths: []string{"/agent/repository/clarify/SKILL.md"}}})
+		// clarify was edited by hand; specify and implement are the generic
+		// copies the direct setup writes, as a skill and as a command.
+		specify, _ := skills.StageSkillByID("specify")
+		implement, _ := skills.StageSkillByID("implement")
+		return json.Marshal(map[string]agentprotocol.SkillFile{
+			"clarify":   {Content: "personal instructions", Paths: []string{"/agent/repository/clarify/SKILL.md"}},
+			"specify":   {Content: skills.RenderDirectSkillContent(specify), Paths: []string{"/agent/repository/specify/SKILL.md"}},
+			"implement": {Content: skills.RenderDirectSkillCommand(implement), Paths: []string{"/agent/repository/implement/SKILL.md"}},
+		})
 	})
 	entries, err := d.ListProjectSkillEditor(p.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
+	seen := 0
 	for _, entry := range entries {
-		if entry.ID == "clarify" {
+		switch entry.ID {
+		case "clarify":
+			seen++
 			if !entry.Installed || !entry.Diverged || entry.RepoContent != "personal instructions" {
 				t.Fatalf("agent divergence lost: %#v", entry)
 			}
-			return
+		case "specify", "implement":
+			seen++
+			if !entry.Installed || entry.Diverged {
+				t.Fatalf("%s: the generic direct copy reads as diverged", entry.ID)
+			}
 		}
 	}
-	t.Fatal("clarify entry missing")
+	if seen != 3 {
+		t.Fatalf("editor entries missing: %d of 3", seen)
+	}
 }
 
 // A restart keeps the executions whose owner it did not take down with it.
