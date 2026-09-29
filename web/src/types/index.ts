@@ -768,14 +768,6 @@ export interface AutoSyncState {
   backoffUntil?: string
 }
 
-export interface CliStatus {
-  tool: string
-  available: boolean
-  path: string
-  authStatus: string
-  details: string
-}
-
 // A link a toast offers to the thing it announces: opened in the app, and on
 // its tracker page when it has one.
 export interface ToastLink {
