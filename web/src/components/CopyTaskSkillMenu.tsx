@@ -3,19 +3,8 @@ import { Copy } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { resolveTaskStage, skillForStage } from '../lib/workflow'
 import { format } from '../lib/i18n'
+import { PICKUP_COMMAND, PICKUP_SKILL, SKILL_COMMANDS, taskSkillPrompt } from '../lib/skillPrompt'
 import type { Task } from '../types'
-
-/** Default command of each workflow skill, before any project override. */
-const SKILL_COMMANDS: Record<string, string> = {
-  clarify: '/clarify-issue',
-  specify: '/specify-issue',
-  implement: '/implement-issue',
-  adjust: '/adjust-issue',
-  handoff: '/handoff-issue',
-}
-
-const PICKUP_SKILL = 'pickup'
-const PICKUP_COMMAND = '/pickup-issue'
 
 export function CopyTaskSkillMenu({ task }: { task: Task }) {
   const { skillCommand, projects, currentProject, t } = useApp()
@@ -30,11 +19,8 @@ export function CopyTaskSkillMenu({ task }: { task: Task }) {
   const stage = resolveTaskStage(task, project)
   const stageSkill = skillForStage(stage)
 
-  // The clipboard receives the prompt itself: it is pasted into whichever
-  // assistant the user works in, not run through a shell.
   function promptFor(skillId: string, command: string): string {
-    const skill = skillCommand(skillId, command, task.projectId)
-    return `${skill} ${task.id}. Use Sectile MCP to read the task and comments and record workflow transitions. First call start_run and save its returned ID. Call finish_run with that runId when this entire skill ends, including failure or stopping for user input. Task primary key: ${task.id}.${task.projectId ? ` Project primary key: ${task.projectId}.` : ''}`
+    return taskSkillPrompt(skillCommand(skillId, command, task.projectId), task.id, task.projectId)
   }
 
   async function copy(label: string, skillId: string, command: string) {

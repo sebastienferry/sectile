@@ -340,8 +340,12 @@ The two surfaces differ in how long the choice lasts. In the detail view the
 selector applies to the launches made from that view. On a card the submenu is a
 selection the card keeps: one model is ticked, picking another starts nothing,
 and the card shows it in four characters at most right before its action
-buttons. Every launch started from that card then uses it, the full chain
-included, which from a card is a single `pickup` run. The selection is kept per
+buttons. That name is also a second way in: when the engine offers models,
+clicking it opens the same list, and a pick made in either place is ticked in
+both. With models offered but none configured or picked, a chip icon stands in
+for the name; an unknown engine (`?`) or a command line without a model slot
+leaves it a plain label. Every launch started from that card then uses it, the
+full chain included, which from a card is a single `pickup` run. The selection is kept per
 task and survives a reload; a model the project's engine no longer offers is
 ignored, and the card falls back to the configured one.
 

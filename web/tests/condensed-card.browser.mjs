@@ -46,6 +46,9 @@ for (const zoom of [0.8,1,1.25]) {
  await page.keyboard.press('Escape');
 }
 await page.evaluate(()=>{document.documentElement.style.zoom='1';document.documentElement.style.setProperty('--ui-zoom','1');document.body.classList.remove('light');});
+// #612: the copy icon is the full card's; the condensed card keeps both copy entries of its menu.
+assert.equal(await page.locator('[aria-label^="Copier /"]').count(),0);
+await page.getByRole('button',{name:'Actions',exact:true}).click();await page.getByTitle('Copier /clarify-issue pour cette tâche').waitFor();await page.getByTitle('Copier la commande de chaîne autonome pour cette tâche').waitFor();await page.keyboard.press('Escape');
 if(process.env.CARD_SCREENSHOT) await page.screenshot({path:process.env.CARD_SCREENSHOT});
-assert.deepEqual(errors,[]);console.log('PASS: compact metadata, ellipsis, keyboard details, action isolation, pin/parent/PR, Escape focus, advance guards and arguments, finished state, activity border, detailed densities, local reference, drag payload.');
+assert.deepEqual(errors,[]);console.log('PASS: compact metadata, ellipsis, keyboard details, action isolation, pin/parent/PR, Escape focus, advance guards and arguments, finished state, activity border, detailed densities, local reference, drag payload, copy entries without the copy icon.');
 } finally {await browser?.close();await server.close();}
