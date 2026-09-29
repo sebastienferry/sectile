@@ -47,3 +47,7 @@ Welcome to the comprehensive technical documentation for **Sectile** (formerly S
    - Step-by-step guide to rebuild Sectile from zero.
    - Critical implementation pitfalls, concurrency rules, and deadlock prevention.
    - Verification checklist and test suite specification.
+
+7. [**Taskativ and Sectile roadmap features** (`taskativ-roadmap-comparison.md`)](./taskativ-roadmap-comparison.md)
+   - Which Roadmap and Timeline features of Taskativ, Sectile's predecessor, Sectile covers.
+   - Each gap mapped to the Sectile issue that tracks it, or to a proposed ticket.
