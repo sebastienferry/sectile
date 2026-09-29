@@ -63,6 +63,17 @@ try {
   assert.equal(await panelKey(),'M-4','the selected macro is remembered');
   assert.equal(await page.evaluate(()=>localStorage.getItem('sectile_roadmap_selected_key:p')),'M-4');
 
+  // The selected macro belongs to its project: another project has its own, and switching back finds M-4 again.
+  const switchProject=id=>page.evaluate(id=>{window.ctx.currentProject={id,name:id,issueTracker:'github',sprints:[]};render()},id);
+  await switchProject('q');
+  await page.waitForFunction(()=>document.querySelector('aside span.font-mono')?.textContent==='M-3');
+  await row('Macro quatre').click();
+  await row('Macro trois').click();
+  await page.waitForFunction(()=>localStorage.getItem('sectile_roadmap_selected_key:q')==='M-3');
+  await switchProject('p');
+  await page.waitForFunction(()=>document.querySelector('aside span.font-mono')?.textContent==='M-4');
+  assert.equal(await page.evaluate(()=>localStorage.getItem('sectile_roadmap_selected_key:p')),'M-4','the other project did not overwrite it');
+
   const descriptionHeading=await page.evaluate(()=>window.ctx.t.planning.roadmap.framing.descriptionHeading);
   const descriptionToggle=()=>panel().getByText(descriptionHeading,{exact:true}).first();
   const maximizeButtons=()=>panel().getByRole('button',{name:"Agrandir l'éditeur"});

@@ -228,9 +228,10 @@ the translation checks of `docs/web-translation-checks.md`.
 - The storage keys are exported as `ROADMAP_*_STORAGE_KEY`, and the
   Description flag is stored under `sectile_roadmap_description_open`.
 - The selected macro is not reloaded from an effect on project change: the
-  state holds `{ projectId, key }`, and a render for another project reads that
-  project's stored key directly. This avoids a `set-state-in-effect` lint
-  warning and one extra render.
+  state holds `{ projectId, key }`, and the first render for another project
+  swaps in that project's stored key, once, during the render (React's
+  "adjusting state when a prop changes" pattern). This avoids a
+  `set-state-in-effect` lint warning and a storage read on every render.
 - `MarkdownEditor` resolves its two textareas by a surface name (`inline`,
   `maximized`) inside the event handlers, rather than passing ref objects to
   render helpers, which the `react(refs)` lint rule flags.
