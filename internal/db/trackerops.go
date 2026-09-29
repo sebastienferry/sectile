@@ -38,6 +38,10 @@ const (
 	// TrackerOpPushHorizons mirrors every locally classified epic whose label is
 	// missing or stale.
 	TrackerOpPushHorizons TrackerOpKind = "push_horizons"
+	// TrackerOpEpicPriority mirrors the priority of one epic as a label (#627).
+	TrackerOpEpicPriority TrackerOpKind = "epic_priority"
+	// TrackerOpEpicQuarter mirrors the quarter of one epic as a label (#627).
+	TrackerOpEpicQuarter TrackerOpKind = "epic_quarter"
 	// TrackerOpTransition moves a work item to a status named as the tracker
 	// spells it, which is what dropping a card in a board column does.
 	TrackerOpTransition TrackerOpKind = "transition"
@@ -71,6 +75,10 @@ type TrackerOp struct {
 	Fields       map[string]string
 	// Horizon is the roadmap horizon of an epic_horizon.
 	Horizon string
+	// Priority is the epic priority of an epic_priority, "p0" to "p3", "" to clear.
+	Priority string
+	// Quarter is the quarter of an epic_quarter, "2026-Q4", "" to clear.
+	Quarter string
 	// TargetStatus is the tracker status of a transition, in the tracker's own
 	// spelling ("Dev Test", "To Merge").
 	TargetStatus string
@@ -207,6 +215,22 @@ func buildTrackerOpJob(op TrackerOp) (*models.TaskActivity, SkillJob, error) {
 		action = fmt.Sprintf("Horizon de %s ➔ %s", op.EpicKey, op.Horizon)
 		summary = fmt.Sprintf("Label d'horizon de %s en file d'attente", op.EpicKey)
 		steps = append(steps, fmt.Sprintf("Cible : %s ➔ %s", op.EpicKey, op.Horizon))
+	case TrackerOpEpicPriority:
+		target := strings.ToUpper(op.Priority)
+		if target == "" {
+			target = "aucune"
+		}
+		action = fmt.Sprintf("Priorité de %s ➔ %s", op.EpicKey, target)
+		summary = fmt.Sprintf("Label de priorité de %s en file d'attente", op.EpicKey)
+		steps = append(steps, fmt.Sprintf("Cible : %s ➔ %s", op.EpicKey, target))
+	case TrackerOpEpicQuarter:
+		target := op.Quarter
+		if target == "" {
+			target = "aucun"
+		}
+		action = fmt.Sprintf("Trimestre de %s ➔ %s", op.EpicKey, target)
+		summary = fmt.Sprintf("Label de trimestre de %s en file d'attente", op.EpicKey)
+		steps = append(steps, fmt.Sprintf("Cible : %s ➔ %s", op.EpicKey, target))
 	case TrackerOpTransition:
 		action = fmt.Sprintf("Transition de %s ➔ %s", op.TaskKey, op.TargetStatus)
 		summary = fmt.Sprintf("Transition de %s vers « %s » en file d'attente", op.TaskKey, op.TargetStatus)
@@ -332,6 +356,10 @@ func (d *DB) processTrackerOpJob(ctx context.Context, job SkillJob) {
 		output, err = d.runEpicHorizonOp(ctx, op, &steps)
 	case TrackerOpPushHorizons:
 		output, err = d.runPushHorizonsOp(ctx, op, &steps)
+	case TrackerOpEpicPriority:
+		output, err = d.runEpicAxisOp(ctx, op, &steps, d.PushMacroPriorityLabel, op.Priority)
+	case TrackerOpEpicQuarter:
+		output, err = d.runEpicAxisOp(ctx, op, &steps, d.PushMacroQuarterLabel, op.Quarter)
 	case TrackerOpTransition:
 		output, err = d.runTransitionOp(ctx, op, &steps)
 	case TrackerOpStage:
@@ -824,6 +852,16 @@ func (d *DB) runStageOp(ctx context.Context, op TrackerOp, steps *[]string) (str
 
 func (d *DB) runEpicHorizonOp(ctx context.Context, op TrackerOp, steps *[]string) (string, error) {
 	note, err := d.PushEpicHorizonLabel(ctx, op.ProjectID, op.EpicKey, op.Horizon)
+	if err != nil {
+		return "", err
+	}
+	*steps = append(*steps, "✅ "+note)
+	return note, nil
+}
+
+// runEpicAxisOp runs the push of one epic axis, priority or quarter.
+func (d *DB) runEpicAxisOp(ctx context.Context, op TrackerOp, steps *[]string, push func(context.Context, string, string, string) (string, error), value string) (string, error) {
+	note, err := push(ctx, op.ProjectID, op.EpicKey, value)
 	if err != nil {
 		return "", err
 	}

@@ -1,4 +1,4 @@
-import type { EpicMeta, Priority, Project, Task, TrackerSprint, WorkflowStage } from '../types'
+import type { EpicMeta, EpicPriority, Priority, Project, Task, TrackerSprint, WorkflowStage } from '../types'
 import { foldForSearch } from './searchFold.ts'
 import { WORKFLOW_ORDER, resolveTaskStage } from './workflow.ts'
 
@@ -7,8 +7,10 @@ import { WORKFLOW_ORDER, resolveTaskStage } from './workflow.ts'
  *
  * Sectile does not import epics as cards: they are containers, carried by the
  * tickets as `parentKey` / `parentTitle`. An epic is therefore rebuilt here
- * from its children, and everything the view shows is derived from them: it is
- * the only source available, and it is always up to date after a sync.
+ * from its children, and what the view shows about its progress is derived
+ * from them: it is the only source available, and it is always up to date
+ * after a sync. What a person decides about the epic itself (its horizon, its
+ * priority and its quarter) comes from its meta instead.
  *
  * Display text (horizon hints, placement and priority labels, "no sprint")
  * lives in the `planning` catalog; this module only holds keys and colours.
@@ -29,7 +31,10 @@ export interface EpicRow {
   /** Classification que les données suggèrent, pour proposer un arbitrage. */
   suggested: Horizon
   maturity: Maturity
-  priority: Priority
+  /** The epic's own priority, empty when none. Never derived from the children (#627). */
+  priority: EpicPriority | ''
+  /** The epic's quarter, "2026-Q4", empty when none. */
+  quarter: string
   tasks: Task[]
   /** Enfants encore ouverts : ceux dont le placement en sprint est à vérifier. */
   open: Task[]
@@ -47,8 +52,6 @@ export interface EpicRow {
   closed: boolean
 }
 export type MacroRow = EpicRow
-
-const PRIORITY_RANK: Record<Priority, number> = { urgent: 4, high: 3, medium: 2, low: 1 }
 
 /**
  * Colours of the view: only the app's global variables, never a hardcoded
@@ -207,14 +210,8 @@ export const buildEpicRows = (
       if (team) teamCounts.set(team, (teamCounts.get(team) || 0) + 1)
     })
     const squad = Array.from(teamCounts.entries()).sort((a, b) => b[1] - a[1])[0]?.[0] || '-'
-    // Un épic vide n'a ni équipe ni priorité déduite : on l'assume plutôt que de
-    // fabriquer une valeur.
-
-    let priority: Priority = 'low'
-    children.forEach(t => {
-      if ((PRIORITY_RANK[t.priority] || 0) > (PRIORITY_RANK[priority] || 0)) priority = t.priority
-    })
-
+    // An empty epic has no team; the priority and the quarter are the epic's
+    // own, read from its meta and never deduced from its children.
     const meta = metaByKey.get(key)
     rows.push({
       key,
@@ -225,7 +222,8 @@ export const buildEpicRows = (
       horizon: (meta?.horizon as Horizon | '') || '',
       suggested: suggestHorizon(inActiveSprint, inFutureSprint),
       maturity: maturityOf(open, children.length, project),
-      priority,
+      priority: meta?.priority || '',
+      quarter: meta?.quarter || '',
       tasks: children,
       open,
       inActiveSprint,
