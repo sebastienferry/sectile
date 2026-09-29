@@ -32,6 +32,7 @@ test fixtures or internal plumbing.
 
 - **The roadmap reopens as you left it.** Coming back to the roadmap, or reloading it, brings back its tab, the macro you selected in that project, the expanded or hidden panel and the folded framing sections. A new button hides the details panel so the macro list takes the whole width, and a rail on the right edge brings it back; an expanded panel now takes the whole view, toolbar included. A macro's Description and Framing notes open in a full-screen editor with their preview beside them, and **Copy** puts the macro's link on the clipboard, or its key and title when the tracker gives it no page. **Link** now opens the macro itself rather than one of its tickets. (#629)
 - Open desktop Configuration with Cmd+, on macOS or Ctrl+, on Windows/Linux, including from a terminal; an already-open settings page keeps its current category and unsaved edits. (#547)
+- **The roadmap shows an epic's labels.** On Jira projects, the labels an epic carries on the tracker appear as badges on its roadmap row, a **Labels** filter in the toolbar narrows the roadmap to the epics carrying one of the chosen labels, and the epic's panel adds or removes them on the tracker. The horizon, priority and quarter labels (`roadmap:`, `priority:`, `quarter:`, and a bare `2026-Q3`) stay managed by their own controls. (#626)
 
 ### Changed
 

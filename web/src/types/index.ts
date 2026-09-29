@@ -197,6 +197,11 @@ export interface MacroMeta {
   quarter?: string
   /** False when the priority and the quarter stay in Sectile: milestone, local key, foreign epic, tracker without epics. */
   labelsWritable?: boolean
+  /**
+   * The epic's labels as the tracker returns them, horizon labels included.
+   * Absent from a server older than #626.
+   */
+  labels?: string[]
   updatedAt: string
   /** The macro's own page on its tracker, absent when the tracker gives none. */
   externalUrl?: string

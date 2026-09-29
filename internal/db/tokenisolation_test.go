@@ -286,7 +286,7 @@ func TestConversionCreatesTheIssueAsThePerson(t *testing.T) {
 func TestStoryUnderAMacroIsCreatedAsThePerson(t *testing.T) {
 	f := newIsolationFixture(t)
 	title := "Macro"
-	if _, err := f.d.saveMacroMetaFull(f.project.ID, "M-3", nil, nil, nil, nil, &title, nil, nil); err != nil {
+	if _, err := f.d.saveMacroMetaFull(f.project.ID, "M-3", nil, nil, nil, nil, &title, nil, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 

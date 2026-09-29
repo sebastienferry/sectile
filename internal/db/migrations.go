@@ -510,6 +510,14 @@ var migrations = []migration{
 			"ALTER TABLE macros ADD COLUMN quarter TEXT NOT NULL DEFAULT '';",
 		},
 	},
+	{
+		// The labels a tracker epic carries (#626), kept as the tracker returns
+		// them so the roadmap can show and filter them. An existing macro reads
+		// as carrying none until the next sync.
+		version:    35,
+		name:       "macros.labels",
+		statements: []string{"ALTER TABLE macros ADD COLUMN labels TEXT NOT NULL DEFAULT '[]';"},
+	},
 }
 
 // migrateSchema brings the database to the schema this binary expects, and is

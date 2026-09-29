@@ -122,6 +122,7 @@ func TestMigrationTwentyFiveKeepsExistingProjectsArtefacts(t *testing.T) {
 		"DROP TABLE batch_members",
 		"ALTER TABLE projects ADD COLUMN mono_repo INTEGER NOT NULL DEFAULT 1",
 		`INSERT INTO projects (id, name, slug) VALUES ('p1', 'Old', 'old')`,
+		"ALTER TABLE macros DROP COLUMN labels",
 		"ALTER TABLE projects DROP COLUMN push_stage_commits",
 		"ALTER TABLE projects DROP COLUMN branch_name_format",
 		"ALTER TABLE macros DROP COLUMN priority",
