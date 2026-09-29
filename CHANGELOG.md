@@ -30,6 +30,7 @@ test fixtures or internal plumbing.
 - The status emoji follows the state the skill reports to Sectile, so the session title and Sectile Desktop always agree. A run launched from Sectile Desktop writes no ticket or pull request links, no next step and no notification of its own: Desktop already shows them.
 - Every workflow skill ends its replies with the same **Done / Remaining (Agent) / Pending (User)** block, so you always know what happened, what the agent still has to do and what waits for you.
 
+- **The roadmap reopens as you left it.** Coming back to the roadmap, or reloading it, brings back its tab, the macro you selected in that project, the expanded or hidden panel and the folded framing sections. A new button hides the details panel so the macro list takes the whole width, and a rail on the right edge brings it back; an expanded panel now takes the whole view, toolbar included. A macro's Description and Framing notes open in a full-screen editor with their preview beside them, and **Copy** puts the macro's link on the clipboard, or its key and title when the tracker gives it no page. **Link** now opens the macro itself rather than one of its tickets. (#629)
 - Open desktop Configuration with Cmd+, on macOS or Ctrl+, on Windows/Linux, including from a terminal; an already-open settings page keeps its current category and unsaved edits. (#547)
 
 ### Changed

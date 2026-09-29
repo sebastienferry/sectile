@@ -228,6 +228,8 @@ const fr = {
     write: 'Écrire',
     preview: 'Aperçu',
     emptyPreview: "Rien à afficher pour l'instant.",
+    maximize: "Agrandir l'éditeur",
+    restore: 'Réduire',
     /** Each toolbar button: its title, and the text it inserts when nothing is selected. */
     snippets: {
       bold: { title: 'Gras', placeholder: 'texte' },
@@ -457,6 +459,8 @@ const en: TaskDetailStrings = {
     write: 'Write',
     preview: 'Preview',
     emptyPreview: 'Nothing to show yet.',
+    maximize: 'Expand the editor',
+    restore: 'Shrink',
     snippets: {
       bold: { title: 'Bold', placeholder: 'text' },
       italic: { title: 'Italic', placeholder: 'text' },
