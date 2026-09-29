@@ -250,6 +250,8 @@ export interface TranslationSchema {
     followUpClarify: string
     /** Warning title when the new ticket could not be attached; {macro} is the key. */
     attachFailed: string
+    /** Submit button label while the ticket is being created. */
+    creating: string
   }
   commandPalette: {
     searchPlaceholder: string
@@ -1068,6 +1070,7 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
       followUpRewrite: 'Reformuler en user story',
       followUpClarify: 'Clarifier',
       attachFailed: 'Ticket créé, mais non rattaché à {macro}',
+      creating: 'Création…',
     },
     commandPalette: {
       searchPlaceholder: 'Tapez une commande, skill ou tâche...',
@@ -1883,6 +1886,7 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
       followUpRewrite: 'Rewrite as a user story',
       followUpClarify: 'Clarify',
       attachFailed: 'Ticket created, but not attached to {macro}',
+      creating: 'Creating…',
     },
     commandPalette: {
       searchPlaceholder: 'Type a command, skill or task...',

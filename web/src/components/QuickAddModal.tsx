@@ -535,7 +535,7 @@ export const QuickAddModal: React.FC = () => {
                 {isSubmitting ? (
                   <>
                     <Loader2 size={13} className="animate-spin" />
-                    <span>Création CLI...</span>
+                    <span>{t.quickAdd.creating}</span>
                   </>
                 ) : (
                   <>

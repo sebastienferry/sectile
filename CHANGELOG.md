@@ -60,6 +60,7 @@ test fixtures or internal plumbing.
 
 ### Fixed
 
+- While a ticket is being created from the quick-add dialog, its button now reads "Creating…" ("Création…" in French) instead of "Création CLI...", which named a CLI that is not involved and stayed in French in the English interface.
 - The web interface no longer logs a `409 Conflict` on `/api/cli-status` at every load. On a shared server, `GET /api/cli-status` and `POST /api/open-editor` now reach the signed-in person's workstation instead of answering that no local agent is connected.
 - The board and list toolbars fit on one line again: Pinned, In progress and priority stay in the toolbar, and status, types, macro, sprint, team and person move into a **Filters** panel whose button shows how many of them are active.
 - **My Tasks** no longer shows an empty board when a tracker writes your name without its accents, as Jira often does ("Sebastien FERRY" for "Sébastien Ferry"): your account's name and e-mail now match regardless of case and accents.
