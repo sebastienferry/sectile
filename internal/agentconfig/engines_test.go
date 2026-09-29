@@ -85,8 +85,7 @@ func TestResolveTaskRunsTheTaskEngine(t *testing.T) {
 func TestSetupProvidersCoverTheCatalogue(t *testing.T) {
 	s := catalogue()
 	s.Engines.Catalogue = append(s.Engines.Catalogue,
-		Engine{ID: "e-custom", Name: "Wrapper", Provider: "custom", Command: "wrap {prompt}"},
-		Engine{ID: "e-gemini", Name: "Gemini", Provider: "gemini"})
+		Engine{ID: "e-custom", Name: "Wrapper", Provider: "custom", Command: "wrap {prompt}"})
 	s.Defaults.SetupProviders = []string{"codex"}
 	got := Resolve(Config{ProjectID: "p"}, s)
 	// The configured list first, then the catalogue providers that take skills;

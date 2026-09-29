@@ -150,7 +150,7 @@ func TestChooseSkillResolution(t *testing.T) {
 			defaults: agentconfig.Defaults{InstalledSkillSource: agentconfig.SkillSourcePlugin},
 			setup:    func(t *testing.T, home string) { installPlugin(t, home, nil, user(home), "code-issue") },
 			fails:    true},
-		{name: "a CLI without a skill folder is not probed", provider: "gemini",
+		{name: "a CLI without a skill folder is not probed", provider: "custom",
 			kind: skillKindDirect, command: "code-issue"},
 		{name: "an explicit command is used verbatim", provider: "claude", explicit: true,
 			kind: skillKindCommand, command: "sectile:code-issue"},

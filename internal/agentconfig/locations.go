@@ -63,12 +63,6 @@ func ResolveLocations(provider string) (Locations, error) {
 		// Codex reads the cross-agent convention, not a directory of its own:
 		// .agents/skills up to the repository root, then $HOME/.agents/skills.
 		loc.SkillDir, loc.MCPFile = ".agents/skills", ".codex/config.toml"
-	case "gemini":
-		loc.MCPFile = ".gemini/settings.json"
-	case "cursor":
-		loc.MCPFile = ".cursor/mcp.json"
-	case "vibe":
-		loc.MCPFile = ".vibe/config.toml"
 	default:
 		return Locations{}, fmt.Errorf("automatic setup is unsupported for provider %q; select a supported aiProvider", provider)
 	}

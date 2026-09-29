@@ -16,7 +16,7 @@ import (
 // HTTP MCP server with a bearer header. They are pointed at the server
 // directly, so their Sectile tools keep working while the local agent is
 // stopped. Every other provider gets the stdio bridge against the same server.
-var httpMCPProviders = map[string]bool{"claude": true, "cursor": true, "gemini": true}
+var httpMCPProviders = map[string]bool{"claude": true}
 
 // UsesHTTPMCP reports whether the provider is registered against the server's
 // /mcp directly rather than through the stdio bridge.
@@ -33,10 +33,6 @@ func mcpEntry(provider, executable, server, apiKey string) map[string]any {
 	switch provider {
 	case "claude":
 		return map[string]any{"type": "http", "url": endpoint, "headers": headers}
-	case "cursor":
-		return map[string]any{"url": endpoint, "headers": headers}
-	case "gemini":
-		return map[string]any{"httpUrl": endpoint, "headers": headers}
 	}
 	return map[string]any{
 		"command": executable,
@@ -158,11 +154,6 @@ func selectedMCPEntry(provider, executable, server, apiKey, transport string, lo
 	case "agy":
 		delete(entry, "url")
 		entry["serverUrl"] = server + "/mcp"
-	case "gemini":
-		delete(entry, "url")
-		entry["httpUrl"] = server + "/mcp"
-	case "vibe":
-		entry["transport"] = "streamable-http"
 	}
 	if !local {
 		entry[headerField] = map[string]any{"Authorization": "Bearer " + apiKey}

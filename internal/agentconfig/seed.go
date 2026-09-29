@@ -129,7 +129,9 @@ func ApplyWorkstationSeed(s *Settings, seed SeedDefaults, server string) {
 	}, Execution{}, Execution{})
 	written := Defaults{}
 	d := &s.Defaults
-	if s.catalogueUnstated() && !sameProfile(s.DefaultEngine(), old.profile()) {
+	// A server that ran a retired provider (#614) seeds no engine: the
+	// workstation keeps running the engine of a workstation stating none.
+	if s.catalogueUnstated() && !retiredProvider(old.provider) && !sameProfile(s.DefaultEngine(), old.profile()) {
 		if implicit := s.DefaultEngine().ID; !s.enginePicked(implicit) {
 			s.removeEngine(implicit)
 		}
@@ -224,9 +226,11 @@ func ApplyProjectSeed(s *Settings, c Config, seed SeedProject, at string) {
 		return Resolve(c, *s)
 	}
 	resolved, want := current(), old.profile()
-	if resolved.AIProvider != want.Provider || resolved.AICommandTemplate != want.Command ||
+	// A retired provider (#614) seeds no engine: the project keeps resolving
+	// its default engine.
+	if !retiredProvider(want.Provider) && (resolved.AIProvider != want.Provider || resolved.AICommandTemplate != want.Command ||
 		resolved.AICommandTemplateAutonomous != want.CommandAutonomous ||
-		!sameProfile(Engine{Model: resolved.AIModel, SkillModels: resolved.AISkillModels}, Engine{Model: want.Model, SkillModels: want.SkillModels}) {
+		!sameProfile(Engine{Model: resolved.AIModel, SkillModels: resolved.AISkillModels}, Engine{Model: want.Model, SkillModels: want.SkillModels})) {
 		s.SetProjectEngine(id, s.findOrCreate(want))
 	}
 	if p.Terminal == "" && old.terminal != "" && current().ExternalTerminalCommand != old.terminal {

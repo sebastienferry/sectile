@@ -38,7 +38,7 @@ func readRegistration(t *testing.T, path string) map[string]any {
 // The registration addresses the server with the workstation key, refreshes
 // both when they change, and leaves everything else in the file alone.
 func TestBootstrapMCPPreservesConfigAndRefreshesServerAndKey(t *testing.T) {
-	for _, provider := range []string{"codex", "claude", "agy", "gemini", "cursor", "vibe"} {
+	for _, provider := range []string{"codex", "claude", "agy"} {
 		t.Run(provider, func(t *testing.T) {
 			testhome.Temp(t)
 			path, err := BootstrapMCP(provider, "/opt/sectile", testServer, testKey)
@@ -48,14 +48,10 @@ func TestBootstrapMCPPreservesConfigAndRefreshesServerAndKey(t *testing.T) {
 			data := readRegistration(t, path)
 			data["unrelated_setting"] = "keep"
 			key := "mcpServers"
-			if provider == "codex" || provider == "vibe" {
+			if provider == "codex" {
 				key = "mcp_servers"
 			}
-			if provider == "vibe" {
-				data[key] = append(data[key].([]any), map[string]any{"name": "other", "transport": "stdio", "command": "other-server"})
-			} else {
-				data[key].(map[string]any)["other"] = map[string]any{"command": "other-server"}
-			}
+			data[key].(map[string]any)["other"] = map[string]any{"command": "other-server"}
 			var raw []byte
 			if strings.HasSuffix(path, "toml") {
 				raw, err = toml.Marshal(data)
@@ -103,7 +99,7 @@ func TestBootstrapMCPPreservesConfigAndRefreshesServerAndKey(t *testing.T) {
 // the others run the stdio bridge against that same server with the key in its
 // environment. Neither mentions a local gateway.
 func TestBootstrapMCPTransportPerProvider(t *testing.T) {
-	for _, provider := range []string{"codex", "claude", "agy", "gemini", "cursor", "vibe"} {
+	for _, provider := range []string{"codex", "claude", "agy"} {
 		t.Run(provider, func(t *testing.T) {
 			testhome.Temp(t)
 			path, err := BootstrapMCP(provider, "/opt/sectile", testServer+"/", testKey)
@@ -112,18 +108,14 @@ func TestBootstrapMCPTransportPerProvider(t *testing.T) {
 			}
 			data := readRegistration(t, path)
 			var entry map[string]any
-			switch provider {
-			case "vibe":
-				entry = data["mcp_servers"].([]any)[0].(map[string]any)
-			case "codex":
+			if provider == "codex" {
 				entry = data["mcp_servers"].(map[string]any)["sectile"].(map[string]any)
-			default:
+			} else {
 				entry = data["mcpServers"].(map[string]any)["sectile"].(map[string]any)
 			}
 			if UsesHTTPMCP(provider) {
-				urlField := map[string]string{"claude": "url", "cursor": "url", "gemini": "httpUrl"}[provider]
-				if entry[urlField] != testServer+"/mcp" {
-					t.Fatalf("%s = %v, want the server /mcp", urlField, entry[urlField])
+				if entry["url"] != testServer+"/mcp" {
+					t.Fatalf("url = %v, want the server /mcp", entry["url"])
 				}
 				if entry["command"] != nil || entry["args"] != nil {
 					t.Fatalf("HTTP registration still runs a command: %v", entry)
@@ -147,9 +139,6 @@ func TestBootstrapMCPTransportPerProvider(t *testing.T) {
 			env, _ := entry["env"].(map[string]any)
 			if env["SECTILE_AGENT_TOKEN"] != testKey {
 				t.Fatalf("env = %v", entry["env"])
-			}
-			if provider == "vibe" && entry["transport"] != "stdio" {
-				t.Fatalf("vibe transport = %v", entry["transport"])
 			}
 		})
 	}

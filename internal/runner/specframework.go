@@ -56,12 +56,6 @@ func specKitIntegration(aiAgent string) string {
 		return "antigravity"
 	case "claude":
 		return "claude"
-	case "vibe":
-		return "vibe"
-	case "gemini":
-		return "gemini"
-	case "cursor":
-		return "cursor"
 	case "codex":
 		return "codex"
 	case "copilot", "github-copilot":
@@ -80,12 +74,6 @@ func openSpecTools(aiAgent string) string {
 		return "antigravity"
 	case "claude":
 		return "claude"
-	case "vibe":
-		return "vibe"
-	case "gemini":
-		return "gemini"
-	case "cursor":
-		return "cursor"
 	case "codex":
 		return "codex"
 	case "copilot", "github-copilot":

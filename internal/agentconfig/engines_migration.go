@@ -203,39 +203,50 @@ func (s Settings) hasDefaultEngine() bool {
 	return ok
 }
 
-// MigrateSettings persists the conversion of the #305 engine settings, once,
-// at agent start. The previous file is copied beside it first. A file that
-// does not exist yet, or needs no conversion, is left alone.
+// MigrateSettings persists the conversion of the #305 engine settings and the
+// drop of the retired providers, once, at agent start. The previous file is
+// copied beside it first. A file that does not exist yet, or needs neither, is
+// left alone.
 func MigrateSettings(legacyRoot string) (bool, error) {
+	migrated, _, err := MigrateSettingsReport(legacyRoot)
+	return migrated, err
+}
+
+// MigrateSettingsReport is MigrateSettings, also reporting what the drop of
+// the retired providers removed, so the agent can log it.
+func MigrateSettingsReport(legacyRoot string) (bool, RetiredDrop, error) {
 	settingsMu.Lock()
 	defer settingsMu.Unlock()
 	path, err := SettingsPath()
 	if err != nil {
-		return false, err
+		return false, RetiredDrop{}, err
 	}
 	raw, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
-		return false, nil
+		return false, RetiredDrop{}, nil
 	}
 	if err != nil {
-		return false, err
+		return false, RetiredDrop{}, err
 	}
 	var before struct {
 		Layout int `json:"layout"`
 	}
 	if err = json.Unmarshal(raw, &before); err != nil {
-		return false, err
+		return false, RetiredDrop{}, err
 	}
-	settings, changed, err := readConverted(legacyRoot)
+	settings, changed, drop, err := readConverted(legacyRoot)
 	if err != nil || (!changed && before.Layout >= SettingsLayout) {
-		return false, err
+		return false, RetiredDrop{}, err
 	}
 	backup := fmt.Sprintf("%s.bak-layout%d", path, before.Layout)
 	if _, err := os.Stat(backup); err == nil {
 		backup += "-" + time.Now().UTC().Format("20060102T150405Z")
 	}
 	if err = os.WriteFile(backup, raw, 0600); err != nil {
-		return false, err
+		return false, RetiredDrop{}, err
 	}
-	return true, WriteSettings(settings)
+	if err = WriteSettings(settings); err != nil {
+		return false, RetiredDrop{}, err
+	}
+	return true, drop, nil
 }

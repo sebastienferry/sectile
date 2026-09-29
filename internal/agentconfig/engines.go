@@ -41,8 +41,7 @@ type Engines struct {
 
 // providerNames are the display names a converted engine is named after.
 var providerNames = map[string]string{
-	"claude": "Claude", "codex": "Codex", "agy": "Antigravity", "gemini": "Gemini",
-	"cursor": "Cursor", "vibe": "Vibe", "custom": "Custom",
+	"claude": "Claude", "codex": "Codex", "agy": "Antigravity", "custom": "Custom",
 }
 
 // implicitEngine is what a workstation whose file states no catalogue runs.

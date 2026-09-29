@@ -33,8 +33,8 @@ func ValidModel(value string) error {
 	return nil
 }
 
-// NormalizeProviderModels drops what means nothing, a blank provider, a blank
-// identifier or a duplicate, and lowercases the provider keys so the map is
+// NormalizeProviderModels drops what means nothing, a blank or retired
+// provider, a blank identifier or a duplicate, and lowercases the provider keys so the map is
 // keyed the way providers are spelled everywhere else. Order is preserved: it
 // is the order the lists are offered in.
 //
@@ -49,7 +49,7 @@ func NormalizeProviderModels(in map[string][]string) map[string][]string {
 	out := make(map[string][]string, len(in))
 	for provider, models := range in {
 		provider = strings.ToLower(strings.TrimSpace(provider))
-		if provider == "" {
+		if provider == "" || RetiredProviders[provider] {
 			continue
 		}
 		seen := map[string]bool{}
@@ -68,6 +68,18 @@ func NormalizeProviderModels(in map[string][]string) map[string][]string {
 		return nil
 	}
 	return out
+}
+
+// ValidProviderKeys refuses a model list keyed by a provider Sectile does not
+// run. It is checked before NormalizeProviderModels, which drops a retired key
+// quietly: a seed may carry one, a desktop save may not (#614).
+func ValidProviderKeys(in map[string][]string) error {
+	for provider := range in {
+		if err := ValidProvider(strings.ToLower(strings.TrimSpace(provider))); err != nil {
+			return fmt.Errorf("model list: %w", err)
+		}
+	}
+	return nil
 }
 
 // ValidProviderModels checks every configured identifier, naming the provider
@@ -161,7 +173,7 @@ func ResolveModel(c Config, skillID string) string {
 // that accepts none is not an error: its runs simply carry no model.
 func ModelFlag(provider string) (string, bool) {
 	switch strings.ToLower(strings.TrimSpace(provider)) {
-	case "claude", "codex", "gemini", "cursor":
+	case "claude", "codex":
 		return "--model", true
 	}
 	return "", false

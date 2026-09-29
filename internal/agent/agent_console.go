@@ -17,10 +17,8 @@ const consoleRunKind = "console"
 // consoleCommand opens a built-in provider without an initial prompt.
 func consoleCommand(provider, model string) (string, error) {
 	switch provider {
-	case "codex", "claude", "agy", "gemini", "vibe":
+	case "codex", "claude", "agy":
 		return strings.TrimRight("exec "+provider+" "+strings.Join(agentconfig.ModelArgs(provider, model), " "), " "), nil
-	case "cursor":
-		return strings.TrimSpace("exec cursor agent " + strings.Join(agentconfig.ModelArgs(provider, model), " ")), nil
 	default:
 		return "", fmt.Errorf("select a supported AI engine")
 	}

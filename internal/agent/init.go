@@ -23,7 +23,7 @@ func Init(args []string) (string, error) {
 // InitContext executes the initialization with the provided context.
 func InitContext(ctx context.Context, args []string) (string, error) {
 	fs := flag.NewFlagSet("init", flag.ContinueOnError)
-	providerFlag := fs.String("provider", "", "Provider identifier to bootstrap (e.g. claude, agy, codex, cursor, gemini, vibe). Optional for Claude, which can use the sectile plugin instead")
+	providerFlag := fs.String("provider", "", "Provider identifier to bootstrap (e.g. claude, agy, codex). Optional for Claude, which can use the sectile plugin instead")
 	serverURL := fs.String("url", "", "Remote Sectile server URL (e.g. https://sectile.example.com); defaults to the paired server")
 	token := fs.String("token", "", "Workstation API key (defaults to TOKEN, then to the key stored by `sectile-agent pair`)")
 	projectID := fs.String("project", "", "Project primary key (defaults to matching local repository or the first project)")
@@ -52,7 +52,7 @@ func InitContext(ctx context.Context, args []string) (string, error) {
 		provider = strings.TrimSpace(positional[0])
 	}
 	if provider == "" {
-		return "", fmt.Errorf("--provider is required (e.g. claude, agy, codex, cursor, gemini, vibe)")
+		return "", fmt.Errorf("--provider is required (e.g. claude, agy, codex)")
 	}
 	provider = strings.ToLower(provider)
 

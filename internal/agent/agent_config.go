@@ -440,8 +440,8 @@ func agentCommandLine(provider, template, model, prompt string, contexts ...agen
 }
 
 // headlessCommandLine is the autonomous form of agentCommandLine. It covers only
-// the providers whose headless invocation this repository attests: claude -p,
-// codex exec, and vibe, which is already headless today. Guessing a flag for the
+// the providers whose headless invocation this repository attests: claude -p
+// and codex exec. Guessing a flag for the
 // others is worse than refusing: an unsupported flag either fails opaquely or is
 // swallowed as prompt text. Adding a provider here is a one-line change once its
 // headless mode is verified.
@@ -466,9 +466,6 @@ func headlessCommandLine(provider, model, prompt string, addDirs ...string) (str
 		// codex exec is non-interactive, but its approval bypass flag is not
 		// attested here: it is left to a custom template until it is verified.
 		return words("codex", "exec", reasoning, modelFlag, quoteShell(prompt), dirFlags), nil
-	case "vibe":
-		// vibe takes no model flag, so ModelArgs returns nothing for it.
-		return words("vibe", "-p", "--auto-approve", reasoning, quoteShell(prompt)), nil
 	default:
 		return "", fmt.Errorf("provider %q has no headless mode: run this skill interactively, or configure an AI command template carrying a {mode:AUTONOMOUS|INTERACTIVE} placeholder", provider)
 	}
@@ -581,12 +578,6 @@ func modeCommandLine(provider, template, model, prompt, mode string, contexts ..
 		return words(provider, modelFlag, quoteShell(prompt), addDirArgs(provider, addDirs)), nil
 	case "codex":
 		return words(provider, modelFlag, quoteShell(prompt), addDirArgs(provider, addDirs)), nil
-	case "gemini":
-		return words(provider, modelFlag, quoteShell(prompt)), nil
-	case "vibe":
-		return words("vibe", "-p", quoteShell(prompt)), nil
-	case "cursor":
-		return words("cursor", "agent", modelFlag, quoteShell(prompt)), nil
 	default:
 		return "", fmt.Errorf("unsupported AI provider %q; configure an AI command template", provider)
 	}

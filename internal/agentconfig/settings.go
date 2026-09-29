@@ -19,21 +19,24 @@ func SettingsPath() (string, error) {
 // ReadSettings reads the workstation settings, and falls back to the legacy
 // repository file until they are saved. A file in the layout that predates
 // #305 is folded into the current one with the same meaning, and the engine
-// settings of #305 are converted into the engine catalogue (#510); the next
+// settings of #305 are converted into the engine catalogue (#510), and the
+// settings naming a retired provider are dropped (#614); the next
 // WriteSettings rewrites it.
 func ReadSettings(legacyRoot string) (Settings, error) {
-	settings, _, err := readConverted(legacyRoot)
+	settings, _, _, err := readConverted(legacyRoot)
 	return settings, err
 }
 
-// readConverted also reports whether the engine conversion changed anything.
-func readConverted(legacyRoot string) (Settings, bool, error) {
+// readConverted also reports whether the engine conversion or the drop of the
+// retired providers changed anything, and what the drop removed.
+func readConverted(legacyRoot string) (Settings, bool, RetiredDrop, error) {
 	settings, err := readFolded(legacyRoot)
 	if err != nil {
-		return settings, false, err
+		return settings, false, RetiredDrop{}, err
 	}
 	changed := convertEngines(&settings)
-	return settings, changed, nil
+	drop := dropRetiredProviders(&settings)
+	return settings, changed || !drop.Empty(), drop, nil
 }
 
 // layoutWorkstation is the layout #305 introduced, from which the file no
