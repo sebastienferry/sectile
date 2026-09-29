@@ -15,6 +15,7 @@ import (
 	"sort"
 	"strings"
 
+	"tasks/internal/agentexec"
 	"tasks/internal/models"
 )
 
@@ -200,11 +201,18 @@ func findMacroBranch(ctx context.Context, repo, macroKey string) (string, error)
 }
 
 func gitOutput(ctx context.Context, repo string, args ...string) (string, error) {
-	cmd := exec.CommandContext(ctx, "git", args...)
-	cmd.Dir = repo
-	out, err := cmd.Output()
+	out, err := gitCommand(ctx, repo, args...).Output()
 	if err != nil {
 		return "", err
 	}
 	return string(out), nil
+}
+
+// gitCommand builds a git command the agent runs to read a specifications
+// folder. Hidden keeps it from opening a console window on Windows, where the
+// desktop-started agent owns none.
+func gitCommand(ctx context.Context, repo string, args ...string) *exec.Cmd {
+	cmd := agentexec.Hidden(exec.CommandContext(ctx, "git", args...))
+	cmd.Dir = repo
+	return cmd
 }
