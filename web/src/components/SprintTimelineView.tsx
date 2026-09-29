@@ -61,6 +61,7 @@ export const SprintTimelineView: React.FC = () => {
     setTasksSprint,
     setSelectedTask,
     addToast,
+    refusalToast,
     startBatchPickup,
     t,
     settings,
@@ -111,7 +112,7 @@ export const SprintTimelineView: React.FC = () => {
           : err instanceof Error
           ? err.message
           : String(err)
-      addToast({ type: 'error', title, description })
+      addToast(refusalToast(err, { type: 'error', title, description }))
       return null
     }
   }
@@ -566,11 +567,11 @@ export const SprintTimelineView: React.FC = () => {
 
       setClosingSprint(null)
     } catch (err: any) {
-      addToast({
+      addToast(refusalToast(err, {
         type: 'error',
         title: st.close.error,
         description: err.message,
-      })
+      }))
     } finally {
       setIsClosingSprintBusy(false)
     }

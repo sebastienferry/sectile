@@ -111,3 +111,4 @@ the tests green.
 - T6.3: every `*.browser.mjs` passes except `board-filters`, which times out
   on the sprint filter placeholder identically on `origin/main`.
 - T2.1: renumbered from 35 to 36 when merging main, where #626 took 35 (`macros.labels`).
+- Review (adjust): sprint writes go through `web/src/lib/sprintApi.ts` and `SprintTimelineView`, outside `AppContext`; they now throw `TrackerCredentialMissingError` and show the offer through the context's `refusalToast` (FR3).

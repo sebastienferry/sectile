@@ -307,6 +307,11 @@ interface AppContextType {
   profileTarget: ProfileTarget | null
   /** Opens the profile on the tracker credentials, with that provider's entry open. */
   openTrackerCredentials: (tracker: TrackerKind) => void
+  /**
+   * The toast a failed write shows: the offer to add the token when it was
+   * refused for want of the person's own one (#645), the given toast otherwise.
+   */
+  refusalToast: (err: unknown, toast: Omit<ToastMessage, 'id'>) => Omit<ToastMessage, 'id'>
   settings: UserSettings
   /**
    * `silent` évite le toast de confirmation : un basculement de thème ou
@@ -4136,6 +4141,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         setIsProfileOpen,
         profileTarget,
         openTrackerCredentials,
+        refusalToast,
         settings,
         updateSettings,
         reloadSettings: fetchSettings,

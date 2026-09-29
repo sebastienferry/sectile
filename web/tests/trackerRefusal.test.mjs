@@ -39,3 +39,17 @@ test('the error keeps the provider and the message', () => {
   assert.equal(err.tracker, 'gitlab')
   assert.equal(err.message, 'refused')
 })
+
+test('a sprint write refused for want of a token keeps its provider', async () => {
+  const { deleteSprint, SprintRequestError } = await import('../src/lib/sprintApi.ts')
+  const realFetch = globalThis.fetch
+  try {
+    globalThis.fetch = async () => new Response(JSON.stringify(refusal), { status: 403 })
+    await assert.rejects(deleteSprint('p1', 's1'), err => err instanceof TrackerCredentialMissingError && err.tracker === 'github')
+    // Any other refusal keeps the sprint error the view words by status.
+    globalThis.fetch = async () => new Response(JSON.stringify({ error: 'boom' }), { status: 500 })
+    await assert.rejects(deleteSprint('p1', 's1'), err => err instanceof SprintRequestError && err.status === 500)
+  } finally {
+    globalThis.fetch = realFetch
+  }
+})
