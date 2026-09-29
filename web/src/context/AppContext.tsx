@@ -302,7 +302,7 @@ interface AppContextType {
   setIsProfileOpen: (open: boolean) => void
   /**
    * Where the profile opens when an offer to add a tracker token sent it
-   * there (#645); null when it was opened any other way, on its first tab.
+   * there (#645); null when it was opened any other way.
    */
   profileTarget: ProfileTarget | null
   /** Opens the profile on the tracker credentials, with that provider's entry open. */
@@ -719,8 +719,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false)
   const [isProfileOpen, setProfileOpenState] = useState(false)
   const [profileTarget, setProfileTarget] = useState<ProfileTarget | null>(null)
-  // Closing the profile forgets where an offer sent it, so the next opening
-  // from the sidebar lands on its first tab again.
+  // Closing the profile forgets where an offer sent it, so an ordinary
+  // opening is never sent back to the tracker credentials.
   const setIsProfileOpen = useCallback((open: boolean) => {
     setProfileOpenState(open)
     if (!open) setProfileTarget(null)
