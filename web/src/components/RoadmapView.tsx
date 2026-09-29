@@ -36,6 +36,8 @@ import {
   RefreshCw,
   Rows3,
   Copy,
+  PanelRightClose,
+  PanelRightOpen,
 } from 'lucide-react'
 import type { RefineMacroResult } from '../types'
 import { useApp } from '../context/AppContext'
@@ -77,6 +79,7 @@ import {
   ROADMAP_DESCRIPTION_OPEN_STORAGE_KEY,
   ROADMAP_FRAMING_OPEN_STORAGE_KEY,
   ROADMAP_PANEL_EXPANDED_STORAGE_KEY,
+  ROADMAP_PANEL_HIDDEN_STORAGE_KEY,
   loadRoadmapFlag,
   loadRoadmapSelectedKey,
   loadRoadmapTab,
@@ -303,6 +306,29 @@ export const RoadmapView: React.FC = () => {
   const [isDescExpanded, setIsDescExpanded] = usePersistedFlag(ROADMAP_DESCRIPTION_OPEN_STORAGE_KEY, true)
   const [isFramingExpanded, setIsFramingExpanded] = usePersistedFlag(ROADMAP_FRAMING_OPEN_STORAGE_KEY, true)
 
+  /**
+   * A hidden panel gives the whole width to the list.
+   *
+   * Expanding gives the panel all the room, the split handle some; this gives
+   * it none, which is what browsing many condensed macros asks for. The choice
+   * belongs to the view, not to the selection: clicking another macro does not
+   * bring the panel back, or browsing a list would change half the screen on
+   * every click.
+   *
+   * Hiding and expanding speak of the same room, so they exclude each other: a
+   * panel is never both full screen and absent.
+   */
+  const [isPanelHidden, setIsPanelHidden] = usePersistedFlag(ROADMAP_PANEL_HIDDEN_STORAGE_KEY, false)
+  const hidePanel = () => {
+    setIsPanelExpanded(false)
+    setIsPanelHidden(true)
+  }
+  const showPanel = () => setIsPanelHidden(false)
+  const toggleExpanded = () => {
+    setIsPanelHidden(false)
+    setIsPanelExpanded(prev => !prev)
+  }
+
   // Le cadrage n'est enregistré qu'à la demande
   const [draftDescription, setDraftDescription] = useState('')
   const [draftDirty, setDraftDirty] = useState(false)
@@ -527,6 +553,12 @@ export const RoadmapView: React.FC = () => {
   }, [searchQuery, visibleRows.length, rows, tab, setTab])
 
   const selected: MacroRow | null = visibleRows.find(r => r.key === selectedKey) || visibleRows[0] || null
+
+  // An expanded panel takes the whole view, the toolbar included: it is there
+  // to work on one macro. Both need a macro shown, so the toolbar and the list
+  // come back by themselves when the last one leaves the tab.
+  const panelShown = Boolean(selected) && !isPanelHidden
+  const expandedHere = panelShown && isPanelExpanded
 
   // Les tickets de la macro dans l'ordre chronologique de leur sprint
   const orderedOpen = useMemo(
@@ -865,7 +897,9 @@ export const RoadmapView: React.FC = () => {
 
   return (
     <div className="flex-1 flex flex-col min-h-0 overflow-hidden bg-[var(--bg-primary)] text-[var(--text-primary)]">
-      {/* Barre d'outils : classification, et en mode opérationnel les sprints visés */}
+      {/* Barre d'outils : classification, et en mode opérationnel les sprints visés.
+          Hidden while the panel is expanded. */}
+      {!expandedHere && (
           <div className="flex items-center justify-between gap-3 flex-wrap px-4 py-2 border-b border-[var(--border-color)] bg-[var(--bg-secondary)]/50 shrink-0">
         <div className="flex items-center gap-3 flex-wrap min-w-0">
           <div className="flex items-center p-0.5 rounded-lg bg-[var(--bg-tertiary)] border border-[var(--border-color)]">
@@ -1155,10 +1189,11 @@ export const RoadmapView: React.FC = () => {
           </div>
         )}
       </div>
+      )}
 
       <div className="flex-1 flex min-h-0 min-w-0 overflow-hidden" ref={splitRef}>
         {/* Macros de l'horizon courant (masqué si panneau en plein écran) */}
-        {!isPanelExpanded && (
+        {!expandedHere && (
           <div className="flex-1 overflow-y-auto p-3 min-w-0 space-y-2">
             {visibleRows.length === 0 ? (
               <div className="h-full flex flex-col items-center justify-center gap-2 text-center px-6">
@@ -1186,8 +1221,8 @@ export const RoadmapView: React.FC = () => {
           </div>
         )}
 
-        {/* Poignée de répartition (masquée si plein écran) */}
-        {selected && !isPanelExpanded && (
+        {/* Poignée de répartition (masquée si plein écran ou panneau masqué) */}
+        {panelShown && !isPanelExpanded && (
           <div
             role="separator"
             aria-orientation="vertical"
@@ -1200,8 +1235,22 @@ export const RoadmapView: React.FC = () => {
           />
         )}
 
+        {/* The rail of a hidden panel: without it, getting the panel back would
+            mean selecting another macro, which no longer brings it back. */}
+        {selected && isPanelHidden && (
+          <button
+            type="button"
+            onClick={showPanel}
+            className="shrink-0 w-6 flex items-center justify-center border-l border-[var(--border-color)] bg-[var(--bg-secondary)] text-[var(--text-muted)] hover:text-[var(--accent-color)] hover:bg-[var(--accent-light)] cursor-pointer transition-colors"
+            title={strings.panel.show}
+            aria-label={strings.panel.show}
+          >
+            <PanelRightOpen size={13} />
+          </button>
+        )}
+
         {/* Panneau : vérification des sprints en NOW/NEXT, cadrage en LATER */}
-        {selected && (
+        {selected && panelShown && (
           <aside className="flex flex-col min-h-0 shrink-0 bg-[var(--bg-secondary)]"
             style={{ width: isPanelExpanded ? '100%' : panelWidth, flex: isPanelExpanded ? 1 : undefined }}>
             <div className="px-4 pt-3.5 pb-3 shrink-0 border-b border-[var(--border-color)]">
@@ -1218,12 +1267,22 @@ export const RoadmapView: React.FC = () => {
                 <div className="ml-auto flex items-center gap-1.5 flex-wrap">
                   <button
                     type="button"
-                    onClick={() => setIsPanelExpanded(prev => !prev)}
+                    onClick={toggleExpanded}
                     className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-semibold text-[var(--accent-color)] hover:opacity-90 cursor-pointer border border-[var(--accent-color)]/40 bg-[var(--accent-light)] transition-colors"
                     title={isPanelExpanded ? strings.panel.collapseTitle : strings.panel.expandTitle}
                   >
                     {isPanelExpanded ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
                     <span>{isPanelExpanded ? strings.panel.collapse : strings.panel.expand}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={hidePanel}
+                    className="inline-flex items-center px-1.5 py-1 rounded-lg text-xs font-semibold text-[var(--text-secondary)] hover:text-[var(--text-primary)] cursor-pointer border border-[var(--border-color)] hover:border-[var(--accent-color)]/50 transition-colors"
+                    title={strings.panel.hide}
+                    aria-label={strings.panel.hide}
+                  >
+                    <PanelRightClose size={12} />
                   </button>
 
                   <button
