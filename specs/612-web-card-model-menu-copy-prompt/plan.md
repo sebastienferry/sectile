@@ -57,10 +57,13 @@ const indicatorMenuRef = useRef<HTMLDivElement>(null)
 const [indicatorPos, setIndicatorPos] = useState<MenuPos | null>(null)
 ```
 
-- Generalise `openMenuAt` into a pure position helper
-  `anchoredMenuPosition(anchor: HTMLElement, width: number): MenuPos` (same
-  zoom correction, viewport clamping, above/below choice and bottom reserve).
-  The `(...)` menu keeps its behaviour by calling it with `MENU_WIDTH`.
+- Move the positioning of `openMenuAt` into a pure helper,
+  `anchoredMenuPosition(anchor: HTMLElement, width: number)` in
+  `web/src/lib/anchoredMenu.ts` (same zoom correction, viewport clamping,
+  above/below choice and bottom reserve), so the card and the copy button's
+  fallback panel share it. The `(...)` menu keeps its behaviour by calling it
+  with `MENU_WIDTH`. *Changed during implementation: the plan first kept the
+  helper inside `TaskCard.tsx`; the copy button needs it too.*
 - `modelIndicator` keeps its three branches:
   - `cardModels.length > 0`: a `<button type="button" aria-haspopup="menu"
     aria-expanded={isIndicatorMenuOpen}>` with the current classes, title and
@@ -76,8 +79,9 @@ const [indicatorPos, setIndicatorPos] = useState<MenuPos | null>(null)
   click and mousedown propagation so the card neither opens nor drags.
 - Keyboard: on open, focus the checked item (else the first). ArrowDown and
   ArrowUp move between `menuitemradio` items, wrapping; Home and End jump.
-  Add the same arrow handling to the `(...)` sub-list only if it lacks it
-  today; do not change its ArrowLeft behaviour.
+  The handling lives in `moveMenuFocus(menu, key)` next to the position
+  helper; the `(...)` sub-list, which had only ArrowLeft, uses it too, and
+  keeps its ArrowLeft behaviour.
 - Closing: a document effect active while `isIndicatorMenuOpen` closes it on
   Escape (focus back to `indicatorRef`), on a mousedown outside the menu and
   the indicator, on a captured scroll outside the menu, and on resize,
@@ -141,6 +145,7 @@ None new. The per-task pick stays in `localStorage` under
 ## Target files
 
 - `web/src/lib/skillPrompt.ts` (new)
+- `web/src/lib/anchoredMenu.ts` (new)
 - `web/src/components/CopyTaskSkillMenu.tsx`
 - `web/src/components/CopyStepPromptButton.tsx` (new)
 - `web/src/components/TaskCard.tsx`
@@ -148,6 +153,7 @@ None new. The per-task pick stays in `localStorage` under
 - `web/tests/skillPrompt.test.mjs` (new)
 - `web/tests/card-model-menu.browser.mjs` (new)
 - `web/tests/condensed-card.browser.mjs` (assert no copy icon)
+- `web/tests/skillLaunchModel.test.mjs` (source-shape assertions follow the new indicator)
 - `CHANGELOG.md`
 
 ## Rejected alternatives
