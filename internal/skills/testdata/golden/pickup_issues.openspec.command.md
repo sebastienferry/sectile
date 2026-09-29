@@ -145,7 +145,7 @@ Stop before merge. Stage-local boundaries apply while that stage is active; afte
 - Do not invent answers to essential product questions in unattended runs; record them and ask.
 - Do not write production code or start the technical specification at this stage.
 - Do not discard previous round sections when writing Round N; append each round chronologically.
-- Do not switch branches or create a new branch: reuse the assigned feat/<n> branch.
+- Do not switch branches or create a new branch: reuse the assigned work branch.
 
 Report and persist before continuing:
 - The report path: docs/clarifications/<n>.md, and whether it is committed or local to the worktree (ignored by Git).

@@ -19,12 +19,12 @@ where it goes and how.
 
 ### Schema
 
-Migration 33 in `internal/db/migrations.go`, never in the baseline
+Migration 34 (33 when specified; #621 took 33 first) in `internal/db/migrations.go`, never in the baseline
 `CREATE TABLE` of `ensureMacrosTable`:
 
 ```go
 {
-    version:    33,
+    version:    34,
     name:       "macros.labels",
     statements: []string{"ALTER TABLE macros ADD COLUMN labels TEXT NOT NULL DEFAULT '[]';"},
 },

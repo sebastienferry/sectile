@@ -493,10 +493,17 @@ var migrations = []migration{
 		statements: []string{"ALTER TABLE projects ADD COLUMN push_stage_commits INTEGER NOT NULL DEFAULT 0;"},
 	},
 	{
+		// The template a task branch name is rendered from (#621). Empty is the
+		// default format, the feat/<key> names every project had before.
+		version:    33,
+		name:       "projects.branch_name_format",
+		statements: []string{"ALTER TABLE projects ADD COLUMN branch_name_format TEXT NOT NULL DEFAULT '';"},
+	},
+	{
 		// The labels a tracker epic carries (#626), kept as the tracker returns
 		// them so the roadmap can show and filter them. An existing macro reads
 		// as carrying none until the next sync.
-		version:    33,
+		version:    34,
 		name:       "macros.labels",
 		statements: []string{"ALTER TABLE macros ADD COLUMN labels TEXT NOT NULL DEFAULT '[]';"},
 	},

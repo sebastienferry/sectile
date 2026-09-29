@@ -4,7 +4,7 @@ Ordered checklist. Each group is one commit and leaves the tree buildable.
 
 ## 1. Storage and sync (US1, FR1-FR4)
 
-- [x] T1.1 Migration 33 `macros.labels` in `internal/db/migrations.go`;
+- [x] T1.1 Migration 34 `macros.labels` in `internal/db/migrations.go`;
   `dropCredentialAccountColumn` in `migrations_test.go` drops the column.
 - [x] T1.2 `MacroMeta.Labels` in `internal/models/models.go`, always an array.
 - [x] T1.3 `parseMacroLabels`; select and parse `labels` in every macro read

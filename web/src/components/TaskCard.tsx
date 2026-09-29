@@ -967,13 +967,6 @@ export const TaskCard: React.FC<TaskCardProps> = ({
         {task.title}
       </h4>
 
-      {/* Ligne 2 : Description tronquée */}
-      {task.description && (
-        <p className="text-[11px] text-[var(--text-muted)] line-clamp-2 mb-2 leading-relaxed">
-          {task.description}
-        </p>
-      )}
-
       {/* Ligne 3 : Métadonnées / Liens : Branche Git + Icône PR + Labels */}
       <div className="flex items-center justify-between gap-1.5 mb-2.5 flex-wrap">
         <div className="flex items-center gap-1.5 flex-wrap min-w-0" onClick={e => e.stopPropagation()}>

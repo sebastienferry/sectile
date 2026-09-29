@@ -141,6 +141,9 @@ type Project struct {
 	// the project's tasks are committed ("keep", the default) or left in the
 	// task worktree and ignored by Git ("drop"). A workstation may override it.
 	SpecArtifacts string `json:"specArtifacts"`
+	// BranchNameFormat is the template the branch of a task that has none yet
+	// is rendered from (#621). Empty means DefaultBranchNameFormat.
+	BranchNameFormat string `json:"branchNameFormat"`
 	// DefaultSkillMode is the execution mode a skill run falls back to when
 	// neither the launch nor the skill itself pins one. Default "interactive",
 	// which is what the tool did before the setting existed.
@@ -416,6 +419,7 @@ type CreateProjectRequest struct {
 	Repositories        []string `json:"repositories,omitempty"`
 	PRCreationStage     string   `json:"prCreationStage,omitempty"`
 	SpecArtifacts       string   `json:"specArtifacts,omitempty"`
+	BranchNameFormat    string   `json:"branchNameFormat,omitempty"`
 	DefaultSkillMode    string   `json:"defaultSkillMode,omitempty"`
 	FullChainStopStage  string   `json:"fullChainStopStage,omitempty"`
 	PushStageCommits    bool     `json:"pushStageCommits,omitempty"`
@@ -444,6 +448,7 @@ type UpdateProjectRequest struct {
 	RoadmapProjects     *[]string            `json:"roadmapProjects,omitempty"`
 	PRCreationStage     *string              `json:"prCreationStage,omitempty"`
 	SpecArtifacts       *string              `json:"specArtifacts,omitempty"`
+	BranchNameFormat    *string              `json:"branchNameFormat,omitempty"`
 	DefaultSkillMode    *string              `json:"defaultSkillMode,omitempty"`
 	FullChainStopStage  *string              `json:"fullChainStopStage,omitempty"`
 	PushStageCommits    *bool                `json:"pushStageCommits,omitempty"`

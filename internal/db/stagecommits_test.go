@@ -73,6 +73,10 @@ func TestPushStageCommitsMigration(t *testing.T) {
 	if _, err := d.conn.Exec("ALTER TABLE projects DROP COLUMN push_stage_commits"); err != nil {
 		t.Fatal(err)
 	}
+	// Migrations 33 and 34 come after it and are replayed too.
+	if _, err := d.conn.Exec("ALTER TABLE projects DROP COLUMN branch_name_format"); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := d.conn.Exec("DELETE FROM schema_migrations WHERE version >= 32"); err != nil {
 		t.Fatal(err)
 	}
