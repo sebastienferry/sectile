@@ -115,11 +115,22 @@ func (d *DB) GetProjectMacros(projectID string) ([]models.MacroMeta, error) {
 	d.mu.Unlock()
 
 	proj, _ := d.GetProjectByID(projectID)
+	// The page of each macro the tracker listed. Only a listed milestone gets
+	// one: a macro created while the milestone write failed also carries an
+	// M-<n> key, and building an address from that key would open another
+	// milestone, or none.
+	milestoneURLs := map[string]string{}
 	if githubMilestoneMacros(proj) {
 		if milestones, err := d.tracker(proj.ID).ListGithubMilestones(proj.GithubRepo, proj.RepoPath); err == nil && len(milestones) > 0 {
+			repo := trackerapi.CleanGithubRepo(proj.GithubRepo)
 			d.mu.Lock()
 			for _, m := range milestones {
 				key := fmt.Sprintf("M-%d", m.Number)
+				if m.HTMLURL != "" {
+					milestoneURLs[key] = m.HTMLURL
+				} else if repo != "" {
+					milestoneURLs[key] = fmt.Sprintf("https://github.com/%s/milestone/%d", repo, m.Number)
+				}
 				closedVal := 0
 				if strings.EqualFold(m.State, "closed") {
 					closedVal = 1
@@ -158,9 +169,63 @@ func (d *DB) GetProjectMacros(projectID string) ([]models.MacroMeta, error) {
 		}
 		e.Closed = closed == 1
 		e.Todos = parseMacroTodos(todosJSON)
+		e.ExternalURL = milestoneURLs[e.Key]
 		out = append(out, e)
 	}
+	d.fillMacroURLsFromTasks(projectID, out)
 	return out, nil
+}
+
+// fillMacroURLsFromTasks gives a macro without an address the one of the work
+// item carrying its key. A Jira epic is synced as a task of its own, kept off
+// the board as a container, and that task knows the epic's page; a macro that
+// no work item carries keeps no address rather than a guessed one.
+func (d *DB) fillMacroURLsFromTasks(projectID string, macros []models.MacroMeta) {
+	index := map[string]int{}
+	keys := []any{projectID}
+	for i, m := range macros {
+		if m.ExternalURL == "" {
+			index[m.Key] = i
+			keys = append(keys, m.Key)
+		}
+	}
+	if len(index) == 0 {
+		return
+	}
+
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	placeholders := strings.TrimSuffix(strings.Repeat("?, ", len(index)), ", ")
+	rows, err := d.conn.Query(`SELECT key, source, external_url FROM tasks WHERE project_id = ? AND key IN (`+placeholders+`)`, keys...)
+	if err != nil {
+		return
+	}
+	// Read everything before resolving: the resolution may query the project
+	// and the settings, and does so with this result set closed.
+	found := []models.Task{}
+	for rows.Next() {
+		var key string
+		var source, extURL sql.NullString
+		if err := rows.Scan(&key, &source, &extURL); err != nil {
+			continue
+		}
+		task := models.Task{ProjectID: projectID, Key: key, Source: taskSource(source, key)}
+		if extURL.Valid && extURL.String != "" {
+			task.ExternalURL = &extURL.String
+		}
+		found = append(found, task)
+	}
+	rows.Close()
+
+	for _, task := range found {
+		i := index[task.Key]
+		if macros[i].ExternalURL != "" {
+			continue
+		}
+		if u := d.computeExternalURLUnsafe(&task); u != nil {
+			macros[i].ExternalURL = *u
+		}
+	}
 }
 
 // GetProjectEpics is an alias for GetProjectMacros.

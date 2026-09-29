@@ -285,6 +285,9 @@ type MacroMeta struct {
 	Status    string    `json:"status,omitempty"`
 	Closed    bool      `json:"closed"`
 	UpdatedAt time.Time `json:"updatedAt"`
+	// ExternalURL is the macro's own page on its tracker, computed when the
+	// list is read and never stored. Empty when the tracker gives none.
+	ExternalURL string `json:"externalUrl,omitempty"`
 }
 
 // Origine d'une ligne de découpe : l'artefact d'où elle a été importée.
