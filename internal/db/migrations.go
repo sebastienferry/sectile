@@ -492,6 +492,13 @@ var migrations = []migration{
 		name:       "projects.push_stage_commits",
 		statements: []string{"ALTER TABLE projects ADD COLUMN push_stage_commits INTEGER NOT NULL DEFAULT 0;"},
 	},
+	{
+		// The template a task branch name is rendered from (#621). Empty is the
+		// default format, the feat/<key> names every project had before.
+		version:    33,
+		name:       "projects.branch_name_format",
+		statements: []string{"ALTER TABLE projects ADD COLUMN branch_name_format TEXT NOT NULL DEFAULT '';"},
+	},
 }
 
 // migrateSchema brings the database to the schema this binary expects, and is

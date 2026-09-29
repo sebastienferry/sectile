@@ -377,7 +377,7 @@ func repositoryWorktree(ctx context.Context, config agentconfig.Config, override
 			return models.RepositoryWorktree{}, err
 		}
 	}
-	dir, branch, err := ensureLocalWorktree(ctx, root, task, true)
+	dir, branch, err := ensureLocalWorktree(ctx, root, task, true, config.BranchNameFormat)
 	if err != nil {
 		return models.RepositoryWorktree{}, err
 	}

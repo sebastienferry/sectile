@@ -131,7 +131,7 @@ flowchart LR
 
 ### Stage 1: Clarification (`clarify-issue` / `/clarify`)
 - **Objective**: Resolves functional gaps, edge cases, and architectural ambiguities through an iterative feedback loop between the agent and the work item owner (analogous to how `adjust-issue` iterates on code reviews).
-- **Rounds & Reports**: Clarification executes in numbered rounds (Round 1, Round N). Findings are stored in `docs/clarifications/<n>.md` on the assigned work branch (`feat/<n>`), with dated sections `## Round N - answers from the owner (<date>)` appended as feedback arrives. Each round commits incrementally with `docs(spec): clarify #<n> (round <r>)`.
+- **Rounds & Reports**: Clarification executes in numbered rounds (Round 1, Round N). Findings are stored in `docs/clarifications/<n>.md` on the assigned work branch, with dated sections `## Round N - answers from the owner (<date>)` appended as feedback arrives. Each round commits incrementally with `docs(spec): clarify #<n> (round <r>)`.
 - **Exit Condition & Transition Guard**: Clarification ends only when the owner explicitly confirms that the clarification is satisfactory (or zero open product questions remain in unattended pickup). A task must **never** be transitioned `new → clarified` while any product question or decision remains open.
 - **Pull request**: When the project's PR creation stage is `clarified` ("Draft after clarification"), the final round pushes the task branch and opens or reuses its draft pull request, and the `clarified` transition is refused without it. Intermediate rounds open none; a workstation that drops the specification artefacts defers it to implementation. (#580)
 - **Interactive vs. Unattended Execution**:
@@ -473,3 +473,16 @@ the upstream on first publication and never forcing. A refused push is reported
 without blocking the stage. Ignored artifacts remain local and cause no commit or
 push. Required pull request publication still follows the project's creation stage.
 Agents receive these instructions when their installed skills are regenerated.
+
+### Task branch name format
+
+The project workflow setting `branchNameFormat` names the branch the agent
+creates for a task that has none yet. It is a template with `{key}` (the ticket
+key as the tracker shows it, without `#`), `{key_lower}` and `{title}` (the
+lower-case title slug, 30 characters at most). Empty means `feat/{key_lower}`,
+the historical names. The project settings offer the presets
+`feat/{key_lower}`, `{key}` and `feat/{key}-{title}` and show the branch a
+sample ticket gets. A format without a key placeholder, with an unknown
+placeholder, or that gives no usable Git branch is refused on save. Branches
+already assigned to tasks, macro branches and projects that run without
+worktrees are unaffected.

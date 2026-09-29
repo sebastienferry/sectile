@@ -154,7 +154,7 @@ func sessionContext(config *agentconfig.Config) map[string]any {
 		"description": config.Description, "gitRemoteUrl": config.GitRemoteURL, "issueTracker": config.IssueTracker,
 		"trackerUrl": config.TrackerURL, "githubRepo": config.GithubRepo,
 		"jiraProject": config.JiraProject, "specFramework": config.SpecFramework, "prCreationStage": config.PRCreationStage,
-		"defaultSkillMode": config.DefaultSkillMode, "fullChainStopStage": config.FullChainStopStage, "pushStageCommits": config.PushStageCommits,
+		"defaultSkillMode": config.DefaultSkillMode, "fullChainStopStage": config.FullChainStopStage, "pushStageCommits": config.PushStageCommits, "branchNameFormat": config.BranchNameFormat,
 		"skills": skills, "skillDirectories": []string{".agents/skills", ".claude/skills", ".gemini/skills", ".agy/skills", ".skills"},
 	}
 }

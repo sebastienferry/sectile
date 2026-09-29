@@ -71,6 +71,26 @@ var ErrDuplicateRepository = errors.New("repository already declared")
 // the two a project can hold, naming them so an API client can correct itself.
 var ErrInvalidSpecArtifacts = errors.New("specArtifacts must be keep or drop")
 
+// ErrInvalidBranchNameFormat refuses a branch name format that cannot render
+// a usable branch (#621). The refusal a save returns matches it with
+// errors.Is, and reads as the renderer's own message, which the user sees.
+var ErrInvalidBranchNameFormat = errors.New("invalid branch name format")
+
+type branchNameFormatError struct{ reason error }
+
+func (e branchNameFormatError) Error() string        { return e.reason.Error() }
+func (e branchNameFormatError) Is(target error) bool { return target == ErrInvalidBranchNameFormat }
+
+// checkBranchNameFormat trims a received format and validates it; the empty
+// result is the default format.
+func checkBranchNameFormat(format string) (string, error) {
+	format = strings.TrimSpace(format)
+	if err := models.ValidateBranchNameFormat(format); err != nil {
+		return "", branchNameFormatError{reason: err}
+	}
+	return format, nil
+}
+
 // ErrRepositoryNotInProject refuses to pin a ticket to a repository its
 // project does not declare.
 var ErrRepositoryNotInProject = errors.New("repository is not one of the project's repositories")

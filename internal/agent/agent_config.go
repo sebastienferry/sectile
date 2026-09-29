@@ -230,7 +230,7 @@ func worktreeForBranch(ctx context.Context, root, branch string) (string, error)
 	return "", nil
 }
 
-func ensureLocalWorktree(ctx context.Context, root string, task models.Task, useWorktrees bool) (string, string, error) {
+func ensureLocalWorktree(ctx context.Context, root string, task models.Task, useWorktrees bool, branchFormat string) (string, string, error) {
 	branch := ""
 	if task.BranchName != nil {
 		branch = strings.TrimSpace(*task.BranchName)
@@ -246,7 +246,7 @@ func ensureLocalWorktree(ctx context.Context, root string, task models.Task, use
 	if err != nil {
 		return "", "", err
 	}
-	branch, err = taskWorktreeBranch(task)
+	branch, err = taskWorktreeBranch(task, branchFormat)
 	if err != nil {
 		return "", "", err
 	}
@@ -356,7 +356,7 @@ func (d *agentDaemon) prepareDispatchLocked(ctx context.Context, taskKey string,
 		return config, "", "", "", task, err
 	}
 	root = primary
-	workDir, branch, err := ensureLocalWorktree(ctx, root, task, config.UseWorktrees)
+	workDir, branch, err := ensureLocalWorktree(ctx, root, task, config.UseWorktrees, config.BranchNameFormat)
 	if err != nil {
 		return config, "", "", "", task, err
 	}

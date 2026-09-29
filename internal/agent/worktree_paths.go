@@ -50,33 +50,27 @@ func safeWorktreeName(key string) (string, error) {
 	return fmt.Sprintf("key-%s-%x", s, sha256.Sum256([]byte(key))), nil
 }
 
-func taskWorktreeBranch(task models.Task) (string, error) {
+// taskWorktreeBranch is the branch a task's worktree carries: the one assigned
+// to the task, which a format never renames, else the project's branch name
+// format rendered for it (#621); an empty format gives feat/<key slug>.
+func taskWorktreeBranch(task models.Task, format string) (string, error) {
 	if _, err := safeWorktreeName(task.Key); err != nil {
 		return "", err
 	}
 	if task.BranchName != nil && strings.TrimSpace(*task.BranchName) != "" {
 		return strings.TrimSpace(*task.BranchName), nil
 	}
-	slug := strings.Trim(strings.Map(func(r rune) rune {
-		if r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '-' {
-			return r
-		}
-		return '-'
-	}, strings.ToLower(task.Key)), "-")
-	if slug == "" {
-		return "", fmt.Errorf("task key cannot produce a branch name")
-	}
-	return "feat/" + slug, nil
+	return models.TaskBranchName(format, task.Key, task.Title)
 }
 
 // localTaskPath uses Git's branch inventory, including arbitrary and legacy paths.
 // An occupied prediction is never returned as a usable checkout.
-func localTaskPath(ctx context.Context, root string, task models.Task) (string, error) {
+func localTaskPath(ctx context.Context, root string, task models.Task, branchFormat string) (string, error) {
 	name, err := safeWorktreeName(task.Key)
 	if err != nil {
 		return "", err
 	}
-	branch, err := taskWorktreeBranch(task)
+	branch, err := taskWorktreeBranch(task, branchFormat)
 	if err != nil {
 		return "", err
 	}
