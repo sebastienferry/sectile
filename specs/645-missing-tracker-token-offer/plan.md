@@ -146,8 +146,9 @@ In `web/src/context/AppContext.tsx`:
 
   `setIsProfileOpen(false)` clears the target. The existing openers
   (`Sidebar.tsx:775`, `StatusBar.tsx:34`, `CommandPalette.tsx:375`) keep
-  calling `setIsProfileOpen(true)` with no target, so they still open on the
-  first tab (US2.3).
+  calling `setIsProfileOpen(true)` with no target, so they keep opening on
+  the tab last shown, as before (US2.3; the modal stays mounted and keeps its
+  tab state between openings).
 - `ProfileModal` (`web/src/components/ProfileModal.tsx:57`) switches
   `activeTab` to `'trackers'` whenever `profileTarget` changes to a value,
   including while it is already open (US2.2).

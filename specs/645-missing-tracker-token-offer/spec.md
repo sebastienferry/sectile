@@ -79,7 +79,8 @@ missing and reach the place to fix it in one click.
    an offer, then the modal switches to the tracker credentials tab and opens
    the provider's entry.
 3. Given the profile modal opened any other way (sidebar, status bar, command
-   palette), then it opens on its first tab, as today.
+   palette), then it opens as it does today, on the tab last shown, and an
+   earlier offer never forces the tracker credentials tab again.
 4. Given the person saved their token, then nothing is replayed: the refused
    action is performed again by the person.
 
@@ -130,8 +131,9 @@ reached the tracker and how to fix it.
   people keep the generic notification.
 - **FR6** The token offer opens the profile modal on the tracker credentials
   tab with the provider's entry open, whether the modal was closed or open
-  on another tab. Every other way of opening the modal keeps opening it on
-  its first tab.
+  on another tab. Every other way of opening the modal keeps its current
+  behaviour (the tab last shown); the target of an offer is forgotten once
+  the modal closes.
 - **FR7** A notification carrying the token offer stays on screen until
   closed or used, like the other notifications that carry an action.
 - **FR8** The offer label and the notification text name the provider, and

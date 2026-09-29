@@ -2333,8 +2333,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         }),
       })
       if (!res.ok) {
+        // Only the refusal for want of a token is told apart: any other
+        // failure keeps the generic message the creation always showed.
         const errData = await res.json().catch(() => ({}))
-        throw trackerError(res, errData, t.operations.notifications.createFailed)
+        const refused = trackerError(res, errData, t.operations.notifications.createFailed)
+        throw refused instanceof TrackerCredentialMissingError ? refused : new Error(t.operations.notifications.createFailed)
       }
       let created: Task = await res.json()
       // A parentKey on the creation would only be stored locally: the tracker
