@@ -98,7 +98,7 @@ var StageSkills = []StageSkill{
 		ID:          "implement",
 		Name:        "Implement",
 		DirName:     models.SkillDirNames["implement"],
-		Command:     "/code-issue",
+		Command:     "/implement-issue",
 		FromStage:   "specified",
 		ToStage:     "implemented",
 		Description: "Exécute le plan d'implémentation et valide par les tests.",

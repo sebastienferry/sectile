@@ -331,6 +331,21 @@ func scaffold(checkout string, config Config, preserveOtherProviders bool) ([]st
 				files[filepath.Join(loc.SkillDir, "create-pr/SKILL.md")] = forward
 			}
 		}
+		// code-issue is the implementation skill's former name (#608): it stays
+		// installed as an alias, so a /code-issue typed by hand or kept in a
+		// workstation's command setting still runs the implementation stage.
+		if loc.InstallsSkills() {
+			for _, skill := range config.Skills {
+				if skill.ID != "implement" || skill.Directory != "implement-issue" {
+					continue
+				}
+				forward := "---\nname: code-issue\ndescription: Former name of implement-issue, kept as an alias.\n---\nInvoke implement-issue with the same arguments. If the running agent cannot invoke skills, read the sibling `../implement-issue/SKILL.md` and follow it as written.\n"
+				if loc.SubstitutesArguments {
+					forward += "\n$ARGUMENTS\n"
+				}
+				files[filepath.Join(loc.SkillDir, "code-issue/SKILL.md")] = forward
+			}
+		}
 	}
 	work, err := os.OpenRoot(checkout)
 	if err != nil {

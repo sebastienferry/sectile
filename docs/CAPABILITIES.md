@@ -206,8 +206,9 @@ Note: OpenSpec is a Spec-Driven Design workflow, unrelated to **OpenFeature**
 (a feature-flag standard). Earlier builds stored `openfeature` as a spec
 framework value; the database migrates that value to `openspec` on startup.
 
-### Stage 3: Implementation (`code-issue` / `/code`)
+### Stage 3: Implementation (`implement-issue`)
 - **Objective**: Implements the required code changes directly inside the task's isolated Git worktree.
+- **Former name**: `code-issue` stays installed as an alias that hands its arguments to `implement-issue`, and a workstation that only has `code-issue` still runs this stage with it until its next setup.
 - **Output**: Edits codebase, verifies build, prepares clean atomic commits, and creates or reuses a draft PR when implementation owns PR creation. The specification-time and clarification-time policies create the draft earlier.
 
 ### Stage 4: Adjust (`adjust-issue`)

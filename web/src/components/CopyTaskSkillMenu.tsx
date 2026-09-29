@@ -9,7 +9,7 @@ import type { Task } from '../types'
 const SKILL_COMMANDS: Record<string, string> = {
   clarify: '/clarify-issue',
   specify: '/specify-issue',
-  implement: '/code-issue',
+  implement: '/implement-issue',
   adjust: '/adjust-issue',
   handoff: '/handoff-issue',
 }

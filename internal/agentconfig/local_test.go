@@ -3,6 +3,7 @@ package agentconfig
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"tasks/internal/testhome"
 	"testing"
 )
@@ -155,6 +156,30 @@ func TestAdjustmentScaffoldPreservesLegacyEdits(t *testing.T) {
 	c = Resolve(c, Settings{Skills: map[string]string{"review": "old review"}})
 	if !c.Skills[0].RequiresReconciliation {
 		t.Fatal("legacy local override not flagged")
+	}
+}
+
+// A workstation set up before #608 holds the implementation skill under
+// code-issue. The next setup installs implement-issue and turns code-issue into
+// an alias forwarding to it, so /code-issue keeps running the stage.
+func TestScaffoldKeepsCodeIssueAsAnAliasOfImplementIssue(t *testing.T) {
+	root, home := t.TempDir(), t.TempDir()
+	testhome.Set(t, home)
+	before := Config{SchemaVersion: Version, Skills: []Skill{{ID: "implement", Directory: "code-issue", Command: "/code-issue", Content: "implementation contract", CommandContent: "implementation contract"}}}
+	if _, err := Scaffold(root, before); err != nil {
+		t.Fatal(err)
+	}
+	after := Config{SchemaVersion: Version, Skills: []Skill{{ID: "implement", Directory: "implement-issue", Command: "/implement-issue", Content: "implementation contract", CommandContent: "implementation contract"}}}
+	if _, err := Scaffold(root, after); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(installed(t, home, "agy", "implement-issue/SKILL.md"))
+	if err != nil || string(raw) != "implementation contract" {
+		t.Fatalf("implement-issue: %q %v", raw, err)
+	}
+	raw, err = os.ReadFile(installed(t, home, "agy", "code-issue/SKILL.md"))
+	if err != nil || !strings.Contains(string(raw), "name: code-issue") || !strings.Contains(string(raw), "Invoke implement-issue with the same arguments") {
+		t.Fatalf("code-issue is not the alias: %q %v", raw, err)
 	}
 }
 

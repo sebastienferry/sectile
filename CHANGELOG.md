@@ -32,6 +32,7 @@ test fixtures or internal plumbing.
 
 ### Changed
 
+- **The implementation skill is now `implement-issue`**, like the other stages (`/implement-issue`, `/sectile:implement-issue` in the plugin). `code-issue` stays as an alias that runs it with the same arguments, and a workstation that has only `code-issue` installed keeps running the implementation stage until its next **Initialize** or plugin update. (#608)
 - **Five parallel executions by default.** A project that uses worktrees now runs up to five executions at a time when neither its settings nor the workstation's Execution defaults set a number, on the desktop app and on a headless agent alike; this applies to existing workstations that never changed the setting. A number you set, 1 included, is kept: set 1 under Parallel executions to go back to one execution at a time. (#594)
 - **The web interface loads faster.** The server now sends its pages, scripts, styles and API answers gzip-compressed to the browsers that accept it: the interface's script goes down from about 1.3 MB to about 330 KB on a first visit and after each update. Live board updates are unchanged. (#601)
 - Large boards display cards progressively as each column scrolls, while keeping complete column counts and batch selections. Engine reports are loaded once per project for the board.
