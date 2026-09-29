@@ -37,7 +37,8 @@ registrations on its own; a dispatch uses what it finds.**
 - The direct setup stays, but only on request: `sectile-agent init`, the
   desktop's **Initialize**, the `sync_config` operation and the MCP connection
   saved from the desktop. It is the only route for codex, agy, gemini, cursor
-  and vibe. It installs the same generic skills as the plugin, with the local
+  and vibe (gemini, cursor and vibe were retired as AI engines since, #614).
+  It installs the same generic skills as the plugin, with the local
   HTTP fallback (`directContent` in `GET /api/v1/agent/config`): the folder it
   writes is shared by every project of the workstation, and nothing rewrites
   it per project any more (see *Amendment* below).
