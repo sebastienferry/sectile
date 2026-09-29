@@ -2113,8 +2113,6 @@ func (d *DB) GetTaskByID(id string) (*models.Task, error) {
 	}
 	t.Pinned = HasPinnedLabel(t.Labels)
 
-	activities, _ := d.getTaskActivitiesUnsafe(t.ID)
-	t.Activities = activities
 	t.Batch, _ = d.activeBatchOfUnsafe(t.ID)
 
 	return &t, nil
@@ -2146,42 +2144,6 @@ func (d *DB) ResolveTaskRepoPath(task *models.Task) string {
 		return settings.RepoPath
 	}
 	return ""
-}
-
-// GenerateTaskBranchName formats a valid, clean git branch name for a task.
-func GenerateTaskBranchName(key, title string) string {
-	cleanKey := strings.TrimSpace(key)
-	var kb strings.Builder
-	for _, r := range strings.ToLower(cleanKey) {
-		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' || r == '_' {
-			kb.WriteRune(r)
-		}
-	}
-	cleanKey = kb.String()
-	if cleanKey == "" {
-		cleanKey = "task"
-	}
-
-	var tb strings.Builder
-	for _, r := range strings.ToLower(title) {
-		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
-			tb.WriteRune(r)
-		} else {
-			tb.WriteRune('-')
-		}
-	}
-	slug := tb.String()
-	for strings.Contains(slug, "--") {
-		slug = strings.ReplaceAll(slug, "--", "-")
-	}
-	slug = strings.Trim(slug, "-")
-	if len(slug) > 35 {
-		slug = strings.TrimRight(slug[:35], "-")
-	}
-	if slug == "" {
-		slug = "work"
-	}
-	return fmt.Sprintf("%s-%s", cleanKey, slug)
 }
 
 // SanitizeBranchName removes characters illegal in git branch names. The rule
@@ -2710,7 +2672,6 @@ func (d *DB) CreateTaskAs(ctx context.Context, req models.CreateTaskRequest) (*m
 		ParentKey:      parentKey,
 		ParentTitle:    parentTitle,
 		ParentType:     parentType,
-		Activities:     []models.TaskActivity{},
 		CreatedAt:      now,
 		UpdatedAt:      now,
 	}
@@ -3156,9 +3117,6 @@ func (d *DB) updateTaskBy(actor Actor, id string, req models.UpdateTaskRequest) 
 		}
 	}
 
-	acts, _ := d.getTaskActivitiesUnsafe(existing.ID)
-	existing.Activities = acts
-
 	return existing, nil
 }
 
@@ -3359,9 +3317,6 @@ func (d *DB) MoveTaskBy(actor Actor, id string, newStatus models.Status, newPosi
 	// Enqueue async CLI tracker sync in task activities queue
 	// Déplacement d'étape : seuls le statut et les labels bougent.
 	d.enqueueTrackerUpdateAsUnsafe(actor.ID, existing, &newStatus, existing.Labels, removedLabels, TrackerFieldChanges{})
-
-	acts, _ := d.getTaskActivitiesUnsafe(existing.ID)
-	existing.Activities = acts
 
 	return existing, nil
 }
@@ -5886,8 +5841,6 @@ func (d *DB) ConvertTaskToRemote(ctx context.Context, taskID string, target stri
 		CreatedAt: now,
 	}
 	_ = d.addTaskActivityDirect(act)
-	acts, _ := d.getTaskActivitiesUnsafe(task.ID)
-	task.Activities = acts
 
 	return task, nil
 }
@@ -6107,7 +6060,7 @@ func parseStageColumns(raw string) map[string][]string {
 
 func (d *DB) getProjectsUnsafe() ([]models.Project, error) {
 	rows, err := d.conn.Query(`
-		SELECT p.id, p.name, p.slug, p.description, p.icon, p.color, p.repo_path, p.repo_paths, p.repositories, p.repositories_migration, p.use_worktrees, p.default_skill_mode, p.full_chain_stop_stage, p.push_stage_commits, p.pr_creation_stage, p.spec_artifacts, p.board_id, p.tracker_columns, p.stage_columns, p.sprints, p.issue_types, p.enabled_views, p.epic_colors, p.roadmap_projects, p.git_remote_url, p.github_repo, p.github_api_url, p.gitlab_url, p.gitlab_project, p.jira_project, p.issue_tracker, p.tracker_url, p.is_default, p.skill_overrides, p.setup_providers, p.ai_provider, p.ai_command_template, p.ai_command_template_autonomous, p.ai_model, p.ai_skill_models, p.spec_framework, p.external_terminal_command, p.auto_sync_enabled, p.auto_sync_interval_min, p.owner_user_id, p.created_at, p.updated_at,
+		SELECT p.id, p.name, p.slug, p.description, p.icon, p.color, p.repo_path, p.repo_paths, p.repositories, p.repositories_migration, p.use_worktrees, p.default_skill_mode, p.full_chain_stop_stage, p.push_stage_commits, p.pr_creation_stage, p.spec_artifacts, p.branch_name_format, p.board_id, p.tracker_columns, p.stage_columns, p.sprints, p.issue_types, p.enabled_views, p.epic_colors, p.roadmap_projects, p.git_remote_url, p.github_repo, p.github_api_url, p.gitlab_url, p.gitlab_project, p.jira_project, p.issue_tracker, p.tracker_url, p.is_default, p.skill_overrides, p.setup_providers, p.ai_provider, p.ai_command_template, p.ai_command_template_autonomous, p.ai_model, p.ai_skill_models, p.spec_framework, p.external_terminal_command, p.auto_sync_enabled, p.auto_sync_interval_min, p.owner_user_id, p.created_at, p.updated_at,
 		       COUNT(t.id) as task_count
 		FROM projects p
 		LEFT JOIN tasks t ON t.project_id = p.id
@@ -6135,7 +6088,7 @@ func (d *DB) getProjectsUnsafe() ([]models.Project, error) {
 		var ghURL, glURL, glProj sql.NullString
 		var ownerUserID sql.NullString
 		err := rows.Scan(
-			&p.ID, &p.Name, &p.Slug, &p.Description, &p.Icon, &p.Color, &p.RepoPath, &repoPathsJSON, &repositoriesJSON, &p.RepositoriesMigration, &useWorktrees, &defaultSkillMode, &fullChainStopStage, &pushStageCommits, &p.PRCreationStage, &p.SpecArtifacts, &p.BoardID, &trackerColumnsJSON, &stageColumnsJSON, &sprintsJSON, &issueTypesJSON, &enabledViewsJSON, &epicColors, &roadmapProjectsJSON, &p.GitRemoteUrl, &p.GithubRepo, &ghURL, &glURL, &glProj, &jiraProj, &p.IssueTracker, &p.TrackerUrl, &isDefault, &skillOverridesJSON, &setupProvidersJSON, &aiProv, &aiCmd, &aiCmdAuto, &projModel, &projSkillModelsJSON, &specFw, &extTerm, &autoSyncEnabledInt, &autoSyncIntervalMin, &ownerUserID, &p.CreatedAt, &p.UpdatedAt, &p.TaskCount,
+			&p.ID, &p.Name, &p.Slug, &p.Description, &p.Icon, &p.Color, &p.RepoPath, &repoPathsJSON, &repositoriesJSON, &p.RepositoriesMigration, &useWorktrees, &defaultSkillMode, &fullChainStopStage, &pushStageCommits, &p.PRCreationStage, &p.SpecArtifacts, &p.BranchNameFormat, &p.BoardID, &trackerColumnsJSON, &stageColumnsJSON, &sprintsJSON, &issueTypesJSON, &enabledViewsJSON, &epicColors, &roadmapProjectsJSON, &p.GitRemoteUrl, &p.GithubRepo, &ghURL, &glURL, &glProj, &jiraProj, &p.IssueTracker, &p.TrackerUrl, &isDefault, &skillOverridesJSON, &setupProvidersJSON, &aiProv, &aiCmd, &aiCmdAuto, &projModel, &projSkillModelsJSON, &specFw, &extTerm, &autoSyncEnabledInt, &autoSyncIntervalMin, &ownerUserID, &p.CreatedAt, &p.UpdatedAt, &p.TaskCount,
 		)
 		if err != nil {
 			return nil, err
@@ -6246,12 +6199,12 @@ func (d *DB) getProjectByIDUnsafe(id string) (*models.Project, error) {
 	var ghURL, glURL, glProj sql.NullString
 	var ownerUserID sql.NullString
 	err := d.conn.QueryRow(`
-		SELECT p.id, p.name, p.slug, p.description, p.icon, p.color, p.repo_path, p.repo_paths, p.repositories, p.repositories_migration, p.use_worktrees, p.default_skill_mode, p.full_chain_stop_stage, p.push_stage_commits, p.pr_creation_stage, p.spec_artifacts, p.board_id, p.tracker_columns, p.stage_columns, p.sprints, p.issue_types, p.enabled_views, p.epic_colors, p.roadmap_projects, p.git_remote_url, p.github_repo, p.github_api_url, p.gitlab_url, p.gitlab_project, p.jira_project, p.issue_tracker, p.tracker_url, p.is_default, p.skill_overrides, p.setup_providers, p.ai_provider, p.ai_command_template, p.ai_command_template_autonomous, p.ai_model, p.ai_skill_models, p.spec_framework, p.external_terminal_command, p.auto_sync_enabled, p.auto_sync_interval_min, p.owner_user_id, p.created_at, p.updated_at,
+		SELECT p.id, p.name, p.slug, p.description, p.icon, p.color, p.repo_path, p.repo_paths, p.repositories, p.repositories_migration, p.use_worktrees, p.default_skill_mode, p.full_chain_stop_stage, p.push_stage_commits, p.pr_creation_stage, p.spec_artifacts, p.branch_name_format, p.board_id, p.tracker_columns, p.stage_columns, p.sprints, p.issue_types, p.enabled_views, p.epic_colors, p.roadmap_projects, p.git_remote_url, p.github_repo, p.github_api_url, p.gitlab_url, p.gitlab_project, p.jira_project, p.issue_tracker, p.tracker_url, p.is_default, p.skill_overrides, p.setup_providers, p.ai_provider, p.ai_command_template, p.ai_command_template_autonomous, p.ai_model, p.ai_skill_models, p.spec_framework, p.external_terminal_command, p.auto_sync_enabled, p.auto_sync_interval_min, p.owner_user_id, p.created_at, p.updated_at,
 		       (SELECT COUNT(*) FROM tasks WHERE project_id = p.id) as task_count
 		FROM projects p
 		WHERE p.id = ? OR p.slug = ?
 	`, id, id).Scan(
-		&p.ID, &p.Name, &p.Slug, &p.Description, &p.Icon, &p.Color, &p.RepoPath, &repoPathsJSON, &repositoriesJSON, &p.RepositoriesMigration, &useWorktrees, &defaultSkillMode, &fullChainStopStage, &pushStageCommits, &p.PRCreationStage, &p.SpecArtifacts, &p.BoardID, &trackerColumnsJSON, &stageColumnsJSON, &sprintsJSON, &issueTypesJSON, &enabledViewsJSON, &epicColors, &roadmapProjectsJSON, &p.GitRemoteUrl, &p.GithubRepo, &ghURL, &glURL, &glProj, &jiraProj, &p.IssueTracker, &p.TrackerUrl, &isDefault, &skillOverridesJSON, &setupProvidersJSON, &aiProv, &aiCmd, &aiCmdAuto, &projModel, &projSkillModelsJSON, &specFw, &extTerm, &autoSyncEnabledInt, &autoSyncIntervalMin, &ownerUserID, &p.CreatedAt, &p.UpdatedAt, &p.TaskCount,
+		&p.ID, &p.Name, &p.Slug, &p.Description, &p.Icon, &p.Color, &p.RepoPath, &repoPathsJSON, &repositoriesJSON, &p.RepositoriesMigration, &useWorktrees, &defaultSkillMode, &fullChainStopStage, &pushStageCommits, &p.PRCreationStage, &p.SpecArtifacts, &p.BranchNameFormat, &p.BoardID, &trackerColumnsJSON, &stageColumnsJSON, &sprintsJSON, &issueTypesJSON, &enabledViewsJSON, &epicColors, &roadmapProjectsJSON, &p.GitRemoteUrl, &p.GithubRepo, &ghURL, &glURL, &glProj, &jiraProj, &p.IssueTracker, &p.TrackerUrl, &isDefault, &skillOverridesJSON, &setupProvidersJSON, &aiProv, &aiCmd, &aiCmdAuto, &projModel, &projSkillModelsJSON, &specFw, &extTerm, &autoSyncEnabledInt, &autoSyncIntervalMin, &ownerUserID, &p.CreatedAt, &p.UpdatedAt, &p.TaskCount,
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -6417,6 +6370,11 @@ func (d *DB) CreateProjectAs(ownerUserID string, req models.CreateProjectRequest
 		d.mu.Unlock()
 		return nil, ErrInvalidSpecArtifacts
 	}
+	branchNameFormat, formatErr := checkBranchNameFormat(req.BranchNameFormat)
+	if formatErr != nil {
+		d.mu.Unlock()
+		return nil, formatErr
+	}
 
 	// The previous default is cleared in the same transaction as the insert,
 	// under the default-project lock, so there is never zero or two defaults.
@@ -6433,9 +6391,9 @@ func (d *DB) CreateProjectAs(ownerUserID string, req models.CreateProjectRequest
 		-- The execution columns (repo_path, use_worktrees, ai_*, setup_providers,
 		-- skill_overrides, external_terminal_command) keep their defaults: the
 		-- workstation owns those settings (#305).
-		INSERT INTO projects (id, name, slug, description, icon, color, repositories, default_skill_mode, full_chain_stop_stage, push_stage_commits, pr_creation_stage, spec_artifacts, board_id, tracker_columns, stage_columns, sprints, issue_types, enabled_views, epic_colors, roadmap_projects, git_remote_url, github_repo, github_api_url, gitlab_url, gitlab_project, jira_project, issue_tracker, tracker_url, is_default, spec_framework, auto_sync_enabled, auto_sync_interval_min, owner_user_id, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, id, name, slug, req.Description, icon, color, repositoriesJSON, models.NormalizeSkillMode(req.DefaultSkillMode), models.NormalizeFullChainStopStage(req.FullChainStopStage), boolInt(req.PushStageCommits), prCreationStage, models.NormalizeSpecArtifacts(req.SpecArtifacts), req.BoardID, "[]", "{}", "[]", string(issueTypesBytes), string(enabledViewsBytes), epicColorsInt, string(roadmapProjectsBytes), gitRemote, githubRepo, strings.TrimSpace(req.GithubApiUrl), strings.TrimSpace(req.GitlabUrl), strings.TrimSpace(req.GitlabProject), jiraProject, issueTracker, req.TrackerUrl, isDefInt, specFramework, autoSyncEnabledInt, autoSyncIntervalMin, strings.TrimSpace(ownerUserID), now, now)
+		INSERT INTO projects (id, name, slug, description, icon, color, repositories, default_skill_mode, full_chain_stop_stage, push_stage_commits, pr_creation_stage, spec_artifacts, branch_name_format, board_id, tracker_columns, stage_columns, sprints, issue_types, enabled_views, epic_colors, roadmap_projects, git_remote_url, github_repo, github_api_url, gitlab_url, gitlab_project, jira_project, issue_tracker, tracker_url, is_default, spec_framework, auto_sync_enabled, auto_sync_interval_min, owner_user_id, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, id, name, slug, req.Description, icon, color, repositoriesJSON, models.NormalizeSkillMode(req.DefaultSkillMode), models.NormalizeFullChainStopStage(req.FullChainStopStage), boolInt(req.PushStageCommits), prCreationStage, models.NormalizeSpecArtifacts(req.SpecArtifacts), branchNameFormat, req.BoardID, "[]", "{}", "[]", string(issueTypesBytes), string(enabledViewsBytes), epicColorsInt, string(roadmapProjectsBytes), gitRemote, githubRepo, strings.TrimSpace(req.GithubApiUrl), strings.TrimSpace(req.GitlabUrl), strings.TrimSpace(req.GitlabProject), jiraProject, issueTracker, req.TrackerUrl, isDefInt, specFramework, autoSyncEnabledInt, autoSyncIntervalMin, strings.TrimSpace(ownerUserID), now, now)
 		return err
 	})
 	if err != nil {
@@ -6567,6 +6525,14 @@ func (d *DB) UpdateProjectAs(actingUserID string, id string, req models.UpdatePr
 		}
 		p.SpecArtifacts = models.NormalizeSpecArtifacts(*req.SpecArtifacts)
 	}
+	if req.BranchNameFormat != nil {
+		format, err := checkBranchNameFormat(*req.BranchNameFormat)
+		if err != nil {
+			d.mu.Unlock()
+			return nil, err
+		}
+		p.BranchNameFormat = format
+	}
 	if req.DefaultSkillMode != nil {
 		p.DefaultSkillMode = models.NormalizeSkillMode(*req.DefaultSkillMode)
 	}
@@ -6664,9 +6630,9 @@ func (d *DB) UpdateProjectAs(actingUserID string, id string, req models.UpdatePr
 	// those settings, and the stored values stay as they are for the seed.
 	_, err = tx.Exec(`
 		UPDATE projects
-		SET name = ?, slug = ?, description = ?, icon = ?, color = ?, repositories = ?, default_skill_mode = ?, full_chain_stop_stage = ?, push_stage_commits = ?, pr_creation_stage = ?, spec_artifacts = ?, board_id = ?, tracker_columns = ?, stage_columns = ?, sprints = ?, issue_types = ?, enabled_views = ?, epic_colors = ?, roadmap_projects = ?, git_remote_url = ?, github_repo = ?, github_api_url = ?, gitlab_url = ?, gitlab_project = ?, jira_project = ?, issue_tracker = ?, tracker_url = ?, is_default = ?, spec_framework = ?, auto_sync_enabled = ?, auto_sync_interval_min = ?, owner_user_id = ?, updated_at = ?
+		SET name = ?, slug = ?, description = ?, icon = ?, color = ?, repositories = ?, default_skill_mode = ?, full_chain_stop_stage = ?, push_stage_commits = ?, pr_creation_stage = ?, spec_artifacts = ?, branch_name_format = ?, board_id = ?, tracker_columns = ?, stage_columns = ?, sprints = ?, issue_types = ?, enabled_views = ?, epic_colors = ?, roadmap_projects = ?, git_remote_url = ?, github_repo = ?, github_api_url = ?, gitlab_url = ?, gitlab_project = ?, jira_project = ?, issue_tracker = ?, tracker_url = ?, is_default = ?, spec_framework = ?, auto_sync_enabled = ?, auto_sync_interval_min = ?, owner_user_id = ?, updated_at = ?
 		WHERE id = ?
-	`, p.Name, p.Slug, p.Description, p.Icon, p.Color, encodeRepositoryURLs(projectCodeRemote(p), repositoryURLs), p.DefaultSkillMode, p.FullChainStopStage, boolInt(p.PushStageCommits), p.PRCreationStage, models.NormalizeSpecArtifacts(p.SpecArtifacts), p.BoardID, string(trackerColumnsBytes), string(stageColumnsBytes), string(sprintsBytes), string(issueTypesBytes), string(enabledViewsBytes), epicColorsInt, string(roadmapProjectsBytes), p.GitRemoteUrl, p.GithubRepo, p.GithubApiUrl, p.GitlabUrl, p.GitlabProject, p.JiraProject, p.IssueTracker, p.TrackerUrl, isDefInt, p.SpecFramework, autoSyncEnabledInt, p.AutoSyncIntervalMin, strings.TrimSpace(p.OwnerUserID), p.UpdatedAt, p.ID)
+	`, p.Name, p.Slug, p.Description, p.Icon, p.Color, encodeRepositoryURLs(projectCodeRemote(p), repositoryURLs), p.DefaultSkillMode, p.FullChainStopStage, boolInt(p.PushStageCommits), p.PRCreationStage, models.NormalizeSpecArtifacts(p.SpecArtifacts), p.BranchNameFormat, p.BoardID, string(trackerColumnsBytes), string(stageColumnsBytes), string(sprintsBytes), string(issueTypesBytes), string(enabledViewsBytes), epicColorsInt, string(roadmapProjectsBytes), p.GitRemoteUrl, p.GithubRepo, p.GithubApiUrl, p.GitlabUrl, p.GitlabProject, p.JiraProject, p.IssueTracker, p.TrackerUrl, isDefInt, p.SpecFramework, autoSyncEnabledInt, p.AutoSyncIntervalMin, strings.TrimSpace(p.OwnerUserID), p.UpdatedAt, p.ID)
 	if err == nil {
 		err = tx.Commit()
 		committed = err == nil

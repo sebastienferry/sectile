@@ -49,17 +49,17 @@ func TestLocalWorktreeCreationAndBranchGuard(t *testing.T) {
 	}
 	branch := "feat/test-task"
 	task := models.Task{Key: "#46", BranchName: &branch}
-	path, got, err := ensureLocalWorktree(ctx, root, task, true)
+	path, got, err := ensureLocalWorktree(ctx, root, task, true, "")
 	if err != nil || got != branch || path != filepath.Join(root, ".tasks/worktrees/issue-46") {
 		t.Fatalf("prepare %s %s %v", path, got, err)
 	}
-	if _, _, err := ensureLocalWorktree(ctx, root, task, true); err != nil {
+	if _, _, err := ensureLocalWorktree(ctx, root, task, true, ""); err != nil {
 		t.Fatal(err)
 	}
 	// A key path sitting on another branch no longer refuses the launch: the
 	// assigned branch is nowhere, so a worktree is created beside the stale one.
 	branch = "feat/other"
-	beside, got, err := ensureLocalWorktree(ctx, root, task, true)
+	beside, got, err := ensureLocalWorktree(ctx, root, task, true, "")
 	if err != nil || got != branch {
 		t.Fatalf("stale key path refused the launch: %s %s %v", beside, got, err)
 	}
@@ -70,7 +70,7 @@ func TestLocalWorktreeCreationAndBranchGuard(t *testing.T) {
 		t.Fatalf("worktree beside the stale path is on %s: %v", current, err)
 	}
 	task.Key = "../../escape"
-	if _, _, err := ensureLocalWorktree(ctx, root, task, true); err == nil {
+	if _, _, err := ensureLocalWorktree(ctx, root, task, true, ""); err == nil {
 		t.Fatal("escaped worktree path")
 	}
 	if _, err := os.Stat(filepath.Join(root, ".git")); err != nil {
@@ -91,7 +91,7 @@ func TestLocalWorktreeReusesAssignedMainCheckout(t *testing.T) {
 	if err := os.WriteFile(file, []byte("work in progress"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	workDir, got, err := ensureLocalWorktree(ctx, root, models.Task{Key: "#46", BranchName: &branch}, true)
+	workDir, got, err := ensureLocalWorktree(ctx, root, models.Task{Key: "#46", BranchName: &branch}, true, "")
 	if err != nil || workDir != root || got != branch {
 		t.Fatalf("assigned checkout not reused: %s %s %v", workDir, got, err)
 	}
@@ -115,7 +115,7 @@ func TestLocalWorktreeReusesMainCheckoutForDerivedBranch(t *testing.T) {
 		}
 	}
 	for _, task := range []models.Task{{Key: "#281"}, {Key: "#281", BranchName: new(string)}} {
-		workDir, got, err := ensureLocalWorktree(ctx, root, task, true)
+		workDir, got, err := ensureLocalWorktree(ctx, root, task, true, "")
 		if err != nil || workDir != root || got != "feat/281" {
 			t.Fatalf("derived branch not reused: %s %s %v", workDir, got, err)
 		}
@@ -573,7 +573,7 @@ func TestLocalWorktreeResolvesBranchWhereverItLives(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	workDir, got, err := ensureLocalWorktree(ctx, root, models.Task{Key: "#296", BranchName: &branch}, true)
+	workDir, got, err := ensureLocalWorktree(ctx, root, models.Task{Key: "#296", BranchName: &branch}, true, "")
 	if err != nil || got != branch {
 		t.Fatalf("branch not resolved where it lives: %s %s %v", workDir, got, err)
 	}

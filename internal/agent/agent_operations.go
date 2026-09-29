@@ -179,7 +179,7 @@ func (d *agentDaemon) executeOperation(ctx context.Context, op agentprotocol.Ope
 			if !filepath.IsLocal(task.Key) || strings.ContainsAny(task.Key, "/\\") {
 				return nil, fmt.Errorf("invalid task key")
 			}
-			target, err = localTaskPath(ctx, taskRoot, task)
+			target, err = localTaskPath(ctx, taskRoot, task, config.BranchNameFormat)
 			if op.Repository != "" {
 				target, err = foreignWorkDir(target, root, err), nil
 			}
@@ -324,7 +324,7 @@ func (d *agentDaemon) executeOperation(ctx context.Context, op agentprotocol.Ope
 	case "workspace_info":
 		branch := ""
 		if config.UseWorktrees {
-			branch, _ = taskWorktreeBranch(task)
+			branch, _ = taskWorktreeBranch(task, config.BranchNameFormat)
 		} else if task.BranchName != nil {
 			branch = *task.BranchName
 		}

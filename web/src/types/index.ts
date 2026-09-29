@@ -249,6 +249,8 @@ export interface Project {
   /** Étape où s'arrête une exécution en chaîne. Vide vaut « reviewed ». */
   fullChainStopStage?: 'implemented' | 'reviewed'
   pushStageCommits?: boolean
+  /** Template of the branch of a task that has none yet (#621). Empty means feat/{key_lower}. */
+  branchNameFormat?: string
   /** Board du tracker retenu pour ce projet. */
   boardId?: string
   /**
@@ -475,7 +477,6 @@ export interface Task {
   parentKey?: string
   parentTitle?: string
   parentType?: string
-  activities?: TaskActivity[]
   /** The ticket's place in a running batch (#522); absent when it is in none. */
   batch?: TaskBatch
   createdAt: string

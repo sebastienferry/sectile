@@ -162,6 +162,7 @@ func TestMigrationNineKeepsSurplusRunsAsConcurrent(t *testing.T) {
 		"DROP TABLE batch_members",
 		"ALTER TABLE projects ADD COLUMN mono_repo INTEGER NOT NULL DEFAULT 1",
 		"ALTER TABLE projects DROP COLUMN push_stage_commits",
+		"ALTER TABLE projects DROP COLUMN branch_name_format",
 		"DELETE FROM schema_migrations WHERE version >= 9",
 		`INSERT INTO task_activities (id, task_id, skill_id, skill_name, action, status, created_at) VALUES
 			('old-skill', 't1', 'clarify', 'clarify', 'run', 'running', '2026-09-01 10:00:00'),
@@ -220,6 +221,25 @@ func TestRunOutputIsCutOnACharacterBoundary(t *testing.T) {
 	}
 	if err := d.AppendRemoteRunOutput("t1", "missing", "x"); err == nil {
 		t.Fatal("appending to an unknown run must fail")
+	}
+}
+
+// The append no longer reads the task first, so the statement alone must keep
+// a chunk off a run that belongs to another task, or to no task at all.
+func TestRunOutputOnlyLandsOnTheRunOfItsTask(t *testing.T) {
+	d, _ := activeRunDB(t)
+	if err := addRun(d, "r1", "remote_run", "running", true); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.AppendRemoteRunOutput("t1", "r1", "kept"); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.AppendRemoteRunOutput("unknown-task", "r1", "stray"); err == nil {
+		t.Fatal("appending under a task the run does not belong to must fail")
+	}
+	run, _ := d.GetActivityByID("r1")
+	if run.Output != "kept" {
+		t.Fatalf("the run's output is %q, want only the chunk of its own task", run.Output)
 	}
 }
 

@@ -63,6 +63,9 @@ type Config struct {
 	// and specification files out of the repository (#487), else empty or
 	// "keep". After ApplyOverrides it holds this workstation's effective value.
 	SpecArtifacts string `json:"specArtifacts,omitempty"`
+	// BranchNameFormat is additive (#621): an agent that predates it keeps
+	// feat/<key>, and a server that predates it sends nothing, the default.
+	BranchNameFormat string `json:"branchNameFormat,omitempty"`
 	// EngineID and EngineName name the catalogue engine Resolve picked (#510).
 	// OffProjectDefaultEngine is true when a task runs another engine than its
 	// project default one, which is when a one-off launch model is ignored; its

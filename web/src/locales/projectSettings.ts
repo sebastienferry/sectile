@@ -154,6 +154,18 @@ const fr = {
     dropSpecArtifacts: 'Garder les spécifications hors du dépôt',
     dropSpecArtifactsHelp:
       "Les clarifications et les spécifications restent dans le worktree de la tâche et ne sont jamais commitées. Celles déjà commitées restent dans l'historique.",
+    branchFormatTitle: 'Nom de branche des tâches',
+    branchFormatHelp:
+      "Modèle du nom de la branche créée pour une tâche qui n'en a pas encore. Vide, les branches restent celles d'aujourd'hui. Une branche déjà attribuée n'est jamais renommée.",
+    branchFormatKey: 'clé du ticket telle quelle',
+    branchFormatKeyLower: 'clé du ticket en minuscules',
+    branchFormatTitleSlug: 'titre abrégé, 30 caractères au plus',
+    branchFormatPresets: 'Modèles',
+    branchFormatExample: 'Exemple',
+    branchFormatProblemBrace: 'Accolade non fermée ou en trop.',
+    branchFormatProblemPlaceholder: 'Placeholder inconnu :',
+    branchFormatProblemKey: "Le format doit contenir la clé du ticket, en casse d'origine ou en minuscules.",
+    branchFormatProblemGit: 'Ce format ne donne pas un nom de branche Git utilisable.',
   },
   execution: {
     defaultModeLabel: "Mode d'exécution par défaut",
@@ -400,6 +412,18 @@ const en: ProjectSettingsStrings = {
     dropSpecArtifacts: 'Keep specifications out of the repository',
     dropSpecArtifactsHelp:
       'Clarifications and specifications stay in the task worktree and are never committed. Those already committed stay in the history.',
+    branchFormatTitle: 'Task branch name',
+    branchFormatHelp:
+      'Template of the branch created for a task that has none yet. Empty, branches stay the ones of today. A branch already assigned is never renamed.',
+    branchFormatKey: 'ticket key as is',
+    branchFormatKeyLower: 'ticket key in lower case',
+    branchFormatTitleSlug: 'shortened title, 30 characters at most',
+    branchFormatPresets: 'Presets',
+    branchFormatExample: 'Example',
+    branchFormatProblemBrace: 'Unclosed or stray brace.',
+    branchFormatProblemPlaceholder: 'Unknown placeholder:',
+    branchFormatProblemKey: 'The format must contain the ticket key, in its own case or in lower case.',
+    branchFormatProblemGit: 'This format does not give a usable Git branch name.',
   },
   execution: {
     defaultModeLabel: 'Default execution mode',
