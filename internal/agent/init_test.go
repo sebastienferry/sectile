@@ -128,7 +128,8 @@ func TestInitBootstrapsMCPAndSkills(t *testing.T) {
 	}
 }
 
-func TestInitProviderWithoutSkillsOnlyRegistersMCP(t *testing.T) {
+// A retired provider (#614) is refused before anything is registered.
+func TestInitRefusesARetiredProvider(t *testing.T) {
 	home := t.TempDir()
 	testhome.Set(t, home)
 
@@ -139,28 +140,22 @@ func TestInitProviderWithoutSkillsOnlyRegistersMCP(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	out, err := InitContext(context.Background(), []string{
-		"--provider", "cursor",
-		"--url", srv.URL,
-		"--token", "cursor-token",
-		"--project", "proj-cursor",
-		"--repo", repoDir,
-	})
-	if err != nil {
-		t.Fatalf("Init failed: %v", err)
+	for _, provider := range []string{"gemini", "cursor", "vibe"} {
+		out, err := InitContext(context.Background(), []string{
+			"--provider", provider,
+			"--url", srv.URL,
+			"--token", "cursor-token",
+			"--project", "proj-cursor",
+			"--repo", repoDir,
+		})
+		if err == nil || !strings.Contains(err.Error(), "unsupported") {
+			t.Fatalf("%s: Init must refuse a retired provider: %v %s", provider, err, out)
+		}
 	}
-	t.Logf("out: %s", out)
-
-	if !strings.Contains(out, "Successfully initialized cursor") {
-		t.Fatalf("unexpected output: %s", out)
-	}
-	if !strings.Contains(out, "no user skill directory convention") {
-		t.Fatalf("expected message indicating no skill convention, got: %s", out)
-	}
-
-	cursorMCP := filepath.Join(home, ".cursor", "mcp.json")
-	if _, err := os.Stat(cursorMCP); err != nil {
-		t.Fatalf("cursor MCP file not found at %s: %v", cursorMCP, err)
+	for _, path := range []string{".cursor/mcp.json", ".gemini/settings.json", ".vibe/config.toml"} {
+		if _, err := os.Stat(filepath.Join(home, path)); !os.IsNotExist(err) {
+			t.Fatalf("%s written for a retired provider: %v", path, err)
+		}
 	}
 }
 

@@ -95,7 +95,7 @@ by itself. There are two ways to install them, with the Sectile MCP server:
   the key in its secure storage. The skills run as `/sectile:clarify-issue`
   and so on.
 - **Any CLI: the direct setup.** `./bin/agent init --provider claude` (or
-  `codex`, `agy`, `gemini`, `cursor`, `vibe`), or **Initialize** in the
+  `codex`, `agy`), or **Initialize** in the
   desktop's Deployment settings, copies the skills into the CLI's user folder
   and registers the MCP server. It is the only route for CLIs other than
   Claude.

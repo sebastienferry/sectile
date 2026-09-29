@@ -268,6 +268,10 @@ func (d *agentDaemon) desktopWorkstation(w http.ResponseWriter, r *http.Request)
 			http.Error(w, "Invalid workstation settings", 400)
 			return
 		}
+		if err := agentconfig.ValidProviderKeys(input.AIProviderModels); err != nil {
+			http.Error(w, err.Error(), 400)
+			return
+		}
 		input = normalizeDefaults(input)
 		// A desktop that predates the engine catalogue still sends the engine
 		// fields: refused with a message saying why, never silently dropped.

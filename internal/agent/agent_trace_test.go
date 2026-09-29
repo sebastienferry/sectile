@@ -25,7 +25,6 @@ func TestOnlyTheAttestedEngineIsAskedForItsReasoning(t *testing.T) {
 	cases := map[string]string{
 		"claude": "claude -p --permission-mode bypassPermissions --output-format stream-json --verbose 'do it'",
 		"codex":  "codex exec 'do it'",
-		"vibe":   "vibe -p --auto-approve 'do it'",
 	}
 	for provider, want := range cases {
 		got, err := modeCommandLine(provider, "", "", "do it", models.SkillModeAutonomous)
@@ -41,7 +40,7 @@ func TestOnlyTheAttestedEngineIsAskedForItsReasoning(t *testing.T) {
 // A human is watching an interactive session and reading what it prints. The
 // stream is for the runs nobody is watching.
 func TestAnInteractiveLaunchIsNeverAskedForItsReasoning(t *testing.T) {
-	for _, provider := range []string{"claude", "codex", "vibe", "agy", "gemini", "cursor"} {
+	for _, provider := range []string{"claude", "codex", "agy"} {
 		got, err := modeCommandLine(provider, "", "", "do it", models.SkillModeInteractive)
 		if err != nil {
 			t.Fatalf("%s: %v", provider, err)

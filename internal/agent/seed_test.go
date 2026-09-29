@@ -82,7 +82,7 @@ func TestSeedOnFirstResolution(t *testing.T) {
 	}
 	// Seeded once: a changed server value is never taken again.
 	srv.mu.Lock()
-	srv.seed.Project.AIProvider = "gemini"
+	srv.seed.Project.AIProvider = "codex"
 	before := srv.fetches
 	srv.mu.Unlock()
 	if _, _, err := d.localProjectRoot(context.Background(), config); err != nil {
@@ -220,6 +220,8 @@ func TestDesktopWorkstationValidatesAndRoundTrips(t *testing.T) {
 		"parallelism":    {"parallelism": 11},
 		"setup provider": {"setupProviders": []string{"vim"}},
 		"provider list":  {"aiProviderModels": map[string][]string{"claude": {"a b"}}},
+		"retired list":   {"aiProviderModels": map[string][]string{"gemini": {"gemini-2.5-pro"}}},
+		"retired init":   {"initializationProvider": "vibe"},
 	} {
 		if w := put(body); w.Code != http.StatusBadRequest {
 			t.Errorf("%s: %d %s", name, w.Code, w.Body.String())
@@ -254,6 +256,11 @@ func TestDesktopWorkstationValidatesAndRoundTrips(t *testing.T) {
 	}
 	if len(view.ProviderModels["codex"]) == 0 {
 		t.Fatal("the shipped lists must be offered")
+	}
+	for provider := range view.ProviderModels {
+		if agentconfig.RetiredProviders[provider] {
+			t.Fatalf("retired provider %q offered a model list (#614)", provider)
+		}
 	}
 	// No custom skill ran: the list is there and empty, never null.
 	if !strings.Contains(w.Body.String(), `"customSkillsUsed":[]`) {

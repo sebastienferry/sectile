@@ -59,6 +59,10 @@ test fixtures or internal plumbing.
 
 - **Desktop configuration opens as a full page.** Settings and a project's configuration now share one full-page Configuration view with a Back button. Its sidebar lists General workstation categories first, followed by the selected project's categories, while existing save actions and configuration controls remain available. (#545)
 
+### Removed
+
+- **Gemini CLI, Cursor CLI and Mistral Vibe CLI are no longer AI engines.** Sectile runs Antigravity, Claude Code, Codex or a custom command; the desktop settings, `sectile-agent init --provider` and the MCP setup no longer offer the other three. On its first start after the upgrade, the local agent removes a workstation's engines, model lists and MCP choices for them, keeping a backup of the settings file beside it; the projects and tasks that used such an engine run their default engine. The Cursor editor ("Open in editor") is unaffected. (#614)
+
 ### Fixed
 
 - **The direct setup no longer installs one project's skills for all of them.** `sectile-agent init` and desktop **Initialize** now install the same generic skills as the Claude plugin, which read the project's specification framework and pull-request policy when they run, so a Spec Kit project and an OpenSpec project on one workstation each follow their own steps. Run **Initialize** (or `sectile-agent init`) once after updating: until then, a direct copy installed earlier keeps the steps of the project it was set up for, and the skills editor marks it DIVERGED. (#267)

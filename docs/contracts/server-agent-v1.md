@@ -767,6 +767,17 @@ engine fields picks its entry. The conversion runs again, reusing identical
 entries and keeping the default engine, if an older agent writes engine fields
 back.
 
+An engine provider is one of `agy`, `claude`, `codex` and `custom`. The
+providers `gemini`, `cursor` and `vibe` are retired (#614): every save naming
+one is refused with a 400, and on read the agent drops what names one, as if
+the owner had removed it. A retired engine goes with the project and task
+choices pointing at it; a retired default engine gives way to the first
+remaining entry, or to the implicit engine when none remains. The
+`aiProviderModels` and `mcpConnections` keys of a retired provider and a
+retired `initializationProvider` go too. The agent persists the drop once at
+start, with the same backup as the conversion, and logs what it removed. An
+execution seed naming a retired provider creates no engine.
+
 A file written before #305 (flat `aiProvider`, `aiModel`, `terminal`... and the
 per-project maps `projects`, `specRepos`, `worktrees`, `parallelism`,
 `terminals`, `aiProviders`, `aiModels`, `commands`, `commandsAutonomous`,
@@ -1162,7 +1173,7 @@ returns 404, and clients must omit task workflow and PR controls for these runs.
 
 The authenticated desktop API exposes `GET /desktop/mcp?provider=<provider>`
 and `POST /desktop/mcp?provider=<provider>`. Supported providers are `claude`,
-`agy`, `codex`, `cursor`, `gemini` and `vibe`. POST accepts
+`agy` and `codex`. POST accepts
 `{"transport":"http|stdio","target":"remote|local"}` and updates the provider's
 user configuration plus the workstation's `mcpConnections` preference.
 Responses contain `choice`, `path`, `server` and `localURL`, never the API key.

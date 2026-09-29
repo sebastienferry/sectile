@@ -29,7 +29,7 @@ type enginesView struct {
 }
 
 // engineProviders are the providers the desktop offers for an engine.
-var engineProviders = []string{"claude", "codex", "agy", "gemini", "cursor", "vibe", "custom"}
+var engineProviders = []string{"claude", "codex", "agy", "custom"}
 
 func enginesViewOf(settings agentconfig.Settings) enginesView {
 	view := enginesView{

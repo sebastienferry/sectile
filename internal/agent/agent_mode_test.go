@@ -15,9 +15,6 @@ func TestInteractiveCommandLineIsUnchanged(t *testing.T) {
 		"agy":    "agy -i 'do the thing'",
 		"claude": "claude 'do the thing'",
 		"codex":  "codex 'do the thing'",
-		"gemini": "gemini 'do the thing'",
-		"vibe":   "vibe -p 'do the thing'",
-		"cursor": "cursor agent 'do the thing'",
 	}
 	for provider, want := range cases {
 		got, err := modeCommandLine(provider, "", "", "do the thing", models.SkillModeInteractive)
@@ -34,7 +31,6 @@ func TestHeadlessCommandLineCoversAttestedProviders(t *testing.T) {
 	cases := map[string]string{
 		"claude": "claude -p --permission-mode bypassPermissions --output-format stream-json --verbose 'do the thing'",
 		"codex":  "codex exec 'do the thing'",
-		"vibe":   "vibe -p --auto-approve 'do the thing'",
 	}
 	for provider, want := range cases {
 		got, err := modeCommandLine(provider, "", "", "do the thing", models.SkillModeAutonomous)
@@ -51,7 +47,7 @@ func TestHeadlessCommandLineCoversAttestedProviders(t *testing.T) {
 // back to the interactive form would open a window inside a run nobody is
 // watching, which is the failure the refusal exists to prevent.
 func TestAutonomousLaunchRefusesUnsupportedProvider(t *testing.T) {
-	for _, provider := range []string{"agy", "gemini", "cursor", "unknown"} {
+	for _, provider := range []string{"agy", "gemini", "cursor", "vibe", "unknown"} {
 		line, err := modeCommandLine(provider, "", "", "do the thing", models.SkillModeAutonomous)
 		if err == nil {
 			t.Fatalf("%s: expected a refusal, got command %q", provider, line)
@@ -146,7 +142,6 @@ func TestEmptyModeReadsAsInteractive(t *testing.T) {
 func TestHeadlessCommandLineCarriesApprovalMode(t *testing.T) {
 	cases := map[string]string{
 		"claude": "--permission-mode bypassPermissions",
-		"vibe":   "--auto-approve",
 	}
 	for provider, flag := range cases {
 		got, err := modeCommandLine(provider, "", "", "do the thing", models.SkillModeAutonomous)

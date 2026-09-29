@@ -77,6 +77,10 @@ test('execution defaults are read from and saved through the agent, which may re
   // The editor is a picker (#535): a stored preset loads as that preset.
   await expect(panel.getByRole('combobox',{name:'Editor',exact:true})).toHaveValue('zed')
   await expect(panel.getByRole('textbox',{name:'Custom editor command',exact:true})).toBeHidden()
+  // The initialization select offers the supported providers only (#614).
+  const initialization=panel.getByRole('combobox',{name:'Initialization provider',exact:true})
+  assert.deepEqual(await initialization.locator('option').evaluateAll(options=>options.map(option=>option.value)),['agy','claude','codex'])
+  for(const retired of ['gemini','cursor','vibe'])await expect(panel.getByRole('textbox',{name:'Models offered for '+retired,exact:true})).toHaveCount(0)
   await panel.getByRole('textbox',{name:'Models offered for codex',exact:true}).fill('gpt-5, o4-mini')
   await panel.getByRole('combobox',{name:'Initialization provider',exact:true}).selectOption('codex')
   await panel.getByRole('button',{name:'Save execution defaults'}).click()

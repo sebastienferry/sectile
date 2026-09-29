@@ -23,7 +23,7 @@ export function taskEngine(view,taskId){
 }
 
 // The letters drawn in a provider's icon. No third-party logo is used.
-const MARKS={claude:'Cl',codex:'Cx',agy:'Ag',gemini:'Ge',cursor:'Cu',vibe:'Vi',custom:'{}'}
+const MARKS={claude:'Cl',codex:'Cx',agy:'Ag',custom:'{}'}
 export function engineMark(provider){
  const id=String(provider||'').trim().toLowerCase()
  return MARKS[id]||(id?id.slice(0,2).replace(/^./,c=>c.toUpperCase()):'?')

@@ -189,7 +189,7 @@ type Project struct {
 	IsDefault                   bool              `json:"isDefault"`
 	Bookmarked                  bool              `json:"bookmarked"`
 	SkillOverrides              map[string]string `json:"-"`                       // skillId -> custom skill name override
-	AIProvider                  string            `json:"-"`                       // "agy", "claude", "codex", "vibe", "gemini", "cursor", "custom"
+	AIProvider                  string            `json:"-"`                       // "agy", "claude", "codex", "custom"
 	SetupProviders              []string          `json:"-"`                       // extra agents to install skills and MCP for
 	AICommandTemplate           string            `json:"-"`                       // interactive launches, e.g. 'claude "{prompt}"'
 	AICommandTemplateAutonomous string            `json:"-"`                       // headless launches; empty falls back to the interactive one
@@ -545,7 +545,7 @@ func SupportsAutonomousRun(provider, commandTemplate, autonomousTemplate string)
 		return strings.Contains(commandTemplate, TemplateModePlaceholder)
 	}
 	switch strings.ToLower(strings.TrimSpace(provider)) {
-	case "claude", "codex", "vibe":
+	case "claude", "codex":
 		return true
 	default:
 		return false
@@ -991,7 +991,7 @@ type SpecFrameworkInstallRequest struct {
 	Framework string `json:"framework"` // "speckit" or "openspec"
 	RepoPath  string `json:"repoPath,omitempty"`
 	ProjectID string `json:"projectId,omitempty"`
-	AIAgent   string `json:"aiAgent,omitempty"` // "claude", "gemini", "copilot", "cursor", "codex", ...
+	AIAgent   string `json:"aiAgent,omitempty"` // "claude", "agy", "codex", "copilot", ...
 	Force     bool   `json:"force,omitempty"`   // re-run the initializer over an existing install
 }
 

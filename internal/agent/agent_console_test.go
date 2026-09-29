@@ -31,7 +31,7 @@ func TestMain(m *testing.M) {
 }
 
 func TestConsoleCommandsHaveNoPromptOrFlags(t *testing.T) {
-	for _, provider := range []string{"codex", "claude", "agy", "gemini", "vibe"} {
+	for _, provider := range []string{"codex", "claude", "agy"} {
 		command, err := consoleCommand(provider, "")
 		if err != nil || command != "exec "+provider {
 			t.Fatalf("%q: %q %v", provider, command, err)
@@ -328,10 +328,12 @@ func TestFreeConsoleExitStatus(t *testing.T) {
 	}
 }
 
-func TestProjectPromptUsesCursorSubcommand(t *testing.T) {
-	command, err := consoleCommand("cursor", "M")
-	if err != nil || command != "exec cursor agent --model M" {
-		t.Fatalf("unexpected cursor command: %q %v", command, err)
+// A retired provider (#614) opens no console.
+func TestConsoleRefusesARetiredProvider(t *testing.T) {
+	for _, provider := range []string{"gemini", "cursor", "vibe"} {
+		if command, err := consoleCommand(provider, "M"); err == nil {
+			t.Fatalf("%s opened a console: %q", provider, command)
+		}
 	}
 }
 

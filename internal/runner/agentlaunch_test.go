@@ -22,10 +22,26 @@ func TestInteractiveAgentLaunchUnknownEngineExplainsWhereItLooked(t *testing.T) 
 	}
 }
 
+// A retired provider (#614) is refused like an unknown one, and the message
+// names only the supported engines.
+func TestInteractiveAgentLaunchRefusesARetiredProvider(t *testing.T) {
+	for _, provider := range []string{"gemini", "cursor", "vibe"} {
+		_, err := InteractiveAgentLaunch(&models.Settings{AIProvider: provider})
+		if err == nil || !strings.Contains(err.Error(), "agy, claude ou codex") {
+			t.Fatalf("%s: %v", provider, err)
+		}
+		for _, retired := range []string{"gemini,", "cursor", "vibe"} {
+			if strings.Contains(strings.SplitN(err.Error(), ":", 2)[1], retired) {
+				t.Fatalf("%s: the message still offers %s: %v", provider, retired, err)
+			}
+		}
+	}
+}
+
 func TestInteractiveAgentLaunchMissingBinaryNamesTheSearchPath(t *testing.T) {
-	_, err := InteractiveAgentLaunch(&models.Settings{AIProvider: "vibe"})
+	_, err := InteractiveAgentLaunch(&models.Settings{AIProvider: "custom", AICommandTemplate: "sectile-cli-absente {prompt}"})
 	if err == nil {
-		t.Skip("vibe est installé sur cette machine, rien à vérifier ici")
+		t.Fatal("un binaire absent doit être refusé")
 	}
 	for _, want := range []string{"PATH", ".local/bin", "homebrew"} {
 		if !strings.Contains(err.Error(), want) {
@@ -81,7 +97,7 @@ func TestSkillCallLineForProvider(t *testing.T) {
 		{" Codex ", " /clarify-workitem ", "clarify-workitem"},
 		{"codex", "clarify-workitem", "clarify-workitem"},
 		{"claude", "/clarify-issue", "/clarify-issue"},
-		{"gemini", "clarify-workitem", "/clarify-workitem"},
+		{"agy", "clarify-workitem", "/clarify-workitem"},
 		{"", "clarify-issue", "/clarify-issue"},
 	} {
 		t.Run(tc.provider+tc.command, func(t *testing.T) {

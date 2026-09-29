@@ -20,7 +20,7 @@ const PROMPT="'{prompt}'"
 const MODEL_PLACEHOLDER='{model}'
 
 // Providers whose model is passed as --model; the others take none.
-const MODEL_FLAG_PROVIDERS=new Set(['claude','codex','gemini','cursor'])
+const MODEL_FLAG_PROVIDERS=new Set(['claude','codex'])
 
 // A template owns the mode only by declaring the placeholder. Without it the
 // template can only run what its author wrote, which is why the agent refuses an
@@ -158,15 +158,12 @@ export function commandPreview(provider,template,model,autonomous,autonomousTemp
   switch(cli){
    case 'claude':return {command:words('claude','-p','--permission-mode','bypassPermissions',CLAUDE_REASONING_FLAGS,flag,PROMPT)}
    case 'codex':return {command:words('codex','exec',flag,PROMPT)}
-   case 'vibe':return {command:'vibe -p --auto-approve '+PROMPT}
    default:return {command:'',error:(cli||'This provider')+' has no attested headless mode. Run interactively, or write a template carrying {mode:AUTONOMOUS|INTERACTIVE}.'}
   }
  }
  switch(cli){
   case 'agy':return {command:'agy -i '+PROMPT}
-  case 'claude':case 'codex':case 'gemini':return {command:words(cli,flag,PROMPT)}
-  case 'vibe':return {command:'vibe -p '+PROMPT}
-  case 'cursor':return {command:words('cursor','agent',flag,PROMPT)}
+  case 'claude':case 'codex':return {command:words(cli,flag,PROMPT)}
   default:return {command:'',error:'Unsupported provider '+(cli||'(none)')+': configure an AI command template.'}
  }
 }

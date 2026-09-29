@@ -342,12 +342,16 @@ func Run(args []string) {
 
 	daemon.loopback.binarySha256 = executableSha256()
 	// The engine settings of #305 become the engine catalogue once, before the
-	// first project sync and capability report (#510). A failure leaves the
-	// file alone: every read converts it in memory anyway.
-	if migrated, err := agentconfig.MigrateSettings(daemon.localSettingsRoot()); err != nil {
+	// first project sync and capability report (#510), and the settings naming
+	// a retired provider are dropped (#614). A failure leaves the file alone:
+	// every read converts it in memory anyway.
+	if migrated, drop, err := agentconfig.MigrateSettingsReport(daemon.localSettingsRoot()); err != nil {
 		log.Printf("[Agent] Engine settings not converted to the engine catalogue: %v", err)
 	} else if migrated {
 		log.Printf("[Agent] Engine settings converted to the engine catalogue; the previous file is kept beside it")
+		if !drop.Empty() {
+			log.Printf("[Agent] Settings for retired AI providers (Gemini, Cursor, Vibe) removed: %s", drop)
+		}
 	}
 	// Start local agent HTTP reverse proxy gateway
 	if err := daemon.startLocalProxy(ctx); err != nil {

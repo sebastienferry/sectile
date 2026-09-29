@@ -268,8 +268,7 @@ is made in either shape.
 | --- | --- |
 | `claude` | `claude -p --permission-mode bypassPermissions --output-format stream-json --verbose` |
 | `codex` | `codex exec` (approval bypass not attested here yet) |
-| `vibe` | `vibe -p --auto-approve` |
-| `agy`, `gemini`, `cursor` | None attested: an autonomous launch is refused by name |
+| `agy` | None attested: an autonomous launch is refused by name |
 
 ### Watching an autonomous run
 

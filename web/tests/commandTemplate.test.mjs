@@ -79,10 +79,21 @@ test('a named provider ignores a template that carries no instructions', () => {
 })
 
 test('a provider with no attested headless mode refuses rather than guessing', () => {
-  const autonomous = commandPreview('gemini', '', '', true)
+  const autonomous = commandPreview('agy', '', '', true)
   assert.equal(autonomous.command, '')
   assert.match(autonomous.error, /no attested headless mode/)
-  assert.equal(commandPreview('gemini', '', 'g', false).command, "gemini --model g '{prompt}'")
+  assert.equal(commandPreview('agy', '', 'g', false).command, "agy -i '{prompt}'")
+})
+
+// Gemini, Cursor and Vibe are no longer AI engines (#614).
+test('a retired provider gets no command line', () => {
+  for (const provider of ['gemini', 'cursor', 'vibe']) {
+    for (const autonomous of [false, true]) {
+      const preview = commandPreview(provider, '', 'm', autonomous)
+      assert.equal(preview.command, '', `${provider} autonomous=${autonomous}`)
+      assert.ok(preview.error)
+    }
+  }
 })
 
 // A command written for headless use is what an autonomous launch runs, and it

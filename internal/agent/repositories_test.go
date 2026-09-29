@@ -128,7 +128,7 @@ func TestContextFoldersReachClaudeAndCodex(t *testing.T) {
 	if codexHeadless, err := modeCommandLine("codex", "", "", "go", models.SkillModeAutonomous, launch); err != nil || !strings.HasPrefix(codexHeadless, "codex exec") || !strings.HasSuffix(codexHeadless, `'go' --add-dir='/src/b' --add-dir='/src/it'\''s'`) {
 		t.Errorf("codex headless = %q, %v", codexHeadless, err)
 	}
-	for _, provider := range []string{"vibe", "gemini"} {
+	for _, provider := range []string{"agy"} {
 		for _, mode := range []string{models.SkillModeInteractive, models.SkillModeAutonomous} {
 			if line, _ := modeCommandLine(provider, "", "", "go", mode, launch); strings.Contains(line, "add-dir") || strings.Contains(line, "/src/b") {
 				t.Errorf("%s %s guessed a flag: %q", provider, mode, line)
@@ -141,8 +141,8 @@ func TestContextFoldersReachClaudeAndCodex(t *testing.T) {
 	if line, _ := modeCommandLine("codex", "codex {addDirs} '{prompt}'", "", "go", models.SkillModeInteractive, launch); !strings.HasPrefix(line, "codex --add-dir='/src/b' --add-dir=") {
 		t.Errorf("template {addDirs} for codex = %q", line)
 	}
-	if line, _ := modeCommandLine("vibe", "vibe {addDirs} '{prompt}'", "", "go", models.SkillModeInteractive, launch); strings.Contains(line, "add-dir") {
-		t.Errorf("template for vibe = %q", line)
+	if line, _ := modeCommandLine("agy", "agy {addDirs} '{prompt}'", "", "go", models.SkillModeInteractive, launch); strings.Contains(line, "add-dir") {
+		t.Errorf("template for agy = %q", line)
 	}
 	if line, _ := modeCommandLine("claude", "", "", "go", models.SkillModeAutonomous); strings.Contains(line, "add-dir") {
 		t.Errorf("no context folder, no flag: %q", line)

@@ -120,7 +120,7 @@ func TestSettingsIgnoreTheProviderModelLists(t *testing.T) {
 	h, database, _, cleanup := launchModelTask(t)
 	defer cleanup()
 
-	body := `{"theme":"light","aiProviderModels":{"gemini":["gemini-2.5-pro; rm -rf ~"]}}`
+	body := `{"theme":"light","aiProviderModels":{"agy":["gemini-2.5-pro; rm -rf ~"]}}`
 	req := httptest.NewRequest(http.MethodPut, "/api/settings", strings.NewReader(body))
 	rec := httptest.NewRecorder()
 	h.HandleSettings(rec, req)

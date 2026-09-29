@@ -14,7 +14,7 @@ import (
 )
 
 func TestMCPRegistrationMigration(t *testing.T) {
-	for _, provider := range []string{"codex", "claude", "agy", "gemini", "cursor", "vibe"} {
+	for _, provider := range []string{"codex", "claude", "agy"} {
 		for _, state := range []string{"fresh", "legacy", "canonical", "both"} {
 			t.Run(provider+"/"+state, func(t *testing.T) {
 				testhome.Temp(t)
@@ -23,15 +23,13 @@ func TestMCPRegistrationMigration(t *testing.T) {
 					t.Fatal(err)
 				}
 				key := "mcpServers"
-				if provider == "codex" || provider == "vibe" {
+				if provider == "codex" {
 					key = "mcp_servers"
 				}
 				policy := "disabled"
 				switch provider {
 				case "codex":
 					policy = "disabled_tools"
-				case "gemini":
-					policy = "excludeTools"
 				case "agy":
 					policy = "disabledTools"
 				}
@@ -52,25 +50,14 @@ func TestMCPRegistrationMigration(t *testing.T) {
 				}
 				other := map[string]any{"name": "other", "command": "/unrelated", "disabled": true}
 				data := map[string]any{"unrelated_setting": "keep"}
-				if provider == "vibe" {
-					entries := []any{other}
-					if state == "legacy" || state == "both" {
-						entries = append(entries, entry(true))
-					}
-					if state == "canonical" || state == "both" {
-						entries = append(entries, entry(false))
-					}
-					data[key] = entries
-				} else {
-					entries := map[string]any{"other": other}
-					if state == "legacy" || state == "both" {
-						entries["taskflow"] = entry(true)
-					}
-					if state == "canonical" || state == "both" {
-						entries["sectile"] = entry(false)
-					}
-					data[key] = entries
+				entries := map[string]any{"other": other}
+				if state == "legacy" || state == "both" {
+					entries["taskflow"] = entry(true)
 				}
+				if state == "canonical" || state == "both" {
+					entries["sectile"] = entry(false)
+				}
+				data[key] = entries
 				writeMCPFixture(t, path, data)
 				for i := 0; i < 2; i++ {
 					if _, err := BootstrapMCP(provider, "/opt/new sectile", "https://moved.example.test", "sectile_rotated"); err != nil {
@@ -80,31 +67,19 @@ func TestMCPRegistrationMigration(t *testing.T) {
 					if result["unrelated_setting"] != "keep" {
 						t.Fatal("unrelated settings lost")
 					}
-					var managed map[string]any
-					if provider == "vibe" {
-						entries := result[key].([]any)
-						if len(entries) != 2 || !reflect.DeepEqual(entries[0], other) {
-							t.Fatalf("other registrations changed: %v", entries)
-						}
-						managed = entries[1].(map[string]any)
-						if managed["name"] != "sectile" {
-							t.Fatal("wrong registration name")
-						}
-					} else {
-						entries := result[key].(map[string]any)
-						if len(entries) != 2 || !reflect.DeepEqual(entries["other"], other) {
-							t.Fatalf("other registrations changed: %v", entries)
-						}
-						if _, ok := entries["taskflow"]; ok {
-							t.Fatal("legacy registration retained")
-						}
-						managed = entries["sectile"].(map[string]any)
+					entries := result[key].(map[string]any)
+					if len(entries) != 2 || !reflect.DeepEqual(entries["other"], other) {
+						t.Fatalf("other registrations changed: %v", entries)
 					}
+					if _, ok := entries["taskflow"]; ok {
+						t.Fatal("legacy registration retained")
+					}
+					managed := entries["sectile"].(map[string]any)
 					// The transport is replaced whole: an HTTP provider keeps no
 					// command from a stdio-era entry, a stdio provider runs the
 					// new binary.
 					if UsesHTTPMCP(provider) {
-						if managed["command"] != nil || !strings.Contains(fmt.Sprint(managed["url"], managed["httpUrl"]), "https://moved.example.test/mcp") {
+						if managed["command"] != nil || !strings.Contains(fmt.Sprint(managed["url"]), "https://moved.example.test/mcp") {
 							t.Fatalf("transport not refreshed: %v", managed)
 						}
 					} else if managed["command"] != "/opt/new sectile" {
@@ -132,11 +107,8 @@ func TestMCPRegistrationMigration(t *testing.T) {
 }
 
 func TestMCPMigrationRejectsUnsafeConfiguration(t *testing.T) {
-	for _, provider := range []string{"codex", "claude", "agy", "gemini", "cursor", "vibe"} {
-		for _, issue := range []string{"conflict", "missing-policy", "invalid-entry", "unsupported-policy", "external-policy", "duplicate"} {
-			if issue == "duplicate" && provider != "vibe" {
-				continue
-			}
+	for _, provider := range []string{"codex", "claude", "agy"} {
+		for _, issue := range []string{"conflict", "missing-policy", "invalid-entry", "unsupported-policy", "external-policy"} {
 			t.Run(provider+"/"+issue, func(t *testing.T) {
 				testhome.Temp(t)
 				path, err := BootstrapMCP(provider, "/opt/sectile", testServer, testKey)
@@ -157,25 +129,14 @@ func TestMCPMigrationRejectsUnsafeConfiguration(t *testing.T) {
 					data["permissions"] = map[string]any{"deny": []any{"mcp__taskflow__taskflow_finish_run"}}
 				}
 				key := "mcpServers"
-				if provider == "codex" || provider == "vibe" {
+				if provider == "codex" {
 					key = "mcp_servers"
 				}
-				if provider == "vibe" {
-					list := []any{old, current}
-					if issue == "duplicate" {
-						list = append(list, old)
-					}
-					if issue == "invalid-entry" {
-						list = append(list, "invalid")
-					}
-					data[key] = list
-				} else {
-					entries := map[string]any{"taskflow": old, "sectile": current}
-					if issue == "invalid-entry" {
-						entries["taskflow"] = "invalid"
-					}
-					data[key] = entries
+				entries := map[string]any{"taskflow": old, "sectile": current}
+				if issue == "invalid-entry" {
+					entries["taskflow"] = "invalid"
 				}
+				data[key] = entries
 				writeMCPFixture(t, path, data)
 				before, _ := os.ReadFile(path)
 				if _, err := BootstrapMCP(provider, "/opt/sectile", testServer, testKey); err == nil {
