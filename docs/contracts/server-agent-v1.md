@@ -22,7 +22,7 @@ ambiguous tracker keys. A task lookup resolves the actual owning project.
 | `gitRemoteUrl` | Repository identity for automatic local matching, not a path to clone automatically. |
 | `githubRepo`, `issueTracker`, `trackerUrl`, `jiraProject` | Optional effective project-over-global repository and tracker metadata for local command placeholders. Missing fields use local directory basename and task source (then `github`) fallbacks. No credentials or server paths. |
 | `specFramework` | Specification framework used by the project skills. |
-| `skills` | Array of `{id, directory, command, content, commandContent, custom}`. IDs and installation destinations must be unique and safe. `command` is the stage's standard command; a workstation replaces it with its own command name (see *Execution defaults and local overrides*), which may carry a plugin namespace (`sectile:clarify-issue`). `custom` is `true` when the project edited the skill's content, and absent otherwise (the pull-request policy every project gets does not make a skill custom): the agent then hands `content` to the run instead of running an installed skill, unless the workstation turned that off. An older server sends no `custom`, which reads as not custom (ADR 0039). |
+| `skills` | Array of `{id, directory, command, content, commandContent, directContent, directCommandContent, custom}`. IDs and installation destinations must be unique and safe. `command` is the stage's standard command; a workstation replaces it with its own command name (see *Execution defaults and local overrides*), which may carry a plugin namespace (`sectile:clarify-issue`). `custom` is `true` when the project edited the skill's content, and absent otherwise (the pull-request policy every project gets does not make a skill custom): the agent then hands `content` to the run instead of running an installed skill, unless the workstation turned that off. An older server sends no `custom`, which reads as not custom (ADR 0039). `directContent` and `directCommandContent` are the built-in skill rendered for every project at once, as in the Claude plugin, with the local HTTP fallback: the direct setup installs them, since the user-level folder is shared by all the projects of the workstation, while `content` stays the project's own and reaches its runs. An older server sends neither, and `content`/`commandContent` are installed as before. |
 | `specArtifacts` | Optional, `keep` or `drop`. `drop` keeps the tasks' clarification and specification files out of the repository: before a task's session starts, the agent writes their ignore rules in a Sectile-managed block of the primary checkout's `.git/info/exclude`, and removes the block when the effective value is `keep`. Absent (an older server) reads as `keep`. A workstation may override it (see *Execution defaults and local overrides*). |
 
 **No longer sent since #484** (ADR 0036): `monoRepo`. Every project uses its
@@ -96,7 +96,9 @@ the explicit `open_terminal` action requires an external window.
 ## Skill ownership and recovery
 
 The incoming skill list is installed in the user configuration of each agent the
-project sets up, each as a single `SKILL.md`: `~/.claude/skills` for Claude,
+project sets up, each as a single `SKILL.md` holding the skill's generic content
+(`directCommandContent` or `directContent`, falling back to the project's
+`commandContent` or `content` from an older server): `~/.claude/skills` for Claude,
 `~/.agents/skills` for Codex, `~/.gemini/config/skills` for Antigravity. An agent that
 substitutes arguments into the skill body receives the body carrying the ticket
 reference. Providers without a skill convention receive the MCP registration

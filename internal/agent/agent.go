@@ -1186,8 +1186,6 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 		d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", err.Error())
 		return
 	}
-	d.recordCustomSkillUse(config, choice, payload.RunID)
-
 	// The engine this launch really uses, reported once the line is built. A
 	// discussion or a bare terminal is not a skill run: it resolves the project
 	// model and takes no override, so it reports nothing.
@@ -1242,6 +1240,7 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 			return
 		}
 		launched = true
+		d.recordCustomSkillUse(config, choice, payload.RunID)
 		d.sendStatus(conn, msg.MsgID, msg.TaskID, "completed", fmt.Sprintf("Step %s launched headless", payload.Action))
 		return
 	}
@@ -1262,6 +1261,7 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 		return
 	}
 	launched = true
+	d.recordCustomSkillUse(config, choice, payload.RunID)
 	d.sendStatus(conn, msg.MsgID, msg.TaskID, "completed", fmt.Sprintf("Step %s launched in local PTY", payload.Action))
 }
 

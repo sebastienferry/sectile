@@ -147,17 +147,12 @@ func claudePluginSkill(home, directory string, workDirs ...string) bool {
 	if !readClaudeJSON(filepath.Join(home, ".claude", "plugins", "installed_plugins.json"), &installed) {
 		return false
 	}
-	var settings struct {
-		EnabledPlugins map[string]bool `json:"enabledPlugins"`
-	}
-	// A missing settings file enables everything, as an absent key does.
-	_ = readClaudeJSON(filepath.Join(home, ".claude", "settings.json"), &settings)
-
+	enabled := claudeEnabledPlugins(home, workDirs...)
 	for key, entries := range installed.Plugins {
 		if !strings.HasPrefix(key, skills.PluginName+"@") {
 			continue
 		}
-		if enabled, stated := settings.EnabledPlugins[key]; stated && !enabled {
+		if on, stated := enabled[key]; stated && !on {
 			continue
 		}
 		for _, entry := range entries {
@@ -170,6 +165,32 @@ func claudePluginSkill(home, directory string, workDirs ...string) bool {
 		}
 	}
 	return false
+}
+
+// claudeEnabledPlugins merges enabledPlugins as Claude resolves it for a
+// session started in the run's folder: the user settings, then the project's
+// .claude/settings.json, then its .claude/settings.local.json, each stated key
+// overriding the one before. A missing file states nothing, and a plugin no
+// file mentions is enabled, as an absent key is.
+func claudeEnabledPlugins(home string, workDirs ...string) map[string]bool {
+	files := []string{filepath.Join(home, ".claude", "settings.json")}
+	if len(workDirs) > 0 && strings.TrimSpace(workDirs[0]) != "" {
+		project := filepath.Join(workDirs[0], ".claude")
+		files = append(files, filepath.Join(project, "settings.json"), filepath.Join(project, "settings.local.json"))
+	}
+	enabled := map[string]bool{}
+	for _, file := range files {
+		var settings struct {
+			EnabledPlugins map[string]bool `json:"enabledPlugins"`
+		}
+		if !readClaudeJSON(file, &settings) {
+			continue
+		}
+		for key, on := range settings.EnabledPlugins {
+			enabled[key] = on
+		}
+	}
+	return enabled
 }
 
 // claudeFileWarnings keeps an unreadable Claude file from being logged at
@@ -326,7 +347,7 @@ func dispatchedSkill(config agentconfig.Config, skillID, action, prompt string) 
 // run-private file, removed once done is closed. It returns nil when the
 // launch runs no configured skill, which dispatchCommand then handles as it
 // always did. The use of a custom skill is recorded by recordCustomSkillUse,
-// once the command line is built.
+// once the CLI is launched.
 func (d *agentDaemon) prepareSkill(config agentconfig.Config, skillID, action, prompt, runID string, done <-chan struct{}, workDirs ...string) (*skillChoice, error) {
 	skill := dispatchedSkill(config, skillID, action, prompt)
 	if skill == nil {
@@ -377,8 +398,8 @@ type customSkillLog struct {
 
 // recordCustomSkillUse records that a launch runs its project's custom skill:
 // on the desktop's passive signal and, for a run, on its activity. The caller
-// calls it once the command line is built, like the engine report, so a launch
-// that failed before that is not counted as a use.
+// calls it once the CLI is launched, so a launch that failed on its command
+// line, its wrapper or its terminal is not counted as a use.
 func (d *agentDaemon) recordCustomSkillUse(config agentconfig.Config, choice *skillChoice, runID string) {
 	if choice == nil || choice.Kind != skillKindCustom {
 		return

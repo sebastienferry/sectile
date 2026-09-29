@@ -10,6 +10,13 @@ type Skill struct {
 	Command                string `json:"command"`
 	Content                string `json:"content"`
 	CommandContent         string `json:"commandContent"`
+	// DirectContent and DirectCommandContent are what the direct setup installs
+	// in the CLI's user-level skill folder: the built-in skill, generic for
+	// every project, since that folder is shared by all the projects of the
+	// workstation. Content stays the project's own, handed to a run. A server
+	// that predates them sends nothing, and Content is installed as before.
+	DirectContent        string `json:"directContent,omitempty"`
+	DirectCommandContent string `json:"directCommandContent,omitempty"`
 	// Custom says the content is a project's edit (or this workstation's own
 	// override) rather than the built-in skill. A server that predates it sends
 	// nothing, which reads as the built-in skill, so the installed one runs.
