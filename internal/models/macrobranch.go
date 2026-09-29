@@ -46,6 +46,18 @@ func MacroBranchMatches(ref, macroKey string) bool {
 // macroBranchSlugMax characters. A title that yields no slug gives the bare key.
 func MacroBranchName(macroKey, title string) string {
 	key := strings.ToUpper(strings.TrimSpace(macroKey))
+	slug := titleSlug(title)
+	if slug == "" {
+		return key
+	}
+	return key + "-" + slug
+}
+
+// titleSlug is the lower-case slug of a title a branch name carries: runs of
+// other characters than ASCII letters and digits become one dash, and the slug
+// is cut at macroBranchSlugMax characters. The {title} placeholder of a task
+// branch name format uses it too (#621).
+func titleSlug(title string) string {
 	var b strings.Builder
 	dash := false
 	for _, r := range strings.ToLower(title) {
@@ -63,8 +75,5 @@ func MacroBranchName(macroKey, title string) string {
 	if len(slug) > macroBranchSlugMax {
 		slug = strings.Trim(slug[:macroBranchSlugMax], "-")
 	}
-	if slug == "" {
-		return key
-	}
-	return key + "-" + slug
+	return slug
 }
