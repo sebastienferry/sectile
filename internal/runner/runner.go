@@ -166,11 +166,11 @@ func (r *Runner) CheckCliTools(repoPath string) []models.CliStatus {
 			status.AuthStatus = "Not Installed"
 			switch tool {
 			case "uv":
-				status.Details = "uv missing — curl -LsSf https://astral.sh/uv/install.sh | sh"
+				status.Details = "uv missing: curl -LsSf https://astral.sh/uv/install.sh | sh"
 			case "specify":
-				status.Details = "GitHub Spec Kit missing — install it from a project (Spec Kit / OpenSpec panel)"
+				status.Details = "GitHub Spec Kit missing: install it from a project (Spec Kit / OpenSpec panel)"
 			case "openspec":
-				status.Details = "OpenSpec missing — install it from a project (Spec Kit / OpenSpec panel)"
+				status.Details = "OpenSpec missing: install it from a project (Spec Kit / OpenSpec panel)"
 			default:
 				status.Details = fmt.Sprintf("Tool '%s' not found in PATH", tool)
 			}
@@ -188,40 +188,58 @@ func NormalizeIssueTypes(types []string) []string { return models.NormalizeIssue
 // installedSkillPath returns the SKILL.md of a workflow skill inside a checkout,
 // whichever agent directory holds it. Empty when the skill is not installed.
 func installedSkillPath(repoDir, skillID string) string {
+	path, _ := findInstalledSkill(repoDir, skillID)
+	return path
+}
+
+// findInstalledSkill is installedSkillPath with the directory it was found under,
+// which is the command to type: a checkout set up before a skill was renamed
+// only holds its former directory (#608).
+func findInstalledSkill(repoDir, skillID string) (string, string) {
 	dirName := models.SkillDirNames[skillID]
 	if dirName == "" || repoDir == "" {
-		return ""
+		return "", ""
+	}
+	dirNames := []string{dirName}
+	if legacy := models.LegacySkillDirs[dirName]; legacy != "" {
+		dirNames = append(dirNames, legacy)
 	}
 
-	// La commande slash d'abord : c'est elle qui rend « /clarify-issue »
-	// invocable. Une skill seule est choisie par le modèle, jamais appelée par
-	// son nom, et le prompt se contentait alors d'être recopié.
-	cmdPath := filepath.Join(repoDir, ".claude", "commands", dirName+".md")
-	if fi, err := os.Stat(cmdPath); err == nil && !fi.IsDir() {
-		return cmdPath
-	}
+	for _, dirName := range dirNames {
+		// The slash command first: it is what makes "/clarify-issue" invocable.
+		// A skill alone is chosen by the model, never called by its name, and
+		// the prompt was then merely copied.
+		cmdPath := filepath.Join(repoDir, ".claude", "commands", dirName+".md")
+		if fi, err := os.Stat(cmdPath); err == nil && !fi.IsDir() {
+			return cmdPath, dirName
+		}
 
-	for _, agent := range models.SkillAgentDirs {
-		var p string
-		if agent == "" {
-			p = filepath.Join(repoDir, ".skills", dirName, "SKILL.md")
-		} else {
-			p = filepath.Join(repoDir, agent, "skills", dirName, "SKILL.md")
-		}
-		if fi, err := os.Stat(p); err == nil && !fi.IsDir() {
-			return p
+		for _, agent := range models.SkillAgentDirs {
+			var p string
+			if agent == "" {
+				p = filepath.Join(repoDir, ".skills", dirName, "SKILL.md")
+			} else {
+				p = filepath.Join(repoDir, agent, "skills", dirName, "SKILL.md")
+			}
+			if fi, err := os.Stat(p); err == nil && !fi.IsDir() {
+				return p, dirName
+			}
 		}
 	}
-	return ""
+	return "", ""
 }
 
 // skillSlashPrompt is the unified invocation: the agent runs the skill installed
 // in the repository, and the ticket context follows. The instructions then live
 // in one place, the SKILL.md rendered from the in-app editor, instead of being
-// written twice: once in a file, once in a prompt here.
-func skillSlashPrompt(skillID string) string {
-	dirName := models.SkillDirNames[skillID]
-	return "/" + dirName + ` {issueKey}
+// written twice: once in a file, once in a prompt here. dirName is the
+// directory the skill was found under, empty for the skill's current one.
+func skillSlashPrompt(skillID string, dirName ...string) string {
+	command := models.SkillDirNames[skillID]
+	if len(dirName) > 0 && dirName[0] != "" {
+		command = dirName[0]
+	}
+	return "/" + command + ` {issueKey}
 
 Contexte du ticket
 Clé : {issueKey}
@@ -310,7 +328,7 @@ func (r *Runner) PrepareAI(settings *models.Settings, skillID string, task *mode
 	// La skill installée dans le dépôt fait référence quand elle est là : c'est
 	// le fichier que l'éditeur de Taskacao produit. Les prompts ci-dessous ne
 	// servent plus que de filet quand rien n'est installé.
-	installedSkill := installedSkillPath(repoDir, skillID)
+	installedSkill, installedDir := findInstalledSkill(repoDir, skillID)
 	if installedSkill != "" {
 		steps = append(steps, fmt.Sprintf("📄 Skill du dépôt utilisée : %s", installedSkill))
 	}
@@ -424,15 +442,15 @@ INSTRUCTIONS D'EXÉCUTION OBLIGATOIRES :
 	// Ordre de priorité : le prompt surchargé dans les réglages, puis la skill
 	// installée, puis le filet codé au-dessus.
 	if installedSkill != "" && !settingsPromptOverridden(settings, skillID) {
-		promptTemplate = skillSlashPrompt(skillID)
+		promptTemplate = skillSlashPrompt(skillID, installedDir)
 	}
 
 	if customPrompt != "" {
 		promptTemplate += "\n\nInstructions supplémentaires fournies par l'utilisateur :\n" + customPrompt
 	}
 
-	if skillID == "specify" || skillID == "implement" {
-		promptTemplate += "\nRead the project PR creation policy through Sectile. Specification owns creation only for specified timing; otherwise implementation owns it. After required owner checks, commit/push, discover and reuse the branch PR or create a draft only on confirmed absence, and report prUrl. Lookup failure is not absence. Preserve a reused ready PR. On PR recovery, preserve accepted work and the attained stage; do not advance to reviewed."
+	if skillID == "clarify" || skillID == "specify" || skillID == "implement" {
+		promptTemplate += "\nRead the project PR creation policy through Sectile. Clarification owns creation only for clarified timing, and only in its final round; specification owns it only for specified timing; otherwise implementation owns it. After required owner checks, commit/push, discover and reuse the branch PR or create a draft only on confirmed absence, and report prUrl. Lookup failure is not absence. Preserve a reused ready PR. On PR recovery, preserve accepted work and the attained stage; do not advance to reviewed."
 	}
 	if skillID == "adjust" {
 		promptTemplate += "\n\n" + AdjustmentContract

@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"tasks/internal/models"
+	"tasks/internal/testsqlite"
 )
 
 // TestNormalizeEnabledViews pins the two properties the sidebar relies on: an
@@ -38,7 +39,7 @@ func TestNormalizeEnabledViews(t *testing.T) {
 // asking for them must come back with none: that default is what keeps the
 // three views out of every existing project's sidebar.
 func TestProjectEnabledViewsRoundTrip(t *testing.T) {
-	database, err := NewDB(filepath.Join(t.TempDir(), "tasks.db"))
+	database, err := testsqlite.New(t, filepath.Join(t.TempDir(), "tasks.db"), NewDB)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -1,5 +1,5 @@
 import React from 'react'
-import { Flame, Calendar, Layers, Pin, User, SlidersHorizontal, Check, Shapes, Settings2, Target, Loader2 } from 'lucide-react'
+import { Flame, Calendar, Layers, Pin, User, SlidersHorizontal, Check, Settings2, Target, Loader2 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { useClickOutside } from '../hooks/useClickOutside'
 import { LookupField, type LookupOption } from './LookupField'
@@ -57,17 +57,19 @@ export const TaskFilters: React.FC = () => {
   const F = t.shell.filters
   const lang = settings.language
 
-  const [isStatusMenuOpen, setIsStatusMenuOpen] = React.useState(false)
-  const statusMenuRef = React.useRef<HTMLDivElement>(null)
-  const [isTypeMenuOpen, setIsTypeMenuOpen] = React.useState(false)
-  const typeMenuRef = React.useRef<HTMLDivElement>(null)
+  const [isPanelOpen, setIsPanelOpen] = React.useState(false)
+  const panelRef = React.useRef<HTMLDivElement>(null)
+  const closePanel = React.useCallback(() => setIsPanelOpen(false), [])
+  useClickOutside(panelRef, closePanel, isPanelOpen)
 
-  const closeTypeMenu = React.useCallback(() => setIsTypeMenuOpen(false), [])
-  useClickOutside(typeMenuRef, closeTypeMenu, isTypeMenuOpen)
-
-  // Fermeture au clic extérieur : ce menu vit dans une barre d'outils dense.
-  const closeStatusMenu = React.useCallback(() => setIsStatusMenuOpen(false), [])
-  useClickOutside(statusMenuRef, closeStatusMenu, isStatusMenuOpen)
+  React.useEffect(() => {
+    if (!isPanelOpen) return
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setIsPanelOpen(false)
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => document.removeEventListener('keydown', onKeyDown)
+  }, [isPanelOpen])
 
   // Les valeurs proposées sont celles que le board porte réellement, filtrées en
   // mémoire : elles arrivent déjà avec les facettes, aucun appel n'est utile.
@@ -137,8 +139,38 @@ export const TaskFilters: React.FC = () => {
     return parentFilter
   }, [parentFilter, taskFacets.macros, availableParents, F])
 
+  const hasMacros = taskFacets.macros.length > 0 || availableParents.length > 0
+  const hasPeople = availableAssignees.length > 0 || taskFacets.unassignedCount > 0
+  const hasPanel =
+    taskFacets.trackerStatuses.length > 0 ||
+    taskFacets.issueTypes.length > 1 ||
+    hasMacros ||
+    taskFacets.sprints.length > 0 ||
+    taskFacets.teams.length > 0 ||
+    hasPeople
+
+  // One count per dimension rather than per value: three statuses ticked are
+  // still one filter narrowing the board.
+  const activePanelFilters = [
+    trackerStatusFilters.length > 0,
+    issueTypeFilters.length > 0,
+    !!parentFilter,
+    !!sprintFilter,
+    !!teamFilter,
+    !!assigneeFilter,
+  ].filter(Boolean).length
+
+  const resetPanelFilters = () => {
+    setTrackerStatusFilters([])
+    setIssueTypeFilters([])
+    setParentFilter(null)
+    setSprintFilter(null)
+    setTeamFilter(null)
+    setAssigneeFilter(null)
+  }
+
   return (
-    <div className="flex items-center gap-2 shrink-0">
+    <div className="flex items-center gap-2 min-w-0">
       {/* Épinglés : le retour immédiat aux chantiers en cours quand le board en
           porte trois cents. Le filtre est tenu par le serveur, sur la colonne
           indexée, donc il vaut aussi pour la recherche et les autres filtres. */}
@@ -228,235 +260,220 @@ export const TaskFilters: React.FC = () => {
         </div>
       </div>
 
-      {/* Statuts affichés : la même sélection vaut pour le board, la liste et le
-          triage, puisque les trois lisent la même liste de tickets. Vide veut
-          dire « tous », ce qui est l'état par défaut. */}
-      {taskFacets.trackerStatuses.length > 0 && (
-        <div className="relative" ref={statusMenuRef}>
+      {/* The other filters live in one panel behind a single button: laid out
+          side by side they no longer fit the toolbar of a Jira project, which
+          feeds all of them. The button's count says how many are narrowing the
+          board, so a filtered board never looks like a complete one. */}
+      {hasPanel && (
+        <div className="relative" ref={panelRef}>
           <button
             type="button"
-            onClick={() => setIsStatusMenuOpen(open => !open)}
-            title={F.chooseStatuses}
+            onClick={() => setIsPanelOpen(open => !open)}
+            title={F.panelTitle}
+            aria-expanded={isPanelOpen}
             className="flex items-center gap-1.5 px-2 py-1 rounded-md text-[11px] font-semibold border cursor-pointer transition-colors"
             style={{
-              color: trackerStatusFilters.length > 0 ? 'var(--accent-color)' : 'var(--text-secondary)',
-              background: trackerStatusFilters.length > 0 ? 'var(--accent-light)' : 'var(--bg-secondary)',
-              borderColor: trackerStatusFilters.length > 0 ? 'rgb(var(--accent-rgb) / 0.4)' : 'var(--border-color)',
+              color: activePanelFilters > 0 ? 'var(--accent-color)' : 'var(--text-secondary)',
+              background: activePanelFilters > 0 ? 'var(--accent-light)' : 'var(--bg-secondary)',
+              borderColor: activePanelFilters > 0 ? 'rgb(var(--accent-rgb) / 0.4)' : 'var(--border-color)',
             }}
           >
             <SlidersHorizontal size={11} />
-            {trackerStatusFilters.length > 0
-              ? `${trackerStatusFilters.length} · ${t.list.columns.status}`
-              : t.list.columns.status}
+            <span>{F.panel}</span>
+            {activePanelFilters > 0 && (
+              <span className="min-w-4 h-4 px-1 rounded-full bg-[var(--accent-color)] text-white text-[9.5px] font-bold flex items-center justify-center">
+                {activePanelFilters}
+              </span>
+            )}
           </button>
 
-          {isStatusMenuOpen && (
-            <div className="absolute right-0 z-50 mt-1 w-[240px] max-h-[300px] overflow-auto rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-color)] shadow-lg p-1">
-              <div className="flex items-center justify-between px-1.5 py-1">
+          {isPanelOpen && (
+            <div className="absolute right-0 z-50 mt-1 w-[300px] max-h-[70vh] overflow-auto rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-color)] shadow-lg p-2 space-y-3">
+              <div className="flex items-center justify-between px-1">
                 <span className="text-[9.5px] uppercase tracking-wider font-bold text-[var(--text-muted)]">
-                  {t.list.columns.status}
+                  {F.panel}
                 </span>
-                {trackerStatusFilters.length > 0 && (
+                {activePanelFilters > 0 && (
                   <button
                     type="button"
-                    onClick={() => setTrackerStatusFilters([])}
+                    onClick={resetPanelFilters}
                     className="text-[10px] font-bold text-[var(--text-muted)] hover:text-[var(--text-primary)] cursor-pointer"
                   >
-                    {F.all}
+                    {F.reset}
                   </button>
                 )}
               </div>
-              {taskFacets.trackerStatuses.map(status => {
-                const isActive = trackerStatusFilters.includes(status.value)
-                return (
-                  <button
-                    key={status.value}
-                    type="button"
-                    onClick={() =>
-                      setTrackerStatusFilters(
-                        isActive
-                          ? trackerStatusFilters.filter(s => s !== status.value)
-                          : [...trackerStatusFilters, status.value]
-                      )
-                    }
-                    className="w-full flex items-center gap-2 px-1.5 py-1 rounded-lg hover:bg-[var(--bg-tertiary)] cursor-pointer"
-                  >
-                    <span
-                      className="w-3 h-3 rounded flex items-center justify-center shrink-0"
-                      style={{
-                        background: isActive ? 'var(--accent-color)' : 'transparent',
-                        border: `1px solid ${isActive ? 'var(--accent-color)' : 'var(--border-color)'}`,
+
+              {hasMacros && (
+                <FilterRow icon={<Target size={12} className={parentFilter ? 'text-amber-400' : 'text-[var(--text-muted)]'} />} label={F.macro}>
+                  <LookupField
+                    value={selectedMacroLabel}
+                    placeholder={F.allMacrosPlaceholder}
+                    clearLabel={F.allMacros}
+                    onSearch={searchMacroValue}
+                    onPick={option => setParentFilter(option?.id || null)}
+                  />
+                </FilterRow>
+              )}
+
+              {taskFacets.sprints.length > 0 && (
+                <FilterRow icon={<Calendar size={12} className={sprintFilter ? 'text-cyan-400' : 'text-[var(--text-muted)]'} />} label={F.sprint}>
+                  <LookupField
+                    value={sprintFilter || ''}
+                    placeholder={F.allSprints}
+                    clearLabel={F.allSprints}
+                    onSearch={searchSprintValue}
+                    onPick={option => setSprintFilter(option?.id || null)}
+                  />
+                </FilterRow>
+              )}
+
+              {taskFacets.teams.length > 0 && (
+                <FilterRow icon={<Layers size={12} className={teamFilter ? 'text-violet-400' : 'text-[var(--text-muted)]'} />} label={F.team}>
+                  <LookupField
+                    value={teamFilter || ''}
+                    placeholder={F.allTeams}
+                    clearLabel={F.allTeams}
+                    onSearch={searchTeamValue}
+                    onPick={option => setTeamFilter(option?.id || null)}
+                  />
+                </FilterRow>
+              )}
+
+              {hasPeople && (
+                <FilterRow icon={<User size={12} className={assigneeFilter ? 'text-emerald-400' : 'text-[var(--text-muted)]'} />} label={F.person}>
+                  <LookupField
+                    value={assigneeFilter === unassignedFilterValue ? F.unassigned : assigneeFilter || ''}
+                    placeholder={teamFilter ? F.wholeTeam : F.allPeople}
+                    clearLabel={teamFilter ? F.wholeTeam : F.allPeople}
+                    onSearch={searchAssigneeValue}
+                    onPick={option => setAssigneeFilter(option?.id || null)}
+                  />
+                </FilterRow>
+              )}
+
+              {/* Statuts affichés : la même sélection vaut pour le board, la liste et le
+                  triage, puisque les trois lisent la même liste de tickets. Vide veut
+                  dire « tous », ce qui est l'état par défaut. */}
+              {taskFacets.trackerStatuses.length > 0 && (
+                <CheckSection
+                  title={F.status}
+                  allLabel={F.all}
+                  selected={trackerStatusFilters}
+                  onChange={setTrackerStatusFilters}
+                  options={taskFacets.trackerStatuses}
+                />
+              )}
+
+              {taskFacets.issueTypes.length > 1 && (
+                <CheckSection
+                  title={F.issueTypes}
+                  allLabel={F.all}
+                  selected={issueTypeFilters}
+                  onChange={setIssueTypeFilters}
+                  options={taskFacets.issueTypes}
+                  // Un conteneur n'est pas montré tant qu'il n'est pas demandé :
+                  // sans cette mention, son compteur face à une liste qui n'en
+                  // affiche aucun serait incompréhensible.
+                  note={value =>
+                    ['macro', 'epic', 'initiative'].includes(value.toLowerCase()) ? F.hidden : undefined
+                  }
+                  footer={
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsPanelOpen(false)
+                        setEditingProject(currentProject || null)
+                        setIsProjectModalOpen(true)
                       }}
+                      disabled={!currentProject}
+                      title={
+                        currentProject
+                          ? format(F.importedTypes, { project: currentProject.name })
+                          : F.selectProjectForTypes
+                      }
+                      className="w-full flex items-center gap-1.5 px-1.5 py-1 mt-1 rounded-lg text-[10px] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] cursor-pointer disabled:opacity-40"
                     >
-                      {isActive && <Check size={8} className="text-white" />}
-                    </span>
-                    <span className="text-[11px] text-[var(--text-primary)] truncate flex-1 text-left">
-                      {status.value}
-                    </span>
-                    <span className="text-[9.5px] font-mono text-[var(--text-muted)]">{status.count}</span>
-                  </button>
-                )
-              })}
+                      <Settings2 size={10} />
+                      <span className="text-left leading-snug">{F.importedTypesHint}</span>
+                    </button>
+                  }
+                />
+              )}
             </div>
           )}
-        </div>
-      )}
-
-      {taskFacets.issueTypes.length > 1 && (
-        <div className="relative" ref={typeMenuRef}>
-          <button
-            type="button"
-            onClick={() => setIsTypeMenuOpen(open => !open)}
-            title={F.chooseTypes}
-            className="flex items-center gap-1.5 px-2 py-1 rounded-md text-[11px] font-semibold border cursor-pointer transition-colors"
-            style={{
-              color: issueTypeFilters.length > 0 ? 'var(--accent-color)' : 'var(--text-secondary)',
-              background: issueTypeFilters.length > 0 ? 'var(--accent-light)' : 'var(--bg-secondary)',
-              borderColor: issueTypeFilters.length > 0 ? 'rgb(var(--accent-rgb) / 0.4)' : 'var(--border-color)',
-            }}
-          >
-            <Shapes size={11} />
-            {issueTypeFilters.length > 0 ? plural(lang, issueTypeFilters.length, F.typeCount) : F.types}
-          </button>
-
-          {isTypeMenuOpen && (
-            <div className="absolute right-0 z-50 mt-1 w-[240px] max-h-[300px] overflow-auto rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-color)] shadow-lg p-1">
-              <div className="flex items-center justify-between px-1.5 py-1">
-                <span className="text-[9.5px] uppercase tracking-wider font-bold text-[var(--text-muted)]">
-                  {F.issueTypes}
-                </span>
-                {issueTypeFilters.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => setIssueTypeFilters([])}
-                    className="text-[10px] font-bold text-[var(--text-muted)] hover:text-[var(--text-primary)] cursor-pointer"
-                  >
-                    {F.all}
-                  </button>
-                )}
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  setIsTypeMenuOpen(false)
-                  setEditingProject(currentProject || null)
-                  setIsProjectModalOpen(true)
-                }}
-                disabled={!currentProject}
-                title={
-                  currentProject
-                    ? format(F.importedTypes, { project: currentProject.name })
-                    : F.selectProjectForTypes
-                }
-                className="w-full flex items-center gap-1.5 px-1.5 py-1 mb-1 rounded-lg text-[10px] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] cursor-pointer disabled:opacity-40 border-b border-[var(--border-color)] rounded-b-none"
-              >
-                <Settings2 size={10} />
-                <span className="text-left leading-snug">
-                  {F.importedTypesHint}
-                </span>
-              </button>
-              {taskFacets.issueTypes.map(type => {
-                const isActive = issueTypeFilters.includes(type.value)
-                // Un conteneur n'est pas montré tant qu'il n'est pas demandé :
-                // sans cette mention, son compteur face à une liste qui n'en
-                // affiche aucun serait incompréhensible.
-                const isContainer = ['macro', 'epic', 'initiative'].includes(type.value.toLowerCase())
-                return (
-                  <button
-                    key={type.value}
-                    type="button"
-                    onClick={() =>
-                      setIssueTypeFilters(
-                        isActive
-                          ? issueTypeFilters.filter(t2 => t2 !== type.value)
-                          : [...issueTypeFilters, type.value]
-                      )
-                    }
-                    className="w-full flex items-center gap-2 px-1.5 py-1 rounded-lg hover:bg-[var(--bg-tertiary)] cursor-pointer"
-                  >
-                    <span
-                      className="w-3 h-3 rounded flex items-center justify-center shrink-0"
-                      style={{
-                        background: isActive ? 'var(--accent-color)' : 'transparent',
-                        border: `1px solid ${isActive ? 'var(--accent-color)' : 'var(--border-color)'}`,
-                      }}
-                    >
-                      {isActive && <Check size={8} className="text-white" />}
-                    </span>
-                    <span className="text-[11px] text-[var(--text-primary)] truncate flex-1 text-left">
-                      {type.value}
-                      {isContainer && !isActive && (
-                        <span className="ml-1 text-[9px] text-[var(--text-muted)]">{F.hidden}</span>
-                      )}
-                    </span>
-                    <span className="text-[9.5px] font-mono text-[var(--text-muted)]">{type.count}</span>
-                  </button>
-                )
-              })}
-            </div>
-          )}
-        </div>
-      )}
-
-      {(taskFacets.macros.length > 0 || availableParents.length > 0) && (
-        <div className="flex items-center gap-1 w-[200px]">
-          <Target size={12} className={parentFilter ? 'text-amber-400' : 'text-[var(--text-muted)]'} />
-          <div className="flex-1">
-            <LookupField
-              value={selectedMacroLabel}
-              placeholder={F.allMacrosPlaceholder}
-              clearLabel={F.allMacros}
-              onSearch={searchMacroValue}
-              onPick={option => setParentFilter(option?.id || null)}
-            />
-          </div>
-        </div>
-      )}
-
-      {taskFacets.sprints.length > 0 && (
-        <div className="flex items-center gap-1 w-[190px]">
-          <Calendar size={12} className={sprintFilter ? 'text-cyan-400' : 'text-[var(--text-muted)]'} />
-          <div className="flex-1">
-            <LookupField
-              value={sprintFilter || ''}
-              placeholder={F.allSprints}
-              clearLabel={F.allSprints}
-              onSearch={searchSprintValue}
-              onPick={option => setSprintFilter(option?.id || null)}
-            />
-          </div>
-        </div>
-      )}
-
-      {taskFacets.teams.length > 0 && (
-        <div className="flex items-center gap-1 w-[200px]">
-          <Layers size={12} className={teamFilter ? 'text-violet-400' : 'text-[var(--text-muted)]'} />
-          <div className="flex-1">
-            <LookupField
-              value={teamFilter || ''}
-              placeholder={F.allTeams}
-              clearLabel={F.allTeams}
-              onSearch={searchTeamValue}
-              onPick={option => setTeamFilter(option?.id || null)}
-            />
-          </div>
-        </div>
-      )}
-
-      {(availableAssignees.length > 0 || taskFacets.unassignedCount > 0) && (
-        <div className="flex items-center gap-1 w-[200px]">
-          <User size={12} className={assigneeFilter ? 'text-emerald-400' : 'text-[var(--text-muted)]'} />
-          <div className="flex-1">
-            <LookupField
-              value={assigneeFilter === unassignedFilterValue ? F.unassigned : assigneeFilter || ''}
-              placeholder={teamFilter ? F.wholeTeam : F.allPeople}
-              clearLabel={teamFilter ? F.wholeTeam : F.allPeople}
-              onSearch={searchAssigneeValue}
-              onPick={option => setAssigneeFilter(option?.id || null)}
-            />
-          </div>
         </div>
       )}
     </div>
   )
 }
+
+const FilterRow: React.FC<{ icon: React.ReactNode; label: string; children: React.ReactNode }> = ({ icon, label, children }) => (
+  <div className="flex items-center gap-2 px-1">
+    <span className="flex items-center gap-1.5 w-[76px] shrink-0 text-[11px] font-medium text-[var(--text-secondary)]">
+      {icon}
+      {label}
+    </span>
+    <div className="flex-1 min-w-0">{children}</div>
+  </div>
+)
+
+/**
+ * A multi-select over the values the board actually carries, with their
+ * counts. Nothing ticked means every value, which is the default.
+ */
+const CheckSection: React.FC<{
+  title: string
+  allLabel: string
+  selected: string[]
+  onChange: (values: string[]) => void
+  options: Array<{ value: string; count: number }>
+  note?: (value: string) => string | undefined
+  footer?: React.ReactNode
+}> = ({ title, allLabel, selected, onChange, options, note, footer }) => (
+  <div className="border-t border-[var(--border-color)] pt-2">
+    <div className="flex items-center justify-between px-1.5 pb-1">
+      <span className="text-[9.5px] uppercase tracking-wider font-bold text-[var(--text-muted)]">{title}</span>
+      {selected.length > 0 && (
+        <button
+          type="button"
+          onClick={() => onChange([])}
+          className="text-[10px] font-bold text-[var(--text-muted)] hover:text-[var(--text-primary)] cursor-pointer"
+        >
+          {allLabel}
+        </button>
+      )}
+    </div>
+    <div className="max-h-[180px] overflow-auto">
+      {options.map(option => {
+        const isActive = selected.includes(option.value)
+        const hint = !isActive ? note?.(option.value) : undefined
+        return (
+          <button
+            key={option.value}
+            type="button"
+            onClick={() => onChange(isActive ? selected.filter(v => v !== option.value) : [...selected, option.value])}
+            aria-pressed={isActive}
+            className="w-full flex items-center gap-2 px-1.5 py-1 rounded-lg hover:bg-[var(--bg-tertiary)] cursor-pointer"
+          >
+            <span
+              className="w-3 h-3 rounded flex items-center justify-center shrink-0"
+              style={{
+                background: isActive ? 'var(--accent-color)' : 'transparent',
+                border: `1px solid ${isActive ? 'var(--accent-color)' : 'var(--border-color)'}`,
+              }}
+            >
+              {isActive && <Check size={8} className="text-white" />}
+            </span>
+            <span className="text-[11px] text-[var(--text-primary)] truncate flex-1 text-left">
+              {option.value}
+              {hint && <span className="ml-1 text-[9px] text-[var(--text-muted)]">{hint}</span>}
+            </span>
+            <span className="text-[9.5px] font-mono text-[var(--text-muted)]">{option.count}</span>
+          </button>
+        )
+      })}
+    </div>
+    {footer}
+  </div>
+)

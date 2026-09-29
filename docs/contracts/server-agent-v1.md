@@ -55,7 +55,7 @@ The server resolves the method only: project metadata over the deployment's.
 Every execution setting is resolved by the agent from
 `~/.config/sectile/settings.json` (ADR 0031): the project section, then the
 workstation defaults, then the provider defaults (the shipped model list, the
-detected terminal, editor `code`, worktrees on, one execution at a time, no
+detected terminal, editor `code`, worktrees on, five executions at a time, no
 extra setup provider, the stage's standard command). These values are never
 uploaded, except as the capability report below.
 
@@ -77,7 +77,7 @@ Skills and the Sectile MCP registration are set up for the running provider,
 the extra setup providers, and the provider of every catalogue engine that
 takes skills, so a task switched to any of them finds them in place.
 
-Parallelism is 1 to 10, from the project section, else the defaults, else 1,
+Parallelism is 1 to 10, from the project section, else the defaults, else 5,
 and 1 whenever worktrees are off. Extra setup providers from the project
 section replace the defaults' list rather than adding to it; an empty list is
 the decision "none".
@@ -603,17 +603,27 @@ process-stop button. Supervised native execution is not supported on Windows.
 
 ## PR/MR creation timing
 
-Projects persist `prCreationStage`: `implemented` (default, existing behavior)
-or `specified`. This setting is included in the agent/MCP project configuration
-and effective project skill instructions. With `specified`, the specification
-skill commits and pushes validated specs, opens or reuses a draft PR/MR, and
-attaches its URL in the specified transition. Implementation and review update
-that same PR/MR; only completed review makes it ready. Opening the draft alone
-does not advance the task to reviewed. Tracker synchronization remains server-owned.
+Projects persist `prCreationStage`: `implemented` (default, existing behavior),
+`specified` or `clarified`. This setting is included in the agent/MCP project
+configuration and effective project skill instructions. With `specified`, the
+specification skill commits and pushes validated specs, opens or reuses a draft
+PR/MR, and attaches its URL in the specified transition. With `clarified`, the
+clarification skill does the same in its final round only, once the owner has
+confirmed the clarification, and attaches the URL in the clarified transition;
+intermediate rounds open no PR/MR, and the specified transition then requires
+that same PR/MR. Implementation and review update it; only completed review
+makes it ready. Opening the draft alone does not advance the task to reviewed.
+Tracker synchronization remains server-owned.
+
+An agent does not reject a configuration whose `prCreationStage` it does not
+know: it leaves creation to implementation. Agents built before `clarified`
+existed still reject that value, so a project should choose it only once its
+workstations run a current Sectile Desktop.
 
 A workstation that drops the specification artefacts (`specArtifacts`) has
-nothing to show on the branch at specification. When a `specified` transition
-of such a project names no pull request, the server asks the actor's agent
+nothing to show on the branch at clarification or specification. When a
+`clarified` or `specified` transition that the project's `prCreationStage`
+holds to a pull request names none, the server asks the actor's agent
 with the `spec_artifacts` operation, which answers `{"mode":"keep"|"drop"}`
 with its effective value for the task. On `drop` the transition is accepted
 without a pull request and its note says that it is deferred to the
@@ -637,6 +647,12 @@ not launched omit `startedAt`; completion preserves both timestamps. Desktop
 clients fall back to `createdAt` for legacy records without a valid start time.
 This display metadata does not change queue scheduling.
 
+An entry marked `restored: true` was loaded from the agent's run store at start
+(ADR 0040): it has exited, carries no `sessionId` and no `waitingSince`, and
+`/desktop/terminal` replays its stored console output or trace read-only, then
+closes. Agents that keep such a store list `run-store` in the `capabilities` of
+`GET /desktop/status`; older agents send neither.
+
 Web skill launches without a connected agent fail explicitly rather than falling
 back to server-side execution.
 
@@ -647,8 +663,9 @@ only when all registered processes have confirmed exit. Active runs or a restart
 already in progress return 409. New run registration is rejected once restart
 begins. The desktop confirms with the user, stops active runs through
 `/desktop/stop`, requests restart, and reconnects using the rewritten private
-connection file. Arguments, environment and local mappings are preserved;
-in-memory console history is cleared.
+connection file. Arguments, environment and local mappings are preserved.
+An agent with the `run-store` capability restores the finished runs and their
+console output on start; an older one clears its in-memory console history.
 
 The **Local agent** panel exposes launch configuration. Stop the daemon before
 changing settings, then use **Start local agent**. **Stop agent** uses authenticated
@@ -1002,8 +1019,8 @@ The canonical review action is `adjust` (`adjust-issue`). Legacy `review` normal
 States remain `new`, `clarified`, `specified`, `implemented`, `reviewed`, `finished`.
 A reviewed task offers Handoff; repeat Adjust is explicit and requires an open PR.
 
-The `prCreationStage` policy assigns draft creation to specification or implementation
-(default). Adjustment requires an existing matching PR (open, or already merged by the
+The `prCreationStage` policy assigns draft creation to clarification, specification or
+implementation (default). Adjustment requires an existing matching PR (open, or already merged by the
 human, in which case it reviews the merged state without pushing), performs full review
 and feedback disposition, checks the final code, updates the same PR and verifies
 readiness. Lookup failure is not absence. Creation-owner recovery retains an already

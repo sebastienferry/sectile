@@ -5,13 +5,14 @@ import (
 	"testing"
 
 	"tasks/internal/models"
+	"tasks/internal/testsqlite"
 )
 
 // TestProjectEpicColorsRoundTrip guards the setting that decides whether cards
 // carry their epic's colour. A project that never asked for it must come back
 // with it off, which is what keeps every existing board as it was.
 func TestProjectEpicColorsRoundTrip(t *testing.T) {
-	database, err := NewDB(filepath.Join(t.TempDir(), "tasks.db"))
+	database, err := testsqlite.New(t, filepath.Join(t.TempDir(), "tasks.db"), NewDB)
 	if err != nil {
 		t.Fatal(err)
 	}

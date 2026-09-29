@@ -21,6 +21,10 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+// HistoryLimit is how many bytes of output a session keeps for the viewers that
+// attach later: the most recent ones, as a terminal keeps its scrollback.
+const HistoryLimit = 65536
+
 var upgrader = websocket.Upgrader{
 	ReadBufferSize:  4096,
 	WriteBufferSize: 4096,
@@ -190,7 +194,7 @@ func (m *Manager) GetOrCreateSession(sessionID string, cwd string, envVars map[s
 		clients:      make(map[*websocket.Conn]bool),
 		history:      make([]byte, 0, 32768),
 		watchers:     make(map[*runWatcher]struct{}),
-		maxHistBytes: 65536,
+		maxHistBytes: HistoryLimit,
 		closeChan:    make(chan struct{}),
 		CreatedAt:    time.Now(),
 		LastActiveAt: time.Now(),
@@ -348,6 +352,27 @@ func (m *Manager) AddOutputListener(sessionID string, fn func([]byte)) {
 	}
 }
 
+// TapOutput registers fn on the named session and returns what the session
+// printed before it, so the caller holds the whole output exactly once: the
+// history is read and the listener registered under the lock the read loop
+// holds from appending a chunk to notifying the listeners. It reports whether
+// the session exists.
+func (m *Manager) TapOutput(sessionID string, fn func([]byte)) ([]byte, bool) {
+	m.mu.RLock()
+	sess, ok := m.sessions[sessionID]
+	m.mu.RUnlock()
+	if !ok || sess == nil {
+		return nil, false
+	}
+	sess.outputListenersMu.Lock()
+	defer sess.outputListenersMu.Unlock()
+	sess.historyMu.RLock()
+	history := append([]byte(nil), sess.history...)
+	sess.historyMu.RUnlock()
+	sess.outputListeners = append(sess.outputListeners, fn)
+	return history, true
+}
+
 // AddInputListener adds a callback invoked with every chunk a viewer types into
 // this session. It runs on the read path of the viewer's connection, so it must
 // not block.
@@ -391,6 +416,10 @@ func (m *Manager) readPtyLoop(sess *Session) {
 		if n > 0 {
 			chunk := buf[:n]
 
+			// Held from the history append to the listener notification, so
+			// TapOutput sees each chunk either in the history or as a call.
+			sess.outputListenersMu.Lock()
+
 			// Append to history buffer
 			sess.historyMu.Lock()
 			sess.history = append(sess.history, chunk...)
@@ -404,7 +433,6 @@ func (m *Manager) readPtyLoop(sess *Session) {
 			sess.feedWatchers(chunk)
 
 			// Notify direct output listeners (e.g. agent CLI console tap)
-			sess.outputListenersMu.Lock()
 			for _, fn := range sess.outputListeners {
 				fn(chunk)
 			}

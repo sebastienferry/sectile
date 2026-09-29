@@ -32,6 +32,17 @@ func TestConfigurationContractValidation(t *testing.T) {
 	}
 }
 
+// A creation stage never rejects the contract: the values of this build and
+// one a newer server may add both validate (#580).
+func TestConfigurationContractAcceptsAnyPRCreationStage(t *testing.T) {
+	for _, stage := range []string{"", "clarified", "specified", "implemented", "after-review"} {
+		c := Config{SchemaVersion: Version, ProjectID: "project", AIProvider: "codex", PRCreationStage: stage}
+		if err := c.Validate(); err != nil {
+			t.Errorf("prCreationStage %q: %v", stage, err)
+		}
+	}
+}
+
 func TestNamespacedCommandOnlyOnTheCommand(t *testing.T) {
 	base := Config{SchemaVersion: Version, ProjectID: "project", Skills: []Skill{{ID: "clarify", Directory: "clarify-issue", Command: "/sectile:clarify-issue"}}}
 	if err := base.Validate(); err != nil {

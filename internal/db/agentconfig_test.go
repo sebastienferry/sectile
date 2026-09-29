@@ -7,10 +7,11 @@ import (
 	"testing"
 
 	"tasks/internal/models"
+	"tasks/internal/testsqlite"
 )
 
 func TestAgentConfigRepositoryMetadata(t *testing.T) {
-	database, err := NewDB(filepath.Join(t.TempDir(), "tasks.db"))
+	database, err := testsqlite.New(t, filepath.Join(t.TempDir(), "tasks.db"), NewDB)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,7 +53,7 @@ func TestAgentConfigRepositoryMetadata(t *testing.T) {
 // written before the upgrade stores, no execution value reaches the agent, and
 // each skill names the stage's standard command.
 func TestAgentConfigCarriesNoExecutionSetting(t *testing.T) {
-	database, err := NewDB(filepath.Join(t.TempDir(), "tasks.db"))
+	database, err := testsqlite.New(t, filepath.Join(t.TempDir(), "tasks.db"), NewDB)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -75,7 +76,7 @@ func TestAgentConfigCarriesNoExecutionSetting(t *testing.T) {
 		t.Fatalf("an execution value reached the configuration: %+v", config)
 	}
 	for _, skill := range config.Skills {
-		if skill.ID == "implement" && skill.Command != "/code-issue" {
+		if skill.ID == "implement" && skill.Command != "/implement-issue" {
 			t.Fatalf("implement must run its standard command, got %q", skill.Command)
 		}
 	}
@@ -84,7 +85,7 @@ func TestAgentConfigCarriesNoExecutionSetting(t *testing.T) {
 // The seed reproduces what AgentConfig composed before #305, project row over
 // deployment, including the legacy bare CLI name that never reached a runner.
 func TestLegacyProjectExecutionComposesAsBefore(t *testing.T) {
-	database, err := NewDB(filepath.Join(t.TempDir(), "tasks.db"))
+	database, err := testsqlite.New(t, filepath.Join(t.TempDir(), "tasks.db"), NewDB)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -124,7 +125,7 @@ func TestLegacyProjectExecutionComposesAsBefore(t *testing.T) {
 }
 
 func TestLegacyWorkstationExecutionTakesTheCallersTerminalAndEditor(t *testing.T) {
-	database, err := NewDB(filepath.Join(t.TempDir(), "tasks.db"))
+	database, err := testsqlite.New(t, filepath.Join(t.TempDir(), "tasks.db"), NewDB)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -155,7 +156,7 @@ func TestLegacyWorkstationExecutionTakesTheCallersTerminalAndEditor(t *testing.T
 // built-in one: not for a mode-only row, not for the pull-request policy every
 // project gets, not for the built-in content an adjust reset stores.
 func TestAgentConfigMarksCustomSkills(t *testing.T) {
-	database, err := NewDB(filepath.Join(t.TempDir(), "tasks.db"))
+	database, err := testsqlite.New(t, filepath.Join(t.TempDir(), "tasks.db"), NewDB)
 	if err != nil {
 		t.Fatal(err)
 	}

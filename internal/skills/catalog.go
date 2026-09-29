@@ -98,7 +98,7 @@ var StageSkills = []StageSkill{
 		ID:          "implement",
 		Name:        "Implement",
 		DirName:     models.SkillDirNames["implement"],
-		Command:     "/code-issue",
+		Command:     "/implement-issue",
 		FromStage:   "specified",
 		ToStage:     "implemented",
 		Description: "Exécute le plan d'implémentation et valide par les tests.",
@@ -606,36 +606,40 @@ func renderGenericPickupSteps(batch bool) string {
 // policy: the steps that may open or update one.
 func HasPullRequestPolicy(skillID string) bool {
 	switch skillID {
-	case "specify", "implement", "adjust", "pickup", "pickup_issues":
+	case "clarify", "specify", "implement", "adjust", "pickup", "pickup_issues":
 		return true
 	}
 	return false
 }
 
 const (
+	pullRequestPolicyClarified   = "In the final clarification round only (the owner confirmed the clarification, or no product question remains open in an unattended run), after committing the report, push the task branch with `git push -u origin <branch>` (never force), discover and reuse its PR/MR or create a draft when absence is confirmed, and include its URL as prUrl in the clarified transition. Intermediate rounds open no PR. Later stages push to the same branch and update the same PR/MR: include it as prUrl in the specified and implemented transitions; when a later stage finds no PR for the branch (a task clarified before this setting), create the draft when absence is confirmed. Keep it draft until adjustment; preserve an existing ready PR. Lookup failure is not absence. When the clarification report or the specification files are ignored by Git (dropped artefacts), open no PR at those stages, say so in the report, and create the draft after implementation.\n"
 	pullRequestPolicySpecified   = "After the specification is written and validated, commit and push the specification on the task branch and open a draft PR/MR for specification review. Reuse an existing PR/MR for that branch. Include its URL as prUrl in the specified transition. Keep newly created PRs draft while implementing; preserve an existing ready PR; update the same PR/MR and mark it ready only after implementation and review. Do not mark the task reviewed merely because a draft exists. When the specification files are ignored by Git (dropped artefacts), open no PR at this stage, say so in the report, and create the draft after implementation.\n"
 	pullRequestPolicyImplemented = "After successful implementation checks, commit and push the branch, discover and reuse its open PR/MR or create a draft when absence is confirmed. Include its URL as prUrl in the implemented transition. Do not create one during specification or adjustment. Lookup failure is not absence. Preserve an existing ready PR.\n"
 )
 
 // ProjectPullRequestPolicy is the pull-request section appended to a skill
-// rendered for one project, whose creation stage is "specified" or anything
-// else, which reads as "implemented".
+// rendered for one project. Unknown creation stages fall back to implementation.
 func ProjectPullRequestPolicy(timing string) string {
-	if timing != "specified" {
+	if timing != "clarified" && timing != "specified" {
 		timing = "implemented"
 	}
 	out := "\n## Project pull request policy\nPR creation stage: " + timing + ". Read this setting from get_project_context before executing. "
+	if timing == "clarified" {
+		return out + pullRequestPolicyClarified
+	}
 	if timing == "specified" {
 		return out + pullRequestPolicySpecified
 	}
 	return out + pullRequestPolicyImplemented
 }
 
-// GenericPullRequestPolicy is the same section for every project: both
+// GenericPullRequestPolicy is the same section for every project: all
 // wordings, chosen by what get_project_context reports.
 func GenericPullRequestPolicy() string {
 	return "\n## Project pull request policy\nRead prCreationStage from get_project_context before executing.\n\n" +
-		"### When prCreationStage is \"specified\"\n" + pullRequestPolicySpecified +
+		"### When prCreationStage is \"clarified\"\n" + pullRequestPolicyClarified +
+		"\n### When prCreationStage is \"specified\"\n" + pullRequestPolicySpecified +
 		"\n### Otherwise (\"implemented\" or empty)\n" + pullRequestPolicyImplemented
 }
 

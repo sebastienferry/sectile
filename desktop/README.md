@@ -287,11 +287,25 @@ scripts/release/package-desktop.sh v0.0.0 linux amd64 path/to/sectile-agent-linu
 ### Restarting the agent
 
 Use **Restart agent** in the desktop header. The confirmation explains that active
-executions will be stopped and in-memory console history cleared. Restart waits
+executions will be stopped. Restart waits
 for confirmed process exits; if a new execution arrives or an exit cannot be
 confirmed, restart is refused. The daemon relaunches its current executable with
 the same arguments and environment, preserving server credentials and local
 project mappings. The desktop reconnects automatically.
+
+The executions survive the restart. The agent keeps a private copy of each one
+in `~/.taskflow/runs/` (next to `agent-connection.json`; directory `0700`,
+files `0600`): the run record the sidebar shows, and the last 64 KiB of its
+console or the last 2000 lines of an autonomous run's trace. The new agent
+reads it back before the desktop connects, so the sidebar lists the same
+executions and each console replays, read-only, what it showed. A restored
+execution cannot be answered or continued; **Relaunch** starts a new one. An
+execution that was still running when the agent stopped (a crash, a reboot, a
+`SIGTERM`) comes back **canceled**, with its console as of the last write, at
+most five seconds before. The 100 most recently finished executions are kept;
+beyond that the oldest finished one is deleted first. An agent older than this
+store says so in the restart confirmation, and its console history is still
+cleared.
 
 An agent started with an older binary must be stopped and relaunched once to
 enable this endpoint. Restart requires a responsive agent; it is not a force-kill
@@ -306,7 +320,8 @@ entered again. Existing agents launched outside the desktop do not expose their
 server credentials to this panel.
 
 **Clear finished consoles** removes completed, failed and canceled consoles from
-the local agent through authenticated `DELETE /desktop/history`. Only sessions
+the local agent through authenticated `DELETE /desktop/history`, and deletes
+their copies from `~/.taskflow/runs/`. Only sessions
 with confirmed process exit are removed. Active executions, server task comments,
 and the AI provider's own saved conversations are preserved.
 
@@ -426,8 +441,10 @@ capacity before repository preparation, admits queued requests in order within
 each project, and holds capacity until confirmed process exit. Queued executions
 can be canceled from either UI. Tasks sharing an unisolated repository, or the
 same task worktree, cannot execute concurrently. Settings are resolved at
-admission into the queue; changes apply to subsequent submissions. Queue and
-console history are held in memory for the agent lifetime.
+admission into the queue; changes apply to subsequent submissions. The queue is
+held in memory for the agent lifetime; finished executions and their consoles
+are also kept on disk and restored after a restart (see
+[Restarting the agent](#restarting-the-agent)).
 
 ### Specifications folder
 
@@ -538,7 +555,7 @@ time: **General** (Git remote, SDD framework, default engine, removal from the d
 with the project's default engine picked from the workstation catalogue or
 inherited from its default. **General** opens
 first. Use **Choose folder…** to select a repository through the native directory
-dialog. Worktrees use Yes/No buttons; parallel executions use a 1 to 10 slider.
+dialog. Worktrees use Yes/No buttons; parallel executions use a 1 to 10 slider, 5 when nothing is set.
 Each setting is one row: its name with the inherited value in small type on the
 left, its control on the right. Reset icons restore inheritance from the
 workstation defaults. The placeholder

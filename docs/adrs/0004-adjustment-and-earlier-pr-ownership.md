@@ -31,3 +31,19 @@ Existing projects retain their PR timing and work. Missing PRs require recovery 
 an earlier owner rather than creation during review. Historical customization remains
 accessible but may block execution until reconciled. Forge access is required for a
 successful PR-owning or adjustment stage. No new workflow state or service is added.
+
+## Amendment (#580): clarification as the earliest owner
+
+`prCreationStage` gains a third value, `clarified`. Clarification then owns
+draft creation, in its final round only: intermediate rounds, which may stop
+on open questions, publish nothing on the forge, so an unresolved
+clarification never becomes a pull request. The clarified transition requires
+the pull request, and so does the specified transition that follows, which
+updates it. Dropped artefacts defer it to implementation at both stages. A
+task that reaches implemented without a pull request is recovered through
+implementation, never by re-running a clarification.
+
+Agents stop rejecting a creation stage they do not know and fall back to
+implementation, so the next value added cannot stop a lagging agent from
+running a project. Agents built before this amendment still reject
+`clarified`; the release note asks for a desktop update first.

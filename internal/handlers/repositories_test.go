@@ -10,12 +10,13 @@ import (
 
 	"tasks/internal/db"
 	"tasks/internal/models"
+	"tasks/internal/testsqlite"
 )
 
 // The repository routes of #456: a refused declaration is the caller's fault,
 // and only the first conversion of a project applies.
 func TestProjectRepositoriesOverHTTP(t *testing.T) {
-	database, err := db.NewDB(filepath.Join(t.TempDir(), "tasks.db"))
+	database, err := testsqlite.New(t, filepath.Join(t.TempDir(), "tasks.db"), db.NewDB)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,7 +62,7 @@ func TestProjectRepositoriesOverHTTP(t *testing.T) {
 // key is ignored, and no project answers with it any more. The route a local
 // agent used to park a launch on a repository choice no longer exists.
 func TestProjectIgnoresTheRemovedMonoRepoKey(t *testing.T) {
-	database, err := db.NewDB(filepath.Join(t.TempDir(), "tasks.db"))
+	database, err := testsqlite.New(t, filepath.Join(t.TempDir(), "tasks.db"), db.NewDB)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -12,6 +12,7 @@ import (
 
 	"tasks/internal/agentprotocol"
 	"tasks/internal/models"
+	"tasks/internal/testsqlite"
 	"tasks/internal/trackerapi"
 )
 
@@ -25,7 +26,7 @@ const (
 
 func crossRepoTask(t *testing.T, req models.CreateProjectRequest) (*DB, *models.Task) {
 	t.Helper()
-	d, err := NewDB(filepath.Join(t.TempDir(), "test.db"))
+	d, err := testsqlite.New(t, filepath.Join(t.TempDir(), "test.db"), NewDB)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,6 +52,7 @@ func crossRepoTask(t *testing.T, req models.CreateProjectRequest) (*DB, *models.
 // fakeCrossRepoAgent answers pr_evidence and git_evidence for another
 // repository the way a current agent does, echoing the repository asked.
 type fakeCrossRepoAgent struct {
+	mu          sync.Mutex
 	t           *testing.T
 	mr          string // pr_evidence answer, without the echo
 	checkout    string // git_evidence answer, without the echo
@@ -60,6 +62,9 @@ type fakeCrossRepoAgent struct {
 }
 
 func (f *fakeCrossRepoAgent) operate(_ context.Context, op agentprotocol.Operation) (json.RawMessage, error) {
+	// Stage checks and queued postbacks may consult the fake concurrently.
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	echo := func(body string) json.RawMessage {
 		if f.noEcho || op.Repository == "" {
 			return json.RawMessage(body)
@@ -84,6 +89,12 @@ func (f *fakeCrossRepoAgent) operate(_ context.Context, op agentprotocol.Operati
 	}
 	f.t.Fatalf("unexpected operation %q", op.Action)
 	return nil, nil
+}
+
+func (f *fakeCrossRepoAgent) callCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.prCalls
 }
 
 func archAnswer(draft, merged bool) string {
@@ -120,12 +131,16 @@ func TestForeignHeadIsCheckedOnAVerifiedCheckout(t *testing.T) {
 	if _, notice, err := d.validateStagePR(task, "", "implement", "", sfeBranch, archMR); err != nil || notice != "" {
 		t.Fatalf("verified head: notice=%q err=%v", notice, err)
 	}
+	agent.mu.Lock()
 	agent.checkout = foundCheckout("other-commit", true)
+	agent.mu.Unlock()
 	if _, _, err := d.validateStagePR(task, "", "implement", "", sfeBranch, archMR); err == nil || !strings.Contains(err.Error(), "merge request does not contain the agent checkout commit") {
 		t.Fatalf("stale checkout accepted or misworded: %v", err)
 	}
+	agent.mu.Lock()
 	agent.checkout = foundCheckout("mr-head", false)
 	agent.checkout = strings.TrimSuffix(agent.checkout, "}") + `,"status":" M AGENTS.md"}`
+	agent.mu.Unlock()
 	if _, _, err := d.validateStagePR(task, "", "adjust", "", sfeBranch, archMR); err == nil || !strings.Contains(err.Error(), "modifications locales ne sont pas commitées") {
 		t.Fatalf("dirty checkout accepted for adjustment: %v", err)
 	}
@@ -147,12 +162,16 @@ func TestForeignMergeRequestKeepsTheEvidenceRules(t *testing.T) {
 		t.Fatalf("draft accepted for adjustment: %v", err)
 	}
 	// Another source branch is refused.
+	agent.mu.Lock()
 	agent.mr = strings.Replace(archAnswer(false, false), sfeBranch, "feature/other", 1)
+	agent.mu.Unlock()
 	if _, _, err := d.TransitionTaskStage(task.ID, "reviewed", "other branch", archMR, sfeBranch); err == nil || !strings.Contains(err.Error(), "GitLab does not confirm") {
 		t.Fatalf("merge request on another branch accepted: %v", err)
 	}
 	// The human merged it: adjustment completes.
+	agent.mu.Lock()
 	agent.mr = archAnswer(false, true)
+	agent.mu.Unlock()
 	if got, _, err := d.TransitionTaskStage(task.ID, "reviewed", "merged", archMR, sfeBranch); err != nil || d.StageOfTask(got) != "reviewed" {
 		t.Fatalf("merged merge request refused: %+v %v", got, err)
 	}
@@ -237,13 +256,12 @@ func TestCrossRepositoryLookupFailuresAreNeverAbsence(t *testing.T) {
 	}
 	d.prEvidenceLookup = nil
 	// Without prUrl the project checkout is asked, and its missing origin is named.
-	agent.noEcho = false
-	agent.lookupError = fmt.Errorf("project checkout has no origin remote; configure the project repository or pass the prUrl of the repository that carries the pull request")
+	lookupError := fmt.Errorf("project checkout has no origin remote; configure the project repository or pass the prUrl of the repository that carries the pull request")
 	d.SetAgentOperations(func(ctx context.Context, op agentprotocol.Operation) (json.RawMessage, error) {
 		if op.Repository != "" {
 			t.Fatalf("no prUrl, yet asked about %q", op.Repository)
 		}
-		return nil, agent.lookupError
+		return nil, lookupError
 	})
 	_, _, err := d.TransitionTaskStage(task.ID, "implemented", "no prUrl", "", sfeBranch)
 	if err == nil || !strings.Contains(err.Error(), "no origin remote") || strings.Contains(err.Error(), "no matching") {
@@ -261,8 +279,8 @@ func TestAdjustmentEntryPointsFollowTheForeignPullRequest(t *testing.T) {
 		t.Fatal(err)
 	}
 	task, _ = d.GetTaskByID(task.ID)
-	if pr, err := d.adjustmentPrerequisite(task, "", true); err != nil || pr.URL != archMR || agent.prCalls != 1 {
-		t.Fatalf("adjustment prerequisite: %+v %v (calls %d)", pr, err, agent.prCalls)
+	if pr, err := d.adjustmentPrerequisite(task, "", true); err != nil || pr.URL != archMR || agent.callCount() != 1 {
+		t.Fatalf("adjustment prerequisite: %+v %v (calls %d)", pr, err, agent.callCount())
 	}
 
 	// A post-back has no note: the weaker evidence lands on its run.

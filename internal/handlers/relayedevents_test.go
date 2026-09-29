@@ -7,12 +7,13 @@ import (
 
 	"tasks/internal/db"
 	"tasks/internal/models"
+	"tasks/internal/testsqlite"
 )
 
 // An event another instance published reaches this instance's browsers as the
 // event they would have received locally, with the task as it now stands.
 func TestARelayedEventReachesLocalBrowsers(t *testing.T) {
-	database, err := db.NewDB(filepath.Join(t.TempDir(), "tasks.db"))
+	database, err := testsqlite.New(t, filepath.Join(t.TempDir(), "tasks.db"), db.NewDB)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"tasks/internal/models"
+	"tasks/internal/testsqlite"
 )
 
 func setupTestDB(t *testing.T) (*DB, func()) {
@@ -17,7 +18,7 @@ func setupTestDB(t *testing.T) (*DB, func()) {
 	}
 
 	dbPath := filepath.Join(tmpDir, "test.db")
-	database, err := NewDB(dbPath)
+	database, err := testsqlite.New(t, dbPath, NewDB)
 	if err != nil {
 		os.RemoveAll(tmpDir)
 		t.Fatalf("failed to create test db: %v", err)

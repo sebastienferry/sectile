@@ -11,10 +11,10 @@ import (
 
 func (d *DB) prCreationOwner(task *models.Task) string {
 	p, _ := d.GetProjectByID(task.ProjectID)
-	if p != nil && p.PRCreationStage == "specified" {
-		return "specify"
+	if p == nil {
+		return "implement"
 	}
-	return "implement"
+	return models.PRCreationOwner(p.PRCreationStage)
 }
 
 func (d *DB) adjustmentPrerequisite(task *models.Task, actorID string, ready bool) (trackerapi.PullRequest, error) {
@@ -138,9 +138,20 @@ func (d *DB) validateStagePR(task *models.Task, actorID, skillID, repoPath, bran
 }
 
 // stagePRRequired says whether a skill's stage needs pull request evidence.
+// An early creation owner (#61, #580) makes its own stage and every stage
+// skill after it require the pull request it opened.
 func (d *DB) stagePRRequired(task *models.Task, skillID string) bool {
 	skillID = models.NormalizeSkillID(skillID)
-	return skillID == "create_pr" || skillID == "adjust" || skillID == "pickup" || skillID == "implement" || (skillID == "specify" && d.prCreationOwner(task) == "specify")
+	switch skillID {
+	case "create_pr", "adjust", "pickup", "implement":
+		return true
+	case "specify":
+		owner := d.prCreationOwner(task)
+		return owner == "specify" || owner == "clarify"
+	case "clarify":
+		return d.prCreationOwner(task) == "clarify"
+	}
+	return false
 }
 
 // validateStagePRAt is validateStagePR once the repository the pull request

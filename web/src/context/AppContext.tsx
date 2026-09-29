@@ -28,7 +28,6 @@ import type {
   Skill,
   TaskActivity,
   ActivityStats,
-  CliStatus,
   TaskSource,
   Project,
   ProjectSavePayload,
@@ -79,6 +78,13 @@ interface AppContextType {
   projects: Project[]
   selectedProjectId: string | 'all'
   setSelectedProjectId: (id: string | 'all') => void
+  /** Projects opened in this browser, most recent first (#582). */
+  projectHistory: ProjectOpening[]
+  isProjectOverviewOpen: boolean
+  /** The overview's text filter when it opens, the picker's query for "more matches". */
+  projectOverviewQuery: string
+  openProjectOverview: (query?: string) => void
+  closeProjectOverview: () => void
   currentProject: Project | null
   createProject: (data: ProjectSavePayload) => Promise<Project | null>
   updateProject: (id: string, updates: ProjectSavePayload) => Promise<Project | null>
@@ -103,7 +109,6 @@ interface AppContextType {
   setEditingProject: (p: Project | null) => void
   tasks: Task[]
   skills: Skill[]
-  cliStatuses: CliStatus[]
 
   isFetchingGitStatus: boolean
 
@@ -136,6 +141,8 @@ interface AppContextType {
   setPriorityFilter: (priority: Priority | null) => void
   labelFilter: string | null
   taskFacets: {
+    /** The filterScopeKey the values were read for, null before the first read (#581). */
+    scope: string | null
     sprints: string[]
     teams: string[]
     macros: { key: string; title: string; count: number }[]
@@ -380,7 +387,6 @@ interface AppContextType {
   syncJira: (projectKey?: string) => Promise<void>
   syncCurrentProject: () => Promise<void>
   syncSingleTask: (taskId: string) => Promise<Task | null>
-  fetchCliStatus: () => Promise<void>
   refreshTasks: () => Promise<void>
   activities: TaskActivity[]
   activityStats: ActivityStats
@@ -450,6 +456,9 @@ import { normalizeUIScale } from '../lib/uiScale'
 import { toastDuration } from '../lib/toastTimer'
 import { applyDocumentLocale, format, isLocale, plural, rememberLocale, resolveInitialLocale } from '../lib/i18n'
 import { localizeActivityText } from '../lib/activityText'
+import { createLatestRequest } from '../lib/latestRequest'
+import { staleFilters } from '../lib/filterPruning'
+import { readProjectHistory, recordProjectOpening, writeProjectHistory, type ProjectOpening } from '../lib/projectHistory'
 
 // Le filtre « non assigné » a besoin d'une valeur : une chaîne vide voudrait dire
 // « aucun filtre ». La même sentinelle est reconnue côté serveur.
@@ -461,7 +470,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   const [tasks, setTasks] = useState<Task[]>([])
   const [skills, setSkills] = useState<Skill[]>([])
-  const [cliStatuses, setCliStatuses] = useState<CliStatus[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [isSkillRunning, setIsSkillRunning] = useState(false)
   const [isSyncing, setIsSyncing] = useState(false)
@@ -561,6 +569,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [priorityFilter, setPriorityFilterState] = useState<Priority | null>(null)
   const [labelFilter, setLabelFilterState] = useState<string | null>(null)
   const [taskFacets, setTaskFacets] = useState<{
+    scope: string | null
     sprints: string[]
     teams: string[]
     macros: { key: string; title: string; count: number }[]
@@ -574,6 +583,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     issueTypes: TaskFacetValue[]
     total: number
   }>({
+    scope: null,
     sprints: [],
     teams: [],
     macros: [],
@@ -712,10 +722,21 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       return 'all'
     }
   })
-  // Choosing a project, or "all projects", leaves the open view.
+  const [projectHistory, setProjectHistory] = useState<ProjectOpening[]>(readProjectHistory)
+  useEffect(() => writeProjectHistory(projectHistory), [projectHistory])
+  // Choosing a project, or "all projects", leaves the open view. Choosing a
+  // project is also an opening that "Recent" remembers; the startup restore and
+  // leaving a view set the state directly, so they are not openings (#582).
   const setSelectedProjectId = useCallback((id: string | 'all') => {
     setSelectedViewId(null)
     setSelectedProjectIdState(id)
+    if (id !== 'all') {
+      // From the stored history when there is one, so an opening does not
+      // erase those another tab recorded meanwhile; from memory otherwise.
+      const now = new Date()
+      const stored = readProjectHistory()
+      setProjectHistory(prev => recordProjectOpening(stored.length > 0 ? stored : prev, id, now))
+    }
     try {
       localStorage.setItem('sectile_selected_project_id', id)
     } catch {}
@@ -848,6 +869,13 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   }, [persistFilter])
 
   const [isProjectModalOpen, setIsProjectModalOpen] = useState(false)
+  const [isProjectOverviewOpen, setIsProjectOverviewOpen] = useState(false)
+  const [projectOverviewQuery, setProjectOverviewQuery] = useState('')
+  const openProjectOverview = useCallback((query = '') => {
+    setProjectOverviewQuery(query)
+    setIsProjectOverviewOpen(true)
+  }, [])
+  const closeProjectOverview = useCallback(() => setIsProjectOverviewOpen(false), [])
   const [isBoardViewModalOpen, setIsBoardViewModalOpen] = useState(false)
   const [editingBoardView, setEditingBoardView] = useState<BoardView | null>(null)
   const openBoardViewModal = useCallback((view: BoardView | null) => {
@@ -1107,18 +1135,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   }, [])
 
-  const fetchCliStatus = useCallback(async () => {
-    try {
-      const res = await fetch(`${API_BASE}/cli-status`)
-      if (res.ok) {
-        const data: CliStatus[] = await res.json()
-        setCliStatuses(data)
-      }
-    } catch (err) {
-      console.warn('Failed to load CLI statuses', err)
-    }
-  }, [])
-
   const fetchProjects = useCallback(async () => {
     const outcome = await readJson<Project[]>(`${API_BASE}/projects`)
     trackRead('projects', outcome)
@@ -1126,18 +1142,20 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     const projectList = outcome.data || []
     setProjects(projectList)
 
-    // Ensure a valid project is actively selected, preserving 'all' or active bookmarked project
+    // Ensure a valid project is actively selected, preserving 'all' or the
+    // selected project while it exists. A project opened from "Recent" or the
+    // overview need not be a favorite, and a refresh must not take it away (#582).
     setSelectedProjectIdState(prev => {
       if (prev === 'all') {
         return 'all'
       }
-      if (prev && projectList.some(p => (p.id === prev || p.slug === prev) && p.bookmarked)) {
+      if (prev && projectList.some(p => p.id === prev || p.slug === prev)) {
         return prev
       }
       try {
         const stored = localStorage.getItem('sectile_selected_project_id') || localStorage.getItem('taskacao_selected_project_id')
         if (stored === 'all') return 'all'
-        if (stored && projectList.some(p => (p.id === stored || p.slug === stored) && p.bookmarked)) {
+        if (stored && projectList.some(p => p.id === stored || p.slug === stored)) {
           return stored
         }
       } catch {}
@@ -1248,10 +1266,20 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     return () => controller.abort()
   }, [setSelectedProjectId])
 
+  // Every read of the task list goes through this counter, the activity poll's
+  // included: only an answer to the newest request may replace the board, and
+  // likewise for the facets (#581).
+  const tasksRequestRef = useRef(createLatestRequest())
+  const facetsRequestRef = useRef(createLatestRequest())
+
   const fetchTasks = useCallback(async () => {
+    const ticket = tasksRequestRef.current.begin()
     try {
       setIsLoading(true)
       const outcome = await readJson<Task[]>(`${API_BASE}/tasks?${buildTaskQuery()}`)
+      // An answer for filters, a project or a view no longer on screen is
+      // dropped whole: no board, no error, no fallback.
+      if (!tasksRequestRef.current.isLatest(ticket)) return
       // A view that is gone, or someone else's, answers 404: the board falls
       // back to what it would show without it, and says why. It is not a
       // degraded read, so it never reaches the banner.
@@ -1269,7 +1297,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       setTasks(outcome.data)
       setError(null)
     } finally {
-      setIsLoading(false)
+      if (tasksRequestRef.current.isLatest(ticket)) setIsLoading(false)
     }
   }, [buildTaskQuery, selectedViewId, leaveUnavailableView, addToast, trackRead, t])
 
@@ -1303,6 +1331,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   }, [filterScope])
 
   const fetchTaskFacets = useCallback(async () => {
+    const ticket = facetsRequestRef.current.begin()
+    // The scope travels with the values, so that a remembered filter is only
+    // ever checked against its own project's or view's board (#581).
+    const scope = filterScopeKey(selectedProjectId, selectedViewId)
     try {
       const params = new URLSearchParams()
       if (selectedViewId) {
@@ -1313,7 +1345,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       const res = await fetch(`${API_BASE}/tasks/facets?${params.toString()}`)
       if (!res.ok) return
       const data = await res.json()
+      if (!facetsRequestRef.current.isLatest(ticket)) return
       setTaskFacets({
+        scope,
         sprints: data?.sprints || [],
         teams: data?.teams || [],
         macros: data?.macros || [],
@@ -1349,19 +1383,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         })
       )
 
-      if (!newStatus) {
-        setSelectedProjectIdState(prev => {
-          const isCurrent =
-            prev === projectId ||
-            projects.some(p => (p.id === projectId || p.slug === projectId) && (p.id === prev || p.slug === prev))
-          if (isCurrent) {
-            const remaining = projects.find(p => p.id !== projectId && p.slug !== projectId && p.bookmarked)
-            return remaining ? remaining.id : 'all'
-          }
-          return prev
-        })
-      }
-
+      // Removing the current project from the favorites keeps it selected: the
+      // current project need not be a favorite, it moves to "Recent" (#582).
       try {
         const res = await fetch(`${API_BASE}/me/project-bookmarks/${projectId}/toggle`, {
           method: 'POST',
@@ -1389,7 +1412,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         return !newStatus
       }
     },
-    [projects, fetchTasks, fetchTaskFacets]
+    [fetchTasks, fetchTaskFacets]
   )
 
   const [userCredentials, setUserCredentials] = useState<StoredUserCredential[]>([])
@@ -1646,29 +1669,24 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   }, [selectedProjectId])
 
-  // Un filtre mémorisé peut ne plus exister : sprint clos, équipe renommée. Sans
-  // ce garde-fou, le tableau paraîtrait vide avec un sélecteur qui n'affiche
-  // rien de sélectionné.
+  // A remembered filter can outlive its value: a closed sprint, a renamed team.
+  // Kept, it would empty the board behind a selector showing nothing selected.
+  // A person's name matters most: it filters every view, the roadmap included,
+  // which has no filter bar to clear it from. The check runs only against the
+  // values of the filter's own scope: right after a switch the facets are still
+  // the previous project's, and checking against them dropped, and stored as
+  // dropped, what the new project had just restored (#581).
   useEffect(() => {
-    if (sprintFilter && taskFacets.sprints.length > 0 && !taskFacets.sprints.includes(sprintFilter)) {
-      setSprintFilter(null)
-    }
-    if (teamFilter && taskFacets.teams.length > 0 && !taskFacets.teams.includes(teamFilter)) {
-      setTeamFilter(null)
-    }
-    // Le filtre par personne était mémorisé sans être appliqué : une valeur
-    // héritée de cette époque amputerait maintenant toutes les vues, dont la
-    // roadmap qui n'affiche pas de barre de filtres. Un nom que le projet ne
-    // porte plus est donc abandonné plutôt que gardé en silence.
-    if (
-      assigneeFilter &&
-      assigneeFilter !== UNASSIGNED_FILTER_VALUE &&
-      taskFacets.assignees.length > 0 &&
-      !taskFacets.assignees.includes(assigneeFilter)
-    ) {
-      setAssigneeFilter(null)
-    }
-  }, [taskFacets, sprintFilter, teamFilter, assigneeFilter, setSprintFilter, setTeamFilter, setAssigneeFilter])
+    const stale = staleFilters(
+      { sprint: sprintFilter, team: teamFilter, assignee: assigneeFilter },
+      taskFacets,
+      filterScope,
+      UNASSIGNED_FILTER_VALUE,
+    )
+    if (stale.includes('sprint')) setSprintFilter(null)
+    if (stale.includes('team')) setTeamFilter(null)
+    if (stale.includes('assignee')) setAssigneeFilter(null)
+  }, [taskFacets, filterScope, sprintFilter, teamFilter, assigneeFilter, setSprintFilter, setTeamFilter, setAssigneeFilter])
 
   const fetchBoardViews = useCallback(async () => {
     const outcome = await readJson<BoardView[]>(`${API_BASE}/me/board-views`)
@@ -1757,10 +1775,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   useEffect(() => {
     fetchSettings()
     fetchSkills()
-    fetchCliStatus()
     fetchProjects()
     fetchBoardViews()
-  }, [fetchSettings, fetchSkills, fetchCliStatus, fetchProjects, fetchBoardViews])
+  }, [fetchSettings, fetchSkills, fetchProjects, fetchBoardViews])
 
   // Data reload on filter / project change
   useEffect(() => {
@@ -1877,16 +1894,19 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           })
 
           if (needTaskRefresh) {
-            // Même requête que le chargement normal : sans les paramètres, ce
-            // rafraîchissement remplaçait la liste par tout le board, tous
-            // projets et tous filtres confondus.
+            // The same query as the normal load: without its parameters, this
+            // refresh replaced the list with the whole board, every project and
+            // every filter mixed. It joins the newest read instead of starting
+            // one: a filter changed while it runs wins over it, and a load it
+            // overlaps still clears its own spinner (#581).
+            const ticket = tasksRequestRef.current.current()
             const taskRes = await fetch(`${API_BASE}/tasks?${buildTaskQuery()}`)
-            if (taskRes.ok) {
-              const freshTasks = await taskRes.json()
+            const freshTasks: Task[] | null = taskRes.ok ? await taskRes.json() : null
+            if (freshTasks && tasksRequestRef.current.isLatest(ticket)) {
               setTasks(freshTasks)
               setSelectedTask(curr => {
                 if (!curr) return null
-                return freshTasks.find((t: Task) => t.id === curr.id) || curr
+                return freshTasks.find(t => t.id === curr.id) || curr
               })
             }
           }
@@ -1935,7 +1955,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
             title: t.toasts.settingsSaved,
           })
         }
-        fetchCliStatus()
       }
     } catch (err) {
       addToast({
@@ -3878,6 +3897,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         projects,
         selectedProjectId,
         setSelectedProjectId,
+        projectHistory,
+        isProjectOverviewOpen,
+        projectOverviewQuery,
+        openProjectOverview,
+        closeProjectOverview,
         currentProject,
         createProject,
         updateProject,
@@ -3901,7 +3925,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         setEditingProject,
         tasks: filteredTasks,
         skills,
-        cliStatuses,
 
         isFetchingGitStatus,
 
@@ -4070,7 +4093,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         syncJira,
         syncCurrentProject,
         syncSingleTask,
-        fetchCliStatus,
         refreshTasks: fetchTasks,
         activities,
         activityStats,

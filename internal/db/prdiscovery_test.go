@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"tasks/internal/models"
+	"tasks/internal/testsqlite"
 	"tasks/internal/tracker"
 )
 
@@ -18,7 +19,7 @@ import (
 // discovery read itself is the injected hook, as the forge one is elsewhere.
 func discoveryTestDB(t *testing.T, stageLabel string) (*DB, *models.Project, *models.Task) {
 	t.Helper()
-	d, err := NewDB(filepath.Join(t.TempDir(), "test.db"))
+	d, err := testsqlite.New(t, filepath.Join(t.TempDir(), "test.db"), NewDB)
 	if err != nil {
 		t.Fatal(err)
 	}

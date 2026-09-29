@@ -4,6 +4,9 @@ import (
 	"maps"
 	"slices"
 	"strings"
+	"unicode"
+
+	"golang.org/x/text/unicode/norm"
 )
 
 // MyTasks is who "me" is for the My Tasks filter (#468): one identity per
@@ -22,14 +25,23 @@ type MyTasks struct {
 }
 
 // myTasksCondition is the SQL condition keeping the tickets assigned to me.
-// An assignee matches an identity when both are the same once trimmed and
-// folded to lower case; nothing else is folded. The folding is lowerASCII's on
-// both sides, so the two engines agree on what matches.
+// A tracker identity matches an assignee when both are the same once trimmed
+// and folded to lower case; nothing else is folded. The folding is
+// lowerASCII's on both sides, so the two engines agree on what matches: the
+// tracker wrote the identity itself.
+//
+// The account's name and e-mail were written by a person, not by the
+// tracker, and a Jira display name often drops the accents the account keeps:
+// "Sebastien FERRY" for "Sébastien FERRY". They match regardless of case and
+// accents. No engine folds accents the way the other does, so the folding is
+// done here, on the assignees the base holds, and the query compares the
+// ones kept exactly.
 //
 // A tracker with a known identity matches on it alone; every other source,
 // a NULL one included, matches on the fallback. With no identity at all the
-// condition keeps nothing: an empty board is the right answer.
-func (d *DB) myTasksCondition(mine MyTasks) (string, []interface{}) {
+// condition keeps nothing: an empty board is the right answer. The caller
+// holds d.mu.
+func (d *DB) myTasksCondition(mine MyTasks) (string, []interface{}, error) {
 	assignee := d.lowerASCII("TRIM(assignee)")
 	var parts []string
 	var args []interface{}
@@ -48,9 +60,12 @@ func (d *DB) myTasksCondition(mine MyTasks) (string, []interface{}) {
 		args = append(args, tracker, identities[tracker])
 	}
 
-	fallback := foldIdentities(mine.Fallback)
-	if len(fallback) > 0 {
-		cond := assignee + " IN (" + placeholders(len(fallback)) + ")"
+	assignees, err := d.assigneesMatchingUnsafe(mine.Fallback)
+	if err != nil {
+		return "", nil, err
+	}
+	if len(assignees) > 0 {
+		cond := "TRIM(assignee) IN (" + placeholders(len(assignees)) + ")"
 		var fallbackArgs []interface{}
 		if len(trackers) > 0 {
 			cond = "COALESCE(source, '') NOT IN (" + placeholders(len(trackers)) + ") AND " + cond
@@ -58,33 +73,66 @@ func (d *DB) myTasksCondition(mine MyTasks) (string, []interface{}) {
 				fallbackArgs = append(fallbackArgs, tracker)
 			}
 		}
-		for _, identity := range fallback {
-			fallbackArgs = append(fallbackArgs, identity)
+		for _, value := range assignees {
+			fallbackArgs = append(fallbackArgs, value)
 		}
 		parts = append(parts, "("+cond+")")
 		args = append(args, fallbackArgs...)
 	}
 
 	if len(parts) == 0 {
-		return "1 = 0", nil
+		return "1 = 0", nil, nil
 	}
-	return "(" + strings.Join(parts, " OR ") + ")", args
+	return "(" + strings.Join(parts, " OR ") + ")", args, nil
+}
+
+// assigneesMatchingUnsafe lists the trimmed assignees of the base that match
+// one of the names, regardless of case and accents, sorted so the same base
+// always makes the same query. The caller holds d.mu.
+func (d *DB) assigneesMatchingUnsafe(names []string) ([]string, error) {
+	wanted := map[string]bool{}
+	for _, name := range names {
+		if folded := looseIdentity(name); folded != "" {
+			wanted[folded] = true
+		}
+	}
+	if len(wanted) == 0 {
+		return nil, nil
+	}
+	rows, err := d.conn.Query("SELECT DISTINCT TRIM(assignee) FROM tasks WHERE TRIM(COALESCE(assignee, '')) <> ''")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var matching []string
+	for rows.Next() {
+		var value string
+		if err := rows.Scan(&value); err != nil {
+			return nil, err
+		}
+		if wanted[looseIdentity(value)] && !slices.Contains(matching, value) {
+			matching = append(matching, value)
+		}
+	}
+	slices.Sort(matching)
+	return matching, rows.Err()
+}
+
+// looseIdentity folds a name for the fallback comparison: trimmed, in lower
+// case, and without its accents, "Sébastien FERRY" reading "sebastien ferry".
+func looseIdentity(identity string) string {
+	var b strings.Builder
+	for _, r := range norm.NFD.String(strings.TrimSpace(identity)) {
+		if !unicode.Is(unicode.Mn, r) {
+			b.WriteRune(unicode.ToLower(r))
+		}
+	}
+	return b.String()
 }
 
 // foldIdentity is the Go half of the comparison myTasksCondition makes.
 func foldIdentity(identity string) string {
 	return asciiLower(strings.TrimSpace(identity))
-}
-
-// foldIdentities folds, deduplicates and drops the empty ones, keeping order.
-func foldIdentities(identities []string) []string {
-	out := make([]string, 0, len(identities))
-	for _, identity := range identities {
-		if folded := foldIdentity(identity); folded != "" && !slices.Contains(out, folded) {
-			out = append(out, folded)
-		}
-	}
-	return out
 }
 
 func placeholders(n int) string {

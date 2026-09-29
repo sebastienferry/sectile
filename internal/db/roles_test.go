@@ -9,11 +9,12 @@ import (
 	"time"
 
 	"tasks/internal/models"
+	"tasks/internal/testsqlite"
 )
 
 func openRolesDB(t *testing.T) *DB {
 	t.Helper()
-	database, err := NewDB(filepath.Join(t.TempDir(), "roles.db"))
+	database, err := testsqlite.New(t, filepath.Join(t.TempDir(), "roles.db"), NewDB)
 	if err != nil {
 		t.Fatalf("open database: %v", err)
 	}

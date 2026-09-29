@@ -183,6 +183,56 @@ func TestChooseSkillResolution(t *testing.T) {
 	}
 }
 
+// A workstation set up before implement-issue existed only has code-issue,
+// directly or in an older plugin: the stage still runs, under the former name,
+// and the current name wins as soon as it is installed (#608).
+func TestChooseSkillFallsBackToTheFormerName(t *testing.T) {
+	implement := agentconfig.Skill{ID: "implement", Directory: "implement-issue", Command: "/implement-issue"}
+	checkout := filepath.Join(string(filepath.Separator), "src", "app")
+	user := func(home string) []pluginInstall {
+		return []pluginInstall{{Scope: "user", InstallPath: filepath.Join(home, "plugin-cache", "user"), Version: "1.0.0"}}
+	}
+	cases := []struct {
+		name    string
+		setup   func(t *testing.T, home string)
+		kind    string
+		command string
+	}{
+		{name: "current direct copy", kind: skillKindDirect, command: "implement-issue",
+			setup: func(t *testing.T, home string) {
+				installDirect(t, home, ".claude/skills", "implement-issue")
+				installDirect(t, home, ".claude/skills", "code-issue")
+			}},
+		{name: "former direct copy only", kind: skillKindDirect, command: "code-issue",
+			setup: func(t *testing.T, home string) { installDirect(t, home, ".claude/skills", "code-issue") }},
+		{name: "former plugin only", kind: skillKindPlugin, command: "sectile:code-issue",
+			setup: func(t *testing.T, home string) { installPlugin(t, home, nil, user(home), "code-issue") }},
+		{name: "current plugin before the former direct copy", kind: skillKindPlugin, command: "sectile:implement-issue",
+			setup: func(t *testing.T, home string) {
+				installDirect(t, home, ".claude/skills", "code-issue")
+				installPlugin(t, home, nil, user(home), "implement-issue", "code-issue")
+			}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			home := testhome.Temp(t)
+			tc.setup(t, home)
+			choice, err := chooseSkill(agentconfig.Defaults{}, agentconfig.Config{AIProvider: "claude"}, implement, checkout)
+			if err != nil || choice.Kind != tc.kind || choice.Command != tc.command {
+				t.Fatalf("choice = %+v %v, want %s %q", choice, err, tc.kind, tc.command)
+			}
+		})
+	}
+	t.Run("nothing installed names the current skill", func(t *testing.T) {
+		testhome.Temp(t)
+		_, err := chooseSkill(agentconfig.Defaults{}, agentconfig.Config{AIProvider: "claude"}, implement, checkout)
+		var missing errSkillNotInstalled
+		if !errors.As(err, &missing) || missing.Directory != "implement-issue" {
+			t.Fatalf("expected implement-issue to be reported missing, got %v", err)
+		}
+	})
+}
+
 // A Claude file Sectile cannot parse is not a plugin: the dispatch goes on to
 // the other source, or fails as if nothing were installed.
 func TestMalformedInstalledPluginsReadsAsNotInstalled(t *testing.T) {

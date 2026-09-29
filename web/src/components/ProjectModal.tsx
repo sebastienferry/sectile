@@ -44,6 +44,7 @@ import type {
   SpecFrameworkInstallResult,
   SkillMode,
   OptionalViewMode,
+  PRCreationStage,
 } from '../types'
 import { ACCENT_COLORS, accentBadgeStyle, normalizeAccentColor, DEFAULT_PROJECT_ACCENT } from '../lib/accents'
 import { PROJECT_TRACKERS, needsCredentialsFor } from '../lib/trackers'
@@ -99,7 +100,7 @@ const AVAILABLE_ICONS = [
 const WORKFLOW_SKILLS: { id: WorkflowSkillId; defaultName: string; code: string; icon: React.ComponentType<{ size?: number; className?: string }>; color: string }[] = [
   { id: 'clarify', defaultName: 'Clarify', code: 'clarify-issue', icon: HelpCircle, color: 'amber' },
   { id: 'specify', defaultName: 'Specify', code: 'specify-issue', icon: FileCode, color: 'blue' },
-  { id: 'implement', defaultName: 'Implement', code: 'code-issue', icon: Flame, color: 'indigo' },
+  { id: 'implement', defaultName: 'Implement', code: 'implement-issue', icon: Flame, color: 'indigo' },
   { id: 'adjust', defaultName: 'Adjust', code: 'adjust-issue', icon: ShieldCheck, color: 'purple' },
   { id: 'handoff', defaultName: 'Handoff', code: 'handoff-issue', icon: Sparkles, color: 'emerald' },
 ]
@@ -157,7 +158,7 @@ export const ProjectModal: React.FC = () => {
   const [isDefault, setIsDefault] = useState(false)
 
   // Section 2: Git (remote URL, declared repositories)
-  const [prCreationStage, setPRCreationStage] = useState<'specified' | 'implemented'>('implemented')
+  const [prCreationStage, setPRCreationStage] = useState<PRCreationStage>('implemented')
   const [defaultSkillMode, setDefaultSkillMode] = useState<SkillMode>('')
   const [pushStageCommits, setPushStageCommits] = useState(false)
   const [fullChainStopStage, setFullChainStopStage] = useState<'implemented' | 'reviewed'>('reviewed')
@@ -876,11 +877,12 @@ export const ProjectModal: React.FC = () => {
                 <select
                   id="prCreationStage"
                   value={prCreationStage}
-                  onChange={e => setPRCreationStage(e.target.value as 'specified' | 'implemented')}
+                  onChange={e => setPRCreationStage(e.target.value as PRCreationStage)}
                   className="w-full px-3 py-1.5 text-xs rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)]"
                 >
-                  <option value="implemented">{ps.workflow.draftAfterImplementation}</option>
+                  <option value="clarified">{ps.workflow.draftAfterClarification}</option>
                   <option value="specified">{ps.workflow.draftAfterSpecification}</option>
+                  <option value="implemented">{ps.workflow.draftAfterImplementation}</option>
                 </select>
               </div>
 

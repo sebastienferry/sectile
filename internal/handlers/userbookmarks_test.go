@@ -10,11 +10,12 @@ import (
 
 	"tasks/internal/db"
 	"tasks/internal/models"
+	"tasks/internal/testsqlite"
 )
 
 func bookmarksTestHandler(t *testing.T) (*Handler, *db.DB, *http.Cookie, *http.Cookie) {
 	t.Helper()
-	database, err := db.NewDB(filepath.Join(t.TempDir(), "test.db"))
+	database, err := testsqlite.New(t, filepath.Join(t.TempDir(), "test.db"), db.NewDB)
 	if err != nil {
 		t.Fatal(err)
 	}

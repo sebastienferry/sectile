@@ -6,13 +6,14 @@ import (
 
 	"tasks/internal/db"
 	"tasks/internal/models"
+	"tasks/internal/testsqlite"
 )
 
 // A batch agent reports each ticket it starts on with start_run and the batch
 // runId (#522): the batch run comes back, the ticket takes the processing mark,
 // and finish_run on the lead ends the batch for every ticket.
 func TestABatchRunIsReportedOnEachMemberOverMCP(t *testing.T) {
-	database, err := db.NewDB(filepath.Join(t.TempDir(), "test.db"))
+	database, err := testsqlite.New(t, filepath.Join(t.TempDir(), "test.db"), db.NewDB)
 	if err != nil {
 		t.Fatal(err)
 	}

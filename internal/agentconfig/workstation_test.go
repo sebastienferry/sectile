@@ -174,8 +174,28 @@ func TestExecutionLimitInheritance(t *testing.T) {
 	if ExecutionLimit("a", false, s) != 1 {
 		t.Fatal("a shared checkout must be serialized")
 	}
-	if ExecutionLimit("b", true, Settings{}) != 1 {
-		t.Fatal("without any setting a project runs one execution at a time")
+	if got := ExecutionLimit("b", true, Settings{}); got != DefaultParallelism {
+		t.Fatalf("without any setting: got %d, want %d", got, DefaultParallelism)
+	}
+	if ExecutionLimit("b", false, Settings{}) != 1 {
+		t.Fatal("the default never lifts the serialization of a shared checkout")
+	}
+	// An explicit 1 is a choice, not an unset value: it survives the default.
+	one := Settings{
+		Defaults:        Defaults{Execution: Execution{Parallelism: 1}},
+		ProjectSettings: map[string]ProjectSettings{"own": {Execution: Execution{Parallelism: 1}}},
+	}
+	if ExecutionLimit("b", true, one) != 1 {
+		t.Fatal("defaults set to 1 must keep one execution at a time")
+	}
+	project := Settings{ProjectSettings: one.ProjectSettings}
+	if ExecutionLimit("own", true, project) != 1 {
+		t.Fatal("a project set to 1 must keep one execution at a time")
+	}
+	// The out-of-range -1 written for an explicit zero stays at the floor.
+	zero := Settings{ProjectSettings: map[string]ProjectSettings{"z": {Execution: Execution{Parallelism: -1}}}}
+	if ExecutionLimit("z", true, zero) != 1 {
+		t.Fatal("a stored explicit zero must not fall back to the default")
 	}
 }
 

@@ -12,6 +12,7 @@ import (
 
 	"tasks/internal/db"
 	"tasks/internal/models"
+	"tasks/internal/testsqlite"
 )
 
 func setupTestHandler(t *testing.T) (*Handler, *db.DB, func()) {
@@ -21,7 +22,7 @@ func setupTestHandler(t *testing.T) (*Handler, *db.DB, func()) {
 	}
 
 	dbPath := filepath.Join(tmpDir, "test.db")
-	database, err := db.NewDB(dbPath)
+	database, err := testsqlite.New(t, dbPath, db.NewDB)
 	if err != nil {
 		os.RemoveAll(tmpDir)
 		t.Fatalf("failed to create test db: %v", err)

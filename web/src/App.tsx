@@ -21,6 +21,7 @@ import { CommandPalette } from './components/CommandPalette'
 import { ProfileModal } from './components/ProfileModal'
 import { AdminView } from './components/AdminView'
 import { ProjectModal } from './components/ProjectModal'
+import { ProjectOverviewModal } from './components/ProjectOverviewModal'
 import { BoardViewModal } from './components/BoardViewModal'
 import { StatusBar } from './components/StatusBar'
 import { ToastContainer } from './components/ToastContainer'
@@ -132,6 +133,7 @@ const MainContent: React.FC = () => {
       <CloneTaskModal />
       <TaskDetailModal />
       <ProjectModal />
+      <ProjectOverviewModal />
       <BoardViewModal />
 
 

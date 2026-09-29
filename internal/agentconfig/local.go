@@ -331,6 +331,21 @@ func scaffold(checkout string, config Config, preserveOtherProviders bool) ([]st
 				files[filepath.Join(loc.SkillDir, "create-pr/SKILL.md")] = forward
 			}
 		}
+		// code-issue is the implementation skill's former name (#608): it stays
+		// installed as an alias, so a /code-issue typed by hand or kept in a
+		// workstation's command setting still runs the implementation stage.
+		if loc.InstallsSkills() {
+			for _, skill := range config.Skills {
+				if skill.ID != "implement" || skill.Directory != "implement-issue" {
+					continue
+				}
+				forward := "---\nname: code-issue\ndescription: Former name of implement-issue, kept as an alias.\n---\nInvoke implement-issue with the same arguments. If the running agent cannot invoke skills, read the sibling `../implement-issue/SKILL.md` and follow it as written.\n"
+				if loc.SubstitutesArguments {
+					forward += "\n$ARGUMENTS\n"
+				}
+				files[filepath.Join(loc.SkillDir, "code-issue/SKILL.md")] = forward
+			}
+		}
 	}
 	work, err := os.OpenRoot(checkout)
 	if err != nil {
@@ -518,9 +533,14 @@ func refresh(fs, work *os.Root, files, manifest map[string]string, backups *[]st
 // supplies it, so every surface that accepts or clamps a value reads this.
 const MaxParallelism = 10
 
+// DefaultParallelism is the limit of a project that uses worktrees when neither
+// its section nor the workstation defaults set one. An explicit value, 1
+// included, always wins over it.
+const DefaultParallelism = 5
+
 // ExecutionLimit is workstation-owned and serializes shared checkout execution.
 // The project section speaks over the workstation defaults; without either a
-// project runs a single execution at a time.
+// project runs DefaultParallelism executions at a time.
 func ExecutionLimit(projectID string, useWorktrees bool, settings Settings) int {
 	if !useWorktrees {
 		return 1
@@ -528,6 +548,9 @@ func ExecutionLimit(projectID string, useWorktrees bool, settings Settings) int 
 	n := settings.ProjectSettings[projectID].Parallelism
 	if n == 0 {
 		n = settings.Defaults.Parallelism
+	}
+	if n == 0 {
+		n = DefaultParallelism
 	}
 	if n < 1 {
 		return 1

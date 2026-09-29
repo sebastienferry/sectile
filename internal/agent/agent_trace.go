@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"time"
 
 	"tasks/internal/runner"
 
@@ -28,8 +29,8 @@ import (
 const traceRetained = 2000
 
 // traceBacklog is how far a watcher may fall behind before it is dropped. It is
-// generous — a desktop writing to xterm drains far faster than an engine
-// produces — and bounded, because the alternative is blocking the supervisor.
+// generous (a desktop writing to xterm drains far faster than an engine
+// produces) and bounded, because the alternative is blocking the supervisor.
 const traceBacklog = 256
 
 // runTrace holds what a run has shown and feeds the watchers attached to it.
@@ -38,6 +39,9 @@ type runTrace struct {
 	lines   []string
 	clients map[chan string]struct{}
 	closed  bool
+	// version changes on every line, so the run store can tell whether the
+	// trace moved since its last write.
+	version uint64
 }
 
 func newRunTrace() *runTrace {
@@ -66,6 +70,7 @@ func (t *runTrace) write(line string) {
 		return
 	}
 	t.lines = append(t.lines, line)
+	t.version++
 	if len(t.lines) > traceRetained {
 		t.lines = append([]string(nil), t.lines[len(t.lines)-traceRetained:]...)
 	}
@@ -95,6 +100,16 @@ func (t *runTrace) attach() ([]string, chan string) {
 	}
 	t.clients[client] = struct{}{}
 	return replay, client
+}
+
+// snapshot copies the lines shown so far, with the version they are at.
+func (t *runTrace) snapshot() ([]string, uint64) {
+	if t == nil {
+		return nil, 0
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return append([]string(nil), t.lines...), t.version
 }
 
 // detach drops one watcher, whether it left or was dropped for falling behind.
@@ -220,6 +235,7 @@ func serveRunTrace(w http.ResponseWriter, r *http.Request, trace *runTrace) {
 			if !open {
 				// The run ended, or this watcher fell too far behind to be
 				// worth catching up. Either way there is nothing more to send.
+				endTrace(conn, gone)
 				return
 			}
 			if err := conn.WriteMessage(websocket.BinaryMessage, []byte(line)); err != nil {
@@ -228,5 +244,25 @@ func serveRunTrace(w http.ResponseWriter, r *http.Request, trace *runTrace) {
 		case <-gone:
 			return
 		}
+	}
+}
+
+// traceCloseWait bounds how long a finished trace waits for its watcher to
+// answer the close frame before dropping the connection anyway.
+const traceCloseWait = time.Second
+
+// endTrace closes the connection with a handshake rather than a bare close.
+// Closing a socket that still holds an unread frame, such as input typed at a
+// run nobody is answering, makes the kernel send a reset instead of a FIN, and
+// the reset can reach the watcher before the last lines it was sent. Waiting
+// for the watcher's close reply lets the reader drain that frame first.
+func endTrace(conn *websocket.Conn, gone <-chan struct{}) {
+	message := websocket.FormatCloseMessage(websocket.CloseNormalClosure, "")
+	if err := conn.WriteControl(websocket.CloseMessage, message, time.Now().Add(traceCloseWait)); err != nil {
+		return
+	}
+	select {
+	case <-gone:
+	case <-time.After(traceCloseWait):
 	}
 }

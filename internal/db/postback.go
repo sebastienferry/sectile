@@ -38,7 +38,7 @@ func (d *DB) notifyPostBackListeners(task *models.Task, activity *models.TaskAct
 func (d *DB) PostBackTask(payload models.TaskPostBackPayload) (*models.Task, *models.TaskActivity, error) {
 	if payload.Stage != nil {
 		stage := strings.TrimPrefix(strings.TrimSpace(*payload.Stage), "#")
-		skill := map[string]string{"specified": "specify", "implemented": "implement", "reviewed": "adjust"}[stage]
+		skill := map[string]string{"clarified": "clarify", "specified": "specify", "implemented": "implement", "reviewed": "adjust"}[stage]
 		if skill != "" {
 			id := strings.TrimSpace(payload.TaskID)
 			if id == "" {

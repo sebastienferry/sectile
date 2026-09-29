@@ -4,6 +4,14 @@ import type { RefObject } from 'react'
 type Target = RefObject<HTMLElement | null>
 
 /**
+ * Marks a panel rendered through a portal on behalf of a field that may itself
+ * sit inside another menu, such as a lookup inside the board's filter panel.
+ * The panel is outside that menu in the DOM, so a press on one of its options
+ * would otherwise close the menu that holds the field.
+ */
+export const PORTALED_PANEL_ATTRIBUTE = 'data-portaled-panel'
+
+/**
  * Closes an anchored menu when the press lands outside it.
  *
  * Unlike a modal dialog, a menu has no backdrop to click on: it floats over
@@ -26,6 +34,7 @@ export function useClickOutside(targets: Target | Target[], onOutside: () => voi
     const onDocClick = (e: MouseEvent) => {
       const target = e.target as Node
       if (refs.some(ref => ref.current?.contains(target))) return
+      if (target instanceof Element && target.closest(`[${PORTALED_PANEL_ATTRIBUTE}]`)) return
       onOutside()
     }
     document.addEventListener('mousedown', onDocClick)

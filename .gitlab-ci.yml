@@ -131,6 +131,8 @@ test:go:
   stage: test
   extends: [.go-test, .go-cache]
   needs: []
+  # Leave time for compilation and report upload beyond the package timeout.
+  timeout: 90m
   # Blocking, like every other test job. It was allow_failure while main
   # carried six failures. Four were about this runner and reproduced on no
   # workstation: the suite runs as root, where a directory chmodded 0500 is
@@ -143,12 +145,13 @@ test:go:
   variables:
     # The race detector needs cgo; the build jobs keep CGO_ENABLED=0.
     CGO_ENABLED: "1"
-  # -timeout is per package binary. Under -race with coverage, internal/db takes
-  # about 490s of go test's default 600s on a healthy runner, and a slower K8S
-  # pod pushed it past the limit (job 16736343583) with no test hung.
+  # -timeout is per package binary, not per test. Job 16775660955 exhausted
+  # 30m in internal/db while tests were still passing; the interrupted test
+  # had spent only 4s initializing SQLite. Allow for slower K8S runner storage
+  # under -race with coverage without disabling the timeout or either check.
   script:
     - go install gotest.tools/gotestsum@v1.13.0
-    - $GOPATH/bin/gotestsum --junitfile ${TEST_RESULT_PATH_XML} --jsonfile ${TEST_RESULT_PATH} --format testname -- -race -timeout 30m -covermode=atomic -coverprofile="${COVERAGE_RESULT_PATH}" ${GOLANG_TEST_PATH}
+    - $GOPATH/bin/gotestsum --junitfile ${TEST_RESULT_PATH_XML} --jsonfile ${TEST_RESULT_PATH} --format testname -- -race -timeout 60m -covermode=atomic -coverprofile="${COVERAGE_RESULT_PATH}" ${GOLANG_TEST_PATH}
 
 test:postgres:
   stage: test

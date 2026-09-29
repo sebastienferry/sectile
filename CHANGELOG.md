@@ -20,13 +20,27 @@ test fixtures or internal plumbing.
 - When a project's custom skill ran, the desktop's settings button shows a warning dot and Execution defaults lists which skills ran; the run's activity says so too. (#267)
 - A user guide walks through Sectile sign-in, Jira access, project and workstation setup, Claude Code prompts, autonomous runs, and Desktop use. (#567)
 - Projects can optionally push clarification and specification commits after each stage commit; the setting is off by default. (#459)
+- Projects can open the draft pull request as soon as a clarification is confirmed: choose "Draft after clarification" as the PR creation stage in the project options. Update Sectile Desktop on every workstation first; older versions refuse the setting. (#580)
+- **Desktop consoles survive an agent restart.** After restarting or updating the local agent, the sidebar lists the same executions (skill runs, autonomous runs, macro runs, discussions and free consoles), and each one replays, read-only, what its console showed. A run that was still going when the agent stopped comes back canceled. The 100 most recently finished runs are kept, privately, in `~/.taskflow/runs/`, until **Clear finished consoles**. (#588)
+- **Session titles show where a skill run stands.** The workflow skills prefix the agent session title with a status emoji: ❓ waiting for you, ✅ done, ❌ blocked. Among idle sessions, the sidebar tells which ones need you and how each run ended.
+- **Agent sessions link to their ticket and pull request.** A workflow skill writes a link to the ticket at the start of the conversation, and one to the pull request or merge request once it exists; in the Claude desktop app, a GitHub pull request is also bound to the session's PR bar.
+- **Claude desktop sessions follow work like Sectile Desktop.** A workflow skill files its session under a sidebar group named after the project, marks a chapter per stage, opens the diff pane once it changed code, ends with the command of the next step, and sends a notification when it waits for you, succeeds or is blocked.
+- The status emoji follows the state the skill reports to Sectile, so the session title and Sectile Desktop always agree. A run launched from Sectile Desktop writes no ticket or pull request links, no next step and no notification of its own: Desktop already shows them.
+- Every workflow skill ends its replies with the same **Done / Remaining (Agent) / Pending (User)** block, so you always know what happened, what the agent still has to do and what waits for you.
 
 - Open desktop Configuration with Cmd+, on macOS or Ctrl+, on Windows/Linux, including from a terminal; an already-open settings page keeps its current category and unsaved edits. (#547)
 
 ### Changed
 
+- **The implementation skill is now `implement-issue`**, like the other stages (`/implement-issue`, `/sectile:implement-issue` in the plugin). `code-issue` stays as an alias that runs it with the same arguments, and a workstation that has only `code-issue` installed keeps running the implementation stage until its next **Initialize** or plugin update. (#608)
+- **Five parallel executions by default.** A project that uses worktrees now runs up to five executions at a time when neither its settings nor the workstation's Execution defaults set a number, on the desktop app and on a headless agent alike; this applies to existing workstations that never changed the setting. A number you set, 1 included, is kept: set 1 under Parallel executions to go back to one execution at a time. (#594)
+- **The web interface loads faster.** The server now sends its pages, scripts, styles and API answers gzip-compressed to the browsers that accept it: the interface's script goes down from about 1.3 MB to about 330 KB on a first visit and after each update. Live board updates are unchanged. (#601)
+- Large boards display cards progressively as each column scrolls, while keeping complete column counts and batch selections. Engine reports are loaded once per project for the board.
+
 - **The agent no longer writes skills or MCP registrations on its own.** A task or macro dispatch, an agent start or reconnection and a skills-editor save leave `~/.claude`, `~/.claude.json`, `~/.agents`, `~/.codex` and `~/.gemini` untouched. A dispatch runs the skill it finds installed, or fails with a message saying how to install one; a project's edited skill is handed to its run in a private file, so two projects no longer overwrite each other's skills. Saved desktop MCP connections are rewritten at start only when the server address, key or executable changed. (#267)
 - A skill command name may carry a plugin namespace, such as `sectile:clarify-issue`. (#267)
+- **The web project picker shows recent projects and reaches every project.** With an empty search it lists the three projects last opened in this browser and your favorites. Search now also matches descriptions, repositories and trackers, ignoring accents, and the menu can be driven with the arrow keys, Enter and Esc. A new "Browse projects…" entry opens an overview of every project, filterable by text and tracker, where favorites can be toggled. (#582)
+
 - **Adjustment no longer forces corrections on a custom skill.** Sectile still makes every adjustment verify the existing pull request, never create one or push onto a merged one, collect review feedback and never merge; reviewing, fixing, running checks and pushing are now left to the adjustment skill. The bundled skill keeps doing all of it, and a custom skill that forbids corrections is obeyed. (#561)
 
 - Each clarification round now publishes its full report section on the ticket, retaining Markdown history and avoiding duplicate final-round comments. (#459)
@@ -46,6 +60,13 @@ test fixtures or internal plumbing.
 
 ### Fixed
 
+- The web interface no longer logs a `409 Conflict` on `/api/cli-status` at every load. On a shared server, `GET /api/cli-status` and `POST /api/open-editor` now reach the signed-in person's workstation instead of answering that no local agent is connected.
+- The board and list toolbars fit on one line again: Pinned, In progress and priority stay in the toolbar, and status, types, macro, sprint, team and person move into a **Filters** panel whose button shows how many of them are active.
+- **My Tasks** no longer shows an empty board when a tracker writes your name without its accents, as Jira often does ("Sebastien FERRY" for "Sébastien Ferry"): your account's name and e-mail now match regardless of case and accents.
+- Large boards share pending engine lookups across task cards, preventing duplicate requests from exhausting browser resources.
+
+- When `prepare_repository_worktree` cannot prepare a repository, the refusal now says why: it names the workstation that answered and each folder attached to the project with what it is (gone, not a Git checkout, without origin, another origin, or the Git error that kept it from being read), and only advises attaching the folder when that is what is missing. A `transition_stage` refused over a pull request of an unprepared repository says to call `prepare_repository_worktree` first. (#589)
+- The board again shows only the tickets its Sprint, Team and Assignee filters select, and each project or saved view keeps its remembered filters when you switch to it, even after a reload. (#581)
 - Agent reconnection now retries promptly after a dropped session, and a launch waits briefly for a reconnecting agent. Abnormal WebSocket losses no longer claim the server deliberately closed the connection. (#568)
 - Newly generated Sectile tracker reports use English headings for clarification, specification, implementation, review, and closure. (#549)
 - Desktop Tickets Pickup (full chain) now runs autonomously even when the project or pickup skill defaults to interactive execution. (#565)

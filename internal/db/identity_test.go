@@ -4,11 +4,13 @@ import (
 	"errors"
 	"path/filepath"
 	"testing"
+
+	"tasks/internal/testsqlite"
 )
 
 func identityDB(t *testing.T) *DB {
 	t.Helper()
-	database, err := NewDB(filepath.Join(t.TempDir(), "identity.db"))
+	database, err := testsqlite.New(t, filepath.Join(t.TempDir(), "identity.db"), NewDB)
 	if err != nil {
 		t.Fatalf("open database: %v", err)
 	}

@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"tasks/internal/models"
 	"tasks/internal/skills"
 )
 
@@ -93,8 +94,8 @@ func TestRenderPluginShipsOneSkillPerCatalogueEntry(t *testing.T) {
 			found = append(found, name)
 		}
 	}
-	if len(found) != len(skills.StageSkills) {
-		t.Fatalf("%d skill files for %d catalogue entries: %v", len(found), len(skills.StageSkills), found)
+	if want := len(skills.StageSkills) + len(models.LegacySkillDirs); len(found) != want {
+		t.Fatalf("%d skill files for %d catalogue entries and aliases: %v", len(found), want, found)
 	}
 	for _, s := range skills.StageSkills {
 		content, ok := files["skills/"+s.DirName+"/SKILL.md"]
@@ -103,6 +104,30 @@ func TestRenderPluginShipsOneSkillPerCatalogueEntry(t *testing.T) {
 		}
 		if !strings.HasPrefix(string(content), "---\nname: "+s.DirName+"\n") {
 			t.Fatalf("%s: frontmatter name is not the directory:\n%s", s.DirName, firstLines(string(content), 3))
+		}
+	}
+}
+
+// A former skill name ships as an alias that hands its arguments to the skill
+// that replaced it (#608), so /sectile:code-issue keeps running the stage.
+func TestRenderPluginShipsFormerNamesAsAliases(t *testing.T) {
+	files, err := skills.RenderPlugin(pluginTestVersion)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for target, legacy := range models.LegacySkillDirs {
+		content, ok := files["skills/"+legacy+"/SKILL.md"]
+		if !ok {
+			t.Fatalf("no alias SKILL.md for %s", legacy)
+		}
+		for _, required := range []string{
+			"---\nname: " + legacy + "\n",
+			"Invoke `" + skills.PluginName + ":" + target + "` with the same arguments",
+			"`../" + target + "/SKILL.md`",
+		} {
+			if !strings.Contains(string(content), required) {
+				t.Fatalf("%s alias is missing %q:\n%s", legacy, required, content)
+			}
 		}
 	}
 }
@@ -332,7 +357,7 @@ func TestGenericSkillsCarryAGenericPullRequestPolicy(t *testing.T) {
 		if strings.Contains(generic, "PR creation stage: ") {
 			t.Fatalf("%s: the generic policy names a project's creation stage", s.ID)
 		}
-		for _, timing := range []string{"specified", "implemented"} {
+		for _, timing := range []string{"clarified", "specified", "implemented"} {
 			policy := skills.ProjectPullRequestPolicy(timing)
 			wording := policy[strings.Index(policy, "before executing. ")+len("before executing. "):]
 			if !strings.Contains(generic, wording) {
@@ -355,6 +380,9 @@ func TestPluginGoldenListsEverySkill(t *testing.T) {
 	var want []string
 	for _, s := range skills.StageSkills {
 		want = append(want, s.DirName)
+	}
+	for _, legacy := range models.LegacySkillDirs {
+		want = append(want, legacy)
 	}
 	sort.Strings(want)
 	if strings.Join(dirs, ",") != strings.Join(want, ",") {

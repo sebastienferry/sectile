@@ -221,6 +221,9 @@ export interface BoardViewPayload {
   labels?: string[]
 }
 
+/** Workflow stage at which a project opens the draft pull request of its tasks. */
+export type PRCreationStage = 'clarified' | 'specified' | 'implemented'
+
 export interface Project {
   id: string
   name: string
@@ -231,7 +234,7 @@ export interface Project {
   /** Other Jira project keys whose story keys the slicing attaches. Read, never written. */
   roadmapProjects?: string[]
   /** Stage at which the workflow opens the pull request. */
-  prCreationStage?: 'specified' | 'implemented'
+  prCreationStage?: PRCreationStage
   /**
    * Whether the tasks' clarification and specification files are committed
    * with the code ("keep", the default) or left in the task worktree and
@@ -763,14 +766,6 @@ export interface AutoSyncState {
   passes: number
   imported: number
   backoffUntil?: string
-}
-
-export interface CliStatus {
-  tool: string
-  available: boolean
-  path: string
-  authStatus: string
-  details: string
 }
 
 // A link a toast offers to the thing it announces: opened in the app, and on
