@@ -475,7 +475,6 @@ export interface Task {
   parentKey?: string
   parentTitle?: string
   parentType?: string
-  activities?: TaskActivity[]
   /** The ticket's place in a running batch (#522); absent when it is in none. */
   batch?: TaskBatch
   createdAt: string
