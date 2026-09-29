@@ -35,6 +35,9 @@ import {
   Tag,
   RefreshCw,
   Rows3,
+  Copy,
+  PanelRightClose,
+  PanelRightOpen,
 } from 'lucide-react'
 import type { RefineMacroResult } from '../types'
 import { useApp } from '../context/AppContext'
@@ -67,6 +70,7 @@ import {
   type HorizonTab,
   tasksBySprintOrder,
   sprintLabelOf,
+  macroCopyPayload,
 } from '../lib/roadmap'
 import {
   CONDENSED_HORIZONS,
@@ -77,6 +81,18 @@ import {
   toggleRoadmapRowDisplayMode,
   type RoadmapRowDisplayMode,
 } from '../lib/roadmapDisplayMode'
+import {
+  ROADMAP_DESCRIPTION_OPEN_STORAGE_KEY,
+  ROADMAP_FRAMING_OPEN_STORAGE_KEY,
+  ROADMAP_PANEL_EXPANDED_STORAGE_KEY,
+  ROADMAP_PANEL_HIDDEN_STORAGE_KEY,
+  loadRoadmapFlag,
+  loadRoadmapSelectedKey,
+  loadRoadmapTab,
+  saveRoadmapFlag,
+  saveRoadmapSelectedKey,
+  saveRoadmapTab,
+} from '../lib/roadmapViewPrefs'
 import {
   EPIC_PRIORITIES,
   EPIC_PRIORITY_LEVEL,
@@ -121,6 +137,25 @@ const TABS: { id: HorizonTab; label?: string; icon: React.ReactNode }[] = [
   { id: 'unclassified', icon: <HelpCircle size={14} /> },
   { id: 'hidden', icon: <EyeOff size={14} /> },
 ]
+
+/**
+ * An on or off state of the view, kept across visits (see roadmapViewPrefs).
+ * The setter takes a value or an updater, like the one of useState.
+ */
+function usePersistedFlag(key: string, fallback: boolean) {
+  const [value, setValue] = useState(() => loadRoadmapFlag(key, fallback))
+  const set = useCallback(
+    (next: boolean | ((prev: boolean) => boolean)) => {
+      setValue(prev => {
+        const resolved = typeof next === 'function' ? next(prev) : next
+        saveRoadmapFlag(key, resolved)
+        return resolved
+      })
+    },
+    [key]
+  )
+  return [value, set] as const
+}
 
 export const RoadmapView: React.FC = () => {
   const {
@@ -169,10 +204,37 @@ export const RoadmapView: React.FC = () => {
   // Les macros sont celles du projet affiché : c'est son réglage qui compte.
   const epicColorsOn = useEpicColors()()
 
-  const [tab, setTab] = useState<HorizonTab>('now')
+  // The tab and the selected macro survive a change of view (see
+  // roadmapViewPrefs). The tab is saved by its setter, whoever calls it: a
+  // click, the search going where it finds, the creation of a macro. Keeping
+  // only the click would make the memory unpredictable.
+  const [tab, setTabState] = useState<HorizonTab>(() => loadRoadmapTab())
+  const setTab = useCallback((next: HorizonTab) => {
+    setTabState(next)
+    saveRoadmapTab(next)
+  }, [])
   const [displayMode, setDisplayMode] = useState<'framing' | 'execution' | 'phases' | 'goals'>('execution')
   const [macroMeta, setMacroMeta] = useState<MacroMeta[]>([])
-  const [selectedKey, setSelectedKey] = useState<string | null>(null)
+  // The selected macro is kept per project. The choice is held with its
+  // project, and switching project swaps in the other project's memory during
+  // the render, once, instead of from an effect. Only a choice writes it: the
+  // fallback on the first visible macro does not, so a remembered macro that is
+  // filtered out for a while is selected again once it shows.
+  const projectId = currentProject?.id || ''
+  const [selection, setSelection] = useState(() => ({ projectId, key: loadRoadmapSelectedKey(projectId) }))
+  let currentSelection = selection
+  if (selection.projectId !== projectId) {
+    currentSelection = { projectId, key: loadRoadmapSelectedKey(projectId) }
+    setSelection(currentSelection)
+  }
+  const selectedKey = currentSelection.key
+  const setSelectedKey = useCallback(
+    (key: string | null) => {
+      setSelection({ projectId, key })
+      saveRoadmapSelectedKey(projectId, key)
+    },
+    [projectId]
+  )
   const [onlyIssues, setOnlyIssues] = useState(false)
   const [showClosed, setShowClosed] = useState(false)
   // The epic priority filter and sort (#627). Not remembered: the view opens in
@@ -253,6 +315,34 @@ export const RoadmapView: React.FC = () => {
   const refinePreviewBackdrop = useBackdropDismiss(closeRefinePreview)
   useEscapeKey(refinePreview !== null, closeRefinePreview)
 
+  // Copy the macro's own link, or its reference when the tracker gives no
+  // page. Writing to the clipboard needs a secure context and the API can be
+  // missing behind a plain-HTTP proxy: the failure is said, with the text to
+  // copy by hand, rather than letting one believe the copy happened.
+  const [copiedLink, setCopiedLink] = useState(false)
+  const copyMacroLink = async (row: MacroRow) => {
+    const payload = macroCopyPayload(row)
+    try {
+      if (!navigator.clipboard) throw new Error(strings.panel.clipboardUnavailable)
+      await navigator.clipboard.writeText(payload.text)
+      setCopiedLink(true)
+      window.setTimeout(() => setCopiedLink(false), 1800)
+      addToast({
+        type: 'success',
+        title: payload.kind === 'link' ? strings.panel.linkCopied : strings.panel.refCopied,
+        description: payload.text,
+      })
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err)
+      addToast({
+        type: 'error',
+        title: strings.panel.copyFailed,
+        description: `${reason} ${format(strings.panel.copyByHand, { text: payload.text })}`,
+        duration: 9000,
+      })
+    }
+  }
+
   const [isEditingTitle, setIsEditingTitle] = useState(false)
   const [editingTitleValue, setEditingTitleValue] = useState('')
 
@@ -261,10 +351,34 @@ export const RoadmapView: React.FC = () => {
     setEditingTitleValue('')
   }, [selectedKey])
 
-  // Plein écran / Expand du panneau de droite et repli des zones de texte
-  const [isPanelExpanded, setIsPanelExpanded] = useState(false)
-  const [isDescExpanded, setIsDescExpanded] = useState(true)
-  const [isFramingExpanded, setIsFramingExpanded] = useState(true)
+  // The room the panel takes and the folded framing sections, kept across
+  // visits. Sections open by default: folding is something one asks for.
+  const [isPanelExpanded, setIsPanelExpanded] = usePersistedFlag(ROADMAP_PANEL_EXPANDED_STORAGE_KEY, false)
+  const [isDescExpanded, setIsDescExpanded] = usePersistedFlag(ROADMAP_DESCRIPTION_OPEN_STORAGE_KEY, true)
+  const [isFramingExpanded, setIsFramingExpanded] = usePersistedFlag(ROADMAP_FRAMING_OPEN_STORAGE_KEY, true)
+
+  /**
+   * A hidden panel gives the whole width to the list.
+   *
+   * Expanding gives the panel all the room, the split handle some; this gives
+   * it none, which is what browsing many condensed macros asks for. The choice
+   * belongs to the view, not to the selection: clicking another macro does not
+   * bring the panel back, or browsing a list would change half the screen on
+   * every click.
+   *
+   * Hiding and expanding speak of the same room, so they exclude each other: a
+   * panel is never both full screen and absent.
+   */
+  const [isPanelHidden, setIsPanelHidden] = usePersistedFlag(ROADMAP_PANEL_HIDDEN_STORAGE_KEY, false)
+  const hidePanel = () => {
+    setIsPanelExpanded(false)
+    setIsPanelHidden(true)
+  }
+  const showPanel = () => setIsPanelHidden(false)
+  const toggleExpanded = () => {
+    setIsPanelHidden(false)
+    setIsPanelExpanded(prev => !prev)
+  }
 
   // Le cadrage n'est enregistré qu'à la demande
   const [draftDescription, setDraftDescription] = useState('')
@@ -520,9 +634,15 @@ export const RoadmapView: React.FC = () => {
         : rows.some(r => r.horizon === candidate.id)
     )
     if (target && target.id !== tab) setTab(target.id)
-  }, [searchQuery, visibleRows.length, rows, tab])
+  }, [searchQuery, visibleRows.length, rows, tab, setTab])
 
   const selected: MacroRow | null = visibleRows.find(r => r.key === selectedKey) || visibleRows[0] || null
+
+  // An expanded panel takes the whole view, the toolbar included: it is there
+  // to work on one macro. Both need a macro shown, so the toolbar and the list
+  // come back by themselves when the last one leaves the tab.
+  const panelShown = Boolean(selected) && !isPanelHidden
+  const expandedHere = panelShown && isPanelExpanded
 
   const selectedQuarter = selected?.quarter || ''
   const quarterOrigin = `${selected?.key || ''}|${selectedQuarter}`
@@ -979,7 +1099,9 @@ export const RoadmapView: React.FC = () => {
 
   return (
     <div className="flex-1 flex flex-col min-h-0 overflow-hidden bg-[var(--bg-primary)] text-[var(--text-primary)]">
-      {/* Barre d'outils : classification, et en mode opérationnel les sprints visés */}
+      {/* Barre d'outils : classification, et en mode opérationnel les sprints visés.
+          Hidden while the panel is expanded. */}
+      {!expandedHere && (
           <div className="flex items-center justify-between gap-3 flex-wrap px-4 py-2 border-b border-[var(--border-color)] bg-[var(--bg-secondary)]/50 shrink-0">
         <div className="flex items-center gap-3 flex-wrap min-w-0">
           <div className="flex items-center p-0.5 rounded-lg bg-[var(--bg-tertiary)] border border-[var(--border-color)]">
@@ -1321,10 +1443,11 @@ export const RoadmapView: React.FC = () => {
           </div>
         )}
       </div>
+      )}
 
       <div className="flex-1 flex min-h-0 min-w-0 overflow-hidden" ref={splitRef}>
         {/* Macros de l'horizon courant (masqué si panneau en plein écran) */}
-        {!isPanelExpanded && (
+        {!expandedHere && (
           <div className="flex-1 overflow-y-auto p-3 min-w-0 space-y-2">
             {visibleRows.length === 0 ? (
               <div className="h-full flex flex-col items-center justify-center gap-2 text-center px-6">
@@ -1352,8 +1475,8 @@ export const RoadmapView: React.FC = () => {
           </div>
         )}
 
-        {/* Poignée de répartition (masquée si plein écran) */}
-        {selected && !isPanelExpanded && (
+        {/* Poignée de répartition (masquée si plein écran ou panneau masqué) */}
+        {panelShown && !isPanelExpanded && (
           <div
             role="separator"
             aria-orientation="vertical"
@@ -1366,8 +1489,22 @@ export const RoadmapView: React.FC = () => {
           />
         )}
 
+        {/* The rail of a hidden panel: without it, getting the panel back would
+            mean selecting another macro, which no longer brings it back. */}
+        {selected && isPanelHidden && (
+          <button
+            type="button"
+            onClick={showPanel}
+            className="shrink-0 w-6 flex items-center justify-center border-l border-[var(--border-color)] bg-[var(--bg-secondary)] text-[var(--text-muted)] hover:text-[var(--accent-color)] hover:bg-[var(--accent-light)] cursor-pointer transition-colors"
+            title={strings.panel.show}
+            aria-label={strings.panel.show}
+          >
+            <PanelRightOpen size={13} />
+          </button>
+        )}
+
         {/* Panneau : vérification des sprints en NOW/NEXT, cadrage en LATER */}
-        {selected && (
+        {selected && panelShown && (
           <aside className="flex flex-col min-h-0 shrink-0 bg-[var(--bg-secondary)]"
             style={{ width: isPanelExpanded ? '100%' : panelWidth, flex: isPanelExpanded ? 1 : undefined }}>
             <div className="px-4 pt-3.5 pb-3 shrink-0 border-b border-[var(--border-color)]">
@@ -1384,7 +1521,7 @@ export const RoadmapView: React.FC = () => {
                 <div className="ml-auto flex items-center gap-1.5 flex-wrap">
                   <button
                     type="button"
-                    onClick={() => setIsPanelExpanded(prev => !prev)}
+                    onClick={toggleExpanded}
                     className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-semibold text-[var(--accent-color)] hover:opacity-90 cursor-pointer border border-[var(--accent-color)]/40 bg-[var(--accent-light)] transition-colors"
                     title={isPanelExpanded ? strings.panel.collapseTitle : strings.panel.expandTitle}
                   >
@@ -1392,8 +1529,28 @@ export const RoadmapView: React.FC = () => {
                     <span>{isPanelExpanded ? strings.panel.collapse : strings.panel.expand}</span>
                   </button>
 
-                  {selected.tasks[0]?.externalUrl && (
-                    <a href={selected.tasks[0].externalUrl} target="_blank" rel="noreferrer"
+                  <button
+                    type="button"
+                    onClick={hidePanel}
+                    className="inline-flex items-center px-1.5 py-1 rounded-lg text-xs font-semibold text-[var(--text-secondary)] hover:text-[var(--text-primary)] cursor-pointer border border-[var(--border-color)] hover:border-[var(--accent-color)]/50 transition-colors"
+                    title={strings.panel.hide}
+                    aria-label={strings.panel.hide}
+                  >
+                    <PanelRightClose size={12} />
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => copyMacroLink(selected)}
+                    className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-semibold text-[var(--text-secondary)] hover:text-[var(--text-primary)] cursor-pointer border border-[var(--border-color)] hover:border-[var(--accent-color)]/50 transition-colors"
+                    title={format(selected.externalUrl ? strings.panel.copyLinkTitle : strings.panel.copyRefTitle, { key: selected.key })}
+                  >
+                    {copiedLink ? <Check size={12} className="text-[var(--status-ok)]" /> : <Copy size={12} />}
+                    <span>{strings.panel.copy}</span>
+                  </button>
+
+                  {selected.externalUrl && (
+                    <a href={selected.externalUrl} target="_blank" rel="noreferrer"
                       className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-semibold transition-colors"
                       style={{
                         color: 'var(--status-info)',
@@ -2104,6 +2261,8 @@ export const RoadmapView: React.FC = () => {
                             }}
                             minHeight={120}
                             placeholder={strings.framing.descriptionPlaceholder}
+                            maximizable
+                            maximizeTitle={strings.framing.descriptionHeading}
                           />
                         </div>
                       )}
@@ -2153,6 +2312,8 @@ export const RoadmapView: React.FC = () => {
                             }}
                             minHeight={100}
                             placeholder={strings.framing.commentPlaceholder}
+                            maximizable
+                            maximizeTitle={strings.framing.commentHeading}
                           />
                         </div>
                       )}

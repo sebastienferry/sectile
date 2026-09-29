@@ -203,6 +203,8 @@ export interface MacroMeta {
    */
   labels?: string[]
   updatedAt: string
+  /** The macro's own page on its tracker, absent when the tracker gives none. */
+  externalUrl?: string
 }
 export type EpicMeta = MacroMeta
 /** An epic's own priority, P0 the highest. */

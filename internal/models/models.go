@@ -295,6 +295,9 @@ type MacroMeta struct {
 	// included. Only the epic sync and a successful label edit write them.
 	Labels    []string  `json:"labels"`
 	UpdatedAt time.Time `json:"updatedAt"`
+	// ExternalURL is the macro's own page on its tracker, computed when the
+	// list is read and never stored. Empty when the tracker gives none.
+	ExternalURL string `json:"externalUrl,omitempty"`
 }
 
 // Origine d'une ligne de découpe : l'artefact d'où elle a été importée.

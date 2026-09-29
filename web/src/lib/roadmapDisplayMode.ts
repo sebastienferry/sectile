@@ -40,7 +40,12 @@ export interface StorageLike {
   setItem(key: string, value: string): void
 }
 
-function resolveStorage(customStorage?: StorageLike): StorageLike | null {
+/**
+ * The storage roadmap preferences are kept in: the one given, else the
+ * browser's, else none. A browser that refuses storage answers none rather
+ * than throwing, and every preference then lasts as long as the page.
+ */
+export function resolveStorage(customStorage?: StorageLike): StorageLike | null {
   if (customStorage) {
     return customStorage
   }

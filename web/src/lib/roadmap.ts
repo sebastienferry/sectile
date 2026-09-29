@@ -50,8 +50,20 @@ export interface EpicRow {
   meta?: EpicMeta
   /** L'épic est terminé côté tracker : hors roadmap par défaut. */
   closed: boolean
+  /** The epic's own page on its tracker, empty when there is none. */
+  externalUrl: string
 }
 export type MacroRow = EpicRow
+
+/**
+ * What "copy the link" puts on the clipboard.
+ *
+ * The epic's own page when the tracker gives one; otherwise its key and title,
+ * which still name it in a message. The kind tells the toast which of the two
+ * was copied, so nobody pastes a reference believing it is a link.
+ */
+export const macroCopyPayload = (row: Pick<EpicRow, 'key' | 'title' | 'externalUrl'>): { text: string; kind: 'link' | 'ref' } =>
+  row.externalUrl ? { text: row.externalUrl, kind: 'link' } : { text: `${row.key}: ${row.title}`, kind: 'ref' }
 
 /**
  * Colours of the view: only the app's global variables, never a hardcoded
@@ -235,6 +247,7 @@ export const buildEpicRows = (
       ).sort(),
       meta,
       closed: Boolean(meta?.closed),
+      externalUrl: meta?.externalUrl || '',
     })
   })
 
