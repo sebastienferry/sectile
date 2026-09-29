@@ -65,6 +65,7 @@ test fixtures or internal plumbing.
 
 ### Fixed
 
+- While a ticket is being created from the quick-add dialog, its button now reads "Creating…" ("Création…" in French) instead of "Création CLI...", which named a CLI that is not involved and stayed in French in the English interface.
 - **The direct setup no longer installs one project's skills for all of them.** `sectile-agent init` and desktop **Initialize** now install the same generic skills as the Claude plugin, which read the project's specification framework and pull-request policy when they run, so a Spec Kit project and an OpenSpec project on one workstation each follow their own steps. Run **Initialize** (or `sectile-agent init`) once after updating: until then, a direct copy installed earlier keeps the steps of the project it was set up for, and the skills editor marks it DIVERGED. (#267)
 - A Claude plugin disabled in a project's `.claude/settings.json` or `.claude/settings.local.json` is no longer used for that project's runs: the launch falls back to the direct copy, or fails with the message that says how to install a skill. (#267)
 - A custom skill whose launch fails is no longer reported as used by the settings button's dot and the run's activity. (#267)
