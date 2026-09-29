@@ -87,7 +87,19 @@ import {
   saveRoadmapSelectedKey,
   saveRoadmapTab,
 } from '../lib/roadmapViewPrefs'
-import type { MacroHorizon, MacroMeta, MacroTodo, MacroTodoSource } from '../types'
+import {
+  EPIC_PRIORITIES,
+  EPIC_PRIORITY_LEVEL,
+  epicPriorityLabel,
+  matchesPriority,
+  normalizeQuarter,
+  seedProposals,
+  sortByPriority,
+  type PriorityFilter,
+  type PrioritySort,
+  type SeedLine,
+} from '../lib/epicAxes'
+import type { EpicPriority, MacroHorizon, MacroMeta, MacroTodo, MacroTodoSource } from '../types'
 import { MacroRealignButton } from './MacroRealignButton'
 
 /**
@@ -208,6 +220,18 @@ export const RoadmapView: React.FC = () => {
   )
   const [onlyIssues, setOnlyIssues] = useState(false)
   const [showClosed, setShowClosed] = useState(false)
+  // The epic priority filter and sort (#627). Not remembered: the view opens in
+  // backlog order with every priority, as it always did.
+  const [priorityFilter, setPriorityFilter] = useState<PriorityFilter>(null)
+  const [prioritySort, setPrioritySort] = useState<PrioritySort>('backlog')
+  // The seeding preview: the proposals, and which of their values are kept.
+  const [seedLines, setSeedLines] = useState<SeedLine[] | null>(null)
+  const [seedKept, setSeedKept] = useState<Record<string, boolean>>({})
+  const [isSeeding, setIsSeeding] = useState(false)
+  // The quarter field of the panel, validated on Enter or blur. The edit is
+  // tied to the epic and value it started from, so selecting another epic or
+  // saving drops it without an effect.
+  const [quarterEdit, setQuarterEdit] = useState<{ origin: string; value: string; error: string } | null>(null)
 
   // The shape of the rows. Remembered per browser: it is a reading setting, it
   // depends neither on the project nor on the tab, and resetting it on every
@@ -258,6 +282,13 @@ export const RoadmapView: React.FC = () => {
   const closeMigrate = useCallback(() => setShowMigrateModal(false), [])
   const migrateBackdrop = useBackdropDismiss(closeMigrate)
   useEscapeKey(showMigrateModal, closeMigrate)
+
+  const closeSeed = useCallback(() => {
+    if (!isSeeding) setSeedLines(null)
+  }, [isSeeding])
+  const seedBackdrop = useBackdropDismiss(closeSeed)
+  useEscapeKey(seedLines !== null, closeSeed)
+  const seedValueCount = Object.values(seedKept).filter(Boolean).length
 
   const closeRefinePreview = useCallback(() => setRefinePreview(null), [])
   const refinePreviewBackdrop = useBackdropDismiss(closeRefinePreview)
@@ -391,6 +422,10 @@ export const RoadmapView: React.FC = () => {
     if (labelFilter) chips.push({ label: `#${labelFilter.replace(/^#+/, '')}`, clear: () => setLabelFilter(null) })
     if (pinnedOnly) chips.push({ label: strings.filters.pinnedOnly, clear: () => setPinnedOnly(false) })
     if (searchQuery) chips.push({ label: format(strings.filters.search, { query: searchQuery }), clear: () => setSearchQuery('') })
+    if (priorityFilter) {
+      const value = priorityFilter === 'none' ? strings.axes.noPriority : epicPriorityLabel(priorityFilter)
+      chips.push({ label: format(strings.axes.filterChip, { value }), clear: () => setPriorityFilter(null) })
+    }
     return chips
   }, [
     assigneeFilter,
@@ -400,6 +435,7 @@ export const RoadmapView: React.FC = () => {
     labelFilter,
     pinnedOnly,
     searchQuery,
+    priorityFilter,
     setAssigneeFilter,
     setMyTasksOnly,
     setSprintFilter,
@@ -493,8 +529,9 @@ export const RoadmapView: React.FC = () => {
     let list = allRows
     if (!showClosed) list = list.filter(r => !r.closed)
     if (searchQuery.trim()) list = list.filter(r => matchesMacroSearch(r, searchQuery))
+    if (priorityFilter) list = list.filter(r => matchesPriority(r, priorityFilter))
     return list
-  }, [allRows, showClosed, searchQuery])
+  }, [allRows, showClosed, searchQuery, priorityFilter])
 
   const hiddenMatches = useMemo(() => {
     const q = searchQuery.trim()
@@ -533,12 +570,13 @@ export const RoadmapView: React.FC = () => {
     tab === 'next' ? 'next' : tab === 'later' ? 'later' : tab === 'hidden' ? 'hidden' : 'now'
 
   const visibleRows = useMemo(() => {
-    const list = tab === 'unclassified' ? rows.filter(r => !r.horizon) : rows.filter(r => r.horizon === tab)
+    const inTab = tab === 'unclassified' ? rows.filter(r => !r.horizon) : rows.filter(r => r.horizon === tab)
+    const list = sortByPriority(inTab, prioritySort)
     if (displayMode === 'execution' && onlyIssues) {
       return list.filter(r => placementIssues(r, horizonOfTab).length > 0)
     }
     return list
-  }, [rows, tab, displayMode, onlyIssues, horizonOfTab])
+  }, [rows, tab, displayMode, onlyIssues, horizonOfTab, prioritySort])
 
   // Chercher une macro et rester devant un onglet vide n'aide personne
   useEffect(() => {
@@ -558,6 +596,14 @@ export const RoadmapView: React.FC = () => {
   // come back by themselves when the last one leaves the tab.
   const panelShown = Boolean(selected) && !isPanelHidden
   const expandedHere = panelShown && isPanelExpanded
+
+  const selectedQuarter = selected?.quarter || ''
+  const quarterOrigin = `${selected?.key || ''}|${selectedQuarter}`
+  const quarterEditHere = quarterEdit && quarterEdit.origin === quarterOrigin ? quarterEdit : null
+  const quarterDraft = quarterEditHere ? quarterEditHere.value : selectedQuarter
+  const quarterError = quarterEditHere ? quarterEditHere.error : ''
+  const setQuarterDraft = (value: string) => setQuarterEdit({ origin: quarterOrigin, value, error: '' })
+  const setQuarterError = (error: string) => setQuarterEdit({ origin: quarterOrigin, value: quarterDraft, error })
 
   // Les tickets de la macro dans l'ordre chronologique de leur sprint
   const orderedOpen = useMemo(
@@ -657,6 +703,94 @@ export const RoadmapView: React.FC = () => {
 
   const todosOf = (row: MacroRow | null): MacroTodo[] => row?.meta?.todos || []
 
+  /** Saves the epic's priority or quarter and takes the stored macro back. */
+  const saveAxes = async (key: string, patch: { priority?: EpicPriority | ''; quarter?: string }) => {
+    if (!currentProject?.id) return
+    setBusyKey('axes')
+    const saved = await saveMacroMeta(currentProject.id, key, patch)
+    // Replaced in place: appending it would move an epic without tickets to the
+    // end of its tab at every click, the list order following this array.
+    if (saved) {
+      setMacroMeta(prev =>
+        prev.some(m => m.key === saved.key) ? prev.map(m => (m.key === saved.key ? saved : m)) : [...prev, saved]
+      )
+    }
+    setBusyKey(null)
+  }
+
+  /**
+   * Applies the kept seeding values, one epic at a time through the same save
+   * as the panel, then reports once: how many epics took their values, and
+   * which ones were refused. Tracker refusals arrive later in the activities,
+   * as for any queued write.
+   */
+  const runSeed = async () => {
+    if (!currentProject?.id || !seedLines) return
+    setIsSeeding(true)
+    let done = 0
+    const refused: string[] = []
+    for (const line of seedLines) {
+      const patch: { priority?: EpicPriority; quarter?: string } = {}
+      if (line.priority && seedKept[`${line.key}:priority`]) patch.priority = line.priority
+      if (line.quarter && seedKept[`${line.key}:quarter`]) patch.quarter = line.quarter
+      if (!patch.priority && !patch.quarter) continue
+      const saved = await saveMacroMeta(currentProject.id, line.key, patch, { quiet: true })
+      if (saved) done++
+      else refused.push(line.key)
+    }
+    const fresh = await fetchProjectMacros(currentProject.id)
+    setMacroMeta(fresh)
+    setIsSeeding(false)
+    setSeedLines(null)
+    if (refused.length > 0) {
+      addToast({
+        type: 'error',
+        title: strings.axes.seedFailedTitle,
+        description: `${plural(language, done, strings.axes.seedDone)}. ${format(strings.axes.seedFailed, { keys: refused.join(', ') })}`,
+      })
+    } else {
+      addToast({ type: 'success', title: strings.axes.seedDoneTitle, description: plural(language, done, strings.axes.seedDone) })
+    }
+  }
+
+  /**
+   * Validates the quarter field and saves it when it changed. An unreadable
+   * value stays in the field with its message, and nothing is sent.
+   */
+  const commitQuarter = (key: string, current: string) => {
+    const normalized = normalizeQuarter(quarterDraft)
+    if (normalized === null) {
+      setQuarterError(format(strings.axes.invalidQuarter, { value: quarterDraft.trim() }))
+      return
+    }
+    if (normalized === current) {
+      setQuarterEdit(null)
+      return
+    }
+    saveAxes(key, { quarter: normalized })
+  }
+
+  /**
+   * The epic's own priority (#627), in the colour of the level it maps to. An
+   * epic without one says so in a muted badge rather than borrowing a value
+   * from its tickets.
+   */
+  const priorityBadge = (row: MacroRow, className: string) => {
+    if (!row.priority) {
+      return (
+        <span className={className} style={{ color: 'var(--text-muted)', background: 'var(--bg-tertiary)' }}>
+          {strings.axes.noPriority}
+        </span>
+      )
+    }
+    const prio = PRIORITY_META[EPIC_PRIORITY_LEVEL[row.priority]]
+    return (
+      <span className={className} style={{ color: prio.color, background: prio.bg }} title={strings.axes.priorityTitle}>
+        {epicPriorityLabel(row.priority)}
+      </span>
+    )
+  }
+
   /**
    * The two shapes of a macro row.
    *
@@ -672,7 +806,6 @@ export const RoadmapView: React.FC = () => {
     const isSel = selected?.key === row.key
     const issues = placementIssues(row, horizonOfTab)
     const mat = MATURITY_META[row.maturity]
-    const prio = PRIORITY_META[row.priority]
     return (
       <div
         key={row.key}
@@ -689,9 +822,12 @@ export const RoadmapView: React.FC = () => {
           <span className="text-[9.5px] px-1 rounded font-mono truncate max-w-[150px] bg-[var(--bg-tertiary)] text-[var(--text-muted)] border border-[var(--border-color)]" title={row.squad}>
             {row.squad}
           </span>
-          <span className="text-[9.5px] px-1 rounded font-bold" style={{ color: prio.color, background: prio.bg }}>
-            {strings.priority[row.priority]}
-          </span>
+          {priorityBadge(row, 'text-[9.5px] px-1 rounded font-bold')}
+          {row.quarter && (
+            <span className="text-[9.5px] px-1 rounded font-mono bg-[var(--bg-tertiary)] text-[var(--text-secondary)] border border-[var(--border-color)]">
+              {row.quarter}
+            </span>
+          )}
           <span className="text-[9px] font-bold px-1.5 rounded uppercase tracking-[.06em]"
             style={{ color: mat.color, background: mat.bg, border: `1px solid ${mat.border}` }}>
             {strings.maturity[row.maturity]}
@@ -770,7 +906,6 @@ export const RoadmapView: React.FC = () => {
   const renderCondensedRow = (row: MacroRow) => {
     const isSel = selected?.key === row.key
     const issues = placementIssues(row, horizonOfTab)
-    const prio = PRIORITY_META[row.priority]
     return (
       <div
         key={row.key}
@@ -810,12 +945,7 @@ export const RoadmapView: React.FC = () => {
             {issues.length}
           </span>
         )}
-        <span
-          className="shrink-0 text-[9.5px] px-1 rounded font-bold"
-          style={{ color: prio.color, background: prio.bg }}
-        >
-          {strings.priority[row.priority]}
-        </span>
+        {priorityBadge(row, 'shrink-0 text-[9.5px] px-1 rounded font-bold')}
         <span className="shrink-0 flex items-center gap-0.5">
           {CONDENSED_HORIZONS.map(h => {
             const active = row.horizon === h
@@ -1006,6 +1136,56 @@ export const RoadmapView: React.FC = () => {
             >
               {isImporting ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
               {strings.importLabels}
+            </button>
+          )}
+
+          {/* The epic's own priority (#627): filter and sort. Both apply to
+              every tab, and the tab counts follow the filter. */}
+          <select
+            value={priorityFilter || ''}
+            onChange={e => setPriorityFilter((e.target.value || null) as PriorityFilter)}
+            aria-label={strings.axes.filterLabel}
+            className="px-2 py-1 rounded-md text-[11px] font-semibold cursor-pointer border bg-[var(--bg-tertiary)] border-[var(--border-color)] text-[var(--text-secondary)]"
+          >
+            <option value="">{strings.axes.filterAll}</option>
+            {EPIC_PRIORITIES.map(p => (
+              <option key={p} value={p}>{epicPriorityLabel(p)}</option>
+            ))}
+            <option value="none">{strings.axes.noPriority}</option>
+          </select>
+          <select
+            value={prioritySort}
+            onChange={e => setPrioritySort(e.target.value as PrioritySort)}
+            aria-label={strings.axes.sortLabel}
+            className="px-2 py-1 rounded-md text-[11px] font-semibold cursor-pointer border bg-[var(--bg-tertiary)] border-[var(--border-color)] text-[var(--text-secondary)]"
+          >
+            <option value="backlog">{strings.axes.sortBacklog}</option>
+            <option value="priority-desc">{strings.axes.sortDesc}</option>
+            <option value="priority-asc">{strings.axes.sortAsc}</option>
+          </select>
+          {currentProject && (
+            <button
+              type="button"
+              onClick={() => {
+                const lines = seedProposals(allRows.filter(r => showClosed || !r.closed))
+                const kept: Record<string, boolean> = {}
+                lines.forEach(line => {
+                  if (line.priority) kept[`${line.key}:priority`] = true
+                  if (line.quarter) kept[`${line.key}:quarter`] = true
+                })
+                setSeedKept(kept)
+                setSeedLines(lines)
+              }}
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-semibold cursor-pointer border"
+              style={{
+                background: 'var(--bg-tertiary)',
+                borderColor: 'var(--border-color)',
+                color: 'var(--text-secondary)',
+              }}
+              title={strings.axes.seedTitle}
+            >
+              <Sparkles size={12} />
+              {strings.axes.seedButton}
             </button>
           )}
 
@@ -1441,6 +1621,104 @@ export const RoadmapView: React.FC = () => {
                 <div className="mt-1.5 text-[10px] font-mono" style={{ color: selected.closed ? 'var(--status-ok)' : 'var(--text-muted)' }}>
                   {format(selected.closed ? strings.panel.statusClosed : strings.panel.statusOpen, { status: selected.meta.status })}
                 </div>
+              )}
+
+              {/* The epic's own priority and quarter (#627), stored here first,
+                  then written as labels when the tracker can carry them. */}
+              <div className="mt-2.5 flex items-start gap-4 flex-wrap">
+                <div>
+                  <div className="text-[10px] font-bold uppercase tracking-[.08em] text-[var(--text-muted)] mb-1">
+                    {strings.axes.priorityLabel}
+                  </div>
+                  <div className="flex items-center gap-1" role="group" aria-label={strings.axes.priorityLabel}>
+                    {EPIC_PRIORITIES.map(p => {
+                      const active = selected.priority === p
+                      const prio = PRIORITY_META[EPIC_PRIORITY_LEVEL[p]]
+                      return (
+                        <button
+                          key={p}
+                          type="button"
+                          aria-pressed={active}
+                          disabled={busyKey === 'axes'}
+                          onClick={() => saveAxes(selected.key, { priority: active ? '' : p })}
+                          className="px-1.5 py-0.5 rounded text-[10.5px] font-bold border cursor-pointer disabled:opacity-60"
+                          style={{
+                            color: prio.color,
+                            background: active ? prio.bg : 'transparent',
+                            borderColor: active ? prio.color : 'var(--border-color)',
+                          }}
+                          title={strings.axes.priorityTitle}
+                        >
+                          {epicPriorityLabel(p)}
+                        </button>
+                      )
+                    })}
+                    {selected.priority && (
+                      <button
+                        type="button"
+                        disabled={busyKey === 'axes'}
+                        onClick={() => saveAxes(selected.key, { priority: '' })}
+                        className="p-1 rounded text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] cursor-pointer"
+                        title={strings.axes.clearPriority}
+                        aria-label={strings.axes.clearPriority}
+                      >
+                        <X size={11} />
+                      </button>
+                    )}
+                  </div>
+                </div>
+                <div>
+                  <label
+                    htmlFor="roadmap-quarter"
+                    className="block text-[10px] font-bold uppercase tracking-[.08em] text-[var(--text-muted)] mb-1"
+                  >
+                    {strings.axes.quarterLabel}
+                  </label>
+                  <div className="flex items-center gap-1">
+                    <input
+                      id="roadmap-quarter"
+                      type="text"
+                      value={quarterDraft}
+                      placeholder={strings.axes.quarterPlaceholder}
+                      aria-invalid={quarterError ? true : undefined}
+                      onChange={e => setQuarterDraft(e.target.value)}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault()
+                          commitQuarter(selected.key, selected.quarter)
+                        } else if (e.key === 'Escape') {
+                          setQuarterEdit(null)
+                        }
+                      }}
+                      onBlur={() => commitQuarter(selected.key, selected.quarter)}
+                      className="w-[150px] px-2 py-0.5 text-[11px] font-mono rounded-md bg-[var(--bg-primary)] border text-[var(--text-primary)] focus:outline-none"
+                      style={{ borderColor: quarterError ? 'var(--status-danger)' : 'var(--border-color)' }}
+                    />
+                    {selected.quarter && (
+                      <button
+                        type="button"
+                        disabled={busyKey === 'axes'}
+                        onClick={() => {
+                          setQuarterEdit(null)
+                          saveAxes(selected.key, { quarter: '' })
+                        }}
+                        className="p-1 rounded text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] cursor-pointer"
+                        title={strings.axes.clearQuarter}
+                        aria-label={strings.axes.clearQuarter}
+                      >
+                        <X size={11} />
+                      </button>
+                    )}
+                  </div>
+                  {quarterError && (
+                    <div className="mt-1 text-[10px]" style={{ color: 'var(--status-danger)' }} role="alert">
+                      {quarterError}
+                    </div>
+                  )}
+                </div>
+              </div>
+              {selected.meta?.labelsWritable === false && (
+                <div className="mt-1.5 text-[10px] text-[var(--text-muted)]">{strings.axes.keptLocal}</div>
               )}
             </div>
 
@@ -2572,6 +2850,98 @@ export const RoadmapView: React.FC = () => {
                 >
                   {isCreatingBatch ? <Loader2 size={13} className="animate-spin" /> : <FolderGit2 size={13} />}
                   <span>{format(strings.refineModal.generate, { count: Object.values(selectedProposedTasks).filter(Boolean).length })}</span>
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {seedLines && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-in fade-in duration-150" {...seedBackdrop}>
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label={strings.axes.seedModalTitle}
+            className="bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded-2xl w-full max-w-2xl max-h-[85vh] flex flex-col shadow-2xl overflow-hidden animate-in zoom-in-95 duration-150"
+          >
+            <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--border-color)]">
+              <div className="flex items-center gap-2 text-sm font-bold text-[var(--text-primary)]">
+                <Sparkles size={16} className="text-[var(--accent-color)]" />
+                <span>{strings.axes.seedModalTitle}</span>
+              </div>
+              <button
+                type="button"
+                onClick={closeSeed}
+                className="p-1 rounded-lg text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] transition-colors cursor-pointer"
+                aria-label={strings.axes.seedCancel}
+              >
+                <X size={16} />
+              </button>
+            </div>
+            <div className="px-5 py-3 text-xs text-[var(--text-secondary)]">
+              {seedLines.length === 0 ? strings.axes.seedEmpty : strings.axes.seedIntro}
+            </div>
+            {seedLines.length > 0 && (
+              <div className="flex-1 overflow-y-auto px-5 pb-3">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="text-[10px] uppercase tracking-[.08em] text-[var(--text-muted)]">
+                      <th className="text-left font-bold py-1.5">{strings.axes.seedMacro}</th>
+                      <th className="text-left font-bold py-1.5 w-[90px]">{strings.axes.priorityLabel}</th>
+                      <th className="text-left font-bold py-1.5 w-[110px]">{strings.axes.quarterLabel}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {seedLines.map(line => (
+                      <tr key={line.key} className="border-t border-[var(--border-color)]">
+                        <td className="py-1.5 pr-3">
+                          <span className="font-mono font-bold text-[var(--accent-color)] mr-2">{line.key}</span>
+                          <span className="text-[var(--text-primary)]">{line.title}</span>
+                        </td>
+                        {(['priority', 'quarter'] as const).map(axis => {
+                          const value = line[axis]
+                          const id = `${line.key}:${axis}`
+                          return (
+                            <td key={axis} className="py-1.5">
+                              {value && (
+                                <label className="inline-flex items-center gap-1.5 cursor-pointer">
+                                  <input
+                                    type="checkbox"
+                                    checked={Boolean(seedKept[id])}
+                                    onChange={e => setSeedKept(prev => ({ ...prev, [id]: e.target.checked }))}
+                                  />
+                                  <span className="font-mono font-bold">
+                                    {axis === 'priority' ? epicPriorityLabel(value as EpicPriority) : value}
+                                  </span>
+                                </label>
+                              )}
+                            </td>
+                          )
+                        })}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-[var(--border-color)]">
+              <button
+                type="button"
+                onClick={closeSeed}
+                className="px-3.5 py-1.5 rounded-xl text-xs font-semibold text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] cursor-pointer"
+              >
+                {strings.axes.seedCancel}
+              </button>
+              {seedLines.length > 0 && (
+                <button
+                  type="button"
+                  disabled={isSeeding || seedValueCount === 0}
+                  onClick={runSeed}
+                  className="px-3.5 py-1.5 rounded-xl text-xs font-bold text-white accent-bg hover:opacity-90 disabled:opacity-50 cursor-pointer flex items-center gap-1.5"
+                >
+                  {isSeeding ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />}
+                  <span>{plural(language, seedValueCount, strings.axes.seedConfirm)}</span>
                 </button>
               )}
             </div>

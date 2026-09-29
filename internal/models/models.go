@@ -281,10 +281,17 @@ type MacroMeta struct {
 	// Title et Status viennent du ticket macro lui-même, que la synchro n'importe
 	// pas comme carte. Closed permet de sortir de la roadmap ce qui est terminé
 	// sans avoir à deviner depuis l'état des enfants.
-	Title     string    `json:"title,omitempty"`
-	Status    string    `json:"status,omitempty"`
-	Closed    bool      `json:"closed"`
-	UpdatedAt time.Time `json:"updatedAt"`
+	Title  string `json:"title,omitempty"`
+	Status string `json:"status,omitempty"`
+	Closed bool   `json:"closed"`
+	// Priority is the epic's own priority, "p0" to "p3", "" when none.
+	Priority string `json:"priority"`
+	// Quarter is the epic's quarter, "2026-Q4", "" when none.
+	Quarter string `json:"quarter"`
+	// LabelsWritable tells whether Sectile writes the epic axes on the tracker.
+	// It is computed when the macros are read, never stored.
+	LabelsWritable bool      `json:"labelsWritable"`
+	UpdatedAt      time.Time `json:"updatedAt"`
 	// ExternalURL is the macro's own page on its tracker, computed when the
 	// list is read and never stored. Empty when the tracker gives none.
 	ExternalURL string `json:"externalUrl,omitempty"`
