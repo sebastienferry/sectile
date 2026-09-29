@@ -1,7 +1,8 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useMemo, useState } from 'react'
 import { LayoutGrid, Search, Star, X } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { useBackdropDismiss } from '../hooks/useBackdropDismiss'
+import { useEscapeKey } from '../hooks/useEscapeKey'
 import { accentBadgeStyle } from '../lib/accents'
 import { shortElapsed } from '../lib/elapsed'
 import { format, plural } from '../lib/i18n'
@@ -53,25 +54,14 @@ const ProjectOverviewDialog: React.FC = () => {
     closeProjectOverview()
   }
 
-  // Keys stay in the dialog: Escape closes it, and the board's single-letter
-  // shortcuts must not fire from a focused card.
-  const onKeyDown = (e: React.KeyboardEvent) => {
-    e.stopPropagation()
-    if (e.key === 'Escape') {
-      e.preventDefault()
-      closeProjectOverview()
-    }
-  }
+  // Keys stay in the dialog: the board's single-letter shortcuts must not fire
+  // from a focused card.
+  const onKeyDown = (e: React.KeyboardEvent) => e.stopPropagation()
 
-  // A click on the dialog's empty space leaves the focus on the page, where
-  // the handler above never hears Escape: the window does.
-  useEffect(() => {
-    const onWindowKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') closeProjectOverview()
-    }
-    window.addEventListener('keydown', onWindowKeyDown)
-    return () => window.removeEventListener('keydown', onWindowKeyDown)
-  }, [closeProjectOverview])
+  // Escape closes the dialog wherever the focus is, a click on its empty space
+  // included, and only the dialog: caught on the way down, it never reaches the
+  // window handler that would also clear the board's search.
+  useEscapeKey(true, closeProjectOverview)
 
   const chips: { id: IssueTracker | 'all'; label: string }[] = [
     { id: 'all', label: strings.overviewAllTrackers },

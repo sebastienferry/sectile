@@ -148,6 +148,9 @@ try {
     // non-favorite selection away when they do: wait past them.
     await page.waitForFunction(() => /\d+ task/.test(document.querySelector('button[aria-haspopup="listbox"]')?.textContent ?? ''));
     assert.equal(await current(), 'Notes', 'a non-favorite selection survives a reload');
+    // A board search, which the overview's Escape must leave alone.
+    const globalSearch = page.locator('#global-search-input');
+    await globalSearch.fill('story');
     await openPicker();
     assert.deepEqual(await rowNames(sectionOf('Recent')), ['Notes']);
 
@@ -186,6 +189,8 @@ try {
     await page.keyboard.press('Escape');
     await dialog.waitFor({ state: 'detached' });
     assert.equal(await current(), 'Notes', 'Escape changes nothing');
+    assert.equal(await globalSearch.inputValue(), 'story', 'Escape closes the overview only, not the board search too');
+    await globalSearch.fill('');
 
     // Browse projects…, then Enter on a focused card.
     await openPicker();
