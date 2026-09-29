@@ -198,6 +198,8 @@ export interface MacroMeta {
   /** False when the priority and the quarter stay in Sectile: milestone, local key, foreign epic, tracker without epics. */
   labelsWritable?: boolean
   updatedAt: string
+  /** The macro's own page on its tracker, absent when the tracker gives none. */
+  externalUrl?: string
 }
 export type EpicMeta = MacroMeta
 /** An epic's own priority, P0 the highest. */
