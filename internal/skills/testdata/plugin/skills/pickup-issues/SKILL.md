@@ -75,12 +75,15 @@ Stop before merge. Stage-local boundaries apply while that stage is active; afte
 
 ### Clarify Issue
 - The ticket: title, description, comments via get_task, parent epic if present.
-- The existing clarification report if one exists: docs/clarifications/<n>.md on the assigned work branch.
+- The existing clarification report if one exists: docs/clarifications/<n>.md on the assigned work branch,
+  or, when the report is ignored by Git (step 6), in the worktree and in the rounds already
+  published on the ticket.
 - The code the change would touch. Name the files you actually read.
 - Neighbouring features that already solve a similar problem in this codebase.
 
 1. Re-read the assigned branch and worktree. If docs/clarifications/<n>.md already exists,
-   this run continues an existing clarification into Round N. If not, this is Round 1.
+   this run continues an existing clarification into Round N. If not, this is Round 1, unless the
+   report is ignored by Git and the ticket already carries published rounds (step 6).
 2. In Round 1:
    a. Restate the request in two sentences, including what is out of scope.
    b. List ambiguities, worst first. Only list an ambiguity if two readings lead to different code.
@@ -109,6 +112,11 @@ Stop before merge. Stage-local boundaries apply while that stage is active; afte
    drops its specification artefacts on this workstation: write and update the file in the worktree,
    never commit it, never force it with `git add -f`, and include the settled decisions
    in the round section used as the transition note, saying that the report file stays local to the worktree.
+   The published rounds are then the only shared record. A fresh worktree does not hold a report
+   written elsewhere: when the file is ignored and missing, read the rounds already published on
+   the ticket (the Clarification Report comments and each `## Round N` section in them), rebuild the
+   file from them in order, and continue with the next round. Never restart at Round 1 while the
+   ticket carries a published round.
 
 7. Optional stage publication: read `pushStageCommits` from `get_project_context`
    (or the supplied project configuration); missing or false means off. When true,
@@ -162,7 +170,9 @@ Read specFramework from get_project_context and follow the subsection that match
 
 #### When get_project_context reports specFramework "openspec"
 - Project-configured SDD framework: openspec. Use it unless the invocation explicitly overrides it.
-- The clarification outcome on the ticket: the decisions are already made, apply them.
+- The clarification outcome on the ticket: the decisions are already made, apply them. When the
+  clarification report is ignored by Git, docs/clarifications/<n>.md may be missing from this
+  worktree; the rounds published on the ticket carry the same content.
 - Select the SDD framework in order: explicit {sdd_framework} or --framework=<name>,
   then the project-configured framework, then repository detection:
   - If `openspec/` exists -> use OpenSpec SDD.
@@ -171,7 +181,9 @@ Read specFramework from get_project_context and follow the subsection that match
 
 #### When get_project_context reports specFramework "speckit"
 - Project-configured SDD framework: speckit. Use it unless the invocation explicitly overrides it.
-- The clarification outcome on the ticket: the decisions are already made, apply them.
+- The clarification outcome on the ticket: the decisions are already made, apply them. When the
+  clarification report is ignored by Git, docs/clarifications/<n>.md may be missing from this
+  worktree; the rounds published on the ticket carry the same content.
 - Select the SDD framework in order: explicit {sdd_framework} or --framework=<name>,
   then the project-configured framework, then repository detection:
   - If `openspec/` exists -> use OpenSpec SDD.
@@ -179,7 +191,9 @@ Read specFramework from get_project_context and follow the subsection that match
 - Ensure the project SDD directory is initialized before writing specifications.
 
 #### Otherwise
-- The clarification outcome on the ticket: the decisions are already made, apply them.
+- The clarification outcome on the ticket: the decisions are already made, apply them. When the
+  clarification report is ignored by Git, docs/clarifications/<n>.md may be missing from this
+  worktree; the rounds published on the ticket carry the same content.
 - Select the SDD framework in order: explicit {sdd_framework} or --framework=<name>,
   then the project-configured framework, then repository detection:
   - If `openspec/` exists -> use OpenSpec SDD.
@@ -266,7 +280,9 @@ Report and persist before continuing:
 
 ### Adjust Existing Pull Request
 - The full diff of the branch against the default branch. All of it, not the summary.
-- The specification, to check that what was asked is what was built.
+- The specification, to check that what was asked is what was built. When its files are ignored by
+  Git (dropped artefacts), they are not in the diff: read them from the worktree, or from the
+  clarification and specification reports on the ticket.
 - The current remote default branch: fetch the remote and identify its configured
   default branch before reviewing or publishing.
 

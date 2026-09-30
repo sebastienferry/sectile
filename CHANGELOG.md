@@ -74,6 +74,7 @@ test fixtures or internal plumbing.
 
 ### Fixed
 
+- **A clarification whose report stays out of the repository resumes where it stopped.** When a project keeps its specifications out of the repository, a clarification continued from another worktree or another workstation no longer starts over at round 1: it rebuilds the report from the rounds already published on the ticket and asks the next round's questions. Specification and adjustment also read the clarification and the specification from the ticket when the files are not in their worktree. (#487)
 - A card moved on a GitHub project by someone without a personal GitHub token no longer reports success: its activity fails and says the token is missing, as a stage change already did. (#645)
 - **Preparing a task worktree on Windows no longer opens a console window.** The dependency install that follows a worktree's creation, and the `git` calls made to read a macro's specification files, used to flash a console window (or keep one open for the whole install) when the agent was started by Sectile Desktop. (#638)
 - **The server stays responsive while autonomous runs stream their output.** Recording each chunk of a headless run's output no longer reads the ticket's whole run history, and ticket answers (the web detail view, MCP `get_task`, live board updates) no longer carry every past run's output. With several runs at once, the server used to run out of memory and stop answering long enough for Sectile Desktop and the agents to time out. A ticket's run history is still available from its activities.
