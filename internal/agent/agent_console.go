@@ -88,7 +88,8 @@ func (d *agentDaemon) desktopConsole(w http.ResponseWriter, r *http.Request) {
 	// A custom launch template is a command line the conversation cannot run.
 	if input.View == "conversation" && provider == "claude" && (input.EngineID == "" || config.AICommandTemplate == "") {
 		d.queue.mu.Lock()
-		run, err := d.newConversationLocked(input.ProjectID, root, config.AIModel, "It runs in this project's local repository.")
+		// The same model the PTY command would have carried.
+		run, err := d.newConversationLocked(input.ProjectID, root, agentconfig.ResolveModel(config, ""), "It runs in this project's local repository.")
 		if err != nil {
 			d.queue.mu.Unlock()
 			http.Error(w, err.Error(), http.StatusConflict)
