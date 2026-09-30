@@ -448,6 +448,13 @@ ipcMain.handle('git-diff',async(_,id)=>{
  }
 })
 ipcMain.handle('runs',()=>api('/desktop/runs'))
+ipcMain.handle('create-conversation',async(_,sourceRunId)=>{
+ const status=await api('/desktop/status')
+ if(!status.capabilities?.includes('claude-conversation'))throw Error('Update and restart the local agent to try Claude conversations.')
+ return api('/desktop/conversation','POST',{sourceRunId})
+})
+ipcMain.handle('conversation',(_,id)=>api('/desktop/conversation?id='+encodeURIComponent(id)))
+ipcMain.handle('conversation-message',(_,{id,message})=>api('/desktop/conversation?id='+encodeURIComponent(id),'POST',{message}))
 // The agent forgets a run once its history is cleared or it restarts, and
 // answers 404 by contract. Report "no result" instead of rejecting the IPC
 // promise: Electron logs every rejected handler with a stack, and this outcome
