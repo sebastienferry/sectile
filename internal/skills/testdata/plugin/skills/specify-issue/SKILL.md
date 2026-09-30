@@ -67,7 +67,9 @@ Read specFramework from get_project_context and follow the subsection that match
 
 ### When get_project_context reports specFramework "openspec"
 - Project-configured SDD framework: openspec. Use it unless the invocation explicitly overrides it.
-- The clarification outcome on the ticket: the decisions are already made, apply them.
+- The clarification outcome on the ticket: the decisions are already made, apply them. When the
+  clarification report is ignored by Git, docs/clarifications/<n>.md may be missing from this
+  worktree; the rounds published on the ticket carry the same content.
 - Select the SDD framework in order: explicit {sdd_framework} or --framework=<name>,
   then the project-configured framework, then repository detection:
   - If `openspec/` exists -> use OpenSpec SDD.
@@ -76,7 +78,9 @@ Read specFramework from get_project_context and follow the subsection that match
 
 ### When get_project_context reports specFramework "speckit"
 - Project-configured SDD framework: speckit. Use it unless the invocation explicitly overrides it.
-- The clarification outcome on the ticket: the decisions are already made, apply them.
+- The clarification outcome on the ticket: the decisions are already made, apply them. When the
+  clarification report is ignored by Git, docs/clarifications/<n>.md may be missing from this
+  worktree; the rounds published on the ticket carry the same content.
 - Select the SDD framework in order: explicit {sdd_framework} or --framework=<name>,
   then the project-configured framework, then repository detection:
   - If `openspec/` exists -> use OpenSpec SDD.
@@ -84,7 +88,9 @@ Read specFramework from get_project_context and follow the subsection that match
 - Ensure the project SDD directory is initialized before writing specifications.
 
 ### Otherwise
-- The clarification outcome on the ticket: the decisions are already made, apply them.
+- The clarification outcome on the ticket: the decisions are already made, apply them. When the
+  clarification report is ignored by Git, docs/clarifications/<n>.md may be missing from this
+  worktree; the rounds published on the ticket carry the same content.
 - Select the SDD framework in order: explicit {sdd_framework} or --framework=<name>,
   then the project-configured framework, then repository detection:
   - If `openspec/` exists -> use OpenSpec SDD.
