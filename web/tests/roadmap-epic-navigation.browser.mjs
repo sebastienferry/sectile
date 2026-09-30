@@ -12,7 +12,7 @@ const harness=`import React from 'react'; import {createRoot} from 'react-dom/cl
 window.calls=[];
 const project={id:'p',name:'Sectile',issueTracker:'github',sprints:[]};
 const meta=(key,title,horizon,extra={})=>({projectId:'p',key,title,horizon,description:'',framingComment:'',todos:[],updatedAt:'',status:'open',closed:false,...extra});
-const macros=[meta('M-1','Macro un','now'),meta('M-2','Macro deux','later'),meta('M-3','Macro trois','later',{status:'closed',closed:true})];
+const macros=[meta('M-1','Macro un','now',{labels:['domain-billing']}),meta('M-2','Macro deux','later'),meta('M-3','Macro trois','later',{status:'closed',closed:true})];
 const task=(id,title,parentKey)=>({id,key:'#'+id,title,status:'todo',priority:'medium',parentKey,parentTitle:'',projectId:'p',source:'github',labels:[]});
 const data={tasks:[task('10','Ticket de deux','M-2')],projects:[project],currentProject:project,settings:{language:'fr'},t:translations.fr,assigneeFilter:null,myTasksOnly:false,sprintFilter:null,teamFilter:null,labelFilter:null,pinnedOnly:false,searchQuery:'',activeJobCount:0,activities:[],isLoading:false,roadmapFocus:null,
   fetchProjectMacros:async()=>macros.map(m=>({...m})),pendingHorizonPushes:async()=>[],addToast:toast=>window.calls.push(['toast',toast.title,toast.description]),
@@ -74,6 +74,18 @@ try {
   await panelKeyIs('M-2');
   await ticketsButton().click();
   assert.deepEqual(await calls('openEpicTickets'),[['openEpicTickets','M-2']]);
+
+  // US2.4, US2.6: a label filter hiding the epic is cleared; the sort chosen is kept.
+  await tabButton('NOW').click();
+  await page.getByLabel(strings.axes.sortLabel).selectOption('priority-desc');
+  await page.getByRole('button',{name:'Labels',exact:true}).click();
+  await page.getByRole('menuitemcheckbox',{name:/domain-billing/}).click();
+  await page.keyboard.press('Escape');
+  await page.getByRole('button',{name:'label domain-billing',exact:true}).waitFor();
+  await page.evaluate(()=>focus('M-2'));
+  await panelKeyIs('M-2');
+  assert.equal(await page.getByRole('button',{name:'label domain-billing',exact:true}).count(),0,'the label filter is cleared');
+  assert.equal(await page.getByLabel(strings.axes.sortLabel).inputValue(),'priority-desc','the sort is kept');
 
   // US2.3: a closed epic shows the closed epics.
   await page.evaluate(()=>focus('M-3'));
