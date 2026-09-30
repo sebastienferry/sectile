@@ -659,7 +659,12 @@ first within each group. Actual execution start determines recency, with submiss
 time used for queued/preparing runs and older records without a start timestamp.
 A task with several runs uses its highest-priority state and newest run in that
 state. Equal times use task/run identities for stable ordering. Refreshes preserve
-the selected execution and the history selector stays in submission order.
+the selected execution and the history selector stays in submission order, with
+one exception: when a new execution of the displayed task appears, whatever
+launched it (Relaunch, the Tickets pane, **Next** or the full chain, the web
+board or another client), the console switches to it, queued executions
+included, and the earlier ones stay in the history selector. Free consoles,
+macro runs and other tasks' rows never take the console over.
 Linked pull requests appear as an icon on the same task row, after the title and
 status. Hover for the URL or activate the icon to open the PR externally without
 changing the selected console. Long titles truncate to keep controls inline.

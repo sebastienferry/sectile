@@ -49,7 +49,7 @@ changelog. Each task names its test.
 
 ## Phase 5 - Verification
 
-- [ ] T006 Run `node --test tests/task-order.test.mjs` and the new UI test
+- [x] T006 Run `node --test tests/task-order.test.mjs` and the new UI test
   alone, then `tests/execution-history.ui.cjs`, `tests/next-step.ui.cjs` and
   `tests/task-order-hold.ui.cjs`, which touch the same selection paths. The
   full suites run in the pull request pipeline.
