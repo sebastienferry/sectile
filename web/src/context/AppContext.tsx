@@ -56,6 +56,7 @@ import { NO_ORPHANED_CREDENTIALS, getTrackers, orphanedCredentialsFrom } from '.
 import { TrackerCredentialMissingError, missingCredentialFromActivity, missingCredentialFromBody } from '../lib/trackerRefusal'
 import { activeTaskIds } from '../lib/remoteRunIndicator'
 import { isViewAvailable } from '../lib/optionalViews'
+import { canOpenEpicInRoadmap, isTicketView, projectOfTask, returnView } from '../lib/roadmapFocus'
 import { isMacPlatform, sidebarShortcutAction } from '../../../shared/sidebarShortcut.mjs'
 import {
   coreFailures,
@@ -93,6 +94,13 @@ function trackerError(res: Response, data: any, fallback: string): Error {
   const tracker = missingCredentialFromBody(res.status, data)
   const message = (data && typeof data.error === 'string' && data.error) || fallback
   return tracker ? new TrackerCredentialMissingError(message, tracker) : new Error(message)
+}
+
+/** The epic a ticket asked the roadmap to open (#630). */
+export interface RoadmapFocusRequest {
+  projectId: string
+  epicKey: string
+  from: ViewMode
 }
 
 interface AppContextType {
@@ -263,6 +271,17 @@ interface AppContextType {
   setParentFilter: (parentKey: string | null) => void
   /** Distinct parents present in the loaded tasks, most populated first. */
   availableParents: { key: string; title: string; type: string; count: number }[]
+  /**
+   * A ticket's epic the roadmap is asked to open (#630), until the roadmap
+   * honours it. `from` is the view the request was made from, where a refusal
+   * sends the user back.
+   */
+  roadmapFocus: RoadmapFocusRequest | null
+  /** Opens the roadmap of the ticket's project on the ticket's parent epic. */
+  openEpicInRoadmap: (task: Task) => void
+  consumeRoadmapFocus: () => void
+  /** Filters the ticket views on the epic and returns to the one left for the roadmap. */
+  openEpicTickets: (epicKey: string) => void
   /**
    * Resolves the display name of a workflow skill. Command names renamed on
    * the workstation are not visible to the web, so this is the default name.
@@ -563,7 +582,19 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     })()
   )
 
+  // The ticket view left to reach the roadmap, for the way back from an epic
+  // (#630). One step, held for the page only: entering the roadmap again from
+  // another ticket view replaces it, and a non-ticket view leaves it as it is.
+  const activeViewRef = useRef(activeView)
+  useEffect(() => {
+    activeViewRef.current = activeView
+  }, [activeView])
+  const roadmapOriginView = useRef<ViewMode | null>(null)
+
   const setActiveView = useCallback((view: ViewMode) => {
+    if (view === 'roadmap' && isTicketView(activeViewRef.current)) {
+      roadmapOriginView.current = activeViewRef.current
+    }
     setActiveViewState(view)
     defaultViewPending.current = false
     try {
@@ -954,6 +985,28 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     return projects.find(p => p.id === selectedProjectId || p.slug === selectedProjectId) || null
   }, [projects, selectedProjectId])
 
+  // From a ticket to its epic on the roadmap, and back (#630). The ticket side
+  // cannot tell whether the roadmap holds the epic, since under "all projects"
+  // no roadmap is built: it only asks, and the roadmap answers once loaded.
+  const [roadmapFocus, setRoadmapFocus] = useState<RoadmapFocusRequest | null>(null)
+
+  const openEpicInRoadmap = useCallback((task: Task) => {
+    const project = projectOfTask(task, projects, currentProject)
+    if (!project || !canOpenEpicInRoadmap(task, project)) return
+    setRoadmapFocus({ projectId: project.id, epicKey: (task.parentKey || '').trim(), from: activeViewRef.current })
+    // Through the project selector, as a choice by hand: the filters
+    // remembered for that project come back with it.
+    if (selectedViewId || selectedProjectId !== project.id) setSelectedProjectId(project.id)
+    setActiveView('roadmap')
+  }, [currentProject, projects, selectedViewId, selectedProjectId, setSelectedProjectId, setActiveView])
+
+  const consumeRoadmapFocus = useCallback(() => setRoadmapFocus(null), [])
+
+  const openEpicTickets = useCallback((epicKey: string) => {
+    setParentFilter(epicKey)
+    setActiveView(returnView(roadmapOriginView.current, currentProject))
+  }, [setParentFilter, setActiveView, currentProject])
+
   /**
    * Une vue optionnelle ouverte sur un projet qui ne l'affiche pas laisse un
    * écran mort : le cas arrive en changeant de projet, ou au démarrage quand la
@@ -1317,7 +1370,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     if (labelFilter) params.append('label', labelFilter)
     if (sprintFilter) params.append('sprint', sprintFilter)
     if (teamFilter) params.append('team', teamFilter)
-    if (parentFilter) params.append('macro', parentFilter)
+    // Nor the parent filter (#630): the roadmap lists every epic, and a filter
+    // on one of them would leave the others with no ticket. The way back from
+    // an epic sets that filter for the ticket views, and it waits there.
+    if (parentFilter && activeView !== 'roadmap') params.append('macro', parentFilter)
     // L'assigné se filtre côté serveur comme le reste : il n'était appliqué
     // nulle part, ce qui laissait « Mes tâches » sans effet.
     if (assigneeFilter) params.append('assignee', assigneeFilter)
@@ -3850,7 +3906,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     let out = sourceFilter === 'all'
       ? scoped
       : scoped.filter(t => (t.source || 'local') === sourceFilter)
-    if (parentFilter) {
+    // The roadmap ignores the parent filter, as its query does (#630).
+    if (parentFilter && activeView !== 'roadmap') {
       if (parentFilter === '__no_macro__' || parentFilter === 'none') {
         out = out.filter(t => !t.parentKey && !t.parentTitle)
       } else {
@@ -3858,7 +3915,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       }
     }
     return out
-  }, [tasks, sourceFilter, parentFilter, selectedProjectId, selectedViewId, bookmarkedProjectIds])
+  }, [tasks, sourceFilter, parentFilter, activeView, selectedProjectId, selectedViewId, bookmarkedProjectIds])
 
   // Skill command names are a workstation setting since #305: the local file
   // renames a skill, the server never sees it, so the web shows the defaults.
@@ -4170,6 +4227,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         macroFilter: parentFilter,
         setMacroFilter: setParentFilter,
         availableParents,
+        roadmapFocus,
+        openEpicInRoadmap,
+        consumeRoadmapFocus,
+        openEpicTickets,
         skillLabel,
         skillCommand,
 
