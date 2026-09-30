@@ -10,7 +10,7 @@ const storedKey=saved=>credentials.storedKey(saved,safeStorage)
 const {carryOverDataDirectory}=require('./datadir.cjs')
 const {readAgentLog}=require('./agent-log.cjs')
 const {fileSha256,agentOutdated}=require('./agent-identity.cjs')
-const {normalizeAppearance,windowColors}=require('./appearance.cjs')
+const {normalizeAppearance,windowColors,normalizeConsoleView}=require('./appearance.cjs')
 const {connectionUpdates,connectionView}=require('./connection-settings.cjs')
 if(process.env.SECTILE_DESKTOP_DATA_DIR)app.setPath('userData',process.env.SECTILE_DESKTOP_DATA_DIR)
 // The app kept its data under the previous package name; carry it over once.
@@ -151,6 +151,18 @@ ipcMain.handle('set-appearance',(_,value)=>{
  fs.renameSync(settingsPath()+'.tmp',settingsPath())
  applyAppearance(appearance)
  return appearance
+})
+ipcMain.handle('console-view',()=>{
+ try{return normalizeConsoleView(readSettings().consoleView)}catch{return normalizeConsoleView()}
+})
+ipcMain.handle('set-console-view',(_,value)=>{
+ let previous={}
+ try{previous=readSettings()}catch{}
+ const consoleView=normalizeConsoleView(value)
+ fs.mkdirSync(path.dirname(settingsPath()),{recursive:true,mode:0o700})
+ fs.writeFileSync(settingsPath()+'.tmp',JSON.stringify({...previous,consoleView},null,2),{mode:0o600})
+ fs.renameSync(settingsPath()+'.tmp',settingsPath())
+ return consoleView
 })
 // A change of the setting, or of the OS appearance while it follows the
 // system, repaints what the stylesheet cannot reach. macOS draws its own
@@ -344,7 +356,8 @@ ipcMain.handle('choose-repository',async()=>{
  return result.canceled?null:result.filePaths[0]
 })
 ipcMain.handle('server-tasks',(_,id,q,launchable)=>api('/desktop/tasks?projectId='+encodeURIComponent(id)+'&q='+encodeURIComponent(q||'')+'&launchable='+Boolean(launchable)))
-ipcMain.handle('launch-console',(_,projectId,provider,engineId)=>api('/desktop/consoles','POST',engineId?{projectId,engineId}:{projectId,provider}))
+// An agent that predates the conversation view ignores `view` and opens a PTY.
+ipcMain.handle('launch-console',(_,projectId,provider,engineId,view)=>api('/desktop/consoles','POST',Object.assign(engineId?{projectId,engineId}:{projectId,provider},view==='conversation'?{view}:null)))
 // An absent mode means "no override": nothing is sent, so a launch with no
 // explicit choice puts exactly the payload on the wire that it always did.
 ipcMain.handle('launch-server-task',(_,id,taskID,skillID,prompt,mode,force)=>api('/desktop/tasks?projectId='+encodeURIComponent(id),'POST',Object.assign({taskID,skillID,prompt},mode?{mode}:null,force?{force:true}:null)))
@@ -454,7 +467,7 @@ ipcMain.handle('create-conversation',async(_,sourceRunId)=>{
  return api('/desktop/conversation','POST',{sourceRunId})
 })
 ipcMain.handle('conversation',(_,id)=>api('/desktop/conversation?id='+encodeURIComponent(id)))
-ipcMain.handle('conversation-message',(_,{id,message})=>api('/desktop/conversation?id='+encodeURIComponent(id),'POST',{message}))
+ipcMain.handle('conversation-message',(_,{id,message,effort})=>api('/desktop/conversation?id='+encodeURIComponent(id),'POST',{message,effort:typeof effort==='string'?effort:''}))
 // The agent forgets a run once its history is cleared or it restarts, and
 // answers 404 by contract. Report "no result" instead of rejecting the IPC
 // promise: Electron logs every rejected handler with a stack, and this outcome

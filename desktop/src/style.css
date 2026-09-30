@@ -477,7 +477,7 @@ dialog.workstation-settings{width:min(1100px,94vw);max-height:90vh}
 .conversation[hidden]{display:none}
 .conversation-events{flex:1;min-height:0;overflow:auto;padding:24px;display:flex;flex-direction:column;gap:16px}
 .conversation-event{max-width:850px;width:100%;box-sizing:border-box;align-self:center;line-height:1.6;overflow-wrap:anywhere;font-size:13px}
-.conversation-user{padding:12px 16px;border-radius:12px;background:var(--button-bg);border:1px solid var(--border-strong)}
+.conversation-user{padding:0 2px}
 .conversation-speaker{display:block;font-size:11px;color:var(--text-faint);margin-bottom:6px}
 .conversation-event pre{padding:12px;overflow:auto;background:var(--button-bg);border:1px solid var(--border-strong);border-radius:8px;white-space:pre-wrap}
 .conversation-event code{font-family:Menlo,Consolas,monospace;font-size:12px}
@@ -485,8 +485,29 @@ dialog.workstation-settings{width:min(1100px,94vw);max-height:90vh}
 .conversation-tool summary{cursor:pointer;font-weight:600}
 .conversation-notice,.conversation-thinking{color:var(--text-faint)}
 .conversation-error{color:var(--danger)}
-.conversation-composer{padding:16px 24px;border-top:1px solid var(--border-strong);display:flex;flex-direction:column;gap:8px}
-.conversation-composer label{font-size:12px;font-weight:600}
-.conversation-composer textarea{resize:vertical;min-height:64px;max-height:220px;box-sizing:border-box;width:100%;font:inherit;color:var(--text);background:var(--button-bg);border:1px solid var(--border-strong);border-radius:8px;padding:12px}
-.conversation-composer>div{display:flex;justify-content:space-between;align-items:center;gap:12px}
-.conversation-composer small,.conversation-status{font-size:11px;color:var(--text-faint)}
+.conversation-composer{position:relative;margin:8px 24px 20px;max-width:850px;width:calc(100% - 48px);box-sizing:border-box;align-self:center;display:flex;flex-direction:column;gap:6px;padding:14px 14px 10px 18px;background:var(--button-bg);border:1px solid var(--border-strong);border-radius:18px;transition:border-color .15s}
+.conversation-composer:focus-within{border-color:var(--accent-border)}
+/* A soft accent glow along the bottom edge while the composer has focus. */
+.conversation-composer::after{content:'';position:absolute;left:12%;right:12%;bottom:-1px;height:1px;background:linear-gradient(90deg,transparent,var(--accent),transparent);opacity:0;transition:opacity .15s;pointer-events:none}
+.conversation-composer:focus-within::after{opacity:.8}
+.conversation-composer textarea{resize:none;min-height:44px;max-height:220px;overflow-y:auto;box-sizing:border-box;width:100%;font:inherit;font-size:14px;line-height:1.5;color:var(--text);background:transparent;border:0;outline:0;padding:2px 0}
+.conversation-composer textarea::placeholder{color:var(--text-faint)}
+.conversation-composer textarea:disabled{cursor:not-allowed}
+.conversation-toolbar{display:flex;align-items:center;gap:14px}
+.conversation-chip{font-size:12px;color:var(--text-faint);white-space:nowrap;cursor:default}
+.conversation-status{margin-left:auto;font-size:11px;color:var(--text-faint);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.conversation-send{flex:none;width:32px;height:32px;padding:0;display:grid;place-items:center;border-radius:50%;border:1px solid var(--accent-border);background:var(--accent-button-bg);color:var(--accent-text)}
+.conversation-send:disabled{border-color:var(--border-strong);background:transparent;color:var(--text-faint)}
+.conversation-effort{display:inline-flex;align-items:center;gap:6px}
+.conversation-effort svg{fill:var(--border-strong)}
+.conversation-effort rect.lit{fill:var(--text-faint)}
+.conversation-effort select{appearance:none;field-sizing:content;border:0;background:transparent;color:inherit;font:inherit;padding:2px 0;cursor:pointer}
+.conversation-effort select:focus-visible{outline:1px solid var(--accent-border);border-radius:4px}
+.conversation-effort select:disabled{cursor:not-allowed}
+.conversation-context{flex:none;position:relative;width:32px;height:32px;display:grid;place-items:center;cursor:default}
+.conversation-context[hidden]{display:none}
+.conversation-context svg{position:absolute;inset:0;fill:none;stroke-width:3}
+.conversation-context circle{stroke:var(--border-strong)}
+.conversation-context .conversation-context-used{stroke:var(--accent);stroke-linecap:round;transition:stroke-dasharray .3s}
+.conversation-context.full .conversation-context-used{stroke:var(--warn-text)}
+.conversation-context>span{font-size:8.5px;font-weight:600;color:var(--text-faint)}

@@ -25,13 +25,36 @@ export function renderConversationText(container,text){
 export function createConversationView({api,container,onError}){
  const panel=document.createElement('section');panel.className='conversation';panel.hidden=true
  panel.setAttribute('aria-label','Claude Code conversation')
- panel.innerHTML='<div class="conversation-events" role="log" aria-label="Conversation messages"></div><form class="conversation-composer"><label for="conversation-message">Message Claude Code</label><textarea id="conversation-message" rows="3" maxlength="60000" placeholder="Ask a question or describe a change…" required></textarea><div><span class="conversation-status" role="status"></span><button type="submit">Send</button></div><small>Experimental · edits accepted; tools requiring approval are denied. Stop closes this conversation. History after an agent restart is read-only.</small></form>'
+ panel.innerHTML='<div class="conversation-events" role="log" aria-label="Conversation messages"></div><form class="conversation-composer"><label class="visually-hidden" for="conversation-message">Message Claude Code</label><textarea id="conversation-message" rows="2" maxlength="60000" placeholder="Ask a question or describe a change…" required></textarea><div class="conversation-toolbar"><span class="conversation-chip conversation-model" title="Model inherited from the source execution"></span><label class="conversation-chip conversation-effort" title="Reasoning effort for the next message"><svg viewBox="0 0 20 14" width="18" height="13" aria-hidden="true"><rect x="0" y="10" width="3" height="4" rx="1"/><rect x="4" y="8" width="3" height="6" rx="1"/><rect x="8" y="6" width="3" height="8" rx="1"/><rect x="12" y="3" width="3" height="11" rx="1"/><rect x="16" y="0" width="3" height="14" rx="1"/></svg><select aria-label="Effort"><option value="">Default effort</option><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="xhigh">Extra high</option><option value="max">Max</option></select></label><span class="conversation-chip" title="Edits are accepted; tools requiring approval are denied. Stop closes this conversation. History after an agent restart is read-only.">Accept edits</span><span class="conversation-status" role="status"></span><span class="conversation-context" role="img" hidden><svg viewBox="0 0 36 36" aria-hidden="true"><circle cx="18" cy="18" r="15"/><circle class="conversation-context-used" cx="18" cy="18" r="15" pathLength="100" stroke-dasharray="0 100" transform="rotate(-90 18 18)"/></svg><span></span></span><button type="submit" class="conversation-send" aria-label="Send" title="Send (Enter) · New line (Shift+Enter)"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button></div></form>'
  container.append(panel)
- const events=panel.querySelector('.conversation-events'),form=panel.querySelector('form'),input=panel.querySelector('textarea'),send=panel.querySelector('button'),status=panel.querySelector('.conversation-status')
- let selected=null,generation=0,timer=null,version=null,pending=false,available=false
+ const events=panel.querySelector('.conversation-events'),form=panel.querySelector('form'),input=panel.querySelector('textarea'),send=panel.querySelector('button'),status=panel.querySelector('.conversation-status'),model=panel.querySelector('.conversation-model'),effort=panel.querySelector('.conversation-effort select'),effortBars=panel.querySelectorAll('.conversation-effort rect'),ring=panel.querySelector('.conversation-context')
+ const levels=['','low','medium','high','xhigh','max']
+ // One lit bar per level; the default effort lights none, since the CLI decides it.
+ const showEffort=()=>effortBars.forEach((bar,i)=>bar.classList.toggle('lit',i<levels.indexOf(effort.value)))
+ effort.addEventListener('change',showEffort)
+ function showContext(context){
+  ring.hidden=!context?.window
+  if(ring.hidden)return
+  const percent=Math.min(100,Math.round(context.used*100/context.window))
+  ring.querySelector('.conversation-context-used').setAttribute('stroke-dasharray',percent+' 100')
+  ring.querySelector('span').textContent=percent+'%'
+  ring.classList.toggle('full',percent>=80)
+  const label=context.used.toLocaleString('en-US')+' of '+context.window.toLocaleString('en-US')+' context tokens used ('+percent+'%)'
+  ring.title=label;ring.setAttribute('aria-label',label)
+ }
+ // The textarea grows with its content up to the CSS max-height, then scrolls.
+ const grow=()=>{input.style.height='auto';input.style.height=input.scrollHeight+'px'}
+ input.addEventListener('input',grow)
+ input.addEventListener('keydown',event=>{
+  if(event.key==='Enter'&&!event.shiftKey&&!event.isComposing){event.preventDefault();form.requestSubmit()}
+ })
+ let selected=null,generation=0,timer=null,version=null,pending=false,available=false,effortLoaded=false
  function controls(data){
   available=!data.readOnly&&!data.busy
-  input.disabled=!!data.readOnly;send.disabled=!available||pending
+  input.disabled=effort.disabled=!!data.readOnly;send.disabled=!available||pending
+  // The agent's effort is adopted once per selection so polling never undoes a pick.
+  if(!effortLoaded){effortLoaded=true;effort.value=levels.includes(data.effort)?data.effort:'';showEffort()}
+  showContext(data.context)
   status.textContent=data.readOnly?'Read-only history':data.busy?'Claude Code is working…':'Ready'
  }
  function draw(data){
@@ -73,15 +96,15 @@ export function createConversationView({api,container,onError}){
   if(!id||!message.trim()||pending||!available)return
   pending=true;send.disabled=true
   try{
-   await api.conversationMessage(id,message)
+   await api.conversationMessage(id,message,effort.value)
    if(token!==generation)return
-   input.value='';available=false;status.textContent='Claude Code is working…'
+   input.value='';grow();available=false;status.textContent='Claude Code is working…'
   }catch(err){if(token===generation)onError(err)}
   finally{if(token===generation){pending=false;send.disabled=!available}}
  })
  return {select(run){
-  generation++;clearTimeout(timer);selected=run?.conversation?run.id:null;version=null;pending=false;available=false
-  events.replaceChildren();input.value='';input.disabled=true;send.disabled=true
+  generation++;clearTimeout(timer);selected=run?.conversation?run.id:null;version=null;pending=false;available=false;effortLoaded=false
+  events.replaceChildren();effort.value='';effort.disabled=true;showEffort();showContext(null);input.value='';grow();model.textContent=run?.model||'CLI default';input.disabled=true;send.disabled=true
   panel.hidden=!selected;container.classList.toggle('conversation-active',!!selected)
   if(selected){status.textContent='Loading conversation…';poll(generation,selected)}
  },get active(){return !!selected}}

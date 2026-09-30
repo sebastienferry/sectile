@@ -33,7 +33,7 @@ import { offerFor, initializedNotice } from './git-init.mjs'
 // agent stopped.
 import changelogSource from '../../CHANGELOG.md?raw'
 import { parseChangelog, releaseNotesFor } from './changelog.mjs'
-import { APPEARANCE_CHOICES, terminalTheme } from './appearance.mjs'
+import { APPEARANCE_CHOICES, CONSOLE_VIEW_CHOICES, terminalTheme } from './appearance.mjs'
 const api=window.localAgent
 // Concurrent execution workers ceiling per project, aligned with agentconfig.MaxParallelism.
 // Parallelism is a workstation setting: the server neither stores nor supplies it.
@@ -137,6 +137,9 @@ let opened=false,selected=null,runs=[],last='',stopping=false,restarting=false,p
 const conversation=createConversationView({api,container:document.querySelector('#terminal'),onError:error})
 const conversationButton=document.createElement('button')
 conversationButton.type='button';conversationButton.textContent='Claude chat (test)';conversationButton.hidden=true
+// The conversation view is opt-in from Appearance; the terminal stays the default.
+let consoleView='terminal'
+api.consoleView().then(value=>{consoleView=value;render()}).catch(()=>{})
 conversationButton.title='Start an independent Claude Code conversation in this execution’s directory'
 document.querySelector('#save-log').before(conversationButton)
 conversationButton.onclick=async()=>{
@@ -642,7 +645,7 @@ function render(options){
  renderTaskSkillStatuses()
  document.querySelector('#clear-history').disabled=!runs.some(run=>['completed','failed','canceled'].includes(run.status))
  const current=runs.find(run=>run.id===selected)
- conversationButton.hidden=!current?.directory||!!current.conversation||!agentConnected
+ conversationButton.hidden=consoleView!=='conversation'||!current?.directory||!!current.conversation||!agentConnected
  document.querySelector('#save-log').disabled=!!current?.conversation
  const history=document.querySelector('#execution-history')
  const executions=current?runs.filter(run=>taskKey(run)===taskKey(current)).sort((a,b)=>(a.createdAt||'').localeCompare(b.createdAt||'')||a.id.localeCompare(b.id)):[]
@@ -1713,6 +1716,18 @@ function openSettings(initial='Profile',project){
  const appearance=settingRow('Theme',null,appearanceGroup)
  appearance.hint.textContent='System follows the appearance of this computer. The web interface keeps its own theme.'
  panels.Appearance.append(appearance.section)
+ const viewGroup=document.createElement('div');viewGroup.className='segmented'
+ viewGroup.setAttribute('role','group');viewGroup.setAttribute('aria-label','Claude consoles')
+ const markView=value=>{for(const button of viewGroup.children)button.setAttribute('aria-pressed',String(button.dataset.value===value))}
+ for(const choice of CONSOLE_VIEW_CHOICES){
+  const button=document.createElement('button');button.type='button';button.textContent=choice.label;button.dataset.value=choice.value
+  button.onclick=()=>api.setConsoleView(choice.value).then(value=>{consoleView=value;markView(value);render()}).catch(error)
+  viewGroup.append(button)
+ }
+ const view=settingRow('Claude consoles',null,viewGroup)
+ view.hint.textContent='Conversation opens Claude project prompts in a structured view instead of a terminal (experimental). Other engines and custom launch commands keep the terminal.'
+ panels.Appearance.append(view.section)
+ markView(consoleView)
  markAppearance('system')
  api.appearance().then(value=>{if(configurationActive()&&generation===configurationGeneration)markAppearance(value)}).catch(()=>{})
 
@@ -3112,7 +3127,7 @@ async function openAgentConsole(projectID,previousProvider){
   event.preventDefault();if(launch.disabled)return
   launch.disabled=true;notice.textContent='Opening console…'
   try{
-   const run=await api.launchConsole(projectID,catalogue?undefined:provider.value,catalogue?provider.value:undefined)
+   const run=await api.launchConsole(projectID,catalogue?undefined:provider.value,catalogue?provider.value:undefined,consoleView)
    collapsedProjects.delete(projectID);queueProjects.delete(projectID)
    if(!runs.some(item=>item.id===run.id))runs.push(run)
    dialog.close();select(run);await refresh()

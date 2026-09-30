@@ -21,6 +21,29 @@ import (
 type claudeConversation struct {
 	session string
 	busy    bool
+	// effort is the level the last turn ran with; empty leaves the CLI default.
+	effort string
+	// contextUsed is the size of the latest main-thread request, and
+	// contextWindow the limit Claude reported for its model; zero when unknown.
+	contextUsed   int
+	contextWindow int
+}
+
+// conversationEfforts are the levels `claude --effort` accepts.
+var conversationEfforts = map[string]bool{"low": true, "medium": true, "high": true, "xhigh": true, "max": true}
+
+// conversationUsage is the token accounting of one Claude API request.
+type conversationUsage struct {
+	Input         int `json:"input_tokens"`
+	CacheCreation int `json:"cache_creation_input_tokens"`
+	CacheRead     int `json:"cache_read_input_tokens"`
+	Output        int `json:"output_tokens"`
+}
+
+// contextSize is what the request occupies in the context window: everything
+// sent, cached or not, plus what the model wrote back into the transcript.
+func (u conversationUsage) contextSize() int {
+	return u.Input + u.CacheCreation + u.CacheRead + u.Output
 }
 
 type conversationEvent struct {
@@ -43,6 +66,7 @@ func (d *agentDaemon) desktopConversation(w http.ResponseWriter, r *http.Request
 	var input struct {
 		SourceRunID string `json:"sourceRunId"`
 		Message     string `json:"message"`
+		Effort      string `json:"effort"`
 	}
 	if r.Method == http.MethodPost {
 		if json.NewDecoder(http.MaxBytesReader(w, r.Body, 64*1024)).Decode(&input) != nil {
@@ -58,24 +82,16 @@ func (d *agentDaemon) desktopConversation(w http.ResponseWriter, r *http.Request
 			http.Error(w, "Select an execution with a local directory", http.StatusNotFound)
 			return
 		}
-		id = uuid.NewString()
-		run, err := d.enqueueRunLocked("", agentconfig.Dispatch{RunID: id}, source.desktop.ProjectID, source.desktop.Directory, 1, false)
+		model := ""
+		if source.desktop.Provider == "claude" {
+			model = source.desktop.Model
+		}
+		run, err := d.newConversationLocked(source.desktop.ProjectID, source.desktop.Directory, model, "This conversation is independent of the selected execution and uses the same directory.")
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusConflict)
 			return
 		}
-		run.desktop.Kind = consoleRunKind
-		run.desktop.Provider = "claude"
-		if source.desktop.Provider == "claude" {
-			run.desktop.Model = source.desktop.Model
-		}
 		run.desktop.Branch = source.desktop.Branch
-		run.desktop.Conversation, run.desktop.Headless = true, true
-		run.desktop.Status = "running"
-		run.desktop.StartedAt = time.Now().UTC()
-		run.trace = newRunTrace()
-		run.conversation = &claudeConversation{}
-		conversationWrite(run.trace, "notice", "Claude Code conversation · experimental", "Edits are accepted. Commands requiring approval are denied. This conversation is independent of the selected execution and uses the same directory.")
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
 		_ = json.NewEncoder(w).Encode(run.desktop)
@@ -88,13 +104,23 @@ func (d *agentDaemon) desktopConversation(w http.ResponseWriter, r *http.Request
 	}
 	if r.Method == http.MethodGet {
 		lines, version := run.trace.snapshot()
-		busy := run.conversation != nil && run.conversation.busy
+		response := map[string]any{"id": id, "events": lines, "version": version, "busy": false, "readOnly": run.restored || run.canceled || run.conversation == nil}
+		if c := run.conversation; c != nil {
+			response["busy"], response["effort"] = c.busy, c.effort
+			if c.contextWindow > 0 {
+				response["context"] = map[string]int{"used": c.contextUsed, "window": c.contextWindow}
+			}
+		}
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{"id": id, "events": lines, "version": version, "busy": busy, "readOnly": run.restored || run.canceled || run.conversation == nil})
+		_ = json.NewEncoder(w).Encode(response)
 		return
 	}
 	if strings.TrimSpace(input.Message) == "" {
 		http.Error(w, "Message required", http.StatusBadRequest)
+		return
+	}
+	if input.Effort != "" && !conversationEfforts[input.Effort] {
+		http.Error(w, "Unknown effort level", http.StatusBadRequest)
 		return
 	}
 	if run.conversation == nil || run.restored || run.canceled || d.queue.shuttingDown || run.conversation.busy {
@@ -102,6 +128,7 @@ func (d *agentDaemon) desktopConversation(w http.ResponseWriter, r *http.Request
 		return
 	}
 	run.conversation.busy = true
+	run.conversation.effort = input.Effort
 	conversationWrite(run.trace, "user", input.Message, "")
 	go d.conversationTurn(run, input.Message)
 	w.Header().Set("Content-Type", "application/json")
@@ -109,10 +136,32 @@ func (d *agentDaemon) desktopConversation(w http.ResponseWriter, r *http.Request
 	_ = json.NewEncoder(w).Encode(map[string]bool{"accepted": true})
 }
 
-func claudeConversationCommand(directory, model, session, prompt string) *exec.Cmd {
+// newConversationLocked admits a conversation in directory. It needs no run
+// slot: no process exists until a message arrives. The queue lock is held.
+func (d *agentDaemon) newConversationLocked(projectID, directory, model, origin string) (*controlledRun, error) {
+	run, err := d.enqueueRunLocked("", agentconfig.Dispatch{RunID: uuid.NewString()}, projectID, directory, 1, false)
+	if err != nil {
+		return nil, err
+	}
+	run.desktop.Kind = consoleRunKind
+	run.desktop.Provider = "claude"
+	run.desktop.Model = model
+	run.desktop.Conversation, run.desktop.Headless = true, true
+	run.desktop.Status = "running"
+	run.desktop.StartedAt = time.Now().UTC()
+	run.trace = newRunTrace()
+	run.conversation = &claudeConversation{}
+	conversationWrite(run.trace, "notice", "Claude Code conversation · experimental", "Edits are accepted. Commands requiring approval are denied. "+origin)
+	return run, nil
+}
+
+func claudeConversationCommand(directory, model, effort, session, prompt string) *exec.Cmd {
 	args := []string{"-p", "--output-format", "stream-json", "--verbose", "--permission-mode", "acceptEdits"}
 	if model != "" {
 		args = append(args, "--model", model)
+	}
+	if effort != "" {
+		args = append(args, "--effort", effort)
 	}
 	if session != "" {
 		args = append(args, "--resume", session)
@@ -156,17 +205,44 @@ func (o *conversationOutput) Write(data []byte) (int, error) {
 
 func (d *agentDaemon) conversationTurn(run *controlledRun, prompt string) {
 	d.queue.mu.Lock()
-	cmd := claudeConversationCommand(run.desktop.Directory, run.desktop.Model, run.conversation.session, prompt)
+	cmd := claudeConversationCommand(run.desktop.Directory, run.desktop.Model, run.conversation.effort, run.conversation.session, prompt)
 	d.queue.mu.Unlock()
-	resultSeen, resultFailed, assistantSeen := false, false, false
+	resultSeen, resultFailed, assistantSeen, mainModel := false, false, false, ""
 	output := &conversationOutput{line: func(line string) {
 		var frame struct {
 			Type    string            `json:"type"`
 			Session string            `json:"session_id"`
 			IsError bool              `json:"is_error"`
+			Model   string            `json:"model"`
 			Denials []json.RawMessage `json:"permission_denials"`
+			// A subagent's requests carry their own context; only the main
+			// thread's measure the conversation.
+			Parent  *string `json:"parent_tool_use_id"`
+			Message struct {
+				Usage *conversationUsage `json:"usage"`
+			} `json:"message"`
+			ModelUsage map[string]struct {
+				ContextWindow int `json:"contextWindow"`
+			} `json:"modelUsage"`
 		}
 		if json.Unmarshal([]byte(line), &frame) == nil && frame.Type != "" {
+			d.queue.mu.Lock()
+			if frame.Type == "assistant" && frame.Parent == nil && frame.Message.Usage != nil {
+				run.conversation.contextUsed = frame.Message.Usage.contextSize()
+			}
+			if frame.Type == "system" && frame.Model != "" {
+				mainModel = frame.Model
+			}
+			// modelUsage also lists the models subagents used, so the main
+			// model's entry wins; the largest window is only a fallback.
+			if usage, ok := frame.ModelUsage[mainModel]; ok && usage.ContextWindow > 0 {
+				run.conversation.contextWindow = usage.ContextWindow
+			} else {
+				for _, usage := range frame.ModelUsage {
+					run.conversation.contextWindow = max(run.conversation.contextWindow, usage.ContextWindow)
+				}
+			}
+			d.queue.mu.Unlock()
 			if frame.Session != "" && (frame.Type == "system" || frame.Type == "result") {
 				if _, err := uuid.Parse(frame.Session); err == nil {
 					d.queue.mu.Lock()

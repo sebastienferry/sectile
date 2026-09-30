@@ -49,6 +49,9 @@ func TestConversationRequiresDesktopAuthenticationAndOwnedDirectory(t *testing.T
 	if w := conversationRequest(d, "POST", "/desktop/conversation?id="+id, `{"message":" "}`, "private"); w.Code != 400 {
 		t.Fatal("empty turn admitted")
 	}
+	if w := conversationRequest(d, "POST", "/desktop/conversation?id="+id, `{"message":"hello","effort":"--dangerously-skip-permissions"}`, "private"); w.Code != 400 {
+		t.Fatal("unknown effort admitted")
+	}
 	d.queue.mu.Lock()
 	d.queue.runs[id].conversation.busy = true
 	d.queue.mu.Unlock()
@@ -68,8 +71,8 @@ func TestConversationRequiresDesktopAuthenticationAndOwnedDirectory(t *testing.T
 
 func TestConversationCommandPassesPromptWithoutShellInterpretation(t *testing.T) {
 	prompt := "--help\n$(touch should-not-exist) `echo unsafe`"
-	cmd := claudeConversationCommand(t.TempDir(), "sonnet", "session", prompt)
-	if got := strings.Join(cmd.Args, " "); strings.Contains(got, "touch") || !strings.Contains(got, "--resume session") || !strings.Contains(got, "--model sonnet") || strings.Contains(got, "bypassPermissions") {
+	cmd := claudeConversationCommand(t.TempDir(), "sonnet", "high", "session", prompt)
+	if got := strings.Join(cmd.Args, " "); strings.Contains(got, "touch") || !strings.Contains(got, "--resume session") || !strings.Contains(got, "--model sonnet") || !strings.Contains(got, "--effort high") || strings.Contains(got, "bypassPermissions") {
 		t.Fatalf("unsafe or incomplete command: %s", got)
 	}
 	data, err := io.ReadAll(cmd.Stdin)
@@ -102,9 +105,10 @@ func TestConversationRunsAndResumesClaudeWithoutPTY(t *testing.T) {
 	script := `#!/bin/sh
 cat > prompt.txt
 printf '%s\n' "$@" >> args.txt
-printf '%s\n' '{"type":"system","subtype":"init","session_id":"11111111-1111-4111-8111-111111111111"}'
-printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"text","text":"Hello"},{"type":"tool_use","name":"Read","input":{"file_path":"file.go"}}]}}'
-printf '%s\n' '{"type":"result","is_error":false,"result":"Hello","session_id":"11111111-1111-4111-8111-111111111111"}'
+printf '%s\n' '{"type":"system","subtype":"init","model":"claude-main","session_id":"11111111-1111-4111-8111-111111111111"}'
+printf '%s\n' '{"type":"assistant","parent_tool_use_id":null,"message":{"usage":{"input_tokens":10,"cache_creation_input_tokens":2000,"cache_read_input_tokens":40000,"output_tokens":90},"content":[{"type":"text","text":"Hello"},{"type":"tool_use","name":"Read","input":{"file_path":"file.go"}}]}}'
+printf '%s\n' '{"type":"assistant","parent_tool_use_id":"toolu_1","message":{"usage":{"input_tokens":900000,"output_tokens":1},"content":[]}}'
+printf '%s\n' '{"type":"result","is_error":false,"result":"Hello","session_id":"11111111-1111-4111-8111-111111111111","modelUsage":{"claude-main":{"contextWindow":200000},"claude-subagent":{"contextWindow":1000000}}}'
 `
 	if err := os.WriteFile(filepath.Join(bin, "claude"), []byte(script), 0700); err != nil {
 		t.Fatal(err)
@@ -113,7 +117,7 @@ printf '%s\n' '{"type":"result","is_error":false,"result":"Hello","session_id":"
 	d, id := conversationFixture(t)
 	run := d.queue.runs[id]
 	for _, prompt := range []string{"first", "second $(touch unsafe)"} {
-		body, _ := json.Marshal(map[string]string{"message": prompt})
+		body, _ := json.Marshal(map[string]string{"message": prompt, "effort": "xhigh"})
 		w := conversationRequest(d, "POST", "/desktop/conversation?id="+id, string(body), "private")
 		if w.Code != 202 {
 			t.Fatalf("send: %d %s", w.Code, w.Body.String())
@@ -136,7 +140,7 @@ printf '%s\n' '{"type":"result","is_error":false,"result":"Hello","session_id":"
 		}
 	}
 	args, err := os.ReadFile(filepath.Join(run.root, "args.txt"))
-	if err != nil || !strings.Contains(string(args), "--resume\n11111111-1111-4111-8111-111111111111") {
+	if err != nil || !strings.Contains(string(args), "--resume\n11111111-1111-4111-8111-111111111111") || strings.Count(string(args), "--effort\nxhigh") != 2 {
 		t.Fatalf("session not resumed: %s %v", args, err)
 	}
 	prompt, _ := os.ReadFile(filepath.Join(run.root, "prompt.txt"))
@@ -150,6 +154,10 @@ printf '%s\n' '{"type":"result","is_error":false,"result":"Hello","session_id":"
 	text := strings.Join(lines, "\n")
 	if strings.Count(text, `"kind":"assistant"`) != 2 || !strings.Contains(text, `"kind":"tool"`) || strings.Contains(text, `"kind":"error"`) {
 		t.Fatalf("unexpected transcript: %s", text)
+	}
+	w := conversationRequest(d, "GET", "/desktop/conversation?id="+id, "", "private")
+	if body := w.Body.String(); !strings.Contains(body, `"context":{"used":42100,"window":200000}`) || !strings.Contains(body, `"effort":"xhigh"`) {
+		t.Fatalf("context or effort not reported, or a subagent counted: %s", body)
 	}
 	if run.desktop.SessionID != "" || !run.desktop.Headless {
 		t.Fatal("conversation acquired a PTY")

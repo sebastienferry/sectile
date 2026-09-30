@@ -34,6 +34,9 @@ func (d *agentDaemon) desktopConsole(w http.ResponseWriter, r *http.Request) {
 		ProjectID string `json:"projectId"`
 		Provider  string `json:"provider"`
 		EngineID  string `json:"engineId"`
+		// View "conversation" asks for Claude's structured view instead of a
+		// PTY. It is a preference: an engine it cannot honour gets the PTY.
+		View string `json:"view"`
 	}
 	if json.NewDecoder(http.MaxBytesReader(w, r.Body, 8192)).Decode(&input) != nil || strings.TrimSpace(input.ProjectID) == "" {
 		http.Error(w, "Project and AI engine required", http.StatusBadRequest)
@@ -80,6 +83,23 @@ func (d *agentDaemon) desktopConsole(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	// A custom launch template is a command line the conversation cannot run.
+	if input.View == "conversation" && provider == "claude" && (input.EngineID == "" || config.AICommandTemplate == "") {
+		d.queue.mu.Lock()
+		run, err := d.newConversationLocked(input.ProjectID, root, config.AIModel, "It runs in this project's local repository.")
+		if err != nil {
+			d.queue.mu.Unlock()
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
+		run.desktop.EngineID, run.desktop.EngineName = engine.ID, engine.Name
+		entry := run.desktop
+		d.queue.mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusAccepted)
+		_ = json.NewEncoder(w).Encode(entry)
 		return
 	}
 	d.queue.mu.Lock()
