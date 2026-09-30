@@ -12,6 +12,10 @@
 const fr = {
   roadmap: {
     tabs: { unclassified: 'Non classés', hidden: 'Masqués' },
+    focus: {
+      unknownTitle: 'Macro introuvable',
+      unknown: "{key} n'est pas une macro de la roadmap de ce projet. Relis les macros avec une synchro, ou vérifie que son projet tracker est déclaré.",
+    },
     filters: { unassigned: 'non assigné', pinnedOnly: 'épinglés seulement', search: '« {query} »' },
     noProjectTitle: 'Aucun projet sélectionné',
     noProjectBody: 'Choisis un projet pour classer ses macros.',
@@ -141,6 +145,8 @@ const fr = {
       expand: 'Plein écran',
       openRemoteTitle: 'Ouvrir {key} dans le tracker distant',
       link: 'Lien',
+      openTickets: 'Ses tickets',
+      openTicketsTitle: 'Ouvrir les tickets de {key}, filtrés sur cette macro',
       renameTitle: 'Modifier le nom de la macro / milestone',
       rename: 'Renommer',
       migrateTitle: 'Migrer cette macro et ses tickets vers un autre projet compatible',
@@ -435,6 +441,10 @@ export type PlanningStrings = typeof fr
 const en: PlanningStrings = {
   roadmap: {
     tabs: { unclassified: 'Unclassified', hidden: 'Hidden' },
+    focus: {
+      unknownTitle: 'Macro not found',
+      unknown: "{key} is not a macro of this project's roadmap. Re-read the macros with a sync, or check that its tracker project is declared.",
+    },
     filters: { unassigned: 'unassigned', pinnedOnly: 'pinned only', search: '"{query}"' },
     noProjectTitle: 'No project selected',
     noProjectBody: 'Choose a project to classify its macros.',
@@ -564,6 +574,8 @@ const en: PlanningStrings = {
       expand: 'Full screen',
       openRemoteTitle: 'Open {key} in the remote tracker',
       link: 'Link',
+      openTickets: 'Its tickets',
+      openTicketsTitle: 'Open the tickets of {key}, filtered on this macro',
       renameTitle: 'Rename the macro / milestone',
       rename: 'Rename',
       migrateTitle: 'Migrate this macro and its tickets to another compatible project',

@@ -26,6 +26,7 @@ import {
   ArrowRightLeft,
   Sparkles,
   ListChecks,
+  ListFilter,
   FolderGit2,
   Maximize2,
   Minimize2,
@@ -93,6 +94,7 @@ import {
   saveRoadmapSelectedKey,
   saveRoadmapTab,
 } from '../lib/roadmapViewPrefs'
+import { locateEpic } from '../lib/roadmapFocus'
 import {
   EPIC_PRIORITIES,
   EPIC_PRIORITY_LEVEL,
@@ -197,6 +199,11 @@ export const RoadmapView: React.FC = () => {
     pushPendingHorizons,
     importMacroHorizons,
     createBatchTasks,
+    isLoading,
+    setActiveView,
+    roadmapFocus,
+    consumeRoadmapFocus,
+    openEpicTickets,
     t,
   } = useApp()
   const strings = t.planning.roadmap
@@ -513,12 +520,20 @@ export const RoadmapView: React.FC = () => {
     window.addEventListener('pointerup', onUp)
   }
 
+  // The project the loaded macros belong to: a ticket's epic is looked for
+  // only once they are this project's, never in the list of the previous one.
+  const [macrosFor, setMacrosFor] = useState('')
   useEffect(() => {
     if (!currentProject?.id) {
       setMacroMeta([])
+      setMacrosFor('')
       return
     }
-    fetchProjectMacros(currentProject.id).then(setMacroMeta)
+    const projectId = currentProject.id
+    fetchProjectMacros(projectId).then(list => {
+      setMacroMeta(list)
+      setMacrosFor(projectId)
+    })
   }, [currentProject?.id, fetchProjectMacros, activeJobCount])
 
   // Whether a push is late is read from the tracker, not locally: a failure
@@ -552,6 +567,47 @@ export const RoadmapView: React.FC = () => {
   }, [currentProject?.id, activeJobCount])
 
   const allRows = useMemo(() => buildMacroRows(tasks, currentProject, macroMeta), [tasks, currentProject, macroMeta])
+
+  // A ticket asked for its epic (#630). The request is answered once, when
+  // this project's tickets and epics are loaded, and dropped before anything
+  // else so a later filter or tab change never brings the epic back. What
+  // could hide the epic is cleared; how the roadmap is read (grouping, sort,
+  // row shape, expanded panel) is left as the user set it.
+  useEffect(() => {
+    if (!roadmapFocus || !currentProject?.id) return
+    if (roadmapFocus.projectId !== currentProject.id || macrosFor !== currentProject.id || isLoading) return
+    consumeRoadmapFocus()
+    const { epicKey, from } = roadmapFocus
+    const place = locateEpic(allRows, epicKey)
+    if (!place) {
+      addToast({ type: 'error', title: strings.focus.unknownTitle, description: format(strings.focus.unknown, { key: epicKey }) })
+      if (from !== 'roadmap') setActiveView(from)
+      return
+    }
+    if (searchQuery) setSearchQuery('')
+    setSelectedLabels([])
+    setPriorityFilter(null)
+    setOnlyIssues(false)
+    if (place.closed) setShowClosed(true)
+    setTab(place.tab)
+    setSelectedKey(epicKey)
+    setIsPanelHidden(false)
+  }, [
+    roadmapFocus,
+    currentProject?.id,
+    macrosFor,
+    isLoading,
+    allRows,
+    consumeRoadmapFocus,
+    addToast,
+    strings.focus,
+    setActiveView,
+    searchQuery,
+    setSearchQuery,
+    setTab,
+    setSelectedKey,
+    setIsPanelHidden,
+  ])
 
   // The label filter offers what the epics the other filters let through
   // carry, across every horizon tab, so that its counts do not change with the
@@ -1561,6 +1617,19 @@ export const RoadmapView: React.FC = () => {
                       <ExternalLink size={13} />
                       <span>{strings.panel.link}</span>
                     </a>
+                  )}
+                  {/* Back to the ticket views, filtered on the epic (#630). An
+                      epic without a ticket would open an empty list. */}
+                  {selected.tasks.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => openEpicTickets(selected.key)}
+                      className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-semibold text-[var(--text-secondary)] hover:text-[var(--text-primary)] cursor-pointer border border-[var(--border-color)] hover:border-[var(--accent-color)]/50 transition-colors"
+                      title={format(strings.panel.openTicketsTitle, { key: selected.key })}
+                    >
+                      <ListFilter size={12} />
+                      <span>{strings.panel.openTickets}</span>
+                    </button>
                   )}
                   <button
                     type="button"
