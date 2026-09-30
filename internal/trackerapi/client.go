@@ -174,6 +174,12 @@ func MissingCredentialTracker(err error) string {
 	return ""
 }
 
+// CredentialMissingCode marks a write refused for want of the caller's own
+// tracker credential, so a client can offer to add it rather than read the
+// message (#645). It lives here so the store can set it on a batch line
+// without importing the handlers (#634).
+const CredentialMissingCode = "tracker_credential_missing"
+
 // ErrNoActingUser refuses a write whose context names nobody and is not marked
 // as unattended work. It is a caller that lost its author on the way, a
 // programming error to surface rather than a write to sign with the server

@@ -110,6 +110,9 @@ func TestBranchNameFormatMigration(t *testing.T) {
 	if _, err := d.conn.Exec("ALTER TABLE macros DROP COLUMN quarter"); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := d.conn.Exec("ALTER TABLE macros DROP COLUMN readiness"); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := d.conn.Exec("ALTER TABLE macros DROP COLUMN labels"); err != nil {
 		t.Fatal(err)
 	}
