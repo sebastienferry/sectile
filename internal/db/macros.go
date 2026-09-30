@@ -738,9 +738,14 @@ func (d *DB) CreateStoriesFromMacroTodos(ctx context.Context, projectID string, 
 		outcome := MacroStoryOutcome{TodoID: todoID}
 		// Re-read before each line, so a key an earlier line or another path
 		// recorded is seen.
+		// A failed read fails that line only: the lines created before it keep
+		// their report.
 		current, err := d.findMacroMeta(projectID, macroKey)
 		if err != nil {
-			return nil, err
+			outcome.Status = MacroStoryFailed
+			outcome.Error = err.Error()
+			batch.add(outcome)
+			continue
 		}
 		batch.Macro = current
 		todo := findMacroTodo(current, todoID)
