@@ -51,6 +51,7 @@ import { PROJECT_TRACKERS, needsCredentialsFor } from '../lib/trackers'
 import { formatProjectKeyList, parseProjectKeyList } from '../lib/roadmapProjects'
 import { declaredRepositories, droppedRepositoryPaths, duplicateRepository, repositoryIdentity } from '../lib/repositories'
 import { BRANCH_NAME_PRESETS, BRANCH_NAME_SAMPLE, checkBranchNameFormat } from '../lib/branchNameFormat'
+import { DEFAULT_FULL_CHAIN_STOP_STAGE } from '../lib/workflow'
 
 type ProjectTab = 'general' | 'tracker' | 'workflow' | 'skills'
 
@@ -163,7 +164,7 @@ export const ProjectModal: React.FC = () => {
   const [defaultSkillMode, setDefaultSkillMode] = useState<SkillMode>('')
   const [pushStageCommits, setPushStageCommits] = useState(false)
   const [branchNameFormat, setBranchNameFormat] = useState('')
-  const [fullChainStopStage, setFullChainStopStage] = useState<'implemented' | 'reviewed'>('reviewed')
+  const [fullChainStopStage, setFullChainStopStage] = useState<'implemented' | 'reviewed'>(DEFAULT_FULL_CHAIN_STOP_STAGE)
   const [trackerColumns, setTrackerColumns] = useState<TrackerColumn[]>([])
   const [stageColumns, setStageColumns] = useState<Record<string, string[]>>({})
 
@@ -260,7 +261,7 @@ export const ProjectModal: React.FC = () => {
 
       setPRCreationStage(editingProject.prCreationStage || 'implemented')
       setDefaultSkillMode(editingProject.defaultSkillMode || '')
-      setFullChainStopStage(editingProject.fullChainStopStage || 'reviewed')
+      setFullChainStopStage(editingProject.fullChainStopStage || DEFAULT_FULL_CHAIN_STOP_STAGE)
       setPushStageCommits(editingProject.pushStageCommits === true)
       setBranchNameFormat(editingProject.branchNameFormat || '')
       setTrackerColumns(editingProject.trackerColumns || [])

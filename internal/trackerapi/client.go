@@ -162,6 +162,18 @@ func (e *MissingPersonalCredentialError) Error() string {
 	return fmt.Sprintf("no personal %s token for this user: add one in Profile → Tracker credentials, or the work would be attributed to the server account", providerName(e.Tracker))
 }
 
+// MissingCredentialTracker returns the provider a write was refused for when
+// err is a refusal for want of the acting person's own credential, and ""
+// otherwise. It reads the type, never the message, so a caller can tell the
+// person which token to add (#645).
+func MissingCredentialTracker(err error) string {
+	var missing *MissingPersonalCredentialError
+	if errors.As(err, &missing) {
+		return missing.Tracker
+	}
+	return ""
+}
+
 // ErrNoActingUser refuses a write whose context names nobody and is not marked
 // as unattended work. It is a caller that lost its author on the way, a
 // programming error to surface rather than a write to sign with the server

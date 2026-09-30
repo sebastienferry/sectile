@@ -1,4 +1,5 @@
 import type { TrackerSprint } from '../types'
+import { TrackerCredentialMissingError, missingCredentialFromBody } from './trackerRefusal.ts'
 
 /**
  * The tracker-backed sprint routes. Each one writes to the tracker before it
@@ -43,6 +44,10 @@ async function send<T>(url: string, method: string, body?: unknown): Promise<{ s
     body: body === undefined ? undefined : JSON.stringify(body),
   })
   const data = await res.json().catch(() => ({}))
+  // A refusal for want of the person's own token keeps its provider, so the
+  // notification can offer to add it (#645).
+  const refusedFor = res.ok ? null : missingCredentialFromBody(res.status, data)
+  if (refusedFor) throw new TrackerCredentialMissingError(data.error || '', refusedFor)
   if (!res.ok && res.status !== 207) throw new SprintRequestError(res.status, data.error)
   return { status: res.status, data }
 }

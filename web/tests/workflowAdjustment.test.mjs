@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { skillForStage, getNextStepInfo, prRecoverySkill, isTaskScopedSkill } from '../src/lib/workflow.ts'
+import { skillForStage, getNextStepInfo, prRecoverySkill, isTaskScopedSkill, fullChainHasWork, WORKFLOW_ORDER } from '../src/lib/workflow.ts'
 import { translations } from '../src/locales/translations.ts'
 test('adjustment precedes the human merge boundary', () => {
  assert.equal(skillForStage('implemented'), 'adjust')
@@ -38,4 +38,20 @@ test('missing PR recovery follows earlier creation policy', () => {
 test('a ticket offers neither the macro nor the batch skills', () => {
  for (const id of ['refine_macro', 'realign_macro', 'pickup_issues']) assert.equal(isTaskScopedSkill(id), false, id)
  for (const id of ['clarify', 'specify', 'implement', 'adjust', 'handoff', 'pickup', 'rewrite_story', 'create_pr']) assert.equal(isTaskScopedSkill(id), true, id)
+})
+
+test('the full chain has work only before the project stop stage (#637)', () => {
+ const expected = {
+  reviewed: ['new', 'clarified', 'specified', 'implemented'],
+  implemented: ['new', 'clarified', 'specified'],
+ }
+ for (const [stop, withWork] of Object.entries(expected)) {
+  for (const stage of WORKFLOW_ORDER) {
+   assert.equal(fullChainHasWork(stage, { fullChainStopStage: stop }), withWork.includes(stage), `${stage} with stop stage ${stop}`)
+  }
+ }
+ for (const stage of WORKFLOW_ORDER) {
+  assert.equal(fullChainHasWork(stage, {}), expected.reviewed.includes(stage), `${stage} without a stop stage`)
+  assert.equal(fullChainHasWork(stage, null), expected.reviewed.includes(stage), `${stage} without a project`)
+ }
 })

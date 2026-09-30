@@ -30,7 +30,7 @@ A Jira project needs your own Jira access for actions attributed to you. Set it 
 2. Select **Verify** (*Vérifier*), then **Save** (*Enregistrer*). The form enables saving after the site accepts the credentials.
 3. Optionally select **Seal my tokens** (*Sceller mes jetons*) and set one master sealing passphrase for your personal tracker tokens. Keep it somewhere you can retrieve it. At a later sign-in, enter it on the sign-in screen or select **Unlock all tokens** (*Déverrouiller tous les jetons*) in the profile.
 
-A sealed and locked personal token cannot authorize your task writes. Sectile reports the refusal instead of silently using another account. A server credential, when configured by an administrator, is for unattended synchronization; it does not replace your personal credential for actions you cause. Never paste an API token or sealing passphrase into a ticket, coding prompt, or Desktop project setting. See [credential ownership](adrs/0029-server-tracker-credential-signs-unattended-work-only.md) for the full rule.
+A sealed and locked personal token cannot authorize your task writes. Sectile reports the refusal instead of silently using another account. The same holds when you have no personal token at all: the error notification then offers to add it, and opens this area on the tracker concerned. A server credential, when configured by an administrator, is for unattended synchronization; it does not replace your personal credential for actions you cause. Never paste an API token or sealing passphrase into a ticket, coding prompt, or Desktop project setting. See [credential ownership](adrs/0029-server-tracker-credential-signs-unattended-work-only.md) for the full rule.
 
 ## Use an existing project
 
@@ -95,7 +95,7 @@ For a configured project with an available workstation agent and coding engine:
 3. Follow the activity in the browser or the execution in Desktop. The chain clarifies, specifies, implements, tests, and adjusts the pull request as its stage contracts allow. It may stop for an essential owner decision or a failed check; resolve that cause and resume from the recorded stage.
 4. Open the linked pull request when the task reaches review. A person reviews and merges it; handoff follows the merge.
 
-**Advance autonomously** (*Avancer en autonome*) on a card runs only the next step. Choose **Full chain** when you want the entire pickup sequence. The available chain starts at the ticket's current stage, so a previously specified ticket does not repeat clarification.
+**Advance autonomously** (*Avancer en autonome*) on a card runs only the next step. Choose **Full chain** when you want the entire pickup sequence. The available chain starts at the ticket's current stage, so a previously specified ticket does not repeat clarification. Once the ticket has reached the stage where the project's full chain stops, the card no longer offers **Full chain**: a full card shows a robot button in its place, which runs the next step autonomously, and a condensed card's menu keeps **Advance autonomously**.
 
 ## Follow work in Desktop
 

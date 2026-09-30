@@ -3576,7 +3576,7 @@ func (d *DB) getProjectActivitiesUnsafe(projectID string) ([]models.TaskActivity
 func (d *DB) activitiesAttachedTo(column, id string) ([]models.TaskActivity, error) {
 	rows, err := d.conn.Query(`
 		SELECT a.id, COALESCE(a.task_id, ''), COALESCE(a.project_id, ''), a.skill_id, a.skill_name, a.action, a.status, a.summary, a.output, a.steps, a.prompt, a.started_at, a.completed_at, a.error, a.created_at, a.waiting_since, a.waiting_reason,
-		       a.user_id, COALESCE(NULLIF(u.chosen_name, ''), u.display_name, ''), COALESCE(u.email, ''), a.run_provider, a.run_model, a.concurrent
+		       a.user_id, COALESCE(NULLIF(u.chosen_name, ''), u.display_name, ''), COALESCE(u.email, ''), a.run_provider, a.run_model, a.concurrent, a.credential_missing
 		FROM task_activities a LEFT JOIN users u ON u.id = a.user_id WHERE `+column+` = ? ORDER BY a.created_at DESC
 	`, id)
 	if err != nil {
@@ -3592,7 +3592,7 @@ func (d *DB) activitiesAttachedTo(column, id string) ([]models.TaskActivity, err
 		var startedAt, completedAt, waitingSince sql.NullTime
 		var ownerName, ownerEmail string
 
-		err := rows.Scan(&a.ID, &a.TaskID, &a.ProjectID, &a.SkillID, &a.SkillName, &a.Action, &a.Status, &a.Summary, &a.Output, &stepsJSON, &prompt, &startedAt, &completedAt, &errStr, &a.CreatedAt, &waitingSince, &a.WaitingReason, &a.UserID, &ownerName, &ownerEmail, &runProvider, &runModel, &a.Concurrent)
+		err := rows.Scan(&a.ID, &a.TaskID, &a.ProjectID, &a.SkillID, &a.SkillName, &a.Action, &a.Status, &a.Summary, &a.Output, &stepsJSON, &prompt, &startedAt, &completedAt, &errStr, &a.CreatedAt, &waitingSince, &a.WaitingReason, &a.UserID, &ownerName, &ownerEmail, &runProvider, &runModel, &a.Concurrent, &a.CredentialMissing)
 		if err != nil {
 			continue
 		}
@@ -5369,7 +5369,7 @@ func (d *DB) GetActivities(projectID, status, skillID, taskID, search string, li
 		SELECT a.id, COALESCE(a.task_id, ''), COALESCE(a.project_id, ''), COALESCE(t.key, ''), COALESCE(t.title, ''), a.skill_id, a.skill_name,
 		       a.action, a.status, a.summary, a.output, a.steps, a.prompt,
 		       a.created_at, a.started_at, a.completed_at, a.error, a.waiting_since, a.waiting_reason,
-		       a.user_id, COALESCE(NULLIF(u.chosen_name, ''), u.display_name, ''), COALESCE(u.email, ''), a.run_provider, a.run_model
+		       a.user_id, COALESCE(NULLIF(u.chosen_name, ''), u.display_name, ''), COALESCE(u.email, ''), a.run_provider, a.run_model, a.credential_missing
 		FROM task_activities a
 		LEFT JOIN tasks t ON a.task_id = t.id
 		LEFT JOIN users u ON u.id = a.user_id
@@ -5421,6 +5421,7 @@ func (d *DB) GetActivities(projectID, status, skillID, taskID, search string, li
 			&ownerEmail,
 			&runProvider,
 			&runModel,
+			&a.CredentialMissing,
 		)
 		if err != nil {
 			continue
@@ -5481,7 +5482,7 @@ func (d *DB) GetActivityByID(id string) (*models.TaskActivity, error) {
 		SELECT a.id, COALESCE(a.task_id, ''), COALESCE(a.project_id, ''), COALESCE(t.key, ''), COALESCE(t.title, ''), a.skill_id, a.skill_name,
 		       a.action, a.status, a.summary, a.output, a.steps, a.prompt,
 		       a.created_at, a.started_at, a.completed_at, a.error, a.waiting_since, a.waiting_reason,
-		       a.user_id, COALESCE(NULLIF(u.chosen_name, ''), u.display_name, ''), COALESCE(u.email, ''), a.run_provider, a.run_model, a.concurrent
+		       a.user_id, COALESCE(NULLIF(u.chosen_name, ''), u.display_name, ''), COALESCE(u.email, ''), a.run_provider, a.run_model, a.concurrent, a.credential_missing
 		FROM task_activities a
 		LEFT JOIN tasks t ON a.task_id = t.id
 		LEFT JOIN users u ON u.id = a.user_id
@@ -5512,6 +5513,7 @@ func (d *DB) GetActivityByID(id string) (*models.TaskActivity, error) {
 		&runProvider,
 		&runModel,
 		&a.Concurrent,
+		&a.CredentialMissing,
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
