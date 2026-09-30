@@ -382,6 +382,7 @@ func Run(args []string) {
 	// Deferred after the sessions are closed, so it runs before: what the
 	// consoles show is written while they still show it.
 	defer daemon.persistRuns()
+	defer daemon.stopConversations()
 	go daemon.persistLoop(ctx)
 	daemon.connectLoop(ctx)
 }
