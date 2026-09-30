@@ -71,6 +71,10 @@ import {
   tasksBySprintOrder,
   sprintLabelOf,
   macroCopyPayload,
+  pruneTodoSelection,
+  selectableTodoIds,
+  batchSummary,
+  todoOrigin,
 } from '../lib/roadmap'
 import {
   CONDENSED_HORIZONS,
@@ -105,7 +109,7 @@ import {
   type PrioritySort,
   type SeedLine,
 } from '../lib/epicAxes'
-import type { EpicPriority, MacroHorizon, MacroMeta, MacroTodo, MacroTodoSource } from '../types'
+import type { EpicPriority, MacroHorizon, MacroMeta, MacroStoryBatch, MacroTodo, MacroTodoSource } from '../types'
 import { MacroRealignButton } from './MacroRealignButton'
 
 /**
@@ -167,6 +171,7 @@ export const RoadmapView: React.FC = () => {
     fetchProjectMacros,
     saveMacroMeta,
     createStoryFromMacroTodo,
+    createStoriesFromMacroTodos,
     produceMacroSlicing,
     setTaskMacro,
     createStoryUnderMacro,
@@ -387,6 +392,13 @@ export const RoadmapView: React.FC = () => {
   const [draftFramingDirty, setDraftFramingDirty] = useState(false)
   const [newTodo, setNewTodo] = useState('')
   const [creatingTodoId, setCreatingTodoId] = useState<string | null>(null)
+  // Batch story creation (#634). The selection is interface state only,
+  // distinct from the done checkbox; the report lasts until the next batch,
+  // another macro or a reload. batchMacroKey names the macro whose slicing a
+  // running batch locks.
+  const [selectedTodoIds, setSelectedTodoIds] = useState<Set<string>>(() => new Set())
+  const [batchMacroKey, setBatchMacroKey] = useState<string | null>(null)
+  const [batchReport, setBatchReport] = useState<{ macroKey: string; batch: MacroStoryBatch } | null>(null)
   // La source en cours de lecture, pour que le bouton cliqué soit celui qui
   // tourne : deux sources côte à côte, un seul témoin, et on ne sait plus
   // laquelle on a demandée.
@@ -638,6 +650,41 @@ export const RoadmapView: React.FC = () => {
 
   const selected: MacroRow | null = visibleRows.find(r => r.key === selectedKey) || visibleRows[0] || null
 
+  // Another macro starts with no selection and no report. The refs let the
+  // end of a batch, and a save racing it, read the state of that moment.
+  const shownMacroKey = selected?.key || ''
+  const shownMacroKeyRef = useRef(shownMacroKey)
+  const batchMacroKeyRef = useRef<string | null>(null)
+  useEffect(() => {
+    shownMacroKeyRef.current = shownMacroKey
+    setSelectedTodoIds(new Set())
+    setBatchReport(null)
+  }, [shownMacroKey])
+
+  const runStoryBatch = async (row: MacroRow) => {
+    if (!currentProject?.id || batchMacroKeyRef.current) return
+    // A line that became attached or was removed leaves the selection.
+    const ids = [...pruneTodoSelection(selectedTodoIds, todosOf(row))]
+    if (ids.length === 0) return
+    batchMacroKeyRef.current = row.key
+    setBatchMacroKey(row.key)
+    setBatchReport(null)
+    const batch = await createStoriesFromMacroTodos(currentProject.id, row.key, ids)
+    batchMacroKeyRef.current = null
+    setBatchMacroKey(null)
+    if (!batch) return
+    if (batch.macro) {
+      const macro = batch.macro
+      setMacroMeta(prev => prev.map(m => (m.key === macro.key ? macro : m)))
+    }
+    // The report belongs to the macro it ran on: shown only if it is still
+    // the one on screen.
+    if (shownMacroKeyRef.current === row.key) {
+      setSelectedTodoIds(new Set())
+      setBatchReport({ macroKey: row.key, batch })
+    }
+  }
+
   // An expanded panel takes the whole view, the toolbar included: it is there
   // to work on one macro. Both need a macro shown, so the toolbar and the list
   // come back by themselves when the last one leaves the tab.
@@ -738,6 +785,9 @@ export const RoadmapView: React.FC = () => {
       })
       return
     }
+    // A slicing saved while a batch runs would be older than the keys the
+    // batch is recording (#634).
+    if (patch.todos && batchMacroKeyRef.current === key) return
     const saved = await saveMacroMeta(currentProject.id, key, patch)
     if (saved) {
       setMacroMeta(prev => [...prev.filter(m => m.key !== saved.key), saved])
@@ -2320,22 +2370,98 @@ export const RoadmapView: React.FC = () => {
                     </div>
                   </div>
 
+                  {(() => {
+                    // A running batch locks this macro's slicing (#634).
+                    const slicingLocked = batchMacroKey === selected.key
+                    const selectable = selectableTodoIds(todosOf(selected))
+                    const selectedCount = selectable.filter(id => selectedTodoIds.has(id)).length
+                    const allSelected = selectable.length > 0 && selectedCount === selectable.length
+                    const report = batchReport?.macroKey === selected.key ? batchReport.batch : null
+                    const outcomeOf = (todoId: string) => report?.results.find(r => r.todoId === todoId)
+                    const originLabel = (todo: MacroTodo) => {
+                      const origin = todoOrigin(todo)
+                      switch (origin.kind) {
+                        case 'tasks': return strings.framing.originTasks
+                        case 'spec': return strings.framing.originSpec
+                        case 'stories': return strings.framing.originStories
+                        case 'manual': return strings.framing.originManual
+                        default: return origin.raw
+                      }
+                    }
+                    return (
                   <div>
-                    <div className="text-[10px] font-bold uppercase tracking-[.08em] text-[var(--text-muted)] mb-1.5">
-                      {format(strings.framing.checklistHeading, { done: todosOf(selected).filter(t => t.done).length, total: todosOf(selected).length })}
+                    <div className="flex items-center gap-2 mb-1.5">
+                      <div className="text-[10px] font-bold uppercase tracking-[.08em] text-[var(--text-muted)] flex-1">
+                        {format(strings.framing.checklistHeading, { done: todosOf(selected).filter(t => t.done).length, total: todosOf(selected).length })}
+                      </div>
+                      {selectable.length > 0 && (
+                        <>
+                          <button
+                            type="button"
+                            disabled={slicingLocked}
+                            onClick={() => setSelectedTodoIds(allSelected ? new Set() : new Set(selectable))}
+                            className="text-[10px] font-semibold text-[var(--text-secondary)] hover:text-[var(--text-primary)] disabled:opacity-40 cursor-pointer"
+                          >
+                            {allSelected ? strings.framing.deselectAll : strings.framing.selectAll}
+                          </button>
+                          <button
+                            type="button"
+                            disabled={selectedCount === 0 || batchMacroKey !== null}
+                            onClick={() => runStoryBatch(selected)}
+                            className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold text-white accent-bg disabled:opacity-40 cursor-pointer"
+                            title={strings.framing.createStoriesTitle}
+                          >
+                            {slicingLocked && <Loader2 size={10} className="animate-spin" />}
+                            {slicingLocked ? strings.framing.creatingStories : format(strings.framing.createStories, { count: selectedCount })}
+                          </button>
+                        </>
+                      )}
                     </div>
+                    {report && (
+                      <div className="text-[10.5px] mb-1.5 font-semibold" style={{ color: report.failed > 0 ? 'var(--status-warn)' : 'var(--status-ok)' }}>
+                        {batchSummary(language, report, {
+                          created: strings.framing.batchCreated,
+                          skipped: strings.framing.batchSkipped,
+                          failed: strings.framing.batchFailed,
+                        })}
+                      </div>
+                    )}
                     <div className="flex flex-col gap-1.5">
                       {todosOf(selected).map(todo => (
                         <div key={todo.id} className="flex items-start gap-2 px-2.5 py-2 rounded-lg bg-[var(--bg-primary)] border"
                           style={{ borderColor: todo.done ? 'rgb(var(--accent-rgb) / 0.4)' : 'var(--border-color)' }}>
+                          {/* The batch selection, a native box so it never reads
+                              as the done checkbox beside it. An attached line
+                              keeps the room, so the texts stay aligned. */}
+                          {todo.storyKey ? (
+                            <span className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                          ) : (
+                            <input
+                              type="checkbox"
+                              checked={selectedTodoIds.has(todo.id)}
+                              disabled={slicingLocked}
+                              onChange={() =>
+                                setSelectedTodoIds(prev => {
+                                  const next = new Set(prev)
+                                  if (next.has(todo.id)) next.delete(todo.id)
+                                  else next.add(todo.id)
+                                  return next
+                                })
+                              }
+                              aria-label={format(strings.framing.selectTodo, { todo: todo.text })}
+                              className="w-3.5 h-3.5 mt-0.5 shrink-0 cursor-pointer disabled:opacity-50"
+                              style={{ accentColor: 'var(--accent-color)' }}
+                            />
+                          )}
                           <button
                             type="button"
+                            disabled={slicingLocked}
                             onClick={() =>
                               persist(selected.key, {
                                 todos: todosOf(selected).map(t => (t.id === todo.id ? { ...t, done: !t.done } : t)),
                               })
                             }
-                            className="w-3.5 h-3.5 mt-0.5 rounded shrink-0 flex items-center justify-center cursor-pointer"
+                            className="w-3.5 h-3.5 mt-0.5 rounded shrink-0 flex items-center justify-center cursor-pointer disabled:opacity-50"
                             style={{
                               background: todo.done ? 'var(--accent-color)' : 'transparent',
                               border: `1px solid ${todo.done ? 'var(--accent-color)' : 'var(--border-color)'}`,
@@ -2344,13 +2470,44 @@ export const RoadmapView: React.FC = () => {
                           >
                             {todo.done && <Check size={10} className="text-white" />}
                           </button>
-                          <span className="text-[11.5px] leading-snug flex-1"
-                            style={{
-                              color: todo.done ? 'var(--text-muted)' : 'var(--text-primary)',
-                              textDecoration: todo.done ? 'line-through' : 'none',
-                            }}>
-                            {todo.text}
-                          </span>
+                          <div className="flex-1 min-w-0 flex flex-col gap-0.5">
+                            <span className="text-[11.5px] leading-snug"
+                              style={{
+                                color: todo.done ? 'var(--text-muted)' : 'var(--text-primary)',
+                                textDecoration: todo.done ? 'line-through' : 'none',
+                              }}>
+                              {todo.text}
+                            </span>
+                            {/* Second row: where the line came from, and what the
+                                last batch did with it. */}
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <span
+                                className="text-[9px] px-1.5 py-px rounded-full border border-[var(--border-color)] text-[var(--text-muted)]"
+                                title={todoOrigin(todo).entry || format(strings.framing.originTitle, { origin: originLabel(todo) })}
+                              >
+                                {originLabel(todo)}
+                              </span>
+                              {(() => {
+                                const outcome = outcomeOf(todo.id)
+                                if (!outcome) return null
+                                return (
+                                  <>
+                                    {outcome.status === 'skipped' && (
+                                      <span className="text-[10px] text-[var(--text-muted)]">
+                                        {format(strings.framing.lineSkipped, { key: outcome.storyKey || '' })}
+                                      </span>
+                                    )}
+                                    {outcome.status === 'failed' && (
+                                      <span className="text-[10px] text-rose-400">{outcome.error}</span>
+                                    )}
+                                    {outcome.notice && (
+                                      <span className="text-[10px] text-amber-400">{outcome.notice}</span>
+                                    )}
+                                  </>
+                                )
+                              })()}
+                            </div>
+                          </div>
                           {currentProject && (() => {
                             // Where the line's story lands: the macro's project by
                             // default, or another project of the same tracker
@@ -2373,6 +2530,7 @@ export const RoadmapView: React.FC = () => {
                               <select
                                 aria-label={format(strings.framing.targetProjectLabel, { todo: todo.text })}
                                 value={saved}
+                                disabled={slicingLocked}
                                 onChange={e =>
                                   persist(selected.key, {
                                     todos: todosOf(selected).map(t => (t.id === todo.id ? { ...t, targetProjectId: e.target.value || undefined } : t)),
@@ -2426,7 +2584,7 @@ export const RoadmapView: React.FC = () => {
                           ) : (
                             <button
                               type="button"
-                              disabled={creatingTodoId === todo.id}
+                              disabled={creatingTodoId === todo.id || slicingLocked}
                               onClick={async () => {
                                 setCreatingTodoId(todo.id)
                                 const result = await createStoryFromMacroTodo(currentProject!.id, selected.key, todo.id)
@@ -2448,8 +2606,9 @@ export const RoadmapView: React.FC = () => {
                           )}
                           <button
                             type="button"
+                            disabled={slicingLocked}
                             onClick={() => persist(selected.key, { todos: todosOf(selected).filter(t => t.id !== todo.id) })}
-                            className="p-0.5 rounded text-[var(--text-muted)] hover:text-rose-400 cursor-pointer shrink-0"
+                            className="p-0.5 rounded text-[var(--text-muted)] hover:text-rose-400 cursor-pointer shrink-0 disabled:opacity-40"
                             title={strings.framing.remove}
                           >
                             <Trash2 size={11} />
@@ -2467,6 +2626,7 @@ export const RoadmapView: React.FC = () => {
                       <input
                         type="text"
                         value={newTodo}
+                        disabled={slicingLocked}
                         onChange={e => setNewTodo(e.target.value)}
                         onKeyDown={e => {
                           if (e.key === 'Enter') {
@@ -2477,7 +2637,7 @@ export const RoadmapView: React.FC = () => {
                         placeholder={strings.framing.addTodoPlaceholder}
                         className="flex-1 px-2.5 py-1.5 text-xs rounded-xl bg-[var(--bg-primary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)]"
                       />
-                      <button type="button" onClick={() => addTodo(selected)} disabled={!newTodo.trim()}
+                      <button type="button" onClick={() => addTodo(selected)} disabled={!newTodo.trim() || slicingLocked}
                         className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-bold text-white accent-bg disabled:opacity-40 cursor-pointer shrink-0">
                         <Plus size={12} /> {strings.framing.add}
                       </button>
@@ -2505,7 +2665,7 @@ export const RoadmapView: React.FC = () => {
                         <button
                           key={option.source}
                           type="button"
-                          disabled={slicingSource !== null}
+                          disabled={slicingSource !== null || slicingLocked}
                           title={option.hint}
                           onClick={async () => {
                             setSlicingSource(option.source)
@@ -2524,6 +2684,8 @@ export const RoadmapView: React.FC = () => {
                       ))}
                     </div>
                   </div>
+                    )
+                  })()}
 
                   {selected.tasks.length > 0 && (
                     <div className="pt-2 border-t border-[var(--border-color)]">
