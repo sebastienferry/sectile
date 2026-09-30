@@ -1414,6 +1414,7 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 				Closed         *bool               `json:"closed,omitempty"`
 				Priority       *string             `json:"priority,omitempty"`
 				Quarter        *string             `json:"quarter,omitempty"`
+				Readiness      *string             `json:"readiness,omitempty"`
 			}
 			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 				writeError(w, http.StatusBadRequest, "Invalid macro payload: "+err.Error())
@@ -1429,6 +1430,12 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 			}
 			if req.Quarter != nil {
 				if _, err := db.NormalizeQuarter(*req.Quarter); err != nil {
+					writeError(w, http.StatusBadRequest, err.Error())
+					return
+				}
+			}
+			if req.Readiness != nil {
+				if _, err := db.NormalizeReadiness(*req.Readiness); err != nil {
 					writeError(w, http.StatusBadRequest, err.Error())
 					return
 				}
@@ -1458,15 +1465,15 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 					log.Printf("[macros] label roadmap non mis en file pour %s: %v", key, err)
 				}
 			}
-			if req.Priority != nil || req.Quarter != nil {
-				axes, err := h.db.SaveMacroAxes(id, key, req.Priority, req.Quarter)
+			if req.Priority != nil || req.Quarter != nil || req.Readiness != nil {
+				axes, err := h.db.SaveMacroAxes(id, key, req.Priority, req.Quarter, req.Readiness)
 				if err != nil {
 					writeError(w, http.StatusBadRequest, err.Error())
 					return
 				}
 				axes.LabelsWritable = h.db.MacroLabelsWritable(id, key)
 				saved = axes
-				labelNote = h.enqueueMacroAxes(r, id, key, saved, req.Priority != nil, req.Quarter != nil)
+				labelNote = h.enqueueMacroAxes(r, id, key, saved, req.Priority != nil, req.Quarter != nil, req.Readiness != nil)
 			} else if saved != nil {
 				// The client replaces its copy of the macro with this one, so it
 				// carries the computed flag whatever field the request changed.

@@ -65,6 +65,7 @@ import {
   MATURITY_META,
   PLACEMENT_META,
   PRIORITY_META,
+  READINESS_META,
   type MacroRow,
   type Horizon,
   type HorizonTab,
@@ -100,6 +101,7 @@ import {
 import {
   EPIC_PRIORITIES,
   EPIC_PRIORITY_LEVEL,
+  EPIC_READINESS,
   epicPriorityLabel,
   matchesPriority,
   normalizeQuarter,
@@ -109,7 +111,7 @@ import {
   type PrioritySort,
   type SeedLine,
 } from '../lib/epicAxes'
-import type { EpicPriority, MacroHorizon, MacroMeta, MacroStoryBatch, MacroTodo, MacroTodoSource } from '../types'
+import type { EpicPriority, EpicReadiness, MacroHorizon, MacroMeta, MacroStoryBatch, MacroTodo, MacroTodoSource } from '../types'
 import { MacroRealignButton } from './MacroRealignButton'
 
 /**
@@ -800,8 +802,8 @@ export const RoadmapView: React.FC = () => {
 
   const todosOf = (row: MacroRow | null): MacroTodo[] => row?.meta?.todos || []
 
-  /** Saves the epic's priority or quarter and takes the stored macro back. */
-  const saveAxes = async (key: string, patch: { priority?: EpicPriority | ''; quarter?: string }) => {
+  /** Saves the epic's priority, quarter or readiness and takes the stored macro back. */
+  const saveAxes = async (key: string, patch: { priority?: EpicPriority | ''; quarter?: string; readiness?: EpicReadiness | '' }) => {
     if (!currentProject?.id) return
     setBusyKey('axes')
     const saved = await saveMacroMeta(currentProject.id, key, patch)
@@ -868,6 +870,39 @@ export const RoadmapView: React.FC = () => {
   }
 
   /**
+   * The epic's readiness (#633): the level a person decided, in solid colours,
+   * or, while nobody did, Sectile's suggestion in a dashed outline followed by
+   * "?". Not clickable: the level is decided from the panel or by a drop.
+   */
+  const readinessBadge = (row: MacroRow, className: string) => {
+    const level = row.readiness || row.suggestedReadiness
+    const meta = READINESS_META[level]
+    const name = strings.readiness.levels[level]
+    if (row.readiness) {
+      return (
+        <span
+          className={className}
+          data-readiness={level}
+          style={{ color: meta.color, background: meta.bg, border: `1px solid ${meta.border}` }}
+          title={format(strings.readiness.decidedTitle, { level: name })}
+        >
+          {name}
+        </span>
+      )
+    }
+    return (
+      <span
+        className={className}
+        data-readiness-suggested={level}
+        style={{ color: meta.color, background: 'transparent', border: `1px dashed ${meta.border}` }}
+        title={strings.readiness.suggestedTitle}
+      >
+        {name} ?
+      </span>
+    )
+  }
+
+  /**
    * The epic's own priority (#627), in the colour of the level it maps to. An
    * epic without one says so in a muted badge rather than borrowing a value
    * from its tickets.
@@ -925,8 +960,10 @@ export const RoadmapView: React.FC = () => {
               {row.quarter}
             </span>
           )}
+          {readinessBadge(row, 'text-[9.5px] px-1 rounded font-bold')}
           <span className="text-[9px] font-bold px-1.5 rounded uppercase tracking-[.06em]"
-            style={{ color: mat.color, background: mat.bg, border: `1px solid ${mat.border}` }}>
+            style={{ color: mat.color, background: mat.bg, border: `1px solid ${mat.border}` }}
+            title={strings.maturityTitle}>
             {strings.maturity[row.maturity]}
           </span>
           {freeEpicLabels(row.meta).map(label => (
@@ -1069,6 +1106,7 @@ export const RoadmapView: React.FC = () => {
           </span>
         )}
         {priorityBadge(row, 'shrink-0 text-[9.5px] px-1 rounded font-bold')}
+        {readinessBadge(row, 'shrink-0 text-[9.5px] px-1 rounded font-bold')}
         <span className="shrink-0 flex items-center gap-0.5">
           {CONDENSED_HORIZONS.map(h => {
             const active = row.horizon === h
@@ -1748,8 +1786,9 @@ export const RoadmapView: React.FC = () => {
                 </div>
               )}
 
-              {/* The epic's own priority and quarter (#627), stored here first,
-                  then written as labels when the tracker can carry them. */}
+              {/* The epic's own priority and quarter (#627) and its readiness
+                  (#633), stored here first, then written as labels when the
+                  tracker can carry them. */}
               <div className="mt-2.5 flex items-start gap-4 flex-wrap">
                 <div>
                   <div className="text-[10px] font-bold uppercase tracking-[.08em] text-[var(--text-muted)] mb-1">
@@ -1790,6 +1829,38 @@ export const RoadmapView: React.FC = () => {
                         <X size={11} />
                       </button>
                     )}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-[10px] font-bold uppercase tracking-[.08em] text-[var(--text-muted)] mb-1">
+                    {strings.readiness.label}
+                  </div>
+                  <div className="flex items-center gap-1" role="group" aria-label={strings.readiness.label}>
+                    {EPIC_READINESS.map(level => {
+                      const active = selected.readiness === level
+                      const isSuggestion = !selected.readiness && selected.suggestedReadiness === level
+                      const meta = READINESS_META[level]
+                      return (
+                        <button
+                          key={level}
+                          type="button"
+                          aria-pressed={active}
+                          disabled={busyKey === 'axes'}
+                          onClick={() => saveAxes(selected.key, { readiness: active ? '' : level })}
+                          className="px-1.5 py-0.5 rounded text-[10.5px] font-bold border cursor-pointer disabled:opacity-60"
+                          style={{
+                            color: meta.color,
+                            background: active ? meta.bg : 'transparent',
+                            borderColor: active ? meta.color : isSuggestion ? meta.border : 'var(--border-color)',
+                            borderStyle: isSuggestion ? 'dashed' : 'solid',
+                          }}
+                          title={active ? strings.readiness.chipTitle : isSuggestion ? strings.readiness.suggestedTitle : undefined}
+                        >
+                          {strings.readiness.levels[level]}
+                          {isSuggestion && ' ?'}
+                        </button>
+                      )
+                    })}
                   </div>
                 </div>
                 <div>

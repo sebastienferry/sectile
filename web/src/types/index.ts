@@ -219,6 +219,8 @@ export interface MacroMeta {
   priority?: EpicPriority | ''
   /** The epic's quarter, "2026-Q4", empty when none (#627). */
   quarter?: string
+  /** The readiness a person decided, empty when nobody did (#633). */
+  readiness?: EpicReadiness | ''
   /** False when the priority and the quarter stay in Sectile: milestone, local key, foreign epic, tracker without epics. */
   labelsWritable?: boolean
   /**
@@ -233,6 +235,8 @@ export interface MacroMeta {
 export type EpicMeta = MacroMeta
 /** An epic's own priority, P0 the highest. */
 export type EpicPriority = 'p0' | 'p1' | 'p2' | 'p3'
+/** How far an epic has come from an idea to something ready to build, as a person judges it (#633). */
+export type EpicReadiness = 'idea' | 'shaping' | 'ready'
 
 export interface TrackerBoard {
   id: string

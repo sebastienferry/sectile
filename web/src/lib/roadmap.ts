@@ -1,4 +1,5 @@
-import type { EpicMeta, EpicPriority, MacroStoryBatch, MacroTodo, Priority, Project, Task, TrackerSprint, WorkflowStage } from '../types'
+import type { EpicMeta, EpicPriority, EpicReadiness, MacroStoryBatch, MacroTodo, Priority, Project, Task, TrackerSprint, WorkflowStage } from '../types'
+import { suggestReadiness } from './epicAxes.ts'
 import { plural, type Locale, type PluralForms } from './i18n.ts'
 import { foldForSearch } from './searchFold.ts'
 import { WORKFLOW_ORDER, resolveTaskStage } from './workflow.ts'
@@ -36,6 +37,10 @@ export interface EpicRow {
   priority: EpicPriority | ''
   /** The epic's quarter, "2026-Q4", empty when none. */
   quarter: string
+  /** The readiness a person decided, empty when nobody did (#633). */
+  readiness: EpicReadiness | ''
+  /** The readiness the epic's content suggests, shown while nobody decided. */
+  suggestedReadiness: EpicReadiness
   tasks: Task[]
   /** Enfants encore ouverts : ceux dont le placement en sprint est à vérifier. */
   open: Task[]
@@ -108,6 +113,16 @@ export const MATURITY_META: Record<Maturity, { pct: number; color: string; bg: s
   Clarified: { pct: 50, color: 'var(--status-warn)', bg: 'rgb(var(--status-warn-rgb) / 0.14)', border: 'rgb(var(--status-warn-rgb) / 0.34)' },
   Specified: { pct: 78, color: 'var(--status-info)', bg: 'rgb(var(--status-info-rgb) / 0.12)', border: 'rgb(var(--status-info-rgb) / 0.32)' },
   Ready: { pct: 100, color: 'var(--status-ok)', bg: 'rgb(var(--status-ok-rgb) / 0.13)', border: 'rgb(var(--status-ok-rgb) / 0.32)' },
+}
+
+/**
+ * The readiness levels (#633) borrow the maturity palette: muted for an idea,
+ * warn while shaping, ok once ready.
+ */
+export const READINESS_META: Record<EpicReadiness, { color: string; bg: string; border: string }> = {
+  idea: MATURITY_META.Draft,
+  shaping: MATURITY_META.Clarified,
+  ready: MATURITY_META.Ready,
 }
 
 export const PRIORITY_META: Record<Priority, { color: string; bg: string }> = {
@@ -237,6 +252,8 @@ export const buildEpicRows = (
       maturity: maturityOf(open, children.length, project),
       priority: meta?.priority || '',
       quarter: meta?.quarter || '',
+      readiness: meta?.readiness || '',
+      suggestedReadiness: suggestReadiness({ childCount: children.length, description: meta?.description, todos: meta?.todos }),
       tasks: children,
       open,
       inActiveSprint,
@@ -359,7 +376,7 @@ export const belongsToProjectKey = (row: EpicRow, projectKey: string): boolean =
  * as a free label. Mirrors `macroAxisPrefixes` in `internal/db/macrolabels.go`,
  * which refuses them on the server too.
  */
-export const EPIC_AXIS_LABEL_PREFIXES = ['roadmap:', 'priority:', 'quarter:']
+export const EPIC_AXIS_LABEL_PREFIXES = ['roadmap:', 'priority:', 'quarter:', 'readiness:']
 
 /** A bare quarter, "2026-Q3", which the import reads as the epic's quarter. */
 const BARE_QUARTER = /^\d{4}[.\- ]q[1-4]$/

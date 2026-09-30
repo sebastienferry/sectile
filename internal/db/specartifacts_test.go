@@ -127,6 +127,7 @@ func TestMigrationTwentyFiveKeepsExistingProjectsArtefacts(t *testing.T) {
 		"ALTER TABLE projects DROP COLUMN branch_name_format",
 		"ALTER TABLE macros DROP COLUMN priority",
 		"ALTER TABLE macros DROP COLUMN quarter",
+		"ALTER TABLE macros DROP COLUMN readiness",
 		"ALTER TABLE task_activities DROP COLUMN credential_missing",
 		"DELETE FROM schema_migrations WHERE version >= 25",
 	} {
