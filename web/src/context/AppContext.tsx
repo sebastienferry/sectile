@@ -35,7 +35,7 @@ import type {
   TaskComment,
   MacroMeta,
   MacroHorizon,
-  EpicPriority,
+  EpicPriority, EpicReadiness,
   MacroTodo,
   MacroTodoSource,
   TrackerTeam,
@@ -357,7 +357,7 @@ interface AppContextType {
   saveMacroMeta: (
     projectId: string,
     key: string,
-    patch: { title?: string; horizon?: MacroHorizon | ''; description?: string; framingComment?: string; todos?: MacroTodo[]; closed?: boolean; priority?: EpicPriority | ''; quarter?: string },
+    patch: { title?: string; horizon?: MacroHorizon | ''; description?: string; framingComment?: string; todos?: MacroTodo[]; closed?: boolean; priority?: EpicPriority | ''; quarter?: string; readiness?: EpicReadiness | '' },
     options?: { quiet?: boolean }
   ) => Promise<MacroMeta | null>
   saveEpicMeta: (projectId: string, key: string, patch: { title?: string; horizon?: MacroHorizon | ''; description?: string; framingComment?: string; todos?: MacroTodo[]; closed?: boolean }) => Promise<MacroMeta | null>
@@ -2733,7 +2733,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const saveMacroMeta = async (
     projectId: string,
     key: string,
-    patch: { title?: string; horizon?: MacroHorizon | ''; description?: string; framingComment?: string; todos?: MacroTodo[]; closed?: boolean; priority?: EpicPriority | ''; quarter?: string },
+    patch: { title?: string; horizon?: MacroHorizon | ''; description?: string; framingComment?: string; todos?: MacroTodo[]; closed?: boolean; priority?: EpicPriority | ''; quarter?: string; readiness?: EpicReadiness | '' },
     options?: { quiet?: boolean }
   ): Promise<MacroMeta | null> => {
     try {
