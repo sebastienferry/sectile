@@ -14,7 +14,7 @@ import (
 // A macro whose epic cannot carry a label keeps the values in Sectile and gets
 // no queued write at all: that is the expected outcome on a GitHub milestone or
 // a local project, and a failed activity per edit would report it as an error.
-func (h *Handler) enqueueMacroAxes(r *http.Request, projectID string, key string, saved *models.MacroMeta, priority bool, quarter bool) string {
+func (h *Handler) enqueueMacroAxes(r *http.Request, projectID string, key string, saved *models.MacroMeta, priority bool, quarter bool, readiness bool) string {
 	if !saved.LabelsWritable {
 		return "conservé dans Sectile, non écrit sur le tracker"
 	}
@@ -24,6 +24,9 @@ func (h *Handler) enqueueMacroAxes(r *http.Request, projectID string, key string
 	}
 	if quarter {
 		ops = append(ops, db.TrackerOp{Kind: db.TrackerOpEpicQuarter, ProjectID: projectID, TaskKey: key, EpicKey: key, Quarter: saved.Quarter})
+	}
+	if readiness {
+		ops = append(ops, db.TrackerOp{Kind: db.TrackerOpEpicReadiness, ProjectID: projectID, TaskKey: key, EpicKey: key, Readiness: saved.Readiness})
 	}
 	for _, op := range ops {
 		if _, err := h.db.EnqueueTrackerOp(h.actingContext(r), op); err != nil {

@@ -279,7 +279,7 @@ func writeError(w http.ResponseWriter, status int, message string) {
 // TrackerCredentialMissingCode marks a 403 refused for want of the caller's own
 // tracker credential, so a client can offer to add it rather than read the
 // message (#645).
-const TrackerCredentialMissingCode = "tracker_credential_missing"
+const TrackerCredentialMissingCode = trackerapi.CredentialMissingCode
 
 // writeTrackerError answers a failed request whose tracker write may have been
 // refused for want of the caller's own credential (#482). That refusal is a
@@ -1230,6 +1230,29 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Sub-action: /api/projects/{id}/macros/{key}/stories: turn several shaping
+	// todos into stories in one gesture, one outcome per line (#634)
+	if len(parts) >= 4 && (parts[1] == "macros" || parts[1] == "epics") && parts[3] == "stories" && r.Method == http.MethodPost {
+		macroKey, err := url.PathUnescape(parts[2])
+		if err != nil {
+			macroKey = parts[2]
+		}
+		var req struct {
+			TodoIDs []string `json:"todoIds"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeError(w, http.StatusBadRequest, "Invalid payload: "+err.Error())
+			return
+		}
+		batch, err := h.db.CreateStoriesFromMacroTodos(h.actingContext(r), id, macroKey, req.TodoIDs)
+		if err != nil {
+			writeTrackerError(w, http.StatusBadRequest, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, batch)
+		return
+	}
+
 	// Sub-action: /api/projects/{id}/macros: the macro metadata Sectile owns:
 	// horizon (NOW / NEXT / LATER), shaping notes and todos.
 	if len(parts) >= 2 && (parts[1] == "macros" || parts[1] == "epics") {
@@ -1391,6 +1414,7 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 				Closed         *bool               `json:"closed,omitempty"`
 				Priority       *string             `json:"priority,omitempty"`
 				Quarter        *string             `json:"quarter,omitempty"`
+				Readiness      *string             `json:"readiness,omitempty"`
 			}
 			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 				writeError(w, http.StatusBadRequest, "Invalid macro payload: "+err.Error())
@@ -1406,6 +1430,12 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 			}
 			if req.Quarter != nil {
 				if _, err := db.NormalizeQuarter(*req.Quarter); err != nil {
+					writeError(w, http.StatusBadRequest, err.Error())
+					return
+				}
+			}
+			if req.Readiness != nil {
+				if _, err := db.NormalizeReadiness(*req.Readiness); err != nil {
 					writeError(w, http.StatusBadRequest, err.Error())
 					return
 				}
@@ -1435,15 +1465,15 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 					log.Printf("[macros] label roadmap non mis en file pour %s: %v", key, err)
 				}
 			}
-			if req.Priority != nil || req.Quarter != nil {
-				axes, err := h.db.SaveMacroAxes(id, key, req.Priority, req.Quarter)
+			if req.Priority != nil || req.Quarter != nil || req.Readiness != nil {
+				axes, err := h.db.SaveMacroAxes(id, key, req.Priority, req.Quarter, req.Readiness)
 				if err != nil {
 					writeError(w, http.StatusBadRequest, err.Error())
 					return
 				}
 				axes.LabelsWritable = h.db.MacroLabelsWritable(id, key)
 				saved = axes
-				labelNote = h.enqueueMacroAxes(r, id, key, saved, req.Priority != nil, req.Quarter != nil)
+				labelNote = h.enqueueMacroAxes(r, id, key, saved, req.Priority != nil, req.Quarter != nil, req.Readiness != nil)
 			} else if saved != nil {
 				// The client replaces its copy of the macro with this one, so it
 				// carries the computed flag whatever field the request changed.

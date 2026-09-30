@@ -54,11 +54,11 @@ language.
 | Surface | Where | What to look at |
 | --- | --- | --- |
 | Shell | Sidebar, project picker, header, pinned bar, status bar, display scale menu, command palette (`Cmd+K`) | Entries, tooltips, favorites, "New project", counts |
-| Board and backlog | Board and List views of a project | Column actions, hide Done, add a task, card action menu, batch selection count, filters and their placeholders; tracker column names unchanged |
+| Board and backlog | Board and List views of a project | Column actions, hide Done, add a task, card action menu ("Open the macro in the roadmap" included), list row actions, batch selection count, filters and their placeholders; tracker column names unchanged |
 | Quick-add (#455) | "Add task" | Labels, placeholders, validation |
 | Task detail | A task, in the drawer and in the centered modal | Fields and lookups, type fallback, copy feedback, specification view and full screen, rewrite preview, PR actions, comments and their dates, clone dialog |
 | Project configuration | Project settings, every tab, and a new-project form (do not save) | Tabs, provider descriptions, repository help, optional views, execution policy, column editor, delete confirmation |
-| Planning | Roadmap, Triage, Team (enable them in the project's optional views) | Tabs, horizons (NOW / NEXT / FUTURE in both languages), filters, empty states, selection counts, team summaries |
+| Planning | Roadmap, Triage, Team (enable them in the project's optional views) | Tabs, horizons (NOW / NEXT / FUTURE in both languages), filters, empty states, selection counts, team summaries, the macro panel's "Its tickets" button and the "macro not found" toast (open a ticket's macro from a card whose parent the roadmap does not hold) |
 | Sprints | Timeline on a test project | Dates, closed sprints toggle, create/edit/start/close/reopen/delete dialogs, unfinished-task counts |
 | Skills | Skills view of a project | Execution modes and their help, custom/divergent/missing indicators, editor feedback, update date |
 | Activities and sync | Activities, Sync, a failed read (stop the server briefly) | Activity labels and dates, known server messages, degraded banner and toasts in one language, raw error quoted |

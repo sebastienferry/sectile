@@ -17,13 +17,13 @@ import (
 //
 // The labels of the axes the roadmap owns are the exception. They are written
 // by their own control, the horizon tabs for "roadmap:", the panel's priority
-// and quarter fields for the axes of #627, and an edit of free labels may
+// and quarter fields for the axes of #627, the readiness chips for #633, and an edit of free labels may
 // neither add nor remove one.
 
 // macroAxisPrefixes are the label prefixes the roadmap owns on an epic. The
 // per-project prefixes (#635) extend this list; the web mirrors it in
 // EPIC_AXIS_LABEL_PREFIXES.
-var macroAxisPrefixes = []string{RoadmapLabelPrefix, PriorityLabelPrefix, QuarterLabelPrefix}
+var macroAxisPrefixes = []string{RoadmapLabelPrefix, PriorityLabelPrefix, QuarterLabelPrefix, ReadinessLabelPrefix}
 
 // IsMacroAxisLabel tells a label written by one of the roadmap's own axes from a
 // free label. The match ignores case and a leading "#", as HorizonFromLabels
