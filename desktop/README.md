@@ -1,6 +1,18 @@
 # Sectile Desktop
 
-Local task execution consoles without a separate chatbot UI.
+Local task execution consoles, with an experimental Claude Code conversation view.
+
+## Experimental Claude conversation
+
+Turn it on with **Settings → Appearance → Claude consoles → Conversation**.
+A **Project prompt** with Claude then opens in this view instead of a terminal,
+and **Claude chat (test)** appears for an execution with a local directory.
+Type a message and press Enter or click **Send**; Shift+Enter adds a line. The chat uses the same directory but has its
+own Claude session and does not change the original execution's workflow state.
+Claude Code must already be installed and authenticated on this workstation.
+Edits are accepted; tools requiring interactive approval are denied. **Stop**
+closes the conversation. Stored history is read-only after an agent restart.
+See [prototype notes](../docs/experiments/desktop-conversation.md).
 
 ## Install a release
 

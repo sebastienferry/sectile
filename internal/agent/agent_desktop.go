@@ -79,6 +79,7 @@ func fileSha256(path string) string {
 }
 
 type desktopRun struct {
+	Conversation    bool      `json:"conversation,omitempty"`
 	EngineID        string    `json:"engineId,omitempty"`
 	EngineName      string    `json:"engineName,omitempty"`
 	Branch          string    `json:"branch,omitempty"`
@@ -128,6 +129,10 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Unauthorized", 401)
 		return
 	}
+	if r.URL.Path == "/desktop/conversation" {
+		d.desktopConversation(w, r)
+		return
+	}
 	// The build the companion is talking to. It is its own route rather than a
 	// field on /desktop/status because status is polled every few seconds and
 	// the version never changes while the process lives.
@@ -159,7 +164,7 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 		// contractError separates a server that is merely unreachable from one
 		// that cannot be talked to at all. Without it the desktop reports both
 		// as a disconnection and the user has no reason to look at the build.
-		capabilities := []string{"git-diff", "create-task", "remove-project", "free-console", "transition-stage", "repositories", attachedFoldersCapability, "git-init", taskEnginesCapability, openEditorCapability}
+		capabilities := []string{"git-diff", "create-task", "remove-project", "free-console", "transition-stage", "repositories", attachedFoldersCapability, "git-init", taskEnginesCapability, openEditorCapability, "claude-conversation"}
 		if d.store != nil {
 			capabilities = append(capabilities, runStoreCapability)
 		}
@@ -312,6 +317,21 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 	trace := run.trace
 	if r.URL.Path == "/desktop/stop" && r.Method == http.MethodPost {
 		run.canceled = true
+		if run.conversation != nil {
+			if !run.conversation.busy {
+				run.desktop.Status = "canceled"
+				run.once.Do(func() { close(run.exited) })
+				run.trace.close()
+			}
+			d.queue.mu.Unlock()
+			select {
+			case <-run.exited:
+				w.WriteHeader(http.StatusNoContent)
+			case <-time.After(12 * time.Second):
+				http.Error(w, "Exit not confirmed", http.StatusGatewayTimeout)
+			}
+			return
+		}
 		d.queue.mu.Unlock()
 		// A supervised PTY run normally closes exited through agent-exec. If the
 		// terminal has already vanished, there is no process left that can send
