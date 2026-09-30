@@ -713,6 +713,7 @@ export interface TranslationSchema {
     advanceAutonomous: string
     filterParent: string
     clearParent: string
+    openEpic: string
     openPr: string
   }
   statusBar: {
@@ -1537,6 +1538,7 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
       advanceAutonomous: 'Avancer en autonome',
       filterParent: 'Filtrer par parent',
       clearParent: 'Retirer le filtre parent',
+      openEpic: 'Ouvrir la macro dans la roadmap',
       openPr: 'Ouvrir la PR / MR',
     },
     statusBar: {
@@ -2359,6 +2361,7 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
       advanceAutonomous: 'Advance autonomously',
       filterParent: 'Filter by parent',
       clearParent: 'Clear parent filter',
+      openEpic: 'Open the macro in the roadmap',
       openPr: 'Open PR / MR',
     },
     statusBar: {

@@ -346,7 +346,7 @@ func TestPendingPushesNeverListAForeignEpic(t *testing.T) {
 		if _, err := database.SaveMacroMeta(proj.ID, key, &now, nil, nil, nil); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := database.SaveMacroAxes(proj.ID, key, &p1, nil); err != nil {
+		if _, err := database.SaveMacroAxes(proj.ID, key, &p1, nil, nil); err != nil {
 			t.Fatal(err)
 		}
 	}

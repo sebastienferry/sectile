@@ -45,6 +45,8 @@ const (
 	TrackerOpEpicPriority TrackerOpKind = "epic_priority"
 	// TrackerOpEpicQuarter mirrors the quarter of one epic as a label (#627).
 	TrackerOpEpicQuarter TrackerOpKind = "epic_quarter"
+	// TrackerOpEpicReadiness mirrors the readiness of one epic as a label (#633).
+	TrackerOpEpicReadiness TrackerOpKind = "epic_readiness"
 	// TrackerOpTransition moves a work item to a status named as the tracker
 	// spells it, which is what dropping a card in a board column does.
 	TrackerOpTransition TrackerOpKind = "transition"
@@ -82,6 +84,9 @@ type TrackerOp struct {
 	Priority string
 	// Quarter is the quarter of an epic_quarter, "2026-Q4", "" to clear.
 	Quarter string
+	// Readiness is the level of an epic_readiness, "idea", "shaping" or
+	// "ready", "" to clear.
+	Readiness string
 	// Labels / RemovedLabels are the free labels an epic_labels adds and
 	// removes.
 	Labels        []string
@@ -247,6 +252,14 @@ func buildTrackerOpJob(op TrackerOp) (*models.TaskActivity, SkillJob, error) {
 		action = fmt.Sprintf("Trimestre de %s ➔ %s", op.EpicKey, target)
 		summary = fmt.Sprintf("Label de trimestre de %s en file d'attente", op.EpicKey)
 		steps = append(steps, fmt.Sprintf("Cible : %s ➔ %s", op.EpicKey, target))
+	case TrackerOpEpicReadiness:
+		target := readinessDisplay[op.Readiness]
+		if target == "" {
+			target = "aucune"
+		}
+		action = fmt.Sprintf("Readiness de %s ➔ %s", op.EpicKey, target)
+		summary = fmt.Sprintf("Label de readiness de %s en file d'attente", op.EpicKey)
+		steps = append(steps, fmt.Sprintf("Cible : %s ➔ %s", op.EpicKey, target))
 	case TrackerOpTransition:
 		action = fmt.Sprintf("Transition de %s ➔ %s", op.TaskKey, op.TargetStatus)
 		summary = fmt.Sprintf("Transition de %s vers « %s » en file d'attente", op.TaskKey, op.TargetStatus)
@@ -378,6 +391,8 @@ func (d *DB) processTrackerOpJob(ctx context.Context, job SkillJob) {
 		output, err = d.runEpicAxisOp(ctx, op, &steps, d.PushMacroPriorityLabel, op.Priority)
 	case TrackerOpEpicQuarter:
 		output, err = d.runEpicAxisOp(ctx, op, &steps, d.PushMacroQuarterLabel, op.Quarter)
+	case TrackerOpEpicReadiness:
+		output, err = d.runEpicAxisOp(ctx, op, &steps, d.PushMacroReadinessLabel, op.Readiness)
 	case TrackerOpTransition:
 		output, err = d.runTransitionOp(ctx, op, &steps)
 	case TrackerOpStage:
@@ -904,7 +919,11 @@ func (d *DB) runEpicHorizonOp(ctx context.Context, op TrackerOp, steps *[]string
 	return note, nil
 }
 
-// runEpicAxisOp runs the push of one epic axis, priority or quarter.
+// readinessDisplay names the readiness levels in the activity texts, as the
+// roadmap shows them.
+var readinessDisplay = map[string]string{"idea": "Idée", "shaping": "En cadrage", "ready": "Prête"}
+
+// runEpicAxisOp runs the push of one epic axis, priority, quarter or readiness.
 func (d *DB) runEpicAxisOp(ctx context.Context, op TrackerOp, steps *[]string, push func(context.Context, string, string, string) (string, error), value string) (string, error) {
 	note, err := push(ctx, op.ProjectID, op.EpicKey, value)
 	if err != nil {

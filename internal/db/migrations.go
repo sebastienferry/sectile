@@ -527,11 +527,19 @@ var migrations = []migration{
 		statements: []string{"ALTER TABLE task_activities ADD COLUMN credential_missing TEXT NOT NULL DEFAULT '';"},
 	},
 	{
+		// The readiness a person decided for an epic, "idea", "shaping" or
+		// "ready" (#633). Empty is "nobody decided", which every epic reads as
+		// until then: the roadmap shows a suggestion in its place.
+		version:    37,
+		name:       "macros.readiness",
+		statements: []string{"ALTER TABLE macros ADD COLUMN readiness TEXT NOT NULL DEFAULT '';"},
+	},
+	{
 		// Whether a project writes the priority and the quarter on the epics of
 		// its roadmap projects, one epic at a time (#632). Closed on every
 		// existing project, so the read-only rule of #426 holds until someone
 		// opens it.
-		version:    37,
+		version:    38,
 		name:       "projects.roadmap_axis_writes",
 		statements: []string{"ALTER TABLE projects ADD COLUMN roadmap_axis_writes INTEGER NOT NULL DEFAULT 0;"},
 	},

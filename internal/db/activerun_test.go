@@ -166,6 +166,7 @@ func TestMigrationNineKeepsSurplusRunsAsConcurrent(t *testing.T) {
 		"ALTER TABLE projects DROP COLUMN branch_name_format",
 		"ALTER TABLE macros DROP COLUMN priority",
 		"ALTER TABLE macros DROP COLUMN quarter",
+		"ALTER TABLE macros DROP COLUMN readiness",
 		"ALTER TABLE task_activities DROP COLUMN credential_missing",
 		"ALTER TABLE projects DROP COLUMN roadmap_axis_writes",
 		"DELETE FROM schema_migrations WHERE version >= 9",

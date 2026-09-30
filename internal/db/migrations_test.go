@@ -59,7 +59,7 @@ func dropRepositoryColumns(d *DB) {
 	dropCredentialAccountColumn(d)
 }
 
-// dropCredentialAccountColumn undoes what migrations 24 to 36 change. It runs
+// dropCredentialAccountColumn undoes what migrations 24 to 37 change. It runs
 // with dropRepositoryColumns, since every fixture that rewinds before 21 also
 // rewinds before 24.
 func dropCredentialAccountColumn(d *DB) {
@@ -68,6 +68,7 @@ func dropCredentialAccountColumn(d *DB) {
 	_, _ = d.conn.Exec("ALTER TABLE projects DROP COLUMN branch_name_format")
 	_, _ = d.conn.Exec("ALTER TABLE macros DROP COLUMN priority")
 	_, _ = d.conn.Exec("ALTER TABLE macros DROP COLUMN quarter")
+	_, _ = d.conn.Exec("ALTER TABLE macros DROP COLUMN readiness")
 	_, _ = d.conn.Exec("ALTER TABLE task_activities DROP COLUMN credential_missing")
 	_, _ = d.conn.Exec("ALTER TABLE projects DROP COLUMN roadmap_axis_writes")
 	_, _ = d.conn.Exec("ALTER TABLE projects ADD COLUMN mono_repo INTEGER NOT NULL DEFAULT 1")
@@ -443,6 +444,7 @@ func TestMigrationThirtyOneRemovesTheRepositoryLayout(t *testing.T) {
 		"ALTER TABLE projects DROP COLUMN branch_name_format",
 		"ALTER TABLE macros DROP COLUMN priority",
 		"ALTER TABLE macros DROP COLUMN quarter",
+		"ALTER TABLE macros DROP COLUMN readiness",
 		"ALTER TABLE task_activities DROP COLUMN credential_missing",
 		"ALTER TABLE projects DROP COLUMN roadmap_axis_writes",
 		"DELETE FROM schema_migrations WHERE version >= 31",

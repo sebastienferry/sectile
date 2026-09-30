@@ -26,7 +26,14 @@ import (
 const (
 	PriorityLabelPrefix = "priority:"
 	QuarterLabelPrefix  = "quarter:"
+	// ReadinessLabelPrefix is the prefix of the readiness axis (#633). The
+	// set of its labels is closed, like the priority's.
+	ReadinessLabelPrefix = "readiness:"
 )
+
+// ReadinessLevels lists the readiness levels in funnel order. The index is the
+// rank used when an epic carries several: the most advanced wins.
+var ReadinessLevels = []string{"idea", "shaping", "ready"}
 
 var (
 	// epicPriorityPattern reads "p1", "P1", "priority:p1".
@@ -64,6 +71,32 @@ func NormalizeQuarter(value string) (string, error) {
 	return m[1] + "-Q" + m[2], nil
 }
 
+// NormalizeReadiness returns "idea", "shaping" or "ready", "" for none, or an
+// error naming the value it cannot read. It reads "Ready", "readiness:ready"
+// and "#ready" alike.
+func NormalizeReadiness(value string) (string, error) {
+	clean := cleanLabel(value)
+	if clean == "" {
+		return "", nil
+	}
+	level := strings.TrimPrefix(clean, ReadinessLabelPrefix)
+	if readinessRank(level) < 0 {
+		return "", fmt.Errorf("« %s » n'est pas une readiness d'épic : idea, shaping ou ready attendu", strings.TrimSpace(value))
+	}
+	return level, nil
+}
+
+// readinessRank is the position of a level in ReadinessLevels, -1 when it is
+// not one.
+func readinessRank(level string) int {
+	for i, l := range ReadinessLevels {
+		if l == level {
+			return i
+		}
+	}
+	return -1
+}
+
 // PriorityLabel is the label of a normalized priority, "" for none.
 func PriorityLabel(priority string) string {
 	if priority == "" {
@@ -79,6 +112,23 @@ func QuarterLabel(quarter string) string {
 		return ""
 	}
 	return QuarterLabelPrefix + strings.ToLower(quarter)
+}
+
+// ReadinessLabel is the label of a normalized readiness, "" for none.
+func ReadinessLabel(readiness string) string {
+	if readiness == "" {
+		return ""
+	}
+	return ReadinessLabelPrefix + readiness
+}
+
+// AllReadinessLabels lists the three labels of the readiness axis.
+func AllReadinessLabels() []string {
+	out := make([]string, 0, len(ReadinessLevels))
+	for _, level := range ReadinessLevels {
+		out = append(out, ReadinessLabelPrefix+level)
+	}
+	return out
 }
 
 // AllPriorityLabels lists the four labels of the priority axis.
@@ -102,6 +152,27 @@ func PriorityFromLabels(labels []string) string {
 		}
 	}
 	return ""
+}
+
+// ReadinessFromLabels reads the readiness from labels, "" when none is valid.
+// When an epic carries several, the most advanced wins: an epic somebody
+// judged ready is not demoted by a leftover "readiness:idea".
+func ReadinessFromLabels(labels []string) string {
+	best := -1
+	for _, l := range labels {
+		clean := cleanLabel(l)
+		rest, ok := strings.CutPrefix(clean, ReadinessLabelPrefix)
+		if !ok {
+			continue
+		}
+		if rank := readinessRank(rest); rank > best {
+			best = rank
+		}
+	}
+	if best < 0 {
+		return ""
+	}
+	return ReadinessLevels[best]
 }
 
 // QuarterFromLabels reads the quarter from labels: the first valid prefixed
@@ -219,6 +290,9 @@ const (
 	axisLabels
 	axisPriority
 	axisQuarter
+	// axisReadiness is the readiness a person decides (#633), which a roadmap
+	// project's epic never opens to.
+	axisReadiness
 )
 
 // foreignAxisWritable tells whether an axis may be written on an epic of a
@@ -244,20 +318,20 @@ func macroAxesWritable(key string, proj *models.Project, supported bool, bulk bo
 	return !bulk && foreignAxisWritable(key, proj, axisPriority)
 }
 
-// SaveMacroAxes stores the priority and the quarter of a macro. A nil pointer
+// SaveMacroAxes stores the priority, the quarter and the readiness of a macro. A nil pointer
 // leaves that axis as it is; the values are normalized, and an unreadable one
 // is refused before anything is written.
 //
 // It is kept apart from saveMacroMetaFull, whose other fields it never
 // touches: an axis edit racing with a framing edit must not write back the
 // framing it read.
-func (d *DB) SaveMacroAxes(projectID string, key string, priority *string, quarter *string) (*models.MacroMeta, error) {
+func (d *DB) SaveMacroAxes(projectID string, key string, priority *string, quarter *string, readiness *string) (*models.MacroMeta, error) {
 	projectID = strings.TrimSpace(projectID)
 	key = strings.TrimSpace(key)
 	if projectID == "" || key == "" {
 		return nil, fmt.Errorf("projet et clé de macro obligatoires")
 	}
-	var cleanPriority, cleanQuarter string
+	var cleanPriority, cleanQuarter, cleanReadiness string
 	var err error
 	if priority != nil {
 		if cleanPriority, err = NormalizeEpicPriority(*priority); err != nil {
@@ -266,6 +340,11 @@ func (d *DB) SaveMacroAxes(projectID string, key string, priority *string, quart
 	}
 	if quarter != nil {
 		if cleanQuarter, err = NormalizeQuarter(*quarter); err != nil {
+			return nil, err
+		}
+	}
+	if readiness != nil {
+		if cleanReadiness, err = NormalizeReadiness(*readiness); err != nil {
 			return nil, err
 		}
 	}
@@ -283,15 +362,19 @@ func (d *DB) SaveMacroAxes(projectID string, key string, priority *string, quart
 		return nil, err
 	}
 	current := models.MacroMeta{ProjectID: projectID, Key: key, Todos: []models.MacroTodo{}}
-	var todosJSON string
+	var todosJSON, labelsJSON string
 	var closedInt int
+	// The labels are read too: the client replaces its copy of the macro with
+	// the one returned, and a copy without them would hide the epic's free
+	// labels until the next reload.
 	if err := tx.QueryRow(`
-		SELECT horizon, description, framing_comment, todos, title, status, closed, priority, quarter FROM macros WHERE project_id = ? AND key = ?`+d.forUpdate(),
-		projectID, key).Scan(&current.Horizon, &current.Description, &current.FramingComment, &todosJSON, &current.Title, &current.Status, &closedInt, &current.Priority, &current.Quarter); err != nil {
+		SELECT horizon, description, framing_comment, todos, title, status, closed, priority, quarter, readiness, labels FROM macros WHERE project_id = ? AND key = ?`+d.forUpdate(),
+		projectID, key).Scan(&current.Horizon, &current.Description, &current.FramingComment, &todosJSON, &current.Title, &current.Status, &closedInt, &current.Priority, &current.Quarter, &current.Readiness, &labelsJSON); err != nil {
 		d.mu.Unlock()
 		return nil, err
 	}
 	current.Todos = parseMacroTodos(todosJSON)
+	current.Labels = parseMacroLabels(labelsJSON)
 	current.Closed = closedInt == 1
 	if priority != nil {
 		current.Priority = cleanPriority
@@ -299,9 +382,12 @@ func (d *DB) SaveMacroAxes(projectID string, key string, priority *string, quart
 	if quarter != nil {
 		current.Quarter = cleanQuarter
 	}
+	if readiness != nil {
+		current.Readiness = cleanReadiness
+	}
 	current.UpdatedAt = time.Now()
-	_, execErr := tx.Exec("UPDATE macros SET priority = ?, quarter = ?, updated_at = ? WHERE project_id = ? AND key = ?",
-		current.Priority, current.Quarter, current.UpdatedAt, projectID, key)
+	_, execErr := tx.Exec("UPDATE macros SET priority = ?, quarter = ?, readiness = ?, updated_at = ? WHERE project_id = ? AND key = ?",
+		current.Priority, current.Quarter, current.Readiness, current.UpdatedAt, projectID, key)
 	if execErr == nil {
 		execErr = tx.Commit()
 	}
@@ -331,6 +417,28 @@ func (d *DB) PushMacroPriorityLabel(ctx context.Context, projectID string, macro
 		return fmt.Sprintf("labels de priorité retirés de %s", strings.TrimSpace(macroKey)), nil
 	}
 	return fmt.Sprintf("« %s » posé sur %s", target, strings.TrimSpace(macroKey)), nil
+}
+
+// PushMacroReadinessLabel mirrors the readiness onto the tracker's epic: it
+// adds the label of the chosen level and removes the other two. An empty
+// readiness removes the axis altogether. The set is closed, so the epic is not
+// read first, unlike the quarter.
+func (d *DB) PushMacroReadinessLabel(ctx context.Context, projectID string, macroKey string, readiness string) (string, error) {
+	key := strings.TrimSpace(macroKey)
+	target := ReadinessLabel(readiness)
+	removed := make([]string, 0, len(ReadinessLevels))
+	for _, label := range AllReadinessLabels() {
+		if label != target {
+			removed = append(removed, label)
+		}
+	}
+	if err := d.pushMacroLabels(ctx, projectID, key, axisReadiness, target, removed); err != nil {
+		return "", fmt.Errorf("readiness posée dans Sectile mais pas sur %s : %w", key, err)
+	}
+	if target == "" {
+		return fmt.Sprintf("labels de readiness retirés de %s", key), nil
+	}
+	return fmt.Sprintf("« %s » posé sur %s", target, key), nil
 }
 
 // PushMacroQuarterLabel mirrors the quarter onto the tracker's epic: it adds the

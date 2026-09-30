@@ -174,6 +174,9 @@ type DB struct {
 	// instanceAddress is where the other instances reach this one's internal
 	// endpoints. See internal/db/presence.go.
 	instanceAddress string
+	// macroStoryLocks holds one *sync.Mutex per project and macro, so the
+	// story creations of one macro never overlap on this server (#634).
+	macroStoryLocks sync.Map
 }
 
 // NewDB opens a SQLite database at dbPath. It is the path-shaped entry point the
