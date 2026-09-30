@@ -12,7 +12,7 @@ The tracker writes reuse the queued tracker operations
 
 ### 1. Storage
 
-- **Migration 37** `projects.roadmap_axis_writes` in
+- **Migration 38** (37 went to #633's `macros.readiness`) `projects.roadmap_axis_writes` in
   `internal/db/migrations.go` only, never in the frozen baseline:
 
   ```sql
@@ -290,3 +290,13 @@ acceptance criteria:
   local task.
 - **Selection storage**: a choice made on a page holds for its project even when
   the storage refuses it, and another project reads its own.
+- **Merge with #630, #633 and #634** (adjustment stage):
+  - the migration became 38, #633 having taken 37 for `macros.readiness`;
+  - the readiness of #633 is an axis of its own, `axisReadiness`, which a
+    foreign epic never opens to: the opt-in stays limited to the priority and
+    the quarter, and a readiness set on a foreign epic stays in Sectile;
+  - #634's batch creation shares the per-line core, so a batch creates the
+    stories of lines aimed at a declared project too, each rechecked;
+  - opening a foreign epic from one of its tickets (#630) adds its project to
+    the origin selection, like the other filters that could hide it are
+    cleared.

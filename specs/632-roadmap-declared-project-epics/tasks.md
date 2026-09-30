@@ -6,7 +6,7 @@ the tests green. The Go tests run on SQLite and on PostgreSQL
 
 ## 1. Storage (FR14)
 
-- [x] T1.1 Migration 37 `projects.roadmap_axis_writes` in
+- [x] T1.1 Migration 38 `projects.roadmap_axis_writes` in
   `internal/db/migrations.go` only (renumber if `main` took 37).
 - [x] T1.2 `internal/db/migrations_test.go`: the rewind helpers and the
   forget-and-replay fixtures drop the new column.

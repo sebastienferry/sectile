@@ -11,6 +11,7 @@ import {
   roadmapOriginsStorageKey,
   roadmapTargetOptions,
   saveOriginSelection,
+  selectionRevealing,
   targetPickerValue,
 } from '../src/lib/roadmapOrigins.ts'
 
@@ -125,4 +126,12 @@ test('the picker value keeps one target per line', () => {
   assert.deepEqual(applyTargetPickerValue(line, 'tracker:DATA'), { id: 'l1', text: 'Do it', targetProjectId: undefined, targetTrackerProject: 'DATA' })
   assert.deepEqual(applyTargetPickerValue({ ...line, targetTrackerProject: 'DATA' }, 'p3'), { id: 'l1', text: 'Do it', targetProjectId: 'p3', targetTrackerProject: undefined })
   assert.deepEqual(applyTargetPickerValue(line, ''), { id: 'l1', text: 'Do it', targetProjectId: undefined, targetTrackerProject: undefined })
+})
+
+test('opening a hidden foreign epic adds its origin to the selection', () => {
+  assert.deepEqual(selectionRevealing([], 'PE', 'DATA'), ['PE', 'DATA'])
+  assert.deepEqual(selectionRevealing(['PE', 'OPS'], 'PE', 'data'), ['PE', 'OPS', 'DATA'])
+  assert.equal(selectionRevealing(['PE', 'DATA'], 'PE', 'DATA'), null)
+  assert.equal(selectionRevealing([], 'PE', 'PE'), null)
+  assert.equal(selectionRevealing(['PE'], 'PE', ''), null)
 })

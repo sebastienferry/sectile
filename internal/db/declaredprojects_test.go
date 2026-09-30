@@ -314,6 +314,9 @@ func TestForeignEpicWritesFollowTheAxisAndTheOptIn(t *testing.T) {
 	if _, _, err := database.ValidateMacroLabelEdit(proj.ID, "DATA-12", []string{"team"}, nil); err == nil {
 		t.Error("the free labels of a foreign epic must stay refused once opted in")
 	}
+	if _, err := database.PushMacroReadinessLabel(ctx, proj.ID, "DATA-12", "ready"); err == nil {
+		t.Error("the readiness of a foreign epic must stay refused once opted in")
+	}
 	if len(fake.writes) != 2 {
 		t.Fatalf("writes = %d, want the priority and the quarter only", len(fake.writes))
 	}
@@ -454,5 +457,34 @@ func TestARefusedCreationRecordsNothingAndARefusedParentKeepsTheKey(t *testing.T
 	}
 	if got := macrosByKey(t, database, proj.ID)["PE-460"].Todos[0].StoryKey; got != task.Key {
 		t.Errorf("story key = %q, want %q kept", got, task.Key)
+	}
+}
+
+func TestABatchCreatesTheStoriesOfLinesAimedAtADeclaredProject(t *testing.T) {
+	fake := newDeclaredTracker(nil)
+	database, proj := declaredProject(t, fake, "DATA")
+	todos := []models.MacroTodo{
+		{Text: "Export the data", TargetTrackerProject: "DATA"},
+		{Text: "Gone project", TargetTrackerProject: "OPS"},
+	}
+	meta, err := database.SaveMacroMeta(proj.ID, "PE-460", nil, nil, nil, &todos)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids := []string{meta.Todos[0].ID, meta.Todos[1].ID}
+
+	batch, err := database.CreateStoriesFromMacroTodos(t.Context(), proj.ID, "PE-460", ids)
+	if err != nil {
+		t.Fatalf("batch refused: %v", err)
+	}
+	if batch.Created != 1 || batch.Failed != 1 {
+		t.Fatalf("batch = %+v, want the declared line created and the undeclared one failed", batch)
+	}
+	if len(fake.created) != 1 || fake.created[0].Project.JiraProject != "DATA" {
+		t.Errorf("created = %+v, want one story in DATA", fake.created)
+	}
+	tasks, _ := database.GetTasks("", "", "", "", proj.ID, "", "", "", "", nil, nil, false)
+	if len(tasks) != 0 {
+		t.Errorf("the story must not be imported, got %d tasks", len(tasks))
 	}
 }

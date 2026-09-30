@@ -120,11 +120,14 @@ import {
   applyTargetPickerValue,
   isDefaultOriginSelection,
   loadOriginSelection,
+  macroOrigin,
   matchesOrigins,
   normalizeOriginSelection,
   offeredOrigins,
   roadmapTargetOptions,
+  rowOrigin,
   saveOriginSelection,
+  selectionRevealing,
   targetPickerValue,
 } from '../lib/roadmapOrigins'
 import type { EpicPriority, EpicReadiness, MacroHorizon, MacroMeta, MacroStoryBatch, MacroTodo, MacroTodoSource } from '../types'
@@ -629,6 +632,10 @@ export const RoadmapView: React.FC = () => {
       return
     }
     if (searchQuery) setSearchQuery('')
+    // An epic of a roadmap project hides while its project is not ticked (#632).
+    const focused = allRows.find(r => r.key === epicKey)
+    const reveal = selectionRevealing(originSelection, currentProject.jiraProject || '', focused ? rowOrigin(focused) : '')
+    if (reveal && currentProject.issueTracker === 'jira') chooseOrigins(reveal)
     setSelectedLabels([])
     setPriorityFilter(null)
     setOnlyIssues(false)
@@ -651,6 +658,8 @@ export const RoadmapView: React.FC = () => {
     setTab,
     setSelectedKey,
     setIsPanelHidden,
+    originSelection,
+    chooseOrigins,
   ])
 
   // The label filter offers what the epics the other filters let through
@@ -2812,7 +2821,11 @@ export const RoadmapView: React.FC = () => {
                                 border: '1px solid rgb(var(--status-ok-rgb) / 0.32)',
                               }}
                               title={format(
-                                tasks.some(t => t.key === todo.storyKey) ? strings.framing.storyCreated : strings.framing.storyStaysInTracker,
+                                // A story of a roadmap project stays in Jira (#632),
+                                // which its key's project says, whatever is loaded.
+                                currentProject && roadmapTargetOptions(currentProject).includes(macroOrigin(todo.storyKey))
+                                  ? strings.framing.storyStaysInTracker
+                                  : strings.framing.storyCreated,
                                 { key: todo.storyKey }
                               )}
                             >

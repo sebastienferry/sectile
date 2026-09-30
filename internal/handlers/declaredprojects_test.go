@@ -108,3 +108,31 @@ func TestForeignEpicAxesStayLocalUntilTheOptInOpens(t *testing.T) {
 		t.Errorf("queued = %v, an own epic's bulk edit is still written", ops)
 	}
 }
+
+func TestTheReadinessOfAForeignEpicStaysInSectileEvenOptedIn(t *testing.T) {
+	database, projectID, post, setOptIn := declaredFixture(t)
+	setOptIn(true)
+
+	status, body := post("DATA-12", `{"readiness":"ready"}`)
+	if status != http.StatusOK {
+		t.Fatalf("status %d: %v", status, body)
+	}
+	macro, _ := body["macro"].(map[string]any)
+	if macro["readiness"] != "ready" {
+		t.Errorf("the readiness must still be stored, macro = %v", macro)
+	}
+	if body["labelNote"] != "conservé dans Sectile, non écrit sur le tracker" {
+		t.Errorf("labelNote = %v", body["labelNote"])
+	}
+	if n := trackerOps(t, database, projectID); n != 0 {
+		t.Errorf("queued = %d, the opt-in opens the priority and the quarter only", n)
+	}
+
+	// Together with an opted-in axis, only that axis is queued.
+	if status, body := post("DATA-12", `{"priority":"P1","readiness":"idea"}`); status != http.StatusOK {
+		t.Fatalf("status %d: %v", status, body)
+	}
+	if n := trackerOps(t, database, projectID); n != 1 {
+		t.Errorf("queued = %d, want the priority alone", n)
+	}
+}

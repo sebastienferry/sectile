@@ -173,3 +173,17 @@ export function applyTargetPickerValue<T extends TargetLine>(line: T, value: str
   }
   return { ...line, targetProjectId: value || undefined, targetTrackerProject: undefined }
 }
+
+/**
+ * The selection that shows an epic of `origin` (#630 opening an epic from one
+ * of its tickets): the current one when it already does, otherwise the current
+ * one plus that origin. The own key stays in, a selection that showed it
+ * before showing it still. Null when nothing has to change.
+ */
+export function selectionRevealing(selection: string[], own: string, origin: string): string[] | null {
+  const key = origin.trim().toUpperCase()
+  const ownKey = own.trim().toUpperCase()
+  const current = selection.length > 0 ? selection.map(k => k.toUpperCase()) : ownKey ? [ownKey] : []
+  if (!key || current.includes(key)) return null
+  return [...current, key]
+}
