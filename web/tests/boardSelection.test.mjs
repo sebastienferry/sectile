@@ -80,3 +80,18 @@ test('Escape leaves the selection alone when something else takes the key', () =
   assert.equal(shouldEscapeClearSelection({ ...bareEscape, inputFocused: true }), false, 'a field or a terminal')
   assert.equal(shouldEscapeClearSelection({ ...bareEscape, modalOpen: true }), false, 'an aria-modal dialog')
 })
+
+test('a range runs from the anchor to the target, both ways', async () => {
+  const { rangeSelection } = await import('../src/lib/boardSelection.ts')
+  const order = ['A', 'B', 'C', 'D']
+  assert.deepEqual(rangeSelection(order, 'B', 'D'), ['B', 'C', 'D'])
+  assert.deepEqual(rangeSelection(order, 'D', 'B'), ['B', 'C', 'D'])
+  assert.deepEqual(rangeSelection(order, 'C', 'C'), ['C'])
+})
+
+test('a range without a shown anchor is the target alone', async () => {
+  const { rangeSelection } = await import('../src/lib/boardSelection.ts')
+  assert.deepEqual(rangeSelection(['A', 'B'], null, 'B'), ['B'])
+  assert.deepEqual(rangeSelection(['A', 'B'], 'Z', 'B'), ['B'])
+  assert.deepEqual(rangeSelection(['A', 'B'], 'A', 'Z'), [])
+})
