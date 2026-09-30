@@ -6,65 +6,65 @@ Part B and starts only once #628 is merged on `main`.
 
 ## 1. Storage (FR1)
 
-- [ ] T1.1 Migration 37 `macros.readiness` in `internal/db/migrations.go`
+- [x] T1.1 Migration 37 `macros.readiness` in `internal/db/migrations.go`
   (renumber if `main` took 37).
-- [ ] T1.2 Rewind helpers drop `macros.readiness` wherever they drop
+- [x] T1.2 Rewind helpers drop `macros.readiness` wherever they drop
   `macros.quarter` (`migrations_test.go`, `activerun_test.go`,
   `branchformat_test.go`, `specartifacts_test.go`, `stagecommits_test.go`),
   and the forget-and-replay fixtures follow.
-- [ ] T1.3 `models.MacroMeta.Readiness`.
-- [ ] T1.4 Every macro read in `internal/db/macros.go` selects and scans the
+- [x] T1.3 `models.MacroMeta.Readiness`.
+- [x] T1.4 Every macro read in `internal/db/macros.go` selects and scans the
   column; the move between projects carries it.
-- [ ] T1.5 `SaveMacroAxes` takes `readiness *string`; its callers updated.
-- [ ] T1.6 Tests: save, read back and clear a level, other macro fields and
+- [x] T1.5 `SaveMacroAxes` takes `readiness *string`; its callers updated.
+- [x] T1.6 Tests: save, read back and clear a level, other macro fields and
   axes untouched; a moved macro keeps its level; SQLite and PostgreSQL.
 
 ## 2. Axis vocabulary (FR8, FR10)
 
-- [ ] T2.1 `macroaxes.go`: `ReadinessLabelPrefix`, `ReadinessLevels`,
+- [x] T2.1 `macroaxes.go`: `ReadinessLabelPrefix`, `ReadinessLevels`,
   `NormalizeReadiness`, `ReadinessLabel`, `AllReadinessLabels`,
   `ReadinessFromLabels`.
-- [ ] T2.2 `macrolabels.go`: `readiness:` joins `macroAxisPrefixes`.
-- [ ] T2.3 Table-driven tests: accepted forms (`ready`, `Ready`,
+- [x] T2.2 `macrolabels.go`: `readiness:` joins `macroAxisPrefixes`.
+- [x] T2.3 Table-driven tests: accepted forms (`ready`, `Ready`,
   `readiness:ready`, `#Readiness:Ready`) and refused ones (`soon`, `done`,
   `readiness:soon`); two levels read as the most advanced; unknown label read
   as absent (US5.2, US5.4); `IsMacroAxisLabel("readiness:idea")` holds.
 
 ## 3. Tracker writes (FR5, FR6, FR7, FR9)
 
-- [ ] T3.1 `PushMacroReadinessLabel`.
-- [ ] T3.2 `TrackerOpEpicReadiness`, `TrackerOp.Readiness`, activity texts and
+- [x] T3.1 `PushMacroReadinessLabel`.
+- [x] T3.2 `TrackerOpEpicReadiness`, `TrackerOp.Readiness`, activity texts and
   runner case, with the "set in Sectile but not on the ticket" failure wording.
-- [ ] T3.3 `pendingAxisPushes` and `PushPendingHorizons` cover the readiness,
+- [x] T3.3 `pendingAxisPushes` and `PushPendingHorizons` cover the readiness,
   failures named `<key> (readiness)`.
-- [ ] T3.4 Tests with a fake tracker: set adds the target and removes the other
+- [x] T3.4 Tests with a fake tracker: set adds the target and removes the other
   two; clear removes all three; only labels are sent (AC4); milestone, foreign
   epic and non-labelled tracker never pushed nor pending (FR6); a macro whose
   only differing axis is the readiness is pushed on that axis only.
 
 ## 4. Read-back (FR8, US5)
 
-- [ ] T4.1 `ImportMacroHorizons` stores the level read from the labels when
+- [x] T4.1 `ImportMacroHorizons` stores the level read from the labels when
   present, keeps the local one otherwise, extends its summary count.
-- [ ] T4.2 Tests: tracker level replaces a different local one; no label keeps
+- [x] T4.2 Tests: tracker level replaces a different local one; no label keeps
   the local one and makes it pending; two labels read as the most advanced;
   the read sends no write.
 
 ## 5. API (FR4, FR6)
 
-- [ ] T5.1 Macro handler accepts `readiness`, refuses an invalid value with 400
+- [x] T5.1 Macro handler accepts `readiness`, refuses an invalid value with 400
   and saves nothing, enqueues only when writable.
-- [ ] T5.2 Handler tests: valid level queued on a Jira project; invalid level
+- [x] T5.2 Handler tests: valid level queued on a Jira project; invalid level
   refused; GitHub milestone saved with no op queued and the "kept in Sectile"
   note.
 
 ## 6. Web logic (FR2, FR10)
 
-- [ ] T6.1 `types/index.ts`: `EpicReadiness`, `MacroMeta.readiness`.
-- [ ] T6.2 `epicAxes.ts`: `EPIC_READINESS`, `suggestReadiness`.
-- [ ] T6.3 `roadmap.ts`: `EpicRow.readiness` and `suggestedReadiness`;
+- [x] T6.1 `types/index.ts`: `EpicReadiness`, `MacroMeta.readiness`.
+- [x] T6.2 `epicAxes.ts`: `EPIC_READINESS`, `suggestReadiness`.
+- [x] T6.3 `roadmap.ts`: `EpicRow.readiness` and `suggestedReadiness`;
   `'readiness:'` in `EPIC_AXIS_LABEL_PREFIXES`.
-- [ ] T6.4 `web/tests/epicAxes.test.mjs`: each FR2 rule and the edge cases (all
+- [x] T6.4 `web/tests/epicAxes.test.mjs`: each FR2 rule and the edge cases (all
   tickets closed gives Ready; a line with a story but unticked is covered; a
   framing with an empty slicing gives Shaping; whitespace framing counts as
   none; nothing gives Idea); `freeEpicLabels` hides `readiness:ready` and
@@ -72,26 +72,26 @@ Part B and starts only once #628 is merged on `main`.
 
 ## 7. Web UI (US2, US3, US4, FR3, FR4, FR11, FR13)
 
-- [ ] T7.1 `readinessBadge` on the expanded and condensed rows, decided and
+- [x] T7.1 `readinessBadge` on the expanded and condensed rows, decided and
   suggested styles, tooltip.
-- [ ] T7.2 Tickets' stage badge: prefixed values and tooltip.
-- [ ] T7.3 Panel chip group next to the priority, second click clears,
+- [x] T7.2 Tickets' stage badge: prefixed values and tooltip.
+- [x] T7.3 Panel chip group next to the priority, second click clears,
   suggestion highlighted with `?`; `saveAxes` and the `saveMacroMeta` patch
   type widened.
-- [ ] T7.4 `planning.ts` and `operations.ts`: every new or changed string in fr
+- [x] T7.4 `planning.ts` and `operations.ts`: every new or changed string in fr
   and en; `activityText.test.mjs` samples; translation check.
-- [ ] T7.5 `web/tests/roadmap-readiness.browser.mjs` (opt-in Playwright): badge
+- [x] T7.5 `web/tests/roadmap-readiness.browser.mjs` (opt-in Playwright): badge
   shows the suggestion with `?`; a chip click decides and the badge follows; a
   second click clears; the "kept in Sectile" line on a GitHub project; the
   tickets' stage badge reads "Tickets: ...".
 
 ## 8. Documentation (FR14)
 
-- [ ] T8.1 `CHANGELOG.md` under `[Unreleased]`, `Added`: the epic readiness
+- [x] T8.1 `CHANGELOG.md` under `[Unreleased]`, `Added`: the epic readiness
   level, suggested until a person decides it from the panel, written as a Jira
   label, and the tickets' stage badge now reading "Tickets: ..." (#633). Once
   Part B lands, the line also names the readiness grouping and drop.
-- [ ] T8.2 `docs/API_AND_DATA_SPEC.md`: the activity queue names the readiness
+- [x] T8.2 `docs/API_AND_DATA_SPEC.md`: the activity queue names the readiness
   label.
 
 ## 9. Part B, after #628 (US6, US7, FR12)

@@ -98,8 +98,12 @@ adds `ReadinessLabelPrefix` to `macroAxisPrefixes`, which makes
   pushes it and names a failure `<key> (readiness) : <erreur>`. The toolbar
   button tooltip names the four axes.
 - `web/src/locales/operations.ts` renders the new action and summary in
-  English (`readinessAction`, `readinessClearAction`, `readinessSummary`), with
-  samples in `web/tests/activityText.test.mjs`.
+  English, with samples in `web/tests/activityText.test.mjs`. Implementation
+  note: the server writes the level's French name ("Prête"), which is a word to
+  translate rather than a parameter, so there is one template per level
+  (`readinessIdeaAction`, `readinessShapingAction`, `readinessReadyAction`,
+  `targetReadinessIdea`...) beside `readinessClearAction` and
+  `readinessSummary`.
 
 ### 4. Read-back
 
