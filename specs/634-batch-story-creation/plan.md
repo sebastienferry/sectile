@@ -267,3 +267,21 @@ existing plural convention if it has one), `batchSkipped` (`{key}`),
 - A batch on many lines against a slow tracker holds the request open; there
   is no server write timeout, and the panel shows the running state.
 - Multi-replica deployments keep the pre-existing duplicate risk (FR8).
+
+## Implementation notes
+
+Deviations from the plan above, made while implementing; the behaviour of
+`spec.md` is unchanged.
+
+- `saveMacroMetaFull` keeps its signature. The line-key option lives in a new
+  `saveMacroMetaKeys`, which `saveMacroMetaFull` calls with `nil`, rather than
+  adding a trailing parameter to its ten callers, tests included.
+- The credential code moved to `trackerapi.CredentialMissingCode`;
+  `handlers.TrackerCredentialMissingCode` is now an alias of it.
+- The selection is not pruned by an effect: the panel derives the selectable,
+  selected lines at render time and prunes the selection when it sends the
+  batch, which gives the same result without a cascading render.
+- The selection box is a native checkbox, so it never reads as the custom
+  `done` box beside it. An attached line keeps an empty slot of the same width,
+  so the texts stay aligned.
+- The browser test is `web/tests/roadmap-batch-stories.browser.mjs`.
