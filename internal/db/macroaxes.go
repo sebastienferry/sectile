@@ -238,15 +238,84 @@ func (d *DB) epicLabelsSupported(proj *models.Project) bool {
 	return ts.Supports(tracker.CapEpic) && ts.Supports(tracker.CapUpdate) && ts.Supports(tracker.CapLabels)
 }
 
-// MacroLabelsWritable tells whether the epic axes of a macro are written on the
-// tracker. The handler asks before queuing a write, so that a value meant to
-// stay in Sectile never produces a failed activity.
+// MacroLabelsWritable tells whether the labels of a macro, its horizon among
+// them, are written on the tracker. The handler asks before queuing a write, so
+// that a value meant to stay in Sectile never produces a failed activity.
 func (d *DB) MacroLabelsWritable(projectID string, key string) bool {
 	proj, err := d.GetProjectByID(strings.TrimSpace(projectID))
 	if err != nil || proj == nil {
 		return false
 	}
 	return macroKeyLabelable(key, proj) && d.epicLabelsSupported(proj)
+}
+
+// MacroAxesWritable tells whether an edit of the priority or the quarter of a
+// macro is written on the tracker. It is MacroLabelsWritable, plus the epics of
+// a roadmap project once the project opted in (#632), and only for an edit of
+// one epic: bulk is an edit that covers several, such as the title seeding,
+// and never reaches another team's epics.
+func (d *DB) MacroAxesWritable(projectID string, key string, bulk bool) bool {
+	proj, err := d.GetProjectByID(strings.TrimSpace(projectID))
+	if err != nil || proj == nil {
+		return false
+	}
+	return macroAxesWritable(key, proj, d.epicLabelsSupported(proj), bulk)
+}
+
+// FillMacroFlags sets the computed fields of a macro a handler returns, the
+// ones GetProjectMacros fills on a list: whether its labels and its axes are
+// written on the tracker, its origin and whether it is foreign. bulk is the
+// answer for an edit covering several epics, which never writes on a foreign
+// one.
+func (d *DB) FillMacroFlags(projectID string, m *models.MacroMeta, bulk bool) {
+	if m == nil {
+		return
+	}
+	proj, err := d.GetProjectByID(strings.TrimSpace(projectID))
+	if err != nil || proj == nil {
+		return
+	}
+	supported := d.epicLabelsSupported(proj)
+	m.LabelsWritable = supported && macroKeyLabelable(m.Key, proj)
+	fillMacroOrigin(m, proj, supported)
+	m.AxesWritable = macroAxesWritable(m.Key, proj, supported, bulk)
+}
+
+// macroAxis names the epic write a macroTracker call is for: they do not
+// all open the same way on an epic of a roadmap project.
+type macroAxis int
+
+const (
+	axisHorizon macroAxis = iota
+	axisLabels
+	axisPriority
+	axisQuarter
+	// axisReadiness is the readiness a person decides (#633), which a roadmap
+	// project's epic never opens to.
+	axisReadiness
+)
+
+// foreignAxisWritable tells whether an axis may be written on an epic of a
+// roadmap project: only the priority and the quarter, only once the project
+// opened RoadmapAxisWrites, and only while the epic's project is still
+// declared. A project removed from the declaration takes the right with it.
+func foreignAxisWritable(key string, proj *models.Project, axis macroAxis) bool {
+	if axis != axisPriority && axis != axisQuarter {
+		return false
+	}
+	return proj != nil && proj.RoadmapAxisWrites && isForeignMacro(key, proj) && isDeclaredRoadmapProject(proj, macroOrigin(key))
+}
+
+// macroAxesWritable is MacroAxesWritable once the project and the tracker's
+// support are known, so that a list resolves the tracker once.
+func macroAxesWritable(key string, proj *models.Project, supported bool, bulk bool) bool {
+	if !supported {
+		return false
+	}
+	if macroKeyLabelable(key, proj) {
+		return true
+	}
+	return !bulk && foreignAxisWritable(key, proj, axisPriority)
 }
 
 // SaveMacroAxes stores the priority, the quarter and the readiness of a macro. A nil pointer
@@ -341,7 +410,7 @@ func (d *DB) PushMacroPriorityLabel(ctx context.Context, projectID string, macro
 			removed = append(removed, label)
 		}
 	}
-	if err := d.pushMacroLabels(ctx, projectID, macroKey, target, removed); err != nil {
+	if err := d.pushMacroLabels(ctx, projectID, macroKey, axisPriority, target, removed); err != nil {
 		return "", fmt.Errorf("priorité posée dans Sectile mais pas sur %s : %w", strings.TrimSpace(macroKey), err)
 	}
 	if target == "" {
@@ -363,7 +432,7 @@ func (d *DB) PushMacroReadinessLabel(ctx context.Context, projectID string, macr
 			removed = append(removed, label)
 		}
 	}
-	if err := d.pushMacroLabels(ctx, projectID, key, target, removed); err != nil {
+	if err := d.pushMacroLabels(ctx, projectID, key, axisReadiness, target, removed); err != nil {
 		return "", fmt.Errorf("readiness posée dans Sectile mais pas sur %s : %w", key, err)
 	}
 	if target == "" {
@@ -385,7 +454,7 @@ func (d *DB) PushMacroQuarterLabel(ctx context.Context, projectID string, macroK
 	fail := func(err error) (string, error) {
 		return "", fmt.Errorf("trimestre posé dans Sectile mais pas sur %s : %w", key, err)
 	}
-	ts, proj, err := d.macroTracker(projectID, key)
+	ts, proj, err := d.macroTracker(projectID, key, axisQuarter)
 	if err != nil {
 		return fail(err)
 	}
@@ -404,7 +473,7 @@ func (d *DB) PushMacroQuarterLabel(ctx context.Context, projectID string, macroK
 			}
 		}
 	}
-	if err := d.pushMacroLabels(ctx, projectID, key, target, removed); err != nil {
+	if err := d.pushMacroLabels(ctx, projectID, key, axisQuarter, target, removed); err != nil {
 		return fail(err)
 	}
 	if target == "" {

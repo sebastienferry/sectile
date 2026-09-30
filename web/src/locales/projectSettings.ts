@@ -78,7 +78,10 @@ const fr = {
     roadmapProjectsLabel: 'Projets de roadmap',
     roadmapProjectsPlaceholder: 'Ex: DATA, OPS',
     roadmapProjectsHelp:
-      "Autres projets Jira dont les stories se rattachent aux lignes de découpe à l'import. Lus seulement : Sectile n'y écrit jamais.",
+      "Autres projets Jira dont la roadmap lit aussi les épics, et dont les stories se rattachent aux lignes de découpe. Une ligne de découpe peut y créer sa story, qui reste dans Jira. Sectile n'y modifie rien d'existant, sauf ce que l'option ci-dessous ouvre.",
+    roadmapAxisWritesLabel: 'Écrire la priorité et le trimestre sur les épics des projets de roadmap',
+    roadmapAxisWritesHelp:
+      "Une modification depuis le panneau d'une épic, une épic à la fois, est alors écrite sur Jira. L'horizon, les labels libres et les passes groupées (import depuis les titres, labels en attente) n'y écrivent jamais.",
     issueTypesLabel: 'Types de tickets importés',
     issueTypesLoading: 'Lecture des types du projet…',
     issueTypesUnavailable: 'Types indisponibles : enregistrez le projet avec sa clé Jira, puis rouvrez cette fiche.',
@@ -337,7 +340,10 @@ const en: ProjectSettingsStrings = {
     roadmapProjectsLabel: 'Roadmap projects',
     roadmapProjectsPlaceholder: 'E.g. DATA, OPS',
     roadmapProjectsHelp:
-      'Other Jira projects whose stories attach to the breakdown lines on import. Read only: Sectile never writes there.',
+      'Other Jira projects whose epics the roadmap also reads, and whose stories attach to the breakdown lines. A breakdown line can create its story there, which stays in Jira. Sectile changes nothing existing there, except what the option below opens.',
+    roadmapAxisWritesLabel: 'Write the priority and the quarter on the epics of the roadmap projects',
+    roadmapAxisWritesHelp:
+      "An edit from an epic's panel, one epic at a time, is then written on Jira. The horizon, the free labels and the passes over several epics (seeding from the titles, pending labels) never write there.",
     issueTypesLabel: 'Imported issue types',
     issueTypesLoading: 'Reading the project types…',
     issueTypesUnavailable: 'Types unavailable: save the project with its Jira key, then reopen these settings.',
