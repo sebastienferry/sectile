@@ -6,7 +6,7 @@ import { createGitDiff } from './gitDiff.js'
 
 import { skillResult } from './skill-result.mjs'
 import { orderedQueueRuns } from './queue.mjs'
-import { orderedTaskGroups } from './task-order.mjs'
+import { followedExecution, orderedTaskGroups } from './task-order.mjs'
 import { transitions, announce } from './notifications.mjs'
 import { runStateOf, runStateLabel, runStateSvg } from '../../shared/runStates.ts'
 import { isMacPlatform, sidebarShortcutAction, sidebarShortcutAria, sidebarShortcutLabel } from '../../shared/sidebarShortcut.mjs'
@@ -686,11 +686,14 @@ async function refresh(){
   // Compare the two polls before the new list replaces the old: a session that
   // has just started waiting, or has just finished, is what earns a banner.
   announce(transitions(runs,next))
+  // A new execution of the displayed ticket takes the console over (#639).
+  const followed=followedExecution(runs,next,selected,taskKey,run=>!freeConsole(run)&&!macroRun(run)&&!hiddenRun(run))
   const serialized=JSON.stringify(next),changed=serialized!==last
   runs=next;last=serialized
   await updateDisconnected(status.disconnectedProjects||[],changed,true)
   const current=runs.find(run=>run.id===selected)
-  if(current&&((current.status!==previous?.status&&(current.status==='running'||!current.sessionId))||current.sessionId!==previous?.sessionId))select(current,true,{deferrable:true})
+  if(followed&&selected)select(followed,true,{deferrable:true})
+  else if(current&&((current.status!==previous?.status&&(current.status==='running'||!current.sessionId))||current.sessionId!==previous?.sessionId))select(current,true,{deferrable:true})
   if(!selected){const visible=runs.find(run=>!hiddenRun(run));if(visible)select(visible,true,{deferrable:true})}
   if(changed||Date.now()-nextStepUpdated>15000)refreshNextStep()
   if(changed)loadCustomSkillSignal()
@@ -3035,7 +3038,7 @@ async function launchTaskWork(kind,force){
   await refresh()
   if(taskKey(currentTaskRun()||{})===key){
    const launched=runs.find(item=>taskKey(item)===key&&!latestRuns.some(previous=>previous.id===item.id))
-   if(launched)select(launched)
+   if(launched&&launched.id!==selected)select(launched)
   }
  }catch(err){
   const refusal=refusedActiveRun(err.message)

@@ -144,12 +144,13 @@ test('console next step rechecks task state, guards active history and handles f
   // Several active executions: the most recent one names the button.
   extra=[extra[0],{id:'adjust',skill:'adjust',status:'preparing',createdAt:'2026-09-26T10:05:00Z'}]
   await page.getByRole('button',{name:'Current: Adjust',exact:true}).waitFor()
-  extra=[{id:'pickup',skill:'pickup',status:'completed',createdAt:'2026-09-26T10:00:00Z'}]
+  // The console followed each new execution (#639): the one it shows stays listed, finished.
+  extra=[{id:'pickup',skill:'pickup',status:'completed',createdAt:'2026-09-26T10:00:00Z'},{...extra[1],status:'completed'}]
   await page.getByRole('button',{name:'Next: Clarify',exact:true}).waitFor()
   assert.equal(await button.isEnabled(),true)
   assert.equal(await chain.isEnabled(),true)
   // A finished task proposes no step, yet still names what runs on it.
-  stage='finished';extra=[{id:'discuss',skill:'discuss',status:'running',createdAt:'2026-09-26T10:10:00Z'}];await selectA()
+  stage='finished';extra=[{id:'discuss',skill:'discuss',status:'running',createdAt:'2026-09-26T10:10:00Z'},...extra];await selectA()
   await page.getByRole('button',{name:'Current: Discuss',exact:true}).waitFor()
   assert.equal(await button.isDisabled(),true)
   assert.equal(await chain.isHidden(),true)
@@ -203,7 +204,8 @@ test('console next step rechecks task state, guards active history and handles f
   await chain.click()
   await page.waitForFunction(()=>document.querySelector('#pickup-chain').disabled)
   assert.equal(launches.length,countBeforeActiveAbandon,'An active run abandons full-chain launch')
-  extra=[]
+  // The console followed the active run (#639): it stays listed once finished.
+  extra=[{...extra[0],status:'completed'}]
   await page.waitForFunction(()=>!document.querySelector('#pickup-chain').disabled)
 
   // >> is hidden without a pickup skill (US3.2)

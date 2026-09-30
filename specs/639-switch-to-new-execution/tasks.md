@@ -5,7 +5,7 @@ changelog. Each task names its test.
 
 ## Phase 1 - The rule (FR-001, FR-002, FR-004, FR-005)
 
-- [ ] T001 Export `followedExecution(previous,next,selectedId,keyOf,eligible)`
+- [x] T001 Export `followedExecution(previous,next,selectedId,keyOf,eligible)`
   from `desktop/src/task-order.mjs`, ranking with `compareRuns`.
   Test: `desktop/tests/task-order.test.mjs` (new) - new execution of the
   displayed ticket returned; another ticket's, an empty previous list, an
@@ -15,17 +15,17 @@ changelog. Each task names its test.
 
 ## Phase 2 - Wiring (FR-003, FR-006, FR-007, FR-008)
 
-- [ ] T002 `desktop/src/main.js` `refresh()`: compute `followedExecution` from
+- [x] T002 `desktop/src/main.js` `refresh()`: compute `followedExecution` from
   `runs` and `next` before `runs=next`, with `taskKey` and the eligibility
   `!freeConsole && !macroRun && !hiddenRun`; after `updateDisconnected`,
   select it in the background (`select(followed,true,{deferrable:true})`),
   otherwise keep the existing re-selection of the displayed execution.
-- [ ] T003 `launchTaskWork`: select the launched execution only when it is not
+- [x] T003 `launchTaskWork`: select the launched execution only when it is not
   already the selected one.
 
 ## Phase 3 - UI test (US1, US2, US3)
 
-- [ ] T004 `desktop/tests/follow-new-execution.ui.cjs` (new): fake agent with a
+- [x] T004 `desktop/tests/follow-new-execution.ui.cjs` (new): fake agent with a
   mutable run list. Scenarios:
   - #1's finished execution on display, a running execution of #1 appears →
     the title and `#execution-history` show it (US1.1);
@@ -41,7 +41,7 @@ changelog. Each task names its test.
 
 ## Phase 4 - Changelog (US4)
 
-- [ ] T005 `CHANGELOG.md` `[Unreleased]` → `### Fixed`: "**The desktop console
+- [x] T005 `CHANGELOG.md` `[Unreleased]` → `### Fixed`: "**The desktop console
   follows a ticket's new execution.** When a new execution of the ticket on
   display starts or is queued, whether launched from the desktop, the web
   board or another client, the console switches to it; earlier executions

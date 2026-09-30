@@ -39,3 +39,15 @@ export function orderedTaskGroups(groups){
   anchor:anchorTime(executions)
  })).sort(compareGroups)
 }
+
+// The execution the console moves to after a poll (#639): among the executions
+// next lists and previous did not, those of the displayed execution's row,
+// ranked like the row ranks them. The displayed execution is looked up in
+// previous, so the first poll after a start or a restart follows nothing.
+// eligible leaves out what the console never follows.
+export function followedExecution(previous,next,selectedId,keyOf,eligible){
+ const shown=previous.find(run=>run.id===selectedId)
+ if(!shown||!eligible(shown))return null
+ const known=new Set(previous.map(run=>run.id)),key=keyOf(shown)
+ return next.filter(run=>!known.has(run.id)&&keyOf(run)===key&&eligible(run)).sort(compareRuns)[0]||null
+}
