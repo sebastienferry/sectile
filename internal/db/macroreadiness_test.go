@@ -77,6 +77,15 @@ func TestSaveMacroAxesStoresAndClearsTheReadiness(t *testing.T) {
 	if saved.Readiness != "ready" {
 		t.Errorf("saved = %q, want ready", saved.Readiness)
 	}
+	// The returned macro replaces the client's copy, so it keeps the labels.
+	labels := []string{"team-a", "readiness:ready"}
+	if _, err := database.saveMacroMetaFull(proj.ID, "PE-1", nil, nil, nil, nil, nil, nil, nil, &labels); err != nil {
+		t.Fatal(err)
+	}
+	saved, err = database.SaveMacroAxes(proj.ID, "PE-1", nil, nil, &ready)
+	if err != nil || !slices.Equal(saved.Labels, []string{"team-a", "readiness:ready"}) {
+		t.Errorf("returned labels = %v, %v", saved.Labels, err)
+	}
 	macros, _ := database.GetProjectMacros(proj.ID)
 	m := macros[0]
 	if m.Readiness != "ready" || m.Priority != "p1" || m.Quarter != "2026-Q4" || m.Horizon != "next" || m.Description != "Le cadrage" {

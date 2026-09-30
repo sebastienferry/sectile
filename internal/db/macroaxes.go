@@ -293,15 +293,19 @@ func (d *DB) SaveMacroAxes(projectID string, key string, priority *string, quart
 		return nil, err
 	}
 	current := models.MacroMeta{ProjectID: projectID, Key: key, Todos: []models.MacroTodo{}}
-	var todosJSON string
+	var todosJSON, labelsJSON string
 	var closedInt int
+	// The labels are read too: the client replaces its copy of the macro with
+	// the one returned, and a copy without them would hide the epic's free
+	// labels until the next reload.
 	if err := tx.QueryRow(`
-		SELECT horizon, description, framing_comment, todos, title, status, closed, priority, quarter, readiness FROM macros WHERE project_id = ? AND key = ?`+d.forUpdate(),
-		projectID, key).Scan(&current.Horizon, &current.Description, &current.FramingComment, &todosJSON, &current.Title, &current.Status, &closedInt, &current.Priority, &current.Quarter, &current.Readiness); err != nil {
+		SELECT horizon, description, framing_comment, todos, title, status, closed, priority, quarter, readiness, labels FROM macros WHERE project_id = ? AND key = ?`+d.forUpdate(),
+		projectID, key).Scan(&current.Horizon, &current.Description, &current.FramingComment, &todosJSON, &current.Title, &current.Status, &closedInt, &current.Priority, &current.Quarter, &current.Readiness, &labelsJSON); err != nil {
 		d.mu.Unlock()
 		return nil, err
 	}
 	current.Todos = parseMacroTodos(todosJSON)
+	current.Labels = parseMacroLabels(labelsJSON)
 	current.Closed = closedInt == 1
 	if priority != nil {
 		current.Priority = cleanPriority
