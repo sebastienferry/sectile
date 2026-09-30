@@ -4,20 +4,20 @@ References: [`spec.md`](./spec.md), [`plan.md`](./plan.md).
 
 ## 1. browserRoot test (D1, FR1, FR2)
 
-- [ ] T1.1 Add the `slashes` helper to `web/tests/browserRoot.test.mjs` and compare `root`
+- [x] T1.1 Add the `slashes` helper to `web/tests/browserRoot.test.mjs` and compare `root`
       with `slashes(join(dir, 'web'))` in `a path without # is served as it is`.
-- [ ] T1.2 Compare `root` with `slashes(web)` in `a path with # relaunches the test through a
+- [x] T1.2 Compare `root` with `slashes(web)` in `a path with # relaunches the test through a
       link to the same checkout`; leave every other assertion unchanged.
 
 ## 2. skillLaunchModel test (D2, FR3)
 
-- [ ] T2.1 Normalise CRLF to LF in the `read` helper of `web/tests/skillLaunchModel.test.mjs`.
+- [x] T2.1 Normalise CRLF to LF in the `read` helper of `web/tests/skillLaunchModel.test.mjs`.
 
 ## 3. Verification (US1–US3, FR4)
 
-- [ ] T3.1 Run both files with `node --test` from `web/` in this worktree.
-- [ ] T3.2 Run both files from a temporary worktree whose path holds `#`, then remove it.
-- [ ] T3.3 Run `npm test` in `web/` once.
+- [x] T3.1 Run both files with `node --test` from `web/` in this worktree.
+- [x] T3.2 Run both files from a temporary worktree whose path holds `#`, then remove it.
+- [x] T3.3 Run `npm test` in `web/` once.
 
 ## 4. Pull request (FR5)
 
