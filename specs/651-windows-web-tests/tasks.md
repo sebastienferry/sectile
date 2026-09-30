@@ -21,7 +21,7 @@ References: [`spec.md`](./spec.md), [`plan.md`](./plan.md).
 
 ## 4. Pull request (FR5)
 
-- [ ] T4.1 Write the root cause of each failure in the pull request description.
+- [x] T4.1 Write the root cause of each failure in the pull request description.
 
 ## Test plan
 
