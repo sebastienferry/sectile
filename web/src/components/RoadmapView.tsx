@@ -1137,11 +1137,15 @@ export const RoadmapView: React.FC = () => {
     if (toSave.length === 0) return
     setIsDropping(true)
     const patch = section.axis === 'priority' ? { priority: section.value as EpicPriority | '' } : { quarter: section.value }
+    // Several epics at once are a bulk edit, like the seeding: on another
+    // team's epic (#632) the value then stays in Sectile. One epic is the
+    // panel's single edit.
+    const bulk = toSave.length > 1
     let done = 0
     const refused: string[] = []
     const moved: string[] = []
     for (const key of toSave) {
-      const saved = await saveMacroMeta(currentProject.id, key, patch, { quiet: true })
+      const saved = await saveMacroMeta(currentProject.id, key, patch, bulk ? { quiet: true, bulk: true } : { quiet: true })
       if (saved) {
         done++
         moved.push(key)

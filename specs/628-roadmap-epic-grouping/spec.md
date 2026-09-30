@@ -159,7 +159,10 @@ As a person reorganizing a quarter, I pick several epics and drop them at once.
 - **FR6** Axis and folded sections persisted per browser in
   `roadmapViewPrefs.ts`, tolerant of missing or foreign values.
 - **FR7** Drag carries epic keys only; a drop writes the axis shown and nothing
-  else, through `saveMacroMeta` with `quiet`, one epic at a time.
+  else, through `saveMacroMeta` with `quiet`, one epic at a time. A drop that
+  saves several epics is a bulk edit (`bulk`, #632), as the seeding is: on
+  another team's epic the value stays in Sectile. A drop that saves one epic is
+  a single edit, as from the panel.
 - **FR8** Selection rules of US5, pruned against the epics shown.
 - **FR9** One report per drop (US6).
 - **FR10** Every new string in French and English; one `Added` line in

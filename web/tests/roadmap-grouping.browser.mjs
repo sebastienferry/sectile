@@ -123,7 +123,10 @@ try {
   await page.getByText('2 macros sélectionnées').waitFor();
   await row('PE-3').dragTo(header('priority:none'));
   await page.waitForFunction(() => window.saves.length === 3);
-  assert.deepEqual((await saves()).slice(1).map(s => [s.key, s.patch]), [['PE-1', { priority: '' }], ['PE-3', { priority: '' }]]);
+  assert.deepEqual((await saves()).slice(1), [
+    { key: 'PE-1', patch: { priority: '' }, options: { quiet: true, bulk: true } },
+    { key: 'PE-3', patch: { priority: '' }, options: { quiet: true, bulk: true } },
+  ], 'a drop of several epics is a bulk edit');
   await page.waitForFunction(() => document.querySelector('[data-epic-selection]') === null);
 
   // A selection mixing moved and already-placed epics reports both; the one
