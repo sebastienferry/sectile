@@ -4,9 +4,9 @@ Ordered checklist. Each group is one commit and leaves the tree buildable.
 
 ## 1. Pure rules (FR1, FR4, FR5, FR6, FR7)
 
-- [ ] T1.1 Create `web/src/lib/roadmapFocus.ts`: `TICKET_VIEWS`,
+- [x] T1.1 Create `web/src/lib/roadmapFocus.ts`: `TICKET_VIEWS`,
   `isTicketView`, `canOpenEpicInRoadmap`, `locateEpic`, `returnView`.
-- [ ] T1.2 Create `web/tests/roadmapFocus.test.mjs`:
+- [x] T1.2 Create `web/tests/roadmapFocus.test.mjs`:
   - `canOpenEpicInRoadmap`: parent key and roadmap enabled → true; empty or
     blank key → false; project without the roadmap view → false; unknown
     project → false.
@@ -18,42 +18,42 @@ Ordered checklist. Each group is one commit and leaves the tree buildable.
 
 ## 2. Context wiring (FR3, FR6, FR7, FR8)
 
-- [ ] T2.1 `AppContext.tsx`: `activeView` mirror ref and `roadmapOriginView`
+- [x] T2.1 `AppContext.tsx`: `activeView` mirror ref and `roadmapOriginView`
   ref; `setActiveView` records the origin when entering the roadmap from a
   ticket view.
-- [ ] T2.2 `roadmapFocus` state, `openEpicInRoadmap(task)`,
+- [x] T2.2 `roadmapFocus` state, `openEpicInRoadmap(task)`,
   `consumeRoadmapFocus()`, `openEpicTickets(epicKey)`, added to the context
   type and value.
-- [ ] T2.3 `buildTaskQuery`: no `macro` parameter while `activeView ===
+- [x] T2.3 `buildTaskQuery`: no `macro` parameter while `activeView ===
   'roadmap'`, with a comment next to the search exception.
 
 ## 3. Roadmap arrival and return (FR4, FR5, FR6)
 
-- [ ] T3.1 `RoadmapView.tsx`: `macrosFor` project id stored with the fetched
+- [x] T3.1 `RoadmapView.tsx`: `macrosFor` project id stored with the fetched
   macros.
-- [ ] T3.2 Arrival effect: consume, locate, then select, tab, closed toggle,
+- [x] T3.2 Arrival effect: consume, locate, then select, tab, closed toggle,
   clear search, labels, priority, "only issues", show panel; or the error toast
   and the return to `from`.
-- [ ] T3.3 Panel button "Open its tickets", shown when the epic has tickets.
+- [x] T3.3 Panel button "Open its tickets", shown when the epic has tickets.
 
 ## 4. Entry points and chip (FR1, FR2, FR9)
 
-- [ ] T4.1 `TaskCard.tsx`: menu entry beside "Filter by parent".
-- [ ] T4.2 `ListView.tsx`: icon in the action cell, before pin.
-- [ ] T4.3 `TaskDetailModal.tsx`: button after the parent key's copy button;
+- [x] T4.1 `TaskCard.tsx`: menu entry beside "Filter by parent".
+- [x] T4.2 `ListView.tsx`: icon in the action cell, before pin.
+- [x] T4.3 `TaskDetailModal.tsx`: button after the parent key's copy button;
   closes the detail first.
-- [ ] T4.4 `Header.tsx`: parent filter chip hidden on the roadmap.
+- [x] T4.4 `Header.tsx`: parent filter chip hidden on the roadmap.
 
 ## 5. Strings and changelog (FR10, FR11)
 
-- [ ] T5.1 `translations.ts`: the keys of plan section 7, in the type, `fr`
+- [x] T5.1 `translations.ts`: the keys of plan section 7, in the type, `fr`
   and `en`.
-- [ ] T5.2 `CHANGELOG.md`: the `Added` and `Changed` lines under
+- [x] T5.2 `CHANGELOG.md`: the `Added` and `Changed` lines under
   `[Unreleased]`.
 
 ## 6. Browser regression
 
-- [ ] T6.1 Create `web/tests/roadmap-epic-navigation.browser.mjs`, on the
+- [x] T6.1 Create `web/tests/roadmap-epic-navigation.browser.mjs`, on the
   `roadmap-view.browser.mjs` harness (`useApp` mocked through `window.ctx`,
   `roadmapFocus` and `consumeRoadmapFocus` in the mock):
   - a focus request on a LATER epic while NOW is remembered opens LATER with
@@ -71,17 +71,17 @@ Ordered checklist. Each group is one commit and leaves the tree buildable.
 
 ## 7. Checks
 
-- [ ] T7.1 `cd web && node --test tests/roadmapFocus.test.mjs
+- [x] T7.1 `cd web && node --test tests/roadmapFocus.test.mjs
   tests/roadmap.test.mjs tests/optionalViews.test.mjs`.
-- [ ] T7.2 `cd web && npx tsc --noEmit` and `npx oxlint` (worktrees have no
+- [x] T7.2 `cd web && npx tsc --noEmit` and `npx oxlint` (worktrees have no
   `node_modules`: symlink the main checkout's, then remove the link).
-- [ ] T7.3 `node tests/roadmap-epic-navigation.browser.mjs` and
+- [x] T7.3 `node tests/roadmap-epic-navigation.browser.mjs` and
   `node tests/roadmap-view.browser.mjs` (sandbox off, `PLAYWRIGHT_MODULE`
   pointing at the main checkout's install).
 - [ ] T7.4 Manual pass in the running app: board card → epic → "Open its
   tickets" → board filtered; list → epic → back to list; detail under "all
   projects" switches project; a parent filter set does not empty the roadmap,
-  and its chip is absent there.
+  and its chip is absent there. Not run by the agent: left to the review.
 
 ## Test plan by requirement
 
