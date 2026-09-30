@@ -146,6 +146,28 @@ export interface MacroTodo {
 }
 export type EpicTodo = MacroTodo
 
+/** What a batch creation did with one slicing line (#634). */
+export interface MacroStoryOutcome {
+  todoId: string
+  status: 'created' | 'skipped' | 'failed'
+  storyKey?: string
+  task?: Task
+  notice?: string
+  error?: string
+  /** `tracker_credential_missing` when the line failed for want of a token. */
+  code?: string
+  tracker?: string
+}
+
+/** The answer of a batch creation: one outcome per processed line. */
+export interface MacroStoryBatch {
+  macro: MacroMeta | null
+  results: MacroStoryOutcome[]
+  created: number
+  skipped: number
+  failed: number
+}
+
 export interface ProposedMacroTask {
   title: string
   issueType: string

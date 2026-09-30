@@ -38,6 +38,7 @@ import type {
   EpicPriority, EpicReadiness,
   MacroTodo,
   MacroTodoSource,
+  MacroStoryBatch,
   TrackerTeam,
   TeamMember,
   TeamWorkload,
@@ -367,6 +368,12 @@ interface AppContextType {
    */
   editMacroLabels: (projectId: string, key: string, patch: { add?: string[]; remove?: string[] }) => Promise<boolean>
   createStoryFromMacroTodo: (projectId: string, macroKey: string, todoId: string) => Promise<{ macro: MacroMeta | null; epic: MacroMeta | null; storyKey: string } | null>
+  /**
+   * Creates the stories of several slicing lines in one request (#634). The
+   * answer carries one outcome per line; null means the batch was refused as a
+   * whole, which a toast has already said.
+   */
+  createStoriesFromMacroTodos: (projectId: string, macroKey: string, todoIds: string[]) => Promise<MacroStoryBatch | null>
   /** Produit la découpe d'une macro depuis les artefacts SDD du dépôt. */
   produceMacroSlicing: (projectId: string, macroKey: string, source: MacroTodoSource) => Promise<MacroMeta | null>
   createStoryFromEpicTodo: (projectId: string, epicKey: string, todoId: string) => Promise<{ macro: MacroMeta | null; epic: MacroMeta | null; storyKey: string } | null>
@@ -498,6 +505,7 @@ import { normalizeUIScale } from '../lib/uiScale'
 import { toastDuration } from '../lib/toastTimer'
 import { applyDocumentLocale, format, isLocale, plural, rememberLocale, resolveInitialLocale } from '../lib/i18n'
 import { localizeActivityText } from '../lib/activityText'
+import { batchSummary } from '../lib/roadmap'
 import { createLatestRequest } from '../lib/latestRequest'
 import { staleFilters } from '../lib/filterPruning'
 import { readProjectHistory, recordProjectOpening, writeProjectHistory, type ProjectOpening } from '../lib/projectHistory'
@@ -2812,6 +2820,55 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   }
   const createStoryFromEpicTodo = createStoryFromMacroTodo
 
+  // The batch reports each line in the panel; the notification carries its
+  // summary once, a success when nothing failed and a warning otherwise. A line
+  // refused for want of the person's own token offers to add it, as the
+  // single-line action does.
+  const createStoriesFromMacroTodos = async (
+    projectId: string,
+    macroKey: string,
+    todoIds: string[]
+  ): Promise<MacroStoryBatch | null> => {
+    const copy = t.operations.notifications.macros
+    try {
+      const res = await fetch(
+        `${API_BASE}/projects/${encodeURIComponent(projectId)}/macros/${encodeURIComponent(macroKey)}/stories`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ todoIds }),
+        }
+      )
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw trackerError(res, data, copy.createRefused)
+      const batch: MacroStoryBatch = {
+        macro: data.macro || null,
+        results: Array.isArray(data.results) ? data.results : [],
+        created: data.created || 0,
+        skipped: data.skipped || 0,
+        failed: data.failed || 0,
+      }
+      if (batch.created > 0) fetchTasks()
+      const summary = batchSummary(locale, batch, {
+        created: t.planning.roadmap.framing.batchCreated,
+        skipped: t.planning.roadmap.framing.batchSkipped,
+        failed: t.planning.roadmap.framing.batchFailed,
+      })
+      const missing = batch.results.find(r => r.status === 'failed' && r.code === 'tracker_credential_missing' && r.tracker)
+      if (missing) {
+        addToast(tokenOfferToast(missing.tracker as TrackerKind))
+      } else if (batch.failed === 0) {
+        addToast({ type: 'success', title: copy.storiesCreated, description: summary })
+      } else {
+        addToast({ type: 'warning', title: batch.created > 0 ? copy.storiesPartial : copy.storiesFailed, description: summary })
+      }
+      return batch
+    } catch (err: any) {
+      addToast(refusalToast(err, { type: 'error', title: copy.storiesFailed, description: err.message }))
+      return null
+    }
+  }
+
   // Produire la découpe depuis les artefacts SDD du dépôt.
   //
   // Un geste, jamais un effet de bord de la synchro : produire à chaque passe
@@ -4170,6 +4227,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         editMacroLabels,
         saveEpicMeta,
         createStoryFromMacroTodo,
+        createStoriesFromMacroTodos,
         produceMacroSlicing,
         createStoryFromEpicTodo,
         pendingHorizonPushes,
