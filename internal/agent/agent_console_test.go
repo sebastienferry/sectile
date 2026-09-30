@@ -264,6 +264,21 @@ func TestConsoleAdmissionUsesLocalMappingAndQueue(t *testing.T) {
 			t.Fatalf("queue cancellation: %d", rec.Code)
 		}
 	}
+	// The conversation view applies to Claude only; another engine keeps its PTY.
+	for provider, conversation := range map[string]bool{"claude": true, "codex": false} {
+		rec := disconnectRequest(d, "POST", "/desktop/consoles", `{"projectId":"p","provider":"`+provider+`","view":"conversation"}`)
+		var entry desktopRun
+		if rec.Code != 202 || json.Unmarshal(rec.Body.Bytes(), &entry) != nil {
+			t.Fatalf("conversation admission: %d %s", rec.Code, rec.Body.String())
+		}
+		if entry.Conversation != conversation || entry.Headless != conversation || entry.Directory != d.repoRoot || entry.Kind != "console" {
+			t.Fatalf("%s: unexpected entry: %+v", provider, entry)
+		}
+		if conversation && entry.Status != "running" {
+			t.Fatalf("a conversation waited for the busy checkout: %+v", entry)
+		}
+		disconnectRequest(d, "POST", "/desktop/stop?id="+entry.ID, "")
+	}
 	settings, err := agentconfig.ReadSettings(d.repoRoot)
 	if err != nil {
 		t.Fatal(err)

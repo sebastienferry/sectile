@@ -3,6 +3,7 @@ import { installTooltips } from './tooltips.js'
 import {mcpSettings} from './mcp-settings.mjs'
 import { logText } from './log-text.mjs'
 import { createGitDiff } from './gitDiff.js'
+import { createConversationView } from './conversation.js'
 
 import { skillResult } from './skill-result.mjs'
 import { orderedQueueRuns } from './queue.mjs'
@@ -32,7 +33,7 @@ import { offerFor, initializedNotice } from './git-init.mjs'
 // agent stopped.
 import changelogSource from '../../CHANGELOG.md?raw'
 import { parseChangelog, releaseNotesFor } from './changelog.mjs'
-import { APPEARANCE_CHOICES, terminalTheme } from './appearance.mjs'
+import { APPEARANCE_CHOICES, CONSOLE_VIEW_CHOICES, terminalTheme } from './appearance.mjs'
 const api=window.localAgent
 // Concurrent execution workers ceiling per project, aligned with agentconfig.MaxParallelism.
 // Parallelism is a workstation setting: the server neither stores nor supplies it.
@@ -86,7 +87,7 @@ let localTasks={}
 try{localTasks=JSON.parse(localStorage.getItem('localTasks')||'{}')}catch{}
 const freeConsole=run=>run?.kind==='console'
 // Task runs show the skill and engine; project prompts show their engine name.
-const runLabel=run=>freeConsole(run)?(run.engineName||run.provider||'AI')+' · Project prompt':(runEngine(run)?run.skill+' · '+runEngine(run):run.skill)
+const runLabel=run=>run.conversation?'Claude Code · Conversation (test)':freeConsole(run)?(run.engineName||run.provider||'AI')+' · Project prompt':(runEngine(run)?run.skill+' · '+runEngine(run):run.skill)
 // A macro skill run has no task: its executions group under the macro.
 const macroRun=run=>!!run?.macroKey
 const taskKey=run=>JSON.stringify([run.projectId,freeConsole(run)?run.id:macroRun(run)?'macro:'+run.macroKey:run.taskId])
@@ -133,10 +134,25 @@ let selectedProject=null
 let ticketsOpen=false,agentConnected=false
 let updateSettingsConnection=null
 let opened=false,selected=null,runs=[],last='',stopping=false,restarting=false,projects=[],projectsLoaded=false
-const changes=createGitDiff({api,container:document.querySelector('#changes'),terminal:document.querySelector('#terminal'),panel:document.querySelector('#execution-content'),divider:document.querySelector('#execution-divider'),consoleButton:document.querySelector('#view-console'),changesButton:document.querySelector('#view-changes'),onConsole:focus=>{resize();if(focus&&opened)terminal.focus()}})
+const conversation=createConversationView({api,container:document.querySelector('#terminal'),onError:error})
+const conversationButton=document.createElement('button')
+conversationButton.type='button';conversationButton.textContent='Claude chat (test)';conversationButton.hidden=true
+// The conversation view is opt-in from Appearance; the terminal stays the default.
+let consoleView='terminal'
+api.consoleView().then(value=>{consoleView=value;render()}).catch(()=>{})
+conversationButton.title='Start an independent Claude Code conversation in this execution’s directory'
+document.querySelector('#save-log').before(conversationButton)
+conversationButton.onclick=async()=>{
+ conversationButton.disabled=true
+ try{
+  const run=await api.createConversation(selected)
+  runs.push(run);select(run)
+ }catch(err){error(err)}finally{conversationButton.disabled=false}
+}
+const changes=createGitDiff({api,container:document.querySelector('#changes'),terminal:document.querySelector('#terminal'),panel:document.querySelector('#execution-content'),divider:document.querySelector('#execution-divider'),consoleButton:document.querySelector('#view-console'),changesButton:document.querySelector('#view-changes'),onConsole:focus=>{resize();if(focus&&opened&&!conversation.active)terminal.focus()}})
 api.onOutput(data=>terminal.write(new Uint8Array(data)))
 terminal.onData(data=>{if(changes.consoleVisible&&!ticketsOpen)api.input(data)})
-function resize(){if(opened&&changes.consoleVisible&&!ticketsOpen){fit.fit();api.resize(terminal.cols,terminal.rows)}}
+function resize(){if(opened&&changes.consoleVisible&&!ticketsOpen&&!conversation.active){fit.fit();api.resize(terminal.cols,terminal.rows)}}
 window.addEventListener('resize',resize)
 // The system buttons are painted over the header, so the header has to keep their strip clear.
 // Their geometry comes from the overlay itself rather than from a guess: it differs per platform,
@@ -230,12 +246,17 @@ function select(run,background=false,options){
  selectedProject=run.projectId
  selected=run.id
  changes.select(selected)
+ conversation.select(run)
 
  refreshSkillResult()
  refreshNextStep()
  showDirectory(run.directory)
  document.querySelector('#stop').disabled=!activeRun(run)
  terminal.reset()
+ if(run.conversation){
+  api.detach().catch(error)
+  render(options);return
+ }
  if(needsConsoleNotice(run)){
   api.detach().catch(error)
   terminal.writeln(consoleNotice(run))
@@ -624,6 +645,8 @@ function render(options){
  renderTaskSkillStatuses()
  document.querySelector('#clear-history').disabled=!runs.some(run=>['completed','failed','canceled'].includes(run.status))
  const current=runs.find(run=>run.id===selected)
+ conversationButton.hidden=consoleView!=='conversation'||!current?.directory||!!current.conversation||!agentConnected
+ document.querySelector('#save-log').disabled=!!current?.conversation
  const history=document.querySelector('#execution-history')
  const executions=current?runs.filter(run=>taskKey(run)===taskKey(current)).sort((a,b)=>(a.createdAt||'').localeCompare(b.createdAt||'')||a.id.localeCompare(b.id)):[]
  history.replaceChildren();history.hidden=executions.length<2
@@ -638,11 +661,11 @@ function render(options){
   selectedPR.onclick=()=>api.openPR(link.url).catch(error)
  }
  // A macro run is relaunched from the macro panel: it has no task to relaunch here.
- document.querySelector('#rerun').hidden=!current||macroRun(current)||!['completed','failed','canceled'].includes(current.status)
+ document.querySelector('#rerun').hidden=!current||current.conversation||macroRun(current)||!['completed','failed','canceled'].includes(current.status)
  document.querySelector('#stop').disabled=stopping||!current||!activeRun(current)
  const detachBtn=document.querySelector('#detach-terminal')
  if(detachBtn){
-  const canDetach=current&&current.status==='running'&&!current.externalTerminal
+  const canDetach=current&&current.status==='running'&&!current.externalTerminal&&!current.conversation
   detachBtn.hidden=!canDetach
  }
  const terminalBadge=document.querySelector('#native-terminal-badge')
@@ -666,6 +689,7 @@ async function updateDisconnected(ids,force=false,deferrable=false){
  if(hiddenProject(selectedProject))selectedProject=null
  const current=runs.find(run=>run.id===selected)
  if(current&&hiddenProject(current.projectId)){
+  conversation.select(null)
   selected=null;terminal.reset()
   document.querySelector('#title').textContent='Select an execution'
   showDirectory('')
@@ -778,7 +802,7 @@ async function restartLocalAgent(){
  const button=document.querySelector('#restart');button.disabled=true;restarting=true
  try{
   if(await api.restart()){
-   selected=null;runs=[];last='';terminal.reset();render()
+   conversation.select(null);selected=null;runs=[];last='';terminal.reset();render()
    renderHeader()
    showDirectory('')
    document.querySelector('#error').textContent=''
@@ -798,7 +822,7 @@ async function stopLocalAgent(){
  const button=document.querySelector('#shutdown');button.disabled=true;restarting=true
  try{
   if(await api.shutdown()){
-   selected=null;runs=[];last='';terminal.reset();render()
+   conversation.select(null);selected=null;runs=[];last='';terminal.reset();render()
    document.querySelector('#setup').hidden=false;document.querySelector('#workspace').hidden=true
    document.querySelector('#restart').hidden=true;button.hidden=true
    document.querySelector('#start button').disabled=false
@@ -819,6 +843,7 @@ document.querySelector('#clear-history').onclick=async()=>{
   runs=runs.filter(run=>!removed.includes(run.id))
   for(const id of removed)skillResults.delete(id)
   if(removed.includes(selected)){
+   conversation.select(null)
    selected=null;terminal.reset()
    renderHeader()
    showDirectory('')
@@ -1691,6 +1716,18 @@ function openSettings(initial='Profile',project){
  const appearance=settingRow('Theme',null,appearanceGroup)
  appearance.hint.textContent='System follows the appearance of this computer. The web interface keeps its own theme.'
  panels.Appearance.append(appearance.section)
+ const viewGroup=document.createElement('div');viewGroup.className='segmented'
+ viewGroup.setAttribute('role','group');viewGroup.setAttribute('aria-label','Claude consoles')
+ const markView=value=>{for(const button of viewGroup.children)button.setAttribute('aria-pressed',String(button.dataset.value===value))}
+ for(const choice of CONSOLE_VIEW_CHOICES){
+  const button=document.createElement('button');button.type='button';button.textContent=choice.label;button.dataset.value=choice.value
+  button.onclick=()=>api.setConsoleView(choice.value).then(value=>{consoleView=value;markView(value);render()}).catch(error)
+  viewGroup.append(button)
+ }
+ const view=settingRow('Claude consoles',null,viewGroup)
+ view.hint.textContent='Conversation opens Claude project prompts in a structured view instead of a terminal (experimental). Other engines and custom launch commands keep the terminal.'
+ panels.Appearance.append(view.section)
+ markView(consoleView)
  markAppearance('system')
  api.appearance().then(value=>{if(configurationActive()&&generation===configurationGeneration)markAppearance(value)}).catch(()=>{})
 
@@ -2831,6 +2868,7 @@ async function archiveTask(run){
  saveLocalTasks()
  const current=runs.find(item=>item.id===selected)
  if(current&&taskKey(current)===taskKey(run)){
+  conversation.select(null)
   selected=null;terminal.reset();await api.detach()
   renderHeader();showDirectory('')
  }
@@ -3089,7 +3127,7 @@ async function openAgentConsole(projectID,previousProvider){
   event.preventDefault();if(launch.disabled)return
   launch.disabled=true;notice.textContent='Opening console…'
   try{
-   const run=await api.launchConsole(projectID,catalogue?undefined:provider.value,catalogue?provider.value:undefined)
+   const run=await api.launchConsole(projectID,catalogue?undefined:provider.value,catalogue?provider.value:undefined,consoleView)
    collapsedProjects.delete(projectID);queueProjects.delete(projectID)
    if(!runs.some(item=>item.id===run.id))runs.push(run)
    dialog.close();select(run);await refresh()

@@ -97,7 +97,8 @@ type controlledRun struct {
 	// attach to. It is nil for a run whose engine was not asked for its
 	// reasoning stream, which is every interactive run and every engine whose
 	// stream format is not attested.
-	trace *runTrace
+	trace        *runTrace
+	conversation *claudeConversation
 	// answeredAt is the wait the owner answered in the console, until the
 	// server confirms it ended: it is re-sent on reconnection, and a push that
 	// still carries it is an echo that must not raise the glyph again (#475).
