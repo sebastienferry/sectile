@@ -1,4 +1,5 @@
-import type { EpicMeta, EpicPriority, Priority, Project, Task, TrackerSprint, WorkflowStage } from '../types'
+import type { EpicMeta, EpicPriority, MacroStoryBatch, MacroTodo, Priority, Project, Task, TrackerSprint, WorkflowStage } from '../types'
+import { plural, type Locale, type PluralForms } from './i18n.ts'
 import { foldForSearch } from './searchFold.ts'
 import { WORKFLOW_ORDER, resolveTaskStage } from './workflow.ts'
 
@@ -510,3 +511,54 @@ export const tasksBySprintOrder = (tasks: Task[], project?: Project | null): Tas
 
 /** A ticket's sprint label for the grouped display; `noSprint` names the missing one. */
 export const sprintLabelOf = (task: Task, noSprint: string): string => (task.sprint || '').trim() || noSprint
+
+/**
+ * Batch story creation from a macro's slicing (#634).
+ *
+ * The selection is interface state only: it is never stored, and it is
+ * distinct from a line's `done` checkbox. Only an unattached line, one that
+ * carries no story key, can be selected.
+ */
+const isAttached = (todo: Pick<MacroTodo, 'storyKey'>): boolean => (todo.storyKey || '').trim() !== ''
+
+/** Ids of the lines a batch can take, in slicing order. */
+export const selectableTodoIds = (todos: Pick<MacroTodo, 'id' | 'storyKey'>[]): string[] =>
+  todos.filter(todo => !isAttached(todo)).map(todo => todo.id)
+
+/** The selection without the lines that became attached or were removed. */
+export const pruneTodoSelection = (selection: ReadonlySet<string>, todos: Pick<MacroTodo, 'id' | 'storyKey'>[]): Set<string> => {
+  const selectable = new Set(selectableTodoIds(todos))
+  return new Set([...selection].filter(id => selectable.has(id)))
+}
+
+export interface BatchSummaryCopy {
+  created: PluralForms
+  skipped: PluralForms
+  failed: PluralForms
+}
+
+/** "3 créées, 1 passée, 1 en échec": every count, zero included, so the three always read alike. */
+export const batchSummary = (
+  locale: Locale,
+  batch: Pick<MacroStoryBatch, 'created' | 'skipped' | 'failed'>,
+  copy: BatchSummaryCopy,
+): string =>
+  [
+    plural(locale, batch.created, copy.created),
+    plural(locale, batch.skipped, copy.skipped),
+    plural(locale, batch.failed, copy.failed),
+  ].join(', ')
+
+export type TodoOriginKind = 'tasks' | 'spec' | 'stories' | 'manual' | 'unknown'
+
+/**
+ * Where a slicing line came from. An empty kind is a line typed by hand, as is
+ * every line saved before the field existed; a kind this version does not know
+ * is shown as written rather than hidden or taken for hand-typed.
+ */
+export const todoOrigin = (todo: Pick<MacroTodo, 'sourceKind' | 'sourceEntry'>): { kind: TodoOriginKind; raw: string; entry: string } => {
+  const raw = String(todo.sourceKind || '').trim()
+  const entry = (todo.sourceEntry || '').trim()
+  const kind: TodoOriginKind = raw === '' ? 'manual' : raw === 'tasks' || raw === 'spec' || raw === 'stories' ? raw : 'unknown'
+  return { kind, raw, entry }
+}
