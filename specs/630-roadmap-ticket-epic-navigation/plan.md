@@ -38,6 +38,9 @@ export function returnView(origin: ViewMode | null, project: Project | null | un
   (`hidden` included as a tab); `closed` is `row.closed`.
 - `returnView` answers `origin` when it is a ticket view and
   `isViewAvailable(project, origin)`; `'board'` otherwise.
+- `projectOfTask(task, projects, currentProject)` resolves a ticket's project
+  by id or slug, or the project on screen for a ticket without an id; the
+  context and the three entry points share it.
 
 ### 2. App context: request, origin and query
 
@@ -63,7 +66,9 @@ In `web/src/context/AppContext.tsx`:
     `setActiveView(returnView(roadmapOriginView.current, currentProject))`.
 - **Query (FR8).** In `buildTaskQuery`, send `macro` only when
   `activeView !== 'roadmap'`, next to the existing search exception, with the
-  same kind of comment. `activeView` is already in its dependencies.
+  same kind of comment. `activeView` is already in its dependencies. The
+  context also filters the loaded tickets on the parent (`filteredTasks`); that
+  filter skips the roadmap too, or the query change alone would not be seen.
 
 ### 3. Roadmap arrival
 
@@ -126,13 +131,15 @@ the parent filter chip only when `activeView !== 'roadmap'`.
 
 `web/src/locales/translations.ts` (type, `fr`, `en`):
 
+The interface calls epics "macros" in both languages, so the strings do too.
+
 | Key | fr | en |
 | --- | --- | --- |
-| `compactCard.openEpic` | Ouvrir l'epic dans la roadmap | Open the epic in the roadmap |
-| `planning.roadmap.panel.openTickets` | Ouvrir ses tickets | Open its tickets |
-| `planning.roadmap.panel.openTicketsTitle` | Ouvrir les vues tickets filtrées sur {key} | Open the ticket views filtered on {key} |
-| `planning.roadmap.focus.unknownTitle` | Epic introuvable | Epic not found |
-| `planning.roadmap.focus.unknown` | {key} n'est pas un epic de la roadmap de ce projet. Relisez les epics avec une synchronisation, ou vérifiez que son projet tracker est déclaré. | {key} is not an epic of this project's roadmap. Re-read the epics with a sync, or check that its tracker project is declared. |
+| `compactCard.openEpic` | Ouvrir la macro dans la roadmap | Open the macro in the roadmap |
+| `planning.roadmap.panel.openTickets` | Ses tickets | Its tickets |
+| `planning.roadmap.panel.openTicketsTitle` | Ouvrir les tickets de {key}, filtrés sur cette macro | Open the tickets of {key}, filtered on this macro |
+| `planning.roadmap.focus.unknownTitle` | Macro introuvable | Macro not found |
+| `planning.roadmap.focus.unknown` | {key} n'est pas une macro de la roadmap de ce projet. Relis les macros avec une synchro, ou vérifie que son projet tracker est déclaré. | {key} is not a macro of this project's roadmap. Re-read the macros with a sync, or check that its tracker project is declared. |
 
 The list and the detail reuse `compactCard.openEpic` as their title, or get
 their own key in their section if the catalog keeps one section per
