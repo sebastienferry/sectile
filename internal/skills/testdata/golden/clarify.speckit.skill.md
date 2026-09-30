@@ -64,13 +64,16 @@ explicitly confirms that the clarification is satisfactory.
 
 ## Read first
 - The ticket: title, description, comments via get_task, parent epic if present.
-- The existing clarification report if one exists: docs/clarifications/<n>.md on the assigned work branch.
+- The existing clarification report if one exists: docs/clarifications/<n>.md on the assigned work branch,
+  or, when the report is ignored by Git (step 6), in the worktree and in the rounds already
+  published on the ticket.
 - The code the change would touch. Name the files you actually read.
 - Neighbouring features that already solve a similar problem in this codebase.
 
 ## Steps
 1. Re-read the assigned branch and worktree. If docs/clarifications/<n>.md already exists,
-   this run continues an existing clarification into Round N. If not, this is Round 1.
+   this run continues an existing clarification into Round N. If not, this is Round 1, unless the
+   report is ignored by Git and the ticket already carries published rounds (step 6).
 2. In Round 1:
    a. Restate the request in two sentences, including what is out of scope.
    b. List ambiguities, worst first. Only list an ambiguity if two readings lead to different code.
@@ -99,6 +102,11 @@ explicitly confirms that the clarification is satisfactory.
    drops its specification artefacts on this workstation: write and update the file in the worktree,
    never commit it, never force it with `git add -f`, and include the settled decisions
    in the round section used as the transition note, saying that the report file stays local to the worktree.
+   The published rounds are then the only shared record. A fresh worktree does not hold a report
+   written elsewhere: when the file is ignored and missing, read the rounds already published on
+   the ticket (the Clarification Report comments and each `## Round N` section in them), rebuild the
+   file from them in order, and continue with the next round. Never restart at Round 1 while the
+   ticket carries a published round.
 
 7. Optional stage publication: read `pushStageCommits` from `get_project_context`
    (or the supplied project configuration); missing or false means off. When true,
