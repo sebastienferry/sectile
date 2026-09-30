@@ -258,12 +258,7 @@ As a roadmap owner, I decide an epic's readiness where I read its framing.
 
 ## Open points
 
-- **Name of the axis itself** (open, non-blocking). The clarification named the
-  three levels but not the axis, which labels the panel chip group, the
-  grouping option and the activity texts. The plan uses "Maturité" /
-  "Readiness", the prefix "Tickets" being what tells it apart from the
-  tickets' stage. The owner confirms or renames it at review; a rename touches
-  strings only, never behaviour.
-
-Every product question of the clarification is otherwise settled. The only
+None. Every product question of the clarification is settled, and the name of
+the axis, left open by the clarification, was settled by the owner after the
+specification: "Readiness", in French and in English alike. The only
 sequencing constraint is US6 and US7 waiting for #628.

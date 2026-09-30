@@ -74,12 +74,13 @@ adds `ReadinessLabelPrefix` to `macroAxisPrefixes`, which makes
   `PushMacroPriorityLabel`: target `ReadinessLabel(readiness)`, removes the
   other entries of `AllReadinessLabels()`. The set is closed, so no `GetIssue`
   read is needed. Failure wording:
-  `maturité posée dans Sectile mais pas sur <key> : <erreur>`; success
+  `readiness posée dans Sectile mais pas sur <key> : <erreur>`; success
   `« readiness:ready » posé sur <key>` or
-  `labels de maturité retirés de <key>`.
+  `labels de readiness retirés de <key>`.
 
-  The French user-facing noun for the axis is "maturité", as the panel label
-  reads (see section 6); the code keeps `readiness`.
+  The axis is called "Readiness" in French and in English alike (owner's
+  decision after the specification): "maturité" stays the word of the tickets'
+  stage, and must not name this axis anywhere.
 - New op kind in `trackerops.go`, next to the #627 ones:
 
   ```go
@@ -88,13 +89,13 @@ adds `ReadinessLabelPrefix` to `macroAxisPrefixes`, which makes
   ```
 
   `TrackerOp` gains `Readiness string`. Activity texts, French like their
-  neighbours: action `Maturité de <key> ➔ <Idée|En cadrage|Prête|aucune>`,
-  summary `Label de maturité de <key> en file d'attente`. The runner case calls
+  neighbours: action `Readiness de <key> ➔ <Idée|En cadrage|Prête|aucune>`,
+  summary `Label de readiness de <key> en file d'attente`. The runner case calls
   `PushMacroReadinessLabel`.
 - `pendingAxisPush` gains `readiness bool`; `pendingAxisPushes` includes a
   macro whose `Readiness` is set in `decided`, and flags it when
   `ReadinessFromLabels(labels) != meta.Readiness`. `PushPendingHorizons`
-  pushes it and names a failure `<key> (maturité) : <erreur>`. The toolbar
+  pushes it and names a failure `<key> (readiness) : <erreur>`. The toolbar
   button tooltip names the four axes.
 - `web/src/locales/operations.ts` renders the new action and summary in
   English (`readinessAction`, `readinessClearAction`, `readinessSummary`), with
@@ -158,7 +159,7 @@ values are unchanged. No new route.
   `title={strings.readiness.suggestedTitle}`. Not clickable.
 - **Tickets' stage badge**: text becomes `strings.maturity[row.maturity]`
   with the new prefixed values, plus `title={strings.maturityTitle}`.
-- **Panel**: a "Maturité" / "Readiness" chip group placed after the priority
+- **Panel**: a "Readiness" chip group (same word in both languages) placed after the priority
   group (`:1718`) in the same flex row, built like it: `aria-pressed` on the
   decided chip, a click on it sends `readiness: ''`, a click elsewhere sends
   the level. When `selected.readiness === ''`, the chip of
@@ -170,7 +171,7 @@ values are unchanged. No new route.
 - **Strings** (`web/src/locales/planning.ts`, fr and en):
   - `readiness.levels`: `{ idea: 'Idée', shaping: 'En cadrage', ready: 'Prête' }`
     / `{ idea: 'Idea', shaping: 'Shaping', ready: 'Ready' }`;
-  - `readiness.label`: 'Maturité' / 'Readiness';
+  - `readiness.label`: 'Readiness' in both locales;
   - `readiness.suggestedTitle`: 'Non décidé : suggestion de Sectile d'après
     le cadrage, le découpage et les tickets' / 'Not decided: Sectile's
     suggestion from the framing, the slicing and the tickets';
@@ -191,8 +192,8 @@ keys stored by `roadmapViewPrefs.ts`, a multi-selection and a drop handler
 that saves through `saveAxes` and reports once. This ticket adds a third axis
 to each:
 
-- Axis type and control: `'readiness'` option, label "Maturité" /
-  "Readiness". The stored preference accepts it; any unknown stored value
+- Axis type and control: `'readiness'` option, label "Readiness" in both
+  languages. The stored preference accepts it; any unknown stored value
   falls back to no grouping.
 - Sections: `idea`, `shaping`, `ready` always present (count may be 0), then
   `none` ("Non décidé" / "Not decided") only when it holds at least one epic.
@@ -255,8 +256,6 @@ and its tests), plus `planning.ts`.
   recreate the PostgreSQL test database after renumbering.
 - **#628 not merged.** Part B cannot start; Part A ships on its own and is
   useful without it (badge, panel, label).
-- **French noun.** "Maturité" labels the new axis while the old badge moves to
-  "Tickets : ...". Both are visible side by side; the prefix is what keeps
-  them apart (AC5). The axis name is an open point of the specification: keep
-  every occurrence in `planning.ts` and `operations.ts`, and the activity
-  texts in `trackerops.go`, so that a rename at review touches strings only.
+- **Two neighbouring badges.** The new axis ("Readiness") and the tickets'
+  stage ("Tickets : ...") are visible side by side; the prefix is what keeps
+  them apart (AC5). "Maturité" never names the new axis.

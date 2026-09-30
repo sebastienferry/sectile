@@ -36,7 +36,7 @@ Part B and starts only once #628 is merged on `main`.
 - [ ] T3.2 `TrackerOpEpicReadiness`, `TrackerOp.Readiness`, activity texts and
   runner case, with the "set in Sectile but not on the ticket" failure wording.
 - [ ] T3.3 `pendingAxisPushes` and `PushPendingHorizons` cover the readiness,
-  failures named `<key> (maturité)`.
+  failures named `<key> (readiness)`.
 - [ ] T3.4 Tests with a fake tracker: set adds the target and removes the other
   two; clear removes all three; only labels are sent (AC4); milestone, foreign
   epic and non-labelled tracker never pushed nor pending (FR6); a macro whose
