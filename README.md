@@ -218,6 +218,8 @@ test command. Run them from `web/` with an absolute path to Playwright's
   and server-agent contracts.
 - [UX components](./docs/UX_COMPONENTS.md): board, list, desktop, and diff
   experience.
+- [Testing guide](./docs/TESTING.md): SQLite test fixtures, tests that need a
+  real database, and how to measure test performance.
 - [Desktop guide](./desktop/README.md): installation, packaging, local
   configuration, and MCP setup.
 - [Architecture decisions](./docs/adrs): durable technical decisions.
