@@ -174,6 +174,7 @@ func (d *DB) GetProjectMacros(projectID string) ([]models.MacroMeta, error) {
 		e.Todos = parseMacroTodos(todosJSON)
 		e.ExternalURL = milestoneURLs[e.Key]
 		e.LabelsWritable = writable && macroKeyLabelable(e.Key, proj)
+		fillMacroOrigin(&e, proj, writable)
 		e.Labels = parseMacroLabels(labelsJSON)
 		out = append(out, e)
 	}
@@ -439,6 +440,12 @@ func (d *DB) saveMacroMetaFull(projectID string, key string, horizon *string, de
 			// rejeté : une version ultérieure qui en ajoute un ne doit pas voir
 			// une version antérieure effacer ses lignes en les relisant.
 			todo.TargetProjectID = strings.TrimSpace(todo.TargetProjectID)
+			// A line aims at one place: a roadmap project of the tracker wins
+			// over a Sectile project, being the more specific choice.
+			todo.TargetTrackerProject = strings.ToUpper(strings.TrimSpace(todo.TargetTrackerProject))
+			if todo.TargetTrackerProject != "" {
+				todo.TargetProjectID = ""
+			}
 			todo.SourceKind = strings.TrimSpace(todo.SourceKind)
 			todo.SourceEntry = strings.TrimSpace(todo.SourceEntry)
 			cleaned = append(cleaned, todo)
@@ -525,10 +532,33 @@ func (d *DB) CreateStoryFromMacroTodo(ctx context.Context, projectID string, mac
 		return nil, nil, "", fmt.Errorf("ligne de TODO introuvable")
 	}
 	if isRoadmapProjectKey(proj, todo.StoryKey) {
-		return nil, nil, "", fmt.Errorf("cette ligne est rattachée à %s, d'un projet de roadmap que Sectile lit sans jamais y écrire", todo.StoryKey)
+		return nil, nil, "", fmt.Errorf("cette ligne est déjà rattachée à %s, une story du projet de roadmap %s", todo.StoryKey, macroOrigin(todo.StoryKey))
 	}
 	if strings.TrimSpace(todo.StoryKey) != "" {
 		return nil, nil, "", fmt.Errorf("cette ligne a déjà produit %s", todo.StoryKey)
+	}
+
+	// A roadmap project of the tracker takes the story on Jira only. The key is
+	// checked against today's declaration, not the one the line was saved
+	// under: a story created in a project nobody reads any more would be lost
+	// from sight at once.
+	if remote := strings.ToUpper(strings.TrimSpace(todo.TargetTrackerProject)); remote != "" {
+		if proj.IssueTracker != "jira" {
+			return nil, nil, "", fmt.Errorf("« %s » est un projet Jira : seul un projet Jira peut y créer la story de cette ligne", remote)
+		}
+		if !isDeclaredRoadmapProject(proj, remote) {
+			return nil, nil, "", fmt.Errorf("« %s » n'est plus un projet de roadmap de %s : choisissez une autre cible pour cette ligne", remote, proj.Name)
+		}
+		task, notice, err := d.createStoryInRoadmapProject(ctx, proj, remote, macroKey, todo.Text)
+		if err != nil {
+			return nil, nil, "", fmt.Errorf("erreur création de story dans %s : %w", remote, err)
+		}
+		todo.StoryKey = task.Key
+		saved, err := d.SaveMacroMeta(projectID, macroKey, nil, nil, nil, &meta.Todos)
+		if err != nil {
+			return meta, task, notice, nil
+		}
+		return saved, task, notice, nil
 	}
 
 	// The line's target project is where its story lands; empty is the

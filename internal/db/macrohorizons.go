@@ -84,7 +84,13 @@ func removedRoadmapLabels(target string) []string {
 // Every refusal is a sentence rather than a silence. The classification stays
 // local whether the push was impossible or merely failed, and the difference is
 // exactly what the user needs to read in the activity.
-func (d *DB) macroTracker(projectID string, macroKey string) (tracker.TicketingSystem, *models.Project, error) {
+//
+// The axis says which write is asked for. An epic of a roadmap project refuses
+// every one of them, except the priority and the quarter of a project that
+// opened RoadmapAxisWrites and still declares that epic's project (#632). The
+// check runs again when the queued activity runs, so an opt-in closed in the
+// meantime refuses rather than writes.
+func (d *DB) macroTracker(projectID string, macroKey string, axis macroAxis) (tracker.TicketingSystem, *models.Project, error) {
 	projectID = strings.TrimSpace(projectID)
 	macroKey = strings.TrimSpace(macroKey)
 	if projectID == "" || macroKey == "" {
@@ -97,7 +103,7 @@ func (d *DB) macroTracker(projectID string, macroKey string) (tracker.TicketingS
 	if isMilestoneKey(macroKey) {
 		return nil, nil, fmt.Errorf("%s est un jalon : un jalon ne porte pas de label, la classification reste locale", macroKey)
 	}
-	if !belongsToProject(macroKey, proj) {
+	if !belongsToProject(macroKey, proj) && !foreignAxisWritable(macroKey, proj, axis) {
 		return nil, nil, fmt.Errorf("%s appartient à un autre projet que %s : la classification reste locale", macroKey, proj.JiraProject)
 	}
 	ts, err := d.TrackerForProject(proj)
@@ -121,7 +127,7 @@ func (d *DB) macroTracker(projectID string, macroKey string) (tracker.TicketingS
 func (d *DB) PushMacroHorizonLabel(ctx context.Context, projectID string, macroKey string, horizon string) (string, error) {
 	macroKey = strings.TrimSpace(macroKey)
 	target := RoadmapLabel(horizon)
-	if err := d.pushMacroLabels(ctx, projectID, macroKey, target, removedRoadmapLabels(target)); err != nil {
+	if err := d.pushMacroLabels(ctx, projectID, macroKey, axisHorizon, target, removedRoadmapLabels(target)); err != nil {
 		return "", err
 	}
 	if target == "" {
@@ -132,8 +138,8 @@ func (d *DB) PushMacroHorizonLabel(ctx context.Context, projectID string, macroK
 
 // pushMacroLabels adds one label of an axis to the tracker's epic and removes
 // the others, the write every epic axis shares. An empty target only removes.
-func (d *DB) pushMacroLabels(ctx context.Context, projectID string, macroKey string, target string, removed []string) error {
-	ts, proj, err := d.macroTracker(projectID, macroKey)
+func (d *DB) pushMacroLabels(ctx context.Context, projectID string, macroKey string, axis macroAxis, target string, removed []string) error {
+	ts, proj, err := d.macroTracker(projectID, macroKey, axis)
 	if err != nil {
 		return err
 	}
@@ -215,6 +221,14 @@ func (d *DB) ImportMacroHorizons(ctx context.Context, projectID string) (string,
 	if err != nil {
 		return "", err
 	}
+	// The epics of the roadmap projects join those of the project's own key,
+	// and are recorded the same way. Only the own key's failure fails the read.
+	foreign, unread := d.roadmapProjectMacros(ctx, proj)
+	for key, epic := range foreign {
+		if _, own := found[key]; !own {
+			found[key] = epic
+		}
+	}
 
 	classified, prioritized, dated, closed := 0, 0, 0, 0
 	for key, epic := range found {
@@ -258,7 +272,55 @@ func (d *DB) ImportMacroHorizons(ctx context.Context, projectID string) (string,
 			}
 		}
 	}
-	return fmt.Sprintf("%d macro(s) lue(s) (%d classée(s), %d priorisée(s), %d datée(s), %d terminée(s))", len(found), classified, prioritized, dated, closed), nil
+	summary := fmt.Sprintf("%d macro(s) lue(s) (%d classée(s), %d priorisée(s), %d datée(s), %d terminée(s))", len(found), classified, prioritized, dated, closed)
+	for _, failure := range unread {
+		summary += " ; " + failure
+	}
+	return summary, nil
+}
+
+// roadmapProjectMacros reads the epics of each roadmap project the project
+// declares, keyed by epic key, and says in a sentence each key it could not
+// read (#632).
+//
+// Each key is its own request under its own timeout. A single query naming
+// them all would let one key nobody can read fail the whole read, and with it
+// the keys that answer.
+func (d *DB) roadmapProjectMacros(ctx context.Context, proj *models.Project) (map[string]models.Task, []string) {
+	out := map[string]models.Task{}
+	if proj == nil || proj.IssueTracker != "jira" || len(proj.RoadmapProjects) == 0 {
+		return out, nil
+	}
+	unread := []string{}
+	for _, key := range proj.RoadmapProjects {
+		epics, err := d.roadmapProjectEpics(ctx, proj, key)
+		if err != nil {
+			unread = append(unread, fmt.Sprintf("projet de roadmap %s non lu : %v", key, err))
+			continue
+		}
+		for _, epic := range epics {
+			if epicKey := strings.TrimSpace(epic.Key); epicKey != "" {
+				out[epicKey] = epic
+			}
+		}
+	}
+	return out, unread
+}
+
+// roadmapProjectEpics lists the epics of one roadmap project, through the
+// project's own tracker and credentials, the key alone changing.
+func (d *DB) roadmapProjectEpics(ctx context.Context, proj *models.Project, key string) ([]models.Task, error) {
+	view := roadmapProjectView(proj, key)
+	ts, err := d.TrackerForProject(view)
+	if err != nil {
+		return nil, err
+	}
+	if !ts.Supports(tracker.CapEpic) {
+		return nil, tracker.Unsupported(ts.Name(), tracker.CapEpic)
+	}
+	ctx, cancel := context.WithTimeout(ctx, macroReadTimeout)
+	defer cancel()
+	return ts.ListEpics(ctx, tracker.ProjectRequest{Project: view})
 }
 
 // ImportEpicHorizons is the epic-named alias of ImportMacroHorizons.

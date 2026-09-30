@@ -1226,6 +1226,7 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 			writeTrackerError(w, http.StatusBadRequest, err)
 			return
 		}
+		h.db.FillMacroFlags(id, meta, false)
 		writeJSON(w, http.StatusOK, map[string]interface{}{"macro": meta, "epic": meta, "storyKey": task.Key, "task": task, "notice": notice})
 		return
 	}
@@ -1391,6 +1392,9 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 				Closed         *bool               `json:"closed,omitempty"`
 				Priority       *string             `json:"priority,omitempty"`
 				Quarter        *string             `json:"quarter,omitempty"`
+				// Bulk marks an edit that is one of several, such as the title
+				// seeding: it never writes on an epic of a roadmap project.
+				Bulk bool `json:"bulk,omitempty"`
 			}
 			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 				writeError(w, http.StatusBadRequest, "Invalid macro payload: "+err.Error())
@@ -1422,7 +1426,12 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			labelNote := ""
-			if req.Horizon != nil {
+			if req.Horizon != nil && !h.db.MacroLabelsWritable(id, key) {
+				// An epic that cannot carry the label, a roadmap project's among
+				// them, keeps its horizon in Sectile: a queued write could only
+				// fail.
+				labelNote = "conservé dans Sectile, non écrit sur le tracker"
+			} else if req.Horizon != nil {
 				labelNote = "label roadmap en file d'attente"
 				if _, err := h.db.EnqueueTrackerOp(h.actingContext(r), db.TrackerOp{
 					Kind:      db.TrackerOpEpicHorizon,
@@ -1441,13 +1450,13 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 					writeError(w, http.StatusBadRequest, err.Error())
 					return
 				}
-				axes.LabelsWritable = h.db.MacroLabelsWritable(id, key)
+				h.db.FillMacroFlags(id, axes, req.Bulk)
 				saved = axes
 				labelNote = h.enqueueMacroAxes(r, id, key, saved, req.Priority != nil, req.Quarter != nil)
 			} else if saved != nil {
 				// The client replaces its copy of the macro with this one, so it
 				// carries the computed flag whatever field the request changed.
-				saved.LabelsWritable = h.db.MacroLabelsWritable(id, key)
+				h.db.FillMacroFlags(id, saved, false)
 			}
 			writeJSON(w, http.StatusOK, map[string]interface{}{"macro": saved, "epic": saved, "labelNote": labelNote})
 			return

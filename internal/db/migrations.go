@@ -526,6 +526,15 @@ var migrations = []migration{
 		name:       "task_activities.credential_missing",
 		statements: []string{"ALTER TABLE task_activities ADD COLUMN credential_missing TEXT NOT NULL DEFAULT '';"},
 	},
+	{
+		// Whether a project writes the priority and the quarter on the epics of
+		// its roadmap projects, one epic at a time (#632). Closed on every
+		// existing project, so the read-only rule of #426 holds until someone
+		// opens it.
+		version:    37,
+		name:       "projects.roadmap_axis_writes",
+		statements: []string{"ALTER TABLE projects ADD COLUMN roadmap_axis_writes INTEGER NOT NULL DEFAULT 0;"},
+	},
 }
 
 // migrateSchema brings the database to the schema this binary expects, and is

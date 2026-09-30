@@ -132,9 +132,14 @@ type Project struct {
 	// RepositoriesMigration is empty until a local agent converted the legacy
 	// paths above to repositories, then the JSON report of that conversion.
 	RepositoriesMigration string `json:"repositoriesMigration,omitempty"`
-	// RoadmapProjects are other Jira project keys whose story keys the slicing
-	// attaches to a line. They are read, never written.
+	// RoadmapProjects are other Jira project keys whose epics the roadmap also
+	// reads and whose story keys the slicing attaches to a line. Sectile never
+	// changes an existing item there, except what RoadmapAxisWrites opens.
 	RoadmapProjects []string `json:"roadmapProjects,omitempty"`
+	// RoadmapAxisWrites lets a single panel edit write the priority and the
+	// quarter on an epic of a roadmap project (#632). Off by default, and never
+	// on without a declared project.
+	RoadmapAxisWrites bool `json:"roadmapAxisWrites,omitempty"`
 	// UseWorktrees decides whether each task gets its own isolated Git worktree
 	// under .tasks/worktrees, or whether the agent simply runs in the clone. A
 	// solo project rarely needs that isolation and pays the setup cost for
@@ -302,6 +307,15 @@ type MacroMeta struct {
 	// ExternalURL is the macro's own page on its tracker, computed when the
 	// list is read and never stored. Empty when the tracker gives none.
 	ExternalURL string `json:"externalUrl,omitempty"`
+	// Origin is the tracker project key the epic's key carries, "" for a
+	// milestone or a local key. Foreign tells an epic of another Jira project,
+	// which the roadmap reads without writing on it (#632). AxesWritable tells
+	// whether a panel edit of the priority or the quarter is written on the
+	// tracker, which LabelsWritable alone no longer says for a foreign epic.
+	// All three are computed when the macros are read, never stored.
+	Origin       string `json:"origin,omitempty"`
+	Foreign      bool   `json:"foreign,omitempty"`
+	AxesWritable bool   `json:"axesWritable"`
 }
 
 // Origine d'une ligne de découpe : l'artefact d'où elle a été importée.
@@ -334,6 +348,11 @@ type MacroTodo struct {
 	// valid. Story creation refuses a target that is not on the macro's tracker
 	// instance, where the macro could not be the story's parent.
 	TargetProjectID string `json:"targetProjectId,omitempty"`
+	// TargetTrackerProject is a roadmap project of the macro's project, a Jira
+	// project key, when the line's story is created there rather than in a
+	// Sectile project (#632). It excludes TargetProjectID; the story it creates
+	// stays in Jira and is never imported.
+	TargetTrackerProject string `json:"targetTrackerProject,omitempty"`
 	// SourceKind dit de quel artefact la ligne a été importée, parmi les
 	// MacroTodoFrom* ci-dessus. Vide vaut « saisie à la main ».
 	//
@@ -425,6 +444,7 @@ type CreateProjectRequest struct {
 	EpicColors bool `json:"epicColors,omitempty"`
 	// RoadmapProjects are the Jira project keys the slicing also reads.
 	RoadmapProjects     []string `json:"roadmapProjects,omitempty"`
+	RoadmapAxisWrites   bool     `json:"roadmapAxisWrites,omitempty"`
 	Name                string   `json:"name"`
 	Slug                string   `json:"slug,omitempty"`
 	Description         string   `json:"description,omitempty"`
@@ -460,6 +480,7 @@ type UpdateProjectRequest struct {
 	Color               *string              `json:"color,omitempty"`
 	Repositories        *[]string            `json:"repositories,omitempty"`
 	RoadmapProjects     *[]string            `json:"roadmapProjects,omitempty"`
+	RoadmapAxisWrites   *bool                `json:"roadmapAxisWrites,omitempty"`
 	PRCreationStage     *string              `json:"prCreationStage,omitempty"`
 	SpecArtifacts       *string              `json:"specArtifacts,omitempty"`
 	BranchNameFormat    *string              `json:"branchNameFormat,omitempty"`

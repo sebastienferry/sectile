@@ -12,10 +12,11 @@ import (
 // changed, and returns the note the macro response carries.
 //
 // A macro whose epic cannot carry a label keeps the values in Sectile and gets
-// no queued write at all: that is the expected outcome on a GitHub milestone or
-// a local project, and a failed activity per edit would report it as an error.
+// no queued write at all: that is the expected outcome on a GitHub milestone, a
+// local project or an epic of a roadmap project that was not opted in, and a
+// failed activity per edit would report it as an error.
 func (h *Handler) enqueueMacroAxes(r *http.Request, projectID string, key string, saved *models.MacroMeta, priority bool, quarter bool) string {
-	if !saved.LabelsWritable {
+	if !saved.AxesWritable {
 		return "conservé dans Sectile, non écrit sur le tracker"
 	}
 	ops := []db.TrackerOp{}
