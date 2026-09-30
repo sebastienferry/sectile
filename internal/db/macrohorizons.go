@@ -216,7 +216,7 @@ func (d *DB) ImportMacroHorizons(ctx context.Context, projectID string) (string,
 		return "", err
 	}
 
-	classified, prioritized, dated, closed := 0, 0, 0, 0
+	classified, prioritized, dated, judged, closed := 0, 0, 0, 0, 0
 	for key, epic := range found {
 		horizon := HorizonFromLabels(epic.Labels)
 		var horizonPtr *string
@@ -240,10 +240,10 @@ func (d *DB) ImportMacroHorizons(ctx context.Context, projectID string) (string,
 		if _, err := d.saveMacroMetaFull(proj.ID, key, horizonPtr, nil, nil, nil, &title, &status, &isClosed, &labels); err != nil {
 			return "", err
 		}
-		// The priority and the quarter follow the horizon's rule: the label wins
+		// The priority, the quarter and the readiness follow the horizon's rule: the label wins
 		// when there is one, and an epic without keeps its local value. The read
 		// writes nothing back, so a bare "2026-Q3" stays as the team wrote it.
-		var priorityPtr, quarterPtr *string
+		var priorityPtr, quarterPtr, readinessPtr *string
 		if priority := PriorityFromLabels(epic.Labels); priority != "" {
 			priorityPtr = &priority
 			prioritized++
@@ -252,13 +252,17 @@ func (d *DB) ImportMacroHorizons(ctx context.Context, projectID string) (string,
 			quarterPtr = &quarter
 			dated++
 		}
-		if priorityPtr != nil || quarterPtr != nil {
-			if _, err := d.SaveMacroAxes(proj.ID, key, priorityPtr, quarterPtr); err != nil {
+		if readiness := ReadinessFromLabels(epic.Labels); readiness != "" {
+			readinessPtr = &readiness
+			judged++
+		}
+		if priorityPtr != nil || quarterPtr != nil || readinessPtr != nil {
+			if _, err := d.SaveMacroAxes(proj.ID, key, priorityPtr, quarterPtr, readinessPtr); err != nil {
 				return "", err
 			}
 		}
 	}
-	return fmt.Sprintf("%d macro(s) lue(s) (%d classée(s), %d priorisée(s), %d datée(s), %d terminée(s))", len(found), classified, prioritized, dated, closed), nil
+	return fmt.Sprintf("%d macro(s) lue(s) (%d classée(s), %d priorisée(s), %d datée(s), %d jugée(s), %d terminée(s))", len(found), classified, prioritized, dated, judged, closed), nil
 }
 
 // ImportEpicHorizons is the epic-named alias of ImportMacroHorizons.
@@ -267,8 +271,8 @@ func (d *DB) ImportEpicHorizons(ctx context.Context, projectID string) (string, 
 }
 
 // PendingHorizonPushes lists the macros whose epic does not carry the labels
-// of what was decided locally yet: the horizon, and since #627 the priority and
-// the quarter. That covers anything decided before the mirroring existed,
+// of what was decided locally yet: the horizon, since #627 the priority and
+// the quarter, and since #633 the readiness. That covers anything decided before the mirroring existed,
 // anything decided while the tracker was unreachable, and every failed push.
 //
 // Macros that can never be pushed (milestones, local keys, epics of another
@@ -288,8 +292,8 @@ func (d *DB) PendingHorizonPushes(ctx context.Context, projectID string) ([]mode
 
 // pendingAxisPush is one late macro and the axes its epic disagrees on.
 type pendingAxisPush struct {
-	meta                       models.MacroMeta
-	horizon, priority, quarter bool
+	meta                                  models.MacroMeta
+	horizon, priority, quarter, readiness bool
 }
 
 func (d *DB) pendingAxisPushes(ctx context.Context, projectID string) ([]pendingAxisPush, error) {
@@ -305,7 +309,7 @@ func (d *DB) pendingAxisPushes(ctx context.Context, projectID string) ([]pending
 
 	decided := make([]models.MacroMeta, 0, len(metas))
 	for _, meta := range metas {
-		if meta.Horizon == "" && meta.Priority == "" && meta.Quarter == "" {
+		if meta.Horizon == "" && meta.Priority == "" && meta.Quarter == "" && meta.Readiness == "" {
 			continue
 		}
 		if isMilestoneKey(meta.Key) || !belongsToProject(meta.Key, proj) {
@@ -333,12 +337,13 @@ func (d *DB) pendingAxisPushes(ctx context.Context, projectID string) ([]pending
 			labels = epic.Labels
 		}
 		p := pendingAxisPush{
-			meta:     meta,
-			horizon:  meta.Horizon != "" && (!known || HorizonFromLabels(labels) != meta.Horizon),
-			priority: meta.Priority != "" && (!known || PriorityFromLabels(labels) != meta.Priority),
-			quarter:  meta.Quarter != "" && (!known || QuarterFromLabels(labels) != meta.Quarter),
+			meta:      meta,
+			horizon:   meta.Horizon != "" && (!known || HorizonFromLabels(labels) != meta.Horizon),
+			priority:  meta.Priority != "" && (!known || PriorityFromLabels(labels) != meta.Priority),
+			quarter:   meta.Quarter != "" && (!known || QuarterFromLabels(labels) != meta.Quarter),
+			readiness: meta.Readiness != "" && (!known || ReadinessFromLabels(labels) != meta.Readiness),
 		}
-		if p.horizon || p.priority || p.quarter {
+		if p.horizon || p.priority || p.quarter || p.readiness {
 			pending = append(pending, p)
 		}
 	}
@@ -377,6 +382,12 @@ func (d *DB) PushPendingHorizons(ctx context.Context, projectID string) (int, []
 		if p.quarter {
 			if _, err := d.PushMacroQuarterLabel(ctx, projectID, p.meta.Key, p.meta.Quarter); err != nil {
 				failures = append(failures, fmt.Sprintf("%s (trimestre) : %v", p.meta.Key, err))
+				failed = true
+			}
+		}
+		if p.readiness {
+			if _, err := d.PushMacroReadinessLabel(ctx, projectID, p.meta.Key, p.meta.Readiness); err != nil {
+				failures = append(failures, fmt.Sprintf("%s (readiness) : %v", p.meta.Key, err))
 				failed = true
 			}
 		}

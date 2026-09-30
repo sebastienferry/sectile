@@ -68,6 +68,11 @@ func TestMigrateMacroAndTasks(t *testing.T) {
 		t.Fatalf("Expected macro key M-1, got %s", macroA.Key)
 	}
 
+	shaping := "shaping"
+	if _, err := database.SaveMacroAxes(p1.ID, "M-1", nil, nil, &shaping); err != nil {
+		t.Fatalf("Failed to save readiness: %v", err)
+	}
+
 	// Create task under macro in project A
 	taskA, err := database.CreateTask(models.CreateTaskRequest{
 		ProjectID: p1.ID,
@@ -95,6 +100,10 @@ func TestMigrateMacroAndTasks(t *testing.T) {
 	}
 	if taskCount != 1 {
 		t.Errorf("Expected 1 migrated task, got %d", taskCount)
+	}
+	movedMacros, _ := database.GetProjectMacros(p2.ID)
+	if len(movedMacros) != 1 || movedMacros[0].Readiness != "shaping" {
+		t.Errorf("the moved macro should keep its readiness: %+v", movedMacros)
 	}
 
 	// Verify task in DB is now in p2

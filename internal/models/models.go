@@ -292,6 +292,9 @@ type MacroMeta struct {
 	Priority string `json:"priority"`
 	// Quarter is the epic's quarter, "2026-Q4", "" when none.
 	Quarter string `json:"quarter"`
+	// Readiness is the level a person decided, "idea", "shaping" or "ready",
+	// "" when nobody decided (#633). The suggestion is the web app's, never stored.
+	Readiness string `json:"readiness"`
 	// LabelsWritable tells whether Sectile writes the epic axes on the tracker.
 	// It is computed when the macros are read, never stored.
 	LabelsWritable bool `json:"labelsWritable"`

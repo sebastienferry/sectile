@@ -526,6 +526,14 @@ var migrations = []migration{
 		name:       "task_activities.credential_missing",
 		statements: []string{"ALTER TABLE task_activities ADD COLUMN credential_missing TEXT NOT NULL DEFAULT '';"},
 	},
+	{
+		// The readiness a person decided for an epic, "idea", "shaping" or
+		// "ready" (#633). Empty is "nobody decided", which every epic reads as
+		// until then: the roadmap shows a suggestion in its place.
+		version:    37,
+		name:       "macros.readiness",
+		statements: []string{"ALTER TABLE macros ADD COLUMN readiness TEXT NOT NULL DEFAULT '';"},
+	},
 }
 
 // migrateSchema brings the database to the schema this binary expects, and is
