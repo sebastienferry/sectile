@@ -48,10 +48,12 @@ func (d *DB) createStoryInRoadmapProject(ctx context.Context, proj *models.Proje
 	created.ParentKey = macroKey
 	created.ParentType = "macro"
 
-	notice := fmt.Sprintf("%s créée dans le projet Jira %s : la story reste dans Jira, hors du board", created.Key, view.JiraProject)
+	// The notice is what went wrong, as createStoryUnder's is: that the story
+	// stays in Jira is told by the answer itself, a task without an id.
+	notice := ""
 	if macroKey = strings.TrimSpace(macroKey); macroKey != "" {
 		if err := ts.SetParent(ctx, created.Key, macroKey); err != nil {
-			notice = fmt.Sprintf("%s ; épic %s non posé comme parent sur Jira : %v", notice, macroKey, err)
+			notice = fmt.Sprintf("épic %s non posé comme parent de %s sur Jira : %v ; la story reste dans le projet %s", macroKey, created.Key, err, view.JiraProject)
 		}
 	}
 	return created, notice, nil

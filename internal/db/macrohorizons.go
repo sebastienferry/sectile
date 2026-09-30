@@ -53,10 +53,12 @@ func isMilestoneKey(key string) bool {
 // belongsToProject tells a macro whose key carries the project's tracker prefix
 // from one that arrived attached to an epic of another project.
 //
-// Only our own epics are ever pushed. A foreign epic belongs to another team's
-// board, and writing our axis on it would classify their work from a roadmap
-// that is not theirs. It would also never leave the pending list: the read that
-// checks the result is scoped to this project and cannot see it.
+// Only our own epics are pushed, the priority and quarter of one foreign epic
+// at a time once the project opted in excepted (#632, foreignAxisWritable). A
+// foreign epic belongs to another team's board, and writing our axis on it
+// would classify their work from a roadmap that is not theirs. It would also
+// never leave the pending list: the read that checks the result is scoped to
+// this project and cannot see it.
 func belongsToProject(key string, proj *models.Project) bool {
 	prefix := strings.ToUpper(strings.TrimSpace(proj.JiraProject))
 	if prefix == "" {

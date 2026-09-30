@@ -204,7 +204,7 @@ of the created issue with an empty `ID`, and the web reads its absence of id as
 ### 7. Documentation
 
 - `CHANGELOG.md`, three `Added` lines under `[Unreleased]` (FR20).
-- `docs/adrs/0042-declared-roadmap-projects-are-read-except-new-stories-and-opted-in-axes.md`
+- `docs/adrs/0043-declared-roadmap-projects-are-read-except-new-stories-and-opted-in-axes.md`
   (renumber if taken): context (#426's rule), decision (FR21), consequences
   (stories not imported, labels on other teams' epics once opted in, bulk writes
   never cross).
@@ -263,4 +263,30 @@ unchanged.
 - `web/src/components/RoadmapView.tsx`, `web/src/components/ProjectModal.tsx`
 - `web/src/types/index.ts`, `web/src/locales/planning.ts`,
   `web/src/locales/projectSettings.ts`
-- `CHANGELOG.md`, `docs/adrs/0042-*.md`
+- `CHANGELOG.md`, `docs/adrs/0043-*.md`
+
+## Implementation notes
+
+What the implementation settled differently from the design above, keeping the
+acceptance criteria:
+
+- **ADR number**: 0043, `main` having taken 0042 in the meantime.
+- **Opt-in location**: the checkbox sits under the "Roadmap projects" field of
+  the Tracker settings, as D10 of the clarification says.
+- **Horizon guard**: the handler skips the queued horizon write for a foreign
+  epic only (`MacroIsForeign`), not for every macro `MacroLabelsWritable`
+  refuses. `macroTracker` does not require `CapEpic`, so a wider guard would
+  have changed what a GitLab project queues today.
+- **Writes on a foreign epic** keep the project itself, not a copy: Jira writes
+  by key. The copy (`roadmapProjectView`) is used for the epic read and the
+  story creation, which need the key of the declared project.
+- **Story notice**: the creation in a declared project returns a notice only
+  when Jira refuses the parent, as `createStoryUnder` does. The web tells the
+  story stays in Jira from the answer's task without an id.
+- **Framing comment**: it is stored in Sectile and never posted to Jira, so
+  nothing had to be hidden for FR9; the panel hides the free label editor.
+- **Link of a story left in Jira**: the slicing line builds its Jira page from
+  the project's tracker URL or the Jira site setting, the story not being a
+  local task.
+- **Selection storage**: a choice made on a page holds for its project even when
+  the storage refuses it, and another project reads its own.

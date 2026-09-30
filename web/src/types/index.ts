@@ -139,6 +139,11 @@ export interface MacroTodo {
   storyKey?: string
   /** Projet où créer la story. Absent vaut « le projet de la macro ». */
   targetProjectId?: string
+  /**
+   * A roadmap project of the macro's project, a Jira key, when the story is
+   * created there; it excludes targetProjectId, and the story stays in Jira (#632).
+   */
+  targetTrackerProject?: string
   /** Artefact d'origine. Absent vaut « saisie à la main ». */
   sourceKind?: MacroTodoSource
   /** Titre de l'entrée tel que l'artefact l'écrit, avant nettoyage. */
@@ -197,8 +202,18 @@ export interface MacroMeta {
   priority?: EpicPriority | ''
   /** The epic's quarter, "2026-Q4", empty when none (#627). */
   quarter?: string
-  /** False when the priority and the quarter stay in Sectile: milestone, local key, foreign epic, tracker without epics. */
+  /** False when the labels, the horizon among them, stay in Sectile: milestone, local key, foreign epic, tracker without epics. */
   labelsWritable?: boolean
+  /**
+   * Whether a panel edit of the priority or the quarter is written on the
+   * tracker. It differs from labelsWritable on an epic of a roadmap project
+   * whose project opted in (#632). Absent from an older server.
+   */
+  axesWritable?: boolean
+  /** The Jira project key the epic's key carries, absent for a milestone or a local key (#632). */
+  origin?: string
+  /** An epic of another Jira project, which the roadmap reads without writing on it (#632). */
+  foreign?: boolean
   /**
    * The epic's labels as the tracker returns them, horizon labels included.
    * Absent from a server older than #626.
@@ -248,8 +263,14 @@ export interface Project {
   description: string
   icon: string
   color: AccentColor | string
-  /** Other Jira project keys whose story keys the slicing attaches. Read, never written. */
+  /**
+   * Other Jira project keys whose epics the roadmap also reads and whose story
+   * keys the slicing attaches (#632). Nothing existing of theirs is changed,
+   * except what roadmapAxisWrites opens.
+   */
   roadmapProjects?: string[]
+  /** Whether a panel edit writes the priority and the quarter on a roadmap project's epic. */
+  roadmapAxisWrites?: boolean
   /** Stage at which the workflow opens the pull request. */
   prCreationStage?: PRCreationStage
   /**

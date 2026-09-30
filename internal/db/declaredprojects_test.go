@@ -403,8 +403,8 @@ func TestALineCreatesItsStoryInADeclaredProject(t *testing.T) {
 	if meta.Todos[0].StoryKey != task.Key {
 		t.Errorf("line = %+v, want the created key recorded", meta.Todos[0])
 	}
-	if !strings.Contains(notice, "reste dans Jira") {
-		t.Errorf("notice = %q, want it to say the story stays in Jira", notice)
+	if notice != "" {
+		t.Errorf("notice = %q, want none when Jira took the story and its parent", notice)
 	}
 	tasks, _ := database.GetTasks("", "", "", "", proj.ID, "", "", "", "", nil, nil, false)
 	if len(tasks) != 0 {

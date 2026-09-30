@@ -131,3 +131,13 @@ func roadmapProjectView(proj *models.Project, key string) *models.Project {
 	view.RoadmapAxisWrites = false
 	return &view
 }
+
+// MacroIsForeign tells whether a macro of a project is an epic of another Jira
+// project, which Sectile reads without writing its horizon or its labels.
+func (d *DB) MacroIsForeign(projectID string, key string) bool {
+	proj, err := d.GetProjectByID(strings.TrimSpace(projectID))
+	if err != nil || proj == nil {
+		return false
+	}
+	return isForeignMacro(key, proj)
+}

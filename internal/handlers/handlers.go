@@ -1426,10 +1426,9 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			labelNote := ""
-			if req.Horizon != nil && !h.db.MacroLabelsWritable(id, key) {
-				// An epic that cannot carry the label, a roadmap project's among
-				// them, keeps its horizon in Sectile: a queued write could only
-				// fail.
+			if req.Horizon != nil && h.db.MacroIsForeign(id, key) {
+				// The horizon of a roadmap project's epic stays in Sectile
+				// (#632): a queued write could only fail.
 				labelNote = "conservé dans Sectile, non écrit sur le tracker"
 			} else if req.Horizon != nil {
 				labelNote = "label roadmap en file d'attente"

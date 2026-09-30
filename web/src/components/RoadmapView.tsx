@@ -38,6 +38,7 @@ import {
   Copy,
   PanelRightClose,
   PanelRightOpen,
+  Lock,
 } from 'lucide-react'
 import type { RefineMacroResult } from '../types'
 import { useApp } from '../context/AppContext'
@@ -48,6 +49,7 @@ import { MarkdownEditor } from './Markdown'
 import { EpicBar, useEpicColors } from './EpicMarker'
 import { MacroLabelGroups } from './MacroLabelGroups'
 import { EpicLabelFilter } from './EpicLabelFilter'
+import { EpicOriginFilter } from './EpicOriginFilter'
 import { EpicLabelEditor } from './EpicLabelEditor'
 import { MacroTaskRow } from './MacroTaskRow'
 import { sprintLookup, isProjectCompatible, targetProjectOptions } from '../lib/lookups'
@@ -105,6 +107,18 @@ import {
   type PrioritySort,
   type SeedLine,
 } from '../lib/epicAxes'
+import {
+  TRACKER_TARGET_PREFIX,
+  applyTargetPickerValue,
+  isDefaultOriginSelection,
+  loadOriginSelection,
+  matchesOrigins,
+  normalizeOriginSelection,
+  offeredOrigins,
+  roadmapTargetOptions,
+  saveOriginSelection,
+  targetPickerValue,
+} from '../lib/roadmapOrigins'
 import type { EpicPriority, MacroHorizon, MacroMeta, MacroTodo, MacroTodoSource } from '../types'
 import { MacroRealignButton } from './MacroRealignButton'
 
@@ -253,6 +267,22 @@ export const RoadmapView: React.FC = () => {
   // visits: a label filter kept without the user knowing is what makes a
   // roadmap look empty.
   const [selectedLabels, setSelectedLabels] = useState<string[]>([])
+  // The Jira projects whose epics the roadmap shows (#632). Remembered per
+  // project, unlike the filters above: a declared project can hold hundreds of
+  // epics, and choosing which to read is a way of reading the roadmap, like its
+  // tab. A choice made here holds for its project whatever the storage accepts;
+  // another project reads its own, and the own key alone when none is stored.
+  const originProjectId = currentProject?.id || ''
+  const [chosenOrigins, setChosenOrigins] = useState<{ projectId: string; keys: string[] } | null>(null)
+  const storedOrigins = useMemo(() => loadOriginSelection(originProjectId), [originProjectId])
+  const originSelection = chosenOrigins && chosenOrigins.projectId === originProjectId ? chosenOrigins.keys : storedOrigins
+  const chooseOrigins = useCallback(
+    (next: string[]) => {
+      setChosenOrigins({ projectId: originProjectId, keys: next })
+      saveOriginSelection(originProjectId, next)
+    },
+    [originProjectId]
+  )
 
   // The shape of the rows. Remembered per browser: it is a reading setting, it
   // depends neither on the project nor on the tab, and resetting it on every
@@ -564,7 +594,37 @@ export const RoadmapView: React.FC = () => {
     return list
   }, [allRows, showClosed, searchQuery, priorityFilter])
 
-  const labelInventory = useMemo(() => epicLabelInventory(unlabelledRows), [unlabelledRows])
+  // The origin selection offers every origin the epics carry, and counts those
+  // the other filters let through, labels included; the rows then keep the
+  // selected origins only. With nothing to choose, nothing is filtered.
+  const ownOrigin = (currentProject?.jiraProject || '').trim().toUpperCase()
+  const origins = useMemo(
+    () => offeredOrigins(currentProject, allRows, unlabelledRows.filter(r => matchesEpicLabels(r, selectedLabels))),
+    [currentProject, allRows, unlabelledRows, selectedLabels]
+  )
+  const selectedOrigins = useMemo(
+    () => (origins.length > 0 ? normalizeOriginSelection(originSelection, origins, ownOrigin) : []),
+    [origins, originSelection, ownOrigin]
+  )
+  const originRows = useMemo(
+    () => unlabelledRows.filter(r => matchesOrigins(r, selectedOrigins, ownOrigin)),
+    [unlabelledRows, selectedOrigins, ownOrigin]
+  )
+
+  // The origin chip joins the others once the origins are known: they come
+  // from the rows, which the chips above are computed before.
+  const filterChips = useMemo(() => {
+    if (origins.length === 0 || isDefaultOriginSelection(selectedOrigins, ownOrigin)) return activeFilterChips
+    return [
+      {
+        label: format(strings.origins.chip, { keys: selectedOrigins.join(', ') }),
+        clear: () => chooseOrigins([ownOrigin]),
+      },
+      ...activeFilterChips,
+    ]
+  }, [activeFilterChips, origins, selectedOrigins, ownOrigin, strings, chooseOrigins])
+
+  const labelInventory = useMemo(() => epicLabelInventory(originRows), [originRows])
   // The editor suggests every free label of the project's epics, closed and
   // searched-away ones included: a label is reused, not typed anew.
   const labelSuggestions = useMemo(() => epicLabelInventory(allRows).map(entry => entry.label), [allRows])
@@ -576,8 +636,8 @@ export const RoadmapView: React.FC = () => {
   }, [labelInventory])
 
   const rows = useMemo(
-    () => unlabelledRows.filter(r => matchesEpicLabels(r, selectedLabels)),
-    [unlabelledRows, selectedLabels]
+    () => originRows.filter(r => matchesEpicLabels(r, selectedLabels)),
+    [originRows, selectedLabels]
   )
 
   const hiddenMatches = useMemo(() => {
@@ -781,7 +841,7 @@ export const RoadmapView: React.FC = () => {
       if (line.priority && seedKept[`${line.key}:priority`]) patch.priority = line.priority
       if (line.quarter && seedKept[`${line.key}:quarter`]) patch.quarter = line.quarter
       if (!patch.priority && !patch.quarter) continue
-      const saved = await saveMacroMeta(currentProject.id, line.key, patch, { quiet: true })
+      const saved = await saveMacroMeta(currentProject.id, line.key, patch, { quiet: true, bulk: true })
       if (saved) done++
       else refused.push(line.key)
     }
@@ -816,6 +876,19 @@ export const RoadmapView: React.FC = () => {
     }
     saveAxes(key, { quarter: normalized })
   }
+
+  // The mark of an epic of a roadmap project (#632): its key already names its
+  // project, the lock says Sectile reads it without writing on it.
+  const foreignBadge = (row: MacroRow) =>
+    row.meta?.foreign ? (
+      <span
+        className="shrink-0 inline-flex items-center text-[var(--text-muted)]"
+        title={format(strings.origins.badgeTitle, { origin: row.meta.origin || '' })}
+        aria-label={format(strings.origins.badgeTitle, { origin: row.meta.origin || '' })}
+      >
+        <Lock size={10} />
+      </span>
+    ) : null
 
   /**
    * The epic's own priority (#627), in the colour of the level it maps to. An
@@ -866,6 +939,7 @@ export const RoadmapView: React.FC = () => {
         {epicColorsOn && <EpicBar parentKey={row.key} />}
         <div className="flex items-center gap-2 flex-wrap">
           <span className="text-[11px] font-mono font-bold" style={{ color: 'var(--accent-color)' }}>{row.key}</span>
+          {foreignBadge(row)}
           <span className="text-[9.5px] px-1 rounded font-mono truncate max-w-[150px] bg-[var(--bg-tertiary)] text-[var(--text-muted)] border border-[var(--border-color)]" title={row.squad}>
             {row.squad}
           </span>
@@ -992,6 +1066,7 @@ export const RoadmapView: React.FC = () => {
         <span className="shrink-0 text-[10.5px] font-mono font-bold" style={{ color: 'var(--accent-color)' }}>
           {row.key}
         </span>
+        {foreignBadge(row)}
         <span className="flex-1 min-w-0 truncate text-[11.5px] text-[var(--text-primary)]" title={row.title}>
           {row.title}
         </span>
@@ -1154,6 +1229,7 @@ export const RoadmapView: React.FC = () => {
             </button>
           )}
 
+          <EpicOriginFilter offered={origins} selected={selectedOrigins} onChange={chooseOrigins} />
           <EpicLabelFilter inventory={labelInventory} selected={selectedLabels} onChange={setSelectedLabels} />
 
           {/*
@@ -1265,9 +1341,9 @@ export const RoadmapView: React.FC = () => {
           )}
 
           {/* Les filtres globaux */}
-          {activeFilterChips.length > 0 && (
+          {filterChips.length > 0 && (
             <div className="flex items-center gap-1.5 flex-wrap">
-              {activeFilterChips.map(chip => (
+              {filterChips.map(chip => (
                 <button
                   key={chip.label}
                   type="button"
@@ -1792,13 +1868,36 @@ export const RoadmapView: React.FC = () => {
                   )}
                 </div>
               </div>
-              {selected.meta?.labelsWritable === false && (
-                <div className="mt-1.5 text-[10px] text-[var(--text-muted)]">{strings.axes.keptLocal}</div>
+              {/* The priority and the quarter follow axesWritable, which only an
+                  older server leaves out: labelsWritable says the same there. */}
+              {(selected.meta?.axesWritable ?? selected.meta?.labelsWritable) === false && (
+                <div className="mt-1.5 text-[10px] text-[var(--text-muted)]">
+                  {selected.meta?.foreign
+                    ? format(strings.axes.keptLocalForeign, { origin: selected.meta.origin || '' })
+                    : strings.axes.keptLocal}
+                </div>
               )}
             </div>
 
             <div className="flex-1 overflow-y-auto px-4 pt-3.5 pb-7 flex flex-col gap-4">
-              {currentProject && (
+              {selected.meta?.foreign && (
+                <div
+                  className="rounded-md border px-2.5 py-2 text-[11px] flex gap-2 items-start"
+                  style={{ borderColor: 'var(--border-color)', background: 'var(--bg-tertiary)' }}
+                  role="note"
+                >
+                  <Lock size={12} className="shrink-0 mt-0.5 text-[var(--text-muted)]" />
+                  <div>
+                    <div className="font-semibold text-[var(--text-primary)]">{strings.origins.readOnly}</div>
+                    <div className="text-[var(--text-secondary)]">
+                      {format(strings.origins.readOnlyBody, { origin: selected.meta.origin || '' })}
+                    </div>
+                  </div>
+                </div>
+              )}
+              {/* The free labels of a roadmap project's epic are its team's, and
+                  Sectile never writes them (#632). */}
+              {currentProject && !selected.meta?.foreign && (
                 <EpicLabelEditor key={selected.key} project={currentProject} row={selected} suggestions={labelSuggestions} />
               )}
               {/* La clé porte l'axe, et ce n'est pas cosmétique : les deux vues
@@ -2355,27 +2454,31 @@ export const RoadmapView: React.FC = () => {
                             // Where the line's story lands: the macro's project by
                             // default, or another project of the same tracker
                             // instance, where the epic can still be its parent.
+                            // Its roadmap projects join them (#632): the story is then
+                            // created in that Jira project and stays there.
                             const options = targetProjectOptions(currentProject, projects, { jiraUrl: settings.jiraUrl, githubApiUrl: settings.githubApiUrl, gitlabUrl: settings.gitlabUrl, gitlabProject: settings.gitlabProject })
-                            const saved = todo.targetProjectId && todo.targetProjectId !== currentProject.id ? todo.targetProjectId : ''
-                            const savedName = projects.find(p => p.id === saved)?.name || saved
-                            const invalid = saved !== '' && !options.some(p => p.id === saved)
+                            const remoteOptions = roadmapTargetOptions(currentProject)
+                            const saved = targetPickerValue(todo, currentProject.id)
+                            const savedRemote = saved.startsWith(TRACKER_TARGET_PREFIX) ? saved.slice(TRACKER_TARGET_PREFIX.length) : ''
+                            const savedName = savedRemote || projects.find(p => p.id === saved)?.name || saved
+                            const invalid = saved !== '' && (savedRemote ? !remoteOptions.includes(savedRemote) : !options.some(p => p.id === saved))
                             if (todo.storyKey) {
                               // Where the story was created, read-only; worth saying only
                               // where another project could have received it.
-                              return saved || options.length > 0 ? (
+                              return saved || options.length > 0 || remoteOptions.length > 0 ? (
                                 <span className="text-[9.5px] px-1.5 py-0.5 rounded shrink-0 text-[var(--text-muted)] border border-[var(--border-color)]" title={strings.framing.storyProjectTitle}>
                                   {saved ? savedName : currentProject.name}
                                 </span>
                               ) : null
                             }
-                            if (options.length === 0 && !saved) return null
+                            if (options.length === 0 && remoteOptions.length === 0 && !saved) return null
                             return (
                               <select
                                 aria-label={format(strings.framing.targetProjectLabel, { todo: todo.text })}
                                 value={saved}
                                 onChange={e =>
                                   persist(selected.key, {
-                                    todos: todosOf(selected).map(t => (t.id === todo.id ? { ...t, targetProjectId: e.target.value || undefined } : t)),
+                                    todos: todosOf(selected).map(t => (t.id === todo.id ? applyTargetPickerValue(t, e.target.value) : t)),
                                   })
                                 }
                                 className={`text-[9.5px] max-w-[120px] px-1 py-0.5 rounded shrink-0 bg-[var(--bg-secondary)] border cursor-pointer ${invalid ? 'border-rose-500 text-rose-300' : 'border-[var(--border-color)] text-[var(--text-secondary)]'}`}
@@ -2383,6 +2486,15 @@ export const RoadmapView: React.FC = () => {
                               >
                                 <option value="">{currentProject.name}</option>
                                 {options.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                                {remoteOptions.length > 0 && (
+                                  <optgroup label={strings.framing.trackerProjectsGroup}>
+                                    {remoteOptions.map(key => (
+                                      <option key={key} value={TRACKER_TARGET_PREFIX + key}>
+                                        {format(strings.framing.trackerProjectOption, { key })}
+                                      </option>
+                                    ))}
+                                  </optgroup>
+                                )}
                                 {invalid && <option value={saved}>{format(strings.framing.incompatibleOption, { name: savedName })}</option>}
                               </select>
                             )
@@ -2401,7 +2513,10 @@ export const RoadmapView: React.FC = () => {
                                 background: 'rgb(var(--status-ok-rgb) / 0.13)',
                                 border: '1px solid rgb(var(--status-ok-rgb) / 0.32)',
                               }}
-                              title={format(strings.framing.storyCreated, { key: todo.storyKey })}
+                              title={format(
+                                tasks.some(t => t.key === todo.storyKey) ? strings.framing.storyCreated : strings.framing.storyStaysInTracker,
+                                { key: todo.storyKey }
+                              )}
                             >
                               {todo.storyKey}
                             </button>
@@ -2409,10 +2524,14 @@ export const RoadmapView: React.FC = () => {
                                 dans Sectile : consulter la fiche et aller
                                 commenter le ticket ne sont pas le même geste. */}
                             {(() => {
+                              // A story of a roadmap project was never imported
+                              // (#632): its page is built from the Jira site.
                               const created = tasks.find(t => t.key === todo.storyKey)
-                              return created?.externalUrl ? (
+                              const jiraSite = currentProject?.issueTracker === 'jira' ? (currentProject.trackerUrl || settings.jiraUrl || '').replace(/\/+$/, '') : ''
+                              const href = created?.externalUrl || (!created && jiraSite ? `${jiraSite}/browse/${todo.storyKey}` : '')
+                              return href ? (
                                 <a
-                                  href={created.externalUrl}
+                                  href={href}
                                   target="_blank"
                                   rel="noreferrer"
                                   className="shrink-0 text-[var(--text-muted)] hover:text-[var(--accent-color)] transition-colors"

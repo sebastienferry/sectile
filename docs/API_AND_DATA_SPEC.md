@@ -195,6 +195,16 @@ takes seconds and a batch of them far longer, so the HTTP endpoints answer `202`
 with the activity to follow, and the activity's steps carry what was attempted
 and the tracker's own refusal when it fails.
 
+An epic of one of a Jira project's roadmap projects (#632) is read with the
+project's own epics and returned by `GET /api/projects/{id}/macros` with
+`foreign: true` and its `origin` key. Nothing is queued for its horizon or its
+free labels. Its priority and quarter are queued only when the project's
+`roadmapAxisWrites` is on and the edit names one epic: a macro save carrying
+`"bulk": true`, as the title seeding sends, keeps them in Sectile. The macro's
+`axesWritable` says which applies. A slicing line whose `targetTrackerProject`
+names a roadmap project creates its story in that Jira project, and the answer's
+`task` carries no `id`: the story is not imported.
+
 
 | Method | Path | Description |
 | :--- | :--- | :--- |

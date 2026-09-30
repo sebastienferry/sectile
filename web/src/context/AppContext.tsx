@@ -358,7 +358,7 @@ interface AppContextType {
     projectId: string,
     key: string,
     patch: { title?: string; horizon?: MacroHorizon | ''; description?: string; framingComment?: string; todos?: MacroTodo[]; closed?: boolean; priority?: EpicPriority | ''; quarter?: string },
-    options?: { quiet?: boolean }
+    options?: { quiet?: boolean; bulk?: boolean }
   ) => Promise<MacroMeta | null>
   saveEpicMeta: (projectId: string, key: string, patch: { title?: string; horizon?: MacroHorizon | ''; description?: string; framingComment?: string; todos?: MacroTodo[]; closed?: boolean }) => Promise<MacroMeta | null>
   /**
@@ -2734,13 +2734,15 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     projectId: string,
     key: string,
     patch: { title?: string; horizon?: MacroHorizon | ''; description?: string; framingComment?: string; todos?: MacroTodo[]; closed?: boolean; priority?: EpicPriority | ''; quarter?: string },
-    options?: { quiet?: boolean }
+    options?: { quiet?: boolean; bulk?: boolean }
   ): Promise<MacroMeta | null> => {
     try {
       const res = await fetch(`${API_BASE}/projects/${encodeURIComponent(projectId)}/macros`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ key, ...patch }),
+        // A bulk edit, one of several such as the seeding, never writes on an
+        // epic of a roadmap project (#632): the server keeps it in Sectile.
+        body: JSON.stringify({ key, ...patch, ...(options?.bulk ? { bulk: true } : {}) }),
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) throw trackerError(res, data, t.operations.notifications.macros.saveRefused)
@@ -2794,11 +2796,14 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       const data = await res.json().catch(() => ({}))
       const copy = t.operations.notifications.macros
       if (!res.ok) throw trackerError(res, data, copy.createRefused)
+      // A story created in a roadmap project stays in Jira (#632): it comes
+      // back without a local id, and there is nothing in Sectile to open.
+      const imported = Boolean(data.task?.id)
       addToast({
         type: 'success',
         title: copy.storyCreated,
-        description: format(copy.storyAttached, { story: data.storyKey, macro: macroKey }),
-        link: data.task ? createdTaskLink(data.task) : undefined,
+        description: format(imported || !data.task ? copy.storyAttached : copy.storyStaysInTracker, { story: data.storyKey, macro: macroKey }),
+        link: data.task && imported ? createdTaskLink(data.task) : undefined,
       })
       // The story exists; what the tracker refused is said, not hidden.
       if (data.notice) addToast({ type: 'warning', title: copy.parentNotWritten, description: data.notice })
