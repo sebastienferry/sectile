@@ -49,12 +49,22 @@ export const ProfileModal: React.FC = () => {
   const {
     isProfileOpen,
     setIsProfileOpen,
+    profileTarget,
     settings,
     updateSettings,
     t,
   } = useApp()
 
   const [activeTab, setActiveTab] = useState<SettingsTab>('account')
+
+  // An offer to add a tracker token lands on the tracker credentials, even
+  // when the profile is already open on another tab (#645). The tab follows a
+  // new target during render rather than in an effect.
+  const [seenTarget, setSeenTarget] = useState(profileTarget)
+  if (profileTarget !== seenTarget) {
+    setSeenTarget(profileTarget)
+    if (profileTarget) setActiveTab(profileTarget.tab)
+  }
 
   // Appearance
   const [theme, setTheme] = useState<Theme>(settings.theme)
@@ -436,7 +446,7 @@ export const ProfileModal: React.FC = () => {
             )}
 
             {/* TAB 2: TRACKER CREDENTIALS, one activatable zone per tracker */}
-            {activeTab === 'trackers' && <TrackerCredentialsTab />}
+            {activeTab === 'trackers' && <TrackerCredentialsTab initialOpen={profileTarget?.tracker} />}
 
             {/* TAB 4: MOTEUR AGENTIC IA */}
             {activeTab === 'aiEngine' && (

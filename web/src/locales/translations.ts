@@ -22,6 +22,13 @@ export interface TranslationSchema {
   operations: OperationsStrings
   signIn: SignInStrings
   batchLaunch: string
+  /** A tracker write refused for want of the person's own token, and the offer to add it (#645). */
+  trackerRefusal: {
+    title: string
+    description: string
+    queuedDescription: string
+    offer: string
+  }
   batchMember: {
     badge: string
     tooltip: string
@@ -846,6 +853,12 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
     operations: operations.fr,
     signIn: signIn.fr,
     batchLaunch: 'Lot',
+    trackerRefusal: {
+      title: 'Écriture refusée par le tracker',
+      description: "Vous n'avez pas de jeton {provider} personnel : cette action n'a pas été écrite sur {provider}.",
+      queuedDescription: "{task} : l'écriture sur {provider} a été refusée, faute de jeton {provider} personnel.",
+      offer: 'Ajouter mon jeton {provider}',
+    },
     batchMember: {
       badge: 'Lot {key}',
       tooltip: 'Lot mené par {key} · ticket {position} sur {size}',
@@ -1662,6 +1675,12 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
     operations: operations.en,
     signIn: signIn.en,
     batchLaunch: 'Batch',
+    trackerRefusal: {
+      title: 'Tracker write refused',
+      description: 'You have no personal {provider} token: this action was not written to {provider}.',
+      queuedDescription: '{task}: the write to {provider} was refused, for want of a personal {provider} token.',
+      offer: 'Add my {provider} token',
+    },
     batchMember: {
       badge: 'Batch {key}',
       tooltip: 'Batch led by {key} · ticket {position} of {size}',

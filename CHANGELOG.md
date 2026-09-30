@@ -27,6 +27,7 @@ test fixtures or internal plumbing.
 - **Session titles show where a skill run stands.** The workflow skills prefix the agent session title with a status emoji: ❓ waiting for you, ✅ done, ❌ blocked. Among idle sessions, the sidebar tells which ones need you and how each run ended.
 - **Agent sessions link to their ticket and pull request.** A workflow skill writes a link to the ticket at the start of the conversation, and one to the pull request or merge request once it exists; in the Claude desktop app, a GitHub pull request is also bound to the session's PR bar.
 - **Claude desktop sessions follow work like Sectile Desktop.** A workflow skill files its session under a sidebar group named after the project, marks a chapter per stage, opens the diff pane once it changed code, ends with the command of the next step, and sends a notification when it waits for you, succeeds or is blocked.
+- **A missing tracker token can be added from the error.** When Sectile refuses a tracker write because you have no personal token for that tracker, whether at once (creating a ticket, commenting) or later in the queued activity (moving a card, changing a stage, an assignee, a sprint), the error notification offers **Add my GitHub token** (or Jira, GitLab) and opens your profile on that tracker's credentials. (#645)
 - The status emoji follows the state the skill reports to Sectile, so the session title and Sectile Desktop always agree. A run launched from Sectile Desktop writes no ticket or pull request links, no next step and no notification of its own: Desktop already shows them.
 - Every workflow skill ends its replies with the same **Done / Remaining (Agent) / Pending (User)** block, so you always know what happened, what the agent still has to do and what waits for you.
 
@@ -71,6 +72,7 @@ test fixtures or internal plumbing.
 
 ### Fixed
 
+- A card moved on a GitHub project by someone without a personal GitHub token no longer reports success: its activity fails and says the token is missing, as a stage change already did. (#645)
 - **Preparing a task worktree on Windows no longer opens a console window.** The dependency install that follows a worktree's creation, and the `git` calls made to read a macro's specification files, used to flash a console window (or keep one open for the whole install) when the agent was started by Sectile Desktop. (#638)
 - **The server stays responsive while autonomous runs stream their output.** Recording each chunk of a headless run's output no longer reads the ticket's whole run history, and ticket answers (the web detail view, MCP `get_task`, live board updates) no longer carry every past run's output. With several runs at once, the server used to run out of memory and stop answering long enough for Sectile Desktop and the agents to time out. A ticket's run history is still available from its activities.
 - While a ticket is being created from the quick-add dialog, its button now reads "Creating…" ("Création…" in French) instead of "Création CLI...", which named a CLI that is not involved and stayed in French in the English interface.

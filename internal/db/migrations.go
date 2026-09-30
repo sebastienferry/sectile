@@ -518,6 +518,14 @@ var migrations = []migration{
 		name:       "macros.labels",
 		statements: []string{"ALTER TABLE macros ADD COLUMN labels TEXT NOT NULL DEFAULT '[]';"},
 	},
+	{
+		// The provider a failed tracker write was refused for, because the
+		// person who asked for it has no token of their own there (#645). Empty
+		// is "not refused for that", which every earlier activity reads as.
+		version:    36,
+		name:       "task_activities.credential_missing",
+		statements: []string{"ALTER TABLE task_activities ADD COLUMN credential_missing TEXT NOT NULL DEFAULT '';"},
+	},
 }
 
 // migrateSchema brings the database to the schema this binary expects, and is

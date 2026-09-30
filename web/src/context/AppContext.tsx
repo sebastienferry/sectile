@@ -50,8 +50,9 @@ import type {
 } from '../types'
 import { translations, type TranslationSchema } from '../locales/translations'
 import { resolveAccentAttribute } from '../lib/accents'
-import type { StoredUserCredential, OrphanedCredentialReport } from '../lib/trackers'
-import { NO_ORPHANED_CREDENTIALS, orphanedCredentialsFrom } from '../lib/trackers'
+import type { StoredUserCredential, OrphanedCredentialReport, TrackerKind } from '../lib/trackers'
+import { NO_ORPHANED_CREDENTIALS, getTrackers, orphanedCredentialsFrom } from '../lib/trackers'
+import { TrackerCredentialMissingError, missingCredentialFromActivity, missingCredentialFromBody } from '../lib/trackerRefusal'
 import { activeTaskIds } from '../lib/remoteRunIndicator'
 import { isViewAvailable } from '../lib/optionalViews'
 import { isMacPlatform, sidebarShortcutAction } from '../../../shared/sidebarShortcut.mjs'
@@ -74,6 +75,24 @@ import {
   stageForTrackerStatuses,
   trackerStatusesForStage,
 } from '../lib/workflow'
+
+
+/** The place an offer to add a tracker token opens the profile on (#645). */
+export interface ProfileTarget {
+  tab: 'trackers'
+  tracker: TrackerKind
+}
+
+/**
+ * The error a refused write throws: the refusal for want of the person's own
+ * tracker token keeps its provider, so the notification can offer to add it
+ * (#645); anything else keeps the server's message, or the fallback.
+ */
+function trackerError(res: Response, data: any, fallback: string): Error {
+  const tracker = missingCredentialFromBody(res.status, data)
+  const message = (data && typeof data.error === 'string' && data.error) || fallback
+  return tracker ? new TrackerCredentialMissingError(message, tracker) : new Error(message)
+}
 
 interface AppContextType {
   projects: Project[]
@@ -281,6 +300,18 @@ interface AppContextType {
   setIsCommandPaletteOpen: (open: boolean) => void
   isProfileOpen: boolean
   setIsProfileOpen: (open: boolean) => void
+  /**
+   * Where the profile opens when an offer to add a tracker token sent it
+   * there (#645); null when it was opened any other way.
+   */
+  profileTarget: ProfileTarget | null
+  /** Opens the profile on the tracker credentials, with that provider's entry open. */
+  openTrackerCredentials: (tracker: TrackerKind) => void
+  /**
+   * The toast a failed write shows: the offer to add the token when it was
+   * refused for want of the person's own one (#645), the given toast otherwise.
+   */
+  refusalToast: (err: unknown, toast: Omit<ToastMessage, 'id'>) => Omit<ToastMessage, 'id'>
   settings: UserSettings
   /**
    * `silent` évite le toast de confirmation : un basculement de thème ou
@@ -696,7 +727,18 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   }, [])
 
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false)
-  const [isProfileOpen, setIsProfileOpen] = useState(false)
+  const [isProfileOpen, setProfileOpenState] = useState(false)
+  const [profileTarget, setProfileTarget] = useState<ProfileTarget | null>(null)
+  // Closing the profile forgets where an offer sent it, so an ordinary
+  // opening is never sent back to the tracker credentials.
+  const setIsProfileOpen = useCallback((open: boolean) => {
+    setProfileOpenState(open)
+    if (!open) setProfileTarget(null)
+  }, [])
+  const openTrackerCredentials = useCallback((tracker: TrackerKind) => {
+    setProfileTarget({ tab: 'trackers', tracker })
+    setProfileOpenState(true)
+  }, [])
   // Until the settings arrive, the language this browser last used (or its
   // own) avoids a first paint in the wrong language.
   const [settings, setSettings] = useState<UserSettings>(() => ({ ...defaultSettings, language: resolveInitialLocale() }))
@@ -1036,6 +1078,29 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     onOpen: () => setSelectedTask(task),
     externalUrl: task.externalUrl || undefined,
   }), [t])
+
+  /**
+   * The notification of a tracker write refused because the person has no
+   * token of their own for the provider, with the offer to add it (#645). A
+   * queued write names its ticket, since the refusal arrives after the click.
+   */
+  const tokenOfferToast = useCallback((tracker: TrackerKind, taskKey?: string): Omit<ToastMessage, 'id'> => {
+    const provider = getTrackers(t).find(entry => entry.id === tracker)?.label || tracker
+    return {
+      type: 'error',
+      title: t.trackerRefusal.title,
+      description: taskKey
+        ? format(t.trackerRefusal.queuedDescription, { task: taskKey, provider })
+        : format(t.trackerRefusal.description, { provider }),
+      link: { label: format(t.trackerRefusal.offer, { provider }), onOpen: () => openTrackerCredentials(tracker) },
+    }
+  }, [t, openTrackerCredentials])
+
+  // The toast a failed write shows: the token offer when it was refused for
+  // want of the person's own token, the one the caller built otherwise.
+  const refusalToast = useCallback((err: unknown, toast: Omit<ToastMessage, 'id'>): Omit<ToastMessage, 'id'> =>
+    err instanceof TrackerCredentialMissingError ? tokenOfferToast(err.tracker) : toast,
+  [tokenOfferToast])
 
   /**
    * Le seul endroit où une lecture ratée devient visible. Un 401 se tait : la
@@ -1452,7 +1517,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           body: body === undefined ? undefined : JSON.stringify(body),
         })
         const data = await res.json().catch(() => ({}))
-        if (!res.ok) throw new Error(data.error || failure || t.operations.notifications.credentials.refused)
+        if (!res.ok) throw trackerError(res, data, failure || t.operations.notifications.credentials.refused)
         setUserCredentials(Array.isArray(data.credentials) ? data.credentials : [])
         setOrphanedCredentials(orphanedCredentialsFrom(data))
         if (success) addToast({ type: 'success', title: success })
@@ -1626,7 +1691,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       })
       const data = await res.json().catch(() => ({}))
       const copy = t.operations.notifications.teams
-      if (!res.ok) throw new Error(data.error || copy.readRefused)
+      if (!res.ok) throw trackerError(res, data, copy.readRefused)
       addToast({
         type: 'success',
         title: format(copy.refreshed, { team: data.name || copy.teamFallback }),
@@ -1834,6 +1899,17 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     a => a.status === 'queued' || a.status === 'pending' || a.status === 'running'
   ).length
 
+  // Who is signed in, so a failed write offers to add a token only to the
+  // person who is missing it (#645). Read once: the account does not change
+  // without a new page.
+  const currentUserIdRef = useRef('')
+  useEffect(() => {
+    fetch('/api/me')
+      .then(res => (res.ok ? res.json() : null))
+      .then(me => { if (me && typeof me.userId === 'string') currentUserIdRef.current = me.userId })
+      .catch(() => {})
+  }, [])
+
   // Smart background polling for queue execution & tasks
   useEffect(() => {
     const pollInterval = activeJobCount > 0 ? 3000 : 25000
@@ -1871,6 +1947,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
                 })
               } else if (act.status === 'failed') {
                 needTaskRefresh = true
+                const refusedFor = missingCredentialFromActivity(act)
+                if (refusedFor && act.userId && act.userId === currentUserIdRef.current) {
+                  addToast(tokenOfferToast(refusedFor, act.taskKey || t.operations.notifications.taskFallback))
+                  return
+                }
                 addToast({
                   type: 'error',
                   title: t.toasts.error,
@@ -1945,7 +2026,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }, pollInterval)
 
     return () => clearInterval(interval)
-  }, [activeJobCount, selectedProjectId, buildTaskQuery, t, locale, addToast])
+  }, [activeJobCount, selectedProjectId, buildTaskQuery, t, locale, addToast, tokenOfferToast])
 
   const updateSettings = async (newSettings: Partial<UserSettings>, options?: { silent?: boolean }) => {
     const merged = { ...settings, ...newSettings }
@@ -1987,7 +2068,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       })
       if (!res.ok) {
         const errData = await res.json()
-        throw new Error(errData.error || t.operations.sync.globalFailed)
+        throw trackerError(res, errData, t.operations.sync.globalFailed)
       }
       const data = await res.json()
       if (data.activity) {
@@ -2002,11 +2083,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           : t.operations.sync.globalStartedQueued,
       })
     } catch (err: any) {
-      addToast({
+      addToast(refusalToast(err, {
         type: 'error',
         title: t.toasts.error,
         description: err.message,
-      })
+      }))
     } finally {
       setIsSyncing(false)
     }
@@ -2024,7 +2105,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       })
       if (!res.ok) {
         const errData = await res.json()
-        throw new Error(errData.error || t.operations.sync.githubFailed)
+        throw trackerError(res, errData, t.operations.sync.githubFailed)
       }
       const data = await res.json()
       if (data.activity) {
@@ -2039,11 +2120,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           : t.operations.sync.githubRunning,
       })
     } catch (err: any) {
-      addToast({
+      addToast(refusalToast(err, {
         type: 'error',
         title: t.toasts.error,
         description: err.message,
-      })
+      }))
     } finally {
       setIsSyncing(false)
     }
@@ -2061,7 +2142,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       })
       if (!res.ok) {
         const errData = await res.json()
-        throw new Error(errData.error || t.operations.sync.jiraFailed)
+        throw trackerError(res, errData, t.operations.sync.jiraFailed)
       }
       const data = await res.json()
       if (data.activity) {
@@ -2076,11 +2157,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           : t.operations.sync.jiraRunning,
       })
     } catch (err: any) {
-      addToast({
+      addToast(refusalToast(err, {
         type: 'error',
         title: t.toasts.error,
         description: err.message,
-      })
+      }))
     } finally {
       setIsSyncing(false)
     }
@@ -2099,7 +2180,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       })
       if (!res.ok) {
         const errData = await res.json()
-        throw new Error(errData.error || t.operations.sync.gitlabFailed)
+        throw trackerError(res, errData, t.operations.sync.gitlabFailed)
       }
       const data = await res.json()
       if (data.activity) {
@@ -2115,11 +2196,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           : t.operations.sync.gitlabRunning,
       })
     } catch (err: any) {
-      addToast({
+      addToast(refusalToast(err, {
         type: 'error',
         title: t.toasts.error,
         description: err.message,
-      })
+      }))
     } finally {
       setIsSyncing(false)
     }
@@ -2153,7 +2234,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       })
       if (!res.ok) {
         const errData = await res.json()
-        throw new Error(errData.error || t.operations.projects.createFailed)
+        throw trackerError(res, errData, t.operations.projects.createFailed)
       }
       const created: Project = await res.json()
       await fetchProjects()
@@ -2165,11 +2246,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       })
       return created
     } catch (err: any) {
-      addToast({
+      addToast(refusalToast(err, {
         type: 'error',
         title: t.toasts.error,
         description: err.message,
-      })
+      }))
       return null
     }
   }
@@ -2183,7 +2264,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       })
       if (!res.ok) {
         const errData = await res.json()
-        throw new Error(errData.error || t.operations.projects.updateFailed)
+        throw trackerError(res, errData, t.operations.projects.updateFailed)
       }
       const updated: Project = await res.json()
       await fetchProjects()
@@ -2194,11 +2275,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       })
       return updated
     } catch (err: any) {
-      addToast({
+      addToast(refusalToast(err, {
         type: 'error',
         title: t.toasts.error,
         description: err.message,
-      })
+      }))
       return null
     }
   }
@@ -2210,7 +2291,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       })
       if (!res.ok) {
         const errData = await res.json()
-        throw new Error(errData.error || t.operations.projects.deleteFailed)
+        throw trackerError(res, errData, t.operations.projects.deleteFailed)
       }
       if (selectedProjectId === id) {
         setSelectedProjectId('all')
@@ -2225,11 +2306,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       })
       return true
     } catch (err: any) {
-      addToast({
+      addToast(refusalToast(err, {
         type: 'error',
         title: t.toasts.error,
         description: err.message,
-      })
+      }))
       return false
     }
   }
@@ -2261,7 +2342,13 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           projectId: defaultProj,
         }),
       })
-      if (!res.ok) throw new Error(t.operations.notifications.createFailed)
+      if (!res.ok) {
+        // Only the refusal for want of a token is told apart: any other
+        // failure keeps the generic message the creation always showed.
+        const errData = await res.json().catch(() => ({}))
+        const refused = trackerError(res, errData, t.operations.notifications.createFailed)
+        throw refused instanceof TrackerCredentialMissingError ? refused : new Error(t.operations.notifications.createFailed)
+      }
       let created: Task = await res.json()
       // A parentKey on the creation would only be stored locally: the tracker
       // receives the parent through the attachment, as from the detail modal.
@@ -2302,11 +2389,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       }
       return created
     } catch (err: any) {
-      addToast({
+      addToast(refusalToast(err, {
         type: 'error',
         title: t.toasts.error,
         description: err.message,
-      })
+      }))
       return null
     }
   }
@@ -2324,7 +2411,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       })
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}))
-        throw new Error(errData.error || t.operations.notifications.tasks.cloneFailed)
+        throw trackerError(res, errData, t.operations.notifications.tasks.cloneFailed)
       }
       const cloned: Task = await res.json()
       setTasks(prev => [cloned, ...prev])
@@ -2339,11 +2426,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       }
       return cloned
     } catch (err: any) {
-      addToast({
+      addToast(refusalToast(err, {
         type: 'error',
         title: t.toasts.error,
         description: err.message,
-      })
+      }))
       return null
     }
   }
@@ -2358,7 +2445,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       if (!res.ok) {
         // The server's reason, such as a repository the project does not list.
         const errData = await res.json().catch(() => ({}))
-        throw new Error(errData.error || t.operations.notifications.updateFailed)
+        throw trackerError(res, errData, t.operations.notifications.updateFailed)
       }
       const updated: Task = await res.json()
       setTasks(prev => prev.map(t => (sameTask(t, updated) ? updated : t)))
@@ -2372,11 +2459,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       })
       return updated
     } catch (err: any) {
-      addToast({
+      addToast(refusalToast(err, {
         type: 'error',
         title: t.toasts.error,
         description: err.message,
-      })
+      }))
       return null
     }
   }
@@ -2405,11 +2492,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       }
       return updated
     } catch (err: any) {
-      addToast({
+      addToast(refusalToast(err, {
         type: 'error',
         title: t.operations.sync.singleError,
         description: err.message,
-      })
+      }))
       return null
     }
   }
@@ -2510,11 +2597,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       const res = await fetch(`${API_BASE}/tasks/${encodeURIComponent(id)}/comments`)
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}))
-        throw new Error(errData.error || t.operations.notifications.comments.unavailable)
+        throw trackerError(res, errData, t.operations.notifications.comments.unavailable)
       }
       return (await res.json()) || []
     } catch (err: any) {
-      addToast({ type: 'error', title: t.operations.notifications.comments.title, description: err.message })
+      addToast(refusalToast(err, { type: 'error', title: t.operations.notifications.comments.title, description: err.message }))
       return []
     }
   }
@@ -2528,13 +2615,13 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       })
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}))
-        throw new Error(errData.error || t.operations.notifications.comments.postRefused)
+        throw trackerError(res, errData, t.operations.notifications.comments.postRefused)
       }
       const comments: TaskComment[] = await res.json()
       addToast({ type: 'success', title: t.operations.notifications.comments.posted })
       return comments
     } catch (err: any) {
-      addToast({ type: 'error', title: t.operations.notifications.comments.postFailed, description: err.message })
+      addToast(refusalToast(err, { type: 'error', title: t.operations.notifications.comments.postFailed, description: err.message }))
       return null
     }
   }
@@ -2544,11 +2631,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       const res = await fetch(`${API_BASE}/projects/${encodeURIComponent(projectId)}/boards`)
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}))
-        throw new Error(errData.error || t.operations.notifications.boards.unavailable)
+        throw trackerError(res, errData, t.operations.notifications.boards.unavailable)
       }
       return (await res.json()) || []
     } catch (err: any) {
-      addToast({ type: 'error', title: t.operations.notifications.boards.title, description: err.message })
+      addToast(refusalToast(err, { type: 'error', title: t.operations.notifications.boards.title, description: err.message }))
       return []
     }
   }
@@ -2562,7 +2649,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       })
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}))
-        throw new Error(errData.error || t.operations.notifications.boards.importRefused)
+        throw trackerError(res, errData, t.operations.notifications.boards.importRefused)
       }
       const proj: Project = await res.json()
       setProjects(prev => prev.map(p => (p.id === proj.id ? proj : p)))
@@ -2573,7 +2660,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       })
       return proj
     } catch (err: any) {
-      addToast({ type: 'error', title: t.operations.notifications.boards.importFailed, description: err.message })
+      addToast(refusalToast(err, { type: 'error', title: t.operations.notifications.boards.importFailed, description: err.message }))
       return null
     }
   }
@@ -2606,7 +2693,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         headers: { 'Content-Type': 'application/json' },
       })
       const data = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(data.error || t.operations.notifications.macros.refineRefused)
+      if (!res.ok) throw trackerError(res, data, t.operations.notifications.macros.refineRefused)
       return {
         key: data.key || key,
         todos: data.todos || [],
@@ -2614,7 +2701,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         specFramework: data.specFramework || 'speckit',
       }
     } catch (err: any) {
-      addToast({ type: 'error', title: t.operations.notifications.macros.refineFailed, description: err.message })
+      addToast(refusalToast(err, { type: 'error', title: t.operations.notifications.macros.refineFailed, description: err.message }))
       return null
     }
   }
@@ -2628,7 +2715,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         body: JSON.stringify(reqs),
       })
       const data = await res.json().catch(() => ([]))
-      if (!res.ok) throw new Error(data.error || t.operations.notifications.macros.batchRefused)
+      if (!res.ok) throw trackerError(res, data, t.operations.notifications.macros.batchRefused)
       const created: Task[] = Array.isArray(data) ? data : []
       setTasks(prev => [...created, ...prev])
       addToast({
@@ -2638,7 +2725,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       })
       return created
     } catch (err: any) {
-      addToast({ type: 'error', title: t.operations.notifications.macros.batchFailed, description: err.message })
+      addToast(refusalToast(err, { type: 'error', title: t.operations.notifications.macros.batchFailed, description: err.message }))
       return []
     }
   }
@@ -2656,7 +2743,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         body: JSON.stringify({ key, ...patch }),
       })
       const data = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(data.error || t.operations.notifications.macros.saveRefused)
+      if (!res.ok) throw trackerError(res, data, t.operations.notifications.macros.saveRefused)
       const macro = data.macro || data.epic || data
       if (patch.title) {
         setTasks(prev => prev.map(t => (t.parentKey === key || t.parentTitle === key) ? { ...t, parentTitle: patch.title } : t))
@@ -2665,7 +2752,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     } catch (err: any) {
       // A batch caller (the seeding) collects the refusals and reports them
       // once, rather than stacking one toast per epic.
-      if (!options?.quiet) addToast({ type: 'error', title: t.operations.notifications.macros.saveFailed, description: err.message })
+      if (!options?.quiet) addToast(refusalToast(err, { type: 'error', title: t.operations.notifications.macros.saveFailed, description: err.message }))
       return null
     }
   }
@@ -2706,7 +2793,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       )
       const data = await res.json().catch(() => ({}))
       const copy = t.operations.notifications.macros
-      if (!res.ok) throw new Error(data.error || copy.createRefused)
+      if (!res.ok) throw trackerError(res, data, copy.createRefused)
       addToast({
         type: 'success',
         title: copy.storyCreated,
@@ -2719,7 +2806,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       const m = data.macro || data.epic || null
       return { macro: m, epic: m, storyKey: data.storyKey || '' }
     } catch (err: any) {
-      addToast({ type: 'error', title: t.operations.notifications.macros.storyFailed, description: err.message })
+      addToast(refusalToast(err, { type: 'error', title: t.operations.notifications.macros.storyFailed, description: err.message }))
       return null
     }
   }
@@ -2750,7 +2837,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         }
       )
       const data = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(data.error || t.operations.notifications.macros.slicingRefused)
+      if (!res.ok) throw trackerError(res, data, t.operations.notifications.macros.slicingRefused)
       const macro: MacroMeta | null = data.macro || data.epic || null
       addToast({
         type: 'success',
@@ -2759,7 +2846,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       })
       return macro
     } catch (err: any) {
-      addToast({ type: 'error', title: t.operations.notifications.macros.slicingFailed, description: err.message })
+      addToast(refusalToast(err, { type: 'error', title: t.operations.notifications.macros.slicingFailed, description: err.message }))
       return null
     }
   }
@@ -2779,7 +2866,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       })
       const data = await res.json().catch(() => ({}))
       const copy = t.operations.notifications.teams
-      if (!res.ok) throw new Error(data.error || copy.changeRefused)
+      if (!res.ok) throw trackerError(res, data, copy.changeRefused)
       const updated: Task | null = data.task || null
       if (updated) {
         setTasks(prev => prev.map(t => (t.id === updated.id ? updated : t)))
@@ -2793,7 +2880,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       fetchActivities()
       return updated
     } catch (err: any) {
-      addToast({ type: 'error', title: t.operations.notifications.teams.changeFailed, description: err.message })
+      addToast(refusalToast(err, { type: 'error', title: t.operations.notifications.teams.changeFailed, description: err.message }))
       return null
     }
   }
@@ -2810,7 +2897,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       })
       const data = await res.json().catch(() => ({}))
       const copy = t.operations.notifications.sprints
-      if (!res.ok) throw new Error(data.error || copy.changeRefused)
+      if (!res.ok) throw trackerError(res, data, copy.changeRefused)
       const updated: Task | null = data.task || null
       if (updated) {
         setTasks(prev => prev.map(t => (t.id === updated.id ? updated : t)))
@@ -2824,7 +2911,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       fetchActivities()
       return updated
     } catch (err: any) {
-      addToast({ type: 'error', title: t.operations.notifications.sprints.changeFailed, description: err.message })
+      addToast(refusalToast(err, { type: 'error', title: t.operations.notifications.sprints.changeFailed, description: err.message }))
       return null
     }
   }
@@ -2843,7 +2930,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       })
       const data = await res.json().catch(() => ({}))
       const copy = t.operations.notifications
-      if (!res.ok) throw new Error(data.error || copy.sprints.changeRefused)
+      if (!res.ok) throw trackerError(res, data, copy.sprints.changeRefused)
       addToast({
         type: 'success',
         title: format(copy.ticketsMoved, {
@@ -2856,7 +2943,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       fetchTasks()
       return true
     } catch (err: any) {
-      addToast({ type: 'error', title: t.operations.notifications.sprints.changeFailed, description: err.message })
+      addToast(refusalToast(err, { type: 'error', title: t.operations.notifications.sprints.changeFailed, description: err.message }))
       return false
     }
   }
@@ -2875,7 +2962,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       })
       const data = await res.json().catch(() => ({}))
       const copy = t.operations.notifications
-      if (!res.ok) throw new Error(data.error || copy.teams.changeRefused)
+      if (!res.ok) throw trackerError(res, data, copy.teams.changeRefused)
       addToast({
         type: 'success',
         title: format(copy.ticketsMoved, {
@@ -2888,7 +2975,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       fetchTasks()
       return true
     } catch (err: any) {
-      addToast({ type: 'error', title: t.operations.notifications.teams.changeFailed, description: err.message })
+      addToast(refusalToast(err, { type: 'error', title: t.operations.notifications.teams.changeFailed, description: err.message }))
       return false
     }
   }
@@ -2904,7 +2991,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       })
       const data = await res.json().catch(() => ({}))
       const copy = t.operations.notifications.macros
-      if (!res.ok) throw new Error(data.error || copy.attachRefused)
+      if (!res.ok) throw trackerError(res, data, copy.attachRefused)
       const updated: Task | null = data.task || null
       if (updated) {
         setTasks(prev => prev.map(t => (t.id === updated.id ? updated : t)))
@@ -2918,7 +3005,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       fetchActivities()
       return updated
     } catch (err: any) {
-      addToast({ type: 'error', title: t.operations.notifications.macros.attachFailed, description: err.message })
+      addToast(refusalToast(err, { type: 'error', title: t.operations.notifications.macros.attachFailed, description: err.message }))
       return null
     }
   }
@@ -2936,7 +3023,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       )
       const data = await res.json().catch(() => ({}))
       const copy = t.operations.notifications.macros
-      if (!res.ok) throw new Error(data.error || copy.createRefused)
+      if (!res.ok) throw trackerError(res, data, copy.createRefused)
       addToast({
         type: 'success',
         title: copy.storyCreated,
@@ -2947,7 +3034,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       fetchTasks()
       return data.storyKey || ''
     } catch (err: any) {
-      addToast({ type: 'error', title: t.operations.notifications.macros.storyFailed, description: err.message })
+      addToast(refusalToast(err, { type: 'error', title: t.operations.notifications.macros.storyFailed, description: err.message }))
       return ''
     }
   }
@@ -2970,7 +3057,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       )
       const data = await res.json().catch(() => ({}))
       const copy = t.operations.notifications.macros
-      if (!res.ok) throw new Error(data.error || copy.migrateRefused)
+      if (!res.ok) throw trackerError(res, data, copy.migrateRefused)
       addToast({
         type: 'success',
         title: copy.migrated,
@@ -2980,7 +3067,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       const m = data.macro || data.epic
       return { success: true, macro: m, epic: m, migratedTasks: data.migratedTasks }
     } catch (err: any) {
-      addToast({ type: 'error', title: t.operations.notifications.macros.migrationFailed, description: err.message })
+      addToast(refusalToast(err, { type: 'error', title: t.operations.notifications.macros.migrationFailed, description: err.message }))
       return { success: false, error: err.message }
     }
   }
@@ -2998,7 +3085,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       })
       const data = await res.json().catch(() => ({}))
       const copy = t.operations.notifications.macros
-      if (!res.ok) throw new Error(data.error || copy.tasksMigrateRefused)
+      if (!res.ok) throw trackerError(res, data, copy.tasksMigrateRefused)
       addToast({
         type: 'success',
         title: copy.tasksMigrated,
@@ -3007,7 +3094,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       await Promise.all([fetchTasks(), fetchProjects()])
       return { success: true, migratedCount: data.migratedCount }
     } catch (err: any) {
-      addToast({ type: 'error', title: t.operations.notifications.macros.migrationFailed, description: err.message })
+      addToast(refusalToast(err, { type: 'error', title: t.operations.notifications.macros.migrationFailed, description: err.message }))
       return { success: false, error: err.message }
     }
   }
@@ -3044,11 +3131,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         body: JSON.stringify({ title, horizon: horizon || '', fields: fields || {} }),
       })
       const data = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(data.error || t.operations.notifications.macros.createRefused)
+      if (!res.ok) throw trackerError(res, data, t.operations.notifications.macros.createRefused)
       addToast({ type: 'success', title: format(t.operations.notifications.macros.created, { key: data.key }) })
       return data
     } catch (err: any) {
-      addToast({ type: 'error', title: t.operations.notifications.macros.createFailed, description: err.message })
+      addToast(refusalToast(err, { type: 'error', title: t.operations.notifications.macros.createFailed, description: err.message }))
       return null
     }
   }
@@ -3060,12 +3147,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         method: 'DELETE',
       })
       const data = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(data.error || t.operations.notifications.macros.deleteRefused)
+      if (!res.ok) throw trackerError(res, data, t.operations.notifications.macros.deleteRefused)
       addToast({ type: 'success', title: format(t.operations.notifications.macros.deleted, { key }) })
       await fetchTasks()
       return true
     } catch (err: any) {
-      addToast({ type: 'error', title: t.operations.notifications.macros.deleteFailed, description: err.message })
+      addToast(refusalToast(err, { type: 'error', title: t.operations.notifications.macros.deleteFailed, description: err.message }))
       return false
     }
   }
@@ -3088,7 +3175,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       })
       const data = await res.json().catch(() => ({}))
       const copy = t.operations.notifications.macros
-      if (!res.ok) throw new Error(data.error || copy.moveRefused)
+      if (!res.ok) throw trackerError(res, data, copy.moveRefused)
       addToast({
         type: 'success',
         title: format(copy.moveQueued, { count: data.count || taskIds.length }),
@@ -3100,7 +3187,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       if (targetMacroKey) fetchTasks()
       return true
     } catch (err: any) {
-      addToast({ type: 'error', title: t.operations.notifications.macros.moveFailed, description: err.message })
+      addToast(refusalToast(err, { type: 'error', title: t.operations.notifications.macros.moveFailed, description: err.message }))
       return false
     }
   }
@@ -3121,7 +3208,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       })
       const data = await res.json().catch(() => ({}))
       const copy = t.operations.notifications.tasks
-      if (!res.ok) throw new Error(data.error || copy.stageRefused)
+      if (!res.ok) throw trackerError(res, data, copy.stageRefused)
       if (data.task) {
         setTasks(prev => prev.map(t => (sameTask(t, data.task) ? data.task : t)))
       }
@@ -3133,7 +3220,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       })
       return { success: true, task: data.task, activity: data.activity }
     } catch (err: any) {
-      addToast({ type: 'error', title: t.operations.notifications.tasks.stageFailed, description: err.message })
+      addToast(refusalToast(err, { type: 'error', title: t.operations.notifications.tasks.stageFailed, description: err.message }))
       return { success: false, error: err.message }
     }
   }
@@ -3174,7 +3261,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       })
       const data = await res.json().catch(() => ({}))
       const copy = t.operations.notifications.tasks
-      if (!res.ok) throw new Error(data.error || copy.confirmRefused)
+      if (!res.ok) throw trackerError(res, data, copy.confirmRefused)
       setPendingInteractive(null)
       addToast({
         type: 'success',
@@ -3184,7 +3271,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       fetchTasks()
       fetchActivities()
     } catch (err: any) {
-      addToast({ type: 'error', title: t.operations.notifications.tasks.confirmFailed, description: err.message })
+      addToast(refusalToast(err, { type: 'error', title: t.operations.notifications.tasks.confirmFailed, description: err.message }))
     }
   }
 
@@ -3213,14 +3300,14 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     try {
       const res = await fetch(`${API_BASE}/tasks/${encodeURIComponent(taskId)}/pin`, { method: 'POST' })
       const data = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(data.error || t.operations.notifications.tasks.pinRefused)
+      if (!res.ok) throw trackerError(res, data, t.operations.notifications.tasks.pinRefused)
       await fetchPins()
       // Le filtre « épinglés » lit la base : la liste doit suivre l'épingle qu'on
       // vient de poser ou de retirer.
       if (pinnedOnly) fetchTasks()
       await fetchTasks()
     } catch (err: any) {
-      addToast({ type: 'error', title: t.operations.notifications.tasks.pinFailed, description: err.message })
+      addToast(refusalToast(err, { type: 'error', title: t.operations.notifications.tasks.pinFailed, description: err.message }))
     }
   }
 
@@ -3251,7 +3338,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       if (!res.ok) throw new Error(t.operations.notifications.skills.readFailed)
       return (await res.json()) || []
     } catch (err: any) {
-      addToast({ type: 'error', title: t.operations.notifications.skills.unavailable, description: err.message })
+      addToast(refusalToast(err, { type: 'error', title: t.operations.notifications.skills.unavailable, description: err.message }))
       return []
     }
   }
@@ -3267,7 +3354,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       const res = await fetch(`${base}${path}`, init)
       const data = await res.json().catch(() => ({}))
       const copy = t.operations.notifications.skills
-      if (!res.ok) throw new Error(data.error || copy.actionRefused)
+      if (!res.ok) throw trackerError(res, data, copy.actionRefused)
       const entry = data as SkillEditorEntry
       addToast({
         type: 'success',
@@ -3278,7 +3365,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       })
       return entry
     } catch (err: any) {
-      addToast({ type: 'error', title: t.operations.notifications.skills.saveFailed, description: err.message })
+      addToast(refusalToast(err, { type: 'error', title: t.operations.notifications.skills.saveFailed, description: err.message }))
       return null
     }
   }
@@ -3332,7 +3419,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         res = await fetch(`${API_BASE}/projects/${encodeURIComponent(projectId)}/epics/push-horizons`, { method: 'POST' })
       }
       const data = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(data.error || t.operations.notifications.macros.horizonsPushRefused)
+      if (!res.ok) throw trackerError(res, data, t.operations.notifications.macros.horizonsPushRefused)
       addToast({
         type: 'success',
         title: t.operations.notifications.macros.horizonsPushQueued,
@@ -3341,7 +3428,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       fetchActivities()
       return true
     } catch (err: any) {
-      addToast({ type: 'error', title: t.operations.notifications.macros.horizonsPushFailed, description: err.message })
+      addToast(refusalToast(err, { type: 'error', title: t.operations.notifications.macros.horizonsPushFailed, description: err.message }))
       return false
     }
   }
@@ -3358,7 +3445,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     try {
       const res = await fetch(`${API_BASE}/projects/${encodeURIComponent(projectId)}/macros/import-horizons`, { method: 'POST' })
       const data = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(data.error || t.operations.notifications.macros.horizonsReadRefused)
+      if (!res.ok) throw trackerError(res, data, t.operations.notifications.macros.horizonsReadRefused)
       addToast({
         type: 'success',
         title: t.operations.notifications.macros.horizonsRead,
@@ -3366,7 +3453,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       })
       return true
     } catch (err: any) {
-      addToast({ type: 'error', title: t.operations.notifications.macros.horizonsReadFailed, description: err.message })
+      addToast(refusalToast(err, { type: 'error', title: t.operations.notifications.macros.horizonsReadFailed, description: err.message }))
       return false
     }
   }
@@ -3388,11 +3475,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       const res = await fetch(`${API_BASE}/projects/${encodeURIComponent(projectId)}/tracker-statuses`)
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}))
-        throw new Error(errData.error || t.operations.notifications.boards.statusesUnavailable)
+        throw trackerError(res, errData, t.operations.notifications.boards.statusesUnavailable)
       }
       return (await res.json()) || []
     } catch (err: any) {
-      addToast({ type: 'error', title: t.operations.notifications.boards.statusesTitle, description: err.message })
+      addToast(refusalToast(err, { type: 'error', title: t.operations.notifications.boards.statusesTitle, description: err.message }))
       return []
     }
   }
@@ -3406,7 +3493,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       })
       if (!res.ok) {
         const errData = await res.json()
-        throw new Error(errData.error || t.operations.notifications.tasks.conversionFailed)
+        throw trackerError(res, errData, t.operations.notifications.tasks.conversionFailed)
       }
       const updated: Task = await res.json()
       setTasks(prev => prev.map(t => (t.id === id ? updated : t)))
@@ -3422,11 +3509,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       })
       return updated
     } catch (err: any) {
-      addToast({
+      addToast(refusalToast(err, {
         type: 'error',
         title: t.operations.notifications.tasks.exportFailed,
         description: err.message,
-      })
+      }))
       return null
     }
   }
@@ -3568,11 +3655,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
       return activity
     } catch (err: any) {
-      addToast({
+      addToast(refusalToast(err, {
         type: 'error',
         title: t.toasts.error,
         description: err.message,
-      })
+      }))
       return null
     } finally {
       setIsSkillRunning(false)
@@ -3591,11 +3678,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       await fetchActivities()
       await fetchActivityStats()
     } catch (err: any) {
-      addToast({
+      addToast(refusalToast(err, {
         type: 'error',
         title: t.toasts.error,
         description: err.message,
-      })
+      }))
     }
   }
 
@@ -3611,11 +3698,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       await fetchActivities()
       await fetchActivityStats()
     } catch (err: any) {
-      addToast({
+      addToast(refusalToast(err, {
         type: 'error',
         title: t.toasts.error,
         description: err.message,
-      })
+      }))
     }
   }
 
@@ -3633,11 +3720,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       })
       await fetchActivityStats()
     } catch (err: any) {
-      addToast({
+      addToast(refusalToast(err, {
         type: 'error',
         title: t.toasts.error,
         description: err.message,
-      })
+      }))
     }
   }
 
@@ -3652,11 +3739,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       await fetchActivities()
       await fetchActivityStats()
     } catch (err: any) {
-      addToast({
+      addToast(refusalToast(err, {
         type: 'error',
         title: t.toasts.error,
         description: err.message,
-      })
+      }))
     }
   }
 
@@ -3676,11 +3763,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       })
       return true
     } catch (err: any) {
-      addToast({
+      addToast(refusalToast(err, {
         type: 'error',
         title: t.toasts.error,
         description: err.message,
-      })
+      }))
       return false
     }
   }
@@ -3921,7 +4008,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [isCommandPaletteOpen, isQuickAddOpen, isCloneModalOpen, selectedTask, selectedActivity, isProfileOpen, searchQuery, setActiveView, setSidebarCollapsed])
+  }, [isCommandPaletteOpen, isQuickAddOpen, isCloneModalOpen, selectedTask, selectedActivity, isProfileOpen, searchQuery, setActiveView, setSidebarCollapsed, setIsProfileOpen])
 
   return (
     <AppContext.Provider
@@ -4052,6 +4139,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         setIsCommandPaletteOpen,
         isProfileOpen,
         setIsProfileOpen,
+        profileTarget,
+        openTrackerCredentials,
+        refusalToast,
         settings,
         updateSettings,
         reloadSettings: fetchSettings,
