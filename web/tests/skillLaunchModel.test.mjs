@@ -75,7 +75,7 @@ test('the card submenu selects a model and launches nothing', () => {
 test('every launch from the card uses the retained model', () => {
   // One handler, no per-call model: the chevrons, the chain and both modes all
   // go through it, which is what the indicator in front of them promises.
-  assert.match(card, /const handleAdvance = async \(auto: boolean, mode\?: SkillMode\) => \{/)
+  assert.match(card, /const handleAdvance = async \(auto: boolean, mode\?: SkillMode, spinner: 'step' \| 'auto' = auto \? 'auto' : 'step'\) => \{/)
   assert.match(card, /await advanceTask\(task\.id, auto, mode, effectiveLaunchModel\)/)
   // The full chain carries it too: from a card it is a single pickup run.
   assert.match(context, /model\}\)$/m)

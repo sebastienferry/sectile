@@ -1089,34 +1089,27 @@ export const TaskCard: React.FC<TaskCardProps> = ({
           {advancing === 'step' ? <Loader2 size={14} className="animate-spin" /> : <ChevronRight size={14} />}
         </button>
 
-        {offersAutonomousStep ? (
-          <button
-            type="button"
-            disabled={advancing !== null}
-            onClick={e => {
-              e.stopPropagation()
+        <button
+          type="button"
+          disabled={advancing !== null || (!offersAutonomousStep && isFinishedTask)}
+          onClick={e => {
+            e.stopPropagation()
+            if (offersAutonomousStep) {
               handleAdvance(false, 'autonomous', 'auto')
-            }}
-            className="p-1 rounded-md text-[var(--text-muted)] hover:text-[var(--accent-color)] hover:bg-[var(--accent-light)] border border-transparent hover:border-[var(--accent-color)]/30 transition-colors cursor-pointer disabled:opacity-40"
-            title={autonomousStepTitle}
-            aria-label={autonomousStepTitle}
-          >
-            {advancing === 'auto' ? <Loader2 size={14} className="animate-spin" /> : <Bot size={14} />}
-          </button>
-        ) : (
-          <button
-            type="button"
-            disabled={advancing !== null || isFinishedTask}
-            onClick={e => {
-              e.stopPropagation()
+            } else {
               handleAdvance(true)
-            }}
-            className="p-1 rounded-md text-[var(--text-muted)] hover:text-[var(--accent-color)] hover:bg-[var(--accent-light)] border border-transparent hover:border-[var(--accent-color)]/30 transition-colors cursor-pointer disabled:opacity-40"
-            title={nextStepInfo.autoTooltip}
-          >
-            {advancing === 'auto' ? <Loader2 size={14} className="animate-spin" /> : <ChevronsRight size={14} />}
-          </button>
-        )}
+            }
+          }}
+          className="p-1 rounded-md text-[var(--text-muted)] hover:text-[var(--accent-color)] hover:bg-[var(--accent-light)] border border-transparent hover:border-[var(--accent-color)]/30 transition-colors cursor-pointer disabled:opacity-40"
+          title={offersAutonomousStep ? autonomousStepTitle : nextStepInfo.autoTooltip}
+          aria-label={offersAutonomousStep ? autonomousStepTitle : undefined}
+        >
+          {advancing === 'auto'
+            ? <Loader2 size={14} className="animate-spin" />
+            : offersAutonomousStep
+              ? <Bot size={14} />
+              : <ChevronsRight size={14} />}
+        </button>
 
 
         {actionsMenu}

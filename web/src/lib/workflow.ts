@@ -122,7 +122,7 @@ export const skillForStage = (stage: WorkflowStage): string | null => {
 }
 
 /** Default of `Project.fullChainStopStage`, as documented in docs/CAPABILITIES.md. */
-export const DEFAULT_FULL_CHAIN_STOP_STAGE: WorkflowStage = 'reviewed'
+export const DEFAULT_FULL_CHAIN_STOP_STAGE: NonNullable<Project['fullChainStopStage']> = 'reviewed'
 
 /**
  * Whether the full chain still has a stage to run for a task at `stage`: the
