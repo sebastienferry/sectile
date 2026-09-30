@@ -32,6 +32,19 @@ export function canOpenEpicInRoadmap(
 }
 
 /**
+ * The project a ticket belongs to. A ticket without a project id is one of the
+ * project on screen; under "all projects" such a ticket has none.
+ */
+export function projectOfTask(
+  task: Pick<Task, 'projectId'>,
+  projects: Project[],
+  currentProject: Project | null | undefined
+): Project | null {
+  if (!task.projectId) return currentProject || null
+  return projects.find(p => p.id === task.projectId || p.slug === task.projectId) || null
+}
+
+/**
  * Where the epic sits on the roadmap: the tab of its horizon, and whether it
  * is closed, which decides if closed epics must be shown. Null when the
  * roadmap holds no row for the key, which the caller refuses rather than

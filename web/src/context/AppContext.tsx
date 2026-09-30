@@ -55,7 +55,7 @@ import { NO_ORPHANED_CREDENTIALS, getTrackers, orphanedCredentialsFrom } from '.
 import { TrackerCredentialMissingError, missingCredentialFromActivity, missingCredentialFromBody } from '../lib/trackerRefusal'
 import { activeTaskIds } from '../lib/remoteRunIndicator'
 import { isViewAvailable } from '../lib/optionalViews'
-import { canOpenEpicInRoadmap, isTicketView, returnView } from '../lib/roadmapFocus'
+import { canOpenEpicInRoadmap, isTicketView, projectOfTask, returnView } from '../lib/roadmapFocus'
 import { isMacPlatform, sidebarShortcutAction } from '../../../shared/sidebarShortcut.mjs'
 import {
   coreFailures,
@@ -578,7 +578,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   // (#630). One step, held for the page only: entering the roadmap again from
   // another ticket view replaces it, and a non-ticket view leaves it as it is.
   const activeViewRef = useRef(activeView)
-  activeViewRef.current = activeView
+  useEffect(() => {
+    activeViewRef.current = activeView
+  }, [activeView])
   const roadmapOriginView = useRef<ViewMode | null>(null)
 
   const setActiveView = useCallback((view: ViewMode) => {
@@ -981,15 +983,14 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [roadmapFocus, setRoadmapFocus] = useState<RoadmapFocusRequest | null>(null)
 
   const openEpicInRoadmap = useCallback((task: Task) => {
-    const projectId = task.projectId || currentProject?.id || ''
-    const project = projects.find(p => p.id === projectId) || null
+    const project = projectOfTask(task, projects, currentProject)
     if (!project || !canOpenEpicInRoadmap(task, project)) return
     setRoadmapFocus({ projectId: project.id, epicKey: (task.parentKey || '').trim(), from: activeViewRef.current })
     // Through the project selector, as a choice by hand: the filters
     // remembered for that project come back with it.
     if (selectedViewId || selectedProjectId !== project.id) setSelectedProjectId(project.id)
     setActiveView('roadmap')
-  }, [currentProject?.id, projects, selectedViewId, selectedProjectId, setSelectedProjectId, setActiveView])
+  }, [currentProject, projects, selectedViewId, selectedProjectId, setSelectedProjectId, setActiveView])
 
   const consumeRoadmapFocus = useCallback(() => setRoadmapFocus(null), [])
 

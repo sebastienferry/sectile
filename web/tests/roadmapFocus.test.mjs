@@ -5,6 +5,7 @@ import {
   canOpenEpicInRoadmap,
   isTicketView,
   locateEpic,
+  projectOfTask,
   returnView,
 } from '../src/lib/roadmapFocus.ts'
 
@@ -65,4 +66,14 @@ test('without a ticket view left behind, the way back opens the board', () => {
   assert.equal(returnView(null, all), 'board')
   assert.equal(returnView('activities', all), 'board')
   assert.equal(returnView('roadmap', all), 'board')
+})
+
+test("a ticket's project is found by id or slug, or is the one on screen without an id", () => {
+  const a = { id: 'pa', slug: 'alpha', name: 'A' }
+  const b = { id: 'pb', name: 'B' }
+  assert.equal(projectOfTask({ projectId: 'pb' }, [a, b], a), b)
+  assert.equal(projectOfTask({ projectId: 'alpha' }, [a, b], b), a)
+  assert.equal(projectOfTask({ projectId: 'gone' }, [a, b], a), null)
+  assert.equal(projectOfTask({}, [a, b], a), a)
+  assert.equal(projectOfTask({}, [a, b], null), null)
 })
