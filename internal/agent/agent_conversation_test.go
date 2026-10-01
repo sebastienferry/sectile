@@ -944,3 +944,73 @@ cat > /dev/null
 		t.Fatal("the probe waited past the answer")
 	}
 }
+
+// A message starting with "!" runs in the shell without Claude, shows as a
+// Bash card, and reaches Claude with the next message, as in Claude Code.
+func TestConversationRunsABangCommandInTheShell(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake CLI is a POSIX script")
+	}
+	testhome.Temp(t)
+	bin := t.TempDir()
+	script := `#!/bin/sh
+read -r init
+read -r message
+printf '%s' "$message" > message.txt
+printf '%s\n' '{"type":"result","is_error":false,"result":"ok","session_id":"11111111-1111-4111-8111-111111111111"}'
+`
+	if err := os.WriteFile(filepath.Join(bin, "claude"), []byte(script), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("SHELL", "/bin/sh")
+	d, id := conversationFixture(t)
+	run := d.queue.runs[id]
+	if w := conversationRequest(d, "POST", "/desktop/conversation?id="+id, `{"message":"!"}`, "private"); w.Code != http.StatusBadRequest {
+		t.Fatalf("an empty command was accepted: %d", w.Code)
+	}
+	for _, line := range []string{`!printf 'bang-%s' "$SECTILE_PROJECT_ID"`, "!exit 3"} {
+		body, _ := json.Marshal(map[string]string{"message": line})
+		if w := conversationRequest(d, "POST", "/desktop/conversation?id="+id, string(body), "private"); w.Code != 202 || !strings.Contains(w.Body.String(), `"shell":true`) {
+			t.Fatalf("%s: %d %s", line, w.Code, w.Body.String())
+		}
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		lines, _ := run.trace.snapshot()
+		if strings.Count(strings.Join(lines, "\n"), `"kind":"tool_result"`) == 2 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the commands did not finish: %v", lines)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	d.queue.mu.Lock()
+	busy := run.conversation.busy
+	d.queue.mu.Unlock()
+	if busy {
+		t.Fatal("a shell command started Claude")
+	}
+	lines, _ := run.trace.snapshot()
+	text := strings.Join(lines, "\n")
+	if !strings.Contains(text, `"kind":"tool","text":"Bash"`) || !strings.Contains(text, `"text":"bang-project"`) || !strings.Contains(text, `Exit code 3.","toolId"`) || !strings.Contains(text, `"error":true`) {
+		t.Fatalf("unexpected transcript: %s", text)
+	}
+	if w := conversationRequest(d, "POST", "/desktop/conversation?id="+id, `{"message":"what did it print?"}`, "private"); w.Code != 202 {
+		t.Fatalf("send: %d", w.Code)
+	}
+	waitConversationIdle(t, d, run)
+	raw, _ := os.ReadFile(filepath.Join(run.root, "message.txt"))
+	var sent struct {
+		Message struct {
+			Content string `json:"content"`
+		} `json:"message"`
+	}
+	if json.Unmarshal(raw, &sent) != nil || !strings.Contains(sent.Message.Content, `<bash-input>printf 'bang-%s' "$SECTILE_PROJECT_ID"</bash-input>`) || !strings.Contains(sent.Message.Content, "<bash-stdout>bang-project</bash-stdout>") || !strings.HasSuffix(sent.Message.Content, "what did it print?") {
+		t.Fatalf("Claude did not get the commands: %s", raw)
+	}
+	if lines, _ := run.trace.snapshot(); strings.Contains(strings.Join(lines, "\n"), `"kind":"user","text":"<bash-input>`) {
+		t.Fatal("the shell context leaked into the owner's message in the transcript")
+	}
+}

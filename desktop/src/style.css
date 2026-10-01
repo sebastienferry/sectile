@@ -565,6 +565,8 @@ details.tool-card[open]>summary::before{content:'▾'}
 /* A soft accent glow along the bottom edge while the composer has focus. */
 .conversation-composer::after{content:'';position:absolute;left:12%;right:12%;bottom:-1px;height:1px;background:linear-gradient(90deg,transparent,var(--accent),transparent);opacity:0;transition:opacity .15s;pointer-events:none}
 .conversation-composer:focus-within::after{opacity:.8}
+.conversation-composer.conversation-shell-mode{border-color:var(--warn-text)}
+.conversation-composer.conversation-shell-mode::before{content:'Shell';position:absolute;top:-9px;left:16px;padding:0 6px;font-size:11px;color:var(--warn-text);background:var(--bg)}
 /* The slash command list opens above the message box. */
 .conversation-commands{position:absolute;left:12px;right:12px;bottom:calc(100% + 6px);z-index:5;max-height:280px;overflow:auto;margin:0;padding:4px;list-style:none;background:var(--dialog-bg);border:1px solid var(--border-strong);border-radius:10px;box-shadow:0 8px 24px var(--menu-shadow)}
 .conversation-commands li{display:grid;grid-template-columns:auto 1fr;column-gap:8px;align-items:baseline;padding:6px 8px;border-radius:6px;cursor:pointer}

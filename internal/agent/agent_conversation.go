@@ -56,6 +56,9 @@ type claudeConversation struct {
 	// next holds messages that arrived after the turn's stdin closed; they
 	// start the next turn as soon as this one ends.
 	next []string
+	// shellContext is what the commands typed with "!" since the last
+	// message printed; it goes to Claude with the next message.
+	shellContext string
 	// commands are the slash commands Claude offers here, for the composer's
 	// completion; loadingCommands says a probe is reading them.
 	commands        []conversationSlash
@@ -316,6 +319,18 @@ func (d *agentDaemon) desktopConversation(w http.ResponseWriter, r *http.Request
 	if model := strings.TrimSpace(input.Model); model != "" {
 		run.desktop.Model = model
 	}
+	// A message starting with "!" runs in the shell, not through Claude.
+	if line, ok := strings.CutPrefix(strings.TrimSpace(input.Message), "!"); ok {
+		if strings.TrimSpace(line) == "" {
+			http.Error(w, "Command required", http.StatusBadRequest)
+			return
+		}
+		d.startConversationShellLocked(run, strings.TrimSpace(line))
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusAccepted)
+		_ = json.NewEncoder(w).Encode(map[string]bool{"accepted": true, "shell": true})
+		return
+	}
 	// A message answers a wait the session declared, as Enter does in a
 	// terminal: the mark goes, and the server is told.
 	if !run.desktop.WaitingSince.IsZero() && !run.conversation.waitingForApproval {
@@ -330,9 +345,10 @@ func (d *agentDaemon) desktopConversation(w http.ResponseWriter, r *http.Request
 	// one sent as the turn closes starts the next turn.
 	if run.conversation.busy {
 		conversationWrite(run.trace, "user", input.Message, "")
-		queued := run.conversation.input == nil || run.conversation.input.send(conversationUserMessage(input.Message)) != nil
+		message := withShellContext(run.conversation, input.Message)
+		queued := run.conversation.input == nil || run.conversation.input.send(conversationUserMessage(message)) != nil
 		if queued {
-			run.conversation.next = append(run.conversation.next, input.Message)
+			run.conversation.next = append(run.conversation.next, message)
 		} else {
 			run.conversation.sentAt = time.Now()
 		}
@@ -344,7 +360,7 @@ func (d *agentDaemon) desktopConversation(w http.ResponseWriter, r *http.Request
 	run.conversation.busy = true
 	run.conversation.effort = input.Effort
 	conversationWrite(run.trace, "user", input.Message, "")
-	go d.conversationTurn(run, input.Message)
+	go d.conversationTurn(run, withShellContext(run.conversation, input.Message))
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
 	_ = json.NewEncoder(w).Encode(map[string]bool{"accepted": true})

@@ -74,6 +74,13 @@ the terminal the project uses, running the user's own shell; no Sectile session
 is attached to it. **Stop execution** ends the conversation; a ticket
 discussion then completes on the server.
 
+A message starting with `!` runs in the shell, as Claude Code's bash mode,
+which print mode lacks (it reads `!` as text). The agent runs it in the
+conversation's directory with the user's shell and the task's environment,
+hidden on Windows and stopped after two minutes, and shows it as a Bash card
+with its output. The command and its output, as `<bash-input>` and
+`<bash-stdout>`, go to Claude in front of the next message, bounded to 32 KiB.
+
 Typing `/` at the start of a message completes the slash commands Claude offers
 in the conversation's directory, the list its `initialize` response carries.
 Before the first turn the agent reads it from a Claude started for that alone:

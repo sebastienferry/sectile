@@ -23,7 +23,10 @@ agent along with the desktop: an older agent opens the terminal.
 Type a message and press Enter or click **Send**; Shift+Enter adds a line.
 Typing `/` at the start of a message lists the slash commands Claude Code offers
 in that directory, with their argument and description, filtered as you type:
-arrows move, Tab or Enter completes, Esc closes.
+arrows move, Tab or Enter completes, Esc closes. A message starting with `!`
+runs in the shell of that directory instead, as in Claude Code: it shows as a
+Bash card with its output, and Claude is given the command and what it printed
+with your next message.
 Claude's replies render as Markdown with the same rules as **Rendered** in the
 Changes panel; your own messages show as typed. Each tool call is a card: an
 edit opens on its diff, a written file on its lines, a command on the command,

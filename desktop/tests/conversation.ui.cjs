@@ -79,7 +79,9 @@ test('Claude chat renders structured output safely and sends messages without a 
   await expect(commandList).toBeHidden()
   await input.fill('/co');await expect(commandList).toBeVisible()
   await input.press('Escape');await expect(commandList).toBeHidden();await expect(input).toHaveValue('/co')
-  await input.fill('')
+  // A message starting with ! is marked as a shell command.
+  await input.fill('!ls');await expect(page.locator('.conversation-composer')).toHaveClass(/conversation-shell-mode/)
+  await input.fill('');await expect(page.locator('.conversation-composer')).not.toHaveClass(/conversation-shell-mode/)
   await page.getByLabel('Effort',{exact:true}).selectOption('high')
   await expect(page.getByLabel('Permission mode',{exact:true})).toHaveValue('acceptEdits')
   await page.getByLabel('Permission mode',{exact:true}).selectOption('plan')

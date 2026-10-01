@@ -72,7 +72,9 @@ export function createConversationView({api,container,onError,canAddFolder=()=>f
   const caret=command.name.length+2;input.setSelectionRange(caret,caret)
   closeCompletion();grow();input.focus()
  }
- input.addEventListener('input',()=>{active=0;updateCompletion()})
+ // A message starting with ! runs in the shell, as Claude Code's bash mode.
+ const showShellMode=()=>{const shell=input.value.startsWith('!');form.classList.toggle('conversation-shell-mode',shell);input.setAttribute('aria-description',shell?'Runs in the shell of this directory; Claude sees it with your next message':'')}
+ input.addEventListener('input',()=>{active=0;updateCompletion();showShellMode()})
  input.addEventListener('click',updateCompletion)
  input.addEventListener('blur',closeCompletion)
  input.addEventListener('keydown',event=>{
@@ -166,7 +168,7 @@ export function createConversationView({api,container,onError,canAddFolder=()=>f
   }
   for(const [raw,event] of parsed){
    if(event.kind==='tool'){
-    const card=toolCard(event,directory,{result:results.get(event.toolId)||null,pending:!!data.busy&&!!event.toolId,decision:decisions.get(event.toolId)||''}),node=renderToolCard(card)
+    const card=toolCard(event,directory,{result:results.get(event.toolId)||null,pending:(!!data.busy||String(event.toolId||'').startsWith('shell-'))&&!!event.toolId,decision:decisions.get(event.toolId)||''}),node=renderToolCard(card)
     node.conversationEvent=raw;if(event.toolId)node.dataset.toolId=event.toolId
     if(node.tagName==='DETAILS')node.open=seen.has(raw)?expanded.has(raw):card.open||card.failed
     events.append(node);continue
@@ -317,7 +319,8 @@ export function createConversationView({api,container,onError,canAddFolder=()=>f
   try{
    await api.conversationMessage(id,message,effort.value,model.value,mode.value)
    if(token!==generation)return
-   input.value='';grow();available=canQueue();status.textContent='Claude Code is working…'
+   const shell=message.trimStart().startsWith('!')
+   input.value='';grow();showShellMode();available=shell||canQueue();status.textContent=shell?'Running in the shell…':'Claude Code is working…'
   }catch(err){if(token===generation)onError(err)}
   finally{if(token===generation){pending=false;send.disabled=!available}}
  })
