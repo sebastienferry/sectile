@@ -7,6 +7,7 @@ import { fill, RUN_STATUSES, windowMinutes } from '../lib/adminStats'
 import { formatTime } from '../lib/i18n'
 import { UsersPanel } from './UsersPanel'
 import { ServerTrackerCredentialsPanel } from './ServerTrackerCredentialsPanel'
+import { JiraOAuthAppPanel } from './JiraOAuthAppPanel'
 
 interface StatCardProps {
   icon: React.ReactNode
@@ -116,6 +117,7 @@ export const AdminView: React.FC = () => {
         </section>
 
         <ServerTrackerCredentialsPanel />
+        <JiraOAuthAppPanel />
       </div>
     </div>
   )

@@ -309,6 +309,7 @@ func main() {
 	// asks /api/me which of the two modes it is in.
 	mux.HandleFunc("/auth/login", h.HandleLogin)
 	mux.HandleFunc("/auth/callback", h.HandleAuthCallback)
+	mux.HandleFunc(handlers.JiraOAuthCallbackPath, h.HandleJiraOAuthCallback)
 	mux.HandleFunc("/auth/logout", h.HandleLogout)
 	// Local sign-in exists only without a provider: an e-mail, no password, the
 	// temporary mode of a team that has not connected its identity provider yet.
@@ -328,6 +329,7 @@ func main() {
 	// The server credential of each tracker provider, an admin's to set.
 	mux.HandleFunc(handlers.ServerTrackerCredentialsPath, h.HandleServerTrackerCredentials)
 	mux.HandleFunc(handlers.ServerTrackerCredentialsPath+"/", h.HandleServerTrackerCredentials)
+	mux.HandleFunc(handlers.JiraOAuthAppPath, h.HandleJiraOAuthApp)
 
 	// Prometheus metrics. Outside /api/, so the session guard leaves them
 	// public; registered before the interface's catch-all.

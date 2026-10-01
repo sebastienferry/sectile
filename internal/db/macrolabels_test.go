@@ -148,22 +148,25 @@ func syncedEpic(t *testing.T, labels ...string) (*DB, *models.Project, *horizonT
 
 func TestIsMacroAxisLabelRecognisesTheRoadmapAxes(t *testing.T) {
 	for label, want := range map[string]bool{
-		"roadmap:now":     true,
-		"Roadmap:Later":   true,
-		"#roadmap:next":   true,
-		" roadmap:x ":     true,
-		"priority:p1":     true,
-		"quarter:2026-q3": true,
-		"2026-Q3":         true,
-		"#2026.q4":        true,
-		"roadmap":         false,
-		"client-acme":     false,
-		"phase:discover":  false,
-		"2026-Q5":         false,
-		"release-2026":    false,
+		"roadmap:now":      true,
+		"Roadmap:Later":    true,
+		"#roadmap:next":    true,
+		" roadmap:x ":      true,
+		"priority:p1":      true,
+		"quarter:2026-q3":  true,
+		"readiness:idea":   true,
+		"#Readiness:Ready": true,
+		"readiness:soon":   true,
+		"2026-Q3":          true,
+		"#2026.q4":         true,
+		"roadmap":          false,
+		"client-acme":      false,
+		"phase:discover":   false,
+		"2026-Q5":          false,
+		"release-2026":     false,
 	} {
-		if got := IsMacroAxisLabel(label); got != want {
-			t.Errorf("IsMacroAxisLabel(%q) = %v, want %v", label, got, want)
+		if got := defaultAxisPrefixes.isMacroAxisLabel(label); got != want {
+			t.Errorf("isMacroAxisLabel(%q) = %v, want %v", label, got, want)
 		}
 	}
 }

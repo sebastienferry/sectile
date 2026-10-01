@@ -1,4 +1,6 @@
-import type { EpicMeta, EpicPriority, Priority, Project, Task, TrackerSprint, WorkflowStage } from '../types'
+import type { EpicMeta, EpicPriority, EpicReadiness, MacroStoryBatch, MacroTodo, MacroTodosMirror, Priority, Project, Task, TrackerSprint, WorkflowStage } from '../types'
+import { suggestReadiness } from './epicAxes.ts'
+import { plural, type Locale, type PluralForms } from './i18n.ts'
 import { foldForSearch } from './searchFold.ts'
 import { WORKFLOW_ORDER, resolveTaskStage } from './workflow.ts'
 
@@ -35,6 +37,10 @@ export interface EpicRow {
   priority: EpicPriority | ''
   /** The epic's quarter, "2026-Q4", empty when none. */
   quarter: string
+  /** The readiness a person decided, empty when nobody did (#633). */
+  readiness: EpicReadiness | ''
+  /** The readiness the epic's content suggests, shown while nobody decided. */
+  suggestedReadiness: EpicReadiness
   tasks: Task[]
   /** Enfants encore ouverts : ceux dont le placement en sprint est à vérifier. */
   open: Task[]
@@ -107,6 +113,16 @@ export const MATURITY_META: Record<Maturity, { pct: number; color: string; bg: s
   Clarified: { pct: 50, color: 'var(--status-warn)', bg: 'rgb(var(--status-warn-rgb) / 0.14)', border: 'rgb(var(--status-warn-rgb) / 0.34)' },
   Specified: { pct: 78, color: 'var(--status-info)', bg: 'rgb(var(--status-info-rgb) / 0.12)', border: 'rgb(var(--status-info-rgb) / 0.32)' },
   Ready: { pct: 100, color: 'var(--status-ok)', bg: 'rgb(var(--status-ok-rgb) / 0.13)', border: 'rgb(var(--status-ok-rgb) / 0.32)' },
+}
+
+/**
+ * The readiness levels (#633) borrow the maturity palette: muted for an idea,
+ * warn while shaping, ok once ready.
+ */
+export const READINESS_META: Record<EpicReadiness, { color: string; bg: string; border: string }> = {
+  idea: MATURITY_META.Draft,
+  shaping: MATURITY_META.Clarified,
+  ready: MATURITY_META.Ready,
 }
 
 export const PRIORITY_META: Record<Priority, { color: string; bg: string }> = {
@@ -236,6 +252,8 @@ export const buildEpicRows = (
       maturity: maturityOf(open, children.length, project),
       priority: meta?.priority || '',
       quarter: meta?.quarter || '',
+      readiness: meta?.readiness || '',
+      suggestedReadiness: suggestReadiness({ childCount: children.length, description: meta?.description, todos: meta?.todos }),
       tasks: children,
       open,
       inActiveSprint,
@@ -351,27 +369,85 @@ export const belongsToProjectKey = (row: EpicRow, projectKey: string): boolean =
   return row.key.toUpperCase().startsWith(prefix + '-')
 }
 
+/** The default prefixes of the epic axes, those of a project that names none. */
+export const DEFAULT_EPIC_AXIS_PREFIXES = { priority: 'priority:', quarter: 'quarter:', readiness: 'readiness:' } as const
+
+/** The horizon's prefix, which no project can rename. */
+const HORIZON_LABEL_PREFIX = 'roadmap:'
+
 /**
- * Label prefixes the roadmap owns on an epic. A label under one of them is set
- * by its own control (the horizon tabs for `roadmap:`, the panel's priority and
- * quarter fields for the axes of #627) and is never shown, filtered or edited
- * as a free label. Mirrors `macroAxisPrefixes` in `internal/db/macrolabels.go`,
- * which refuses them on the server too.
+ * Label prefixes the roadmap owns on a project's epics: the horizon's, and the
+ * priority, quarter and readiness prefixes the project names or leaves at their
+ * default (#635). A label under one of them is set by its own control and is
+ * never shown, filtered or edited as a free label. Mirrors `axisLabelPrefixes`
+ * in `internal/db/macrolabels.go`, which refuses them on the server too.
  */
-export const EPIC_AXIS_LABEL_PREFIXES = ['roadmap:', 'priority:', 'quarter:']
+export const epicAxisLabelPrefixes = (project?: Pick<Project, 'epicAxisPrefixes'> | null): string[] => {
+  const named = project?.epicAxisPrefixes || {}
+  return [
+    HORIZON_LABEL_PREFIX,
+    named.priority || DEFAULT_EPIC_AXIS_PREFIXES.priority,
+    named.quarter || DEFAULT_EPIC_AXIS_PREFIXES.quarter,
+    named.readiness || DEFAULT_EPIC_AXIS_PREFIXES.readiness,
+  ]
+}
 
 /** A bare quarter, "2026-Q3", which the import reads as the epic's quarter. */
 const BARE_QUARTER = /^\d{4}[.\- ]q[1-4]$/
 
-/** The match ignores case and a leading `#`, as the server's does. */
-export const isEpicAxisLabel = (label: string): boolean => {
+/**
+ * The match ignores case and a leading `#`, as the server's does. A label under
+ * a prefix the project no longer uses is a free label.
+ */
+export const isEpicAxisLabel = (label: string, project?: Pick<Project, 'epicAxisPrefixes'> | null): boolean => {
   const clean = label.trim().replace(/^#/, '').trim().toLowerCase()
-  return EPIC_AXIS_LABEL_PREFIXES.some(prefix => clean.startsWith(prefix)) || BARE_QUARTER.test(clean)
+  return epicAxisLabelPrefixes(project).some(prefix => clean.startsWith(prefix)) || BARE_QUARTER.test(clean)
 }
 
 /** An epic's free labels, in the order the tracker returned them. */
-export const freeEpicLabels = (meta?: EpicMeta | null): string[] =>
-  (meta?.labels || []).filter(label => label.trim() !== '' && !isEpicAxisLabel(label))
+export const freeEpicLabels = (meta?: EpicMeta | null, project?: Pick<Project, 'epicAxisPrefixes'> | null): string[] =>
+  (meta?.labels || []).filter(label => label.trim() !== '' && !isEpicAxisLabel(label, project))
+
+export type EpicAxisName = keyof typeof DEFAULT_EPIC_AXIS_PREFIXES
+
+/** Why a typed prefix is refused, mirroring `CleanEpicAxisPrefixes` on the server. */
+export type EpicAxisPrefixProblem =
+  | { kind: 'space'; axis: EpicAxisName }
+  | { kind: 'empty'; axis: EpicAxisName }
+  | { kind: 'overlap'; axis: EpicAxisName; other: EpicAxisName }
+  | { kind: 'horizon'; axis: EpicAxisName }
+
+/** Trims, lower-cases and drops a leading `#`, as the server stores a prefix. */
+export const cleanEpicAxisPrefix = (typed: string): string => typed.trim().replace(/^#/, '').toLowerCase()
+
+/**
+ * Checks the three prefixes a person typed, before they are sent, and returns
+ * the first problem, or null. An empty field is the default of its axis, and
+ * the overlap is checked on the prefixes in effect, as on the server.
+ */
+export const epicAxisPrefixProblem = (typed: Partial<Record<EpicAxisName, string>>): EpicAxisPrefixProblem | null => {
+  const axes: EpicAxisName[] = ['priority', 'quarter', 'readiness']
+  const effective = {} as Record<EpicAxisName, string>
+  for (const axis of axes) {
+    const raw = (typed[axis] || '').trim()
+    if (raw === '') {
+      effective[axis] = DEFAULT_EPIC_AXIS_PREFIXES[axis]
+      continue
+    }
+    const clean = cleanEpicAxisPrefix(raw)
+    if (/\s/.test(clean)) return { kind: 'space', axis }
+    if (clean === '') return { kind: 'empty', axis }
+    effective[axis] = clean
+  }
+  const overlap = (a: string, b: string) => a.startsWith(b) || b.startsWith(a)
+  for (const [i, axis] of axes.entries()) {
+    if (overlap(effective[axis], HORIZON_LABEL_PREFIX)) return { kind: 'horizon', axis }
+    for (const other of axes.slice(i + 1)) {
+      if (overlap(effective[axis], effective[other])) return { kind: 'overlap', axis, other }
+    }
+  }
+  return null
+}
 
 export interface EpicLabelCount {
   label: string
@@ -383,11 +459,11 @@ export interface EpicLabelCount {
  * spellings differing only by case are one label, shown as first met; the list
  * is sorted by label.
  */
-export const epicLabelInventory = (rows: EpicRow[]): EpicLabelCount[] => {
+export const epicLabelInventory = (rows: EpicRow[], project?: Pick<Project, 'epicAxisPrefixes'> | null): EpicLabelCount[] => {
   const byKey = new Map<string, EpicLabelCount>()
   rows.forEach(row => {
     const seen = new Set<string>()
-    freeEpicLabels(row.meta).forEach(label => {
+    freeEpicLabels(row.meta, project).forEach(label => {
       const key = label.toLowerCase()
       if (seen.has(key)) return
       seen.add(key)
@@ -404,9 +480,9 @@ export const epicLabelInventory = (rows: EpicRow[]): EpicLabelCount[] => {
  * one axis are exclusive on an epic, so an AND would empty the view as soon as
  * two were picked. No selected label filters nothing.
  */
-export const matchesEpicLabels = (row: EpicRow, selected: string[]): boolean => {
+export const matchesEpicLabels = (row: EpicRow, selected: string[], project?: Pick<Project, 'epicAxisPrefixes'> | null): boolean => {
   if (selected.length === 0) return true
-  const carried = new Set(freeEpicLabels(row.meta).map(label => label.toLowerCase()))
+  const carried = new Set(freeEpicLabels(row.meta, project).map(label => label.toLowerCase()))
   return selected.some(label => carried.has(label.toLowerCase()))
 }
 
@@ -510,3 +586,92 @@ export const tasksBySprintOrder = (tasks: Task[], project?: Project | null): Tas
 
 /** A ticket's sprint label for the grouped display; `noSprint` names the missing one. */
 export const sprintLabelOf = (task: Task, noSprint: string): string => (task.sprint || '').trim() || noSprint
+
+/**
+ * Batch story creation from a macro's slicing (#634).
+ *
+ * The selection is interface state only: it is never stored, and it is
+ * distinct from a line's `done` checkbox. Only an unattached line, one that
+ * carries no story key, can be selected.
+ */
+const isAttached = (todo: Pick<MacroTodo, 'storyKey'>): boolean => (todo.storyKey || '').trim() !== ''
+
+/** Ids of the lines a batch can take, in slicing order. */
+export const selectableTodoIds = (todos: Pick<MacroTodo, 'id' | 'storyKey'>[]): string[] =>
+  todos.filter(todo => !isAttached(todo)).map(todo => todo.id)
+
+/** The selection without the lines that became attached or were removed. */
+export const pruneTodoSelection = (selection: ReadonlySet<string>, todos: Pick<MacroTodo, 'id' | 'storyKey'>[]): Set<string> => {
+  const selectable = new Set(selectableTodoIds(todos))
+  return new Set([...selection].filter(id => selectable.has(id)))
+}
+
+export interface BatchSummaryCopy {
+  created: PluralForms
+  skipped: PluralForms
+  failed: PluralForms
+}
+
+/** "3 créées, 1 passée, 1 en échec": every count, zero included, so the three always read alike. */
+export const batchSummary = (
+  locale: Locale,
+  batch: Pick<MacroStoryBatch, 'created' | 'skipped' | 'failed'>,
+  copy: BatchSummaryCopy,
+): string =>
+  [
+    plural(locale, batch.created, copy.created),
+    plural(locale, batch.skipped, copy.skipped),
+    plural(locale, batch.failed, copy.failed),
+  ].join(', ')
+
+/**
+ * The list with the line at `from` moved to `to`, the others keeping their
+ * relative order. An index out of range, or a move onto itself, gives the list
+ * unchanged.
+ */
+export const moveTodo = <T>(todos: readonly T[], from: number, to: number): T[] => {
+  const next = [...todos]
+  if (from === to || from < 0 || to < 0 || from >= next.length || to >= next.length) return next
+  const [moved] = next.splice(from, 1)
+  next.splice(to, 0, moved)
+  return next
+}
+
+/**
+ * The list with one line reworded, or null when there is nothing to save: a
+ * blank or unchanged text, or a line the list no longer holds. Every other
+ * field of every line is kept.
+ */
+export const rewordTodo = <T extends Pick<MacroTodo, 'id' | 'text'>>(todos: readonly T[], id: string, text: string): T[] | null => {
+  const clean = text.trim()
+  const current = todos.find(todo => todo.id === id)
+  if (!current || clean === '' || clean === current.text) return null
+  return todos.map(todo => (todo.id === id ? { ...todo, text: clean } : todo))
+}
+
+export type TodosMirrorState = 'none' | 'local' | 'upToDate' | 'pending' | 'failed'
+
+/**
+ * What the status line under the todos says of their tracker copy. An older
+ * server sends no status, and the line then says nothing.
+ */
+export const todosMirrorState = (mirror?: MacroTodosMirror | null): TodosMirrorState => {
+  if (!mirror) return 'none'
+  if (!mirror.kind) return 'local'
+  if (mirror.upToDate) return 'upToDate'
+  return mirror.error ? 'failed' : 'pending'
+}
+
+export type TodoOriginKind = 'tasks' | 'spec' | 'stories' | 'manual' | 'unknown'
+
+/**
+ * Where a slicing line came from. An empty kind is a line typed by hand, as is
+ * every line saved before the field existed; a kind this version does not know
+ * is shown as written rather than hidden or taken for hand-typed.
+ */
+export const todoOrigin = (todo: Pick<MacroTodo, 'sourceKind' | 'sourceEntry'>): { kind: TodoOriginKind; raw: string; entry: string } => {
+  const raw = String(todo.sourceKind || '').trim()
+  const entry = (todo.sourceEntry || '').trim()
+  const kind: TodoOriginKind = raw === '' ? 'manual' : raw === 'tasks' || raw === 'spec' || raw === 'stories' ? raw : 'unknown'
+  return { kind, raw, entry }
+}

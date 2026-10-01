@@ -26,11 +26,14 @@ import {
   ArrowRightLeft,
   Sparkles,
   ListChecks,
+  ListFilter,
   FolderGit2,
   Maximize2,
   Minimize2,
   ChevronDown,
   ChevronRight,
+  ChevronUp,
+  GripVertical,
   MessageSquare,
   Tag,
   RefreshCw,
@@ -38,6 +41,7 @@ import {
   Copy,
   PanelRightClose,
   PanelRightOpen,
+  Lock,
 } from 'lucide-react'
 import type { RefineMacroResult } from '../types'
 import { useApp } from '../context/AppContext'
@@ -48,10 +52,12 @@ import { MarkdownEditor } from './Markdown'
 import { EpicBar, useEpicColors } from './EpicMarker'
 import { MacroLabelGroups } from './MacroLabelGroups'
 import { EpicLabelFilter } from './EpicLabelFilter'
+import { EpicOriginFilter } from './EpicOriginFilter'
 import { EpicLabelEditor } from './EpicLabelEditor'
 import { MacroTaskRow } from './MacroTaskRow'
 import { sprintLookup, isProjectCompatible, targetProjectOptions } from '../lib/lookups'
 import { format, plural } from '../lib/i18n'
+import { getTrackers, type TrackerKind } from '../lib/trackers'
 import {
   buildMacroRows,
   placementIssues,
@@ -65,12 +71,20 @@ import {
   MATURITY_META,
   PLACEMENT_META,
   PRIORITY_META,
+  READINESS_META,
   type MacroRow,
   type Horizon,
   type HorizonTab,
   tasksBySprintOrder,
   sprintLabelOf,
   macroCopyPayload,
+  pruneTodoSelection,
+  selectableTodoIds,
+  batchSummary,
+  todoOrigin,
+  moveTodo,
+  rewordTodo,
+  todosMirrorState,
 } from '../lib/roadmap'
 import {
   CONDENSED_HORIZONS,
@@ -92,10 +106,32 @@ import {
   saveRoadmapFlag,
   saveRoadmapSelectedKey,
   saveRoadmapTab,
+  loadRoadmapGroupAxis,
+  saveRoadmapGroupAxis,
+  loadRoadmapFoldedSections,
+  saveRoadmapFoldedSections,
 } from '../lib/roadmapViewPrefs'
+import {
+  DRAG_EPIC_KEYS,
+  groupEpics,
+  isGroupableTab,
+  parseDraggedEpicKeys,
+  planAxisDrop,
+  type EpicGroupAxis,
+  type EpicSection,
+} from '../lib/epicGrouping'
+import {
+  isSelectionClick,
+  pruneSelection,
+  rangeSelection,
+  shouldEscapeClearSelection,
+  toggleSelected,
+} from '../lib/boardSelection'
+import { locateEpic } from '../lib/roadmapFocus'
 import {
   EPIC_PRIORITIES,
   EPIC_PRIORITY_LEVEL,
+  EPIC_READINESS,
   epicPriorityLabel,
   matchesPriority,
   normalizeQuarter,
@@ -105,7 +141,22 @@ import {
   type PrioritySort,
   type SeedLine,
 } from '../lib/epicAxes'
-import type { EpicPriority, MacroHorizon, MacroMeta, MacroTodo, MacroTodoSource } from '../types'
+import {
+  TRACKER_TARGET_PREFIX,
+  applyTargetPickerValue,
+  isDefaultOriginSelection,
+  loadOriginSelection,
+  macroOrigin,
+  matchesOrigins,
+  normalizeOriginSelection,
+  offeredOrigins,
+  roadmapTargetOptions,
+  rowOrigin,
+  saveOriginSelection,
+  selectionRevealing,
+  targetPickerValue,
+} from '../lib/roadmapOrigins'
+import type { EpicPriority, EpicReadiness, MacroHorizon, MacroMeta, MacroStoryBatch, MacroTodo, MacroTodoSource } from '../types'
 import { MacroRealignButton } from './MacroRealignButton'
 
 /**
@@ -167,6 +218,9 @@ export const RoadmapView: React.FC = () => {
     fetchProjectMacros,
     saveMacroMeta,
     createStoryFromMacroTodo,
+    createStoriesFromMacroTodos,
+    republishMacroTodos,
+    openTrackerCredentials,
     produceMacroSlicing,
     setTaskMacro,
     createStoryUnderMacro,
@@ -197,6 +251,16 @@ export const RoadmapView: React.FC = () => {
     pushPendingHorizons,
     importMacroHorizons,
     createBatchTasks,
+    isLoading,
+    setActiveView,
+    roadmapFocus,
+    consumeRoadmapFocus,
+    openEpicTickets,
+    selectedTask,
+    selectedActivity,
+    isQuickAddOpen,
+    isCommandPaletteOpen,
+    isProfileOpen,
     t,
   } = useApp()
   const strings = t.planning.roadmap
@@ -241,6 +305,26 @@ export const RoadmapView: React.FC = () => {
   // backlog order with every priority, as it always did.
   const [priorityFilter, setPriorityFilter] = useState<PriorityFilter>(null)
   const [prioritySort, setPrioritySort] = useState<PrioritySort>('backlog')
+  // The grouping of the tabs (#628) and its folded sections are reading
+  // settings, kept per browser like the tab.
+  const [groupAxis, setGroupAxisState] = useState<EpicGroupAxis>(() => loadRoadmapGroupAxis())
+  const setGroupAxis = useCallback((next: EpicGroupAxis) => {
+    setGroupAxisState(next)
+    saveRoadmapGroupAxis(next)
+  }, [])
+  const [foldedSections, setFoldedSections] = useState<ReadonlySet<string>>(() => new Set(loadRoadmapFoldedSections()))
+  const toggleSection = useCallback((id: string) => {
+    setFoldedSections(prev => {
+      const next = toggleSelected(prev, id)
+      saveRoadmapFoldedSections(next)
+      return next
+    })
+  }, [])
+  // The epics picked with Ctrl, Cmd or Shift click, carried together by a drag.
+  const [pickedKeys, setPickedKeys] = useState<ReadonlySet<string>>(() => new Set())
+  const [pickAnchor, setPickAnchor] = useState<string | null>(null)
+  const [dropSection, setDropSection] = useState<string | null>(null)
+  const [isDropping, setIsDropping] = useState(false)
   // The seeding preview: the proposals, and which of their values are kept.
   const [seedLines, setSeedLines] = useState<SeedLine[] | null>(null)
   const [seedKept, setSeedKept] = useState<Record<string, boolean>>({})
@@ -253,6 +337,22 @@ export const RoadmapView: React.FC = () => {
   // visits: a label filter kept without the user knowing is what makes a
   // roadmap look empty.
   const [selectedLabels, setSelectedLabels] = useState<string[]>([])
+  // The Jira projects whose epics the roadmap shows (#632). Remembered per
+  // project, unlike the filters above: a declared project can hold hundreds of
+  // epics, and choosing which to read is a way of reading the roadmap, like its
+  // tab. A choice made here holds for its project whatever the storage accepts;
+  // another project reads its own, and the own key alone when none is stored.
+  const originProjectId = currentProject?.id || ''
+  const [chosenOrigins, setChosenOrigins] = useState<{ projectId: string; keys: string[] } | null>(null)
+  const storedOrigins = useMemo(() => loadOriginSelection(originProjectId), [originProjectId])
+  const originSelection = chosenOrigins && chosenOrigins.projectId === originProjectId ? chosenOrigins.keys : storedOrigins
+  const chooseOrigins = useCallback(
+    (next: string[]) => {
+      setChosenOrigins({ projectId: originProjectId, keys: next })
+      saveOriginSelection(originProjectId, next)
+    },
+    [originProjectId]
+  )
 
   // The shape of the rows. Remembered per browser: it is a reading setting, it
   // depends neither on the project nor on the tab, and resetting it on every
@@ -387,6 +487,24 @@ export const RoadmapView: React.FC = () => {
   const [draftFramingDirty, setDraftFramingDirty] = useState(false)
   const [newTodo, setNewTodo] = useState('')
   const [creatingTodoId, setCreatingTodoId] = useState<string | null>(null)
+  // Inline rewording and reordering of the todos (#663). The ref holds the line
+  // being reworded, so a blur that follows Escape or Enter saves nothing more;
+  // the focus target is the control a keyboard move or an edit came from, given
+  // back once the list re-renders.
+  const [editingTodoId, setEditingTodoId] = useState<string | null>(null)
+  const editingTodoRef = useRef<string | null>(null)
+  const [draftTodoText, setDraftTodoText] = useState('')
+  const [draggedTodoId, setDraggedTodoId] = useState<string | null>(null)
+  const [dropTodoId, setDropTodoId] = useState<string | null>(null)
+  const [republishingTodos, setRepublishingTodos] = useState(false)
+  const todoFocusRef = useRef<{ id: string; control: string } | null>(null)
+  // Batch story creation (#634). The selection is interface state only,
+  // distinct from the done checkbox; the report lasts until the next batch,
+  // another macro or a reload. batchMacroKey names the macro whose slicing a
+  // running batch locks.
+  const [selectedTodoIds, setSelectedTodoIds] = useState<Set<string>>(() => new Set())
+  const [batchMacroKey, setBatchMacroKey] = useState<string | null>(null)
+  const [batchReport, setBatchReport] = useState<{ macroKey: string; batch: MacroStoryBatch } | null>(null)
   // La source en cours de lecture, pour que le bouton cliqué soit celui qui
   // tourne : deux sources côte à côte, un seul témoin, et on ne sait plus
   // laquelle on a demandée.
@@ -513,12 +631,20 @@ export const RoadmapView: React.FC = () => {
     window.addEventListener('pointerup', onUp)
   }
 
+  // The project the loaded macros belong to: a ticket's epic is looked for
+  // only once they are this project's, never in the list of the previous one.
+  const [macrosFor, setMacrosFor] = useState('')
   useEffect(() => {
     if (!currentProject?.id) {
       setMacroMeta([])
+      setMacrosFor('')
       return
     }
-    fetchProjectMacros(currentProject.id).then(setMacroMeta)
+    const projectId = currentProject.id
+    fetchProjectMacros(projectId).then(list => {
+      setMacroMeta(list)
+      setMacrosFor(projectId)
+    })
   }, [currentProject?.id, fetchProjectMacros, activeJobCount])
 
   // Whether a push is late is read from the tracker, not locally: a failure
@@ -553,6 +679,53 @@ export const RoadmapView: React.FC = () => {
 
   const allRows = useMemo(() => buildMacroRows(tasks, currentProject, macroMeta), [tasks, currentProject, macroMeta])
 
+  // A ticket asked for its epic (#630). The request is answered once, when
+  // this project's tickets and epics are loaded, and dropped before anything
+  // else so a later filter or tab change never brings the epic back. What
+  // could hide the epic is cleared; how the roadmap is read (grouping, sort,
+  // row shape, expanded panel) is left as the user set it.
+  useEffect(() => {
+    if (!roadmapFocus || !currentProject?.id) return
+    if (roadmapFocus.projectId !== currentProject.id || macrosFor !== currentProject.id || isLoading) return
+    consumeRoadmapFocus()
+    const { epicKey, from } = roadmapFocus
+    const place = locateEpic(allRows, epicKey)
+    if (!place) {
+      addToast({ type: 'error', title: strings.focus.unknownTitle, description: format(strings.focus.unknown, { key: epicKey }) })
+      if (from !== 'roadmap') setActiveView(from)
+      return
+    }
+    if (searchQuery) setSearchQuery('')
+    // An epic of a roadmap project hides while its project is not ticked (#632).
+    const focused = allRows.find(r => r.key === epicKey)
+    const reveal = selectionRevealing(originSelection, currentProject.jiraProject || '', focused ? rowOrigin(focused) : '')
+    if (reveal && currentProject.issueTracker === 'jira') chooseOrigins(reveal)
+    setSelectedLabels([])
+    setPriorityFilter(null)
+    setOnlyIssues(false)
+    if (place.closed) setShowClosed(true)
+    setTab(place.tab)
+    setSelectedKey(epicKey)
+    setIsPanelHidden(false)
+  }, [
+    roadmapFocus,
+    currentProject?.id,
+    macrosFor,
+    isLoading,
+    allRows,
+    consumeRoadmapFocus,
+    addToast,
+    strings.focus,
+    setActiveView,
+    searchQuery,
+    setSearchQuery,
+    setTab,
+    setSelectedKey,
+    setIsPanelHidden,
+    originSelection,
+    chooseOrigins,
+  ])
+
   // The label filter offers what the epics the other filters let through
   // carry, across every horizon tab, so that its counts do not change with the
   // tab being read.
@@ -564,10 +737,40 @@ export const RoadmapView: React.FC = () => {
     return list
   }, [allRows, showClosed, searchQuery, priorityFilter])
 
-  const labelInventory = useMemo(() => epicLabelInventory(unlabelledRows), [unlabelledRows])
+  // The origin selection offers every origin the epics carry, and counts those
+  // the other filters let through, labels included; the rows then keep the
+  // selected origins only. With nothing to choose, nothing is filtered.
+  const ownOrigin = (currentProject?.jiraProject || '').trim().toUpperCase()
+  const origins = useMemo(
+    () => offeredOrigins(currentProject, allRows, unlabelledRows.filter(r => matchesEpicLabels(r, selectedLabels, currentProject))),
+    [currentProject, allRows, unlabelledRows, selectedLabels]
+  )
+  const selectedOrigins = useMemo(
+    () => (origins.length > 0 ? normalizeOriginSelection(originSelection, origins, ownOrigin) : []),
+    [origins, originSelection, ownOrigin]
+  )
+  const originRows = useMemo(
+    () => unlabelledRows.filter(r => matchesOrigins(r, selectedOrigins, ownOrigin)),
+    [unlabelledRows, selectedOrigins, ownOrigin]
+  )
+
+  // The origin chip joins the others once the origins are known: they come
+  // from the rows, which the chips above are computed before.
+  const filterChips = useMemo(() => {
+    if (origins.length === 0 || isDefaultOriginSelection(selectedOrigins, ownOrigin)) return activeFilterChips
+    return [
+      {
+        label: format(strings.origins.chip, { keys: selectedOrigins.join(', ') }),
+        clear: () => chooseOrigins([ownOrigin]),
+      },
+      ...activeFilterChips,
+    ]
+  }, [activeFilterChips, origins, selectedOrigins, ownOrigin, strings, chooseOrigins])
+
+  const labelInventory = useMemo(() => epicLabelInventory(originRows, currentProject), [originRows, currentProject])
   // The editor suggests every free label of the project's epics, closed and
   // searched-away ones included: a label is reused, not typed anew.
-  const labelSuggestions = useMemo(() => epicLabelInventory(allRows).map(entry => entry.label), [allRows])
+  const labelSuggestions = useMemo(() => epicLabelInventory(allRows, currentProject).map(entry => entry.label), [allRows, currentProject])
 
   // A picked label no epic of the view carries any more stops being picked,
   // rather than leaving an empty list nobody can explain.
@@ -576,8 +779,8 @@ export const RoadmapView: React.FC = () => {
   }, [labelInventory])
 
   const rows = useMemo(
-    () => unlabelledRows.filter(r => matchesEpicLabels(r, selectedLabels)),
-    [unlabelledRows, selectedLabels]
+    () => originRows.filter(r => matchesEpicLabels(r, selectedLabels, currentProject)),
+    [originRows, selectedLabels, currentProject]
   )
 
   const hiddenMatches = useMemo(() => {
@@ -637,6 +840,154 @@ export const RoadmapView: React.FC = () => {
   }, [searchQuery, visibleRows.length, rows, tab, setTab])
 
   const selected: MacroRow | null = visibleRows.find(r => r.key === selectedKey) || visibleRows[0] || null
+
+  /**
+   * The sections of the tab (#628), built on the rows the flat list would
+   * show, in its order, so the filters and the sort apply first and the tab
+   * counts do not change. The Hidden tab stays flat.
+   */
+  const grouped = groupAxis !== 'none' && isGroupableTab(tab)
+  const sections = useMemo<EpicSection<MacroRow>[] | null>(
+    () => (groupAxis !== 'none' && isGroupableTab(tab) ? groupEpics(visibleRows, groupAxis, new Date()) : null),
+    [tab, groupAxis, visibleRows]
+  )
+  // What a Shift click ranges over: the shown epics, folded sections skipped.
+  const pickOrder = useMemo(
+    () => (sections ? sections.filter(sec => !foldedSections.has(sec.id)).flatMap(sec => sec.rows.map(r => r.key)) : []),
+    [sections, foldedSections]
+  )
+
+  // An epic no longer shown (another tab, a filter, a fold, no grouping)
+  // leaves the selection for good, adjusted while rendering as the board does.
+  // pruneSelection returns the same Set when nothing drops out, so this settles.
+  const prunedPicked = pruneSelection(pickedKeys, pickOrder)
+  if (prunedPicked !== pickedKeys) setPickedKeys(prunedPicked)
+  if (pickAnchor && !pickOrder.includes(pickAnchor)) setPickAnchor(null)
+
+  // Escape clears the selection only when nothing else would take the key,
+  // as on the board.
+  const appSurfaceOpen = Boolean(
+    isCommandPaletteOpen || isQuickAddOpen || selectedTask || selectedActivity || isProfileOpen || searchQuery,
+  )
+  const hasPicked = pickedKeys.size > 0
+  useEffect(() => {
+    if (!hasPicked) return
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const active = document.activeElement
+      const activeTag = (active?.tagName || '').toLowerCase()
+      const clear = shouldEscapeClearSelection({
+        key: e.key,
+        defaultPrevented: e.defaultPrevented,
+        appSurfaceOpen,
+        inputFocused: activeTag === 'input' || activeTag === 'textarea' || activeTag === 'select' || Boolean(active?.closest('.xterm')),
+        modalOpen: Boolean(document.querySelector('[aria-modal="true"]')),
+      })
+      if (clear) {
+        setPickedKeys(new Set())
+        setPickAnchor(null)
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [hasPicked, appSurfaceOpen])
+
+  /**
+   * A row click: Ctrl or Cmd toggles the epic in the selection, Shift adds the
+   * range from the last toggled one, anything else opens it in the panel and
+   * keeps the selection. Selection only exists while the tab is grouped.
+   */
+  const onRowClick = (e: React.MouseEvent, key: string) => {
+    if (grouped && isSelectionClick(e)) {
+      setPickedKeys(prev => toggleSelected(prev, key))
+      setPickAnchor(key)
+      return
+    }
+    if (grouped && e.shiftKey) {
+      const range = rangeSelection(pickOrder, pickAnchor, key)
+      setPickedKeys(prev => new Set([...prev, ...range]))
+      if (!pickAnchor) setPickAnchor(key)
+      return
+    }
+    setSelectedKey(key)
+  }
+
+  /** Dragging a picked epic carries the whole selection, another one only itself. */
+  const onRowDragStart = (e: React.DragEvent, key: string) => {
+    const keys = pickedKeys.has(key) ? pickOrder.filter(k => pickedKeys.has(k)) : [key]
+    e.dataTransfer.setData(DRAG_EPIC_KEYS, JSON.stringify(keys))
+    e.dataTransfer.effectAllowed = 'move'
+  }
+
+  /** The drag and selection props of a row, empty while the tab is flat. */
+  const rowDragProps = (key: string) =>
+    grouped
+      ? {
+          draggable: true,
+          onDragStart: (e: React.DragEvent) => onRowDragStart(e, key),
+          onDragEnd: () => setDropSection(null),
+          // A Shift click extends the selection; it must not select text too.
+          onMouseDown: (e: React.MouseEvent) => {
+            if (e.shiftKey) e.preventDefault()
+          },
+          'aria-selected': pickedKeys.has(key),
+          title: strings.grouping.dragTitle,
+        }
+      : {}
+
+  const pickedOutline = (key: string): React.CSSProperties =>
+    pickedKeys.has(key) ? { outline: '2px solid var(--accent-color)', outlineOffset: 1 } : {}
+
+  // Another macro starts with no selection and no report. The refs let the
+  // end of a batch, and a save racing it, read the state of that moment.
+  const shownMacroKey = selected?.key || ''
+  const shownMacroKeyRef = useRef(shownMacroKey)
+  const batchMacroKeyRef = useRef<string | null>(null)
+  useEffect(() => {
+    shownMacroKeyRef.current = shownMacroKey
+    setSelectedTodoIds(new Set())
+    setBatchReport(null)
+    editingTodoRef.current = null
+    setEditingTodoId(null)
+  }, [shownMacroKey])
+
+  // A keyboard move or an edit gives the focus back to the line it acted on,
+  // once the list shows it; a move button that became disabled at an end of
+  // the list hands it to the line's text.
+  useEffect(() => {
+    const target = todoFocusRef.current
+    if (!target || editingTodoId) return
+    const find = (control: string) =>
+      document.querySelector<HTMLElement>(`[data-todo-id="${CSS.escape(target.id)}"][data-todo-control="${control}"]`)
+    const el = find(target.control)
+    const usable = el && !(el as HTMLButtonElement).disabled ? el : find('text')
+    if (!usable) return
+    todoFocusRef.current = null
+    usable.focus()
+  }, [macroMeta, editingTodoId])
+
+  const runStoryBatch = async (row: MacroRow) => {
+    if (!currentProject?.id || batchMacroKeyRef.current) return
+    // A line that became attached or was removed leaves the selection.
+    const ids = [...pruneTodoSelection(selectedTodoIds, todosOf(row))]
+    if (ids.length === 0) return
+    batchMacroKeyRef.current = row.key
+    setBatchMacroKey(row.key)
+    setBatchReport(null)
+    const batch = await createStoriesFromMacroTodos(currentProject.id, row.key, ids)
+    batchMacroKeyRef.current = null
+    setBatchMacroKey(null)
+    if (!batch) return
+    if (batch.macro) {
+      const macro = batch.macro
+      setMacroMeta(prev => prev.map(m => (m.key === macro.key ? macro : m)))
+    }
+    // The report belongs to the macro it ran on: shown only if it is still
+    // the one on screen.
+    if (shownMacroKeyRef.current === row.key) {
+      setSelectedTodoIds(new Set())
+      setBatchReport({ macroKey: row.key, batch })
+    }
+  }
 
   // An expanded panel takes the whole view, the toolbar included: it is there
   // to work on one macro. Both need a macro shown, so the toolbar and the list
@@ -738,6 +1089,9 @@ export const RoadmapView: React.FC = () => {
       })
       return
     }
+    // A slicing saved while a batch runs would be older than the keys the
+    // batch is recording (#634).
+    if (patch.todos && batchMacroKeyRef.current === key) return
     const saved = await saveMacroMeta(currentProject.id, key, patch)
     if (saved) {
       setMacroMeta(prev => [...prev.filter(m => m.key !== saved.key), saved])
@@ -750,8 +1104,8 @@ export const RoadmapView: React.FC = () => {
 
   const todosOf = (row: MacroRow | null): MacroTodo[] => row?.meta?.todos || []
 
-  /** Saves the epic's priority or quarter and takes the stored macro back. */
-  const saveAxes = async (key: string, patch: { priority?: EpicPriority | ''; quarter?: string }) => {
+  /** Saves the epic's priority, quarter or readiness and takes the stored macro back. */
+  const saveAxes = async (key: string, patch: { priority?: EpicPriority | ''; quarter?: string; readiness?: EpicReadiness | '' }) => {
     if (!currentProject?.id) return
     setBusyKey('axes')
     const saved = await saveMacroMeta(currentProject.id, key, patch)
@@ -781,7 +1135,7 @@ export const RoadmapView: React.FC = () => {
       if (line.priority && seedKept[`${line.key}:priority`]) patch.priority = line.priority
       if (line.quarter && seedKept[`${line.key}:quarter`]) patch.quarter = line.quarter
       if (!patch.priority && !patch.quarter) continue
-      const saved = await saveMacroMeta(currentProject.id, line.key, patch, { quiet: true })
+      const saved = await saveMacroMeta(currentProject.id, line.key, patch, { quiet: true, bulk: true })
       if (saved) done++
       else refused.push(line.key)
     }
@@ -800,6 +1154,121 @@ export const RoadmapView: React.FC = () => {
     }
   }
 
+  /** A section's name: its priority, its quarter, or the no-value one. */
+  const sectionLabel = (section: EpicSection<MacroRow>): string => {
+    if (!section.value) return section.axis === 'priority' ? strings.grouping.noPriority : strings.grouping.noQuarter
+    return section.axis === 'priority' ? epicPriorityLabel(section.value as EpicPriority) : section.value
+  }
+
+  /**
+   * Sets the section's value on the dropped epics, one at a time through the
+   * panel's save, skipping those already there and never stopping on a
+   * failure; then reloads once and reports once. The epics that moved leave
+   * the selection, those refused stay in it so the drop can be retried.
+   */
+  const dropOnSection = async (section: EpicSection<MacroRow>, keys: string[]) => {
+    if (!currentProject?.id || isDropping) return
+    const { toSave, skipped } = planAxisDrop(visibleRows, keys, section.axis, section.value)
+    // A drop on the section the epics come from changes nothing, and says nothing.
+    if (toSave.length === 0) return
+    setIsDropping(true)
+    const patch = section.axis === 'priority' ? { priority: section.value as EpicPriority | '' } : { quarter: section.value }
+    // Several epics at once are a bulk edit, like the seeding: on another
+    // team's epic (#632) the value then stays in Sectile. One epic is the
+    // panel's single edit.
+    const bulk = toSave.length > 1
+    let done = 0
+    const refused: string[] = []
+    const moved: string[] = []
+    for (const key of toSave) {
+      const saved = await saveMacroMeta(currentProject.id, key, patch, bulk ? { quiet: true, bulk: true } : { quiet: true })
+      if (saved) {
+        done++
+        moved.push(key)
+      } else refused.push(key)
+    }
+    const fresh = await fetchProjectMacros(currentProject.id)
+    setMacroMeta(fresh)
+    setIsDropping(false)
+    setPickedKeys(prev => {
+      const next = new Set(prev)
+      moved.forEach(key => next.delete(key))
+      return next
+    })
+    const parts = [plural(language, done, strings.grouping.done)]
+    if (skipped.length > 0) parts.push(plural(language, skipped.length, strings.grouping.skipped))
+    if (refused.length > 0) {
+      addToast({
+        type: 'error',
+        title: strings.grouping.failedTitle,
+        description: `${parts.join(', ')}. ${format(strings.grouping.failed, { keys: refused.join(', ') })}`,
+      })
+    } else {
+      addToast({ type: 'success', title: strings.grouping.doneTitle, description: parts.join(', ') })
+    }
+  }
+
+  /** Header and body of a section both take a drop, folded or empty alike. */
+  const sectionDropProps = (section: EpicSection<MacroRow>) => ({
+    onDragOver: (e: React.DragEvent) => {
+      if (!e.dataTransfer.types.includes(DRAG_EPIC_KEYS)) return
+      e.preventDefault()
+      e.dataTransfer.dropEffect = 'move'
+      if (dropSection !== section.id) setDropSection(section.id)
+    },
+    onDragLeave: (e: React.DragEvent) => {
+      if (e.currentTarget.contains(e.relatedTarget as Node | null)) return
+      setDropSection(prev => (prev === section.id ? null : prev))
+    },
+    onDrop: (e: React.DragEvent) => {
+      e.preventDefault()
+      setDropSection(null)
+      const keys = parseDraggedEpicKeys(e.dataTransfer.getData(DRAG_EPIC_KEYS))
+      if (keys.length > 0) void dropOnSection(section, keys)
+    },
+  })
+
+  const renderSection = (section: EpicSection<MacroRow>) => {
+    const folded = foldedSections.has(section.id)
+    const label = sectionLabel(section)
+    const over = dropSection === section.id
+    return (
+      <section
+        key={section.id}
+        data-section={section.id}
+        {...sectionDropProps(section)}
+        className="rounded-xl border transition-colors"
+        style={{
+          borderColor: over ? 'rgb(var(--accent-rgb) / 0.6)' : 'transparent',
+          background: over ? 'var(--accent-light)' : 'transparent',
+        }}
+      >
+        <button
+          type="button"
+          onClick={() => toggleSection(section.id)}
+          aria-expanded={!folded}
+          title={format(folded ? strings.grouping.unfold : strings.grouping.fold, { section: label })}
+          className="w-full flex items-center gap-1.5 px-1.5 py-1 text-[11px] font-bold uppercase tracking-[.06em] text-[var(--text-secondary)] cursor-pointer"
+        >
+          {folded ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
+          <span>{label}</span>
+          <span className="font-mono font-normal text-[var(--text-muted)]">{section.rows.length}</span>
+        </button>
+        {!folded && (
+          <div className="space-y-2 px-0.5 pb-1">
+            {section.rows.length === 0 ? (
+              <div className="text-[10.5px] italic text-[var(--text-muted)] px-2 py-1.5 rounded-lg border border-dashed border-[var(--border-color)]">
+                {format(strings.grouping.dropHere, { section: label })}
+              </div>
+            ) : (
+              section.rows.map(row => (condensedHere ? renderCondensedRow(row) : renderMacroRow(row)))
+            )}
+          </div>
+        )}
+      </section>
+    )
+  }
+
   /**
    * Validates the quarter field and saves it when it changed. An unreadable
    * value stays in the field with its message, and nothing is sent.
@@ -815,6 +1284,52 @@ export const RoadmapView: React.FC = () => {
       return
     }
     saveAxes(key, { quarter: normalized })
+  }
+
+  // The mark of an epic of a roadmap project (#632): its key already names its
+  // project, the lock says Sectile reads it without writing on it.
+  const foreignBadge = (row: MacroRow) =>
+    row.meta?.foreign ? (
+      <span
+        className="shrink-0 inline-flex items-center text-[var(--text-muted)]"
+        title={format(strings.origins.badgeTitle, { origin: row.meta.origin || '' })}
+        aria-label={format(strings.origins.badgeTitle, { origin: row.meta.origin || '' })}
+      >
+        <Lock size={10} />
+      </span>
+    ) : null
+
+  /**
+   * The epic's readiness (#633): the level a person decided, in solid colours,
+   * or, while nobody did, Sectile's suggestion in a dashed outline followed by
+   * "?". Not clickable: the level is decided from the panel or by a drop.
+   */
+  const readinessBadge = (row: MacroRow, className: string) => {
+    const level = row.readiness || row.suggestedReadiness
+    const meta = READINESS_META[level]
+    const name = strings.readiness.levels[level]
+    if (row.readiness) {
+      return (
+        <span
+          className={className}
+          data-readiness={level}
+          style={{ color: meta.color, background: meta.bg, border: `1px solid ${meta.border}` }}
+          title={format(strings.readiness.decidedTitle, { level: name })}
+        >
+          {name}
+        </span>
+      )
+    }
+    return (
+      <span
+        className={className}
+        data-readiness-suggested={level}
+        style={{ color: meta.color, background: 'transparent', border: `1px dashed ${meta.border}` }}
+        title={strings.readiness.suggestedTitle}
+      >
+        {name} ?
+      </span>
+    )
   }
 
   /**
@@ -856,16 +1371,20 @@ export const RoadmapView: React.FC = () => {
     return (
       <div
         key={row.key}
-        onClick={() => setSelectedKey(row.key)}
+        data-epic-key={row.key}
+        onClick={e => onRowClick(e, row.key)}
+        {...rowDragProps(row.key)}
         className="relative rounded-xl border p-2.5 cursor-pointer transition-colors"
         style={{
           background: isSel ? 'var(--accent-light)' : 'var(--bg-secondary)',
           borderColor: isSel ? 'rgb(var(--accent-rgb) / 0.45)' : 'var(--border-color)',
+          ...pickedOutline(row.key),
         }}
       >
         {epicColorsOn && <EpicBar parentKey={row.key} />}
         <div className="flex items-center gap-2 flex-wrap">
           <span className="text-[11px] font-mono font-bold" style={{ color: 'var(--accent-color)' }}>{row.key}</span>
+          {foreignBadge(row)}
           <span className="text-[9.5px] px-1 rounded font-mono truncate max-w-[150px] bg-[var(--bg-tertiary)] text-[var(--text-muted)] border border-[var(--border-color)]" title={row.squad}>
             {row.squad}
           </span>
@@ -875,11 +1394,13 @@ export const RoadmapView: React.FC = () => {
               {row.quarter}
             </span>
           )}
+          {readinessBadge(row, 'text-[9.5px] px-1 rounded font-bold')}
           <span className="text-[9px] font-bold px-1.5 rounded uppercase tracking-[.06em]"
-            style={{ color: mat.color, background: mat.bg, border: `1px solid ${mat.border}` }}>
+            style={{ color: mat.color, background: mat.bg, border: `1px solid ${mat.border}` }}
+            title={strings.maturityTitle}>
             {strings.maturity[row.maturity]}
           </span>
-          {freeEpicLabels(row.meta).map(label => (
+          {freeEpicLabels(row.meta, currentProject).map(label => (
             <span key={label} className={EPIC_LABEL_BADGE}>{label}</span>
           ))}
 
@@ -958,7 +1479,7 @@ export const RoadmapView: React.FC = () => {
    * to spend, and the tooltip names what the counter hides.
    */
   const renderCondensedLabels = (row: MacroRow) => {
-    const labels = freeEpicLabels(row.meta)
+    const labels = freeEpicLabels(row.meta, currentProject)
     if (labels.length === 0) return null
     const hidden = labels.slice(CONDENSED_LABELS)
     return (
@@ -981,17 +1502,21 @@ export const RoadmapView: React.FC = () => {
     return (
       <div
         key={row.key}
-        onClick={() => setSelectedKey(row.key)}
+        data-epic-key={row.key}
+        onClick={e => onRowClick(e, row.key)}
+        {...rowDragProps(row.key)}
         className="relative flex items-center gap-2 px-2.5 py-1.5 rounded-lg border cursor-pointer transition-colors"
         style={{
           background: isSel ? 'var(--accent-light)' : 'var(--bg-secondary)',
           borderColor: isSel ? 'var(--accent-color)' : 'var(--border-color)',
+          ...pickedOutline(row.key),
         }}
       >
         {epicColorsOn && <EpicBar parentKey={row.key} />}
         <span className="shrink-0 text-[10.5px] font-mono font-bold" style={{ color: 'var(--accent-color)' }}>
           {row.key}
         </span>
+        {foreignBadge(row)}
         <span className="flex-1 min-w-0 truncate text-[11.5px] text-[var(--text-primary)]" title={row.title}>
           {row.title}
         </span>
@@ -1019,6 +1544,7 @@ export const RoadmapView: React.FC = () => {
           </span>
         )}
         {priorityBadge(row, 'shrink-0 text-[9.5px] px-1 rounded font-bold')}
+        {readinessBadge(row, 'shrink-0 text-[9.5px] px-1 rounded font-bold')}
         <span className="shrink-0 flex items-center gap-0.5">
           {CONDENSED_HORIZONS.map(h => {
             const active = row.horizon === h
@@ -1060,6 +1586,35 @@ export const RoadmapView: React.FC = () => {
     if (!text) return
     setNewTodo('')
     persist(row.key, { todos: [...todosOf(row), { id: '', text, done: false }] })
+  }
+
+  /** Saves the list in its new order; the moved line keeps the focus on control. */
+  const moveTodoTo = (row: MacroRow, from: number, to: number, control?: string) => {
+    const todos = todosOf(row)
+    if (from === to || from < 0 || to < 0 || from >= todos.length || to >= todos.length) return
+    if (control) todoFocusRef.current = { id: todos[from].id, control }
+    persist(row.key, { todos: moveTodo(todos, from, to) })
+  }
+
+  const startTodoEdit = (todo: MacroTodo) => {
+    editingTodoRef.current = todo.id
+    setEditingTodoId(todo.id)
+    setDraftTodoText(todo.text)
+  }
+
+  /**
+   * Ends the rewording of a line, saving it when save is set and the text is
+   * neither blank nor unchanged: an emptied line comes back as it was, deleting
+   * stays the line's delete button.
+   */
+  const endTodoEdit = (row: MacroRow, save: boolean, keepFocus: boolean) => {
+    const id = editingTodoRef.current
+    if (!id) return
+    editingTodoRef.current = null
+    setEditingTodoId(null)
+    if (keepFocus) todoFocusRef.current = { id, control: 'text' }
+    const next = save ? rewordTodo(todosOf(row), id, draftTodoText) : null
+    if (next) persist(row.key, { todos: next })
   }
 
   const handleRefineMacro = async () => {
@@ -1154,6 +1709,7 @@ export const RoadmapView: React.FC = () => {
             </button>
           )}
 
+          <EpicOriginFilter offered={origins} selected={selectedOrigins} onChange={chooseOrigins} />
           <EpicLabelFilter inventory={labelInventory} selected={selectedLabels} onChange={setSelectedLabels} />
 
           {/*
@@ -1238,6 +1794,40 @@ export const RoadmapView: React.FC = () => {
             <option value="priority-desc">{strings.axes.sortDesc}</option>
             <option value="priority-asc">{strings.axes.sortAsc}</option>
           </select>
+          {/* Sections by priority or quarter (#628), on every tab but Hidden. */}
+          <select
+            value={groupAxis}
+            onChange={e => setGroupAxis(e.target.value as EpicGroupAxis)}
+            aria-label={strings.grouping.label}
+            title={strings.grouping.label}
+            className="px-2 py-1 rounded-md text-[11px] font-semibold cursor-pointer border bg-[var(--bg-tertiary)] border-[var(--border-color)] text-[var(--text-secondary)]"
+          >
+            <option value="none">{strings.grouping.none}</option>
+            <option value="priority">{strings.grouping.priority}</option>
+            <option value="quarter">{strings.grouping.quarter}</option>
+          </select>
+          {hasPicked && (
+            <span
+              data-epic-selection
+              className="flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold border"
+              style={{ color: 'var(--accent-color)', background: 'var(--accent-light)', borderColor: 'rgb(var(--accent-rgb) / 0.45)' }}
+            >
+              {isDropping && <Loader2 size={11} className="animate-spin" />}
+              {plural(language, pickedKeys.size, strings.grouping.selected)}
+              <button
+                type="button"
+                onClick={() => {
+                  setPickedKeys(new Set())
+                  setPickAnchor(null)
+                }}
+                aria-label={strings.grouping.clearSelection}
+                title={strings.grouping.clearSelection}
+                className="p-0.5 rounded cursor-pointer hover:bg-[var(--bg-tertiary)]"
+              >
+                <X size={11} />
+              </button>
+            </span>
+          )}
           {currentProject && (
             <button
               type="button"
@@ -1265,9 +1855,9 @@ export const RoadmapView: React.FC = () => {
           )}
 
           {/* Les filtres globaux */}
-          {activeFilterChips.length > 0 && (
+          {filterChips.length > 0 && (
             <div className="flex items-center gap-1.5 flex-wrap">
-              {activeFilterChips.map(chip => (
+              {filterChips.map(chip => (
                 <button
                   key={chip.label}
                   type="button"
@@ -1449,7 +2039,9 @@ export const RoadmapView: React.FC = () => {
         {/* Macros de l'horizon courant (masqué si panneau en plein écran) */}
         {!expandedHere && (
           <div className="flex-1 overflow-y-auto p-3 min-w-0 space-y-2">
-            {visibleRows.length === 0 ? (
+            {sections ? (
+              sections.map(renderSection)
+            ) : visibleRows.length === 0 ? (
               <div className="h-full flex flex-col items-center justify-center gap-2 text-center px-6">
                 <Compass size={26} className="text-[var(--text-muted)]" />
                 <p className="text-sm font-semibold">
@@ -1561,6 +2153,19 @@ export const RoadmapView: React.FC = () => {
                       <ExternalLink size={13} />
                       <span>{strings.panel.link}</span>
                     </a>
+                  )}
+                  {/* Back to the ticket views, filtered on the epic (#630). An
+                      epic without a ticket would open an empty list. */}
+                  {selected.tasks.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => openEpicTickets(selected.key)}
+                      className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-semibold text-[var(--text-secondary)] hover:text-[var(--text-primary)] cursor-pointer border border-[var(--border-color)] hover:border-[var(--accent-color)]/50 transition-colors"
+                      title={format(strings.panel.openTicketsTitle, { key: selected.key })}
+                    >
+                      <ListFilter size={12} />
+                      <span>{strings.panel.openTickets}</span>
+                    </button>
                   )}
                   <button
                     type="button"
@@ -1698,8 +2303,9 @@ export const RoadmapView: React.FC = () => {
                 </div>
               )}
 
-              {/* The epic's own priority and quarter (#627), stored here first,
-                  then written as labels when the tracker can carry them. */}
+              {/* The epic's own priority and quarter (#627) and its readiness
+                  (#633), stored here first, then written as labels when the
+                  tracker can carry them. */}
               <div className="mt-2.5 flex items-start gap-4 flex-wrap">
                 <div>
                   <div className="text-[10px] font-bold uppercase tracking-[.08em] text-[var(--text-muted)] mb-1">
@@ -1740,6 +2346,38 @@ export const RoadmapView: React.FC = () => {
                         <X size={11} />
                       </button>
                     )}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-[10px] font-bold uppercase tracking-[.08em] text-[var(--text-muted)] mb-1">
+                    {strings.readiness.label}
+                  </div>
+                  <div className="flex items-center gap-1" role="group" aria-label={strings.readiness.label}>
+                    {EPIC_READINESS.map(level => {
+                      const active = selected.readiness === level
+                      const isSuggestion = !selected.readiness && selected.suggestedReadiness === level
+                      const meta = READINESS_META[level]
+                      return (
+                        <button
+                          key={level}
+                          type="button"
+                          aria-pressed={active}
+                          disabled={busyKey === 'axes'}
+                          onClick={() => saveAxes(selected.key, { readiness: active ? '' : level })}
+                          className="px-1.5 py-0.5 rounded text-[10.5px] font-bold border cursor-pointer disabled:opacity-60"
+                          style={{
+                            color: meta.color,
+                            background: active ? meta.bg : 'transparent',
+                            borderColor: active ? meta.color : isSuggestion ? meta.border : 'var(--border-color)',
+                            borderStyle: isSuggestion ? 'dashed' : 'solid',
+                          }}
+                          title={active ? strings.readiness.chipTitle : isSuggestion ? strings.readiness.suggestedTitle : undefined}
+                        >
+                          {strings.readiness.levels[level]}
+                          {isSuggestion && ' ?'}
+                        </button>
+                      )
+                    })}
                   </div>
                 </div>
                 <div>
@@ -1792,13 +2430,36 @@ export const RoadmapView: React.FC = () => {
                   )}
                 </div>
               </div>
-              {selected.meta?.labelsWritable === false && (
-                <div className="mt-1.5 text-[10px] text-[var(--text-muted)]">{strings.axes.keptLocal}</div>
+              {/* The priority and the quarter follow axesWritable, which only an
+                  older server leaves out: labelsWritable says the same there. */}
+              {(selected.meta?.axesWritable ?? selected.meta?.labelsWritable) === false && (
+                <div className="mt-1.5 text-[10px] text-[var(--text-muted)]">
+                  {selected.meta?.foreign
+                    ? format(strings.axes.keptLocalForeign, { origin: selected.meta.origin || '' })
+                    : strings.axes.keptLocal}
+                </div>
               )}
             </div>
 
             <div className="flex-1 overflow-y-auto px-4 pt-3.5 pb-7 flex flex-col gap-4">
-              {currentProject && (
+              {selected.meta?.foreign && (
+                <div
+                  className="rounded-md border px-2.5 py-2 text-[11px] flex gap-2 items-start"
+                  style={{ borderColor: 'var(--border-color)', background: 'var(--bg-tertiary)' }}
+                  role="note"
+                >
+                  <Lock size={12} className="shrink-0 mt-0.5 text-[var(--text-muted)]" />
+                  <div>
+                    <div className="font-semibold text-[var(--text-primary)]">{strings.origins.readOnly}</div>
+                    <div className="text-[var(--text-secondary)]">
+                      {format(strings.origins.readOnlyBody, { origin: selected.meta.origin || '' })}
+                    </div>
+                  </div>
+                </div>
+              )}
+              {/* The free labels of a roadmap project's epic are its team's, and
+                  Sectile never writes them (#632). */}
+              {currentProject && !selected.meta?.foreign && (
                 <EpicLabelEditor key={selected.key} project={currentProject} row={selected} suggestions={labelSuggestions} />
               )}
               {/* La clé porte l'axe, et ce n'est pas cosmétique : les deux vues
@@ -2320,22 +2981,148 @@ export const RoadmapView: React.FC = () => {
                     </div>
                   </div>
 
+                  {(() => {
+                    // A running batch locks this macro's slicing (#634).
+                    const slicingLocked = batchMacroKey === selected.key
+                    const selectable = selectableTodoIds(todosOf(selected))
+                    const selectedCount = selectable.filter(id => selectedTodoIds.has(id)).length
+                    const allSelected = selectable.length > 0 && selectedCount === selectable.length
+                    const report = batchReport?.macroKey === selected.key ? batchReport.batch : null
+                    const outcomeOf = (todoId: string) => report?.results.find(r => r.todoId === todoId)
+                    const originLabel = (todo: MacroTodo) => {
+                      const origin = todoOrigin(todo)
+                      switch (origin.kind) {
+                        case 'tasks': return strings.framing.originTasks
+                        case 'spec': return strings.framing.originSpec
+                        case 'stories': return strings.framing.originStories
+                        case 'manual': return strings.framing.originManual
+                        default: return origin.raw
+                      }
+                    }
+                    return (
                   <div>
-                    <div className="text-[10px] font-bold uppercase tracking-[.08em] text-[var(--text-muted)] mb-1.5">
-                      {format(strings.framing.checklistHeading, { done: todosOf(selected).filter(t => t.done).length, total: todosOf(selected).length })}
-                    </div>
-                    <div className="flex flex-col gap-1.5">
-                      {todosOf(selected).map(todo => (
-                        <div key={todo.id} className="flex items-start gap-2 px-2.5 py-2 rounded-lg bg-[var(--bg-primary)] border"
-                          style={{ borderColor: todo.done ? 'rgb(var(--accent-rgb) / 0.4)' : 'var(--border-color)' }}>
+                    <div className="flex items-center gap-2 mb-1.5">
+                      <div className="text-[10px] font-bold uppercase tracking-[.08em] text-[var(--text-muted)] flex-1">
+                        {format(strings.framing.checklistHeading, { done: todosOf(selected).filter(t => t.done).length, total: todosOf(selected).length })}
+                      </div>
+                      {selectable.length > 0 && (
+                        <>
                           <button
                             type="button"
+                            disabled={slicingLocked}
+                            onClick={() => setSelectedTodoIds(allSelected ? new Set() : new Set(selectable))}
+                            className="text-[10px] font-semibold text-[var(--text-secondary)] hover:text-[var(--text-primary)] disabled:opacity-40 cursor-pointer"
+                          >
+                            {allSelected ? strings.framing.deselectAll : strings.framing.selectAll}
+                          </button>
+                          <button
+                            type="button"
+                            disabled={selectedCount === 0 || batchMacroKey !== null}
+                            onClick={() => runStoryBatch(selected)}
+                            className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold text-white accent-bg disabled:opacity-40 cursor-pointer"
+                            title={strings.framing.createStoriesTitle}
+                          >
+                            {slicingLocked && <Loader2 size={10} className="animate-spin" />}
+                            {slicingLocked ? strings.framing.creatingStories : format(strings.framing.createStories, { count: selectedCount })}
+                          </button>
+                        </>
+                      )}
+                    </div>
+                    {report && (
+                      <div className="text-[10.5px] mb-1.5 font-semibold" style={{ color: report.failed > 0 ? 'var(--status-warn)' : 'var(--status-ok)' }}>
+                        {batchSummary(language, report, {
+                          created: strings.framing.batchCreated,
+                          skipped: strings.framing.batchSkipped,
+                          failed: strings.framing.batchFailed,
+                        })}
+                      </div>
+                    )}
+                    <div className="flex flex-col gap-1.5">
+                      {todosOf(selected).map((todo, index, list) => (
+                        <div key={todo.id} className="flex items-start gap-2 px-2.5 py-2 rounded-lg bg-[var(--bg-primary)] border"
+                          data-testid="macro-todo"
+                          style={{
+                            borderColor: dropTodoId === todo.id && draggedTodoId !== todo.id
+                              ? 'var(--accent-color)'
+                              : todo.done ? 'rgb(var(--accent-rgb) / 0.4)' : 'var(--border-color)',
+                            opacity: draggedTodoId === todo.id ? 0.5 : 1,
+                          }}
+                          // The order of the list is the order of execution
+                          // (#663): Alt+Up and Alt+Down move the focused line,
+                          // which keeps the focus.
+                          onKeyDown={e => {
+                            if (!e.altKey || slicingLocked || editingTodoId || list.length < 2) return
+                            if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return
+                            e.preventDefault()
+                            const control = (e.target as HTMLElement).dataset?.todoControl || 'text'
+                            moveTodoTo(selected, index, e.key === 'ArrowUp' ? index - 1 : index + 1, control)
+                          }}
+                          onDragOver={e => {
+                            if (!draggedTodoId || slicingLocked) return
+                            e.preventDefault()
+                            e.dataTransfer.dropEffect = 'move'
+                            if (dropTodoId !== todo.id) setDropTodoId(todo.id)
+                          }}
+                          onDrop={e => {
+                            if (!draggedTodoId) return
+                            e.preventDefault()
+                            const from = list.findIndex(t => t.id === draggedTodoId)
+                            setDraggedTodoId(null)
+                            setDropTodoId(null)
+                            moveTodoTo(selected, from, index)
+                          }}>
+                          {list.length > 1 && (
+                            <span
+                              draggable={!slicingLocked}
+                              onDragStart={e => {
+                                e.stopPropagation()
+                                e.dataTransfer.setData('application/x-sectile-todo', todo.id)
+                                e.dataTransfer.effectAllowed = 'move'
+                                setDraggedTodoId(todo.id)
+                              }}
+                              onDragEnd={() => {
+                                setDraggedTodoId(null)
+                                setDropTodoId(null)
+                              }}
+                              className={`mt-0.5 shrink-0 text-[var(--text-muted)] ${slicingLocked ? 'opacity-40' : 'cursor-grab hover:text-[var(--text-primary)]'}`}
+                              title={format(strings.framing.todoDragHandle, { todo: todo.text })}
+                              aria-hidden="true"
+                            >
+                              <GripVertical size={11} />
+                            </span>
+                          )}
+                          {/* The batch selection, a native box so it never reads
+                              as the done checkbox beside it. An attached line
+                              keeps the room, so the texts stay aligned. */}
+                          {todo.storyKey ? (
+                            <span className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                          ) : (
+                            <input
+                              type="checkbox"
+                              checked={selectedTodoIds.has(todo.id)}
+                              disabled={slicingLocked}
+                              onChange={() =>
+                                setSelectedTodoIds(prev => {
+                                  const next = new Set(prev)
+                                  if (next.has(todo.id)) next.delete(todo.id)
+                                  else next.add(todo.id)
+                                  return next
+                                })
+                              }
+                              aria-label={format(strings.framing.selectTodo, { todo: todo.text })}
+                              className="w-3.5 h-3.5 mt-0.5 shrink-0 cursor-pointer disabled:opacity-50"
+                              style={{ accentColor: 'var(--accent-color)' }}
+                            />
+                          )}
+                          <button
+                            type="button"
+                            disabled={slicingLocked}
                             onClick={() =>
                               persist(selected.key, {
                                 todos: todosOf(selected).map(t => (t.id === todo.id ? { ...t, done: !t.done } : t)),
                               })
                             }
-                            className="w-3.5 h-3.5 mt-0.5 rounded shrink-0 flex items-center justify-center cursor-pointer"
+                            className="w-3.5 h-3.5 mt-0.5 rounded shrink-0 flex items-center justify-center cursor-pointer disabled:opacity-50"
                             style={{
                               background: todo.done ? 'var(--accent-color)' : 'transparent',
                               border: `1px solid ${todo.done ? 'var(--accent-color)' : 'var(--border-color)'}`,
@@ -2344,38 +3131,107 @@ export const RoadmapView: React.FC = () => {
                           >
                             {todo.done && <Check size={10} className="text-white" />}
                           </button>
-                          <span className="text-[11.5px] leading-snug flex-1"
-                            style={{
-                              color: todo.done ? 'var(--text-muted)' : 'var(--text-primary)',
-                              textDecoration: todo.done ? 'line-through' : 'none',
-                            }}>
-                            {todo.text}
-                          </span>
+                          <div className="flex-1 min-w-0 flex flex-col gap-0.5">
+                            {/* Rewording changes the line only: its story, if
+                                any, keeps its title (#663). */}
+                            {editingTodoId === todo.id ? (
+                              <input
+                                type="text"
+                                autoFocus
+                                value={draftTodoText}
+                                onChange={e => setDraftTodoText(e.target.value)}
+                                onFocus={e => e.currentTarget.setSelectionRange(e.currentTarget.value.length, e.currentTarget.value.length)}
+                                onKeyDown={e => {
+                                  if (e.key === 'Enter') {
+                                    e.preventDefault()
+                                    endTodoEdit(selected, true, true)
+                                  } else if (e.key === 'Escape') {
+                                    e.preventDefault()
+                                    e.stopPropagation()
+                                    endTodoEdit(selected, false, true)
+                                  }
+                                }}
+                                onBlur={() => endTodoEdit(selected, true, false)}
+                                aria-label={format(strings.framing.todoEdit, { todo: todo.text })}
+                                className="w-full px-1.5 py-0.5 text-[11.5px] leading-snug rounded bg-[var(--bg-secondary)] border border-[var(--accent-color)] text-[var(--text-primary)] focus:outline-none"
+                              />
+                            ) : (
+                              <button
+                                type="button"
+                                data-todo-id={todo.id}
+                                data-todo-control="text"
+                                disabled={slicingLocked}
+                                onClick={() => startTodoEdit(todo)}
+                                title={strings.framing.todoEditTitle}
+                                aria-label={format(strings.framing.todoEdit, { todo: todo.text })}
+                                className="text-left text-[11.5px] leading-snug cursor-text disabled:cursor-default rounded focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--accent-color)]"
+                                style={{
+                                  color: todo.done ? 'var(--text-muted)' : 'var(--text-primary)',
+                                  textDecoration: todo.done ? 'line-through' : 'none',
+                                }}>
+                                {todo.text}
+                              </button>
+                            )}
+                            {/* Second row: where the line came from, and what the
+                                last batch did with it. */}
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <span
+                                className="text-[9px] px-1.5 py-px rounded-full border border-[var(--border-color)] text-[var(--text-muted)]"
+                                title={todoOrigin(todo).entry || format(strings.framing.originTitle, { origin: originLabel(todo) })}
+                              >
+                                {originLabel(todo)}
+                              </span>
+                              {(() => {
+                                const outcome = outcomeOf(todo.id)
+                                if (!outcome) return null
+                                return (
+                                  <>
+                                    {outcome.status === 'skipped' && (
+                                      <span className="text-[10px] text-[var(--text-muted)]">
+                                        {format(strings.framing.lineSkipped, { key: outcome.storyKey || '' })}
+                                      </span>
+                                    )}
+                                    {outcome.status === 'failed' && (
+                                      <span className="text-[10px] text-rose-400">{outcome.error}</span>
+                                    )}
+                                    {outcome.notice && (
+                                      <span className="text-[10px] text-amber-400">{outcome.notice}</span>
+                                    )}
+                                  </>
+                                )
+                              })()}
+                            </div>
+                          </div>
                           {currentProject && (() => {
                             // Where the line's story lands: the macro's project by
                             // default, or another project of the same tracker
                             // instance, where the epic can still be its parent.
+                            // Its roadmap projects join them (#632): the story is then
+                            // created in that Jira project and stays there.
                             const options = targetProjectOptions(currentProject, projects, { jiraUrl: settings.jiraUrl, githubApiUrl: settings.githubApiUrl, gitlabUrl: settings.gitlabUrl, gitlabProject: settings.gitlabProject })
-                            const saved = todo.targetProjectId && todo.targetProjectId !== currentProject.id ? todo.targetProjectId : ''
-                            const savedName = projects.find(p => p.id === saved)?.name || saved
-                            const invalid = saved !== '' && !options.some(p => p.id === saved)
+                            const remoteOptions = roadmapTargetOptions(currentProject)
+                            const saved = targetPickerValue(todo, currentProject.id)
+                            const savedRemote = saved.startsWith(TRACKER_TARGET_PREFIX) ? saved.slice(TRACKER_TARGET_PREFIX.length) : ''
+                            const savedName = savedRemote || projects.find(p => p.id === saved)?.name || saved
+                            const invalid = saved !== '' && (savedRemote ? !remoteOptions.includes(savedRemote) : !options.some(p => p.id === saved))
                             if (todo.storyKey) {
                               // Where the story was created, read-only; worth saying only
                               // where another project could have received it.
-                              return saved || options.length > 0 ? (
+                              return saved || options.length > 0 || remoteOptions.length > 0 ? (
                                 <span className="text-[9.5px] px-1.5 py-0.5 rounded shrink-0 text-[var(--text-muted)] border border-[var(--border-color)]" title={strings.framing.storyProjectTitle}>
                                   {saved ? savedName : currentProject.name}
                                 </span>
                               ) : null
                             }
-                            if (options.length === 0 && !saved) return null
+                            if (options.length === 0 && remoteOptions.length === 0 && !saved) return null
                             return (
                               <select
                                 aria-label={format(strings.framing.targetProjectLabel, { todo: todo.text })}
                                 value={saved}
+                                disabled={slicingLocked}
                                 onChange={e =>
                                   persist(selected.key, {
-                                    todos: todosOf(selected).map(t => (t.id === todo.id ? { ...t, targetProjectId: e.target.value || undefined } : t)),
+                                    todos: todosOf(selected).map(t => (t.id === todo.id ? applyTargetPickerValue(t, e.target.value) : t)),
                                   })
                                 }
                                 className={`text-[9.5px] max-w-[120px] px-1 py-0.5 rounded shrink-0 bg-[var(--bg-secondary)] border cursor-pointer ${invalid ? 'border-rose-500 text-rose-300' : 'border-[var(--border-color)] text-[var(--text-secondary)]'}`}
@@ -2383,6 +3239,15 @@ export const RoadmapView: React.FC = () => {
                               >
                                 <option value="">{currentProject.name}</option>
                                 {options.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                                {remoteOptions.length > 0 && (
+                                  <optgroup label={strings.framing.trackerProjectsGroup}>
+                                    {remoteOptions.map(key => (
+                                      <option key={key} value={TRACKER_TARGET_PREFIX + key}>
+                                        {format(strings.framing.trackerProjectOption, { key })}
+                                      </option>
+                                    ))}
+                                  </optgroup>
+                                )}
                                 {invalid && <option value={saved}>{format(strings.framing.incompatibleOption, { name: savedName })}</option>}
                               </select>
                             )
@@ -2401,7 +3266,14 @@ export const RoadmapView: React.FC = () => {
                                 background: 'rgb(var(--status-ok-rgb) / 0.13)',
                                 border: '1px solid rgb(var(--status-ok-rgb) / 0.32)',
                               }}
-                              title={format(strings.framing.storyCreated, { key: todo.storyKey })}
+                              title={format(
+                                // A story of a roadmap project stays in Jira (#632),
+                                // which its key's project says, whatever is loaded.
+                                currentProject && roadmapTargetOptions(currentProject).includes(macroOrigin(todo.storyKey))
+                                  ? strings.framing.storyStaysInTracker
+                                  : strings.framing.storyCreated,
+                                { key: todo.storyKey }
+                              )}
                             >
                               {todo.storyKey}
                             </button>
@@ -2409,10 +3281,14 @@ export const RoadmapView: React.FC = () => {
                                 dans Sectile : consulter la fiche et aller
                                 commenter le ticket ne sont pas le même geste. */}
                             {(() => {
+                              // A story of a roadmap project was never imported
+                              // (#632): its page is built from the Jira site.
                               const created = tasks.find(t => t.key === todo.storyKey)
-                              return created?.externalUrl ? (
+                              const jiraSite = currentProject?.issueTracker === 'jira' ? (currentProject.trackerUrl || settings.jiraUrl || '').replace(/\/+$/, '') : ''
+                              const href = created?.externalUrl || (!created && jiraSite ? `${jiraSite}/browse/${todo.storyKey}` : '')
+                              return href ? (
                                 <a
-                                  href={created.externalUrl}
+                                  href={href}
                                   target="_blank"
                                   rel="noreferrer"
                                   className="shrink-0 text-[var(--text-muted)] hover:text-[var(--accent-color)] transition-colors"
@@ -2426,7 +3302,7 @@ export const RoadmapView: React.FC = () => {
                           ) : (
                             <button
                               type="button"
-                              disabled={creatingTodoId === todo.id}
+                              disabled={creatingTodoId === todo.id || slicingLocked}
                               onClick={async () => {
                                 setCreatingTodoId(todo.id)
                                 const result = await createStoryFromMacroTodo(currentProject!.id, selected.key, todo.id)
@@ -2446,10 +3322,39 @@ export const RoadmapView: React.FC = () => {
                               {creatingTodoId === todo.id ? '…' : strings.framing.createStory}
                             </button>
                           )}
+                          {list.length > 1 && (
+                            <div className="flex flex-col shrink-0">
+                              <button
+                                type="button"
+                                data-todo-id={todo.id}
+                                data-todo-control="up"
+                                disabled={slicingLocked || index === 0}
+                                onClick={() => moveTodoTo(selected, index, index - 1, 'up')}
+                                className="p-px rounded text-[var(--text-muted)] hover:text-[var(--text-primary)] cursor-pointer disabled:opacity-30 disabled:cursor-default"
+                                title={strings.framing.todoMoveUp}
+                                aria-label={format(strings.framing.todoMoveUpLabel, { todo: todo.text })}
+                              >
+                                <ChevronUp size={10} />
+                              </button>
+                              <button
+                                type="button"
+                                data-todo-id={todo.id}
+                                data-todo-control="down"
+                                disabled={slicingLocked || index === list.length - 1}
+                                onClick={() => moveTodoTo(selected, index, index + 1, 'down')}
+                                className="p-px rounded text-[var(--text-muted)] hover:text-[var(--text-primary)] cursor-pointer disabled:opacity-30 disabled:cursor-default"
+                                title={strings.framing.todoMoveDown}
+                                aria-label={format(strings.framing.todoMoveDownLabel, { todo: todo.text })}
+                              >
+                                <ChevronDown size={10} />
+                              </button>
+                            </div>
+                          )}
                           <button
                             type="button"
+                            disabled={slicingLocked}
                             onClick={() => persist(selected.key, { todos: todosOf(selected).filter(t => t.id !== todo.id) })}
-                            className="p-0.5 rounded text-[var(--text-muted)] hover:text-rose-400 cursor-pointer shrink-0"
+                            className="p-0.5 rounded text-[var(--text-muted)] hover:text-rose-400 cursor-pointer shrink-0 disabled:opacity-40"
                             title={strings.framing.remove}
                           >
                             <Trash2 size={11} />
@@ -2463,10 +3368,73 @@ export const RoadmapView: React.FC = () => {
                       )}
                     </div>
 
+                    {(() => {
+                      // Where the list is copied on the tracker, one way (#663),
+                      // and whether that copy is the current list. A server
+                      // older than the copy sends no status, and nothing shows.
+                      const mirror = selected.meta?.todosMirror
+                      const state = todosMirrorState(mirror)
+                      if (!mirror || state === 'none') return null
+                      const tracker = (mirror.credentialMissing || '') as TrackerKind
+                      const provider = tracker ? getTrackers(t).find(entry => entry.id === tracker)?.label || tracker : ''
+                      return (
+                        <div className="flex flex-wrap items-center gap-1.5 mt-1.5 text-[10.5px]" data-testid="todos-mirror" data-state={state}>
+                          {state === 'upToDate' && (
+                            <span className="inline-flex items-center gap-1" style={{ color: 'var(--status-ok)' }}>
+                              <Check size={10} />
+                              {format(strings.framing.mirrorUpToDate, { key: selected.key })}
+                              {mirror.url && (
+                                <a href={mirror.url} target="_blank" rel="noreferrer" className="hover:text-[var(--accent-color)]"
+                                  title={format(t.planning.macro.openOnTracker, { key: selected.key })}>
+                                  <ExternalLink size={10} />
+                                </a>
+                              )}
+                            </span>
+                          )}
+                          {state === 'pending' && (
+                            <span className="text-[var(--text-muted)]">{strings.framing.mirrorPending}</span>
+                          )}
+                          {state === 'failed' && (
+                            <span className="text-rose-400">{format(strings.framing.mirrorFailed, { reason: mirror.error || '' })}</span>
+                          )}
+                          {state === 'local' && (
+                            <span className="text-[var(--text-muted)]">{format(strings.framing.mirrorLocal, { reason: mirror.reason || '' })}</span>
+                          )}
+                          {(state === 'pending' || state === 'failed') && (
+                            <button
+                              type="button"
+                              disabled={republishingTodos || !currentProject}
+                              onClick={async () => {
+                                if (!currentProject) return
+                                setRepublishingTodos(true)
+                                await republishMacroTodos(currentProject.id, selected.key)
+                                setRepublishingTodos(false)
+                              }}
+                              className="inline-flex items-center gap-1 px-1.5 py-px rounded border border-[var(--border-color)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] cursor-pointer disabled:opacity-40"
+                              title={strings.framing.mirrorRepublishTitle}
+                            >
+                              <RefreshCw size={9} className={republishingTodos ? 'animate-spin' : ''} />
+                              {strings.framing.mirrorRepublish}
+                            </button>
+                          )}
+                          {state === 'failed' && tracker && (
+                            <button
+                              type="button"
+                              onClick={() => openTrackerCredentials(tracker)}
+                              className="px-1.5 py-px rounded border border-[var(--border-color)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] cursor-pointer"
+                            >
+                              {format(strings.framing.mirrorAddToken, { provider })}
+                            </button>
+                          )}
+                        </div>
+                      )
+                    })()}
+
                     <div className="flex items-center gap-2 mt-2">
                       <input
                         type="text"
                         value={newTodo}
+                        disabled={slicingLocked}
                         onChange={e => setNewTodo(e.target.value)}
                         onKeyDown={e => {
                           if (e.key === 'Enter') {
@@ -2477,7 +3445,7 @@ export const RoadmapView: React.FC = () => {
                         placeholder={strings.framing.addTodoPlaceholder}
                         className="flex-1 px-2.5 py-1.5 text-xs rounded-xl bg-[var(--bg-primary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)]"
                       />
-                      <button type="button" onClick={() => addTodo(selected)} disabled={!newTodo.trim()}
+                      <button type="button" onClick={() => addTodo(selected)} disabled={!newTodo.trim() || slicingLocked}
                         className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-bold text-white accent-bg disabled:opacity-40 cursor-pointer shrink-0">
                         <Plus size={12} /> {strings.framing.add}
                       </button>
@@ -2505,7 +3473,7 @@ export const RoadmapView: React.FC = () => {
                         <button
                           key={option.source}
                           type="button"
-                          disabled={slicingSource !== null}
+                          disabled={slicingSource !== null || slicingLocked}
                           title={option.hint}
                           onClick={async () => {
                             setSlicingSource(option.source)
@@ -2524,6 +3492,8 @@ export const RoadmapView: React.FC = () => {
                       ))}
                     </div>
                   </div>
+                    )
+                  })()}
 
                   {selected.tasks.length > 0 && (
                     <div className="pt-2 border-t border-[var(--border-color)]">

@@ -64,7 +64,9 @@ and the two kept in separate files.
 
 ## Read first
 - Project-configured SDD framework: speckit. Use it unless the invocation explicitly overrides it.
-- The clarification outcome on the ticket: the decisions are already made, apply them.
+- The clarification outcome on the ticket: the decisions are already made, apply them. When the
+  clarification report is ignored by Git, docs/clarifications/<n>.md may be missing from this
+  worktree; the rounds published on the ticket carry the same content.
 - Select the SDD framework in order: explicit {sdd_framework} or --framework=<name>,
   then the project-configured framework, then repository detection:
   - If `openspec/` exists -> use OpenSpec SDD.
