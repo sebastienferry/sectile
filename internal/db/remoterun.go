@@ -564,6 +564,12 @@ func (d *DB) notifyWaitListeners(task *models.Task, activity *models.TaskActivit
 	}
 }
 
+// sessionWaitsQuery finds the waits a session declared. Every tool call runs
+// it, so it reads idx_task_activities_waiting_session (#497), whose predicate it
+// states for the planner to use the index.
+const sessionWaitsQuery = `SELECT id FROM task_activities
+		WHERE waiting_session = ? AND waiting_session <> '' AND waiting_since IS NOT NULL AND status = 'running' AND skill_id = 'remote_run'`
+
 // ResumeWaits ends every wait a session declared, on a run still running. A
 // session that makes a call is no longer blocked on its owner, whatever it
 // forgot to report. The session is read from the run rather than from the
@@ -574,8 +580,7 @@ func (d *DB) ResumeWaits(sessionID string) ([]string, error) {
 	if strings.TrimSpace(sessionID) == "" {
 		return nil, nil
 	}
-	rows, err := d.conn.Query(`SELECT id FROM task_activities
-		WHERE waiting_session = ? AND waiting_since IS NOT NULL AND status = 'running' AND skill_id = 'remote_run'`, sessionID)
+	rows, err := d.conn.Query(sessionWaitsQuery, sessionID)
 	if err != nil {
 		return nil, err
 	}

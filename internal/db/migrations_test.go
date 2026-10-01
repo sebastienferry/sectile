@@ -55,6 +55,8 @@ func dropRepositoryColumns(d *DB) {
 	_, _ = d.conn.Exec("ALTER TABLE tasks DROP COLUMN repository")
 	_, _ = d.conn.Exec("ALTER TABLE tasks DROP COLUMN changed_repositories")
 	_, _ = d.conn.Exec("ALTER TABLE task_activities DROP COLUMN waiting_reason")
+	// SQLite refuses to drop a column an index still names (#497).
+	_, _ = d.conn.Exec("DROP INDEX IF EXISTS idx_task_activities_waiting_session")
 	_, _ = d.conn.Exec("ALTER TABLE task_activities DROP COLUMN waiting_session")
 	dropCredentialAccountColumn(d)
 }

@@ -543,6 +543,17 @@ var migrations = []migration{
 		name:       "projects.roadmap_axis_writes",
 		statements: []string{"ALTER TABLE projects ADD COLUMN roadmap_axis_writes INTEGER NOT NULL DEFAULT 0;"},
 	},
+	{
+		// Every Sectile tool call looks up the waits its session declared
+		// (#475), so that lookup must not scan every activity (#497). Nearly
+		// every row holds '' and only a waiting run holds a session, so the
+		// index is partial and stays as small as the number of waiting runs.
+		version: 39,
+		name:    "task_activities.waiting_session_index",
+		statements: []string{
+			"CREATE INDEX IF NOT EXISTS idx_task_activities_waiting_session ON task_activities (waiting_session) WHERE waiting_session <> '';",
+		},
+	},
 }
 
 // migrateSchema brings the database to the schema this binary expects, and is
