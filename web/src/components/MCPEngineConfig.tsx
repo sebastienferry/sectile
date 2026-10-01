@@ -4,7 +4,7 @@ import { Network, Copy } from 'lucide-react'
 import { useOptionalApp } from '../context/AppContext'
 import { mcpConfigText } from '../locales/mcpConfig'
 import type { AIProvider } from '../types'
-import { mcpProviders, mcpSnippet } from '../../../shared/mcpConfig.mjs'
+import { mcpCommand, mcpProviders, mcpSnippet } from '../../../shared/mcpConfig.mjs'
 
 export interface MCPEngineConfigProps {
   selectedProvider?: AIProvider
@@ -22,6 +22,7 @@ export function MCPEngineConfig({ selectedProvider = 'claude', onNavigateToWorks
   const local = mode === 'local'
   const server = import.meta.env.VITE_MCP_SERVER_URL || (import.meta.env.DEV ? 'http://localhost:8090' : window.location.origin)
   const snippet = mcpSnippet(selectedProvider, transport, local ? localUrl : server, local)
+  const command = mcpCommand(selectedProvider, transport, local ? localUrl : server, local)
   const provider = mcpProviders[selectedProvider]
   if (!provider) return <div className="space-y-2 text-xs text-[var(--text-secondary)]"><p>{text.custom}</p><pre>{`${server}/mcp\nAuthorization: Bearer <SECTILE_API_KEY>\n\nsectile-agent mcp --url ${server}`}</pre></div>
   return <section className="space-y-3 p-4 rounded-xl bg-[var(--bg-tertiary)]/70 border border-[var(--border-color)]">
@@ -50,6 +51,16 @@ export function MCPEngineConfig({ selectedProvider = 'claude', onNavigateToWorks
           catch { setNotice(text.copyError) }
         }}><Copy size={11} />{text.copy} {transport === 'http' ? 'HTTP' : 'STDIO'}</button>
       </div>
+    {command && <div className="space-y-2 p-3 rounded-lg bg-[var(--bg-tertiary)]">
+        <h4 className="text-xs font-bold">{text.commandTitle}</h4>
+        <p className="text-xs text-[var(--text-secondary)]">{selectedProvider === 'claude' ? text.commandClaude
+          : transport === 'http' && !local ? text.commandCodexEnv : text.commandCodexReplace}</p>
+        <pre className="p-2.5 rounded-lg bg-[var(--bg-primary)] border border-[var(--border-color)] text-[10px] font-mono whitespace-pre-wrap break-all select-text"><code>{command}</code></pre>
+        <button type="button" className="flex items-center gap-1 text-[10px] text-[var(--text-muted)] hover:text-[var(--text-primary)] cursor-pointer" onClick={async () => {
+          try { await navigator.clipboard.writeText(command); setNotice(text.commandCopied) }
+          catch { setNotice(text.copyError) }
+        }}><Copy size={11} />{text.copyCommand}</button>
+      </div>}
     {!local && <MCPApiKeyForm onKeyCreated={onKeyCreated} />}
     <p role="status" className="text-xs">{notice}</p>
   </section>

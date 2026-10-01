@@ -1,4 +1,4 @@
-import { mcpProviders, mcpSnippet } from '../../shared/mcpConfig.mjs'
+import { mcpCommand, mcpProviders, mcpSnippet } from '../../shared/mcpConfig.mjs'
 
 export function mcpSettings(api, providerSelect) {
  const section = document.createElement('section')
@@ -35,13 +35,26 @@ export function mcpSettings(api, providerSelect) {
    : 'Connect to the paired Sectile server. The pairing API key is written to the provider’s user configuration. This connection works while the desktop agent is stopped.'
   const mode = selectedMode === 'stdio' ? 'stdio' : 'http'
   {
-   const card = document.createElement('div'); card.className = 'mcp-option'
+   const card = document.createElement('div'); card.className = 'mcp-option mcp-snippet'
    const label = document.createElement('h4'); label.textContent = mode.toUpperCase()+' · '+(local ? 'Local proxy' : 'Remote server')
    const help = document.createElement('p'); help.className = 'hint'
    help.textContent = mode === 'http' ? 'The AI engine calls the selected MCP endpoint over Streamable HTTP.' : 'The AI engine starts the bundled sectile-agent bridge and exchanges MCP over stdin/stdout. The bridge forwards to the selected endpoint.'
    const preview = document.createElement('pre'); preview.textContent = mcpSnippet(provider, mode, local ? info.localURL : info.server, local)
    const copy = document.createElement('button'); copy.type = 'button'; copy.textContent = 'Copy '+mode.toUpperCase()+' example'; copy.disabled = busy
    copy.onclick = async () => {try {await api.copyText(preview.textContent); notice.textContent = 'Example copied. Replace the key placeholder for remote connections and use the installed binary path for STDIO.'} catch (e) {notice.textContent = e.message}}
+   card.append(label,help,preview,copy); cards.append(card)
+  }
+  const command = mcpCommand(provider, mode, local ? info.localURL : info.server, local)
+  if (command) {
+   const card = document.createElement('div'); card.className = 'mcp-option mcp-command'
+   const label = document.createElement('h4'); label.textContent = 'Or register it from a terminal'
+   const help = document.createElement('p'); help.className = 'hint'
+   help.textContent = provider === 'claude'
+    ? 'Run both lines. The first removes an existing sectile entry; when there is none it prints No MCP server named "sectile" in user scope, which is expected, and the second line still runs.'
+    : mode === 'http' && !local ? 'Export SECTILE_API_KEY with your personal Sectile API key in the environment that starts Codex. The key is not written to ~/.codex/config.toml.' : 'Codex replaces an existing sectile entry.'
+   const preview = document.createElement('pre'); preview.textContent = command
+   const copy = document.createElement('button'); copy.type = 'button'; copy.textContent = 'Copy command'; copy.disabled = busy
+   copy.onclick = async () => {try {await api.copyText(command); notice.textContent = 'Command copied.'} catch (e) {notice.textContent = e.message}}
    card.append(label,help,preview,copy); cards.append(card)
   }
  }
