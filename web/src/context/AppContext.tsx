@@ -67,6 +67,7 @@ import { TrackerCredentialMissingError, missingCredentialFromActivity, missingCr
 import { activeTaskIds } from '../lib/remoteRunIndicator'
 import { isViewAvailable } from '../lib/optionalViews'
 import { canOpenEpicInRoadmap, isTicketView, projectOfTask, returnView } from '../lib/roadmapFocus'
+import { sendsServerSearch } from '../lib/taskQuery'
 import { isMacPlatform, sidebarShortcutAction } from '../../../shared/sidebarShortcut.mjs'
 import {
   coreFailures,
@@ -1385,12 +1386,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     } else if (selectedProjectId && selectedProjectId !== 'all') {
       params.append('projectId', selectedProjectId)
     }
-    // La roadmap se cherche par épic, pas par ticket. Envoyer la recherche au
-    // serveur y amputerait les enfants de chaque épic : les compteurs de sprint
-    // et le détail se videraient, et un épic dont aucun ticket ne correspond
-    // disparaîtrait au lieu d'être trouvé. La vue filtre donc ses lignes
-    // elle-même, sur des données complètes.
-    if (searchQuery && activeView !== 'roadmap') params.append('q', searchQuery)
+    // The roadmap and the timeline filter their own rows on complete data
+    // (#636): a server search would cut the children of each epic and empty
+    // the sprints, their counters and the backlog instead of narrowing them.
+    if (searchQuery && sendsServerSearch(activeView)) params.append('q', searchQuery)
     if (statusFilter) params.append('status', statusFilter)
     if (priorityFilter) params.append('priority', priorityFilter)
     if (labelFilter) params.append('label', labelFilter)
