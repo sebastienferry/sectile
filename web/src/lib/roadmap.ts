@@ -369,27 +369,85 @@ export const belongsToProjectKey = (row: EpicRow, projectKey: string): boolean =
   return row.key.toUpperCase().startsWith(prefix + '-')
 }
 
+/** The default prefixes of the epic axes, those of a project that names none. */
+export const DEFAULT_EPIC_AXIS_PREFIXES = { priority: 'priority:', quarter: 'quarter:', readiness: 'readiness:' } as const
+
+/** The horizon's prefix, which no project can rename. */
+const HORIZON_LABEL_PREFIX = 'roadmap:'
+
 /**
- * Label prefixes the roadmap owns on an epic. A label under one of them is set
- * by its own control (the horizon tabs for `roadmap:`, the panel's priority and
- * quarter fields for the axes of #627) and is never shown, filtered or edited
- * as a free label. Mirrors `macroAxisPrefixes` in `internal/db/macrolabels.go`,
- * which refuses them on the server too.
+ * Label prefixes the roadmap owns on a project's epics: the horizon's, and the
+ * priority, quarter and readiness prefixes the project names or leaves at their
+ * default (#635). A label under one of them is set by its own control and is
+ * never shown, filtered or edited as a free label. Mirrors `axisLabelPrefixes`
+ * in `internal/db/macrolabels.go`, which refuses them on the server too.
  */
-export const EPIC_AXIS_LABEL_PREFIXES = ['roadmap:', 'priority:', 'quarter:', 'readiness:']
+export const epicAxisLabelPrefixes = (project?: Pick<Project, 'epicAxisPrefixes'> | null): string[] => {
+  const named = project?.epicAxisPrefixes || {}
+  return [
+    HORIZON_LABEL_PREFIX,
+    named.priority || DEFAULT_EPIC_AXIS_PREFIXES.priority,
+    named.quarter || DEFAULT_EPIC_AXIS_PREFIXES.quarter,
+    named.readiness || DEFAULT_EPIC_AXIS_PREFIXES.readiness,
+  ]
+}
 
 /** A bare quarter, "2026-Q3", which the import reads as the epic's quarter. */
 const BARE_QUARTER = /^\d{4}[.\- ]q[1-4]$/
 
-/** The match ignores case and a leading `#`, as the server's does. */
-export const isEpicAxisLabel = (label: string): boolean => {
+/**
+ * The match ignores case and a leading `#`, as the server's does. A label under
+ * a prefix the project no longer uses is a free label.
+ */
+export const isEpicAxisLabel = (label: string, project?: Pick<Project, 'epicAxisPrefixes'> | null): boolean => {
   const clean = label.trim().replace(/^#/, '').trim().toLowerCase()
-  return EPIC_AXIS_LABEL_PREFIXES.some(prefix => clean.startsWith(prefix)) || BARE_QUARTER.test(clean)
+  return epicAxisLabelPrefixes(project).some(prefix => clean.startsWith(prefix)) || BARE_QUARTER.test(clean)
 }
 
 /** An epic's free labels, in the order the tracker returned them. */
-export const freeEpicLabels = (meta?: EpicMeta | null): string[] =>
-  (meta?.labels || []).filter(label => label.trim() !== '' && !isEpicAxisLabel(label))
+export const freeEpicLabels = (meta?: EpicMeta | null, project?: Pick<Project, 'epicAxisPrefixes'> | null): string[] =>
+  (meta?.labels || []).filter(label => label.trim() !== '' && !isEpicAxisLabel(label, project))
+
+export type EpicAxisName = keyof typeof DEFAULT_EPIC_AXIS_PREFIXES
+
+/** Why a typed prefix is refused, mirroring `CleanEpicAxisPrefixes` on the server. */
+export type EpicAxisPrefixProblem =
+  | { kind: 'space'; axis: EpicAxisName }
+  | { kind: 'empty'; axis: EpicAxisName }
+  | { kind: 'overlap'; axis: EpicAxisName; other: EpicAxisName }
+  | { kind: 'horizon'; axis: EpicAxisName }
+
+/** Trims, lower-cases and drops a leading `#`, as the server stores a prefix. */
+export const cleanEpicAxisPrefix = (typed: string): string => typed.trim().replace(/^#/, '').toLowerCase()
+
+/**
+ * Checks the three prefixes a person typed, before they are sent, and returns
+ * the first problem, or null. An empty field is the default of its axis, and
+ * the overlap is checked on the prefixes in effect, as on the server.
+ */
+export const epicAxisPrefixProblem = (typed: Partial<Record<EpicAxisName, string>>): EpicAxisPrefixProblem | null => {
+  const axes: EpicAxisName[] = ['priority', 'quarter', 'readiness']
+  const effective = {} as Record<EpicAxisName, string>
+  for (const axis of axes) {
+    const raw = (typed[axis] || '').trim()
+    if (raw === '') {
+      effective[axis] = DEFAULT_EPIC_AXIS_PREFIXES[axis]
+      continue
+    }
+    const clean = cleanEpicAxisPrefix(raw)
+    if (/\s/.test(clean)) return { kind: 'space', axis }
+    if (clean === '') return { kind: 'empty', axis }
+    effective[axis] = clean
+  }
+  const overlap = (a: string, b: string) => a.startsWith(b) || b.startsWith(a)
+  for (const [i, axis] of axes.entries()) {
+    if (overlap(effective[axis], HORIZON_LABEL_PREFIX)) return { kind: 'horizon', axis }
+    for (const other of axes.slice(i + 1)) {
+      if (overlap(effective[axis], effective[other])) return { kind: 'overlap', axis, other }
+    }
+  }
+  return null
+}
 
 export interface EpicLabelCount {
   label: string
@@ -401,11 +459,11 @@ export interface EpicLabelCount {
  * spellings differing only by case are one label, shown as first met; the list
  * is sorted by label.
  */
-export const epicLabelInventory = (rows: EpicRow[]): EpicLabelCount[] => {
+export const epicLabelInventory = (rows: EpicRow[], project?: Pick<Project, 'epicAxisPrefixes'> | null): EpicLabelCount[] => {
   const byKey = new Map<string, EpicLabelCount>()
   rows.forEach(row => {
     const seen = new Set<string>()
-    freeEpicLabels(row.meta).forEach(label => {
+    freeEpicLabels(row.meta, project).forEach(label => {
       const key = label.toLowerCase()
       if (seen.has(key)) return
       seen.add(key)
@@ -422,9 +480,9 @@ export const epicLabelInventory = (rows: EpicRow[]): EpicLabelCount[] => {
  * one axis are exclusive on an epic, so an AND would empty the view as soon as
  * two were picked. No selected label filters nothing.
  */
-export const matchesEpicLabels = (row: EpicRow, selected: string[]): boolean => {
+export const matchesEpicLabels = (row: EpicRow, selected: string[], project?: Pick<Project, 'epicAxisPrefixes'> | null): boolean => {
   if (selected.length === 0) return true
-  const carried = new Set(freeEpicLabels(row.meta).map(label => label.toLowerCase()))
+  const carried = new Set(freeEpicLabels(row.meta, project).map(label => label.toLowerCase()))
   return selected.some(label => carried.has(label.toLowerCase()))
 }
 

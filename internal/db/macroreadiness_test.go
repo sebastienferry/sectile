@@ -42,18 +42,18 @@ func TestReadinessFromLabels(t *testing.T) {
 		{[]string{"readiness:soon", "readiness:idea"}, "idea"},
 		{[]string{"ready"}, ""},
 	} {
-		if got := ReadinessFromLabels(tc.labels); got != tc.want {
+		if got := defaultAxisPrefixes.ReadinessFromLabels(tc.labels); got != tc.want {
 			t.Errorf("ReadinessFromLabels(%v) = %q, want %q", tc.labels, got, tc.want)
 		}
 	}
-	if got := ReadinessLabel("ready"); got != "readiness:ready" {
+	if got := defaultAxisPrefixes.ReadinessLabel("ready"); got != "readiness:ready" {
 		t.Errorf("ReadinessLabel(ready) = %q", got)
 	}
-	if got := ReadinessLabel(""); got != "" {
+	if got := defaultAxisPrefixes.ReadinessLabel(""); got != "" {
 		t.Errorf("ReadinessLabel('') = %q", got)
 	}
-	if !slices.Equal(AllReadinessLabels(), []string{"readiness:idea", "readiness:shaping", "readiness:ready"}) {
-		t.Errorf("AllReadinessLabels = %v", AllReadinessLabels())
+	if !slices.Equal(defaultAxisPrefixes.AllReadinessLabels(), []string{"readiness:idea", "readiness:shaping", "readiness:ready"}) {
+		t.Errorf("AllReadinessLabels = %v", defaultAxisPrefixes.AllReadinessLabels())
 	}
 }
 

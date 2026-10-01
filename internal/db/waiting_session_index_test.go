@@ -60,7 +60,7 @@ func planOf(t *testing.T, d *DB, postgres bool) string {
 }
 
 // The lookup every Sectile tool call runs reads the partial index of
-// migration 39 instead of scanning every activity (#497).
+// migration 40 instead of scanning every activity (#497).
 func TestSessionWaitLookupUsesTheIndex(t *testing.T) {
 	batchEngines(t, func(t *testing.T, d *DB) {
 		seedProjectAndUser(t, d)

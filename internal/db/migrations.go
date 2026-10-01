@@ -544,11 +544,19 @@ var migrations = []migration{
 		statements: []string{"ALTER TABLE projects ADD COLUMN roadmap_axis_writes INTEGER NOT NULL DEFAULT 0;"},
 	},
 	{
+		// The label prefixes of the epic priority, quarter and readiness, as a
+		// JSON object (#635). An empty object keeps the default prefixes every
+		// existing project reads and writes under.
+		version:    39,
+		name:       "projects.epic_axis_prefixes",
+		statements: []string{"ALTER TABLE projects ADD COLUMN epic_axis_prefixes TEXT NOT NULL DEFAULT '{}';"},
+	},
+	{
 		// Every Sectile tool call looks up the waits its session declared
 		// (#475), so that lookup must not scan every activity (#497). Nearly
 		// every row holds '' and only a waiting run holds a session, so the
 		// index is partial and stays as small as the number of waiting runs.
-		version: 39,
+		version: 40,
 		name:    "task_activities.waiting_session_index",
 		statements: []string{
 			"CREATE INDEX IF NOT EXISTS idx_task_activities_waiting_session ON task_activities (waiting_session) WHERE waiting_session <> '';",
