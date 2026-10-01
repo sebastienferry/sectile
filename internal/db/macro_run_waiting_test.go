@@ -10,7 +10,10 @@ import (
 // finished run apart (#648).
 func TestMacroRunReportsItsWait(t *testing.T) {
 	batchEngines(t, func(t *testing.T, d *DB) {
-		shapedMacro(t, d)
+		seedProjectAndUser(t, d)
+		if _, err := d.SaveMacroMeta("p1", "M-1", nil, nil, nil, nil); err != nil {
+			t.Fatalf("storing the macro: %v", err)
+		}
 		seedTask(t, d)
 		run, err := d.StartMacroRunBy("u1", "p1", "M-1", "refine-macro", "")
 		if err != nil {

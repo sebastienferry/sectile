@@ -604,11 +604,28 @@ var migrations = []migration{
 		},
 	},
 	{
+		// Where the todos of a macro are copied on its tracker, and how that
+		// copy stands (#663): the Jira comment id, the hash of the last body
+		// written, the last failure, the tracker whose personal token that
+		// failure lacked (#645) and the time of the last write. Empty is "never
+		// copied", which every existing macro reads as until its list is next
+		// saved.
+		version: 43,
+		name:    "macros.todos_mirror",
+		statements: []string{
+			"ALTER TABLE macros ADD COLUMN todos_mirror_ref TEXT NOT NULL DEFAULT '';",
+			"ALTER TABLE macros ADD COLUMN todos_mirror_hash TEXT NOT NULL DEFAULT '';",
+			"ALTER TABLE macros ADD COLUMN todos_mirror_error TEXT NOT NULL DEFAULT '';",
+			"ALTER TABLE macros ADD COLUMN todos_mirror_credential TEXT NOT NULL DEFAULT '';",
+			"ALTER TABLE macros ADD COLUMN todos_mirror_at TIMESTAMP NULL;",
+		},
+	},
+	{
 		// Every Sectile tool call looks up the waits its session declared
 		// (#475), so that lookup must not scan every activity (#497). Nearly
 		// every row holds '' and only a waiting run holds a session, so the
 		// index is partial and stays as small as the number of waiting runs.
-		version: 43,
+		version: 44,
 		name:    "task_activities.waiting_session_index",
 		statements: []string{
 			"CREATE INDEX IF NOT EXISTS idx_task_activities_waiting_session ON task_activities (waiting_session) WHERE waiting_session <> '';",

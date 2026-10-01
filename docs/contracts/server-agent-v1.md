@@ -256,12 +256,7 @@ nothing is created either: the answer is the folder itself, an empty `branch`,
 The server adds `projectId`, `macroKey` and the macro's `todos` when it relays
 the answer through the `prepare_macro_worktree` MCP tool, so a skill invoked by
 hand, which holds no API token, reads its input from the same call. `todos` is
-always present, an empty array when the macro has none. A skill writes the
-slicing back with `update_macro_todos(projectId, macroKey, todos, mode)` (#647):
-it writes the todos only, never the shaping, and nothing reaches the tracker.
-`mode` is `replace` (the default; a line with a known id keeps what it omits, an
-unknown id is refused, and dropping a line linked to a story is refused) or
-`append` (lines without ids, added after the stored ones).
+always present, an empty array when the macro has none (#647).
 
 `macro_spec_file` (`payload.macroKey`, `payload.framework`, `payload.specFile`,
 no task) reads one file of a macro's specification for the server's slicing
@@ -1140,10 +1135,10 @@ HTTP and stdio initialize with server name `sectile`; managed native registratio
 use the same name. The catalog is exactly `get_task`, `transition_stage`,
 `add_comment`, `list_tasks`, `get_project_context`, `list_projects`, `start_run`,
 `finish_run`, `create_task`, `update_task`, `report_waiting`,
-`prepare_macro_worktree`, `prepare_repository_worktree` and
-`update_macro_todos`. The stdio bridge refuses any other catalog, so the server
-and the agent are upgraded together. The former `sectile_` names are unsupported on both
-transports.
+`prepare_macro_worktree`, `prepare_repository_worktree`, `get_macro` and
+`update_macro_todos`. The stdio bridge refuses any other catalog, so a server
+and an agent from before `get_macro` (#663) must be upgraded together. The
+former `sectile_` names are unsupported on both transports.
 Tool schemas, return values, run ownership and managed-run validation are unchanged.
 
 Agent launch prompts, desktop exit reporting and built-in policy text use the

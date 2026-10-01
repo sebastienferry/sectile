@@ -403,6 +403,12 @@ interface AppContextType {
    * macro once the tracker accepted them, which the roadmap reloads on its own.
    */
   editMacroLabels: (projectId: string, key: string, patch: { add?: string[]; remove?: string[] }) => Promise<boolean>
+  /**
+   * Queues the tracker copy of a macro's todos at once (#663), for a copy that
+   * failed or was edited by hand. The roadmap reloads the macro when the write
+   * ends, as for any queued write.
+   */
+  republishMacroTodos: (projectId: string, key: string) => Promise<boolean>
   createStoryFromMacroTodo: (projectId: string, macroKey: string, todoId: string) => Promise<{ macro: MacroMeta | null; epic: MacroMeta | null; storyKey: string } | null>
   /**
    * Creates the stories of several slicing lines in one request (#634). The
@@ -2917,6 +2923,20 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   }
 
+  const republishMacroTodos = async (projectId: string, key: string): Promise<boolean> => {
+    const copy = t.operations.notifications.macros
+    try {
+      const res = await fetch(`${API_BASE}/projects/${encodeURIComponent(projectId)}/macros/${encodeURIComponent(key)}/todos-mirror`, { method: 'POST' })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.error || copy.todosRepublishRefused)
+      addToast({ type: 'info', title: format(copy.todosRepublished, { key }) })
+      return true
+    } catch (err: any) {
+      addToast({ type: 'error', title: copy.todosRepublishRefused, description: err.message })
+      return false
+    }
+  }
+
   // Une ligne de TODO devient une story dans le tracker, sous sa macro.
   const createStoryFromMacroTodo = async (
     projectId: string,
@@ -4370,6 +4390,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
         saveMacroMeta,
         editMacroLabels,
+        republishMacroTodos,
         saveEpicMeta,
         createStoryFromMacroTodo,
         createStoriesFromMacroTodos,

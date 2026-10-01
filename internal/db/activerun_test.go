@@ -177,6 +177,11 @@ func TestMigrationNineKeepsSurplusRunsAsConcurrent(t *testing.T) {
 		"DROP TABLE jira_oauth_flows",
 		"DROP TABLE tracker_oauth_apps",
 		"ALTER TABLE projects DROP COLUMN epic_axis_prefixes",
+		"ALTER TABLE macros DROP COLUMN todos_mirror_ref",
+		"ALTER TABLE macros DROP COLUMN todos_mirror_hash",
+		"ALTER TABLE macros DROP COLUMN todos_mirror_error",
+		"ALTER TABLE macros DROP COLUMN todos_mirror_credential",
+		"ALTER TABLE macros DROP COLUMN todos_mirror_at",
 		"DELETE FROM schema_migrations WHERE version >= 9",
 		`INSERT INTO task_activities (id, task_id, skill_id, skill_name, action, status, created_at) VALUES
 			('old-skill', 't1', 'clarify', 'clarify', 'run', 'running', '2026-09-01 10:00:00'),

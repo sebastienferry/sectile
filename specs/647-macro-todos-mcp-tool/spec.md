@@ -5,6 +5,15 @@
 - Clarification: `docs/clarifications/647.md` (rounds 1 and 2)
 - Framework: Spec Kit
 
+> **Superseded in part (2026-10-01).** #663 (PR #673) merged its own
+> `get_macro` and `update_macro_todos` MCP tools into `main` while this batch
+> was open. That full-list replace is the tool now, and this batch dropped its
+> own implementation of US1 to US3 (append mode, omitted fields kept) in its
+> favour. Still delivered here: US4, `prepare_macro_worktree` always returning
+> `todos`. Not delivered: the refusal to drop a todo linked to a story
+> (US2.2), which the owner chose in the clarification of #647 but which the
+> merged tool does not do. It is left to the owner as a follow-up decision.
+
 ## Summary
 
 A new MCP tool, `update_macro_todos`, writes a macro's slicing lines without

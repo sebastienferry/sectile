@@ -6,7 +6,7 @@ Go, `internal/db`, SQLite and PostgreSQL through the numbered migrations.
 
 ## Design
 
-- Migration 43 (next free number; 39 to 42 went to #635 and #654), `task_activities.waiting_session_index`:
+- Migration 44 (next free number; 39 to 43 went to #635, #654 and #663), `task_activities.waiting_session_index`:
   `CREATE INDEX IF NOT EXISTS idx_task_activities_waiting_session ON
   task_activities (waiting_session) WHERE waiting_session <> '';` Both engines
   accept the same statement.

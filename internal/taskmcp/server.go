@@ -119,22 +119,33 @@ type macroWorktreeInput struct {
 	MacroKey  string `json:"macroKey" jsonschema:"macro key, for example M-7"`
 }
 
-// macroTodoInput is one slicing line of update_macro_todos. An omitted field
-// keeps the stored line's value.
-type macroTodoInput struct {
-	ID                   string  `json:"id,omitempty" jsonschema:"id of a line the macro holds, as prepare_macro_worktree returned it; omit for a new line"`
-	Text                 string  `json:"text" jsonschema:"the line's text"`
-	Done                 *bool   `json:"done,omitempty" jsonschema:"whether the line is checked; omitted keeps the stored value"`
-	StoryKey             *string `json:"storyKey,omitempty" jsonschema:"key of the story the line became; omitted keeps the stored value"`
-	TargetProjectID      *string `json:"targetProjectId,omitempty" jsonschema:"Sectile project the line's story is created in; omitted keeps the stored value"`
-	TargetTrackerProject *string `json:"targetTrackerProject,omitempty" jsonschema:"roadmap project (Jira key) the line's story is created in; omitted keeps the stored value"`
+// macroInput names one macro of one project: a macro key alone can match
+// another project's macro.
+type macroInput struct {
+	ProjectID string `json:"projectId" jsonschema:"project primary key"`
+	MacroKey  string `json:"macroKey" jsonschema:"macro key, for example PE-12 or M-7"`
 }
 
+// macroTodosInput is the full ordered list update_macro_todos saves.
 type macroTodosInput struct {
 	ProjectID string           `json:"projectId" jsonschema:"project primary key"`
-	MacroKey  string           `json:"macroKey" jsonschema:"macro key, for example PE-1078"`
-	Todos     []macroTodoInput `json:"todos" jsonschema:"the slicing lines"`
-	Mode      string           `json:"mode,omitempty" jsonschema:"replace (default): the lines become the list; append: the lines are added after the stored ones"`
+	MacroKey  string           `json:"macroKey" jsonschema:"macro key, for example PE-12 or M-7"`
+	Todos     []macroTodoInput `json:"todos" jsonschema:"the full list in the order of execution, top first"`
+}
+
+// macroTodoInput is one line of it. The story key and the origin a todo of
+// get_macro carries are accepted, so an agent can send a list back as it read
+// it, and ignored: only story creation attaches a line to a story, and only an
+// import says where a line comes from.
+type macroTodoInput struct {
+	ID                   string `json:"id,omitempty" jsonschema:"id of an existing todo, from get_macro; omit for a new todo"`
+	Text                 string `json:"text" jsonschema:"one-line wording of the todo"`
+	Done                 bool   `json:"done,omitempty"`
+	TargetProjectID      string `json:"targetProjectId,omitempty" jsonschema:"Sectile project the todo's story is created in, empty for the macro's own"`
+	TargetTrackerProject string `json:"targetTrackerProject,omitempty" jsonschema:"roadmap Jira project key the todo's story is created in"`
+	StoryKey             string `json:"storyKey,omitempty" jsonschema:"ignored: an existing todo keeps its story key"`
+	SourceKind           string `json:"sourceKind,omitempty" jsonschema:"ignored: an existing todo keeps its origin"`
+	SourceEntry          string `json:"sourceEntry,omitempty" jsonschema:"ignored: an existing todo keeps its origin"`
 }
 
 // runTarget says whether a run input names a task or a macro, and refuses one
@@ -442,24 +453,30 @@ func NewServerWithCallers(database *db.DB, sessions *SessionRegistry, resolve Ca
 			}
 			return nil, workspace, nil
 		})
-	mcp.AddTool(s, &mcp.Tool{Name: "update_macro_todos", Description: "Write a macro's slicing lines (todos) and nothing else: its shaping, framing, horizon and title are untouched, and nothing is written to the tracker. In replace mode (the default) the given lines become the list: a line with the id prepare_macro_worktree returned updates that line and keeps what it omits, a line without an id is new, an unknown id is refused, and dropping a line linked to a story is refused. In append mode the lines, without ids, are added after the stored ones. Write a slicing only once the user confirmed it. Returns the saved lines with their ids."},
-		func(ctx context.Context, req *mcp.CallToolRequest, in macroTodosInput) (*mcp.CallToolResult, any, error) {
-			if err := requireCaller(callerOf(resolve, req)); err != nil {
-				return nil, nil, err
-			}
-			if strings.TrimSpace(in.ProjectID) == "" || strings.TrimSpace(in.MacroKey) == "" {
-				return nil, nil, fmt.Errorf("projectId and macroKey are required")
-			}
-			lines := make([]db.MacroTodoLine, 0, len(in.Todos))
-			for _, todo := range in.Todos {
-				lines = append(lines, db.MacroTodoLine{ID: todo.ID, Text: todo.Text, Done: todo.Done, StoryKey: todo.StoryKey,
-					TargetProjectID: todo.TargetProjectID, TargetTrackerProject: todo.TargetTrackerProject})
-			}
-			todos, err := database.UpdateMacroTodos(in.ProjectID, in.MacroKey, lines, in.Mode)
+	mcp.AddTool(s, &mcp.Tool{Name: "get_macro", Description: "Read one macro (epic) of a project: title, description, framing comment, horizon, its todos in the order of execution (id, text, done, storyKey, target, origin) and todosMirror, the status of their one-way copy on the tracker. Writes nothing."},
+		func(ctx context.Context, req *mcp.CallToolRequest, in macroInput) (*mcp.CallToolResult, any, error) {
+			macro, err := database.GetMacro(in.ProjectID, in.MacroKey)
 			if err != nil {
 				return nil, nil, err
 			}
-			return nil, map[string]any{"projectId": in.ProjectID, "macroKey": in.MacroKey, "todos": todos}, nil
+			return nil, map[string]any{"macro": macro}, nil
+		})
+	mcp.AddTool(s, &mcp.Tool{Name: "update_macro_todos", Description: "Save the full ordered todo list of a macro, top first. A todo with the id of an existing one keeps its story key and origin and takes the given text, done and target; a todo without id is created; an existing todo the list omits is removed. A blank text, an unknown id or a repeated id refuses the whole call and saves nothing. Story keys cannot be set here. Save only a list the owner confirmed. Answers with the saved macro and todosMirror; the tracker copy is written shortly after."},
+		func(ctx context.Context, req *mcp.CallToolRequest, in macroTodosInput) (*mcp.CallToolResult, any, error) {
+			caller := callerOf(resolve, req)
+			if err := requireCaller(caller); err != nil {
+				return nil, nil, err
+			}
+			items := make([]db.MacroTodoInput, 0, len(in.Todos))
+			for _, todo := range in.Todos {
+				items = append(items, db.MacroTodoInput{ID: todo.ID, Text: todo.Text, Done: todo.Done,
+					TargetProjectID: todo.TargetProjectID, TargetTrackerProject: todo.TargetTrackerProject})
+			}
+			macro, err := database.ReplaceMacroTodos(tracker.WithActingUser(ctx, caller.UserID), in.ProjectID, in.MacroKey, items)
+			if err != nil {
+				return nil, nil, err
+			}
+			return nil, map[string]any{"macro": macro, "todosMirror": macro.TodosMirror}, nil
 		})
 	mcp.AddTool(s, &mcp.Tool{Name: "prepare_repository_worktree", Description: "Prepare the task's worktree in another repository than its primary one, on the caller's local agent, on the task's branch: reused wherever that branch is already checked out, else created from the remote branch when it exists, else from the checkout's current HEAD. The repository is one of the project's repositories, or a Git folder attached to the project on the caller's workstation, given by its remote URL or host/path; it must have a folder on that workstation. Call it before changing a context folder (SECTILE_REPOSITORIES role \"context\"): context folders are read-only. A local folder (role \"local\", no remote) is changed in place without it, with no worktree and no pull request. The repository then needs its own pull request, given in transition_stage prUrls. The workstation's project settings are read at each call, so a folder attached after the session started is accepted; SECTILE_REPOSITORIES lists the folders known when the run was launched and is not refreshed. Returns repository, path and branch."},
 		func(ctx context.Context, req *mcp.CallToolRequest, in repositoryWorktreeInput) (*mcp.CallToolResult, any, error) {
