@@ -75,7 +75,7 @@ type todosMirrorScope struct {
 
 func (d *DB) todosMirrorScope(proj *models.Project, milestones map[string]bool) todosMirrorScope {
 	scope := todosMirrorScope{proj: proj, milestones: milestones}
-	if proj == nil || proj.IssueTracker != "jira" || githubMilestoneMacros(proj) {
+	if proj == nil || proj.IssueTracker != "jira" {
 		return scope
 	}
 	ts, err := d.TrackerForProject(proj)
@@ -104,14 +104,8 @@ func (s todosMirrorScope) eligibility(key string) (kind string, reason string) {
 		return "", "projet introuvable"
 	case strings.EqualFold(proj.IssueTracker, "gitlab"):
 		return "", "une macro GitLab n'a pas de ticket qui puisse porter la liste"
-	case githubMilestoneMacros(proj):
-		if !isMilestoneKey(key) {
-			return "", "macro sans milestone GitHub"
-		}
-		if s.milestones != nil && !s.milestones[strings.ToUpper(key)] {
-			return "", fmt.Sprintf("le milestone %s n'existe pas sur GitHub", key)
-		}
-		return models.MacroTodosMirrorGithubDescription, ""
+	// Jira first: a Jira project may also name a GitHub repository for its
+	// code, and its epics are still Jira epics.
 	case proj.IssueTracker == "jira":
 		if isForeignMacro(key, proj) {
 			return "", "épic d'un autre projet Jira, que Sectile lit sans y écrire"
@@ -123,6 +117,14 @@ func (s todosMirrorScope) eligibility(key string) (kind string, reason string) {
 			return "", s.refusal
 		}
 		return models.MacroTodosMirrorJiraComment, ""
+	case githubMilestoneMacros(proj):
+		if !isMilestoneKey(key) {
+			return "", "macro sans milestone GitHub"
+		}
+		if s.milestones != nil && !s.milestones[strings.ToUpper(key)] {
+			return "", fmt.Sprintf("le milestone %s n'existe pas sur GitHub", key)
+		}
+		return models.MacroTodosMirrorGithubDescription, ""
 	default:
 		return "", "projet local"
 	}

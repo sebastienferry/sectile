@@ -119,6 +119,8 @@ func TestTodosMirrorEligibility(t *testing.T) {
 	github := &models.Project{ID: "gh", IssueTracker: "github", GithubRepo: "acme/app"}
 	gitlab := &models.Project{ID: "gl", IssueTracker: "gitlab", GithubRepo: "acme/app"}
 	local := &models.Project{ID: "lo", IssueTracker: "local"}
+	jiraWithCode := *jira
+	jiraWithCode.GithubRepo = "acme/app"
 	cases := []struct {
 		proj       *models.Project
 		milestones map[string]bool
@@ -129,6 +131,7 @@ func TestTodosMirrorEligibility(t *testing.T) {
 		{jira, nil, "PE-12", models.MacroTodosMirrorJiraComment, ""},
 		{jira, nil, "DS-4", "", "autre projet Jira"},
 		{jira, nil, "M-3", "", "sans épic Jira"},
+		{&jiraWithCode, nil, "PE-12", models.MacroTodosMirrorJiraComment, ""},
 		{github, nil, "M-3", models.MacroTodosMirrorGithubDescription, ""},
 		{github, map[string]bool{"M-3": true}, "M-3", models.MacroTodosMirrorGithubDescription, ""},
 		{github, map[string]bool{"M-3": true}, "M-4", "", "n'existe pas"},
