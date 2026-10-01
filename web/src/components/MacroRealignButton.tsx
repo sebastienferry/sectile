@@ -4,7 +4,8 @@ import { useAgentStatus } from '../hooks/useAgentStatus'
 import { useCurrentUser } from '../hooks/useCurrentUser'
 import { useApp } from '../context/AppContext'
 import { format } from '../lib/i18n'
-import { activeMacroRun, cancelMacroRun, fetchMacroRuns, launchMacroSkill, macroLaunchBlocker, type MacroRun } from '../lib/macroRuns'
+import { activeMacroRun, cancelMacroRun, fetchMacroRuns, launchMacroSkill, macroLaunchBlocker, macroRunLabel, type MacroRun } from '../lib/macroRuns'
+import { RunStateGlyph } from './RunStateGlyph'
 
 interface Props {
   projectId: string
@@ -95,10 +96,13 @@ export const MacroRealignButton: React.FC<Props> = ({ projectId, macroKey, onErr
         onClick={launch}
         className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold text-sky-300 bg-sky-500/10 border border-sky-500/30 hover:bg-sky-500/20 disabled:opacity-50 cursor-pointer"
         title={blocker || strings.title}
-        data-macro-run={active ? active.status : undefined}
+        data-macro-run={active ? (active.waitingSince ? 'waiting' : active.status) : undefined}
       >
-        {launching || active ? <Loader2 size={10} className="animate-spin text-sky-400" /> : <GitCompareArrows size={10} className="text-sky-400" />}
-        <span>{active ? strings.running : strings.action}</span>
+        {/* A run waiting on its user shows the glyph a task card shows (#648). */}
+        {active?.waitingSince
+          ? <RunStateGlyph state="waiting" size={10} className="animate-pulse" />
+          : launching || active ? <Loader2 size={10} className="animate-spin text-sky-400" /> : <GitCompareArrows size={10} className="text-sky-400" />}
+        <span>{active ? macroRunLabel(active, strings) : strings.action}</span>
       </button>
       {active && (
         <button

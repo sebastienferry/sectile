@@ -201,6 +201,36 @@ func pullRequestLinkLast(links []models.TaskPullRequest, url string) []models.Ta
 	return links
 }
 
+// noRepositoryChangeNotice ends the report of a stage recorded with the
+// statement that the task changed no repository (#584), so the ticket says why
+// it carries no pull request.
+const noRepositoryChangeNotice = "No pull request: this task changed no repository."
+
+// noRepositoryChangeEvidence accepts the statement that a task changed no
+// repository in place of the pull request a stage requires (#584). The server
+// cannot see the branch, so it refuses what it can see: a pull request recorded
+// on the task's branch, or a repository recorded as changed through
+// prepare_repository_worktree. Both say the task did change a repository. A
+// stage that requires no pull request takes the statement as it is.
+func (d *DB) noRepositoryChangeEvidence(task *models.Task, skillID, branch string) (stagePRSet, error) {
+	if !d.stagePRRequired(task, skillID) {
+		return stagePRSet{}, nil
+	}
+	for _, recorded := range task.PrLinks {
+		if recorded.Branch == "" || recorded.Branch == branch {
+			return stagePRSet{}, fmt.Errorf("%s records pull request %s on its branch, so it changed a repository: give that pull request instead of noRepositoryChange", task.Key, recorded.URL)
+		}
+	}
+	project, err := d.GetProjectByID(task.ProjectID)
+	if err != nil {
+		return stagePRSet{}, fmt.Errorf("read project for the stage PR lookup: %w", err)
+	}
+	if changed := taskChangedRepositories(project, task); len(changed) > 0 {
+		return stagePRSet{}, fmt.Errorf("%s changed %s through prepare_repository_worktree: give the pull request of each changed repository instead of noRepositoryChange", task.Key, strings.Join(changed, ", "))
+	}
+	return stagePRSet{notice: noRepositoryChangeNotice}, nil
+}
+
 // prDeferredNotice is added to the specified report of a project whose pull
 // request would open at specification, when the workstation drops its
 // specification artefacts and the branch therefore has nothing to show yet.

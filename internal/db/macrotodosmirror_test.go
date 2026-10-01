@@ -552,6 +552,12 @@ func TestReplaceMacroTodosMergesTheFullList(t *testing.T) {
 			t.Errorf("%s must be refused", name)
 		}
 	}
+	// A line linked to a story is removed from the panel only (#647): a list
+	// that leaves it out is refused, and the refusal names it.
+	if _, err := database.ReplaceMacroTodos(as("ada"), proj.ID, "PE-12", []MacroTodoInput{{ID: "c", Text: "Kept, reworded"}}); err == nil ||
+		!strings.Contains(err.Error(), "PE-41") || !strings.Contains(err.Error(), "Attached, reworded") {
+		t.Errorf("dropping the line linked to PE-41 must be refused and name it: %v", err)
+	}
 	after, _ := database.GetMacro(proj.ID, "PE-12")
 	if len(after.Todos) != 3 || after.Todos[0].Text != "Kept, reworded" {
 		t.Fatalf("a refused call saves nothing: %+v", after.Todos)
