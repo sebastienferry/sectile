@@ -9,7 +9,7 @@ test('Claude chat renders structured output safely and sends messages without a 
  const source={id:'source',taskId:'source',taskKey:'#1',projectId:'project',skill:'implement',status:'completed',directory:'/tmp/project',sessionId:'source'}
  const chat={id:'chat',taskId:'',projectId:'project',kind:'console',provider:'claude',conversation:true,headless:true,status:'running',directory:'/tmp/project'}
  const runs=[source],events=[{kind:'notice',text:'Claude Code conversation · experimental',detail:'Edits accepted; approvals unavailable.'}]
- let sentMode='',busy=false,partial='',interrupts=0,joined=[],terminals=[],approvals=[],decisions=[],readOnly=false,attachments=0,message='',effort='',context
+ let sentMode='',mcpState={status:'needs-auth',detail:'! Needs authentication'},mcpChecks=0,busy=false,partial='',interrupts=0,joined=[],terminals=[],approvals=[],decisions=[],readOnly=false,attachments=0,message='',effort='',context
  const server=http.createServer((req,res)=>{
   res.setHeader('Content-Type','application/json')
   if(req.url==='/desktop/status'){res.end(JSON.stringify({connected:true,capabilities:['claude-conversation','conversation-controls','conversation-queue']}));return}
@@ -22,9 +22,10 @@ test('Claude chat renders structured output safely and sends messages without a 
   }
   if(req.url==='/desktop/conversation-terminal'){let body='';req.on('data',chunk=>body+=chunk);req.on('end',()=>{terminals.push(JSON.parse(body).runId);res.end(JSON.stringify({opened:true}))});return}
   if(req.url==='/desktop/conversation?id=chat'){
-   if(req.method==='GET'){res.end(JSON.stringify({id:'chat',events:events.map(e=>JSON.stringify(e)),version:events.length,busy,readOnly,effort,context,partial,approvals,commands:[{name:'clarify-issue',description:'Clarify a <b>ticket</b>',argumentHint:'<KEY>'},{name:'specify-issue',description:'Write the spec'},{name:'code-review'}]}));return}
+   if(req.method==='GET'){res.end(JSON.stringify({id:'chat',events:events.map(e=>JSON.stringify(e)),version:events.length,busy,readOnly,effort,context,partial,approvals,sectileMcp:mcpState,commands:[{name:'clarify-issue',description:'Clarify a <b>ticket</b>',argumentHint:'<KEY>'},{name:'specify-issue',description:'Write the spec'},{name:'code-review'}]}));return}
    let body='';req.on('data',chunk=>body+=chunk);req.on('end',()=>{
     const sent=JSON.parse(body)
+    if(sent.checkMcp){mcpChecks++;mcpState={status:'connected',detail:'✔ Connected'};res.writeHead(202).end(JSON.stringify({accepted:true}));return}
     if(sent.approval){decisions.push(sent.approval);const asked=approvals.find(item=>item.id===sent.approval.id);approvals=approvals.filter(item=>item.id!==sent.approval.id);events.push({kind:'approval',text:sent.approval.decision,tool:asked.tool,toolId:asked.toolUseId});res.end(JSON.stringify({accepted:true}));return}
     if(busy&&sent.message){joined.push(sent.message);events.push({kind:'user',text:sent.message});res.writeHead(202).end(JSON.stringify({accepted:true,joined:true}));return}
     if(JSON.parse(body).interrupt){interrupts++;busy=false;partial='';events.push({kind:'notice',text:'Interrupted'});res.writeHead(202).end(JSON.stringify({accepted:true}));return}
@@ -64,6 +65,13 @@ test('Claude chat renders structured output safely and sends messages without a 
   const input=page.getByLabel('Message Claude Code')
   await expect(input).toBeEnabled()
   await expect(page.locator('.conversation-context')).toBeHidden()
+  // The Sectile MCP chip says whether Claude reaches Sectile, and checks again.
+  const mcpChip=page.locator('.conversation-mcp')
+  await expect(mcpChip).toHaveAttribute('data-status','needs-auth')
+  await expect(mcpChip).toHaveAttribute('aria-label','Sectile MCP: needs authentication')
+  await mcpChip.click()
+  await expect.poll(()=>mcpChecks).toBe(1)
+  await expect(mcpChip).toHaveAttribute('data-status','connected')
   // Slash commands complete from what Claude offers, without sending.
   const commandList=page.getByRole('listbox',{name:'Slash commands'})
   await input.fill('/iss')

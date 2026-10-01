@@ -150,3 +150,109 @@ func (d *agentDaemon) startConversationMCPLocked(run *controlledRun) {
 		conversationWrite(run.trace, kind, text, "")
 	}()
 }
+
+// sectileMCPName is the name Sectile has its MCP server registered under
+// (shared/mcpConfig.mjs), the one --allowedTools=mcp__sectile names.
+const sectileMCPName = "sectile"
+
+// conversationMCP is whether Claude reaches Sectile's MCP server from the
+// conversation: connected, needs-auth, failed, pending, missing (not
+// registered) or unknown, with what the check said.
+type conversationMCP struct {
+	Status string `json:"status"`
+	Detail string `json:"detail,omitempty"`
+}
+
+// mcpStatus maps what Claude Code says of a server to a conversationMCP
+// status.
+func mcpStatus(text string) string {
+	lower := strings.ToLower(text)
+	switch {
+	case strings.Contains(lower, "connected") && !strings.Contains(lower, "not connected"):
+		return "connected"
+	case strings.Contains(lower, "auth"):
+		return "needs-auth"
+	case strings.Contains(lower, "fail"), strings.Contains(lower, "not connected"), strings.Contains(lower, "error"):
+		return "failed"
+	case strings.Contains(lower, "pending"), strings.Contains(lower, "connecting"):
+		return "pending"
+	}
+	return "unknown"
+}
+
+// parseMCPGet reads `claude mcp get sectile`.
+func parseMCPGet(output string) conversationMCP {
+	if strings.Contains(output, "No MCP server named") {
+		return conversationMCP{Status: "missing", Detail: "Sectile's MCP server is not registered in Claude Code."}
+	}
+	var details []string
+	status := "unknown"
+	for _, line := range strings.Split(output, "\n") {
+		line = strings.TrimSpace(line)
+		if value, ok := strings.CutPrefix(line, "Status:"); ok {
+			status = mcpStatus(value)
+			details = append(details, strings.TrimSpace(value))
+		} else if value, ok := strings.CutPrefix(line, "URL:"); ok {
+			details = append(details, strings.TrimSpace(value))
+		}
+	}
+	return conversationMCP{Status: status, Detail: strings.Join(details, " · ")}
+}
+
+// sectileMCPCheckTimeout bounds `claude mcp get sectile`.
+const sectileMCPCheckTimeout = 30 * time.Second
+
+func (d *agentDaemon) checkSectileMCP(directory string, env map[string]string) conversationMCP {
+	ctx, cancel := context.WithTimeout(context.Background(), sectileMCPCheckTimeout)
+	defer cancel()
+	var output limitedConversationBuffer
+	cmd := agentexec.Hidden(exec.CommandContext(ctx, "claude", "mcp", "get", sectileMCPName))
+	cmd.Dir, cmd.Env = directory, commandEnv(env)
+	cmd.Stdout, cmd.Stderr = &output, &output
+	err := cmd.Run()
+	result := parseMCPGet(output.String())
+	if result.Status == "unknown" && err != nil {
+		result.Detail = "claude mcp get " + sectileMCPName + " failed: " + err.Error()
+	}
+	return result
+}
+
+// checkSectileMCPLocked reads, in the background, whether Claude reaches
+// Sectile's MCP server here. Each turn's init frame refreshes it. The queue
+// lock is held.
+func (d *agentDaemon) checkSectileMCPLocked(run *controlledRun) {
+	c := run.conversation
+	if c.checkingMCP || run.desktop.Directory == "" {
+		return
+	}
+	c.checkingMCP = true
+	env := map[string]string{"SECTILE_PROJECT_ID": run.desktop.ProjectID}
+	for key, value := range c.env {
+		env[key] = value
+	}
+	directory := run.desktop.Directory
+	check := d.checkSectileMCP
+	if d.checkMCPFn != nil {
+		check = d.checkMCPFn
+	}
+	go func() {
+		result := check(directory, env)
+		d.queue.mu.Lock()
+		defer d.queue.mu.Unlock()
+		c.checkingMCP = false
+		c.sectileMCP = &result
+	}()
+}
+
+// initMCPServer reads Sectile's server out of an init frame's mcp_servers.
+func initMCPServer(servers []struct {
+	Name   string `json:"name"`
+	Status string `json:"status"`
+}) conversationMCP {
+	for _, server := range servers {
+		if server.Name == sectileMCPName {
+			return conversationMCP{Status: mcpStatus(server.Status), Detail: server.Status}
+		}
+	}
+	return conversationMCP{Status: "missing", Detail: "Sectile's MCP server is not registered in Claude Code."}
+}

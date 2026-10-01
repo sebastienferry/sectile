@@ -91,6 +91,8 @@ type agentDaemon struct {
 	// probeCommandsFn replaces the Claude started to list a conversation's
 	// slash commands, in tests.
 	probeCommandsFn func(cmd *exec.Cmd) []conversationSlash
+	// checkMCPFn replaces the check of Sectile's MCP server, in tests.
+	checkMCPFn func(directory string, env map[string]string) conversationMCP
 	// capabilities serializes the engine reports sent to the server (#305).
 	capabilities capabilityReporter
 	// customSkills records the custom skills dispatches ran since the agent

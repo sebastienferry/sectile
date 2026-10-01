@@ -30,6 +30,7 @@ func conversationFixture(t *testing.T) (*agentDaemon, string) {
 	d := &agentDaemon{loopback: loopbackServer{desktopToken: "private"}}
 	// No real Claude is started to list commands; a test that wants a list sets its own.
 	d.probeCommandsFn = func(*exec.Cmd) []conversationSlash { return nil }
+	d.checkMCPFn = func(string, map[string]string) conversationMCP { return conversationMCP{Status: "unknown"} }
 	d.queue.runs = map[string]*controlledRun{"source": {desktop: desktopRun{ProjectID: "project", Provider: "claude", Directory: t.TempDir(), Branch: "feat/test"}}}
 	w := conversationRequest(d, "POST", "/desktop/conversation", `{"sourceRunId":"source"}`, "private")
 	if w.Code != http.StatusCreated {
@@ -1092,4 +1093,83 @@ printf 'Checking MCP server health…\n\nsectile: http://127.0.0.1/mcp - ✔ Con
 	if busy {
 		t.Fatal("/mcp started a turn")
 	}
+}
+
+func TestSectileMCPStatusIsReadFromClaudeCode(t *testing.T) {
+	got := parseMCPGet("sectile:\n  Scope: User config\n  Status: ✔ Connected\n  Type: http\n  URL: https://sectile.example/mcp\n")
+	if got.Status != "connected" || got.Detail != "✔ Connected · https://sectile.example/mcp" {
+		t.Errorf("connected = %+v", got)
+	}
+	for output, want := range map[string]string{
+		"  Status: ! Needs authentication\n":                   "needs-auth",
+		"  Status: ✗ Failed to connect\n":                       "failed",
+		`No MCP server named "sectile". Configured servers: x`: "missing",
+		"garbage":                                               "unknown",
+	} {
+		if got := parseMCPGet(output).Status; got != want {
+			t.Errorf("%q = %s, want %s", output, got, want)
+		}
+	}
+	type server = struct {
+		Name   string `json:"name"`
+		Status string `json:"status"`
+	}
+	if got := initMCPServer([]server{{"other", "connected"}, {"sectile", "failed"}}); got.Status != "failed" {
+		t.Errorf("init failed = %+v", got)
+	}
+	if got := initMCPServer([]server{{"other", "connected"}}); got.Status != "missing" {
+		t.Errorf("init without sectile = %+v", got)
+	}
+}
+
+// The status is checked before the first turn, checked again on request, and
+// refreshed by each turn's init frame.
+func TestConversationReportsSectileMCPConnectivity(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake CLI is a POSIX script")
+	}
+	testhome.Temp(t)
+	d, id := conversationFixture(t)
+	checks := make(chan struct{}, 4)
+	d.checkMCPFn = func(string, map[string]string) conversationMCP {
+		checks <- struct{}{}
+		return conversationMCP{Status: "needs-auth"}
+	}
+	wait := func(want string) {
+		t.Helper()
+		deadline := time.Now().Add(5 * time.Second)
+		for !strings.Contains(conversationRequest(d, "GET", "/desktop/conversation?id="+id, "", "private").Body.String(), `"sectileMcp":{"status":"`+want+`"`) {
+			if time.Now().After(deadline) {
+				t.Fatalf("the status never became %s", want)
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
+	wait("needs-auth")
+	if w := conversationRequest(d, "POST", "/desktop/conversation?id="+id, `{"checkMcp":true}`, "private"); w.Code != 202 {
+		t.Fatalf("check: %d", w.Code)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for len(checks) < 2 {
+		if time.Now().After(deadline) {
+			t.Fatal("checking again ran no check")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	bin := t.TempDir()
+	script := `#!/bin/sh
+read -r init
+read -r message
+printf '%s\n' '{"type":"system","subtype":"init","model":"m","session_id":"11111111-1111-4111-8111-111111111111","mcp_servers":[{"name":"sectile","status":"connected"}]}'
+printf '%s\n' '{"type":"result","is_error":false,"result":"ok","session_id":"11111111-1111-4111-8111-111111111111"}'
+`
+	if err := os.WriteFile(filepath.Join(bin, "claude"), []byte(script), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	if w := conversationRequest(d, "POST", "/desktop/conversation?id="+id, `{"message":"hi"}`, "private"); w.Code != 202 {
+		t.Fatalf("send: %d", w.Code)
+	}
+	waitConversationIdle(t, d, d.queue.runs[id])
+	wait("connected")
 }

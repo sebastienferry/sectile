@@ -86,7 +86,11 @@ command (`/usage`, `/context`, `/cost`): its output, laid out for a terminal, is
 kept as `command_output` and shown as such, a status line tinted by its mark.
 `/mcp` alone is not sent to Claude, whose print mode only counts the servers:
 the agent runs `claude mcp list` in the conversation's directory, which checks
-each server, and shows its output; Claude is not told.
+each server, and shows its output; Claude is not told. The composer's
+**Sectile MCP** chip shows whether Claude reaches the `sectile` server: the
+agent checks it with `claude mcp get sectile` when the conversation opens or
+the chip is clicked, and each turn's init frame refreshes it from its
+`mcp_servers`.
 
 Typing `/` at the start of a message completes the slash commands Claude offers
 in the conversation's directory, the list its `initialize` response carries.

@@ -63,6 +63,10 @@ type claudeConversation struct {
 	// completion; loadingCommands says a probe is reading them.
 	commands        []conversationSlash
 	loadingCommands bool
+	// sectileMCP is whether Claude reaches Sectile's MCP server here, nil
+	// until checked; checkingMCP says a check runs.
+	sectileMCP  *conversationMCP
+	checkingMCP bool
 	// waitingForApproval says the run's WaitingSince mark is the agent's own,
 	// raised while a tool call or a question waits for the owner, rather than
 	// one the session declared.
@@ -210,6 +214,8 @@ func (d *agentDaemon) desktopConversation(w http.ResponseWriter, r *http.Request
 		Mode  string `json:"mode"`
 		// Interrupt stops the turn in progress and keeps the conversation.
 		Interrupt bool `json:"interrupt"`
+		// CheckMCP checks again whether Claude reaches Sectile's MCP server.
+		CheckMCP bool `json:"checkMcp"`
 		// Approval answers a tool call the turn is waiting on.
 		Approval *struct {
 			ID       string            `json:"id"`
@@ -258,8 +264,14 @@ func (d *agentDaemon) desktopConversation(w http.ResponseWriter, r *http.Request
 			response["busy"], response["effort"], response["model"], response["mode"] = c.busy, c.effort, run.desktop.Model, conversationMode(c.mode)
 			response["approvals"] = append([]conversationApproval{}, c.approvals...)
 			response["commands"] = c.commands
-			if c.commands == nil && !run.restored && !run.canceled {
-				d.loadConversationCommandsLocked(run)
+			response["sectileMcp"] = c.sectileMCP
+			if !run.restored && !run.canceled {
+				if c.commands == nil {
+					d.loadConversationCommandsLocked(run)
+				}
+				if c.sectileMCP == nil {
+					d.checkSectileMCPLocked(run)
+				}
 			}
 			if c.busy && c.partial != "" {
 				response["partial"] = c.partial
@@ -270,6 +282,17 @@ func (d *agentDaemon) desktopConversation(w http.ResponseWriter, r *http.Request
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(response)
+		return
+	}
+	if input.CheckMCP {
+		if run.conversation == nil || run.restored || run.canceled {
+			http.Error(w, "Conversation is unavailable", http.StatusConflict)
+			return
+		}
+		d.checkSectileMCPLocked(run)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusAccepted)
+		_ = json.NewEncoder(w).Encode(map[string]bool{"accepted": true})
 		return
 	}
 	if input.Approval != nil {
@@ -529,7 +552,11 @@ func (d *agentDaemon) conversationTurn(run *controlledRun, prompt string) {
 			ModelUsage map[string]struct {
 				ContextWindow int `json:"contextWindow"`
 			} `json:"modelUsage"`
-			Event conversationStream `json:"event"`
+			Event      conversationStream `json:"event"`
+			MCPServers []struct {
+				Name   string `json:"name"`
+				Status string `json:"status"`
+			} `json:"mcp_servers"`
 		}
 		if json.Unmarshal([]byte(line), &frame) == nil && frame.Type != "" {
 			// Claude asks before using a tool its rules do not allow; the
@@ -575,6 +602,11 @@ func (d *agentDaemon) conversationTurn(run *controlledRun, prompt string) {
 			}
 			if frame.Type == "system" && frame.Model != "" {
 				mainModel = frame.Model
+			}
+			// The init frame says which MCP servers this turn reached.
+			if frame.Type == "system" && frame.MCPServers != nil {
+				status := initMCPServer(frame.MCPServers)
+				run.conversation.sectileMCP = &status
 			}
 			// modelUsage also lists the models subagents used, so the main
 			// model's entry wins; the largest window is only a fallback.
