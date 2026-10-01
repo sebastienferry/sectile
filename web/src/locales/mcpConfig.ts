@@ -19,7 +19,13 @@ export const mcpConfigText = {
     "copied": "Configuration copiée.",
     "copyError": "Copie impossible. Sélectionnez le texte de la configuration.",
     "copy": "Copier la configuration",
-    "custom": "Configurez le client MCP de votre moteur personnalisé avec l’URL et l’en-tête ci-dessous, ou lancez la passerelle STDIO avec la variable SECTILE_AGENT_TOKEN."
+    "custom": "Configurez le client MCP de votre moteur personnalisé avec l’URL et l’en-tête ci-dessous, ou lancez la passerelle STDIO avec la variable SECTILE_AGENT_TOKEN.",
+    "commandTitle": "Ou enregistrez-le depuis un terminal",
+    "commandClaude": "Exécutez les deux lignes. La première retire une entrée sectile existante ; s’il n’y en a pas, elle affiche No MCP server named \"sectile\" in user scope, ce qui est attendu, et la seconde s’exécute quand même.",
+    "commandCodexEnv": "Exportez SECTILE_API_KEY avec votre clé personnelle Sectile dans l’environnement qui lance Codex. La clé n’est pas écrite dans ~/.codex/config.toml.",
+    "commandCodexReplace": "Codex remplace une entrée sectile existante.",
+    "copyCommand": "Copier la commande",
+    "commandCopied": "Commande copiée."
   },
   "en": {
     "title": "MCP configuration",
@@ -41,6 +47,12 @@ export const mcpConfigText = {
     "copied": "Configuration copied.",
     "copyError": "Copy failed. Select the configuration text to copy it manually.",
     "copy": "Copy configuration",
-    "custom": "Configure your custom engine’s MCP client with the URL and header below, or start the STDIO bridge with the SECTILE_AGENT_TOKEN environment variable."
+    "custom": "Configure your custom engine’s MCP client with the URL and header below, or start the STDIO bridge with the SECTILE_AGENT_TOKEN environment variable.",
+    "commandTitle": "Or register it from a terminal",
+    "commandClaude": "Run both lines. The first removes an existing sectile entry; when there is none it prints No MCP server named \"sectile\" in user scope, which is expected, and the second line still runs.",
+    "commandCodexEnv": "Export SECTILE_API_KEY with your personal Sectile API key in the environment that starts Codex. The key is not written to ~/.codex/config.toml.",
+    "commandCodexReplace": "Codex replaces an existing sectile entry.",
+    "copyCommand": "Copy command",
+    "commandCopied": "Command copied."
   }
 } as const
