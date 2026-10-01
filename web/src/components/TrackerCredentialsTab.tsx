@@ -12,7 +12,7 @@ import {
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { useCurrentUser } from '../hooks/useCurrentUser'
-import { personalTrackers, credentialState, type TrackerKind } from '../lib/trackers'
+import { personalTrackers, credentialState, sealableCredentials, type TrackerKind } from '../lib/trackers'
 import { TrackerCredentialForm } from './TrackerCredentialForm'
 
 /**
@@ -33,6 +33,7 @@ export const TrackerCredentialsTab: React.FC<{
     lockAllUserCredentials,
     saveUserCredential,
     addToast,
+    jiraOAuth,
     t,
   } = useApp()
 
@@ -58,8 +59,11 @@ export const TrackerCredentialsTab: React.FC<{
     void refreshUserCredentials()
   }, [refreshUserCredentials])
 
-  const anySealed = userCredentials.some(c => c.sealed)
-  const anyLocked = userCredentials.some(c => c.sealed && !c.unlocked)
+  // The passphrase only ever applies to API tokens: a Jira grant is never
+  // sealed (#654).
+  const sealable = sealableCredentials(userCredentials)
+  const anySealed = sealable.some(c => c.sealed)
+  const anyLocked = sealable.some(c => c.sealed && !c.unlocked)
   const allUnlocked = anySealed && !anyLocked
 
   const handleUnlockAll = async () => {
@@ -85,7 +89,7 @@ export const TrackerCredentialsTab: React.FC<{
   const handleUpdateAllPassphrase = async (targetPhrase: string) => {
     setIsApplying(true)
     try {
-      const configured = userCredentials.filter(c => c.siteUrl || c.email || c.sealed)
+      const configured = sealable.filter(c => c.siteUrl || c.email || c.sealed)
       for (const cred of configured) {
         await saveUserCredential({
           tracker: cred.tracker,
@@ -326,7 +330,7 @@ export const TrackerCredentialsTab: React.FC<{
                 />
                 <Lock size={13} className="absolute left-2.5 top-2 text-[var(--accent-color)]" />
               </div>
-              {userCredentials.some(c => Boolean(c.siteUrl || c.email)) && sharedPassphrase.trim() && (
+              {sealable.some(c => Boolean(c.siteUrl || c.email)) && sharedPassphrase.trim() && (
                 <button
                   type="button"
                   onClick={() => void handleUpdateAllPassphrase(sharedPassphrase)}
@@ -364,6 +368,8 @@ export const TrackerCredentialsTab: React.FC<{
                 )}
                 {!mine ? (
                   <Circle size={13} className="text-[var(--text-muted)] shrink-0" />
+                ) : mine.kind === 'oauth' && mine.disconnected ? (
+                  <AlertTriangle size={13} className="text-amber-400 shrink-0" />
                 ) : locked ? (
                   <Lock size={13} className="text-amber-400 shrink-0" />
                 ) : mine.sealed ? (
@@ -373,7 +379,13 @@ export const TrackerCredentialsTab: React.FC<{
                 )}
                 <span className="text-xs font-bold text-[var(--text-primary)]">{kind.label}</span>
                 <span className="text-[10px] text-[var(--text-muted)] truncate flex-1 text-right">
-                  {mine?.email || credentialState(mine, t)}
+                  {mine?.kind === 'oauth'
+                    ? mine.disconnected
+                      ? t.trackerCredentials.oauth.stateDisconnected
+                      : mine.account || t.trackerCredentials.oauth.stateConnected
+                    : !mine && kind.id === 'jira' && jiraOAuth.configured
+                      ? t.trackerCredentials.oauth.stateNotConnected
+                      : mine?.email || credentialState(mine, t)}
                 </span>
               </button>
 

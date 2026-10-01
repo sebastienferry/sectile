@@ -186,6 +186,17 @@ func (d *DB) checkTrackerCredentials(ctx context.Context, trackerName, apiURL, e
 		// never received the token back and cannot resend it.
 		site, mail, own := "", "", ""
 		if user := tracker.ActingUser(ctx); user != "" {
+			// A grant is checked through itself, on the deployment's site:
+			// falling through would check the server's token and name its
+			// account.
+			if row, err := d.readJiraGrantRow(user); err == nil && row.kind == CredentialKindOAuth && token == "" {
+				probed := firstNonEmpty(apiURL, client.JiraURL)
+				apiBase, bearer, err := d.jiraGrantAccess(ctx, user, probed)
+				if err != nil {
+					return "", err
+				}
+				return client.CheckJiraBearer(ctx, probed, apiBase, bearer)
+			}
 			var err error
 			// A sealed credential the person has not unlocked is an error, not
 			// an absence: falling through checked the server's token instead
@@ -222,6 +233,10 @@ func (d *DB) ConfirmUserTrackerCredential(ctx context.Context, userID, trackerNa
 	d.mu.RLock()
 	site, email, token, err := d.userTrackerCredential(userID, trackerName)
 	d.mu.RUnlock()
+	if errors.Is(err, errJiraGrant) {
+		// A grant's account was confirmed through it when it was stored.
+		return "", nil
+	}
 	if err != nil {
 		return "", err
 	}

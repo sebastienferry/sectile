@@ -307,7 +307,7 @@ func TestGitlabCredentials(t *testing.T) {
 	site.on("POST", "/projects/acme%2Fapp/issues/1/notes", func(w http.ResponseWriter, r *http.Request) { fmt.Fprint(w, `{}`) })
 	c := site.client()
 	c.GitlabToken = "server-token"
-	c.ResolveUser = func(userID, trackerName string) (string, string, string, error) {
+	c.ResolveUser = legacyResolver(func(userID, trackerName string) (string, string, string, error) {
 		switch userID {
 		case "u-ada":
 			return "", "", "gl-secret", nil
@@ -315,7 +315,7 @@ func TestGitlabCredentials(t *testing.T) {
 			return "", "", "", errors.New("credential sealed and locked")
 		}
 		return "", "", "", nil
-	}
+	})
 	// The fake checks the token; record which one each call carried.
 	base := site.server.Config.Handler
 	site.server.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

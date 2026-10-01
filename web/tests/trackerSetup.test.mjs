@@ -224,6 +224,24 @@ test('tracker credentials translations are complete and localized states format 
   assert.match(saveBlockedReason('jira', {}, false, translations.fr), /Renseignez votre site/)
   assert.match(saveBlockedReason('jira', {}, false, translations.en), /Enter your site/)
   assert.match(saveBlockedReason('jira', { siteUrl: 'a', email: 'b' }, false, translations.en), /Verify credentials/)
+
+  // Connect Jira (#654): every string exists in both languages, and differs.
+  for (const [group, fr, en] of [
+    ['trackerCredentials.oauth', translations.fr.trackerCredentials.oauth, translations.en.trackerCredentials.oauth],
+    ['trackerCredentials.oauth.outcomes', translations.fr.trackerCredentials.oauth.outcomes, translations.en.trackerCredentials.oauth.outcomes],
+    ['admin.jiraOAuth', translations.fr.admin.jiraOAuth, translations.en.admin.jiraOAuth],
+  ]) {
+    assert.deepEqual(Object.keys(fr).sort(), Object.keys(en).sort(), group)
+    for (const key of Object.keys(fr)) {
+      if (typeof fr[key] !== 'string') continue
+      assert.ok(fr[key].trim() && en[key].trim(), `${group}.${key} is empty`)
+    }
+  }
+  assert.equal(translations.fr.trackerCredentials.oauth.connect, 'Connecter Jira')
+  assert.equal(translations.en.trackerCredentials.oauth.connect, 'Connect Jira')
+  assert.equal(translations.en.trackerCredentials.oauth.reconnect, 'Reconnect Jira')
+  assert.match(translations.en.trackerCredentials.oauth.outcomes.no_site, /\{sites\}/)
+  assert.match(translations.fr.trackerCredentials.oauth.outcomes.no_site, /\{sites\}/)
 })
 
 test('profile AI and MCP configuration translations are complete in French and English', () => {

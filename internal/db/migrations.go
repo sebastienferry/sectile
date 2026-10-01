@@ -552,11 +552,63 @@ var migrations = []migration{
 		statements: []string{"ALTER TABLE projects ADD COLUMN epic_axis_prefixes TEXT NOT NULL DEFAULT '{}';"},
 	},
 	{
+		// What a personal tracker credential is (#654, ADR 0044): an API token,
+		// which every existing row is, or an Atlassian OAuth grant. version
+		// serialises the refresh of a grant across instances, a compare-and-set
+		// on it keeping exactly one rotated refresh token, and
+		// refresh_claimed_at saying a refresh is in flight so nobody else
+		// spends the same refresh token; disconnected_at marks a grant
+		// Atlassian refused to refresh, kept so the profile can say so.
+		version: 40,
+		name:    "user_tracker_credentials.oauth",
+		statements: []string{
+			"ALTER TABLE user_tracker_credentials ADD COLUMN kind TEXT NOT NULL DEFAULT 'api_token';",
+			"ALTER TABLE user_tracker_credentials ADD COLUMN version INTEGER NOT NULL DEFAULT 0;",
+			"ALTER TABLE user_tracker_credentials ADD COLUMN disconnected_at DATETIME;",
+			"ALTER TABLE user_tracker_credentials ADD COLUMN refresh_claimed_at DATETIME;",
+		},
+	},
+	{
+		// The pending Jira consents (#654), modelled on login_flows: the state
+		// is stored hashed with the web session and the person who started
+		// it, so the callback works on any instance and a replay finds
+		// nothing.
+		version: 41,
+		name:    "jira_oauth_flows",
+		statements: []string{
+			`CREATE TABLE jira_oauth_flows (
+				state_hash TEXT PRIMARY KEY,
+				user_id TEXT NOT NULL,
+				session_hash TEXT NOT NULL,
+				created_at DATETIME NOT NULL,
+				expires_at DATETIME NOT NULL,
+				consumed_at DATETIME
+			);`,
+		},
+	},
+	{
+		// The OAuth app a tracker's grants are issued to (#654), saved from
+		// the Administration page; the client secret is sealed under the
+		// server key. Without a row, the environment configures it.
+		version: 42,
+		name:    "tracker_oauth_apps",
+		statements: []string{
+			`CREATE TABLE tracker_oauth_apps (
+				tracker TEXT PRIMARY KEY,
+				client_id TEXT NOT NULL,
+				record BLOB NOT NULL,
+				redirect_url TEXT NOT NULL,
+				updated_at DATETIME NOT NULL,
+				updated_by TEXT NOT NULL DEFAULT ''
+			);`,
+		},
+	},
+	{
 		// Every Sectile tool call looks up the waits its session declared
 		// (#475), so that lookup must not scan every activity (#497). Nearly
 		// every row holds '' and only a waiting run holds a session, so the
 		// index is partial and stays as small as the number of waiting runs.
-		version: 40,
+		version: 43,
 		name:    "task_activities.waiting_session_index",
 		statements: []string{
 			"CREATE INDEX IF NOT EXISTS idx_task_activities_waiting_session ON task_activities (waiting_session) WHERE waiting_session <> '';",

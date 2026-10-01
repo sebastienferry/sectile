@@ -77,10 +77,18 @@ func (c *Client) jiraPriorities(ctx context.Context) jiraPriorityScheme {
 // an older site answers. A site serving neither is reported as an error, never
 // as a site with no priorities: an empty scheme and an unreachable one lead to
 // different writes.
+//
+// A grant never asks for the administration scope the search needs (ADR
+// 0044), so a client calling through one reads the bare list directly rather
+// than collecting a refusal first.
 func (c *Client) readJiraPriorities(ctx context.Context) (jiraPriorityScheme, error) {
-	pages, searchErr := c.jiraAgilePages(ctx, "/rest/api/3/priority/search", nil)
-	if searchErr == nil && len(pages) > 0 {
-		return decodeJiraPriorities(pages), nil
+	var searchErr error
+	if c.JiraBearer == "" {
+		var pages []json.RawMessage
+		pages, searchErr = c.jiraAgilePages(ctx, "/rest/api/3/priority/search", nil)
+		if searchErr == nil && len(pages) > 0 {
+			return decodeJiraPriorities(pages), nil
+		}
 	}
 	var list []json.RawMessage
 	if err := c.jira(ctx, http.MethodGet, "/rest/api/3/priority", nil, nil, &list); err != nil {
