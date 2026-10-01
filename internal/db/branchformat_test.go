@@ -122,6 +122,9 @@ func TestBranchNameFormatMigration(t *testing.T) {
 	if _, err := d.conn.Exec("ALTER TABLE projects DROP COLUMN roadmap_axis_writes"); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := d.conn.Exec("ALTER TABLE projects DROP COLUMN epic_axis_prefixes"); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := d.conn.Exec("DELETE FROM schema_migrations WHERE version >= 33"); err != nil {
 		t.Fatal(err)
 	}

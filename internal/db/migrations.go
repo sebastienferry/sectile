@@ -543,6 +543,14 @@ var migrations = []migration{
 		name:       "projects.roadmap_axis_writes",
 		statements: []string{"ALTER TABLE projects ADD COLUMN roadmap_axis_writes INTEGER NOT NULL DEFAULT 0;"},
 	},
+	{
+		// The label prefixes of the epic priority, quarter and readiness, as a
+		// JSON object (#635). An empty object keeps the default prefixes every
+		// existing project reads and writes under.
+		version:    39,
+		name:       "projects.epic_axis_prefixes",
+		statements: []string{"ALTER TABLE projects ADD COLUMN epic_axis_prefixes TEXT NOT NULL DEFAULT '{}';"},
+	},
 }
 
 // migrateSchema brings the database to the schema this binary expects, and is
