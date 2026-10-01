@@ -111,6 +111,12 @@ func (d *DB) validateStagePRs(task *models.Task, actorID, skillID, repoPath, bra
 	var notices []string
 	for _, identity := range required {
 		url := chosen[identity]
+		if identity != primary && url == "" {
+			if notice, unchanged := d.unchangedRepository(task, actorID, identity, branch); unchanged {
+				notices = append(notices, notice)
+				continue
+			}
+		}
 		// Only the primary repository, when it is the project's own, is read
 		// the way a single-repository ticket is: through the task checkout.
 		// Every other repository is named to the agent, which answers from
@@ -175,6 +181,13 @@ func (d *DB) checkSecondaryPRs(project *models.Project, task *models.Task, actor
 				url = recorded.URL
 			}
 		}
+		// A repository the task prepared and left unchanged has no pull request
+		// to check; the adjustment has no report to name it in.
+		if url == "" {
+			if _, unchanged := d.unchangedRepository(task, actorID, identity, branch); unchanged {
+				continue
+			}
+		}
 		target := repositoryTarget(identity)
 		if url != "" {
 			link, _ := models.ParsePullRequestLink(url, "")
@@ -185,6 +198,35 @@ func (d *DB) checkSecondaryPRs(project *models.Project, task *models.Task, actor
 		}
 	}
 	return nil
+}
+
+// unchangedRepository asks the agent whether the task branch carries no
+// commit of its own in a secondary repository (#678). Only a verified "no"
+// skips the repository; every other answer returns false and keeps the pull
+// request required: an agent error, an agent too old to know the question, an
+// answer for another repository, no checkout found, or commits ahead. The
+// repository stays recorded as changed, so the question is asked again at the
+// next check and a later commit there requires its pull request.
+func (d *DB) unchangedRepository(task *models.Task, actorID, identity, branch string) (notice string, unchanged bool) {
+	var answer struct {
+		Repository    string `json:"repository"`
+		Found         bool   `json:"found"`
+		DefaultBranch string `json:"defaultBranch"`
+		Exists        bool   `json:"exists"`
+		Ahead         *int   `json:"ahead"`
+	}
+	op := agentprotocol.Operation{ProjectID: task.ProjectID, TaskID: task.ID, Action: "branch_changes", UserID: actorID, Repository: identity, Branch: branch}
+	if err := d.callAgent(op, &answer); err != nil {
+		return "", false
+	}
+	if answer.Repository != identity || !answer.Found || answer.DefaultBranch == "" || answer.Ahead == nil || *answer.Ahead != 0 {
+		return "", false
+	}
+	_, request := evidenceTerms(repositoryTarget(identity).link.Forge)
+	if !answer.Exists {
+		return fmt.Sprintf("Prepared, unchanged: in %s, %s exists neither locally nor on origin, so no %s is expected there.", identity, branch, request), true
+	}
+	return fmt.Sprintf("Prepared, unchanged: %s has no commit of %s ahead of %s, so no %s is expected there.", identity, branch, answer.DefaultBranch, request), true
 }
 
 // pullRequestLinkLast moves the link to url to the end of the set, which makes
