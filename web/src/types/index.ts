@@ -246,8 +246,30 @@ export interface MacroMeta {
   updatedAt: string
   /** The macro's own page on its tracker, absent when the tracker gives none. */
   externalUrl?: string
+  /** Where the todos are copied on the tracker, and how that copy stands (#663). Absent from an older server. */
+  todosMirror?: MacroTodosMirror
 }
 export type EpicMeta = MacroMeta
+
+/**
+ * The one-way copy of a macro's todos on its tracker (#663): a comment on a
+ * Jira epic, a block of a GitHub milestone description, or none, for the
+ * reason given.
+ */
+export interface MacroTodosMirror {
+  kind: 'jira_comment' | 'github_description' | ''
+  /** Why the list stays in Sectile, when kind is empty. */
+  reason?: string
+  /** The last body written on the tracker is the one of the current list. */
+  upToDate: boolean
+  /** The last failure, kept until a write succeeds. */
+  error?: string
+  /** The tracker whose personal token the last failure lacked (#645). */
+  credentialMissing?: string
+  writtenAt?: string
+  /** The comment, or the milestone. */
+  url?: string
+}
 /** An epic's own priority, P0 the highest. */
 export type EpicPriority = 'p0' | 'p1' | 'p2' | 'p3'
 /** How far an epic has come from an idea to something ready to build, as a person judges it (#633). */

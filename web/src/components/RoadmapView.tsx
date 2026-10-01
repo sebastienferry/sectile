@@ -32,6 +32,8 @@ import {
   Minimize2,
   ChevronDown,
   ChevronRight,
+  ChevronUp,
+  GripVertical,
   MessageSquare,
   Tag,
   RefreshCw,
@@ -55,6 +57,7 @@ import { EpicLabelEditor } from './EpicLabelEditor'
 import { MacroTaskRow } from './MacroTaskRow'
 import { sprintLookup, isProjectCompatible, targetProjectOptions } from '../lib/lookups'
 import { format, plural } from '../lib/i18n'
+import { getTrackers, type TrackerKind } from '../lib/trackers'
 import {
   buildMacroRows,
   placementIssues,
@@ -79,6 +82,9 @@ import {
   selectableTodoIds,
   batchSummary,
   todoOrigin,
+  moveTodo,
+  rewordTodo,
+  todosMirrorState,
 } from '../lib/roadmap'
 import {
   CONDENSED_HORIZONS,
@@ -213,6 +219,8 @@ export const RoadmapView: React.FC = () => {
     saveMacroMeta,
     createStoryFromMacroTodo,
     createStoriesFromMacroTodos,
+    republishMacroTodos,
+    openTrackerCredentials,
     produceMacroSlicing,
     setTaskMacro,
     createStoryUnderMacro,
@@ -479,6 +487,17 @@ export const RoadmapView: React.FC = () => {
   const [draftFramingDirty, setDraftFramingDirty] = useState(false)
   const [newTodo, setNewTodo] = useState('')
   const [creatingTodoId, setCreatingTodoId] = useState<string | null>(null)
+  // Inline rewording and reordering of the todos (#663). The ref holds the line
+  // being reworded, so a blur that follows Escape or Enter saves nothing more;
+  // the focus target is the control a keyboard move or an edit came from, given
+  // back once the list re-renders.
+  const [editingTodoId, setEditingTodoId] = useState<string | null>(null)
+  const editingTodoRef = useRef<string | null>(null)
+  const [draftTodoText, setDraftTodoText] = useState('')
+  const [draggedTodoId, setDraggedTodoId] = useState<string | null>(null)
+  const [dropTodoId, setDropTodoId] = useState<string | null>(null)
+  const [republishingTodos, setRepublishingTodos] = useState(false)
+  const todoFocusRef = useRef<{ id: string; control: string } | null>(null)
   // Batch story creation (#634). The selection is interface state only,
   // distinct from the done checkbox; the report lasts until the next batch,
   // another macro or a reload. batchMacroKey names the macro whose slicing a
@@ -927,7 +946,24 @@ export const RoadmapView: React.FC = () => {
     shownMacroKeyRef.current = shownMacroKey
     setSelectedTodoIds(new Set())
     setBatchReport(null)
+    editingTodoRef.current = null
+    setEditingTodoId(null)
   }, [shownMacroKey])
+
+  // A keyboard move or an edit gives the focus back to the line it acted on,
+  // once the list shows it; a move button that became disabled at an end of
+  // the list hands it to the line's text.
+  useEffect(() => {
+    const target = todoFocusRef.current
+    if (!target || editingTodoId) return
+    const find = (control: string) =>
+      document.querySelector<HTMLElement>(`[data-todo-id="${CSS.escape(target.id)}"][data-todo-control="${control}"]`)
+    const el = find(target.control)
+    const usable = el && !(el as HTMLButtonElement).disabled ? el : find('text')
+    if (!usable) return
+    todoFocusRef.current = null
+    usable.focus()
+  }, [macroMeta, editingTodoId])
 
   const runStoryBatch = async (row: MacroRow) => {
     if (!currentProject?.id || batchMacroKeyRef.current) return
@@ -1550,6 +1586,35 @@ export const RoadmapView: React.FC = () => {
     if (!text) return
     setNewTodo('')
     persist(row.key, { todos: [...todosOf(row), { id: '', text, done: false }] })
+  }
+
+  /** Saves the list in its new order; the moved line keeps the focus on control. */
+  const moveTodoTo = (row: MacroRow, from: number, to: number, control?: string) => {
+    const todos = todosOf(row)
+    if (from === to || from < 0 || to < 0 || from >= todos.length || to >= todos.length) return
+    if (control) todoFocusRef.current = { id: todos[from].id, control }
+    persist(row.key, { todos: moveTodo(todos, from, to) })
+  }
+
+  const startTodoEdit = (todo: MacroTodo) => {
+    editingTodoRef.current = todo.id
+    setEditingTodoId(todo.id)
+    setDraftTodoText(todo.text)
+  }
+
+  /**
+   * Ends the rewording of a line, saving it when save is set and the text is
+   * neither blank nor unchanged: an emptied line comes back as it was, deleting
+   * stays the line's delete button.
+   */
+  const endTodoEdit = (row: MacroRow, save: boolean, keepFocus: boolean) => {
+    const id = editingTodoRef.current
+    if (!id) return
+    editingTodoRef.current = null
+    setEditingTodoId(null)
+    if (keepFocus) todoFocusRef.current = { id, control: 'text' }
+    const next = save ? rewordTodo(todosOf(row), id, draftTodoText) : null
+    if (next) persist(row.key, { todos: next })
   }
 
   const handleRefineMacro = async () => {
@@ -2973,9 +3038,59 @@ export const RoadmapView: React.FC = () => {
                       </div>
                     )}
                     <div className="flex flex-col gap-1.5">
-                      {todosOf(selected).map(todo => (
+                      {todosOf(selected).map((todo, index, list) => (
                         <div key={todo.id} className="flex items-start gap-2 px-2.5 py-2 rounded-lg bg-[var(--bg-primary)] border"
-                          style={{ borderColor: todo.done ? 'rgb(var(--accent-rgb) / 0.4)' : 'var(--border-color)' }}>
+                          data-testid="macro-todo"
+                          style={{
+                            borderColor: dropTodoId === todo.id && draggedTodoId !== todo.id
+                              ? 'var(--accent-color)'
+                              : todo.done ? 'rgb(var(--accent-rgb) / 0.4)' : 'var(--border-color)',
+                            opacity: draggedTodoId === todo.id ? 0.5 : 1,
+                          }}
+                          // The order of the list is the order of execution
+                          // (#663): Alt+Up and Alt+Down move the focused line,
+                          // which keeps the focus.
+                          onKeyDown={e => {
+                            if (!e.altKey || slicingLocked || editingTodoId || list.length < 2) return
+                            if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return
+                            e.preventDefault()
+                            const control = (e.target as HTMLElement).dataset?.todoControl || 'text'
+                            moveTodoTo(selected, index, e.key === 'ArrowUp' ? index - 1 : index + 1, control)
+                          }}
+                          onDragOver={e => {
+                            if (!draggedTodoId || slicingLocked) return
+                            e.preventDefault()
+                            e.dataTransfer.dropEffect = 'move'
+                            if (dropTodoId !== todo.id) setDropTodoId(todo.id)
+                          }}
+                          onDrop={e => {
+                            if (!draggedTodoId) return
+                            e.preventDefault()
+                            const from = list.findIndex(t => t.id === draggedTodoId)
+                            setDraggedTodoId(null)
+                            setDropTodoId(null)
+                            moveTodoTo(selected, from, index)
+                          }}>
+                          {list.length > 1 && (
+                            <span
+                              draggable={!slicingLocked}
+                              onDragStart={e => {
+                                e.stopPropagation()
+                                e.dataTransfer.setData('application/x-sectile-todo', todo.id)
+                                e.dataTransfer.effectAllowed = 'move'
+                                setDraggedTodoId(todo.id)
+                              }}
+                              onDragEnd={() => {
+                                setDraggedTodoId(null)
+                                setDropTodoId(null)
+                              }}
+                              className={`mt-0.5 shrink-0 text-[var(--text-muted)] ${slicingLocked ? 'opacity-40' : 'cursor-grab hover:text-[var(--text-primary)]'}`}
+                              title={format(strings.framing.todoDragHandle, { todo: todo.text })}
+                              aria-hidden="true"
+                            >
+                              <GripVertical size={11} />
+                            </span>
+                          )}
                           {/* The batch selection, a native box so it never reads
                               as the done checkbox beside it. An attached line
                               keeps the room, so the texts stay aligned. */}
@@ -3017,13 +3132,46 @@ export const RoadmapView: React.FC = () => {
                             {todo.done && <Check size={10} className="text-white" />}
                           </button>
                           <div className="flex-1 min-w-0 flex flex-col gap-0.5">
-                            <span className="text-[11.5px] leading-snug"
-                              style={{
-                                color: todo.done ? 'var(--text-muted)' : 'var(--text-primary)',
-                                textDecoration: todo.done ? 'line-through' : 'none',
-                              }}>
-                              {todo.text}
-                            </span>
+                            {/* Rewording changes the line only: its story, if
+                                any, keeps its title (#663). */}
+                            {editingTodoId === todo.id ? (
+                              <input
+                                type="text"
+                                autoFocus
+                                value={draftTodoText}
+                                onChange={e => setDraftTodoText(e.target.value)}
+                                onFocus={e => e.currentTarget.setSelectionRange(e.currentTarget.value.length, e.currentTarget.value.length)}
+                                onKeyDown={e => {
+                                  if (e.key === 'Enter') {
+                                    e.preventDefault()
+                                    endTodoEdit(selected, true, true)
+                                  } else if (e.key === 'Escape') {
+                                    e.preventDefault()
+                                    e.stopPropagation()
+                                    endTodoEdit(selected, false, true)
+                                  }
+                                }}
+                                onBlur={() => endTodoEdit(selected, true, false)}
+                                aria-label={format(strings.framing.todoEdit, { todo: todo.text })}
+                                className="w-full px-1.5 py-0.5 text-[11.5px] leading-snug rounded bg-[var(--bg-secondary)] border border-[var(--accent-color)] text-[var(--text-primary)] focus:outline-none"
+                              />
+                            ) : (
+                              <button
+                                type="button"
+                                data-todo-id={todo.id}
+                                data-todo-control="text"
+                                disabled={slicingLocked}
+                                onClick={() => startTodoEdit(todo)}
+                                title={strings.framing.todoEditTitle}
+                                aria-label={format(strings.framing.todoEdit, { todo: todo.text })}
+                                className="text-left text-[11.5px] leading-snug cursor-text disabled:cursor-default rounded focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--accent-color)]"
+                                style={{
+                                  color: todo.done ? 'var(--text-muted)' : 'var(--text-primary)',
+                                  textDecoration: todo.done ? 'line-through' : 'none',
+                                }}>
+                                {todo.text}
+                              </button>
+                            )}
                             {/* Second row: where the line came from, and what the
                                 last batch did with it. */}
                             <div className="flex flex-wrap items-center gap-1.5">
@@ -3174,6 +3322,34 @@ export const RoadmapView: React.FC = () => {
                               {creatingTodoId === todo.id ? '…' : strings.framing.createStory}
                             </button>
                           )}
+                          {list.length > 1 && (
+                            <div className="flex flex-col shrink-0">
+                              <button
+                                type="button"
+                                data-todo-id={todo.id}
+                                data-todo-control="up"
+                                disabled={slicingLocked || index === 0}
+                                onClick={() => moveTodoTo(selected, index, index - 1, 'up')}
+                                className="p-px rounded text-[var(--text-muted)] hover:text-[var(--text-primary)] cursor-pointer disabled:opacity-30 disabled:cursor-default"
+                                title={strings.framing.todoMoveUp}
+                                aria-label={format(strings.framing.todoMoveUpLabel, { todo: todo.text })}
+                              >
+                                <ChevronUp size={10} />
+                              </button>
+                              <button
+                                type="button"
+                                data-todo-id={todo.id}
+                                data-todo-control="down"
+                                disabled={slicingLocked || index === list.length - 1}
+                                onClick={() => moveTodoTo(selected, index, index + 1, 'down')}
+                                className="p-px rounded text-[var(--text-muted)] hover:text-[var(--text-primary)] cursor-pointer disabled:opacity-30 disabled:cursor-default"
+                                title={strings.framing.todoMoveDown}
+                                aria-label={format(strings.framing.todoMoveDownLabel, { todo: todo.text })}
+                              >
+                                <ChevronDown size={10} />
+                              </button>
+                            </div>
+                          )}
                           <button
                             type="button"
                             disabled={slicingLocked}
@@ -3191,6 +3367,68 @@ export const RoadmapView: React.FC = () => {
                         </p>
                       )}
                     </div>
+
+                    {(() => {
+                      // Where the list is copied on the tracker, one way (#663),
+                      // and whether that copy is the current list. A server
+                      // older than the copy sends no status, and nothing shows.
+                      const mirror = selected.meta?.todosMirror
+                      const state = todosMirrorState(mirror)
+                      if (!mirror || state === 'none') return null
+                      const tracker = (mirror.credentialMissing || '') as TrackerKind
+                      const provider = tracker ? getTrackers(t).find(entry => entry.id === tracker)?.label || tracker : ''
+                      return (
+                        <div className="flex flex-wrap items-center gap-1.5 mt-1.5 text-[10.5px]" data-testid="todos-mirror" data-state={state}>
+                          {state === 'upToDate' && (
+                            <span className="inline-flex items-center gap-1" style={{ color: 'var(--status-ok)' }}>
+                              <Check size={10} />
+                              {format(strings.framing.mirrorUpToDate, { key: selected.key })}
+                              {mirror.url && (
+                                <a href={mirror.url} target="_blank" rel="noreferrer" className="hover:text-[var(--accent-color)]"
+                                  title={format(t.planning.macro.openOnTracker, { key: selected.key })}>
+                                  <ExternalLink size={10} />
+                                </a>
+                              )}
+                            </span>
+                          )}
+                          {state === 'pending' && (
+                            <span className="text-[var(--text-muted)]">{strings.framing.mirrorPending}</span>
+                          )}
+                          {state === 'failed' && (
+                            <span className="text-rose-400">{format(strings.framing.mirrorFailed, { reason: mirror.error || '' })}</span>
+                          )}
+                          {state === 'local' && (
+                            <span className="text-[var(--text-muted)]">{format(strings.framing.mirrorLocal, { reason: mirror.reason || '' })}</span>
+                          )}
+                          {(state === 'pending' || state === 'failed') && (
+                            <button
+                              type="button"
+                              disabled={republishingTodos || !currentProject}
+                              onClick={async () => {
+                                if (!currentProject) return
+                                setRepublishingTodos(true)
+                                await republishMacroTodos(currentProject.id, selected.key)
+                                setRepublishingTodos(false)
+                              }}
+                              className="inline-flex items-center gap-1 px-1.5 py-px rounded border border-[var(--border-color)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] cursor-pointer disabled:opacity-40"
+                              title={strings.framing.mirrorRepublishTitle}
+                            >
+                              <RefreshCw size={9} className={republishingTodos ? 'animate-spin' : ''} />
+                              {strings.framing.mirrorRepublish}
+                            </button>
+                          )}
+                          {state === 'failed' && tracker && (
+                            <button
+                              type="button"
+                              onClick={() => openTrackerCredentials(tracker)}
+                              className="px-1.5 py-px rounded border border-[var(--border-color)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] cursor-pointer"
+                            >
+                              {format(strings.framing.mirrorAddToken, { provider })}
+                            </button>
+                          )}
+                        </div>
+                      )
+                    })()}
 
                     <div className="flex items-center gap-2 mt-2">
                       <input

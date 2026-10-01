@@ -276,10 +276,13 @@ restores eligibility for local execution.
 
 ## MCP and authentication
 
-The server's Streamable HTTP `/mcp` service exposes eleven typed tools:
+The server's Streamable HTTP `/mcp` service exposes fifteen typed tools:
 `list_projects`, `get_task`, `list_tasks`, `get_project_context`, `create_task`,
-`update_task`, `add_comment`, `transition_stage`, `start_run`, `finish_run` and
-`prepare_macro_worktree`. The MCP server identity is
+`update_task`, `add_comment`, `transition_stage`, `start_run`, `finish_run`,
+`report_waiting`, `prepare_macro_worktree`, `prepare_repository_worktree`,
+`get_macro` and `update_macro_todos`. The last two read a macro with its ordered
+todos and save a full ordered list, which schedules the one-way copy of the
+todos on the tracker (ADR 0046). The MCP server identity is
 `sectile`. Native clients use `sectile-agent mcp --url <loopback-address>` as a
 stdio bridge. It never opens SQLite and uses the agent's upstream credential.
 

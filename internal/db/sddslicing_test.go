@@ -401,7 +401,7 @@ func TestRepriseDesStoriesExistantes(t *testing.T) {
 	seedStory(t, database, proj.ID, "PE-500", "PE-501", "Poser le champ sur le modèle")
 	seedStory(t, database, proj.ID, "PE-500", "PE-502", "Porter la colonne")
 
-	meta, origin, err := database.TodosFromMacroStories(proj.ID, "PE-500")
+	meta, origin, err := database.TodosFromMacroStories(context.Background(), proj.ID, "PE-500")
 	if err != nil {
 		t.Fatalf("reprise : %v", err)
 	}
@@ -428,7 +428,7 @@ func TestRepriseNeDupliquePasUneStoryDejaRattachee(t *testing.T) {
 	seedMacro(t, database, proj.ID, "PE-510")
 	seedStory(t, database, proj.ID, "PE-510", "PE-511", "Titre d'origine")
 
-	first, _, err := database.TodosFromMacroStories(proj.ID, "PE-510")
+	first, _, err := database.TodosFromMacroStories(context.Background(), proj.ID, "PE-510")
 	if err != nil {
 		t.Fatalf("première reprise : %v", err)
 	}
@@ -438,7 +438,7 @@ func TestRepriseNeDupliquePasUneStoryDejaRattachee(t *testing.T) {
 		t.Fatalf("renommage : %v", err)
 	}
 
-	second, origin, err := database.TodosFromMacroStories(proj.ID, "PE-510")
+	second, origin, err := database.TodosFromMacroStories(context.Background(), proj.ID, "PE-510")
 	if err != nil {
 		t.Fatalf("seconde reprise : %v", err)
 	}
@@ -464,7 +464,7 @@ func TestRepriseConserveLesLignesExistantes(t *testing.T) {
 	}
 	seedStory(t, database, proj.ID, "PE-520", "PE-521", "Livrer la sonde")
 
-	meta, _, err := database.TodosFromMacroStories(proj.ID, "PE-520")
+	meta, _, err := database.TodosFromMacroStories(context.Background(), proj.ID, "PE-520")
 	if err != nil {
 		t.Fatalf("reprise : %v", err)
 	}
@@ -480,7 +480,7 @@ func TestRepriseSansTicketLeDit(t *testing.T) {
 	database, proj, _ := sddProject(t, "openspec")
 	seedMacro(t, database, proj.ID, "PE-530")
 
-	_, _, err := database.TodosFromMacroStories(proj.ID, "PE-530")
+	_, _, err := database.TodosFromMacroStories(context.Background(), proj.ID, "PE-530")
 	if err == nil {
 		t.Fatal("une macro sans ticket doit être dite")
 	}

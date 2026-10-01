@@ -397,6 +397,7 @@ func (d *DB) FillMacroFlags(projectID string, m *models.MacroMeta, bulk bool) {
 	m.LabelsWritable = supported && macroKeyLabelable(m.Key, proj)
 	fillMacroOrigin(m, proj, supported)
 	m.AxesWritable = macroAxesWritable(m.Key, proj, supported, bulk)
+	d.fillTodosMirror(proj, m)
 }
 
 // macroAxis names the epic write a macroTracker call is for: they do not

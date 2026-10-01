@@ -1,4 +1,4 @@
-import type { EpicMeta, EpicPriority, EpicReadiness, MacroStoryBatch, MacroTodo, Priority, Project, Task, TrackerSprint, WorkflowStage } from '../types'
+import type { EpicMeta, EpicPriority, EpicReadiness, MacroStoryBatch, MacroTodo, MacroTodosMirror, Priority, Project, Task, TrackerSprint, WorkflowStage } from '../types'
 import { suggestReadiness } from './epicAxes.ts'
 import { plural, type Locale, type PluralForms } from './i18n.ts'
 import { foldForSearch } from './searchFold.ts'
@@ -623,6 +623,44 @@ export const batchSummary = (
     plural(locale, batch.skipped, copy.skipped),
     plural(locale, batch.failed, copy.failed),
   ].join(', ')
+
+/**
+ * The list with the line at `from` moved to `to`, the others keeping their
+ * relative order. An index out of range, or a move onto itself, gives the list
+ * unchanged.
+ */
+export const moveTodo = <T>(todos: readonly T[], from: number, to: number): T[] => {
+  const next = [...todos]
+  if (from === to || from < 0 || to < 0 || from >= next.length || to >= next.length) return next
+  const [moved] = next.splice(from, 1)
+  next.splice(to, 0, moved)
+  return next
+}
+
+/**
+ * The list with one line reworded, or null when there is nothing to save: a
+ * blank or unchanged text, or a line the list no longer holds. Every other
+ * field of every line is kept.
+ */
+export const rewordTodo = <T extends Pick<MacroTodo, 'id' | 'text'>>(todos: readonly T[], id: string, text: string): T[] | null => {
+  const clean = text.trim()
+  const current = todos.find(todo => todo.id === id)
+  if (!current || clean === '' || clean === current.text) return null
+  return todos.map(todo => (todo.id === id ? { ...todo, text: clean } : todo))
+}
+
+export type TodosMirrorState = 'none' | 'local' | 'upToDate' | 'pending' | 'failed'
+
+/**
+ * What the status line under the todos says of their tracker copy. An older
+ * server sends no status, and the line then says nothing.
+ */
+export const todosMirrorState = (mirror?: MacroTodosMirror | null): TodosMirrorState => {
+  if (!mirror) return 'none'
+  if (!mirror.kind) return 'local'
+  if (mirror.upToDate) return 'upToDate'
+  return mirror.error ? 'failed' : 'pending'
+}
 
 export type TodoOriginKind = 'tasks' | 'spec' | 'stories' | 'manual' | 'unknown'
 

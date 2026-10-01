@@ -183,6 +183,9 @@ type DB struct {
 	// macroStoryLocks holds one *sync.Mutex per project and macro, so the
 	// story creations of one macro never overlap on this server (#634).
 	macroStoryLocks sync.Map
+	// todosMirrorTimers holds one *todosMirrorTimer per project and macro: the
+	// tracker copy of its todos waiting for the saves to settle (#663).
+	todosMirrorTimers sync.Map
 }
 
 // NewDB opens a SQLite database at dbPath. It is the path-shaped entry point the
@@ -331,6 +334,7 @@ func (d *DB) enqueueJob(job SkillJob) {
 // cleanup, which then fails on a directory that is not empty. The wait is
 // bounded so one stuck job cannot hold a shutdown open.
 func (d *DB) Close() error {
+	d.stopTodosMirrorTimers()
 	d.jobs.drain(5 * time.Second)
 	return d.conn.Close()
 }
