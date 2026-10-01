@@ -24,6 +24,9 @@ type claudeConversation struct {
 	busy    bool
 	// effort is the level the last turn ran with; empty leaves the CLI default.
 	effort string
+	// mode is the permission mode turns run in, one of conversationModes;
+	// empty means acceptEdits.
+	mode string
 	// contextUsed is the size of the latest main-thread request, and
 	// contextWindow the limit Claude reported for its model; zero when unknown.
 	contextUsed   int
@@ -115,6 +118,18 @@ func streamPartial(c *claudeConversation, event conversationStream) {
 // tool it has; the "=" form keeps it from swallowing the next argument.
 const conversationAllowedTools = "--allowedTools=mcp__sectile"
 
+// conversationModes are the permission modes the owner can pick, as Claude
+// Code's own mode switch offers them. bypassPermissions is not one of them.
+var conversationModes = map[string]bool{"default": true, "acceptEdits": true, "plan": true}
+
+// conversationMode is the permission mode a turn runs in.
+func conversationMode(mode string) string {
+	if conversationModes[mode] {
+		return mode
+	}
+	return "acceptEdits"
+}
+
 // conversationEfforts are the levels `claude --effort` accepts.
 var conversationEfforts = map[string]bool{"low": true, "medium": true, "high": true, "xhigh": true, "max": true}
 
@@ -166,6 +181,9 @@ func (d *agentDaemon) desktopConversation(w http.ResponseWriter, r *http.Request
 		SourceRunID string `json:"sourceRunId"`
 		Message     string `json:"message"`
 		Effort      string `json:"effort"`
+		// Model and Mode, when set, apply from the next turn on.
+		Model string `json:"model"`
+		Mode  string `json:"mode"`
 		// Interrupt stops the turn in progress and keeps the conversation.
 		Interrupt bool `json:"interrupt"`
 		// Approval answers a tool call the turn is waiting on.
@@ -212,7 +230,7 @@ func (d *agentDaemon) desktopConversation(w http.ResponseWriter, r *http.Request
 		lines, version := run.trace.snapshot()
 		response := map[string]any{"id": id, "events": lines, "version": version, "busy": false, "readOnly": run.restored || run.canceled || run.conversation == nil}
 		if c := run.conversation; c != nil {
-			response["busy"], response["effort"] = c.busy, c.effort
+			response["busy"], response["effort"], response["model"], response["mode"] = c.busy, c.effort, run.desktop.Model, conversationMode(c.mode)
 			response["approvals"] = append([]conversationApproval{}, c.approvals...)
 			if c.busy && c.partial != "" {
 				response["partial"] = c.partial
@@ -257,9 +275,23 @@ func (d *agentDaemon) desktopConversation(w http.ResponseWriter, r *http.Request
 		http.Error(w, "Unknown effort level", http.StatusBadRequest)
 		return
 	}
+	if input.Mode != "" && !conversationModes[input.Mode] {
+		http.Error(w, "Unknown permission mode", http.StatusBadRequest)
+		return
+	}
+	if err := agentconfig.ValidModel(input.Model); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 	if run.conversation == nil || run.restored || run.canceled || d.queue.shuttingDown {
 		http.Error(w, "Conversation is unavailable", http.StatusConflict)
 		return
+	}
+	if model := strings.TrimSpace(input.Model); model != "" {
+		run.desktop.Model = model
+	}
+	if input.Mode != "" {
+		run.conversation.mode = input.Mode
 	}
 	// A message sent while Claude works joins the turn, as in Claude Code;
 	// one sent as the turn closes starts the next turn.
@@ -307,7 +339,7 @@ func startConversationLocked(run *controlledRun, model, origin string) {
 	run.desktop.StartedAt = time.Now().UTC()
 	run.trace = newRunTrace()
 	run.conversation = &claudeConversation{}
-	conversationWrite(run.trace, "notice", "Claude Code conversation · experimental", "Edits and Sectile's tools are accepted; other tools your rules do not allow ask for your approval. "+origin)
+	conversationWrite(run.trace, "notice", "Claude Code conversation · experimental", "Sectile's tools are accepted; what your rules and the chosen mode do not allow asks for your approval. "+origin)
 }
 
 // claudeConversationCommand is one turn's Claude. Each of dirs is one
@@ -315,10 +347,10 @@ func startConversationLocked(run *controlledRun, model, origin string) {
 // "=" form keeps a value from swallowing the arguments that follow it. The
 // message is not an argument either: it goes in on stdin, in the streaming
 // input format that also carries the tool approvals.
-func claudeConversationCommand(directory, model, effort, session string, dirs []string, env map[string]string) *exec.Cmd {
+func claudeConversationCommand(directory, model, effort, mode, session string, dirs []string, env map[string]string) *exec.Cmd {
 	// Partial messages stream each reply as Claude writes it; the complete
 	// messages still arrive, so the trace is built from them alone.
-	args := []string{"-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--permission-mode", "acceptEdits", "--permission-prompt-tool", "stdio", conversationAllowedTools}
+	args := []string{"-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--permission-mode", conversationMode(mode), "--permission-prompt-tool", "stdio", conversationAllowedTools}
 	if model != "" {
 		args = append(args, "--model", model)
 	}
@@ -415,7 +447,7 @@ func (d *agentDaemon) conversationTurn(run *controlledRun, prompt string) {
 			env[key] = value
 		}
 	}
-	cmd := claudeConversationCommand(directory, run.desktop.Model, run.conversation.effort, run.conversation.session, dirs, env)
+	cmd := claudeConversationCommand(directory, run.desktop.Model, run.conversation.effort, run.conversation.mode, run.conversation.session, dirs, env)
 	d.queue.mu.Unlock()
 	var input *conversationInput
 	if stdin, pipeErr := cmd.StdinPipe(); pipeErr == nil {

@@ -77,7 +77,7 @@ func TestConversationRequiresDesktopAuthenticationAndOwnedDirectory(t *testing.T
 }
 
 func TestConversationCommandTakesTheMessageOnStdinOnly(t *testing.T) {
-	cmd := claudeConversationCommand(t.TempDir(), "sonnet", "high", "session", nil, nil)
+	cmd := claudeConversationCommand(t.TempDir(), "sonnet", "high", "", "session", nil, nil)
 	got := strings.Join(cmd.Args, " ")
 	for _, want := range []string{"--resume session", "--model sonnet", "--effort high", "--input-format stream-json", "--permission-prompt-tool stdio", "--allowedTools=mcp__sectile", "--include-partial-messages"} {
 		if !strings.Contains(got, want) {
@@ -92,8 +92,8 @@ func TestConversationCommandTakesTheMessageOnStdinOnly(t *testing.T) {
 // Each folder is one argument, whatever it holds, and the folder map reaches
 // the session's environment (#676).
 func TestConversationCommandCarriesTheProjectFolders(t *testing.T) {
-	plain := claudeConversationCommand(t.TempDir(), "", "", "", nil, nil)
-	cmd := claudeConversationCommand(t.TempDir(), "", "", "", []string{"/a", "/b c"}, map[string]string{"SECTILE_REPOSITORIES": `[{"path":"/a"}]`})
+	plain := claudeConversationCommand(t.TempDir(), "", "", "", "", nil, nil)
+	cmd := claudeConversationCommand(t.TempDir(), "", "", "", "", []string{"/a", "/b c"}, map[string]string{"SECTILE_REPOSITORIES": `[{"path":"/a"}]`})
 	if got := cmd.Args[len(plain.Args):]; len(got) != 2 || got[0] != "--add-dir=/a" || got[1] != "--add-dir=/b c" {
 		t.Fatalf("folder arguments = %q", got)
 	}
@@ -652,5 +652,44 @@ func waitConversationIdle(t *testing.T, d *agentDaemon, run *controlledRun) {
 			t.Fatal("the conversation never went idle")
 		}
 		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+// The model and the permission mode picked in the composer apply from the
+// next turn; a value Claude would not take as one word is refused.
+func TestConversationTurnTakesTheModelAndModePicked(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake CLI is a POSIX script")
+	}
+	testhome.Temp(t)
+	bin := t.TempDir()
+	script := `#!/bin/sh
+read -r init
+read -r message
+printf '%s\n' "$@" > args.txt
+printf '%s\n' '{"type":"result","is_error":false,"result":"ok","session_id":"11111111-1111-4111-8111-111111111111"}'
+`
+	if err := os.WriteFile(filepath.Join(bin, "claude"), []byte(script), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	d, id := conversationFixture(t)
+	run := d.queue.runs[id]
+	for _, body := range []string{`{"message":"x","mode":"bypassPermissions"}`, `{"message":"x","model":"opus --dangerously-skip-permissions"}`} {
+		if w := conversationRequest(d, "POST", "/desktop/conversation?id="+id, body, "private"); w.Code != http.StatusBadRequest {
+			t.Fatalf("%s was accepted: %d", body, w.Code)
+		}
+	}
+	if w := conversationRequest(d, "POST", "/desktop/conversation?id="+id, `{"message":"plan it","model":"opus","mode":"plan"}`, "private"); w.Code != 202 {
+		t.Fatalf("send: %d %s", w.Code, w.Body.String())
+	}
+	waitConversationIdle(t, d, run)
+	args, _ := os.ReadFile(filepath.Join(run.root, "args.txt"))
+	if text := string(args); !strings.Contains(text, "--model\nopus") || !strings.Contains(text, "--permission-mode\nplan") {
+		t.Fatalf("the picked model and mode did not reach Claude: %s", text)
+	}
+	w := conversationRequest(d, "GET", "/desktop/conversation?id="+id, "", "private")
+	if body := w.Body.String(); !strings.Contains(body, `"model":"opus"`) || !strings.Contains(body, `"mode":"plan"`) {
+		t.Fatalf("the conversation does not report its model and mode: %s", body)
 	}
 }

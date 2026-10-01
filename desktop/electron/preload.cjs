@@ -52,7 +52,7 @@ contextBridge.exposeInMainWorld('localAgent',{
  runs:()=>ipcRenderer.invoke('runs'),
  createConversation:sourceRunId=>ipcRenderer.invoke('create-conversation',sourceRunId),
  conversation:id=>ipcRenderer.invoke('conversation',id),
- conversationMessage:(id,message,effort)=>ipcRenderer.invoke('conversation-message',{id,message,effort}),
+ conversationMessage:(id,message,effort,model,mode)=>ipcRenderer.invoke('conversation-message',{id,message,effort,model,mode}),
  conversationInterrupt:id=>ipcRenderer.invoke('conversation-interrupt',id),
  conversationTerminal:runId=>ipcRenderer.invoke('conversation-terminal',runId),
  conversationApproval:(id,approvalId,decision)=>ipcRenderer.invoke('conversation-approval',{id,approvalId,decision}),

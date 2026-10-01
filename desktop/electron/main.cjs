@@ -486,7 +486,7 @@ ipcMain.handle('conversation',(_,id)=>api('/desktop/conversation?id='+encodeURIC
 ipcMain.handle('conversation-interrupt',(_,id)=>api('/desktop/conversation?id='+encodeURIComponent(id),'POST',{interrupt:true}))
 ipcMain.handle('conversation-approval',(_,{id,approvalId,decision})=>api('/desktop/conversation?id='+encodeURIComponent(id),'POST',{approval:{id:approvalId,decision}}))
 ipcMain.handle('conversation-terminal',(_,runId)=>api('/desktop/conversation-terminal','POST',{runId}))
-ipcMain.handle('conversation-message',(_,{id,message,effort})=>api('/desktop/conversation?id='+encodeURIComponent(id),'POST',{message,effort:typeof effort==='string'?effort:''}))
+ipcMain.handle('conversation-message',(_,{id,message,effort,model,mode})=>api('/desktop/conversation?id='+encodeURIComponent(id),'POST',{message,effort:typeof effort==='string'?effort:'',model:typeof model==='string'?model:'',mode:typeof mode==='string'?mode:''}))
 // The agent forgets a run once its history is cleared or it restarts, and
 // answers 404 by contract. Report "no result" instead of rejecting the IPC
 // promise: Electron logs every rejected handler with a stack, and this outcome

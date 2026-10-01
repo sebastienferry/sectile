@@ -571,11 +571,12 @@ details.tool-card[open]>summary::before{content:'▾'}
 .conversation-interrupt:hover:not(:disabled){border-color:var(--danger);color:var(--danger)}
 .conversation-interrupt[hidden],.conversation-send[hidden]{display:none}
 .conversation-effort{display:inline-flex;align-items:center;gap:6px}
+.conversation-model select,.conversation-mode select{max-width:150px}
 .conversation-effort svg{fill:var(--border-strong)}
 .conversation-effort rect.lit{fill:var(--text-faint)}
-.conversation-effort select{appearance:none;field-sizing:content;border:0;background:transparent;color:inherit;font:inherit;padding:2px 0;cursor:pointer}
-.conversation-effort select:focus-visible{outline:1px solid var(--accent-border);border-radius:4px}
-.conversation-effort select:disabled{cursor:not-allowed}
+.conversation-effort select,.conversation-model select,.conversation-mode select{appearance:none;field-sizing:content;border:0;background:transparent;color:inherit;font:inherit;padding:2px 0;cursor:pointer}
+.conversation-effort select:focus-visible,.conversation-model select:focus-visible,.conversation-mode select:focus-visible{outline:1px solid var(--accent-border);border-radius:4px}
+.conversation-effort select:disabled,.conversation-model select:disabled,.conversation-mode select:disabled{cursor:not-allowed}
 .conversation-context{flex:none;position:relative;width:32px;height:32px;display:grid;place-items:center;cursor:default}
 .conversation-context[hidden]{display:none}
 .conversation-context svg{position:absolute;inset:0;fill:none;stroke-width:3}

@@ -12,12 +12,13 @@ const markdownKinds=new Set(['assistant','thinking'])
 // canControl tells whether the agent interrupts a turn and opens a terminal
 // beside the conversation; canQueue whether it takes a message while Claude
 // works.
-export function createConversationView({api,container,onError,canAddFolder=()=>false,canControl=()=>false,canQueue=()=>false}){
+// models lists the Claude models the workstation offers in its settings.
+export function createConversationView({api,container,onError,canAddFolder=()=>false,canControl=()=>false,canQueue=()=>false,models=()=>[]}){
  const panel=document.createElement('section');panel.className='conversation';panel.hidden=true
  panel.setAttribute('aria-label','Claude Code conversation')
- panel.innerHTML='<div class="conversation-events" role="log" aria-label="Conversation messages"></div><form class="conversation-composer"><label class="visually-hidden" for="conversation-message">Message Claude Code</label><textarea id="conversation-message" rows="2" maxlength="60000" placeholder="Ask a question or describe a change…" required></textarea><div class="conversation-toolbar"><span class="conversation-chip conversation-model" title="Model inherited from the source execution"></span><label class="conversation-chip conversation-effort" title="Reasoning effort for the next message"><svg viewBox="0 0 20 14" width="18" height="13" aria-hidden="true"><rect x="0" y="10" width="3" height="4" rx="1"/><rect x="4" y="8" width="3" height="6" rx="1"/><rect x="8" y="6" width="3" height="8" rx="1"/><rect x="12" y="3" width="3" height="11" rx="1"/><rect x="16" y="0" width="3" height="14" rx="1"/></svg><select aria-label="Effort"><option value="">Default effort</option><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="xhigh">Extra high</option><option value="max">Max</option></select></label><span class="conversation-chip" title="Edits and Sectile’s tools are accepted; other tools your rules do not allow ask for your approval. Stop closes this conversation. History after an agent restart is read-only.">Accept edits</span><button type="button" class="conversation-chip conversation-add-folder" aria-label="Add folder…" title="Attach a folder of this workstation to the project; Claude sees it from the next message" hidden><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2z"/><path d="M12 11v6M9 14h6"/></svg><span>Add folder…</span></button><button type="button" class="conversation-chip conversation-terminal" aria-label="Open a terminal" title="Open a terminal in this conversation’s directory" hidden><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m7.5 10 2.5 2.5-2.5 2.5"/><path d="M13 15h4"/></svg><span>Terminal</span></button><span class="conversation-status" role="status"></span><span class="conversation-context" role="img" hidden><svg viewBox="0 0 36 36" aria-hidden="true"><circle cx="18" cy="18" r="15"/><circle class="conversation-context-used" cx="18" cy="18" r="15" pathLength="100" stroke-dasharray="0 100" transform="rotate(-90 18 18)"/></svg><span></span></span><button type="button" class="conversation-interrupt" aria-label="Stop answer" title="Stop this answer (Esc); the conversation stays open" hidden><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor"/></svg></button><button type="submit" class="conversation-send" aria-label="Send" title="Send (Enter) · New line (Shift+Enter)"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button></div></form>'
+ panel.innerHTML='<div class="conversation-events" role="log" aria-label="Conversation messages"></div><form class="conversation-composer"><label class="visually-hidden" for="conversation-message">Message Claude Code</label><textarea id="conversation-message" rows="2" maxlength="60000" placeholder="Ask a question or describe a change…" required></textarea><div class="conversation-toolbar"><label class="conversation-chip conversation-model" title="Model for the next message"><select aria-label="Model"></select></label><label class="conversation-chip conversation-effort" title="Reasoning effort for the next message"><svg viewBox="0 0 20 14" width="18" height="13" aria-hidden="true"><rect x="0" y="10" width="3" height="4" rx="1"/><rect x="4" y="8" width="3" height="6" rx="1"/><rect x="8" y="6" width="3" height="8" rx="1"/><rect x="12" y="3" width="3" height="11" rx="1"/><rect x="16" y="0" width="3" height="14" rx="1"/></svg><select aria-label="Effort"><option value="">Default effort</option><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="xhigh">Extra high</option><option value="max">Max</option></select></label><label class="conversation-chip conversation-mode" title="What Claude may do without asking, from the next message. Sectile’s tools are always allowed."><select aria-label="Permission mode"><option value="default">Ask before edits</option><option value="acceptEdits">Accept edits</option><option value="plan">Plan mode</option></select></label><button type="button" class="conversation-chip conversation-add-folder" aria-label="Add folder…" title="Attach a folder of this workstation to the project; Claude sees it from the next message" hidden><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2z"/><path d="M12 11v6M9 14h6"/></svg><span>Add folder…</span></button><button type="button" class="conversation-chip conversation-terminal" aria-label="Open a terminal" title="Open a terminal in this conversation’s directory" hidden><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m7.5 10 2.5 2.5-2.5 2.5"/><path d="M13 15h4"/></svg><span>Terminal</span></button><span class="conversation-status" role="status"></span><span class="conversation-context" role="img" hidden><svg viewBox="0 0 36 36" aria-hidden="true"><circle cx="18" cy="18" r="15"/><circle class="conversation-context-used" cx="18" cy="18" r="15" pathLength="100" stroke-dasharray="0 100" transform="rotate(-90 18 18)"/></svg><span></span></span><button type="button" class="conversation-interrupt" aria-label="Stop answer" title="Stop this answer (Esc); the conversation stays open" hidden><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor"/></svg></button><button type="submit" class="conversation-send" aria-label="Send" title="Send (Enter) · New line (Shift+Enter)"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button></div></form>'
  container.append(panel)
- const events=panel.querySelector('.conversation-events'),form=panel.querySelector('form'),input=panel.querySelector('textarea'),send=panel.querySelector('.conversation-send'),addFolder=panel.querySelector('.conversation-add-folder'),openTerminal=panel.querySelector('.conversation-terminal'),interrupt=panel.querySelector('.conversation-interrupt'),status=panel.querySelector('.conversation-status'),model=panel.querySelector('.conversation-model'),effort=panel.querySelector('.conversation-effort select'),effortBars=panel.querySelectorAll('.conversation-effort rect'),ring=panel.querySelector('.conversation-context')
+ const events=panel.querySelector('.conversation-events'),form=panel.querySelector('form'),input=panel.querySelector('textarea'),send=panel.querySelector('.conversation-send'),addFolder=panel.querySelector('.conversation-add-folder'),openTerminal=panel.querySelector('.conversation-terminal'),interrupt=panel.querySelector('.conversation-interrupt'),status=panel.querySelector('.conversation-status'),model=panel.querySelector('.conversation-model select'),mode=panel.querySelector('.conversation-mode select'),effort=panel.querySelector('.conversation-effort select'),effortBars=panel.querySelectorAll('.conversation-effort rect'),ring=panel.querySelector('.conversation-context')
  const levels=['','low','medium','high','xhigh','max']
  // One lit bar per level; the default effort lights none, since the CLI decides it.
  const showEffort=()=>effortBars.forEach((bar,i)=>bar.classList.toggle('lit',i<levels.indexOf(effort.value)))
@@ -56,8 +57,14 @@ export function createConversationView({api,container,onError,canAddFolder=()=>f
   available=!data.readOnly&&(!data.busy||canQueue())
   readOnly=!!data.readOnly;showAddFolder();showControls(!!data.busy)
   input.disabled=effort.disabled=!!data.readOnly;send.disabled=!available||pending
-  // The agent's effort is adopted once per selection so polling never undoes a pick.
-  if(!effortLoaded){effortLoaded=true;effort.value=levels.includes(data.effort)?data.effort:'';showEffort()}
+  // The agent's effort, model and mode are adopted once per selection so
+  // polling never undoes a pick.
+  if(!effortLoaded){
+   effortLoaded=true;effort.value=levels.includes(data.effort)?data.effort:'';showEffort()
+   if(typeof data.model==='string')fillModels(data.model)
+   if([...mode.options].some(option=>option.value===data.mode))mode.value=data.mode
+  }
+  model.disabled=mode.disabled=!!data.readOnly
   showContext(data.context)
   status.textContent=Date.now()<noticeUntil?notice:data.readOnly?'Read-only history':data.approvals?.length?'Waiting for your approval':data.busy?'Claude Code is working…':'Ready'
  }
@@ -196,13 +203,23 @@ export function createConversationView({api,container,onError,canAddFolder=()=>f
    available=false;send.disabled=true;status.textContent=err.message||String(err)
   }finally{if(token===generation&&selected)timer=setTimeout(()=>poll(token,id),busy?250:750)}
  }
+ // The conversation's model first, then the workstation's Claude models.
+ function fillModels(current){
+  const chosen=String(current||'').trim()
+  model.replaceChildren()
+  const values=[chosen,...models().map(value=>String(value).trim())].filter((value,i,all)=>all.indexOf(value)===i)
+  if(!chosen)values.shift()
+  if(!chosen){const option=document.createElement('option');option.value='';option.textContent='CLI default';model.append(option)}
+  for(const value of values){if(!value)continue;const option=document.createElement('option');option.value=value;option.textContent=value;model.append(option)}
+  model.value=chosen
+ }
  form.addEventListener('submit',async event=>{
   event.preventDefault()
   const id=selected,token=generation,message=input.value
   if(!id||!message.trim()||pending||!available)return
   pending=true;send.disabled=true
   try{
-   await api.conversationMessage(id,message,effort.value)
+   await api.conversationMessage(id,message,effort.value,model.value,mode.value)
    if(token!==generation)return
    input.value='';grow();available=canQueue();status.textContent='Claude Code is working…'
   }catch(err){if(token===generation)onError(err)}
@@ -210,7 +227,7 @@ export function createConversationView({api,container,onError,canAddFolder=()=>f
  })
  return {select(run){
   generation++;clearTimeout(timer);selected=run?.conversation?run.id:null;directory=run?.directory||'';busy=false;openTerminal.hidden=true;interrupt.hidden=true;send.hidden=false;partialNode=null;partialText='';version=null;pending=false;available=false;effortLoaded=false;readOnly=true;attaching=false;notice='';noticeUntil=0;showAddFolder()
-  events.replaceChildren();effort.value='';effort.disabled=true;showEffort();showContext(null);input.value='';grow();model.textContent=run?.model||'CLI default';input.disabled=true;send.disabled=true
+  events.replaceChildren();effort.value='';effort.disabled=true;showEffort();showContext(null);input.value='';grow();fillModels(run?.model);mode.value='acceptEdits';model.disabled=mode.disabled=true;input.disabled=true;send.disabled=true
   panel.hidden=!selected;container.classList.toggle('conversation-active',!!selected)
   if(selected){status.textContent='Loading conversation…';poll(generation,selected)}
  },get active(){return !!selected}}

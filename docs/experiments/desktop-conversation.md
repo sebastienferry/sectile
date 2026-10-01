@@ -47,8 +47,10 @@ running….
 
 ## Approvals and controls
 
-Edits are accepted, as are Sectile's own MCP tools, which every skill relies
-on. A tool call the owner's Claude Code rules do not allow waits in its card
+The composer's permission mode is Claude Code's: **Ask before edits**,
+**Accept edits** (the default) or **Plan mode**, from the next message; there
+is no bypass. Sectile's own MCP tools, which every skill relies on, are always
+allowed. A tool call the owner's Claude Code rules do not allow waits in its card
 for **Allow**, **Always allow** (when Claude proposes a rule, which is then
 saved where Claude says) or **Deny**, as in Claude Code; the composer reads
 Waiting for your approval. The decision stays on the card.
@@ -63,7 +65,9 @@ the terminal the project uses, running the user's own shell; no Sectile session
 is attached to it. **Stop execution** ends the conversation; a ticket
 discussion then completes on the server.
 
-The effort picked in the composer is sent with each message as `--effort`;
+The model picked in the composer, the conversation's own or one of the Claude
+models of Settings, is sent with the message as `--model`. The effort is sent
+as `--effort`;
 **Default effort** leaves the CLI to decide. The ring beside the send button
 shows how much of the model's context window the latest main-thread request
 used. **Add folder…** attaches a folder to the project, and Claude is given it
@@ -73,7 +77,7 @@ turn's effort and folders.
 ## How it runs
 
 Each message starts `claude -p --input-format stream-json --output-format
-stream-json --verbose --include-partial-messages --permission-mode acceptEdits
+stream-json --verbose --include-partial-messages --permission-mode <mode>
 --permission-prompt-tool stdio --allowedTools=mcp__sectile`, with `--resume`
 once Claude has reported a session, `--model`, `--effort` and one
 `--add-dir=<path>` per folder of the project, read afresh for each message
