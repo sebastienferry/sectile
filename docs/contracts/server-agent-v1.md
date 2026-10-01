@@ -507,7 +507,11 @@ liveness.
 
 A standalone skill calls `report_waiting(taskKey, runId, waiting)` with
 `waiting: true` right before it asks its user a question it cannot continue
-without. Ownership follows `finish_run`: the run's owner, an administrator, or
+without. A macro run, which has no task, is named by `projectId` and `macroKey`
+instead of `taskKey`, as for `start_run` and `finish_run` (#648); the macro's
+run list then carries `waitingSince`. A refusal says whether no run has the id,
+the run belongs to another task or macro, or it is no longer running (with its
+status). Ownership follows `finish_run`: the run's owner, an administrator, or
 anyone on a run with no recorded owner. The run keeps `running` and gains
 `waitingSince`; a repeated mark keeps the first instant. A headless run is left
 unmarked and the result says so (`applied: false`). The wait ends on the

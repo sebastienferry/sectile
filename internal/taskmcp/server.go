@@ -85,9 +85,13 @@ type finishRunInput struct {
 	MacroKey  string `json:"macroKey,omitempty" jsonschema:"macro key of a macro run, with projectId instead of taskKey"`
 }
 type reportWaitingInput struct {
-	TaskKey string `json:"taskKey" jsonschema:"task key or ID of the run"`
+	TaskKey string `json:"taskKey,omitempty" jsonschema:"task key or ID of the run; omit for a macro run"`
 	RunID   string `json:"runId" jsonschema:"the runId start_run returned"`
 	Waiting bool   `json:"waiting" jsonschema:"true before asking the user a blocking question, false once answered"`
+	// ProjectID and MacroKey name a macro run, as start_run and finish_run do
+	// (#648).
+	ProjectID string `json:"projectId,omitempty" jsonschema:"project primary key of a macro run"`
+	MacroKey  string `json:"macroKey,omitempty" jsonschema:"macro key of a macro run, with projectId instead of taskKey"`
 }
 
 // reportWaitingTool is the one call that must not end a wait: reporting the same
@@ -404,12 +408,23 @@ func NewServerWithCallers(database *db.DB, sessions *SessionRegistry, resolve Ca
 			sessions.Release(sessionID(req.Session), in.RunID)
 			return nil, activity, nil
 		})
-	mcp.AddTool(s, &mcp.Tool{Name: reportWaitingTool, Description: "Declare that a run is blocked on its user, so the board and the owner's desktop show it as waiting. Call it with waiting true right before asking the user a question you cannot continue without. The wait ends by itself on this session's next Sectile call, when the owner presses Enter in the run's console, when the run finishes, or with waiting false. A headless run has nobody to answer and is left unmarked. Tool permission prompts are not reported this way."},
+	mcp.AddTool(s, &mcp.Tool{Name: reportWaitingTool, Description: "Declare that a run is blocked on its user, so the board and the owner's desktop show it as waiting. Call it with waiting true right before asking the user a question you cannot continue without. The wait ends by itself on this session's next Sectile call, when the owner presses Enter in the run's console, when the run finishes, or with waiting false. A headless run has nobody to answer and is left unmarked. Tool permission prompts are not reported this way. Name a task run with taskKey, a macro run with projectId and macroKey, as for start_run."},
 		func(ctx context.Context, req *mcp.CallToolRequest, in reportWaitingInput) (*mcp.CallToolResult, any, error) {
 			caller := callerOf(resolve, req)
+			macro, err := runTarget(in.TaskKey, in.ProjectID, in.MacroKey)
+			if err != nil {
+				return nil, nil, err
+			}
 			// The wait is recorded with the declaring session, whose next call
 			// ends it on whichever instance serves that call.
-			activity, applied, err := database.ReportSessionRunWaitingAs(db.Actor{ID: caller.UserID, Name: caller.Name}, caller.Role == db.RoleAdmin, sessionID(req.Session), in.TaskKey, in.RunID, in.Waiting)
+			actor, admin, session := db.Actor{ID: caller.UserID, Name: caller.Name}, caller.Role == db.RoleAdmin, sessionID(req.Session)
+			var activity *models.TaskActivity
+			var applied bool
+			if macro {
+				activity, applied, err = database.ReportSessionMacroRunWaitingAs(actor, admin, session, in.ProjectID, in.MacroKey, in.RunID, in.Waiting)
+			} else {
+				activity, applied, err = database.ReportSessionRunWaitingAs(actor, admin, session, in.TaskKey, in.RunID, in.Waiting)
+			}
 			if err != nil {
 				return nil, nil, err
 			}

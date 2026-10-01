@@ -529,9 +529,19 @@ func (d *DB) execCount(statement string, args ...any) (int64, error) {
 // notifyWaitChange tells the listeners about a run whose waiting state was
 // written: the postback listeners always, as every write of a run does, and
 // the wait listeners when the mark itself changed.
+//
+// A macro run has no task (#648). Its panel re-reads the macro's runs, so only
+// the wait listeners hear it, with a nil task, for the owner's agent to show
+// the wait.
 func (d *DB) notifyWaitChange(runID string, changed bool) {
 	activity, err := d.GetActivityByID(runID)
 	if err != nil || activity == nil {
+		return
+	}
+	if activity.TaskID == "" {
+		if changed && activity.ProjectID != "" {
+			d.notifyWaitListeners(nil, activity)
+		}
 		return
 	}
 	task, err := d.GetTaskByID(activity.TaskID)
@@ -694,19 +704,69 @@ func (d *DB) ReportSessionRunWaitingAs(caller Actor, admin bool, sessionID, task
 	if err != nil {
 		return nil, false, err
 	}
-	if existing == nil || existing.TaskID != task.ID || existing.SkillID != "remote_run" || existing.Status != "running" {
-		return nil, false, fmt.Errorf("remote run not found or no longer running")
-	}
-	if !admin && existing.UserID != "" && existing.UserID != caller.ID {
-		return nil, false, ErrRunNotYours
-	}
-	if waiting && models.NormalizeSkillMode(d.runOutcomeOf(runID).Mode) == models.SkillModeAutonomous {
-		return existing, false, nil
-	}
-	if err := d.setRemoteRunWaiting(runID, sessionID, waiting); err != nil {
+	if err := waitTargetRefusal(existing, runID, existing != nil && existing.TaskID == task.ID, "task "+task.Key); err != nil {
 		return nil, false, err
 	}
-	activity, err := d.GetActivityByID(runID)
+	return d.reportRunWaiting(caller, admin, sessionID, existing, waiting)
+}
+
+// ReportSessionMacroRunWaitingAs is ReportSessionRunWaitingAs for a macro run,
+// which a session names by its project and macro key since it has no task
+// (#648). The ownership and headless rules are those of a task run.
+func (d *DB) ReportSessionMacroRunWaitingAs(caller Actor, admin bool, sessionID, projectID, macroKey, runID string, waiting bool) (*models.TaskActivity, bool, error) {
+	runID = strings.TrimSpace(runID)
+	if runID == "" {
+		return nil, false, fmt.Errorf("runId is required")
+	}
+	project, macro, err := d.macroOf(projectID, macroKey)
+	if err != nil {
+		return nil, false, err
+	}
+	existing, err := d.GetActivityByID(runID)
+	if err != nil {
+		return nil, false, err
+	}
+	attached := existing != nil && existing.TaskID == "" && existing.ProjectID == project.ID &&
+		strings.EqualFold(d.macroKeyOfActivity(runID), macro.Key)
+	if err := waitTargetRefusal(existing, runID, attached, "macro "+macro.Key); err != nil {
+		return nil, false, err
+	}
+	activity, applied, err := d.reportRunWaiting(caller, admin, sessionID, existing, waiting)
+	if activity != nil {
+		activity.MacroKey = macro.Key
+	}
+	return activity, applied, err
+}
+
+// waitTargetRefusal says why a wait cannot be reported on a run, telling a
+// wrong id, a run of something else and a finished run apart (#648). The last
+// keeps the words "no longer running" that callers already look for.
+func waitTargetRefusal(run *models.TaskActivity, runID string, attached bool, target string) error {
+	switch {
+	case run == nil || run.SkillID != "remote_run":
+		return fmt.Errorf("remote run %s not found", runID)
+	case !attached:
+		return fmt.Errorf("remote run %s is not attached to %s", runID, target)
+	case run.Status != "running":
+		return fmt.Errorf("remote run %s is no longer running (%s)", runID, run.Status)
+	}
+	return nil
+}
+
+// reportRunWaiting applies a session's wait report on a run already matched to
+// its target: the owner, an admin, or anyone on a run with no owner, and never
+// on a headless run, which has nobody to answer.
+func (d *DB) reportRunWaiting(caller Actor, admin bool, sessionID string, run *models.TaskActivity, waiting bool) (*models.TaskActivity, bool, error) {
+	if !admin && run.UserID != "" && run.UserID != caller.ID {
+		return nil, false, ErrRunNotYours
+	}
+	if waiting && models.NormalizeSkillMode(d.runOutcomeOf(run.ID).Mode) == models.SkillModeAutonomous {
+		return run, false, nil
+	}
+	if err := d.setRemoteRunWaiting(run.ID, sessionID, waiting); err != nil {
+		return nil, false, err
+	}
+	activity, err := d.GetActivityByID(run.ID)
 	if err != nil {
 		return nil, false, err
 	}

@@ -163,7 +163,7 @@ func (d *DB) MacroRuns(projectID, macroKey string, limit int) ([]models.TaskActi
 func (d *DB) macroRuns(projectID, macroKey string, runningOnly bool, limit int) ([]models.TaskActivity, error) {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
-	query := `SELECT id, project_id, macro_key, skill_name, action, status, summary, created_at, started_at, completed_at, user_id, run_provider, run_model
+	query := `SELECT id, project_id, macro_key, skill_name, action, status, summary, created_at, started_at, completed_at, user_id, run_provider, run_model, waiting_since
 		FROM task_activities
 		WHERE project_id = ? AND task_id IS NULL AND skill_id = 'remote_run' AND macro_key <> '' AND UPPER(macro_key) = UPPER(?)`
 	if runningOnly {
@@ -178,15 +178,19 @@ func (d *DB) macroRuns(projectID, macroKey string, runningOnly bool, limit int) 
 	runs := []models.TaskActivity{}
 	for rows.Next() {
 		var a models.TaskActivity
-		var startedAt, completedAt sql.NullTime
+		var startedAt, completedAt, waitingSince sql.NullTime
 		var provider, model sql.NullString
 		if err := rows.Scan(&a.ID, &a.ProjectID, &a.MacroKey, &a.SkillName, &a.Action, &a.Status, &a.Summary, &a.CreatedAt,
-			&startedAt, &completedAt, &a.UserID, &provider, &model); err != nil {
+			&startedAt, &completedAt, &a.UserID, &provider, &model, &waitingSince); err != nil {
 			return nil, err
 		}
 		a.SkillID, a.Steps = "remote_run", []string{}
 		if startedAt.Valid {
 			a.StartedAt = &startedAt.Time
+		}
+		// The macro's panel shows a run that waits on its user (#648).
+		if waitingSince.Valid {
+			a.WaitingSince = &waitingSince.Time
 		}
 		if completedAt.Valid {
 			a.CompletedAt = &completedAt.Time
