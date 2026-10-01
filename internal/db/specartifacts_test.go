@@ -130,6 +130,12 @@ func TestMigrationTwentyFiveKeepsExistingProjectsArtefacts(t *testing.T) {
 		"ALTER TABLE macros DROP COLUMN readiness",
 		"ALTER TABLE task_activities DROP COLUMN credential_missing",
 		"ALTER TABLE projects DROP COLUMN roadmap_axis_writes",
+		"ALTER TABLE user_tracker_credentials DROP COLUMN kind",
+		"ALTER TABLE user_tracker_credentials DROP COLUMN version",
+		"ALTER TABLE user_tracker_credentials DROP COLUMN disconnected_at",
+		"ALTER TABLE user_tracker_credentials DROP COLUMN refresh_claimed_at",
+		"DROP TABLE jira_oauth_flows",
+		"DROP TABLE tracker_oauth_apps",
 		"DELETE FROM schema_migrations WHERE version >= 25",
 	} {
 		if _, err := d.conn.Exec(stmt); err != nil {
