@@ -621,10 +621,21 @@ var migrations = []migration{
 		},
 	},
 	{
+		// Every Sectile tool call looks up the waits its session declared
+		// (#475), so that lookup must not scan every activity (#497). Nearly
+		// every row holds '' and only a waiting run holds a session, so the
+		// index is partial and stays as small as the number of waiting runs.
+		version: 44,
+		name:    "task_activities.waiting_session_index",
+		statements: []string{
+			"CREATE INDEX IF NOT EXISTS idx_task_activities_waiting_session ON task_activities (waiting_session) WHERE waiting_session <> '';",
+		},
+	},
+	{
 		// Where the framing of a Jira epic is copied, and how that copy stands
 		// (#636): the same columns as the todos copy of migration 43, for the
 		// second comment Sectile owns on the epic.
-		version: 44,
+		version: 45,
 		name:    "macros.framing_mirror",
 		statements: []string{
 			"ALTER TABLE macros ADD COLUMN framing_mirror_ref TEXT NOT NULL DEFAULT '';",

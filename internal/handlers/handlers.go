@@ -125,7 +125,7 @@ func NewHandler(database *db.DB) *Handler {
 // An agent that is not connected misses it, and is sent the run's state when it
 // reconnects (resendRunWaits).
 func (h *Handler) pushRunWaiting(task *models.Task, activity *models.TaskActivity) {
-	if task == nil || activity == nil {
+	if activity == nil {
 		return
 	}
 	// Listeners run concurrently, so a mark and the clear that follows it may be
@@ -138,12 +138,19 @@ func (h *Handler) pushRunWaiting(task *models.Task, activity *models.TaskActivit
 }
 
 // sendRunWaiting sends a live agent run's waiting state, set or clear, to its
-// owner's agent. Only a run an agent dispatched can be on an agent's list.
+// owner's agent. Only a run an agent dispatched can be on an agent's list. A
+// macro run has no task and names its project itself (#648).
 func (h *Handler) sendRunWaiting(task *models.Task, activity *models.TaskActivity) {
 	if activity.SkillID != "remote_run" || activity.Action != db.RunActionAgent || activity.UserID == "" || activity.Status != "running" {
 		return
 	}
-	_ = h.agentDispatcher.Dispatch(activity.UserID, task.ProjectID, agentprotocol.RunWaitingType, task.ID,
+	projectID, taskID := activity.ProjectID, ""
+	if task != nil {
+		projectID, taskID = task.ProjectID, task.ID
+	} else if activity.TaskID != "" || projectID == "" {
+		return
+	}
+	_ = h.agentDispatcher.Dispatch(activity.UserID, projectID, agentprotocol.RunWaitingType, taskID,
 		agentprotocol.RunWaiting{RunID: activity.ID, WaitingSince: activity.WaitingSince})
 }
 
@@ -156,6 +163,10 @@ func (h *Handler) resendRunWaits(ownerID string, tasks []agentprotocol.RunningTa
 		}
 		activity, err := h.db.GetActivityByID(t.ID)
 		if err != nil || activity == nil || activity.UserID != ownerID {
+			continue
+		}
+		if activity.TaskID == "" {
+			h.sendRunWaiting(nil, activity)
 			continue
 		}
 		task, err := h.db.GetTaskByID(activity.TaskID)

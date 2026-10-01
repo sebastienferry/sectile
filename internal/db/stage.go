@@ -29,6 +29,19 @@ func (d *DB) TransitionTaskStageBy(actorID string, taskIDOrKey string, targetSta
 // carry one pull request per repository it changed (#456). The first link is
 // the one prUrl names; the others follow in any order.
 func (d *DB) TransitionTaskStageWithPRs(actorID string, taskIDOrKey string, targetStage string, note string, prURLs []string, branch string) (*models.Task, *models.TaskActivity, error) {
+	return d.transitionTaskStage(actorID, taskIDOrKey, targetStage, note, prURLs, branch, false)
+}
+
+// TransitionTaskStageWithoutRepositoryChange is TransitionTaskStageBy for a
+// task whose work changed no repository, such as a configuration made through
+// an API (#584). The statement stands in for the pull request a stage would
+// otherwise require, and the report says that none was expected. It is refused
+// when the task shows that it did change a repository.
+func (d *DB) TransitionTaskStageWithoutRepositoryChange(actorID string, taskIDOrKey string, targetStage string, note string, branch string) (*models.Task, *models.TaskActivity, error) {
+	return d.transitionTaskStage(actorID, taskIDOrKey, targetStage, note, nil, branch, true)
+}
+
+func (d *DB) transitionTaskStage(actorID string, taskIDOrKey string, targetStage string, note string, prURLs []string, branch string, noRepositoryChange bool) (*models.Task, *models.TaskActivity, error) {
 	prURL := ""
 	if len(prURLs) > 0 {
 		prURL = prURLs[0]
@@ -81,7 +94,12 @@ func (d *DB) TransitionTaskStageWithPRs(actorID string, taskIDOrKey string, targ
 	}
 	skillForStage := map[string]string{"clarified": "clarify", "specified": "specify", "implemented": "implement", "reviewed": "adjust"}[cleanStage]
 	if skillForStage != "" {
-		set, err := d.validateStagePRs(task, actorID, skillForStage, d.adjustmentCheckout(task), branchForPR, prURLs)
+		var set stagePRSet
+		if noRepositoryChange {
+			set, err = d.noRepositoryChangeEvidence(task, skillForStage, branchForPR)
+		} else {
+			set, err = d.validateStagePRs(task, actorID, skillForStage, d.adjustmentCheckout(task), branchForPR, prURLs)
+		}
 		if err != nil {
 			return nil, nil, err
 		}
@@ -188,7 +206,7 @@ func (d *DB) TransitionTaskStageWithPRs(actorID string, taskIDOrKey string, targ
 			}
 			// A stage that records a link undoes a past detachment: the workflow
 			// attached a pull request again, so rediscovery may speak once more. A
-			// stage that records none leaves the flag alone — most transitions
+			// stage that records none leaves the flag alone: most transitions
 			// carry no pull request, and raising it there would silence discovery
 			// on every task.
 			attached := 0

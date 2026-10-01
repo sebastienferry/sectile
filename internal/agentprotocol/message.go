@@ -12,6 +12,12 @@ import (
 // agent that cannot be reached at all.
 const RunNotOwned = "run-not-owned"
 
+// RunIDHeader names, on every MCP request of a console the agent launched, the
+// run that console belongs to. The stdio bridge reads it from SECTILE_RUN_ID.
+// A console keeps its run when its MCP client has to initialize a new session,
+// so the server can still tell that the run is speaking again (#498).
+const RunIDHeader = "X-Sectile-Run-Id"
+
 // Message is the envelope for all messages exchanged between the remote
 // server and a connected local agent over the agent WebSocket relay.
 type Message struct {

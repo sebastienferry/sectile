@@ -121,3 +121,8 @@ One residual behaviour is accepted rather than open: a session that loses its
 identity (its MCP client re-initializes after a server restart) cannot end its
 old wait by its next call, because that call comes from a different session.
 Enter in the console (requirement 1) and `finish_run` still end it.
+
+Since #498 this only concerns a session started by hand, without a launcher
+runId: a console the agent launched names its run on every call
+(`X-Sectile-Run-Id`), and its next call ends that run's wait whatever the
+session.
