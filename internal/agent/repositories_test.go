@@ -576,3 +576,40 @@ func TestRepositoryWorktreeRefusalNamesTheReason(t *testing.T) {
 		t.Errorf("a failing folder beside the repository's: %+v, %v", got, err)
 	}
 }
+
+// A conversation or a free console has no ticket: its folders are the
+// project's other repositories, its specifications folder and its present
+// attached folders, never its own directory nor a folder gone since (#676).
+func TestProjectFolderMapListsTheProjectFolders(t *testing.T) {
+	testhome.Temp(t)
+	ctx := context.Background()
+	root := checkoutOf(t, "git@github.com:o/a.git")
+	b := checkoutOf(t, "git@github.com:o/b.git")
+	spec := t.TempDir()
+	notes := t.TempDir()
+	missing := filepath.Join(t.TempDir(), "gone")
+	if err := agentconfig.WriteSettings(agentconfig.Settings{
+		ProjectSettings: map[string]agentconfig.ProjectSettings{"p": {Path: root, SpecPath: spec, Folders: []string{notes, missing}}},
+		Repositories:    map[string]string{"github.com/o/b": b},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	d, _, _ := desktopAgent(t, root, models.Task{})
+
+	entries, err := d.projectFolderMap(ctx, multiRepoConfig(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dirs := folderMapDirs(entries)
+	if len(dirs) != 3 || !containsPath(t, dirs, b) || !containsPath(t, dirs, spec) || !containsPath(t, dirs, notes) {
+		t.Fatalf("add-dirs = %v", dirs)
+	}
+	if containsPath(t, dirs, root) || strings.Contains(strings.Join(dirs, " "), missing) {
+		t.Fatalf("the directory itself or a missing folder reached the CLI: %v", dirs)
+	}
+
+	other := agentconfig.Config{ProjectID: "elsewhere", GitRemoteURL: "git@github.com:o/z.git"}
+	if _, err := d.projectFolderMap(ctx, other, root); err == nil {
+		t.Fatal("a project without a folder here must report it")
+	}
+}

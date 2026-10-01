@@ -43,6 +43,7 @@ contextBridge.exposeInMainWorld('localAgent',{
  mapRepository:mapping=>ipcRenderer.invoke('map-repository',mapping),
  folders:projectId=>ipcRenderer.invoke('folders',projectId),
  attachFolder:(projectId,path)=>ipcRenderer.invoke('attach-folder',{projectId,path}),
+ addRunFolder:(runId,path)=>ipcRenderer.invoke('add-run-folder',{runId,path}),
  detachFolder:(projectId,path)=>ipcRenderer.invoke('detach-folder',{projectId,path}),
  gitState:path=>ipcRenderer.invoke('git-state',path),
  gitInit:path=>ipcRenderer.invoke('git-init',path),

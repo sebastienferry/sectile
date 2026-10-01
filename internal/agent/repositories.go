@@ -476,6 +476,20 @@ func (d *agentDaemon) taskFolderMap(ctx context.Context, config agentconfig.Conf
 	return buildFolderMap(ctx, config, overrides, root, primary, workDir, task)
 }
 
+// projectFolderMap is the folder map of a project-level session: a
+// conversation or a free console, which has no ticket and runs in directory.
+// The project's own repository is its primary entry, so every other
+// repository, the specifications folder and the attached folders follow it
+// (#676). Unlike taskFolderMap it reports its failure: such a session says
+// when it runs without the project's folders.
+func (d *agentDaemon) projectFolderMap(ctx context.Context, config agentconfig.Config, directory string) ([]models.FolderMapEntry, error) {
+	root, overrides, err := d.localProjectRoot(ctx, config)
+	if err != nil {
+		return nil, err
+	}
+	return buildFolderMap(ctx, config, overrides, root, codeIdentity(config), directory, models.Task{}), nil
+}
+
 // rememberConvertedFolders maps each converted repository to the checkout the
 // conversion read, unless this workstation already maps it. The project's own
 // repository keeps its folder in the project mapping.

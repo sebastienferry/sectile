@@ -871,6 +871,16 @@ message naming what the folder already is. The agent reports the
 `attached-folders` capability on `/desktop/status`. No request to the server
 carries these paths.
 
+`POST /desktop/run-folder` `{runId, path}` attaches a folder from a run (#676),
+through the same checks and with the same refusals, for a conversation or a
+ticket discussion running in a Sectile terminal; another run, or one that has
+ended, answers 409, an unknown one 404. It answers `{"mappedAs", "typed",
+"appliesAt"}`: `next-turn` for a conversation, which reads the project's
+folders at each turn; `now` when `/add-dir <path>` was typed into a Claude Code
+discussion once its output settled; `next-launch` for another engine, a
+discussion moved to a native terminal, or a path holding a control character.
+The agent reports the `run-folders` capability on `/desktop/status`.
+
 Without effective worktrees, the agent enforces one execution and the UI
 disables parallelism selection. Requests are acknowledged when queued; their
 remote run remains active until completion or cancellation. The agent reserves
