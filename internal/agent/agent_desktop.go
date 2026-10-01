@@ -133,6 +133,10 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 		d.desktopConversation(w, r)
 		return
 	}
+	if r.URL.Path == "/desktop/conversation-terminal" {
+		d.desktopConversationTerminal(w, r)
+		return
+	}
 	// The build the companion is talking to. It is its own route rather than a
 	// field on /desktop/status because status is polled every few seconds and
 	// the version never changes while the process lives.
@@ -164,7 +168,7 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 		// contractError separates a server that is merely unreachable from one
 		// that cannot be talked to at all. Without it the desktop reports both
 		// as a disconnection and the user has no reason to look at the build.
-		capabilities := []string{"git-diff", markdownDocumentsCapability, "create-task", "remove-project", "free-console", "transition-stage", "repositories", attachedFoldersCapability, "git-init", taskEnginesCapability, openEditorCapability, "claude-conversation", runFoldersCapability}
+		capabilities := []string{"git-diff", markdownDocumentsCapability, "create-task", "remove-project", "free-console", "transition-stage", "repositories", attachedFoldersCapability, "git-init", taskEnginesCapability, openEditorCapability, "claude-conversation", conversationControlsCapability, conversationQueueCapability, runFoldersCapability}
 		if d.store != nil {
 			capabilities = append(capabilities, runStoreCapability)
 		}
@@ -323,13 +327,17 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 		run.canceled = true
 		if run.conversation != nil {
 			if !run.conversation.busy {
-				run.desktop.Status = "canceled"
+				run.desktop.Status = conversationStoppedStatus(run)
 				run.once.Do(func() { close(run.exited) })
 				run.trace.close()
 			}
 			d.queue.mu.Unlock()
 			select {
 			case <-run.exited:
+				// A ticket discussion is a server run: stopping it ends it there too.
+				if entry.TaskID != "" {
+					_ = d.finishDesktopRun(context.Background(), entry.TaskID, id, stoppedStatus(entry.Skill), stoppedNote(entry.Skill, false))
+				}
 				w.WriteHeader(http.StatusNoContent)
 			case <-time.After(12 * time.Second):
 				http.Error(w, "Exit not confirmed", http.StatusGatewayTimeout)
@@ -914,6 +922,11 @@ func (d *agentDaemon) desktopTasks(w http.ResponseWriter, r *http.Request) {
 		// Force asks the server to skip its duplicate-launch refusal. As with
 		// Mode, the agent does not interpret it, it passes it on.
 		Force bool
+		// View "conversation" asks for an interactive launch in Claude's
+		// structured view. The server never sees it: the agent keeps it until
+		// the dispatch comes back. An engine it cannot honour, or an
+		// autonomous launch, gets what it would have had without it.
+		View string
 	}
 	if json.NewDecoder(http.MaxBytesReader(w, r.Body, 8192)).Decode(&input) != nil || input.TaskID == "" {
 		http.Error(w, "Task and skill required", 400)
@@ -943,6 +956,9 @@ func (d *agentDaemon) desktopTasks(w http.ResponseWriter, r *http.Request) {
 	if !models.ValidSkillMode(input.Mode) {
 		http.Error(w, "Unknown execution mode", 400)
 		return
+	}
+	if input.View == "conversation" {
+		d.conversationViews.mark(task.ID)
 	}
 	body := mustJSON(map[string]any{"skillId": input.SkillID, "prompt": input.Prompt, "mode": input.Mode, "force": input.Force})
 	req, err := http.NewRequestWithContext(r.Context(), http.MethodPost, d.link.serverURL+"/api/tasks/"+url.PathEscape(task.ID)+"/run-skill", strings.NewReader(body))

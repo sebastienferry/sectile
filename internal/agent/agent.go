@@ -86,6 +86,13 @@ type agentDaemon struct {
 	launchTerminalFn func(terminalApp, sessionID string) error
 	// openEditorFn replaces the editor launch in tests (#535).
 	openEditorFn func(editor, directory string) error
+	// openTerminalFn replaces the plain terminal a conversation opens, in tests.
+	openTerminalFn func(terminal, directory string) error
+	// probeCommandsFn replaces the Claude started to list a conversation's
+	// slash commands, in tests.
+	probeCommandsFn func(cmd *exec.Cmd) []conversationSlash
+	// checkMCPFn replaces the check of Sectile's MCP server, in tests.
+	checkMCPFn func(directory string, env map[string]string) conversationMCP
 	// capabilities serializes the engine reports sent to the server (#305).
 	capabilities capabilityReporter
 	// customSkills records the custom skills dispatches ran since the agent
@@ -94,6 +101,9 @@ type agentDaemon struct {
 	// store keeps the runs the desktop lists across a restart (#588). Nil
 	// disables it, which is what a daemon built by hand gets.
 	store *runStore
+	// conversationViews holds the task launches Desktop asked to open as a
+	// conversation, until their dispatch arrives.
+	conversationViews pendingDiscussionViews
 }
 
 // serverLink is the agent's attachment to the server: the identity it presents
@@ -814,7 +824,9 @@ func (d *agentDaemon) handleRunWaiting(msg agentprotocol.Message) {
 	if run == nil {
 		return
 	}
-	if payload.WaitingSince == nil || run.desktop.Headless {
+	// A conversation is headless but has an owner to wait for: a skill
+	// asking its questions in the conversation marks it as a terminal does.
+	if payload.WaitingSince == nil || run.desktop.Headless && run.conversation == nil {
 		run.desktop.WaitingSince = time.Time{}
 		run.answeredAt = time.Time{}
 		return
@@ -1233,6 +1245,46 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 	}
 	if raw, err := json.Marshal(folders); err == nil && len(folders) > 0 {
 		envVars["SECTILE_REPOSITORIES"] = string(raw)
+	}
+
+	// An interactive launch Desktop asked to see as a conversation runs Claude
+	// over pipes in the task's worktree, one turn per message, with the same
+	// environment the terminal would have carried. A discussion waits for the
+	// first message; a skill sends its command as that message at once. The
+	// run holds its slot until it is stopped.
+	if !autonomous && models.NormalizeSkillID(payload.Action) != "open_terminal" && d.conversationViews.take(taskRef, task.ID) && conversationDiscussionEngine(config) {
+		model, first, origin := conversationModel(config), "", "It runs in this task's worktree. Stop it to end the discussion."
+		var extraDirs []string
+		if payload.SkillID != "discuss" {
+			launch := agentCommandContext{Task: task, Branch: branch, Directory: workDir, Tracker: config.IssueTracker, Repo: config.GithubRepo, AddDirs: folderMapDirs(folders), Skill: choice}
+			prompt, contexts, promptErr := dispatchPrompt(config, taskRef, payload.SkillID, models.NormalizeSkillID(payload.Action), payload.Prompt, []agentCommandContext{launch})
+			if promptErr != nil {
+				launchFailure = promptErr
+				d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", promptErr.Error())
+				return
+			}
+			first, extraDirs = prompt, extraConversationDirs(contexts[0].AddDirs, launch.AddDirs)
+			if skillModel, modelErr := LaunchModel(config, payload.SkillID, payload.Model); modelErr == nil && strings.TrimSpace(skillModel) != "" {
+				model = skillModel
+			}
+			origin = "It runs the " + payload.SkillID + " skill in this task's worktree. Stop it once the skill is done."
+		}
+		d.queue.mu.Lock()
+		run.desktop = desktopRun{CreatedAt: run.desktop.CreatedAt, Prompt: run.desktop.Prompt, ID: payload.RunID, TaskID: taskRef, TaskKey: payload.TaskKey, ProjectID: config.ProjectID, Skill: payload.SkillID, Directory: workDir, Branch: branch}
+		startConversationLocked(run, model, conversationOrigin(config, origin))
+		run.conversation.env, run.conversation.extraDirs = envVars, extraDirs
+		if first != "" {
+			run.conversation.busy = true
+			conversationWrite(run.trace, "user", first, "")
+		}
+		d.queue.mu.Unlock()
+		if first != "" {
+			go d.conversationTurn(run, first)
+		}
+		launched = true
+		d.recordCustomSkillUse(config, choice, payload.RunID)
+		d.sendStatus(conn, msg.MsgID, msg.TaskID, "completed", "Execution opened as a conversation")
+		return
 	}
 
 	// An autonomous run forks here, before any terminal exists: no PTY session,

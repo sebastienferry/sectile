@@ -287,15 +287,15 @@ aside{flex-shrink:0}.sidebar-hidden #sidebar-resizer{display:none}#sidebar-resiz
 .diff-render-toggle{float:right;margin-left:8px}.diff-render-toggle[aria-pressed="true"]{background:var(--view-pressed-bg);color:var(--view-pressed-text)}
 .diff-render-note{color:var(--text-muted);overflow-wrap:anywhere}
 .diff-rendered{overflow:auto;max-height:65vh;background:var(--bg);padding:10px 16px;font-size:13px;line-height:1.55;overflow-wrap:anywhere}
-.diff-rendered>:first-child{margin-top:0}.diff-rendered h1,.diff-rendered h2{padding-bottom:4px;border-bottom:1px solid var(--border-subtle)}
-.diff-rendered blockquote{margin:8px 0;padding:0 12px;border-left:3px solid var(--border);color:var(--text-muted)}
-.diff-rendered code{font:12px Menlo,monospace;background:var(--surface-sunken);padding:1px 4px;border-radius:3px}
-.diff-rendered pre{overflow:auto;background:var(--surface-sunken);padding:10px;border-radius:4px}.diff-rendered pre code{padding:0;background:none;white-space:pre}
-.diff-rendered table{border-collapse:collapse;margin:8px 0;display:block;overflow:auto}.diff-rendered th,.diff-rendered td{border:1px solid var(--border);padding:4px 8px}.diff-rendered th{background:var(--surface)}
-.diff-rendered .md-task{list-style:none}.diff-rendered .md-task input{margin:0 4px 0 -18px}
-.diff-rendered .md-link{color:var(--link);text-decoration:underline;cursor:pointer}
-.diff-rendered .md-link-inert{text-decoration:underline dotted;cursor:help}.diff-rendered .md-link-target,.diff-rendered .md-image{color:var(--text-muted)}
-.diff-rendered .md-image{font-style:italic}
+:is(.diff-rendered,.conversation-markdown)>:first-child{margin-top:0}:is(.diff-rendered,.conversation-markdown) h1,:is(.diff-rendered,.conversation-markdown) h2{padding-bottom:4px;border-bottom:1px solid var(--border-subtle)}
+:is(.diff-rendered,.conversation-markdown) blockquote{margin:8px 0;padding:0 12px;border-left:3px solid var(--border);color:var(--text-muted)}
+:is(.diff-rendered,.conversation-markdown) code{font:12px Menlo,monospace;background:var(--surface-sunken);padding:1px 4px;border-radius:3px}
+:is(.diff-rendered,.conversation-markdown) pre{overflow:auto;background:var(--surface-sunken);padding:10px;border-radius:4px}:is(.diff-rendered,.conversation-markdown) pre code{padding:0;background:none;white-space:pre}
+:is(.diff-rendered,.conversation-markdown) table{border-collapse:collapse;margin:8px 0;display:block;overflow:auto}:is(.diff-rendered,.conversation-markdown) th,:is(.diff-rendered,.conversation-markdown) td{border:1px solid var(--border);padding:4px 8px}:is(.diff-rendered,.conversation-markdown) th{background:var(--surface)}
+:is(.diff-rendered,.conversation-markdown) .md-task{list-style:none}:is(.diff-rendered,.conversation-markdown) .md-task input{display:inline-block;width:auto;padding:0;margin:0 4px 0 -18px}
+:is(.diff-rendered,.conversation-markdown) .md-link{color:var(--link);text-decoration:underline;cursor:pointer}
+:is(.diff-rendered,.conversation-markdown) .md-link-inert{text-decoration:underline dotted;cursor:help}:is(.diff-rendered,.conversation-markdown) .md-link-target,:is(.diff-rendered,.conversation-markdown) .md-image{color:var(--text-muted)}
+:is(.diff-rendered,.conversation-markdown) .md-image{font-style:italic}
 #changes button:focus-visible,#changes pre:focus-visible,.execution-views button:focus-visible{outline:2px solid var(--info);outline-offset:2px}
 @media(max-width:750px){.diff-body{grid-template-columns:minmax(0,1fr)}.diff-files{max-height:150px}}
 
@@ -512,32 +512,95 @@ dialog.workstation-settings{width:min(1100px,94vw);max-height:90vh}
 .conversation-event code{font-family:Menlo,Consolas,monospace;font-size:12px}
 .conversation-tool{padding:8px 12px;border:1px solid var(--border-strong);border-radius:8px}
 .conversation-tool summary{cursor:pointer;font-weight:600}
+/* Tool cards: the summary line names the tool, what it acted on and a short
+   note; the body, when there is one, opens on demand. */
+.tool-card{padding:6px 12px}
+.tool-card-summary{display:flex;align-items:baseline;gap:8px;min-width:0;font-weight:400}
+details.tool-card>summary{list-style:none}
+details.tool-card>summary::-webkit-details-marker{display:none}
+details.tool-card>summary::before{content:'▸';color:var(--text-faint);font-size:10px;width:8px;flex:none}
+details.tool-card[open]>summary::before{content:'▾'}
+.tool-card-line .tool-card-summary{padding-left:16px}
+.tool-card-name{font-weight:600;flex:none}
+.tool-card-target{font:12px Menlo,Consolas,monospace;color:var(--text-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.tool-card-note{margin-left:auto;padding-left:8px;font-size:12px;color:var(--text-faint);white-space:nowrap;flex:none}
+.conversation-event pre.tool-card-diff,.conversation-event pre.tool-card-code{margin:8px 0 2px;max-height:420px;overflow:auto;font:12px/1.5 Menlo,Consolas,monospace}
+.conversation-event pre.tool-card-diff{white-space:pre;padding:8px 0}
+.tool-card-diff span{display:block;padding:0 12px;min-width:max-content}
+.tool-card-todos{list-style:none;margin:8px 0 2px;padding:0 0 0 16px;display:flex;flex-direction:column;gap:3px}
+.tool-card-todo{display:flex;gap:8px;align-items:center}.tool-card-todo input{display:inline-block;width:auto;flex:none;margin:0;padding:0}
+.tool-card-todo-completed span{color:var(--text-faint);text-decoration:line-through}
+.tool-card-todo-in_progress span{font-weight:600}
+.conversation-event pre.tool-card-result{margin:8px 0 2px;max-height:320px;overflow:auto;font:12px/1.5 Menlo,Consolas,monospace;color:var(--text-secondary)}
+.conversation-event pre.tool-card-result-error{color:var(--danger);border-color:var(--danger)}
+.tool-card-failed{border-color:var(--danger)}
+.tool-card-failed .tool-card-status{color:var(--danger)}
+.tool-card-asking{border-color:var(--accent-border)}
+.tool-approval{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:8px 0 2px;padding-top:8px;border-top:1px solid var(--border-subtle)}
+.tool-approval-question{flex:1 1 200px;min-width:0;font-size:12.5px;overflow-wrap:anywhere}
+.tool-approval button{padding:5px 12px;font-size:12.5px}
+.tool-approval .tool-approval-allow{color:var(--on-accent);background:var(--accent);border-color:var(--accent)}
+.tool-approval .tool-approval-deny{color:var(--danger)}
+.tool-question{flex-direction:column;align-items:stretch}
+.tool-question-set{margin:0;padding:0;border:0;display:flex;flex-direction:column;gap:6px}
+.tool-question-set legend{padding:0;margin-bottom:4px;font-weight:600;font-size:13px}
+.tool-question-header{display:inline-block;margin-right:8px;padding:1px 6px;border-radius:4px;background:var(--surface-sunken);color:var(--text-secondary);font-size:11px;font-weight:400}
+.tool-question-option{display:grid;grid-template-columns:auto 1fr;column-gap:8px;align-items:baseline;margin:0;font-size:12.5px;cursor:pointer}
+.tool-question-option input{display:inline-block;width:auto;margin:0;padding:0}
+.tool-question-option small{grid-column:2;color:var(--text-faint)}
+.tool-question-other{margin:2px 0 0;padding:6px 8px;font-size:12.5px}
+.tool-question-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px}
+.tool-question-hint{margin-right:auto;font-size:12px;color:var(--warn-text)}
+.tool-question .tool-approval-deny{background:var(--button-bg);border:1px solid var(--border-strong);font-weight:400}
 .conversation-notice,.conversation-thinking{color:var(--text-faint)}
 .conversation-error{color:var(--danger)}
+.conversation-plain{white-space:pre-wrap}
+.conversation-command-output{white-space:pre-wrap;font:12px/1.55 Menlo,Consolas,monospace;padding:10px 12px;background:var(--surface-sunken);border-radius:8px;overflow-x:auto}
+.conversation-command-output .command-ok{color:var(--diff-add-text)}
+.conversation-command-output .command-warn{color:var(--warn-text)}
+.conversation-command-output .command-failed{color:var(--danger)}
+/* The reply still being written ends on a caret. */
+.conversation-partial .conversation-markdown>:last-child::after{content:'▍';margin-left:1px;color:var(--text-faint);animation:conversation-caret 1s steps(2) infinite}
+@keyframes conversation-caret{50%{opacity:0}}
+@media (prefers-reduced-motion:reduce){.conversation-partial .conversation-markdown>:last-child::after{animation:none}}
+.conversation-markdown>:first-child{margin-top:0}.conversation-markdown>:last-child{margin-bottom:0}
 .conversation-composer{position:relative;margin:8px 24px 20px;max-width:850px;width:calc(100% - 48px);box-sizing:border-box;align-self:center;display:flex;flex-direction:column;gap:6px;padding:14px 14px 10px 18px;background:var(--button-bg);border:1px solid var(--border-strong);border-radius:18px;transition:border-color .15s}
 .conversation-composer:focus-within{border-color:var(--accent-border)}
 /* A soft accent glow along the bottom edge while the composer has focus. */
 .conversation-composer::after{content:'';position:absolute;left:12%;right:12%;bottom:-1px;height:1px;background:linear-gradient(90deg,transparent,var(--accent),transparent);opacity:0;transition:opacity .15s;pointer-events:none}
 .conversation-composer:focus-within::after{opacity:.8}
+.conversation-composer.conversation-shell-mode{border-color:var(--warn-text)}
+.conversation-composer.conversation-shell-mode::before{content:'Shell';position:absolute;top:-9px;left:16px;padding:0 6px;font-size:11px;color:var(--warn-text);background:var(--bg)}
+/* The slash command list opens above the message box. */
+.conversation-commands{position:absolute;left:12px;right:12px;bottom:calc(100% + 6px);z-index:5;max-height:280px;overflow:auto;margin:0;padding:4px;list-style:none;background:var(--dialog-bg);border:1px solid var(--border-strong);border-radius:10px;box-shadow:0 8px 24px var(--menu-shadow)}
+.conversation-commands li{display:grid;grid-template-columns:auto 1fr;column-gap:8px;align-items:baseline;padding:6px 8px;border-radius:6px;cursor:pointer}
+.conversation-commands li[aria-selected=true]{background:var(--selected-bg)}
+.conversation-commands strong{font:600 12.5px Menlo,Consolas,monospace}
+.conversation-command-hint{font:12px Menlo,Consolas,monospace;color:var(--text-faint);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.conversation-commands small{grid-column:1/-1;color:var(--text-faint);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .conversation-composer textarea{resize:none;min-height:44px;max-height:220px;overflow-y:auto;box-sizing:border-box;width:100%;font:inherit;font-size:14px;line-height:1.5;color:var(--text);background:transparent;border:0;outline:0;padding:2px 0}
 .conversation-composer textarea::placeholder{color:var(--text-faint)}
 .conversation-composer textarea:disabled{cursor:not-allowed}
 .conversation-toolbar{display:flex;align-items:center;gap:14px}
 .conversation-chip{font-size:12px;color:var(--text-faint);white-space:nowrap;cursor:default}
-.conversation-add-folder{display:inline-flex;align-items:center;gap:5px;padding:2px 0;border:0;background:transparent;font:inherit;font-size:12px;cursor:pointer}
-.conversation-add-folder[hidden]{display:none}
-.conversation-add-folder:hover:not(:disabled){color:var(--text)}
-.conversation-add-folder:focus-visible{outline:1px solid var(--accent-border);border-radius:4px}
-.conversation-add-folder:disabled{cursor:not-allowed;opacity:.6}
+.conversation-add-folder,.conversation-terminal,.conversation-mcp{display:inline-flex;align-items:center;gap:5px;padding:2px 0;border:0;background:transparent;font:inherit;font-size:12px;cursor:pointer}
+.conversation-add-folder[hidden],.conversation-terminal[hidden],.conversation-mcp[hidden]{display:none}
+.conversation-add-folder:hover:not(:disabled),.conversation-terminal:hover:not(:disabled),.conversation-mcp:hover:not(:disabled){color:var(--text)}
+.conversation-add-folder:focus-visible,.conversation-terminal:focus-visible{outline:1px solid var(--accent-border);border-radius:4px}
+.conversation-add-folder:disabled,.conversation-terminal:disabled{cursor:not-allowed;opacity:.6}
 .conversation-status{margin-left:auto;font-size:11px;color:var(--text-faint);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
 .conversation-send{flex:none;width:32px;height:32px;padding:0;display:grid;place-items:center;border-radius:50%;border:1px solid var(--accent-border);background:var(--accent-button-bg);color:var(--accent-text)}
 .conversation-send:disabled{border-color:var(--border-strong);background:transparent;color:var(--text-faint)}
+.conversation-interrupt{flex:none;width:32px;height:32px;padding:0;display:grid;place-items:center;border-radius:50%;border:1px solid var(--border-strong);background:var(--button-bg);color:var(--text)}
+.conversation-interrupt:hover:not(:disabled){border-color:var(--danger);color:var(--danger)}
+.conversation-interrupt[hidden],.conversation-send[hidden]{display:none}
 .conversation-effort{display:inline-flex;align-items:center;gap:6px}
+.conversation-model select,.conversation-mode select{max-width:150px}
 .conversation-effort svg{fill:var(--border-strong)}
 .conversation-effort rect.lit{fill:var(--text-faint)}
-.conversation-effort select{appearance:none;field-sizing:content;border:0;background:transparent;color:inherit;font:inherit;padding:2px 0;cursor:pointer}
-.conversation-effort select:focus-visible{outline:1px solid var(--accent-border);border-radius:4px}
-.conversation-effort select:disabled{cursor:not-allowed}
+.conversation-effort select,.conversation-model select,.conversation-mode select{appearance:none;field-sizing:content;border:0;background:transparent;color:inherit;font:inherit;padding:2px 0;cursor:pointer}
+.conversation-effort select:focus-visible,.conversation-model select:focus-visible,.conversation-mode select:focus-visible{outline:1px solid var(--accent-border);border-radius:4px}
+.conversation-effort select:disabled,.conversation-model select:disabled,.conversation-mode select:disabled{cursor:not-allowed}
 .conversation-context{flex:none;position:relative;width:32px;height:32px;display:grid;place-items:center;cursor:default}
 .conversation-context[hidden]{display:none}
 .conversation-context svg{position:absolute;inset:0;fill:none;stroke-width:3}
@@ -545,3 +608,16 @@ dialog.workstation-settings{width:min(1100px,94vw);max-height:90vh}
 .conversation-context .conversation-context-used{stroke:var(--accent);stroke-linecap:round;transition:stroke-dasharray .3s}
 .conversation-context.full .conversation-context-used{stroke:var(--warn-text)}
 .conversation-context>span{font-size:8.5px;font-weight:600;color:var(--text-faint)}
+/* Sidebar density: projects and their tasks take less height, so more of
+   them fit without scrolling. Same selectors as the rules they tighten. */
+.section{padding-bottom:8px}
+.project-group{margin-bottom:10px}
+.project-heading{padding:5px 4px}
+.project-group .local-task .run{padding:4px 8px;min-height:28px}
+.project-group .local-task .task-key-slot>.task-number{padding:1px 4px;margin:1px 0}
+
+.conversation-mcp-dot{width:7px;height:7px;border-radius:50%;background:var(--text-faint)}
+.conversation-mcp[data-status=connected] .conversation-mcp-dot{background:var(--diff-add-text)}
+.conversation-mcp:is([data-status=needs-auth],[data-status=pending],[data-status=unknown]) .conversation-mcp-dot{background:var(--warn-text)}
+.conversation-mcp:is([data-status=failed],[data-status=missing]) .conversation-mcp-dot{background:var(--danger)}
+.conversation-mcp:is([data-status=failed],[data-status=missing]){color:var(--danger)}
