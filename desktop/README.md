@@ -104,6 +104,12 @@ paired user. Browser requests and other unauthenticated API routes are refused.
 Click **Update provider configuration** to save the chosen transport and target
 into the provider's user configuration, preserving other servers and permissions.
 Restart the AI engine afterward. This action is separate from saving CLI defaults.
+For Claude and Codex, the section also shows the `claude mcp add` or `codex mcp add`
+command for the selected mode, with its own **Copy command** button: an alternative
+to **Update provider configuration** for registering Sectile from a terminal. It
+writes nothing by itself. The Claude command carries the `<SECTILE_API_KEY>`
+placeholder to replace; the Codex remote command reads the key from the
+`SECTILE_API_KEY` environment variable of the shell that starts Codex.
 Custom providers require manual configuration.
 
 
