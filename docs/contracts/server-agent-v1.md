@@ -357,7 +357,8 @@ remote-tracking ref and the head `git ls-remote` reports on `origin`.
 Only `found: true` with `ahead: 0`, echoing the repository, skips that pull
 request; the stage report then names the repository as prepared, unchanged.
 Every other answer keeps it required: no checkout, commits ahead, an unset
-`origin/HEAD`, a head on `origin` this checkout has not fetched, any Git or
+`origin/HEAD`, a task branch that is the default branch, a head on `origin`
+this checkout has not fetched, any Git or
 network failure (an operation error), and an agent that predates the operation.
 `branch_changes` reaches `origin`, so it keeps the 45-second deadline.
 

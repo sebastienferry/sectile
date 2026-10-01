@@ -75,8 +75,14 @@ func branchChanges(ctx context.Context, checkout, branch string) (defaultBranch 
 	if err != nil {
 		return "", false, 0, fmt.Errorf("default branch of %s unknown (run git remote set-head origin --auto there): %w", checkout, err)
 	}
-	base := strings.TrimPrefix(head, "refs/remotes/")
-	defaultBranch = strings.TrimPrefix(base, "origin/")
+	// The full ref, so a local branch named origin/main cannot shadow it.
+	base := head
+	defaultBranch = strings.TrimPrefix(head, "refs/remotes/origin/")
+	if branch == defaultBranch {
+		// Work committed straight on the default branch has nothing ahead of
+		// it, yet it changed the repository.
+		return "", false, 0, fmt.Errorf("%s is the default branch of %s: its commits cannot be told apart", branch, checkout)
+	}
 
 	var refs []string
 	for _, ref := range []string{"refs/heads/" + branch, "refs/remotes/origin/" + branch} {
@@ -92,8 +98,8 @@ func branchChanges(ctx context.Context, checkout, branch string) (defaultBranch 
 	if err != nil {
 		return "", false, 0, err
 	}
-	if sha, _, _ := strings.Cut(listed, "\t"); strings.TrimSpace(sha) != "" {
-		sha = strings.TrimSpace(sha)
+	// A pattern matches any ref ending with it, so only the exact ref counts.
+	if sha := listedHead(listed, "refs/heads/"+branch); sha != "" {
 		if _, err := gitLocal(ctx, checkout, "cat-file", "-e", sha+"^{commit}"); err != nil {
 			return "", false, 0, fmt.Errorf("origin holds %s at %s, which this checkout has not fetched: %w", branch, sha, err)
 		}
@@ -111,6 +117,17 @@ func branchChanges(ctx context.Context, checkout, branch string) (defaultBranch 
 		ahead = max(ahead, n)
 	}
 	return defaultBranch, len(refs) > 0, ahead, nil
+}
+
+// listedHead returns the commit `git ls-remote` lists for exactly ref, "" when
+// it lists none.
+func listedHead(listed, ref string) string {
+	for _, line := range strings.Split(listed, "\n") {
+		if sha, name, ok := strings.Cut(strings.TrimSpace(line), "\t"); ok && name == ref {
+			return sha
+		}
+	}
+	return ""
 }
 
 // resolveRef reads ref in checkout. A missing ref is not an error; any other

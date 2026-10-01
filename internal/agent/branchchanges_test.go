@@ -82,6 +82,11 @@ func TestBranchChangesCountsTheCommitsOfEveryRef(t *testing.T) {
 			exists: true,
 		},
 		"branch nowhere": {setup: func(*testing.T, string, string) {}},
+		// ls-remote matches a pattern on its end: a longer branch that ends
+		// with the task branch is not the task branch.
+		"only a branch ending with the same name on origin": {
+			setup: func(t *testing.T, origin, _ string) { pushFromElsewhere(t, origin, "x/refs/heads/"+branch) },
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			origin, clone := clonedOrigin(t)
@@ -108,6 +113,11 @@ func TestBranchChangesFailsRatherThanGuess(t *testing.T) {
 		},
 		"origin/HEAD unset": func(t *testing.T, _, clone string) {
 			gitTest(t, clone, "remote", "set-head", "origin", "-d")
+		},
+		"task branch is the default branch": func(t *testing.T, _, clone string) {
+			gitTest(t, clone, "branch", "-m", "main", branch)
+			gitTest(t, clone, "push", "-q", "origin", branch)
+			gitTest(t, clone, "remote", "set-head", "origin", branch)
 		},
 		"origin unreachable": func(t *testing.T, origin, clone string) {
 			gitTest(t, clone, "branch", branch)

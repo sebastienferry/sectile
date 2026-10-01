@@ -219,7 +219,7 @@ func (d *DB) unchangedRepository(task *models.Task, actorID, identity, branch st
 	if err := d.callAgent(op, &answer); err != nil {
 		return "", false
 	}
-	if answer.Repository != identity || !answer.Found || answer.DefaultBranch == "" || answer.Ahead == nil || *answer.Ahead != 0 {
+	if answer.Repository != identity || !answer.Found || answer.DefaultBranch == "" || answer.DefaultBranch == branch || answer.Ahead == nil || *answer.Ahead != 0 {
 		return "", false
 	}
 	_, request := evidenceTerms(repositoryTarget(identity).link.Forge)

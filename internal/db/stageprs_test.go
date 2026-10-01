@@ -347,14 +347,15 @@ func TestAPreparedRepositoryLeftUnchangedIsSkipped(t *testing.T) {
 // Anything but a verified "no commit ahead" keeps the pull request required.
 func TestAnUnprovenUnchangedRepositoryStillNeedsItsPullRequest(t *testing.T) {
 	for name, answer := range map[string]string{
-		"commit ahead":        `{"repository":"gitlab.com/g/b","found":true,"defaultBranch":"main","exists":true,"ahead":1}`,
-		"agent error":         "",
-		"no checkout":         `{"repository":"gitlab.com/g/b","found":false}`,
-		"another repository":  `{"repository":"gitlab.com/g/a","found":true,"defaultBranch":"main","exists":true,"ahead":0}`,
-		"no echo":             `{"found":true,"defaultBranch":"main","exists":true,"ahead":0}`,
-		"no ahead count":      `{"repository":"gitlab.com/g/b","found":true,"defaultBranch":"main","exists":true}`,
-		"no default branch":   `{"repository":"gitlab.com/g/b","found":true,"exists":true,"ahead":0}`,
-		"agent predates this": "unsupported",
+		"commit ahead":          `{"repository":"gitlab.com/g/b","found":true,"defaultBranch":"main","exists":true,"ahead":1}`,
+		"agent error":           "",
+		"no checkout":           `{"repository":"gitlab.com/g/b","found":false}`,
+		"another repository":    `{"repository":"gitlab.com/g/a","found":true,"defaultBranch":"main","exists":true,"ahead":0}`,
+		"no echo":               `{"found":true,"defaultBranch":"main","exists":true,"ahead":0}`,
+		"no ahead count":        `{"repository":"gitlab.com/g/b","found":true,"defaultBranch":"main","exists":true}`,
+		"no default branch":     `{"repository":"gitlab.com/g/b","found":true,"exists":true,"ahead":0}`,
+		"agent predates this":   "unsupported",
+		"branch is the default": `{"repository":"gitlab.com/g/b","found":true,"defaultBranch":"feat/12","exists":true,"ahead":0}`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			d, task, agent := twoRepoTask(t)
