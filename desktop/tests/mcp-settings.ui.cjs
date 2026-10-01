@@ -71,6 +71,10 @@ claude mcp add --transport http --scope user sectile https://sectile.example.tes
   await expect(command).toContainText('Run both lines.')
   await command.getByRole('button',{name:'Copy command',exact:true}).click()
   await expect(section.getByRole('status')).toHaveText('Command copied.')
+  assert.equal(await app.evaluate(({clipboard})=>clipboard.readText()),await command.locator('pre').textContent())
+  await section.locator('.mcp-snippet').getByRole('button').click()
+  await expect(section.getByRole('status')).toContainText('Example copied.')
+  assert.equal(JSON.parse(await app.evaluate(({clipboard})=>clipboard.readText())).mcpServers.sectile.url,'https://sectile.example.test/mcp')
   assert.equal(writes.length,3)
   assert.deepEqual(await page.getByRole('combobox',{name:'MCP provider',exact:true}).locator('option').evaluateAll(options=>options.map(option=>option.value)),['agy','claude','codex'])
  } finally {
