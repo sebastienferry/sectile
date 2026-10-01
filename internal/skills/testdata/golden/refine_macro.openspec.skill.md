@@ -61,7 +61,7 @@ When the skill runs nested in pickup-issue or pickup-issues, do not write the bl
 Transform high-level macro framing text into an actionable, structured todo list and concrete Sectile tickets, interactively clarifying ambiguities with the user when framing text is vague.
 
 ## Read first
-- The macro title and framing description.
+- The macro itself: call the `get_macro` MCP tool with the project ID (`SECTILE_MACRO_PROJECT_ID`, else find it with `list_projects`) and the macro key (the argument, else `SECTILE_MACRO_KEY`). It answers with the macro title, its framing description and comment, and its existing todos in the order of execution, each with its `id`, `text`, `done`, `storyKey` and origin.
 - The active project SDD framework (SpecKit or OpenSpec).
 - Existing macro todos and child tasks to avoid duplicating completed work.
 
@@ -74,10 +74,15 @@ Transform high-level macro framing text into an actionable, structured todo list
      - **SpecKit SDD**: Group into User Stories ([US-x]) and Feature Modules ([FEAT-x]).
      - **OpenSpec SDD**: Group into Capabilities ([CAP-x]) and Change Proposals ([CHANGE-x]).
 4. Output the generated checklist of actionable todos AND proposed Sectile tickets (Title, IssueType: Story/Task/Bug, Description) for bulk ticket creation.
+5. **Save the confirmed todos**:
+   - Show the merged list in the order of execution, top first: every existing todo kept with its `id`, the new ones appended or placed where the owner says. Drop an existing todo only when the owner asked for it.
+   - Ask the owner to confirm that list in this session. Without an explicit confirmation, save nothing.
+   - Once confirmed, call the `update_macro_todos` MCP tool with the project ID, the macro key and the full ordered list: `id` for an existing todo, none for a new one, then `text`, and `done` when it is ticked. The tool replaces the whole list, so a todo left out is removed.
+   - If the call is refused, report the refusal and the proposed list as they are, and do not retry through another route.
 
 ## Do not
 - Do not generate tasks blindly when framing text is vague without asking clarification questions.
-- Do not overwrite existing todos or tasks without user confirmation in the UI.
+- Do not save todos without the owner's confirmation in the session, and never drop an existing todo the owner did not ask to drop.
 - Do not mutate external tracker issues directly without user trigger.
 
 ## Report
@@ -85,6 +90,7 @@ Transform high-level macro framing text into an actionable, structured todo list
 - Structured list of proposed MacroTodo items.
 - Proposed Sectile tickets breakdown (Title, IssueType, Description).
 - Rationale behind the task breakdown.
+- The saved todo order as `update_macro_todos` returned it, and the `todosMirror` status it gave (copied on the tracker, waiting, failed, or staying in Sectile with its reason); or, when nothing was saved, why.
 
 ## Macro run
 A macro has no stage: this skill declares none, and moves nothing. `SECTILE_MACRO_KEY` and `SECTILE_MACRO_PROJECT_ID` name the macro when Sectile launched the session; the key given as argument wins over them. Invoked by hand, find the project ID with `list_projects`. The ticket variables (`SECTILE_TASK_*`) are not set here.

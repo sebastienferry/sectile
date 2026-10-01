@@ -2,3 +2,4 @@
 - Structured list of proposed MacroTodo items.
 - Proposed Sectile tickets breakdown (Title, IssueType, Description).
 - Rationale behind the task breakdown.
+- The saved todo order as `update_macro_todos` returned it, and the `todosMirror` status it gave (copied on the tracker, waiting, failed, or staying in Sectile with its reason); or, when nothing was saved, why.
