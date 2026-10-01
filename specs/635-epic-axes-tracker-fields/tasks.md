@@ -7,38 +7,38 @@ request is a follow-up the task appends. Spec: `spec.md`; design: `plan.md`.
 
 ## Part A - Axis label prefixes (PR 1)
 
-- [ ] A1 Add `EpicAxisPrefixes` to `models.Project` and
+- [x] A1 Add `EpicAxisPrefixes` to `models.Project` and
   `UpdateProjectRequest`; migration 39 `projects.epic_axis_prefixes`; carry the
   column in the project SELECT, INSERT and UPDATE statements.
-- [ ] A2 Drop the new column in every rewind test helper that drops
+- [x] A2 Drop the new column in every rewind test helper that drops
   `roadmap_axis_writes`; run `internal/db` on SQLite and PostgreSQL.
-- [ ] A3 Write `CleanEpicAxisPrefixes` (FR-A2) with table tests first: case,
+- [x] A3 Write `CleanEpicAxisPrefixes` (FR-A2) with table tests first: case,
   `#`, whitespace, emptied value, overlap between axes, overlap with
   `roadmap:`, default equal to typed.
-- [ ] A4 Call the cleaning from project creation and update; a refusal answers
+- [x] A4 Call the cleaning from project creation and update; a refusal answers
   400 with the sentence. Test the handler.
-- [ ] A5 Make the readers prefix-aware (`PriorityFromLabels`,
+- [x] A5 Make the readers prefix-aware (`PriorityFromLabels`,
   `QuarterFromLabels`, `ReadinessFromLabels`, `isQuarterLabel`) through a
   resolved `axisPrefixes`; keep the bare quarter. Tests for US2.
-- [ ] A6 Make the writers prefix-aware (`PriorityLabel`, `QuarterLabel`,
+- [x] A6 Make the writers prefix-aware (`PriorityLabel`, `QuarterLabel`,
   `ReadinessLabel`, `All*Labels`, the three `PushMacro*Label`). Tests for US3,
   including US3.4 (old prefix left alone).
-- [ ] A7 Pass the project's prefixes through `ImportMacroHorizons`,
+- [x] A7 Pass the project's prefixes through `ImportMacroHorizons`,
   `roadmapProjectMacros` and `pendingAxisPushes`. Tests for US4 and US3.5.
-- [ ] A8 Make the protected prefixes per project in `macrolabels.go`
+- [x] A8 Make the protected prefixes per project in `macrolabels.go`
   (`isMacroAxisLabel(proj, label)`), update every caller. Tests for US5.1 to
   US5.3.
-- [ ] A9 Web: `epicAxisPrefixes` on the `Project` type; per-project
+- [x] A9 Web: `epicAxisPrefixes` on the `Project` type; per-project
   `epicAxisLabelPrefixes`, `isEpicAxisLabel`, `freeEpicLabels` and the client
   prefix cleaning in `roadmap.ts`; update `EpicLabelEditor.tsx`,
   `RoadmapView.tsx` and other callers. `node --test` for US5.1, US5.4.
-- [ ] A10 Web: the Roadmap section of the Tracker tab in `ProjectModal.tsx`,
+- [x] A10 Web: the Roadmap section of the Tracker tab in `ProjectModal.tsx`,
   three inputs with placeholders, inline errors, shown only when epic labels
   can be written. French and English strings.
-- [ ] A11 `CHANGELOG.md`, `Unreleased` / `Added`: a project can name the label
+- [x] A11 `CHANGELOG.md`, `Unreleased` / `Added`: a project can name the label
   prefixes of the epic priority, quarter and readiness. Update the roadmap
   documentation under `docs/` if it lists the prefixes.
-- [ ] A12 Gates: `go test ./...`, `go vet ./...`, `npx tsc --noEmit`,
+- [x] A12 Gates: `go test ./...`, `go vet ./...`, `npx tsc --noEmit`,
   `npx oxlint`, `node --test web/tests`. Open the pull request.
 
 ## Part B - Ticket priority mapping (PR 2)

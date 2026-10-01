@@ -723,7 +723,7 @@ export const RoadmapView: React.FC = () => {
   // selected origins only. With nothing to choose, nothing is filtered.
   const ownOrigin = (currentProject?.jiraProject || '').trim().toUpperCase()
   const origins = useMemo(
-    () => offeredOrigins(currentProject, allRows, unlabelledRows.filter(r => matchesEpicLabels(r, selectedLabels))),
+    () => offeredOrigins(currentProject, allRows, unlabelledRows.filter(r => matchesEpicLabels(r, selectedLabels, currentProject))),
     [currentProject, allRows, unlabelledRows, selectedLabels]
   )
   const selectedOrigins = useMemo(
@@ -748,10 +748,10 @@ export const RoadmapView: React.FC = () => {
     ]
   }, [activeFilterChips, origins, selectedOrigins, ownOrigin, strings, chooseOrigins])
 
-  const labelInventory = useMemo(() => epicLabelInventory(originRows), [originRows])
+  const labelInventory = useMemo(() => epicLabelInventory(originRows, currentProject), [originRows, currentProject])
   // The editor suggests every free label of the project's epics, closed and
   // searched-away ones included: a label is reused, not typed anew.
-  const labelSuggestions = useMemo(() => epicLabelInventory(allRows).map(entry => entry.label), [allRows])
+  const labelSuggestions = useMemo(() => epicLabelInventory(allRows, currentProject).map(entry => entry.label), [allRows, currentProject])
 
   // A picked label no epic of the view carries any more stops being picked,
   // rather than leaving an empty list nobody can explain.
@@ -760,8 +760,8 @@ export const RoadmapView: React.FC = () => {
   }, [labelInventory])
 
   const rows = useMemo(
-    () => originRows.filter(r => matchesEpicLabels(r, selectedLabels)),
-    [originRows, selectedLabels]
+    () => originRows.filter(r => matchesEpicLabels(r, selectedLabels, currentProject)),
+    [originRows, selectedLabels, currentProject]
   )
 
   const hiddenMatches = useMemo(() => {
@@ -1364,7 +1364,7 @@ export const RoadmapView: React.FC = () => {
             title={strings.maturityTitle}>
             {strings.maturity[row.maturity]}
           </span>
-          {freeEpicLabels(row.meta).map(label => (
+          {freeEpicLabels(row.meta, currentProject).map(label => (
             <span key={label} className={EPIC_LABEL_BADGE}>{label}</span>
           ))}
 
@@ -1443,7 +1443,7 @@ export const RoadmapView: React.FC = () => {
    * to spend, and the tooltip names what the counter hides.
    */
   const renderCondensedLabels = (row: MacroRow) => {
-    const labels = freeEpicLabels(row.meta)
+    const labels = freeEpicLabels(row.meta, currentProject)
     if (labels.length === 0) return null
     const hidden = labels.slice(CONDENSED_LABELS)
     return (

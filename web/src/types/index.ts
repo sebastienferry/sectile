@@ -297,6 +297,11 @@ export interface Project {
   roadmapProjects?: string[]
   /** Whether a panel edit writes the priority and the quarter on a roadmap project's epic. */
   roadmapAxisWrites?: boolean
+  /**
+   * The label prefixes of the epic priority, quarter and readiness (#635). An
+   * empty or missing field is the default prefix of that axis.
+   */
+  epicAxisPrefixes?: { priority?: string; quarter?: string; readiness?: string }
   /** Stage at which the workflow opens the pull request. */
   prCreationStage?: PRCreationStage
   /**
