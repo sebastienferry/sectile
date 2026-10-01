@@ -100,7 +100,27 @@ import {
   saveRoadmapFlag,
   saveRoadmapSelectedKey,
   saveRoadmapTab,
+  loadRoadmapGroupAxis,
+  saveRoadmapGroupAxis,
+  loadRoadmapFoldedSections,
+  saveRoadmapFoldedSections,
 } from '../lib/roadmapViewPrefs'
+import {
+  DRAG_EPIC_KEYS,
+  groupEpics,
+  isGroupableTab,
+  parseDraggedEpicKeys,
+  planAxisDrop,
+  type EpicGroupAxis,
+  type EpicSection,
+} from '../lib/epicGrouping'
+import {
+  isSelectionClick,
+  pruneSelection,
+  rangeSelection,
+  shouldEscapeClearSelection,
+  toggleSelected,
+} from '../lib/boardSelection'
 import { locateEpic } from '../lib/roadmapFocus'
 import {
   EPIC_PRIORITIES,
@@ -228,6 +248,11 @@ export const RoadmapView: React.FC = () => {
     roadmapFocus,
     consumeRoadmapFocus,
     openEpicTickets,
+    selectedTask,
+    selectedActivity,
+    isQuickAddOpen,
+    isCommandPaletteOpen,
+    isProfileOpen,
     t,
   } = useApp()
   const strings = t.planning.roadmap
@@ -272,6 +297,26 @@ export const RoadmapView: React.FC = () => {
   // backlog order with every priority, as it always did.
   const [priorityFilter, setPriorityFilter] = useState<PriorityFilter>(null)
   const [prioritySort, setPrioritySort] = useState<PrioritySort>('backlog')
+  // The grouping of the tabs (#628) and its folded sections are reading
+  // settings, kept per browser like the tab.
+  const [groupAxis, setGroupAxisState] = useState<EpicGroupAxis>(() => loadRoadmapGroupAxis())
+  const setGroupAxis = useCallback((next: EpicGroupAxis) => {
+    setGroupAxisState(next)
+    saveRoadmapGroupAxis(next)
+  }, [])
+  const [foldedSections, setFoldedSections] = useState<ReadonlySet<string>>(() => new Set(loadRoadmapFoldedSections()))
+  const toggleSection = useCallback((id: string) => {
+    setFoldedSections(prev => {
+      const next = toggleSelected(prev, id)
+      saveRoadmapFoldedSections(next)
+      return next
+    })
+  }, [])
+  // The epics picked with Ctrl, Cmd or Shift click, carried together by a drag.
+  const [pickedKeys, setPickedKeys] = useState<ReadonlySet<string>>(() => new Set())
+  const [pickAnchor, setPickAnchor] = useState<string | null>(null)
+  const [dropSection, setDropSection] = useState<string | null>(null)
+  const [isDropping, setIsDropping] = useState(false)
   // The seeding preview: the proposals, and which of their values are kept.
   const [seedLines, setSeedLines] = useState<SeedLine[] | null>(null)
   const [seedKept, setSeedKept] = useState<Record<string, boolean>>({})
@@ -777,6 +822,102 @@ export const RoadmapView: React.FC = () => {
 
   const selected: MacroRow | null = visibleRows.find(r => r.key === selectedKey) || visibleRows[0] || null
 
+  /**
+   * The sections of the tab (#628), built on the rows the flat list would
+   * show, in its order, so the filters and the sort apply first and the tab
+   * counts do not change. The Hidden tab stays flat.
+   */
+  const grouped = groupAxis !== 'none' && isGroupableTab(tab)
+  const sections = useMemo<EpicSection<MacroRow>[] | null>(
+    () => (groupAxis !== 'none' && isGroupableTab(tab) ? groupEpics(visibleRows, groupAxis, new Date()) : null),
+    [tab, groupAxis, visibleRows]
+  )
+  // What a Shift click ranges over: the shown epics, folded sections skipped.
+  const pickOrder = useMemo(
+    () => (sections ? sections.filter(sec => !foldedSections.has(sec.id)).flatMap(sec => sec.rows.map(r => r.key)) : []),
+    [sections, foldedSections]
+  )
+
+  // An epic no longer shown (another tab, a filter, a fold, no grouping)
+  // leaves the selection for good, adjusted while rendering as the board does.
+  // pruneSelection returns the same Set when nothing drops out, so this settles.
+  const prunedPicked = pruneSelection(pickedKeys, pickOrder)
+  if (prunedPicked !== pickedKeys) setPickedKeys(prunedPicked)
+  if (pickAnchor && !pickOrder.includes(pickAnchor)) setPickAnchor(null)
+
+  // Escape clears the selection only when nothing else would take the key,
+  // as on the board.
+  const appSurfaceOpen = Boolean(
+    isCommandPaletteOpen || isQuickAddOpen || selectedTask || selectedActivity || isProfileOpen || searchQuery,
+  )
+  const hasPicked = pickedKeys.size > 0
+  useEffect(() => {
+    if (!hasPicked) return
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const active = document.activeElement
+      const activeTag = (active?.tagName || '').toLowerCase()
+      const clear = shouldEscapeClearSelection({
+        key: e.key,
+        defaultPrevented: e.defaultPrevented,
+        appSurfaceOpen,
+        inputFocused: activeTag === 'input' || activeTag === 'textarea' || activeTag === 'select' || Boolean(active?.closest('.xterm')),
+        modalOpen: Boolean(document.querySelector('[aria-modal="true"]')),
+      })
+      if (clear) {
+        setPickedKeys(new Set())
+        setPickAnchor(null)
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [hasPicked, appSurfaceOpen])
+
+  /**
+   * A row click: Ctrl or Cmd toggles the epic in the selection, Shift adds the
+   * range from the last toggled one, anything else opens it in the panel and
+   * keeps the selection. Selection only exists while the tab is grouped.
+   */
+  const onRowClick = (e: React.MouseEvent, key: string) => {
+    if (grouped && isSelectionClick(e)) {
+      setPickedKeys(prev => toggleSelected(prev, key))
+      setPickAnchor(key)
+      return
+    }
+    if (grouped && e.shiftKey) {
+      const range = rangeSelection(pickOrder, pickAnchor, key)
+      setPickedKeys(prev => new Set([...prev, ...range]))
+      if (!pickAnchor) setPickAnchor(key)
+      return
+    }
+    setSelectedKey(key)
+  }
+
+  /** Dragging a picked epic carries the whole selection, another one only itself. */
+  const onRowDragStart = (e: React.DragEvent, key: string) => {
+    const keys = pickedKeys.has(key) ? pickOrder.filter(k => pickedKeys.has(k)) : [key]
+    e.dataTransfer.setData(DRAG_EPIC_KEYS, JSON.stringify(keys))
+    e.dataTransfer.effectAllowed = 'move'
+  }
+
+  /** The drag and selection props of a row, empty while the tab is flat. */
+  const rowDragProps = (key: string) =>
+    grouped
+      ? {
+          draggable: true,
+          onDragStart: (e: React.DragEvent) => onRowDragStart(e, key),
+          onDragEnd: () => setDropSection(null),
+          // A Shift click extends the selection; it must not select text too.
+          onMouseDown: (e: React.MouseEvent) => {
+            if (e.shiftKey) e.preventDefault()
+          },
+          'aria-selected': pickedKeys.has(key),
+          title: strings.grouping.dragTitle,
+        }
+      : {}
+
+  const pickedOutline = (key: string): React.CSSProperties =>
+    pickedKeys.has(key) ? { outline: '2px solid var(--accent-color)', outlineOffset: 1 } : {}
+
   // Another macro starts with no selection and no report. The refs let the
   // end of a batch, and a save racing it, read the state of that moment.
   const shownMacroKey = selected?.key || ''
@@ -977,6 +1118,121 @@ export const RoadmapView: React.FC = () => {
     }
   }
 
+  /** A section's name: its priority, its quarter, or the no-value one. */
+  const sectionLabel = (section: EpicSection<MacroRow>): string => {
+    if (!section.value) return section.axis === 'priority' ? strings.grouping.noPriority : strings.grouping.noQuarter
+    return section.axis === 'priority' ? epicPriorityLabel(section.value as EpicPriority) : section.value
+  }
+
+  /**
+   * Sets the section's value on the dropped epics, one at a time through the
+   * panel's save, skipping those already there and never stopping on a
+   * failure; then reloads once and reports once. The epics that moved leave
+   * the selection, those refused stay in it so the drop can be retried.
+   */
+  const dropOnSection = async (section: EpicSection<MacroRow>, keys: string[]) => {
+    if (!currentProject?.id || isDropping) return
+    const { toSave, skipped } = planAxisDrop(visibleRows, keys, section.axis, section.value)
+    // A drop on the section the epics come from changes nothing, and says nothing.
+    if (toSave.length === 0) return
+    setIsDropping(true)
+    const patch = section.axis === 'priority' ? { priority: section.value as EpicPriority | '' } : { quarter: section.value }
+    // Several epics at once are a bulk edit, like the seeding: on another
+    // team's epic (#632) the value then stays in Sectile. One epic is the
+    // panel's single edit.
+    const bulk = toSave.length > 1
+    let done = 0
+    const refused: string[] = []
+    const moved: string[] = []
+    for (const key of toSave) {
+      const saved = await saveMacroMeta(currentProject.id, key, patch, bulk ? { quiet: true, bulk: true } : { quiet: true })
+      if (saved) {
+        done++
+        moved.push(key)
+      } else refused.push(key)
+    }
+    const fresh = await fetchProjectMacros(currentProject.id)
+    setMacroMeta(fresh)
+    setIsDropping(false)
+    setPickedKeys(prev => {
+      const next = new Set(prev)
+      moved.forEach(key => next.delete(key))
+      return next
+    })
+    const parts = [plural(language, done, strings.grouping.done)]
+    if (skipped.length > 0) parts.push(plural(language, skipped.length, strings.grouping.skipped))
+    if (refused.length > 0) {
+      addToast({
+        type: 'error',
+        title: strings.grouping.failedTitle,
+        description: `${parts.join(', ')}. ${format(strings.grouping.failed, { keys: refused.join(', ') })}`,
+      })
+    } else {
+      addToast({ type: 'success', title: strings.grouping.doneTitle, description: parts.join(', ') })
+    }
+  }
+
+  /** Header and body of a section both take a drop, folded or empty alike. */
+  const sectionDropProps = (section: EpicSection<MacroRow>) => ({
+    onDragOver: (e: React.DragEvent) => {
+      if (!e.dataTransfer.types.includes(DRAG_EPIC_KEYS)) return
+      e.preventDefault()
+      e.dataTransfer.dropEffect = 'move'
+      if (dropSection !== section.id) setDropSection(section.id)
+    },
+    onDragLeave: (e: React.DragEvent) => {
+      if (e.currentTarget.contains(e.relatedTarget as Node | null)) return
+      setDropSection(prev => (prev === section.id ? null : prev))
+    },
+    onDrop: (e: React.DragEvent) => {
+      e.preventDefault()
+      setDropSection(null)
+      const keys = parseDraggedEpicKeys(e.dataTransfer.getData(DRAG_EPIC_KEYS))
+      if (keys.length > 0) void dropOnSection(section, keys)
+    },
+  })
+
+  const renderSection = (section: EpicSection<MacroRow>) => {
+    const folded = foldedSections.has(section.id)
+    const label = sectionLabel(section)
+    const over = dropSection === section.id
+    return (
+      <section
+        key={section.id}
+        data-section={section.id}
+        {...sectionDropProps(section)}
+        className="rounded-xl border transition-colors"
+        style={{
+          borderColor: over ? 'rgb(var(--accent-rgb) / 0.6)' : 'transparent',
+          background: over ? 'var(--accent-light)' : 'transparent',
+        }}
+      >
+        <button
+          type="button"
+          onClick={() => toggleSection(section.id)}
+          aria-expanded={!folded}
+          title={format(folded ? strings.grouping.unfold : strings.grouping.fold, { section: label })}
+          className="w-full flex items-center gap-1.5 px-1.5 py-1 text-[11px] font-bold uppercase tracking-[.06em] text-[var(--text-secondary)] cursor-pointer"
+        >
+          {folded ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
+          <span>{label}</span>
+          <span className="font-mono font-normal text-[var(--text-muted)]">{section.rows.length}</span>
+        </button>
+        {!folded && (
+          <div className="space-y-2 px-0.5 pb-1">
+            {section.rows.length === 0 ? (
+              <div className="text-[10.5px] italic text-[var(--text-muted)] px-2 py-1.5 rounded-lg border border-dashed border-[var(--border-color)]">
+                {format(strings.grouping.dropHere, { section: label })}
+              </div>
+            ) : (
+              section.rows.map(row => (condensedHere ? renderCondensedRow(row) : renderMacroRow(row)))
+            )}
+          </div>
+        )}
+      </section>
+    )
+  }
+
   /**
    * Validates the quarter field and saves it when it changed. An unreadable
    * value stays in the field with its message, and nothing is sent.
@@ -1079,11 +1335,14 @@ export const RoadmapView: React.FC = () => {
     return (
       <div
         key={row.key}
-        onClick={() => setSelectedKey(row.key)}
+        data-epic-key={row.key}
+        onClick={e => onRowClick(e, row.key)}
+        {...rowDragProps(row.key)}
         className="relative rounded-xl border p-2.5 cursor-pointer transition-colors"
         style={{
           background: isSel ? 'var(--accent-light)' : 'var(--bg-secondary)',
           borderColor: isSel ? 'rgb(var(--accent-rgb) / 0.45)' : 'var(--border-color)',
+          ...pickedOutline(row.key),
         }}
       >
         {epicColorsOn && <EpicBar parentKey={row.key} />}
@@ -1207,11 +1466,14 @@ export const RoadmapView: React.FC = () => {
     return (
       <div
         key={row.key}
-        onClick={() => setSelectedKey(row.key)}
+        data-epic-key={row.key}
+        onClick={e => onRowClick(e, row.key)}
+        {...rowDragProps(row.key)}
         className="relative flex items-center gap-2 px-2.5 py-1.5 rounded-lg border cursor-pointer transition-colors"
         style={{
           background: isSel ? 'var(--accent-light)' : 'var(--bg-secondary)',
           borderColor: isSel ? 'var(--accent-color)' : 'var(--border-color)',
+          ...pickedOutline(row.key),
         }}
       >
         {epicColorsOn && <EpicBar parentKey={row.key} />}
@@ -1467,6 +1729,40 @@ export const RoadmapView: React.FC = () => {
             <option value="priority-desc">{strings.axes.sortDesc}</option>
             <option value="priority-asc">{strings.axes.sortAsc}</option>
           </select>
+          {/* Sections by priority or quarter (#628), on every tab but Hidden. */}
+          <select
+            value={groupAxis}
+            onChange={e => setGroupAxis(e.target.value as EpicGroupAxis)}
+            aria-label={strings.grouping.label}
+            title={strings.grouping.label}
+            className="px-2 py-1 rounded-md text-[11px] font-semibold cursor-pointer border bg-[var(--bg-tertiary)] border-[var(--border-color)] text-[var(--text-secondary)]"
+          >
+            <option value="none">{strings.grouping.none}</option>
+            <option value="priority">{strings.grouping.priority}</option>
+            <option value="quarter">{strings.grouping.quarter}</option>
+          </select>
+          {hasPicked && (
+            <span
+              data-epic-selection
+              className="flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold border"
+              style={{ color: 'var(--accent-color)', background: 'var(--accent-light)', borderColor: 'rgb(var(--accent-rgb) / 0.45)' }}
+            >
+              {isDropping && <Loader2 size={11} className="animate-spin" />}
+              {plural(language, pickedKeys.size, strings.grouping.selected)}
+              <button
+                type="button"
+                onClick={() => {
+                  setPickedKeys(new Set())
+                  setPickAnchor(null)
+                }}
+                aria-label={strings.grouping.clearSelection}
+                title={strings.grouping.clearSelection}
+                className="p-0.5 rounded cursor-pointer hover:bg-[var(--bg-tertiary)]"
+              >
+                <X size={11} />
+              </button>
+            </span>
+          )}
           {currentProject && (
             <button
               type="button"
@@ -1678,7 +1974,9 @@ export const RoadmapView: React.FC = () => {
         {/* Macros de l'horizon courant (masqué si panneau en plein écran) */}
         {!expandedHere && (
           <div className="flex-1 overflow-y-auto p-3 min-w-0 space-y-2">
-            {visibleRows.length === 0 ? (
+            {sections ? (
+              sections.map(renderSection)
+            ) : visibleRows.length === 0 ? (
               <div className="h-full flex flex-col items-center justify-center gap-2 text-center px-6">
                 <Compass size={26} className="text-[var(--text-muted)]" />
                 <p className="text-sm font-semibold">

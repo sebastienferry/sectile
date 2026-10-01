@@ -85,3 +85,27 @@ test('a refusing storage answers the defaults and never throws', () => {
   assert.doesNotThrow(() => saveRoadmapFlag(ROADMAP_PANEL_HIDDEN_STORAGE_KEY, true, refusingStorage))
   assert.doesNotThrow(() => saveRoadmapSelectedKey('p1', 'M-1', refusingStorage))
 })
+
+test('the grouping axis round trips and falls back to none', async () => {
+  const { loadRoadmapGroupAxis, saveRoadmapGroupAxis, ROADMAP_GROUP_AXIS_STORAGE_KEY } = await import('../src/lib/roadmapViewPrefs.ts')
+  const storage = createMockStorage()
+  assert.equal(loadRoadmapGroupAxis(storage), 'none')
+  saveRoadmapGroupAxis('quarter', storage)
+  assert.equal(storage.map.get(ROADMAP_GROUP_AXIS_STORAGE_KEY), 'quarter')
+  assert.equal(loadRoadmapGroupAxis(storage), 'quarter')
+  assert.equal(loadRoadmapGroupAxis(createMockStorage({ [ROADMAP_GROUP_AXIS_STORAGE_KEY]: 'readiness' })), 'none')
+  assert.equal(loadRoadmapGroupAxis(refusingStorage), 'none')
+})
+
+test('the folded sections round trip and tolerate foreign values', async () => {
+  const { loadRoadmapFoldedSections, saveRoadmapFoldedSections, ROADMAP_FOLDED_SECTIONS_STORAGE_KEY } = await import('../src/lib/roadmapViewPrefs.ts')
+  const storage = createMockStorage()
+  assert.deepEqual(loadRoadmapFoldedSections(storage), [])
+  saveRoadmapFoldedSections(new Set(['priority:p1', 'quarter:none']), storage)
+  assert.deepEqual(loadRoadmapFoldedSections(storage), ['priority:p1', 'quarter:none'])
+  assert.deepEqual(loadRoadmapFoldedSections(createMockStorage({ [ROADMAP_FOLDED_SECTIONS_STORAGE_KEY]: '{"a":1}' })), [])
+  assert.deepEqual(loadRoadmapFoldedSections(createMockStorage({ [ROADMAP_FOLDED_SECTIONS_STORAGE_KEY]: 'nope' })), [])
+  assert.deepEqual(loadRoadmapFoldedSections(createMockStorage({ [ROADMAP_FOLDED_SECTIONS_STORAGE_KEY]: '["x",2]' })), ['x'])
+  assert.deepEqual(loadRoadmapFoldedSections(refusingStorage), [])
+  saveRoadmapFoldedSections(['x'], refusingStorage)
+})
