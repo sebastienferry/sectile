@@ -1360,6 +1360,34 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		// The tracker copy of the todos (#663) is written after each save of the
+		// list; this queues one at once, without waiting for a save, for a copy
+		// that failed or was edited by hand. A macro whose list stays in
+		// Sectile is refused with the reason, and nothing is queued.
+		if len(parts) >= 4 && parts[3] == "todos-mirror" && r.Method == http.MethodPost {
+			key := parts[2]
+			if decoded, err := url.PathUnescape(parts[2]); err == nil {
+				key = decoded
+			}
+			if refusal := h.db.TodosMirrorRefusal(id, key); refusal != "" {
+				writeError(w, http.StatusBadRequest, refusal)
+				return
+			}
+			act, err := h.db.EnqueueTrackerOp(h.actingContext(r), db.TrackerOp{
+				Kind:      db.TrackerOpEpicTodos,
+				ProjectID: id,
+				TaskKey:   key,
+				EpicKey:   key,
+				Force:     true,
+			})
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			writeJSON(w, http.StatusAccepted, map[string]interface{}{"activity": act})
+			return
+		}
+
 		if len(parts) >= 4 && parts[3] == "slicing" && r.Method == http.MethodPost {
 			key := parts[2]
 			if decoded, err := url.PathUnescape(parts[2]); err == nil {
@@ -1378,7 +1406,7 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 			var origin string
 			var err error
 			if strings.EqualFold(strings.TrimSpace(req.Source), models.MacroTodoFromStories) {
-				meta, origin, err = h.db.TodosFromMacroStories(id, key)
+				meta, origin, err = h.db.TodosFromMacroStories(h.actingContext(r), id, key)
 			} else {
 				meta, origin, err = h.db.TodosFromSDD(r.Context(), h.webSessionUser(r), id, key, db.NormalizeSlicingSource(req.Source))
 				err = slicingReadError(err)
@@ -1387,6 +1415,7 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 				writeError(w, http.StatusBadRequest, err.Error())
 				return
 			}
+			h.db.FillMacroFlags(id, meta, false)
 			writeJSON(w, http.StatusOK, map[string]interface{}{
 				"macro":  meta,
 				"epic":   meta,

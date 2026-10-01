@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -311,6 +312,21 @@ func (e *HTTPError) Error() string { return fmt.Sprintf("tracker returned HTTP %
 func IsRateLimited(err error) bool {
 	var httpErr *HTTPError
 	return errors.As(err, &httpErr) && httpErr.Status == http.StatusTooManyRequests
+}
+
+// IsTransient reports whether a tracker call failed for a reason that may not
+// hold a moment later: the network, a timeout, a rate limit or a server error.
+// Any other refusal is the tracker's answer and is not worth repeating.
+func IsTransient(err error) bool {
+	if err == nil {
+		return false
+	}
+	var httpErr *HTTPError
+	if errors.As(err, &httpErr) {
+		return httpErr.Status == http.StatusTooManyRequests || httpErr.Status >= 500
+	}
+	var netErr net.Error
+	return errors.As(err, &netErr) || errors.Is(err, context.DeadlineExceeded)
 }
 
 // missingCredential says what to do when no token could be resolved, which

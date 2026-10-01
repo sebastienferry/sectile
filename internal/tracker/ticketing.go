@@ -75,6 +75,31 @@ type PullRequestDiscoverer interface {
 	IssuePullRequests(ctx context.Context, req IssuePullRequestsRequest) ([]models.TaskPullRequest, error)
 }
 
+// MarkedCommentWriter keeps one comment Sectile owns on an issue, found again
+// by the id it was given or by a marker the tracker stores on the comment
+// (#663). Like PullRequestDiscoverer it is optional: a tracker without it keeps
+// what it would have carried in Sectile, and every call site type-asserts it.
+type MarkedCommentWriter interface {
+	// UpsertMarkedComment rewrites the comment the request names, else the one
+	// carrying its marker, else creates one with the marker, and returns its id.
+	// A comment without the marker is never touched.
+	UpsertMarkedComment(ctx context.Context, req UpsertMarkedCommentRequest) (string, error)
+}
+
+// UpsertMarkedCommentRequest names the comment Sectile owns on one issue.
+type UpsertMarkedCommentRequest struct {
+	Project *models.Project
+	Key     string
+	// CommentID is the id remembered from the last write, "" when none.
+	CommentID string
+	// Marker is the key of the property that tells Sectile's comment from the
+	// others, and Value what it holds.
+	Marker string
+	Value  map[string]any
+	// Body is Markdown.
+	Body string
+}
+
 // IssuePullRequestsRequest names the work item whose pull requests are read.
 type IssuePullRequestsRequest struct {
 	Project *models.Project

@@ -7,6 +7,7 @@ import (
 
 	"tasks/internal/agentprotocol"
 	"tasks/internal/models"
+	"tasks/internal/tracker"
 )
 
 // La découpe d'une macro, produite depuis les artefacts SDD du dépôt.
@@ -268,6 +269,7 @@ func (d *DB) TodosFromSDD(ctx context.Context, userID, projectID, macroKey strin
 	if err != nil {
 		return nil, "", err
 	}
+	d.scheduleTodosMirror(tracker.WithActingUser(ctx, strings.TrimSpace(userID)), projectID, macroKey)
 	return saved, origin + describeAttached(entries), nil
 }
 
@@ -296,7 +298,9 @@ func sourceUnitName(source SlicingSource) string {
 // Une story qu'une ligne porte déjà n'en produit pas une seconde, quel que soit
 // son énoncé : c'est la clé qui identifie, pas le texte, sans quoi une ligne
 // renommée à la main verrait son ticket revenir en double à la prochaine reprise.
-func (d *DB) TodosFromMacroStories(projectID string, macroKey string) (*models.MacroMeta, string, error) {
+//
+// The copy of the list on the tracker is scheduled as the person ctx names.
+func (d *DB) TodosFromMacroStories(ctx context.Context, projectID string, macroKey string) (*models.MacroMeta, string, error) {
 	projectID = strings.TrimSpace(projectID)
 	macroKey = strings.TrimSpace(macroKey)
 	if projectID == "" || macroKey == "" {
@@ -356,6 +360,7 @@ func (d *DB) TodosFromMacroStories(projectID string, macroKey string) (*models.M
 	if err != nil {
 		return nil, "", err
 	}
+	d.scheduleTodosMirror(ctx, projectID, macroKey)
 	return saved, fmt.Sprintf("%d ligne(s) reprise(s) sur %d ticket(s)", added, len(stories)), nil
 }
 

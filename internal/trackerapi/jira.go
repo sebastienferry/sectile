@@ -24,6 +24,9 @@ type JiraAdapter struct {
 	client *Client
 }
 
+// The Jira adapter keeps the comment Sectile owns on an epic (#663).
+var _ tracker.MarkedCommentWriter = (*JiraAdapter)(nil)
+
 // NewJiraAdapter creates the TicketingSystem adapter for Jira Cloud.
 func NewJiraAdapter(client *Client) *JiraAdapter {
 	return &JiraAdapter{
@@ -586,6 +589,103 @@ func (j *JiraAdapter) AddComment(ctx context.Context, req tracker.AddCommentRequ
 	}
 	return c.jira(ctx, http.MethodPost, "/rest/api/3/issue/"+url.PathEscape(key)+"/comment", nil,
 		map[string]any{"body": MarkdownToADF(req.Body)}, nil)
+}
+
+// UpsertMarkedComment implements tracker.MarkedCommentWriter (#663). The
+// marker is a comment property rather than text in the body: ADF keeps no HTML
+// comment, and a property survives a person editing the comment by hand.
+func (j *JiraAdapter) UpsertMarkedComment(ctx context.Context, req tracker.UpsertMarkedCommentRequest) (string, error) {
+	if strings.TrimSpace(req.Body) == "" {
+		return "", fmt.Errorf("comment body is required")
+	}
+	if strings.TrimSpace(req.Marker) == "" {
+		return "", fmt.Errorf("comment marker is required")
+	}
+	key, err := cleanJiraKey(req.Key)
+	if err != nil {
+		return "", err
+	}
+	c, err := j.forWrite(ctx, req.Project)
+	if err != nil {
+		return "", err
+	}
+	body := map[string]any{"body": MarkdownToADF(req.Body)}
+	base := "/rest/api/3/issue/" + url.PathEscape(key) + "/comment"
+
+	id := strings.TrimSpace(req.CommentID)
+	if id != "" {
+		err := c.jira(ctx, http.MethodPut, base+"/"+url.PathEscape(id), nil, body, nil)
+		if err == nil {
+			return id, nil
+		}
+		var httpErr *HTTPError
+		if !errors.As(err, &httpErr) || httpErr.Status != http.StatusNotFound {
+			return "", err
+		}
+	}
+	// The remembered comment is gone, or none was: the one carrying the marker
+	// is Sectile's, whoever deleted the id from its memory.
+	found, err := c.jiraMarkedComment(ctx, base, req.Marker)
+	if err != nil {
+		return "", err
+	}
+	if found != "" {
+		if err := c.jira(ctx, http.MethodPut, base+"/"+url.PathEscape(found), nil, body, nil); err != nil {
+			return "", err
+		}
+		return found, nil
+	}
+	value := req.Value
+	if value == nil {
+		value = map[string]any{}
+	}
+	body["properties"] = []map[string]any{{"key": req.Marker, "value": value}}
+	var created struct {
+		ID string `json:"id"`
+	}
+	if err := c.jira(ctx, http.MethodPost, base, nil, body, &created); err != nil {
+		return "", err
+	}
+	if created.ID == "" {
+		return "", fmt.Errorf("Jira did not confirm the comment creation")
+	}
+	return created.ID, nil
+}
+
+// jiraMarkedComment finds the comment of an issue carrying the property
+// marker, "" when none does.
+func (c *Client) jiraMarkedComment(ctx context.Context, base, marker string) (string, error) {
+	startAt := 0
+	for page := 0; page < jiraMaxPages; page++ {
+		query := url.Values{}
+		query.Set("expand", "properties")
+		query.Set("startAt", fmt.Sprint(startAt))
+		query.Set("maxResults", fmt.Sprint(jiraPageSize))
+		var payload struct {
+			Comments []struct {
+				ID         string `json:"id"`
+				Properties []struct {
+					Key string `json:"key"`
+				} `json:"properties"`
+			} `json:"comments"`
+			Total int `json:"total"`
+		}
+		if err := c.jira(ctx, http.MethodGet, base, query, nil, &payload); err != nil {
+			return "", err
+		}
+		for _, cm := range payload.Comments {
+			for _, prop := range cm.Properties {
+				if prop.Key == marker {
+					return cm.ID, nil
+				}
+			}
+		}
+		startAt += len(payload.Comments)
+		if len(payload.Comments) == 0 || startAt >= payload.Total {
+			break
+		}
+	}
+	return "", nil
 }
 
 func (j *JiraAdapter) GetComments(ctx context.Context, req tracker.GetCommentsRequest) ([]models.TaskComment, error) {
