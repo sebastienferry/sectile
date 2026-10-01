@@ -53,6 +53,7 @@ import { translations, type TranslationSchema } from '../locales/translations'
 import { resolveAccentAttribute } from '../lib/accents'
 import type { StoredUserCredential, OrphanedCredentialReport, TrackerKind } from '../lib/trackers'
 import { NO_ORPHANED_CREDENTIALS, getTrackers, orphanedCredentialsFrom } from '../lib/trackers'
+import { NO_JIRA_OAUTH, jiraOAuthFrom, oauthOutcomeFromSearch, withoutOAuthOutcome, type JiraOAuthInfo } from '../lib/jiraOAuth'
 import { TrackerCredentialMissingError, missingCredentialFromActivity, missingCredentialFromBody } from '../lib/trackerRefusal'
 import { activeTaskIds } from '../lib/remoteRunIndicator'
 import { isViewAvailable } from '../lib/optionalViews'
@@ -209,6 +210,10 @@ interface AppContextType {
   unlockAllUserCredentials: (passphrase: string) => Promise<boolean>
   lockAllUserCredentials: () => Promise<boolean>
   clearUserCredential: (tracker: string) => Promise<boolean>
+  /** Whether Jira can be connected through Atlassian's consent screen, and the sites a grant must cover (#654). */
+  jiraOAuth: JiraOAuthInfo
+  /** Sends the browser to Atlassian's consent screen; false when the connection could not start. */
+  connectJira: () => Promise<boolean>
   /** Supprime une ligne orpheline. Réservée aux admins, refusée par le serveur sinon. */
   discardOrphanedCredential: (userId: string, tracker: string) => Promise<boolean>
   /**
@@ -1557,6 +1562,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   const [userCredentials, setUserCredentials] = useState<StoredUserCredential[]>([])
   const [orphanedCredentials, setOrphanedCredentials] = useState<OrphanedCredentialReport>(NO_ORPHANED_CREDENTIALS)
+  const [jiraOAuth, setJiraOAuth] = useState<JiraOAuthInfo>(NO_JIRA_OAUTH)
 
   // Les accès personnels ne transitent jamais avec le jeton : l'API renvoie
   // seulement ce qu'elle sait d'eux, et cet état ne sert qu'à l'afficher.
@@ -1567,6 +1573,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       const data = await res.json().catch(() => ({}))
       setUserCredentials(Array.isArray(data.credentials) ? data.credentials : [])
       setOrphanedCredentials(orphanedCredentialsFrom(data))
+      setJiraOAuth(jiraOAuthFrom(data))
     } catch {
       // Un serveur injoignable n'est pas une absence d'accès : on garde l'état.
     }
@@ -1584,6 +1591,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         if (!res.ok) throw trackerError(res, data, failure || t.operations.notifications.credentials.refused)
         setUserCredentials(Array.isArray(data.credentials) ? data.credentials : [])
         setOrphanedCredentials(orphanedCredentialsFrom(data))
+        setJiraOAuth(jiraOAuthFrom(data))
         if (success) addToast({ type: 'success', title: success })
         return true
       } catch (err: any) {
@@ -1635,6 +1643,61 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       ),
     [userCredentialCall, t]
   )
+
+  // The consent happens on Atlassian's own page: the server answers where to
+  // send the browser, and the callback brings it back with the outcome.
+  const connectJira = useCallback(async (): Promise<boolean> => {
+    try {
+      const res = await fetch(`${API_BASE}/me/tracker-credentials/jira/connect`, { method: 'POST' })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok || typeof data.authorizeUrl !== 'string') {
+        throw new Error(data.error || t.trackerCredentials.oauth.connectFailed)
+      }
+      window.location.assign(data.authorizeUrl)
+      return true
+    } catch (err: any) {
+      addToast({ type: 'error', title: t.trackerCredentials.oauth.connectFailed, description: err.message })
+      return false
+    }
+  }, [t, addToast])
+
+  // Back from the consent screen: open the profile on Jira, say how it went,
+  // and drop the parameters so a reload says nothing again.
+  const oauthOutcomeHandled = useRef(false)
+  useEffect(() => {
+    if (oauthOutcomeHandled.current) return
+    const found = oauthOutcomeFromSearch(window.location.search)
+    if (!found) return
+    oauthOutcomeHandled.current = true
+    try {
+      window.history.replaceState(window.history.state, '', window.location.pathname + withoutOAuthOutcome(window.location.search) + window.location.hash)
+    } catch {
+      // An address that cannot be rewritten only shows the outcome again on reload.
+    }
+    void (async () => {
+      let sites: string[] = []
+      try {
+        const res = await fetch(`${API_BASE}/me/tracker-credentials`)
+        const data = await res.json().catch(() => ({}))
+        if (res.ok) {
+          setUserCredentials(Array.isArray(data.credentials) ? data.credentials : [])
+          setOrphanedCredentials(orphanedCredentialsFrom(data))
+          const info = jiraOAuthFrom(data)
+          setJiraOAuth(info)
+          sites = info.sites
+        }
+      } catch {
+        // The notification still says what happened.
+      }
+      openTrackerCredentials('jira')
+      const outcomes = t.trackerCredentials.oauth.outcomes
+      addToast({
+        type: found.outcome === 'connected' ? 'success' : found.outcome === 'cancelled' ? 'info' : 'error',
+        title: t.trackerCredentials.oauth.outcomeTitle,
+        description: outcomes[found.outcome].replace('{sites}', sites.join(', ') || '—'),
+      })
+    })()
+  }, [t, addToast, openTrackerCredentials])
 
   const discardOrphanedCredential = useCallback(
     (userId: string, tracker: string) =>
@@ -4225,6 +4288,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         unlockAllUserCredentials,
         lockAllUserCredentials,
         clearUserCredential,
+        jiraOAuth,
+        connectJira,
         sourceFilter,
         setSourceFilter,
         parentFilter,
