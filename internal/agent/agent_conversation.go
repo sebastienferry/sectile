@@ -45,6 +45,40 @@ type claudeConversation struct {
 	// approvals the tool calls of that turn waiting for the owner.
 	input     *conversationInput
 	approvals []conversationApproval
+	// requestAt is when Claude last started a main-thread request, and
+	// sentAt when a message last reached a turn already running: a message
+	// sent after Claude's last request may not have been read yet, so the
+	// turn's stdin stays open a moment past its result.
+	requestAt, sentAt time.Time
+	// next holds messages that arrived after the turn's stdin closed; they
+	// start the next turn as soon as this one ends.
+	next []string
+}
+
+// conversationSentGrace is how long a turn's stdin stays open past its result
+// for a message sent after Claude's last request.
+const conversationSentGrace = 3 * time.Second
+
+// endTurnInput closes a turn's stdin on its result, unless a message sent
+// since Claude's last request may still be read: then Claude has a moment to
+// start the request that answers it, and the next result closes stdin.
+func (d *agentDaemon) endTurnInput(run *controlledRun, input *conversationInput) {
+	d.queue.mu.Lock()
+	request, waiting := run.conversation.requestAt, run.conversation.sentAt.After(run.conversation.requestAt)
+	d.queue.mu.Unlock()
+	if !waiting {
+		input.close()
+		return
+	}
+	go func() {
+		time.Sleep(conversationSentGrace)
+		d.queue.mu.Lock()
+		answered := run.conversation.requestAt.After(request)
+		d.queue.mu.Unlock()
+		if !answered {
+			input.close()
+		}
+	}()
 }
 
 // conversationPartialLimit bounds a reply in progress; past it the draft stops
@@ -223,8 +257,23 @@ func (d *agentDaemon) desktopConversation(w http.ResponseWriter, r *http.Request
 		http.Error(w, "Unknown effort level", http.StatusBadRequest)
 		return
 	}
-	if run.conversation == nil || run.restored || run.canceled || d.queue.shuttingDown || run.conversation.busy {
-		http.Error(w, "Conversation is unavailable or already answering", http.StatusConflict)
+	if run.conversation == nil || run.restored || run.canceled || d.queue.shuttingDown {
+		http.Error(w, "Conversation is unavailable", http.StatusConflict)
+		return
+	}
+	// A message sent while Claude works joins the turn, as in Claude Code;
+	// one sent as the turn closes starts the next turn.
+	if run.conversation.busy {
+		conversationWrite(run.trace, "user", input.Message, "")
+		queued := run.conversation.input == nil || run.conversation.input.send(conversationUserMessage(input.Message)) != nil
+		if queued {
+			run.conversation.next = append(run.conversation.next, input.Message)
+		} else {
+			run.conversation.sentAt = time.Now()
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusAccepted)
+		_ = json.NewEncoder(w).Encode(map[string]bool{"accepted": true, "joined": !queued})
 		return
 	}
 	run.conversation.busy = true
@@ -413,6 +462,9 @@ func (d *agentDaemon) conversationTurn(run *controlledRun, prompt string) {
 			if frame.Type == "stream_event" {
 				if frame.Parent == nil {
 					streamPartial(run.conversation, frame.Event)
+					if frame.Event.Type == "message_start" {
+						run.conversation.requestAt = time.Now()
+					}
 				}
 				d.queue.mu.Unlock()
 				return
@@ -458,7 +510,7 @@ func (d *agentDaemon) conversationTurn(run *controlledRun, prompt string) {
 			}
 			if done {
 				// The result ends the turn: closing stdin lets Claude exit.
-				input.close()
+				d.endTurnInput(run, input)
 				d.queue.mu.Lock()
 				interrupted := run.conversation.interrupted
 				d.queue.mu.Unlock()
@@ -560,6 +612,15 @@ func (d *agentDaemon) conversationTurn(run *controlledRun, prompt string) {
 	}
 	run.conversation.busy = false
 	run.conversation.partial = ""
+	// Messages that missed this turn start the next one, unless the
+	// conversation was stopped.
+	if next := run.conversation.next; len(next) > 0 && !run.canceled {
+		run.conversation.next = nil
+		run.conversation.busy = true
+		go d.conversationTurn(run, strings.Join(next, "\n\n"))
+	} else {
+		run.conversation.next = nil
+	}
 }
 
 type limitedConversationBuffer struct{ bytes.Buffer }

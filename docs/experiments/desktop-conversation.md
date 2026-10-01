@@ -53,18 +53,22 @@ for **Allow**, **Always allow** (when Claude proposes a rule, which is then
 saved where Claude says) or **Deny**, as in Claude Code; the composer reads
 Waiting for your approval. The decision stays on the card.
 
-While Claude answers, **Stop answer** replaces **Send**, and Esc in the message
-box does the same: the answer stops and the conversation stays open, the next
-message resuming the session. **Terminal** opens a native terminal on a shell
-in the conversation's directory, with the task's environment; a second click
-reuses it and it closes with the conversation. **Stop execution** ends the
-conversation; a ticket discussion then completes on the server.
+While Claude answers, a message sent joins the answer in progress, written on
+the turn's stdin, and Claude reads it at its next request, as in Claude Code; a
+message sent as the turn ends starts the next turn. **Stop answer** appears
+beside **Send**, and Esc in the message box does the same: the answer stops and
+the conversation stays open, the next message resuming the session.
+**Terminal** opens a plain terminal window on the conversation's directory, in
+the terminal the project uses, running the user's own shell; no Sectile session
+is attached to it. **Stop execution** ends the conversation; a ticket
+discussion then completes on the server.
 
 The effort picked in the composer is sent with each message as `--effort`;
 **Default effort** leaves the CLI to decide. The ring beside the send button
 shows how much of the model's context window the latest main-thread request
 used. **Add folder…** attaches a folder to the project, and Claude is given it
-from the next message. Only one message can be in flight.
+from the next message. A message joining an answer in progress keeps that
+turn's effort and folders.
 
 ## How it runs
 
@@ -74,8 +78,9 @@ stream-json --verbose --include-partial-messages --permission-mode acceptEdits
 once Claude has reported a session, `--model`, `--effort` and one
 `--add-dir=<path>` per folder of the project, read afresh for each message
 (#676). Nothing goes through a shell. The agent writes an `initialize` request
-and the message on stdin, answers Claude's `can_use_tool` requests there, and
-closes stdin on the result. See
+and the message on stdin, answers Claude's `can_use_tool` requests there,
+writes there any message sent meanwhile, and closes stdin on the result, three
+seconds later when a message was sent after Claude's last request. See
 [ADR 0047](../adrs/0047-claude-conversations-speak-the-streaming-input-protocol.md).
 
 History uses the bounded run trace and run store, with at most 2,000 retained
@@ -85,8 +90,6 @@ Stop idle conversations before restarting the agent.
 
 ## Remaining work
 
-- Send a message while Claude works, which needs a persistent process per
-  conversation.
 - A dedicated card for `AskUserQuestion`, which shows as a plain approval today.
 - Tell an owner who looked away that a tool call waits for them.
 - Restore a live conversation after an agent restart.

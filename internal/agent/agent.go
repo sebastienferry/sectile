@@ -86,6 +86,8 @@ type agentDaemon struct {
 	launchTerminalFn func(terminalApp, sessionID string) error
 	// openEditorFn replaces the editor launch in tests (#535).
 	openEditorFn func(editor, directory string) error
+	// openTerminalFn replaces the plain terminal a conversation opens, in tests.
+	openTerminalFn func(terminal, directory string) error
 	// capabilities serializes the engine reports sent to the server (#305).
 	capabilities capabilityReporter
 	// customSkills records the custom skills dispatches ran since the agent

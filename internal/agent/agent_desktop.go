@@ -168,7 +168,7 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 		// contractError separates a server that is merely unreachable from one
 		// that cannot be talked to at all. Without it the desktop reports both
 		// as a disconnection and the user has no reason to look at the build.
-		capabilities := []string{"git-diff", markdownDocumentsCapability, "create-task", "remove-project", "free-console", "transition-stage", "repositories", attachedFoldersCapability, "git-init", taskEnginesCapability, openEditorCapability, "claude-conversation", conversationControlsCapability, runFoldersCapability}
+		capabilities := []string{"git-diff", markdownDocumentsCapability, "create-task", "remove-project", "free-console", "transition-stage", "repositories", attachedFoldersCapability, "git-init", taskEnginesCapability, openEditorCapability, "claude-conversation", conversationControlsCapability, conversationQueueCapability, runFoldersCapability}
 		if d.store != nil {
 			capabilities = append(capabilities, runStoreCapability)
 		}
@@ -332,10 +332,6 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 				run.trace.close()
 			}
 			d.queue.mu.Unlock()
-			// The shell opened beside the conversation goes with it.
-			if d.terminal.manager != nil {
-				_ = d.terminal.manager.CloseSession(conversationShellID(id))
-			}
 			select {
 			case <-run.exited:
 				// A ticket discussion is a server run: stopping it ends it there too.

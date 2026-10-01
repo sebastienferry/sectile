@@ -12,11 +12,12 @@ on its own command and **Discussion (no skill)** waiting for your first message,
 in the task's worktree and with the task's environment, when the project's
 engine is a Claude one. An autonomous launch keeps its read-only trace; a
 launch template is not run there, only its model is kept, and the conversation
-says so. Another engine keeps the terminal. While Claude answers, **Stop answer**
-in place of **Send**, or Esc in the message box, stops that answer and keeps
-the conversation open; the next message resumes the session. **Terminal** opens
-a native terminal on a shell in the conversation's directory, with the task's
-environment; it closes with the conversation. Stopping it
+says so. Another engine keeps the terminal. While Claude answers, a message you
+send joins the answer in progress, as in Claude Code; one sent as the answer
+ends starts the next. **Stop answer**, or Esc in the message box, stops that
+answer and keeps the conversation open; the next message resumes the session. **Terminal** opens
+a plain terminal window on the conversation's directory, in the terminal the
+project uses, running your own shell. Stopping it
 ends the discussion on the server, as closing its terminal does. Upgrade the
 agent along with the desktop: an older agent opens the terminal.
 Type a message and press Enter or click **Send**; Shift+Enter adds a line.

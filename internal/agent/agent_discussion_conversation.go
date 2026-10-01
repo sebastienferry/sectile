@@ -3,6 +3,7 @@ package agent
 import (
 	"encoding/json"
 	"net/http"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -13,6 +14,10 @@ import (
 // conversationControlsCapability tells Desktop this agent interrupts a
 // conversation's turn and opens a terminal beside it.
 const conversationControlsCapability = "conversation-controls"
+
+// conversationQueueCapability tells Desktop this agent takes a message while
+// Claude works.
+const conversationQueueCapability = "conversation-queue"
 
 // conversationDiscussionTTL bounds how long a ticket discussion launched from
 // Desktop waits for its dispatch to come back from the server. A preference
@@ -110,13 +115,9 @@ func extraConversationDirs(launch, project []string) []string {
 	return extra
 }
 
-// conversationShellID names the shell session opened beside a conversation.
-func conversationShellID(runID string) string { return "shell-" + runID }
-
-// desktopConversationTerminal opens a native terminal on a shell in a
-// conversation's directory, with the environment its turns carry. The window
-// is visible on purpose: the user asked for it, as for "Detach to native
-// terminal". A second click reuses the same shell.
+// desktopConversationTerminal opens a plain terminal window on a
+// conversation's directory, running the user's own shell, in the terminal the
+// project is set to use.
 func (d *agentDaemon) desktopConversationTerminal(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -138,22 +139,9 @@ func (d *agentDaemon) desktopConversationTerminal(w http.ResponseWriter, r *http
 		return
 	}
 	directory, projectID := run.desktop.Directory, run.desktop.ProjectID
-	env := map[string]string{"SECTILE_PROJECT_ID": projectID}
-	for key, value := range run.conversation.env {
-		env[key] = value
-	}
 	d.queue.mu.Unlock()
-	if d.terminal.manager == nil {
-		http.Error(w, "Terminal manager unavailable", http.StatusServiceUnavailable)
-		return
-	}
-	sessionID := conversationShellID(input.RunID)
-	if _, err := d.terminal.manager.GetOrCreateSession(sessionID, directory, env); err != nil {
-		http.Error(w, err.Error(), http.StatusConflict)
-		return
-	}
 	terminal := d.resolveTerminalForProject(r.Context(), projectID, input.Terminal)
-	if err := d.launchExternalTerminal(terminal, sessionID); err != nil {
+	if err := d.openDirectoryTerminal(runtime.GOOS, terminal, directory); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}

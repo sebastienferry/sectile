@@ -58,11 +58,17 @@ user's settings ignored so that the request fires.
 - A skill run in a conversation reaches its tools the way it would in Claude
   Code, under the owner's own rules; nothing is allowed that the owner did not
   allow, apart from Sectile's tools.
-- A turn still pays one CLI start per message, and a message cannot be sent
-  while Claude works. A persistent process per conversation, on the same
-  protocol, remains possible and would add queued messages; it needs a restart
-  policy for a change of effort or folders and crash recovery, which this
-  decision avoids.
+- **A message sent while Claude works joins the turn** on its stdin, and
+  Claude reads it at its next request, as Claude Code does (checked against
+  the CLI: both messages were answered under one result). Stdin then stays
+  open three seconds past the result when the message came after Claude's
+  last request, so a message not yet read is not cut off. A message arriving
+  once stdin has closed is kept and starts the next turn. A joined message
+  keeps the turn's effort and folders.
+- A turn still pays one CLI start per message that starts one. A persistent
+  process per conversation, on the same protocol, remains possible; it needs
+  a restart policy for a change of effort or folders and crash recovery, which
+  this decision avoids.
 - A request whose answer never comes holds the turn: Stop answer or Stop end
   it. No notification tells an owner who looked away that a tool call waits.
 - `AskUserQuestion` arrives as an approval like any other and shows its input;

@@ -7,11 +7,9 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"slices"
 	"strings"
 	"tasks/internal/agentconfig"
 	"tasks/internal/models"
-	"tasks/internal/terminal"
 	"tasks/internal/testhome"
 	"testing"
 	"time"
@@ -58,11 +56,17 @@ func TestConversationRequiresDesktopAuthenticationAndOwnedDirectory(t *testing.T
 	d.queue.mu.Lock()
 	d.queue.runs[id].conversation.busy = true
 	d.queue.mu.Unlock()
-	if w := conversationRequest(d, "POST", "/desktop/conversation?id="+id, `{"message":"hello"}`, "private"); w.Code != 409 {
-		t.Fatal("concurrent turn admitted")
+	// A message while Claude works, with no turn input to join, waits for the
+	// next turn instead of starting a second one.
+	if w := conversationRequest(d, "POST", "/desktop/conversation?id="+id, `{"message":"hello"}`, "private"); w.Code != 202 || !strings.Contains(w.Body.String(), `"joined":false`) {
+		t.Fatalf("a message while busy was not kept: %d %s", w.Code, w.Body.String())
 	}
 	d.queue.mu.Lock()
+	if next := d.queue.runs[id].conversation.next; len(next) != 1 || next[0] != "hello" {
+		t.Errorf("next = %v", next)
+	}
 	d.queue.runs[id].conversation.busy = false
+	d.queue.runs[id].conversation.next = nil
 	d.queue.mu.Unlock()
 	if w := conversationRequest(d, "POST", "/desktop/stop?id="+id, "", "private"); w.Code != 204 {
 		t.Fatalf("stop idle: %d", w.Code)
@@ -428,32 +432,23 @@ func TestConversationInterruptKeepsTheConversation(t *testing.T) {
 	}
 }
 
-// The terminal button opens a shell in the conversation's directory and
-// reuses it; stopping the conversation closes it.
-func TestConversationTerminalOpensAShellInItsDirectory(t *testing.T) {
+// The terminal button opens a plain terminal on the conversation's directory,
+// and nothing once the conversation has ended.
+func TestConversationTerminalOpensItsDirectory(t *testing.T) {
 	testhome.Temp(t)
 	d, id := conversationFixture(t)
-	d.terminal.manager = terminal.NewManager()
 	var opened []string
-	d.launchTerminalFn = func(_, session string) error { opened = append(opened, session); return nil }
-	for range 2 {
-		if w := conversationRequest(d, "POST", "/desktop/conversation-terminal", `{"runId":"`+id+`"}`, "private"); w.Code != 200 {
-			t.Fatalf("terminal: %d %s", w.Code, w.Body.String())
-		}
+	d.openTerminalFn = func(_, directory string) error { opened = append(opened, directory); return nil }
+	if w := conversationRequest(d, "POST", "/desktop/conversation-terminal", `{"runId":"`+id+`"}`, "private"); w.Code != 200 {
+		t.Fatalf("terminal: %d %s", w.Code, w.Body.String())
 	}
-	if len(opened) != 2 || opened[0] != conversationShellID(id) || opened[1] != opened[0] {
-		t.Fatalf("the shell was not opened, then reused: %v", opened)
-	}
-	if !slices.ContainsFunc(d.terminal.manager.ListSessions(), func(s terminal.SessionInfo) bool { return s.ID == conversationShellID(id) }) {
-		t.Fatal("no shell session was created")
+	if len(opened) != 1 || opened[0] != d.queue.runs[id].desktop.Directory {
+		t.Fatalf("the terminal did not open the conversation's directory: %v", opened)
 	}
 	if w := conversationRequest(d, "POST", "/desktop/stop?id="+id, "", "private"); w.Code != 204 {
 		t.Fatalf("stop: %d", w.Code)
 	}
-	if slices.ContainsFunc(d.terminal.manager.ListSessions(), func(s terminal.SessionInfo) bool { return s.ID == conversationShellID(id) }) {
-		t.Fatal("the shell outlived its conversation")
-	}
-	if w := conversationRequest(d, "POST", "/desktop/conversation-terminal", `{"runId":"`+id+`"}`, "private"); w.Code != http.StatusNotFound {
+	if w := conversationRequest(d, "POST", "/desktop/conversation-terminal", `{"runId":"`+id+`"}`, "private"); w.Code != http.StatusNotFound || len(opened) != 1 {
 		t.Fatalf("an ended conversation opened a terminal: %d", w.Code)
 	}
 }
@@ -540,5 +535,122 @@ func TestADeniedToolCallCarriesNoInput(t *testing.T) {
 	data, _ = json.Marshal(approvalResponse(conversationApproval{ID: "r", Suggestions: json.RawMessage(`null`)}, "always"))
 	if text := string(data); !strings.Contains(text, `"updatedInput":{}`) || strings.Contains(text, "updatedPermissions") {
 		t.Fatalf("always without suggestions = %s", text)
+	}
+}
+
+// A message sent while Claude works joins the running turn on its stdin.
+func TestConversationMessageSentWhileClaudeWorksJoinsTheTurn(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake CLI is a POSIX script")
+	}
+	testhome.Temp(t)
+	bin := t.TempDir()
+	script := `#!/bin/sh
+read -r init
+read -r first
+printf '%s\n' '{"type":"stream_event","parent_tool_use_id":null,"event":{"type":"message_start"}}'
+read -r second
+printf '%s' "$second" > second.txt
+printf '%s\n' '{"type":"result","is_error":false,"result":"Both answered","session_id":"11111111-1111-4111-8111-111111111111"}'
+`
+	if err := os.WriteFile(filepath.Join(bin, "claude"), []byte(script), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	d, id := conversationFixture(t)
+	run := d.queue.runs[id]
+	if w := conversationRequest(d, "POST", "/desktop/conversation?id="+id, `{"message":"first"}`, "private"); w.Code != 202 {
+		t.Fatalf("send: %d", w.Code)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		d.queue.mu.Lock()
+		started := !run.conversation.requestAt.IsZero()
+		d.queue.mu.Unlock()
+		if started {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("Claude never started its request")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	w := conversationRequest(d, "POST", "/desktop/conversation?id="+id, `{"message":"and this"}`, "private")
+	if w.Code != 202 || !strings.Contains(w.Body.String(), `"joined":true`) {
+		t.Fatalf("a message while Claude works was not joined: %d %s", w.Code, w.Body.String())
+	}
+	waitConversationIdle(t, d, run)
+	raw, _ := os.ReadFile(filepath.Join(run.root, "second.txt"))
+	if !strings.Contains(string(raw), `"content":"and this"`) {
+		t.Fatalf("Claude did not read the joined message: %s", raw)
+	}
+	lines, _ := run.trace.snapshot()
+	if text := strings.Join(lines, "\n"); strings.Count(text, `"kind":"user"`) != 2 || strings.Count(text, `"kind":"assistant"`) != 1 {
+		t.Fatalf("unexpected transcript: %s", text)
+	}
+}
+
+// A message sent once the turn's stdin has closed starts the next turn.
+func TestConversationMessageThatMissesTheTurnStartsTheNext(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake CLI is a POSIX script")
+	}
+	testhome.Temp(t)
+	bin := t.TempDir()
+	script := `#!/bin/sh
+read -r init
+read -r message
+printf '%s\n' "$message" >> messages.txt
+printf '%s\n' '{"type":"result","is_error":false,"result":"ok","session_id":"11111111-1111-4111-8111-111111111111"}'
+sleep 1
+`
+	if err := os.WriteFile(filepath.Join(bin, "claude"), []byte(script), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	d, id := conversationFixture(t)
+	run := d.queue.runs[id]
+	if w := conversationRequest(d, "POST", "/desktop/conversation?id="+id, `{"message":"first"}`, "private"); w.Code != 202 {
+		t.Fatalf("send: %d", w.Code)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		d.queue.mu.Lock()
+		closed := run.conversation.input != nil && run.conversation.input.closed
+		d.queue.mu.Unlock()
+		if closed {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the turn's stdin never closed")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	w := conversationRequest(d, "POST", "/desktop/conversation?id="+id, `{"message":"late"}`, "private")
+	if w.Code != 202 || !strings.Contains(w.Body.String(), `"joined":false`) {
+		t.Fatalf("a late message was not kept for the next turn: %d %s", w.Code, w.Body.String())
+	}
+	time.Sleep(50 * time.Millisecond)
+	waitConversationIdle(t, d, run)
+	raw, _ := os.ReadFile(filepath.Join(run.root, "messages.txt"))
+	if text := string(raw); strings.Count(text, `"type":"user"`) != 2 || !strings.Contains(text, `"content":"late"`) {
+		t.Fatalf("the late message did not start a turn: %s", text)
+	}
+}
+
+func waitConversationIdle(t *testing.T, d *agentDaemon, run *controlledRun) {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		d.queue.mu.Lock()
+		busy := run.conversation.busy
+		d.queue.mu.Unlock()
+		if !busy {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the conversation never went idle")
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
