@@ -27,6 +27,9 @@ type transitionInput struct {
 	PRURL   string `json:"prUrl,omitempty"`
 	// PRURLs are the pull requests of the other repositories the task changed.
 	PRURLs []string `json:"prUrls,omitempty"`
+	// NoRepositoryChange states that the task's work changed no repository,
+	// in place of a pull request (#584).
+	NoRepositoryChange bool `json:"noRepositoryChange,omitempty"`
 }
 type commentInput struct {
 	TaskKey string `json:"taskKey"`
@@ -282,7 +285,8 @@ func NewServerWithCallers(database *db.DB, sessions *SessionRegistry, resolve Ca
 			"taskKey": map[string]any{"type": "string", "minLength": 1},
 			"stage":   map[string]any{"type": "string", "enum": []string{"clarified", "specified", "implemented", "reviewed", "finished"}},
 			"note":    map[string]any{"type": "string", "minLength": 1}, "branch": map[string]any{"type": "string"}, "prUrl": map[string]any{"type": "string", "description": "Pull request or merge request URL to persist on the task. Omit to preserve its existing link."},
-			"prUrls": map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "On a task that changed several repositories: the pull requests of the other repositories, one per repository. prUrl names the primary repository's."},
+			"prUrls":             map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "On a task that changed several repositories: the pull requests of the other repositories, one per repository. prUrl names the primary repository's."},
+			"noRepositoryChange": map[string]any{"type": "boolean", "description": "True when the task's work changed no repository (a configuration made through an API, a review, a follow-up), so there is no pull request to give. Say in the note what was done instead. Refused with prUrl or prUrls, and when the task records a pull request on its branch or a changed repository."},
 		},
 	}}, func(ctx context.Context, req *mcp.CallToolRequest, in transitionInput) (*mcp.CallToolResult, any, error) {
 		if strings.TrimSpace(in.Note) == "" {
@@ -292,7 +296,17 @@ func NewServerWithCallers(database *db.DB, sessions *SessionRegistry, resolve Ca
 		if err := requireCaller(caller); err != nil {
 			return nil, nil, err
 		}
-		task, activity, err := database.TransitionTaskStageWithPRs(caller.UserID, in.TaskKey, in.Stage, in.Note, append([]string{in.PRURL}, in.PRURLs...), in.Branch)
+		var task *models.Task
+		var activity *models.TaskActivity
+		var err error
+		if in.NoRepositoryChange {
+			if strings.TrimSpace(in.PRURL) != "" || len(in.PRURLs) > 0 {
+				return nil, nil, fmt.Errorf("noRepositoryChange states there is no pull request: give either prUrl/prUrls or noRepositoryChange, not both")
+			}
+			task, activity, err = database.TransitionTaskStageWithoutRepositoryChange(caller.UserID, in.TaskKey, in.Stage, in.Note, in.Branch)
+		} else {
+			task, activity, err = database.TransitionTaskStageWithPRs(caller.UserID, in.TaskKey, in.Stage, in.Note, append([]string{in.PRURL}, in.PRURLs...), in.Branch)
+		}
 		if err != nil {
 			return nil, nil, err
 		}
