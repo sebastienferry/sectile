@@ -7,6 +7,11 @@ import (
 	"tasks/internal/runner"
 )
 
+// markdownDocumentsCapability is what /desktop/status announces once the
+// git-diff result carries the content of its Markdown files (#575). A desktop
+// connected to an agent without it explains why it cannot render them.
+const markdownDocumentsCapability = "markdown-documents"
+
 func (d *agentDaemon) desktopGitDiff(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")

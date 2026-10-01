@@ -30,6 +30,11 @@ const diffPatchLimit = 256 << 10
 const diffResponseLimit = 4 << 20
 const diffFileLimit = 1000
 
+// Markdown documents travel next to the patches with their own bounds, so
+// rendering them never removes a file or a patch from the raw diff (#575).
+const diffDocumentLimit = 512 << 10
+const diffDocumentBudget = 4 << 20
+
 // WorktreeDiff is a local inspection, never a saved execution snapshot.
 type WorktreeDiff struct {
 	RunID         string             `json:"runId"`
@@ -63,6 +68,18 @@ type WorktreeDiffFile struct {
 	Additions     *int   `json:"additions"`
 	Deletions     *int   `json:"deletions"`
 	Patch         string `json:"patch"`
+	OmittedReason string `json:"omittedReason,omitempty"`
+	// Document is set on Markdown files only.
+	Document *DiffDocument `json:"document,omitempty"`
+}
+
+// DiffDocument is a Markdown file's whole content at the inspected state:
+// the new version, or the old one ("old") for a deleted file. OmittedReason
+// says why Content is unavailable; without it, Content is the document, which
+// may be empty.
+type DiffDocument struct {
+	Side          string `json:"side"`
+	Content       string `json:"content,omitempty"`
 	OmittedReason string `json:"omittedReason,omitempty"`
 }
 type DiffError struct {
@@ -730,6 +747,11 @@ func inspectWorktree(g diffGit, branch, repository string) (*WorktreeDiff, error
 	result.CountsPartial = result.CountsPartial || !result.Complete
 	result.FilesChanged = len(result.Files)
 	result.IsClean = result.Complete && len(result.Files) == 0
+	// The snapshot objects disappear with the temporary directory: read the
+	// documents from the trees the patch compares, before returning.
+	if e = attachDiffDocuments(snapshot, result.Files, omitted, ancestor, tree); e != nil {
+		return nil, e
+	}
 	after, e := g.state()
 	if e != nil {
 		return nil, e
@@ -782,6 +804,111 @@ func inspectWorktree(g diffGit, branch, repository string) (*WorktreeDiff, error
 	}
 	result.GeneratedAt = time.Now().UTC().Format(time.RFC3339Nano)
 	return result, nil
+}
+
+func isMarkdownPath(p string) bool {
+	lower := strings.ToLower(p)
+	return strings.HasSuffix(lower, ".md") || strings.HasSuffix(lower, ".markdown")
+}
+
+// attachDiffDocuments gives each listed Markdown file its content, in path
+// order, until the rendering budget is spent. The sizes come first from
+// --batch-check so that an oversized blob is never read.
+func attachDiffDocuments(snapshot diffGit, files []WorktreeDiffFile, omitted map[string]WorktreeDiffFile, ancestor, tree string) error {
+	type request struct {
+		index  int
+		object string
+		size   int
+	}
+	var requests []request
+	for i := range files {
+		f := &files[i]
+		if f.Kind != "text" || !isMarkdownPath(f.Path) {
+			continue
+		}
+		f.Document = &DiffDocument{Side: "new"}
+		object := tree + ":" + f.Path
+		if f.Status == "deleted" {
+			f.Document.Side = "old"
+			object = ancestor + ":" + f.Path
+		}
+		if skipped, ok := omitted[f.Path]; ok {
+			// Its content never reached the snapshot tree.
+			f.Document.OmittedReason = skipped.OmittedReason
+			continue
+		}
+		if strings.Contains(f.Path, "\n") {
+			f.Document.OmittedReason = "This path cannot be rendered."
+			continue
+		}
+		requests = append(requests, request{index: i, object: object})
+	}
+	if len(requests) == 0 {
+		return nil
+	}
+	var input bytes.Buffer
+	for _, r := range requests {
+		input.WriteString(r.object + "\n")
+	}
+	checked, e := snapshot.command(input.Bytes(), diffMetadataLimit, "cat-file", "--batch-check=%(objecttype) %(objectsize)")
+	if e != nil {
+		return e
+	}
+	lines := strings.Split(strings.TrimSuffix(string(checked), "\n"), "\n")
+	if len(lines) != len(requests) {
+		return errDiffBound
+	}
+	var wanted []request
+	spent, exhausted := 0, false
+	for i, r := range requests {
+		document := files[r.index].Document
+		fields := strings.Fields(lines[i])
+		size := -1
+		if len(fields) == 2 && fields[0] == "blob" {
+			size, _ = strconv.Atoi(fields[1])
+		}
+		switch {
+		case size < 0:
+			document.OmittedReason = "This file cannot be rendered."
+		case size > diffDocumentLimit:
+			document.OmittedReason = "File exceeds the 512 KiB rendering limit."
+		case exhausted || spent+size > diffDocumentBudget:
+			exhausted = true
+			document.OmittedReason = "Rendering skipped: the 4 MiB rendering budget was reached."
+		default:
+			spent += size
+			r.size = size
+			wanted = append(wanted, r)
+		}
+	}
+	if len(wanted) == 0 {
+		return nil
+	}
+	input.Reset()
+	for _, r := range wanted {
+		input.WriteString(r.object + "\n")
+	}
+	// Each record is "<oid> blob <size>\n<content>\n"; 128 bytes cover a header.
+	raw, e := snapshot.command(input.Bytes(), spent+len(wanted)*128, "cat-file", "--batch")
+	if e != nil {
+		return e
+	}
+	for _, r := range wanted {
+		header, rest, ok := bytes.Cut(raw, []byte{'\n'})
+		fields := strings.Fields(string(header))
+		if !ok || len(fields) != 3 || fields[2] != strconv.Itoa(r.size) || len(rest) < r.size+1 {
+			return diffError("checkout_changed", "Git objects changed during inspection. Refresh to retry.")
+		}
+		content := rest[:r.size]
+		raw = rest[r.size+1:]
+		document := files[r.index].Document
+		if !utf8.Valid(content) {
+			document.OmittedReason = "Non-UTF-8 contents cannot be rendered."
+			continue
+		}
+		document.Content = string(content)
+	}
+	return nil
 }
 
 // Git loose objects use a typed header and zlib stream. These objects live only
