@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"tasks/internal/agentconfig"
+	"tasks/internal/models"
 	"tasks/internal/terminal"
 )
 
@@ -117,7 +118,7 @@ func TestFreeConsolePTYLifecycle(t *testing.T) {
 	}
 	run.desktop.Kind = "console"
 	run.desktop.Provider = "codex"
-	d.launchConsole(run, "exec "+quoteShell(script))
+	d.launchConsole(run, "exec "+quoteShell(script), nil)
 	defer d.terminal.manager.CloseSession("free")
 	session, err := d.terminal.manager.GetOrCreateSession("free", root, nil)
 	if err != nil {
@@ -206,7 +207,7 @@ func TestFreeConsoleQueueCancellation(t *testing.T) {
 	d.queue.mu.Lock()
 	run.canceled = true
 	d.queue.mu.Unlock()
-	d.launchConsole(run, "exec codex")
+	d.launchConsole(run, "exec codex", nil)
 	select {
 	case <-run.exited:
 	default:
@@ -326,7 +327,7 @@ func TestFreeConsoleExitStatus(t *testing.T) {
 				t.Fatal(err)
 			}
 			run.desktop.Kind = "console"
-			d.launchConsole(run, tt.command)
+			d.launchConsole(run, tt.command, nil)
 			defer d.terminal.manager.CloseSession("console")
 			select {
 			case <-run.exited:
@@ -356,5 +357,42 @@ func TestProjectPromptCustomTemplateKeepsInteractiveModeAndDirectory(t *testing.
 	command, err := expandConfiguredTemplate("my-cli {mode:--batch|--interactive} --model {model} --directory {repoPath} {prompt}", "local-model", "", false, agentCommandContext{Directory: "/repo with spaces"})
 	if err != nil || command != "my-cli --interactive --model 'local-model' --directory '/repo with spaces' ''" {
 		t.Fatalf("unexpected interactive command: %q %v", command, err)
+	}
+}
+
+// A free console opens with the project's folders: through the option of an
+// engine that attests one, through a template's {addDirs} slot, and in the
+// folder map of its environment (#676).
+func TestFreeConsoleCarriesTheProjectFolders(t *testing.T) {
+	dirs := []string{"/repo/b", "/notes with space"}
+	for provider, want := range map[string]string{
+		"claude": `exec claude --model M --add-dir='/repo/b' --add-dir='/notes with space'`,
+		"codex":  `exec codex --model M --add-dir='/repo/b' --add-dir='/notes with space'`,
+		"agy":    "exec agy",
+	} {
+		got, err := consoleLaunch(provider, "M", "", "", "/root", dirs)
+		if err != nil || !strings.HasPrefix(got, "exec "+provider) || (provider != "agy" && got != want) || (provider == "agy" && strings.Contains(got, "--add-dir")) {
+			t.Errorf("%s: %q %v, want %q", provider, got, err, want)
+		}
+		if bare, _ := consoleLaunch(provider, "M", "", "", "/root", nil); strings.Contains(bare, "--add-dir") {
+			t.Errorf("%s without folders: %q", provider, bare)
+		}
+	}
+	got, err := consoleLaunch("claude", "", "claude {addDirs} --cwd {repoPath} {prompt}", "", "/root", dirs)
+	if err != nil || got != `claude --add-dir='/repo/b' --add-dir='/notes with space' --cwd '/root' ''` {
+		t.Errorf("template: %q %v", got, err)
+	}
+	if got, _ := consoleLaunch("custom", "", "my-cli {addDirs} {prompt}", "", "/root", dirs); strings.Contains(got, "--add-dir") {
+		t.Errorf("an unattested template provider got folder options: %q", got)
+	}
+
+	d := &agentDaemon{}
+	run := &controlledRun{desktop: desktopRun{ID: "free", ProjectID: "p"}}
+	if _, ok := d.consoleEnv(run, nil)["SECTILE_REPOSITORIES"]; ok {
+		t.Error("a console without folders carries a folder map")
+	}
+	env := d.consoleEnv(run, []models.FolderMapEntry{{Role: models.FolderRoleLocal, Path: "/notes", Attached: true}})
+	if !strings.Contains(env["SECTILE_REPOSITORIES"], `"path":"/notes"`) || env["SECTILE_RUN_ID"] != "free" || env["SECTILE_PROJECT_ID"] != "p" {
+		t.Errorf("env = %v", env)
 	}
 }

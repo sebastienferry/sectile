@@ -696,6 +696,17 @@ func launchEngine(config agentconfig.Config, skillID, modelOverride, mode string
 	return provider, agentconfig.EffectiveModel(provider, template, model)
 }
 
+// liveProvider is the engine a discussion or a bare terminal opens, as
+// runner.InteractiveAgentLaunch reads it: a custom engine opens its own binary,
+// which receives no folder option.
+func liveProvider(config agentconfig.Config) string {
+	provider := strings.ToLower(strings.TrimSpace(config.AIProvider))
+	if provider == "" {
+		return "agy"
+	}
+	return provider
+}
+
 // dispatchCommand distinguishes opening an interactive agent from running a skill.
 // mode is the execution mode the server resolved for this launch; an empty value
 // reads as interactive, which keeps an older server working. modelOverride is the
@@ -704,12 +715,18 @@ func dispatchCommand(config agentconfig.Config, taskKey, skillID, action, prompt
 	skillID = models.NormalizeSkillID(skillID)
 	action = models.NormalizeSkillID(action)
 	// A discussion or a bare terminal has no skill, so it runs against the model
-	// the project resolves rather than a per-skill one.
+	// the project resolves rather than a per-skill one. It is given the task's
+	// other folders like a skill run (#676), by an engine whose option for them
+	// is attested.
 	live := func() (string, error) {
-		return runner.InteractiveAgentLaunch(&models.Settings{
+		line, err := runner.InteractiveAgentLaunch(&models.Settings{
 			AIProvider: config.AIProvider, AICommandTemplate: config.AICommandTemplate,
 			AIModel: agentconfig.ResolveModel(config, ""),
 		})
+		if err != nil || len(contexts) == 0 {
+			return line, err
+		}
+		return words(line, addDirArgs(liveProvider(config), contexts[0].AddDirs)), nil
 	}
 	model, err := LaunchModel(config, skillID, modelOverride)
 	if err != nil {

@@ -94,7 +94,7 @@ Pairing lets your local agent act as you without putting a long-lived key in a p
 ## Configure the project in Desktop
 
 1. Select **Add project** from Desktop's project sidebar, or use the project configuration view for one already shown. Choose the local Git checkout with **Choose folder…**.
-2. Open the project's **General** category to inspect its Git remote, SDD framework, and default coding engine. In **Folders**, map local repositories and, when needed, a specifications folder or attached folders. These paths stay on your workstation.
+2. Open the project's **General** category to inspect its Git remote, SDD framework, and default coding engine. In **Folders**, map local repositories and, when needed, a specifications folder or attached folders. These paths stay on your workstation. Every execution of the project is given these folders, ticket discussions and Claude conversations included. A folder can also be attached without leaving a Claude conversation or a running ticket discussion, from its **Add folder…** action: Claude Code sees it at once in a discussion, and from the next message in a conversation.
 3. In **Execution**, choose whether tasks use worktrees, how many executions can run, and the terminal behavior. Use workstation **Execution defaults** for settings shared by projects; project overrides can inherit those defaults.
 4. Select **Save local configuration**. In **Settings → Deployment**, install the project's skills and initialize its chosen SDD framework when those tools are not yet present. In **AI engines**, choose or configure the CLI you intend to run. The CLI must also be installed and signed in on the workstation.
 

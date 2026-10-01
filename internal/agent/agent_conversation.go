@@ -2,6 +2,7 @@ package agent
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -155,7 +156,10 @@ func (d *agentDaemon) newConversationLocked(projectID, directory, model, origin 
 	return run, nil
 }
 
-func claudeConversationCommand(directory, model, effort, session, prompt string) *exec.Cmd {
+// claudeConversationCommand is one turn's Claude. Each of dirs is one
+// --add-dir=<path> argument: no shell reads it, so it needs no quoting, and the
+// "=" form keeps a value from swallowing the arguments that follow it.
+func claudeConversationCommand(directory, model, effort, session, prompt string, dirs []string, env map[string]string) *exec.Cmd {
 	args := []string{"-p", "--output-format", "stream-json", "--verbose", "--permission-mode", "acceptEdits"}
 	if model != "" {
 		args = append(args, "--model", model)
@@ -166,9 +170,12 @@ func claudeConversationCommand(directory, model, effort, session, prompt string)
 	if session != "" {
 		args = append(args, "--resume", session)
 	}
+	for _, dir := range dirs {
+		args = append(args, "--add-dir="+dir)
+	}
 	cmd := agentexec.Hidden(exec.Command("claude", args...))
 	cmd.Dir = directory
-	cmd.Env = commandEnv(nil)
+	cmd.Env = commandEnv(env)
 	cmd.Stdin = strings.NewReader(prompt)
 	// A descendant retaining stdout must not prevent stopping the conversation.
 	cmd.WaitDelay = headlessStopGrace
@@ -203,9 +210,44 @@ func (o *conversationOutput) Write(data []byte) (int, error) {
 	return len(data), nil
 }
 
+// conversationFolders reads the project's folders when a turn starts, so a
+// folder attached since the previous turn, from the conversation or from the
+// project settings, is given to this one (#676). env carries the same folder
+// map as a skill run of the project.
+func (d *agentDaemon) conversationFolders(projectID, directory string) ([]string, map[string]string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), conversationFoldersTimeout)
+	defer cancel()
+	env := map[string]string{"SECTILE_PROJECT_ID": projectID}
+	config, err := d.fetchConfig(ctx, projectID, "")
+	if err != nil {
+		return nil, env, err
+	}
+	folders, err := d.projectFolderMap(ctx, config, directory)
+	if err != nil {
+		return nil, env, err
+	}
+	if raw, err := json.Marshal(folders); err == nil && len(folders) > 0 {
+		env["SECTILE_REPOSITORIES"] = string(raw)
+	}
+	return folderMapDirs(folders), env, nil
+}
+
+// conversationFoldersTimeout bounds the folder read of a turn: a server that
+// does not answer delays the message, it never holds it.
+const conversationFoldersTimeout = 10 * time.Second
+
 func (d *agentDaemon) conversationTurn(run *controlledRun, prompt string) {
 	d.queue.mu.Lock()
-	cmd := claudeConversationCommand(run.desktop.Directory, run.desktop.Model, run.conversation.effort, run.conversation.session, prompt)
+	projectID, directory := run.desktop.ProjectID, run.desktop.Directory
+	d.queue.mu.Unlock()
+	// A turn without the project's folders still runs: the folders widen what
+	// Claude may read, they never decide whether it answers.
+	dirs, env, err := d.conversationFolders(projectID, directory)
+	if err != nil {
+		conversationWrite(run.trace, "notice", "Attached folders could not be read for this message", err.Error())
+	}
+	d.queue.mu.Lock()
+	cmd := claudeConversationCommand(directory, run.desktop.Model, run.conversation.effort, run.conversation.session, prompt, dirs, env)
 	d.queue.mu.Unlock()
 	resultSeen, resultFailed, assistantSeen, mainModel := false, false, false, ""
 	output := &conversationOutput{line: func(line string) {

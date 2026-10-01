@@ -1257,6 +1257,7 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 		}
 		d.queue.read(payload.RunID, func(run *controlledRun) {
 			run.desktop = desktopRun{CreatedAt: run.desktop.CreatedAt, Prompt: run.desktop.Prompt, ID: payload.RunID, TaskID: taskRef, TaskKey: payload.TaskKey, ProjectID: config.ProjectID, Skill: payload.SkillID, SessionID: sessionID, Directory: workDir, Branch: branch, Status: "running", Provider: runProvider, Model: runModel}
+			run.interactiveProvider = discussionProvider(config, payload.SkillID)
 		})
 	}
 	// The agent owns consoles independently of any attached companion.

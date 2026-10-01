@@ -299,6 +299,9 @@ aside{flex-shrink:0}.sidebar-hidden #sidebar-resizer{display:none}#sidebar-resiz
 .worktree:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .worktree-copied{flex-shrink:0;font-size:11px;color:var(--accent-text)}
 .worktree-copied:empty{display:none}
+/* The outcome of "Add folder…" on a running discussion (#676). */
+.run-folder-status{font-size:11px;color:var(--text-faint);max-width:360px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.run-folder-status[hidden]{display:none}
 #toolbar #open-editor{flex-shrink:0;width:24px;height:24px;padding:3px;border-radius:6px;color:var(--text-muted)}
 #toolbar #open-editor svg{width:16px;height:16px}
 #toolbar #open-editor:hover:not(:disabled){color:var(--text);background:var(--surface)}
@@ -507,6 +510,11 @@ dialog.workstation-settings{width:min(1100px,94vw);max-height:90vh}
 .conversation-composer textarea:disabled{cursor:not-allowed}
 .conversation-toolbar{display:flex;align-items:center;gap:14px}
 .conversation-chip{font-size:12px;color:var(--text-faint);white-space:nowrap;cursor:default}
+.conversation-add-folder{display:inline-flex;align-items:center;gap:5px;padding:2px 0;border:0;background:transparent;font:inherit;font-size:12px;cursor:pointer}
+.conversation-add-folder[hidden]{display:none}
+.conversation-add-folder:hover:not(:disabled){color:var(--text)}
+.conversation-add-folder:focus-visible{outline:1px solid var(--accent-border);border-radius:4px}
+.conversation-add-folder:disabled{cursor:not-allowed;opacity:.6}
 .conversation-status{margin-left:auto;font-size:11px;color:var(--text-faint);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
 .conversation-send{flex:none;width:32px;height:32px;padding:0;display:grid;place-items:center;border-radius:50%;border:1px solid var(--accent-border);background:var(--accent-button-bg);color:var(--accent-text)}
 .conversation-send:disabled{border-color:var(--border-strong);background:transparent;color:var(--text-faint)}
