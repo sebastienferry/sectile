@@ -70,20 +70,7 @@ func (r *Runner) runCommand(ctx context.Context, dir string, name string, args .
 	}
 
 	// Inherit and extend PATH dynamically to include ~/.local/bin and Homebrew paths
-	env := SanitizedEnviron()
-	customPath := GetDynamicCustomPath()
-	foundPath := false
-	for i, e := range env {
-		if strings.HasPrefix(e, "PATH=") {
-			env[i] = "PATH=" + joinPath(customPath, strings.TrimPrefix(e, "PATH="))
-			foundPath = true
-			break
-		}
-	}
-	if !foundPath {
-		env = append(env, "PATH="+customPath)
-	}
-	cmd.Env = env
+	cmd.Env = PathEnviron()
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
