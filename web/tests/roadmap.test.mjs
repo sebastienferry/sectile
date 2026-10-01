@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { batchSummary, buildMacroRows, macroCopyPayload, pruneTodoSelection, selectableTodoIds, todoOrigin } from '../src/lib/roadmap.ts'
+import { batchSummary, buildMacroRows, macroCopyPayload, moveTodo, pruneTodoSelection, rewordTodo, selectableTodoIds, todoOrigin, todosMirrorState } from '../src/lib/roadmap.ts'
 
 test('copying a macro with a page copies its link', () => {
   const payload = macroCopyPayload({ key: 'M-11', title: 'Roadmap', externalUrl: 'https://github.com/acme/app/milestone/11' })
@@ -60,4 +60,43 @@ test('a line names its origin, an unknown kind as written', () => {
   assert.deepEqual(todoOrigin({ sourceKind: 'stories', sourceEntry: '#4' }), { kind: 'stories', raw: 'stories', entry: '#4' })
   assert.deepEqual(todoOrigin({}), { kind: 'manual', raw: '', entry: '' })
   assert.deepEqual(todoOrigin({ sourceKind: 'scenarios', sourceEntry: '  ' }), { kind: 'unknown', raw: 'scenarios', entry: '' })
+})
+
+const ids = list => list.map(todo => todo.id)
+
+test('a moved todo lands at its new place, the others keeping their order', () => {
+  assert.deepEqual(ids(moveTodo(slicing, 0, 2)), ['b', 'c', 'a', 'd'])
+  assert.deepEqual(ids(moveTodo(slicing, 3, 0)), ['d', 'a', 'b', 'c'])
+  assert.deepEqual(ids(moveTodo(slicing, 1, 2)), ['a', 'c', 'b', 'd'])
+  // A move keeps every line whole: its key, its done state.
+  assert.deepEqual(moveTodo(slicing, 1, 0)[0], slicing[1])
+})
+
+test('a move onto itself or out of range leaves the list as it is', () => {
+  for (const [from, to] of [[1, 1], [-1, 0], [0, 4], [4, 0]]) {
+    const moved = moveTodo(slicing, from, to)
+    assert.deepEqual(ids(moved), ['a', 'b', 'c', 'd'])
+    assert.notEqual(moved, slicing, 'a copy, never the list itself')
+  }
+})
+
+test('a rewording saves the trimmed text and nothing else', () => {
+  const next = rewordTodo(slicing, 'b', '  B, reworded ')
+  assert.equal(next[1].text, 'B, reworded')
+  assert.deepEqual({ ...next[1], text: 'B' }, slicing[1])
+  assert.deepEqual(next.filter((_, i) => i !== 1), slicing.filter((_, i) => i !== 1))
+})
+
+test('a blank, unchanged or vanished rewording saves nothing', () => {
+  assert.equal(rewordTodo(slicing, 'a', '   '), null)
+  assert.equal(rewordTodo(slicing, 'a', ' A '), null)
+  assert.equal(rewordTodo(slicing, 'gone', 'X'), null)
+})
+
+test('the tracker copy status reads as one of five lines', () => {
+  assert.equal(todosMirrorState(undefined), 'none')
+  assert.equal(todosMirrorState({ kind: '', reason: 'projet local', upToDate: false }), 'local')
+  assert.equal(todosMirrorState({ kind: 'jira_comment', upToDate: true, error: 'old' }), 'upToDate')
+  assert.equal(todosMirrorState({ kind: 'jira_comment', upToDate: false }), 'pending')
+  assert.equal(todosMirrorState({ kind: 'github_description', upToDate: false, error: 'HTTP 500' }), 'failed')
 })

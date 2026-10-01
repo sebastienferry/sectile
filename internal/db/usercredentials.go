@@ -44,6 +44,13 @@ type UserCredential struct {
 	Sealed    bool      `json:"sealed"`
 	Unlocked  bool      `json:"unlocked"`
 	UpdatedAt time.Time `json:"updatedAt"`
+	// Kind is "api_token" or, for Jira, "oauth": a grant from Atlassian's
+	// consent screen (ADR 0044), which is never sealed. Disconnected marks a
+	// grant Atlassian refused to refresh, and GrantedSites lists the sites a
+	// grant covers.
+	Kind         string   `json:"kind"`
+	Disconnected bool     `json:"disconnected,omitempty"`
+	GrantedSites []string `json:"grantedSites,omitempty"`
 }
 
 // ErrNoUserCredential means the user stored none, which is not a failure: the
@@ -114,7 +121,8 @@ func (d *DB) SetUserTrackerCredential(userID, tracker, siteURL, email, token, pa
 		switch {
 		case errors.Is(err, ErrCredentialLocked):
 			return fmt.Errorf("votre jeton est scellé et verrouillé : descellez-le, ou saisissez-le à nouveau")
-		case errors.Is(err, ErrNoUserCredential):
+		case errors.Is(err, ErrNoUserCredential), errors.Is(err, errJiraGrant):
+			// A grant holds no token to keep: replacing it takes one.
 			return fmt.Errorf("the token is required")
 		case err != nil:
 			return err
@@ -165,8 +173,8 @@ func (d *DB) SetUserTrackerCredential(userID, tracker, siteURL, email, token, pa
 	}
 	defer func() { _ = tx.Rollback() }()
 	if _, err := tx.Exec(`
-		INSERT INTO user_tracker_credentials (user_id, tracker, site_url, email, record, sealed, salt, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO user_tracker_credentials (user_id, tracker, site_url, email, record, sealed, salt, kind, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, 'api_token', ?, ?)
 		ON CONFLICT(user_id, tracker) DO UPDATE SET
 			site_url = excluded.site_url,
 			email = excluded.email,
@@ -174,13 +182,19 @@ func (d *DB) SetUserTrackerCredential(userID, tracker, siteURL, email, token, pa
 			sealed = excluded.sealed,
 			salt = excluded.salt,
 			account = '',
+			kind = 'api_token',
+			version = user_tracker_credentials.version + 1,
+			disconnected_at = NULL,
+			refresh_claimed_at = NULL,
 			updated_at = excluded.updated_at
 	`, userID, tracker, strings.TrimSpace(siteURL), strings.TrimSpace(email), record, sealedValue, salt, now, now); err != nil {
 		return err
 	}
 	// A new token or site is unconfirmed until the tracker is asked about it,
 	// which is why the upsert empties the account: keeping the previous one
-	// would name an account the new token may not belong to.
+	// would name an account the new token may not belong to. A token replaces
+	// a grant the same way, and moving the version on stops a refresh of that
+	// grant in flight from writing it back.
 	//
 	// Storing it again replaces the key it was sealed with, so any unlock kept
 	// from a previous passphrase must go.
@@ -353,7 +367,7 @@ func (d *DB) UserTrackerCredentials(userID string) ([]UserCredential, error) {
 		return []UserCredential{}, nil
 	}
 	d.mu.RLock()
-	rows, err := d.conn.Query(`SELECT c.tracker, c.site_url, c.email, c.account, c.sealed, c.updated_at, u.wrapped_key
+	rows, err := d.conn.Query(`SELECT c.tracker, c.site_url, c.email, c.account, c.sealed, c.updated_at, u.wrapped_key, c.kind, c.disconnected_at, c.record
 		FROM user_tracker_credentials c
 		LEFT JOIN user_credential_unlocks u ON u.user_id = c.user_id AND u.tracker = c.tracker
 		WHERE c.user_id = ? ORDER BY c.tracker`, userID)
@@ -367,13 +381,25 @@ func (d *DB) UserTrackerCredentials(userID string) ([]UserCredential, error) {
 	for rows.Next() {
 		var credential UserCredential
 		var sealed int
-		var wrapped []byte
-		if err := rows.Scan(&credential.Tracker, &credential.SiteURL, &credential.Email, &credential.Account, &sealed, &credential.UpdatedAt, &wrapped); err != nil {
+		var wrapped, record []byte
+		var disconnected sql.NullTime
+		if err := rows.Scan(&credential.Tracker, &credential.SiteURL, &credential.Email, &credential.Account, &sealed, &credential.UpdatedAt, &wrapped, &credential.Kind, &disconnected, &record); err != nil {
 			// Skipping it silently showed a profile with no credential while
 			// the tracker kept using one.
 			return nil, err
 		}
 		credential.Sealed = sealed == 1
+		if credential.Kind == CredentialKindOAuth {
+			// A grant is never sealed, so never locked: it only shows what
+			// it covers, and whether Atlassian still honours it.
+			credential.Sealed, credential.Unlocked = false, true
+			credential.Disconnected = disconnected.Valid
+			if grant, err := d.openJiraGrant(userID, record); err == nil {
+				credential.GrantedSites = grantedSiteURLs(grant.Sites)
+			}
+			out = append(out, credential)
+			continue
+		}
 		if credential.Sealed {
 			_, ok := d.unwrapUnlock(userID, credential.Tracker, wrapped)
 			credential.Unlocked = ok
@@ -403,15 +429,19 @@ func (d *DB) userTrackerCredential(userID, tracker string) (siteURL string, emai
 
 	var record, wrapped []byte
 	var sealed int
-	scanErr := d.conn.QueryRow(`SELECT c.site_url, c.email, c.record, c.sealed, u.wrapped_key
+	var kind string
+	scanErr := d.conn.QueryRow(`SELECT c.site_url, c.email, c.record, c.sealed, u.wrapped_key, c.kind
 		FROM user_tracker_credentials c
 		LEFT JOIN user_credential_unlocks u ON u.user_id = c.user_id AND u.tracker = c.tracker
-		WHERE c.user_id = ? AND c.tracker = ?`, userID, tracker).Scan(&siteURL, &email, &record, &sealed, &wrapped)
+		WHERE c.user_id = ? AND c.tracker = ?`, userID, tracker).Scan(&siteURL, &email, &record, &sealed, &wrapped, &kind)
 	if scanErr == sql.ErrNoRows {
 		return "", "", "", ErrNoUserCredential
 	}
 	if scanErr != nil {
 		return "", "", "", scanErr
+	}
+	if kind == CredentialKindOAuth {
+		return "", "", "", errJiraGrant
 	}
 
 	key := d.serverKey
@@ -467,7 +497,10 @@ func (d *DB) userTrackerCredentialToken(userID, tracker string) (string, error) 
 func (d *DB) UserTrackerCredentialsFor(userID, tracker string) (siteURL string, email string, token string, err error) {
 	siteURL, email, token, err = d.userTrackerCredential(userID, tracker)
 	switch {
-	case errors.Is(err, ErrNoUserCredential):
+	case errors.Is(err, ErrNoUserCredential), errors.Is(err, errJiraGrant):
+		// A grant is no API token: the paths reading one, a check or a
+		// re-store, find none. The tracker client resolves grants through
+		// ResolvePersonalCredential.
 		return "", "", "", nil
 	case err != nil:
 		return "", "", "", err

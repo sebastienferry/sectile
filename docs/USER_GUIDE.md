@@ -24,13 +24,37 @@ If your account or a project is missing, ask the Sectile administrator or projec
 
 ## Set up a personal Jira token
 
-A Jira project needs your own Jira access for actions attributed to you. Set it in the **Profile → Tracker credentials** (*Profil → Identifiants Trackers*) area of the web interface:
+A Jira project needs your own Jira access for actions attributed to you. Set it in the **Profile → Tracker credentials** (*Profil → Identifiants Trackers*) area of the web interface.
+
+### Connect Jira
+
+When your administrator configured the Jira connection, the **Jira** entry offers **Connect Jira** (*Connecter Jira*):
+
+1. Select **Connect Jira**. Your browser goes to Atlassian's consent screen, which lists what Sectile asks to do.
+2. Accept, and pick every Jira site your Sectile projects use. You land back on **Profile → Tracker credentials**, which shows the Jira account Atlassian confirmed and the sites covered.
+
+Sectile renews the connection in the background: there is no token to create and no passphrase to unlock, and your queued writes and agent stage reports go out under your account while you are away. Connecting replaces an API token you had stored.
+
+If you revoke Sectile from your Atlassian account, or leave it unused for about 90 days, the entry says the connection was lost and offers **Reconnect Jira** (*Reconnecter Jira*); your Jira writes are refused until you reconnect. A write on a project whose Jira site you did not pick is refused the same way: reconnect and pick that site. **Disconnect** (*Déconnecter*) forgets the connection in Sectile; to remove it on Atlassian's side too, remove Sectile from the connected apps of your Atlassian account at id.atlassian.com.
+
+### Use an API token
+
+Without the Jira connection configured, or after selecting **Use an API token instead** (*Utiliser un jeton d'API à la place*):
 
 1. Select **Jira** and enter your Jira site URL, Atlassian account email, and API token. Create the token in your Atlassian account's API tokens section. The site and email belong to the same account as the token.
 2. Select **Verify** (*Vérifier*), then **Save** (*Enregistrer*). The form enables saving after the site accepts the credentials.
 3. Optionally select **Seal my tokens** (*Sceller mes jetons*) and set one master sealing passphrase for your personal tracker tokens. Keep it somewhere you can retrieve it. At a later sign-in, enter it on the sign-in screen or select **Unlock all tokens** (*Déverrouiller tous les jetons*) in the profile.
 
-A sealed and locked personal token cannot authorize your task writes. Sectile reports the refusal instead of silently using another account. The same holds when you have no personal token at all: the error notification then offers to add it, and opens this area on the tracker concerned. A server credential, when configured by an administrator, is for unattended synchronization; it does not replace your personal credential for actions you cause. Never paste an API token or sealing passphrase into a ticket, coding prompt, or Desktop project setting. See [credential ownership](adrs/0029-server-tracker-credential-signs-unattended-work-only.md) for the full rule.
+A sealed and locked personal token cannot authorize your task writes. A Jira connection is never sealed. Sectile reports the refusal instead of silently using another account. The same holds when you have no personal token at all: the error notification then offers to add it, and opens this area on the tracker concerned. A server credential, when configured by an administrator, is for unattended synchronization; it does not replace your personal credential for actions you cause. Never paste an API token or sealing passphrase into a ticket, coding prompt, or Desktop project setting. See [credential ownership](adrs/0029-server-tracker-credential-signs-unattended-work-only.md) for the full rule.
+
+### Configure the Jira connection (administrators)
+
+1. On developer.atlassian.com, create an OAuth 2.0 (3LO) integration. Under **Permissions**, add the Jira API scopes `read:jira-work`, `write:jira-work` and `read:jira-user`, and the Jira Software scopes `read:board-scope:jira-software`, `read:board-scope.admin:jira-software`, `write:board-scope:jira-software`, `read:sprint:jira-software`, `write:sprint:jira-software`, `delete:sprint:jira-software` and `read:project:jira`. Sectile also asks for `offline_access`, which needs no declaration.
+2. Under **Authorization**, set the callback URL to `https://<your Sectile server>/auth/jira/callback`.
+3. Under **Distribution**, enable sharing, so people other than the app's owner can authorise it. Your Atlassian organisation must also allow its members to authorise third-party apps.
+4. In Sectile, open **Administration → Jira connection (Atlassian OAuth)** and save the client ID, the secret and the same callback URL, or set `SECTILE_JIRA_OAUTH_CLIENT_ID`, `SECTILE_JIRA_OAUTH_CLIENT_SECRET` and `SECTILE_JIRA_OAUTH_REDIRECT_URL` on the server. A configuration saved on the page wins over the environment. The secret is never shown again.
+
+Clearing the configuration brings back the API token form; existing connections stay stored but can no longer renew.
 
 ## Use an existing project
 

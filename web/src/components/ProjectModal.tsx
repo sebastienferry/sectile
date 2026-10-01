@@ -49,6 +49,7 @@ import type {
 import { ACCENT_COLORS, accentBadgeStyle, normalizeAccentColor, DEFAULT_PROJECT_ACCENT } from '../lib/accents'
 import { PROJECT_TRACKERS, needsCredentialsFor } from '../lib/trackers'
 import { formatProjectKeyList, parseProjectKeyList } from '../lib/roadmapProjects'
+import { DEFAULT_EPIC_AXIS_PREFIXES, cleanEpicAxisPrefix, epicAxisPrefixProblem, type EpicAxisName } from '../lib/roadmap'
 import { declaredRepositories, droppedRepositoryPaths, duplicateRepository, repositoryIdentity } from '../lib/repositories'
 import { BRANCH_NAME_PRESETS, BRANCH_NAME_SAMPLE, checkBranchNameFormat } from '../lib/branchNameFormat'
 import { DEFAULT_FULL_CHAIN_STOP_STAGE } from '../lib/workflow'
@@ -216,6 +217,7 @@ export const ProjectModal: React.FC = () => {
   const [jiraProject, setJiraProject] = useState('')
   const [roadmapProjects, setRoadmapProjects] = useState('')
   const [roadmapAxisWrites, setRoadmapAxisWrites] = useState(false)
+  const [epicAxisPrefixes, setEpicAxisPrefixes] = useState<Record<EpicAxisName, string>>({ priority: '', quarter: '', readiness: '' })
   // Types de tickets importés. Vide vaut « les types par défaut » : c'est ce que
   // porte un projet qui n'a jamais eu besoin d'y toucher.
   const [issueTypes, setIssueTypes] = useState<string[]>([])
@@ -288,6 +290,11 @@ export const ProjectModal: React.FC = () => {
       setJiraProject(editingProject.jiraProject || '')
       setRoadmapProjects(formatProjectKeyList(editingProject.roadmapProjects))
       setRoadmapAxisWrites(Boolean(editingProject.roadmapAxisWrites))
+      setEpicAxisPrefixes({
+        priority: editingProject.epicAxisPrefixes?.priority || '',
+        quarter: editingProject.epicAxisPrefixes?.quarter || '',
+        readiness: editingProject.epicAxisPrefixes?.readiness || '',
+      })
       setIssueTypes(editingProject.issueTypes || [])
       setEnabledViews(enabledOptionalViews(editingProject))
       setEpicColors(editingProject.epicColors === true)
@@ -334,6 +341,7 @@ export const ProjectModal: React.FC = () => {
       setJiraProject('')
       setRoadmapProjects('')
       setRoadmapAxisWrites(false)
+      setEpicAxisPrefixes({ priority: '', quarter: '', readiness: '' })
       setSkillsStatus(null)
       setSddStatuses([])
       setSddResult(null)
@@ -390,9 +398,31 @@ export const ProjectModal: React.FC = () => {
 
   const droppedPaths = droppedRepositoryPaths(editingProject?.repositoriesMigration)
 
+  // The prefixes are checked as typed, so the refusal reads beside the field
+  // rather than in a toast after a round trip; the server checks them too.
+  const prefixProblem = issueTracker === 'jira' ? epicAxisPrefixProblem(epicAxisPrefixes) : null
+  const prefixProblemText = prefixProblem
+    ? format(
+        {
+          space: ps.tracker.epicAxisPrefixSpace,
+          empty: ps.tracker.epicAxisPrefixEmpty,
+          overlap: ps.tracker.epicAxisPrefixOverlap,
+          horizon: ps.tracker.epicAxisPrefixHorizon,
+        }[prefixProblem.kind],
+        {
+          axis: ps.tracker.epicAxisPrefixAxes[prefixProblem.axis].toLowerCase(),
+          other: prefixProblem.kind === 'overlap' ? ps.tracker.epicAxisPrefixAxes[prefixProblem.other].toLowerCase() : '',
+        }
+      )
+    : ''
+
   const handleSubmit = async (e?: React.FormEvent) => {
     e?.preventDefault()
     if (!name.trim() || isSubmitting) return
+    if (prefixProblem) {
+      setActiveTab('tracker')
+      return
+    }
 
     setIsSubmitting(true)
     try {
@@ -437,6 +467,17 @@ export const ProjectModal: React.FC = () => {
         issueTypes,
         enabledViews,
         epicColors,
+        // Only a tracker whose epics carry labels has them; elsewhere the
+        // stored prefixes are left as they are.
+        ...(issueTracker === 'jira'
+          ? {
+              epicAxisPrefixes: {
+                priority: cleanEpicAxisPrefix(epicAxisPrefixes.priority),
+                quarter: cleanEpicAxisPrefix(epicAxisPrefixes.quarter),
+                readiness: cleanEpicAxisPrefix(epicAxisPrefixes.readiness),
+              },
+            }
+          : {}),
       }
 
       const saved = editingProject
@@ -1226,6 +1267,43 @@ export const ProjectModal: React.FC = () => {
                         </span>
                       </label>
                     )}
+                  </div>
+                )}
+
+                {/* The epic axis prefixes (#635): only a tracker whose epics
+                    carry labels reads and writes them. */}
+                {issueTracker === 'jira' && (
+                  <div className="col-span-2">
+                    <span className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
+                      {ps.tracker.epicAxisPrefixesTitle}
+                    </span>
+                    <div className="grid grid-cols-3 gap-3">
+                      {(['priority', 'quarter', 'readiness'] as const).map(axis => (
+                        <div key={axis}>
+                          <label htmlFor={`project-epic-axis-${axis}`} className="block text-[10px] text-[var(--text-muted)] mb-1">
+                            {ps.tracker.epicAxisPrefixAxes[axis]}
+                          </label>
+                          <input
+                            id={`project-epic-axis-${axis}`}
+                            type="text"
+                            value={epicAxisPrefixes[axis]}
+                            onChange={e => {
+                              const value = e.target.value
+                              setEpicAxisPrefixes(prev => ({ ...prev, [axis]: value }))
+                            }}
+                            placeholder={DEFAULT_EPIC_AXIS_PREFIXES[axis]}
+                            aria-invalid={prefixProblem !== null && (prefixProblem.axis === axis || (prefixProblem.kind === 'overlap' && prefixProblem.other === axis))}
+                            className="w-full px-3 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] font-mono focus:outline-none focus:border-[var(--accent-color)] aria-[invalid=true]:border-red-500"
+                          />
+                        </div>
+                      ))}
+                    </div>
+                    {prefixProblemText && (
+                      <p role="alert" className="mt-1 text-[10px] text-red-500">{prefixProblemText}</p>
+                    )}
+                    <span className="text-[9px] text-[var(--text-muted)] mt-1 block">
+                      {ps.tracker.epicAxisPrefixesHelp}
+                    </span>
                   </div>
                 )}
 

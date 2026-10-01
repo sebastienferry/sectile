@@ -122,12 +122,17 @@ func (d *DB) GetProjectMacros(projectID string) ([]models.MacroMeta, error) {
 	// M-<n> key, and building an address from that key would open another
 	// milestone, or none.
 	milestoneURLs := map[string]string{}
+	// The milestones the tracker listed, nil when it was not read: whether a
+	// macro's todos are copied on its milestone depends on it existing.
+	var listed map[string]bool
 	if githubMilestoneMacros(proj) {
-		if milestones, err := d.tracker(proj.ID).ListGithubMilestones(proj.GithubRepo, proj.RepoPath); err == nil && len(milestones) > 0 {
+		if milestones, err := d.tracker(proj.ID).ListGithubMilestones(proj.GithubRepo, proj.RepoPath); err == nil {
+			listed = make(map[string]bool, len(milestones))
 			repo := trackerapi.CleanGithubRepo(proj.GithubRepo)
 			d.mu.Lock()
 			for _, m := range milestones {
 				key := fmt.Sprintf("M-%d", m.Number)
+				listed[key] = true
 				if m.HTMLURL != "" {
 					milestoneURLs[key] = m.HTMLURL
 				} else if repo != "" {
@@ -144,7 +149,7 @@ func (d *DB) GetProjectMacros(projectID string) ([]models.MacroMeta, error) {
 						title = excluded.title,
 						status = excluded.status,
 						closed = excluded.closed
-				`, projectID, key, m.Title, m.Description, m.State, closedVal)
+				`, projectID, key, m.Title, milestoneDescription(m.Description), m.State, closedVal)
 			}
 			d.mu.Unlock()
 		}
@@ -152,7 +157,8 @@ func (d *DB) GetProjectMacros(projectID string) ([]models.MacroMeta, error) {
 
 	d.mu.RLock()
 	rows, err := d.conn.Query(`
-		SELECT project_id, key, horizon, description, framing_comment, todos, title, status, closed, priority, quarter, readiness, labels, updated_at
+		SELECT project_id, key, horizon, description, framing_comment, todos, title, status, closed, priority, quarter, readiness, labels, updated_at,
+			todos_mirror_ref, todos_mirror_hash, todos_mirror_error, todos_mirror_credential, todos_mirror_at
 		FROM macros WHERE project_id = ? ORDER BY key ASC
 	`, projectID)
 	d.mu.RUnlock()
@@ -165,13 +171,21 @@ func (d *DB) GetProjectMacros(projectID string) ([]models.MacroMeta, error) {
 	// epic axes is a property of the project, only the key varies per macro.
 	writable := d.epicLabelsSupported(proj)
 	out := []models.MacroMeta{}
+	states := []todosMirrorState{}
 	for rows.Next() {
 		var e models.MacroMeta
 		var todosJSON, labelsJSON string
 		var closed int
-		if err := rows.Scan(&e.ProjectID, &e.Key, &e.Horizon, &e.Description, &e.FramingComment, &todosJSON, &e.Title, &e.Status, &closed, &e.Priority, &e.Quarter, &e.Readiness, &labelsJSON, &e.UpdatedAt); err != nil {
+		var state todosMirrorState
+		var mirroredAt sql.NullTime
+		if err := rows.Scan(&e.ProjectID, &e.Key, &e.Horizon, &e.Description, &e.FramingComment, &todosJSON, &e.Title, &e.Status, &closed, &e.Priority, &e.Quarter, &e.Readiness, &labelsJSON, &e.UpdatedAt,
+			&state.ref, &state.hash, &state.err, &state.credential, &mirroredAt); err != nil {
 			continue
 		}
+		if mirroredAt.Valid {
+			state.at = &mirroredAt.Time
+		}
+		states = append(states, state)
 		e.Closed = closed == 1
 		e.Todos = parseMacroTodos(todosJSON)
 		e.ExternalURL = milestoneURLs[e.Key]
@@ -180,8 +194,24 @@ func (d *DB) GetProjectMacros(projectID string) ([]models.MacroMeta, error) {
 		e.Labels = parseMacroLabels(labelsJSON)
 		out = append(out, e)
 	}
+	rows.Close()
 	d.fillMacroURLsFromTasks(projectID, out)
+	// After the addresses: the copy of a Jira epic's todos links its comment on
+	// the epic's page.
+	scope := d.todosMirrorScope(proj, listed)
+	for i := range out {
+		kind, reason := scope.eligibility(out[i].Key)
+		out[i].TodosMirror = todosMirrorStatus(&out[i], kind, reason, states[i])
+	}
 	return out, nil
+}
+
+// milestoneDescription is the description of a milestone without the todo
+// block Sectile writes at its end (FR16): the block is a copy of the list, not
+// part of what the macro's description says.
+func milestoneDescription(description string) string {
+	outside, _ := splitTodosBlock(description)
+	return outside
 }
 
 // fillMacroURLsFromTasks gives a macro without an address the one of the work
@@ -304,45 +334,14 @@ func (d *DB) SaveEpicMeta(projectID string, key string, horizon *string, descrip
 // client refuses for want of their credential keeps the local edit, as any
 // failed milestone write does, and is returned with the saved macro so the
 // person learns that GitHub was not updated (#482).
+//
+// A save of the todos schedules their copy on the tracker (#663), which never
+// runs inside this call: the request does not wait on the tracker for it.
 func (d *DB) UpdateMacro(ctx context.Context, projectID string, key string, title *string, horizon *string, description *string, framingComment *string, todos *[]models.MacroTodo, closed *bool) (*models.MacroMeta, error) {
 	projectID = strings.TrimSpace(projectID)
 	key = strings.TrimSpace(key)
 	if projectID == "" || key == "" {
 		return nil, fmt.Errorf("projet et clé de macro obligatoires")
-	}
-
-	var refused error
-	proj, _ := d.GetProjectByID(projectID)
-	// Only what the milestone carries travels: the horizon, the framing and the
-	// slicing are Sectile's own.
-	if githubMilestoneMacros(proj) && (title != nil || description != nil || closed != nil) {
-		var num int
-		if strings.HasPrefix(strings.ToUpper(key), "M-") {
-			_, _ = fmt.Sscanf(strings.ToUpper(key), "M-%d", &num)
-		}
-		if num > 0 {
-			state := ""
-			if closed != nil {
-				if *closed {
-					state = "closed"
-				} else {
-					state = "open"
-				}
-			}
-			newTitle := ""
-			if title != nil {
-				newTitle = strings.TrimSpace(*title)
-			}
-			newDesc := ""
-			if description != nil {
-				newDesc = *description
-			}
-			if client, err := d.trackerForWrite(ctx, "github", proj.ID); err != nil {
-				refused = err
-			} else {
-				_ = client.UpdateGithubMilestone(proj.GithubRepo, proj.RepoPath, num, newTitle, newDesc, state)
-			}
-		}
 	}
 
 	// If title changed, update any task parent_title in tasks table as well
@@ -354,10 +353,53 @@ func (d *DB) UpdateMacro(ctx context.Context, projectID string, key string, titl
 	}
 
 	saved, err := d.saveMacroMetaFull(projectID, key, horizon, description, framingComment, todos, title, nil, closed, nil)
-	if err == nil && refused != nil {
+	if err != nil {
+		return nil, err
+	}
+
+	var refused error
+	proj, _ := d.GetProjectByID(projectID)
+	// Only what the milestone carries travels: the horizon, the framing and the
+	// slicing are Sectile's own. It is written after the local save, so the
+	// description goes out with the todo block of the list just saved.
+	if num := milestoneNumber(key); githubMilestoneMacros(proj) && num > 0 && (title != nil || description != nil || closed != nil) {
+		state := ""
+		if closed != nil {
+			if *closed {
+				state = "closed"
+			} else {
+				state = "open"
+			}
+		}
+		newTitle := ""
+		if title != nil {
+			newTitle = strings.TrimSpace(*title)
+		}
+		if client, err := d.trackerForWrite(ctx, "github", proj.ID); err != nil {
+			refused = err
+		} else {
+			if newTitle != "" || state != "" {
+				_ = client.UpdateGithubMilestone(proj.GithubRepo, proj.RepoPath, num, newTitle, "", state)
+			}
+			if description != nil {
+				// The milestone description is the local one followed by the
+				// block of the current list, so editing one never erases the
+				// other (FR16). Sent even when empty, which clears it.
+				block := renderTodosMirror(models.MacroTodosMirrorGithubDescription, saved.Todos)
+				if err := client.SetGithubMilestoneDescription(proj.GithubRepo, proj.RepoPath, num, joinTodosBlock(*description, block)); err == nil && block != "" {
+					d.recordTodosMirrorSuccess(projectID, key, "", todosMirrorHash(block))
+				}
+			}
+		}
+	}
+
+	if todos != nil {
+		d.scheduleTodosMirror(ctx, projectID, key)
+	}
+	if refused != nil {
 		return saved, fmt.Errorf("milestone GitHub de %s non mis à jour, modification gardée en local : %w", key, refused)
 	}
-	return saved, err
+	return saved, nil
 }
 
 func (d *DB) UpdateEpic(ctx context.Context, projectID string, key string, title *string, horizon *string, description *string, todos *[]models.EpicTodo, closed *bool) (*models.EpicMeta, error) {
@@ -555,6 +597,8 @@ func (d *DB) CreateStoryFromMacroTodo(ctx context.Context, projectID string, mac
 		todo.StoryKey = task.Key
 		return meta, task, notice, nil
 	}
+	// The copy on the tracker shows the key on the line from now on.
+	d.scheduleTodosMirror(ctx, projectID, macroKey)
 	return saved, task, notice, nil
 }
 
@@ -817,6 +861,10 @@ func (d *DB) CreateStoriesFromMacroTodos(ctx context.Context, projectID string, 
 	}
 	if final, err := d.findMacroMeta(projectID, macroKey); err == nil {
 		batch.Macro = final
+	}
+	// One copy for the whole batch rather than one per line.
+	if batch.Created > 0 {
+		d.scheduleTodosMirror(ctx, projectID, macroKey)
 	}
 	return batch, nil
 }

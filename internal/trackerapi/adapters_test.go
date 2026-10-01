@@ -145,12 +145,12 @@ func TestGithubWritesUseTheActingPersonsToken(t *testing.T) {
 	client.HTTP = site.Client()
 	client.GithubURL = site.URL
 	client.GithubToken = "server-token"
-	client.ResolveUser = func(userID, trackerName string) (string, string, string, error) {
+	client.ResolveUser = legacyResolver(func(userID, trackerName string) (string, string, string, error) {
 		if userID == "u-ada" && trackerName == "github" {
 			return "", "", "ada-token", nil
 		}
 		return "", "", "", nil
-	}
+	})
 	adapter := NewGithubAdapter(client)
 	project := &models.Project{ID: "p1", GithubRepo: "acme/app"}
 
@@ -190,9 +190,9 @@ func TestGithubRefusesALockedPersonalToken(t *testing.T) {
 	client.HTTP = site.Client()
 	client.GithubURL = site.URL
 	client.GithubToken = "server-token"
-	client.ResolveUser = func(userID, trackerName string) (string, string, string, error) {
+	client.ResolveUser = legacyResolver(func(userID, trackerName string) (string, string, string, error) {
 		return "", "", "", locked
-	}
+	})
 	adapter := NewGithubAdapter(client)
 	project := &models.Project{ID: "p1", GithubRepo: "acme/app"}
 	ctx := tracker.WithProject(tracker.WithActingUser(context.Background(), "u-ada"), project.ID)
@@ -263,9 +263,9 @@ func TestGithubWithoutAPersonalTokenKeepsTheProjectToken(t *testing.T) {
 		}
 		return Credentials{}
 	}
-	client.ResolveUser = func(userID, trackerName string) (string, string, string, error) {
+	client.ResolveUser = legacyResolver(func(userID, trackerName string) (string, string, string, error) {
 		return "", "", "", nil
-	}
+	})
 	adapter := NewGithubAdapter(client)
 	ctx := tracker.WithActingUser(context.Background(), "u-grace")
 

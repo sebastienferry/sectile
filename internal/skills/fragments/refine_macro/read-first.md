@@ -1,3 +1,3 @@
-- The macro title and framing description.
+- The macro itself: call the `get_macro` MCP tool with the project ID (`SECTILE_MACRO_PROJECT_ID`, else find it with `list_projects`) and the macro key (the argument, else `SECTILE_MACRO_KEY`). It answers with the macro title, its framing description and comment, and its existing todos in the order of execution, each with its `id`, `text`, `done`, `storyKey` and origin.
 - The active project SDD framework (SpecKit or OpenSpec).
 - Existing macro todos and child tasks to avoid duplicating completed work.

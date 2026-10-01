@@ -2,10 +2,13 @@ package db
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
 	"time"
+	"unicode"
 
 	"tasks/internal/models"
 	"tasks/internal/tracker"
@@ -21,8 +24,8 @@ import (
 // tracker with no epics) keeps both values in Sectile only.
 //
 // #626 protects the label prefixes the roadmap owns from the free label
-// editor. "priority:", "quarter:" and the bare "2026-Q3" form are among them,
-// whichever of the two tickets lands second adds them to that list.
+// editor. A project may name its own prefixes for the three axes (#635); the
+// constants below are the defaults of one that names none.
 const (
 	PriorityLabelPrefix = "priority:"
 	QuarterLabelPrefix  = "quarter:"
@@ -97,43 +100,159 @@ func readinessRank(level string) int {
 	return -1
 }
 
+// axisPrefixes are the label prefixes a project reads and writes its epic axes
+// under (#635), the defaults filled in. Every read and write of an axis label
+// goes through one, so that a project naming "prio-" never sees "priority:".
+type axisPrefixes struct {
+	priority  string
+	quarter   string
+	readiness string
+}
+
+// defaultAxisPrefixes are the prefixes of a project that names none.
+var defaultAxisPrefixes = axisPrefixes{priority: PriorityLabelPrefix, quarter: QuarterLabelPrefix, readiness: ReadinessLabelPrefix}
+
+// prefixesFor resolves the prefixes of a project, the default of each axis it
+// leaves empty. A nil project reads under the defaults.
+func prefixesFor(proj *models.Project) axisPrefixes {
+	out := defaultAxisPrefixes
+	if proj == nil {
+		return out
+	}
+	if v := proj.EpicAxisPrefixes.Priority; v != "" {
+		out.priority = v
+	}
+	if v := proj.EpicAxisPrefixes.Quarter; v != "" {
+		out.quarter = v
+	}
+	if v := proj.EpicAxisPrefixes.Readiness; v != "" {
+		out.readiness = v
+	}
+	return out
+}
+
+// projectAxisPrefixes resolves the prefixes of a stored project, the defaults
+// when it cannot be read: the write that follows fails on the project anyway.
+func (d *DB) projectAxisPrefixes(projectID string) axisPrefixes {
+	proj, err := d.GetProjectByID(strings.TrimSpace(projectID))
+	if err != nil {
+		return defaultAxisPrefixes
+	}
+	return prefixesFor(proj)
+}
+
+// ErrInvalidEpicAxisPrefix refuses an epic axis prefix a project cannot hold
+// (#635). The refusal reads as a sentence naming the axis and the prefix.
+var ErrInvalidEpicAxisPrefix = errors.New("invalid epic axis prefix")
+
+type epicAxisPrefixError struct{ msg string }
+
+func (e epicAxisPrefixError) Error() string        { return e.msg }
+func (e epicAxisPrefixError) Is(target error) bool { return target == ErrInvalidEpicAxisPrefix }
+
+// CleanEpicAxisPrefixes cleans the prefixes a person typed before they are
+// stored: trimmed, lower-cased, a leading "#" removed. It refuses a prefix
+// carrying whitespace, a prefix emptied by the cleaning, two axes whose
+// prefixes start one another, and a prefix overlapping "roadmap:", the horizon
+// prefix, which stays fixed. An empty prefix is the default of its axis, and
+// the overlap is checked on the prefixes in effect.
+func CleanEpicAxisPrefixes(in models.EpicAxisPrefixes) (models.EpicAxisPrefixes, error) {
+	type axis struct {
+		name     string
+		typed    string
+		fallback string
+		clean    string
+	}
+	axes := []*axis{
+		{name: "priorité", typed: in.Priority, fallback: PriorityLabelPrefix},
+		{name: "trimestre", typed: in.Quarter, fallback: QuarterLabelPrefix},
+		{name: "readiness", typed: in.Readiness, fallback: ReadinessLabelPrefix},
+	}
+	for _, a := range axes {
+		typed := strings.TrimSpace(a.typed)
+		if typed == "" {
+			continue
+		}
+		clean := strings.ToLower(strings.TrimPrefix(typed, "#"))
+		if strings.ContainsFunc(clean, unicode.IsSpace) {
+			return models.EpicAxisPrefixes{}, epicAxisPrefixError{fmt.Sprintf("le préfixe « %s » de l'axe %s ne peut pas contenir d'espace", typed, a.name)}
+		}
+		if clean == "" {
+			return models.EpicAxisPrefixes{}, epicAxisPrefixError{fmt.Sprintf("le préfixe de l'axe %s est vide une fois nettoyé : laissez le champ vide pour garder « %s »", a.name, a.fallback)}
+		}
+		a.clean = clean
+	}
+	effective := func(a *axis) string {
+		if a.clean != "" {
+			return a.clean
+		}
+		return a.fallback
+	}
+	overlap := func(x, y string) bool { return strings.HasPrefix(x, y) || strings.HasPrefix(y, x) }
+	for i, a := range axes {
+		if overlap(effective(a), RoadmapLabelPrefix) {
+			return models.EpicAxisPrefixes{}, epicAxisPrefixError{fmt.Sprintf("le préfixe « %s » de l'axe %s empiète sur « %s », réservé à l'horizon", effective(a), a.name, RoadmapLabelPrefix)}
+		}
+		for _, b := range axes[i+1:] {
+			if overlap(effective(a), effective(b)) {
+				return models.EpicAxisPrefixes{}, epicAxisPrefixError{fmt.Sprintf("les préfixes des axes %s (« %s ») et %s (« %s ») se recouvrent : un label ne saurait pas à quel axe il appartient", a.name, effective(a), b.name, effective(b))}
+			}
+		}
+	}
+	return models.EpicAxisPrefixes{Priority: axes[0].clean, Quarter: axes[1].clean, Readiness: axes[2].clean}, nil
+}
+
+// parseEpicAxisPrefixes reads the stored column, none on an unreadable value.
+func parseEpicAxisPrefixes(raw string) models.EpicAxisPrefixes {
+	var out models.EpicAxisPrefixes
+	if strings.TrimSpace(raw) == "" || json.Unmarshal([]byte(raw), &out) != nil {
+		return models.EpicAxisPrefixes{}
+	}
+	return out
+}
+
+// priorityValuePattern is the value that follows the priority prefix. It is
+// stricter than epicPriorityPattern, which also reads a typed "priority:p1":
+// under "prio-", "prio-priority:p1" is no priority.
+var priorityValuePattern = regexp.MustCompile(`^p[0-3]$`)
+
 // PriorityLabel is the label of a normalized priority, "" for none.
-func PriorityLabel(priority string) string {
+func (a axisPrefixes) PriorityLabel(priority string) string {
 	if priority == "" {
 		return ""
 	}
-	return PriorityLabelPrefix + priority
+	return a.priority + priority
 }
 
 // QuarterLabel is the prefixed label of a normalized quarter, "" for none. It
 // is the only form Sectile writes.
-func QuarterLabel(quarter string) string {
+func (a axisPrefixes) QuarterLabel(quarter string) string {
 	if quarter == "" {
 		return ""
 	}
-	return QuarterLabelPrefix + strings.ToLower(quarter)
+	return a.quarter + strings.ToLower(quarter)
 }
 
 // ReadinessLabel is the label of a normalized readiness, "" for none.
-func ReadinessLabel(readiness string) string {
+func (a axisPrefixes) ReadinessLabel(readiness string) string {
 	if readiness == "" {
 		return ""
 	}
-	return ReadinessLabelPrefix + readiness
+	return a.readiness + readiness
 }
 
 // AllReadinessLabels lists the three labels of the readiness axis.
-func AllReadinessLabels() []string {
+func (a axisPrefixes) AllReadinessLabels() []string {
 	out := make([]string, 0, len(ReadinessLevels))
 	for _, level := range ReadinessLevels {
-		out = append(out, ReadinessLabelPrefix+level)
+		out = append(out, a.readiness+level)
 	}
 	return out
 }
 
 // AllPriorityLabels lists the four labels of the priority axis.
-func AllPriorityLabels() []string {
-	return []string{PriorityLabelPrefix + "p0", PriorityLabelPrefix + "p1", PriorityLabelPrefix + "p2", PriorityLabelPrefix + "p3"}
+func (a axisPrefixes) AllPriorityLabels() []string {
+	return []string{a.priority + "p0", a.priority + "p1", a.priority + "p2", a.priority + "p3"}
 }
 
 func cleanLabel(label string) string {
@@ -141,14 +260,13 @@ func cleanLabel(label string) string {
 }
 
 // PriorityFromLabels reads the priority from labels, "" when none is valid.
-func PriorityFromLabels(labels []string) string {
+// The value always follows the full prefix: under "p", "pp1" is P1 and "p1"
+// is nothing.
+func (a axisPrefixes) PriorityFromLabels(labels []string) string {
 	for _, l := range labels {
-		clean := cleanLabel(l)
-		if !strings.HasPrefix(clean, PriorityLabelPrefix) {
-			continue
-		}
-		if p, err := NormalizeEpicPriority(clean); err == nil && p != "" {
-			return p
+		rest, ok := strings.CutPrefix(cleanLabel(l), a.priority)
+		if ok && priorityValuePattern.MatchString(rest) {
+			return rest
 		}
 	}
 	return ""
@@ -157,11 +275,11 @@ func PriorityFromLabels(labels []string) string {
 // ReadinessFromLabels reads the readiness from labels, "" when none is valid.
 // When an epic carries several, the most advanced wins: an epic somebody
 // judged ready is not demoted by a leftover "readiness:idea".
-func ReadinessFromLabels(labels []string) string {
+func (a axisPrefixes) ReadinessFromLabels(labels []string) string {
 	best := -1
 	for _, l := range labels {
 		clean := cleanLabel(l)
-		rest, ok := strings.CutPrefix(clean, ReadinessLabelPrefix)
+		rest, ok := strings.CutPrefix(clean, a.readiness)
 		if !ok {
 			continue
 		}
@@ -179,38 +297,38 @@ func ReadinessFromLabels(labels []string) string {
 // label, else the first valid bare one, else "".
 //
 // The bare form is the convention teams used before any tool wrote the axis,
-// and an epic does not stop belonging to a quarter for lack of a prefix. The
-// prefixed form wins a disagreement: it is the one Sectile writes, so the most
-// recently decided.
-func QuarterFromLabels(labels []string) string {
+// and an epic does not stop belonging to a quarter for lack of a prefix. It is
+// read whatever the project's quarter prefix. The prefixed form wins a
+// disagreement: it is the one Sectile writes, so the most recently decided.
+func (a axisPrefixes) QuarterFromLabels(labels []string) string {
 	bare := ""
 	for _, l := range labels {
 		clean := cleanLabel(l)
-		if rest, ok := strings.CutPrefix(clean, QuarterLabelPrefix); ok {
+		if rest, ok := strings.CutPrefix(clean, a.quarter); ok {
 			if q, err := NormalizeQuarter(rest); err == nil && q != "" {
 				return q
 			}
 			continue
 		}
-		if bare == "" {
-			if q, err := NormalizeQuarter(clean); err == nil && q != "" && !strings.Contains(clean, " ") {
-				bare = q
-			}
+		if bare == "" && isBareQuarter(clean) {
+			bare, _ = NormalizeQuarter(clean)
 		}
 	}
 	return bare
 }
 
-// isQuarterLabel tells a label of the quarter axis, in either form, from any
-// other label. A "quarter:" label whose value is not a quarter still belongs
-// to the axis: setting a quarter replaces it.
-func isQuarterLabel(label string) bool {
-	clean := cleanLabel(label)
-	if strings.HasPrefix(clean, QuarterLabelPrefix) {
-		return true
-	}
+// isBareQuarter tells a cleaned label that is a quarter with no prefix.
+func isBareQuarter(clean string) bool {
 	q, err := NormalizeQuarter(clean)
 	return err == nil && q != "" && !strings.Contains(clean, " ")
+}
+
+// isQuarterLabel tells a label of the quarter axis, in either form, from any
+// other label. A label under the quarter prefix whose value is not a quarter
+// still belongs to the axis: setting a quarter replaces it.
+func (a axisPrefixes) isQuarterLabel(label string) bool {
+	clean := cleanLabel(label)
+	return strings.HasPrefix(clean, a.quarter) || isBareQuarter(clean)
 }
 
 // macroKeyLabelable tells whether a macro key names an epic of this project
@@ -279,6 +397,7 @@ func (d *DB) FillMacroFlags(projectID string, m *models.MacroMeta, bulk bool) {
 	m.LabelsWritable = supported && macroKeyLabelable(m.Key, proj)
 	fillMacroOrigin(m, proj, supported)
 	m.AxesWritable = macroAxesWritable(m.Key, proj, supported, bulk)
+	d.fillTodosMirror(proj, m)
 }
 
 // macroAxis names the epic write a macroTracker call is for: they do not
@@ -403,9 +522,12 @@ func (d *DB) SaveMacroAxes(projectID string, key string, priority *string, quart
 // priority removes the axis altogether. Run from a queued activity only, as
 // PushMacroHorizonLabel is.
 func (d *DB) PushMacroPriorityLabel(ctx context.Context, projectID string, macroKey string, priority string) (string, error) {
-	target := PriorityLabel(priority)
+	// Only the labels under the current prefix are removed (#635): one left
+	// under a former prefix is a free label now, and stays.
+	prefixes := d.projectAxisPrefixes(projectID)
+	target := prefixes.PriorityLabel(priority)
 	removed := make([]string, 0, 4)
-	for _, label := range AllPriorityLabels() {
+	for _, label := range prefixes.AllPriorityLabels() {
 		if label != target {
 			removed = append(removed, label)
 		}
@@ -425,9 +547,10 @@ func (d *DB) PushMacroPriorityLabel(ctx context.Context, projectID string, macro
 // read first, unlike the quarter.
 func (d *DB) PushMacroReadinessLabel(ctx context.Context, projectID string, macroKey string, readiness string) (string, error) {
 	key := strings.TrimSpace(macroKey)
-	target := ReadinessLabel(readiness)
+	prefixes := d.projectAxisPrefixes(projectID)
+	target := prefixes.ReadinessLabel(readiness)
 	removed := make([]string, 0, len(ReadinessLevels))
-	for _, label := range AllReadinessLabels() {
+	for _, label := range prefixes.AllReadinessLabels() {
 		if label != target {
 			removed = append(removed, label)
 		}
@@ -464,11 +587,12 @@ func (d *DB) PushMacroQuarterLabel(ctx context.Context, projectID string, macroK
 	if err != nil {
 		return fail(err)
 	}
-	target := QuarterLabel(quarter)
+	prefixes := prefixesFor(proj)
+	target := prefixes.QuarterLabel(quarter)
 	removed := []string{}
 	if epic != nil {
 		for _, label := range epic.Labels {
-			if isQuarterLabel(label) && cleanLabel(label) != target {
+			if prefixes.isQuarterLabel(label) && cleanLabel(label) != target {
 				removed = append(removed, label)
 			}
 		}
