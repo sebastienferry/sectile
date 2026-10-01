@@ -543,6 +543,23 @@ var migrations = []migration{
 		name:       "projects.roadmap_axis_writes",
 		statements: []string{"ALTER TABLE projects ADD COLUMN roadmap_axis_writes INTEGER NOT NULL DEFAULT 0;"},
 	},
+	{
+		// Where the todos of a macro are copied on its tracker, and how that
+		// copy stands (#663): the Jira comment id, the hash of the last body
+		// written, the last failure, the tracker whose personal token that
+		// failure lacked (#645) and the time of the last write. Empty is "never
+		// copied", which every existing macro reads as until its list is next
+		// saved.
+		version: 39,
+		name:    "macros.todos_mirror",
+		statements: []string{
+			"ALTER TABLE macros ADD COLUMN todos_mirror_ref TEXT NOT NULL DEFAULT '';",
+			"ALTER TABLE macros ADD COLUMN todos_mirror_hash TEXT NOT NULL DEFAULT '';",
+			"ALTER TABLE macros ADD COLUMN todos_mirror_error TEXT NOT NULL DEFAULT '';",
+			"ALTER TABLE macros ADD COLUMN todos_mirror_credential TEXT NOT NULL DEFAULT '';",
+			"ALTER TABLE macros ADD COLUMN todos_mirror_at TIMESTAMP NULL;",
+		},
+	},
 }
 
 // migrateSchema brings the database to the schema this binary expects, and is

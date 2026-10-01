@@ -319,6 +319,39 @@ type MacroMeta struct {
 	Origin       string `json:"origin,omitempty"`
 	Foreign      bool   `json:"foreign,omitempty"`
 	AxesWritable bool   `json:"axesWritable"`
+	// TodosMirror is where the todos are copied on the tracker and how that
+	// copy stands (#663). It is computed when a macro is returned to a client,
+	// never stored as such.
+	TodosMirror *MacroTodosMirror `json:"todosMirror,omitempty"`
+}
+
+// Kinds of tracker copy of a macro's todos (#663). The empty kind is a macro
+// whose todos stay in Sectile, for the reason MacroTodosMirror.Reason gives.
+const (
+	MacroTodosMirrorJiraComment       = "jira_comment"
+	MacroTodosMirrorGithubDescription = "github_description"
+)
+
+// MacroTodosMirror is the state of the one-way tracker copy of a macro's todos.
+// Sectile's list is authoritative: the copy is rewritten, never read back.
+type MacroTodosMirror struct {
+	// Kind is MacroTodosMirrorJiraComment, MacroTodosMirrorGithubDescription,
+	// or "" when the list stays in Sectile.
+	Kind string `json:"kind"`
+	// Reason says why Kind is "", in the product's runtime language.
+	Reason string `json:"reason,omitempty"`
+	// UpToDate tells that the last body written on the tracker is the body of
+	// the current list.
+	UpToDate bool `json:"upToDate"`
+	// Error is the last failure, kept until a write succeeds.
+	Error string `json:"error,omitempty"`
+	// CredentialMissing names the tracker whose personal token the last
+	// failure lacked, so the panel can offer to add it (#645).
+	CredentialMissing string `json:"credentialMissing,omitempty"`
+	// WrittenAt is the time of the last successful write.
+	WrittenAt *time.Time `json:"writtenAt,omitempty"`
+	// URL is the address of the copy: the comment, or the milestone.
+	URL string `json:"url,omitempty"`
 }
 
 // Origine d'une ligne de découpe : l'artefact d'où elle a été importée.
