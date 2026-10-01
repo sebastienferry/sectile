@@ -154,20 +154,7 @@ func (m *Manager) GetOrCreateSession(sessionID string, cwd string, envVars map[s
 	cmd.Dir = workDir
 
 	// Prepare environment
-	env := runner.SanitizedEnviron()
-	customPath := runner.GetDynamicCustomPath()
-	separator := string(os.PathListSeparator)
-	foundPath := false
-	for i, e := range env {
-		if strings.HasPrefix(e, "PATH=") {
-			env[i] = "PATH=" + customPath + separator + strings.TrimPrefix(e, "PATH=")
-			foundPath = true
-			break
-		}
-	}
-	if !foundPath {
-		env = append(env, "PATH="+customPath)
-	}
+	env := runner.PathEnviron()
 
 	env = append(env, "TERM=xterm-256color", "COLORTERM=truecolor")
 	if runtime.GOOS != "windows" {

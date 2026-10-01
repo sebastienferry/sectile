@@ -3,6 +3,7 @@ package runner
 import (
 	"os"
 	"slices"
+	"strings"
 	"testing"
 
 	"tasks/internal/secrets"
@@ -28,5 +29,27 @@ func TestTheServerKeyNeverReachesASpawnedProcess(t *testing.T) {
 	// provider binary at all.
 	if !slices.ContainsFunc(env, func(e string) bool { return len(e) > 5 && e[:5] == "PATH=" }) {
 		t.Fatal("PATH did not survive the filtering")
+	}
+}
+
+// Windows spells the inherited variable "Path": a child environment that only
+// looked for "PATH=" kept it and added a second PATH with the tool directories
+// alone, and os/exec, folding names case-insensitively with the last one
+// winning, handed the child a PATH without git on it.
+func TestAChildEnvironmentCarriesOnePathEndingWithTheInheritedOne(t *testing.T) {
+	inherited := strings.Join([]string{"inherited-a", "inherited-b"}, string(os.PathListSeparator))
+	t.Setenv("PATH", inherited)
+
+	var paths []string
+	for _, entry := range PathEnviron() {
+		if name, value, ok := strings.Cut(entry, "="); ok && strings.EqualFold(name, "PATH") {
+			paths = append(paths, value)
+		}
+	}
+	if len(paths) != 1 {
+		t.Fatalf("the child environment holds %d PATH entries, want exactly one: %q", len(paths), paths)
+	}
+	if !strings.HasSuffix(paths[0], inherited) {
+		t.Fatalf("PATH %q does not end with the inherited %q", paths[0], inherited)
 	}
 }
