@@ -21,6 +21,9 @@ project uses, running your own shell. Stopping it
 ends the discussion on the server, as closing its terminal does. Upgrade the
 agent along with the desktop: an older agent opens the terminal.
 Type a message and press Enter or click **Send**; Shift+Enter adds a line.
+Typing `/` at the start of a message lists the slash commands Claude Code offers
+in that directory, with their argument and description, filtered as you type:
+arrows move, Tab or Enter completes, Esc closes.
 Claude's replies render as Markdown with the same rules as **Rendered** in the
 Changes panel; your own messages show as typed. Each tool call is a card: an
 edit opens on its diff, a written file on its lines, a command on the command,

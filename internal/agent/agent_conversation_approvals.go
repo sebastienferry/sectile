@@ -202,3 +202,55 @@ func answersDetail(answers map[string]string) string {
 	}
 	return strings.Join(lines, "\n")
 }
+
+// conversationSlash is a slash command Claude offers in a conversation's
+// directory, as its initialize response lists it.
+type conversationSlash struct {
+	Name         string `json:"name"`
+	Description  string `json:"description,omitempty"`
+	ArgumentHint string `json:"argumentHint,omitempty"`
+}
+
+// conversationSlashLimit bounds the commands kept, and the length of each
+// description, for the composer's completion.
+const (
+	conversationSlashLimit       = 1000
+	conversationSlashDescription = 300
+)
+
+// initializeCommands reads the slash commands out of the response to the
+// initialize request id, or reports that the line is not that response.
+func initializeCommands(line, id string) ([]conversationSlash, bool) {
+	var frame struct {
+		Type     string `json:"type"`
+		Response struct {
+			RequestID string `json:"request_id"`
+			Response  struct {
+				Commands []conversationSlash `json:"commands"`
+			} `json:"response"`
+		} `json:"response"`
+	}
+	if json.Unmarshal([]byte(line), &frame) != nil || frame.Type != "control_response" || frame.Response.RequestID != id {
+		return nil, false
+	}
+	commands := make([]conversationSlash, 0, len(frame.Response.Response.Commands))
+	for _, command := range frame.Response.Response.Commands {
+		name := strings.TrimSpace(command.Name)
+		if name == "" || strings.ContainsAny(name, " \t\n") || len(commands) == conversationSlashLimit {
+			continue
+		}
+		description := strings.TrimSpace(command.Description)
+		if runes := []rune(description); len(runes) > conversationSlashDescription {
+			description = string(runes[:conversationSlashDescription]) + "…"
+		}
+		commands = append(commands, conversationSlash{Name: name, Description: description, ArgumentHint: strings.TrimSpace(command.ArgumentHint)})
+	}
+	return commands, true
+}
+
+// conversationInitialize is the initialize request a turn or a probe sends,
+// with the id its response is recognised by.
+func conversationInitialize() (map[string]any, string) {
+	request := conversationControl("initialize")
+	return request, request["request_id"].(string)
+}

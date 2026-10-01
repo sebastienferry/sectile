@@ -88,6 +88,9 @@ type agentDaemon struct {
 	openEditorFn func(editor, directory string) error
 	// openTerminalFn replaces the plain terminal a conversation opens, in tests.
 	openTerminalFn func(terminal, directory string) error
+	// probeCommandsFn replaces the Claude started to list a conversation's
+	// slash commands, in tests.
+	probeCommandsFn func(cmd *exec.Cmd) []conversationSlash
 	// capabilities serializes the engine reports sent to the server (#305).
 	capabilities capabilityReporter
 	// customSkills records the custom skills dispatches ran since the agent

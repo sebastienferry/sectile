@@ -56,6 +56,10 @@ type claudeConversation struct {
 	// next holds messages that arrived after the turn's stdin closed; they
 	// start the next turn as soon as this one ends.
 	next []string
+	// commands are the slash commands Claude offers here, for the composer's
+	// completion; loadingCommands says a probe is reading them.
+	commands        []conversationSlash
+	loadingCommands bool
 	// waitingForApproval says the run's WaitingSince mark is the agent's own,
 	// raised while a tool call or a question waits for the owner, rather than
 	// one the session declared.
@@ -250,6 +254,10 @@ func (d *agentDaemon) desktopConversation(w http.ResponseWriter, r *http.Request
 		if c := run.conversation; c != nil {
 			response["busy"], response["effort"], response["model"], response["mode"] = c.busy, c.effort, run.desktop.Model, conversationMode(c.mode)
 			response["approvals"] = append([]conversationApproval{}, c.approvals...)
+			response["commands"] = c.commands
+			if c.commands == nil && !run.restored && !run.canceled {
+				d.loadConversationCommandsLocked(run)
+			}
 			if c.busy && c.partial != "" {
 				response["partial"] = c.partial
 			}
@@ -474,6 +482,7 @@ func (d *agentDaemon) conversationTurn(run *controlledRun, prompt string) {
 	}
 	cmd := claudeConversationCommand(directory, run.desktop.Model, run.conversation.effort, run.conversation.mode, run.conversation.session, dirs, env)
 	d.queue.mu.Unlock()
+	initialize, initID := conversationInitialize()
 	var input *conversationInput
 	if stdin, pipeErr := cmd.StdinPipe(); pipeErr == nil {
 		input = &conversationInput{w: stdin}
@@ -514,6 +523,11 @@ func (d *agentDaemon) conversationTurn(run *controlledRun, prompt string) {
 				return
 			}
 			if frame.Type == "control_response" {
+				if commands, ok := initializeCommands(line, initID); ok {
+					d.queue.mu.Lock()
+					run.conversation.commands = commands
+					d.queue.mu.Unlock()
+				}
 				return
 			}
 			d.queue.mu.Lock()
@@ -607,7 +621,7 @@ func (d *agentDaemon) conversationTurn(run *controlledRun, prompt string) {
 		d.queue.mu.Lock()
 		run.conversation.input = input
 		d.queue.mu.Unlock()
-		_ = input.send(conversationControl("initialize"))
+		_ = input.send(initialize)
 		_ = input.send(conversationUserMessage(prompt))
 		waited := make(chan error, 1)
 		go func() { waited <- cmd.Wait() }()
@@ -719,5 +733,82 @@ func (d *agentDaemon) stopConversations() {
 		case <-deadline.C:
 			return
 		}
+	}
+}
+
+// conversationProbeTimeout bounds the Claude started only to list commands.
+const conversationProbeTimeout = 20 * time.Second
+
+// loadConversationCommandsLocked lists the slash commands of a conversation
+// before its first turn: a Claude is started, sent the initialize request
+// only, and stopped on its response, which calls no model. Each turn then
+// refreshes the list from its own initialize. The queue lock is held.
+func (d *agentDaemon) loadConversationCommandsLocked(run *controlledRun) {
+	c := run.conversation
+	if c.loadingCommands || c.commands != nil || run.desktop.Directory == "" {
+		return
+	}
+	c.loadingCommands = true
+	env := map[string]string{"SECTILE_PROJECT_ID": run.desktop.ProjectID}
+	for key, value := range c.env {
+		env[key] = value
+	}
+	cmd := claudeConversationCommand(run.desktop.Directory, run.desktop.Model, "", c.mode, "", c.extraDirs, env)
+	probe := d.probeConversationCommands
+	if d.probeCommandsFn != nil {
+		probe = d.probeCommandsFn
+	}
+	go func() {
+		commands := probe(cmd)
+		d.queue.mu.Lock()
+		defer d.queue.mu.Unlock()
+		c.loadingCommands = false
+		if c.commands == nil {
+			// An empty list says the probe ran: it is not tried again.
+			c.commands = append([]conversationSlash{}, commands...)
+		}
+	}()
+}
+
+func (d *agentDaemon) probeConversationCommands(cmd *exec.Cmd) []conversationSlash {
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		return nil
+	}
+	input := &conversationInput{w: stdin}
+	defer input.close()
+	initialize, id := conversationInitialize()
+	found := make(chan []conversationSlash, 1)
+	cmd.Stdout = &conversationOutput{line: func(line string) {
+		if commands, ok := initializeCommands(line, id); ok {
+			select {
+			case found <- commands:
+			default:
+			}
+			input.close()
+		}
+	}}
+	var diagnostics limitedConversationBuffer
+	cmd.Stderr = &diagnostics
+	release, err := agentexec.StartDetached(cmd)
+	if err != nil {
+		return nil
+	}
+	defer release()
+	_ = input.send(initialize)
+	waited := make(chan error, 1)
+	go func() { waited <- cmd.Wait() }()
+	select {
+	case <-waited:
+	case <-time.After(conversationProbeTimeout):
+		input.close()
+		agentexec.StopControlled(cmd, true)
+		<-waited
+	}
+	select {
+	case commands := <-found:
+		return commands
+	default:
+		return nil
 	}
 }

@@ -16,7 +16,7 @@ const markdownKinds=new Set(['assistant','thinking'])
 export function createConversationView({api,container,onError,canAddFolder=()=>false,canControl=()=>false,canQueue=()=>false,models=()=>[]}){
  const panel=document.createElement('section');panel.className='conversation';panel.hidden=true
  panel.setAttribute('aria-label','Claude Code conversation')
- panel.innerHTML='<div class="conversation-events" role="log" aria-label="Conversation messages"></div><form class="conversation-composer"><label class="visually-hidden" for="conversation-message">Message Claude Code</label><textarea id="conversation-message" rows="2" maxlength="60000" placeholder="Ask a question or describe a change…" required></textarea><div class="conversation-toolbar"><label class="conversation-chip conversation-model" title="Model for the next message"><select aria-label="Model"></select></label><label class="conversation-chip conversation-effort" title="Reasoning effort for the next message"><svg viewBox="0 0 20 14" width="18" height="13" aria-hidden="true"><rect x="0" y="10" width="3" height="4" rx="1"/><rect x="4" y="8" width="3" height="6" rx="1"/><rect x="8" y="6" width="3" height="8" rx="1"/><rect x="12" y="3" width="3" height="11" rx="1"/><rect x="16" y="0" width="3" height="14" rx="1"/></svg><select aria-label="Effort"><option value="">Default effort</option><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="xhigh">Extra high</option><option value="max">Max</option></select></label><label class="conversation-chip conversation-mode" title="What Claude may do without asking, from the next message. Sectile’s tools are always allowed."><select aria-label="Permission mode"><option value="default">Ask before edits</option><option value="acceptEdits">Accept edits</option><option value="plan">Plan mode</option></select></label><button type="button" class="conversation-chip conversation-add-folder" aria-label="Add folder…" title="Attach a folder of this workstation to the project; Claude sees it from the next message" hidden><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2z"/><path d="M12 11v6M9 14h6"/></svg><span>Add folder…</span></button><button type="button" class="conversation-chip conversation-terminal" aria-label="Open a terminal" title="Open a terminal in this conversation’s directory" hidden><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m7.5 10 2.5 2.5-2.5 2.5"/><path d="M13 15h4"/></svg><span>Terminal</span></button><span class="conversation-status" role="status"></span><span class="conversation-context" role="img" hidden><svg viewBox="0 0 36 36" aria-hidden="true"><circle cx="18" cy="18" r="15"/><circle class="conversation-context-used" cx="18" cy="18" r="15" pathLength="100" stroke-dasharray="0 100" transform="rotate(-90 18 18)"/></svg><span></span></span><button type="button" class="conversation-interrupt" aria-label="Stop answer" title="Stop this answer (Esc); the conversation stays open" hidden><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor"/></svg></button><button type="submit" class="conversation-send" aria-label="Send" title="Send (Enter) · New line (Shift+Enter)"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button></div></form>'
+ panel.innerHTML='<div class="conversation-events" role="log" aria-label="Conversation messages"></div><form class="conversation-composer"><label class="visually-hidden" for="conversation-message">Message Claude Code</label><ul class="conversation-commands" id="conversation-commands" role="listbox" aria-label="Slash commands" hidden></ul><textarea id="conversation-message" rows="2" maxlength="60000" placeholder="Ask a question or describe a change…" role="combobox" aria-autocomplete="list" aria-controls="conversation-commands" aria-expanded="false" required></textarea><div class="conversation-toolbar"><label class="conversation-chip conversation-model" title="Model for the next message"><select aria-label="Model"></select></label><label class="conversation-chip conversation-effort" title="Reasoning effort for the next message"><svg viewBox="0 0 20 14" width="18" height="13" aria-hidden="true"><rect x="0" y="10" width="3" height="4" rx="1"/><rect x="4" y="8" width="3" height="6" rx="1"/><rect x="8" y="6" width="3" height="8" rx="1"/><rect x="12" y="3" width="3" height="11" rx="1"/><rect x="16" y="0" width="3" height="14" rx="1"/></svg><select aria-label="Effort"><option value="">Default effort</option><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="xhigh">Extra high</option><option value="max">Max</option></select></label><label class="conversation-chip conversation-mode" title="What Claude may do without asking, from the next message. Sectile’s tools are always allowed."><select aria-label="Permission mode"><option value="default">Ask before edits</option><option value="acceptEdits">Accept edits</option><option value="plan">Plan mode</option></select></label><button type="button" class="conversation-chip conversation-add-folder" aria-label="Add folder…" title="Attach a folder of this workstation to the project; Claude sees it from the next message" hidden><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2z"/><path d="M12 11v6M9 14h6"/></svg><span>Add folder…</span></button><button type="button" class="conversation-chip conversation-terminal" aria-label="Open a terminal" title="Open a terminal in this conversation’s directory" hidden><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m7.5 10 2.5 2.5-2.5 2.5"/><path d="M13 15h4"/></svg><span>Terminal</span></button><span class="conversation-status" role="status"></span><span class="conversation-context" role="img" hidden><svg viewBox="0 0 36 36" aria-hidden="true"><circle cx="18" cy="18" r="15"/><circle class="conversation-context-used" cx="18" cy="18" r="15" pathLength="100" stroke-dasharray="0 100" transform="rotate(-90 18 18)"/></svg><span></span></span><button type="button" class="conversation-interrupt" aria-label="Stop answer" title="Stop this answer (Esc); the conversation stays open" hidden><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor"/></svg></button><button type="submit" class="conversation-send" aria-label="Send" title="Send (Enter) · New line (Shift+Enter)"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button></div></form>'
  container.append(panel)
  const events=panel.querySelector('.conversation-events'),form=panel.querySelector('form'),input=panel.querySelector('textarea'),send=panel.querySelector('.conversation-send'),addFolder=panel.querySelector('.conversation-add-folder'),openTerminal=panel.querySelector('.conversation-terminal'),interrupt=panel.querySelector('.conversation-interrupt'),status=panel.querySelector('.conversation-status'),model=panel.querySelector('.conversation-model select'),mode=panel.querySelector('.conversation-mode select'),effort=panel.querySelector('.conversation-effort select'),effortBars=panel.querySelectorAll('.conversation-effort rect'),ring=panel.querySelector('.conversation-context')
  const levels=['','low','medium','high','xhigh','max']
@@ -36,7 +36,51 @@ export function createConversationView({api,container,onError,canAddFolder=()=>f
  // The textarea grows with its content up to the CSS max-height, then scrolls.
  const grow=()=>{input.style.height='auto';input.style.height=input.scrollHeight+'px'}
  input.addEventListener('input',grow)
+ // Slash commands complete as in Claude Code: typing / at the start of the
+ // message lists the commands Claude offers here, filtered as one types.
+ const completion=panel.querySelector('.conversation-commands')
+ let commands=[],matches=[],active=0
+ function closeCompletion(){completion.hidden=true;completion.replaceChildren();matches=[];input.setAttribute('aria-expanded','false');input.removeAttribute('aria-activedescendant')}
+ function showActive(){
+  for(const [index,item] of [...completion.children].entries())item.setAttribute('aria-selected',String(index===active))
+  const current=completion.children[active]
+  if(current){input.setAttribute('aria-activedescendant',current.id);current.scrollIntoView({block:'nearest'})}
+ }
+ function updateCompletion(){
+  const token=/^\/(\S*)/.exec(input.value)
+  if(!token||input.selectionStart>token[0].length||!commands.length){closeCompletion();return}
+  const query=token[1].toLowerCase()
+  const starts=commands.filter(command=>command.name.toLowerCase().startsWith(query))
+  const inside=commands.filter(command=>!command.name.toLowerCase().startsWith(query)&&command.name.toLowerCase().includes(query))
+  matches=[...starts,...inside].slice(0,8)
+  if(!matches.length){closeCompletion();return}
+  active=Math.min(active,matches.length-1)
+  completion.replaceChildren(...matches.map((command,index)=>{
+   const item=document.createElement('li');item.id='conversation-command-'+index;item.setAttribute('role','option')
+   const name=document.createElement('strong');name.textContent='/'+command.name;item.append(name)
+   if(command.argumentHint){const hint=document.createElement('span');hint.className='conversation-command-hint';hint.textContent=command.argumentHint;item.append(hint)}
+   if(command.description){const text=document.createElement('small');text.textContent=command.description;item.append(text)}
+   item.addEventListener('mousedown',event=>{event.preventDefault();acceptCompletion(index)})
+   return item
+  }))
+  completion.hidden=false;input.setAttribute('aria-expanded','true');showActive()
+ }
+ function acceptCompletion(index){
+  const command=matches[index];if(!command)return
+  const rest=input.value.replace(/^\/\S*\s?/,'')
+  input.value='/'+command.name+' '+rest
+  const caret=command.name.length+2;input.setSelectionRange(caret,caret)
+  closeCompletion();grow();input.focus()
+ }
+ input.addEventListener('input',()=>{active=0;updateCompletion()})
+ input.addEventListener('click',updateCompletion)
+ input.addEventListener('blur',closeCompletion)
  input.addEventListener('keydown',event=>{
+  if(!completion.hidden&&!event.isComposing){
+   if(event.key==='ArrowDown'||event.key==='ArrowUp'){event.preventDefault();active=(active+(event.key==='ArrowDown'?1:matches.length-1))%matches.length;showActive();return}
+   if(event.key==='Tab'||event.key==='Enter'&&!event.shiftKey){event.preventDefault();acceptCompletion(active);return}
+   if(event.key==='Escape'){event.preventDefault();closeCompletion();return}
+  }
   if(event.key==='Enter'&&!event.shiftKey&&!event.isComposing){event.preventDefault();form.requestSubmit()}
   if(event.key==='Escape'&&!interrupt.hidden&&!interrupt.disabled){event.preventDefault();interrupt.click()}
  })
@@ -248,6 +292,7 @@ export function createConversationView({api,container,onError,canAddFolder=()=>f
    const data=await api.conversation(id)
    if(token!==generation||id!==selected)return
    if(data.id!==id)throw Error('The agent returned another conversation.')
+   if(Array.isArray(data.commands))commands=data.commands.filter(command=>command&&typeof command.name==='string')
    draw(data);drawPartial(data.busy?data.partial||'':'');drawApprovals(Array.isArray(data.approvals)?data.approvals:[]);controls(data);busy=!!data.busy
   }catch(err){
    if(token!==generation)return
@@ -277,7 +322,7 @@ export function createConversationView({api,container,onError,canAddFolder=()=>f
   finally{if(token===generation){pending=false;send.disabled=!available}}
  })
  return {select(run){
-  generation++;clearTimeout(timer);selected=run?.conversation?run.id:null;directory=run?.directory||'';busy=false;openTerminal.hidden=true;interrupt.hidden=true;send.hidden=false;partialNode=null;partialText='';version=null;pending=false;available=false;effortLoaded=false;readOnly=true;attaching=false;notice='';noticeUntil=0;showAddFolder()
+  generation++;clearTimeout(timer);selected=run?.conversation?run.id:null;directory=run?.directory||'';busy=false;commands=[];closeCompletion();openTerminal.hidden=true;interrupt.hidden=true;send.hidden=false;partialNode=null;partialText='';version=null;pending=false;available=false;effortLoaded=false;readOnly=true;attaching=false;notice='';noticeUntil=0;showAddFolder()
   events.replaceChildren();effort.value='';effort.disabled=true;showEffort();showContext(null);input.value='';grow();fillModels(run?.model);mode.value='acceptEdits';model.disabled=mode.disabled=true;input.disabled=true;send.disabled=true
   panel.hidden=!selected;container.classList.toggle('conversation-active',!!selected)
   if(selected){status.textContent='Loading conversation…';poll(generation,selected)}

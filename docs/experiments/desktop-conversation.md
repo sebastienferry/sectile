@@ -74,6 +74,12 @@ the terminal the project uses, running the user's own shell; no Sectile session
 is attached to it. **Stop execution** ends the conversation; a ticket
 discussion then completes on the server.
 
+Typing `/` at the start of a message completes the slash commands Claude offers
+in the conversation's directory, the list its `initialize` response carries.
+Before the first turn the agent reads it from a Claude started for that alone:
+sent the initialize request only, it answers and stops without calling any
+model. Each turn refreshes the list from its own initialize.
+
 The model picked in the composer, the conversation's own or one of the Claude
 models of Settings, is sent with the message as `--model`. The effort is sent
 as `--effort`;

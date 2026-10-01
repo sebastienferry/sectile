@@ -22,7 +22,7 @@ test('Claude chat renders structured output safely and sends messages without a 
   }
   if(req.url==='/desktop/conversation-terminal'){let body='';req.on('data',chunk=>body+=chunk);req.on('end',()=>{terminals.push(JSON.parse(body).runId);res.end(JSON.stringify({opened:true}))});return}
   if(req.url==='/desktop/conversation?id=chat'){
-   if(req.method==='GET'){res.end(JSON.stringify({id:'chat',events:events.map(e=>JSON.stringify(e)),version:events.length,busy,readOnly,effort,context,partial,approvals}));return}
+   if(req.method==='GET'){res.end(JSON.stringify({id:'chat',events:events.map(e=>JSON.stringify(e)),version:events.length,busy,readOnly,effort,context,partial,approvals,commands:[{name:'clarify-issue',description:'Clarify a <b>ticket</b>',argumentHint:'<KEY>'},{name:'specify-issue',description:'Write the spec'},{name:'code-review'}]}));return}
    let body='';req.on('data',chunk=>body+=chunk);req.on('end',()=>{
     const sent=JSON.parse(body)
     if(sent.approval){decisions.push(sent.approval);const asked=approvals.find(item=>item.id===sent.approval.id);approvals=approvals.filter(item=>item.id!==sent.approval.id);events.push({kind:'approval',text:sent.approval.decision,tool:asked.tool,toolId:asked.toolUseId});res.end(JSON.stringify({accepted:true}));return}
@@ -64,6 +64,22 @@ test('Claude chat renders structured output safely and sends messages without a 
   const input=page.getByLabel('Message Claude Code')
   await expect(input).toBeEnabled()
   await expect(page.locator('.conversation-context')).toBeHidden()
+  // Slash commands complete from what Claude offers, without sending.
+  const commandList=page.getByRole('listbox',{name:'Slash commands'})
+  await input.fill('/iss')
+  await expect(commandList.getByRole('option')).toHaveCount(2)
+  await input.fill('/cla')
+  await expect(commandList.getByRole('option')).toHaveCount(1)
+  await expect(commandList.getByRole('option')).toContainText('/clarify-issue<KEY>Clarify a <b>ticket</b>')
+  assert.equal(await page.locator('.conversation-commands b').count(),0)
+  await input.fill('/')
+  await expect(commandList.getByRole('option')).toHaveCount(3)
+  await input.press('ArrowDown');await input.press('Enter')
+  await expect(input).toHaveValue('/specify-issue ')
+  await expect(commandList).toBeHidden()
+  await input.fill('/co');await expect(commandList).toBeVisible()
+  await input.press('Escape');await expect(commandList).toBeHidden();await expect(input).toHaveValue('/co')
+  await input.fill('')
   await page.getByLabel('Effort',{exact:true}).selectOption('high')
   await expect(page.getByLabel('Permission mode',{exact:true})).toHaveValue('acceptEdits')
   await page.getByLabel('Permission mode',{exact:true}).selectOption('plan')

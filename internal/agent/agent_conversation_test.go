@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -27,6 +28,8 @@ func conversationRequest(d *agentDaemon, method, path, body, token string) *http
 func conversationFixture(t *testing.T) (*agentDaemon, string) {
 	t.Helper()
 	d := &agentDaemon{loopback: loopbackServer{desktopToken: "private"}}
+	// No real Claude is started to list commands; a test that wants a list sets its own.
+	d.probeCommandsFn = func(*exec.Cmd) []conversationSlash { return nil }
 	d.queue.runs = map[string]*controlledRun{"source": {desktop: desktopRun{ProjectID: "project", Provider: "claude", Directory: t.TempDir(), Branch: "feat/test"}}}
 	w := conversationRequest(d, "POST", "/desktop/conversation", `{"sourceRunId":"source"}`, "private")
 	if w.Code != http.StatusCreated {
@@ -849,5 +852,95 @@ func TestAnApprovalWaitLeavesTheSessionsWait(t *testing.T) {
 	markApprovalWaitLocked(run)
 	if !run.desktop.WaitingSince.Equal(since) {
 		t.Fatalf("the session's wait was cleared: %v", run.desktop.WaitingSince)
+	}
+}
+
+func TestTheInitializeResponseListsTheSlashCommands(t *testing.T) {
+	line := `{"type":"control_response","response":{"subtype":"success","request_id":"init-1","response":{"commands":[{"name":"clarify-issue","description":"Clarify a ticket","argumentHint":"<KEY>"},{"name":"bad name"},{"name":""},{"name":"long","description":"` + strings.Repeat("x", 400) + `"}]}}}`
+	if _, ok := initializeCommands(line, "other"); ok {
+		t.Fatal("another request's response was read as the command list")
+	}
+	commands, ok := initializeCommands(line, "init-1")
+	if !ok || len(commands) != 2 || commands[0] != (conversationSlash{Name: "clarify-issue", Description: "Clarify a ticket", ArgumentHint: "<KEY>"}) {
+		t.Fatalf("commands = %+v", commands)
+	}
+	if got := []rune(commands[1].Description); len(got) != conversationSlashDescription+1 {
+		t.Errorf("a long description was not cut: %d", len(got))
+	}
+}
+
+// The commands are listed before the first turn by a probe, and refreshed by
+// each turn's own initialize.
+func TestConversationListsItsSlashCommands(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake CLI is a POSIX script")
+	}
+	testhome.Temp(t)
+	d, id := conversationFixture(t)
+	probed := make(chan []string, 1)
+	d.probeCommandsFn = func(cmd *exec.Cmd) []conversationSlash {
+		probed <- cmd.Args
+		return []conversationSlash{{Name: "from-probe"}}
+	}
+	conversationRequest(d, "GET", "/desktop/conversation?id="+id, "", "private")
+	select {
+	case args := <-probed:
+		if strings.Contains(strings.Join(args, " "), "--resume") {
+			t.Fatalf("the probe resumed the session: %q", args)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("no probe listed the commands")
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for !strings.Contains(conversationRequest(d, "GET", "/desktop/conversation?id="+id, "", "private").Body.String(), `"name":"from-probe"`) {
+		if time.Now().After(deadline) {
+			t.Fatal("the probed commands are not served")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	bin := t.TempDir()
+	script := `#!/bin/sh
+read -r init
+id=$(printf '%s' "$init" | sed 's/.*"request_id":"\([^"]*\)".*/\1/')
+printf '{"type":"control_response","response":{"subtype":"success","request_id":"%s","response":{"commands":[{"name":"from-turn"}]}}}\n' "$id"
+read -r message
+printf '%s\n' '{"type":"result","is_error":false,"result":"ok","session_id":"11111111-1111-4111-8111-111111111111"}'
+`
+	if err := os.WriteFile(filepath.Join(bin, "claude"), []byte(script), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	if w := conversationRequest(d, "POST", "/desktop/conversation?id="+id, `{"message":"hi"}`, "private"); w.Code != 202 {
+		t.Fatalf("send: %d", w.Code)
+	}
+	waitConversationIdle(t, d, d.queue.runs[id])
+	if body := conversationRequest(d, "GET", "/desktop/conversation?id="+id, "", "private").Body.String(); !strings.Contains(body, `"name":"from-turn"`) {
+		t.Fatalf("the turn's initialize did not refresh the commands: %s", body)
+	}
+}
+
+func TestTheCommandProbeStopsClaudeOnItsAnswer(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake CLI is a POSIX script")
+	}
+	bin := t.TempDir()
+	script := `#!/bin/sh
+read -r init
+id=$(printf '%s' "$init" | sed 's/.*"request_id":"\([^"]*\)".*/\1/')
+printf '{"type":"control_response","response":{"subtype":"success","request_id":"%s","response":{"commands":[{"name":"clarify-issue"}]}}}\n' "$id"
+cat > /dev/null
+`
+	if err := os.WriteFile(filepath.Join(bin, "claude"), []byte(script), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	d := &agentDaemon{}
+	started := time.Now()
+	commands := d.probeConversationCommands(claudeConversationCommand(t.TempDir(), "", "", "", "", nil, nil))
+	if len(commands) != 1 || commands[0].Name != "clarify-issue" {
+		t.Fatalf("commands = %+v", commands)
+	}
+	if time.Since(started) > 5*time.Second {
+		t.Fatal("the probe waited past the answer")
 	}
 }
