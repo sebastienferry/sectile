@@ -27,7 +27,7 @@ No new child process (NFR2). No change to story creation (#634).
 
 ## Data
 
-Migration 40 (39 landed on main for #635), `macros.todos_mirror`, in `internal/db/migrations.go` only,
+Migration 43 (39 to 42 landed on main for #635 and #654), `macros.todos_mirror`, in `internal/db/migrations.go` only,
 never in the frozen baseline:
 
 ```sql

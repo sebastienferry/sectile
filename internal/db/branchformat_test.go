@@ -122,6 +122,24 @@ func TestBranchNameFormatMigration(t *testing.T) {
 	if _, err := d.conn.Exec("ALTER TABLE projects DROP COLUMN roadmap_axis_writes"); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := d.conn.Exec("ALTER TABLE user_tracker_credentials DROP COLUMN kind"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.conn.Exec("ALTER TABLE user_tracker_credentials DROP COLUMN version"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.conn.Exec("ALTER TABLE user_tracker_credentials DROP COLUMN disconnected_at"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.conn.Exec("ALTER TABLE user_tracker_credentials DROP COLUMN refresh_claimed_at"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.conn.Exec("DROP TABLE jira_oauth_flows"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.conn.Exec("DROP TABLE tracker_oauth_apps"); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := d.conn.Exec("ALTER TABLE projects DROP COLUMN epic_axis_prefixes"); err != nil {
 		t.Fatal(err)
 	}

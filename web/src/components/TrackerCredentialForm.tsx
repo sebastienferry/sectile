@@ -1,6 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { AlertCircle, Check, Globe, Key, Loader2, Lock, LockOpen, Mail, ShieldCheck } from 'lucide-react'
 import { useApp } from '../context/AppContext'
+import { jiraEntryState } from '../lib/jiraOAuth'
+import { JiraConnectOffer, JiraConnectPanel, JiraOAuthOutcomeBanner } from './JiraConnectPanel'
 import {
   canCheck,
   credentialState,
@@ -40,12 +42,18 @@ export const TrackerCredentialForm: React.FC<TrackerCredentialFormProps> = ({
     userCredentials,
     saveUserCredential,
     clearUserCredential,
+    jiraOAuth,
     t,
   } = useApp()
 
   const kind = trackerFields(tracker, t)
   const serverStored = storedFor(settings, tracker)
-  const mine = userCredentials.find(c => c.tracker === tracker)
+  const found = userCredentials.find(c => c.tracker === tracker)
+  // On Jira, a grant from Atlassian's consent screen (#654) has its own panel;
+  // the token form only ever describes an API token.
+  const entry = tracker === 'jira' ? jiraEntryState(found, jiraOAuth) : 'form'
+  const [showTokenForm, setShowTokenForm] = useState(false)
+  const mine = found?.kind === 'oauth' ? undefined : found
   const stored = { ...serverStored, tokenIsSet: Boolean(mine), tokenFromEnv: false }
 
   const [siteUrl, setSiteUrl] = useState(mine?.siteUrl || serverStored.siteUrl)
@@ -121,8 +129,22 @@ export const TrackerCredentialForm: React.FC<TrackerCredentialFormProps> = ({
     'w-full pl-8 pr-3 py-2 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)]'
   const locked = Boolean(mine?.sealed && !mine.unlocked)
 
+  if ((entry === 'connect' || entry === 'connected' || entry === 'disconnected') && !showTokenForm) {
+    return (
+      <div className="space-y-3">
+        <JiraOAuthOutcomeBanner />
+        <JiraConnectPanel state={entry} credential={found} onUseToken={() => setShowTokenForm(true)} />
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-3">
+      {tracker === 'jira' && <JiraOAuthOutcomeBanner />}
+      {entry === 'token-and-connect' && <JiraConnectOffer hint={t.trackerCredentials.oauth.replaceTokenHint} />}
+      {entry !== 'form' && entry !== 'token-and-connect' && (
+        <JiraConnectOffer hint={t.trackerCredentials.oauth.connectHint} onBack={() => setShowTokenForm(false)} />
+      )}
       <div>
         <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
           {kind.siteLabel}

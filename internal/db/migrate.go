@@ -21,6 +21,8 @@ import (
 // none of the source's processes serves the destination.
 // user_credential_unlocks too: an unlock lasts while its owner is connected to
 // the source, and they unlock again on the destination.
+// jira_oauth_flows too: a pending consent lasts ten minutes and belongs to a
+// web session of the source.
 var migrationTables = []string{
 	"settings",
 	"users",
@@ -39,6 +41,7 @@ var migrationTables = []string{
 	"board_views",
 	"user_tracker_credentials",
 	"server_tracker_credentials",
+	"tracker_oauth_apps",
 	"device_credentials",
 	"pairing_codes",
 	"login_flows",
@@ -118,7 +121,37 @@ func ensureKeyOpensCredentials(src, dst *DB) error {
 	if err := ensureKeyOpensUserCredentials(src, dst); err != nil {
 		return err
 	}
-	return ensureKeyOpensServerCredentials(src, dst)
+	if err := ensureKeyOpensServerCredentials(src, dst); err != nil {
+		return err
+	}
+	return ensureKeyOpensOAuthApps(src, dst)
+}
+
+// ensureKeyOpensOAuthApps is the same check for the saved OAuth apps (#654),
+// whose secret is sealed under the server key.
+func ensureKeyOpensOAuthApps(src, dst *DB) error {
+	var tracker string
+	var record []byte
+	err := src.conn.QueryRow(`SELECT tracker, record FROM tracker_oauth_apps LIMIT 1`).Scan(&tracker, &record)
+	if err == sql.ErrNoRows {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("reading an OAuth app to check the encryption key: %w", err)
+	}
+	if dst.serverKeyErr != nil {
+		return fmt.Errorf(
+			"the destination has no encryption key (%w), but the source holds an OAuth app secret sealed under one; "+
+				"set %s to the same key the source uses, or that secret becomes unreadable",
+			dst.serverKeyErr, secrets.KeyEnvVar)
+	}
+	if _, err := secrets.Open(dst.serverKey, secrets.OAuthAppBinding(tracker), record); err != nil {
+		return fmt.Errorf(
+			"the destination encryption key does not open the source's OAuth app secret (%w); "+
+				"set %s to the key the source uses, or that secret becomes unreadable",
+			err, secrets.KeyEnvVar)
+	}
+	return nil
 }
 
 // ensureKeyOpensServerCredentials is the same check for the server credentials,
@@ -149,11 +182,11 @@ func ensureKeyOpensServerCredentials(src, dst *DB) error {
 }
 
 func ensureKeyOpensUserCredentials(src, dst *DB) error {
-	var userID, tracker string
+	var userID, tracker, kind string
 	var record []byte
 	err := src.conn.QueryRow(
-		`SELECT user_id, tracker, record FROM user_tracker_credentials WHERE sealed = 0 LIMIT 1`,
-	).Scan(&userID, &tracker, &record)
+		`SELECT user_id, tracker, record, kind FROM user_tracker_credentials WHERE sealed = 0 LIMIT 1`,
+	).Scan(&userID, &tracker, &record, &kind)
 	if err == sql.ErrNoRows {
 		// Nothing is sealed under the server key, so the key is not needed.
 		return nil
@@ -167,7 +200,7 @@ func ensureKeyOpensUserCredentials(src, dst *DB) error {
 				"set %s to the same key the source uses, or those tokens become unreadable",
 			dst.serverKeyErr, secrets.KeyEnvVar)
 	}
-	if _, err := secrets.Open(dst.serverKey, secrets.Binding{UserID: userID, Tracker: tracker}, record); err != nil {
+	if _, err := secrets.Open(dst.serverKey, secrets.Binding{UserID: userID, Tracker: tracker, Kind: kind}, record); err != nil {
 		return fmt.Errorf(
 			"the destination encryption key does not open the source's credentials (%w); "+
 				"set %s to the key the source uses, or those tokens become unreadable",

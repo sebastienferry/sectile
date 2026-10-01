@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net/http"
 	"runtime/debug"
 	"slices"
 	"sort"
@@ -20,6 +21,7 @@ import (
 	_ "modernc.org/sqlite"
 	"tasks/internal/agentconfig"
 	"tasks/internal/agentprotocol"
+	"tasks/internal/atlassian"
 	"tasks/internal/models"
 	"tasks/internal/secrets"
 	"tasks/internal/skills"
@@ -135,6 +137,10 @@ type DB struct {
 	// worse than refusing.
 	serverKey    secrets.Key
 	serverKeyErr error
+	// atlassian and atlassianHTTP reach Atlassian's identity endpoints for
+	// the Jira grants (#654). Zero means Atlassian's own; tests set a fake.
+	atlassian     atlassian.Endpoints
+	atlassianHTTP *http.Client
 	// prEvidenceLookup stands in for the forge answer on every route. It gets
 	// the repository asked (the foreign identity for a pull request in another
 	// repository), the branch and the prUrl the caller gave.
@@ -247,7 +253,7 @@ func openWith(cfg Config, d dialect) (*DB, error) {
 	// component able to read the settings and the project override.
 	trackerClient.Resolve = db.trackerCredentials
 	// And the acting user's own credential, where they stored one.
-	trackerClient.ResolveUser = db.UserTrackerCredentialsFor
+	trackerClient.ResolveUser = db.ResolvePersonalCredential
 	// The one path that may change the schema: the baseline on a database this
 	// scheme has never seen, then every numbered migration it has not applied.
 	// A failure here stops the server rather than serving requests against a

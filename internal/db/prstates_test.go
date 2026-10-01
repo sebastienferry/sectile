@@ -75,8 +75,8 @@ func TestPullRequestRefreshPreservesStateOnLockedCredential(t *testing.T) {
 	d, p, task := discoveryTestDB(t, "#implemented")
 	link := models.TaskPullRequest{URL: "https://github.com/a/b/pull/1", State: "merged"}
 	d.conn.Exec("UPDATE tasks SET pr_links = ?, pr_url = ? WHERE id = ?", encodePullRequestLinks([]models.TaskPullRequest{link}), link.URL, task.ID)
-	d.trackers = &trackerapi.Client{GithubURL: trackerapi.DefaultGithubURL, GithubToken: "must-not-fallback", ResolveUser: func(string, string) (string, string, string, error) {
-		return "", "", "", fmt.Errorf("locked credential")
+	d.trackers = &trackerapi.Client{GithubURL: trackerapi.DefaultGithubURL, GithubToken: "must-not-fallback", ResolveUser: func(string, string, string) (trackerapi.PersonalCredential, error) {
+		return trackerapi.PersonalCredential{}, fmt.Errorf("locked credential")
 	}}
 	warnings := d.refreshProjectPullRequestStates(tracker.WithActingUser(context.Background(), "owner"), p.ID)
 	got, _ := d.GetTaskByID(task.ID)

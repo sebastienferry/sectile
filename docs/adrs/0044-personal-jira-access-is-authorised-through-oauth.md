@@ -1,6 +1,8 @@
-# ADR 0042: A person's Jira access is authorised through Atlassian OAuth, not a pasted token
+# ADR 0044: A person's Jira access is authorised through Atlassian OAuth, not a pasted token
 
-Status: Proposed. Becomes Accepted with the pull request that implements it.
+Status: Accepted (#654). Amended while implementing on the sites a grant
+covers, the callback URL, the scopes and the serialisation of the refresh; the
+sections below state the decision as built.
 
 Amends: [ADR 0014](0014-personal-tracker-credentials-are-sealed.md), its
 rejected alternative "OAuth 2.0 three-legged authorisation with Atlassian",
@@ -46,8 +48,13 @@ Atlassian OAuth app configured. The flow is the authorisation code grant:
    The server is a confidential client: the client secret never reaches a
    browser or a workstation.
 4. The server reads `https://api.atlassian.com/oauth/token/accessible-resources`
-   and keeps the `cloudId` of the site the deployment is configured for. A
-   grant that does not include that site is refused and nothing is stored.
+   and keeps every Jira site the grant covers, each with its `cloudId`. A Jira
+   project may set a site of its own, so a grant serves every project whose
+   site it covers, and a call picks the `cloudId` of its project's site. A grant
+   covering none of the configured Jira sites (the deployment's and every
+   project's) is refused, nothing is stored, and the refusal names those sites.
+   A write on a project whose site the grant does not cover fails with the
+   missing-credential error, saying to reconnect and pick that site.
 5. It reads `/rest/api/3/myself` through the grant and records the account, as
    the API token path already does.
 
@@ -55,7 +62,8 @@ Atlassian OAuth app configured. The flow is the authorisation code grant:
 `user_tracker_credentials`, one row per person and tracker, so connecting
 replaces a pasted API token and deleting the row disconnects. A new column
 records the kind of credential (`api_token` or `oauth`). The record holds the
-refresh token, the current access token, its expiry and the `cloudId`, sealed
+refresh token, the current access token, its expiry and the granted sites with
+their `cloudId`, sealed
 with AES-256-GCM under the server key. Its additional authenticated data carries
 the owner, the tracker and the kind, so an OAuth record never opens as an API
 token, as another person's credential or as a server credential.
@@ -71,14 +79,22 @@ connects or deletes it.
 **Refreshing is serialised in the database.** Atlassian rotates refresh
 tokens: each refresh returns a new one and invalidates the previous one after a
 short grace period. Two replicas refreshing the same grant at the same moment
-would each hold a token the other just rotated. So a refresh is a
-compare-and-set on the row's version:
+would each hold a token the other just rotated. So a refresh is
+claimed before Atlassian is called, by a compare-and-set on the row's version
+that also records when the claim was made:
 
-- the instance that wins writes the new pair;
-- an instance that loses reads the row again and uses the access token the
-  winner stored;
+- the instance that wins the claim refreshes and writes the new pair, or marks
+  the grant disconnected on `invalid_grant`, which it can then trust: nobody
+  else spent that refresh token;
+- an instance that loses, or finds a claim younger than the refresh timeout,
+  waits for the row to move on and uses the access token the winner stored;
+- a claim older than that is one whose instance died, and is taken over;
 - nothing is cached in process memory beyond one call, as ADR 0028 already
   rules for server credentials.
+
+Comparing the version only after a failed refresh, as first written here, is
+not enough: an instance reading the row between another's refresh and its
+write would spend the rotated refresh token and disconnect a live grant.
 
 **A dead grant is reported, not repaired.** When the refresh answers
 `invalid_grant` (the person revoked the app, their account lost access to the
@@ -96,19 +112,29 @@ the site URL.
 
 **The scopes are the least the current calls need.** Classic scopes
 `read:jira-work`, `write:jira-work`, `read:jira-user` and `offline_access` cover
-`/rest/api/3`. The `/rest/agile/1.0` calls (boards, sprints, backlog) need Jira
-Software's granular scopes, at least `read:board-scope:jira-software`,
-`read:sprint:jira-software` and `write:sprint:jira-software`. The specification
-checks every endpoint Sectile calls against a scope and lists the result. A new
-endpoint that needs a scope the app lacks is a change to this list and to the
-registered app, made together.
+`/rest/api/3`. The `/rest/agile/1.0` calls (boards, sprints, backlog) accept
+only Jira Software's granular scopes: `read:board-scope:jira-software`,
+`read:board-scope.admin:jira-software` (the board configuration),
+`write:board-scope:jira-software` (the backlog),
+`read:sprint:jira-software`, `write:sprint:jira-software`,
+`delete:sprint:jira-software` and `read:project:jira`. The priority search
+needs `manage:jira-configuration`, an administration scope the consent does not
+ask for: a call through a grant reads the plain priority list instead. The
+specification maps every endpoint Sectile calls to its scope, checked against
+Atlassian's published OpenAPI documents, and
+`internal/trackerapi/jira_scopes_test.go` fails on a new endpoint without one.
+A new endpoint that needs a scope the app lacks is a change to this list and to
+the registered app, made together.
 
-**The app is configured by an admin, never committed.** The client id and
-secret come from `SECTILE_JIRA_OAUTH_CLIENT_ID` and
-`SECTILE_JIRA_OAUTH_CLIENT_SECRET`, or from the Administration page, sealed like
-the server credentials (ADR 0028). The callback URL is derived from the
-server's public URL. Without an app configured, the profile keeps today's API
-token form.
+**The app is configured by an admin, never committed.** The client id,
+secret and callback URL come from `SECTILE_JIRA_OAUTH_CLIENT_ID`,
+`SECTILE_JIRA_OAUTH_CLIENT_SECRET` and `SECTILE_JIRA_OAUTH_REDIRECT_URL`, or
+from the Administration page, the secret sealed like the server credentials and
+a saved app winning as a whole (ADR 0028). The callback URL is an explicit
+setting, like `SECTILE_OIDC_REDIRECT_URL`: Sectile has no public URL to derive
+it from, and deriving it from request headers would let a proxy choose it.
+Without an app configured, the profile keeps today's API token form; with one,
+the token form stays reachable behind "Use an API token instead".
 
 **The server credential does not change.** Unattended work keeps using the
 provider's server credential (ADR 0028, ADR 0029), an API token of a service
@@ -135,8 +161,10 @@ account. Moving it to OAuth is a separate decision.
   writes are the only load on it.
 - API tokens keep working. Removing the form is a later decision, once every
   active person has connected.
-- The row gains a column (`kind`) and a version for the compare-and-set, both
-  added by a numbered migration, never in the frozen baseline.
+- The row gains a column (`kind`), a version and a claim time for the
+  compare-and-set, and a disconnection mark, added by a numbered migration
+  (40), never in the frozen baseline. Migrations 41 and 42 add the pending
+  consents and the OAuth app.
 
 ## Alternatives rejected
 
