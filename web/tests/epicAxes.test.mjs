@@ -2,14 +2,16 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
   EPIC_PRIORITY_LEVEL,
+  EPIC_READINESS,
   epicPriorityLabel,
   matchesPriority,
   normalizeQuarter,
   seedProposals,
   sortByPriority,
+  suggestReadiness,
   titleAxes,
 } from '../src/lib/epicAxes.ts'
-import { buildEpicRows } from '../src/lib/roadmap.ts'
+import { buildEpicRows, freeEpicLabels, isEpicAxisLabel } from '../src/lib/roadmap.ts'
 
 const row = (key, priority = '', quarter = '', title = key) => ({ key, title, priority, quarter })
 
@@ -89,4 +91,55 @@ test("the roadmap priority is the epic's own, never its children's", () => {
   assert.equal(byKey['PE-1'].quarter, '')
   assert.equal(byKey['PE-2'].priority, 'p1')
   assert.equal(byKey['PE-2'].quarter, '2026-Q4')
+})
+
+test('the readiness levels read in funnel order', () => {
+  assert.deepEqual(EPIC_READINESS, ['idea', 'shaping', 'ready'])
+})
+
+test('an epic with a child ticket is suggested ready, closed tickets included', () => {
+  assert.equal(suggestReadiness({ childCount: 1 }), 'ready')
+  assert.equal(suggestReadiness({ childCount: 3, description: '', todos: [] }), 'ready')
+})
+
+test('a framing and a fully covered slicing suggest ready', () => {
+  const todos = [
+    { done: true },
+    // A line with a story counts as covered even when it is not ticked.
+    { done: false, storyKey: 'PE-7' },
+  ]
+  assert.equal(suggestReadiness({ childCount: 0, description: 'Le cadrage', todos }), 'ready')
+})
+
+test('a framing or a slicing line alone suggests shaping', () => {
+  assert.equal(suggestReadiness({ childCount: 0, description: 'Le cadrage', todos: [] }), 'shaping')
+  assert.equal(suggestReadiness({ childCount: 0, description: 'Le cadrage', todos: [{ done: false }] }), 'shaping')
+  assert.equal(suggestReadiness({ childCount: 0, description: '', todos: [{ done: true }] }), 'shaping')
+  // A slicing fully covered but without framing is not ready.
+  assert.equal(suggestReadiness({ childCount: 0, todos: [{ done: false, storyKey: 'PE-1' }] }), 'shaping')
+})
+
+test('nothing, or a whitespace framing, suggests idea', () => {
+  assert.equal(suggestReadiness({ childCount: 0 }), 'idea')
+  assert.equal(suggestReadiness({ childCount: 0, description: '  \n ', todos: [] }), 'idea')
+  assert.equal(suggestReadiness({ childCount: 0, description: 'x', todos: [{ done: false, storyKey: '  ' }] }), 'shaping')
+})
+
+test('a row carries the decided readiness and the suggestion apart', () => {
+  const meta = (key, extra) => ({ projectId: 'p', key, horizon: '', description: '', todos: [], updatedAt: '', ...extra })
+  const rows = buildEpicRows([], null, [
+    meta('PE-1', { readiness: 'shaping' }),
+    meta('PE-2', { description: 'Le cadrage' }),
+  ])
+  const byKey = Object.fromEntries(rows.map(r => [r.key, r]))
+  assert.equal(byKey['PE-1'].readiness, 'shaping')
+  assert.equal(byKey['PE-1'].suggestedReadiness, 'idea')
+  assert.equal(byKey['PE-2'].readiness, '')
+  assert.equal(byKey['PE-2'].suggestedReadiness, 'shaping')
+})
+
+test('readiness labels belong to the roadmap, never to the free labels', () => {
+  assert.equal(isEpicAxisLabel('readiness:ready'), true)
+  assert.equal(isEpicAxisLabel('#Readiness:Idea'), true)
+  assert.deepEqual(freeEpicLabels({ labels: ['readiness:ready', '#Readiness:Idea', 'team-a'] }), ['team-a'])
 })

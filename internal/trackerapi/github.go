@@ -178,6 +178,30 @@ func (c *Client) UpdateGithubMilestone(repo, repoPath string, n int, title, desc
 	}
 	return c.github(context.Background(), "PATCH", fmt.Sprintf("repos/%s/milestones/%d", repo, n), payload, nil)
 }
+
+// GetGithubMilestone reads one milestone.
+func (c *Client) GetGithubMilestone(repo, repoPath string, n int) (*GithubMilestoneItem, error) {
+	repo, err := repository(repo)
+	if err != nil {
+		return nil, err
+	}
+	var item GithubMilestoneItem
+	if err := c.github(context.Background(), "GET", fmt.Sprintf("repos/%s/milestones/%d", repo, n), nil, &item); err != nil {
+		return nil, err
+	}
+	return &item, nil
+}
+
+// SetGithubMilestoneDescription writes a milestone's description, the empty
+// one included, which UpdateGithubMilestone cannot send.
+func (c *Client) SetGithubMilestoneDescription(repo, repoPath string, n int, description string) error {
+	repo, err := repository(repo)
+	if err != nil {
+		return err
+	}
+	return c.github(context.Background(), "PATCH", fmt.Sprintf("repos/%s/milestones/%d", repo, n), map[string]any{"description": description}, nil)
+}
+
 func (c *Client) ListGithubMilestones(repo, repoPath string) ([]GithubMilestoneItem, error) {
 	repo, err := repository(repo)
 	if err != nil {

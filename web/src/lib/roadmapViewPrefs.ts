@@ -1,4 +1,5 @@
 import type { HorizonTab } from './roadmap'
+import { EPIC_GROUP_AXES, type EpicGroupAxis } from './epicGrouping.ts'
 import { resolveStorage, type StorageLike } from './roadmapDisplayMode.ts'
 
 /**
@@ -20,6 +21,8 @@ export const ROADMAP_PANEL_EXPANDED_STORAGE_KEY = 'sectile_roadmap_panel_expande
 export const ROADMAP_PANEL_HIDDEN_STORAGE_KEY = 'sectile_roadmap_panel_hidden'
 export const ROADMAP_DESCRIPTION_OPEN_STORAGE_KEY = 'sectile_roadmap_description_open'
 export const ROADMAP_FRAMING_OPEN_STORAGE_KEY = 'sectile_roadmap_framing_open'
+export const ROADMAP_GROUP_AXIS_STORAGE_KEY = 'sectile_roadmap_group_axis'
+export const ROADMAP_FOLDED_SECTIONS_STORAGE_KEY = 'sectile_roadmap_folded_sections'
 
 /** The key the selected macro of one project is kept under. */
 export const roadmapSelectedKeyStorageKey = (projectId: string): string => `sectile_roadmap_selected_key:${projectId}`
@@ -84,4 +87,34 @@ export function loadRoadmapSelectedKey(projectId: string, customStorage?: Storag
 export function saveRoadmapSelectedKey(projectId: string, key: string | null, customStorage?: StorageLike): void {
   if (!projectId) return
   write(roadmapSelectedKeyStorageKey(projectId), key || '', customStorage)
+}
+
+/** The axis the tabs are grouped on (#628); no grouping when none is known. */
+export function loadRoadmapGroupAxis(customStorage?: StorageLike): EpicGroupAxis {
+  const raw = (read(ROADMAP_GROUP_AXIS_STORAGE_KEY, customStorage) || '').trim().toLowerCase()
+  return (EPIC_GROUP_AXES as string[]).includes(raw) ? (raw as EpicGroupAxis) : 'none'
+}
+
+export function saveRoadmapGroupAxis(axis: EpicGroupAxis, customStorage?: StorageLike): void {
+  write(ROADMAP_GROUP_AXIS_STORAGE_KEY, axis, customStorage)
+}
+
+/**
+ * The folded sections, by their id (`priority:p1`, `quarter:none`). Shared by
+ * the tabs: a section folded on NOW is folded on NEXT too. Anything but a
+ * JSON array of strings answers nothing folded.
+ */
+export function loadRoadmapFoldedSections(customStorage?: StorageLike): string[] {
+  const raw = read(ROADMAP_FOLDED_SECTIONS_STORAGE_KEY, customStorage)
+  if (!raw) return []
+  try {
+    const value: unknown = JSON.parse(raw)
+    return Array.isArray(value) ? value.filter((id): id is string => typeof id === 'string' && id !== '') : []
+  } catch {
+    return []
+  }
+}
+
+export function saveRoadmapFoldedSections(ids: Iterable<string>, customStorage?: StorageLike): void {
+  write(ROADMAP_FOLDED_SECTIONS_STORAGE_KEY, JSON.stringify([...ids]), customStorage)
 }

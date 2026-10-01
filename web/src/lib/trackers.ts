@@ -230,6 +230,21 @@ export interface StoredUserCredential {
   sealed: boolean
   unlocked: boolean
   updatedAt?: string
+  /** `oauth` is a Jira grant from Atlassian's consent screen (#654), never sealed. */
+  kind?: 'api_token' | 'oauth'
+  /** A grant Atlassian refused to renew: only reconnecting repairs it. */
+  disconnected?: boolean
+  /** The Jira sites a grant covers. */
+  grantedSites?: string[]
+}
+
+/**
+ * The credentials the sealing passphrase applies to: API tokens only. A Jira
+ * grant is never sealed, so it never counts as locked and is never re-saved
+ * with a passphrase (#654).
+ */
+export function sealableCredentials(credentials: StoredUserCredential[]): StoredUserCredential[] {
+  return credentials.filter(c => c.kind !== 'oauth')
 }
 
 /**

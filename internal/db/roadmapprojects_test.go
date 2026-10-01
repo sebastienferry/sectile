@@ -59,7 +59,7 @@ func TestSlicingAttachesDeclaredRoadmapKeys(t *testing.T) {
 		}
 	}
 
-	// Nothing is ever written to a roadmap project from the slicing.
+	// A line already attached to a roadmap project's story creates nothing.
 	var line string
 	for _, todo := range meta.Todos {
 		if todo.StoryKey == "ABC-12" {

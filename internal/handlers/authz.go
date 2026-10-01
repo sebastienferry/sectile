@@ -140,7 +140,8 @@ func (h *Handler) requireOwnerOrAdmin(w http.ResponseWriter, r *http.Request, ow
 func adminOnlyRoute(_ string, path string) bool {
 	return path == "/api/users" || strings.HasPrefix(path, "/api/users/") ||
 		path == AdminStatsPath ||
-		path == ServerTrackerCredentialsPath || strings.HasPrefix(path, ServerTrackerCredentialsPath+"/")
+		path == ServerTrackerCredentialsPath || strings.HasPrefix(path, ServerTrackerCredentialsPath+"/") ||
+		path == JiraOAuthAppPath
 }
 
 // personalSettingsKeys is the routing table between the two settings stores

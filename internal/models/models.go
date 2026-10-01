@@ -132,9 +132,17 @@ type Project struct {
 	// RepositoriesMigration is empty until a local agent converted the legacy
 	// paths above to repositories, then the JSON report of that conversion.
 	RepositoriesMigration string `json:"repositoriesMigration,omitempty"`
-	// RoadmapProjects are other Jira project keys whose story keys the slicing
-	// attaches to a line. They are read, never written.
+	// RoadmapProjects are other Jira project keys whose epics the roadmap also
+	// reads and whose story keys the slicing attaches to a line. Sectile never
+	// changes an existing item there, except what RoadmapAxisWrites opens.
 	RoadmapProjects []string `json:"roadmapProjects,omitempty"`
+	// RoadmapAxisWrites lets a single panel edit write the priority and the
+	// quarter on an epic of a roadmap project (#632). Off by default, and never
+	// on without a declared project.
+	RoadmapAxisWrites bool `json:"roadmapAxisWrites,omitempty"`
+	// EpicAxisPrefixes names the label prefixes of the epic's own axes (#635).
+	// An empty field keeps the default prefix of its axis.
+	EpicAxisPrefixes EpicAxisPrefixes `json:"epicAxisPrefixes"`
 	// UseWorktrees decides whether each task gets its own isolated Git worktree
 	// under .tasks/worktrees, or whether the agent simply runs in the clone. A
 	// solo project rarely needs that isolation and pays the setup cost for
@@ -292,6 +300,9 @@ type MacroMeta struct {
 	Priority string `json:"priority"`
 	// Quarter is the epic's quarter, "2026-Q4", "" when none.
 	Quarter string `json:"quarter"`
+	// Readiness is the level a person decided, "idea", "shaping" or "ready",
+	// "" when nobody decided (#633). The suggestion is the web app's, never stored.
+	Readiness string `json:"readiness"`
 	// LabelsWritable tells whether Sectile writes the epic axes on the tracker.
 	// It is computed when the macros are read, never stored.
 	LabelsWritable bool `json:"labelsWritable"`
@@ -302,6 +313,48 @@ type MacroMeta struct {
 	// ExternalURL is the macro's own page on its tracker, computed when the
 	// list is read and never stored. Empty when the tracker gives none.
 	ExternalURL string `json:"externalUrl,omitempty"`
+	// Origin is the tracker project key the epic's key carries, "" for a
+	// milestone or a local key. Foreign tells an epic of another Jira project,
+	// which the roadmap reads without writing on it (#632). AxesWritable tells
+	// whether a panel edit of the priority or the quarter is written on the
+	// tracker, which LabelsWritable alone no longer says for a foreign epic.
+	// All three are computed when the macros are read, never stored.
+	Origin       string `json:"origin,omitempty"`
+	Foreign      bool   `json:"foreign,omitempty"`
+	AxesWritable bool   `json:"axesWritable"`
+	// TodosMirror is where the todos are copied on the tracker and how that
+	// copy stands (#663). It is computed when a macro is returned to a client,
+	// never stored as such.
+	TodosMirror *MacroTodosMirror `json:"todosMirror,omitempty"`
+}
+
+// Kinds of tracker copy of a macro's todos (#663). The empty kind is a macro
+// whose todos stay in Sectile, for the reason MacroTodosMirror.Reason gives.
+const (
+	MacroTodosMirrorJiraComment       = "jira_comment"
+	MacroTodosMirrorGithubDescription = "github_description"
+)
+
+// MacroTodosMirror is the state of the one-way tracker copy of a macro's todos.
+// Sectile's list is authoritative: the copy is rewritten, never read back.
+type MacroTodosMirror struct {
+	// Kind is MacroTodosMirrorJiraComment, MacroTodosMirrorGithubDescription,
+	// or "" when the list stays in Sectile.
+	Kind string `json:"kind"`
+	// Reason says why Kind is "", in the product's runtime language.
+	Reason string `json:"reason,omitempty"`
+	// UpToDate tells that the last body written on the tracker is the body of
+	// the current list.
+	UpToDate bool `json:"upToDate"`
+	// Error is the last failure, kept until a write succeeds.
+	Error string `json:"error,omitempty"`
+	// CredentialMissing names the tracker whose personal token the last
+	// failure lacked, so the panel can offer to add it (#645).
+	CredentialMissing string `json:"credentialMissing,omitempty"`
+	// WrittenAt is the time of the last successful write.
+	WrittenAt *time.Time `json:"writtenAt,omitempty"`
+	// URL is the address of the copy: the comment, or the milestone.
+	URL string `json:"url,omitempty"`
 }
 
 // Origine d'une ligne de découpe : l'artefact d'où elle a été importée.
@@ -334,6 +387,11 @@ type MacroTodo struct {
 	// valid. Story creation refuses a target that is not on the macro's tracker
 	// instance, where the macro could not be the story's parent.
 	TargetProjectID string `json:"targetProjectId,omitempty"`
+	// TargetTrackerProject is a roadmap project of the macro's project, a Jira
+	// project key, when the line's story is created there rather than in a
+	// Sectile project (#632). It excludes TargetProjectID; the story it creates
+	// stays in Jira and is never imported.
+	TargetTrackerProject string `json:"targetTrackerProject,omitempty"`
 	// SourceKind dit de quel artefact la ligne a été importée, parmi les
 	// MacroTodoFrom* ci-dessus. Vide vaut « saisie à la main ».
 	//
@@ -412,6 +470,15 @@ type TeamWorkload struct {
 	Outside []TeamMemberLoad `json:"outside"`
 }
 
+// EpicAxisPrefixes are the label prefixes, separator included, under which a
+// project's epics carry their priority, quarter and readiness (#635): "prio-"
+// in "prio-p1". An empty field means the default prefix of that axis.
+type EpicAxisPrefixes struct {
+	Priority  string `json:"priority,omitempty"`
+	Quarter   string `json:"quarter,omitempty"`
+	Readiness string `json:"readiness,omitempty"`
+}
+
 // CreateProjectRequest and UpdateProjectRequest carry no execution setting
 // (#305): the workstation owns them, and a request that still names one is
 // decoded without it, so an older client keeps saving the rest.
@@ -424,32 +491,35 @@ type CreateProjectRequest struct {
 	// EpicColors paints each card with the colour of its epic. Off when absent.
 	EpicColors bool `json:"epicColors,omitempty"`
 	// RoadmapProjects are the Jira project keys the slicing also reads.
-	RoadmapProjects     []string `json:"roadmapProjects,omitempty"`
-	Name                string   `json:"name"`
-	Slug                string   `json:"slug,omitempty"`
-	Description         string   `json:"description,omitempty"`
-	Icon                string   `json:"icon,omitempty"`
-	Color               string   `json:"color,omitempty"`
-	Repositories        []string `json:"repositories,omitempty"`
-	PRCreationStage     string   `json:"prCreationStage,omitempty"`
-	SpecArtifacts       string   `json:"specArtifacts,omitempty"`
-	BranchNameFormat    string   `json:"branchNameFormat,omitempty"`
-	DefaultSkillMode    string   `json:"defaultSkillMode,omitempty"`
-	FullChainStopStage  string   `json:"fullChainStopStage,omitempty"`
-	PushStageCommits    bool     `json:"pushStageCommits,omitempty"`
-	BoardID             string   `json:"boardId,omitempty"`
-	GitRemoteUrl        string   `json:"gitRemoteUrl,omitempty"`
-	GithubRepo          string   `json:"githubRepo,omitempty"`
-	GithubApiUrl        string   `json:"githubApiUrl,omitempty"`
-	GitlabUrl           string   `json:"gitlabUrl,omitempty"`
-	GitlabProject       string   `json:"gitlabProject,omitempty"`
-	JiraProject         string   `json:"jiraProject,omitempty"`
-	IssueTracker        string   `json:"issueTracker,omitempty"`
-	TrackerUrl          string   `json:"trackerUrl,omitempty"`
-	IsDefault           bool     `json:"isDefault,omitempty"`
-	SpecFramework       string   `json:"specFramework,omitempty"`
-	AutoSyncEnabled     *bool    `json:"autoSyncEnabled,omitempty"`
-	AutoSyncIntervalMin *int     `json:"autoSyncIntervalMin,omitempty"`
+	RoadmapProjects   []string `json:"roadmapProjects,omitempty"`
+	RoadmapAxisWrites bool     `json:"roadmapAxisWrites,omitempty"`
+	// EpicAxisPrefixes names the label prefixes of the epic axes (#635).
+	EpicAxisPrefixes    EpicAxisPrefixes `json:"epicAxisPrefixes"`
+	Name                string           `json:"name"`
+	Slug                string           `json:"slug,omitempty"`
+	Description         string           `json:"description,omitempty"`
+	Icon                string           `json:"icon,omitempty"`
+	Color               string           `json:"color,omitempty"`
+	Repositories        []string         `json:"repositories,omitempty"`
+	PRCreationStage     string           `json:"prCreationStage,omitempty"`
+	SpecArtifacts       string           `json:"specArtifacts,omitempty"`
+	BranchNameFormat    string           `json:"branchNameFormat,omitempty"`
+	DefaultSkillMode    string           `json:"defaultSkillMode,omitempty"`
+	FullChainStopStage  string           `json:"fullChainStopStage,omitempty"`
+	PushStageCommits    bool             `json:"pushStageCommits,omitempty"`
+	BoardID             string           `json:"boardId,omitempty"`
+	GitRemoteUrl        string           `json:"gitRemoteUrl,omitempty"`
+	GithubRepo          string           `json:"githubRepo,omitempty"`
+	GithubApiUrl        string           `json:"githubApiUrl,omitempty"`
+	GitlabUrl           string           `json:"gitlabUrl,omitempty"`
+	GitlabProject       string           `json:"gitlabProject,omitempty"`
+	JiraProject         string           `json:"jiraProject,omitempty"`
+	IssueTracker        string           `json:"issueTracker,omitempty"`
+	TrackerUrl          string           `json:"trackerUrl,omitempty"`
+	IsDefault           bool             `json:"isDefault,omitempty"`
+	SpecFramework       string           `json:"specFramework,omitempty"`
+	AutoSyncEnabled     *bool            `json:"autoSyncEnabled,omitempty"`
+	AutoSyncIntervalMin *int             `json:"autoSyncIntervalMin,omitempty"`
 }
 
 type UpdateProjectRequest struct {
@@ -460,6 +530,8 @@ type UpdateProjectRequest struct {
 	Color               *string              `json:"color,omitempty"`
 	Repositories        *[]string            `json:"repositories,omitempty"`
 	RoadmapProjects     *[]string            `json:"roadmapProjects,omitempty"`
+	RoadmapAxisWrites   *bool                `json:"roadmapAxisWrites,omitempty"`
+	EpicAxisPrefixes    *EpicAxisPrefixes    `json:"epicAxisPrefixes,omitempty"`
 	PRCreationStage     *string              `json:"prCreationStage,omitempty"`
 	SpecArtifacts       *string              `json:"specArtifacts,omitempty"`
 	BranchNameFormat    *string              `json:"branchNameFormat,omitempty"`

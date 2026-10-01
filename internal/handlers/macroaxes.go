@@ -12,10 +12,11 @@ import (
 // changed, and returns the note the macro response carries.
 //
 // A macro whose epic cannot carry a label keeps the values in Sectile and gets
-// no queued write at all: that is the expected outcome on a GitHub milestone or
-// a local project, and a failed activity per edit would report it as an error.
-func (h *Handler) enqueueMacroAxes(r *http.Request, projectID string, key string, saved *models.MacroMeta, priority bool, quarter bool) string {
-	if !saved.LabelsWritable {
+// no queued write at all: that is the expected outcome on a GitHub milestone, a
+// local project or an epic of a roadmap project that was not opted in, and a
+// failed activity per edit would report it as an error.
+func (h *Handler) enqueueMacroAxes(r *http.Request, projectID string, key string, saved *models.MacroMeta, priority bool, quarter bool, readiness bool) string {
+	if !saved.AxesWritable {
 		return "conservé dans Sectile, non écrit sur le tracker"
 	}
 	ops := []db.TrackerOp{}
@@ -24,6 +25,14 @@ func (h *Handler) enqueueMacroAxes(r *http.Request, projectID string, key string
 	}
 	if quarter {
 		ops = append(ops, db.TrackerOp{Kind: db.TrackerOpEpicQuarter, ProjectID: projectID, TaskKey: key, EpicKey: key, Quarter: saved.Quarter})
+	}
+	// The readiness is not among the axes a roadmap project's epic opens to
+	// (#632): only an epic whose labels are ours takes it.
+	if readiness && saved.LabelsWritable {
+		ops = append(ops, db.TrackerOp{Kind: db.TrackerOpEpicReadiness, ProjectID: projectID, TaskKey: key, EpicKey: key, Readiness: saved.Readiness})
+	}
+	if len(ops) == 0 {
+		return "conservé dans Sectile, non écrit sur le tracker"
 	}
 	for _, op := range ops {
 		if _, err := h.db.EnqueueTrackerOp(h.actingContext(r), op); err != nil {
