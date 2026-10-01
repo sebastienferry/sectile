@@ -782,14 +782,22 @@ anyway** stay labelled, because their meaning depends on the stage.
 
 ### Desktop Quick add
 
-Press **Cmd+K** (macOS) or **Ctrl+K** to open the command palette, search its
-actions, and choose **Quick add task** or **Tasks list**. Enter runs the first
-matching action. The selected project's identity is prefilled; without a
-selection, choose a project explicitly. Enter a title and optional description.
+Press **Cmd+N** (macOS) or **Ctrl+N** to open **New task** directly; a focused
+terminal keeps Ctrl+N. It opens on the selected project, else on the one last
+used, else asks for one. Enter a title, and an optional Markdown description;
+Enter in the title or Cmd+Enter (Ctrl+Enter) in the description creates it.
 The server creates the task using its project tracker configuration.
 GitHub and Jira creation must succeed remotely; errors do not silently create
-a local fallback. Local projects remain local. Creation does not start an execution;
-the success screen offers a separate **Launch task** action.
+a local fallback. Local projects remain local. Creation does not start an
+execution: the success screen offers **Clarify now**, **Launch task** for any
+other launch, and **Add another** in the same project.
+
+Press **Cmd+K** (macOS) or **Ctrl+K** to open the command palette. One list
+searches the desktop's actions (**New task**, **Tasks list**, the sidebar,
+Settings, the web interface, each with its shortcut), the projects added to this
+workstation, to open their tasks, and the executions the sidebar shows, by task
+key, title, project, skill or state. Every word typed must match; arrows move,
+Enter runs the highlighted entry, Escape closes.
 
 The task launcher excludes finished tasks, including the finished workflow
 label. Each result shows its current workflow stage and tracker status when

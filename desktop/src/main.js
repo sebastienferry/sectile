@@ -2,6 +2,8 @@ import { currentPullRequest, renderPullRequestIndicator } from './pullRequests.m
 import { installTooltips } from './tooltips.js'
 import {mcpSettings} from './mcp-settings.mjs'
 import { skillResultDue, skillResultStamp } from './skill-result-refresh.mjs'
+import { newTaskShortcutAction, newTaskShortcutLabel } from './new-task-shortcut.mjs'
+import { paletteMatches } from './command-palette.mjs'
 import { logText } from './log-text.mjs'
 import { createGitDiff } from './gitDiff.js'
 import { createConversationView } from './conversation.js'
@@ -950,7 +952,7 @@ dialog.addEventListener('close',()=>{
 function showDialog(title){
  closeConfiguration()
  updateSettingsConnection=null
- dialog.classList.remove('workstation-settings')
+ dialog.classList.remove('workstation-settings','palette-dialog','quick-add-dialog')
  returnConnectForm()
  // The footer is shared by every dialog, so a control one of them added there
  // must go before the next one opens.
@@ -2977,12 +2979,29 @@ sidebarHandle.onlostpointercapture=()=>document.body.classList.remove('resizing-
 sidebarHandle.onkeydown=event=>{if(event.key==='ArrowLeft'||event.key==='ArrowRight'){event.preventDefault();sidebarWidth(document.querySelector('aside').getBoundingClientRect().width+(event.key==='ArrowRight'?20:-20))}}
 document.querySelector('#toggle-sidebar').innerHTML='<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16m7-12-4 4 4 4"/></svg>'
 
-// The palette is a list of actions rather than a hardcoded one, so adding a
-// command is a row and not another hidden-state to maintain by hand.
-const COMMANDS=[
- {label:'Quick add task',run:()=>quickAdd()},
- {label:'Tasks list',run:()=>openTicketsFromPalette()}
-]
+// The palette searches, in one list, the desktop's actions, the projects and
+// the executions: a few keys reach anything the sidebar shows. Actions are a
+// list rather than hardcoded rows, so adding one is a line.
+function paletteEntries(){
+ const mac=isMacPlatform(navigator)
+ const entries=[
+  {group:'action',label:'New task',detail:'Create a task in a project',hint:newTaskShortcutLabel(mac),run:()=>quickAdd()},
+  {group:'action',label:'Tasks list',detail:'Browse the open tasks of a project',run:()=>openTicketsFromPalette()},
+  {group:'action',label:(document.querySelector('#workspace').classList.contains('sidebar-hidden')?'Show':'Hide')+' the sidebar',hint:sidebarShortcutLabel(mac),run:()=>{dialog.close();toggleSidebar()}},
+  {group:'action',label:'Settings',hint:configShortcutLabel(mac),run:()=>{dialog.close();openSettings('Profile')}},
+  {group:'action',label:'Open the web interface',run:()=>{dialog.close();api.openBoard().catch(error)}},
+ ]
+ for(const project of projects.filter(addedProject))entries.push({group:'project',label:project.name,detail:'Open its tasks',run:()=>{dialog.close();openTickets(project.id)}})
+ // The executions the sidebar shows, the latest first.
+ const shown=runs.filter(run=>!hiddenRun(run)&&!sidebarHiddenProjects.has(run.projectId))
+ for(const run of shown.slice().reverse()){
+  const key=run.taskKey||'',name=taskTitles.get(run.taskId)||taskState(run).name||''
+  const label=[key,name||runLabel(run)].filter(Boolean).join(' · ')
+  const project=projects.find(item=>item.id===run.projectId)?.name||run.projectId
+  entries.push({group:'execution',label,detail:[project,run.skill,runStateLabel(runStateOf(run))].filter(Boolean).join(' · '),run:()=>{dialog.close();select(run)}})
+ }
+ return entries
+}
 // The tickets list needs a project. The selected one answers that, and a single
 // configured project answers it too; otherwise the palette asks rather than
 // guessing which project the user meant.
@@ -2992,7 +3011,7 @@ async function openTicketsFromPalette(){
  }
  const known=projects.filter(project=>!hiddenProject(project.id))
  const chosen=known.find(project=>project.id===selectedProject)||(known.length===1?known[0]:null)
- if(chosen){openTickets(chosen.id);return}
+ if(chosen){dialog.close();openTickets(chosen.id);return}
  showDialog('Tasks list')
  if(!known.length){paragraph('Add a project before browsing its tasks.');return}
  paragraph('Choose the project whose tasks you want to browse.')
@@ -3003,24 +3022,43 @@ async function openTicketsFromPalette(){
  }
  dialogBody.querySelector('.discovered-project')?.focus()
 }
+const PALETTE_GROUPS={action:'Actions',project:'Projects',execution:'Executions'}
 function openCommandPalette(){
- showDialog('Commands')
- const filter=document.createElement('input');filter.placeholder='Search actions…';filter.setAttribute('aria-label','Search commands')
- const buttons=COMMANDS.map(command=>{
-  const button=document.createElement('button');button.className='discovered-project';button.textContent=command.label
-  button.onclick=()=>command.run()
-  return button
- })
- filter.oninput=()=>{
-  const text=filter.value.trim().toLowerCase()
-  for(const [index,button] of buttons.entries())button.hidden=!COMMANDS[index].label.toLowerCase().includes(text)
+ showDialog('Commands');dialog.classList.add('palette-dialog')
+ dialogBody.querySelector('h2').className='visually-hidden'
+ const entries=paletteEntries()
+ const filter=document.createElement('input');filter.className='palette-filter';filter.placeholder='Search actions, projects and tasks…'
+ filter.setAttribute('role','combobox');filter.setAttribute('aria-label','Search commands');filter.setAttribute('aria-controls','palette-list');filter.setAttribute('aria-expanded','true');filter.setAttribute('aria-autocomplete','list')
+ const list=document.createElement('ul');list.id='palette-list';list.className='palette-list';list.setAttribute('role','listbox');list.setAttribute('aria-label','Commands')
+ const empty=document.createElement('p');empty.className='palette-empty';empty.textContent='Nothing matches'
+ let shown=[],active=0
+ const mark=()=>{
+  for(const [index,item] of [...list.querySelectorAll('[role=option]')].entries())item.setAttribute('aria-selected',String(index===active))
+  const current=list.querySelectorAll('[role=option]')[active]
+  if(current){filter.setAttribute('aria-activedescendant',current.id);current.scrollIntoView({block:'nearest'})}else filter.removeAttribute('aria-activedescendant')
  }
+ const draw=()=>{
+  shown=paletteMatches(entries,filter.value);active=Math.min(active,Math.max(0,shown.length-1))
+  list.replaceChildren();empty.hidden=shown.length>0
+  let group=null
+  for(const [index,entry] of shown.entries()){
+   if(entry.group!==group){group=entry.group;const heading=document.createElement('li');heading.className='palette-group';heading.setAttribute('role','presentation');heading.textContent=PALETTE_GROUPS[group];list.append(heading)}
+   const item=document.createElement('li');item.id='palette-option-'+index;item.className='palette-option';item.setAttribute('role','option')
+   const label=document.createElement('span');label.className='palette-label';label.textContent=entry.label;item.append(label)
+   if(entry.detail){const detail=document.createElement('span');detail.className='palette-detail';detail.textContent=entry.detail;item.append(detail)}
+   if(entry.hint){const hint=document.createElement('kbd');hint.className='palette-hint';hint.textContent=entry.hint;item.append(hint)}
+   item.addEventListener('mousemove',()=>{if(active!==index){active=index;mark()}})
+   item.addEventListener('click',()=>entry.run())
+   list.append(item)
+  }
+  mark()
+ }
+ filter.oninput=()=>{active=0;draw()}
  filter.onkeydown=event=>{
-  if(event.key!=='Enter')return
-  const first=buttons.find(button=>!button.hidden)
-  if(first){event.preventDefault();first.click()}
+  if(event.key==='ArrowDown'||event.key==='ArrowUp'){event.preventDefault();if(shown.length){active=(active+(event.key==='ArrowDown'?1:shown.length-1))%shown.length;mark()}}
+  else if(event.key==='Enter'){const entry=shown[active];if(entry){event.preventDefault();entry.run()}}
  }
- dialogBody.append(filter,...buttons);filter.focus()
+ dialogBody.append(filter,list,empty);draw();filter.focus()
 }
 document.querySelector('#command-palette').onclick=openCommandPalette
 window.addEventListener('keydown',event=>{
@@ -3032,6 +3070,11 @@ window.addEventListener('keydown',event=>{
 window.addEventListener('keydown',event=>{
  if((event.metaKey||event.ctrlKey)&&event.key.toLowerCase()==='k'){event.preventDefault();event.stopPropagation();openCommandPalette()}
 },true)
+// Cmd+N / Ctrl+N opens the new task dialog; a focused terminal keeps Ctrl+N.
+window.addEventListener('keydown',event=>{
+ const action=newTaskShortcutAction({key:event.key,metaKey:event.metaKey,ctrlKey:event.ctrlKey,shiftKey:event.shiftKey,altKey:event.altKey,repeat:event.repeat,defaultPrevented:event.defaultPrevented,mac:isMacPlatform(navigator),inTerminal:!!document.activeElement?.closest?.('.xterm'),modalOpen:dialog.open})
+ if(action==='open'&&agentConnected){event.preventDefault();event.stopPropagation();quickAdd()}
+},true)
 // Cmd+B / Ctrl+B toggles the projects sidebar (#474). In the capture phase, so
 // that on macOS Cmd+B never reaches the terminal; an ignored key is left
 // untouched, which is how Ctrl+B still reaches a focused terminal elsewhere.
@@ -3039,32 +3082,72 @@ window.addEventListener('keydown',event=>{
  const action=sidebarShortcutAction({key:event.key,metaKey:event.metaKey,ctrlKey:event.ctrlKey,shiftKey:event.shiftKey,altKey:event.altKey,repeat:event.repeat,defaultPrevented:event.defaultPrevented,mac:isMacPlatform(navigator),inTerminal:!!document.activeElement?.closest?.('.xterm'),modalOpen:dialog.open})
  if(action==='toggle'){event.preventDefault();event.stopPropagation();toggleSidebar()}
 },true)
-async function quickAdd(projectID=selectedProject){
- showDialog('Quick add task')
- const form=document.createElement('form'),projectLabel=document.createElement('label'),project=document.createElement('select')
- projectLabel.textContent='Project';project.setAttribute('aria-label','Quick add project')
+// The project quick add opens on: the selected one, else the one last used.
+const QUICK_ADD_PROJECT='quickAddProject'
+async function quickAdd(projectID){
+ showDialog('New task');dialog.classList.add('quick-add-dialog')
  try{await loadProjects()}catch(err){paragraph(err.message);return}
- for(const item of projects){const option=document.createElement('option');option.value=item.id;option.textContent=item.name;project.append(option)}
- project.value=projectID||''
- if(!project.value){const empty=document.createElement('option');empty.value='';empty.textContent='Select a project';project.prepend(empty);project.value=''}
- project.required=true;projectLabel.append(project)
- const title=document.createElement('input');title.placeholder='Task title';title.setAttribute('aria-label','Task title');title.required=true;title.maxLength=500
- const description=document.createElement('textarea');description.className='cli-command';description.placeholder='Description (optional)';description.setAttribute('aria-label','Task description')
- const submit=document.createElement('button');submit.textContent='Create task'
- const notice=document.createElement('p');notice.setAttribute('role','status')
- form.append(projectLabel,title,description,submit,notice);dialogBody.append(form);title.focus()
+ let remembered='';try{remembered=localStorage.getItem(QUICK_ADD_PROJECT)||''}catch{}
+ const known=projects.filter(addedProject)
+ const choice=[projectID,selectedProject,remembered].find(id=>id&&known.some(project=>project.id===id))||(known.length===1?known[0].id:'')
+ const mac=isMacPlatform(navigator)
+ const form=document.createElement('form');form.className='quick-add'
+ const field=(text,control,hint)=>{
+  const label=document.createElement('label');label.className='quick-add-field'
+  const name=document.createElement('span');name.className='quick-add-name';name.textContent=text;label.append(name)
+  if(hint){const small=document.createElement('small');small.textContent=hint;name.append(small)}
+  label.append(control);return label
+ }
+ const project=document.createElement('select')
+ if(!choice){const none=document.createElement('option');none.value='';none.textContent='Select a project';project.append(none)}
+ for(const item of known){const option=document.createElement('option');option.value=item.id;option.textContent=item.name;project.append(option)}
+ project.value=choice;project.required=true
+ const title=document.createElement('input');title.placeholder='What needs doing?';title.required=true;title.maxLength=500
+ const description=document.createElement('textarea');description.rows=4;description.placeholder='Context, acceptance criteria, links…'
+ const grow=()=>{description.style.height='auto';description.style.height=Math.min(description.scrollHeight,320)+'px'}
+ description.addEventListener('input',grow)
+ const notice=document.createElement('p');notice.className='quick-add-notice';notice.setAttribute('role','status')
+ const actions=document.createElement('div');actions.className='quick-add-actions'
+ const keys=document.createElement('span');keys.className='quick-add-keys';keys.textContent=(mac?'⌘↵':'Ctrl+Enter')+' to create'
+ const cancel=document.createElement('button');cancel.type='button';cancel.className='secondary';cancel.textContent='Cancel';cancel.onclick=()=>dialog.close()
+ const submit=document.createElement('button');submit.type='submit';submit.textContent='Create task'
+ actions.append(keys,cancel,submit)
+ form.append(field('Project',project),field('Title',title),field('Description',description,'Optional, Markdown'),notice,actions)
+ dialogBody.append(form);(choice?title:project).focus()
+ description.addEventListener('keydown',event=>{if(event.key==='Enter'&&(mac?event.metaKey:event.ctrlKey)){event.preventDefault();form.requestSubmit()}})
  form.onsubmit=async event=>{
-  event.preventDefault();if(!title.value.trim())return;submit.disabled=true
-  notice.textContent='Creating task on the server and configured tracker…'
+  event.preventDefault();if(!title.value.trim()||!project.value)return
+  submit.disabled=cancel.disabled=true
+  notice.textContent='Creating the task on the server and its tracker…'
   try{
    const task=await api.createTask({projectID:project.value,title:title.value.trim(),description:description.value})
    selectedProject=project.value
-   form.replaceChildren()
-   notice.textContent='Created '+(task.key||task.id)+' · '+task.title
-   const launch=document.createElement('button');launch.type='button';launch.textContent='Launch task'
-   launch.onclick=()=>openTickets(task.projectId,task.key||task.title)
-   form.append(notice,launch)
-  }catch(err){notice.textContent=err.message;submit.disabled=false}
+   try{localStorage.setItem(QUICK_ADD_PROJECT,project.value)}catch{}
+   created(task,project.value)
+  }catch(err){notice.textContent=err.message;submit.disabled=cancel.disabled=false}
+ }
+ // What follows a creation: clarify it at once, pick another launch, or add
+ // the next one in the same project.
+ function created(task,projectId){
+  form.replaceChildren()
+  const done=document.createElement('p');done.className='quick-add-created'
+  done.textContent='Created '+(task.key||task.id)+' · '+task.title
+  const next=document.createElement('div');next.className='quick-add-actions'
+  const status=document.createElement('p');status.className='quick-add-notice';status.setAttribute('role','status')
+  const clarify=document.createElement('button');clarify.type='button';clarify.textContent='Clarify now'
+  clarify.onclick=async()=>{
+   clarify.disabled=true;status.textContent='Launching clarify…'
+   try{await api.launchServerTask(projectId,task.id,'clarify','','',false,consoleView);dialog.close();await refresh()}
+   catch(err){status.textContent=err.message;clarify.disabled=false}
+  }
+  const launch=document.createElement('button');launch.type='button';launch.className='secondary';launch.textContent='Launch task'
+  launch.onclick=()=>{dialog.close();openTickets(projectId,task.key||task.title)}
+  const another=document.createElement('button');another.type='button';another.className='secondary';another.textContent='Add another'
+  another.onclick=()=>quickAdd(projectId)
+  const close=document.createElement('button');close.type='button';close.className='secondary';close.textContent='Done'
+  close.onclick=()=>dialog.close()
+  next.append(another,launch,close,clarify)
+  form.append(done,status,next);clarify.focus()
  }
 }
 
