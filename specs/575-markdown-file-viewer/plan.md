@@ -9,7 +9,7 @@ Behaviour: [`spec.md`](spec.md). Checklist: [`tasks.md`](tasks.md).
 | Agent, inspection | `internal/runner/worktree_diff.go` | capture Markdown contents from the snapshot trees |
 | Agent, HTTP | `internal/agent/agent_desktop.go` | advertise the `markdown-documents` capability |
 | Desktop, main process | `desktop/electron/main.cjs`, `desktop/electron/preload.cjs` | pass the capability through; new `open-link` IPC |
-| Desktop, renderer | `desktop/src/markdownView.js` (new), `desktop/src/gitDiff.js`, `desktop/src/main.js`, `desktop/src/style.css` | Markdown model and DOM builder; toggle and rendered view |
+| Desktop, renderer | `desktop/src/markdownView.mjs` (new), `desktop/src/gitDiff.js`, `desktop/src/main.js`, `desktop/src/style.css` | Markdown model and DOM builder; toggle and rendered view |
 | Dependency | `desktop/package.json`, `desktop/package-lock.json` | `markdown-it` ^14 (MIT) |
 | Docs | `CHANGELOG.md` | one `Added` line |
 
@@ -35,7 +35,7 @@ type WorktreeDiffFile struct {
 }
 ```
 
-Exactly one of `Content` and `OmittedReason` is set. Older Desktop builds ignore the
+`OmittedReason` is set whenever `Content` is unavailable. Older Desktop builds ignore the
 field. Every user-facing reason is in English, like the existing `omittedReason` strings
 of this file.
 
@@ -44,7 +44,9 @@ of this file.
 The snapshot is a private index and object directory removed when `inspectWorktree`
 returns, and uncommitted blobs exist only there. The content is therefore read inside
 `inspectWorktree`, after `write-tree` and before the temporary directory is removed,
-with one `snapshot.command(input, limit, "cat-file", "--batch")` call:
+through `snapshot.command`: one `cat-file --batch-check` call reads the sizes, then one
+`cat-file --batch` call reads only the blobs within the bounds below, so an oversized
+blob is never read into memory:
 
 - new side: `<tree>:<path>` where `tree` is the snapshot tree returned by `write-tree`;
 - old side (status `deleted`): `<ancestor>:<path>`, the merge base the patch compares
@@ -63,8 +65,8 @@ A path containing a newline cannot be addressed on a `--batch` line; such a file
 ### Bounds
 
 - `diffDocumentLimit = 512 << 10` per document. A larger blob gets
-  `"File exceeds the 512 KiB rendering limit."`. The size is read from the
-  `cat-file --batch` header, and the request asks for the documents in path order.
+  `"File exceeds the 512 KiB rendering limit."`. The size is read by
+  `cat-file --batch-check`, and both requests ask for the documents in path order.
 - `diffDocumentBudget = 4 << 20` for all documents of one response, **separate from**
   `diffResponseLimit`. The existing file-list truncation loop runs first and is left
   untouched, so FR-013 holds; documents are attached afterwards, in path order, to the
@@ -78,6 +80,9 @@ The worst-case response grows from 4 MiB to 8 MiB plus metadata. It travels over
 loopback and Electron IPC once per refresh, which both handle.
 
 When the execution has no Markdown file, no `cat-file` process starts (NFR-002).
+
+An empty Markdown file carries a document with neither `Content` nor `OmittedReason`:
+the absence of a reason is what tells the Desktop it can render.
 
 ### Capability
 
@@ -98,7 +103,7 @@ When the execution has no Markdown file, no `cat-file` process starts (NFR-002).
 
 ## 3. Desktop renderer
 
-### `desktop/src/markdownView.js` (new)
+### `desktop/src/markdownView.mjs` (new)
 
 Two exports, split so the parsing rules are testable under `node --test` without a DOM:
 

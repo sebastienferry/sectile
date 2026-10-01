@@ -394,6 +394,12 @@ ipcMain.handle('open-pr',async(_,value)=>{
  if(!['http:','https:'].includes(url.protocol)||url.username||url.password)throw Error('Invalid pull request URL')
  await shell.openExternal(url.href)
 })
+// Links of a rendered Markdown document: web and mail only, never in this window.
+ipcMain.handle('open-link',async(_,value)=>{
+ const url=new URL(value)
+ if(!['http:','https:','mailto:'].includes(url.protocol)||url.username||url.password)throw Error('Only web and mail links can be opened')
+ await shell.openExternal(url.href)
+})
 ipcMain.handle('create-task',async(_,input)=>{
  const status=await api('/desktop/status')
  if(!status.capabilities?.includes('create-task'))throw Error('The running local agent is outdated. Stop it, then start the rebuilt agent before creating a task. Closing the desktop alone does not restart the agent.')
@@ -453,7 +459,8 @@ ipcMain.handle('git-diff',async(_,id)=>{
  if(typeof id!=='string'||!id||id.length>512)throw Error('Select an execution to inspect changes.')
  const status=await api('/desktop/status')
  if(!status.capabilities?.includes('git-diff'))throw Error('Update and restart the local agent to inspect changes.')
- try{return await api('/desktop/git-diff?id='+encodeURIComponent(id))}
+ // markdownDocuments tells the renderer whether this agent sends Markdown contents (#575).
+ try{return {...await api('/desktop/git-diff?id='+encodeURIComponent(id)),markdownDocuments:!!status.capabilities.includes('markdown-documents')}}
  catch(err){
   let detail
   try{detail=JSON.parse(err.body||err.message)}catch{throw err}

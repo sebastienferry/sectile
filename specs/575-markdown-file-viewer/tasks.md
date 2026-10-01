@@ -4,51 +4,51 @@ Spec: [`spec.md`](spec.md). Plan: [`plan.md`](plan.md). Work on `feat/575`.
 
 ## Phase 1: Agent contract
 
-- [ ] T001 Add `DiffDocument`, the `Document` field, `diffDocumentLimit` and
+- [x] T001 Add `DiffDocument`, the `Document` field, `diffDocumentLimit` and
   `diffDocumentBudget` to `internal/runner/worktree_diff.go`, with an `isMarkdownPath`
   helper (`.md` / `.markdown`, case-insensitive).
-- [ ] T002 In `inspectWorktree`, after the file-list truncation loop and before returning,
-  read the Markdown blobs with one `cat-file --batch` through `snapshot.command`
+- [x] T002 In `inspectWorktree`, after the file-list truncation loop and before returning,
+  read the Markdown blobs with `cat-file --batch-check` then `cat-file --batch` through `snapshot.command`
   (`<tree>:<path>` for new side, `<ancestor>:<path>` for deleted), skip the call when no
   Markdown file is listed, and attach content or reason per the bounds of the plan.
-- [ ] T003 Write `TestWorktreeDiffMarkdownDocuments` (cases listed in the plan), plus a
+- [x] T003 Write `TestWorktreeDiffMarkdownDocuments` (cases listed in the plan), plus a
   budget case asserting that every file keeps its patch. Run
   `go test ./internal/runner/ -run WorktreeDiff`.
-- [ ] T004 Advertise `markdown-documents` in `internal/agent/agent_desktop.go` and assert
+- [x] T004 Advertise `markdown-documents` in `internal/agent/agent_desktop.go` and assert
   it in a status test. Run `go test ./internal/agent/ -run 'Desktop'`.
 
 ## Phase 2: Desktop main process
 
-- [ ] T005 `desktop/electron/main.cjs`: add `markdownDocuments` to the `git-diff` result;
+- [x] T005 `desktop/electron/main.cjs`: add `markdownDocuments` to the `git-diff` result;
   add the `open-link` handler (http, https without credentials, mailto only).
-- [ ] T006 `desktop/electron/preload.cjs`: expose `openLink`.
+- [x] T006 `desktop/electron/preload.cjs`: expose `openLink`.
 
 ## Phase 3: Desktop renderer
 
-- [ ] T007 Add `markdown-it` ^14 to `desktop/package.json` dependencies and update
+- [x] T007 Add `markdown-it` ^14 to `desktop/package.json` dependencies and update
   `desktop/package-lock.json` (`npm install markdown-it@^14` in `desktop/`).
-- [ ] T008 Create `desktop/src/markdownView.js` with `markdownModel` and
+- [x] T008 Create `desktop/src/markdownView.mjs` with `markdownModel` and
   `renderMarkdown`, using no HTML-string sink.
-- [ ] T009 Write `desktop/tests/markdown-view.test.mjs` (cases listed in the plan) and run
+- [x] T009 Write `desktop/tests/markdown-view.test.mjs` (cases listed in the plan) and run
   `node --test tests/markdown-view.test.mjs` in `desktop/`.
-- [ ] T010 `desktop/src/gitDiff.js`: toggle, note, rendered container, session-held
+- [x] T010 `desktop/src/gitDiff.js`: toggle, note, rendered container, session-held
   `rendered` state and the four `showFile` branches of the plan.
-- [ ] T011 `desktop/src/style.css`: `.diff-rendered` and `.md-*` rules on existing tokens,
+- [x] T011 `desktop/src/style.css`: `.diff-rendered` and `.md-*` rules on existing tokens,
   checked in light and dark appearances.
 
 ## Phase 4: End-to-end checks
 
-- [ ] T012 Extend `desktop/tests/git-diff.ui.cjs` or add `desktop/tests/markdown-view.ui.cjs`
+- [x] T012 Add `desktop/tests/markdown-view.ui.cjs`
   with the UI cases of the plan, including the hostile document and the stubbed
   `shell.openExternal`.
-- [ ] T013 `npx vite build` in `desktop/`, restore `webui/.gitkeep` if the build removed
+- [x] T013 `npx vite build` in `desktop/`, restore `webui/.gitkeep` if the build removed
   it, then `npm test` and `npm run test:ui` in `desktop/` (sandbox off).
-- [ ] T014 `go test ./internal/runner/ ./internal/agent/` and `go vet ./...`.
+- [x] T014 `go test ./internal/runner/ ./internal/agent/` and `go vet ./...`.
 
 ## Phase 5: Documentation and handoff
 
-- [ ] T015 Add the `Added` line of the plan under `## [Unreleased]` in `CHANGELOG.md`.
-- [ ] T016 Walk the acceptance criteria AC-001 to AC-005 of the spec and tick each one in
+- [x] T015 Add the `Added` line of the plan under `## [Unreleased]` in `CHANGELOG.md`.
+- [x] T016 Walk the acceptance criteria AC-001 to AC-005 of the spec and tick each one in
   the implementation report.
 
 ## Test plan summary
