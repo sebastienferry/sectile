@@ -136,6 +136,10 @@ function baseCard(event, root) {
     case 'Task':
     case 'Agent':
       return { name, target: [str(args.subagent_type), str(args.description)].filter(Boolean).join(' · '), note: '', open: false, body: str(args.prompt) ? { type: 'code', text: str(args.prompt) } : null }
+    case 'AskUserQuestion': {
+      const questions = (Array.isArray(args.questions) ? args.questions : []).filter(question => question && typeof question === 'object')
+      return { name: 'Question', target: questions.map(question => str(question.header) || str(question.question)).filter(Boolean).join(' · '), note: '', open: false, body: null }
+    }
     case 'TodoWrite': {
       const items = (Array.isArray(args.todos) ? args.todos : [])
         .filter(todo => todo && typeof todo === 'object')
@@ -161,7 +165,7 @@ export function renderToolCard(card, { document = globalThis.document } = {}) {
   const summary = el(expandable ? 'summary' : 'div', 'tool-card-summary')
   summary.append(el('span', 'tool-card-name', card.name))
   if (card.target) summary.append(el('span', 'tool-card-target', card.target))
-  const status = card.decision === 'deny' ? 'denied' : card.failed ? 'failed' : card.pending ? 'running…' : card.decision === 'always' ? 'always allowed' : ''
+  const status = card.decision === 'deny' ? 'denied' : card.failed ? 'failed' : card.pending ? 'running…' : card.decision === 'always' ? 'always allowed' : card.decision === 'answer' ? 'answered' : ''
   if (card.note || status) {
     const note = el('span', 'tool-card-note', card.note)
     if (status) note.append(el('span', 'tool-card-status', (card.note ? ' · ' : '') + status))

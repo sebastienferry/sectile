@@ -188,8 +188,9 @@ func (d *agentDaemon) desktopConversation(w http.ResponseWriter, r *http.Request
 		Interrupt bool `json:"interrupt"`
 		// Approval answers a tool call the turn is waiting on.
 		Approval *struct {
-			ID       string `json:"id"`
-			Decision string `json:"decision"`
+			ID       string            `json:"id"`
+			Decision string            `json:"decision"`
+			Answers  map[string]string `json:"answers"`
 		} `json:"approval"`
 	}
 	if r.Method == http.MethodPost {
@@ -248,7 +249,7 @@ func (d *agentDaemon) desktopConversation(w http.ResponseWriter, r *http.Request
 			http.Error(w, "Unknown decision", http.StatusBadRequest)
 			return
 		}
-		if err := decideApprovalLocked(run, input.Approval.ID, input.Approval.Decision); err != nil {
+		if err := decideApprovalLocked(run, input.Approval.ID, input.Approval.Decision, input.Approval.Answers); err != nil {
 			http.Error(w, err.Error(), http.StatusConflict)
 			return
 		}

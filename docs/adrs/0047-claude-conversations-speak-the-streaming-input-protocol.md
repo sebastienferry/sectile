@@ -71,8 +71,11 @@ user's settings ignored so that the request fires.
   this decision avoids.
 - A request whose answer never comes holds the turn: Stop answer or Stop end
   it. No notification tells an owner who looked away that a tool call waits.
-- `AskUserQuestion` arrives as an approval like any other and shows its input;
-  answering its questions needs a dedicated card.
+- `AskUserQuestion` arrives as an approval too. It is answered with the
+  decision `answer`: the call is allowed with its input plus `answers`, keyed
+  by question text, which is what Claude reads (checked against the CLI). The
+  agent takes answers for that tool only, one non-empty answer per question
+  asked.
 - Rejected: `--permission-mode bypassPermissions` for conversations (it would
   run whatever the skill asks, with no owner in the loop); an MCP permission
   tool served by the agent (one more MCP surface for what stdin already

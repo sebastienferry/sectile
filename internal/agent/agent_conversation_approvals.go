@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"sort"
+	"strings"
 	"sync"
 
 	"github.com/google/uuid"
@@ -85,13 +87,27 @@ type conversationControlRequest struct {
 	} `json:"request"`
 }
 
-// conversationDecisions are the answers the owner can give a tool call.
-var conversationDecisions = map[string]bool{"allow": true, "always": true, "deny": true}
+// conversationDecisions are the answers the owner can give a tool call;
+// "answer" is the one an AskUserQuestion call takes.
+var conversationDecisions = map[string]bool{"allow": true, "always": true, "deny": true, "answer": true}
 
-// approvalResponse is the control response that carries a decision.
-func approvalResponse(approval conversationApproval, decision string) map[string]any {
+// askUserQuestion is the tool Claude asks the owner questions through.
+const askUserQuestion = "AskUserQuestion"
+
+// conversationAnswersLimit bounds what an owner's answers may weigh.
+const conversationAnswersLimit = 16 * 1024
+
+// approvalResponse is the control response that carries a decision. An
+// answer allows the AskUserQuestion call with its input plus the answers,
+// keyed by question text, which is how Claude reads them.
+func approvalResponse(approval conversationApproval, decision string, answers map[string]string) map[string]any {
 	answer := map[string]any{"behavior": "deny", "message": "The user denied this tool call."}
-	if decision != "deny" {
+	if decision == "answer" {
+		input := map[string]any{}
+		_ = json.Unmarshal(approval.Input, &input)
+		input["answers"] = answers
+		answer = map[string]any{"behavior": "allow", "updatedInput": input}
+	} else if decision != "deny" {
 		input := approval.Input
 		if len(input) == 0 {
 			input = json.RawMessage("{}")
@@ -112,7 +128,7 @@ func controlError(requestID, message string) map[string]any {
 
 // decideApprovalLocked answers a pending tool call and records the decision
 // in the trace. The queue lock is held.
-func decideApprovalLocked(run *controlledRun, id, decision string) error {
+func decideApprovalLocked(run *controlledRun, id, decision string, answers map[string]string) error {
 	c := run.conversation
 	for i, approval := range c.approvals {
 		if approval.ID != id {
@@ -121,12 +137,67 @@ func decideApprovalLocked(run *controlledRun, id, decision string) error {
 		if c.input == nil {
 			return fmt.Errorf("the turn has ended")
 		}
-		if err := c.input.send(approvalResponse(approval, decision)); err != nil {
+		if err := checkAnswers(approval, decision, answers); err != nil {
+			return err
+		}
+		if err := c.input.send(approvalResponse(approval, decision, answers)); err != nil {
 			return err
 		}
 		c.approvals = append(c.approvals[:i:i], c.approvals[i+1:]...)
-		conversationWriteEvent(run.trace, conversationEvent{Kind: "approval", Text: decision, Tool: approval.Tool, ToolID: approval.ToolUseID})
+		event := conversationEvent{Kind: "approval", Text: decision, Tool: approval.Tool, ToolID: approval.ToolUseID}
+		if decision == "answer" {
+			event.Detail = answersDetail(answers)
+		}
+		conversationWriteEvent(run.trace, event)
 		return nil
 	}
 	return fmt.Errorf("no tool call is waiting for that decision")
+}
+
+// checkAnswers keeps answers to AskUserQuestion calls, and holds them to one
+// non-empty answer per question asked, within a size bound.
+func checkAnswers(approval conversationApproval, decision string, answers map[string]string) error {
+	if decision != "answer" {
+		if len(answers) > 0 {
+			return fmt.Errorf("answers only go with an answer")
+		}
+		return nil
+	}
+	if approval.Tool != askUserQuestion {
+		return fmt.Errorf("only a question takes answers")
+	}
+	var input struct {
+		Questions []struct {
+			Question string `json:"question"`
+		} `json:"questions"`
+	}
+	_ = json.Unmarshal(approval.Input, &input)
+	asked, size := map[string]bool{}, 0
+	for _, question := range input.Questions {
+		asked[question.Question] = true
+	}
+	for question, answer := range answers {
+		size += len(question) + len(answer)
+		if !asked[question] || strings.TrimSpace(answer) == "" {
+			return fmt.Errorf("an answer does not match a question asked")
+		}
+	}
+	if len(answers) != len(asked) || size > conversationAnswersLimit {
+		return fmt.Errorf("answer every question, briefly")
+	}
+	return nil
+}
+
+// answersDetail is how the trace keeps the owner's answers, one per line.
+func answersDetail(answers map[string]string) string {
+	questions := make([]string, 0, len(answers))
+	for question := range answers {
+		questions = append(questions, question)
+	}
+	sort.Strings(questions)
+	lines := make([]string, 0, len(questions))
+	for _, question := range questions {
+		lines = append(lines, question+" → "+answers[question])
+	}
+	return strings.Join(lines, "\n")
 }

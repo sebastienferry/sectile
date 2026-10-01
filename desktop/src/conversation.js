@@ -66,7 +66,7 @@ export function createConversationView({api,container,onError,canAddFolder=()=>f
   }
   model.disabled=mode.disabled=!!data.readOnly
   showContext(data.context)
-  status.textContent=Date.now()<noticeUntil?notice:data.readOnly?'Read-only history':data.approvals?.length?'Waiting for your approval':data.busy?'Claude Code is working…':'Ready'
+  status.textContent=Date.now()<noticeUntil?notice:data.readOnly?'Read-only history':data.approvals?.some(item=>item.tool==='AskUserQuestion')?'Claude is asking you a question':data.approvals?.length?'Waiting for your approval':data.busy?'Claude Code is working…':'Ready'
  }
  // Claude may be working: the folder is attached at once and given from the
  // next turn on, so the action stays available while busy.
@@ -155,6 +155,7 @@ export function createConversationView({api,container,onError,canAddFolder=()=>f
    }
    if(card.tagName==='DETAILS')card.open=true
    card.classList.add('tool-card-asking')
+   if(name==='AskUserQuestion'){card.append(questionForm(item));continue}
    const bar=document.createElement('div');bar.className='tool-approval';bar.dataset.approvalId=item.id
    bar.setAttribute('role','group');bar.setAttribute('aria-label','Allow '+name+'?')
    const question=document.createElement('span');question.className='tool-approval-question';question.textContent='Allow '+name+(item.description?': '+item.description:'')+'?'
@@ -173,6 +174,56 @@ export function createConversationView({api,container,onError,canAddFolder=()=>f
    card.append(bar)
   }
   if(list.length&&follow)events.scrollTop=events.scrollHeight
+ }
+ // Claude's questions, answered as in Claude Code: one choice, or several when
+ // the question allows it, or an answer of one's own. Skip denies the call.
+ function questionForm(item){
+  const form=document.createElement('form');form.className='tool-approval tool-question';form.dataset.approvalId=item.id
+  form.setAttribute('aria-label','Claude’s question')
+  const questions=(Array.isArray(item.input?.questions)?item.input.questions:[]).filter(question=>question&&typeof question.question==='string')
+  const fields=questions.map((question,index)=>{
+   const set=document.createElement('fieldset');set.className='tool-question-set'
+   const legend=document.createElement('legend')
+   if(typeof question.header==='string'&&question.header){const header=document.createElement('span');header.className='tool-question-header';header.textContent=question.header;legend.append(header)}
+   legend.append(document.createTextNode(question.question));set.append(legend)
+   const type=question.multiSelect?'checkbox':'radio',group='question-'+item.id+'-'+index
+   for(const option of Array.isArray(question.options)?question.options:[]){
+    if(!option||typeof option.label!=='string')continue
+    const label=document.createElement('label');label.className='tool-question-option'
+    const box=document.createElement('input');box.type=type;box.name=group;box.value=option.label
+    const text=document.createElement('span');text.textContent=option.label;label.append(box,text)
+    if(typeof option.description==='string'&&option.description){const hint=document.createElement('small');hint.textContent=option.description;label.append(hint)}
+    set.append(label)
+   }
+   const other=document.createElement('input');other.type='text';other.className='tool-question-other';other.placeholder='Other answer';other.setAttribute('aria-label','Other answer to: '+question.question)
+   other.addEventListener('input',()=>{if(other.value&&!question.multiSelect)for(const box of set.querySelectorAll('input[type=radio]'))box.checked=false})
+   set.append(other)
+   return {question,set,other}
+  })
+  const actions=document.createElement('div');actions.className='tool-question-actions'
+  const hint=document.createElement('span');hint.className='tool-question-hint';hint.setAttribute('role','status')
+  const answer=document.createElement('button');answer.type='submit';answer.className='tool-approval-allow';answer.textContent='Answer'
+  const skip=document.createElement('button');skip.type='button';skip.className='tool-approval-deny';skip.textContent='Skip'
+  actions.append(hint,answer,skip);form.append(...fields.map(field=>field.set),actions)
+  const decide=async(decision,answers)=>{
+   const id=selected,token=generation
+   for(const control of form.querySelectorAll('button,input'))control.disabled=true
+   try{await api.conversationApproval(id,item.id,decision,answers)}
+   catch(err){if(token===generation){for(const control of form.querySelectorAll('button,input'))control.disabled=false;onError(err)}}
+  }
+  form.addEventListener('submit',event=>{
+   event.preventDefault()
+   const answers={}
+   for(const {question,set,other} of fields){
+    const chosen=[...set.querySelectorAll('input:checked')].map(box=>box.value)
+    if(other.value.trim())chosen.push(other.value.trim())
+    if(!chosen.length){hint.textContent='Answer every question';other.focus();return}
+    answers[question.question]=chosen.join(', ')
+   }
+   hint.textContent='';decide('answer',answers)
+  })
+  skip.onclick=()=>decide('deny')
+  return form
  }
  // The reply Claude is still writing, drawn after the history and redrawn on
  // its own: the history is rebuilt only when a complete event arrives.

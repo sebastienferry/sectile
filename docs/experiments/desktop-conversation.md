@@ -53,7 +53,11 @@ is no bypass. Sectile's own MCP tools, which every skill relies on, are always
 allowed. A tool call the owner's Claude Code rules do not allow waits in its card
 for **Allow**, **Always allow** (when Claude proposes a rule, which is then
 saved where Claude says) or **Deny**, as in Claude Code; the composer reads
-Waiting for your approval. The decision stays on the card.
+Waiting for your approval. The decision stays on the card. A question Claude
+asks through `AskUserQuestion` shows in its card with its options, radio
+buttons or checkboxes as the question allows, and a field for an answer of
+one's own; **Answer** sends the answers, keyed by question text in the call's
+input as Claude reads them, and **Skip** denies the call.
 
 While Claude answers, a message sent joins the answer in progress, written on
 the turn's stdin, and Claude reads it at its next request, as in Claude Code; a
@@ -94,7 +98,6 @@ Stop idle conversations before restarting the agent.
 
 ## Remaining work
 
-- A dedicated card for `AskUserQuestion`, which shows as a plain approval today.
 - Tell an owner who looked away that a tool call waits for them.
 - Restore a live conversation after an agent restart.
 - Support providers other than Claude through a shared event contract.

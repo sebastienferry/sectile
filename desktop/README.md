@@ -40,7 +40,9 @@ applies from the next message.
 Claude Code must already be installed and authenticated on this workstation.
 Edits and Sectile's own tools are accepted; a tool call your Claude Code rules
 do not allow waits in its card for **Allow**, **Always allow** (when Claude
-proposes a rule) or **Deny**, and the decision stays on the card. **Stop**
+proposes a rule) or **Deny**, and the decision stays on the card. A question
+Claude asks shows its options, one choice or several as the question allows,
+with an answer of your own beside them; **Answer** sends it, **Skip** declines. **Stop**
 closes the conversation. Stored history is read-only after an agent restart.
 See [prototype notes](../docs/experiments/desktop-conversation.md).
 

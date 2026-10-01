@@ -136,6 +136,23 @@ test('Claude chat renders structured output safely and sends messages without a 
   await expect.poll(()=>decisions.length).toBe(2)
   await expect(asking).toHaveCount(0)
   await expect(card('close_issue')).toHaveCount(0)
+  // Claude's question is answered in its card, one choice or one's own words.
+  approvals=[{id:'ask-1',tool:'AskUserQuestion',input:{questions:[{question:'Which color?',header:'Color',options:[{label:'Red',description:'Warm <b>tone</b>'},{label:'Blue'}],multiSelect:false},{question:'Which days?',options:[{label:'Mon'},{label:'Tue'}],multiSelect:true}]}}]
+  const question=page.locator('.tool-question')
+  await expect(question).toBeVisible()
+  await expect(page.locator('.conversation-status')).toHaveText('Claude is asking you a question')
+  await expect(question.locator('input[type=radio]')).toHaveCount(2)
+  await expect(question.locator('input[type=checkbox]')).toHaveCount(2)
+  await expect(question.locator('small')).toHaveText('Warm <b>tone</b>')
+  await question.getByRole('button',{name:'Answer',exact:true}).click()
+  await expect(question.locator('.tool-question-hint')).toHaveText('Answer every question')
+  await question.getByLabel('Blue').check()
+  await question.getByLabel('Mon').check();await question.getByLabel('Tue').check()
+  await question.getByLabel('Other answer to: Which days?').fill('Fri')
+  await question.getByRole('button',{name:'Answer',exact:true}).click()
+  await expect.poll(()=>decisions.at(-1)).toEqual({id:'ask-1',decision:'answer',answers:{'Which color?':'Blue','Which days?':'Mon, Tue, Fri'}})
+  await expect(question).toHaveCount(0)
+  assert.equal(await page.locator('.conversation b').count(),0)
   // The reply in progress streams after the history, rendered, and leaves
   // the history untouched; it disappears once the turn ends.
   const history=await page.locator('.conversation-event').count()

@@ -528,11 +528,11 @@ printf '%s\n' '{"type":"result","is_error":false,"result":"Deployed","session_id
 }
 
 func TestADeniedToolCallCarriesNoInput(t *testing.T) {
-	data, _ := json.Marshal(approvalResponse(conversationApproval{ID: "r", Input: json.RawMessage(`{"command":"rm -rf /"}`)}, "deny"))
+	data, _ := json.Marshal(approvalResponse(conversationApproval{ID: "r", Input: json.RawMessage(`{"command":"rm -rf /"}`)}, "deny", nil))
 	if text := string(data); !strings.Contains(text, `"behavior":"deny"`) || strings.Contains(text, "rm -rf") {
 		t.Fatalf("deny = %s", text)
 	}
-	data, _ = json.Marshal(approvalResponse(conversationApproval{ID: "r", Suggestions: json.RawMessage(`null`)}, "always"))
+	data, _ = json.Marshal(approvalResponse(conversationApproval{ID: "r", Suggestions: json.RawMessage(`null`)}, "always", nil))
 	if text := string(data); !strings.Contains(text, `"updatedInput":{}`) || strings.Contains(text, "updatedPermissions") {
 		t.Fatalf("always without suggestions = %s", text)
 	}
@@ -691,5 +691,95 @@ printf '%s\n' '{"type":"result","is_error":false,"result":"ok","session_id":"111
 	w := conversationRequest(d, "GET", "/desktop/conversation?id="+id, "", "private")
 	if body := w.Body.String(); !strings.Contains(body, `"model":"opus"`) || !strings.Contains(body, `"mode":"plan"`) {
 		t.Fatalf("the conversation does not report its model and mode: %s", body)
+	}
+}
+
+func TestAQuestionIsAnsweredWithItsInputAndTheAnswers(t *testing.T) {
+	ask := conversationApproval{ID: "q", Tool: askUserQuestion, Input: json.RawMessage(`{"questions":[{"question":"Which color?","options":[{"label":"Red"},{"label":"Blue"}]},{"question":"Why?"}]}`)}
+	data, _ := json.Marshal(approvalResponse(ask, "answer", map[string]string{"Which color?": "Blue", "Why?": "Calm"}))
+	var sent struct {
+		Response struct {
+			Response struct {
+				Behavior     string `json:"behavior"`
+				UpdatedInput struct {
+					Questions []json.RawMessage `json:"questions"`
+					Answers   map[string]string `json:"answers"`
+				} `json:"updatedInput"`
+			} `json:"response"`
+		} `json:"response"`
+	}
+	if json.Unmarshal(data, &sent) != nil || sent.Response.Response.Behavior != "allow" || len(sent.Response.Response.UpdatedInput.Questions) != 2 || sent.Response.Response.UpdatedInput.Answers["Which color?"] != "Blue" {
+		t.Fatalf("answer = %s", data)
+	}
+	for name, tc := range map[string]struct {
+		approval conversationApproval
+		decision string
+		answers  map[string]string
+	}{
+		"a question left unanswered": {ask, "answer", map[string]string{"Which color?": "Blue"}},
+		"an answer to no question":   {ask, "answer", map[string]string{"Which color?": "Blue", "Why?": "x", "Who?": "y"}},
+		"a blank answer":             {ask, "answer", map[string]string{"Which color?": " ", "Why?": "x"}},
+		"answers to another tool":    {conversationApproval{Tool: "Bash"}, "answer", map[string]string{"x": "y"}},
+		"answers with an allow":      {ask, "allow", map[string]string{"Which color?": "Blue"}},
+		"answers past the bound":     {ask, "answer", map[string]string{"Which color?": strings.Repeat("x", conversationAnswersLimit), "Why?": "x"}},
+	} {
+		if checkAnswers(tc.approval, tc.decision, tc.answers) == nil {
+			t.Errorf("%s was accepted", name)
+		}
+	}
+	if err := checkAnswers(ask, "answer", map[string]string{"Which color?": "Blue", "Why?": "Calm"}); err != nil {
+		t.Errorf("full answers refused: %v", err)
+	}
+}
+
+// Claude's question waits for the owner, whose answers reach Claude and stay
+// in the trace.
+func TestConversationAnswersClaudesQuestion(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake CLI is a POSIX script")
+	}
+	testhome.Temp(t)
+	bin := t.TempDir()
+	script := `#!/bin/sh
+read -r init
+read -r message
+printf '%s\n' '{"type":"control_request","request_id":"ask-1","request":{"subtype":"can_use_tool","tool_name":"AskUserQuestion","tool_use_id":"toolu_q","input":{"questions":[{"question":"Which color?","header":"Color","options":[{"label":"Red"},{"label":"Blue"}],"multiSelect":false}]}}}'
+read -r answer
+printf '%s' "$answer" > answer.txt
+printf '%s\n' '{"type":"result","is_error":false,"result":"Blue it is","session_id":"11111111-1111-4111-8111-111111111111"}'
+`
+	if err := os.WriteFile(filepath.Join(bin, "claude"), []byte(script), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	d, id := conversationFixture(t)
+	run := d.queue.runs[id]
+	if w := conversationRequest(d, "POST", "/desktop/conversation?id="+id, `{"message":"ask me"}`, "private"); w.Code != 202 {
+		t.Fatalf("send: %d", w.Code)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		d.queue.mu.Lock()
+		waiting := len(run.conversation.approvals) == 1
+		d.queue.mu.Unlock()
+		if waiting {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the question never waited for the owner")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if w := conversationRequest(d, "POST", "/desktop/conversation?id="+id, `{"approval":{"id":"ask-1","decision":"answer","answers":{"Which color?":"Blue"}}}`, "private"); w.Code != 200 {
+		t.Fatalf("answer: %d %s", w.Code, w.Body.String())
+	}
+	waitConversationIdle(t, d, run)
+	raw, _ := os.ReadFile(filepath.Join(run.root, "answer.txt"))
+	if !strings.Contains(string(raw), `"answers":{"Which color?":"Blue"}`) || !strings.Contains(string(raw), `"behavior":"allow"`) {
+		t.Fatalf("Claude did not get the answers: %s", raw)
+	}
+	lines, _ := run.trace.snapshot()
+	if text := strings.Join(lines, "\n"); !strings.Contains(text, `"kind":"approval","text":"answer","detail":"Which color? → Blue"`) {
+		t.Fatalf("the answers are not in the trace: %s", text)
 	}
 }

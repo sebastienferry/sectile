@@ -484,7 +484,7 @@ ipcMain.handle('create-conversation',async(_,sourceRunId)=>{
 })
 ipcMain.handle('conversation',(_,id)=>api('/desktop/conversation?id='+encodeURIComponent(id)))
 ipcMain.handle('conversation-interrupt',(_,id)=>api('/desktop/conversation?id='+encodeURIComponent(id),'POST',{interrupt:true}))
-ipcMain.handle('conversation-approval',(_,{id,approvalId,decision})=>api('/desktop/conversation?id='+encodeURIComponent(id),'POST',{approval:{id:approvalId,decision}}))
+ipcMain.handle('conversation-approval',(_,{id,approvalId,decision,answers})=>api('/desktop/conversation?id='+encodeURIComponent(id),'POST',{approval:Object.assign({id:approvalId,decision},answers&&typeof answers==='object'?{answers}:null)}))
 ipcMain.handle('conversation-terminal',(_,runId)=>api('/desktop/conversation-terminal','POST',{runId}))
 ipcMain.handle('conversation-message',(_,{id,message,effort,model,mode})=>api('/desktop/conversation?id='+encodeURIComponent(id),'POST',{message,effort:typeof effort==='string'?effort:'',model:typeof model==='string'?model:'',mode:typeof mode==='string'?mode:''}))
 // The agent forgets a run once its history is cleared or it restarts, and
