@@ -62,3 +62,17 @@ export function withoutOAuthOutcome(search: string): string {
   const rest = params.toString()
   return rest ? `?${rest}` : ''
 }
+
+export type JiraOAuthOutcomeMessages = Record<JiraOAuthOutcome, string>
+
+/** What the profile says about a callback's outcome, the sites named when none was covered. */
+export function jiraOAuthOutcomeMessage(outcome: JiraOAuthOutcome, messages: JiraOAuthOutcomeMessages, sites: string[]): string {
+  return messages[outcome].replace('{sites}', sites.length ? sites.join(', ') : '—')
+}
+
+/** How the outcome is shown: a success, a choice the person made, or a failure to act on. */
+export function jiraOAuthOutcomeTone(outcome: JiraOAuthOutcome): 'success' | 'info' | 'error' {
+  if (outcome === 'connected') return 'success'
+  if (outcome === 'cancelled') return 'info'
+  return 'error'
+}

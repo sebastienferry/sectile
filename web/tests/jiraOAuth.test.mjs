@@ -102,3 +102,17 @@ test('the web app never holds the client secret', () => {
   const state = app.slice(app.indexOf('export interface JiraOAuthAppState'), app.indexOf('}', app.indexOf('export interface JiraOAuthAppState')))
   assert.doesNotMatch(state, /secret\s*[?]?:\s*string/i)
 })
+
+test('an outcome reads in the language given and names the sites when none was covered', async () => {
+  const { translations } = await import('../src/locales/translations.ts')
+  const { jiraOAuthOutcomeMessage, jiraOAuthOutcomeTone } = await import('../src/lib/jiraOAuth.ts')
+  const en = translations.en.trackerCredentials.oauth.outcomes
+  const fr = translations.fr.trackerCredentials.oauth.outcomes
+  assert.match(jiraOAuthOutcomeMessage('no_site', en, ['https://equativ.atlassian.net']), /pick one of these sites: https:\/\/equativ\.atlassian\.net\./)
+  assert.match(jiraOAuthOutcomeMessage('no_site', fr, ['https://a.atlassian.net', 'https://b.atlassian.net']), /https:\/\/a\.atlassian\.net, https:\/\/b\.atlassian\.net/)
+  assert.match(jiraOAuthOutcomeMessage('no_site', en, []), /—/)
+  assert.equal(jiraOAuthOutcomeMessage('connected', en, []), en.connected)
+  assert.equal(jiraOAuthOutcomeTone('connected'), 'success')
+  assert.equal(jiraOAuthOutcomeTone('cancelled'), 'info')
+  for (const outcome of ['invalid', 'no_site', 'unreachable']) assert.equal(jiraOAuthOutcomeTone(outcome), 'error')
+})

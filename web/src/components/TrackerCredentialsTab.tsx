@@ -33,6 +33,7 @@ export const TrackerCredentialsTab: React.FC<{
     lockAllUserCredentials,
     saveUserCredential,
     addToast,
+    jiraOAuth,
     t,
   } = useApp()
 
@@ -382,7 +383,9 @@ export const TrackerCredentialsTab: React.FC<{
                     ? mine.disconnected
                       ? t.trackerCredentials.oauth.stateDisconnected
                       : mine.account || t.trackerCredentials.oauth.stateConnected
-                    : mine?.email || credentialState(mine, t)}
+                    : !mine && kind.id === 'jira' && jiraOAuth.configured
+                      ? t.trackerCredentials.oauth.stateNotConnected
+                      : mine?.email || credentialState(mine, t)}
                 </span>
               </button>
 

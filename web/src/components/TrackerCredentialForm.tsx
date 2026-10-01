@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react'
 import { AlertCircle, Check, Globe, Key, Loader2, Lock, LockOpen, Mail, ShieldCheck } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { jiraEntryState } from '../lib/jiraOAuth'
-import { JiraConnectOffer, JiraConnectPanel } from './JiraConnectPanel'
+import { JiraConnectOffer, JiraConnectPanel, JiraOAuthOutcomeBanner } from './JiraConnectPanel'
 import {
   canCheck,
   credentialState,
@@ -130,11 +130,17 @@ export const TrackerCredentialForm: React.FC<TrackerCredentialFormProps> = ({
   const locked = Boolean(mine?.sealed && !mine.unlocked)
 
   if ((entry === 'connect' || entry === 'connected' || entry === 'disconnected') && !showTokenForm) {
-    return <JiraConnectPanel state={entry} credential={found} onUseToken={() => setShowTokenForm(true)} />
+    return (
+      <div className="space-y-3">
+        <JiraOAuthOutcomeBanner />
+        <JiraConnectPanel state={entry} credential={found} onUseToken={() => setShowTokenForm(true)} />
+      </div>
+    )
   }
 
   return (
     <div className="space-y-3">
+      {tracker === 'jira' && <JiraOAuthOutcomeBanner />}
       {entry === 'token-and-connect' && <JiraConnectOffer hint={t.trackerCredentials.oauth.replaceTokenHint} />}
       {entry !== 'form' && entry !== 'token-and-connect' && (
         <JiraConnectOffer hint={t.trackerCredentials.oauth.connectHint} onBack={() => setShowTokenForm(false)} />

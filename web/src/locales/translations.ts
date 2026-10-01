@@ -630,6 +630,8 @@ export interface TranslationSchema {
       notConfiguredHint: string
       stateConnected: string
       stateDisconnected: string
+      stateNotConnected: string
+      dismiss: string
       connectFailed: string
       outcomeTitle: string
       outcomes: {
@@ -1507,6 +1509,8 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
         notConfiguredHint: 'La connexion Jira n\'est plus configurée sur ce serveur : demandez à un admin de la rétablir, ou enregistrez un jeton d\'API.',
         stateConnected: 'Connecté via Atlassian',
         stateDisconnected: 'Connexion perdue',
+        stateNotConnected: 'Non connecté',
+        dismiss: 'Fermer',
         connectFailed: 'La connexion Jira n\'a pas pu démarrer',
         outcomeTitle: 'Connexion Jira',
         outcomes: {
@@ -2381,6 +2385,8 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
         notConfiguredHint: 'Jira connection is no longer configured on this server: ask an admin to restore it, or save an API token.',
         stateConnected: 'Connected through Atlassian',
         stateDisconnected: 'Connection lost',
+        stateNotConnected: 'Not connected',
+        dismiss: 'Dismiss',
         connectFailed: 'Jira connection could not start',
         outcomeTitle: 'Jira connection',
         outcomes: {

@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
-import { AlertTriangle, Globe, Link2, Loader2, ShieldCheck } from 'lucide-react'
+import { AlertCircle, AlertTriangle, CheckCircle2, Globe, Info, Link2, Loader2, ShieldCheck, X } from 'lucide-react'
 import { useApp } from '../context/AppContext'
-import type { JiraEntryState } from '../lib/jiraOAuth'
+import { jiraOAuthOutcomeMessage, jiraOAuthOutcomeTone, type JiraEntryState } from '../lib/jiraOAuth'
 import type { StoredUserCredential } from '../lib/trackers'
 
 /**
@@ -137,6 +137,38 @@ export const JiraConnectOffer: React.FC<{ hint: string; onBack?: () => void }> =
           {isConnecting ? t.trackerCredentials.oauth.connecting : t.trackerCredentials.oauth.connect}
         </button>
       </div>
+    </div>
+  )
+}
+
+/**
+ * What the last consent came back with, kept in the Jira entry until the
+ * person dismisses it: a notification alone disappears before a refusal and
+ * the sites it names can be read.
+ */
+export const JiraOAuthOutcomeBanner: React.FC = () => {
+  const { jiraOAuthOutcome, dismissJiraOAuthOutcome, jiraOAuth, t } = useApp()
+  if (!jiraOAuthOutcome) return null
+  const strings = t.trackerCredentials.oauth
+  const tone = jiraOAuthOutcomeTone(jiraOAuthOutcome)
+  const rgb = tone === 'success' ? '--status-ok-rgb' : tone === 'error' ? '--status-danger-rgb' : '--accent-rgb'
+  const color = tone === 'success' ? 'var(--status-ok)' : tone === 'error' ? 'var(--status-danger)' : 'var(--text-secondary)'
+  const Icon = tone === 'success' ? CheckCircle2 : tone === 'error' ? AlertCircle : Info
+  return (
+    <div
+      role="status"
+      data-jira-oauth-outcome={jiraOAuthOutcome}
+      className="p-2.5 rounded-xl border text-[11px] leading-relaxed flex items-start gap-2"
+      style={{ background: `rgb(var(${rgb}) / 0.1)`, borderColor: `rgb(var(${rgb}) / 0.35)`, color }}
+    >
+      <Icon size={13} className="shrink-0 mt-0.5" />
+      <span className="flex-1">
+        <span className="font-bold block">{strings.outcomeTitle}</span>
+        {jiraOAuthOutcomeMessage(jiraOAuthOutcome, strings.outcomes, jiraOAuth.sites)}
+      </span>
+      <button type="button" onClick={dismissJiraOAuthOutcome} title={strings.dismiss} aria-label={strings.dismiss} className="shrink-0 opacity-70 hover:opacity-100 cursor-pointer">
+        <X size={13} />
+      </button>
     </div>
   )
 }
