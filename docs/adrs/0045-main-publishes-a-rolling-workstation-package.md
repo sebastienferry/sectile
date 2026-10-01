@@ -40,8 +40,9 @@ Desktop archives, and uploads them to the package `sectile`, version `main`.**
 - **The desktop manifest is not touched.** The app's settings show
   `desktop/package.json`'s version, the last release's, next to the bundled
   agent's `<iid>-main`. The manifest follows tags (AGENTS.md, step 4), and
-  rewriting it per build would put a non-numeric version into the Windows
-  resources packager writes.
+  packager takes the app version from it, so rewriting it per build would mean
+  feeding a non-SemVer string to every target's packaging for no gain: the
+  agent's version already names the build.
 - **Tags are unchanged.** A `vX.Y.Z` tag still publishes under its own version,
   is still checked against `desktop/package.json`, and is still built again by
   the GitHub release workflow. `main` is published on the GitLab mirror only.
