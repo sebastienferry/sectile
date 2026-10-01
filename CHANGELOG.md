@@ -55,6 +55,7 @@ test fixtures or internal plumbing.
 
 ### Changed
 
+- **The Desktop sidebar is more compact.** Projects and their tasks take about a fifth less height, so more of them fit without scrolling.
 - **Ticket discussions, project consoles and Claude conversations receive the project's folders.** Like a skill run, they are now given the project's other repositories, its specifications folder and its attached folders: Claude Code and Codex through `--add-dir` when they start, and a conversation again at each message, so a folder attached meanwhile is not missed. (#676)
 - **Refining a macro keeps its description in step.** When a clarification answer settles an open question, reverses a decision or moves something in or out of scope, `refine-macro` now proposes the matching edit of the macro description alongside the tickets, including for answers given after the run ended, and reports what it changed or left.
 - The roadmap no longer applies the ticket views' parent filter: every epic keeps all its tickets, and the filter still applies when you go back to the tickets. (#630)

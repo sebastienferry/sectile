@@ -584,3 +584,10 @@ details.tool-card[open]>summary::before{content:'▾'}
 .conversation-context .conversation-context-used{stroke:var(--accent);stroke-linecap:round;transition:stroke-dasharray .3s}
 .conversation-context.full .conversation-context-used{stroke:var(--warn-text)}
 .conversation-context>span{font-size:8.5px;font-weight:600;color:var(--text-faint)}
+/* Sidebar density: projects and their tasks take less height, so more of
+   them fit without scrolling. Same selectors as the rules they tighten. */
+.section{padding-bottom:8px}
+.project-group{margin-bottom:10px}
+.project-heading{padding:5px 4px}
+.project-group .local-task .run{padding:4px 8px;min-height:28px}
+.project-group .local-task .task-key-slot>.task-number{padding:1px 4px;margin:1px 0}
