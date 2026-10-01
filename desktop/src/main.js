@@ -155,8 +155,8 @@ let updateSettingsConnection=null
 let opened=false,selected=null,runs=[],last='',stopping=false,restarting=false,projects=[],projectsLoaded=false
 // Whether the local agent attaches a folder from a run (#676), read with the
 // editor setting from its status.
-let runFoldersAvailable=false
-const conversation=createConversationView({api,container:document.querySelector('#terminal'),onError:error,canAddFolder:()=>runFoldersAvailable})
+let runFoldersAvailable=false,conversationControlsAvailable=false
+const conversation=createConversationView({api,container:document.querySelector('#terminal'),onError:error,canAddFolder:()=>runFoldersAvailable,canControl:()=>conversationControlsAvailable})
 const conversationButton=document.createElement('button')
 conversationButton.type='button';conversationButton.textContent='Claude chat (test)';conversationButton.hidden=true
 // The conversation view is opt-in from Appearance; the terminal stays the default.
@@ -432,12 +432,14 @@ function renderOpenEditor(){
 }
 async function loadEditorSetting(){
  try{
-  const [status,view]=await Promise.all([api.status(),api.workstationSettings()])
+  // What the agent offers does not depend on reading the workstation settings.
+  const [status,view]=await Promise.all([api.status(),api.workstationSettings().catch(()=>null)])
   openEditorAvailable=!!status.capabilities?.includes('open-editor')
   runFoldersAvailable=!!status.capabilities?.includes('run-folders')
+  conversationControlsAvailable=!!status.capabilities?.includes('conversation-controls')
   configuredEditor=String(view?.defaults?.editorCommand||'').trim()
-  renderCustomSkillSignal(view?.customSkillsUsed)
- }catch{openEditorAvailable=false;runFoldersAvailable=false;configuredEditor=''}
+  if(view)renderCustomSkillSignal(view.customSkillsUsed)
+ }catch{openEditorAvailable=false;runFoldersAvailable=false;conversationControlsAvailable=false;configuredEditor=''}
  renderOpenEditor();render({deferrable:true})
 }
 // A project's custom skill ran instead of the installed one (#267): a passive

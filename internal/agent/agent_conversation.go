@@ -38,6 +38,9 @@ type claudeConversation struct {
 	// extraDirs are folders a skill launch adds to the project's, such as a
 	// custom skill's own folder; every turn is given them.
 	extraDirs []string
+	// interrupted asks the turn in progress to stop. Unlike a stop, the
+	// conversation stays open and the next message resumes its session.
+	interrupted bool
 }
 
 // conversationPartialLimit bounds a reply in progress; past it the draft stops
@@ -125,6 +128,8 @@ func (d *agentDaemon) desktopConversation(w http.ResponseWriter, r *http.Request
 		SourceRunID string `json:"sourceRunId"`
 		Message     string `json:"message"`
 		Effort      string `json:"effort"`
+		// Interrupt stops the turn in progress and keeps the conversation.
+		Interrupt bool `json:"interrupt"`
 	}
 	if r.Method == http.MethodPost {
 		if json.NewDecoder(http.MaxBytesReader(w, r.Body, 64*1024)).Decode(&input) != nil {
@@ -174,6 +179,17 @@ func (d *agentDaemon) desktopConversation(w http.ResponseWriter, r *http.Request
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(response)
+		return
+	}
+	if input.Interrupt {
+		if run.conversation == nil || !run.conversation.busy {
+			http.Error(w, "Claude Code is not answering", http.StatusConflict)
+			return
+		}
+		run.conversation.interrupted = true
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusAccepted)
+		_ = json.NewEncoder(w).Encode(map[string]bool{"accepted": true})
 		return
 	}
 	if strings.TrimSpace(input.Message) == "" {
@@ -424,7 +440,10 @@ func (d *agentDaemon) conversationTurn(run *controlledRun, prompt string) {
 			case err = <-waited:
 				waiting = false
 			case <-ticker.C:
-				if d.queue.canceled(run) {
+				d.queue.mu.Lock()
+				stop := run.canceled || run.conversation.interrupted
+				d.queue.mu.Unlock()
+				if stop {
 					agentexec.StopControlled(cmd, stopping)
 					stopping = true
 				}
@@ -440,7 +459,11 @@ func (d *agentDaemon) conversationTurn(run *controlledRun, prompt string) {
 	}
 	d.queue.mu.Lock()
 	defer d.queue.mu.Unlock()
-	if run.canceled {
+	interrupted := run.conversation.interrupted
+	run.conversation.interrupted = false
+	if interrupted && !run.canceled {
+		conversationWrite(run.trace, "notice", "Interrupted", "Claude Code stopped this answer. Send a message to continue the conversation.")
+	} else if run.canceled {
 		run.desktop.Status = conversationStoppedStatus(run)
 		run.once.Do(func() { close(run.exited) })
 		conversationWrite(run.trace, "notice", "Conversation stopped", "")

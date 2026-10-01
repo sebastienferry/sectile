@@ -9,10 +9,10 @@ test('Claude chat renders structured output safely and sends messages without a 
  const source={id:'source',taskId:'source',taskKey:'#1',projectId:'project',skill:'implement',status:'completed',directory:'/tmp/project',sessionId:'source'}
  const chat={id:'chat',taskId:'',projectId:'project',kind:'console',provider:'claude',conversation:true,headless:true,status:'running',directory:'/tmp/project'}
  const runs=[source],events=[{kind:'notice',text:'Claude Code conversation · experimental',detail:'Edits accepted; approvals unavailable.'}]
- let busy=false,partial='',readOnly=false,attachments=0,message='',effort='',context
+ let busy=false,partial='',interrupts=0,terminals=[],readOnly=false,attachments=0,message='',effort='',context
  const server=http.createServer((req,res)=>{
   res.setHeader('Content-Type','application/json')
-  if(req.url==='/desktop/status'){res.end(JSON.stringify({connected:true,capabilities:['claude-conversation']}));return}
+  if(req.url==='/desktop/status'){res.end(JSON.stringify({connected:true,capabilities:['claude-conversation','conversation-controls']}));return}
   if(req.url==='/desktop/projects'){res.end(JSON.stringify([{id:'project',name:'Project',path:'/tmp/project'}]));return}
   if(req.url.startsWith('/desktop/project?')){res.end(JSON.stringify({configured:true,server:{skills:[]}}));return}
   if(req.url.startsWith('/desktop/tasks?')){res.end(JSON.stringify([{id:'source',key:'#1',title:'Source execution',labels:['#specified']}]));return}
@@ -20,9 +20,11 @@ test('Claude chat renders structured output safely and sends messages without a 
   if(req.url==='/desktop/conversation'&&req.method==='POST'){
    let body='';req.on('data',chunk=>body+=chunk);req.on('end',()=>{assert.equal(JSON.parse(body).sourceRunId,'source');runs.push(chat);res.writeHead(201).end(JSON.stringify(chat))});return
   }
+  if(req.url==='/desktop/conversation-terminal'){let body='';req.on('data',chunk=>body+=chunk);req.on('end',()=>{terminals.push(JSON.parse(body).runId);res.end(JSON.stringify({opened:true}))});return}
   if(req.url==='/desktop/conversation?id=chat'){
    if(req.method==='GET'){res.end(JSON.stringify({id:'chat',events:events.map(e=>JSON.stringify(e)),version:events.length,busy,readOnly,effort,context,partial}));return}
    let body='';req.on('data',chunk=>body+=chunk);req.on('end',()=>{
+    if(JSON.parse(body).interrupt){interrupts++;busy=false;partial='';events.push({kind:'notice',text:'Interrupted'});res.writeHead(202).end(JSON.stringify({accepted:true}));return}
     ({message,effort}=JSON.parse(body));busy=true;context={used:150000,window:200000}
     events.push({kind:'user',text:message},{kind:'assistant',text:'## Result\n**Safe output**\n```html\n<img src=x onerror="window.hostile=true">\n```\n\n| Name | Value |\n| --- | --- |\n| a | 1 |\n\n- [x] done\n\n[plan](../plan.md) ![diagram](x.png)'},{kind:'tool',text:'Read',detail:'<script>window.hostile=true</script>'},{kind:'tool',text:'Edit',tool:'Edit',detail:'src/app.js',input:{file_path:'/tmp/project/src/app.js',old_string:'keep\n<b>old</b>',new_string:'keep\nnew'}},{kind:'tool',text:'Bash',tool:'Bash',toolId:'t-bash',detail:'go test',input:{command:'go test ./...',description:'Run the tests'}},{kind:'tool_result',toolId:'t-bash',text:'ok  tasks <i>1.2s</i>'},{kind:'tool',text:'Grep',tool:'Grep',toolId:'t-grep',input:{pattern:'TODO'}},{kind:'tool_result',toolId:'t-grep',text:'No matches',error:true},{kind:'tool',text:'TodoWrite',tool:'TodoWrite',input:{todos:[{content:'Read the code',status:'completed'},{content:'Fix it',status:'in_progress'}]}})
     res.writeHead(202).end(JSON.stringify({accepted:true}))
@@ -102,7 +104,11 @@ test('Claude chat renders structured output safely and sends messages without a 
   await expect(page.locator('.conversation-context')).toHaveAttribute('aria-label','150,000 of 200,000 context tokens used (75%)')
   await expect(page.locator('.conversation-context')).not.toHaveClass(/full/)
   await expect(page.getByLabel('Effort',{exact:true})).toHaveValue('high')
-  await expect(page.getByRole('button',{name:'Send',exact:true})).toBeDisabled()
+  // While Claude answers, Stop answer stands in for Send.
+  await expect(page.getByRole('button',{name:'Send',exact:true})).toBeHidden()
+  await expect(page.getByRole('button',{name:'Stop answer',exact:true})).toBeVisible()
+  await page.getByRole('button',{name:'Open a terminal',exact:true}).click()
+  await expect.poll(()=>terminals).toEqual(['chat'])
   // The reply in progress streams after the history, rendered, and leaves
   // the history untouched; it disappears once the turn ends.
   const history=await page.locator('.conversation-event').count()
@@ -115,8 +121,12 @@ test('Claude chat renders structured output safely and sends messages without a 
   assert.equal(await page.locator('.conversation i').count(),0)
   partial=''
   await expect(page.locator('.conversation-partial')).toHaveCount(0)
-  busy=false
+  // Stop answer ends the turn and keeps the conversation open.
+  await page.getByRole('button',{name:'Stop answer',exact:true}).click()
+  await expect.poll(()=>interrupts).toBe(1)
   await expect(page.getByRole('button',{name:'Send',exact:true})).toBeEnabled()
+  await expect(page.getByRole('button',{name:'Stop answer',exact:true})).toBeHidden()
+  await expect(input).toBeEnabled()
   await page.setViewportSize({width:1000,height:750})
   await page.screenshot({path:path.join(root,'conversation.png')})
   await page.getByRole('button',{name:'Stop execution',exact:true}).click()

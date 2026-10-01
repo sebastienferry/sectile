@@ -8,9 +8,11 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"tasks/internal/agentconfig"
 	"tasks/internal/models"
+	"tasks/internal/terminal"
 	"tasks/internal/testhome"
 	"testing"
 	"time"
@@ -367,5 +369,82 @@ printf '%s\n' '{"type":"result","is_error":false,"result":"Hello **world**","ses
 	text := strings.Join(lines, "\n")
 	if strings.Count(text, `"kind":"assistant"`) != 1 || strings.Contains(text, "subagent") || strings.Contains(text, `"kind":"error"`) {
 		t.Fatalf("unexpected transcript: %s", text)
+	}
+}
+
+// Interrupting stops the answer in progress and keeps the conversation open.
+func TestConversationInterruptKeepsTheConversation(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake CLI is a POSIX script")
+	}
+	testhome.Temp(t)
+	bin := t.TempDir()
+	if err := os.WriteFile(filepath.Join(bin, "claude"), []byte("#!/bin/sh\nexec sleep 300\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	d, id := conversationFixture(t)
+	if w := conversationRequest(d, "POST", "/desktop/conversation?id="+id, `{"interrupt":true}`, "private"); w.Code != http.StatusConflict {
+		t.Fatalf("an idle conversation accepted an interrupt: %d", w.Code)
+	}
+	if w := conversationRequest(d, "POST", "/desktop/conversation?id="+id, `{"message":"wait"}`, "private"); w.Code != 202 {
+		t.Fatal(w.Code)
+	}
+	if w := conversationRequest(d, "POST", "/desktop/conversation?id="+id, `{"interrupt":true}`, "private"); w.Code != 202 {
+		t.Fatalf("interrupt: %d %s", w.Code, w.Body.String())
+	}
+	run := d.queue.runs[id]
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		d.queue.mu.Lock()
+		busy, status := run.conversation.busy, run.desktop.Status
+		d.queue.mu.Unlock()
+		if !busy {
+			if status != "running" {
+				t.Fatalf("an interrupt ended the conversation: %s", status)
+			}
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the interrupted turn never stopped")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	lines, _ := run.trace.snapshot()
+	if text := strings.Join(lines, "\n"); !strings.Contains(text, `"text":"Interrupted"`) || strings.Contains(text, `"kind":"error"`) {
+		t.Fatalf("unexpected transcript: %s", text)
+	}
+	if w := conversationRequest(d, "GET", "/desktop/conversation?id="+id, "", "private"); strings.Contains(w.Body.String(), `"readOnly":true`) {
+		t.Fatalf("the conversation became read-only: %s", w.Body.String())
+	}
+}
+
+// The terminal button opens a shell in the conversation's directory and
+// reuses it; stopping the conversation closes it.
+func TestConversationTerminalOpensAShellInItsDirectory(t *testing.T) {
+	testhome.Temp(t)
+	d, id := conversationFixture(t)
+	d.terminal.manager = terminal.NewManager()
+	var opened []string
+	d.launchTerminalFn = func(_, session string) error { opened = append(opened, session); return nil }
+	for range 2 {
+		if w := conversationRequest(d, "POST", "/desktop/conversation-terminal", `{"runId":"`+id+`"}`, "private"); w.Code != 200 {
+			t.Fatalf("terminal: %d %s", w.Code, w.Body.String())
+		}
+	}
+	if len(opened) != 2 || opened[0] != conversationShellID(id) || opened[1] != opened[0] {
+		t.Fatalf("the shell was not opened, then reused: %v", opened)
+	}
+	if !slices.ContainsFunc(d.terminal.manager.ListSessions(), func(s terminal.SessionInfo) bool { return s.ID == conversationShellID(id) }) {
+		t.Fatal("no shell session was created")
+	}
+	if w := conversationRequest(d, "POST", "/desktop/stop?id="+id, "", "private"); w.Code != 204 {
+		t.Fatalf("stop: %d", w.Code)
+	}
+	if slices.ContainsFunc(d.terminal.manager.ListSessions(), func(s terminal.SessionInfo) bool { return s.ID == conversationShellID(id) }) {
+		t.Fatal("the shell outlived its conversation")
+	}
+	if w := conversationRequest(d, "POST", "/desktop/conversation-terminal", `{"runId":"`+id+`"}`, "private"); w.Code != http.StatusNotFound {
+		t.Fatalf("an ended conversation opened a terminal: %d", w.Code)
 	}
 }
