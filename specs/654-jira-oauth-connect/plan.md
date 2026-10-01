@@ -390,9 +390,14 @@ What the implementation changed from this plan, and why.
   disconnected a live grant. Migration 39 therefore adds
   `refresh_claimed_at`; a claim is a compare-and-set on `version` that sets
   it, waiters poll until the version moves, a claim older than the refresh
-  wait (20 s, longer than the 15 s call timeout) is taken over, and a claim
-  whose refresh failed without spending the token is released at once. With
-  the claim held, `invalid_grant` is trusted and disconnects.
+  wait (60 s, four times the 15 s call timeout, so a replica whose clock is
+  ahead does not take over a refresh still in flight) is taken over, and a
+  claim whose refresh failed without spending the token is released at once.
+  With the claim held, `invalid_grant` is trusted and disconnects. The refresh
+  runs detached from the caller's deadline, so a cancelled request never drops
+  a rotated refresh token, and a claimant's write also requires the row to be
+  an OAuth grant still claimed, since a deleted and recreated row restarts its
+  version.
 - **Scopes.** Checked against Atlassian's OpenAPI documents (see spec FR16):
   `read:board-scope.admin:jira-software` added for the board configuration,
   `read:issue:jira-software` and `write:issue:jira-software` dropped, and the

@@ -49,7 +49,7 @@ type storedOAuthApp struct {
 }
 
 // readOAuthApp answers the saved row, nil when there is none. It takes no
-// lock: it is read from the credential resolver, called under d.mu.
+// lock.
 func (d *DB) readOAuthApp(tracker string) (*storedOAuthApp, error) {
 	var row storedOAuthApp
 	err := d.conn.QueryRow(`SELECT client_id, redirect_url, record, updated_at FROM tracker_oauth_apps WHERE tracker = ?`, tracker).
@@ -154,7 +154,9 @@ func ValidateOAuthRedirectURL(raw string) error {
 }
 
 // SaveJiraOAuthApp saves the app from the Administration page. An empty secret
-// keeps the saved one; the first save needs it.
+// keeps the saved one, even under a corrected client id; the first save needs
+// it. "Never paired with another app's secret" is about the saved app and the
+// environment's: one is never completed with the other.
 func (d *DB) SaveJiraOAuthApp(clientID, secret, redirectURL, adminID string) error {
 	clientID, secret, redirectURL = strings.TrimSpace(clientID), strings.TrimSpace(secret), strings.TrimSpace(redirectURL)
 	if clientID == "" {

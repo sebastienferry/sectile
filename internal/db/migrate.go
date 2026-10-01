@@ -121,7 +121,37 @@ func ensureKeyOpensCredentials(src, dst *DB) error {
 	if err := ensureKeyOpensUserCredentials(src, dst); err != nil {
 		return err
 	}
-	return ensureKeyOpensServerCredentials(src, dst)
+	if err := ensureKeyOpensServerCredentials(src, dst); err != nil {
+		return err
+	}
+	return ensureKeyOpensOAuthApps(src, dst)
+}
+
+// ensureKeyOpensOAuthApps is the same check for the saved OAuth apps (#654),
+// whose secret is sealed under the server key.
+func ensureKeyOpensOAuthApps(src, dst *DB) error {
+	var tracker string
+	var record []byte
+	err := src.conn.QueryRow(`SELECT tracker, record FROM tracker_oauth_apps LIMIT 1`).Scan(&tracker, &record)
+	if err == sql.ErrNoRows {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("reading an OAuth app to check the encryption key: %w", err)
+	}
+	if dst.serverKeyErr != nil {
+		return fmt.Errorf(
+			"the destination has no encryption key (%w), but the source holds an OAuth app secret sealed under one; "+
+				"set %s to the same key the source uses, or that secret becomes unreadable",
+			dst.serverKeyErr, secrets.KeyEnvVar)
+	}
+	if _, err := secrets.Open(dst.serverKey, secrets.OAuthAppBinding(tracker), record); err != nil {
+		return fmt.Errorf(
+			"the destination encryption key does not open the source's OAuth app secret (%w); "+
+				"set %s to the key the source uses, or that secret becomes unreadable",
+			err, secrets.KeyEnvVar)
+	}
+	return nil
 }
 
 // ensureKeyOpensServerCredentials is the same check for the server credentials,

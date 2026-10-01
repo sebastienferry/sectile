@@ -540,6 +540,85 @@ func TestTheOAuthAppConfiguration(t *testing.T) {
 	}
 }
 
+// A caller whose deadline runs out, or whose request is gone, still lets the
+// refresh it started finish and be written: Atlassian has already rotated the
+// refresh token, and dropping the answer would leave the spent one in the row.
+func TestACancelledCallerDoesNotCutARefreshInHalf(t *testing.T) {
+	f := newGrantFixture(t)
+	f.connect(t, f.d, "usr_ada", "Ada", "c-acme")
+	f.expire(t, f.d, "usr_ada")
+	before, _ := f.d.readJiraGrantRow("usr_ada")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, token, err := f.d.jiraGrantAccess(ctx, "usr_ada", acmeSite); err != nil || token == "" {
+		t.Fatalf("a refresh under a cancelled context: %q %v", token, err)
+	}
+	after, _ := f.d.readJiraGrantRow("usr_ada")
+	if f.fake.Refreshes() != 1 || after.version != before.version+2 || after.disconnected || !after.claimedAt.IsZero() {
+		t.Fatalf("refreshes %d, row %+v", f.fake.Refreshes(), after)
+	}
+	// The rotated refresh token was kept: the next one works too.
+	f.expire(t, f.d, "usr_ada")
+	if _, _, err := f.d.jiraGrantAccess(context.Background(), "usr_ada", acmeSite); err != nil {
+		t.Fatalf("the next refresh: %v", err)
+	}
+}
+
+// A refresh claimed on a row the person then deleted and created again never
+// writes over the new row, even once the new row is back at the claimed
+// version: the version restarts with the row.
+func TestAStaleRefreshNeverOverwritesARecreatedRow(t *testing.T) {
+	f := newGrantFixture(t)
+	f.connect(t, f.d, "usr_ada", "Ada", "c-acme")
+	f.expire(t, f.d, "usr_ada")
+	row, _ := f.d.readJiraGrantRow("usr_ada")
+	stale, err := f.d.openJiraGrant("usr_ada", row.record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if claimed, err := f.d.claimJiraGrantRefresh("usr_ada", row.version); err != nil || !claimed {
+		t.Fatalf("claim: %v %v", claimed, err)
+	}
+
+	if err := f.d.ClearUserTrackerCredential("usr_ada", "jira"); err != nil {
+		t.Fatal(err)
+	}
+	f.connect(t, f.d, "usr_ada", "Ada", "c-acme")
+	if _, err := f.d.conn.Exec(`UPDATE user_tracker_credentials SET version = ? WHERE user_id = 'usr_ada' AND tracker = 'jira'`, row.version+1); err != nil {
+		t.Fatal(err)
+	}
+	fresh, _ := f.d.readJiraGrantRow("usr_ada")
+
+	if _, _, err := f.d.refreshJiraGrant(context.Background(), "usr_ada", row.version+1, stale, "c-acme"); err == nil {
+		t.Fatal("the stale refresh reported a write")
+	}
+	after, _ := f.d.readJiraGrantRow("usr_ada")
+	if string(after.record) != string(fresh.record) || after.version != fresh.version || after.disconnected {
+		t.Fatalf("the recreated row was touched: %+v", after)
+	}
+}
+
+// Moving the database refuses a destination whose key does not open the saved
+// OAuth app's secret, rather than leaving an app nobody can read.
+func TestMovingRefusesAKeyThatDoesNotOpenTheOAuthApp(t *testing.T) {
+	src, dst := testDB(t), testDB(t)
+	if err := ensureKeyOpensOAuthApps(src, dst); err != nil {
+		t.Fatalf("no app saved: %v", err)
+	}
+	if err := src.SaveJiraOAuthApp("page-client", "page-secret", "https://sectile.example.com/auth/jira/callback", "admin"); err != nil {
+		t.Fatal(err)
+	}
+	dst.serverKey = src.serverKey
+	if err := ensureKeyOpensOAuthApps(src, dst); err != nil {
+		t.Fatalf("the same key: %v", err)
+	}
+	dst.serverKey[0] ^= 0xff
+	if err := ensureKeyOpensOAuthApps(src, dst); err == nil {
+		t.Fatal("another key must be refused")
+	}
+}
+
 // AC10: an existing API token reads as one, and the resolver answers it as
 // before.
 func TestAnAPITokenResolvesAsBefore(t *testing.T) {

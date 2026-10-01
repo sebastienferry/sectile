@@ -138,8 +138,8 @@ type jiraGrantRow struct {
 	claimedAt time.Time
 }
 
-// readJiraGrantRow takes no lock: it is called from the credential resolver,
-// under d.mu (see userTrackerCredential).
+// readJiraGrantRow takes no lock, and is never called under d.mu: a refresh
+// may follow it, and none is held across a call to Atlassian.
 func (d *DB) readJiraGrantRow(userID string) (*jiraGrantRow, error) {
 	var row jiraGrantRow
 	var disconnected, claimed sql.NullTime
@@ -159,12 +159,13 @@ func (d *DB) readJiraGrantRow(userID string) (*jiraGrantRow, error) {
 }
 
 // How long before its expiry an access token is renewed, how long a claimed
-// refresh is waited for, and how often a waiter looks. The wait outlasts a
-// refresh's own timeout, so a claim older than it is one whose instance died
-// before writing, and may be taken over.
+// refresh is waited for, and how often a waiter looks. The wait is several
+// times a refresh's own timeout, so a claim older than it is one whose
+// instance died before writing, even read on a replica whose clock is ahead,
+// and may be taken over.
 var (
 	jiraGrantRefreshMargin = time.Minute
-	jiraGrantRefreshWait   = 20 * time.Second
+	jiraGrantRefreshWait   = time.Minute
 	jiraGrantPollInterval  = 50 * time.Millisecond
 	jiraGrantCallTimeout   = 15 * time.Second
 )
@@ -231,7 +232,10 @@ func (d *DB) refreshJiraGrant(ctx context.Context, userID string, version int64,
 		d.releaseJiraGrantClaim(userID, version)
 		return "", "", err
 	}
-	refreshCtx, cancel := context.WithTimeout(ctx, jiraGrantCallTimeout)
+	// The caller's deadline never cuts a refresh in half: once Atlassian has
+	// rotated the refresh token, the answer must be written, or the spent token
+	// stays in the row and the next refresh disconnects a live grant.
+	refreshCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), jiraGrantCallTimeout)
 	tokens, err := d.atlassianEndpoints().Refresh(refreshCtx, d.atlassianHTTP, app, grant.RefreshToken)
 	cancel()
 	switch {
@@ -239,7 +243,7 @@ func (d *DB) refreshJiraGrant(ctx context.Context, userID string, version int64,
 		// Holding the claim, nobody else spent this refresh token: the grant
 		// itself is dead. Only a new consent repairs it.
 		if _, err := d.conn.Exec(`UPDATE user_tracker_credentials SET disconnected_at = ?, refresh_claimed_at = NULL, version = version + 1
-			WHERE user_id = ? AND tracker = 'jira' AND version = ?`, time.Now().UTC(), userID, version); err != nil {
+			WHERE user_id = ? AND tracker = 'jira' AND version = ?`+jiraGrantClaimHeld, time.Now().UTC(), userID, version); err != nil {
 			return "", "", err
 		}
 		return "", "", &trackerapi.MissingPersonalCredentialError{Tracker: "jira", Reason: trackerapi.ReasonDisconnected}
@@ -257,7 +261,7 @@ func (d *DB) refreshJiraGrant(ctx context.Context, userID string, version int64,
 		return "", "", err
 	}
 	result, err := d.conn.Exec(`UPDATE user_tracker_credentials SET record = ?, version = version + 1, refresh_claimed_at = NULL, updated_at = ?
-		WHERE user_id = ? AND tracker = 'jira' AND version = ?`, record, time.Now().UTC(), userID, version)
+		WHERE user_id = ? AND tracker = 'jira' AND version = ?`+jiraGrantClaimHeld, record, time.Now().UTC(), userID, version)
 	if err != nil {
 		return "", "", err
 	}
@@ -268,6 +272,11 @@ func (d *DB) refreshJiraGrant(ctx context.Context, userID string, version int64,
 	}
 	return d.atlassianEndpoints().JiraAPIBase(cloudID), grant.AccessToken, nil
 }
+
+// jiraGrantClaimHeld narrows a claimant's write to the row it claimed. The
+// version alone is not enough: a row deleted and created again restarts at 0,
+// and may be back at the claimed version, unclaimed or holding a token.
+const jiraGrantClaimHeld = ` AND kind = 'oauth' AND refresh_claimed_at IS NOT NULL`
 
 // claimJiraGrantRefresh marks a refresh in flight, which only one caller can
 // do from a given version.
@@ -287,7 +296,7 @@ func (d *DB) claimJiraGrantRefresh(userID string, version int64) (bool, error) {
 // spent, so the next caller tries at once rather than waiting it out.
 func (d *DB) releaseJiraGrantClaim(userID string, version int64) {
 	_, _ = d.conn.Exec(`UPDATE user_tracker_credentials SET refresh_claimed_at = NULL, version = version + 1
-		WHERE user_id = ? AND tracker = 'jira' AND version = ?`, userID, version)
+		WHERE user_id = ? AND tracker = 'jira' AND version = ?`+jiraGrantClaimHeld, userID, version)
 }
 
 // awaitJiraGrantRefresh waits until the row moves on from version, which a
