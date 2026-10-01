@@ -2,3 +2,4 @@
 - Structured list of proposed MacroTodo items.
 - Proposed Sectile tickets breakdown (Title, IssueType, Description).
 - Rationale behind the task breakdown.
+- Macro description: the sections updated, or the contradictions left in place and why.
