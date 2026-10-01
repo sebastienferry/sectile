@@ -5,13 +5,13 @@ Ordered; each task lists its tests. Specification: `spec.md`; design:
 
 ## 0. Base
 
-- [ ] T0 Merge `origin/main` into `feat/676` (no rebase). Check
+- [x] T0 Merge `origin/main` into `feat/676` (no rebase). Check
   `git diff HEAD origin/main -- internal/agent desktop/src` shows only the
   branch's own changes.
 
 ## 1. Project folders (US2, US4)
 
-- [ ] T1 Add `projectFolderMap` in `internal/agent/repositories.go`.
+- [x] T1 Add `projectFolderMap` in `internal/agent/repositories.go`.
   - Test (`repositories_test.go`): a project with one context repository
     mapped, a specifications folder and two attached folders (one missing)
     yields a map whose `folderMapDirs` lists the repository, the
@@ -20,12 +20,12 @@ Ordered; each task lists its tests. Specification: `spec.md`; design:
 
 ## 2. Conversation turns (US2, FR4)
 
-- [ ] T2 `claudeConversationCommand` takes `dirs` and `env`; emits one
+- [x] T2 `claudeConversationCommand` takes `dirs` and `env`; emits one
   `--add-dir=<path>` per dir after the existing options.
   - Test (`agent_conversation_test.go`): argv contains `--add-dir=/a` and
     `--add-dir=/b c` as two single arguments; no dirs, argv unchanged;
     `SECTILE_REPOSITORIES` is in `cmd.Env` when given.
-- [ ] T3 `conversationTurn` reads the project folders per turn; on failure it
+- [x] T3 `conversationTurn` reads the project folders per turn; on failure it
   writes the notice and runs without dirs.
   - Test: with a fake config fetch, a folder attached between two turns is
     present on the second command only; a failing fetch produces the
@@ -35,31 +35,37 @@ Ordered; each task lists its tests. Specification: `spec.md`; design:
 
 ## 3. Launch lines (US4, FR7, FR8)
 
-- [ ] T4 `live()` in `dispatchCommand` appends `addDirArgs(provider, AddDirs)`.
+- [x] T4 `live()` in `dispatchCommand` appends `addDirArgs(provider, AddDirs)`.
   - Test (`agent_config_test.go`): `discuss` with provider `claude` and two
     dirs ends with two `--add-dir='…'` options; `codex` likewise; `agy` and
     `custom` unchanged; no dirs, unchanged; `open_terminal` without skill
     behaves like `discuss`.
-- [ ] T5 Free console PTY launch: `--add-dir` for built-in claude/codex,
+- [x] T5 Free console PTY launch: `--add-dir` for built-in claude/codex,
   `{addDirs}` filled for a template, `SECTILE_REPOSITORIES` in the env.
   - Test (`agent_console_test.go`): the queued command and env for a project
     with attached folders; none for `agy`.
 
 ## 4. Attach from a run (US1, US3, FR2, FR3, FR5, FR6)
 
-- [ ] T6 `Manager.WaitQuiet` in `internal/terminal/run.go` wrapping
+- [x] T6 `Manager.WaitQuiet` in `internal/terminal/run.go` wrapping
   `waitQuiet`.
   - Test (`internal/terminal`): returns after the quiet period on a silent
     session, and at the cap on a session that keeps printing.
-- [ ] T7 `controlledRun.interactiveProvider`, set at the discussion launch
-  in `agent.go`.
+- [x] T7 `controlledRun.interactiveProvider`, set at the discussion launch
+  in `agent.go`. Implementation note: it records the provider the live
+  launch opens (`liveProvider`), so a custom engine records `custom`, which
+  is never typed into, rather than `""`.
   - Test: a `discuss` launch with provider `claude` records `claude`; with
     a custom template records `""`.
-- [ ] T8 `typeablePath` and `claudePromptPath` in
+- [x] T8 `typeablePath` and `claudePromptPath` in
   `internal/agent/agent_run_folders.go`.
   - Test: `/a/b` as is; `/a/b c` → `"/a/b c"`; `"` and `\` escaped; a path
     with `\n`, `\t` or `\x7f` is not typeable.
-- [ ] T9 `POST /desktop/run-folder` and the `run-folders` capability.
+- [x] T9 `POST /desktop/run-folder` and the `run-folders` capability.
+  Implementation note: the line is typed as text, then Enter as a carriage
+  return after a short pause, since Claude Code reads its prompt in raw mode
+  (`InjectLine`'s newline would not submit it). A discussion moved to a
+  native terminal is attached to but not typed into.
   - Tests (`agent_run_folders_test.go`, httptest, sandbox off):
     - conversation run → folder attached in the settings, answer
       `{typed:false, appliesAt:"next-turn"}`;
@@ -76,14 +82,14 @@ Ordered; each task lists its tests. Specification: `spec.md`; design:
 
 ## 5. Desktop (US1, US3, FR1, FR3, FR9)
 
-- [ ] T10 IPC `add-run-folder` in `desktop/electron/main.cjs` with the
+- [x] T10 IPC `add-run-folder` in `desktop/electron/main.cjs` with the
   capability check, and `addRunFolder` in `preload.cjs`.
-- [ ] T11 Composer button in `desktop/src/conversation.js` (`canAddFolder`
+- [x] T11 Composer button in `desktop/src/conversation.js` (`canAddFolder`
   option, enabled while busy, disabled read-only, status notice kept over
   polling).
-- [ ] T12 Toolbar button and status in `desktop/src/main.js` for a running
+- [x] T12 Toolbar button and status in `desktop/src/main.js` for a running
   ticket discussion; hidden otherwise and without the capability.
-- [ ] T13 Styles in `desktop/src/style.css`.
+- [x] T13 Styles in `desktop/src/style.css`.
   - UI tests (build first: `npx vite build`; run unsandboxed):
     - extend `desktop/tests/conversation.ui.cjs`: the button is present,
       picking a folder (stubbed `chooseRepository`) calls
@@ -98,14 +104,14 @@ Ordered; each task lists its tests. Specification: `spec.md`; design:
 
 ## 6. Documentation
 
-- [ ] T14 `CHANGELOG.md` `## [Unreleased]`: the `Added` and `Changed` lines
+- [x] T14 `CHANGELOG.md` `## [Unreleased]`: the `Added` and `Changed` lines
   of plan §6.
-- [ ] T15 `docs/experiments/desktop-conversation.md`: folders per turn and
+- [x] T15 `docs/experiments/desktop-conversation.md`: folders per turn and
   the composer button.
 
 ## 7. Verification
 
-- [ ] T16 `go test ./internal/agent/... ./internal/terminal/... ./internal/runner/...`
+- [x] T16 `go test ./internal/agent/... ./internal/terminal/... ./internal/runner/...`
   (outside the sandbox for httptest; `GOCACHE` under `$TMPDIR`), `go vet`,
   desktop UI tests, `oxlint` on the touched JS.
 - [ ] T17 Manual check with the installed Claude Code: in a ticket
@@ -114,3 +120,9 @@ Ordered; each task lists its tests. Specification: `spec.md`; design:
   apply the fallback (type nothing for such a path) and adjust T8's test.
 - [ ] T18 Manual check: a conversation lists a file of a folder attached
   from its composer on the next message (AC1).
+
+## Status
+
+T0 to T16 are done. T17 and T18 need the installed Claude Code and are left
+to the owner: the automated tests cover the typed bytes and the turn's argv,
+not Claude Code's own reading of them.

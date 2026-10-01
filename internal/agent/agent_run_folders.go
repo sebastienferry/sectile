@@ -80,6 +80,10 @@ func (d *agentDaemon) desktopRunFolder(w http.ResponseWriter, r *http.Request) {
 	conversation := run.desktop.Conversation && run.conversation != nil
 	discussion := models.NormalizeSkillID(run.desktop.Skill) == "discuss" && !run.desktop.Conversation && run.desktop.SessionID != "" && run.desktop.Status == "running"
 	projectID, sessionID, provider := run.desktop.ProjectID, run.desktop.SessionID, run.interactiveProvider
+	if run.desktop.ExternalTerminal != "" {
+		// Detached to a native terminal: Sectile no longer types into it.
+		provider = ""
+	}
 	d.queue.mu.Unlock()
 	if ended {
 		http.Error(w, "This execution has ended", http.StatusConflict)

@@ -42,6 +42,15 @@ latest main-thread request used: its input, cache and output tokens from the
 reports for the model the `init` frame named. Subagent requests are ignored.
 The ring stays hidden until a first turn has reported a window, and neither
 value survives an agent restart.
+Each message also reads the project's folders afresh (#676): the project's other
+repositories mapped here, its specifications folder and its attached folders,
+each passed as one `--add-dir=<path>` argument, with the same folder map in
+`SECTILE_REPOSITORIES` as a skill run. A folder gone from the disk is left out.
+When the folders cannot be read, the message still runs, without them, and a
+status line says so. **Add folder…** in the composer attaches a folder to the
+project, with the checks of the project settings, and Claude is given it from
+the next message; it stays available while Claude works and is disabled on a
+read-only history.
 Only one message can be in flight in a conversation. A failed turn leaves the
 conversation available for retry, and a missing CLI is displayed as an error.
 
@@ -57,7 +66,7 @@ transcript is read-only; a new chat starts a new Claude session.
 - Token deltas and tool-result correlation.
 - Restore a live conversation after an agent restart.
 - Launch workflow skills directly in this view with the existing run context.
-- Honour custom Claude launch templates, attached directories and engine profiles.
+- Honour custom Claude launch templates and engine profiles.
 - Support providers other than Claude through a shared event contract.
 
 See [ADR 0042](../adrs/0042-experimental-claude-conversations-use-process-pipes.md)
