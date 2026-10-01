@@ -26,7 +26,9 @@ in that directory, with their argument and description, filtered as you type:
 arrows move, Tab or Enter completes, Esc closes. A message starting with `!`
 runs in the shell of that directory instead, as in Claude Code: it shows as a
 Bash card with its output, and Claude is given the command and what it printed
-with your next message.
+with your next message. The output of a local command such as `/usage` or
+`/context` shows as laid out, in a fixed-width block, and `/mcp` shows the
+health of each MCP server, as `claude mcp list` checks it.
 Claude's replies render as Markdown with the same rules as **Rendered** in the
 Changes panel; your own messages show as typed. Each tool call is a card: an
 edit opens on its diff, a written file on its lines, a command on the command,

@@ -555,6 +555,10 @@ details.tool-card[open]>summary::before{content:'▾'}
 .conversation-notice,.conversation-thinking{color:var(--text-faint)}
 .conversation-error{color:var(--danger)}
 .conversation-plain{white-space:pre-wrap}
+.conversation-command-output{white-space:pre-wrap;font:12px/1.55 Menlo,Consolas,monospace;padding:10px 12px;background:var(--surface-sunken);border-radius:8px;overflow-x:auto}
+.conversation-command-output .command-ok{color:var(--diff-add-text)}
+.conversation-command-output .command-warn{color:var(--warn-text)}
+.conversation-command-output .command-failed{color:var(--danger)}
 /* The reply still being written ends on a caret. */
 .conversation-partial .conversation-markdown>:last-child::after{content:'▍';margin-left:1px;color:var(--text-faint);animation:conversation-caret 1s steps(2) infinite}
 @keyframes conversation-caret{50%{opacity:0}}

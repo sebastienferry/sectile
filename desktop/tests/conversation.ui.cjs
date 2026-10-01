@@ -29,7 +29,7 @@ test('Claude chat renders structured output safely and sends messages without a 
     if(busy&&sent.message){joined.push(sent.message);events.push({kind:'user',text:sent.message});res.writeHead(202).end(JSON.stringify({accepted:true,joined:true}));return}
     if(JSON.parse(body).interrupt){interrupts++;busy=false;partial='';events.push({kind:'notice',text:'Interrupted'});res.writeHead(202).end(JSON.stringify({accepted:true}));return}
     ({message,effort,mode:sentMode}=JSON.parse(body));busy=true;context={used:150000,window:200000}
-    events.push({kind:'user',text:message},{kind:'assistant',text:'## Result\n**Safe output**\n```html\n<img src=x onerror="window.hostile=true">\n```\n\n| Name | Value |\n| --- | --- |\n| a | 1 |\n\n- [x] done\n\n[plan](../plan.md) ![diagram](x.png)'},{kind:'tool',text:'Read',detail:'<script>window.hostile=true</script>'},{kind:'tool',text:'Edit',tool:'Edit',detail:'src/app.js',input:{file_path:'/tmp/project/src/app.js',old_string:'keep\n<b>old</b>',new_string:'keep\nnew'}},{kind:'tool',text:'Bash',tool:'Bash',toolId:'t-bash',detail:'go test',input:{command:'go test ./...',description:'Run the tests'}},{kind:'tool_result',toolId:'t-bash',text:'ok  tasks <i>1.2s</i>'},{kind:'tool',text:'Grep',tool:'Grep',toolId:'t-grep',input:{pattern:'TODO'}},{kind:'tool_result',toolId:'t-grep',text:'No matches',error:true},{kind:'tool',text:'TodoWrite',tool:'TodoWrite',input:{todos:[{content:'Read the code',status:'completed'},{content:'Fix it',status:'in_progress'}]}})
+    events.push({kind:'user',text:message},{kind:'command_output',text:'Current session: 5% used\n  65% of your usage\nsectile - ✔ Connected\nwiz - ! Needs authentication\nold - ✗ Failed <b>x</b>'},{kind:'assistant',text:'## Result\n**Safe output**\n```html\n<img src=x onerror="window.hostile=true">\n```\n\n| Name | Value |\n| --- | --- |\n| a | 1 |\n\n- [x] done\n\n[plan](../plan.md) ![diagram](x.png)'},{kind:'tool',text:'Read',detail:'<script>window.hostile=true</script>'},{kind:'tool',text:'Edit',tool:'Edit',detail:'src/app.js',input:{file_path:'/tmp/project/src/app.js',old_string:'keep\n<b>old</b>',new_string:'keep\nnew'}},{kind:'tool',text:'Bash',tool:'Bash',toolId:'t-bash',detail:'go test',input:{command:'go test ./...',description:'Run the tests'}},{kind:'tool_result',toolId:'t-bash',text:'ok  tasks <i>1.2s</i>'},{kind:'tool',text:'Grep',tool:'Grep',toolId:'t-grep',input:{pattern:'TODO'}},{kind:'tool_result',toolId:'t-grep',text:'No matches',error:true},{kind:'tool',text:'TodoWrite',tool:'TodoWrite',input:{todos:[{content:'Read the code',status:'completed'},{content:'Fix it',status:'in_progress'}]}})
     res.writeHead(202).end(JSON.stringify({accepted:true}))
    });return
   }
@@ -112,6 +112,12 @@ test('Claude chat renders structured output safely and sends messages without a 
   await expect(card('Edit').locator('.diff-add')).toHaveText('+ new')
   await expect(card('Todos').locator('.tool-card-target')).toHaveText('1 of 2 done')
   await expect(card('Todos').locator('input[type=checkbox]').first()).toBeChecked()
+  // A local command's output keeps its layout, its status lines tinted.
+  const output=page.locator('.conversation-command-output')
+  await expect(output).toContainText('Current session: 5% used\n  65% of your usage')
+  await expect(output.locator('.command-ok')).toHaveText('sectile - ✔ Connected')
+  await expect(output.locator('.command-warn')).toHaveText('wiz - ! Needs authentication')
+  await expect(output.locator('.command-failed')).toHaveText('old - ✗ Failed <b>x</b>')
   assert.equal(await page.locator('.conversation b').count(),0)
   // A result is drawn in the card of the call it answers, never on its own.
   await card('Bash').locator('summary').click()

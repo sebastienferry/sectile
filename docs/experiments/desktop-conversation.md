@@ -81,6 +81,13 @@ hidden on Windows and stopped after two minutes, and shows it as a Bash card
 with its output. The command and its output, as `<bash-input>` and
 `<bash-stdout>`, go to Claude in front of the next message, bounded to 32 KiB.
 
+A turn whose result comes with no message of Claude's before it ran a local
+command (`/usage`, `/context`, `/cost`): its output, laid out for a terminal, is
+kept as `command_output` and shown as such, a status line tinted by its mark.
+`/mcp` alone is not sent to Claude, whose print mode only counts the servers:
+the agent runs `claude mcp list` in the conversation's directory, which checks
+each server, and shows its output; Claude is not told.
+
 Typing `/` at the start of a message completes the slash commands Claude offers
 in the conversation's directory, the list its `initialize` response carries.
 Before the first turn the agent reads it from a Claude started for that alone:

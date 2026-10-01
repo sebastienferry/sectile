@@ -117,3 +117,36 @@ func clampShellDetail(line string) string {
 	}
 	return buffer.String()
 }
+
+// conversationMCPTimeout bounds the health check behind /mcp.
+const conversationMCPTimeout = time.Minute
+
+// startConversationMCPLocked answers /mcp. Print mode only says how many
+// servers are connected and sends the owner to a terminal for the rest, so the
+// agent runs `claude mcp list` there instead, which checks each server, and
+// shows what it printed. Claude is not told: it is for the owner. The queue
+// lock is held.
+func (d *agentDaemon) startConversationMCPLocked(run *controlledRun) {
+	conversationWrite(run.trace, "notice", "Checking MCP server health…", "")
+	env := map[string]string{"SECTILE_PROJECT_ID": run.desktop.ProjectID}
+	for key, value := range run.conversation.env {
+		env[key] = value
+	}
+	directory := run.desktop.Directory
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), conversationMCPTimeout)
+		defer cancel()
+		var output limitedConversationBuffer
+		cmd := conversationShellCommand(ctx, directory, "claude mcp list", env)
+		cmd.Stdout, cmd.Stderr = &output, &output
+		err := cmd.Run()
+		text := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(output.String()), "Checking MCP server health…"))
+		kind := "command_output"
+		if err != nil && text == "" {
+			kind, text = "error", "claude mcp list failed: "+err.Error()
+		}
+		d.queue.mu.Lock()
+		defer d.queue.mu.Unlock()
+		conversationWrite(run.trace, kind, text, "")
+	}()
+}

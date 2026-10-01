@@ -8,6 +8,17 @@ import {toolCard,renderToolCard} from './tool-cards.mjs'
 // load and only web and mail links open, outside the window.
 const markdownKinds=new Set(['assistant','thinking'])
 
+// A local command's output (/usage, /mcp, /context) is laid out for a
+// terminal: it is shown as such, a line of status tinted by its mark.
+function commandOutputLines(text){
+ return String(text).split('\n').map(line=>{
+  const node=document.createElement('span')
+  node.className=/✔|✓/.test(line)?'command-ok':/✗|✘|Failed/.test(line)?'command-failed':/ ! |Needs authentication/.test(line)?'command-warn':''
+  node.textContent=line+'\n'
+  return node
+ })
+}
+
 // canAddFolder tells whether the local agent attaches a folder from a run (#676).
 // canControl tells whether the agent interrupts a turn and opens a terminal
 // beside the conversation; canQueue whether it takes a message while Claude
@@ -174,9 +185,10 @@ export function createConversationView({api,container,onError,canAddFolder=()=>f
     events.append(node);continue
    }
    const node=document.createElement('article');node.className='conversation-event conversation-'+event.kind
-   const label=document.createElement('strong');label.className='conversation-speaker';label.textContent=event.kind==='user'?'You':event.kind==='assistant'?'Claude Code':event.kind==='error'?'Error':event.kind==='thinking'?'Thinking':'Status';node.append(label)
+   const label=document.createElement('strong');label.className='conversation-speaker';label.textContent=event.kind==='user'?'You':event.kind==='assistant'||event.kind==='command_output'?'Claude Code':event.kind==='error'?'Error':event.kind==='thinking'?'Thinking':'Status';node.append(label)
    const body=document.createElement('div')
-   if(markdownKinds.has(event.kind)){body.className='conversation-markdown';body.append(renderMarkdown(markdownModel(event.text||''),{openLink:url=>api.openLink(url)}))}
+   if(event.kind==='command_output'){body.className='conversation-command-output';body.append(...commandOutputLines(event.text||''))}
+   else if(markdownKinds.has(event.kind)){body.className='conversation-markdown';body.append(renderMarkdown(markdownModel(event.text||''),{openLink:url=>api.openLink(url)}))}
    else{body.className='conversation-plain';body.textContent=event.text||''}
    node.append(body)
    if(event.detail){const detail=document.createElement('small');detail.textContent=event.detail;node.append(detail)}
@@ -319,8 +331,8 @@ export function createConversationView({api,container,onError,canAddFolder=()=>f
   try{
    await api.conversationMessage(id,message,effort.value,model.value,mode.value)
    if(token!==generation)return
-   const shell=message.trimStart().startsWith('!')
-   input.value='';grow();showShellMode();available=shell||canQueue();status.textContent=shell?'Running in the shell…':'Claude Code is working…'
+   const shell=message.trimStart().startsWith('!'),local=message.trim()==='/mcp'
+   input.value='';grow();showShellMode();available=shell||local||canQueue();status.textContent=shell?'Running in the shell…':local?'Checking MCP servers…':'Claude Code is working…'
   }catch(err){if(token===generation)onError(err)}
   finally{if(token===generation){pending=false;send.disabled=!available}}
  })

@@ -561,6 +561,7 @@ read -r first
 printf '%s\n' '{"type":"stream_event","parent_tool_use_id":null,"event":{"type":"message_start"}}'
 read -r second
 printf '%s' "$second" > second.txt
+printf '%s\n' '{"type":"assistant","parent_tool_use_id":null,"message":{"content":[{"type":"text","text":"Both answered"}]}}'
 printf '%s\n' '{"type":"result","is_error":false,"result":"Both answered","session_id":"11111111-1111-4111-8111-111111111111"}'
 `
 	if err := os.WriteFile(filepath.Join(bin, "claude"), []byte(script), 0700); err != nil {
@@ -1012,5 +1013,83 @@ printf '%s\n' '{"type":"result","is_error":false,"result":"ok","session_id":"111
 	}
 	if lines, _ := run.trace.snapshot(); strings.Contains(strings.Join(lines, "\n"), `"kind":"user","text":"<bash-input>`) {
 		t.Fatal("the shell context leaked into the owner's message in the transcript")
+	}
+}
+
+// A local command answers without Claude: its output, laid out for a
+// terminal, is kept as such rather than as a reply.
+func TestALocalCommandsOutputIsKeptAsLaidOut(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake CLI is a POSIX script")
+	}
+	testhome.Temp(t)
+	bin := t.TempDir()
+	script := `#!/bin/sh
+read -r init
+read -r message
+printf '%s\n' '{"type":"result","is_error":false,"result":"Current session: 5% used\n  65% of your usage was at >150k context","session_id":"11111111-1111-4111-8111-111111111111"}'
+`
+	if err := os.WriteFile(filepath.Join(bin, "claude"), []byte(script), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	d, id := conversationFixture(t)
+	run := d.queue.runs[id]
+	if w := conversationRequest(d, "POST", "/desktop/conversation?id="+id, `{"message":"/usage"}`, "private"); w.Code != 202 {
+		t.Fatalf("send: %d", w.Code)
+	}
+	waitConversationIdle(t, d, run)
+	lines, _ := run.trace.snapshot()
+	if text := strings.Join(lines, "\n"); !strings.Contains(text, `"kind":"command_output","text":"Current session: 5% used\n  65% of your usage`) || strings.Contains(text, `"kind":"assistant"`) {
+		t.Fatalf("unexpected transcript: %s", text)
+	}
+}
+
+// /mcp shows the CLI's health check of the MCP servers, without Claude.
+func TestConversationMCPRunsTheCLIHealthCheck(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake CLI is a POSIX script")
+	}
+	testhome.Temp(t)
+	bin := t.TempDir()
+	script := `#!/bin/sh
+printf '%s\n' "$*" > "$CLAUDE_ARGS"
+printf 'Checking MCP server health…\n\nsectile: http://127.0.0.1/mcp - ✔ Connected\nwiz: https://wiz - ! Needs authentication\n'
+`
+	if err := os.WriteFile(filepath.Join(bin, "claude"), []byte(script), 0700); err != nil {
+		t.Fatal(err)
+	}
+	args := filepath.Join(t.TempDir(), "args")
+	t.Setenv("CLAUDE_ARGS", args)
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("SHELL", "/bin/sh")
+	d, id := conversationFixture(t)
+	run := d.queue.runs[id]
+	if w := conversationRequest(d, "POST", "/desktop/conversation?id="+id, `{"message":" /mcp "}`, "private"); w.Code != 202 || !strings.Contains(w.Body.String(), `"local":true`) {
+		t.Fatalf("/mcp: %d %s", w.Code, w.Body.String())
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		lines, _ := run.trace.snapshot()
+		text := strings.Join(lines, "\n")
+		if strings.Contains(text, `"kind":"command_output"`) {
+			if !strings.Contains(text, `"text":"sectile: http://127.0.0.1/mcp - ✔ Connected\nwiz: https://wiz - ! Needs authentication"`) {
+				t.Fatalf("unexpected output: %s", text)
+			}
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("/mcp never answered: %s", text)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if raw, _ := os.ReadFile(args); strings.TrimSpace(string(raw)) != "mcp list" {
+		t.Fatalf("claude ran with %q", raw)
+	}
+	d.queue.mu.Lock()
+	busy := run.conversation.busy
+	d.queue.mu.Unlock()
+	if busy {
+		t.Fatal("/mcp started a turn")
 	}
 }

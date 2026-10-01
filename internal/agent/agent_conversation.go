@@ -319,6 +319,15 @@ func (d *agentDaemon) desktopConversation(w http.ResponseWriter, r *http.Request
 	if model := strings.TrimSpace(input.Model); model != "" {
 		run.desktop.Model = model
 	}
+	// /mcp is answered by the CLI's own health check, not by print mode.
+	if strings.TrimSpace(input.Message) == "/mcp" {
+		conversationWrite(run.trace, "user", "/mcp", "")
+		d.startConversationMCPLocked(run)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusAccepted)
+		_ = json.NewEncoder(w).Encode(map[string]bool{"accepted": true, "local": true})
+		return
+	}
 	// A message starting with "!" runs in the shell, not through Claude.
 	if line, ok := strings.CutPrefix(strings.TrimSpace(input.Message), "!"); ok {
 		if strings.TrimSpace(line) == "" {
@@ -608,7 +617,10 @@ func (d *agentDaemon) conversationTurn(run *controlledRun, prompt string) {
 				} else if frame.IsError {
 					conversationWrite(run.trace, "error", result, "")
 				} else if !assistantSeen && result != "" {
-					conversationWrite(run.trace, "assistant", result, "")
+					// A result no message of Claude's came before is the
+					// output of a local command such as /usage or /context:
+					// text laid out for a terminal, which is not Markdown.
+					conversationWrite(run.trace, "command_output", result, "")
 				}
 				if len(frame.Denials) > 0 {
 					conversationWrite(run.trace, "notice", "Some tool calls were denied.", "")
