@@ -374,3 +374,39 @@ guarantee.
   the fake gateway rejects a call whose scope the grant lacks.
 - Atlassian's rate limit is per app and site: only person-caused calls go
   through grants; synchronisation keeps the server credential.
+
+## Implementation notes
+
+What the implementation changed from this plan, and why.
+
+- **Migration numbers.** `main` took 38 (`projects.roadmap_axis_writes`), so
+  the three migrations are 39 (`user_tracker_credentials.oauth`), 40
+  (`jira_oauth_flows`) and 41 (`tracker_oauth_apps`). Timestamps are
+  `DATETIME`, like `login_flows`, rather than `TEXT`.
+- **The refresh is claimed before Atlassian is called.** Section 5 compared
+  the version only after an `invalid_grant`. The concurrency test against the
+  strict rotating fake showed the hole: an instance reading the row after
+  another's refresh but before its write spent the rotated refresh token and
+  disconnected a live grant. Migration 39 therefore adds
+  `refresh_claimed_at`; a claim is a compare-and-set on `version` that sets
+  it, waiters poll until the version moves, a claim older than the refresh
+  wait (20 s, longer than the 15 s call timeout) is taken over, and a claim
+  whose refresh failed without spending the token is released at once. With
+  the claim held, `invalid_grant` is trusted and disconnects.
+- **Scopes.** Checked against Atlassian's OpenAPI documents (see spec FR16):
+  `read:board-scope.admin:jira-software` added for the board configuration,
+  `read:issue:jira-software` and `write:issue:jira-software` dropped, and the
+  priority search skipped for a client calling through a grant, since it needs
+  `manage:jira-configuration`.
+- **`unauthorized_client` on a refresh** whose description names the refresh
+  token is read as `invalid_grant`, which is how Atlassian answers some expired
+  refresh tokens; the same code without it (a wrong client id) disconnects
+  nobody.
+- **Checks of a grant.** `CheckTrackerCredentials` checks a grant through
+  itself (`CheckJiraBearer`) when no token is typed, instead of falling back to
+  the server token; `ConfirmUserTrackerCredential` skips grants.
+- **The flow logic lives in the store** (`db.JiraOAuthAuthorizeURL`,
+  `db.CompleteJiraOAuth`), so the handlers stay thin and the store tests cover
+  the five outcomes; the handler tests cover the routes and the logs.
+- **A grant keeps its panel when OAuth is no longer configured**
+  (`jiraEntryState`): the token form would claim a token is stored.
