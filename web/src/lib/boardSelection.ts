@@ -61,3 +61,16 @@ export const shouldEscapeClearSelection = (ctx: EscapeContext): boolean =>
   && !ctx.appSurfaceOpen
   && !ctx.inputFocused
   && !ctx.modalOpen
+
+/**
+ * The ids from the anchor to the target in display order, both included,
+ * whichever comes first: what a Shift click adds to a selection. With no
+ * anchor, or one no longer shown, the range is the target alone.
+ */
+export const rangeSelection = (order: readonly string[], anchor: string | null, target: string): string[] => {
+  const to = order.indexOf(target)
+  if (to < 0) return []
+  const from = anchor === null ? -1 : order.indexOf(anchor)
+  if (from < 0) return [target]
+  return order.slice(Math.min(from, to), Math.max(from, to) + 1)
+}

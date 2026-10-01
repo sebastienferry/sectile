@@ -215,6 +215,7 @@ export const ProjectModal: React.FC = () => {
   const [gitlabProject, setGitlabProject] = useState('')
   const [jiraProject, setJiraProject] = useState('')
   const [roadmapProjects, setRoadmapProjects] = useState('')
+  const [roadmapAxisWrites, setRoadmapAxisWrites] = useState(false)
   // Types de tickets importés. Vide vaut « les types par défaut » : c'est ce que
   // porte un projet qui n'a jamais eu besoin d'y toucher.
   const [issueTypes, setIssueTypes] = useState<string[]>([])
@@ -286,6 +287,7 @@ export const ProjectModal: React.FC = () => {
       // conserve celui qui est enregistré.
       setJiraProject(editingProject.jiraProject || '')
       setRoadmapProjects(formatProjectKeyList(editingProject.roadmapProjects))
+      setRoadmapAxisWrites(Boolean(editingProject.roadmapAxisWrites))
       setIssueTypes(editingProject.issueTypes || [])
       setEnabledViews(enabledOptionalViews(editingProject))
       setEpicColors(editingProject.epicColors === true)
@@ -331,6 +333,7 @@ export const ProjectModal: React.FC = () => {
       setGitlabProject('')
       setJiraProject('')
       setRoadmapProjects('')
+      setRoadmapAxisWrites(false)
       setSkillsStatus(null)
       setSddStatuses([])
       setSddResult(null)
@@ -429,6 +432,8 @@ export const ProjectModal: React.FC = () => {
         gitlabProject: gitlabProject.trim().replace(/^\/+|\/+$/g, ''),
         jiraProject: jiraProject.trim().toUpperCase(),
         roadmapProjects: issueTracker === 'jira' ? parseProjectKeyList(roadmapProjects, jiraProject) : [],
+        // Never open without a declared project: the server closes it too.
+        roadmapAxisWrites: issueTracker === 'jira' && parseProjectKeyList(roadmapProjects, jiraProject).length > 0 && roadmapAxisWrites,
         issueTypes,
         enabledViews,
         epicColors,
@@ -1204,6 +1209,23 @@ export const ProjectModal: React.FC = () => {
                     <span className="text-[9px] text-[var(--text-muted)] mt-1 block">
                       {ps.tracker.roadmapProjectsHelp}
                     </span>
+                    {/* Closed by default (#632): a project reading others must
+                        not start writing on their epics because a version
+                        shipped. Offered once at least one project is declared. */}
+                    {parseProjectKeyList(roadmapProjects, jiraProject).length > 0 && (
+                      <label className="flex items-start gap-2 text-xs text-[var(--text-secondary)] cursor-pointer mt-2">
+                        <input
+                          type="checkbox"
+                          checked={roadmapAxisWrites}
+                          onChange={e => setRoadmapAxisWrites(e.target.checked)}
+                          className="mt-0.5 rounded border-[var(--border-color)] accent-[var(--accent-color)]"
+                        />
+                        <span>
+                          {ps.tracker.roadmapAxisWritesLabel}
+                          <span className="block text-[11px] text-[var(--text-muted)]">{ps.tracker.roadmapAxisWritesHelp}</span>
+                        </span>
+                      </label>
+                    )}
                   </div>
                 )}
 
