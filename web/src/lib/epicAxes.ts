@@ -1,4 +1,4 @@
-import type { EpicPriority, Priority } from '../types'
+import type { EpicPriority, EpicReadiness, Priority } from '../types'
 import type { EpicRow } from './roadmap.ts'
 
 /**
@@ -17,6 +17,31 @@ export const EPIC_PRIORITY_LEVEL: Record<EpicPriority, Priority> = {
   p1: 'high',
   p2: 'medium',
   p3: 'low',
+}
+
+/** The readiness levels in funnel order (#633). */
+export const EPIC_READINESS: EpicReadiness[] = ['idea', 'shaping', 'ready']
+
+/**
+ * The readiness Sectile suggests until a person decides one (#633), from what
+ * the epic carries. Never stored: it follows the tickets and the slicing.
+ *
+ * - a child ticket, open or closed: the epic left ideation, "ready";
+ * - a framing and a slicing whose every line is ticked or has a story: "ready";
+ * - a framing, or at least one slicing line: "shaping";
+ * - nothing: "idea".
+ */
+export const suggestReadiness = (input: {
+  childCount: number
+  description?: string
+  todos?: { done: boolean; storyKey?: string }[]
+}): EpicReadiness => {
+  if (input.childCount > 0) return 'ready'
+  const framed = (input.description || '').trim() !== ''
+  const todos = input.todos || []
+  if (framed && todos.length > 0 && todos.every(todo => todo.done || Boolean((todo.storyKey || '').trim()))) return 'ready'
+  if (framed || todos.length > 0) return 'shaping'
+  return 'idea'
 }
 
 /** "p1" -> "P1", the way a badge reads it. */

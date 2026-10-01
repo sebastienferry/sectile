@@ -194,6 +194,9 @@ func (d *DB) PurgeExpiredSessions() error {
 	if _, err := d.conn.Exec(`DELETE FROM web_sessions WHERE expires_at < ?`, now); err != nil {
 		return err
 	}
-	_, err := d.conn.Exec(`DELETE FROM login_flows WHERE expires_at < ? OR consumed_at IS NOT NULL`, now)
+	if _, err := d.conn.Exec(`DELETE FROM login_flows WHERE expires_at < ? OR consumed_at IS NOT NULL`, now); err != nil {
+		return err
+	}
+	_, err := d.conn.Exec(`DELETE FROM jira_oauth_flows WHERE expires_at < ? OR consumed_at IS NOT NULL`, now)
 	return err
 }

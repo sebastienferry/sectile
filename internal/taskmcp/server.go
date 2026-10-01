@@ -10,6 +10,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"tasks/internal/agentconfig"
+	"tasks/internal/agentprotocol"
 	"tasks/internal/db"
 	"tasks/internal/models"
 	"tasks/internal/tracker"
@@ -26,6 +27,9 @@ type transitionInput struct {
 	PRURL   string `json:"prUrl,omitempty"`
 	// PRURLs are the pull requests of the other repositories the task changed.
 	PRURLs []string `json:"prUrls,omitempty"`
+	// NoRepositoryChange states that the task's work changed no repository,
+	// in place of a pull request (#584).
+	NoRepositoryChange bool `json:"noRepositoryChange,omitempty"`
 }
 type commentInput struct {
 	TaskKey string `json:"taskKey"`
@@ -42,8 +46,8 @@ type contextInput struct {
 }
 
 // createTaskInput mirrors the descriptive half of models.CreateTaskRequest. The
-// fields a caller could use to contradict the board's own invariants — status,
-// source, external URL — are deliberately absent: a task created here enters the
+// fields a caller could use to contradict the board's own invariants (status,
+// source, external URL) are deliberately absent: a task created here enters the
 // workflow where every other new task enters it.
 type createTaskInput struct {
 	ProjectID   string   `json:"projectId"`
@@ -81,9 +85,13 @@ type finishRunInput struct {
 	MacroKey  string `json:"macroKey,omitempty" jsonschema:"macro key of a macro run, with projectId instead of taskKey"`
 }
 type reportWaitingInput struct {
-	TaskKey string `json:"taskKey" jsonschema:"task key or ID of the run"`
+	TaskKey string `json:"taskKey,omitempty" jsonschema:"task key or ID of the run; omit for a macro run"`
 	RunID   string `json:"runId" jsonschema:"the runId start_run returned"`
 	Waiting bool   `json:"waiting" jsonschema:"true before asking the user a blocking question, false once answered"`
+	// ProjectID and MacroKey name a macro run, as start_run and finish_run do
+	// (#648).
+	ProjectID string `json:"projectId,omitempty" jsonschema:"project primary key of a macro run"`
+	MacroKey  string `json:"macroKey,omitempty" jsonschema:"macro key of a macro run, with projectId instead of taskKey"`
 }
 
 // reportWaitingTool is the one call that must not end a wait: reporting the same
@@ -109,6 +117,35 @@ type repositoryWorktreeInput struct {
 type macroWorktreeInput struct {
 	ProjectID string `json:"projectId" jsonschema:"project primary key"`
 	MacroKey  string `json:"macroKey" jsonschema:"macro key, for example M-7"`
+}
+
+// macroInput names one macro of one project: a macro key alone can match
+// another project's macro.
+type macroInput struct {
+	ProjectID string `json:"projectId" jsonschema:"project primary key"`
+	MacroKey  string `json:"macroKey" jsonschema:"macro key, for example PE-12 or M-7"`
+}
+
+// macroTodosInput is the full ordered list update_macro_todos saves.
+type macroTodosInput struct {
+	ProjectID string           `json:"projectId" jsonschema:"project primary key"`
+	MacroKey  string           `json:"macroKey" jsonschema:"macro key, for example PE-12 or M-7"`
+	Todos     []macroTodoInput `json:"todos" jsonschema:"the full list in the order of execution, top first"`
+}
+
+// macroTodoInput is one line of it. The story key and the origin a todo of
+// get_macro carries are accepted, so an agent can send a list back as it read
+// it, and ignored: only story creation attaches a line to a story, and only an
+// import says where a line comes from.
+type macroTodoInput struct {
+	ID                   string `json:"id,omitempty" jsonschema:"id of an existing todo, from get_macro; omit for a new todo"`
+	Text                 string `json:"text" jsonschema:"one-line wording of the todo"`
+	Done                 bool   `json:"done,omitempty"`
+	TargetProjectID      string `json:"targetProjectId,omitempty" jsonschema:"Sectile project the todo's story is created in, empty for the macro's own"`
+	TargetTrackerProject string `json:"targetTrackerProject,omitempty" jsonschema:"roadmap Jira project key the todo's story is created in"`
+	StoryKey             string `json:"storyKey,omitempty" jsonschema:"ignored: an existing todo keeps its story key"`
+	SourceKind           string `json:"sourceKind,omitempty" jsonschema:"ignored: an existing todo keeps its origin"`
+	SourceEntry          string `json:"sourceEntry,omitempty" jsonschema:"ignored: an existing todo keeps its origin"`
 }
 
 // runTarget says whether a run input names a task or a macro, and refuses one
@@ -237,6 +274,13 @@ func NewServerWithCallers(database *db.DB, sessions *SessionRegistry, resolve Ca
 				sessions.Touch(session.ID())
 				if resumesWaits(method, req) {
 					sessions.Resume(session.ID())
+					// A launched console names its run, which ends that run's
+					// wait even from a session that declared nothing (#498).
+					if call, ok := req.(*mcp.CallToolRequest); ok && call.Extra != nil {
+						if runID := strings.TrimSpace(call.Extra.Header.Get(agentprotocol.RunIDHeader)); runID != "" {
+							sessions.ResumeRun(runID, session.ID(), callerOf(resolve, call).UserID)
+						}
+					}
 				}
 			}
 			return next(ctx, method, req)
@@ -274,7 +318,8 @@ func NewServerWithCallers(database *db.DB, sessions *SessionRegistry, resolve Ca
 			"taskKey": map[string]any{"type": "string", "minLength": 1},
 			"stage":   map[string]any{"type": "string", "enum": []string{"clarified", "specified", "implemented", "reviewed", "finished"}},
 			"note":    map[string]any{"type": "string", "minLength": 1}, "branch": map[string]any{"type": "string"}, "prUrl": map[string]any{"type": "string", "description": "Pull request or merge request URL to persist on the task. Omit to preserve its existing link."},
-			"prUrls": map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "On a task that changed several repositories: the pull requests of the other repositories, one per repository. prUrl names the primary repository's."},
+			"prUrls":             map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "On a task that changed several repositories: the pull requests of the other repositories, one per repository. prUrl names the primary repository's."},
+			"noRepositoryChange": map[string]any{"type": "boolean", "description": "True when the task's work changed no repository (a configuration made through an API, a review, a follow-up), so there is no pull request to give. Say in the note what was done instead. Refused with prUrl or prUrls, and when the task records a pull request on its branch or a changed repository."},
 		},
 	}}, func(ctx context.Context, req *mcp.CallToolRequest, in transitionInput) (*mcp.CallToolResult, any, error) {
 		if strings.TrimSpace(in.Note) == "" {
@@ -284,7 +329,17 @@ func NewServerWithCallers(database *db.DB, sessions *SessionRegistry, resolve Ca
 		if err := requireCaller(caller); err != nil {
 			return nil, nil, err
 		}
-		task, activity, err := database.TransitionTaskStageWithPRs(caller.UserID, in.TaskKey, in.Stage, in.Note, append([]string{in.PRURL}, in.PRURLs...), in.Branch)
+		var task *models.Task
+		var activity *models.TaskActivity
+		var err error
+		if in.NoRepositoryChange {
+			if strings.TrimSpace(in.PRURL) != "" || len(in.PRURLs) > 0 {
+				return nil, nil, fmt.Errorf("noRepositoryChange states there is no pull request: give either prUrl/prUrls or noRepositoryChange, not both")
+			}
+			task, activity, err = database.TransitionTaskStageWithoutRepositoryChange(caller.UserID, in.TaskKey, in.Stage, in.Note, in.Branch)
+		} else {
+			task, activity, err = database.TransitionTaskStageWithPRs(caller.UserID, in.TaskKey, in.Stage, in.Note, append([]string{in.PRURL}, in.PRURLs...), in.Branch)
+		}
 		if err != nil {
 			return nil, nil, err
 		}
@@ -364,12 +419,23 @@ func NewServerWithCallers(database *db.DB, sessions *SessionRegistry, resolve Ca
 			sessions.Release(sessionID(req.Session), in.RunID)
 			return nil, activity, nil
 		})
-	mcp.AddTool(s, &mcp.Tool{Name: reportWaitingTool, Description: "Declare that a run is blocked on its user, so the board and the owner's desktop show it as waiting. Call it with waiting true right before asking the user a question you cannot continue without. The wait ends by itself on this session's next Sectile call, when the owner presses Enter in the run's console, when the run finishes, or with waiting false. A headless run has nobody to answer and is left unmarked. Tool permission prompts are not reported this way."},
+	mcp.AddTool(s, &mcp.Tool{Name: reportWaitingTool, Description: "Declare that a run is blocked on its user, so the board and the owner's desktop show it as waiting. Call it with waiting true right before asking the user a question you cannot continue without. The wait ends by itself on this session's next Sectile call, when the owner presses Enter in the run's console, when the run finishes, or with waiting false. A headless run has nobody to answer and is left unmarked. Tool permission prompts are not reported this way. Name a task run with taskKey, a macro run with projectId and macroKey, as for start_run."},
 		func(ctx context.Context, req *mcp.CallToolRequest, in reportWaitingInput) (*mcp.CallToolResult, any, error) {
 			caller := callerOf(resolve, req)
+			macro, err := runTarget(in.TaskKey, in.ProjectID, in.MacroKey)
+			if err != nil {
+				return nil, nil, err
+			}
 			// The wait is recorded with the declaring session, whose next call
 			// ends it on whichever instance serves that call.
-			activity, applied, err := database.ReportSessionRunWaitingAs(db.Actor{ID: caller.UserID, Name: caller.Name}, caller.Role == db.RoleAdmin, sessionID(req.Session), in.TaskKey, in.RunID, in.Waiting)
+			actor, admin, session := db.Actor{ID: caller.UserID, Name: caller.Name}, caller.Role == db.RoleAdmin, sessionID(req.Session)
+			var activity *models.TaskActivity
+			var applied bool
+			if macro {
+				activity, applied, err = database.ReportSessionMacroRunWaitingAs(actor, admin, session, in.ProjectID, in.MacroKey, in.RunID, in.Waiting)
+			} else {
+				activity, applied, err = database.ReportSessionRunWaitingAs(actor, admin, session, in.TaskKey, in.RunID, in.Waiting)
+			}
 			if err != nil {
 				return nil, nil, err
 			}
@@ -386,6 +452,31 @@ func NewServerWithCallers(database *db.DB, sessions *SessionRegistry, resolve Ca
 				return nil, nil, err
 			}
 			return nil, workspace, nil
+		})
+	mcp.AddTool(s, &mcp.Tool{Name: "get_macro", Description: "Read one macro (epic) of a project: title, description, framing comment, horizon, its todos in the order of execution (id, text, done, storyKey, target, origin) todosMirror, the status of their one-way copy on the tracker, and framingMirror, the status of the framing's one-way copy on a Jira epic. Writes nothing."},
+		func(ctx context.Context, req *mcp.CallToolRequest, in macroInput) (*mcp.CallToolResult, any, error) {
+			macro, err := database.GetMacro(in.ProjectID, in.MacroKey)
+			if err != nil {
+				return nil, nil, err
+			}
+			return nil, map[string]any{"macro": macro}, nil
+		})
+	mcp.AddTool(s, &mcp.Tool{Name: "update_macro_todos", Description: "Save the full ordered todo list of a macro, top first. A todo with the id of an existing one keeps its story key and origin and takes the given text, done and target; a todo without id is created; an existing todo the list omits is removed, except one linked to a story, which refuses the call: only the macro's panel removes it. A blank text, an unknown id or a repeated id refuses the whole call and saves nothing. Story keys cannot be set here. Save only a list the owner confirmed. Answers with the saved macro and todosMirror; the tracker copy is written shortly after."},
+		func(ctx context.Context, req *mcp.CallToolRequest, in macroTodosInput) (*mcp.CallToolResult, any, error) {
+			caller := callerOf(resolve, req)
+			if err := requireCaller(caller); err != nil {
+				return nil, nil, err
+			}
+			items := make([]db.MacroTodoInput, 0, len(in.Todos))
+			for _, todo := range in.Todos {
+				items = append(items, db.MacroTodoInput{ID: todo.ID, Text: todo.Text, Done: todo.Done,
+					TargetProjectID: todo.TargetProjectID, TargetTrackerProject: todo.TargetTrackerProject})
+			}
+			macro, err := database.ReplaceMacroTodos(tracker.WithActingUser(ctx, caller.UserID), in.ProjectID, in.MacroKey, items)
+			if err != nil {
+				return nil, nil, err
+			}
+			return nil, map[string]any{"macro": macro, "todosMirror": macro.TodosMirror}, nil
 		})
 	mcp.AddTool(s, &mcp.Tool{Name: "prepare_repository_worktree", Description: "Prepare the task's worktree in another repository than its primary one, on the caller's local agent, on the task's branch: reused wherever that branch is already checked out, else created from the remote branch when it exists, else from the checkout's current HEAD. The repository is one of the project's repositories, or a Git folder attached to the project on the caller's workstation, given by its remote URL or host/path; it must have a folder on that workstation. Call it before changing a context folder (SECTILE_REPOSITORIES role \"context\"): context folders are read-only. A local folder (role \"local\", no remote) is changed in place without it, with no worktree and no pull request. The repository then needs its own pull request, given in transition_stage prUrls. The workstation's project settings are read at each call, so a folder attached after the session started is accepted; SECTILE_REPOSITORIES lists the folders known when the run was launched and is not refreshed. Returns repository, path and branch."},
 		func(ctx context.Context, req *mcp.CallToolRequest, in repositoryWorktreeInput) (*mcp.CallToolResult, any, error) {

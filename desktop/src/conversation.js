@@ -1,3 +1,6 @@
+import {runFolderOutcome} from './run-folders.mjs'
+import {ipcMessage} from './execution-fields.mjs'
+
 // Engine output is untrusted: prose is rendered through DOM text nodes, never
 // HTML. This small Markdown subset covers code, headings and bold emphasis.
 export function renderConversationText(container,text){
@@ -22,12 +25,13 @@ export function renderConversationText(container,text){
  }
 }
 
-export function createConversationView({api,container,onError}){
+// canAddFolder tells whether the local agent attaches a folder from a run (#676).
+export function createConversationView({api,container,onError,canAddFolder=()=>false}){
  const panel=document.createElement('section');panel.className='conversation';panel.hidden=true
  panel.setAttribute('aria-label','Claude Code conversation')
- panel.innerHTML='<div class="conversation-events" role="log" aria-label="Conversation messages"></div><form class="conversation-composer"><label class="visually-hidden" for="conversation-message">Message Claude Code</label><textarea id="conversation-message" rows="2" maxlength="60000" placeholder="Ask a question or describe a change…" required></textarea><div class="conversation-toolbar"><span class="conversation-chip conversation-model" title="Model inherited from the source execution"></span><label class="conversation-chip conversation-effort" title="Reasoning effort for the next message"><svg viewBox="0 0 20 14" width="18" height="13" aria-hidden="true"><rect x="0" y="10" width="3" height="4" rx="1"/><rect x="4" y="8" width="3" height="6" rx="1"/><rect x="8" y="6" width="3" height="8" rx="1"/><rect x="12" y="3" width="3" height="11" rx="1"/><rect x="16" y="0" width="3" height="14" rx="1"/></svg><select aria-label="Effort"><option value="">Default effort</option><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="xhigh">Extra high</option><option value="max">Max</option></select></label><span class="conversation-chip" title="Edits are accepted; tools requiring approval are denied. Stop closes this conversation. History after an agent restart is read-only.">Accept edits</span><span class="conversation-status" role="status"></span><span class="conversation-context" role="img" hidden><svg viewBox="0 0 36 36" aria-hidden="true"><circle cx="18" cy="18" r="15"/><circle class="conversation-context-used" cx="18" cy="18" r="15" pathLength="100" stroke-dasharray="0 100" transform="rotate(-90 18 18)"/></svg><span></span></span><button type="submit" class="conversation-send" aria-label="Send" title="Send (Enter) · New line (Shift+Enter)"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button></div></form>'
+ panel.innerHTML='<div class="conversation-events" role="log" aria-label="Conversation messages"></div><form class="conversation-composer"><label class="visually-hidden" for="conversation-message">Message Claude Code</label><textarea id="conversation-message" rows="2" maxlength="60000" placeholder="Ask a question or describe a change…" required></textarea><div class="conversation-toolbar"><span class="conversation-chip conversation-model" title="Model inherited from the source execution"></span><label class="conversation-chip conversation-effort" title="Reasoning effort for the next message"><svg viewBox="0 0 20 14" width="18" height="13" aria-hidden="true"><rect x="0" y="10" width="3" height="4" rx="1"/><rect x="4" y="8" width="3" height="6" rx="1"/><rect x="8" y="6" width="3" height="8" rx="1"/><rect x="12" y="3" width="3" height="11" rx="1"/><rect x="16" y="0" width="3" height="14" rx="1"/></svg><select aria-label="Effort"><option value="">Default effort</option><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="xhigh">Extra high</option><option value="max">Max</option></select></label><span class="conversation-chip" title="Edits are accepted; tools requiring approval are denied. Stop closes this conversation. History after an agent restart is read-only.">Accept edits</span><button type="button" class="conversation-chip conversation-add-folder" aria-label="Add folder…" title="Attach a folder of this workstation to the project; Claude sees it from the next message" hidden><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2z"/><path d="M12 11v6M9 14h6"/></svg><span>Add folder…</span></button><span class="conversation-status" role="status"></span><span class="conversation-context" role="img" hidden><svg viewBox="0 0 36 36" aria-hidden="true"><circle cx="18" cy="18" r="15"/><circle class="conversation-context-used" cx="18" cy="18" r="15" pathLength="100" stroke-dasharray="0 100" transform="rotate(-90 18 18)"/></svg><span></span></span><button type="submit" class="conversation-send" aria-label="Send" title="Send (Enter) · New line (Shift+Enter)"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button></div></form>'
  container.append(panel)
- const events=panel.querySelector('.conversation-events'),form=panel.querySelector('form'),input=panel.querySelector('textarea'),send=panel.querySelector('button'),status=panel.querySelector('.conversation-status'),model=panel.querySelector('.conversation-model'),effort=panel.querySelector('.conversation-effort select'),effortBars=panel.querySelectorAll('.conversation-effort rect'),ring=panel.querySelector('.conversation-context')
+ const events=panel.querySelector('.conversation-events'),form=panel.querySelector('form'),input=panel.querySelector('textarea'),send=panel.querySelector('.conversation-send'),addFolder=panel.querySelector('.conversation-add-folder'),status=panel.querySelector('.conversation-status'),model=panel.querySelector('.conversation-model'),effort=panel.querySelector('.conversation-effort select'),effortBars=panel.querySelectorAll('.conversation-effort rect'),ring=panel.querySelector('.conversation-context')
  const levels=['','low','medium','high','xhigh','max']
  // One lit bar per level; the default effort lights none, since the CLI decides it.
  const showEffort=()=>effortBars.forEach((bar,i)=>bar.classList.toggle('lit',i<levels.indexOf(effort.value)))
@@ -48,15 +52,39 @@ export function createConversationView({api,container,onError}){
  input.addEventListener('keydown',event=>{
   if(event.key==='Enter'&&!event.shiftKey&&!event.isComposing){event.preventDefault();form.requestSubmit()}
  })
- let selected=null,generation=0,timer=null,version=null,pending=false,available=false,effortLoaded=false
+ let selected=null,generation=0,timer=null,version=null,pending=false,available=false,effortLoaded=false,readOnly=true,attaching=false
+ // The outcome of an added folder stays in the status for a while, over polling.
+ let notice='',noticeUntil=0
+ const showAddFolder=()=>{addFolder.hidden=!selected||!canAddFolder();addFolder.disabled=readOnly||attaching}
  function controls(data){
   available=!data.readOnly&&!data.busy
+  readOnly=!!data.readOnly;showAddFolder()
   input.disabled=effort.disabled=!!data.readOnly;send.disabled=!available||pending
   // The agent's effort is adopted once per selection so polling never undoes a pick.
   if(!effortLoaded){effortLoaded=true;effort.value=levels.includes(data.effort)?data.effort:'';showEffort()}
   showContext(data.context)
-  status.textContent=data.readOnly?'Read-only history':data.busy?'Claude Code is working…':'Ready'
+  status.textContent=Date.now()<noticeUntil?notice:data.readOnly?'Read-only history':data.busy?'Claude Code is working…':'Ready'
  }
+ // Claude may be working: the folder is attached at once and given from the
+ // next turn on, so the action stays available while busy.
+ addFolder.addEventListener('click',async()=>{
+  const id=selected,token=generation
+  if(!id||readOnly||attaching)return
+  notice=''
+  try{
+   const path=await api.chooseRepository()
+   if(!path||token!==generation)return
+   attaching=true;showAddFolder()
+   const answer=await api.addRunFolder(id,path)
+   notice=runFolderOutcome(path,answer)
+  }catch(err){notice=ipcMessage(err)}
+  finally{
+   if(token===generation){
+    attaching=false;showAddFolder()
+    if(notice){noticeUntil=Date.now()+8000;status.textContent=notice}
+   }
+  }
+ })
  function draw(data){
   if(version===data.version)return
   version=data.version
@@ -103,7 +131,7 @@ export function createConversationView({api,container,onError}){
   finally{if(token===generation){pending=false;send.disabled=!available}}
  })
  return {select(run){
-  generation++;clearTimeout(timer);selected=run?.conversation?run.id:null;version=null;pending=false;available=false;effortLoaded=false
+  generation++;clearTimeout(timer);selected=run?.conversation?run.id:null;version=null;pending=false;available=false;effortLoaded=false;readOnly=true;attaching=false;notice='';noticeUntil=0;showAddFolder()
   events.replaceChildren();effort.value='';effort.disabled=true;showEffort();showContext(null);input.value='';grow();model.textContent=run?.model||'CLI default';input.disabled=true;send.disabled=true
   panel.hidden=!selected;container.classList.toggle('conversation-active',!!selected)
   if(selected){status.textContent='Loading conversation…';poll(generation,selected)}

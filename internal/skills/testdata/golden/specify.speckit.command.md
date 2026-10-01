@@ -64,7 +64,9 @@ and the two kept in separate files.
 
 ## Read first
 - Project-configured SDD framework: speckit. Use it unless the invocation explicitly overrides it.
-- The clarification outcome on the ticket: the decisions are already made, apply them.
+- The clarification outcome on the ticket: the decisions are already made, apply them. When the
+  clarification report is ignored by Git, docs/clarifications/<n>.md may be missing from this
+  worktree; the rounds published on the ticket carry the same content.
 - Select the SDD framework in order: explicit {sdd_framework} or --framework=<name>,
   then the project-configured framework, then repository detection:
   - If `openspec/` exists -> use OpenSpec SDD.
@@ -122,6 +124,7 @@ and the two kept in separate files.
 - **Standalone invocation**: Read live context with `get_task` and `get_project_context`. After verifying each completed step, invoke `transition_stage` with the task key, completed stage, structured report note and actual branch. Check the tool result for errors before continuing.
 Transition clarified → specified only when this step is complete.
 A task holds an ordered set of pull requests, `prUrl` being its current one. A pull request on a branch the task already used is a legitimate follow-up and is appended, even when the recorded one is merged; a pull request on an unrelated branch is refused, and its links are corrected from the task detail view rather than by forging evidence.
+A task whose work changed no repository (a configuration made through an API, a review, a follow-up) has no pull request to give: pass `noRepositoryChange: true` to `transition_stage` instead of `prUrl`, and say in the note what was done instead. The server refuses the statement when the task records a pull request on its branch or a repository prepared with `prepare_repository_worktree`; then give those pull requests.
 Use `add_comment` for an authorized ticket discussion update. Managed runs must not also invoke transition/comment tools for reports owned by Sectile. If MCP is unavailable, preserve work and report the pending transition; do not silently write to a different server or database.
 Reuse the assigned worktree and actual branch. Never merge or delete remote objects. Keep work available for review and retry until confirmed handoff.
 

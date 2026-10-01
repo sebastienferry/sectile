@@ -4,9 +4,11 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"net/http"
 	"os"
 	"strings"
 	"tasks/internal/agenthttp"
+	"tasks/internal/agentprotocol"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -30,6 +32,30 @@ func clientLabel() string {
 		host = "unknown-host"
 	}
 	return fmt.Sprintf("%s/%d", host, os.Getpid())
+}
+
+// runHeaderTransport names the run a launched console belongs to on every
+// request, so the server still recognizes the run after the bridge had to
+// initialize a new session (#498).
+type runHeaderTransport struct {
+	runID string
+	base  http.RoundTripper
+}
+
+func (t runHeaderTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	clone := r.Clone(r.Context())
+	clone.Header.Set(agentprotocol.RunIDHeader, t.runID)
+	return t.base.RoundTrip(clone)
+}
+
+// bridgeHTTPClient is the agent's authenticated client, plus the run header
+// when the bridge runs inside a console the agent launched for a run.
+func bridgeHTTPClient(token, runID string) *http.Client {
+	client := agenthttp.Client(token)
+	if runID = strings.TrimSpace(runID); runID != "" {
+		client.Transport = runHeaderTransport{runID: runID, base: client.Transport}
+	}
+	return client
 }
 
 // runMCPCommand relays MCP over stdio without opening a local database. All log
@@ -57,7 +83,7 @@ func Run(ctx context.Context, args []string) error {
 		&mcp.Implementation{Name: "sectile-stdio", Title: *label, Version: "1.0.0"},
 		&mcp.ClientOptions{KeepAlive: bridgeKeepAlive},
 	)
-	session, err := client.Connect(ctx, &mcp.StreamableClientTransport{Endpoint: strings.TrimRight(*serverURL, "/") + "/mcp", HTTPClient: agenthttp.Client(*token)}, nil)
+	session, err := client.Connect(ctx, &mcp.StreamableClientTransport{Endpoint: strings.TrimRight(*serverURL, "/") + "/mcp", HTTPClient: bridgeHTTPClient(*token, os.Getenv("SECTILE_RUN_ID"))}, nil)
 	if err != nil {
 		return fmt.Errorf("connect to Sectile MCP: %w", err)
 	}
@@ -69,7 +95,7 @@ func Run(ctx context.Context, args []string) error {
 			return err
 		}
 		switch tool.Name {
-		case "get_task", "transition_stage", "add_comment", "list_tasks", "get_project_context", "list_projects", "start_run", "finish_run", "create_task", "update_task", "report_waiting", "prepare_macro_worktree", "prepare_repository_worktree":
+		case "get_task", "transition_stage", "add_comment", "list_tasks", "get_project_context", "list_projects", "start_run", "finish_run", "create_task", "update_task", "report_waiting", "prepare_macro_worktree", "prepare_repository_worktree", "get_macro", "update_macro_todos":
 		default:
 			return fmt.Errorf("incompatible Sectile MCP catalog: upgrade server and agent together")
 		}
@@ -81,8 +107,8 @@ func Run(ctx context.Context, args []string) error {
 			return session.CallTool(ctx, &mcp.CallToolParams{Name: req.Params.Name, Arguments: req.Params.Arguments})
 		})
 	}
-	if len(seen) != 13 {
-		return fmt.Errorf("incompatible Sectile MCP catalog: expected thirteen tools; upgrade server and agent together")
+	if len(seen) != 15 {
+		return fmt.Errorf("incompatible Sectile MCP catalog: expected fifteen tools; upgrade server and agent together")
 	}
 	return proxy.Run(ctx, &mcp.StdioTransport{})
 }

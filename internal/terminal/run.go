@@ -309,6 +309,20 @@ func (m *Manager) InjectLine(sessionID string, line string) error {
 	return m.SendInput(sessionID, line)
 }
 
+// WaitQuiet waits, as waitQuiet does, for a session to settle before something
+// is typed into it. It reports false when the session does not exist; cap
+// reached is not a failure, the caller types anyway.
+func (m *Manager) WaitQuiet(ctx context.Context, sessionID string, quiet, cap time.Duration) bool {
+	m.mu.RLock()
+	sess, ok := m.sessions[sessionID]
+	m.mu.RUnlock()
+	if !ok || sess == nil || sess.closed {
+		return false
+	}
+	m.waitQuiet(ctx, sess, quiet, cap)
+	return true
+}
+
 // waitQuiet returns once the session has printed nothing for quiet, or when cap
 // is reached. It is how we wait for a TUI to settle without parsing its prompt,
 // which every agent draws differently.

@@ -284,6 +284,18 @@ aside{flex-shrink:0}.sidebar-hidden #sidebar-resizer{display:none}#sidebar-resiz
 .diff-files [aria-pressed="true"]{background:var(--view-pressed-bg)}
 .diff-detail{min-width:0}.diff-patch{overflow:auto;max-height:65vh;background:var(--bg);padding:10px;tab-size:4;font:12px/1.6 Menlo,monospace}
 .diff-patch span{display:block;white-space:pre;min-width:max-content}.diff-add{color:var(--diff-add-text);background:var(--diff-add-bg)}.diff-delete{color:var(--diff-delete-text);background:var(--diff-delete-bg)}.diff-hunk{color:var(--diff-hunk)}
+.diff-render-toggle{float:right;margin-left:8px}.diff-render-toggle[aria-pressed="true"]{background:var(--view-pressed-bg);color:var(--view-pressed-text)}
+.diff-render-note{color:var(--text-muted);overflow-wrap:anywhere}
+.diff-rendered{overflow:auto;max-height:65vh;background:var(--bg);padding:10px 16px;font-size:13px;line-height:1.55;overflow-wrap:anywhere}
+.diff-rendered>:first-child{margin-top:0}.diff-rendered h1,.diff-rendered h2{padding-bottom:4px;border-bottom:1px solid var(--border-subtle)}
+.diff-rendered blockquote{margin:8px 0;padding:0 12px;border-left:3px solid var(--border);color:var(--text-muted)}
+.diff-rendered code{font:12px Menlo,monospace;background:var(--surface-sunken);padding:1px 4px;border-radius:3px}
+.diff-rendered pre{overflow:auto;background:var(--surface-sunken);padding:10px;border-radius:4px}.diff-rendered pre code{padding:0;background:none;white-space:pre}
+.diff-rendered table{border-collapse:collapse;margin:8px 0;display:block;overflow:auto}.diff-rendered th,.diff-rendered td{border:1px solid var(--border);padding:4px 8px}.diff-rendered th{background:var(--surface)}
+.diff-rendered .md-task{list-style:none}.diff-rendered .md-task input{margin:0 4px 0 -18px}
+.diff-rendered .md-link{color:var(--link);text-decoration:underline;cursor:pointer}
+.diff-rendered .md-link-inert{text-decoration:underline dotted;cursor:help}.diff-rendered .md-link-target,.diff-rendered .md-image{color:var(--text-muted)}
+.diff-rendered .md-image{font-style:italic}
 #changes button:focus-visible,#changes pre:focus-visible,.execution-views button:focus-visible{outline:2px solid var(--info);outline-offset:2px}
 @media(max-width:750px){.diff-body{grid-template-columns:minmax(0,1fr)}.diff-files{max-height:150px}}
 
@@ -301,6 +313,9 @@ aside{flex-shrink:0}.sidebar-hidden #sidebar-resizer{display:none}#sidebar-resiz
 .worktree:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .worktree-copied{flex-shrink:0;font-size:11px;color:var(--accent-text)}
 .worktree-copied:empty{display:none}
+/* The outcome of "Add folder…" on a running discussion (#676). */
+.run-folder-status{font-size:11px;color:var(--text-faint);max-width:360px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.run-folder-status[hidden]{display:none}
 #toolbar #open-editor{flex-shrink:0;width:24px;height:24px;padding:3px;border-radius:6px;color:var(--text-muted)}
 #toolbar #open-editor svg{width:16px;height:16px}
 #toolbar #open-editor:hover:not(:disabled){color:var(--text);background:var(--surface)}
@@ -509,6 +524,11 @@ dialog.workstation-settings{width:min(1100px,94vw);max-height:90vh}
 .conversation-composer textarea:disabled{cursor:not-allowed}
 .conversation-toolbar{display:flex;align-items:center;gap:14px}
 .conversation-chip{font-size:12px;color:var(--text-faint);white-space:nowrap;cursor:default}
+.conversation-add-folder{display:inline-flex;align-items:center;gap:5px;padding:2px 0;border:0;background:transparent;font:inherit;font-size:12px;cursor:pointer}
+.conversation-add-folder[hidden]{display:none}
+.conversation-add-folder:hover:not(:disabled){color:var(--text)}
+.conversation-add-folder:focus-visible{outline:1px solid var(--accent-border);border-radius:4px}
+.conversation-add-folder:disabled{cursor:not-allowed;opacity:.6}
 .conversation-status{margin-left:auto;font-size:11px;color:var(--text-faint);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
 .conversation-send{flex:none;width:32px;height:32px;padding:0;display:grid;place-items:center;border-radius:50%;border:1px solid var(--accent-border);background:var(--accent-button-bg);color:var(--accent-text)}
 .conversation-send:disabled{border-color:var(--border-strong);background:transparent;color:var(--text-faint)}

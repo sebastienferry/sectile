@@ -17,22 +17,26 @@ import (
 //
 // The labels of the axes the roadmap owns are the exception. They are written
 // by their own control, the horizon tabs for "roadmap:", the panel's priority
-// and quarter fields for the axes of #627, and an edit of free labels may
+// and quarter fields for the axes of #627, the readiness chips for #633, and an edit of free labels may
 // neither add nor remove one.
 
-// macroAxisPrefixes are the label prefixes the roadmap owns on an epic. The
-// per-project prefixes (#635) extend this list; the web mirrors it in
-// EPIC_AXIS_LABEL_PREFIXES.
-var macroAxisPrefixes = []string{RoadmapLabelPrefix, PriorityLabelPrefix, QuarterLabelPrefix}
+// axisLabelPrefixes are the label prefixes the roadmap owns on a project's
+// epics: the horizon's, which is fixed, and the three the project names or
+// leaves at their default (#635). The web mirrors it in
+// epicAxisLabelPrefixes.
+func (a axisPrefixes) axisLabelPrefixes() []string {
+	return []string{RoadmapLabelPrefix, a.priority, a.quarter, a.readiness}
+}
 
-// IsMacroAxisLabel tells a label written by one of the roadmap's own axes from a
+// isMacroAxisLabel tells a label written by one of the roadmap's own axes from a
 // free label. The match ignores case and a leading "#", as HorizonFromLabels
 // does. A bare quarter such as "2026-Q3" belongs to the quarter axis too: the
 // import reads it as the epic's quarter (#627), so editing it as a free label
-// would change the quarter behind the panel's back.
-func IsMacroAxisLabel(label string) bool {
+// would change the quarter behind the panel's back. A label under a prefix the
+// project no longer uses is a free label.
+func (a axisPrefixes) isMacroAxisLabel(label string) bool {
 	clean := cleanLabel(label)
-	for _, prefix := range macroAxisPrefixes {
+	for _, prefix := range a.axisLabelPrefixes() {
 		if strings.HasPrefix(clean, prefix) {
 			return true
 		}
@@ -66,8 +70,8 @@ func (d *DB) storedMacroLabels(projectID string, key string) []string {
 
 // cleanLabelEdit trims one side of an edit and refuses what can never be
 // written: an empty label, a label with a space, which Jira refuses, and a label
-// of one of the roadmap's axes.
-func cleanLabelEdit(labels []string) ([]string, error) {
+// of one of the roadmap's axes, under the project's prefixes.
+func cleanLabelEdit(prefixes axisPrefixes, labels []string) ([]string, error) {
 	out := make([]string, 0, len(labels))
 	for _, raw := range labels {
 		label := strings.TrimSpace(raw)
@@ -77,7 +81,7 @@ func cleanLabelEdit(labels []string) ([]string, error) {
 		if strings.ContainsAny(label, " \t\n\r") {
 			return nil, fmt.Errorf("un label ne peut pas contenir d'espace : « %s »", label)
 		}
-		if IsMacroAxisLabel(label) {
+		if prefixes.isMacroAxisLabel(label) {
 			return nil, fmt.Errorf("« %s » appartient à un axe de la roadmap : il se règle depuis l'horizon, la priorité ou le trimestre", label)
 		}
 		if !containsLabelFold(out, label) {
@@ -96,11 +100,12 @@ func cleanLabelEdit(labels []string) ([]string, error) {
 func (d *DB) ValidateMacroLabelEdit(projectID string, key string, add []string, remove []string) ([]string, []string, error) {
 	projectID = strings.TrimSpace(projectID)
 	key = strings.TrimSpace(key)
-	cleanAdd, err := cleanLabelEdit(add)
+	prefixes := d.projectAxisPrefixes(projectID)
+	cleanAdd, err := cleanLabelEdit(prefixes, add)
 	if err != nil {
 		return nil, nil, err
 	}
-	cleanRemove, err := cleanLabelEdit(remove)
+	cleanRemove, err := cleanLabelEdit(prefixes, remove)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -126,7 +131,7 @@ func (d *DB) ValidateMacroLabelEdit(projectID string, key string, add []string, 
 		return nil, nil, fmt.Errorf("rien à modifier sur les labels de %s", key)
 	}
 
-	if _, _, err := d.macroTracker(projectID, key); err != nil {
+	if _, _, err := d.macroTracker(projectID, key, axisLabels); err != nil {
 		return nil, nil, err
 	}
 	return toAdd, toRemove, nil
@@ -138,7 +143,7 @@ func (d *DB) ValidateMacroLabelEdit(projectID string, key string, add []string, 
 // It performs the tracker call itself, so it is only ever run from a queued
 // activity (TrackerOpEpicLabels), as the horizon push is.
 func (d *DB) PushMacroLabels(ctx context.Context, projectID string, macroKey string, add []string, remove []string) (string, error) {
-	ts, proj, err := d.macroTracker(projectID, macroKey)
+	ts, proj, err := d.macroTracker(projectID, macroKey, axisLabels)
 	if err != nil {
 		return "", err
 	}

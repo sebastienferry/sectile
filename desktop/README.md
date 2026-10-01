@@ -104,6 +104,12 @@ paired user. Browser requests and other unauthenticated API routes are refused.
 Click **Update provider configuration** to save the chosen transport and target
 into the provider's user configuration, preserving other servers and permissions.
 Restart the AI engine afterward. This action is separate from saving CLI defaults.
+For Claude and Codex, the section also shows the `claude mcp add` or `codex mcp add`
+command for the selected mode, with its own **Copy command** button: an alternative
+to **Update provider configuration** for registering Sectile from a terminal. It
+writes nothing by itself. The Claude command carries the `<SECTILE_API_KEY>`
+placeholder to replace; the Codex remote command reads the key from the
+`SECTILE_API_KEY` environment variable of the shell that starts Codex.
 Custom providers require manual configuration.
 
 
@@ -190,6 +196,14 @@ toolbar. Choose a file to read its unified patch, or use **Refresh** after edits
 **Console** restores terminal focus without restarting, stopping, or detaching
 the execution. Inspection also works for stopped
 runs while their recorded checkout and agent session remain available.
+
+On a Markdown file (`.md` or `.markdown`), **Rendered** shows the whole file as a
+formatted document at the inspected state, or the old version of a deleted file.
+The choice holds for every Markdown file until Desktop restarts. Web and mail links
+open in the default browser; relative links and anchors stay inert with their
+target shown, images are replaced by their alt text and path, and raw HTML shows as
+text. The toggle is disabled, with the reason, for a file over 512 KiB, a non-UTF-8
+file, a file past the 4 MiB rendering budget, or an agent too old to send contents.
 
 The comparison includes committed, staged, unstaged, and non-ignored untracked
 contents as one net result. Reverted edits disappear, and a recreated staged

@@ -105,3 +105,32 @@ func TestRunCommandInSessionPropagatesEnvVars(t *testing.T) {
 		t.Fatalf("les marqueurs __SECTILE_ ne doivent pas rester dans la sortie: %q", res.Output)
 	}
 }
+
+// WaitQuiet returns once a silent session has been quiet long enough, and at
+// its cap on a session that keeps printing (#676).
+func TestWaitQuietReturnsOnSilenceOrAtTheCap(t *testing.T) {
+	requirePosixShell(t)
+	m := NewManager()
+	if m.WaitQuiet(context.Background(), "absent", time.Second, time.Second) {
+		t.Fatal("an absent session was waited for")
+	}
+	defer func() { _ = m.CloseSession("test-quiet") }()
+	if _, err := m.GetOrCreateSession("test-quiet", t.TempDir(), nil); err != nil {
+		t.Fatal(err)
+	}
+	started := time.Now()
+	if !m.WaitQuiet(context.Background(), "test-quiet", 500*time.Millisecond, 10*time.Second) {
+		t.Fatal("session not found")
+	}
+	if elapsed := time.Since(started); elapsed >= 5*time.Second {
+		t.Fatalf("a silent session was waited for %s", elapsed)
+	}
+	if err := m.InjectLine("test-quiet", "while :; do printf tick; sleep 0.1; done"); err != nil {
+		t.Fatal(err)
+	}
+	started = time.Now()
+	m.WaitQuiet(context.Background(), "test-quiet", 2*time.Second, 1500*time.Millisecond)
+	if elapsed := time.Since(started); elapsed < 1400*time.Millisecond || elapsed > 4*time.Second {
+		t.Fatalf("a printing session returned after %s, want the cap", elapsed)
+	}
+}

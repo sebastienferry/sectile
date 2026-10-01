@@ -35,9 +35,10 @@ import type {
   TaskComment,
   MacroMeta,
   MacroHorizon,
-  EpicPriority,
+  EpicPriority, EpicReadiness,
   MacroTodo,
   MacroTodoSource,
+  MacroStoryBatch,
   TrackerTeam,
   TeamMember,
   TeamWorkload,
@@ -52,9 +53,21 @@ import { translations, type TranslationSchema } from '../locales/translations'
 import { resolveAccentAttribute } from '../lib/accents'
 import type { StoredUserCredential, OrphanedCredentialReport, TrackerKind } from '../lib/trackers'
 import { NO_ORPHANED_CREDENTIALS, getTrackers, orphanedCredentialsFrom } from '../lib/trackers'
+import {
+  NO_JIRA_OAUTH,
+  jiraOAuthFrom,
+  jiraOAuthOutcomeMessage,
+  jiraOAuthOutcomeTone,
+  oauthOutcomeFromSearch,
+  withoutOAuthOutcome,
+  type JiraOAuthInfo,
+  type JiraOAuthOutcome,
+} from '../lib/jiraOAuth'
 import { TrackerCredentialMissingError, missingCredentialFromActivity, missingCredentialFromBody } from '../lib/trackerRefusal'
 import { activeTaskIds } from '../lib/remoteRunIndicator'
 import { isViewAvailable } from '../lib/optionalViews'
+import { canOpenEpicInRoadmap, isTicketView, projectOfTask, returnView } from '../lib/roadmapFocus'
+import { sendsServerSearch } from '../lib/taskQuery'
 import { isMacPlatform, sidebarShortcutAction } from '../../../shared/sidebarShortcut.mjs'
 import {
   coreFailures,
@@ -92,6 +105,13 @@ function trackerError(res: Response, data: any, fallback: string): Error {
   const tracker = missingCredentialFromBody(res.status, data)
   const message = (data && typeof data.error === 'string' && data.error) || fallback
   return tracker ? new TrackerCredentialMissingError(message, tracker) : new Error(message)
+}
+
+/** The epic a ticket asked the roadmap to open (#630). */
+export interface RoadmapFocusRequest {
+  projectId: string
+  epicKey: string
+  from: ViewMode
 }
 
 interface AppContextType {
@@ -200,6 +220,13 @@ interface AppContextType {
   unlockAllUserCredentials: (passphrase: string) => Promise<boolean>
   lockAllUserCredentials: () => Promise<boolean>
   clearUserCredential: (tracker: string) => Promise<boolean>
+  /** Whether Jira can be connected through Atlassian's consent screen, and the sites a grant must cover (#654). */
+  jiraOAuth: JiraOAuthInfo
+  /** Sends the browser to Atlassian's consent screen; false when the connection could not start. */
+  connectJira: () => Promise<boolean>
+  /** The outcome Atlassian's consent came back with, shown until dismissed. */
+  jiraOAuthOutcome: JiraOAuthOutcome | null
+  dismissJiraOAuthOutcome: () => void
   /** Supprime une ligne orpheline. Réservée aux admins, refusée par le serveur sinon. */
   discardOrphanedCredential: (userId: string, tracker: string) => Promise<boolean>
   /**
@@ -262,6 +289,17 @@ interface AppContextType {
   setParentFilter: (parentKey: string | null) => void
   /** Distinct parents present in the loaded tasks, most populated first. */
   availableParents: { key: string; title: string; type: string; count: number }[]
+  /**
+   * A ticket's epic the roadmap is asked to open (#630), until the roadmap
+   * honours it. `from` is the view the request was made from, where a refusal
+   * sends the user back.
+   */
+  roadmapFocus: RoadmapFocusRequest | null
+  /** Opens the roadmap of the ticket's project on the ticket's parent epic. */
+  openEpicInRoadmap: (task: Task) => void
+  consumeRoadmapFocus: () => void
+  /** Filters the ticket views on the epic and returns to the one left for the roadmap. */
+  openEpicTickets: (epicKey: string) => void
   /**
    * Resolves the display name of a workflow skill. Command names renamed on
    * the workstation are not visible to the web, so this is the default name.
@@ -357,8 +395,8 @@ interface AppContextType {
   saveMacroMeta: (
     projectId: string,
     key: string,
-    patch: { title?: string; horizon?: MacroHorizon | ''; description?: string; framingComment?: string; todos?: MacroTodo[]; closed?: boolean; priority?: EpicPriority | ''; quarter?: string },
-    options?: { quiet?: boolean }
+    patch: { title?: string; horizon?: MacroHorizon | ''; description?: string; framingComment?: string; todos?: MacroTodo[]; closed?: boolean; priority?: EpicPriority | ''; quarter?: string; readiness?: EpicReadiness | '' },
+    options?: { quiet?: boolean; bulk?: boolean }
   ) => Promise<MacroMeta | null>
   saveEpicMeta: (projectId: string, key: string, patch: { title?: string; horizon?: MacroHorizon | ''; description?: string; framingComment?: string; todos?: MacroTodo[]; closed?: boolean }) => Promise<MacroMeta | null>
   /**
@@ -366,7 +404,21 @@ interface AppContextType {
    * macro once the tracker accepted them, which the roadmap reloads on its own.
    */
   editMacroLabels: (projectId: string, key: string, patch: { add?: string[]; remove?: string[] }) => Promise<boolean>
+  /**
+   * Queues the tracker copy of a macro's todos at once (#663), for a copy that
+   * failed or was edited by hand. The roadmap reloads the macro when the write
+   * ends, as for any queued write.
+   */
+  republishMacroTodos: (projectId: string, key: string) => Promise<boolean>
+  /** Same for the comment copy of a Jira epic's framing (#636). */
+  republishMacroFraming: (projectId: string, key: string) => Promise<boolean>
   createStoryFromMacroTodo: (projectId: string, macroKey: string, todoId: string) => Promise<{ macro: MacroMeta | null; epic: MacroMeta | null; storyKey: string } | null>
+  /**
+   * Creates the stories of several slicing lines in one request (#634). The
+   * answer carries one outcome per line; null means the batch was refused as a
+   * whole, which a toast has already said.
+   */
+  createStoriesFromMacroTodos: (projectId: string, macroKey: string, todoIds: string[]) => Promise<MacroStoryBatch | null>
   /** Produit la découpe d'une macro depuis les artefacts SDD du dépôt. */
   produceMacroSlicing: (projectId: string, macroKey: string, source: MacroTodoSource) => Promise<MacroMeta | null>
   createStoryFromEpicTodo: (projectId: string, epicKey: string, todoId: string) => Promise<{ macro: MacroMeta | null; epic: MacroMeta | null; storyKey: string } | null>
@@ -498,6 +550,7 @@ import { normalizeUIScale } from '../lib/uiScale'
 import { toastDuration } from '../lib/toastTimer'
 import { applyDocumentLocale, format, isLocale, plural, rememberLocale, resolveInitialLocale } from '../lib/i18n'
 import { localizeActivityText } from '../lib/activityText'
+import { batchSummary } from '../lib/roadmap'
 import { createLatestRequest } from '../lib/latestRequest'
 import { staleFilters } from '../lib/filterPruning'
 import { readProjectHistory, recordProjectOpening, writeProjectHistory, type ProjectOpening } from '../lib/projectHistory'
@@ -555,7 +608,19 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     })()
   )
 
+  // The ticket view left to reach the roadmap, for the way back from an epic
+  // (#630). One step, held for the page only: entering the roadmap again from
+  // another ticket view replaces it, and a non-ticket view leaves it as it is.
+  const activeViewRef = useRef(activeView)
+  useEffect(() => {
+    activeViewRef.current = activeView
+  }, [activeView])
+  const roadmapOriginView = useRef<ViewMode | null>(null)
+
   const setActiveView = useCallback((view: ViewMode) => {
+    if (view === 'roadmap' && isTicketView(activeViewRef.current)) {
+      roadmapOriginView.current = activeViewRef.current
+    }
     setActiveViewState(view)
     defaultViewPending.current = false
     try {
@@ -742,6 +807,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   // Until the settings arrive, the language this browser last used (or its
   // own) avoids a first paint in the wrong language.
   const [settings, setSettings] = useState<UserSettings>(() => ({ ...defaultSettings, language: resolveInitialLocale() }))
+  // Whether the person's own settings arrived, their language with them.
+  const [settingsLoaded, setSettingsLoaded] = useState(false)
   const [toasts, setToasts] = useState<ToastMessage[]>([])
 
   // Projects State
@@ -945,6 +1012,28 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     if (selectedProjectId === 'all') return null
     return projects.find(p => p.id === selectedProjectId || p.slug === selectedProjectId) || null
   }, [projects, selectedProjectId])
+
+  // From a ticket to its epic on the roadmap, and back (#630). The ticket side
+  // cannot tell whether the roadmap holds the epic, since under "all projects"
+  // no roadmap is built: it only asks, and the roadmap answers once loaded.
+  const [roadmapFocus, setRoadmapFocus] = useState<RoadmapFocusRequest | null>(null)
+
+  const openEpicInRoadmap = useCallback((task: Task) => {
+    const project = projectOfTask(task, projects, currentProject)
+    if (!project || !canOpenEpicInRoadmap(task, project)) return
+    setRoadmapFocus({ projectId: project.id, epicKey: (task.parentKey || '').trim(), from: activeViewRef.current })
+    // Through the project selector, as a choice by hand: the filters
+    // remembered for that project come back with it.
+    if (selectedViewId || selectedProjectId !== project.id) setSelectedProjectId(project.id)
+    setActiveView('roadmap')
+  }, [currentProject, projects, selectedViewId, selectedProjectId, setSelectedProjectId, setActiveView])
+
+  const consumeRoadmapFocus = useCallback(() => setRoadmapFocus(null), [])
+
+  const openEpicTickets = useCallback((epicKey: string) => {
+    setParentFilter(epicKey)
+    setActiveView(returnView(roadmapOriginView.current, currentProject))
+  }, [setParentFilter, setActiveView, currentProject])
 
   /**
    * Une vue optionnelle ouverte sur un projet qui ne l'affiche pas laisse un
@@ -1185,6 +1274,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     if (outcome.kind !== 'ok') return
     const data = outcome.data
     setSettings(data)
+    setSettingsLoaded(true)
     // The personal preference wins over the browser, and is what the next
     // signed-out visit starts with.
     if (isLocale(data.language)) rememberLocale(data.language)
@@ -1298,18 +1388,19 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     } else if (selectedProjectId && selectedProjectId !== 'all') {
       params.append('projectId', selectedProjectId)
     }
-    // La roadmap se cherche par épic, pas par ticket. Envoyer la recherche au
-    // serveur y amputerait les enfants de chaque épic : les compteurs de sprint
-    // et le détail se videraient, et un épic dont aucun ticket ne correspond
-    // disparaîtrait au lieu d'être trouvé. La vue filtre donc ses lignes
-    // elle-même, sur des données complètes.
-    if (searchQuery && activeView !== 'roadmap') params.append('q', searchQuery)
+    // The roadmap and the timeline filter their own rows on complete data
+    // (#636): a server search would cut the children of each epic and empty
+    // the sprints, their counters and the backlog instead of narrowing them.
+    if (searchQuery && sendsServerSearch(activeView)) params.append('q', searchQuery)
     if (statusFilter) params.append('status', statusFilter)
     if (priorityFilter) params.append('priority', priorityFilter)
     if (labelFilter) params.append('label', labelFilter)
     if (sprintFilter) params.append('sprint', sprintFilter)
     if (teamFilter) params.append('team', teamFilter)
-    if (parentFilter) params.append('macro', parentFilter)
+    // Nor the parent filter (#630): the roadmap lists every epic, and a filter
+    // on one of them would leave the others with no ticket. The way back from
+    // an epic sets that filter for the ticket views, and it waits there.
+    if (parentFilter && activeView !== 'roadmap') params.append('macro', parentFilter)
     // L'assigné se filtre côté serveur comme le reste : il n'était appliqué
     // nulle part, ce qui laissait « Mes tâches » sans effet.
     if (assigneeFilter) params.append('assignee', assigneeFilter)
@@ -1493,6 +1584,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   const [userCredentials, setUserCredentials] = useState<StoredUserCredential[]>([])
   const [orphanedCredentials, setOrphanedCredentials] = useState<OrphanedCredentialReport>(NO_ORPHANED_CREDENTIALS)
+  const [jiraOAuth, setJiraOAuth] = useState<JiraOAuthInfo>(NO_JIRA_OAUTH)
+  const [userCredentialsLoaded, setUserCredentialsLoaded] = useState(false)
 
   // Les accès personnels ne transitent jamais avec le jeton : l'API renvoie
   // seulement ce qu'elle sait d'eux, et cet état ne sert qu'à l'afficher.
@@ -1503,6 +1596,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       const data = await res.json().catch(() => ({}))
       setUserCredentials(Array.isArray(data.credentials) ? data.credentials : [])
       setOrphanedCredentials(orphanedCredentialsFrom(data))
+      setJiraOAuth(jiraOAuthFrom(data))
+      setUserCredentialsLoaded(true)
     } catch {
       // Un serveur injoignable n'est pas une absence d'accès : on garde l'état.
     }
@@ -1520,6 +1615,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         if (!res.ok) throw trackerError(res, data, failure || t.operations.notifications.credentials.refused)
         setUserCredentials(Array.isArray(data.credentials) ? data.credentials : [])
         setOrphanedCredentials(orphanedCredentialsFrom(data))
+        setJiraOAuth(jiraOAuthFrom(data))
         if (success) addToast({ type: 'success', title: success })
         return true
       } catch (err: any) {
@@ -1571,6 +1667,56 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       ),
     [userCredentialCall, t]
   )
+
+  // The consent happens on Atlassian's own page: the server answers where to
+  // send the browser, and the callback brings it back with the outcome.
+  const connectJira = useCallback(async (): Promise<boolean> => {
+    try {
+      const res = await fetch(`${API_BASE}/me/tracker-credentials/jira/connect`, { method: 'POST' })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok || typeof data.authorizeUrl !== 'string') {
+        throw new Error(data.error || t.trackerCredentials.oauth.connectFailed)
+      }
+      window.location.assign(data.authorizeUrl)
+      return true
+    } catch (err: any) {
+      addToast({ type: 'error', title: t.trackerCredentials.oauth.connectFailed, description: err.message })
+      return false
+    }
+  }, [t, addToast])
+
+  // Back from the consent screen: the outcome is read from the address once,
+  // kept until the person dismisses it, and shown in the Jira entry of the
+  // profile, which opens on it. The parameters are dropped from the address
+  // so a reload says nothing again.
+  const [jiraOAuthOutcome, setJiraOAuthOutcome] = useState<JiraOAuthOutcome | null>(
+    () => oauthOutcomeFromSearch(window.location.search)?.outcome ?? null
+  )
+  const dismissJiraOAuthOutcome = useCallback(() => setJiraOAuthOutcome(null), [])
+  const oauthOutcomeOpened = useRef(false)
+  useEffect(() => {
+    if (!jiraOAuthOutcome || oauthOutcomeOpened.current) return
+    oauthOutcomeOpened.current = true
+    try {
+      window.history.replaceState(window.history.state, '', window.location.pathname + withoutOAuthOutcome(window.location.search) + window.location.hash)
+    } catch {
+      // An address that cannot be rewritten only shows the outcome again on reload.
+    }
+    void refreshUserCredentials().then(() => openTrackerCredentials('jira'))
+  }, [jiraOAuthOutcome, refreshUserCredentials, openTrackerCredentials])
+  // The notification waits for the person's settings, so it speaks their
+  // language rather than the browser's, and for the credentials, so a refusal
+  // can name the sites.
+  const oauthOutcomeToasted = useRef(false)
+  useEffect(() => {
+    if (!jiraOAuthOutcome || oauthOutcomeToasted.current || !settingsLoaded || !userCredentialsLoaded) return
+    oauthOutcomeToasted.current = true
+    addToast({
+      type: jiraOAuthOutcomeTone(jiraOAuthOutcome),
+      title: t.trackerCredentials.oauth.outcomeTitle,
+      description: jiraOAuthOutcomeMessage(jiraOAuthOutcome, t.trackerCredentials.oauth.outcomes, jiraOAuth.sites),
+    })
+  }, [jiraOAuthOutcome, settingsLoaded, userCredentialsLoaded, jiraOAuth.sites, t, addToast])
 
   const discardOrphanedCredential = useCallback(
     (userId: string, tracker: string) =>
@@ -2733,14 +2879,16 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const saveMacroMeta = async (
     projectId: string,
     key: string,
-    patch: { title?: string; horizon?: MacroHorizon | ''; description?: string; framingComment?: string; todos?: MacroTodo[]; closed?: boolean; priority?: EpicPriority | ''; quarter?: string },
-    options?: { quiet?: boolean }
+    patch: { title?: string; horizon?: MacroHorizon | ''; description?: string; framingComment?: string; todos?: MacroTodo[]; closed?: boolean; priority?: EpicPriority | ''; quarter?: string; readiness?: EpicReadiness | '' },
+    options?: { quiet?: boolean; bulk?: boolean }
   ): Promise<MacroMeta | null> => {
     try {
       const res = await fetch(`${API_BASE}/projects/${encodeURIComponent(projectId)}/macros`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ key, ...patch }),
+        // A bulk edit, one of several such as the seeding, never writes on an
+        // epic of a roadmap project (#632): the server keeps it in Sectile.
+        body: JSON.stringify({ key, ...patch, ...(options?.bulk ? { bulk: true } : {}) }),
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) throw trackerError(res, data, t.operations.notifications.macros.saveRefused)
@@ -2776,6 +2924,34 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   }
 
+  const republishMacroTodos = async (projectId: string, key: string): Promise<boolean> => {
+    const copy = t.operations.notifications.macros
+    try {
+      const res = await fetch(`${API_BASE}/projects/${encodeURIComponent(projectId)}/macros/${encodeURIComponent(key)}/todos-mirror`, { method: 'POST' })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.error || copy.todosRepublishRefused)
+      addToast({ type: 'info', title: format(copy.todosRepublished, { key }) })
+      return true
+    } catch (err: any) {
+      addToast({ type: 'error', title: copy.todosRepublishRefused, description: err.message })
+      return false
+    }
+  }
+
+  const republishMacroFraming = async (projectId: string, key: string): Promise<boolean> => {
+    const copy = t.operations.notifications.macros
+    try {
+      const res = await fetch(`${API_BASE}/projects/${encodeURIComponent(projectId)}/macros/${encodeURIComponent(key)}/framing-mirror`, { method: 'POST' })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.error || copy.framingRepublishRefused)
+      addToast({ type: 'info', title: format(copy.framingRepublished, { key }) })
+      return true
+    } catch (err: any) {
+      addToast({ type: 'error', title: copy.framingRepublishRefused, description: err.message })
+      return false
+    }
+  }
+
   // Une ligne de TODO devient une story dans le tracker, sous sa macro.
   const createStoryFromMacroTodo = async (
     projectId: string,
@@ -2794,11 +2970,14 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       const data = await res.json().catch(() => ({}))
       const copy = t.operations.notifications.macros
       if (!res.ok) throw trackerError(res, data, copy.createRefused)
+      // A story created in a roadmap project stays in Jira (#632): it comes
+      // back without a local id, and there is nothing in Sectile to open.
+      const imported = Boolean(data.task?.id)
       addToast({
         type: 'success',
         title: copy.storyCreated,
-        description: format(copy.storyAttached, { story: data.storyKey, macro: macroKey }),
-        link: data.task ? createdTaskLink(data.task) : undefined,
+        description: format(imported || !data.task ? copy.storyAttached : copy.storyStaysInTracker, { story: data.storyKey, macro: macroKey }),
+        link: data.task && imported ? createdTaskLink(data.task) : undefined,
       })
       // The story exists; what the tracker refused is said, not hidden.
       if (data.notice) addToast({ type: 'warning', title: copy.parentNotWritten, description: data.notice })
@@ -2811,6 +2990,55 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   }
   const createStoryFromEpicTodo = createStoryFromMacroTodo
+
+  // The batch reports each line in the panel; the notification carries its
+  // summary once, a success when nothing failed and a warning otherwise. A line
+  // refused for want of the person's own token offers to add it, as the
+  // single-line action does.
+  const createStoriesFromMacroTodos = async (
+    projectId: string,
+    macroKey: string,
+    todoIds: string[]
+  ): Promise<MacroStoryBatch | null> => {
+    const copy = t.operations.notifications.macros
+    try {
+      const res = await fetch(
+        `${API_BASE}/projects/${encodeURIComponent(projectId)}/macros/${encodeURIComponent(macroKey)}/stories`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ todoIds }),
+        }
+      )
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw trackerError(res, data, copy.createRefused)
+      const batch: MacroStoryBatch = {
+        macro: data.macro || null,
+        results: Array.isArray(data.results) ? data.results : [],
+        created: data.created || 0,
+        skipped: data.skipped || 0,
+        failed: data.failed || 0,
+      }
+      if (batch.created > 0) fetchTasks()
+      const summary = batchSummary(locale, batch, {
+        created: t.planning.roadmap.framing.batchCreated,
+        skipped: t.planning.roadmap.framing.batchSkipped,
+        failed: t.planning.roadmap.framing.batchFailed,
+      })
+      const missing = batch.results.find(r => r.status === 'failed' && r.code === 'tracker_credential_missing' && r.tracker)
+      if (missing) {
+        addToast(tokenOfferToast(missing.tracker as TrackerKind))
+      } else if (batch.failed === 0) {
+        addToast({ type: 'success', title: copy.storiesCreated, description: summary })
+      } else {
+        addToast({ type: 'warning', title: batch.created > 0 ? copy.storiesPartial : copy.storiesFailed, description: summary })
+      }
+      return batch
+    } catch (err: any) {
+      addToast(refusalToast(err, { type: 'error', title: copy.storiesFailed, description: err.message }))
+      return null
+    }
+  }
 
   // Produire la découpe depuis les artefacts SDD du dépôt.
   //
@@ -3793,7 +4021,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     let out = sourceFilter === 'all'
       ? scoped
       : scoped.filter(t => (t.source || 'local') === sourceFilter)
-    if (parentFilter) {
+    // The roadmap ignores the parent filter, as its query does (#630).
+    if (parentFilter && activeView !== 'roadmap') {
       if (parentFilter === '__no_macro__' || parentFilter === 'none') {
         out = out.filter(t => !t.parentKey && !t.parentTitle)
       } else {
@@ -3801,7 +4030,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       }
     }
     return out
-  }, [tasks, sourceFilter, parentFilter, selectedProjectId, selectedViewId, bookmarkedProjectIds])
+  }, [tasks, sourceFilter, parentFilter, activeView, selectedProjectId, selectedViewId, bookmarkedProjectIds])
 
   // Skill command names are a workstation setting since #305: the local file
   // renames a skill, the server never sees it, so the web shows the defaults.
@@ -4106,6 +4335,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         unlockAllUserCredentials,
         lockAllUserCredentials,
         clearUserCredential,
+        jiraOAuth,
+        connectJira,
+        jiraOAuthOutcome,
+        dismissJiraOAuthOutcome,
         sourceFilter,
         setSourceFilter,
         parentFilter,
@@ -4113,6 +4346,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         macroFilter: parentFilter,
         setMacroFilter: setParentFilter,
         availableParents,
+        roadmapFocus,
+        openEpicInRoadmap,
+        consumeRoadmapFocus,
+        openEpicTickets,
         skillLabel,
         skillCommand,
 
@@ -4168,8 +4405,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
         saveMacroMeta,
         editMacroLabels,
+        republishMacroTodos,
+        republishMacroFraming,
         saveEpicMeta,
         createStoryFromMacroTodo,
+        createStoriesFromMacroTodos,
         produceMacroSlicing,
         createStoryFromEpicTodo,
         pendingHorizonPushes,

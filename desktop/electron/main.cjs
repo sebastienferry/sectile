@@ -34,7 +34,7 @@ function validConnection(value){
 }
 async function api(route,method='GET',body){
  if(!connection)throw Error('Connect to the local agent first')
- const response=await fetch(connection.url+route,{method,headers:{Authorization:'Bearer '+connection.token,'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined,signal:AbortSignal.timeout(route==="/desktop/create-task"?120000:route.startsWith("/desktop/tasks")&&method==="POST"?60000:route.startsWith("/desktop/project?")&&method==="POST"?420000:15000),redirect:'error'})
+ const response=await fetch(connection.url+route,{method,headers:{Authorization:'Bearer '+connection.token,'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined,signal:AbortSignal.timeout(route==="/desktop/create-task"?120000:route==="/desktop/run-folder"?45000:route.startsWith("/desktop/tasks")&&method==="POST"?60000:route.startsWith("/desktop/project?")&&method==="POST"?420000:15000),redirect:'error'})
  if(!response.ok){
   const detail=await response.text().catch(()=>'')
   // Display plain API errors; preserve structured refusals for callers that read their fields.
@@ -394,6 +394,12 @@ ipcMain.handle('open-pr',async(_,value)=>{
  if(!['http:','https:'].includes(url.protocol)||url.username||url.password)throw Error('Invalid pull request URL')
  await shell.openExternal(url.href)
 })
+// Links of a rendered Markdown document: web and mail only, never in this window.
+ipcMain.handle('open-link',async(_,value)=>{
+ const url=new URL(value)
+ if(!['http:','https:','mailto:'].includes(url.protocol)||url.username||url.password)throw Error('Only web and mail links can be opened')
+ await shell.openExternal(url.href)
+})
 ipcMain.handle('create-task',async(_,input)=>{
  const status=await api('/desktop/status')
  if(!status.capabilities?.includes('create-task'))throw Error('The running local agent is outdated. Stop it, then start the rebuilt agent before creating a task. Closing the desktop alone does not restart the agent.')
@@ -433,6 +439,15 @@ async function requireAttachedFolders(){
 }
 ipcMain.handle('folders',async(_,projectId)=>{await requireAttachedFolders();return api('/desktop/folders?projectId='+encodeURIComponent(projectId))})
 ipcMain.handle('attach-folder',async(_,{projectId,path:folder})=>{await requireAttachedFolders();return api('/desktop/folders','POST',{projectId,path:folder})})
+// A folder attached from a conversation or a running ticket discussion
+// (#676). The agent may wait for the session to settle before typing into it,
+// which the default request timeout does not leave room for.
+ipcMain.handle('add-run-folder',async(_,{runId,path:folder}={})=>{
+ if(typeof runId!=='string'||!runId)throw Error('Select an execution first.')
+ const status=await api('/desktop/status')
+ if(!status.capabilities?.includes('run-folders'))throw Error('Update and restart the local agent to add folders from a discussion.')
+ return api('/desktop/run-folder','POST',{runId,path:folder})
+})
 ipcMain.handle('detach-folder',async(_,{projectId,path:folder})=>{await requireAttachedFolders();return api('/desktop/folders?projectId='+encodeURIComponent(projectId)+'&path='+encodeURIComponent(folder),'DELETE')})
 // The Git initialization of a project folder (#481). An agent that predates
 // it reports no state, so the settings offer nothing and behave as before.
@@ -453,7 +468,8 @@ ipcMain.handle('git-diff',async(_,id)=>{
  if(typeof id!=='string'||!id||id.length>512)throw Error('Select an execution to inspect changes.')
  const status=await api('/desktop/status')
  if(!status.capabilities?.includes('git-diff'))throw Error('Update and restart the local agent to inspect changes.')
- try{return await api('/desktop/git-diff?id='+encodeURIComponent(id))}
+ // markdownDocuments tells the renderer whether this agent sends Markdown contents (#575).
+ try{return {...await api('/desktop/git-diff?id='+encodeURIComponent(id)),markdownDocuments:!!status.capabilities.includes('markdown-documents')}}
  catch(err){
   let detail
   try{detail=JSON.parse(err.body||err.message)}catch{throw err}

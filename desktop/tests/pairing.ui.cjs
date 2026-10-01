@@ -3,6 +3,17 @@ const assert=require('node:assert/strict')
 const {_electron:electron}=require('@playwright/test')
 const http=require('node:http'),fs=require('node:fs'),os=require('node:os'),path=require('node:path')
 
+// Submitting the connect form ends by spawning the agent, detached, so it would
+// outlive the test and keep talking to a server that is gone. These tests stop
+// at the pairing exchange, which happens before the spawn: the agent is named as
+// a file that does not exist, so the spawn fails and no process is left behind,
+// whether the test passes or not.
+function pairingEnv(root){
+ const env={...process.env,SECTILE_DESKTOP_DATA_DIR:root,SECTILE_DESKTOP_TEST:'1',SECTILE_DESKTOP_TEST_AGENT_BINARY:path.join(root,'no-agent')}
+ delete env.ELECTRON_RUN_AS_NODE
+ return env
+}
+
 // The connect form is the only place a pairing code can be spent, so this is the
 // test that keeps the code path reachable: the exchange used to exist and be
 // tested, while no interface ever called it.
@@ -29,7 +40,7 @@ test('a pairing code typed in the connect form is exchanged for a device token',
  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve))
  const address='http://127.0.0.1:'+server.address().port
  // No agent-connection.json: the app has nothing to connect to and shows the form.
- const env={...process.env,SECTILE_DESKTOP_DATA_DIR:root,SECTILE_DESKTOP_TEST:'1'};delete env.ELECTRON_RUN_AS_NODE
+ const env=pairingEnv(root)
  let application
  try{
   application=await electron.launch({executablePath:process.env.SECTILE_DESKTOP_EXECUTABLE,args:process.env.SECTILE_DESKTOP_EXECUTABLE?[]:[path.resolve(__dirname,'..')],env})
@@ -78,7 +89,7 @@ test('a malformed server address is refused before the pairing code is spent',as
  })
  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve))
  const port=server.address().port
- const env={...process.env,SECTILE_DESKTOP_DATA_DIR:root,SECTILE_DESKTOP_TEST:'1'};delete env.ELECTRON_RUN_AS_NODE
+ const env=pairingEnv(root)
  let application
  try{
   application=await electron.launch({executablePath:process.env.SECTILE_DESKTOP_EXECUTABLE,args:process.env.SECTILE_DESKTOP_EXECUTABLE?[]:[path.resolve(__dirname,'..')],env})
