@@ -13,9 +13,11 @@ type MacroWorkspace struct {
 	Warning  string `json:"warning,omitempty"`
 	// ProjectID, MacroKey and Todos are filled by the server when it relays the
 	// answer, so the skill has the slicing it aligns on without another call.
+	// Todos is always sent, empty when the macro has none, so a missing field
+	// never has to be read as "none" or as "not sent" (#647).
 	ProjectID string      `json:"projectId,omitempty"`
 	MacroKey  string      `json:"macroKey,omitempty"`
-	Todos     []MacroTodo `json:"todos,omitempty"`
+	Todos     []MacroTodo `json:"todos"`
 }
 
 // macroBranchSlugMax bounds the title part of a macro branch name, so that a

@@ -272,5 +272,8 @@ func (d *DB) PrepareMacroWorktree(ctx context.Context, userID, projectID, macroK
 	// The slicing travels with the checkout, so a skill invoked by hand, which
 	// holds no API token, reads its input from the same answer.
 	workspace.ProjectID, workspace.MacroKey, workspace.Todos = project.ID, macro.Key, macro.Todos
+	if workspace.Todos == nil {
+		workspace.Todos = []models.MacroTodo{}
+	}
 	return &workspace, nil
 }

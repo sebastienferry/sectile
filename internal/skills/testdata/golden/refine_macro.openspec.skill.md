@@ -74,10 +74,11 @@ Transform high-level macro framing text into an actionable, structured todo list
      - **SpecKit SDD**: Group into User Stories ([US-x]) and Feature Modules ([FEAT-x]).
      - **OpenSpec SDD**: Group into Capabilities ([CAP-x]) and Change Proposals ([CHANGE-x]).
 4. Output the generated checklist of actionable todos AND proposed Sectile tickets (Title, IssueType: Story/Task/Bug, Description) for bulk ticket creation.
+5. **Deposit the slicing** once the user confirms it: call `update_macro_todos` with `projectId`, `macroKey` and the lines. Use `mode: "append"` to add lines to an existing list; to rewrite it, send `mode: "replace"` with the ids `prepare_macro_worktree` returned for the lines to keep. A replace that drops a line linked to a story is refused: ask the user to remove that line from the macro's panel. The tool writes the todos only, never the shaping.
 
 ## Do not
 - Do not generate tasks blindly when framing text is vague without asking clarification questions.
-- Do not overwrite existing todos or tasks without user confirmation in the UI.
+- Do not overwrite existing todos or tasks without the user's confirmation.
 - Do not mutate external tracker issues directly without user trigger.
 
 ## Report

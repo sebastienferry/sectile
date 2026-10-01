@@ -255,7 +255,13 @@ nothing is created either: the answer is the folder itself, an empty `branch`,
 `worktree: false` and a `warning` saying nothing will be committed or pushed.
 The server adds `projectId`, `macroKey` and the macro's `todos` when it relays
 the answer through the `prepare_macro_worktree` MCP tool, so a skill invoked by
-hand, which holds no API token, reads its input from the same call.
+hand, which holds no API token, reads its input from the same call. `todos` is
+always present, an empty array when the macro has none. A skill writes the
+slicing back with `update_macro_todos(projectId, macroKey, todos, mode)` (#647):
+it writes the todos only, never the shaping, and nothing reaches the tracker.
+`mode` is `replace` (the default; a line with a known id keeps what it omits, an
+unknown id is refused, and dropping a line linked to a story is refused) or
+`append` (lines without ids, added after the stored ones).
 
 `macro_spec_file` (`payload.macroKey`, `payload.framework`, `payload.specFile`,
 no task) reads one file of a macro's specification for the server's slicing
@@ -438,6 +444,12 @@ into. Skill and command bodies are not inlined: a caller that needs one opens
 agent uses its full configuration when it installs skills or updates the marked
 section of `AGENTS.md`; that configuration is unchanged.
 
+A task whose work changed no repository passes `noRepositoryChange: true`
+instead of `prUrl` (#584): the stage then needs no pull request, and the report
+ends with "No pull request: this task changed no repository." The statement is
+refused next to `prUrl` or `prUrls`, when the task records a pull request on its
+branch, and when it has a repository prepared with `prepare_repository_worktree`.
+
 `transition_stage` accepts `prUrl` for either a pull request or a merge
 request. A task holds an ordered set of such links, oldest first, each keeping
 the branch it was opened from; `prUrl` is its last entry, the task's current pull
@@ -503,6 +515,14 @@ declaring session's next tool call other than `report_waiting` (a ping does not
 count), on `waiting: false`, on any terminal status, and when the declaring
 session ends. Tool permission prompts are not reported: only a question the model
 asks deliberately is.
+
+A console the agent launched names its run on every MCP request: the stdio
+bridge sends `X-Sectile-Run-Id` with the value of `SECTILE_RUN_ID` (#498). A
+tool call other than `report_waiting` that carries it also ends that run's wait
+when a session declared it and the caller owns the run, whatever the calling
+session: after a server restart the console's client initializes a new session,
+and its next call still ends the wait. A bridge started without the variable
+sends no header.
 
 When a run an agent dispatched starts or stops waiting, the server sends the
 owner's agent a `run_waiting` message, `{"runId": "...", "waitingSince":
@@ -1115,7 +1135,10 @@ Messages explain recovery without returning subprocess output or source contents
 HTTP and stdio initialize with server name `sectile`; managed native registrations
 use the same name. The catalog is exactly `get_task`, `transition_stage`,
 `add_comment`, `list_tasks`, `get_project_context`, `list_projects`, `start_run`,
-`finish_run`, `create_task`, `update_task`, `report_waiting` and `prepare_macro_worktree`. The former `sectile_` names are unsupported on both
+`finish_run`, `create_task`, `update_task`, `report_waiting`,
+`prepare_macro_worktree`, `prepare_repository_worktree` and
+`update_macro_todos`. The stdio bridge refuses any other catalog, so the server
+and the agent are upgraded together. The former `sectile_` names are unsupported on both
 transports.
 Tool schemas, return values, run ownership and managed-run validation are unchanged.
 
