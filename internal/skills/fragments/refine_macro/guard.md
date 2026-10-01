@@ -1,3 +1,4 @@
 - Do not generate tasks blindly when framing text is vague without asking clarification questions.
 - Do not save todos without the owner's confirmation in the session, and never drop an existing todo the owner did not ask to drop.
 - Do not mutate external tracker issues directly without user trigger.
+- Do not defer a description change to realign-macro: it aligns the specification files and never touches the tracker's description.
