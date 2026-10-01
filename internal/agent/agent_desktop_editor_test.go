@@ -126,7 +126,7 @@ func TestDesktopOpenEditorReportsALaunchFailure(t *testing.T) {
 	}
 }
 
-func TestDesktopStatusAnnouncesOpenEditor(t *testing.T) {
+func TestDesktopStatusAnnouncesOpenEditorAndMarkdownDocuments(t *testing.T) {
 	d, _, _ := openEditorDaemon(t, "")
 	req := httptest.NewRequest(http.MethodGet, "/desktop/status", nil)
 	req.Header.Set("Authorization", "Bearer private")
@@ -138,7 +138,9 @@ func TestDesktopStatusAnnouncesOpenEditor(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &status); err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Contains(status.Capabilities, openEditorCapability) {
-		t.Fatalf("capabilities %v lack %s", status.Capabilities, openEditorCapability)
+	for _, capability := range []string{openEditorCapability, markdownDocumentsCapability} {
+		if !slices.Contains(status.Capabilities, capability) {
+			t.Fatalf("capabilities %v lack %s", status.Capabilities, capability)
+		}
 	}
 }

@@ -424,3 +424,128 @@ func TestWorktreeDiffDirectoryReplacement(t *testing.T) {
 		t.Fatal("directory replaced by file")
 	}
 }
+
+func diffDocumentsTest(t *testing.T, dir string) map[string]WorktreeDiffFile {
+	t.Helper()
+	files := map[string]WorktreeDiffFile{}
+	for _, f := range inspectDiffTest(t, dir).Files {
+		files[f.Path] = f
+	}
+	return files
+}
+
+func TestWorktreeDiffMarkdownDocuments(t *testing.T) {
+	dir := diffFixture(t)
+	writeDiffTest(t, dir, "committed.md", "# Base\n")
+	writeDiffTest(t, dir, "deleted.md", "# Gone\n\nOld body.\n")
+	writeDiffTest(t, dir, "doc.txt", "# Becomes Markdown\n")
+	writeDiffTest(t, dir, "notes.md", "# Becomes text\n")
+	diffGitTest(t, dir, "add", ".")
+	diffGitTest(t, dir, "commit", "-m", "documents")
+	diffGitTest(t, dir, "checkout", "main")
+	diffGitTest(t, dir, "merge", "--ff-only", "feat/test")
+	diffGitTest(t, dir, "checkout", "feat/test")
+
+	writeDiffTest(t, dir, "committed.md", "# Committed\n")
+	writeDiffTest(t, dir, "added.md", "# Added\n")
+	diffGitTest(t, dir, "add", ".")
+	diffGitTest(t, dir, "commit", "-m", "work")
+	writeDiffTest(t, dir, "staged.md", "# Staged\n")
+	diffGitTest(t, dir, "add", "staged.md")
+	writeDiffTest(t, dir, "committed.md", "# Committed\n\nThen edited, not staged.\n")
+	writeDiffTest(t, dir, "README.MARKDOWN", "# Upper case\n")
+	writeDiffTest(t, dir, "untracked.Md", "# Untracked\n")
+	writeDiffTest(t, dir, "page.mdx", "# MDX\n")
+	writeDiffTest(t, dir, "plain.txt", "# Text\n")
+	writeDiffTest(t, dir, "empty.md", "")
+	diffGitTest(t, dir, "mv", "doc.txt", "doc.md")
+	diffGitTest(t, dir, "mv", "notes.md", "notes.txt")
+	diffGitTest(t, dir, "rm", "-q", "deleted.md")
+
+	files := diffDocumentsTest(t, dir)
+	want := map[string]DiffDocument{
+		"committed.md":    {Side: "new", Content: "# Committed\n\nThen edited, not staged.\n"},
+		"added.md":        {Side: "new", Content: "# Added\n"},
+		"staged.md":       {Side: "new", Content: "# Staged\n"},
+		"README.MARKDOWN": {Side: "new", Content: "# Upper case\n"},
+		"untracked.Md":    {Side: "new", Content: "# Untracked\n"},
+		"doc.md":          {Side: "new", Content: "# Becomes Markdown\n"},
+		"deleted.md":      {Side: "old", Content: "# Gone\n\nOld body.\n"},
+		"empty.md":        {Side: "new"},
+	}
+	for p, document := range want {
+		f, ok := files[p]
+		if !ok || f.Document == nil || *f.Document != document {
+			t.Fatalf("%s: got %+v, want %+v", p, f.Document, document)
+		}
+		if f.Patch == "" && p != "empty.md" {
+			t.Fatalf("%s lost its patch", p)
+		}
+	}
+	if files["doc.md"].OldPath != "doc.txt" || files["deleted.md"].Status != "deleted" {
+		t.Fatalf("unexpected statuses: %+v %+v", files["doc.md"], files["deleted.md"])
+	}
+	for _, p := range []string{"page.mdx", "plain.txt", "notes.txt"} {
+		if f, ok := files[p]; !ok || f.Document != nil {
+			t.Fatalf("%s: want listed without a document, got %+v", p, f)
+		}
+	}
+}
+
+func TestWorktreeDiffMarkdownDocumentReasons(t *testing.T) {
+	dir := diffFixture(t)
+	writeDiffTest(t, dir, "binary.md", string([]byte{0, 1, 2}))
+	// Latin-1 text whose patch is too large to be checked for UTF-8 keeps the text kind.
+	writeDiffTest(t, dir, "latin1.md", strings.Repeat("caf\xe9 au lait\n", 25000))
+	writeDiffTest(t, dir, "oversized.md", strings.Repeat("a long Markdown line\n", 30000))
+	writeDiffTest(t, dir, "huge.md", strings.Repeat("x", diffMetadataLimit+1))
+	files := diffDocumentsTest(t, dir)
+	if files["binary.md"].Kind != "binary" || files["binary.md"].Document != nil {
+		t.Fatalf("binary Markdown: %+v", files["binary.md"])
+	}
+	for p, reason := range map[string]string{
+		"latin1.md":    "Non-UTF-8 contents cannot be rendered.",
+		"oversized.md": "File exceeds the 512 KiB rendering limit.",
+		"huge.md":      "File exceeds the 8 MiB inspection limit.",
+	} {
+		document := files[p].Document
+		if document == nil || document.OmittedReason != reason || document.Content != "" {
+			t.Fatalf("%s: got %+v, want %q", p, document, reason)
+		}
+	}
+}
+
+func TestWorktreeDiffMarkdownDocumentBudget(t *testing.T) {
+	dir := diffFixture(t)
+	body := strings.Repeat("A paragraph of Markdown text.\n", (diffDocumentLimit-64)/30)
+	for i := 0; i < 9; i++ {
+		writeDiffTest(t, dir, fmt.Sprintf("big-%d.md", i), body)
+	}
+	writeDiffTest(t, dir, "a-small.txt", "small\n")
+	writeDiffTest(t, dir, "a.md", "# First\n")
+	writeDiffTest(t, dir, "zz.md", "# Last\n")
+	files := diffDocumentsTest(t, dir)
+	if len(files) != 12 {
+		t.Fatalf("every changed file stays listed: %d", len(files))
+	}
+	if files["a.md"].Document.Content != "# First\n" || files["a.md"].Patch == "" || files["a-small.txt"].Patch == "" {
+		t.Fatalf("documents within the budget keep their patch: %+v", files["a.md"])
+	}
+	rendered := 0
+	for i := 0; i < 9; i++ {
+		document := files[fmt.Sprintf("big-%d.md", i)].Document
+		if document.Content == body {
+			rendered++
+		} else if document.OmittedReason != "Rendering skipped: the 4 MiB rendering budget was reached." {
+			t.Fatalf("big-%d.md: %+v", i, document.OmittedReason)
+		}
+	}
+	if rendered != (diffDocumentBudget-len("# First\n"))/len(body) {
+		t.Fatalf("rendered %d documents within the budget", rendered)
+	}
+	// The aggregate patch limit applies as it did before documents existed.
+	last := files["zz.md"]
+	if last.Document.OmittedReason != "Rendering skipped: the 4 MiB rendering budget was reached." || last.OmittedReason != "Patch omitted because the aggregate display limit was reached." {
+		t.Fatalf("zz.md: %+v %+v", last, last.Document)
+	}
+}
