@@ -48,6 +48,11 @@ test('a run the agent no longer holds yields no result and no logged error',asyn
   assert.equal(resultReads.filter(read=>read.cleared&&read.id==='gone').length,0)
   assert.doesNotMatch(mainOutput,/Error occurred in handler for 'run-result'/)
   assert.doesNotMatch(mainOutput,/Run not found/)
+  // A result is read again only when it can have changed: a quiet sidebar
+  // costs the agent, and the server behind it, nothing between two polls.
+  const settled=resultReads.length
+  await page.waitForTimeout(5000)
+  assert.ok(resultReads.length-settled<=1,'a quiet sidebar was read '+(resultReads.length-settled)+' times in 5 s')
  }finally{
   if(app)await app.close()
   await new Promise(resolve=>server.close(resolve))

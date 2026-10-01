@@ -1,6 +1,7 @@
 import { currentPullRequest, renderPullRequestIndicator } from './pullRequests.mjs'
 import { installTooltips } from './tooltips.js'
 import {mcpSettings} from './mcp-settings.mjs'
+import { skillResultDue, skillResultStamp } from './skill-result-refresh.mjs'
 import { logText } from './log-text.mjs'
 import { createGitDiff } from './gitDiff.js'
 import { createConversationView } from './conversation.js'
@@ -85,6 +86,8 @@ const taskTitles=new Map()
 // The workflow stage of each listed task, read with its title; absent when unknown.
 const taskStages=new Map()
 const skillResults=new Map(),loadingSkillResults=new Set()
+// When each run's skill result was last read, and in what state the run was.
+const skillResultReads=new Map()
 const pullRequests=new Map()
 let localTasks={}
 try{localTasks=JSON.parse(localStorage.getItem('localTasks')||'{}')}catch{}
@@ -364,6 +367,7 @@ async function refreshSkillResult(id=selected){
   // run; a run the latest poll still lists as live is the anomaly worth noting.
   if(result===null&&runs.includes(run)&&!['completed','failed','canceled'].includes(run.status))console.warn('The local agent reports no run '+run.id+' while the desktop still lists it as '+run.status)
   skillResults.set(run.id,result)
+  skillResultReads.set(run.id,skillResultStamp(run,Date.now()))
  }catch{skillResults.delete(run.id)}
  finally{loadingSkillResults.delete(run.id);renderHeader();renderTaskSkillStatuses()}
 }
@@ -371,7 +375,10 @@ let refreshingVisibleSkillResults=false
 async function refreshVisibleSkillResults(){
  if(refreshingVisibleSkillResults)return
  refreshingVisibleSkillResults=true
+ // Only the rows whose result can have changed are read again.
+ const now=Date.now()
  const ids=[...new Set([selected,...[...document.querySelectorAll('.task-skill-status')].map(item=>item.dataset.runId)].filter(Boolean))]
+  .filter(id=>{const run=runs.find(item=>item.id===id);return run&&skillResultDue(run,skillResultReads.get(id),now)})
  try{
   await Promise.all(Array.from({length:Math.min(4,ids.length)},async()=>{
    while(ids.length)await refreshSkillResult(ids.shift())
@@ -905,7 +912,7 @@ document.querySelector('#clear-history').onclick=async()=>{
   // Drop the removed runs locally right away: until the next poll the desktop
   // would otherwise keep asking for results the agent no longer holds.
   runs=runs.filter(run=>!removed.includes(run.id))
-  for(const id of removed)skillResults.delete(id)
+  for(const id of removed){skillResults.delete(id);skillResultReads.delete(id)}
   if(removed.includes(selected)){
    conversation.select(null)
    selected=null;terminal.reset()
