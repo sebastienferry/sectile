@@ -17,27 +17,33 @@
 #     head commit of its source branch. The image carries the interface, so
 #     the web UX is built on a merge into main and on every tag, which is what
 #     keeps dev and the testenvs current.
-#   - the workstation binaries, on a tag and on nothing else. Cross-compiled
-#     for every supported OS/arch and uploaded to this project's Generic
-#     Package Registry under the package `sectile`, version <tag>.
+#   - the workstation binaries, on a tag and on a merge into the default
+#     branch. Cross-compiled for every supported OS/arch and uploaded to this
+#     project's Generic Package Registry under the package `sectile`.
 #     `sectile-agent-*` is the local app; `sectile-server-*` is the same server
-#     as the image, for bare-metal installs. On a vX.Y.Z tag the same package
-#     also gets Sectile Desktop, `sectile-desktop-<os>-<arch>.zip|.tar.gz` for
-#     darwin-arm64, darwin-amd64, linux-amd64 and windows-amd64, each bundling
-#     its agent, and SHA256SUMS covers every file of the package.
+#     as the image, for bare-metal installs. On a vX.Y.Z tag and on the default
+#     branch the same package also gets Sectile Desktop,
+#     `sectile-desktop-<os>-<arch>.zip|.tar.gz` for darwin-arm64, darwin-amd64,
+#     linux-amd64 and windows-amd64, each bundling its agent, and SHA256SUMS
+#     covers every file of the package.
 #
-#     This is one of two release streams. The public repository builds the same
-#     tag again with GitHub Actions (.github/workflows/release.yml) and
-#     publishes it as a GitHub Release. The two share scripts/release/ and no
-#     credential; neither waits on the other. See
-#     docs/adrs/0034-a-release-is-published-on-both-forges.md.
+#     A tag is a release: its package version is the tag, and the binaries
+#     report it. This is one of two release streams. The public repository
+#     builds the same tag again with GitHub Actions
+#     (.github/workflows/release.yml) and publishes it as a GitHub Release. The
+#     two share scripts/release/ and no credential; neither waits on the other.
+#     See docs/adrs/0034-a-release-is-published-on-both-forges.md, and AGENTS.md
+#     for how a tag is cut.
 #
-#     They are tag-only because a binary that somebody installs is a release:
-#     an artefact named after a pipeline number is one nobody can report a bug
-#     against, and every branch publishing one turned the package registry into
-#     a list of builds rather than a list of versions. See
-#     docs/adrs/0018-semver-tags-and-changelog.md, and AGENTS.md for how a tag
-#     is cut.
+#     A merge into the default branch is not a release. It is published as one
+#     rolling package version, `main`, which every merge uploads again: the
+#     download URL never changes and always serves the latest merge. Its
+#     binaries report <iid>-main, the version of the image promoted to dev, so
+#     a workstation can be matched with what dev runs. No other branch
+#     publishes binaries: one package per branch turned the registry into a
+#     list of builds rather than a list of versions. See
+#     docs/adrs/0018-semver-tags-and-changelog.md and
+#     docs/adrs/0045-main-publishes-a-rolling-workstation-package.md.
 #
 # Both are gated on the Go, web and desktop test suites.
 #
@@ -239,10 +245,12 @@ build:web:
   extends: .web-cache
   needs: []
   # Only the cross-compiled binaries consume this artifact, and those are cut
-  # from tags. The image builds the interface inside kaniko from the same
-  # sources, so a merge into main still proves the UX compiles.
+  # from tags and from the default branch. The image builds the interface
+  # inside kaniko from the same sources, so any other branch still proves the
+  # UX compiles.
   rules:
     - if: $CI_COMMIT_TAG
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
   script:
     - cd web
     - npm ci --prefer-offline --no-audit --no-fund
@@ -265,20 +273,25 @@ build:binaries:
       artifacts: true
   rules:
     - if: $CI_COMMIT_TAG
+      variables:
+        SECTILE_VERSION: "${CI_COMMIT_TAG}"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
   variables:
     CGO_ENABLED: "0"
   script:
-    # The tag is what every binary reports for --version and on /api/version.
-    # It is read from CI_COMMIT_TAG rather than derived, so the string a user
-    # quotes in a bug report is a ref this repository can check out.
-    - sh scripts/release/build-binaries.sh "${CI_COMMIT_TAG}" "${CI_COMMIT_SHA}" dist
+    # SECTILE_VERSION is what every binary reports for --version and on
+    # /api/version. On a tag it is the tag, read from CI_COMMIT_TAG rather than
+    # derived, so the string a user quotes in a bug report is a ref this
+    # repository can check out. On the default branch it is <iid>-main, the
+    # version of the image this pipeline promotes to dev.
+    - sh scripts/release/build-binaries.sh "${SECTILE_VERSION}" "${CI_COMMIT_SHA}" dist
     # The build stamped a version; a binary that does not report it is a broken
-    # release, and finding that out after publication is finding it out too late.
+    # build, and finding that out after publication is finding it out too late.
     # Only the runner's own OS/arch can be executed here, and both Linux
     # architectures the loop produces are covered by whichever it turns out to be.
     - HOST_ARCH=$(go env GOARCH)
-    - ./dist/sectile-server-linux-${HOST_ARCH} --version | grep -F "${CI_COMMIT_TAG}"
-    - ./dist/sectile-agent-linux-${HOST_ARCH} --version | grep -F "${CI_COMMIT_TAG}"
+    - ./dist/sectile-server-linux-${HOST_ARCH} --version | grep -F "${SECTILE_VERSION}"
+    - ./dist/sectile-agent-linux-${HOST_ARCH} --version | grep -F "${SECTILE_VERSION}"
   artifacts:
     paths:
       - dist/
@@ -291,10 +304,14 @@ build:binaries:
 # Framework's shipped ad-hoc signature intact, which is what Apple Silicon needs
 # to launch an unsigned app (docs/adrs/0034-a-release-is-published-on-both-forges.md).
 #
-# Release tags only (vX.Y.Z): a desktop package is a release like the
-# binaries, and a suffixed tag is not one. packager downloads each target's
-# Electron itself, whatever ELECTRON_SKIP_BINARY_DOWNLOAD says, so the zips are
-# cached under their own key rather than bloating test:desktop's.
+# Release tags (vX.Y.Z) and the default branch, like the binaries; a suffixed
+# tag is not a release and gets no desktop package. On the default branch the
+# app's settings show desktop/package.json's version, which is the last
+# release's, next to the bundled agent's <iid>-main: the manifest follows tags
+# (AGENTS.md, step 4), and the agent's version is the one that names the build.
+# packager downloads each target's Electron itself, whatever
+# ELECTRON_SKIP_BINARY_DOWNLOAD says, so the zips are cached under their own
+# key rather than bloating test:desktop's.
 build:desktop:
   stage: build
   image: ${NODE_IMAGE}
@@ -303,6 +320,9 @@ build:desktop:
       artifacts: true
   rules:
     - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/
+      variables:
+        SECTILE_VERSION: "${CI_COMMIT_TAG}"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
   variables:
     ELECTRON_CACHE: "${CI_PROJECT_DIR}/.electron-cache"
   cache:
@@ -315,8 +335,9 @@ build:desktop:
       - ${ELECTRON_CACHE}
   script:
     # An archive whose settings would show another version than its tag is not
-    # published; the release procedure bumps desktop/package.json first.
-    - sh scripts/release/check-desktop-version.sh "${CI_COMMIT_TAG}"
+    # published; the release procedure bumps desktop/package.json first. The
+    # default branch has no tag to match.
+    - if [ -n "${CI_COMMIT_TAG}" ]; then sh scripts/release/check-desktop-version.sh "${CI_COMMIT_TAG}"; fi
     - apt-get update -qq && apt-get install -y -qq zip > /dev/null
     - (cd desktop && npm ci --prefer-offline --no-audit --no-fund && npm run build)
     - |
@@ -324,7 +345,7 @@ build:desktop:
         os=${target%/*}; arch=${target#*/}
         agent=dist/sectile-agent-${os}-${arch}
         if [ "$os" = "windows" ]; then agent=${agent}.exe; fi
-        sh scripts/release/package-desktop.sh "${CI_COMMIT_TAG}" "$os" "$arch" "$agent" dist-desktop || exit 1
+        sh scripts/release/package-desktop.sh "${SECTILE_VERSION}" "$os" "$arch" "$agent" dist-desktop || exit 1
       done
   artifacts:
     paths:
@@ -381,12 +402,16 @@ publish:binaries:
     - job: build:desktop
       artifacts: true
       optional: true
+  # Two merges close together would otherwise interleave their uploads into the
+  # one `main` version, and leave one build's SHA256SUMS beside the other's
+  # files.
+  resource_group: sectile-package
   script:
     # SHA256SUMS is written here, over everything about to be uploaded, so it
     # vouches for the desktop archives as well as for the binaries.
     - if [ -d dist-desktop ]; then mv dist-desktop/* dist/; fi
     - (cd dist && rm -f SHA256SUMS && sha256sum * > SHA256SUMS && cat SHA256SUMS)
-    - PACKAGE_URL="${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/sectile/${SECTILE_VERSION}"
+    - PACKAGE_URL="${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/sectile/${PACKAGE_VERSION}"
     - echo "Uploading to ${PACKAGE_URL}"
     - |
       for file in dist/*; do
@@ -394,12 +419,18 @@ publish:binaries:
         curl --fail --silent --show-error --header "JOB-TOKEN: ${CI_JOB_TOKEN}" --upload-file "$file" "${PACKAGE_URL}/${name}" > /dev/null
         echo "  ${name}"
       done
-  # Tags only, like the build it uploads. The package version is the tag, so
-  # the registry lists releases rather than pipelines.
+  # On a tag the package version is the tag, so the registry lists releases
+  # rather than pipelines. On the default branch it is `main`, one rolling
+  # version every merge uploads again: of the files sharing a name in a version,
+  # GitLab serves the most recent, so .../packages/generic/sectile/main/<file>
+  # is always the latest merge.
   rules:
     - if: $CI_COMMIT_TAG
       variables:
-        SECTILE_VERSION: "${CI_COMMIT_TAG}"
+        PACKAGE_VERSION: "${CI_COMMIT_TAG}"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      variables:
+        PACKAGE_VERSION: "main"
 
 # ── Promote ───────────────────────────────────────────────────────────────────
 
