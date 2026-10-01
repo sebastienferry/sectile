@@ -1,11 +1,10 @@
-import { taskStage } from './workflow.mjs'
+import { STAGES, taskStage } from './workflow.mjs'
 
 // The tickets pane sorts on the workstation: the server orders tasks by board
 // position, which is the web board's manual order, not the reading order a
 // list of tickets needs. The web backlog uses these same rules, so both
 // surfaces agree on which ticket comes first.
 export const PRIORITY_RANK={urgent:4,high:3,medium:2,low:1}
-const STAGE_ORDER=['new','clarified','specified','implemented','reviewed','finished']
 export const DEFAULT_SORT={field:'priority',ascending:false}
 export const SORTABLE_FIELDS=['key','title','stage','priority']
 
@@ -22,8 +21,8 @@ export function compareIdentity(a,b){
 
 const priorityRank=task=>PRIORITY_RANK[text(task.priority).toLowerCase()]||0
 function stageRank(task){
- const index=STAGE_ORDER.indexOf(taskStage(task))
- return index===-1?STAGE_ORDER.length:index
+ const index=STAGES.indexOf(taskStage(task))
+ return index===-1?STAGES.length:index
 }
 
 export function compareBy(field){
