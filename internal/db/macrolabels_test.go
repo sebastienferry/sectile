@@ -165,8 +165,8 @@ func TestIsMacroAxisLabelRecognisesTheRoadmapAxes(t *testing.T) {
 		"2026-Q5":          false,
 		"release-2026":     false,
 	} {
-		if got := IsMacroAxisLabel(label); got != want {
-			t.Errorf("IsMacroAxisLabel(%q) = %v, want %v", label, got, want)
+		if got := defaultAxisPrefixes.isMacroAxisLabel(label); got != want {
+			t.Errorf("isMacroAxisLabel(%q) = %v, want %v", label, got, want)
 		}
 	}
 }

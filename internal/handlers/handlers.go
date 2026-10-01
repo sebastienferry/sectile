@@ -1226,6 +1226,7 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 			writeTrackerError(w, http.StatusBadRequest, err)
 			return
 		}
+		h.db.FillMacroFlags(id, meta, false)
 		writeJSON(w, http.StatusOK, map[string]interface{}{"macro": meta, "epic": meta, "storyKey": task.Key, "task": task, "notice": notice})
 		return
 	}
@@ -1359,6 +1360,34 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		// The tracker copy of the todos (#663) is written after each save of the
+		// list; this queues one at once, without waiting for a save, for a copy
+		// that failed or was edited by hand. A macro whose list stays in
+		// Sectile is refused with the reason, and nothing is queued.
+		if len(parts) >= 4 && parts[3] == "todos-mirror" && r.Method == http.MethodPost {
+			key := parts[2]
+			if decoded, err := url.PathUnescape(parts[2]); err == nil {
+				key = decoded
+			}
+			if refusal := h.db.TodosMirrorRefusal(id, key); refusal != "" {
+				writeError(w, http.StatusBadRequest, refusal)
+				return
+			}
+			act, err := h.db.EnqueueTrackerOp(h.actingContext(r), db.TrackerOp{
+				Kind:      db.TrackerOpEpicTodos,
+				ProjectID: id,
+				TaskKey:   key,
+				EpicKey:   key,
+				Force:     true,
+			})
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			writeJSON(w, http.StatusAccepted, map[string]interface{}{"activity": act})
+			return
+		}
+
 		if len(parts) >= 4 && parts[3] == "slicing" && r.Method == http.MethodPost {
 			key := parts[2]
 			if decoded, err := url.PathUnescape(parts[2]); err == nil {
@@ -1377,7 +1406,7 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 			var origin string
 			var err error
 			if strings.EqualFold(strings.TrimSpace(req.Source), models.MacroTodoFromStories) {
-				meta, origin, err = h.db.TodosFromMacroStories(id, key)
+				meta, origin, err = h.db.TodosFromMacroStories(h.actingContext(r), id, key)
 			} else {
 				meta, origin, err = h.db.TodosFromSDD(r.Context(), h.webSessionUser(r), id, key, db.NormalizeSlicingSource(req.Source))
 				err = slicingReadError(err)
@@ -1386,6 +1415,7 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 				writeError(w, http.StatusBadRequest, err.Error())
 				return
 			}
+			h.db.FillMacroFlags(id, meta, false)
 			writeJSON(w, http.StatusOK, map[string]interface{}{
 				"macro":  meta,
 				"epic":   meta,
@@ -1415,6 +1445,9 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 				Priority       *string             `json:"priority,omitempty"`
 				Quarter        *string             `json:"quarter,omitempty"`
 				Readiness      *string             `json:"readiness,omitempty"`
+				// Bulk marks an edit that is one of several, such as the title
+				// seeding: it never writes on an epic of a roadmap project.
+				Bulk bool `json:"bulk,omitempty"`
 			}
 			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 				writeError(w, http.StatusBadRequest, "Invalid macro payload: "+err.Error())
@@ -1452,7 +1485,11 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			labelNote := ""
-			if req.Horizon != nil {
+			if req.Horizon != nil && h.db.MacroIsForeign(id, key) {
+				// The horizon of a roadmap project's epic stays in Sectile
+				// (#632): a queued write could only fail.
+				labelNote = "conservé dans Sectile, non écrit sur le tracker"
+			} else if req.Horizon != nil {
 				labelNote = "label roadmap en file d'attente"
 				if _, err := h.db.EnqueueTrackerOp(h.actingContext(r), db.TrackerOp{
 					Kind:      db.TrackerOpEpicHorizon,
@@ -1471,13 +1508,13 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 					writeError(w, http.StatusBadRequest, err.Error())
 					return
 				}
-				axes.LabelsWritable = h.db.MacroLabelsWritable(id, key)
+				h.db.FillMacroFlags(id, axes, req.Bulk)
 				saved = axes
 				labelNote = h.enqueueMacroAxes(r, id, key, saved, req.Priority != nil, req.Quarter != nil, req.Readiness != nil)
 			} else if saved != nil {
 				// The client replaces its copy of the macro with this one, so it
 				// carries the computed flag whatever field the request changed.
-				saved.LabelsWritable = h.db.MacroLabelsWritable(id, key)
+				h.db.FillMacroFlags(id, saved, false)
 			}
 			writeJSON(w, http.StatusOK, map[string]interface{}{"macro": saved, "epic": saved, "labelNote": labelNote})
 			return
@@ -4243,9 +4280,9 @@ func (h *Handler) HandleEventsSSE(w http.ResponseWriter, r *http.Request) {
 }
 
 // repositoryErrorStatus answers 400 for a refused repository declaration or
-// pin (#456), and 500 for anything else.
+// pin (#456), or another refused project setting, and 500 for anything else.
 func repositoryErrorStatus(err error) int {
-	if errors.Is(err, db.ErrDuplicateRepository) || errors.Is(err, db.ErrRepositoryNotInProject) || errors.Is(err, db.ErrInvalidSpecArtifacts) || errors.Is(err, db.ErrInvalidBranchNameFormat) {
+	if errors.Is(err, db.ErrDuplicateRepository) || errors.Is(err, db.ErrRepositoryNotInProject) || errors.Is(err, db.ErrInvalidSpecArtifacts) || errors.Is(err, db.ErrInvalidBranchNameFormat) || errors.Is(err, db.ErrInvalidEpicAxisPrefix) {
 		return http.StatusBadRequest
 	}
 	return http.StatusInternalServerError

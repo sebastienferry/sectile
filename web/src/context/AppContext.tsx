@@ -53,6 +53,16 @@ import { translations, type TranslationSchema } from '../locales/translations'
 import { resolveAccentAttribute } from '../lib/accents'
 import type { StoredUserCredential, OrphanedCredentialReport, TrackerKind } from '../lib/trackers'
 import { NO_ORPHANED_CREDENTIALS, getTrackers, orphanedCredentialsFrom } from '../lib/trackers'
+import {
+  NO_JIRA_OAUTH,
+  jiraOAuthFrom,
+  jiraOAuthOutcomeMessage,
+  jiraOAuthOutcomeTone,
+  oauthOutcomeFromSearch,
+  withoutOAuthOutcome,
+  type JiraOAuthInfo,
+  type JiraOAuthOutcome,
+} from '../lib/jiraOAuth'
 import { TrackerCredentialMissingError, missingCredentialFromActivity, missingCredentialFromBody } from '../lib/trackerRefusal'
 import { activeTaskIds } from '../lib/remoteRunIndicator'
 import { isViewAvailable } from '../lib/optionalViews'
@@ -209,6 +219,13 @@ interface AppContextType {
   unlockAllUserCredentials: (passphrase: string) => Promise<boolean>
   lockAllUserCredentials: () => Promise<boolean>
   clearUserCredential: (tracker: string) => Promise<boolean>
+  /** Whether Jira can be connected through Atlassian's consent screen, and the sites a grant must cover (#654). */
+  jiraOAuth: JiraOAuthInfo
+  /** Sends the browser to Atlassian's consent screen; false when the connection could not start. */
+  connectJira: () => Promise<boolean>
+  /** The outcome Atlassian's consent came back with, shown until dismissed. */
+  jiraOAuthOutcome: JiraOAuthOutcome | null
+  dismissJiraOAuthOutcome: () => void
   /** Supprime une ligne orpheline. Réservée aux admins, refusée par le serveur sinon. */
   discardOrphanedCredential: (userId: string, tracker: string) => Promise<boolean>
   /**
@@ -378,7 +395,7 @@ interface AppContextType {
     projectId: string,
     key: string,
     patch: { title?: string; horizon?: MacroHorizon | ''; description?: string; framingComment?: string; todos?: MacroTodo[]; closed?: boolean; priority?: EpicPriority | ''; quarter?: string; readiness?: EpicReadiness | '' },
-    options?: { quiet?: boolean }
+    options?: { quiet?: boolean; bulk?: boolean }
   ) => Promise<MacroMeta | null>
   saveEpicMeta: (projectId: string, key: string, patch: { title?: string; horizon?: MacroHorizon | ''; description?: string; framingComment?: string; todos?: MacroTodo[]; closed?: boolean }) => Promise<MacroMeta | null>
   /**
@@ -386,6 +403,12 @@ interface AppContextType {
    * macro once the tracker accepted them, which the roadmap reloads on its own.
    */
   editMacroLabels: (projectId: string, key: string, patch: { add?: string[]; remove?: string[] }) => Promise<boolean>
+  /**
+   * Queues the tracker copy of a macro's todos at once (#663), for a copy that
+   * failed or was edited by hand. The roadmap reloads the macro when the write
+   * ends, as for any queued write.
+   */
+  republishMacroTodos: (projectId: string, key: string) => Promise<boolean>
   createStoryFromMacroTodo: (projectId: string, macroKey: string, todoId: string) => Promise<{ macro: MacroMeta | null; epic: MacroMeta | null; storyKey: string } | null>
   /**
    * Creates the stories of several slicing lines in one request (#634). The
@@ -781,6 +804,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   // Until the settings arrive, the language this browser last used (or its
   // own) avoids a first paint in the wrong language.
   const [settings, setSettings] = useState<UserSettings>(() => ({ ...defaultSettings, language: resolveInitialLocale() }))
+  // Whether the person's own settings arrived, their language with them.
+  const [settingsLoaded, setSettingsLoaded] = useState(false)
   const [toasts, setToasts] = useState<ToastMessage[]>([])
 
   // Projects State
@@ -1246,6 +1271,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     if (outcome.kind !== 'ok') return
     const data = outcome.data
     setSettings(data)
+    setSettingsLoaded(true)
     // The personal preference wins over the browser, and is what the next
     // signed-out visit starts with.
     if (isLocale(data.language)) rememberLocale(data.language)
@@ -1557,6 +1583,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   const [userCredentials, setUserCredentials] = useState<StoredUserCredential[]>([])
   const [orphanedCredentials, setOrphanedCredentials] = useState<OrphanedCredentialReport>(NO_ORPHANED_CREDENTIALS)
+  const [jiraOAuth, setJiraOAuth] = useState<JiraOAuthInfo>(NO_JIRA_OAUTH)
+  const [userCredentialsLoaded, setUserCredentialsLoaded] = useState(false)
 
   // Les accès personnels ne transitent jamais avec le jeton : l'API renvoie
   // seulement ce qu'elle sait d'eux, et cet état ne sert qu'à l'afficher.
@@ -1567,6 +1595,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       const data = await res.json().catch(() => ({}))
       setUserCredentials(Array.isArray(data.credentials) ? data.credentials : [])
       setOrphanedCredentials(orphanedCredentialsFrom(data))
+      setJiraOAuth(jiraOAuthFrom(data))
+      setUserCredentialsLoaded(true)
     } catch {
       // Un serveur injoignable n'est pas une absence d'accès : on garde l'état.
     }
@@ -1584,6 +1614,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         if (!res.ok) throw trackerError(res, data, failure || t.operations.notifications.credentials.refused)
         setUserCredentials(Array.isArray(data.credentials) ? data.credentials : [])
         setOrphanedCredentials(orphanedCredentialsFrom(data))
+        setJiraOAuth(jiraOAuthFrom(data))
         if (success) addToast({ type: 'success', title: success })
         return true
       } catch (err: any) {
@@ -1635,6 +1666,56 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       ),
     [userCredentialCall, t]
   )
+
+  // The consent happens on Atlassian's own page: the server answers where to
+  // send the browser, and the callback brings it back with the outcome.
+  const connectJira = useCallback(async (): Promise<boolean> => {
+    try {
+      const res = await fetch(`${API_BASE}/me/tracker-credentials/jira/connect`, { method: 'POST' })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok || typeof data.authorizeUrl !== 'string') {
+        throw new Error(data.error || t.trackerCredentials.oauth.connectFailed)
+      }
+      window.location.assign(data.authorizeUrl)
+      return true
+    } catch (err: any) {
+      addToast({ type: 'error', title: t.trackerCredentials.oauth.connectFailed, description: err.message })
+      return false
+    }
+  }, [t, addToast])
+
+  // Back from the consent screen: the outcome is read from the address once,
+  // kept until the person dismisses it, and shown in the Jira entry of the
+  // profile, which opens on it. The parameters are dropped from the address
+  // so a reload says nothing again.
+  const [jiraOAuthOutcome, setJiraOAuthOutcome] = useState<JiraOAuthOutcome | null>(
+    () => oauthOutcomeFromSearch(window.location.search)?.outcome ?? null
+  )
+  const dismissJiraOAuthOutcome = useCallback(() => setJiraOAuthOutcome(null), [])
+  const oauthOutcomeOpened = useRef(false)
+  useEffect(() => {
+    if (!jiraOAuthOutcome || oauthOutcomeOpened.current) return
+    oauthOutcomeOpened.current = true
+    try {
+      window.history.replaceState(window.history.state, '', window.location.pathname + withoutOAuthOutcome(window.location.search) + window.location.hash)
+    } catch {
+      // An address that cannot be rewritten only shows the outcome again on reload.
+    }
+    void refreshUserCredentials().then(() => openTrackerCredentials('jira'))
+  }, [jiraOAuthOutcome, refreshUserCredentials, openTrackerCredentials])
+  // The notification waits for the person's settings, so it speaks their
+  // language rather than the browser's, and for the credentials, so a refusal
+  // can name the sites.
+  const oauthOutcomeToasted = useRef(false)
+  useEffect(() => {
+    if (!jiraOAuthOutcome || oauthOutcomeToasted.current || !settingsLoaded || !userCredentialsLoaded) return
+    oauthOutcomeToasted.current = true
+    addToast({
+      type: jiraOAuthOutcomeTone(jiraOAuthOutcome),
+      title: t.trackerCredentials.oauth.outcomeTitle,
+      description: jiraOAuthOutcomeMessage(jiraOAuthOutcome, t.trackerCredentials.oauth.outcomes, jiraOAuth.sites),
+    })
+  }, [jiraOAuthOutcome, settingsLoaded, userCredentialsLoaded, jiraOAuth.sites, t, addToast])
 
   const discardOrphanedCredential = useCallback(
     (userId: string, tracker: string) =>
@@ -2798,13 +2879,15 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     projectId: string,
     key: string,
     patch: { title?: string; horizon?: MacroHorizon | ''; description?: string; framingComment?: string; todos?: MacroTodo[]; closed?: boolean; priority?: EpicPriority | ''; quarter?: string; readiness?: EpicReadiness | '' },
-    options?: { quiet?: boolean }
+    options?: { quiet?: boolean; bulk?: boolean }
   ): Promise<MacroMeta | null> => {
     try {
       const res = await fetch(`${API_BASE}/projects/${encodeURIComponent(projectId)}/macros`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ key, ...patch }),
+        // A bulk edit, one of several such as the seeding, never writes on an
+        // epic of a roadmap project (#632): the server keeps it in Sectile.
+        body: JSON.stringify({ key, ...patch, ...(options?.bulk ? { bulk: true } : {}) }),
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) throw trackerError(res, data, t.operations.notifications.macros.saveRefused)
@@ -2840,6 +2923,20 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   }
 
+  const republishMacroTodos = async (projectId: string, key: string): Promise<boolean> => {
+    const copy = t.operations.notifications.macros
+    try {
+      const res = await fetch(`${API_BASE}/projects/${encodeURIComponent(projectId)}/macros/${encodeURIComponent(key)}/todos-mirror`, { method: 'POST' })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.error || copy.todosRepublishRefused)
+      addToast({ type: 'info', title: format(copy.todosRepublished, { key }) })
+      return true
+    } catch (err: any) {
+      addToast({ type: 'error', title: copy.todosRepublishRefused, description: err.message })
+      return false
+    }
+  }
+
   // Une ligne de TODO devient une story dans le tracker, sous sa macro.
   const createStoryFromMacroTodo = async (
     projectId: string,
@@ -2858,11 +2955,14 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       const data = await res.json().catch(() => ({}))
       const copy = t.operations.notifications.macros
       if (!res.ok) throw trackerError(res, data, copy.createRefused)
+      // A story created in a roadmap project stays in Jira (#632): it comes
+      // back without a local id, and there is nothing in Sectile to open.
+      const imported = Boolean(data.task?.id)
       addToast({
         type: 'success',
         title: copy.storyCreated,
-        description: format(copy.storyAttached, { story: data.storyKey, macro: macroKey }),
-        link: data.task ? createdTaskLink(data.task) : undefined,
+        description: format(imported || !data.task ? copy.storyAttached : copy.storyStaysInTracker, { story: data.storyKey, macro: macroKey }),
+        link: data.task && imported ? createdTaskLink(data.task) : undefined,
       })
       // The story exists; what the tracker refused is said, not hidden.
       if (data.notice) addToast({ type: 'warning', title: copy.parentNotWritten, description: data.notice })
@@ -4220,6 +4320,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         unlockAllUserCredentials,
         lockAllUserCredentials,
         clearUserCredential,
+        jiraOAuth,
+        connectJira,
+        jiraOAuthOutcome,
+        dismissJiraOAuthOutcome,
         sourceFilter,
         setSourceFilter,
         parentFilter,
@@ -4286,6 +4390,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
         saveMacroMeta,
         editMacroLabels,
+        republishMacroTodos,
         saveEpicMeta,
         createStoryFromMacroTodo,
         createStoriesFromMacroTodos,
