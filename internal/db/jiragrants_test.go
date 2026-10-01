@@ -10,6 +10,7 @@ import (
 
 	"tasks/internal/atlassian/atlassiantest"
 	"tasks/internal/models"
+	"tasks/internal/secrets"
 	"tasks/internal/tracker"
 	"tasks/internal/trackerapi"
 )
@@ -39,7 +40,12 @@ func newGrantFixture(t *testing.T) *grantFixture {
 		atlassiantest.FakeSite{CloudID: "c-acme", URL: acmeSite},
 		atlassiantest.FakeSite{CloudID: "c-beta", URL: betaSite + "/"})
 	setJiraOAuthEnvironment(t)
-	d := testDB(t)
+	return newGrantFixtureOn(t, testDB(t), fake)
+}
+
+// newGrantFixtureOn is newGrantFixture on a store the caller opened.
+func newGrantFixtureOn(t *testing.T, d *DB, fake *atlassiantest.Fake) *grantFixture {
+	t.Helper()
 	d.SetAtlassianEndpoints(fake.Endpoints(), nil)
 	project, err := d.CreateProject(models.CreateProjectRequest{Name: "Jira", IssueTracker: "jira", JiraProject: "PE", TrackerUrl: acmeSite})
 	if err != nil {
@@ -547,5 +553,76 @@ func TestAnAPITokenResolvesAsBefore(t *testing.T) {
 	}
 	if c := jiraCredential(t, d, "usr_ada"); c.Kind != CredentialKindAPIToken {
 		t.Errorf("kind: %+v", c)
+	}
+}
+
+// The grant on PostgreSQL: connecting, two instances refreshing one grant at
+// once, and a revocation, against the engine production runs on.
+func TestPostgresJiraGrant(t *testing.T) {
+	first, second := openPostgresPair(t)
+	key, err := secrets.ServerKey(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range []*DB{first, second} {
+		d.serverKey, d.serverKeyErr = key, nil
+	}
+	fake := atlassiantest.New(t, atlassiantest.FakeSite{CloudID: "c-acme", URL: acmeSite})
+	setJiraOAuthEnvironment(t)
+	f := newGrantFixtureOn(t, first, fake)
+	second.SetAtlassianEndpoints(fake.Endpoints(), nil)
+
+	if outcome := f.connect(t, first, "usr_ada", "Ada", "c-acme"); outcome != JiraOAuthConnected {
+		t.Fatalf("outcome %s", outcome)
+	}
+	if c := jiraCredential(t, second, "usr_ada"); c == nil || c.Kind != CredentialKindOAuth || len(c.GrantedSites) != 1 {
+		t.Fatalf("seen from the other instance: %+v", c)
+	}
+
+	for round := 0; round < 3; round++ {
+		f.expire(t, first, "usr_ada")
+		release := fake.GateRefreshes()
+		var wg sync.WaitGroup
+		errs := make([]error, 2)
+		for i, d := range []*DB{first, second} {
+			wg.Add(1)
+			go func(i int, d *DB) {
+				defer wg.Done()
+				_, errs[i] = d.ResolvePersonalCredential("usr_ada", "jira", acmeSite)
+			}(i, d)
+		}
+		time.Sleep(300 * time.Millisecond)
+		release()
+		wg.Wait()
+		fake.GateRefreshes()()
+		for i, err := range errs {
+			if err != nil {
+				t.Fatalf("round %d, instance %d: %v", round, i, err)
+			}
+		}
+		if fake.Refreshes() != round+1 {
+			t.Errorf("round %d: %d refreshes", round, fake.Refreshes())
+		}
+	}
+
+	if err := f.jira(t).AddComment(f.as("usr_ada"), tracker.AddCommentRequest{Project: f.project, Key: "PE-7", Body: "Hello"}); err != nil {
+		t.Fatalf("a write: %v", err)
+	}
+	fake.Revoke("Ada")
+	f.expire(t, first, "usr_ada")
+	var missing *trackerapi.MissingPersonalCredentialError
+	if _, err := second.ResolvePersonalCredential("usr_ada", "jira", acmeSite); !errors.As(err, &missing) || missing.Reason != trackerapi.ReasonDisconnected {
+		t.Fatalf("a revoked grant: %v", err)
+	}
+	if c := jiraCredential(t, first, "usr_ada"); !c.Disconnected {
+		t.Fatalf("disconnected for every instance: %+v", c)
+	}
+
+	// The app saved on one instance is the other's too.
+	if err := first.SaveJiraOAuthApp("page-client", "page-secret", "https://sectile.example.com/auth/jira/callback", "admin"); err != nil {
+		t.Fatal(err)
+	}
+	if app, source, err := second.JiraOAuthApp(); err != nil || source != ServerCredentialStored || app.ClientSecret != "page-secret" {
+		t.Fatalf("the saved app: %+v %s %v", app, source, err)
 	}
 }
