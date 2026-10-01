@@ -59,7 +59,7 @@ func dropRepositoryColumns(d *DB) {
 	dropCredentialAccountColumn(d)
 }
 
-// dropCredentialAccountColumn undoes what migrations 24 to 39 change. It runs
+// dropCredentialAccountColumn undoes what migrations 24 to 40 change. It runs
 // with dropRepositoryColumns, since every fixture that rewinds before 21 also
 // rewinds before 24.
 func dropCredentialAccountColumn(d *DB) {
@@ -71,6 +71,7 @@ func dropCredentialAccountColumn(d *DB) {
 	_, _ = d.conn.Exec("ALTER TABLE macros DROP COLUMN readiness")
 	_, _ = d.conn.Exec("ALTER TABLE task_activities DROP COLUMN credential_missing")
 	_, _ = d.conn.Exec("ALTER TABLE projects DROP COLUMN roadmap_axis_writes")
+	_, _ = d.conn.Exec("ALTER TABLE projects DROP COLUMN epic_axis_prefixes")
 	_, _ = d.conn.Exec("ALTER TABLE macros DROP COLUMN todos_mirror_ref")
 	_, _ = d.conn.Exec("ALTER TABLE macros DROP COLUMN todos_mirror_hash")
 	_, _ = d.conn.Exec("ALTER TABLE macros DROP COLUMN todos_mirror_error")
@@ -452,6 +453,7 @@ func TestMigrationThirtyOneRemovesTheRepositoryLayout(t *testing.T) {
 		"ALTER TABLE macros DROP COLUMN readiness",
 		"ALTER TABLE task_activities DROP COLUMN credential_missing",
 		"ALTER TABLE projects DROP COLUMN roadmap_axis_writes",
+		"ALTER TABLE projects DROP COLUMN epic_axis_prefixes",
 		"ALTER TABLE macros DROP COLUMN todos_mirror_ref",
 		"ALTER TABLE macros DROP COLUMN todos_mirror_hash",
 		"ALTER TABLE macros DROP COLUMN todos_mirror_error",

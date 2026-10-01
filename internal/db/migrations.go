@@ -544,13 +544,21 @@ var migrations = []migration{
 		statements: []string{"ALTER TABLE projects ADD COLUMN roadmap_axis_writes INTEGER NOT NULL DEFAULT 0;"},
 	},
 	{
+		// The label prefixes of the epic priority, quarter and readiness, as a
+		// JSON object (#635). An empty object keeps the default prefixes every
+		// existing project reads and writes under.
+		version:    39,
+		name:       "projects.epic_axis_prefixes",
+		statements: []string{"ALTER TABLE projects ADD COLUMN epic_axis_prefixes TEXT NOT NULL DEFAULT '{}';"},
+	},
+	{
 		// Where the todos of a macro are copied on its tracker, and how that
 		// copy stands (#663): the Jira comment id, the hash of the last body
 		// written, the last failure, the tracker whose personal token that
 		// failure lacked (#645) and the time of the last write. Empty is "never
 		// copied", which every existing macro reads as until its list is next
 		// saved.
-		version: 39,
+		version: 40,
 		name:    "macros.todos_mirror",
 		statements: []string{
 			"ALTER TABLE macros ADD COLUMN todos_mirror_ref TEXT NOT NULL DEFAULT '';",

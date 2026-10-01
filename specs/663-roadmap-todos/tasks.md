@@ -11,7 +11,7 @@ References point at `spec.md` (US, FR) and `plan.md`.
 
 ## 1. Schema and mirror status (FR17, NFR4)
 
-- [ ] T1.1 Migration 39 `macros.todos_mirror` (four columns) in
+- [ ] T1.1 Migration 40 `macros.todos_mirror` (four columns) in
   `internal/db/migrations.go`, never in the baseline.
 - [ ] T1.2 Update the rewind helpers and the forget-and-replay fixtures of the
   db tests for the new columns.

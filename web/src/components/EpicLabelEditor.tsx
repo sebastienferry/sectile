@@ -30,7 +30,7 @@ export const EpicLabelEditor: React.FC<EpicLabelEditorProps> = ({ project, row, 
   // Only Jira reads epics, so elsewhere there is nothing to show at all.
   if (project.issueTracker !== 'jira') return null
 
-  const labels = freeEpicLabels(row.meta)
+  const labels = freeEpicLabels(row.meta, project)
   const editable = canEditEpicLabels(project, row)
   if (!editable && labels.length === 0) return null
 
@@ -50,7 +50,7 @@ export const EpicLabelEditor: React.FC<EpicLabelEditorProps> = ({ project, row, 
     const label = draft.trim()
     if (!label) return
     if (/\s/.test(label)) return refuse(format(strings.refusedSpace, { label }))
-    if (isEpicAxisLabel(label)) return refuse(format(strings.refusedAxis, { label }))
+    if (isEpicAxisLabel(label, project)) return refuse(format(strings.refusedAxis, { label }))
     if (carried.has(label.toLowerCase())) return refuse(format(strings.alreadyThere, { key: row.key, label }))
     if (await send({ add: [label] })) setDraft('')
   }
