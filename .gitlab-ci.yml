@@ -408,13 +408,19 @@ publish:binaries:
   resource_group: sectile-package
   script:
     # SHA256SUMS is written here, over everything about to be uploaded, so it
-    # vouches for the desktop archives as well as for the binaries.
-    - if [ -d dist-desktop ]; then mv dist-desktop/* dist/; fi
-    - (cd dist && rm -f SHA256SUMS && sha256sum * > SHA256SUMS && cat SHA256SUMS)
+    # vouches for the desktop archives as well as for the binaries. It goes to
+    # /tmp and the files are uploaded from where they are: this image runs as
+    # curl_user, and the artifact directories the runner extracts are root's,
+    # 0755, so nothing can be moved or written into them.
+    - (cd dist && sha256sum *) > /tmp/SHA256SUMS
+    - if [ -d dist-desktop ]; then (cd dist-desktop && sha256sum *) >> /tmp/SHA256SUMS; fi
+    - cat /tmp/SHA256SUMS
     - PACKAGE_URL="${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/sectile/${PACKAGE_VERSION}"
     - echo "Uploading to ${PACKAGE_URL}"
     - |
-      for file in dist/*; do
+      for file in dist/* dist-desktop/* /tmp/SHA256SUMS; do
+        # dist-desktop/* stays a literal pattern on a tag without the archives.
+        [ -f "$file" ] || continue
         name=$(basename "$file")
         curl --fail --silent --show-error --header "JOB-TOKEN: ${CI_JOB_TOKEN}" --upload-file "$file" "${PACKAGE_URL}/${name}" > /dev/null
         echo "  ${name}"
