@@ -681,3 +681,39 @@ func TestGithubTodosBlockAloneUnderAnEmptyDescription(t *testing.T) {
 		t.Fatalf("no redundant write, got %d patches", patches)
 	}
 }
+
+// The state of the copy is written and read back under PostgreSQL too: the
+// time column is nullable, and a list save leaves the copy's columns alone.
+func TestPostgresTodosMirrorStateRoundTrip(t *testing.T) {
+	fastTodosMirror(t)
+	database := openPostgres(t)
+	proj, err := database.CreateProject(models.CreateProjectRequest{Name: "Platform", Slug: "platform", IssueTracker: "jira", JiraProject: "PE"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fake := newMarkedTracker()
+	database.TrackerRegistry().Register("jira", fake)
+	list := todosOf("a")
+	if _, err := database.SaveMacroMeta(proj.ID, "PE-12", nil, nil, nil, &list); err != nil {
+		t.Fatal(err)
+	}
+	macro, err := database.GetMacro(proj.ID, "PE-12")
+	if err != nil || macro.TodosMirror == nil || macro.TodosMirror.UpToDate || macro.TodosMirror.WrittenAt != nil {
+		t.Fatalf("a list never copied is waiting: %+v %v", macro, err)
+	}
+	if _, err := database.PushMacroTodosMirror(as("ada"), proj.ID, "PE-12", false); err != nil {
+		t.Fatal(err)
+	}
+	list = append(list, models.MacroTodo{Text: "b"})
+	if _, err := database.SaveMacroMeta(proj.ID, "PE-12", nil, nil, nil, &list); err != nil {
+		t.Fatal(err)
+	}
+	state, err := database.readTodosMirrorState(proj.ID, "PE-12")
+	if err != nil || state.ref != "c-1" || state.hash == "" || state.at == nil {
+		t.Fatalf("a list save must keep the copy's state: %+v %v", state, err)
+	}
+	macro, _ = database.GetMacro(proj.ID, "PE-12")
+	if macro.TodosMirror.UpToDate || macro.TodosMirror.WrittenAt == nil {
+		t.Fatalf("a changed list is no longer up to date: %+v", macro.TodosMirror)
+	}
+}
