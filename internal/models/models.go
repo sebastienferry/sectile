@@ -326,6 +326,10 @@ type MacroMeta struct {
 	// copy stands (#663). It is computed when a macro is returned to a client,
 	// never stored as such.
 	TodosMirror *MacroTodosMirror `json:"todosMirror,omitempty"`
+	// FramingMirror is where the framing is copied on the tracker and how that
+	// copy stands (#636). Same shape as TodosMirror; its kind is never
+	// MacroTodosMirrorGithubDescription.
+	FramingMirror *MacroTodosMirror `json:"framingMirror,omitempty"`
 }
 
 // Kinds of tracker copy of a macro's todos (#663). The empty kind is a macro

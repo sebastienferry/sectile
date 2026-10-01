@@ -183,8 +183,9 @@ type DB struct {
 	// macroStoryLocks holds one *sync.Mutex per project and macro, so the
 	// story creations of one macro never overlap on this server (#634).
 	macroStoryLocks sync.Map
-	// todosMirrorTimers holds one *todosMirrorTimer per project and macro: the
-	// tracker copy of its todos waiting for the saves to settle (#663).
+	// todosMirrorTimers holds one *todosMirrorTimer per project, macro and
+	// copied part: the tracker copy of its todos (#663) or of its framing
+	// (#636) waiting for the saves to settle.
 	todosMirrorTimers sync.Map
 }
 

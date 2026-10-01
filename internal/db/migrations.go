@@ -620,6 +620,20 @@ var migrations = []migration{
 			"ALTER TABLE macros ADD COLUMN todos_mirror_at TIMESTAMP NULL;",
 		},
 	},
+	{
+		// Where the framing of a Jira epic is copied, and how that copy stands
+		// (#636): the same columns as the todos copy of migration 43, for the
+		// second comment Sectile owns on the epic.
+		version: 44,
+		name:    "macros.framing_mirror",
+		statements: []string{
+			"ALTER TABLE macros ADD COLUMN framing_mirror_ref TEXT NOT NULL DEFAULT '';",
+			"ALTER TABLE macros ADD COLUMN framing_mirror_hash TEXT NOT NULL DEFAULT '';",
+			"ALTER TABLE macros ADD COLUMN framing_mirror_error TEXT NOT NULL DEFAULT '';",
+			"ALTER TABLE macros ADD COLUMN framing_mirror_credential TEXT NOT NULL DEFAULT '';",
+			"ALTER TABLE macros ADD COLUMN framing_mirror_at TIMESTAMP NULL;",
+		},
+	},
 }
 
 // migrateSchema brings the database to the schema this binary expects, and is

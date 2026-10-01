@@ -50,6 +50,9 @@ const (
 	// TrackerOpEpicTodos copies the todos of one macro on its tracker: a
 	// comment on a Jira epic, a block of a GitHub milestone description (#663).
 	TrackerOpEpicTodos TrackerOpKind = "epic_todos"
+	// TrackerOpEpicFraming copies the framing of one Jira epic on the comment
+	// Sectile owns for it (#636).
+	TrackerOpEpicFraming TrackerOpKind = "epic_framing"
 	// TrackerOpTransition moves a work item to a status named as the tracker
 	// spells it, which is what dropping a card in a board column does.
 	TrackerOpTransition TrackerOpKind = "transition"
@@ -90,7 +93,7 @@ type TrackerOp struct {
 	// Readiness is the level of an epic_readiness, "idea", "shaping" or
 	// "ready", "" to clear.
 	Readiness string
-	// Force makes an epic_todos write even when the body is the one last
+	// Force makes an epic_todos or epic_framing write even when the body is the one last
 	// written, which is what republishing asks for: the copy may have been
 	// edited by hand since.
 	Force bool
@@ -271,6 +274,10 @@ func buildTrackerOpJob(op TrackerOp) (*models.TaskActivity, SkillJob, error) {
 		action = fmt.Sprintf("Todos de %s ➔ tracker", op.EpicKey)
 		summary = fmt.Sprintf("Recopie des todos de %s en file d'attente", op.EpicKey)
 		steps = append(steps, fmt.Sprintf("Cible : %s", op.EpicKey))
+	case TrackerOpEpicFraming:
+		action = fmt.Sprintf("Cadrage de %s ➔ tracker", op.EpicKey)
+		summary = fmt.Sprintf("Recopie du cadrage de %s en file d'attente", op.EpicKey)
+		steps = append(steps, fmt.Sprintf("Cible : %s", op.EpicKey))
 	case TrackerOpTransition:
 		action = fmt.Sprintf("Transition de %s ➔ %s", op.TaskKey, op.TargetStatus)
 		summary = fmt.Sprintf("Transition de %s vers « %s » en file d'attente", op.TaskKey, op.TargetStatus)
@@ -406,6 +413,8 @@ func (d *DB) processTrackerOpJob(ctx context.Context, job SkillJob) {
 		output, err = d.runEpicAxisOp(ctx, op, &steps, d.PushMacroReadinessLabel, op.Readiness)
 	case TrackerOpEpicTodos:
 		output, err = d.runEpicTodosOp(ctx, op, &steps)
+	case TrackerOpEpicFraming:
+		output, err = d.runEpicFramingOp(ctx, op, &steps)
 	case TrackerOpTransition:
 		output, err = d.runTransitionOp(ctx, op, &steps)
 	case TrackerOpStage:
@@ -934,6 +943,15 @@ func (d *DB) runEpicHorizonOp(ctx context.Context, op TrackerOp, steps *[]string
 
 func (d *DB) runEpicTodosOp(ctx context.Context, op TrackerOp, steps *[]string) (string, error) {
 	note, err := d.PushMacroTodosMirror(ctx, op.ProjectID, op.EpicKey, op.Force)
+	if err != nil {
+		return "", err
+	}
+	*steps = append(*steps, "✅ "+note)
+	return note, nil
+}
+
+func (d *DB) runEpicFramingOp(ctx context.Context, op TrackerOp, steps *[]string) (string, error) {
+	note, err := d.PushMacroFramingMirror(ctx, op.ProjectID, op.EpicKey, op.Force)
 	if err != nil {
 		return "", err
 	}

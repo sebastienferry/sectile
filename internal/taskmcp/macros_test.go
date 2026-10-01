@@ -49,6 +49,19 @@ func TestGetMacroAnswersTheOrderedTodosAndTheirCopy(t *testing.T) {
 	}
 }
 
+func TestGetMacroAnswersTheFramingCopy(t *testing.T) {
+	database := macroDatabase(t)
+	out, err := call(t, database, "get_macro", map[string]any{"projectId": "default", "macroKey": "M-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	macro, _ := out["macro"].(map[string]any)
+	mirror, _ := macro["framingMirror"].(map[string]any)
+	if mirror == nil || mirror["kind"] != "" || !strings.Contains(mirror["reason"].(string), "local") {
+		t.Fatalf("a local board's framing stays in Sectile, with its reason: %+v", macro["framingMirror"])
+	}
+}
+
 func TestUpdateMacroTodosSavesTheFullList(t *testing.T) {
 	database := macroDatabase(t)
 	out, err := call(t, database, "update_macro_todos", map[string]any{"projectId": "default", "macroKey": "M-1", "todos": []any{

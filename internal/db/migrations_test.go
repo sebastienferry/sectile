@@ -83,6 +83,11 @@ func dropCredentialAccountColumn(d *DB) {
 	_, _ = d.conn.Exec("ALTER TABLE macros DROP COLUMN todos_mirror_error")
 	_, _ = d.conn.Exec("ALTER TABLE macros DROP COLUMN todos_mirror_credential")
 	_, _ = d.conn.Exec("ALTER TABLE macros DROP COLUMN todos_mirror_at")
+	_, _ = d.conn.Exec("ALTER TABLE macros DROP COLUMN framing_mirror_ref")
+	_, _ = d.conn.Exec("ALTER TABLE macros DROP COLUMN framing_mirror_hash")
+	_, _ = d.conn.Exec("ALTER TABLE macros DROP COLUMN framing_mirror_error")
+	_, _ = d.conn.Exec("ALTER TABLE macros DROP COLUMN framing_mirror_credential")
+	_, _ = d.conn.Exec("ALTER TABLE macros DROP COLUMN framing_mirror_at")
 	_, _ = d.conn.Exec("ALTER TABLE projects ADD COLUMN mono_repo INTEGER NOT NULL DEFAULT 1")
 	_, _ = d.conn.Exec("ALTER TABLE user_tracker_credentials DROP COLUMN account")
 	_, _ = d.conn.Exec("ALTER TABLE projects DROP COLUMN spec_artifacts")
@@ -471,6 +476,11 @@ func TestMigrationThirtyOneRemovesTheRepositoryLayout(t *testing.T) {
 		"ALTER TABLE macros DROP COLUMN todos_mirror_error",
 		"ALTER TABLE macros DROP COLUMN todos_mirror_credential",
 		"ALTER TABLE macros DROP COLUMN todos_mirror_at",
+		"ALTER TABLE macros DROP COLUMN framing_mirror_ref",
+		"ALTER TABLE macros DROP COLUMN framing_mirror_hash",
+		"ALTER TABLE macros DROP COLUMN framing_mirror_error",
+		"ALTER TABLE macros DROP COLUMN framing_mirror_credential",
+		"ALTER TABLE macros DROP COLUMN framing_mirror_at",
 		"DELETE FROM schema_migrations WHERE version >= 31",
 	} {
 		if _, err := d.conn.Exec(stmt); err != nil {
