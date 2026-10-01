@@ -69,8 +69,12 @@ export const JiraOAuthAppPanel: React.FC = () => {
     }, labels.saveFailed)
   }
 
-  const canSave = clientId.trim() !== '' && redirectUrl.trim() !== '' && (clientSecret.trim() !== '' || Boolean(state?.secretSet && state.source === 'database'))
-  const tone = state?.source === 'database' ? 'text-emerald-400' : state?.source === 'environment' ? 'text-cyan-400' : 'text-amber-400'
+  // Only a readable secret saved on this page can be kept by leaving the field
+  // empty: one from the environment is not copied into the database.
+  const keepsSecret = Boolean(state?.secretSet && state.source === 'database' && !state.unreadable)
+  const canSave = clientId.trim() !== '' && redirectUrl.trim() !== '' && (clientSecret.trim() !== '' || keepsSecret)
+  const incomplete = state?.source === 'environment' && !state.configured
+  const tone = incomplete ? 'text-amber-400' : state?.source === 'database' ? 'text-emerald-400' : state?.source === 'environment' ? 'text-cyan-400' : 'text-amber-400'
 
   return (
     <section
@@ -82,7 +86,7 @@ export const JiraOAuthAppPanel: React.FC = () => {
         <h3 id="admin-jira-oauth-title" className="flex items-center gap-2 font-bold text-[var(--text-primary)]">
           <Link2 size={14} /> {labels.title}
         </h3>
-        {state && <span className={`text-[11px] ${tone}`}>{jiraOAuthAppSourceLabel(state.source, labels)}</span>}
+        {state && <span className={`text-[11px] ${tone}`}>{incomplete ? labels.sourceEnvironmentIncomplete : jiraOAuthAppSourceLabel(state.source, labels)}</span>}
       </div>
       <p className="text-[11px] text-[var(--text-muted)] leading-relaxed">{labels.intro}</p>
       {error && <p className="text-[11px] text-amber-400">{labels.loadFailed} ({error})</p>}
@@ -104,7 +108,7 @@ export const JiraOAuthAppPanel: React.FC = () => {
               autoComplete="new-password"
               value={clientSecret}
               onChange={e => setClientSecret(e.target.value)}
-              placeholder={state?.secretSet ? labels.secretSet : labels.secretPlaceholder}
+              placeholder={keepsSecret ? labels.secretSet : labels.secretPlaceholder}
               className={fieldClass}
             />
             <Key size={13} className="absolute left-2.5 top-2.5 text-[var(--accent-color)]" />

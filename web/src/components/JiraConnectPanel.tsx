@@ -14,7 +14,7 @@ export const JiraConnectPanel: React.FC<{
   credential?: StoredUserCredential
   onUseToken: () => void
 }> = ({ state, credential, onUseToken }) => {
-  const { connectJira, clearUserCredential, jiraOAuth, t } = useApp()
+  const { connectJira, clearUserCredential, jiraOAuth, addToast, t } = useApp()
   const strings = t.trackerCredentials.oauth
   const [isConnecting, setIsConnecting] = useState(false)
 
@@ -26,7 +26,9 @@ export const JiraConnectPanel: React.FC<{
 
   const disconnect = async () => {
     if (!confirm(strings.disconnectConfirm)) return
-    await clearUserCredential('jira')
+    // Atlassian has no revocation endpoint: the note outlives the panel that
+    // showed it, so the person still reads it once the grant is forgotten.
+    if (await clearUserCredential('jira')) addToast({ type: 'info', title: strings.disconnect, description: strings.atlassianNote })
   }
 
   const connectButton = (label: string) => (
@@ -113,7 +115,7 @@ export const JiraConnectPanel: React.FC<{
 
 /** The *Connect Jira* offer shown above the token form while an API token is stored. */
 export const JiraConnectOffer: React.FC<{ hint: string; onBack?: () => void }> = ({ hint, onBack }) => {
-  const { connectJira, t } = useApp()
+  const { connectJira, jiraOAuth, t } = useApp()
   const [isConnecting, setIsConnecting] = useState(false)
   return (
     <div className="p-2.5 rounded-xl border border-[var(--border-color)] bg-[var(--bg-secondary)] flex items-center justify-between gap-3">
@@ -130,7 +132,7 @@ export const JiraConnectOffer: React.FC<{ hint: string; onBack?: () => void }> =
             setIsConnecting(true)
             if (!(await connectJira())) setIsConnecting(false)
           }}
-          disabled={isConnecting}
+          disabled={isConnecting || !jiraOAuth.configured}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-white accent-bg shadow-xs hover:opacity-90 disabled:opacity-40 cursor-pointer"
         >
           {isConnecting ? <Loader2 size={13} className="animate-spin" /> : <Link2 size={13} />}

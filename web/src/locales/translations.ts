@@ -799,6 +799,7 @@ export interface TranslationSchema {
       scopes: string
       sourceStored: string
       sourceEnvironment: string
+      sourceEnvironmentIncomplete: string
       sourceNone: string
       unreadable: string
       save: string
@@ -1677,6 +1678,7 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
         scopes: 'Portées à déclarer sur l\'application',
         sourceStored: 'Enregistrée sur cette page',
         sourceEnvironment: 'Lue dans l\'environnement du serveur',
+        sourceEnvironmentIncomplete: 'Environnement du serveur incomplet : l\'identifiant, le secret et l\'URL de retour sont requis',
         sourceNone: 'Non configurée : les profils proposent le jeton d\'API',
         unreadable: 'Le secret enregistré ne s\'ouvre plus avec la clé du serveur : saisissez-le à nouveau.',
         save: 'Enregistrer',
@@ -2553,6 +2555,7 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
         scopes: 'Scopes to declare on the app',
         sourceStored: 'Saved on this page',
         sourceEnvironment: 'Read from the server environment',
+        sourceEnvironmentIncomplete: 'Server environment incomplete: the client id, secret and callback URL are all required',
         sourceNone: 'Not configured: profiles offer the API token',
         unreadable: 'The saved secret no longer opens with the server key: enter it again.',
         save: 'Save',
