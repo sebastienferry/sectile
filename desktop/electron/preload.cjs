@@ -31,6 +31,7 @@ contextBridge.exposeInMainWorld('localAgent',{
  openBoard:()=>ipcRenderer.invoke('open-board'),
  openTask:id=>ipcRenderer.invoke('open-task',id),
  openPR:url=>ipcRenderer.invoke('open-pr',url),
+ openLink:url=>ipcRenderer.invoke('open-link',url),
  createTask:input=>ipcRenderer.invoke('create-task',input),
  transitionStage:(projectId,taskId,stage,note)=>ipcRenderer.invoke('transition-stage',{projectId,taskId,stage,note}),
  project:id=>ipcRenderer.invoke('project',id),
