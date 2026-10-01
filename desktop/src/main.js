@@ -369,7 +369,7 @@ async function refreshSkillResult(id=selected){
   // run; a run the latest poll still lists as live is the anomaly worth noting.
   if(result===null&&runs.includes(run)&&!['completed','failed','canceled'].includes(run.status))console.warn('The local agent reports no run '+run.id+' while the desktop still lists it as '+run.status)
   skillResults.set(run.id,result)
-  skillResultReads.set(run.id,skillResultStamp(run,Date.now()))
+  skillResultReads.set(run.id,skillResultStamp(run,Date.now(),skillResultReads.get(run.id)))
  }catch{skillResults.delete(run.id)}
  finally{loadingSkillResults.delete(run.id);renderHeader();renderTaskSkillStatuses()}
 }
