@@ -71,3 +71,23 @@ test('fallbacks, equivalent instants and identity ties ignore response order',as
  ]).map(group=>group.run.id),['partial-b','plain'])
  assert.deepEqual(orderedTaskGroups([]),[])
 })
+
+test('a project grouped by stage lists its tasks in workflow order',async()=>{
+ const {orderedTaskGroups}=await import('../src/task-order.mjs')
+ const stages={reviewed:'reviewed',fresh:'new',spec:'specified',active:'specified',console:undefined,odd:'Unknown'}
+ const stageOf=run=>stages[run.id]
+ const groups=[
+  [run('console','running',time('09'))],
+  [run('reviewed','completed',time('08'))],
+  [run('spec','completed',time('07'))],
+  [run('odd','completed',time('06'))],
+  [run('fresh','completed',time('05'))],
+  [run('active','running',time('01'))]
+ ]
+ const snapshot=structuredClone(groups)
+ // Within a stage the usual order holds: the running task leads its stage.
+ assert.deepEqual(orderedTaskGroups(groups,{stageOf}).map(group=>group.run.id),['fresh','active','spec','reviewed','console','odd'])
+ assert.deepEqual(groups,snapshot)
+ // Without stageOf the order is the usual one, stage ignored.
+ assert.deepEqual(orderedTaskGroups(groups).map(group=>group.run.id),['console','active','reviewed','spec','odd','fresh'])
+})

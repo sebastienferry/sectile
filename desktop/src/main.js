@@ -16,7 +16,7 @@ import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
 import './style.css'
-import { taskStage, nextTaskStep, skillLabel } from './workflow.mjs'
+import { STAGES, taskStage, nextTaskStep, skillLabel } from './workflow.mjs'
 import { launchModeOverride, modeSelect } from './skill-mode.mjs'
 import { orderedTasks, nextSort, DEFAULT_SORT, SORTABLE_FIELDS } from './task-list-order.mjs'
 import { consoleNotice, needsConsoleNotice, readOnlyConsole } from './run-console.mjs'
@@ -82,6 +82,8 @@ function refusedActiveRun(message){
  }catch{return null}
 }
 const taskTitles=new Map()
+// The workflow stage of each listed task, read with its title; absent when unknown.
+const taskStages=new Map()
 const skillResults=new Map(),loadingSkillResults=new Set()
 const pullRequests=new Map()
 let localTasks={}
@@ -127,6 +129,10 @@ let renaming=null
 // blur, which must not be taken for the user leaving the field.
 let rebuildingSidebar=false
 const collapsedProjects=new Set(JSON.parse(localStorage.getItem('collapsedProjects')||'[]'))
+// Projects whose tasks are listed by workflow stage, chosen from their menu.
+const stageGroupedProjects=new Set()
+try{for(const id of JSON.parse(localStorage.getItem('stageGroupedProjects')||'[]'))stageGroupedProjects.add(id)}catch{}
+function saveStageGrouping(){localStorage.setItem('stageGroupedProjects',JSON.stringify([...stageGroupedProjects]))}
 
 const queueProjects=new Set()
 
@@ -470,6 +476,11 @@ function renderHeaderState(run){
  if(text.textContent!==label)text.textContent=label
  element.title='Process: '+label
 }
+function toggleStageGrouping(projectID){
+ selectedProject=projectID
+ if(stageGroupedProjects.has(projectID))stageGroupedProjects.delete(projectID);else stageGroupedProjects.add(projectID)
+ saveStageGrouping();render()
+}
 function toggleQueue(projectID){
  selectedProject=projectID
  if(queueProjects.has(projectID))queueProjects.delete(projectID);else queueProjects.add(projectID)
@@ -506,7 +517,7 @@ function projectMenu(project,waitingCount=0){
   dismiss=event=>{if(event.type==='blur'||!menu.contains(event.target)&&event.target!==more)close()}
   document.addEventListener('pointerdown',dismiss,true);window.addEventListener('blur',dismiss)
   closeProjectMenu=close
-  menu.querySelector('[role=menuitem]:not(:disabled)')?.focus()
+  menu.querySelector('[role^=menuitem]:not(:disabled)')?.focus()
  }
  // Measured once shown: a hidden menu has no width to align on.
  const open=()=>{const box=more.getBoundingClientRect();menu.hidden=false;openAt(box.right-menu.offsetWidth,box.bottom+2)}
@@ -514,6 +525,7 @@ function projectMenu(project,waitingCount=0){
  const items=[
   {label:'Open tasks',run:()=>openTickets(project.id)},
   {label:(queued?'Show tasks':'Show execution queue')+(waitingCount?' · '+waitingCount+' waiting':''),run:()=>toggleQueue(project.id)},
+  {label:'Group by stage',checked:stageGroupedProjects.has(project.id),run:()=>toggleStageGrouping(project.id)},
   {label:'New task…',run:()=>newProjectTask(project.id)},
   {label:'Project prompt',disabled:!project.path,run:()=>openAgentConsole(project.id)},
   null,
@@ -522,7 +534,8 @@ function projectMenu(project,waitingCount=0){
  ]
  for(const item of items){
   if(!item){const line=document.createElement('div');line.setAttribute('role','separator');menu.append(line);continue}
-  const button=document.createElement('button');button.type='button';button.setAttribute('role','menuitem')
+  const button=document.createElement('button');button.type='button';button.setAttribute('role',item.checked===undefined?'menuitem':'menuitemcheckbox')
+  if(item.checked!==undefined)button.setAttribute('aria-checked',String(item.checked))
   button.textContent=item.label;button.disabled=!!item.disabled;if(item.danger)button.className='danger'
   button.onclick=()=>{close();item.run()}
   menu.append(button)
@@ -532,7 +545,7 @@ function projectMenu(project,waitingCount=0){
   if(event.key==='Escape'&&!menu.hidden){event.preventDefault();event.stopPropagation();close(true);return}
   if(event.target===more&&event.key==='ArrowDown'&&menu.hidden){event.preventDefault();open();return}
   if(menu.hidden||!['ArrowDown','ArrowUp'].includes(event.key))return
-  const enabled=[...menu.querySelectorAll('[role=menuitem]:not(:disabled)')]
+  const enabled=[...menu.querySelectorAll('[role^=menuitem]:not(:disabled)')]
   const at=enabled.indexOf(document.activeElement)
   event.preventDefault()
   enabled[(at+(event.key==='ArrowDown'?1:-1)+enabled.length)%enabled.length]?.focus()
@@ -594,12 +607,15 @@ function render(options){
    renderQueue(project,group)
   }else if(!collapsedProjects.has(project.id)){
    if(!children.length){const empty=document.createElement('p');empty.className='hint';empty.textContent='No local tasks';group.append(empty)}
-   for(const {executions,run} of orderedTaskGroups(taskGroups.values())){
+   const stageOf=stageGroupedProjects.has(project.id)?run=>taskStages.get(run.taskId):undefined
+   for(const {executions,run} of orderedTaskGroups(taskGroups.values(),{stageOf})){
     const isSelected=executions.some(item=>item.id===selected)
     const row=document.createElement('div');row.className='local-task '+(isSelected?'selected':'')
     const button=document.createElement('button');button.className='run '+(isSelected?'selected':'')
     const key=taskKey(run),title=document.createElement('strong')
     const context=document.createElement('button');context.textContent=run.taskKey||run.taskId;context.className='task-number';context.title='Open task in Sectile';context.setAttribute('aria-label','Open '+(run.taskKey||run.taskId)+' in Sectile');context.disabled=macroRun(run);context.onclick=()=>api.openTask(run.taskId).catch(error)
+    const stage=taskStages.get(run.taskId)
+    if(stage){context.dataset.stage=stage;context.title+=' · Stage: '+stage}
     const status=document.createElement('span');status.className='status task-skill-status';status.dataset.runId=run.id
     const state=document.createElement('span');state.className='run-state';state.dataset.runId=run.id
     const stateLabel=renderRunState(state,run)
@@ -2020,6 +2036,7 @@ function requestRemoveProject(id,name){
   try{await api.removeProject(id)}
   catch(err){notice.textContent=err.message;confirm.disabled=false;cancel.disabled=false;return}
   projectStateVersion++
+  if(stageGroupedProjects.delete(id))saveStageGrouping()
   await updateDisconnected([...disconnectedProjects,id])
   dialog.close()
   try{await loadProjects()}catch(err){error('Project disconnected, but refreshing projects failed: '+err.message)}
@@ -2872,6 +2889,9 @@ async function refreshPRs(executions){
      const task=tasks.find(task=>task.id===run.taskId)
      if(task?.title?.trim())taskTitles.set(run.taskId,task.title.trim())
      else taskTitles.delete(run.taskId)
+     const stage=task&&taskStage(task)
+     if(STAGES.includes(stage))taskStages.set(run.taskId,stage)
+     else taskStages.delete(run.taskId)
      if(task?.prUrl&&/^https?:\/\//i.test(task.prUrl))pullRequests.set(run.taskId,currentPullRequest(task))
      else pullRequests.delete(run.taskId)
     }

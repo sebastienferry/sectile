@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-const { skillLabel } = await import('../src/workflow.mjs')
+const { STAGES, skillLabel } = await import('../src/workflow.mjs')
 
 test('every workflow skill reads as the workflow names it', () => {
   assert.equal(skillLabel('clarify'), 'Clarify')
@@ -23,4 +23,8 @@ test('a missing skill has no label', () => {
   assert.equal(skillLabel('   '), '')
   assert.equal(skillLabel(undefined), '')
   assert.equal(skillLabel(null), '')
+})
+
+test('the stages are listed in workflow order', () => {
+  assert.deepEqual(STAGES, ['new', 'clarified', 'specified', 'implemented', 'reviewed', 'finished'])
 })

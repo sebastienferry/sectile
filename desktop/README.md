@@ -251,7 +251,7 @@ preparing or running execution with no server verdict yet, and an execution that
 failed or was cancelled without one, show no indicator at all: their state is
 already carried by the run state, and a second glyph restating it in other words
 only looks like a second fact. A free console runs no skill and shows no
-indicator either, except while a requested stop has not taken effect — the one
+indicator either, except while a requested stop has not taken effect: the one
 transient the run state has no word for.
 Task-row icons use the same completion rules as the task status bar, with the
 skill name and result in their tooltip and accessible label. Visible rows refresh
@@ -386,7 +386,10 @@ for the desktop development assets. On Apple Silicon the app is produced at
 
 The optional companion groups local executions under projects in a collapsible
 sidebar. Add projects by discovering the server catalog and mapping a local Git
-directory. Local worktree preferences are stored per project in
+directory. Each task key in the sidebar is tinted after the task's workflow
+stage, named in its tooltip; **Group by stage** in a project's `…` menu lists
+that project's tasks from new to finished, a choice kept per project on this
+workstation. Local worktree preferences are stored per project in
 `~/.config/sectile/settings.json`. The remote URL, the project's repositories,
 SDD selection and skill content remain server-owned and read-only. Explicit deployment buttons install
 the server skills or initialize its SDD framework in the mapped directory.
@@ -566,7 +569,7 @@ use the same side navigation: **User profile**, **Agent connection**, **Executio
 **Changelog**, with **User profile** first. **Agent connection** reports the local
 agent with Start, Stop, and Restart controls, the server link (green when connected, orange otherwise), and the connect form itself: the same form the
 connection screen shows, borrowed while the category is open and returned when
-the panel closes. Pairing is the only credential the desktop asks for — paste a
+the panel closes. Pairing is the only credential the desktop asks for: paste a
 code from **Pair a workstation** in the web interface. There is no API key field;
 the credential a pairing leaves behind is what restarts a stopped agent, with no
 code to type again. A running agent owns the link, so **Connect** stays disabled
@@ -719,8 +722,8 @@ folder and refuses, with its reason, when the folder is gone or no editor is
 set. Without a chosen editor, or with an agent that predates the button, the
 path stands alone.
 
-The controls whose action does not depend on the workflow stage — relaunch, log
-export, the **Console** / **Changes** switch, and the linked pull request — are
+The controls whose action does not depend on the workflow stage (relaunch, log
+export, the **Console** / **Changes** switch, and the linked pull request) are
 icons, with their wording kept as tooltip and accessible name; the pull request
 keeps its number. **Next: <skill>**, **Mark reviewed**, **Retry** and **Launch
 anyway** stay labelled, because their meaning depends on the stage.

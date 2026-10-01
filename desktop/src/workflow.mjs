@@ -1,4 +1,5 @@
-const stages=['new','clarified','specified','implemented','reviewed','finished']
+// The workflow stages in their order, shared by every list that sorts on them.
+export const STAGES=['new','clarified','specified','implemented','reviewed','finished']
 const skills={new:['clarify','Clarify'],clarified:['specify','Specify'],specified:['implement','Implement'],implemented:implementedStep,reviewed:['handoff','Handoff']}
 
 // An implemented task is adjusted once it records a pull request. Without one, the
@@ -23,7 +24,7 @@ export function skillLabel(skillId){
 export function taskStage(task){
  const labels=(task.labels||[]).map(label=>label.trim().replace(/^#+/,'').toLowerCase())
  if(['finished','done'].includes(task.status)||labels.some(label=>['finished','closed','done'].includes(label)))return 'finished'
- for(const stage of [...stages].reverse())if(labels.includes(stage))return stage
+ for(const stage of [...STAGES].reverse())if(labels.includes(stage))return stage
  return ({to_clarify:'new',backlog:'new',untouched:'new',to_specify:'clarified',to_implement:'specified',in_progress:'specified',to_test:'implemented',to_validate:'implemented',to_close:'reviewed'})[task.status]||task.status||'Unknown'
 }
 
