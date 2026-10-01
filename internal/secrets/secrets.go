@@ -156,15 +156,31 @@ func DeriveKey(passphrase string, salt []byte) Key {
 // Server marks the credential Sectile itself uses for a tracker, which belongs
 // to no user. It serialises under a prefix of its own, so a server record never
 // opens as somebody's personal one, nor the other way round.
+//
+// Kind tells a personal record's kinds apart: "" and "api_token" are the API
+// token every record held before kinds existed, and serialise exactly as they
+// did then, so those records keep opening. "oauth" is a grant (ADR 0044),
+// which therefore never opens as a token, nor a token as a grant.
+//
+// OAuthApp marks the client secret of a tracker's OAuth app, which belongs to
+// no user and is no credential: it has a prefix of its own too.
 type Binding struct {
-	UserID  string
-	Tracker string
-	Server  bool
+	UserID   string
+	Tracker  string
+	Server   bool
+	Kind     string
+	OAuthApp bool
 }
 
 // ServerBinding is the binding of the server credential of one tracker.
 func ServerBinding(tracker string) Binding {
 	return Binding{Tracker: tracker, Server: true}
+}
+
+// OAuthAppBinding is the binding of the client secret of one tracker's OAuth
+// app.
+func OAuthAppBinding(tracker string) Binding {
+	return Binding{Tracker: tracker, OAuthApp: true}
 }
 
 // The parts are length-prefixed rather than merely joined: concatenation alone
@@ -175,16 +191,23 @@ func ServerBinding(tracker string) Binding {
 func (b Binding) bytes() []byte {
 	user := strings.TrimSpace(b.UserID)
 	name := strings.ToLower(strings.TrimSpace(b.Tracker))
+	if b.OAuthApp {
+		return fmt.Appendf(nil, "sectile:v1:oauth-app:tracker:%d:%s", len(name), name)
+	}
 	if b.Server {
 		return fmt.Appendf(nil, "sectile:v1:server:tracker:%d:%s", len(name), name)
 	}
-	return fmt.Appendf(nil, "sectile:v1:user:%d:%s:tracker:%d:%s", len(user), user, len(name), name)
+	data := fmt.Appendf(nil, "sectile:v1:user:%d:%s:tracker:%d:%s", len(user), user, len(name), name)
+	if kind := strings.ToLower(strings.TrimSpace(b.Kind)); kind != "" && kind != "api_token" {
+		data = fmt.Appendf(data, ":kind:%d:%s", len(kind), kind)
+	}
+	return data
 }
 
 // Seal encrypts a credential for one owner. The nonce is random and prepended,
 // so two identical tokens never produce the same record.
 func Seal(key Key, binding Binding, plaintext string) ([]byte, error) {
-	if (binding.UserID == "" && !binding.Server) || binding.Tracker == "" {
+	if (binding.UserID == "" && !binding.Server && !binding.OAuthApp) || binding.Tracker == "" {
 		return nil, fmt.Errorf("a credential must name its owner and its tracker")
 	}
 	aead, err := newAEAD(key)

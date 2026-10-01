@@ -768,7 +768,7 @@ func TestTheActingUsersOwnTokenIsWhatReachesJira(t *testing.T) {
 	resetJiraPriorityCache()
 
 	c := &Client{HTTP: server.Client(), JiraURL: server.URL, JiraEmail: "service@example.com", JiraToken: "service-token"}
-	c.ResolveUser = func(userID, tracker string) (string, string, string, error) {
+	c.ResolveUser = legacyResolver(func(userID, tracker string) (string, string, string, error) {
 		switch {
 		case tracker != "jira":
 			return "", "", "", nil
@@ -779,7 +779,7 @@ func TestTheActingUsersOwnTokenIsWhatReachesJira(t *testing.T) {
 			return "", "", "", fmt.Errorf("credential is sealed: its owner must unlock it")
 		}
 		return "", "", "", nil
-	}
+	})
 	adapter := NewJiraAdapter(c)
 	project := jiraProject()
 

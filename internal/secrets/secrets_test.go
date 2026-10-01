@@ -242,6 +242,58 @@ func TestThePersonalBindingSerialisationIsUnchanged(t *testing.T) {
 	}
 }
 
+// An API token stored before kinds existed keeps opening once its row says
+// "api_token"; a grant opens as nothing else (ADR 0044).
+func TestAKindKeepsTokensAndGrantsApart(t *testing.T) {
+	key := testKey(t)
+	legacy, err := Seal(key, Binding{UserID: "u1", Tracker: "jira"}, "ATATT")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if token, err := Open(key, Binding{UserID: "u1", Tracker: "jira", Kind: "api_token"}, legacy); err != nil || token != "ATATT" {
+		t.Fatalf("an existing record must open as an api_token: %q %v", token, err)
+	}
+	if got, want := string(Binding{UserID: "u1", Tracker: "jira", Kind: "oauth"}.bytes()), "sectile:v1:user:2:u1:tracker:4:jira:kind:5:oauth"; got != want {
+		t.Fatalf("oauth binding = %q, want %q", got, want)
+	}
+
+	grant, err := Seal(key, Binding{UserID: "u1", Tracker: "jira", Kind: "oauth"}, `{"refreshToken":"r"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, theft := range []Binding{
+		{UserID: "u1", Tracker: "jira"},
+		{UserID: "u1", Tracker: "jira", Kind: "api_token"},
+		{UserID: "u2", Tracker: "jira", Kind: "oauth"},
+		ServerBinding("jira"),
+		OAuthAppBinding("jira"),
+	} {
+		if _, err := Open(key, theft, grant); !errors.Is(err, ErrWrongKey) {
+			t.Errorf("%+v opened the grant: %v", theft, err)
+		}
+	}
+	if _, err := Open(key, Binding{UserID: "u1", Tracker: "jira", Kind: "oauth"}, legacy); !errors.Is(err, ErrWrongKey) {
+		t.Errorf("an API token opened as a grant: %v", err)
+	}
+}
+
+// The client secret of an OAuth app opens as nothing but itself.
+func TestAnOAuthAppSecretOpensOnlyAsItself(t *testing.T) {
+	key := testKey(t)
+	record, err := Seal(key, OAuthAppBinding("jira"), "client-secret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if secret, err := Open(key, OAuthAppBinding("Jira"), record); err != nil || secret != "client-secret" {
+		t.Fatalf("round trip: %q %v", secret, err)
+	}
+	for _, theft := range []Binding{ServerBinding("jira"), OAuthAppBinding("github"), {UserID: "u1", Tracker: "jira"}, {UserID: "u1", Tracker: "jira", Kind: "oauth"}} {
+		if _, err := Open(key, theft, record); !errors.Is(err, ErrWrongKey) {
+			t.Errorf("%+v opened the app secret: %v", theft, err)
+		}
+	}
+}
+
 // A derived key crosses the network between server instances wrapped under the
 // server key (#409): it comes back whole for its owner, and for nobody else.
 func TestAWrappedKeyComesBackOnlyForItsOwner(t *testing.T) {
