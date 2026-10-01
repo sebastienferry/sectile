@@ -1,22 +1,21 @@
 # GitLab CI for the GitLab mirror of github.com/sebastienferry/sectile.
 #
 # The repository is developed on GitHub and pull-mirrored into GitLab, so the
-# pipeline knows nothing of pull requests: every mirrored branch and tag gets a
-# pipeline of its own (see `workflow` below), and what it produces is named
-# after the pipeline and the ref. The GitLab merge requests that do exist on the
-# mirror only spawn test environments (see the preview tag below).
+# pipeline knows nothing of pull requests: the default branch and every tag get
+# a pipeline of their own, other branches none (see `workflow` below), and what
+# it produces is named after the pipeline and the ref.
 #
 # What a green pipeline produces depends on what it was run for:
 #   - the server image, on every ref. Built by kaniko from ./Dockerfile and
 #     pushed to this project's container registry as
 #     <registry>/server:<iid>-<ref-slug> (plus <tag> on a tag and `latest` on
-#     the default branch). argocd-sp deploys it (apps/sectile). A branch other
-#     than the default one also gets server:preview-<commit sha>: argocd-sp's
-#     testenv feature deploys that tag for every merge request labelled
-#     `testenv` on the mirror, one ephemeral board per merge request, at the
-#     head commit of its source branch. The image carries the interface, so
-#     the web UX is built on a merge into main and on every tag, which is what
-#     keeps dev and the testenvs current.
+#     the default branch). argocd-sp deploys it (apps/sectile). While branch
+#     pipelines ran, a branch other than the default one also got
+#     server:preview-<commit sha>, which argocd-sp's testenv feature deploys
+#     for every merge request labelled `testenv` on the mirror; with branch
+#     pipelines disabled, no new preview image is built. The image carries the
+#     interface, so the web UX is built on a merge into main and on every tag,
+#     which is what keeps dev current.
 #   - the workstation binaries, on a tag and on a merge into the default
 #     branch. Cross-compiled for every supported OS/arch and uploaded to this
 #     project's Generic Package Registry under the package `sectile`.
@@ -66,10 +65,16 @@ include:
     ref: 6.0.1
     file: '/automerge.yml'
 
+# Only the default branch (a direct commit or a merge into it) and tags run a
+# pipeline. Other branches are tested on GitHub before they merge, so building
+# them again on the mirror only spent runner time. Restoring the commented rule
+# brings branch pipelines back, and with them the preview image the argocd-sp
+# test environments deploy (see publish:image).
 workflow:
   rules:
     - if: $CI_COMMIT_TAG
-    - if: $CI_COMMIT_BRANCH
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    # - if: $CI_COMMIT_BRANCH
 
 stages:
   - test
@@ -245,9 +250,9 @@ build:web:
   extends: .web-cache
   needs: []
   # Only the cross-compiled binaries consume this artifact, and those are cut
-  # from tags and from the default branch. The image builds the interface
-  # inside kaniko from the same sources, so any other branch still proves the
-  # UX compiles.
+  # from tags and from the default branch, the only refs that run a pipeline
+  # (see `workflow`). The image builds the interface inside kaniko from the
+  # same sources.
   rules:
     - if: $CI_COMMIT_TAG
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
@@ -381,10 +386,12 @@ publish:image:
       variables:
         DOCKER_IMAGE_EXTRA_NAMES: "${SERVER_IMAGE}:latest"
     # The tag the argocd-sp test environments pull: the pullRequest generator
-    # knows the merge request's head sha, not the pipeline iid.
-    - if: $CI_COMMIT_BRANCH
-      variables:
-        DOCKER_IMAGE_EXTRA_NAMES: "${SERVER_IMAGE}:preview-${CI_COMMIT_SHA}"
+    # knows the merge request's head sha, not the pipeline iid. Disabled with
+    # branch pipelines (see `workflow`): no branch other than the default one
+    # runs a pipeline, so no preview image is built.
+    # - if: $CI_COMMIT_BRANCH
+    #   variables:
+    #     DOCKER_IMAGE_EXTRA_NAMES: "${SERVER_IMAGE}:preview-${CI_COMMIT_SHA}"
 
 publish:binaries:
   stage: publish
