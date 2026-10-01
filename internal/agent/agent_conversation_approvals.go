@@ -144,6 +144,7 @@ func decideApprovalLocked(run *controlledRun, id, decision string, answers map[s
 			return err
 		}
 		c.approvals = append(c.approvals[:i:i], c.approvals[i+1:]...)
+		markApprovalWaitLocked(run)
 		event := conversationEvent{Kind: "approval", Text: decision, Tool: approval.Tool, ToolID: approval.ToolUseID}
 		if decision == "answer" {
 			event.Detail = answersDetail(answers)

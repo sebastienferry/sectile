@@ -42,7 +42,11 @@ Edits and Sectile's own tools are accepted; a tool call your Claude Code rules
 do not allow waits in its card for **Allow**, **Always allow** (when Claude
 proposes a rule) or **Deny**, and the decision stays on the card. A question
 Claude asks shows its options, one choice or several as the question allows,
-with an answer of your own beside them; **Answer** sends it, **Skip** declines. **Stop**
+with an answer of your own beside them; **Answer** sends it, **Skip** declines.
+While a tool call or a question waits, or a skill has asked you something in
+the conversation, the conversation is marked waiting in the sidebar and Desktop
+notifies you, as it does for a terminal; your answer, or your next message,
+ends the wait. **Stop**
 closes the conversation. Stored history is read-only after an agent restart.
 See [prototype notes](../docs/experiments/desktop-conversation.md).
 

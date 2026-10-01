@@ -57,7 +57,12 @@ Waiting for your approval. The decision stays on the card. A question Claude
 asks through `AskUserQuestion` shows in its card with its options, radio
 buttons or checkboxes as the question allows, and a field for an answer of
 one's own; **Answer** sends the answers, keyed by question text in the call's
-input as Claude reads them, and **Skip** denies the call.
+input as Claude reads them, and **Skip** denies the call. While any of them
+waits, the agent sets the run's `waitingSince`, so the sidebar marks the
+conversation waiting and Desktop notifies, as for a terminal; the mark goes
+with the last answer. A skill that declares a wait through `report_waiting`
+marks the conversation the same way, and the owner's next message answers it
+and tells the server, as Enter does in a terminal.
 
 While Claude answers, a message sent joins the answer in progress, written on
 the turn's stdin, and Claude reads it at its next request, as in Claude Code; a
@@ -98,7 +103,6 @@ Stop idle conversations before restarting the agent.
 
 ## Remaining work
 
-- Tell an owner who looked away that a tool call waits for them.
 - Restore a live conversation after an agent restart.
 - Support providers other than Claude through a shared event contract.
 

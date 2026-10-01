@@ -70,7 +70,9 @@ user's settings ignored so that the request fires.
   a restart policy for a change of effort or folders and crash recovery, which
   this decision avoids.
 - A request whose answer never comes holds the turn: Stop answer or Stop end
-  it. No notification tells an owner who looked away that a tool call waits.
+  it. While one waits, the agent sets the run's `waitingSince` itself, which
+  Desktop already notifies and marks; a wait the session declares over MCP
+  marks a conversation too, and the owner's next message answers it.
 - `AskUserQuestion` arrives as an approval too. It is answered with the
   decision `answer`: the call is allowed with its input plus `answers`, keyed
   by question text, which is what Claude reads (checked against the CLI). The

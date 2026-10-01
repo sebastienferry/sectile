@@ -56,6 +56,23 @@ type claudeConversation struct {
 	// next holds messages that arrived after the turn's stdin closed; they
 	// start the next turn as soon as this one ends.
 	next []string
+	// waitingForApproval says the run's WaitingSince mark is the agent's own,
+	// raised while a tool call or a question waits for the owner, rather than
+	// one the session declared.
+	waitingForApproval bool
+}
+
+// markApprovalWaitLocked raises the run's wait while a tool call or question
+// waits for the owner, and lowers it once none does, so Desktop notifies and
+// marks the run as it does for a session waiting in a terminal. A wait the
+// session declared is left alone. The queue lock is held.
+func markApprovalWaitLocked(run *controlledRun) {
+	c := run.conversation
+	if len(c.approvals) > 0 && run.desktop.WaitingSince.IsZero() {
+		run.desktop.WaitingSince, c.waitingForApproval = time.Now().UTC(), true
+	} else if len(c.approvals) == 0 && c.waitingForApproval {
+		run.desktop.WaitingSince, c.waitingForApproval = time.Time{}, false
+	}
 }
 
 // conversationSentGrace is how long a turn's stdin stays open past its result
@@ -291,6 +308,13 @@ func (d *agentDaemon) desktopConversation(w http.ResponseWriter, r *http.Request
 	if model := strings.TrimSpace(input.Model); model != "" {
 		run.desktop.Model = model
 	}
+	// A message answers a wait the session declared, as Enter does in a
+	// terminal: the mark goes, and the server is told.
+	if !run.desktop.WaitingSince.IsZero() && !run.conversation.waitingForApproval {
+		since := run.desktop.WaitingSince
+		run.desktop.WaitingSince, run.answeredAt = time.Time{}, since
+		go d.sendAnswered(id, since)
+	}
 	if input.Mode != "" {
 		run.conversation.mode = input.Mode
 	}
@@ -485,6 +509,7 @@ func (d *agentDaemon) conversationTurn(run *controlledRun, prompt string) {
 				}
 				d.queue.mu.Lock()
 				run.conversation.approvals = append(run.conversation.approvals, conversationApproval{ID: control.RequestID, ToolUseID: control.Request.ToolUseID, Tool: control.Request.ToolName, Description: control.Request.Description, Input: control.Request.Input, Suggestions: control.Request.Suggestions})
+				markApprovalWaitLocked(run)
 				d.queue.mu.Unlock()
 				return
 			}
@@ -629,6 +654,7 @@ func (d *agentDaemon) conversationTurn(run *controlledRun, prompt string) {
 		run.conversation.approvals = nil
 		conversationWrite(run.trace, "notice", "The turn ended before its tool calls were answered", "")
 	}
+	markApprovalWaitLocked(run)
 	if interrupted && !run.canceled {
 		conversationWrite(run.trace, "notice", "Interrupted", "Claude Code stopped this answer. Send a message to continue the conversation.")
 	} else if run.canceled {

@@ -819,7 +819,9 @@ func (d *agentDaemon) handleRunWaiting(msg agentprotocol.Message) {
 	if run == nil {
 		return
 	}
-	if payload.WaitingSince == nil || run.desktop.Headless {
+	// A conversation is headless but has an owner to wait for: a skill
+	// asking its questions in the conversation marks it as a terminal does.
+	if payload.WaitingSince == nil || run.desktop.Headless && run.conversation == nil {
 		run.desktop.WaitingSince = time.Time{}
 		run.answeredAt = time.Time{}
 		return

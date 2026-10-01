@@ -9,6 +9,7 @@ import (
 	"runtime"
 	"strings"
 	"tasks/internal/agentconfig"
+	"tasks/internal/agentprotocol"
 	"tasks/internal/models"
 	"tasks/internal/testhome"
 	"testing"
@@ -494,6 +495,9 @@ printf '%s\n' '{"type":"result","is_error":false,"result":"Deployed","session_id
 	if a := body.Approvals[0]; a.ID != "req-1" || a.ToolUseID != "toolu_1" || a.Tool != "Bash" || !strings.Contains(string(a.Input), "make deploy") {
 		t.Fatalf("unexpected approval: %+v", a)
 	}
+	if !runWaiting(t, d, id) {
+		t.Fatal("a tool call waiting for the owner does not mark the run waiting")
+	}
 	if w := conversationRequest(d, "POST", "/desktop/conversation?id="+id, `{"approval":{"id":"req-1","decision":"maybe"}}`, "private"); w.Code != http.StatusBadRequest {
 		t.Fatalf("an unknown decision was accepted: %d", w.Code)
 	}
@@ -506,6 +510,9 @@ printf '%s\n' '{"type":"result","is_error":false,"result":"Deployed","session_id
 		}
 		time.Sleep(10 * time.Millisecond)
 		_ = json.Unmarshal(conversationRequest(d, "GET", "/desktop/conversation?id="+id, "", "private").Body.Bytes(), &body)
+	}
+	if runWaiting(t, d, id) {
+		t.Fatal("the run still waits once the tool call is answered")
 	}
 	raw, _ := os.ReadFile(filepath.Join(run.root, "answer.txt"))
 	var answer struct {
@@ -781,5 +788,66 @@ printf '%s\n' '{"type":"result","is_error":false,"result":"Blue it is","session_
 	lines, _ := run.trace.snapshot()
 	if text := strings.Join(lines, "\n"); !strings.Contains(text, `"kind":"approval","text":"answer","detail":"Which color? → Blue"`) {
 		t.Fatalf("the answers are not in the trace: %s", text)
+	}
+}
+
+// runWaiting reads the run list as Desktop does and says whether the run
+// waits for its owner.
+func runWaiting(t *testing.T, d *agentDaemon, id string) bool {
+	t.Helper()
+	var runs []desktopRun
+	if err := json.Unmarshal(conversationRequest(d, "GET", "/desktop/runs", "", "private").Body.Bytes(), &runs); err != nil {
+		t.Fatal(err)
+	}
+	for _, run := range runs {
+		if run.ID == id {
+			return !run.WaitingSince.IsZero()
+		}
+	}
+	t.Fatalf("run %s is not listed", id)
+	return false
+}
+
+// A skill asking its questions in a conversation declares a wait, as it does
+// in a terminal; the owner's next message answers it.
+func TestAConversationWaitIsAnsweredByTheNextMessage(t *testing.T) {
+	testhome.Temp(t)
+	d, id := conversationFixture(t)
+	since := time.Now().Add(-time.Minute).UTC()
+	payload, _ := json.Marshal(agentprotocol.RunWaiting{RunID: id, WaitingSince: &since})
+	d.handleRunWaiting(agentprotocol.Message{Payload: payload})
+	if !runWaiting(t, d, id) {
+		t.Fatal("a conversation ignored the wait its session declared")
+	}
+	d.queue.mu.Lock()
+	run := d.queue.runs[id]
+	run.conversation.busy = true
+	d.queue.mu.Unlock()
+	if w := conversationRequest(d, "POST", "/desktop/conversation?id="+id, `{"message":"here is my answer"}`, "private"); w.Code != 202 {
+		t.Fatalf("send: %d", w.Code)
+	}
+	if runWaiting(t, d, id) {
+		t.Fatal("the owner's message did not answer the wait")
+	}
+	d.queue.mu.Lock()
+	answered := run.answeredAt.Equal(since)
+	run.conversation.busy, run.conversation.next = false, nil
+	d.queue.mu.Unlock()
+	if !answered {
+		t.Fatal("the answer is not kept for the server")
+	}
+}
+
+// A wait the session declared outlives the end of an approval wait.
+func TestAnApprovalWaitLeavesTheSessionsWait(t *testing.T) {
+	run := &controlledRun{conversation: &claudeConversation{}}
+	since := time.Now().Add(-time.Minute).UTC()
+	run.desktop.WaitingSince = since
+	run.conversation.approvals = []conversationApproval{{ID: "a"}}
+	markApprovalWaitLocked(run)
+	run.conversation.approvals = nil
+	markApprovalWaitLocked(run)
+	if !run.desktop.WaitingSince.Equal(since) {
+		t.Fatalf("the session's wait was cleared: %v", run.desktop.WaitingSince)
 	}
 }
