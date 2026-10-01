@@ -244,17 +244,19 @@ under my account hours later, while I am away.
 
   Classic scopes: `read:jira-work`, `write:jira-work`, `read:jira-user`,
   `offline_access` (refresh tokens). Jira Software granular scopes for
-  `/rest/agile/1.0`: `read:board-scope:jira-software`,
+  `/rest/agile/1.0`, which accepts no classic scope:
+  `read:board-scope:jira-software`, `read:board-scope.admin:jira-software`,
   `write:board-scope:jira-software`, `read:sprint:jira-software`,
   `write:sprint:jira-software`, `delete:sprint:jira-software`,
-  `read:project:jira`, `read:issue:jira-software`, `write:issue:jira-software`.
+  `read:project:jira`.
 
   | Method | Endpoint | Used for | Scope |
   | --- | --- | --- | --- |
   | GET | `/rest/api/3/myself` | confirm the account | `read:jira-user` |
   | GET | `/rest/api/3/search/jql` | search issues | `read:jira-work` |
   | GET | `/rest/api/3/field` | field ids | `read:jira-work` |
-  | GET | `/rest/api/3/priority/search`, `/rest/api/3/priority` | priorities | `read:jira-work` |
+  | GET | `/rest/api/3/priority` | priorities | `read:jira-work` |
+  | GET | `/rest/api/3/priority/search` | priorities, server credential only | `manage:jira-configuration`, not asked: a grant reads `/rest/api/3/priority` instead |
   | GET | `/rest/api/3/issue/createmeta/{project}/issuetypes` | issue types | `read:jira-work` |
   | GET | `/rest/api/3/issue/createmeta/{project}/issuetypes/{id}` | create fields, priorities | `read:jira-work` |
   | GET | `/rest/api/3/issue/{key}/editmeta` | editable priorities | `read:jira-work` |
@@ -272,17 +274,23 @@ under my account hours later, while I am away.
   | GET | `/rest/api/3/status` | status names | `read:jira-work` |
   | GET | `/rest/api/3/project/{key}/statuses` | project statuses | `read:jira-work` |
   | GET | `/rest/agile/1.0/board` | list boards | `read:board-scope:jira-software`, `read:project:jira` |
-  | GET | `/rest/agile/1.0/board/{id}/configuration` | board columns | `read:board-scope:jira-software` (to verify, see open points) |
+  | GET | `/rest/agile/1.0/board/{id}/configuration` | board columns | `read:board-scope.admin:jira-software`, `read:project:jira` |
   | GET | `/rest/agile/1.0/board/{id}/sprint` | list sprints | `read:sprint:jira-software` |
   | POST | `/rest/agile/1.0/sprint` | create a sprint | `write:sprint:jira-software` |
   | POST | `/rest/agile/1.0/sprint/{id}` | update a sprint | `write:sprint:jira-software` |
   | DELETE | `/rest/agile/1.0/sprint/{id}` | delete a sprint | `delete:sprint:jira-software` |
-  | POST | `/rest/agile/1.0/sprint/{id}/issue` | move issues to a sprint | `write:sprint:jira-software`, `read:issue:jira-software`, `write:issue:jira-software` |
-  | POST | `/rest/agile/1.0/backlog/issue` | move issues to the backlog | `write:board-scope:jira-software`, `read:issue:jira-software`, `write:issue:jira-software` |
+  | POST | `/rest/agile/1.0/sprint/{id}/issue` | move issues to a sprint | `write:sprint:jira-software` |
+  | POST | `/rest/agile/1.0/backlog/issue` | move issues to the backlog | `write:board-scope:jira-software` |
 
-  The granular scopes are verified, endpoint by endpoint, against the "OAuth
-  scopes required" of Atlassian's Jira Software REST reference while
-  implementing; any correction updates this table in the same pull request.
+  Verified on 2026-10-01 against the `security` of each operation in
+  Atlassian's published OpenAPI documents of the Jira platform and Jira
+  Software REST APIs. Compared with the first version of this table, the board
+  configuration needs `read:board-scope.admin:jira-software`, the sprint and
+  backlog moves need neither `read:issue:jira-software` nor
+  `write:issue:jira-software` (dropped), and the priority search needs an
+  administration scope a grant never asks for. `TestEveryJiraPathHasAScope`
+  (`internal/trackerapi/jira_scopes_test.go`) keeps the code and this table
+  together.
 
 ### Profile
 
@@ -374,9 +382,8 @@ under my account hours later, while I am away.
 
 ## Open points
 
-None of product. One verification is left to implementation, blocking nothing:
-the exact granular scope Atlassian requires for the board configuration and
-backlog endpoints (FR16); the pull request records what the reference says.
+None of product. The granular scopes of FR16 were verified during
+implementation, and the table corrected.
 
 The end-to-end part of AC1 depends on two prerequisites outside the code: the
 Atlassian organisation allowing third-party OAuth 2.0 apps, and an OAuth 2.0
