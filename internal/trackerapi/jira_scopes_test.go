@@ -30,6 +30,7 @@ var jiraPathScopes = map[string][]string{
 	"/rest/api/3/issue/{}":                          {"read:jira-work", "write:jira-work"},
 	"/rest/api/3/issue/{}/transitions":              {"read:jira-work", "write:jira-work"},
 	"/rest/api/3/issue/{}/comment":                  {"read:jira-work", "write:jira-work"},
+	"/rest/api/3/issue/{}/comment/{}":               {"write:jira-work"},
 	"/rest/api/3/issue/{}/assignee":                 {"write:jira-work"},
 	"/rest/api/3/user/bulk":                         {"read:jira-user"},
 	"/rest/api/3/user/assignable/search":            {"read:jira-user"},

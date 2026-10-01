@@ -611,10 +611,15 @@ func (j *JiraAdapter) UpsertMarkedComment(ctx context.Context, req tracker.Upser
 	}
 	body := map[string]any{"body": MarkdownToADF(req.Body)}
 	base := "/rest/api/3/issue/" + url.PathEscape(key) + "/comment"
+	// Spelled out rather than appended to base, so the scope table of #654
+	// sees the path.
+	one := func(id string) string {
+		return "/rest/api/3/issue/" + url.PathEscape(key) + "/comment/" + url.PathEscape(id)
+	}
 
 	id := strings.TrimSpace(req.CommentID)
 	if id != "" {
-		err := c.jira(ctx, http.MethodPut, base+"/"+url.PathEscape(id), nil, body, nil)
+		err := c.jira(ctx, http.MethodPut, one(id), nil, body, nil)
 		if err == nil {
 			return id, nil
 		}
@@ -630,7 +635,7 @@ func (j *JiraAdapter) UpsertMarkedComment(ctx context.Context, req tracker.Upser
 		return "", err
 	}
 	if found != "" {
-		if err := c.jira(ctx, http.MethodPut, base+"/"+url.PathEscape(found), nil, body, nil); err != nil {
+		if err := c.jira(ctx, http.MethodPut, one(found), nil, body, nil); err != nil {
 			return "", err
 		}
 		return found, nil
