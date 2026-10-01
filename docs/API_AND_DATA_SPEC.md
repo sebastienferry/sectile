@@ -216,6 +216,16 @@ roadmap project's epic). Every macro the API returns carries `todosMirror`:
 `upToDate`, the last `error` and the `credentialMissing` tracker it lacked a
 token for, `writtenAt` and the `url` of the copy.
 
+The framing of a Jira epic is copied the same way, as a second comment Sectile
+owns (#636): a macro save carrying `framingComment`, unless it carries
+`"bulk": true`, queues an `epic_framing` activity a few seconds after the last
+save; `POST /api/projects/{id}/macros/{key}/framing-mirror` queues one at once
+and answers `202`, or `400` with the reason when the framing stays in Sectile
+(GitHub milestone, GitLab, local project, local key, roadmap project's epic).
+An empty framing never creates the comment, and rewrites an existing one to say
+there is none. Every macro the API returns carries `framingMirror`, shaped as
+`todosMirror`, whose `kind` is `jira_comment` or empty.
+
 A project's `epicAxisPrefixes` (`{priority, quarter, readiness}`, #635) names
 the label prefixes its epics carry each axis under; an empty field is the
 default `priority:`, `quarter:` or `readiness:`. The import, the pushes, the

@@ -57,7 +57,6 @@ import { EpicLabelEditor } from './EpicLabelEditor'
 import { MacroTaskRow } from './MacroTaskRow'
 import { sprintLookup, isProjectCompatible, targetProjectOptions } from '../lib/lookups'
 import { format, plural } from '../lib/i18n'
-import { getTrackers, type TrackerKind } from '../lib/trackers'
 import {
   buildMacroRows,
   placementIssues,
@@ -84,7 +83,6 @@ import {
   todoOrigin,
   moveTodo,
   rewordTodo,
-  todosMirrorState,
 } from '../lib/roadmap'
 import {
   CONDENSED_HORIZONS,
@@ -158,6 +156,7 @@ import {
 } from '../lib/roadmapOrigins'
 import type { EpicPriority, EpicReadiness, MacroHorizon, MacroMeta, MacroStoryBatch, MacroTodo, MacroTodoSource } from '../types'
 import { MacroRealignButton } from './MacroRealignButton'
+import { MacroCopyStatus } from './MacroCopyStatus'
 
 /**
  * Macro roadmap, after the "Roadmap Epics.dc.html" design.
@@ -220,7 +219,7 @@ export const RoadmapView: React.FC = () => {
     createStoryFromMacroTodo,
     createStoriesFromMacroTodos,
     republishMacroTodos,
-    openTrackerCredentials,
+    republishMacroFraming,
     produceMacroSlicing,
     setTaskMacro,
     createStoryUnderMacro,
@@ -496,7 +495,6 @@ export const RoadmapView: React.FC = () => {
   const [draftTodoText, setDraftTodoText] = useState('')
   const [draggedTodoId, setDraggedTodoId] = useState<string | null>(null)
   const [dropTodoId, setDropTodoId] = useState<string | null>(null)
-  const [republishingTodos, setRepublishingTodos] = useState(false)
   const todoFocusRef = useRef<{ id: string; control: string } | null>(null)
   // Batch story creation (#634). The selection is interface state only,
   // distinct from the done checkbox; the report lasts until the next batch,
@@ -2978,6 +2976,18 @@ export const RoadmapView: React.FC = () => {
                           />
                         </div>
                       )}
+                      {/* The framing of a Jira epic is copied as a comment on it
+                          (#636); elsewhere the line says it stays in Sectile. */}
+                      <div className="px-3 pb-2">
+                        <MacroCopyStatus
+                          mirror={selected.meta?.framingMirror}
+                          macroKey={selected.key}
+                          testId="framing-mirror"
+                          upToDate={strings.framing.framingMirrorUpToDate}
+                          republishTitle={strings.framing.framingMirrorRepublishTitle}
+                          onRepublish={currentProject ? () => republishMacroFraming(currentProject.id, selected.key) : null}
+                        />
+                      </div>
                     </div>
                   </div>
 
@@ -3368,67 +3378,16 @@ export const RoadmapView: React.FC = () => {
                       )}
                     </div>
 
-                    {(() => {
-                      // Where the list is copied on the tracker, one way (#663),
-                      // and whether that copy is the current list. A server
-                      // older than the copy sends no status, and nothing shows.
-                      const mirror = selected.meta?.todosMirror
-                      const state = todosMirrorState(mirror)
-                      if (!mirror || state === 'none') return null
-                      const tracker = (mirror.credentialMissing || '') as TrackerKind
-                      const provider = tracker ? getTrackers(t).find(entry => entry.id === tracker)?.label || tracker : ''
-                      return (
-                        <div className="flex flex-wrap items-center gap-1.5 mt-1.5 text-[10.5px]" data-testid="todos-mirror" data-state={state}>
-                          {state === 'upToDate' && (
-                            <span className="inline-flex items-center gap-1" style={{ color: 'var(--status-ok)' }}>
-                              <Check size={10} />
-                              {format(strings.framing.mirrorUpToDate, { key: selected.key })}
-                              {mirror.url && (
-                                <a href={mirror.url} target="_blank" rel="noreferrer" className="hover:text-[var(--accent-color)]"
-                                  title={format(t.planning.macro.openOnTracker, { key: selected.key })}>
-                                  <ExternalLink size={10} />
-                                </a>
-                              )}
-                            </span>
-                          )}
-                          {state === 'pending' && (
-                            <span className="text-[var(--text-muted)]">{strings.framing.mirrorPending}</span>
-                          )}
-                          {state === 'failed' && (
-                            <span className="text-rose-400">{format(strings.framing.mirrorFailed, { reason: mirror.error || '' })}</span>
-                          )}
-                          {state === 'local' && (
-                            <span className="text-[var(--text-muted)]">{format(strings.framing.mirrorLocal, { reason: mirror.reason || '' })}</span>
-                          )}
-                          {(state === 'pending' || state === 'failed') && (
-                            <button
-                              type="button"
-                              disabled={republishingTodos || !currentProject}
-                              onClick={async () => {
-                                if (!currentProject) return
-                                setRepublishingTodos(true)
-                                await republishMacroTodos(currentProject.id, selected.key)
-                                setRepublishingTodos(false)
-                              }}
-                              className="inline-flex items-center gap-1 px-1.5 py-px rounded border border-[var(--border-color)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] cursor-pointer disabled:opacity-40"
-                              title={strings.framing.mirrorRepublishTitle}
-                            >
-                              <RefreshCw size={9} className={republishingTodos ? 'animate-spin' : ''} />
-                              {strings.framing.mirrorRepublish}
-                            </button>
-                          )}
-                          {state === 'failed' && tracker && (
-                            <button
-                              type="button"
-                              onClick={() => openTrackerCredentials(tracker)}
-                              className="px-1.5 py-px rounded border border-[var(--border-color)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] cursor-pointer"
-                            >
-                              {format(strings.framing.mirrorAddToken, { provider })}
-                            </button>
-                          )}
-                        </div>
-                      )
-                    })()}
+                    {/* Where the list is copied on the tracker, one way (#663),
+                        and whether that copy is the current list. */}
+                    <MacroCopyStatus
+                      mirror={selected.meta?.todosMirror}
+                      macroKey={selected.key}
+                      testId="todos-mirror"
+                      upToDate={strings.framing.mirrorUpToDate}
+                      republishTitle={strings.framing.mirrorRepublishTitle}
+                      onRepublish={currentProject ? () => republishMacroTodos(currentProject.id, selected.key) : null}
+                    />
 
                     <div className="flex items-center gap-2 mt-2">
                       <input

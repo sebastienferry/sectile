@@ -248,6 +248,8 @@ export interface MacroMeta {
   externalUrl?: string
   /** Where the todos are copied on the tracker, and how that copy stands (#663). Absent from an older server. */
   todosMirror?: MacroTodosMirror
+  /** Where the framing is copied: a comment on a Jira epic, or none (#636). Absent from an older server. */
+  framingMirror?: MacroTodosMirror
 }
 export type EpicMeta = MacroMeta
 

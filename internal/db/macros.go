@@ -158,7 +158,8 @@ func (d *DB) GetProjectMacros(projectID string) ([]models.MacroMeta, error) {
 	d.mu.RLock()
 	rows, err := d.conn.Query(`
 		SELECT project_id, key, horizon, description, framing_comment, todos, title, status, closed, priority, quarter, readiness, labels, updated_at,
-			todos_mirror_ref, todos_mirror_hash, todos_mirror_error, todos_mirror_credential, todos_mirror_at
+			todos_mirror_ref, todos_mirror_hash, todos_mirror_error, todos_mirror_credential, todos_mirror_at,
+			framing_mirror_ref, framing_mirror_hash, framing_mirror_error, framing_mirror_credential, framing_mirror_at
 		FROM macros WHERE project_id = ? ORDER BY key ASC
 	`, projectID)
 	d.mu.RUnlock()
@@ -171,21 +172,26 @@ func (d *DB) GetProjectMacros(projectID string) ([]models.MacroMeta, error) {
 	// epic axes is a property of the project, only the key varies per macro.
 	writable := d.epicLabelsSupported(proj)
 	out := []models.MacroMeta{}
-	states := []todosMirrorState{}
+	states, framingStates := []todosMirrorState{}, []todosMirrorState{}
 	for rows.Next() {
 		var e models.MacroMeta
 		var todosJSON, labelsJSON string
 		var closed int
-		var state todosMirrorState
-		var mirroredAt sql.NullTime
+		var state, framing todosMirrorState
+		var mirroredAt, framedAt sql.NullTime
 		if err := rows.Scan(&e.ProjectID, &e.Key, &e.Horizon, &e.Description, &e.FramingComment, &todosJSON, &e.Title, &e.Status, &closed, &e.Priority, &e.Quarter, &e.Readiness, &labelsJSON, &e.UpdatedAt,
-			&state.ref, &state.hash, &state.err, &state.credential, &mirroredAt); err != nil {
+			&state.ref, &state.hash, &state.err, &state.credential, &mirroredAt,
+			&framing.ref, &framing.hash, &framing.err, &framing.credential, &framedAt); err != nil {
 			continue
 		}
 		if mirroredAt.Valid {
 			state.at = &mirroredAt.Time
 		}
+		if framedAt.Valid {
+			framing.at = &framedAt.Time
+		}
 		states = append(states, state)
+		framingStates = append(framingStates, framing)
 		e.Closed = closed == 1
 		e.Todos = parseMacroTodos(todosJSON)
 		e.ExternalURL = milestoneURLs[e.Key]
@@ -196,12 +202,14 @@ func (d *DB) GetProjectMacros(projectID string) ([]models.MacroMeta, error) {
 	}
 	rows.Close()
 	d.fillMacroURLsFromTasks(projectID, out)
-	// After the addresses: the copy of a Jira epic's todos links its comment on
-	// the epic's page.
+	// After the addresses: the copies of a Jira epic's todos and framing link
+	// their comments on the epic's page.
 	scope := d.todosMirrorScope(proj, listed)
 	for i := range out {
 		kind, reason := scope.eligibility(out[i].Key)
 		out[i].TodosMirror = todosMirrorStatus(&out[i], kind, reason, states[i])
+		kind, reason = scope.eligibilityOf(framingCopy, out[i].Key)
+		out[i].FramingMirror = macroCopyStatus(framingCopy, &out[i], kind, reason, framingStates[i])
 	}
 	return out, nil
 }
@@ -335,8 +343,9 @@ func (d *DB) SaveEpicMeta(projectID string, key string, horizon *string, descrip
 // failed milestone write does, and is returned with the saved macro so the
 // person learns that GitHub was not updated (#482).
 //
-// A save of the todos schedules their copy on the tracker (#663), which never
-// runs inside this call: the request does not wait on the tracker for it.
+// A save of the todos schedules their copy on the tracker (#663), and a save of
+// the framing that is not a bulk edit schedules its copy (#636). Neither runs
+// inside this call: the request does not wait on the tracker for them.
 func (d *DB) UpdateMacro(ctx context.Context, projectID string, key string, title *string, horizon *string, description *string, framingComment *string, todos *[]models.MacroTodo, closed *bool) (*models.MacroMeta, error) {
 	projectID = strings.TrimSpace(projectID)
 	key = strings.TrimSpace(key)
@@ -396,10 +405,27 @@ func (d *DB) UpdateMacro(ctx context.Context, projectID string, key string, titl
 	if todos != nil {
 		d.scheduleTodosMirror(ctx, projectID, key)
 	}
+	if framingComment != nil && !bulkMacroEdit(ctx) {
+		d.scheduleMacroCopy(ctx, framingCopy, projectID, key)
+	}
 	if refused != nil {
 		return saved, fmt.Errorf("milestone GitHub de %s non mis à jour, modification gardée en local : %w", key, refused)
 	}
 	return saved, nil
+}
+
+// bulkMacroEditKey marks the context of an edit that is one of several.
+type bulkMacroEditKey struct{}
+
+// WithBulkMacroEdit marks ctx as an edit covering several macros, such as the
+// title seeding: it never schedules the framing copy (#636, US3.3).
+func WithBulkMacroEdit(ctx context.Context) context.Context {
+	return context.WithValue(ctx, bulkMacroEditKey{}, true)
+}
+
+func bulkMacroEdit(ctx context.Context) bool {
+	bulk, _ := ctx.Value(bulkMacroEditKey{}).(bool)
+	return bulk
 }
 
 func (d *DB) UpdateEpic(ctx context.Context, projectID string, key string, title *string, horizon *string, description *string, todos *[]models.EpicTodo, closed *bool) (*models.EpicMeta, error) {

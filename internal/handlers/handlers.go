@@ -1399,6 +1399,32 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		// Same for the framing copy of a Jira epic (#636): a macro whose framing
+		// stays in Sectile is refused with the reason, and nothing is queued.
+		if len(parts) >= 4 && parts[3] == "framing-mirror" && r.Method == http.MethodPost {
+			key := parts[2]
+			if decoded, err := url.PathUnescape(parts[2]); err == nil {
+				key = decoded
+			}
+			if refusal := h.db.FramingMirrorRefusal(id, key); refusal != "" {
+				writeError(w, http.StatusBadRequest, refusal)
+				return
+			}
+			act, err := h.db.EnqueueTrackerOp(h.actingContext(r), db.TrackerOp{
+				Kind:      db.TrackerOpEpicFraming,
+				ProjectID: id,
+				TaskKey:   key,
+				EpicKey:   key,
+				Force:     true,
+			})
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			writeJSON(w, http.StatusAccepted, map[string]interface{}{"activity": act})
+			return
+		}
+
 		if len(parts) >= 4 && parts[3] == "slicing" && r.Method == http.MethodPost {
 			key := parts[2]
 			if decoded, err := url.PathUnescape(parts[2]); err == nil {
@@ -1490,7 +1516,11 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 					key = decoded
 				}
 			}
-			saved, err := h.db.UpdateMacro(h.actingContext(r), id, key, req.Title, req.Horizon, req.Description, req.FramingComment, req.Todos, req.Closed)
+			editCtx := h.actingContext(r)
+			if req.Bulk {
+				editCtx = db.WithBulkMacroEdit(editCtx)
+			}
+			saved, err := h.db.UpdateMacro(editCtx, id, key, req.Title, req.Horizon, req.Description, req.FramingComment, req.Todos, req.Closed)
 			if err != nil {
 				writeTrackerError(w, http.StatusBadRequest, err)
 				return

@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"tasks/internal/models"
 	"tasks/internal/tracker"
@@ -25,11 +26,18 @@ import (
 // as a block at the end of its description, since a milestone takes no
 // comment. A GitLab macro is a pair of labels with a local key (ADR 0030), so
 // nothing there could carry it, and its list stays in Sectile.
+//
+// The framing of a Jira epic is copied the same way, as a second comment
+// Sectile owns with its own marker (#636). A milestone carries no framing: its
+// description already holds the macro's description and the todo block.
 
 const (
 	// todosMirrorMarker is the property that tells Sectile's comment on a Jira
 	// epic from the others.
 	todosMirrorMarker = "sectile.macroTodos"
+	// framingMirrorMarker tells Sectile's framing comment on a Jira epic from
+	// the others, the todos comment included.
+	framingMirrorMarker = "sectile.macroFraming"
 	// todosBlockOpen and todosBlockClose delimit the block Sectile owns at the
 	// end of a milestone description.
 	todosBlockOpen  = "<!-- sectile:macro-todos -->"
@@ -50,7 +58,75 @@ var (
 	todosMirrorPauses = []time.Duration{time.Second, 3 * time.Second}
 )
 
-// todosMirrorState is what the last writes of a copy left on the macro row.
+// macroCopyPart is one field of a macro Sectile copies on its tracker, one
+// way: the todos (#663) or the framing (#636). Both go through the same
+// eligibility, debounce, queue, retry and status; what is rendered, the marker
+// of the comment and the columns holding the state are the part's own.
+type macroCopyPart struct {
+	// name prefixes the state columns (<name>_mirror_*) and keys the timers.
+	// It is one of the two constants below, never input, so the SQL built
+	// from it stays safe.
+	name   string
+	marker string
+	opKind TrackerOpKind
+	// github is true when a milestone description can carry the part.
+	github bool
+	// what names the part in the reasons it stays in Sectile.
+	what string
+	// render is the body of the copy of the macro as it is stored, empty
+	// tells there is nothing to copy, written is the note of a success.
+	render  func(kind string, m *models.MacroMeta) string
+	empty   func(m *models.MacroMeta) bool
+	written func(kind string, m *models.MacroMeta) string
+	// The runtime messages, each formatted with the macro key first.
+	kept, notCopied, nothing, current string
+}
+
+var (
+	todosCopy = macroCopyPart{
+		name:   "todos",
+		marker: todosMirrorMarker,
+		opKind: TrackerOpEpicTodos,
+		github: true,
+		what:   "la liste",
+		render: func(kind string, m *models.MacroMeta) string { return renderTodosMirror(kind, m.Todos) },
+		empty:  func(m *models.MacroMeta) bool { return len(m.Todos) == 0 },
+		written: func(kind string, m *models.MacroMeta) string {
+			if kind == models.MacroTodosMirrorGithubDescription {
+				return fmt.Sprintf("%d todo(s) recopié(s) dans la description du milestone %s", len(m.Todos), m.Key)
+			}
+			return fmt.Sprintf("%d todo(s) recopié(s) en commentaire sur %s", len(m.Todos), m.Key)
+		},
+		kept:      "les todos de %s restent dans Sectile : %s",
+		notCopied: "todos gardés dans Sectile mais pas recopiés sur %s : %w",
+		nothing:   "aucun todo à recopier sur %s",
+		current:   "todos de %s déjà à jour",
+	}
+	framingCopy = macroCopyPart{
+		name:   "framing",
+		marker: framingMirrorMarker,
+		opKind: TrackerOpEpicFraming,
+		what:   "le cadrage",
+		render: func(_ string, m *models.MacroMeta) string { return renderFramingMirror(m.FramingComment) },
+		empty:  func(m *models.MacroMeta) bool { return strings.TrimSpace(m.FramingComment) == "" },
+		written: func(_ string, m *models.MacroMeta) string {
+			return fmt.Sprintf("cadrage recopié en commentaire sur %s", m.Key)
+		},
+		kept:      "le cadrage de %s reste dans Sectile : %s",
+		notCopied: "cadrage gardé dans Sectile mais pas recopié sur %s : %w",
+		nothing:   "aucun cadrage à recopier sur %s",
+		current:   "cadrage de %s déjà à jour",
+	}
+)
+
+// columns lists the state columns of the part, in the order
+// todosMirrorState is scanned.
+func (p macroCopyPart) columns() string {
+	return fmt.Sprintf("%[1]s_mirror_ref, %[1]s_mirror_hash, %[1]s_mirror_error, %[1]s_mirror_credential, %[1]s_mirror_at", p.name)
+}
+
+// todosMirrorState is what the last writes of a copy, todos or framing, left
+// on the macro row.
 type todosMirrorState struct {
 	ref        string
 	hash       string
@@ -97,13 +173,19 @@ func (d *DB) todosMirrorScope(proj *models.Project, milestones map[string]bool) 
 // eligibility tells where the todos of one macro are copied, or why they stay
 // in Sectile (FR12).
 func (s todosMirrorScope) eligibility(key string) (kind string, reason string) {
+	return s.eligibilityOf(todosCopy, key)
+}
+
+// eligibilityOf tells where one part of a macro is copied, or why it stays in
+// Sectile. Only the todos have a milestone copy (#636, D1).
+func (s todosMirrorScope) eligibilityOf(part macroCopyPart, key string) (kind string, reason string) {
 	proj := s.proj
 	key = strings.TrimSpace(key)
 	switch {
 	case proj == nil:
 		return "", "projet introuvable"
 	case strings.EqualFold(proj.IssueTracker, "gitlab"):
-		return "", "une macro GitLab n'a pas de ticket qui puisse porter la liste"
+		return "", "une macro GitLab n'a pas de ticket qui puisse porter " + part.what
 	// Jira first: a Jira project may also name a GitHub repository for its
 	// code, and its epics are still Jira epics.
 	case proj.IssueTracker == "jira":
@@ -118,6 +200,9 @@ func (s todosMirrorScope) eligibility(key string) (kind string, reason string) {
 		}
 		return models.MacroTodosMirrorJiraComment, ""
 	case githubMilestoneMacros(proj):
+		if !part.github {
+			return "", "un milestone GitHub ne prend pas de commentaire"
+		}
 		if !isMilestoneKey(key) {
 			return "", "macro sans milestone GitHub"
 		}
@@ -197,6 +282,37 @@ func renderTodosMirror(kind string, todos []models.MacroTodo) string {
 	return body
 }
 
+// renderFramingMirror renders the body of the framing comment of a Jira epic,
+// within the size budget (#636, FR8, FR9). It carries no date, so two equal
+// saves render the same body and make one write. An empty framing says so; it
+// is only ever written over a comment that exists (FR11).
+func renderFramingMirror(framing string) string {
+	const (
+		heading   = "### 🧭 [Sectile] Cadrage"
+		footer    = "_Cadrage tenu dans Sectile : une modification faite ici est remplacée à la prochaine mise à jour._"
+		truncated = "_… cadrage tronqué, texte complet dans Sectile._"
+	)
+	text := strings.TrimSpace(framing)
+	if text == "" {
+		return heading + "\n\n_Aucun cadrage pour l'instant._\n\n" + footer
+	}
+	body := heading + "\n\n" + text + "\n\n" + footer
+	if len(body) <= todosMirrorBudget {
+		return body
+	}
+	room := todosMirrorBudget - len(heading) - len(truncated) - len(footer) - 3*len("\n\n")
+	cut := text[:room]
+	if line := strings.LastIndex(cut, "\n"); line > 0 {
+		cut = cut[:line]
+	} else {
+		// One line longer than the budget: cut on a character, never inside one.
+		for len(cut) > 0 && !utf8.RuneStart(text[len(cut)]) {
+			cut = cut[:len(cut)-1]
+		}
+	}
+	return heading + "\n\n" + strings.TrimRight(cut, " \t\r\n") + "\n\n" + truncated + "\n\n" + footer
+}
+
 // todosMirrorHash is the hash of a body, "" for the empty one: a milestone
 // with no block is what a macro never copied already shows.
 func todosMirrorHash(body string) string {
@@ -261,14 +377,19 @@ func milestoneNumber(key string) int {
 // todosMirrorStatus is the status of the copy of a macro, from where it goes
 // and what the last writes left (FR17).
 func todosMirrorStatus(m *models.MacroMeta, kind, reason string, state todosMirrorState) *models.MacroTodosMirror {
+	return macroCopyStatus(todosCopy, m, kind, reason, state)
+}
+
+// macroCopyStatus is the status of the copy of one part of a macro.
+func macroCopyStatus(part macroCopyPart, m *models.MacroMeta, kind, reason string, state todosMirrorState) *models.MacroTodosMirror {
 	status := &models.MacroTodosMirror{Kind: kind, Reason: reason}
 	if kind == "" {
 		return status
 	}
-	// A macro whose list was never copied and holds nothing has nothing to
+	// A macro whose part was never copied and holds nothing has nothing to
 	// show: it is not waiting for a write.
 	never := state.hash == "" && state.ref == ""
-	status.UpToDate = (never && len(m.Todos) == 0) || (!never && state.hash == todosMirrorHash(renderTodosMirror(kind, m.Todos)))
+	status.UpToDate = (never && part.empty(m)) || (!never && state.hash == todosMirrorHash(part.render(kind, m)))
 	status.Error = state.err
 	status.CredentialMissing = state.credential
 	status.WrittenAt = state.at
@@ -283,13 +404,18 @@ func todosMirrorStatus(m *models.MacroMeta, kind, reason string, state todosMirr
 	return status
 }
 
-// readTodosMirrorState reads what the last writes of a copy left.
+// readTodosMirrorState reads what the last writes of the todos copy left.
 func (d *DB) readTodosMirrorState(projectID, key string) (todosMirrorState, error) {
+	return d.readMacroCopyState(todosCopy, projectID, key)
+}
+
+// readMacroCopyState reads what the last writes of the copy of a part left.
+func (d *DB) readMacroCopyState(part macroCopyPart, projectID, key string) (todosMirrorState, error) {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 	var state todosMirrorState
 	var at sql.NullTime
-	err := d.conn.QueryRow(`SELECT todos_mirror_ref, todos_mirror_hash, todos_mirror_error, todos_mirror_credential, todos_mirror_at
+	err := d.conn.QueryRow(`SELECT `+part.columns()+`
 		FROM macros WHERE project_id = ? AND key = ?`, projectID, key).Scan(&state.ref, &state.hash, &state.err, &state.credential, &at)
 	if errors.Is(err, sql.ErrNoRows) {
 		return state, nil
@@ -300,9 +426,9 @@ func (d *DB) readTodosMirrorState(projectID, key string) (todosMirrorState, erro
 	return state, err
 }
 
-// fillTodosMirror sets the copy status of a macro a handler returns, the one
-// GetProjectMacros fills on a list.
-func (d *DB) fillTodosMirror(proj *models.Project, m *models.MacroMeta) {
+// fillMacroCopies sets the copy statuses of a macro a handler returns, the
+// ones GetProjectMacros fills on a list: its todos and its framing.
+func (d *DB) fillMacroCopies(proj *models.Project, m *models.MacroMeta) {
 	if m == nil || proj == nil {
 		return
 	}
@@ -310,7 +436,12 @@ func (d *DB) fillTodosMirror(proj *models.Project, m *models.MacroMeta) {
 	if err != nil {
 		return
 	}
-	kind, reason := d.todosMirrorScope(proj, nil).eligibility(m.Key)
+	framing, err := d.readMacroCopyState(framingCopy, proj.ID, m.Key)
+	if err != nil {
+		return
+	}
+	scope := d.todosMirrorScope(proj, nil)
+	kind, reason := scope.eligibility(m.Key)
 	if m.ExternalURL == "" {
 		// A macro a save returns has no address yet: the list read computes
 		// it, and the copy's link needs it.
@@ -324,17 +455,29 @@ func (d *DB) fillTodosMirror(proj *models.Project, m *models.MacroMeta) {
 		}
 	}
 	m.TodosMirror = todosMirrorStatus(m, kind, reason, state)
+	kind, reason = scope.eligibilityOf(framingCopy, m.Key)
+	m.FramingMirror = macroCopyStatus(framingCopy, m, kind, reason, framing)
 }
 
 // TodosMirrorRefusal is why a macro's todos are not copied on its tracker, ""
 // when they are. The republish route asks before queuing anything (FR18).
 func (d *DB) TodosMirrorRefusal(projectID, key string) string {
+	return d.macroCopyRefusal(todosCopy, projectID, key)
+}
+
+// FramingMirrorRefusal is why a macro's framing is not copied on its tracker,
+// "" when it is (#636, FR14).
+func (d *DB) FramingMirrorRefusal(projectID, key string) string {
+	return d.macroCopyRefusal(framingCopy, projectID, key)
+}
+
+func (d *DB) macroCopyRefusal(part macroCopyPart, projectID, key string) string {
 	proj, err := d.GetProjectByID(strings.TrimSpace(projectID))
 	if err != nil || proj == nil {
 		return "projet non trouvé"
 	}
-	if _, reason := d.todosMirrorScope(proj, nil).eligibility(key); reason != "" {
-		return fmt.Sprintf("les todos de %s restent dans Sectile : %s", strings.TrimSpace(key), reason)
+	if _, reason := d.todosMirrorScope(proj, nil).eligibilityOf(part, key); reason != "" {
+		return fmt.Sprintf(part.kept, strings.TrimSpace(key), reason)
 	}
 	return ""
 }
@@ -350,20 +493,27 @@ type todosMirrorTimer struct {
 
 // scheduleTodosMirror queues the copy of a macro's todos a moment after the
 // last save of its list on this instance, as the person ctx names (FR6, FR7).
-// A macro whose list stays in Sectile schedules nothing, so no tracker call is
-// ever made for it. Several instances may each queue a write; the hash makes
-// the second one write nothing.
 func (d *DB) scheduleTodosMirror(ctx context.Context, projectID, key string) {
+	d.scheduleMacroCopy(ctx, todosCopy, projectID, key)
+}
+
+// scheduleMacroCopy queues the copy of one part of a macro a moment after its
+// last save on this instance, as the person ctx names. A macro whose part
+// stays in Sectile schedules nothing, so no tracker call is ever made for it.
+// Each part has its own timer: a todos save never cancels a pending framing
+// write. Several instances may each queue a write; the hash makes the second
+// one write nothing.
+func (d *DB) scheduleMacroCopy(ctx context.Context, part macroCopyPart, projectID, key string) {
 	projectID = strings.TrimSpace(projectID)
 	key = strings.TrimSpace(key)
 	proj, err := d.GetProjectByID(projectID)
 	if err != nil || proj == nil {
 		return
 	}
-	if kind, _ := d.todosMirrorScope(proj, nil).eligibility(key); kind == "" {
+	if kind, _ := d.todosMirrorScope(proj, nil).eligibilityOf(part, key); kind == "" {
 		return
 	}
-	value, _ := d.todosMirrorTimers.LoadOrStore(projectID+"\x00"+key, &todosMirrorTimer{})
+	value, _ := d.todosMirrorTimers.LoadOrStore(projectID+"\x00"+key+"\x00"+part.name, &todosMirrorTimer{})
 	pending := value.(*todosMirrorTimer)
 	pending.mu.Lock()
 	defer pending.mu.Unlock()
@@ -384,12 +534,12 @@ func (d *DB) scheduleTodosMirror(ctx context.Context, projectID, key string) {
 			opCtx = tracker.WithUnattended(opCtx)
 		}
 		if _, err := d.EnqueueTrackerOp(opCtx, TrackerOp{
-			Kind:      TrackerOpEpicTodos,
+			Kind:      part.opKind,
 			ProjectID: projectID,
 			TaskKey:   key,
 			EpicKey:   key,
 		}); err != nil {
-			log.Printf("[macros] recopie des todos de %s non mise en file : %v", key, err)
+			log.Printf("[macros] recopie (%s) de %s non mise en file : %v", part.name, key, err)
 		}
 	})
 }
@@ -435,6 +585,18 @@ func retryTransient(ctx context.Context, write func(context.Context) error) erro
 // it was scheduled; a body equal to the last one written makes no call unless
 // force asks for it, which is what republishing does.
 func (d *DB) PushMacroTodosMirror(ctx context.Context, projectID, key string, force bool) (string, error) {
+	return d.pushMacroCopy(ctx, todosCopy, projectID, key, force)
+}
+
+// PushMacroFramingMirror writes the current framing of a Jira epic on the
+// comment Sectile owns for it (#636). Like the todos copy it only ever runs
+// from a queued activity (TrackerOpEpicFraming). An empty framing never
+// creates a comment; it rewrites one that exists, never deletes it.
+func (d *DB) PushMacroFramingMirror(ctx context.Context, projectID, key string, force bool) (string, error) {
+	return d.pushMacroCopy(ctx, framingCopy, projectID, key, force)
+}
+
+func (d *DB) pushMacroCopy(ctx context.Context, part macroCopyPart, projectID, key string, force bool) (string, error) {
 	projectID = strings.TrimSpace(projectID)
 	key = strings.TrimSpace(key)
 	proj, err := d.GetProjectByID(projectID)
@@ -444,29 +606,28 @@ func (d *DB) PushMacroTodosMirror(ctx context.Context, projectID, key string, fo
 	// Checked again: an epic may have become foreign, a project may have
 	// changed tracker since the save.
 	scope := d.todosMirrorScope(proj, nil)
-	kind, reason := scope.eligibility(key)
+	kind, reason := scope.eligibilityOf(part, key)
 	if kind == "" {
-		return "", fmt.Errorf("les todos de %s restent dans Sectile : %s", key, reason)
+		return "", fmt.Errorf(part.kept, key, reason)
 	}
 	meta, err := d.readMacroRow(projectID, key)
 	if err != nil {
 		return "", err
 	}
-	state, err := d.readTodosMirrorState(projectID, key)
+	state, err := d.readMacroCopyState(part, projectID, key)
 	if err != nil {
 		return "", err
 	}
-	if len(meta.Todos) == 0 && state.hash == "" && state.ref == "" {
-		return fmt.Sprintf("aucun todo à recopier sur %s", key), nil
+	if part.empty(meta) && state.hash == "" && state.ref == "" {
+		return fmt.Sprintf(part.nothing, key), nil
 	}
-	body := renderTodosMirror(kind, meta.Todos)
+	body := part.render(kind, meta)
 	hash := todosMirrorHash(body)
 	if !force && hash == state.hash && (kind != models.MacroTodosMirrorJiraComment || state.ref != "") {
-		return fmt.Sprintf("todos de %s déjà à jour", key), nil
+		return fmt.Sprintf(part.current, key), nil
 	}
 
 	ref := state.ref
-	var written string
 	switch kind {
 	case models.MacroTodosMirrorJiraComment:
 		err = retryTransient(ctx, func(ctx context.Context) error {
@@ -474,7 +635,7 @@ func (d *DB) PushMacroTodosMirror(ctx context.Context, projectID, key string, fo
 				Project:   proj,
 				Key:       key,
 				CommentID: ref,
-				Marker:    todosMirrorMarker,
+				Marker:    part.marker,
 				Value:     map[string]any{"macroKey": key},
 				Body:      body,
 			})
@@ -483,18 +644,16 @@ func (d *DB) PushMacroTodosMirror(ctx context.Context, projectID, key string, fo
 			}
 			return err
 		})
-		written = fmt.Sprintf("%d todo(s) recopié(s) en commentaire sur %s", len(meta.Todos), key)
 	case models.MacroTodosMirrorGithubDescription:
 		ref = ""
 		err = d.writeMilestoneTodosBlock(ctx, proj, key, body)
-		written = fmt.Sprintf("%d todo(s) recopié(s) dans la description du milestone %s", len(meta.Todos), key)
 	}
 	if err != nil {
-		d.recordTodosMirrorFailure(projectID, key, err)
-		return "", fmt.Errorf("todos gardés dans Sectile mais pas recopiés sur %s : %w", key, err)
+		d.recordMacroCopyFailure(part, projectID, key, err)
+		return "", fmt.Errorf(part.notCopied, key, err)
 	}
-	d.recordTodosMirrorSuccess(projectID, key, ref, hash)
-	return written, nil
+	d.recordMacroCopySuccess(part, projectID, key, ref, hash)
+	return part.written(kind, meta), nil
 }
 
 // writeMilestoneTodosBlock replaces the todo block of a milestone description,
@@ -530,14 +689,14 @@ func (d *DB) writeMilestoneTodosBlock(ctx context.Context, proj *models.Project,
 	})
 }
 
-// readMacroRow reads the stored list and description of one macro, without
+// readMacroRow reads the stored list, description and framing of one macro, without
 // the tracker read GetProjectMacros makes.
 func (d *DB) readMacroRow(projectID, key string) (*models.MacroMeta, error) {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 	meta := &models.MacroMeta{ProjectID: projectID, Key: key, Todos: []models.MacroTodo{}}
 	var todosJSON string
-	err := d.conn.QueryRow(`SELECT description, todos FROM macros WHERE project_id = ? AND key = ?`, projectID, key).Scan(&meta.Description, &todosJSON)
+	err := d.conn.QueryRow(`SELECT description, framing_comment, todos FROM macros WHERE project_id = ? AND key = ?`, projectID, key).Scan(&meta.Description, &meta.FramingComment, &todosJSON)
 	if errors.Is(err, sql.ErrNoRows) {
 		return meta, nil
 	}
@@ -552,27 +711,31 @@ func (d *DB) readMacroRow(projectID, key string) (*models.MacroMeta, error) {
 // last failure. Only the copy writes these columns: a list save never touches
 // them, so it cannot clobber them.
 func (d *DB) recordTodosMirrorSuccess(projectID, key, ref, hash string) {
+	d.recordMacroCopySuccess(todosCopy, projectID, key, ref, hash)
+}
+
+func (d *DB) recordMacroCopySuccess(part macroCopyPart, projectID, key, ref, hash string) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	if _, err := d.conn.Exec(`UPDATE macros SET todos_mirror_ref = ?, todos_mirror_hash = ?, todos_mirror_error = '', todos_mirror_credential = '', todos_mirror_at = ?
-		WHERE project_id = ? AND key = ?`, ref, hash, time.Now().UTC(), projectID, key); err != nil {
-		log.Printf("[macros] état de la recopie des todos de %s non enregistré : %v", key, err)
+	if _, err := d.conn.Exec(fmt.Sprintf(`UPDATE macros SET %[1]s_mirror_ref = ?, %[1]s_mirror_hash = ?, %[1]s_mirror_error = '', %[1]s_mirror_credential = '', %[1]s_mirror_at = ?
+		WHERE project_id = ? AND key = ?`, part.name), ref, hash, time.Now().UTC(), projectID, key); err != nil {
+		log.Printf("[macros] état de la recopie (%s) de %s non enregistré : %v", part.name, key, err)
 	}
 }
 
-// recordTodosMirrorFailure keeps the last failure, and the tracker whose token
+// recordMacroCopyFailure keeps the last failure, and the tracker whose token
 // it lacked, until a write succeeds.
-func (d *DB) recordTodosMirrorFailure(projectID, key string, cause error) {
+func (d *DB) recordMacroCopyFailure(part macroCopyPart, projectID, key string, cause error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	if _, err := d.conn.Exec(`UPDATE macros SET todos_mirror_error = ?, todos_mirror_credential = ? WHERE project_id = ? AND key = ?`,
+	if _, err := d.conn.Exec(fmt.Sprintf(`UPDATE macros SET %[1]s_mirror_error = ?, %[1]s_mirror_credential = ? WHERE project_id = ? AND key = ?`, part.name),
 		cause.Error(), trackerapi.MissingCredentialTracker(cause), projectID, key); err != nil {
-		log.Printf("[macros] échec de la recopie des todos de %s non enregistré : %v", key, err)
+		log.Printf("[macros] échec de la recopie (%s) de %s non enregistré : %v", part.name, key, err)
 	}
 }
 
 // GetMacro reads one macro as a client sees it: its fields, its computed flags
-// and the status of its todos' copy on the tracker.
+// and the status of the copies of its todos and its framing on the tracker.
 func (d *DB) GetMacro(projectID, key string) (*models.MacroMeta, error) {
 	projectID = strings.TrimSpace(projectID)
 	key = strings.TrimSpace(key)

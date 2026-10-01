@@ -453,7 +453,7 @@ func NewServerWithCallers(database *db.DB, sessions *SessionRegistry, resolve Ca
 			}
 			return nil, workspace, nil
 		})
-	mcp.AddTool(s, &mcp.Tool{Name: "get_macro", Description: "Read one macro (epic) of a project: title, description, framing comment, horizon, its todos in the order of execution (id, text, done, storyKey, target, origin) and todosMirror, the status of their one-way copy on the tracker. Writes nothing."},
+	mcp.AddTool(s, &mcp.Tool{Name: "get_macro", Description: "Read one macro (epic) of a project: title, description, framing comment, horizon, its todos in the order of execution (id, text, done, storyKey, target, origin) todosMirror, the status of their one-way copy on the tracker, and framingMirror, the status of the framing's one-way copy on a Jira epic. Writes nothing."},
 		func(ctx context.Context, req *mcp.CallToolRequest, in macroInput) (*mcp.CallToolResult, any, error) {
 			macro, err := database.GetMacro(in.ProjectID, in.MacroKey)
 			if err != nil {
