@@ -83,8 +83,11 @@ function parse(input) {
 
 // result is the tool_result event that answered this call, if any; pending says
 // Claude is still working and the call has not been answered yet.
-export function toolCard(event, root = '', { result = null, pending = false } = {}) {
+// decision is how the owner answered Claude's request to make this call:
+// allow, always or deny.
+export function toolCard(event, root = '', { result = null, pending = false, decision = '' } = {}) {
   const card = baseCard(event, root)
+  card.decision = decision
   const quiet = QUIET_RESULTS.has(str(event?.tool) || str(event?.text))
   if (result && (!quiet || result.error)) card.result = toolResult(result)
   card.failed = !!result?.error
@@ -154,11 +157,11 @@ export function renderToolCard(card, { document = globalThis.document } = {}) {
     return node
   }
   const expandable = !!(card.body || card.result)
-  const node = el(expandable ? 'details' : 'div', 'conversation-event conversation-tool tool-card' + (expandable ? '' : ' tool-card-line') + (card.failed ? ' tool-card-failed' : ''))
+  const node = el(expandable ? 'details' : 'div', 'conversation-event conversation-tool tool-card' + (expandable ? '' : ' tool-card-line') + (card.failed || card.decision === 'deny' ? ' tool-card-failed' : ''))
   const summary = el(expandable ? 'summary' : 'div', 'tool-card-summary')
   summary.append(el('span', 'tool-card-name', card.name))
   if (card.target) summary.append(el('span', 'tool-card-target', card.target))
-  const status = card.failed ? 'failed' : card.pending ? 'running…' : ''
+  const status = card.decision === 'deny' ? 'denied' : card.failed ? 'failed' : card.pending ? 'running…' : card.decision === 'always' ? 'always allowed' : ''
   if (card.note || status) {
     const note = el('span', 'tool-card-note', card.note)
     if (status) note.append(el('span', 'tool-card-status', (card.note ? ' · ' : '') + status))

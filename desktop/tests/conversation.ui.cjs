@@ -9,7 +9,7 @@ test('Claude chat renders structured output safely and sends messages without a 
  const source={id:'source',taskId:'source',taskKey:'#1',projectId:'project',skill:'implement',status:'completed',directory:'/tmp/project',sessionId:'source'}
  const chat={id:'chat',taskId:'',projectId:'project',kind:'console',provider:'claude',conversation:true,headless:true,status:'running',directory:'/tmp/project'}
  const runs=[source],events=[{kind:'notice',text:'Claude Code conversation · experimental',detail:'Edits accepted; approvals unavailable.'}]
- let busy=false,partial='',interrupts=0,terminals=[],readOnly=false,attachments=0,message='',effort='',context
+ let busy=false,partial='',interrupts=0,terminals=[],approvals=[],decisions=[],readOnly=false,attachments=0,message='',effort='',context
  const server=http.createServer((req,res)=>{
   res.setHeader('Content-Type','application/json')
   if(req.url==='/desktop/status'){res.end(JSON.stringify({connected:true,capabilities:['claude-conversation','conversation-controls']}));return}
@@ -22,8 +22,10 @@ test('Claude chat renders structured output safely and sends messages without a 
   }
   if(req.url==='/desktop/conversation-terminal'){let body='';req.on('data',chunk=>body+=chunk);req.on('end',()=>{terminals.push(JSON.parse(body).runId);res.end(JSON.stringify({opened:true}))});return}
   if(req.url==='/desktop/conversation?id=chat'){
-   if(req.method==='GET'){res.end(JSON.stringify({id:'chat',events:events.map(e=>JSON.stringify(e)),version:events.length,busy,readOnly,effort,context,partial}));return}
+   if(req.method==='GET'){res.end(JSON.stringify({id:'chat',events:events.map(e=>JSON.stringify(e)),version:events.length,busy,readOnly,effort,context,partial,approvals}));return}
    let body='';req.on('data',chunk=>body+=chunk);req.on('end',()=>{
+    const sent=JSON.parse(body)
+    if(sent.approval){decisions.push(sent.approval);const asked=approvals.find(item=>item.id===sent.approval.id);approvals=approvals.filter(item=>item.id!==sent.approval.id);events.push({kind:'approval',text:sent.approval.decision,tool:asked.tool,toolId:asked.toolUseId});res.end(JSON.stringify({accepted:true}));return}
     if(JSON.parse(body).interrupt){interrupts++;busy=false;partial='';events.push({kind:'notice',text:'Interrupted'});res.writeHead(202).end(JSON.stringify({accepted:true}));return}
     ({message,effort}=JSON.parse(body));busy=true;context={used:150000,window:200000}
     events.push({kind:'user',text:message},{kind:'assistant',text:'## Result\n**Safe output**\n```html\n<img src=x onerror="window.hostile=true">\n```\n\n| Name | Value |\n| --- | --- |\n| a | 1 |\n\n- [x] done\n\n[plan](../plan.md) ![diagram](x.png)'},{kind:'tool',text:'Read',detail:'<script>window.hostile=true</script>'},{kind:'tool',text:'Edit',tool:'Edit',detail:'src/app.js',input:{file_path:'/tmp/project/src/app.js',old_string:'keep\n<b>old</b>',new_string:'keep\nnew'}},{kind:'tool',text:'Bash',tool:'Bash',toolId:'t-bash',detail:'go test',input:{command:'go test ./...',description:'Run the tests'}},{kind:'tool_result',toolId:'t-bash',text:'ok  tasks <i>1.2s</i>'},{kind:'tool',text:'Grep',tool:'Grep',toolId:'t-grep',input:{pattern:'TODO'}},{kind:'tool_result',toolId:'t-grep',text:'No matches',error:true},{kind:'tool',text:'TodoWrite',tool:'TodoWrite',input:{todos:[{content:'Read the code',status:'completed'},{content:'Fix it',status:'in_progress'}]}})
@@ -109,6 +111,22 @@ test('Claude chat renders structured output safely and sends messages without a 
   await expect(page.getByRole('button',{name:'Stop answer',exact:true})).toBeVisible()
   await page.getByRole('button',{name:'Open a terminal',exact:true}).click()
   await expect.poll(()=>terminals).toEqual(['chat'])
+  // A tool call Claude may not make waits in its card for the owner.
+  approvals=[{id:'req-1',toolUseId:'t-bash',tool:'Bash',description:'Run the tests',input:{command:'go test ./...'},suggestions:[{type:'addRules'}]},{id:'req-2',tool:'mcp__tracker__close_issue',input:{key:'<b>#1</b>'}}]
+  const asking=page.locator('.tool-card-asking')
+  await expect(asking).toHaveCount(2)
+  await expect(page.locator('.conversation-status')).toHaveText('Waiting for your approval')
+  await expect(card('Bash').getByRole('button',{name:'Always allow',exact:true})).toBeVisible()
+  await expect(card('close_issue').getByRole('button',{name:'Always allow',exact:true})).toHaveCount(0)
+  await expect(card('close_issue').locator('.tool-approval-question')).toHaveText('Allow mcp__tracker__close_issue?')
+  assert.equal(await page.locator('.conversation b').count(),0)
+  await card('Bash').getByRole('button',{name:'Always allow',exact:true}).click()
+  await expect.poll(()=>decisions).toEqual([{id:'req-1',decision:'always'}])
+  await expect(card('Bash').locator('.tool-card-status')).toHaveText('always allowed')
+  await card('close_issue').getByRole('button',{name:'Deny',exact:true}).click()
+  await expect.poll(()=>decisions.length).toBe(2)
+  await expect(asking).toHaveCount(0)
+  await expect(card('close_issue')).toHaveCount(0)
   // The reply in progress streams after the history, rendered, and leaves
   // the history untouched; it disappears once the turn ends.
   const history=await page.locator('.conversation-event').count()

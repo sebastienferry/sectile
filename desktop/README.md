@@ -33,7 +33,9 @@ once complete. Arguments over
 an older agent sends the summary line alone. The chat uses the same directory but has its
 own Claude session and does not change the original execution's workflow state.
 Claude Code must already be installed and authenticated on this workstation.
-Edits are accepted; tools requiring interactive approval are denied. **Stop**
+Edits and Sectile's own tools are accepted; a tool call your Claude Code rules
+do not allow waits in its card for **Allow**, **Always allow** (when Claude
+proposes a rule) or **Deny**, and the decision stays on the card. **Stop**
 closes the conversation. Stored history is read-only after an agent restart.
 See [prototype notes](../docs/experiments/desktop-conversation.md).
 

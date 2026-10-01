@@ -41,6 +41,10 @@ type claudeConversation struct {
 	// interrupted asks the turn in progress to stop. Unlike a stop, the
 	// conversation stays open and the next message resumes its session.
 	interrupted bool
+	// input is the stdin of the turn in progress, nil between turns, and
+	// approvals the tool calls of that turn waiting for the owner.
+	input     *conversationInput
+	approvals []conversationApproval
 }
 
 // conversationPartialLimit bounds a reply in progress; past it the draft stops
@@ -130,6 +134,11 @@ func (d *agentDaemon) desktopConversation(w http.ResponseWriter, r *http.Request
 		Effort      string `json:"effort"`
 		// Interrupt stops the turn in progress and keeps the conversation.
 		Interrupt bool `json:"interrupt"`
+		// Approval answers a tool call the turn is waiting on.
+		Approval *struct {
+			ID       string `json:"id"`
+			Decision string `json:"decision"`
+		} `json:"approval"`
 	}
 	if r.Method == http.MethodPost {
 		if json.NewDecoder(http.MaxBytesReader(w, r.Body, 64*1024)).Decode(&input) != nil {
@@ -170,6 +179,7 @@ func (d *agentDaemon) desktopConversation(w http.ResponseWriter, r *http.Request
 		response := map[string]any{"id": id, "events": lines, "version": version, "busy": false, "readOnly": run.restored || run.canceled || run.conversation == nil}
 		if c := run.conversation; c != nil {
 			response["busy"], response["effort"] = c.busy, c.effort
+			response["approvals"] = append([]conversationApproval{}, c.approvals...)
 			if c.busy && c.partial != "" {
 				response["partial"] = c.partial
 			}
@@ -179,6 +189,19 @@ func (d *agentDaemon) desktopConversation(w http.ResponseWriter, r *http.Request
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(response)
+		return
+	}
+	if input.Approval != nil {
+		if run.conversation == nil || !conversationDecisions[input.Approval.Decision] {
+			http.Error(w, "Unknown decision", http.StatusBadRequest)
+			return
+		}
+		if err := decideApprovalLocked(run, input.Approval.ID, input.Approval.Decision); err != nil {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]bool{"accepted": true})
 		return
 	}
 	if input.Interrupt {
@@ -235,16 +258,18 @@ func startConversationLocked(run *controlledRun, model, origin string) {
 	run.desktop.StartedAt = time.Now().UTC()
 	run.trace = newRunTrace()
 	run.conversation = &claudeConversation{}
-	conversationWrite(run.trace, "notice", "Claude Code conversation · experimental", "Edits and Sectile's tools are accepted. Other commands requiring approval are denied. "+origin)
+	conversationWrite(run.trace, "notice", "Claude Code conversation · experimental", "Edits and Sectile's tools are accepted; other tools your rules do not allow ask for your approval. "+origin)
 }
 
 // claudeConversationCommand is one turn's Claude. Each of dirs is one
 // --add-dir=<path> argument: no shell reads it, so it needs no quoting, and the
-// "=" form keeps a value from swallowing the arguments that follow it.
-func claudeConversationCommand(directory, model, effort, session, prompt string, dirs []string, env map[string]string) *exec.Cmd {
+// "=" form keeps a value from swallowing the arguments that follow it. The
+// message is not an argument either: it goes in on stdin, in the streaming
+// input format that also carries the tool approvals.
+func claudeConversationCommand(directory, model, effort, session string, dirs []string, env map[string]string) *exec.Cmd {
 	// Partial messages stream each reply as Claude writes it; the complete
 	// messages still arrive, so the trace is built from them alone.
-	args := []string{"-p", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--permission-mode", "acceptEdits", conversationAllowedTools}
+	args := []string{"-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--permission-mode", "acceptEdits", "--permission-prompt-tool", "stdio", conversationAllowedTools}
 	if model != "" {
 		args = append(args, "--model", model)
 	}
@@ -260,7 +285,6 @@ func claudeConversationCommand(directory, model, effort, session, prompt string,
 	cmd := agentexec.Hidden(exec.Command("claude", args...))
 	cmd.Dir = directory
 	cmd.Env = commandEnv(env)
-	cmd.Stdin = strings.NewReader(prompt)
 	// A descendant retaining stdout must not prevent stopping the conversation.
 	cmd.WaitDelay = headlessStopGrace
 	return cmd
@@ -320,6 +344,10 @@ func (d *agentDaemon) conversationFolders(projectID, directory string) ([]string
 // does not answer delays the message, it never holds it.
 const conversationFoldersTimeout = 10 * time.Second
 
+// conversationInterruptGrace is how long an interrupted turn has to end on
+// its own before it is stopped.
+const conversationInterruptGrace = 5 * time.Second
+
 func (d *agentDaemon) conversationTurn(run *controlledRun, prompt string) {
 	d.queue.mu.Lock()
 	projectID, directory := run.desktop.ProjectID, run.desktop.Directory
@@ -338,8 +366,12 @@ func (d *agentDaemon) conversationTurn(run *controlledRun, prompt string) {
 			env[key] = value
 		}
 	}
-	cmd := claudeConversationCommand(directory, run.desktop.Model, run.conversation.effort, run.conversation.session, prompt, dirs, env)
+	cmd := claudeConversationCommand(directory, run.desktop.Model, run.conversation.effort, run.conversation.session, dirs, env)
 	d.queue.mu.Unlock()
+	var input *conversationInput
+	if stdin, pipeErr := cmd.StdinPipe(); pipeErr == nil {
+		input = &conversationInput{w: stdin}
+	}
 	resultSeen, resultFailed, assistantSeen, mainModel := false, false, false, ""
 	output := &conversationOutput{line: func(line string) {
 		var frame struct {
@@ -360,6 +392,23 @@ func (d *agentDaemon) conversationTurn(run *controlledRun, prompt string) {
 			Event conversationStream `json:"event"`
 		}
 		if json.Unmarshal([]byte(line), &frame) == nil && frame.Type != "" {
+			// Claude asks before using a tool its rules do not allow; the
+			// call waits for the owner. Other requests are refused at once.
+			if frame.Type == "control_request" {
+				var control conversationControlRequest
+				_ = json.Unmarshal([]byte(line), &control)
+				if control.Request.Subtype != "can_use_tool" {
+					_ = input.send(controlError(control.RequestID, "unsupported control request"))
+					return
+				}
+				d.queue.mu.Lock()
+				run.conversation.approvals = append(run.conversation.approvals, conversationApproval{ID: control.RequestID, ToolUseID: control.Request.ToolUseID, Tool: control.Request.ToolName, Description: control.Request.Description, Input: control.Request.Input, Suggestions: control.Request.Suggestions})
+				d.queue.mu.Unlock()
+				return
+			}
+			if frame.Type == "control_response" {
+				return
+			}
 			d.queue.mu.Lock()
 			if frame.Type == "stream_event" {
 				if frame.Parent == nil {
@@ -408,14 +457,21 @@ func (d *agentDaemon) conversationTurn(run *controlledRun, prompt string) {
 				conversationWriteEvent(run.trace, conversationEvent{Kind: "tool_result", Text: result.Text, ToolID: result.ToolID, Truncated: result.Truncated, Error: result.IsError})
 			}
 			if done {
+				// The result ends the turn: closing stdin lets Claude exit.
+				input.close()
+				d.queue.mu.Lock()
+				interrupted := run.conversation.interrupted
+				d.queue.mu.Unlock()
 				resultSeen, resultFailed = true, frame.IsError
-				if frame.IsError {
+				if frame.IsError && interrupted {
+					resultFailed = false
+				} else if frame.IsError {
 					conversationWrite(run.trace, "error", result, "")
 				} else if !assistantSeen && result != "" {
 					conversationWrite(run.trace, "assistant", result, "")
 				}
 				if len(frame.Denials) > 0 {
-					conversationWrite(run.trace, "notice", "Some tools required approval and were denied.", "This prototype does not yet offer interactive tool approvals.")
+					conversationWrite(run.trace, "notice", "Some tool calls were denied.", "")
 				}
 			}
 			return
@@ -428,28 +484,50 @@ func (d *agentDaemon) conversationTurn(run *controlledRun, prompt string) {
 	// Keep diagnostics separate so stderr cannot corrupt JSON on stdout.
 	var diagnostics limitedConversationBuffer
 	cmd.Stderr = &diagnostics
-	release, err := agentexec.StartDetached(cmd)
+	// The folder read above may have failed; the turn runs regardless.
+	err = nil
+	if input == nil {
+		err = fmt.Errorf("Claude Code's input could not be opened")
+	}
+	release := func() {}
 	if err == nil {
+		release, err = agentexec.StartDetached(cmd)
+	}
+	if err == nil {
+		d.queue.mu.Lock()
+		run.conversation.input = input
+		d.queue.mu.Unlock()
+		_ = input.send(conversationControl("initialize"))
+		_ = input.send(conversationUserMessage(prompt))
 		waited := make(chan error, 1)
 		go func() { waited <- cmd.Wait() }()
 		ticker := time.NewTicker(100 * time.Millisecond)
 		defer ticker.Stop()
 		stopping := false
+		// An interrupt is asked of Claude first; a turn that has not ended
+		// a few seconds later is stopped, as a stop always is.
+		var interruptedAt time.Time
 		for waiting := true; waiting; {
 			select {
 			case err = <-waited:
 				waiting = false
 			case <-ticker.C:
 				d.queue.mu.Lock()
-				stop := run.canceled || run.conversation.interrupted
+				canceled, interrupted := run.canceled, run.conversation.interrupted
 				d.queue.mu.Unlock()
-				if stop {
+				if interrupted && interruptedAt.IsZero() {
+					interruptedAt = time.Now()
+					_ = input.send(conversationControl("interrupt"))
+				}
+				if canceled || interrupted && time.Since(interruptedAt) > conversationInterruptGrace {
+					input.close()
 					agentexec.StopControlled(cmd, stopping)
 					stopping = true
 				}
 			}
 		}
 	}
+	input.close()
 	release()
 	if len(output.buffer) > 0 {
 		output.line(string(output.buffer))
@@ -461,6 +539,11 @@ func (d *agentDaemon) conversationTurn(run *controlledRun, prompt string) {
 	defer d.queue.mu.Unlock()
 	interrupted := run.conversation.interrupted
 	run.conversation.interrupted = false
+	run.conversation.input = nil
+	if pending := len(run.conversation.approvals); pending > 0 {
+		run.conversation.approvals = nil
+		conversationWrite(run.trace, "notice", "The turn ended before its tool calls were answered", "")
+	}
 	if interrupted && !run.canceled {
 		conversationWrite(run.trace, "notice", "Interrupted", "Claude Code stopped this answer. Send a message to continue the conversation.")
 	} else if run.canceled {

@@ -2,7 +2,6 @@ package agent
 
 import (
 	"encoding/json"
-	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -73,23 +72,24 @@ func TestConversationRequiresDesktopAuthenticationAndOwnedDirectory(t *testing.T
 	}
 }
 
-func TestConversationCommandPassesPromptWithoutShellInterpretation(t *testing.T) {
-	prompt := "--help\n$(touch should-not-exist) `echo unsafe`"
-	cmd := claudeConversationCommand(t.TempDir(), "sonnet", "high", "session", prompt, nil, nil)
-	if got := strings.Join(cmd.Args, " "); strings.Contains(got, "touch") || !strings.Contains(got, "--resume session") || !strings.Contains(got, "--model sonnet") || !strings.Contains(got, "--effort high") || strings.Contains(got, "bypassPermissions") || !strings.Contains(got, "--allowedTools=mcp__sectile") || !strings.Contains(got, "--include-partial-messages") {
-		t.Fatalf("unsafe or incomplete command: %s", got)
+func TestConversationCommandTakesTheMessageOnStdinOnly(t *testing.T) {
+	cmd := claudeConversationCommand(t.TempDir(), "sonnet", "high", "session", nil, nil)
+	got := strings.Join(cmd.Args, " ")
+	for _, want := range []string{"--resume session", "--model sonnet", "--effort high", "--input-format stream-json", "--permission-prompt-tool stdio", "--allowedTools=mcp__sectile", "--include-partial-messages"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("missing %q: %s", want, got)
+		}
 	}
-	data, err := io.ReadAll(cmd.Stdin)
-	if err != nil || string(data) != prompt {
-		t.Fatal("prompt was not preserved on stdin")
+	if strings.Contains(got, "bypassPermissions") || cmd.Stdin != nil {
+		t.Fatalf("unsafe command, or a message fixed before the turn: %s", got)
 	}
 }
 
 // Each folder is one argument, whatever it holds, and the folder map reaches
 // the session's environment (#676).
 func TestConversationCommandCarriesTheProjectFolders(t *testing.T) {
-	plain := claudeConversationCommand(t.TempDir(), "", "", "", "hello", nil, nil)
-	cmd := claudeConversationCommand(t.TempDir(), "", "", "", "hello", []string{"/a", "/b c"}, map[string]string{"SECTILE_REPOSITORIES": `[{"path":"/a"}]`})
+	plain := claudeConversationCommand(t.TempDir(), "", "", "", nil, nil)
+	cmd := claudeConversationCommand(t.TempDir(), "", "", "", []string{"/a", "/b c"}, map[string]string{"SECTILE_REPOSITORIES": `[{"path":"/a"}]`})
 	if got := cmd.Args[len(plain.Args):]; len(got) != 2 || got[0] != "--add-dir=/a" || got[1] != "--add-dir=/b c" {
 		t.Fatalf("folder arguments = %q", got)
 	}
@@ -203,7 +203,9 @@ func TestConversationRunsAndResumesClaudeWithoutPTY(t *testing.T) {
 	testhome.Temp(t)
 	bin := t.TempDir()
 	script := `#!/bin/sh
-cat > prompt.txt
+read -r init
+read -r message
+printf '%s' "$message" > prompt.txt
 printf '%s\n' "$@" >> args.txt
 printf '%s\n' '{"type":"system","subtype":"init","model":"claude-main","session_id":"11111111-1111-4111-8111-111111111111"}'
 printf '%s\n' '{"type":"assistant","parent_tool_use_id":null,"message":{"usage":{"input_tokens":10,"cache_creation_input_tokens":2000,"cache_read_input_tokens":40000,"output_tokens":90},"content":[{"type":"text","text":"Hello"},{"type":"tool_use","name":"Read","input":{"file_path":"file.go"}}]}}'
@@ -243,9 +245,15 @@ printf '%s\n' '{"type":"result","is_error":false,"result":"Hello","session_id":"
 	if err != nil || !strings.Contains(string(args), "--resume\n11111111-1111-4111-8111-111111111111") || strings.Count(string(args), "--effort\nxhigh") != 2 {
 		t.Fatalf("session not resumed: %s %v", args, err)
 	}
-	prompt, _ := os.ReadFile(filepath.Join(run.root, "prompt.txt"))
-	if string(prompt) != "second $(touch unsafe)" {
-		t.Fatalf("prompt changed: %s", prompt)
+	raw, _ := os.ReadFile(filepath.Join(run.root, "prompt.txt"))
+	var prompt struct {
+		Type    string `json:"type"`
+		Message struct {
+			Content string `json:"content"`
+		} `json:"message"`
+	}
+	if json.Unmarshal(raw, &prompt) != nil || prompt.Type != "user" || prompt.Message.Content != "second $(touch unsafe)" {
+		t.Fatalf("prompt changed: %s", raw)
 	}
 	if _, err := os.Stat(filepath.Join(run.root, "unsafe")); !os.IsNotExist(err) {
 		t.Fatal("prompt interpreted by shell")
@@ -319,7 +327,8 @@ func TestConversationStreamsTheReplyInProgress(t *testing.T) {
 	testhome.Temp(t)
 	bin := t.TempDir()
 	script := `#!/bin/sh
-cat > /dev/null
+read -r init
+read -r message
 printf '%s\n' '{"type":"stream_event","parent_tool_use_id":null,"event":{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}}'
 printf '%s\n' '{"type":"stream_event","parent_tool_use_id":null,"event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hello **wor"}}}'
 printf '%s\n' '{"type":"stream_event","parent_tool_use_id":"toolu_9","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"subagent"}}}'
@@ -446,5 +455,90 @@ func TestConversationTerminalOpensAShellInItsDirectory(t *testing.T) {
 	}
 	if w := conversationRequest(d, "POST", "/desktop/conversation-terminal", `{"runId":"`+id+`"}`, "private"); w.Code != http.StatusNotFound {
 		t.Fatalf("an ended conversation opened a terminal: %d", w.Code)
+	}
+}
+
+// A tool call Claude may not make on its own waits for the owner; the
+// decision goes back to Claude on stdin and is kept in the trace.
+func TestConversationAsksTheOwnerBeforeAToolCall(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake CLI is a POSIX script")
+	}
+	testhome.Temp(t)
+	bin := t.TempDir()
+	script := `#!/bin/sh
+read -r init
+read -r message
+printf '%s\n' '{"type":"assistant","parent_tool_use_id":null,"message":{"content":[{"type":"tool_use","id":"toolu_1","name":"Bash","input":{"command":"make deploy"}}]}}'
+printf '%s\n' '{"type":"control_request","request_id":"req-1","request":{"subtype":"can_use_tool","tool_name":"Bash","tool_use_id":"toolu_1","description":"Deploy","input":{"command":"make deploy"},"permission_suggestions":[{"type":"addRules","rules":[{"toolName":"Bash","ruleContent":"make deploy"}],"behavior":"allow","destination":"localSettings"}]}}'
+read -r answer
+printf '%s' "$answer" > answer.txt
+printf '%s\n' '{"type":"result","is_error":false,"result":"Deployed","session_id":"11111111-1111-4111-8111-111111111111"}'
+`
+	if err := os.WriteFile(filepath.Join(bin, "claude"), []byte(script), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	d, id := conversationFixture(t)
+	run := d.queue.runs[id]
+	if w := conversationRequest(d, "POST", "/desktop/conversation?id="+id, `{"message":"deploy"}`, "private"); w.Code != 202 {
+		t.Fatalf("send: %d", w.Code)
+	}
+	var body struct {
+		Busy      bool                   `json:"busy"`
+		Approvals []conversationApproval `json:"approvals"`
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for len(body.Approvals) == 0 {
+		if time.Now().After(deadline) {
+			t.Fatal("the tool call never waited for the owner")
+		}
+		time.Sleep(10 * time.Millisecond)
+		_ = json.Unmarshal(conversationRequest(d, "GET", "/desktop/conversation?id="+id, "", "private").Body.Bytes(), &body)
+	}
+	if a := body.Approvals[0]; a.ID != "req-1" || a.ToolUseID != "toolu_1" || a.Tool != "Bash" || !strings.Contains(string(a.Input), "make deploy") {
+		t.Fatalf("unexpected approval: %+v", a)
+	}
+	if w := conversationRequest(d, "POST", "/desktop/conversation?id="+id, `{"approval":{"id":"req-1","decision":"maybe"}}`, "private"); w.Code != http.StatusBadRequest {
+		t.Fatalf("an unknown decision was accepted: %d", w.Code)
+	}
+	if w := conversationRequest(d, "POST", "/desktop/conversation?id="+id, `{"approval":{"id":"req-1","decision":"always"}}`, "private"); w.Code != 200 {
+		t.Fatalf("decide: %d %s", w.Code, w.Body.String())
+	}
+	for body.Busy || len(body.Approvals) > 0 {
+		if time.Now().After(deadline) {
+			t.Fatalf("the turn did not end: %+v", body)
+		}
+		time.Sleep(10 * time.Millisecond)
+		_ = json.Unmarshal(conversationRequest(d, "GET", "/desktop/conversation?id="+id, "", "private").Body.Bytes(), &body)
+	}
+	raw, _ := os.ReadFile(filepath.Join(run.root, "answer.txt"))
+	var answer struct {
+		Response struct {
+			RequestID string `json:"request_id"`
+			Response  struct {
+				Behavior           string          `json:"behavior"`
+				UpdatedInput       json.RawMessage `json:"updatedInput"`
+				UpdatedPermissions json.RawMessage `json:"updatedPermissions"`
+			} `json:"response"`
+		} `json:"response"`
+	}
+	if json.Unmarshal(raw, &answer) != nil || answer.Response.RequestID != "req-1" || answer.Response.Response.Behavior != "allow" || !strings.Contains(string(answer.Response.Response.UpdatedPermissions), "make deploy") || !strings.Contains(string(answer.Response.Response.UpdatedInput), "make deploy") {
+		t.Fatalf("Claude did not get the decision: %s", raw)
+	}
+	lines, _ := run.trace.snapshot()
+	if text := strings.Join(lines, "\n"); !strings.Contains(text, `"kind":"approval","text":"always"`) || strings.Contains(text, `"kind":"error"`) {
+		t.Fatalf("unexpected transcript: %s", text)
+	}
+}
+
+func TestADeniedToolCallCarriesNoInput(t *testing.T) {
+	data, _ := json.Marshal(approvalResponse(conversationApproval{ID: "r", Input: json.RawMessage(`{"command":"rm -rf /"}`)}, "deny"))
+	if text := string(data); !strings.Contains(text, `"behavior":"deny"`) || strings.Contains(text, "rm -rf") {
+		t.Fatalf("deny = %s", text)
+	}
+	data, _ = json.Marshal(approvalResponse(conversationApproval{ID: "r", Suggestions: json.RawMessage(`null`)}, "always"))
+	if text := string(data); !strings.Contains(text, `"updatedInput":{}`) || strings.Contains(text, "updatedPermissions") {
+		t.Fatalf("always without suggestions = %s", text)
 	}
 }

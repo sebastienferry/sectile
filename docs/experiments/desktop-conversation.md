@@ -1,73 +1,96 @@
-# Claude Code Desktop conversation prototype
+# Claude Code Desktop conversation
 
-The `feat/desktop-conversation-test` branch adds a conversation view for Claude,
-off by default. **Settings → Appearance → Claude consoles** switches between
-**Terminal** (the PTY, unchanged) and **Conversation**, a workstation setting
-kept in the desktop's `settings.json` as `consoleView`.
+Desktop has a conversation view for Claude, off by default. **Settings →
+Appearance → Claude consoles** switches between **Terminal** (the PTY,
+unchanged) and **Conversation**, a workstation setting kept in the desktop's
+`settings.json` as `consoleView`.
 
-In Conversation mode, a **Project prompt** with Claude opens in this view in the
-project's local repository, and **Claude chat (test)** appears in the execution
-toolbar. Select an execution with a local directory first: the action opens an
-independent local free console in that directory. It does not resume the
-original PTY session or advance a ticket's workflow. Codex, other engines, and
-catalogue engines with a custom launch command keep the terminal, as does an
-agent older than this view, which ignores the request. Skill executions always
-run in the terminal. A conversation does not wait for a busy shared checkout.
+## What opens in it
 
-## Run and try
+In Conversation mode:
 
-Install and authenticate Claude Code before starting Sectile. Run `make run`,
-turn on Conversation in Appearance, then open a Claude **Project prompt**, or
-select an execution and click **Claude chat (test)**, and send a message. Messages
-and tool calls appear as structured events. Tool details can be expanded.
-Headings, fenced code blocks, inline code and bold text have basic formatting;
-HTML from engine output is always displayed as text. The view polls the local
-agent while selected; no transcript is sent to the Sectile server.
+- a task's interactive launches from Desktop: a skill such as clarify or
+  implement from the launch menu, **Relaunch** or **Next step**, and
+  **Discussion (no skill)**. A skill sends its command, the one the terminal
+  would have typed with the dispatch's instructions, as the first message, and
+  runs with the skill's model; a discussion waits for the first message. Both
+  run in the task's worktree with the `SECTILE_TASK_*` environment the
+  terminal would have had;
+- a **Project prompt**, in the project's local repository;
+- **Claude chat (test)** in the execution toolbar, an independent conversation
+  in the selected execution's directory.
 
-The prototype uses Claude's `acceptEdits` permission mode. Edits and actions
-already allowed by Claude's local configuration can execute. Calls that would
-require an interactive prompt are denied in print mode; the result's permission
-denials are shown. There is no approval dialog or `AskUserQuestion` bridge yet.
-Avoid running simultaneous changes in the source execution and its chat.
+The engine must be a Claude one. A Claude engine with a launch template
+converses with the template's model and leaves the template's other options
+aside; the first notice says so. Codex and other engines keep the terminal, as
+do autonomous launches, which keep their read-only trace, and launches from the
+web interface. An agent older than this view ignores the request and opens the
+terminal. The server never sees the view: Desktop passes it to the agent with
+the launch, and the agent keeps it two minutes against the task until the
+dispatch comes back.
 
-Each message launches `claude -p --output-format stream-json --verbose` with
-`--permission-mode acceptEdits`. The prompt travels on stdin, never through a
-shell. Subsequent messages pass `--resume` with the session ID Claude reported.
-Output appears at assistant-message boundaries, rather than token by token.
-The effort picked in the composer is sent with each message and passed as
-`--effort`; **Default effort** omits the flag and leaves the CLI to decide. The
-ring beside the send button shows how much of the model's context window the
-latest main-thread request used: its input, cache and output tokens from the
-`assistant` frame's `usage`, against the `contextWindow` the `result` frame
-reports for the model the `init` frame named. Subagent requests are ignored.
-The ring stays hidden until a first turn has reported a window, and neither
-value survives an agent restart.
-Each message also reads the project's folders afresh (#676): the project's other
-repositories mapped here, its specifications folder and its attached folders,
-each passed as one `--add-dir=<path>` argument, with the same folder map in
-`SECTILE_REPOSITORIES` as a skill run. A folder gone from the disk is left out.
-When the folders cannot be read, the message still runs, without them, and a
-status line says so. **Add folder…** in the composer attaches a folder to the
-project, with the checks of the project settings, and Claude is given it from
-the next message; it stays available while Claude works and is disabled on a
-read-only history.
-Only one message can be in flight in a conversation. A failed turn leaves the
-conversation available for retry, and a missing CLI is displayed as an error.
+## What it shows
 
-**Stop execution** interrupts the active process tree and closes the chat.
-Stop idle chats before restarting the agent. The daemon also stops its chat
-children during shutdown. History uses the existing bounded run trace and run
-store, with at most 2,000 retained events. After restarting the agent, the
-transcript is read-only; a new chat starts a new Claude session.
+Claude's replies and thinking render as Markdown, through the renderer of the
+Changes panel and its rules: raw HTML stays text, images never load, and only
+web and mail links open, in the browser. The user's messages show as typed.
+Each reply streams as Claude writes it, ending on a caret, and settles into the
+history once complete.
 
-## Remaining work before a general replacement for PTY
+Each tool call is a card drawn from its arguments: an edit as a diff, a written
+file as its lines, a command as the command, the todo list as a checklist,
+reads and searches on one line, other tools as their arguments. What the tool
+answered shows inside its card, cut at 16 KiB and 200 lines; the confirmations
+of Edit, Write and TodoWrite show only when they failed. A failed call is
+outlined and opens on its error, and a call still waiting for its answer says
+running….
 
-- Interactive tool approvals, questions and per-session permission selection.
-- Token deltas and tool-result correlation.
+## Approvals and controls
+
+Edits are accepted, as are Sectile's own MCP tools, which every skill relies
+on. A tool call the owner's Claude Code rules do not allow waits in its card
+for **Allow**, **Always allow** (when Claude proposes a rule, which is then
+saved where Claude says) or **Deny**, as in Claude Code; the composer reads
+Waiting for your approval. The decision stays on the card.
+
+While Claude answers, **Stop answer** replaces **Send**, and Esc in the message
+box does the same: the answer stops and the conversation stays open, the next
+message resuming the session. **Terminal** opens a native terminal on a shell
+in the conversation's directory, with the task's environment; a second click
+reuses it and it closes with the conversation. **Stop execution** ends the
+conversation; a ticket discussion then completes on the server.
+
+The effort picked in the composer is sent with each message as `--effort`;
+**Default effort** leaves the CLI to decide. The ring beside the send button
+shows how much of the model's context window the latest main-thread request
+used. **Add folder…** attaches a folder to the project, and Claude is given it
+from the next message. Only one message can be in flight.
+
+## How it runs
+
+Each message starts `claude -p --input-format stream-json --output-format
+stream-json --verbose --include-partial-messages --permission-mode acceptEdits
+--permission-prompt-tool stdio --allowedTools=mcp__sectile`, with `--resume`
+once Claude has reported a session, `--model`, `--effort` and one
+`--add-dir=<path>` per folder of the project, read afresh for each message
+(#676). Nothing goes through a shell. The agent writes an `initialize` request
+and the message on stdin, answers Claude's `can_use_tool` requests there, and
+closes stdin on the result. See
+[ADR 0047](../adrs/0047-claude-conversations-speak-the-streaming-input-protocol.md).
+
+History uses the bounded run trace and run store, with at most 2,000 retained
+events; a reply in progress is never stored. After an agent restart the
+transcript is read-only, and a new conversation starts a new Claude session.
+Stop idle conversations before restarting the agent.
+
+## Remaining work
+
+- Send a message while Claude works, which needs a persistent process per
+  conversation.
+- A dedicated card for `AskUserQuestion`, which shows as a plain approval today.
+- Tell an owner who looked away that a tool call waits for them.
 - Restore a live conversation after an agent restart.
-- Launch workflow skills directly in this view with the existing run context.
-- Honour custom Claude launch templates and engine profiles.
 - Support providers other than Claude through a shared event contract.
 
 See [ADR 0042](../adrs/0042-experimental-claude-conversations-use-process-pipes.md)
-for the prototype's scope and process ownership.
+for the prototype's original scope and process ownership.

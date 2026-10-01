@@ -535,6 +535,12 @@ details.tool-card[open]>summary::before{content:'▾'}
 .conversation-event pre.tool-card-result-error{color:var(--danger);border-color:var(--danger)}
 .tool-card-failed{border-color:var(--danger)}
 .tool-card-failed .tool-card-status{color:var(--danger)}
+.tool-card-asking{border-color:var(--accent-border)}
+.tool-approval{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:8px 0 2px;padding-top:8px;border-top:1px solid var(--border-subtle)}
+.tool-approval-question{flex:1 1 200px;min-width:0;font-size:12.5px;overflow-wrap:anywhere}
+.tool-approval button{padding:5px 12px;font-size:12.5px}
+.tool-approval .tool-approval-allow{color:var(--on-accent);background:var(--accent);border-color:var(--accent)}
+.tool-approval .tool-approval-deny{color:var(--danger)}
 .conversation-notice,.conversation-thinking{color:var(--text-faint)}
 .conversation-error{color:var(--danger)}
 .conversation-plain{white-space:pre-wrap}
