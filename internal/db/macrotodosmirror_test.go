@@ -192,6 +192,21 @@ func TestRenderTodosMirrorPerKind(t *testing.T) {
 	}
 }
 
+func TestGithubTodosBlockSurvivesATodoQuotingItsMarkers(t *testing.T) {
+	todos := []models.MacroTodo{{Text: "Explain " + todosBlockClose + " and " + todosBlockOpen}, {Text: "Last"}}
+	block := renderTodosMirror(models.MacroTodosMirrorGithubDescription, todos)
+	outside, got := splitTodosBlock(joinTodosBlock("Notes", block))
+	if outside != "Notes" || got != block {
+		t.Fatalf("a todo quoting a marker split the block: outside %q, block %q", outside, got)
+	}
+	if !strings.Contains(block, "1. [ ] Explain &lt;!-- /sectile:macro-todos -->") {
+		t.Errorf("the marker in the todo text must be escaped:\n%s", block)
+	}
+	if jira := renderTodosMirror(models.MacroTodosMirrorJiraComment, todos); !strings.Contains(jira, todosBlockClose) {
+		t.Errorf("the Jira comment keeps the text as typed:\n%s", jira)
+	}
+}
+
 func TestRenderTodosMirrorKeepsWithinTheBudget(t *testing.T) {
 	long := strings.Repeat("x", 900)
 	todos := make([]models.MacroTodo, 100)

@@ -161,6 +161,12 @@ func renderTodosMirror(kind string, todos []models.MacroTodo) string {
 			}
 		}
 		text := strings.Join(strings.Fields(todo.Text), " ")
+		if github {
+			// A todo quoting a block marker would end the block early, and the
+			// next split would keep the rest as a person's text. GitHub shows
+			// the escaped form as typed.
+			text = strings.ReplaceAll(text, "<!--", "&lt;!--")
+		}
 		line := fmt.Sprintf("%d. %s %s", i+1, box, text)
 		if key := strings.TrimSpace(todo.StoryKey); key != "" {
 			line += " - " + key
