@@ -74,6 +74,12 @@ func TestUpdateMacroTodosSavesTheFullList(t *testing.T) {
 	}}); err == nil {
 		t.Fatal("an unknown id refuses the call")
 	}
+	// An agent cannot drop a line already linked to a story (#647).
+	if _, err := call(t, database, "update_macro_todos", map[string]any{"projectId": "default", "macroKey": "M-1", "todos": []any{
+		map[string]any{"text": "New first"},
+	}}); err == nil || !strings.Contains(err.Error(), "DEFAUL-3") {
+		t.Fatalf("dropping the line linked to DEFAUL-3 must be refused and name it: %v", err)
+	}
 	if _, err := call(t, database, "update_macro_todos", map[string]any{"projectId": "default", "macroKey": "M-9", "todos": []any{}}); err == nil || !strings.Contains(err.Error(), "M-9") {
 		t.Fatalf("an unknown macro is named: %v", err)
 	}

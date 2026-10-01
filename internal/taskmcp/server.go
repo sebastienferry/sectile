@@ -461,7 +461,7 @@ func NewServerWithCallers(database *db.DB, sessions *SessionRegistry, resolve Ca
 			}
 			return nil, map[string]any{"macro": macro}, nil
 		})
-	mcp.AddTool(s, &mcp.Tool{Name: "update_macro_todos", Description: "Save the full ordered todo list of a macro, top first. A todo with the id of an existing one keeps its story key and origin and takes the given text, done and target; a todo without id is created; an existing todo the list omits is removed. A blank text, an unknown id or a repeated id refuses the whole call and saves nothing. Story keys cannot be set here. Save only a list the owner confirmed. Answers with the saved macro and todosMirror; the tracker copy is written shortly after."},
+	mcp.AddTool(s, &mcp.Tool{Name: "update_macro_todos", Description: "Save the full ordered todo list of a macro, top first. A todo with the id of an existing one keeps its story key and origin and takes the given text, done and target; a todo without id is created; an existing todo the list omits is removed, except one linked to a story, which refuses the call: only the macro's panel removes it. A blank text, an unknown id or a repeated id refuses the whole call and saves nothing. Story keys cannot be set here. Save only a list the owner confirmed. Answers with the saved macro and todosMirror; the tracker copy is written shortly after."},
 		func(ctx context.Context, req *mcp.CallToolRequest, in macroTodosInput) (*mcp.CallToolResult, any, error) {
 			caller := callerOf(resolve, req)
 			if err := requireCaller(caller); err != nil {

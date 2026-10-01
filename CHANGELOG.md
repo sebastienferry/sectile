@@ -87,7 +87,7 @@ test fixtures or internal plumbing.
 
 ### Fixed
 
-- `prepare_macro_worktree` always returns the macro's todos, an empty list when there are none, so a macro skill no longer has to guess whether a missing field means no todos. (#647)
+- **A macro skill can no longer drop a todo linked to a story.** `update_macro_todos` refuses a list that leaves out a todo already linked to a story, and names it: only the macro's panel, where the story is visible, removes it. `prepare_macro_worktree` also always returns the macro's todos, an empty list when there are none. (#647)
 - **A clarification whose report stays out of the repository resumes where it stopped.** When a project keeps its specifications out of the repository, a clarification continued from another worktree or another workstation no longer starts over at round 1: it rebuilds the report from the rounds already published on the ticket and asks the next round's questions. Specification and adjustment also read the clarification and the specification from the ticket when the files are not in their worktree. (#487)
 - A card moved on a GitHub project by someone without a personal GitHub token no longer reports success: its activity fails and says the token is missing, as a stage change already did. (#645)
 - **Preparing a task worktree on Windows no longer opens a console window.** The dependency install that follows a worktree's creation, and the `git` calls made to read a macro's specification files, used to flash a console window (or keep one open for the whole install) when the agent was started by Sectile Desktop. (#638)

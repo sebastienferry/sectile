@@ -610,6 +610,11 @@ type MacroTodoInput struct {
 // keeps the story key and the origin of every known line, removes the stored
 // lines the list omits, and saves through the panel's path, which schedules the
 // copy on the tracker as the person ctx names.
+//
+// A stored line already linked to a story is never removed this way (#647): an
+// agent cannot see the story the way the person editing the macro's panel does,
+// and the link is the one loss nobody would notice. The list must keep it by
+// id; only the panel removes it.
 func (d *DB) ReplaceMacroTodos(ctx context.Context, projectID, key string, items []MacroTodoInput) (*models.MacroMeta, error) {
 	current, err := d.GetMacro(projectID, key)
 	if err != nil {
@@ -645,6 +650,15 @@ func (d *DB) ReplaceMacroTodos(ctx context.Context, projectID, key string, items
 		todo.TargetProjectID = item.TargetProjectID
 		todo.TargetTrackerProject = item.TargetTrackerProject
 		todos = append(todos, todo)
+	}
+	var linked []string
+	for _, todo := range current.Todos {
+		if !seen[todo.ID] && strings.TrimSpace(todo.StoryKey) != "" {
+			linked = append(linked, fmt.Sprintf("%s « %s » (story %s)", todo.ID, todo.Text, todo.StoryKey))
+		}
+	}
+	if len(linked) > 0 {
+		return nil, fmt.Errorf("la liste retire des todos liés à une story, que seul le panneau de la macro peut retirer : %s ; gardez-les par leur id, ou demandez à l'utilisateur de les retirer depuis le web : rien n'a été enregistré", strings.Join(linked, " ; "))
 	}
 
 	if _, err := d.UpdateMacro(ctx, current.ProjectID, key, nil, nil, nil, nil, &todos, nil); err != nil {

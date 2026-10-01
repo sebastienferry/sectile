@@ -206,7 +206,9 @@ retyping it.
    the macro's todos become that list in that order: a line carrying a known
    id keeps that line's story key and origin and takes the given text, `done`
    and target; a line without an id is created; a stored line the list omits
-   is removed.
+   is removed, unless it is linked to a story: then the call is refused as a
+   whole, names that line, and nothing is saved (added by #647, decided by the
+   owner: only the macro's panel removes a line linked to a story).
 4. Given a list with a blank text, an id the macro does not have, or the same
    id twice, then the call is refused as a whole and nothing is saved.
 5. Given a line carrying a story key in the call, then that key is ignored:
