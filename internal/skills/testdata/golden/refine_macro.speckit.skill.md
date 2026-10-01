@@ -73,18 +73,24 @@ Transform high-level macro framing text into an actionable, structured todo list
    - Once answered or if framing text is detailed, group action items according to the selected SDD framework:
      - **SpecKit SDD**: Group into User Stories ([US-x]) and Feature Modules ([FEAT-x]).
      - **OpenSpec SDD**: Group into Capabilities ([CAP-x]) and Change Proposals ([CHANGE-x]).
-4. Output the generated checklist of actionable todos AND proposed Sectile tickets (Title, IssueType: Story/Task/Bug, Description) for bulk ticket creation.
+4. **Reconcile the macro description**:
+   - For every answer that settles an open question, reverses a recorded decision, or moves an item in or out of scope, name the sentence of the macro description it contradicts.
+   - Propose the description edit as a diff, in the same confirmation as the ticket creation, and apply it through the tracker's update once confirmed. A macro whose tickets say one thing and whose description says another is not refined.
+   - Answers given after the run has finished go through this step again, not only through the tickets they touch.
+5. Output the generated checklist of actionable todos AND proposed Sectile tickets (Title, IssueType: Story/Task/Bug, Description) for bulk ticket creation.
 
 ## Do not
 - Do not generate tasks blindly when framing text is vague without asking clarification questions.
 - Do not overwrite existing todos or tasks without user confirmation in the UI.
 - Do not mutate external tracker issues directly without user trigger.
+- Do not defer a description change to realign-macro: it aligns the specification files and never touches the tracker's description.
 
 ## Report
 - Clarification Q&A summary (if framing was vague).
 - Structured list of proposed MacroTodo items.
 - Proposed Sectile tickets breakdown (Title, IssueType, Description).
 - Rationale behind the task breakdown.
+- Macro description: the sections updated, or the contradictions left in place and why.
 
 ## Macro run
 A macro has no stage: this skill declares none, and moves nothing. `SECTILE_MACRO_KEY` and `SECTILE_MACRO_PROJECT_ID` name the macro when Sectile launched the session; the key given as argument wins over them. Invoked by hand, find the project ID with `list_projects`. The ticket variables (`SECTILE_TASK_*`) are not set here.

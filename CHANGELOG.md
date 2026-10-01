@@ -45,6 +45,7 @@ test fixtures or internal plumbing.
 
 ### Changed
 
+- **Refining a macro keeps its description in step.** When a clarification answer settles an open question, reverses a decision or moves something in or out of scope, `refine-macro` now proposes the matching edit of the macro description alongside the tickets, including for answers given after the run ended, and reports what it changed or left.
 - The roadmap no longer applies the ticket views' parent filter: every epic keeps all its tickets, and the filter still applies when you go back to the tickets. (#630)
 - The roadmap priority is now the epic's own. It no longer shows the highest priority among the epic's tickets, so an epic without a priority reads "No priority" until one is set or seeded. (#627)
 - **Board cards no longer show the task's description.** A card now shows its key, title, badges and links, on every density; open the task to read its description. The list view keeps its one-line excerpt. (#622)
