@@ -86,6 +86,7 @@ test fixtures or internal plumbing.
 
 ### Fixed
 
+- The local agent no longer crashes when a terminal is opened, or kept open, on a console that is printing: a viewer joining or a connection keepalive could write to the terminal at the same moment as its output and stop the agent, closing every console.
 - **A clarification whose report stays out of the repository resumes where it stopped.** When a project keeps its specifications out of the repository, a clarification continued from another worktree or another workstation no longer starts over at round 1: it rebuilds the report from the rounds already published on the ticket and asks the next round's questions. Specification and adjustment also read the clarification and the specification from the ticket when the files are not in their worktree. (#487)
 - A card moved on a GitHub project by someone without a personal GitHub token no longer reports success: its activity fails and says the token is missing, as a stage change already did. (#645)
 - **Preparing a task worktree on Windows no longer opens a console window.** The dependency install that follows a worktree's creation, and the `git` calls made to read a macro's specification files, used to flash a console window (or keep one open for the whole install) when the agent was started by Sectile Desktop. (#638)
