@@ -9,12 +9,12 @@ Go: `internal/taskmcp`, `internal/db` (stage transition and PR validation),
 
 - `transitionInput.NoRepositoryChange bool` (`noRepositoryChange`) and its
   schema entry with a description that names the justification.
-- `db.TransitionTaskStageWithPRs` keeps its signature; a new
-  `TransitionTaskStageNoRepositoryChange`-style option is avoided by adding
-  `TransitionTaskStageOptions{NoRepositoryChange bool}` to an inner function
-  the two public entry points share, so existing callers are untouched.
-- `validateStagePRs` gains the flag. When set and the stage requires
-  evidence:
+- `db.TransitionTaskStageWithPRs` keeps its signature. A new entry point,
+  `TransitionTaskStageWithoutRepositoryChange`, shares the inner
+  `transitionTaskStage` with it, so existing callers are untouched. The
+  handler refuses the statement next to `prUrl` or `prUrls` before calling it.
+- With the statement, `noRepositoryChangeEvidence` runs in place of
+  `validateStagePRs`. When the stage requires evidence:
   - refuse when any URL is given;
   - refuse when `task.PrLinks` holds a link recorded on the transition's
     branch (or with no branch);
