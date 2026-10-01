@@ -339,6 +339,28 @@ project checkout:
 `found: false` means no verified checkout; the stage then proceeds on the
 forge's evidence and its report says the head was not verified locally.
 
+A task may prepare a worktree in a secondary repository and leave it untouched
+(#678). Before requiring the pull request of a secondary repository that has
+none given or recorded on the branch, the server sends `branch_changes` with
+`payload.repository` and `payload.branch`. The agent looks for any checkout of
+that repository, branch checked out or not, among the same candidates as
+`git_evidence`, and counts the commits the branch has ahead of
+`origin/HEAD` over every ref of it it sees: the local branch, the
+remote-tracking ref and the head `git ls-remote` reports on `origin`.
+`ahead` is the largest count, and `exists: false` says no ref was seen:
+
+```json
+{"value":{"repository":"gitlab.example/g/tools","found":true,"defaultBranch":"main","exists":true,"ahead":0}}
+{"value":{"repository":"gitlab.example/g/tools","found":false,"exists":false,"ahead":0}}
+```
+
+Only `found: true` with `ahead: 0`, echoing the repository, skips that pull
+request; the stage report then names the repository as prepared, unchanged.
+Every other answer keeps it required: no checkout, commits ahead, an unset
+`origin/HEAD`, a head on `origin` this checkout has not fetched, any Git or
+network failure (an operation error), and an agent that predates the operation.
+`branch_changes` reaches `origin`, so it keeps the 45-second deadline.
+
 Requests normally have a 45-second deadline; purely local read-only inspections
 (Git evidence, status and branches, worktree info, SDD/skill status, skill
 reading, editor opening) allow 15 seconds and CLI probing 30, so an unreachable
