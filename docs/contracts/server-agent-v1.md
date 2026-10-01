@@ -1090,6 +1090,17 @@ Each file has `path`, optional `oldPath`, `status`, `kind`, nullable text counts
 kind is text/binary/symlink/submodule/unsupported. Counts sum displayed known text
 changes only. Incomplete results cannot be clean.
 
+An agent that also advertises `markdown-documents` gives each listed file of kind
+`text` whose path ends in `.md` or `.markdown` (case-insensitive) an optional
+`document`: `side` is `new`, or `old` for a deleted file read at the merge base,
+then either `content`, the whole UTF-8 file in the snapshot tree the patch compares,
+or `omittedReason`. A document over 512 KiB is never read, and documents share a
+4 MiB budget in path order, separate from the response limit, applied after the file
+list is truncated, so no file or patch is removed to make room for one. Older agents
+send no `document`, and Desktop disables its rendered view with an explanation.
+`localAgent.openLink(url)` opens only `http`, `https` without credentials and
+`mailto` links of a rendered document, through the default browser.
+
 The baseline resolves existing local refs in this order: symbolic `origin/HEAD`,
 remote main/master, local main/master. An invalid recorded default does not permit
 fallback. Exactly one merge base is required. The comparison uses a private temporary

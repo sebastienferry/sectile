@@ -197,6 +197,14 @@ toolbar. Choose a file to read its unified patch, or use **Refresh** after edits
 the execution. Inspection also works for stopped
 runs while their recorded checkout and agent session remain available.
 
+On a Markdown file (`.md` or `.markdown`), **Rendered** shows the whole file as a
+formatted document at the inspected state, or the old version of a deleted file.
+The choice holds for every Markdown file until Desktop restarts. Web and mail links
+open in the default browser; relative links and anchors stay inert with their
+target shown, images are replaced by their alt text and path, and raw HTML shows as
+text. The toggle is disabled, with the reason, for a file over 512 KiB, a non-UTF-8
+file, a file past the 4 MiB rendering budget, or an agent too old to send contents.
+
 The comparison includes committed, staged, unstaged, and non-ignored untracked
 contents as one net result. Reverted edits disappear, and a recreated staged
 deletion is compared once with its original contents. The header identifies the
