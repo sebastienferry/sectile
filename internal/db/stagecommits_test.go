@@ -110,6 +110,9 @@ func TestPushStageCommitsMigration(t *testing.T) {
 	if _, err := d.conn.Exec("DROP TABLE tracker_oauth_apps"); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := d.conn.Exec("ALTER TABLE projects DROP COLUMN epic_axis_prefixes"); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := d.conn.Exec("DELETE FROM schema_migrations WHERE version >= 32"); err != nil {
 		t.Fatal(err)
 	}

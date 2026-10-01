@@ -232,6 +232,9 @@ func (d *DB) ImportMacroHorizons(ctx context.Context, projectID string) (string,
 		}
 	}
 
+	// The epics of the roadmap projects are read under this project's prefixes
+	// too: they are the only ones Sectile knows (#635).
+	prefixes := prefixesFor(proj)
 	classified, prioritized, dated, judged, closed := 0, 0, 0, 0, 0
 	for key, epic := range found {
 		horizon := HorizonFromLabels(epic.Labels)
@@ -260,15 +263,15 @@ func (d *DB) ImportMacroHorizons(ctx context.Context, projectID string) (string,
 		// when there is one, and an epic without keeps its local value. The read
 		// writes nothing back, so a bare "2026-Q3" stays as the team wrote it.
 		var priorityPtr, quarterPtr, readinessPtr *string
-		if priority := PriorityFromLabels(epic.Labels); priority != "" {
+		if priority := prefixes.PriorityFromLabels(epic.Labels); priority != "" {
 			priorityPtr = &priority
 			prioritized++
 		}
-		if quarter := QuarterFromLabels(epic.Labels); quarter != "" {
+		if quarter := prefixes.QuarterFromLabels(epic.Labels); quarter != "" {
 			quarterPtr = &quarter
 			dated++
 		}
-		if readiness := ReadinessFromLabels(epic.Labels); readiness != "" {
+		if readiness := prefixes.ReadinessFromLabels(epic.Labels); readiness != "" {
 			readinessPtr = &readiness
 			judged++
 		}
@@ -393,6 +396,9 @@ func (d *DB) pendingAxisPushes(ctx context.Context, projectID string) ([]pending
 		return nil, err
 	}
 
+	// The comparison is under the current prefixes (#635): an epic whose value
+	// sits under a former prefix is late, and its push writes the new one.
+	prefixes := prefixesFor(proj)
 	pending := []pendingAxisPush{}
 	for _, meta := range decided {
 		epic, known := remote[meta.Key]
@@ -403,9 +409,9 @@ func (d *DB) pendingAxisPushes(ctx context.Context, projectID string) ([]pending
 		p := pendingAxisPush{
 			meta:      meta,
 			horizon:   meta.Horizon != "" && (!known || HorizonFromLabels(labels) != meta.Horizon),
-			priority:  meta.Priority != "" && (!known || PriorityFromLabels(labels) != meta.Priority),
-			quarter:   meta.Quarter != "" && (!known || QuarterFromLabels(labels) != meta.Quarter),
-			readiness: meta.Readiness != "" && (!known || ReadinessFromLabels(labels) != meta.Readiness),
+			priority:  meta.Priority != "" && (!known || prefixes.PriorityFromLabels(labels) != meta.Priority),
+			quarter:   meta.Quarter != "" && (!known || prefixes.QuarterFromLabels(labels) != meta.Quarter),
+			readiness: meta.Readiness != "" && (!known || prefixes.ReadinessFromLabels(labels) != meta.Readiness),
 		}
 		if p.horizon || p.priority || p.quarter || p.readiness {
 			pending = append(pending, p)

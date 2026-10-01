@@ -379,15 +379,16 @@ guarantee.
 
 What the implementation changed from this plan, and why.
 
-- **Migration numbers.** `main` took 38 (`projects.roadmap_axis_writes`), so
-  the three migrations are 39 (`user_tracker_credentials.oauth`), 40
-  (`jira_oauth_flows`) and 41 (`tracker_oauth_apps`). Timestamps are
+- **Migration numbers.** `main` took 38 (`projects.roadmap_axis_writes`) and
+  39 (`projects.epic_axis_prefixes`), so the three migrations are 40
+  (`user_tracker_credentials.oauth`), 41 (`jira_oauth_flows`) and 42
+  (`tracker_oauth_apps`). Timestamps are
   `DATETIME`, like `login_flows`, rather than `TEXT`.
 - **The refresh is claimed before Atlassian is called.** Section 5 compared
   the version only after an `invalid_grant`. The concurrency test against the
   strict rotating fake showed the hole: an instance reading the row after
   another's refresh but before its write spent the rotated refresh token and
-  disconnected a live grant. Migration 39 therefore adds
+  disconnected a live grant. Migration 40 therefore adds
   `refresh_claimed_at`; a claim is a compare-and-set on `version` that sets
   it, waiters poll until the version moves, a claim older than the refresh
   wait (60 s, four times the 15 s call timeout, so a replica whose clock is

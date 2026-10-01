@@ -163,7 +163,7 @@ account. Moving it to OAuth is a separate decision.
   active person has connected.
 - The row gains a column (`kind`), a version and a claim time for the
   compare-and-set, and a disconnection mark, added by a numbered migration
-  (39), never in the frozen baseline. Migrations 40 and 41 add the pending
+  (40), never in the frozen baseline. Migrations 41 and 42 add the pending
   consents and the OAuth app.
 
 ## Alternatives rejected

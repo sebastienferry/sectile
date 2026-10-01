@@ -544,6 +544,14 @@ var migrations = []migration{
 		statements: []string{"ALTER TABLE projects ADD COLUMN roadmap_axis_writes INTEGER NOT NULL DEFAULT 0;"},
 	},
 	{
+		// The label prefixes of the epic priority, quarter and readiness, as a
+		// JSON object (#635). An empty object keeps the default prefixes every
+		// existing project reads and writes under.
+		version:    39,
+		name:       "projects.epic_axis_prefixes",
+		statements: []string{"ALTER TABLE projects ADD COLUMN epic_axis_prefixes TEXT NOT NULL DEFAULT '{}';"},
+	},
+	{
 		// What a personal tracker credential is (#654, ADR 0044): an API token,
 		// which every existing row is, or an Atlassian OAuth grant. version
 		// serialises the refresh of a grant across instances, a compare-and-set
@@ -551,7 +559,7 @@ var migrations = []migration{
 		// refresh_claimed_at saying a refresh is in flight so nobody else
 		// spends the same refresh token; disconnected_at marks a grant
 		// Atlassian refused to refresh, kept so the profile can say so.
-		version: 39,
+		version: 40,
 		name:    "user_tracker_credentials.oauth",
 		statements: []string{
 			"ALTER TABLE user_tracker_credentials ADD COLUMN kind TEXT NOT NULL DEFAULT 'api_token';",
@@ -565,7 +573,7 @@ var migrations = []migration{
 		// is stored hashed with the web session and the person who started
 		// it, so the callback works on any instance and a replay finds
 		// nothing.
-		version: 40,
+		version: 41,
 		name:    "jira_oauth_flows",
 		statements: []string{
 			`CREATE TABLE jira_oauth_flows (
@@ -582,7 +590,7 @@ var migrations = []migration{
 		// The OAuth app a tracker's grants are issued to (#654), saved from
 		// the Administration page; the client secret is sealed under the
 		// server key. Without a row, the environment configures it.
-		version: 41,
+		version: 42,
 		name:    "tracker_oauth_apps",
 		statements: []string{
 			`CREATE TABLE tracker_oauth_apps (

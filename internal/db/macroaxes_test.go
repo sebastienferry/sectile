@@ -69,7 +69,7 @@ func TestPriorityFromLabels(t *testing.T) {
 		{[]string{"priority:p7", "priority:p2"}, "p2"},
 		{[]string{"p1"}, ""},
 	} {
-		if got := PriorityFromLabels(tc.labels); got != tc.want {
+		if got := defaultAxisPrefixes.PriorityFromLabels(tc.labels); got != tc.want {
 			t.Errorf("PriorityFromLabels(%v) = %q, want %q", tc.labels, got, tc.want)
 		}
 	}
@@ -91,7 +91,7 @@ func TestQuarterFromLabels(t *testing.T) {
 		{[]string{"quarter:soon", "2026-Q2"}, "2026-Q2"},
 		{[]string{"release-2026-Q3"}, ""},
 	} {
-		if got := QuarterFromLabels(tc.labels); got != tc.want {
+		if got := defaultAxisPrefixes.QuarterFromLabels(tc.labels); got != tc.want {
 			t.Errorf("QuarterFromLabels(%v) = %q, want %q", tc.labels, got, tc.want)
 		}
 	}
@@ -102,7 +102,7 @@ func TestIsQuarterLabel(t *testing.T) {
 		"2026-Q3": true, "2026.q3": true, "quarter:2026-q4": true, "quarter:soon": true,
 		"roadmap:now": false, "priority:p1": false, "release-2026-Q3": false, "2026-Q5": false,
 	} {
-		if got := isQuarterLabel(label); got != want {
+		if got := defaultAxisPrefixes.isQuarterLabel(label); got != want {
 			t.Errorf("isQuarterLabel(%q) = %v, want %v", label, got, want)
 		}
 	}

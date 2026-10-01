@@ -205,6 +205,16 @@ free labels. Its priority and quarter are queued only when the project's
 names a roadmap project creates its story in that Jira project, and the answer's
 `task` carries no `id`: the story is not imported.
 
+A project's `epicAxisPrefixes` (`{priority, quarter, readiness}`, #635) names
+the label prefixes its epics carry each axis under; an empty field is the
+default `priority:`, `quarter:` or `readiness:`. The import, the pushes, the
+pending labels and the free label refusal all follow them, the epics of the
+roadmap projects included; `roadmap:` and the bare `2026-Q3` stay fixed. A
+`PATCH /api/projects/{id}` or a creation stores them trimmed, lower-cased and
+without a leading `#`, and answers `400` with the reason for a prefix carrying
+a space, emptied by that cleaning, overlapping another axis's prefix or
+overlapping `roadmap:`. Changing one rewrites no label and no stored value.
+
 
 | Method | Path | Description |
 | :--- | :--- | :--- |
