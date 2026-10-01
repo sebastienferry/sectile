@@ -10,6 +10,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"tasks/internal/agentconfig"
+	"tasks/internal/agentprotocol"
 	"tasks/internal/db"
 	"tasks/internal/models"
 	"tasks/internal/tracker"
@@ -42,8 +43,8 @@ type contextInput struct {
 }
 
 // createTaskInput mirrors the descriptive half of models.CreateTaskRequest. The
-// fields a caller could use to contradict the board's own invariants — status,
-// source, external URL — are deliberately absent: a task created here enters the
+// fields a caller could use to contradict the board's own invariants (status,
+// source, external URL) are deliberately absent: a task created here enters the
 // workflow where every other new task enters it.
 type createTaskInput struct {
 	ProjectID   string   `json:"projectId"`
@@ -237,6 +238,13 @@ func NewServerWithCallers(database *db.DB, sessions *SessionRegistry, resolve Ca
 				sessions.Touch(session.ID())
 				if resumesWaits(method, req) {
 					sessions.Resume(session.ID())
+					// A launched console names its run, which ends that run's
+					// wait even from a session that declared nothing (#498).
+					if call, ok := req.(*mcp.CallToolRequest); ok && call.Extra != nil {
+						if runID := strings.TrimSpace(call.Extra.Header.Get(agentprotocol.RunIDHeader)); runID != "" {
+							sessions.ResumeRun(runID, session.ID(), callerOf(resolve, call).UserID)
+						}
+					}
 				}
 			}
 			return next(ctx, method, req)

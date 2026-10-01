@@ -78,9 +78,12 @@ type RunNoter interface {
 // registry makes on its own, that the session spoke again or went away. The
 // marks are found by session in the store rather than in this registry's
 // memory, so a session this instance never saw, or saw before a restart, has
-// its wait ended all the same (#475).
+// its wait ended all the same (#475). A launched console also names its run,
+// which ends that run's wait from a session other than the declaring one
+// (#498).
 type RunWaiter interface {
 	ResumeWaits(sessionID string) ([]string, error)
+	ResumeRunWait(runID, sessionID, userID string) (bool, error)
 }
 
 // adoptedRun remembers what a session would leave behind. The task key is kept
@@ -529,6 +532,28 @@ func (r *SessionRegistry) Resume(sessionID string) int {
 	waits := r.waits
 	r.mu.Unlock()
 	return clearWaits(waits, sessionID)
+}
+
+// ResumeRun ends the wait of the run a launched console belongs to, on behalf
+// of its user, when the call comes from another session than the one that
+// declared the wait: the console's MCP client initialized a new session, after
+// a server restart for example, and is speaking again (#498). It reports
+// whether a wait was cleared.
+func (r *SessionRegistry) ResumeRun(runID, sessionID, userID string) bool {
+	if r == nil || runID == "" {
+		return false
+	}
+	r.mu.Lock()
+	waits := r.waits
+	r.mu.Unlock()
+	if waits == nil {
+		return false
+	}
+	cleared, err := waits.ResumeRunWait(runID, sessionID, userID)
+	if err != nil {
+		log.Printf("[MCP] session %s: cannot clear the wait of run %s: %v", sessionID, runID, err)
+	}
+	return cleared
 }
 
 // clearWaits clears the marks outside the registry lock, as Close does for the

@@ -616,6 +616,32 @@ func (d *DB) ResumeWaits(sessionID string) ([]string, error) {
 	return cleared, nil
 }
 
+// ResumeRunWait ends the wait of the run a launched console belongs to, when
+// the call comes from a session other than the one that declared it (#498).
+// A console keeps its run across a re-initialization of its MCP client, which
+// gives it a new session, so its next call still ends the wait. Only a wait a
+// session declared qualifies: a mark set by hand or by a launch belongs to no
+// session, and no call ends it. The caller must own the run, or the run must
+// have no owner. The declaring session's own calls are left to ResumeWaits, so
+// one call never clears the same wait twice. It reports whether a wait was
+// cleared.
+func (d *DB) ResumeRunWait(runID, sessionID, userID string) (bool, error) {
+	runID = strings.TrimSpace(runID)
+	if runID == "" {
+		return false, nil
+	}
+	d.mu.Lock()
+	count, err := d.execCount(`UPDATE task_activities SET waiting_since=NULL, waiting_session='', waiting_reason=''
+		WHERE id = ? AND waiting_session <> '' AND waiting_session <> ? AND waiting_since IS NOT NULL AND status = 'running' AND skill_id = 'remote_run'
+		AND (user_id = '' OR user_id = ?)`, runID, sessionID, strings.TrimSpace(userID))
+	d.mu.Unlock()
+	if err != nil || count == 0 {
+		return false, err
+	}
+	d.notifyWaitChange(runID, true)
+	return true, nil
+}
+
 // AnswerRemoteRunWait ends a wait its owner answered in the run's console
 // (#475). The agent names the mark it saw, and only that mark is cleared: a
 // question asked after the answer was typed carries a newer instant and stays.

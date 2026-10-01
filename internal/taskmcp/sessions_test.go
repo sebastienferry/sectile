@@ -284,6 +284,24 @@ func (w *recordingWaiter) ResumeWaits(sessionID string) ([]string, error) {
 	return runs, nil
 }
 
+func (w *recordingWaiter) ResumeRunWait(runID, sessionID, userID string) (bool, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	for session, runs := range w.marks {
+		if session == sessionID {
+			continue
+		}
+		for i, run := range runs {
+			if run == runID {
+				w.marks[session] = append(runs[:i:i], runs[i+1:]...)
+				w.cleared = append(w.cleared, runID)
+				return true, nil
+			}
+		}
+	}
+	return false, nil
+}
+
 func (w *recordingWaiter) recorded() []string {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -323,6 +341,26 @@ func TestResumeClearsTheWaitOfASessionTheRegistryNeverSaw(t *testing.T) {
 
 	if cleared := registry.Resume("other-instance.session-9"); cleared != 1 {
 		t.Fatalf("cleared = %d, want the wait of the unknown session", cleared)
+	}
+}
+
+// A launched console names its run, so a session other than the declaring one
+// ends that run's wait, and only that run's (#498).
+func TestResumeRunClearsOnlyTheNamedRunsWait(t *testing.T) {
+	waits := &recordingWaiter{}
+	registry := silentRegistry(t, &recordingCloser{}, nil, time.Hour)
+	registry.SetWaiter(waits)
+	waits.mark("old-instance.session-1", "run-1")
+	waits.mark("old-instance.session-2", "run-2")
+
+	if registry.ResumeRun("", "new-instance.session-3", "u1") {
+		t.Fatal("a call naming no run cleared a wait")
+	}
+	if !registry.ResumeRun("run-1", "new-instance.session-3", "u1") {
+		t.Fatal("the call naming run-1 did not clear its wait")
+	}
+	if got := waits.recorded(); len(got) != 1 || got[0] != "run-1" {
+		t.Fatalf("cleared = %v, want only run-1", got)
 	}
 }
 
