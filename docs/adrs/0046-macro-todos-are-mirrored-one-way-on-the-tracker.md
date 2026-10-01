@@ -47,6 +47,24 @@ question of which side wins.
 - **Nothing replays a lost write.** A restart drops the pending timers; the
   macro then reads as not up to date and the panel offers to publish it again.
 
+## The framing of a Jira epic follows the same decision (#636)
+
+The framing comment of a macro is copied on its Jira epic the same way: one
+comment Sectile owns, rewritten after each save by a person and never read
+back. It is a second comment, marked by its own property
+(`sectile.macroFraming`) and remembered in its own `framing_mirror_*` columns,
+so it never finds or rewrites the todos comment, and a ticked todo never
+rewrites the framing text. Debounce, queue, retries and status are the todos
+copy's.
+
+- **Jira only.** A GitHub milestone takes no comment, and its description
+  already carries the macro's description and the todo block: the framing
+  stays in Sectile there, as on GitLab, local projects, local `M-<n>` keys and
+  declared roadmap projects' epics, whatever `RoadmapAxisWrites` says.
+- **A bulk edit never schedules it**, such as the title seeding.
+- **An empty framing never creates a comment.** Emptied after a copy, the
+  comment is rewritten to say there is no framing any more, never deleted.
+
 ## Consequences
 
 - Each change of a list makes at most one tracker write per few seconds, and

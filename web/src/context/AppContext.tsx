@@ -410,6 +410,8 @@ interface AppContextType {
    * ends, as for any queued write.
    */
   republishMacroTodos: (projectId: string, key: string) => Promise<boolean>
+  /** Same for the comment copy of a Jira epic's framing (#636). */
+  republishMacroFraming: (projectId: string, key: string) => Promise<boolean>
   createStoryFromMacroTodo: (projectId: string, macroKey: string, todoId: string) => Promise<{ macro: MacroMeta | null; epic: MacroMeta | null; storyKey: string } | null>
   /**
    * Creates the stories of several slicing lines in one request (#634). The
@@ -2936,6 +2938,20 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   }
 
+  const republishMacroFraming = async (projectId: string, key: string): Promise<boolean> => {
+    const copy = t.operations.notifications.macros
+    try {
+      const res = await fetch(`${API_BASE}/projects/${encodeURIComponent(projectId)}/macros/${encodeURIComponent(key)}/framing-mirror`, { method: 'POST' })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.error || copy.framingRepublishRefused)
+      addToast({ type: 'info', title: format(copy.framingRepublished, { key }) })
+      return true
+    } catch (err: any) {
+      addToast({ type: 'error', title: copy.framingRepublishRefused, description: err.message })
+      return false
+    }
+  }
+
   // Une ligne de TODO devient une story dans le tracker, sous sa macro.
   const createStoryFromMacroTodo = async (
     projectId: string,
@@ -4390,6 +4406,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         saveMacroMeta,
         editMacroLabels,
         republishMacroTodos,
+        republishMacroFraming,
         saveEpicMeta,
         createStoryFromMacroTodo,
         createStoriesFromMacroTodos,
