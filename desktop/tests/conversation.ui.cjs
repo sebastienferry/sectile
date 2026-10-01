@@ -9,7 +9,7 @@ test('Claude chat renders structured output safely and sends messages without a 
  const source={id:'source',taskId:'source',taskKey:'#1',projectId:'project',skill:'implement',status:'completed',directory:'/tmp/project',sessionId:'source'}
  const chat={id:'chat',taskId:'',projectId:'project',kind:'console',provider:'claude',conversation:true,headless:true,status:'running',directory:'/tmp/project'}
  const runs=[source],events=[{kind:'notice',text:'Claude Code conversation · experimental',detail:'Edits accepted; approvals unavailable.'}]
- let sentMode='',mcpState={status:'needs-auth',detail:'! Needs authentication'},mcpChecks=0,busy=false,partial='',interrupts=0,joined=[],terminals=[],approvals=[],decisions=[],readOnly=false,attachments=0,message='',effort='',context
+ let pollsWithSince=0,sentMode='',mcpState={status:'needs-auth',detail:'! Needs authentication'},mcpChecks=0,busy=false,partial='',interrupts=0,joined=[],terminals=[],approvals=[],decisions=[],readOnly=false,attachments=0,message='',effort='',context
  const server=http.createServer((req,res)=>{
   res.setHeader('Content-Type','application/json')
   if(req.url==='/desktop/status'){res.end(JSON.stringify({connected:true,capabilities:['claude-conversation','conversation-controls','conversation-queue']}));return}
@@ -21,8 +21,11 @@ test('Claude chat renders structured output safely and sends messages without a 
    let body='';req.on('data',chunk=>body+=chunk);req.on('end',()=>{assert.equal(JSON.parse(body).sourceRunId,'source');runs.push(chat);res.writeHead(201).end(JSON.stringify(chat))});return
   }
   if(req.url==='/desktop/conversation-terminal'){let body='';req.on('data',chunk=>body+=chunk);req.on('end',()=>{terminals.push(JSON.parse(body).runId);res.end(JSON.stringify({opened:true}))});return}
-  if(req.url==='/desktop/conversation?id=chat'){
-   if(req.method==='GET'){res.end(JSON.stringify({id:'chat',events:events.map(e=>JSON.stringify(e)),version:events.length,busy,readOnly,effort,context,partial,approvals,sectileMcp:mcpState,commands:[{name:'clarify-issue',description:'Clarify a <b>ticket</b>',argumentHint:'<KEY>'},{name:'specify-issue',description:'Write the spec'},{name:'code-review'}]}));return}
+  if(req.url.startsWith('/desktop/conversation?id=chat')){
+   // Like the agent, an unchanged history is not sent to a poll that shows it.
+   const since=new URL(req.url,'http://localhost').searchParams.get('since')
+   if(since!==null)pollsWithSince++
+   if(req.method==='GET'){res.end(JSON.stringify({id:'chat',...(since===String(events.length)?{}:{events:events.map(e=>JSON.stringify(e))}),version:events.length,busy,readOnly,effort,context,partial,approvals,sectileMcp:mcpState,commands:[{name:'clarify-issue',description:'Clarify a <b>ticket</b>',argumentHint:'<KEY>'},{name:'specify-issue',description:'Write the spec'},{name:'code-review'}]}));return}
    let body='';req.on('data',chunk=>body+=chunk);req.on('end',()=>{
     const sent=JSON.parse(body)
     if(sent.checkMcp){mcpChecks++;mcpState={status:'connected',detail:'✔ Connected'};res.writeHead(202).end(JSON.stringify({accepted:true}));return}
@@ -65,6 +68,8 @@ test('Claude chat renders structured output safely and sends messages without a 
   const input=page.getByLabel('Message Claude Code')
   await expect(input).toBeEnabled()
   await expect(page.locator('.conversation-context')).toBeHidden()
+  // Polls send the version they show, so an unchanged history is not resent.
+  await expect.poll(()=>pollsWithSince).toBeGreaterThan(0)
   // The Sectile MCP chip says whether Claude reaches Sectile, and checks again.
   const mcpChip=page.locator('.conversation-mcp')
   await expect(mcpChip).toHaveAttribute('data-status','needs-auth')
