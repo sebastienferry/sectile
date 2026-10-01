@@ -74,7 +74,7 @@ func TestConversationRequiresDesktopAuthenticationAndOwnedDirectory(t *testing.T
 func TestConversationCommandPassesPromptWithoutShellInterpretation(t *testing.T) {
 	prompt := "--help\n$(touch should-not-exist) `echo unsafe`"
 	cmd := claudeConversationCommand(t.TempDir(), "sonnet", "high", "session", prompt, nil, nil)
-	if got := strings.Join(cmd.Args, " "); strings.Contains(got, "touch") || !strings.Contains(got, "--resume session") || !strings.Contains(got, "--model sonnet") || !strings.Contains(got, "--effort high") || strings.Contains(got, "bypassPermissions") {
+	if got := strings.Join(cmd.Args, " "); strings.Contains(got, "touch") || !strings.Contains(got, "--resume session") || !strings.Contains(got, "--model sonnet") || !strings.Contains(got, "--effort high") || strings.Contains(got, "bypassPermissions") || !strings.Contains(got, "--allowedTools=mcp__sectile") || !strings.Contains(got, "--include-partial-messages") {
 		t.Fatalf("unsafe or incomplete command: %s", got)
 	}
 	data, err := io.ReadAll(cmd.Stdin)
@@ -305,5 +305,67 @@ func TestConversationStopTerminatesActiveProcess(t *testing.T) {
 	defer d.queue.mu.Unlock()
 	if d.queue.runs[id].desktop.Status != "canceled" || d.queue.runs[id].conversation.busy {
 		t.Fatal("stop did not finish conversation")
+	}
+}
+
+// A reply streams as a draft while Claude writes it; the trace keeps only the
+// complete message, and a subagent's text never enters the draft.
+func TestConversationStreamsTheReplyInProgress(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake CLI is a POSIX script")
+	}
+	testhome.Temp(t)
+	bin := t.TempDir()
+	script := `#!/bin/sh
+cat > /dev/null
+printf '%s\n' '{"type":"stream_event","parent_tool_use_id":null,"event":{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}}'
+printf '%s\n' '{"type":"stream_event","parent_tool_use_id":null,"event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hello **wor"}}}'
+printf '%s\n' '{"type":"stream_event","parent_tool_use_id":"toolu_9","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"subagent"}}}'
+printf '%s\n' '{"type":"stream_event","parent_tool_use_id":null,"event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"ld**"}}}'
+while [ ! -f release ]; do sleep 0.02; done
+printf '%s\n' '{"type":"assistant","parent_tool_use_id":null,"message":{"content":[{"type":"text","text":"Hello **world**"}]}}'
+printf '%s\n' '{"type":"stream_event","parent_tool_use_id":null,"event":{"type":"content_block_stop","index":0}}'
+printf '%s\n' '{"type":"result","is_error":false,"result":"Hello **world**","session_id":"11111111-1111-4111-8111-111111111111"}'
+`
+	if err := os.WriteFile(filepath.Join(bin, "claude"), []byte(script), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	d, id := conversationFixture(t)
+	run := d.queue.runs[id]
+	if w := conversationRequest(d, "POST", "/desktop/conversation?id="+id, `{"message":"hi"}`, "private"); w.Code != 202 {
+		t.Fatalf("send: %d %s", w.Code, w.Body.String())
+	}
+	read := func() (partial string, busy bool) {
+		var body struct {
+			Partial string `json:"partial"`
+			Busy    bool   `json:"busy"`
+		}
+		_ = json.Unmarshal(conversationRequest(d, "GET", "/desktop/conversation?id="+id, "", "private").Body.Bytes(), &body)
+		return body.Partial, body.Busy
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for partial, _ := read(); partial != "Hello **world**"; partial, _ = read() {
+		if time.Now().After(deadline) {
+			t.Fatalf("the draft never reached the streamed text, last %q", partial)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if lines, _ := run.trace.snapshot(); strings.Contains(strings.Join(lines, "\n"), `"kind":"assistant"`) {
+		t.Fatalf("a draft entered the trace: %v", lines)
+	}
+	if err := os.WriteFile(filepath.Join(run.root, "release"), nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	for partial, busy := read(); busy || partial != ""; partial, busy = read() {
+		if time.Now().After(deadline) {
+			t.Fatalf("the turn did not end or kept its draft: busy=%v partial=%q", busy, partial)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	lines, _ := run.trace.snapshot()
+	text := strings.Join(lines, "\n")
+	if strings.Count(text, `"kind":"assistant"`) != 1 || strings.Contains(text, "subagent") || strings.Contains(text, `"kind":"error"`) {
+		t.Fatalf("unexpected transcript: %s", text)
 	}
 }

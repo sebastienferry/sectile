@@ -28,7 +28,51 @@ type claudeConversation struct {
 	// contextWindow the limit Claude reported for its model; zero when unknown.
 	contextUsed   int
 	contextWindow int
+	// env is the environment a ticket discussion's turns carry, the one its
+	// terminal would have had; nil for a free conversation.
+	env map[string]string
+	// partial is the reply Claude is still writing, from its streamed text
+	// deltas. It is never stored: the complete message replaces it in the
+	// trace as soon as Claude emits it.
+	partial string
+	// extraDirs are folders a skill launch adds to the project's, such as a
+	// custom skill's own folder; every turn is given them.
+	extraDirs []string
 }
+
+// conversationPartialLimit bounds a reply in progress; past it the draft stops
+// growing and the complete message, which arrives anyway, shows the rest.
+const conversationPartialLimit = 256 * 1024
+
+// conversationStream is the part of a streamed frame a draft is built from.
+type conversationStream struct {
+	Type  string `json:"type"`
+	Delta struct {
+		Type string `json:"type"`
+		Text string `json:"text"`
+	} `json:"delta"`
+	ContentBlock struct {
+		Type string `json:"type"`
+	} `json:"content_block"`
+}
+
+// streamPartial applies one streamed event of the main thread to the draft.
+func streamPartial(c *claudeConversation, event conversationStream) {
+	switch event.Type {
+	case "content_block_start", "content_block_stop", "message_stop":
+		c.partial = ""
+	case "content_block_delta":
+		if event.Delta.Type == "text_delta" && len(c.partial)+len(event.Delta.Text) <= conversationPartialLimit {
+			c.partial += event.Delta.Text
+		}
+	}
+}
+
+// conversationAllowedTools lets a conversation call Sectile's own MCP tools
+// without an approval it has no way to ask for: a skill reports its run and
+// moves its task through them. The rule names the server, so it covers every
+// tool it has; the "=" form keeps it from swallowing the next argument.
+const conversationAllowedTools = "--allowedTools=mcp__sectile"
 
 // conversationEfforts are the levels `claude --effort` accepts.
 var conversationEfforts = map[string]bool{"low": true, "medium": true, "high": true, "xhigh": true, "max": true}
@@ -51,10 +95,23 @@ type conversationEvent struct {
 	Kind   string `json:"kind"`
 	Text   string `json:"text"`
 	Detail string `json:"detail,omitempty"`
+	// Tool and Input are a tool call's full name and arguments, which
+	// Desktop draws as a card per tool; Detail stays for a reader without.
+	Tool  string          `json:"tool,omitempty"`
+	Input json.RawMessage `json:"input,omitempty"`
+	// ToolID ties a tool call to its result; a "tool_result" event carries
+	// the answer in Text, with Truncated and Error saying how it went.
+	ToolID    string `json:"toolId,omitempty"`
+	Truncated bool   `json:"truncated,omitempty"`
+	Error     bool   `json:"error,omitempty"`
 }
 
 func conversationWrite(trace *runTrace, kind, text, detail string) {
-	data, _ := json.Marshal(conversationEvent{kind, text, detail})
+	conversationWriteEvent(trace, conversationEvent{Kind: kind, Text: text, Detail: detail})
+}
+
+func conversationWriteEvent(trace *runTrace, event conversationEvent) {
+	data, _ := json.Marshal(event)
 	trace.write(string(data))
 }
 
@@ -108,6 +165,9 @@ func (d *agentDaemon) desktopConversation(w http.ResponseWriter, r *http.Request
 		response := map[string]any{"id": id, "events": lines, "version": version, "busy": false, "readOnly": run.restored || run.canceled || run.conversation == nil}
 		if c := run.conversation; c != nil {
 			response["busy"], response["effort"] = c.busy, c.effort
+			if c.busy && c.partial != "" {
+				response["partial"] = c.partial
+			}
 			if c.contextWindow > 0 {
 				response["context"] = map[string]int{"used": c.contextUsed, "window": c.contextWindow}
 			}
@@ -145,6 +205,13 @@ func (d *agentDaemon) newConversationLocked(projectID, directory, model, origin 
 		return nil, err
 	}
 	run.desktop.Kind = consoleRunKind
+	startConversationLocked(run, model, origin)
+	return run, nil
+}
+
+// startConversationLocked turns an admitted run into a conversation waiting
+// for its first message. The queue lock is held.
+func startConversationLocked(run *controlledRun, model, origin string) {
 	run.desktop.Provider = "claude"
 	run.desktop.Model = model
 	run.desktop.Conversation, run.desktop.Headless = true, true
@@ -152,15 +219,16 @@ func (d *agentDaemon) newConversationLocked(projectID, directory, model, origin 
 	run.desktop.StartedAt = time.Now().UTC()
 	run.trace = newRunTrace()
 	run.conversation = &claudeConversation{}
-	conversationWrite(run.trace, "notice", "Claude Code conversation · experimental", "Edits are accepted. Commands requiring approval are denied. "+origin)
-	return run, nil
+	conversationWrite(run.trace, "notice", "Claude Code conversation · experimental", "Edits and Sectile's tools are accepted. Other commands requiring approval are denied. "+origin)
 }
 
 // claudeConversationCommand is one turn's Claude. Each of dirs is one
 // --add-dir=<path> argument: no shell reads it, so it needs no quoting, and the
 // "=" form keeps a value from swallowing the arguments that follow it.
 func claudeConversationCommand(directory, model, effort, session, prompt string, dirs []string, env map[string]string) *exec.Cmd {
-	args := []string{"-p", "--output-format", "stream-json", "--verbose", "--permission-mode", "acceptEdits"}
+	// Partial messages stream each reply as Claude writes it; the complete
+	// messages still arrive, so the trace is built from them alone.
+	args := []string{"-p", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--permission-mode", "acceptEdits", conversationAllowedTools}
 	if model != "" {
 		args = append(args, "--model", model)
 	}
@@ -247,6 +315,13 @@ func (d *agentDaemon) conversationTurn(run *controlledRun, prompt string) {
 		conversationWrite(run.trace, "notice", "Attached folders could not be read for this message", err.Error())
 	}
 	d.queue.mu.Lock()
+	dirs = append(dirs, run.conversation.extraDirs...)
+	// The folder map read for this turn wins over the one recorded at launch.
+	for key, value := range run.conversation.env {
+		if _, fresh := env[key]; !fresh {
+			env[key] = value
+		}
+	}
 	cmd := claudeConversationCommand(directory, run.desktop.Model, run.conversation.effort, run.conversation.session, prompt, dirs, env)
 	d.queue.mu.Unlock()
 	resultSeen, resultFailed, assistantSeen, mainModel := false, false, false, ""
@@ -266,9 +341,21 @@ func (d *agentDaemon) conversationTurn(run *controlledRun, prompt string) {
 			ModelUsage map[string]struct {
 				ContextWindow int `json:"contextWindow"`
 			} `json:"modelUsage"`
+			Event conversationStream `json:"event"`
 		}
 		if json.Unmarshal([]byte(line), &frame) == nil && frame.Type != "" {
 			d.queue.mu.Lock()
+			if frame.Type == "stream_event" {
+				if frame.Parent == nil {
+					streamPartial(run.conversation, frame.Event)
+				}
+				d.queue.mu.Unlock()
+				return
+			}
+			// A complete message replaces the draft it was streamed as.
+			if frame.Type == "assistant" && frame.Parent == nil {
+				run.conversation.partial = ""
+			}
 			if frame.Type == "assistant" && frame.Parent == nil && frame.Message.Usage != nil {
 				run.conversation.contextUsed = frame.Message.Usage.contextSize()
 			}
@@ -299,7 +386,10 @@ func (d *agentDaemon) conversationTurn(run *controlledRun, prompt string) {
 					kind = "assistant"
 					assistantSeen = true
 				}
-				conversationWrite(run.trace, kind, event.Text, event.Detail)
+				conversationWriteEvent(run.trace, conversationEvent{Kind: kind, Text: event.Text, Detail: event.Detail, Tool: event.Tool, Input: event.Input, ToolID: event.ToolID})
+			}
+			for _, result := range runner.ParseToolResults(line) {
+				conversationWriteEvent(run.trace, conversationEvent{Kind: "tool_result", Text: result.Text, ToolID: result.ToolID, Truncated: result.Truncated, Error: result.IsError})
 			}
 			if done {
 				resultSeen, resultFailed = true, frame.IsError
@@ -351,7 +441,7 @@ func (d *agentDaemon) conversationTurn(run *controlledRun, prompt string) {
 	d.queue.mu.Lock()
 	defer d.queue.mu.Unlock()
 	if run.canceled {
-		run.desktop.Status = "canceled"
+		run.desktop.Status = conversationStoppedStatus(run)
 		run.once.Do(func() { close(run.exited) })
 		conversationWrite(run.trace, "notice", "Conversation stopped", "")
 		run.trace.close()
@@ -363,6 +453,7 @@ func (d *agentDaemon) conversationTurn(run *controlledRun, prompt string) {
 		conversationWrite(run.trace, "notice", "Ready for your next message", "")
 	}
 	run.conversation.busy = false
+	run.conversation.partial = ""
 }
 
 type limitedConversationBuffer struct{ bytes.Buffer }

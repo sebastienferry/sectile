@@ -1,29 +1,12 @@
 import {runFolderOutcome} from './run-folders.mjs'
 import {ipcMessage} from './execution-fields.mjs'
+import {markdownModel,renderMarkdown} from './markdownView.mjs'
+import {toolCard,renderToolCard} from './tool-cards.mjs'
 
-// Engine output is untrusted: prose is rendered through DOM text nodes, never
-// HTML. This small Markdown subset covers code, headings and bold emphasis.
-export function renderConversationText(container,text){
- const inline=(node,value)=>{
-  for(const part of value.split(/(`[^`]+`|\*\*[^*]+\*\*)/g)){
-   const tag=part.startsWith('`')&&part.endsWith('`')?'code':part.startsWith('**')&&part.endsWith('**')?'strong':null
-   if(tag){const child=document.createElement(tag);child.textContent=part.slice(tag==='code'?1:2,tag==='code'?-1:-2);node.append(child)}
-   else node.append(document.createTextNode(part))
-  }
- }
- const lines=String(text).split('\n')
- for(let i=0;i<lines.length;i++){
-  const line=lines[i]
-  if(line.startsWith('```')){
-   const pre=document.createElement('pre'),code=document.createElement('code'),body=[]
-   while(++i<lines.length&&!lines[i].startsWith('```'))body.push(lines[i])
-   code.textContent=body.join('\n');pre.append(code);container.append(pre);continue
-  }
-  const heading=/^(#{1,6})\s+(.*)$/.exec(line)
-  const node=document.createElement(heading?'h'+Math.min(heading[1].length+1,6):'div')
-  inline(node,heading?heading[2]:line||'\u00a0');container.append(node)
- }
-}
+// What Claude writes is Markdown: it goes through the same safe renderer as the
+// Rendered view of a changed file (#575), so raw HTML stays text, images never
+// load and only web and mail links open, outside the window.
+const markdownKinds=new Set(['assistant','thinking'])
 
 // canAddFolder tells whether the local agent attaches a folder from a run (#676).
 export function createConversationView({api,container,onError,canAddFolder=()=>false}){
@@ -52,7 +35,7 @@ export function createConversationView({api,container,onError,canAddFolder=()=>f
  input.addEventListener('keydown',event=>{
   if(event.key==='Enter'&&!event.shiftKey&&!event.isComposing){event.preventDefault();form.requestSubmit()}
  })
- let selected=null,generation=0,timer=null,version=null,pending=false,available=false,effortLoaded=false,readOnly=true,attaching=false
+ let selected=null,directory='',busy=false,generation=0,timer=null,version=null,pending=false,available=false,effortLoaded=false,readOnly=true,attaching=false
  // The outcome of an added folder stays in the status for a while, over polling.
  let notice='',noticeUntil=0
  const showAddFolder=()=>{addFolder.hidden=!selected||!canAddFolder();addFolder.disabled=readOnly||attaching}
@@ -89,22 +72,52 @@ export function createConversationView({api,container,onError,canAddFolder=()=>f
   if(version===data.version)return
   version=data.version
   const follow=events.scrollHeight-events.scrollTop-events.clientHeight<80
+  // A card the reader already saw keeps the state they left it in; a new one
+  // opens as its tool suggests, or because the call failed.
+  const seen=new Set([...events.querySelectorAll('details')].map(node=>node.conversationEvent))
   const expanded=new Set([...events.querySelectorAll('details[open]')].map(node=>node.conversationEvent))
   events.replaceChildren()
+  // A tool result is drawn inside the card of the call it answers.
+  const parsed=[],results=new Map()
   for(const raw of data.events||[]){
    let event;try{event=JSON.parse(raw)}catch{continue}
-   const node=document.createElement(event.kind==='tool'?'details':'article');node.className='conversation-event conversation-'+event.kind
+   if(event.kind==='tool_result'){if(event.toolId)results.set(event.toolId,event);continue}
+   parsed.push([raw,event])
+  }
+  for(const [raw,event] of parsed){
    if(event.kind==='tool'){
-    node.conversationEvent=raw;node.open=expanded.has(raw)
-    const title=document.createElement('summary');title.textContent=event.text;node.append(title)
-    const body=document.createElement('pre');body.textContent=event.detail||'';node.append(body)
-   }else{
-    const label=document.createElement('strong');label.className='conversation-speaker';label.textContent=event.kind==='user'?'You':event.kind==='assistant'?'Claude Code':event.kind==='error'?'Error':event.kind==='thinking'?'Thinking':'Status';node.append(label)
-    const body=document.createElement('div');renderConversationText(body,event.text||'');node.append(body)
-    if(event.detail){const detail=document.createElement('small');detail.textContent=event.detail;node.append(detail)}
+    const card=toolCard(event,directory,{result:results.get(event.toolId)||null,pending:!!data.busy&&!!event.toolId}),node=renderToolCard(card)
+    node.conversationEvent=raw
+    if(node.tagName==='DETAILS')node.open=seen.has(raw)?expanded.has(raw):card.open||card.failed
+    events.append(node);continue
    }
+   const node=document.createElement('article');node.className='conversation-event conversation-'+event.kind
+   const label=document.createElement('strong');label.className='conversation-speaker';label.textContent=event.kind==='user'?'You':event.kind==='assistant'?'Claude Code':event.kind==='error'?'Error':event.kind==='thinking'?'Thinking':'Status';node.append(label)
+   const body=document.createElement('div')
+   if(markdownKinds.has(event.kind)){body.className='conversation-markdown';body.append(renderMarkdown(markdownModel(event.text||''),{openLink:url=>api.openLink(url)}))}
+   else{body.className='conversation-plain';body.textContent=event.text||''}
+   node.append(body)
+   if(event.detail){const detail=document.createElement('small');detail.textContent=event.detail;node.append(detail)}
    events.append(node)
   }
+  if(follow)events.scrollTop=events.scrollHeight
+ }
+ // The reply Claude is still writing, drawn after the history and redrawn on
+ // its own: the history is rebuilt only when a complete event arrives.
+ let partialNode=null,partialText=''
+ function drawPartial(text){
+  if(!text){partialNode?.remove();partialNode=null;partialText='';return}
+  if(text===partialText&&partialNode?.isConnected)return
+  const follow=events.scrollHeight-events.scrollTop-events.clientHeight<80
+  if(!partialNode?.isConnected){
+   partialNode=document.createElement('article');partialNode.className='conversation-event conversation-assistant conversation-partial'
+   partialNode.setAttribute('aria-busy','true')
+   const label=document.createElement('strong');label.className='conversation-speaker';label.textContent='Claude Code'
+   const body=document.createElement('div');body.className='conversation-markdown'
+   partialNode.append(label,body);events.append(partialNode)
+  }
+  partialNode.lastChild.replaceChildren(renderMarkdown(markdownModel(text),{openLink:url=>api.openLink(url)}))
+  partialText=text
   if(follow)events.scrollTop=events.scrollHeight
  }
  async function poll(token,id){
@@ -112,11 +125,11 @@ export function createConversationView({api,container,onError,canAddFolder=()=>f
    const data=await api.conversation(id)
    if(token!==generation||id!==selected)return
    if(data.id!==id)throw Error('The agent returned another conversation.')
-   draw(data);controls(data)
+   draw(data);drawPartial(data.busy?data.partial||'':'');controls(data);busy=!!data.busy
   }catch(err){
    if(token!==generation)return
    available=false;send.disabled=true;status.textContent=err.message||String(err)
-  }finally{if(token===generation&&selected)timer=setTimeout(()=>poll(token,id),750)}
+  }finally{if(token===generation&&selected)timer=setTimeout(()=>poll(token,id),busy?250:750)}
  }
  form.addEventListener('submit',async event=>{
   event.preventDefault()
@@ -131,7 +144,7 @@ export function createConversationView({api,container,onError,canAddFolder=()=>f
   finally{if(token===generation){pending=false;send.disabled=!available}}
  })
  return {select(run){
-  generation++;clearTimeout(timer);selected=run?.conversation?run.id:null;version=null;pending=false;available=false;effortLoaded=false;readOnly=true;attaching=false;notice='';noticeUntil=0;showAddFolder()
+  generation++;clearTimeout(timer);selected=run?.conversation?run.id:null;directory=run?.directory||'';busy=false;partialNode=null;partialText='';version=null;pending=false;available=false;effortLoaded=false;readOnly=true;attaching=false;notice='';noticeUntil=0;showAddFolder()
   events.replaceChildren();effort.value='';effort.disabled=true;showEffort();showContext(null);input.value='';grow();model.textContent=run?.model||'CLI default';input.disabled=true;send.disabled=true
   panel.hidden=!selected;container.classList.toggle('conversation-active',!!selected)
   if(selected){status.textContent='Loading conversation…';poll(generation,selected)}

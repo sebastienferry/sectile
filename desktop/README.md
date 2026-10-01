@@ -7,7 +7,26 @@ Local task execution consoles, with an experimental Claude Code conversation vie
 Turn it on with **Settings → Appearance → Claude consoles → Conversation**.
 A **Project prompt** with Claude then opens in this view instead of a terminal,
 and **Claude chat (test)** appears for an execution with a local directory.
-Type a message and press Enter or click **Send**; Shift+Enter adds a line. The chat uses the same directory but has its
+A task's interactive launches open there too, a skill such as clarify starting
+on its own command and **Discussion (no skill)** waiting for your first message,
+in the task's worktree and with the task's environment, when the project's
+engine is a Claude one. An autonomous launch keeps its read-only trace; a
+launch template is not run there, only its model is kept, and the conversation
+says so. Another engine keeps the terminal. Stopping it
+ends the discussion on the server, as closing its terminal does. Upgrade the
+agent along with the desktop: an older agent opens the terminal.
+Type a message and press Enter or click **Send**; Shift+Enter adds a line.
+Claude's replies render as Markdown with the same rules as **Rendered** in the
+Changes panel; your own messages show as typed. Each tool call is a card: an
+edit opens on its diff, a written file on its lines, a command on the command,
+the todo list as a checklist; reads and searches take one line. What a tool
+answered shows inside its card, cut at 16 KiB and 200 lines; an edit's or a
+write's confirmation shows only when it failed. A failed call is outlined and
+opens on its error; a call still waiting for its answer says running…. A reply
+streams as Claude writes it, ending on a caret, and settles into the history
+once complete. Arguments over
+64 KiB keep only their summary line. Upgrade the agent along with the desktop:
+an older agent sends the summary line alone. The chat uses the same directory but has its
 own Claude session and does not change the original execution's workflow state.
 Claude Code must already be installed and authenticated on this workstation.
 Edits are accepted; tools requiring interactive approval are denied. **Stop**
@@ -197,9 +216,10 @@ toolbar. Choose a file to read its unified patch, or use **Refresh** after edits
 the execution. Inspection also works for stopped
 runs while their recorded checkout and agent session remain available.
 
-On a Markdown file (`.md` or `.markdown`), **Rendered** shows the whole file as a
+A Markdown file (`.md` or `.markdown`) opens **Rendered**: the whole file as a
 formatted document at the inspected state, or the old version of a deleted file.
-The choice holds for every Markdown file until Desktop restarts. Web and mail links
+Turning **Rendered** off shows the raw patch for every Markdown file of that
+execution; selecting another execution opens its Markdown files rendered again. Web and mail links
 open in the default browser; relative links and anchors stay inert with their
 target shown, images are replaced by their alt text and path, and raw HTML shows as
 text. The toggle is disabled, with the reason, for a file over 512 KiB, a non-UTF-8
@@ -389,7 +409,11 @@ sidebar. Add projects by discovering the server catalog and mapping a local Git
 directory. Each task key in the sidebar is tinted after the task's workflow
 stage, named in its tooltip; **Group by stage** in a project's `…` menu lists
 that project's tasks from new to finished, a choice kept per project on this
-workstation. Local worktree preferences are stored per project in
+workstation. **Hide from sidebar** in the same menu takes a project out of the
+sidebar without touching its configuration or its executions; the project stays
+in Settings, marked hidden, where **General → Show in sidebar** brings it back,
+as does choosing it again in **Add project**. Settings list only the projects
+added to this workstation. Local worktree preferences are stored per project in
 `~/.config/sectile/settings.json`. The remote URL, the project's repositories,
 SDD selection and skill content remain server-owned and read-only. Explicit deployment buttons install
 the server skills or initialize its SDD framework in the mapped directory.

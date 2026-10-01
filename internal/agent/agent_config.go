@@ -745,24 +745,36 @@ func dispatchCommand(config agentconfig.Config, taskKey, skillID, action, prompt
 	if skillID == "discuss" {
 		return live()
 	}
+	promptArg, contexts, err := dispatchPrompt(config, taskKey, skillID, action, prompt, contexts)
+	if err != nil {
+		return "", err
+	}
+	return launchCommandLine(config, model, promptArg, mode, contexts...)
+}
+
+// dispatchPrompt is what a skill launch hands the engine: the skill's command
+// with the task key and the dispatch's instructions, and the launch contexts a
+// custom skill widens with its own folder. A terminal types it as the engine's
+// prompt; a conversation sends it as its first message.
+func dispatchPrompt(config agentconfig.Config, taskKey, skillID, action, prompt string, contexts []agentCommandContext) (string, []agentCommandContext, error) {
 	if skillID == "custom" {
 		if strings.TrimSpace(prompt) == "" {
-			return "", fmt.Errorf("custom instructions required")
+			return "", nil, fmt.Errorf("custom instructions required")
 		}
-		return launchCommandLine(config, model, "Sectile task: "+taskKey+"\n\n"+prompt, mode, contexts...)
+		return "Sectile task: " + taskKey + "\n\n" + prompt, contexts, nil
 	}
 	skillCmd := ""
 	for _, skill := range config.Skills {
 		if skillID == skill.ID || skillID == skill.Directory || action == skill.ID {
 			if skill.RequiresReconciliation {
-				return "", fmt.Errorf("legacy customization requires reconciliation in Skills before adjustment")
+				return "", nil, fmt.Errorf("legacy customization requires reconciliation in Skills before adjustment")
 			}
 			skillCmd = skill.Command
 			break
 		}
 	}
 	if skillCmd == "" {
-		return "", fmt.Errorf("unknown configured skill %q", skillID)
+		return "", nil, fmt.Errorf("unknown configured skill %q", skillID)
 	}
 	var choice *skillChoice
 	if len(contexts) > 0 {
@@ -791,7 +803,7 @@ func dispatchCommand(config agentconfig.Config, taskKey, skillID, action, prompt
 	if skillID == "adjust" {
 		promptArg += "\n\n" + runner.AdjustmentContract
 	}
-	return launchCommandLine(config, model, promptArg, mode, contexts...)
+	return promptArg, contexts, nil
 }
 
 func (d *agentDaemon) discoverProjects(ctx context.Context) (agentconfig.Projects, error) {

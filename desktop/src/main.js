@@ -90,7 +90,7 @@ let localTasks={}
 try{localTasks=JSON.parse(localStorage.getItem('localTasks')||'{}')}catch{}
 const freeConsole=run=>run?.kind==='console'
 // Task runs show the skill and engine; project prompts show their engine name.
-const runLabel=run=>run.conversation?'Claude Code · Conversation (test)':freeConsole(run)?(run.engineName||run.provider||'AI')+' · Project prompt':(runEngine(run)?run.skill+' · '+runEngine(run):run.skill)
+const runLabel=run=>run.conversation&&run.taskId?run.skill+' · Conversation (test)':run.conversation?'Claude Code · Conversation (test)':freeConsole(run)?(run.engineName||run.provider||'AI')+' · Project prompt':(runEngine(run)?run.skill+' · '+runEngine(run):run.skill)
 // A macro skill run has no task: its executions group under the macro.
 const macroRun=run=>!!run?.macroKey
 const taskKey=run=>JSON.stringify([run.projectId,freeConsole(run)?run.id:macroRun(run)?'macro:'+run.macroKey:run.taskId])
@@ -133,6 +133,18 @@ const collapsedProjects=new Set(JSON.parse(localStorage.getItem('collapsedProjec
 const stageGroupedProjects=new Set()
 try{for(const id of JSON.parse(localStorage.getItem('stageGroupedProjects')||'[]'))stageGroupedProjects.add(id)}catch{}
 function saveStageGrouping(){localStorage.setItem('stageGroupedProjects',JSON.stringify([...stageGroupedProjects]))}
+// Projects the user hid from the sidebar. Hiding keeps the local configuration
+// and the executions: the project stays in Settings, where it can be shown again.
+const sidebarHiddenProjects=new Set()
+try{for(const id of JSON.parse(localStorage.getItem('sidebarHiddenProjects')||'[]'))sidebarHiddenProjects.add(id)}catch{}
+function setSidebarHidden(id,hidden){
+ if(hidden)sidebarHiddenProjects.add(id);else sidebarHiddenProjects.delete(id)
+ try{localStorage.setItem('sidebarHiddenProjects',JSON.stringify([...sidebarHiddenProjects]))}catch{}
+ if(hidden&&runs.find(run=>run.id===selected)?.projectId===id){selected=null;conversation.select(null);api.detach().catch(()=>{});terminal.reset()}
+ render()
+}
+// A project added to this workstation: configured, mapped, or with executions.
+const addedProject=project=>!hiddenProject(project.id)&&(project.configured||!!project.path||runs.some(run=>run.projectId===project.id))
 
 const queueProjects=new Set()
 
@@ -529,6 +541,7 @@ function projectMenu(project,waitingCount=0){
   {label:'New task…',run:()=>newProjectTask(project.id)},
   {label:'Project prompt',disabled:!project.path,run:()=>openAgentConsole(project.id)},
   null,
+  {label:'Hide from sidebar',run:()=>setSidebarHidden(project.id,true)},
   {label:'Project settings…',run:()=>openProject(project.id)},
   {label:'Remove from desktop',danger:true,run:()=>requestRemoveProject(project.id,project.name)}
  ]
@@ -579,8 +592,9 @@ function render(options){
  try{list.replaceChildren()}finally{rebuildingSidebar=false}
  let renameField=null
 
- const groups=new Map(projects.filter(project=>project.path&&!hiddenProject(project.id)).map(project=>[project.id,project]))
- for(const run of runs)if(!hiddenProject(run.projectId)&&!groups.has(run.projectId))groups.set(run.projectId,{id:run.projectId,name:run.projectId})
+ const listed=id=>!hiddenProject(id)&&!sidebarHiddenProjects.has(id)
+ const groups=new Map(projects.filter(project=>project.path&&listed(project.id)).map(project=>[project.id,project]))
+ for(const run of runs)if(listed(run.projectId)&&!groups.has(run.projectId))groups.set(run.projectId,{id:run.projectId,name:run.projectId})
  for(const project of [...groups.values()].sort((a,b)=>a.name.localeCompare(b.name))){
   const group=document.createElement('section');group.className='project-group'
 
@@ -1639,7 +1653,9 @@ function configurationNavigation(tabs,projectId){
   }
  }
  group('General',SETTINGS_CATEGORIES,!projectId,name=>openSettings(name))
- for(const project of projects)group(project.name,PROJECT_SETTINGS_CATEGORIES,project.id===projectId,name=>openProject(project.id,name),project.id)
+ // Only the projects added to this workstation have settings here; the others
+ // are reached from Add project.
+ for(const project of projects)if(addedProject(project)||project.id===projectId)group(project.name+(sidebarHiddenProjects.has(project.id)?' (hidden)':''),PROJECT_SETTINGS_CATEGORIES,project.id===projectId,name=>openProject(project.id,name),project.id)
  updateProjectGroups()
 }
 function deploymentPanel(panel){
@@ -2017,11 +2033,11 @@ document.querySelector('#add-project').onclick=async()=>{
   if(!projects.length)paragraph('No projects available on the server.')
   for(const project of projects){
    const button=document.createElement('button');button.className='discovered-project'
-   const added=!hiddenProject(project.id)&&(project.configured||!!project.path||runs.some(run=>run.projectId===project.id))
-   button.textContent=project.name+(added?' · Already added':'')
-   button.disabled=added
-   if(added)button.title='Use the project settings button in the sidebar to edit this project.'
-   button.onclick=()=>openProject(project.id);dialogBody.append(button)
+   const added=addedProject(project),hidden=added&&sidebarHiddenProjects.has(project.id)
+   button.textContent=project.name+(hidden?' · Hidden, show in sidebar':added?' · Already added':'')
+   button.disabled=added&&!hidden
+   if(added&&!hidden)button.title='Use the project settings button in the sidebar to edit this project.'
+   button.onclick=hidden?()=>{setSidebarHidden(project.id,false);dialog.close()}:()=>openProject(project.id);dialogBody.append(button)
   }
  }catch(err){error(err)}
 }
@@ -2037,6 +2053,7 @@ function requestRemoveProject(id,name){
   catch(err){notice.textContent=err.message;confirm.disabled=false;cancel.disabled=false;return}
   projectStateVersion++
   if(stageGroupedProjects.delete(id))saveStageGrouping()
+  if(sidebarHiddenProjects.has(id))setSidebarHidden(id,false)
   await updateDisconnected([...disconnectedProjects,id])
   dialog.close()
   try{await loadProjects()}catch(err){error('Project disconnected, but refreshing projects failed: '+err.message)}
@@ -2390,6 +2407,13 @@ async function openProject(id,initial='Remove'){
   const removalNote=document.createElement('p');removalNote.textContent='Remove this project from this workstation. The project remains on the Sectile server.'
   panels.Remove.append(removalNote)
   if(info.configured||runs.some(run=>run.projectId===id))panels.Remove.append(remove)
+  if(sidebarHiddenProjects.has(id)){
+   const show=document.createElement('button');show.type='button';show.textContent='Show in sidebar'
+   show.onclick=()=>{setSidebarHidden(id,false);show.remove();hiddenRow.section.remove()}
+   const hiddenRow=settingRow('Sidebar',null,show)
+   hiddenRow.hint.textContent='This project is hidden from the sidebar. Its configuration and executions are kept.'
+   panels.Remove.prepend(hiddenRow.section)
+  }
   content.append(notice)
   form.onsubmit=async event=>{
    event.preventDefault()
@@ -2811,7 +2835,9 @@ async function submitTicketLaunch(view,entry,skillId,prompt,mode){
  view.submitting.add(entry.task.id);updateTicketRow(view,entry)
  view.status.textContent='Submitting execution for '+key+'…'
  try{
-  await api.launchServerTask(view.projectID,entry.task.id,skillId,prompt,mode)
+  // An interactive launch follows the Claude consoles preference; the agent
+  // falls back to the terminal for an engine that cannot hold a conversation.
+  await api.launchServerTask(view.projectID,entry.task.id,skillId,prompt,mode,false,consoleView)
   view.status.textContent='Execution submitted for '+key
   await refresh()
  }catch(err){view.status.textContent='Could not launch '+key+': '+err.message;throw err}
@@ -2863,7 +2889,7 @@ document.querySelector('#rerun').onclick=async()=>{
    if(skill.value==='custom'&&!prompt.value.trim()){notice.textContent='Enter custom instructions.';prompt.focus();return}
    submit.disabled=true
    try{
-    await api.launchServerTask(run.projectId,run.taskId,skill.value,prompt.value,launchModeOverride(mode.value))
+    await api.launchServerTask(run.projectId,run.taskId,skill.value,prompt.value,launchModeOverride(mode.value),false,consoleView)
     dialog.close();await refresh()
    }catch(err){notice.textContent=err.message;submit.disabled=false}
   }
@@ -3118,7 +3144,7 @@ async function launchTaskWork(kind,force){
   if(abandoned){await refresh();return}
   const launchSkill=kind==='pickup'?'pickup':fresh.step.skillId
   submittingSteps.set(key,launchSkill)
-  await api.launchServerTask(run.projectId,run.taskId,launchSkill,'',kind==='pickup'?'autonomous':undefined,force)
+  await api.launchServerTask(run.projectId,run.taskId,launchSkill,'',kind==='pickup'?'autonomous':undefined,force,consoleView)
   submittedSteps.set(key,{skillId:launchSkill,kind,runIds:latestRuns.filter(item=>taskKey(item)===key).map(item=>item.id)})
   await refresh()
   if(taskKey(currentTaskRun()||{})===key){

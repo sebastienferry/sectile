@@ -6,8 +6,9 @@ const isMarkdown=file=>file.kind==='text'&&/\.(md|markdown)$/i.test(file.path)
 // Results belong only to the selected execution and latest explicit request.
 export function createGitDiff({api,container,terminal,panel,divider,consoleButton,changesButton,onConsole}){
  let runID=null,generation=0,active=false,consoleVisible=true,result=null,selection=null
- // The rendered view is chosen once per Desktop session, never persisted.
- let rendered=false
+ // A Markdown file opens rendered; the raw diff is chosen per execution and
+ // forgotten when another execution is selected.
+ let rendered=true
  container.innerHTML='<div class="changes-toolbar"><button type="button" class="diff-refresh">Refresh</button><span class="diff-status" role="status" aria-live="polite"></span></div><p class="diff-error" role="alert" hidden></p><p class="diff-context"></p><p class="diff-summary"></p><div class="diff-body"><nav class="diff-files" aria-label="Changed files"></nav><div class="diff-detail"><button type="button" class="diff-render-toggle" aria-pressed="false" hidden>Rendered</button><p class="diff-file-info"></p><p class="diff-render-note" hidden></p><pre class="diff-patch" tabindex="0" aria-label="Selected file diff"></pre><div class="diff-rendered" tabindex="0" aria-label="Rendered Markdown" hidden></div></div></div>'
  const find=s=>container.querySelector(s)
  function clearDocument(){
@@ -90,7 +91,7 @@ export function createGitDiff({api,container,terminal,panel,divider,consoleButto
  return {
   get active(){return active},
   get consoleVisible(){return consoleVisible},
-  select(id){if(id===runID)return;runID=id;generation++;selection=null;clear();find('.diff-error').hidden=true;find('.diff-status').textContent='';consoleButton.disabled=!id;changesButton.disabled=!id;if(active){if(id)refresh();else{active=false;consoleVisible=true;renderViews()}}},
+  select(id){if(id===runID)return;runID=id;generation++;selection=null;rendered=true;clear();find('.diff-error').hidden=true;find('.diff-status').textContent='';consoleButton.disabled=!id;changesButton.disabled=!id;if(active){if(id)refresh();else{active=false;consoleVisible=true;renderViews()}}},
   disconnect(){generation++;clear();container.setAttribute('aria-busy','false');find('.diff-status').textContent='Changes unavailable. Reconnect and refresh.';if(active){find('.diff-error').textContent='Local agent disconnected. Reconnect and refresh.';find('.diff-error').hidden=false}}
  }
 }
