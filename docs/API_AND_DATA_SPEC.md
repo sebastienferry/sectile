@@ -205,6 +205,17 @@ free labels. Its priority and quarter are queued only when the project's
 names a roadmap project creates its story in that Jira project, and the answer's
 `task` carries no `id`: the story is not imported.
 
+The todos of a macro are copied on its tracker, one way (#663, ADR 0046): a
+comment on a Jira epic, a block at the end of a GitHub milestone description.
+Every save of the list queues that copy a few seconds after the last save, as an
+`epic_todos` activity; `POST /api/projects/{id}/macros/{key}/todos-mirror`
+queues one at once and answers `202` with the activity, or `400` with the reason
+when the macro's list stays in Sectile (GitLab, local project, local key,
+roadmap project's epic). Every macro the API returns carries `todosMirror`:
+`kind` (`jira_comment`, `github_description`, or empty with a `reason`),
+`upToDate`, the last `error` and the `credentialMissing` tracker it lacked a
+token for, `writtenAt` and the `url` of the copy.
+
 
 | Method | Path | Description |
 | :--- | :--- | :--- |
