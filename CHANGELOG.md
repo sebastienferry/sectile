@@ -91,6 +91,7 @@ test fixtures or internal plumbing.
 
 ### Fixed
 
+- **A repository prepared for a task but left unchanged no longer blocks its stage.** When a task opened a worktree in another repository and committed nothing there, implemented (and every later stage) now goes through with the pull requests of the repositories that did change, and the stage report names the skipped repository as prepared, unchanged. A repository with commits still needs its pull request, and an answer the agent cannot give keeps it required. Upgrade the agent along with the server. (#678)
 - **The header search no longer empties the Timeline.** A search typed in a ticket view used to leave the Timeline's sprints, counters and backlog with only the matching tickets; the Timeline now ignores it, as the Roadmap does, and the search applies again when you return to the board, the list or the triage. The backlog keeps its own search field. (#636)
 - **A macro skill can no longer drop a todo linked to a story.** `update_macro_todos` refuses a list that leaves out a todo already linked to a story, and names it: only the macro's panel, where the story is visible, removes it. `prepare_macro_worktree` also always returns the macro's todos, an empty list when there are none. (#647)
 - The local agent no longer crashes when a terminal is opened, or kept open, on a console that is printing: a viewer joining or a connection keepalive could write to the terminal at the same moment as its output and stop the agent, closing every console.
