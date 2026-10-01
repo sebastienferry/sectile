@@ -56,6 +56,7 @@ test fixtures or internal plumbing.
 
 ### Changed
 
+- **Desktop installs an engine's skills and registers its MCP server separately.** In **Settings → Deployment**, **Install skills** and **Register MCP** replace the single global setup button; the MCP server registers over HTTP to the remote server or to the local agent, whichever you pick.
 - **Desktop asks the agent and the server far less.** A task row's skill status is read again only when its run changes, or every 30 s while it runs, instead of every 2 s, each read costing the server two requests; an open conversation is no longer sent its whole history several times a second when nothing changed.
 - **The Desktop sidebar is more compact.** Projects and their tasks take about a fifth less height, so more of them fit without scrolling.
 - **Ticket discussions, project consoles and Claude conversations receive the project's folders.** Like a skill run, they are now given the project's other repositories, its specifications folder and its attached folders: Claude Code and Codex through `--add-dir` when they start, and a conversation again at each message, so a folder attached meanwhile is not missed. (#676)

@@ -651,3 +651,6 @@ dialog.quick-add-dialog{width:min(640px,92vw)}
 .quick-add-actions button{padding:8px 16px}
 .quick-add-actions button.secondary{color:var(--text);background:var(--button-bg);border:1px solid var(--border-strong);font-weight:400}
 .quick-add-keys{margin-right:auto;font-size:12px;color:var(--text-faint)}
+/* What an engine setup step reported, under its row. */
+.setup-result{margin:2px 0 10px;font-size:12px;color:var(--text-secondary);overflow-wrap:anywhere}
+.setup-result:empty{display:none}

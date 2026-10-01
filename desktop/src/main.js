@@ -1,6 +1,7 @@
 import { currentPullRequest, renderPullRequestIndicator } from './pullRequests.mjs'
 import { installTooltips } from './tooltips.js'
 import {mcpSettings} from './mcp-settings.mjs'
+import { mcpProviders } from '../../shared/mcpConfig.mjs'
 import { skillResultDue, skillResultStamp } from './skill-result-refresh.mjs'
 import { newTaskShortcutAction, newTaskShortcutLabel } from './new-task-shortcut.mjs'
 import { paletteMatches } from './command-palette.mjs'
@@ -1673,20 +1674,66 @@ function configurationNavigation(tabs,projectId){
 }
 function deploymentPanel(panel){
  const globalTitle=document.createElement('h3');globalTitle.textContent='Global AI engine setup'
- const globalHint=document.createElement('p');globalHint.textContent='Install skills and register MCP in your user configuration for the selected engine’s provider. Engines sharing a provider share this installation. This setup is optional: for Claude, installing the sectile plugin does the same, and a dispatch never installs anything.'
+ const globalHint=document.createElement('p');globalHint.textContent='Install Sectile’s skills and register its MCP server in your user configuration for the selected engine’s provider, each on its own. Engines sharing a provider share this installation. This setup is optional: for Claude, installing the sectile plugin does both, and a dispatch never installs anything.'
  const engine=document.createElement('select');engine.setAttribute('aria-label','Setup AI engine')
  panel.append(globalTitle,globalHint,settingRow('AI engine',{},engine).section)
  const source=projects.find(project=>project.id===selectedProject)||projects[0]
- const sourceHint=document.createElement('p');sourceHint.textContent=source?'Skills supplied by '+source.name+'. Installation is user-wide, not project-local.':'Connect a project to obtain the server skills.';panel.append(sourceHint)
  let engines=[]
+ const selectedEngine=()=>engines.find(item=>item.id===engine.value)
+ // Skills: the server's skills for the provider, nothing else.
+ const installSkills=document.createElement('button');installSkills.type='button';installSkills.textContent='Install skills';installSkills.disabled=true
+ const skillsRow=settingRow('Skills',null,installSkills)
+ skillsRow.hint.textContent=source?'Supplied by '+source.name+'. Installation is user-wide, not project-local.':'Connect a project to obtain the server skills.'
+ const skillsResult=document.createElement('p');skillsResult.className='setup-result';skillsResult.setAttribute('role','status')
+ // MCP: registered on its own, over HTTP, to the server or through the agent.
+ const mcpModes=document.createElement('div');mcpModes.className='segmented';mcpModes.setAttribute('role','group');mcpModes.setAttribute('aria-label','MCP target')
+ let mcpTarget='remote'
+ const MCP_TARGETS=[['remote','Remote server','The engine calls the Sectile server over HTTP with your API key, written in its configuration.'],['local','Local agent','The engine calls this workstation’s agent over HTTP, which forwards with its own identity: no key is written, and the agent must keep running.']]
+ const registerMCP=document.createElement('button');registerMCP.type='button';registerMCP.textContent='Register MCP';registerMCP.disabled=true
+ const mcpRow=settingRow('MCP server',null,mcpModes,registerMCP)
+ const markTarget=()=>{for(const button of mcpModes.children)button.setAttribute('aria-pressed',String(button.dataset.value===mcpTarget));mcpRow.hint.textContent=MCP_TARGETS.find(([value])=>value===mcpTarget)[2]}
+ for(const [value,label] of MCP_TARGETS){const button=document.createElement('button');button.type='button';button.dataset.value=value;button.textContent=label;button.onclick=()=>{mcpTarget=value;markTarget()};mcpModes.append(button)}
+ const mcpResult=document.createElement('p');mcpResult.className='setup-result';mcpResult.setAttribute('role','status')
+ panel.append(skillsRow.section,skillsResult,mcpRow.section,mcpResult)
+ markTarget()
+ // The mode the provider is registered in today, when the agent knows it.
+ const loadTarget=()=>{
+  const provider=selectedEngine()?.provider
+  if(!provider||!mcpProviders[provider])return
+  api.mcpConfig(provider).then(info=>{if(panel.isConnected&&info?.choice?.target){mcpTarget=info.choice.target==='local'?'local':'remote';markTarget()}}).catch(()=>{})
+ }
+ const enable=()=>{const ready=!!selectedEngine();installSkills.disabled=!ready||!source;registerMCP.disabled=!ready}
  api.engines().then(view=>{
   if(!panel.isConnected)return
   engines=view.catalogue||[]
   for(const item of engines){const option=document.createElement('option');option.value=item.id;option.textContent=item.name+' ('+item.provider+')';engine.append(option)}
   engine.value=view.default||engines[0]?.id||''
-  initialize.disabled=!source||!engines.length
+  enable();loadTarget()
  }).catch(()=>{globalHint.textContent='Update the local agent to configure setup by AI engine.'})
- const globalActions=document.createElement('div');globalActions.className='deployment-actions';panel.append(globalActions)
+ engine.addEventListener('change',()=>{skillsResult.textContent='';mcpResult.textContent='';enable();loadTarget()})
+ installSkills.onclick=async()=>{
+  const chosen=selectedEngine();if(!chosen||!source)return
+  installSkills.disabled=true;skillsResult.textContent='Installing skills…'
+  try{
+   const info=await api.project(source.id)
+   if(!info.configured)throw Error('Configure '+source.name+'’s local folder first: the skills come from its server configuration.')
+   const result=await api.deployProject(source.id,'provider-skills',chosen.provider)
+   if(!panel.isConnected)return
+   const step=result.skills||{}
+   skillsResult.textContent=({success:'Installed',failed:'Failed',skipped:'Skipped'}[step.status]||'Done')+' · '+(step.message||result.message||'')
+  }catch(err){if(panel.isConnected)skillsResult.textContent=/unknown/i.test(ipcMessage(err))?'Update and restart the local agent to install skills on their own.':ipcMessage(err)}
+  finally{enable()}
+ }
+ registerMCP.onclick=async()=>{
+  const chosen=selectedEngine();if(!chosen)return
+  if(!mcpProviders[chosen.provider]){mcpResult.textContent='Register MCP manually for this provider: see Settings → MCP connection.';return}
+  registerMCP.disabled=true;mcpResult.textContent='Registering the MCP server…'
+  try{
+   const result=await api.configureMCP(chosen.provider,{target:mcpTarget,transport:'http'})
+   if(panel.isConnected)mcpResult.textContent='Registered in '+result.path+' ('+(mcpTarget==='local'?'local agent':'remote server')+', HTTP). Restart the AI engine to reconnect.'
+  }catch(err){if(panel.isConnected)mcpResult.textContent='Registration failed: '+ipcMessage(err)}
+  finally{enable()}
+ }
  const localTitle=document.createElement('h3');localTitle.textContent='Local project SDD setup'
  const localHint=document.createElement('p');localHint.textContent='Install the project’s SDD framework in its local repository. This does not install global engine skills or MCP.'
  panel.append(localTitle,localHint)
@@ -1698,32 +1745,20 @@ function deploymentPanel(panel){
  const results=document.createElement('div');results.className='initialization-result';results.setAttribute('role','status')
  const actions=document.createElement('div');actions.className='deployment-actions'
  let pending=false
- let initialize
- for(const [action,label] of [['initialize','Set up engine globally'],['framework','Install SDD in project']]){
-  const button=document.createElement('button');button.type='button';button.textContent=label;button.disabled=!projects.length
-  if(action==='initialize'){initialize=button;button.disabled=true}
-  button.onclick=async()=>{
-   const projectId=action==='initialize'?source?.id:target.value
-   const selectedEngine=engines.find(item=>item.id===engine.value)
-   if(pending||!projectId||(action==='initialize'&&!selectedEngine))return
-   pending=true;target.disabled=true
-   engine.disabled=true;initialize.disabled=true;for(const item of actions.children)item.disabled=true
-   results.replaceChildren();notice.textContent=action==='initialize'?'Initialization in progress…':'Deployment in progress…'
-   try{
-    const info=await api.project(projectId)
-    if(!info.configured)throw Error('Configure this project’s local folder before deployment.')
-    const result=await api.deployProject(projectId,action,action==='initialize'?selectedEngine.provider:undefined)
-    if(!panel.isConnected)return
-    notice.textContent=result.message||'Deployment complete'
-    if(action==='initialize')for(const [label,step] of [['MCP',result.mcp],['Skills',result.skills]]){
-     if(!step)continue
-     const line=document.createElement('p');line.textContent=label+': '+({success:'Success',failed:'Failed',skipped:'Skipped',not_run:'Not run'}[step.status]||step.status)+' - '+step.message;results.append(line)
-    }
-   }catch(err){if(panel.isConnected)notice.textContent=ipcMessage(err)}finally{
-    pending=false;target.disabled=false;engine.disabled=false;initialize.disabled=!source||!engines.length;for(const item of actions.children)item.disabled=false
-   }
-  };(action==='initialize'?globalActions:actions).append(button)
+ const framework=document.createElement('button');framework.type='button';framework.textContent='Install SDD in project';framework.disabled=!projects.length
+ framework.onclick=async()=>{
+  const projectId=target.value
+  if(pending||!projectId)return
+  pending=true;target.disabled=true;framework.disabled=true
+  results.replaceChildren();notice.textContent='Deployment in progress…'
+  try{
+   const info=await api.project(projectId)
+   if(!info.configured)throw Error('Configure this project’s local folder before deployment.')
+   const result=await api.deployProject(projectId,'framework')
+   if(panel.isConnected)notice.textContent=result.message||'Deployment complete'
+  }catch(err){if(panel.isConnected)notice.textContent=ipcMessage(err)}finally{pending=false;target.disabled=false;framework.disabled=false}
  }
+ actions.append(framework)
  panel.append(actions,notice,results)
 }
 function openSettings(initial='Profile',project){

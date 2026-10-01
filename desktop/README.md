@@ -646,8 +646,13 @@ command. The three storing categories share one form, so
 whichever project category is open. Server metadata remains read-only; the
 configuration does not display skill content. **Deployment** separates global
 AI engine setup (user-level skills and MCP, shared by engines with the same
-provider) from local SDD setup (a selected project's repository). Global setup
-uses the current project's server skills as its source, shown in the panel.
+provider) from local SDD setup (a selected project's repository). In global
+setup, **Install skills** and **Register MCP** are separate steps, each reporting
+its own result. Skills come from the current project's server skills, shown in
+the panel. The MCP server registers over HTTP to the **Remote server**, with your
+API key written in the engine's configuration, or to the **Local agent**, which
+forwards with its own identity and writes no key; the panel opens on the target
+the engine is registered with. Stdio stays in **Settings → MCP connection**.
 
 Hover or keyboard-focus a project row and activate **Open tasks** to list its
 open server tasks in the **Tickets** pane, which takes the console's place; the

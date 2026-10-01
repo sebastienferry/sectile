@@ -161,3 +161,36 @@ func TestDirectSetupNote(t *testing.T) {
 		t.Fatalf("codex: %s", codex)
 	}
 }
+
+// provider-skills installs the skills alone: the MCP registration is left to
+// the MCP connection settings.
+func TestDesktopInstallsProviderSkillsWithoutMCP(t *testing.T) {
+	home := testhome.Temp(t)
+	root := t.TempDir()
+	if _, err := gitLocal(context.Background(), root, "init"); err != nil {
+		t.Fatal(err)
+	}
+	skills := []agentconfig.Skill{{ID: "implement", Directory: "code-issue", Content: "Skills only"}}
+	server := initMockServer(t, "project", skills)
+	d := &agentDaemon{repoRoot: root, link: serverLink{serverURL: server.URL, token: "test-token", projectID: "project"}, loopback: loopbackServer{desktopToken: "private"}}
+	req := httptest.NewRequest("POST", "/desktop/project?id=project&action=provider-skills&provider=claude", nil)
+	req.Header.Set("Authorization", "Bearer private")
+	res := httptest.NewRecorder()
+	d.desktopHandler(res, req)
+	if res.Code != 200 {
+		t.Fatalf("status %d: %s", res.Code, res.Body.String())
+	}
+	var result initializationResult
+	if err := json.Unmarshal(res.Body.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if !result.Success || result.Skills.Status != "success" || result.MCP.Status != "not_run" {
+		t.Fatalf("unexpected result: %+v", result)
+	}
+	if content, err := os.ReadFile(filepath.Join(home, ".claude", "skills", "code-issue", "SKILL.md")); err != nil || !strings.Contains(string(content), "Skills only") {
+		t.Fatalf("skill content: %s, %v", content, err)
+	}
+	if _, err := os.Stat(filepath.Join(home, ".claude.json")); !os.IsNotExist(err) {
+		t.Fatalf("installing skills registered the MCP server: %v", err)
+	}
+}
