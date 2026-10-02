@@ -210,7 +210,12 @@ test('the skill settings save through the agent and reset to their defaults',asy
   await expect(wins.getByRole('button',{name:'No',exact:true})).toHaveAttribute('aria-pressed','true')
   await expect(source).toHaveValue('plugin')
 
-  await panel.getByRole('button',{name:'Reset custom project skills win to default',exact:true}).click()
+  // The reset sits clear of where an overlay scrollbar would cover it (#703).
+  const reset=panel.getByRole('button',{name:'Reset custom project skills win to default',exact:true})
+  await reset.scrollIntoViewIfNeeded()
+  const gutter=await reset.evaluate(el=>el.closest('.settings-content>section').getBoundingClientRect().right-el.getBoundingClientRect().right)
+  assert.ok(gutter>=15,`the reset button is ${gutter}px from the panel's edge`)
+  await reset.click()
   await panel.getByRole('button',{name:'Reset installed skills source to default',exact:true}).click()
   await expect(source).toHaveValue('direct')
   await panel.getByRole('button',{name:'Save execution defaults'}).click()

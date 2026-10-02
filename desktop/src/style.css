@@ -408,7 +408,9 @@ aside{display:flex;flex-direction:column;padding:0;overflow:hidden}
    is merely stretched, and the reader grew to the length of the log. */
 .settings-content.stretch{display:flex;flex-direction:column}
 .settings-content.stretch>section{min-height:0}
-.settings-content.stretch>section:not(#settings-panel-Logs){overflow-y:auto}
+/* An overlay scrollbar (macOS) takes no layout space and catches the clicks
+   under it: the gutter keeps the controls on the right edge out of its way. */
+.settings-content.stretch>section:not(#settings-panel-Logs){overflow-y:auto;padding-right:16px}
 #settings-panel-Logs{flex:1;display:flex;flex-direction:column;overflow:hidden}
 .settings-logs{display:flex;flex-direction:column;gap:8px;flex:1;min-height:0}
 .settings-logs h3{margin:0;font-size:15px}
