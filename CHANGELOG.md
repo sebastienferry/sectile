@@ -61,6 +61,7 @@ test fixtures or internal plumbing.
 
 ### Changed
 
+- **Desktop's Changes panel picks the file from a drop-down.** The changed files of an execution are listed in one **Changed file** drop-down above the diff instead of a column of buttons, so the diff keeps the panel's whole width, also when the console is shown beside it. (#710)
 - **A Sectile server refuses a PostgreSQL database that is not UTF8.** On a SQL_ASCII or other non-UTF8 database, run output was cut at half its length and could store a broken character; the server now stops at startup and says how to create a UTF8 database. A UTF8 database, the PostgreSQL default, is not affected. (#693)
 - **Desktop's "Mark reviewed" is now "Skip to Handoff".** On an implemented task, the button beside **Next: Adjust** says what it does: the pull request needs no more changes, so Adjust is skipped, the task moves to reviewed and Handoff follows the merge. The tickets' row menu names it the same way.
 - **Desktop installs an engine's skills and registers its MCP server separately.** In **Settings → Deployment**, **Install skills** and **Register MCP** replace the single global setup button; the MCP server registers over HTTP to the remote server or to the local agent, whichever you pick.
