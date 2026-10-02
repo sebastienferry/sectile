@@ -205,3 +205,36 @@ func TestInitPositionalProviderAndAutoDiscovery(t *testing.T) {
 		t.Fatalf("claude skill file missing or content wrong at %s: %v, content: %s", claudeSkill, err, string(raw))
 	}
 }
+
+// The CLI has no loopback: a saved local choice is kept, the entry is left as
+// it is and Written is cleared so the next agent start rewrites it (#716).
+func TestInitContextKeepsLocalChoiceWithoutLoopback(t *testing.T) {
+	home := t.TempDir()
+	testhome.Set(t, home)
+	srv := initMockServer(t, "proj-123", nil)
+	repoDir := filepath.Join(home, "repo")
+	if err := os.MkdirAll(repoDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := agentconfig.UpdateSettings(repoDir, func(s *agentconfig.Settings) error {
+		s.MCPConnections = map[string]agentconfig.MCPConnection{"claude": {Target: "local", Transport: "http", Written: "earlier"}}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	mcpPath := filepath.Join(home, ".claude.json")
+	original := []byte(`{"mcpServers": {"sectile": {"type": "http", "url": "http://127.0.0.1:8091/mcp"}}}`)
+	if err := os.WriteFile(mcpPath, original, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := InitContext(context.Background(), []string{"--provider", "claude", "--url", srv.URL, "--token", "test-token", "--project", "proj-123", "--repo", repoDir}); err != nil {
+		t.Fatalf("Init failed: %v", err)
+	}
+	if raw, err := os.ReadFile(mcpPath); err != nil || string(raw) != string(original) {
+		t.Fatalf("registration changed: %s %v", raw, err)
+	}
+	settings, err := agentconfig.ReadSettings(repoDir)
+	if choice := settings.MCPConnections["claude"]; err != nil || choice.Target != "local" || choice.Transport != "http" || choice.Written != "" {
+		t.Fatalf("choice: %+v %v", choice, err)
+	}
+}

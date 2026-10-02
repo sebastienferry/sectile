@@ -194,3 +194,61 @@ func TestDesktopInstallsProviderSkillsWithoutMCP(t *testing.T) {
 		t.Fatalf("installing skills registered the MCP server: %v", err)
 	}
 }
+
+// Initialize records the Claude registration it writes as the managed choice,
+// so the next agent start rewrites it after a new pairing (#716). The stdio
+// default of the other providers stays unrecorded.
+func TestInitializeRecordsClaudeRegistrationAsManaged(t *testing.T) {
+	testhome.Temp(t)
+	config := agentconfig.Config{SchemaVersion: agentconfig.Version, Skills: []agentconfig.Skill{{ID: "implement", Directory: "code-issue", Content: "Original"}}}
+	d := &agentDaemon{repoRoot: t.TempDir(), link: serverLink{serverURL: "https://example.test", token: "test-token"}}
+	for _, provider := range []string{"claude", "codex"} {
+		if result, err := d.initializeProvider(t.TempDir(), config, provider); err != nil || !result.Success {
+			t.Fatalf("%s: %+v %v", provider, result, err)
+		}
+	}
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	settings, err := agentconfig.ReadSettings(d.localSettingsRoot())
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := agentconfig.MCPConnection{Target: "remote", Transport: "http", Written: mcpFingerprint("https://example.test", "test-token", executable)}
+	if settings.MCPConnections["claude"] != want {
+		t.Fatalf("claude choice: %+v", settings.MCPConnections)
+	}
+	if _, ok := settings.MCPConnections["codex"]; ok {
+		t.Fatalf("codex choice recorded: %+v", settings.MCPConnections)
+	}
+}
+
+// A saved local choice is honoured rather than overwritten by the default.
+func TestInitializeKeepsSavedLocalChoice(t *testing.T) {
+	home := testhome.Temp(t)
+	d := &agentDaemon{repoRoot: t.TempDir(), loopback: loopbackServer{url: "http://127.0.0.1:4567"}, link: serverLink{serverURL: "https://example.test", token: "test-token"}}
+	if _, err := agentconfig.UpdateSettings(d.localSettingsRoot(), func(s *agentconfig.Settings) error {
+		s.MCPConnections = map[string]agentconfig.MCPConnection{"claude": {Target: "local", Transport: "http"}}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	config := agentconfig.Config{SchemaVersion: agentconfig.Version}
+	if result, err := d.initializeProvider(t.TempDir(), config, "claude"); err != nil || !result.Success {
+		t.Fatalf("%+v %v", result, err)
+	}
+	raw, err := os.ReadFile(filepath.Join(home, ".claude.json"))
+	if err != nil || !strings.Contains(string(raw), "http://127.0.0.1:4567/mcp") || strings.Contains(string(raw), "test-token") {
+		t.Fatalf("registration left the loopback: %s %v", raw, err)
+	}
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	settings, err := agentconfig.ReadSettings(d.localSettingsRoot())
+	want := agentconfig.MCPConnection{Target: "local", Transport: "http", Written: mcpFingerprint("http://127.0.0.1:4567", "test-token", executable)}
+	if err != nil || settings.MCPConnections["claude"] != want {
+		t.Fatalf("choice: %+v %v", settings.MCPConnections, err)
+	}
+}
