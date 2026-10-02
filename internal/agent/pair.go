@@ -17,13 +17,16 @@ import (
 )
 
 // Pair runs `sectile-agent pair`: it spends a pairing code from the web
-// profile once, receives the workstation's API key and stores it beside the
-// local settings, so the daemon then starts without any environment variable.
-// It returns the message to print on success.
+// profile, or the one the browser sign-in hands back, once, receives the
+// workstation's API key and stores it beside the local settings, so the daemon
+// then starts without any environment variable. The key this workstation held
+// for the same server is revoked, and existing MCP registrations follow the
+// new one. It returns the message to print on success.
 func Pair(args []string) (string, error) {
 	fs := flag.NewFlagSet("pair", flag.ContinueOnError)
 	serverURL := fs.String("url", "", "Sectile server URL (e.g. https://sectile.example.com)")
-	code := fs.String("code", "", "Pairing code generated from the web profile")
+	code := fs.String("code", "", "Pairing code from the web profile (optional: without it, sign in through the browser)")
+	noBrowser := fs.Bool("no-browser", false, "Print the sign-in URL instead of opening the browser")
 	label := fs.String("label", "", "Name shown for this workstation in the profile (defaults to hostname)")
 	fs.SetOutput(os.Stderr)
 	if err := fs.Parse(args); err != nil {
@@ -33,33 +36,85 @@ func Pair(args []string) (string, error) {
 	if resolvedURL == "" {
 		return "", fmt.Errorf("--url is required (or set REMOTE_URL)")
 	}
-	if strings.TrimSpace(*code) == "" {
-		return "", fmt.Errorf("--code is required: generate a pairing code from the web profile")
-	}
 	if *label == "" {
 		*label, _ = os.Hostname()
 	}
-	connection, err := exchangePairingCode(context.Background(), resolvedURL, *code, *label)
+	stored, _ := agentconfig.ReadConnection() // DeviceID survives ErrNoStoredConnection
+	replaces := ""
+	if stored.Server == strings.TrimRight(strings.TrimSpace(resolvedURL), "/") {
+		replaces = stored.DeviceID // a device id means nothing to another server
+	}
+	pairingCode := strings.TrimSpace(*code)
+	if pairingCode == "" {
+		opener := openBrowser
+		if *noBrowser {
+			opener = nil
+		}
+		var err error
+		if pairingCode, err = browserSignInCode(context.Background(), resolvedURL, opener, os.Stderr); err != nil {
+			return "", err
+		}
+	}
+	connection, err := exchangePairingCode(context.Background(), resolvedURL, pairingCode, *label, replaces)
 	if err != nil {
 		return "", err
 	}
 	if err := agentconfig.WriteConnection(connection); err != nil {
 		return "", fmt.Errorf("store the API key: %w", err)
 	}
+	refreshed, warnings := refreshMCPAfterPair(connection)
 	path, _ := agentconfig.SettingsPath()
-	return fmt.Sprintf("Paired with %s as workstation %s. The API key is stored in %s; start the agent with:\n  sectile-agent --url %s",
-		connection.Server, connection.DeviceID, path, connection.Server), nil
+	message := fmt.Sprintf("Paired with %s as workstation %s. The API key is stored in %s; start the agent with:\n  sectile-agent --url %s",
+		connection.Server, connection.DeviceID, path, connection.Server)
+	if len(refreshed) > 0 {
+		message += "\nMCP configuration updated for: " + strings.Join(refreshed, ", ")
+	}
+	for _, warning := range warnings {
+		message += "\nWarning: " + warning
+	}
+	if replaces != "" {
+		message += "\nThe previous key of this workstation is revoked: restart a running agent so it uses the new one."
+	}
+	return message, nil
+}
+
+// refreshMCPAfterPair points every existing registration for this server at the new key: the one it held is revoked now.
+// It returns the providers rewritten and, as warnings, those it could not rewrite: the key is already stored, so nothing
+// here fails the pairing.
+func refreshMCPAfterPair(connection agentconfig.Connection) ([]string, []string) {
+	executable, err := os.Executable()
+	if err != nil {
+		return nil, []string{fmt.Sprintf("MCP configuration not refreshed: %v", err)}
+	}
+	if temporaryExecutable(executable) && !runningUnderTest() {
+		return nil, nil
+	}
+	var refreshed, warnings []string
+	for _, provider := range agentconfig.MCPProviders {
+		wrote, err := agentconfig.RefreshRegisteredMCPKey(provider, executable, connection.Server, connection.APIKey)
+		if err != nil {
+			warnings = append(warnings, fmt.Sprintf("MCP configuration for %s not refreshed: %v", provider, err))
+		} else if wrote {
+			refreshed = append(refreshed, provider)
+		}
+	}
+	return refreshed, warnings
 }
 
 // exchangePairingCode is the one call made without a credential: the code is
-// the proof, and the server spends it.
-func exchangePairingCode(ctx context.Context, server, code, label string) (agentconfig.Connection, error) {
+// the proof, and the server spends it. replaces names the device whose key the
+// server revokes in the same step; empty, nothing is revoked.
+func exchangePairingCode(ctx context.Context, server, code, label, replaces string) (agentconfig.Connection, error) {
 	endpoint, err := url.Parse(server)
 	if err != nil || (endpoint.Scheme != "http" && endpoint.Scheme != "https") || endpoint.Host == "" || endpoint.User != nil {
 		return agentconfig.Connection{}, fmt.Errorf("use an HTTP or HTTPS server URL without credentials")
 	}
 	server = strings.TrimRight(server, "/")
-	body, _ := json.Marshal(map[string]string{"code": strings.TrimSpace(code), "label": label})
+	fields := map[string]string{"code": strings.TrimSpace(code), "label": label}
+	if replaces != "" {
+		fields["deviceId"] = replaces
+	}
+	body, _ := json.Marshal(fields)
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, server+"/api/v1/agent/pair", bytes.NewReader(body))

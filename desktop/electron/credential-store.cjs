@@ -1,14 +1,13 @@
-// The API key goes in the settings file either way: encrypted with the OS store
-// when there is one, in clear under the same 0600 permissions otherwise. A
-// pairing code is single use, so a key that was not saved would be lost and the
-// next launch would demand a fresh code, indefinitely, on a host without a
-// secret service. Injecting the store keeps this pair testable without Electron.
-function storeKey(saved,token,store){
- if(store.isEncryptionAvailable()){saved.secret=store.encryptString(token).toString('base64');delete saved.apiKey}
- else{saved.apiKey=token;delete saved.secret}
-}
+// The API key is stored in clear in the 0600 settings file, as `sectile-agent pair` does, so the standalone agent reads
+// the same key (ADR 0049). `secret` is what earlier versions encrypted with the OS store: read once, then replaced.
+// Injecting the store keeps this pair testable without Electron.
+function storeKey(saved,token){saved.apiKey=token;delete saved.secret}
 function storedKey(saved,store){
- if(saved.secret&&store.isEncryptionAvailable())return store.decryptString(Buffer.from(saved.secret,'base64'))
- return saved.apiKey||''
+ if(saved.apiKey)return saved.apiKey
+ if(!saved.secret)return ''
+ if(!store.isEncryptionAvailable())throw Error('The stored API key cannot be read on this machine. Sign in again.')
+ return store.decryptString(Buffer.from(saved.secret,'base64'))
 }
-module.exports={storeKey,storedKey}
+// keyStatus says why the desktop cannot start on its own: no key stored, or one it cannot read.
+function keyStatus(saved,store){try{return storedKey(saved||{},store)?'ok':'none'}catch{return 'unreadable'}}
+module.exports={storeKey,storedKey,keyStatus}

@@ -98,7 +98,8 @@ func (h *Handler) AgentAPIAuth(next http.Handler) http.Handler {
 			return
 		}
 		if _, err := h.resolveAgentCredential(bearerToken(r)); err != nil {
-			writeError(w, http.StatusUnauthorized, agentAuthMessage(err))
+			status, message := agentAuthStatus(err)
+			writeError(w, status, message)
 			return
 		}
 		next.ServeHTTP(w, r)
@@ -115,19 +116,21 @@ func bearerToken(r *http.Request) string {
 	return strings.TrimPrefix(auth, "Bearer ")
 }
 
-// agentAuthMessage is what a refused machine request is told. Only expiry is
-// named: distinguishing an unknown key from a revoked one would tell a caller
-// whether a key ever existed.
-func agentAuthMessage(err error) string {
-	if errors.Is(err, db.ErrAPIKeyExpired) {
-		return db.ErrAPIKeyExpired.Error()
+// agentAuthStatus is what a refused machine request is told. Only expiry and a blocked account are named; an unknown
+// key stays anonymous: distinguishing an unknown key from a revoked one would tell a caller whether a key ever existed.
+// A blocked account is named because its key is valid, and its owner would otherwise hunt for a typo in it.
+// Anything else is the server failing to check, not the key failing the check: 503, so a client retries (#717).
+func agentAuthStatus(err error) (int, string) {
+	switch {
+	case errors.Is(err, db.ErrAPIKeyExpired):
+		return http.StatusUnauthorized, db.ErrAPIKeyExpired.Error()
+	case errors.Is(err, db.ErrAccountBlocked):
+		return http.StatusUnauthorized, msgBlocked
+	case errors.Is(err, db.ErrAPIKeyUnknown):
+		return http.StatusUnauthorized, "Valid agent bearer token required"
 	}
-	// A blocked account is worth naming too: the key is valid, and its owner
-	// would otherwise hunt for a typo in a token that is perfectly good.
-	if errors.Is(err, db.ErrAccountBlocked) {
-		return msgBlocked
-	}
-	return "Valid agent bearer token required"
+	log.Printf("[Identity] Agent credential check failed: %v", err)
+	return http.StatusServiceUnavailable, "Authentication temporarily unavailable"
 }
 
 // sharedServerTokenConfigured reports whether the deployment still pins the
@@ -186,7 +189,12 @@ func (h *Handler) resolveAgentCredential(token string) (agentCredential, error) 
 		// A blocked account's workstation keys stop opening with it. Leaving
 		// them valid would make the block a browser-only measure, while the
 		// key is the credential that runs the agent and the MCP tools.
-		if user, lookupErr := h.db.GetUser(device.UserID); lookupErr == nil && user != nil && user.Blocked {
+		// A failed read is the server's failure, not a pass: it is returned, and answered 503.
+		user, lookupErr := h.db.GetUser(device.UserID)
+		if lookupErr != nil {
+			return agentCredential{}, lookupErr
+		}
+		if user != nil && user.Blocked {
 			return agentCredential{}, db.ErrAccountBlocked
 		}
 		return agentCredential{UserID: device.UserID, Device: device}, nil
@@ -210,7 +218,8 @@ func (h *Handler) HandleAgentIdentity(w http.ResponseWriter, r *http.Request) {
 	}
 	credential, err := h.resolveAgentCredential(bearerToken(r))
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, agentAuthMessage(err))
+		status, message := agentAuthStatus(err)
+		writeError(w, status, message)
 		return
 	}
 	body := map[string]interface{}{
@@ -329,7 +338,8 @@ func (h *Handler) HandleAgentExecutionSeed(w http.ResponseWriter, r *http.Reques
 	}
 	credential, err := h.resolveAgentCredential(bearerToken(r))
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, agentAuthMessage(err))
+		status, message := agentAuthStatus(err)
+		writeError(w, status, message)
 		return
 	}
 	defaults, err := h.db.LegacyWorkstationExecution(credential.UserID)
@@ -359,7 +369,8 @@ func (h *Handler) HandleAgentCapabilities(w http.ResponseWriter, r *http.Request
 	}
 	credential, err := h.resolveAgentCredential(bearerToken(r))
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, agentAuthMessage(err))
+		status, message := agentAuthStatus(err)
+		writeError(w, status, message)
 		return
 	}
 	var report agentconfig.CapabilityReport

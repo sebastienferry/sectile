@@ -58,6 +58,7 @@ test fixtures or internal plumbing.
 - **Epics have a readiness a person decides.** On the roadmap, each epic shows its readiness, Idea, Shaping or Ready. Until somebody decides it, the badge shows Sectile's suggestion followed by "?", read from the epic's tickets, framing and slicing; three chips in the epic's panel decide it, and a second click clears it. On Jira it is written on the epic as a `readiness:idea`, `readiness:shaping` or `readiness:ready` label and read back; on GitHub milestones, GitLab and local projects it stays in Sectile. The badge that summed up the tickets' progress now reads "Tickets: Specified" and the like, so the two are not confused. (#633)
 - **The roadmap shows an epic's labels.** On Jira projects, the labels an epic carries on the tracker appear as badges on its roadmap row, a **Labels** filter in the toolbar narrows the roadmap to the epics carrying one of the chosen labels, and the epic's panel adds or removes them on the tracker. The horizon, priority and quarter labels (`roadmap:`, `priority:`, `quarter:`, and a bare `2026-Q3`) stay managed by their own controls. (#626)
 - **Create a slicing's stories in one go.** In a macro's panel on the roadmap, tick the slicing lines and click **Créer les stories**: each story lands in its line's target project, lines that already have a story are skipped, a failing line does not stop the others, and the panel reports what happened to each line with a summary. Every slicing line also shows where it came from: tasks.md, spec.md, an existing story, or typed by hand. (#634)
+- **Sign in a workstation through the browser.** Sectile Desktop's connection screen has a **Sign in with your browser** button, and `sectile-agent pair` no longer needs `--code`: both open the browser, where you sign in to Sectile (or return at once when already signed in), and the workstation gets its key without a pairing code to copy. `--no-browser` prints the address instead of opening it; a pairing code from the web profile remains the way in on a machine without a browser. Upgrade the server, the agent and the desktop together. (#717)
 
 ### Changed
 
@@ -100,6 +101,9 @@ test fixtures or internal plumbing.
 - **Initialization provider and skill command names are workstation settings.** Configure them once under Settings → Execution defaults for all projects; Deployment can explicitly select an engine for global setup. Existing project command names stay active until workstation command settings are saved.
 
 - **Desktop configuration opens as a full page.** Settings and a project's configuration now share one full-page Configuration view with a Back button. Its sidebar lists General workstation categories first, followed by the selected project's categories, while existing save actions and configuration controls remain available. (#545)
+- **Web sessions last up to 90 days.** A browser stays signed in to Sectile for 90 days at most, instead of 12 hours, and is signed out after 7 days without use. (#717)
+- **Pairing a workstation again revokes its previous key.** Signing in again from Desktop or running `sectile-agent pair` again replaces the workstation's key instead of adding one, so the profile lists one live key per workstation; restart an agent that was already running so it uses the new key. (#717)
+- **Desktop keeps the workstation key in the settings file the agent reads.** The key is stored in the owner-only `~/.config/sectile/settings.json`, as `sectile-agent pair` does, instead of encrypted by the operating system, so an agent started by hand uses the key Desktop received. A key stored by an earlier version is moved over at the next start. (#717)
 
 ### Removed
 
@@ -147,6 +151,9 @@ test fixtures or internal plumbing.
 
 - Switching desktop configuration categories or projects no longer accumulates Refresh from server buttons.
 - **MCP connections behind a hosting proxy.** Servers whose ingress forwards over loopback can now allow their public hostname with `SECTILE_MCP_ALLOWED_HOSTS`, so Codex and other MCP clients can initialize and load tools instead of receiving `403 invalid Host header`. Authentication and protection against unlisted loopback hosts remain enforced.
+- **Desktop no longer asks to pair again after a reboot.** At launch it starts the agent with the key it stored, and when it cannot, its connection screen says why: no key is stored, the stored one cannot be read, or the server refused it as expired, revoked or blocked. (#717)
+- **The `sectile` MCP entry follows the workstation key.** When the workstation's key changes, `sectile-agent pair`, and the agent at its next start, rewrite the `sectile` entry already registered for Claude Code, Codex or Antigravity on that server with the new key, instead of leaving it on a key that was revoked. (#717)
+- **A server that cannot check a key no longer calls it invalid.** When a database error prevents the check, the agent, MCP and agent API answer that authentication is temporarily unavailable (HTTP 503), and the agent retries, instead of reporting a bad key. (#717)
 
 ## [0.3.0] - 2026-09-26
 

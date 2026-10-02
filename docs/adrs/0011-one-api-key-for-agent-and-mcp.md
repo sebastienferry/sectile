@@ -1,6 +1,8 @@
 # ADR 0011: One API key for the agent, the desktop app and MCP clients
 
-Status: Accepted
+Status: Accepted. Amended by
+[ADR 0049](0049-workstations-sign-in-through-the-browser.md): pairing can start
+from the browser, and re-pairing revokes the workstation's previous key.
 
 ## Context
 
@@ -34,6 +36,12 @@ screen, and the workstation keeps the key it receives. The code and the key are
 two halves of one mechanism, not two ways in; a durable code would simply be the
 key under another name. Showing a key in clear is the profile's advanced case,
 for an MCP client configured by hand on a machine with no agent to pair for it.
+*Amended by [ADR 0049](0049-workstations-sign-in-through-the-browser.md): the
+code can also reach the workstation through the browser, which hands it to a
+loopback listener after the web sign-in, so nobody copies it. A new pairing
+revokes the key the workstation held until then. Desktop no longer keeps the
+key in encrypted settings: it stores it in clear in the owner-only settings
+file, where `sectile-agent pair` stores it too.*
 
 The same key is the bearer credential on every machine surface: the agent
 WebSocket, `/api/v1/agent/*`, `/mcp` on the server, and the agent gateway. The

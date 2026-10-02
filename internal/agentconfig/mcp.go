@@ -75,7 +75,7 @@ func ConfigureMCP(provider, executable, server, apiKey, transport string, local 
 	}
 	server = strings.TrimRight(server, "/")
 	provider = strings.ToLower(strings.TrimSpace(provider))
-	loc, err := ResolveLocations(provider)
+	data, loc, err := readMCPConfig(provider)
 	if err != nil {
 		return "", err
 	}
@@ -85,31 +85,14 @@ func ConfigureMCP(provider, executable, server, apiKey, transport string, local 
 		return "", err
 	}
 	defer fs.Close()
-	data := map[string]any{}
-	raw, err := fs.ReadFile(path)
-	if err != nil && !os.IsNotExist(err) {
-		return "", err
-	}
 	isTOML := strings.HasSuffix(path, ".toml")
-	if len(raw) > 0 {
-		if isTOML {
-			err = toml.Unmarshal(raw, &data)
-		} else {
-			err = json.Unmarshal(raw, &data)
-		}
-		if err != nil {
-			return "", fmt.Errorf("read existing MCP configuration %s: %w", path, err)
-		}
-	}
-	if data == nil {
-		return "", fmt.Errorf("MCP configuration %s must be an object", path)
-	}
 	if err := migrateMCPRegistration(data, provider, selectedMCPEntry(provider, executable, server, apiKey, transport, local)); err != nil {
 		return "", fmt.Errorf("migrate MCP configuration %s: %w", path, err)
 	}
 	if err := checkExternalMCPPolicies(loc.Home, provider, filepath.Join(loc.Home, path)); err != nil {
 		return "", err
 	}
+	var raw []byte
 	if isTOML {
 		raw, err = toml.Marshal(data)
 	} else {
@@ -131,6 +114,120 @@ func ConfigureMCP(provider, executable, server, apiKey, transport string, local 
 		return "", err
 	}
 	return filepath.Join(root, path), nil
+}
+
+// readMCPConfig decodes the provider's user-level MCP configuration. A
+// missing or empty file is an empty object.
+func readMCPConfig(provider string) (map[string]any, Locations, error) {
+	loc, err := ResolveLocations(provider)
+	if err != nil {
+		return nil, Locations{}, err
+	}
+	path := loc.MCPFile
+	fs, err := os.OpenRoot(loc.Home)
+	if err != nil {
+		return nil, Locations{}, err
+	}
+	defer fs.Close()
+	data := map[string]any{}
+	raw, err := fs.ReadFile(path)
+	if err != nil && !os.IsNotExist(err) {
+		return nil, Locations{}, err
+	}
+	if len(raw) > 0 {
+		if strings.HasSuffix(path, ".toml") {
+			err = toml.Unmarshal(raw, &data)
+		} else {
+			err = json.Unmarshal(raw, &data)
+		}
+		if err != nil {
+			return nil, Locations{}, fmt.Errorf("read existing MCP configuration %s: %w", path, err)
+		}
+	}
+	if data == nil {
+		return nil, Locations{}, fmt.Errorf("MCP configuration %s must be an object", path)
+	}
+	return data, loc, nil
+}
+
+// MCPProviders are the CLIs whose user-level MCP registration Sectile writes.
+var MCPProviders = []string{"claude", "codex", "agy"}
+
+// RegisteredMCP is the user-level `sectile` entry a provider already holds.
+type RegisteredMCP struct {
+	Server, APIKey, Transport, Command string
+}
+
+// RegisteredMCPEntry reads the top-level `sectile` entry: found is false when
+// the file or the entry is missing. An entry in neither the HTTP nor the stdio
+// shape is found but empty.
+func RegisteredMCPEntry(provider string) (RegisteredMCP, bool, error) {
+	provider = strings.ToLower(strings.TrimSpace(provider))
+	data, _, err := readMCPConfig(provider)
+	if err != nil {
+		return RegisteredMCP{}, false, err
+	}
+	key := "mcpServers"
+	if provider == "codex" {
+		key = "mcp_servers"
+	}
+	servers, _ := data[key].(map[string]any)
+	value, found := servers["sectile"]
+	if !found {
+		return RegisteredMCP{}, false, nil
+	}
+	entry, _ := value.(map[string]any)
+	if endpoint := firstString(entry, "url", "serverUrl"); endpoint != "" {
+		registered := RegisteredMCP{Server: strings.TrimSuffix(strings.TrimRight(endpoint, "/"), "/mcp"), Transport: "http"}
+		for _, field := range []string{"headers", "http_headers"} {
+			headers, _ := entry[field].(map[string]any)
+			if authorization, ok := headers["Authorization"].(string); ok {
+				registered.APIKey = strings.TrimSpace(strings.TrimPrefix(authorization, "Bearer "))
+				break
+			}
+		}
+		return registered, true, nil
+	}
+	if command, ok := entry["command"].(string); ok && command != "" {
+		registered := RegisteredMCP{Command: command, Transport: "stdio"}
+		args, _ := entry["args"].([]any)
+		for i := 0; i+1 < len(args); i++ {
+			if args[i] == "--url" {
+				registered.Server, _ = args[i+1].(string)
+				break
+			}
+		}
+		env, _ := entry["env"].(map[string]any)
+		registered.APIKey, _ = env["SECTILE_AGENT_TOKEN"].(string)
+		return registered, true, nil
+	}
+	return RegisteredMCP{}, true, nil
+}
+
+func firstString(entry map[string]any, fields ...string) string {
+	for _, field := range fields {
+		if value, ok := entry[field].(string); ok && value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+// RefreshRegisteredMCPKey rewrites an existing registration that addresses
+// server with another key, keeping its transport (and, over stdio, its
+// command). It never creates one, and leaves a local or foreign entry alone.
+// It reports whether it wrote.
+func RefreshRegisteredMCPKey(provider, executable, server, apiKey string) (bool, error) {
+	entry, found, err := RegisteredMCPEntry(provider)
+	server = strings.TrimRight(server, "/")
+	if err != nil || !found || entry.APIKey == "" || strings.TrimSpace(apiKey) == "" || entry.APIKey == apiKey || strings.TrimRight(entry.Server, "/") != server {
+		return false, err
+	}
+	if entry.Transport == "stdio" && filepath.IsAbs(entry.Command) {
+		executable = entry.Command
+	}
+	_, err = ConfigureMCP(provider, executable, server, apiKey, entry.Transport, false)
+	return err == nil, err
 }
 
 func selectedMCPEntry(provider, executable, server, apiKey, transport string, local bool) map[string]any {

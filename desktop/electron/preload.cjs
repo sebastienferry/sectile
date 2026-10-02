@@ -3,6 +3,8 @@ contextBridge.exposeInMainWorld('localAgent',{
  connect:()=>ipcRenderer.invoke('connect'),
  pair:(server,code,label)=>ipcRenderer.invoke('pair',{server,code,label}),
  start:settings=>ipcRenderer.invoke('start',settings),
+ keyStatus:()=>ipcRenderer.invoke('key-status'),
+ signIn:server=>ipcRenderer.invoke('sign-in',{server}),
  agentLogs:()=>ipcRenderer.invoke('agent-logs'),
  saveLog:text=>ipcRenderer.invoke('save-log',text),
  settings:()=>ipcRenderer.invoke('settings'),

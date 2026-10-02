@@ -388,10 +388,12 @@ recovery mechanism.
 The **Local agent** panel exposes launch configuration. Stop the daemon before
 changing settings, then use **Start local agent**. **Stop agent** uses authenticated
 `POST /desktop/shutdown` with the same confirmed-exit guard as restart.
-Desktop launch settings are saved locally; the server token is encrypted using
-Electron safeStorage when OS encryption is available, otherwise it must be
-entered again. Existing agents launched outside the desktop do not expose their
-server credentials to this panel.
+Desktop launch settings are saved locally. The API key is stored in clear as
+`apiKey` in the owner-only (0600) `~/.config/sectile/settings.json`, where
+`sectile-agent pair` stores it too, so an agent started by hand uses the same
+key. A key encrypted with Electron safeStorage by an earlier version is read
+once and replaced by `apiKey` at the next start. Existing agents launched
+outside the desktop do not expose their server credentials to this panel.
 
 **Clear finished consoles** removes completed, failed and canceled consoles from
 the local agent through authenticated `DELETE /desktop/history`, and deletes
@@ -621,10 +623,14 @@ use the same side navigation: **User profile**, **Agent connection**, **Executio
 **Changelog**, with **User profile** first. **Agent connection** reports the local
 agent with Start, Stop, and Restart controls, the server link (green when connected, orange otherwise), and the connect form itself: the same form the
 connection screen shows, borrowed while the category is open and returned when
-the panel closes. Pairing is the only credential the desktop asks for: paste a
-code from **Pair a workstation** in the web interface. There is no API key field;
-the credential a pairing leaves behind is what restarts a stopped agent, with no
-code to type again. A running agent owns the link, so **Connect** stays disabled
+the panel closes. **Sign in with your browser** pairs the workstation through
+the web sign-in, with no code to copy; without a browser on that machine, paste
+a code from **Pair a workstation** in the web interface instead. There is no API
+key field. The key a pairing leaves behind is what restarts a stopped agent:
+at launch, after a reboot too, the desktop starts the agent with it once
+without asking, and when it cannot, the connection screen says whether no key
+is stored or the stored one cannot be read. Pairing again revokes the
+workstation's previous key. A running agent owns the link, so **Connect** stays disabled
 until the agent is stopped, and the panel says so.
 
 Project names in the configuration sidebar toggle collapsible sections. Only

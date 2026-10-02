@@ -1,12 +1,14 @@
 const {app,BrowserWindow,Menu,ipcMain,dialog,nativeTheme,safeStorage,shell,clipboard}=require('electron')
-const path=require('node:path'),fs=require('node:fs'),crypto=require('node:crypto')
+const path=require('node:path'),fs=require('node:fs'),crypto=require('node:crypto'),os=require('node:os')
 const {spawn}=require('node:child_process')
 const WebSocket=require('ws')
 const {checkServer}=require('./server-check.cjs')
 const {exchangePairingCode,resolveConnectCredential}=require('./pairing.cjs')
+const {browserSignIn}=require('./browser-sign-in.cjs')
 const credentials=require('./credential-store.cjs')
-const storeKey=(saved,token)=>credentials.storeKey(saved,token,safeStorage)
+const storeKey=(saved,token)=>credentials.storeKey(saved,token)
 const storedKey=saved=>credentials.storedKey(saved,safeStorage)
+const keyStatus=saved=>credentials.keyStatus(saved,safeStorage)
 const {carryOverDataDirectory}=require('./datadir.cjs')
 const {readAgentLog}=require('./agent-log.cjs')
 const {fileSha256,agentOutdated}=require('./agent-identity.cjs')
@@ -90,8 +92,8 @@ async function checkAgentIdentity(){
  promptedFor=identity
  await lifecycle('restart',{reason:'outdated'})
 }
-ipcMain.handle('pair',async(_,{server,code,label})=>{
- const credential=await exchangePairingCode(server,code,label)
+// saveCredential keeps the device and the key a pairing returned, for the next launch and the standalone agent.
+function saveCredential(server,credential){
  let previous={}
  try{previous=readSettings()}catch{}
  const saved={...previous,server,deviceId:credential.deviceId}
@@ -100,6 +102,14 @@ ipcMain.handle('pair',async(_,{server,code,label})=>{
  fs.mkdirSync(path.dirname(settingsPath()),{recursive:true,mode:0o700})
  fs.writeFileSync(settingsPath()+'.tmp',JSON.stringify(saved),{mode:0o600})
  fs.renameSync(settingsPath()+'.tmp',settingsPath())
+}
+// storedDeviceId is the device this workstation was paired as on that server, so a new pairing replaces its key.
+function storedDeviceId(server){
+ try{const saved=readSettings();return saved.server===server&&saved.deviceId||''}catch{return ''}
+}
+ipcMain.handle('pair',async(_,{server,code,label})=>{
+ const credential=await exchangePairingCode(server,code,label)
+ saveCredential(server,credential)
  return {deviceId:credential.deviceId,token:credential.token}
 })
 const settingsPath=()=>process.env.SECTILE_DESKTOP_DATA_DIR
@@ -117,7 +127,7 @@ function readSettings(){
 ipcMain.handle('settings',()=>{
  try{
   const saved=readSettings()
-  return connectionView(saved,storedKey(saved))
+  return connectionView(saved,(()=>{try{return storedKey(saved)}catch{return ''}})())
  }catch{return {}}
 })
 // Only connection keys are written; any execution key is dropped, since the
@@ -130,7 +140,7 @@ ipcMain.handle('save-settings',async(_,updates)=>{
  fs.mkdirSync(path.dirname(settingsPath()),{recursive:true,mode:0o700})
  fs.writeFileSync(settingsPath()+'.tmp',JSON.stringify(saved,null,2),{mode:0o600})
  fs.renameSync(settingsPath()+'.tmp',settingsPath())
- return connectionView(saved,storedKey(saved))
+ return connectionView(saved,(()=>{try{return storedKey(saved)}catch{return ''}})())
 })
 // The appearance is applied here rather than in the renderer: themeSource
 // moves prefers-color-scheme and the native widgets together, and the window
@@ -207,8 +217,9 @@ async function startAgent(settings){
  // With no code, the credential an earlier pairing left behind restarts the
  // agent: the form asks for a code, never for a key to paste back in.
  let kept=''
- try{kept=storedKey(readSettings())}catch{}
- const credential=await resolveConnectCredential({...settings,token:kept})
+ // A key that cannot be read is said so, not turned into a request for a pairing code (#717).
+ if(!String(settings.code||'').trim())kept=storedKey(readSettings())
+ const credential=await resolveConnectCredential({...settings,token:kept,deviceId:storedDeviceId(settings.server)})
  const token=credential.token
  await checkServer(url,token)
  // Preserve existing mappings when upgrading; new installations use private app data.
@@ -248,6 +259,21 @@ async function startAgent(settings){
  }
  throw Error('Agent did not become ready. Check agent.log in the application data directory.')
 }
+// What the setup screen says when no agent runs: whether a stored key can start one without asking.
+ipcMain.handle('key-status',()=>{let saved={};try{saved=readSettings()}catch{}return {state:keyStatus(saved),server:saved.server||''}})
+// Signing in through the browser ends with a pairing code redeemed for a key, then the agent starts on it (ADR 0049).
+let signInAbort=null
+ipcMain.handle('sign-in',async(_,{server})=>{
+ if(starting)throw Error('Agent is starting')
+ signInAbort?.abort();const abort=signInAbort=new AbortController()
+ const code=await browserSignIn(server,{signal:abort.signal,open:href=>{const url=new URL(href);if(!['http:','https:'].includes(url.protocol)||url.username||url.password)throw Error('Invalid sign-in URL');return shell.openExternal(url.href)}})
+ starting=true;let started=false
+ try{
+  saveCredential(server,await exchangePairingCode(server,code,os.hostname(),fetch,storedDeviceId(server)))
+  started=await startAgent({server})
+  return started
+ }finally{starting=false;if(signInAbort===abort)signInAbort=null;if(started)scheduleIdentityCheck()}
+})
 async function lifecycle(action,{reason}={}){
  if(starting)throw Error('Agent lifecycle operation already in progress')
  starting=true

@@ -118,3 +118,37 @@ func TestLocalMCPOptInDoesNotOpenOtherSurfaces(t *testing.T) {
 	}
 	check("/mcp", "", "", 401)
 }
+
+// A registration nobody saved from the desktop, written by `sectile-agent
+// init` or with an earlier key, follows the key the daemon starts with; a
+// provider without a registration still gets none (#717).
+func TestDaemonStartRefreshesAnUnsavedRegistrationsKey(t *testing.T) {
+	home := testhome.Temp(t)
+	claude := filepath.Join(home, ".claude.json")
+	if err := os.WriteFile(claude, []byte(`{"mcpServers":{"sectile":{"type":"http","url":"https://sectile.example.test/mcp","headers":{"Authorization":"Bearer old-key"}}}}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	agy := filepath.Join(home, ".gemini", "config", "mcp_config.json")
+	if err := os.MkdirAll(filepath.Dir(agy), 0700); err != nil {
+		t.Fatal(err)
+	}
+	unregistered := `{"mcpServers":{"other":{"command":"other-server"}}}`
+	if err := os.WriteFile(agy, []byte(unregistered), 0600); err != nil {
+		t.Fatal(err)
+	}
+	d := &agentDaemon{repoRoot: t.TempDir(), loopback: loopbackServer{url: "http://127.0.0.1:4567", desktopToken: "private"}, link: serverLink{serverURL: "https://sectile.example.test", token: "new-key"}}
+
+	if err := d.refreshMCPConnections(); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(claude)
+	if err != nil || !strings.Contains(string(raw), "Bearer new-key") || strings.Contains(string(raw), "old-key") {
+		t.Fatalf("registration not refreshed: %s %v", raw, err)
+	}
+	if raw, err := os.ReadFile(agy); err != nil || string(raw) != unregistered {
+		t.Fatalf("a provider without a registration was given one: %s %v", raw, err)
+	}
+	if _, err := os.Stat(filepath.Join(home, ".codex", "config.toml")); !os.IsNotExist(err) {
+		t.Fatalf("a missing provider file was created: %v", err)
+	}
+}
