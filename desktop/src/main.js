@@ -1589,10 +1589,13 @@ function executionDefaultsPanel(panel){
   if(invalidList){notice.textContent='Invalid model in the list of '+invalidList[0];notice.dataset.tone='error';return}
   save.disabled=true;notice.textContent='Saving…';notice.dataset.tone=''
   try{
-   await api.saveWorkstationSettings(workstationPayload(state(),view.defaults))
-   notice.textContent='Execution defaults saved'
+   const current=state(),saved=JSON.stringify(current)
+   await api.saveWorkstationSettings(workstationPayload(current,view.defaults))
    loadEditorSetting()
-   try{view=await api.workstationSettings();if(body.isConnected){fill();notice.textContent='Execution defaults saved'}}catch{}
+   // "Saved" is announced once the panel shows what the agent now serves, and
+   // that refill leaves alone a setting edited while it was on its way.
+   try{view=await api.workstationSettings();if(body.isConnected&&JSON.stringify(state())===saved)fill()}catch{}
+   notice.textContent='Execution defaults saved'
   }catch(err){
    // The agent refused: its reason is shown as it gave it, and nothing changed.
    if(agentUnreachable(err))showUnavailable(STOPPED_NOTICE)
