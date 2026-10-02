@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"tasks/internal/agentconfig"
 	"tasks/internal/agentmcp"
@@ -245,7 +246,7 @@ func TestMCPStdioBridge(t *testing.T) {
 	defer session.Close()
 	mcptest.AssertNaming(t, ctx, session, database, task, connect)
 	list, err := session.ListTools(ctx, nil)
-	if err != nil || len(list.Tools) != 13 {
+	if err != nil || len(list.Tools) != 15 {
 		t.Fatalf("stdio discovery %v %v", list, err)
 	}
 	result, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "list_tasks", Arguments: map[string]any{"projectId": "default"}})
@@ -549,6 +550,50 @@ func TestDiscussionLaunchesTheProviderAlone(t *testing.T) {
 	}
 	if _, err = dispatchCommand(config, "TASK-46", "discussion", "discussion", "", "", models.SkillModeInteractive, ""); err == nil {
 		t.Fatal("unknown identifier accepted as a discussion")
+	}
+}
+
+// A discussion and a bare terminal open the engine with the task's other
+// folders, when its option for them is attested (#676).
+func TestDiscussionLaunchCarriesTheTaskFolders(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake engines are POSIX scripts")
+	}
+	bin := t.TempDir()
+	for _, name := range []string{"claude", "codex", "agy", "my-cli"} {
+		if err := os.WriteFile(filepath.Join(bin, name), []byte("#!/bin/sh\n"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	dirs := []string{"/repo/b", "/notes with space"}
+	for _, tt := range []struct {
+		provider, template string
+		folders            bool
+	}{
+		{"claude", "", true}, {"codex", "", true}, {"agy", "", false}, {"custom", "my-cli {prompt}", false},
+	} {
+		config := agentconfig.Config{AIProvider: tt.provider, AICommandTemplate: tt.template}
+		bare, err := dispatchCommand(config, "TASK-1", "discuss", "discuss", "", "", models.SkillModeInteractive, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, launch := range []struct{ skill, action string }{{"discuss", "discuss"}, {"", "open_terminal"}} {
+			line, err := dispatchCommand(config, "TASK-1", launch.skill, launch.action, "", "", models.SkillModeInteractive, "", agentCommandContext{AddDirs: dirs})
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := bare
+			if tt.folders {
+				want = bare + ` --add-dir='/repo/b' --add-dir='/notes with space'`
+			}
+			if line != want {
+				t.Errorf("%s %s: %q, want %q", tt.provider, launch.action, line, want)
+			}
+		}
+		if line, _ := dispatchCommand(config, "TASK-1", "discuss", "discuss", "", "", models.SkillModeInteractive, "", agentCommandContext{}); line != bare {
+			t.Errorf("%s without folders: %q, want %q", tt.provider, line, bare)
+		}
 	}
 }
 

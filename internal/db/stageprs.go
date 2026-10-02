@@ -111,6 +111,12 @@ func (d *DB) validateStagePRs(task *models.Task, actorID, skillID, repoPath, bra
 	var notices []string
 	for _, identity := range required {
 		url := chosen[identity]
+		if identity != primary && url == "" {
+			if notice, unchanged := d.unchangedRepository(task, actorID, identity, branch); unchanged {
+				notices = append(notices, notice)
+				continue
+			}
+		}
 		// Only the primary repository, when it is the project's own, is read
 		// the way a single-repository ticket is: through the task checkout.
 		// Every other repository is named to the agent, which answers from
@@ -175,6 +181,13 @@ func (d *DB) checkSecondaryPRs(project *models.Project, task *models.Task, actor
 				url = recorded.URL
 			}
 		}
+		// A repository the task prepared and left unchanged has no pull request
+		// to check; the adjustment has no report to name it in.
+		if url == "" {
+			if _, unchanged := d.unchangedRepository(task, actorID, identity, branch); unchanged {
+				continue
+			}
+		}
 		target := repositoryTarget(identity)
 		if url != "" {
 			link, _ := models.ParsePullRequestLink(url, "")
@@ -185,6 +198,35 @@ func (d *DB) checkSecondaryPRs(project *models.Project, task *models.Task, actor
 		}
 	}
 	return nil
+}
+
+// unchangedRepository asks the agent whether the task branch carries no
+// commit of its own in a secondary repository (#678). Only a verified "no"
+// skips the repository; every other answer returns false and keeps the pull
+// request required: an agent error, an agent too old to know the question, an
+// answer for another repository, no checkout found, or commits ahead. The
+// repository stays recorded as changed, so the question is asked again at the
+// next check and a later commit there requires its pull request.
+func (d *DB) unchangedRepository(task *models.Task, actorID, identity, branch string) (notice string, unchanged bool) {
+	var answer struct {
+		Repository    string `json:"repository"`
+		Found         bool   `json:"found"`
+		DefaultBranch string `json:"defaultBranch"`
+		Exists        bool   `json:"exists"`
+		Ahead         *int   `json:"ahead"`
+	}
+	op := agentprotocol.Operation{ProjectID: task.ProjectID, TaskID: task.ID, Action: "branch_changes", UserID: actorID, Repository: identity, Branch: branch}
+	if err := d.callAgent(op, &answer); err != nil {
+		return "", false
+	}
+	if answer.Repository != identity || !answer.Found || answer.DefaultBranch == "" || answer.DefaultBranch == branch || answer.Ahead == nil || *answer.Ahead != 0 {
+		return "", false
+	}
+	_, request := evidenceTerms(repositoryTarget(identity).link.Forge)
+	if !answer.Exists {
+		return fmt.Sprintf("Prepared, unchanged: in %s, %s exists neither locally nor on origin, so no %s is expected there.", identity, branch, request), true
+	}
+	return fmt.Sprintf("Prepared, unchanged: %s has no commit of %s ahead of %s, so no %s is expected there.", identity, branch, answer.DefaultBranch, request), true
 }
 
 // pullRequestLinkLast moves the link to url to the end of the set, which makes
@@ -199,6 +241,36 @@ func pullRequestLinkLast(links []models.TaskPullRequest, url string) []models.Ta
 		}
 	}
 	return links
+}
+
+// noRepositoryChangeNotice ends the report of a stage recorded with the
+// statement that the task changed no repository (#584), so the ticket says why
+// it carries no pull request.
+const noRepositoryChangeNotice = "No pull request: this task changed no repository."
+
+// noRepositoryChangeEvidence accepts the statement that a task changed no
+// repository in place of the pull request a stage requires (#584). The server
+// cannot see the branch, so it refuses what it can see: a pull request recorded
+// on the task's branch, or a repository recorded as changed through
+// prepare_repository_worktree. Both say the task did change a repository. A
+// stage that requires no pull request takes the statement as it is.
+func (d *DB) noRepositoryChangeEvidence(task *models.Task, skillID, branch string) (stagePRSet, error) {
+	if !d.stagePRRequired(task, skillID) {
+		return stagePRSet{}, nil
+	}
+	for _, recorded := range task.PrLinks {
+		if recorded.Branch == "" || recorded.Branch == branch {
+			return stagePRSet{}, fmt.Errorf("%s records pull request %s on its branch, so it changed a repository: give that pull request instead of noRepositoryChange", task.Key, recorded.URL)
+		}
+	}
+	project, err := d.GetProjectByID(task.ProjectID)
+	if err != nil {
+		return stagePRSet{}, fmt.Errorf("read project for the stage PR lookup: %w", err)
+	}
+	if changed := taskChangedRepositories(project, task); len(changed) > 0 {
+		return stagePRSet{}, fmt.Errorf("%s changed %s through prepare_repository_worktree: give the pull request of each changed repository instead of noRepositoryChange", task.Key, strings.Join(changed, ", "))
+	}
+	return stagePRSet{notice: noRepositoryChangeNotice}, nil
 }
 
 // prDeferredNotice is added to the specified report of a project whose pull

@@ -1,6 +1,65 @@
 # Sectile Desktop
 
-Local task execution consoles without a separate chatbot UI.
+Local task execution consoles, with an experimental Claude Code conversation view.
+
+## Experimental Claude conversation
+
+Turn it on with **Settings → Appearance → Claude consoles → Conversation**.
+A **Project prompt** with Claude then opens in this view instead of a terminal,
+and **Claude chat (test)** appears for an execution with a local directory.
+A task's interactive launches open there too, a skill such as clarify starting
+on its own command and **Discussion (no skill)** waiting for your first message,
+in the task's worktree and with the task's environment, when the project's
+engine is a Claude one. An autonomous launch keeps its read-only trace; a
+launch template is not run there, only its model is kept, and the conversation
+says so. Another engine keeps the terminal. While Claude answers, a message you
+send joins the answer in progress, as in Claude Code; one sent as the answer
+ends starts the next. **Stop answer**, or Esc in the message box, stops that
+answer and keeps the conversation open; the next message resumes the session. **Terminal** opens
+a plain terminal window on the conversation's directory, in the terminal the
+project uses, running your own shell. Stopping it
+ends the discussion on the server, as closing its terminal does. Upgrade the
+agent along with the desktop: an older agent opens the terminal.
+Type a message and press Enter or click **Send**; Shift+Enter adds a line.
+Typing `/` at the start of a message lists the slash commands Claude Code offers
+in that directory, with their argument and description, filtered as you type:
+arrows move, Tab or Enter completes, Esc closes. A message starting with `!`
+runs in the shell of that directory instead, as in Claude Code: it shows as a
+Bash card with its output, and Claude is given the command and what it printed
+with your next message. The output of a local command such as `/usage` or
+`/context` shows as laid out, in a fixed-width block, and `/mcp` shows the
+health of each MCP server, as `claude mcp list` checks it. The **Sectile MCP**
+chip in the composer says whether Claude reaches Sectile's own server, which
+every skill needs: connected, needing authentication, unreachable or not
+registered; click it to check again.
+Claude's replies render as Markdown with the same rules as **Rendered** in the
+Changes panel; your own messages show as typed. Each tool call is a card: an
+edit opens on its diff, a written file on its lines, a command on the command,
+the todo list as a checklist; reads and searches take one line. What a tool
+answered shows inside its card, cut at 16 KiB and 200 lines; an edit's or a
+write's confirmation shows only when it failed. A failed call is outlined and
+opens on its error; a call still waiting for its answer says running…. A reply
+streams as Claude writes it, ending on a caret, and settles into the history
+once complete. Arguments over
+64 KiB keep only their summary line. Upgrade the agent along with the desktop:
+an older agent sends the summary line alone. The chat uses the same directory but has its
+own Claude session and does not change the original execution's workflow state.
+The composer picks the model (the conversation's own, then the Claude models of
+Settings), the permission mode (**Ask before edits**, **Accept edits**, the
+default, or **Plan mode**, as Claude Code's mode switch) and the effort; each
+applies from the next message.
+Claude Code must already be installed and authenticated on this workstation.
+Edits and Sectile's own tools are accepted; a tool call your Claude Code rules
+do not allow waits in its card for **Allow**, **Always allow** (when Claude
+proposes a rule) or **Deny**, and the decision stays on the card. A question
+Claude asks shows its options, one choice or several as the question allows,
+with an answer of your own beside them; **Answer** sends it, **Skip** declines.
+While a tool call or a question waits, or a skill has asked you something in
+the conversation, the conversation is marked waiting in the sidebar and Desktop
+notifies you, as it does for a terminal; your answer, or your next message,
+ends the wait. **Stop**
+closes the conversation. Stored history is read-only after an agent restart.
+See [prototype notes](../docs/experiments/desktop-conversation.md).
 
 ## Install a release
 
@@ -92,6 +151,12 @@ paired user. Browser requests and other unauthenticated API routes are refused.
 Click **Update provider configuration** to save the chosen transport and target
 into the provider's user configuration, preserving other servers and permissions.
 Restart the AI engine afterward. This action is separate from saving CLI defaults.
+For Claude and Codex, the section also shows the `claude mcp add` or `codex mcp add`
+command for the selected mode, with its own **Copy command** button: an alternative
+to **Update provider configuration** for registering Sectile from a terminal. It
+writes nothing by itself. The Claude command carries the `<SECTILE_API_KEY>`
+placeholder to replace; the Codex remote command reads the key from the
+`SECTILE_API_KEY` environment variable of the shell that starts Codex.
 Custom providers require manual configuration.
 
 
@@ -179,6 +244,15 @@ toolbar. Choose a file to read its unified patch, or use **Refresh** after edits
 the execution. Inspection also works for stopped
 runs while their recorded checkout and agent session remain available.
 
+A Markdown file (`.md` or `.markdown`) opens **Rendered**: the whole file as a
+formatted document at the inspected state, or the old version of a deleted file.
+Turning **Rendered** off shows the raw patch for every Markdown file of that
+execution; selecting another execution opens its Markdown files rendered again. Web and mail links
+open in the default browser; relative links and anchors stay inert with their
+target shown, images are replaced by their alt text and path, and raw HTML shows as
+text. The toggle is disabled, with the reason, for a file over 512 KiB, a non-UTF-8
+file, a file past the 4 MiB rendering budget, or an agent too old to send contents.
+
 The comparison includes committed, staged, unstaged, and non-ignored untracked
 contents as one net result. Reverted edits disappear, and a recreated staged
 deletion is compared once with its original contents. The header identifies the
@@ -225,7 +299,7 @@ preparing or running execution with no server verdict yet, and an execution that
 failed or was cancelled without one, show no indicator at all: their state is
 already carried by the run state, and a second glyph restating it in other words
 only looks like a second fact. A free console runs no skill and shows no
-indicator either, except while a requested stop has not taken effect — the one
+indicator either, except while a requested stop has not taken effect: the one
 transient the run state has no word for.
 Task-row icons use the same completion rules as the task status bar, with the
 skill name and result in their tooltip and accessible label. Visible rows refresh
@@ -360,7 +434,14 @@ for the desktop development assets. On Apple Silicon the app is produced at
 
 The optional companion groups local executions under projects in a collapsible
 sidebar. Add projects by discovering the server catalog and mapping a local Git
-directory. Local worktree preferences are stored per project in
+directory. Each task key in the sidebar is tinted after the task's workflow
+stage, named in its tooltip; **Group by stage** in a project's `…` menu lists
+that project's tasks from new to finished, a choice kept per project on this
+workstation. **Hide from sidebar** in the same menu takes a project out of the
+sidebar without touching its configuration or its executions; the project stays
+in Settings, marked hidden, where **General → Show in sidebar** brings it back,
+as does choosing it again in **Add project**. Settings list only the projects
+added to this workstation. Local worktree preferences are stored per project in
 `~/.config/sectile/settings.json`. The remote URL, the project's repositories,
 SDD selection and skill content remain server-owned and read-only. Explicit deployment buttons install
 the server skills or initialize its SDD framework in the mapped directory.
@@ -540,7 +621,7 @@ use the same side navigation: **User profile**, **Agent connection**, **Executio
 **Changelog**, with **User profile** first. **Agent connection** reports the local
 agent with Start, Stop, and Restart controls, the server link (green when connected, orange otherwise), and the connect form itself: the same form the
 connection screen shows, borrowed while the category is open and returned when
-the panel closes. Pairing is the only credential the desktop asks for — paste a
+the panel closes. Pairing is the only credential the desktop asks for: paste a
 code from **Pair a workstation** in the web interface. There is no API key field;
 the credential a pairing leaves behind is what restarts a stopped agent, with no
 code to type again. A running agent owns the link, so **Connect** stays disabled
@@ -565,8 +646,13 @@ command. The three storing categories share one form, so
 whichever project category is open. Server metadata remains read-only; the
 configuration does not display skill content. **Deployment** separates global
 AI engine setup (user-level skills and MCP, shared by engines with the same
-provider) from local SDD setup (a selected project's repository). Global setup
-uses the current project's server skills as its source, shown in the panel.
+provider) from local SDD setup (a selected project's repository). In global
+setup, **Install skills** and **Register MCP** are separate steps, each reporting
+its own result. Skills come from the current project's server skills, shown in
+the panel. The MCP server registers over HTTP to the **Remote server**, with your
+API key written in the engine's configuration, or to the **Local agent**, which
+forwards with its own identity and writes no key; the panel opens on the target
+the engine is registered with. Stdio stays in **Settings → MCP connection**.
 
 Hover or keyboard-focus a project row and activate **Open tasks** to list its
 open server tasks in the **Tickets** pane, which takes the console's place; the
@@ -698,22 +784,38 @@ folder and refuses, with its reason, when the folder is gone or no editor is
 set. Without a chosen editor, or with an agent that predates the button, the
 path stands alone.
 
-The controls whose action does not depend on the workflow stage — relaunch, log
-export, the **Console** / **Changes** switch, and the linked pull request — are
+The controls whose action does not depend on the workflow stage (relaunch, log
+export, the **Console** / **Changes** switch, and the linked pull request) are
 icons, with their wording kept as tooltip and accessible name; the pull request
-keeps its number. **Next: <skill>**, **Mark reviewed**, **Retry** and **Launch
+keeps its number. **Next: <skill>**, **Skip to Handoff**, **Retry** and **Launch
 anyway** stay labelled, because their meaning depends on the stage.
 
 ### Desktop Quick add
 
-Press **Cmd+K** (macOS) or **Ctrl+K** to open the command palette, search its
-actions, and choose **Quick add task** or **Tasks list**. Enter runs the first
-matching action. The selected project's identity is prefilled; without a
-selection, choose a project explicitly. Enter a title and optional description.
+Press **Cmd+N** (macOS) or **Ctrl+N** to open **New task** directly; a focused
+terminal keeps Ctrl+N. It opens on the selected project, else on the one last
+used, else asks for one. Enter a title, and an optional Markdown description;
+Enter in the title or Cmd+Enter (Ctrl+Enter) in the description creates it.
 The server creates the task using its project tracker configuration.
 GitHub and Jira creation must succeed remotely; errors do not silently create
-a local fallback. Local projects remain local. Creation does not start an execution;
-the success screen offers a separate **Launch task** action.
+a local fallback. Local projects remain local. Creation does not start an
+execution: the success screen offers **Clarify now**, **Launch task** for any
+other launch, and **Add another** in the same project.
+
+Press **Cmd+K** (macOS) or **Ctrl+K** to open the command palette. One list
+searches the desktop's actions (**New task**, **Tasks list**, **Add project**,
+the sidebar, Settings, the web interface, each with its shortcut), the projects
+added to this
+workstation, to open their tasks, and the executions the sidebar shows, by task
+key, title, project, skill or state. Every word typed must match; arrows move,
+Enter runs the highlighted entry, Escape closes. **Add project** opens the same
+dialog as the `+` next to PROJECTS, also when the sidebar is collapsed.
+
+In any dialog or settings page, **Cmd+Enter** (**Ctrl+Enter**) activates the
+default button: it submits the form being typed in, as **Create task** or
+**Save local configuration**. Shift+Enter stays a new line. A dialog of plain
+choices or confirmations has no default action, so the shortcut never
+confirms what was not typed.
 
 The task launcher excludes finished tasks, including the finished workflow
 label. Each result shows its current workflow stage and tracker status when

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -240,7 +241,7 @@ func readTracedOutput(trace *runTrace, output io.Reader, record func(string)) {
 // Anything the parser showed belongs to the trace alone. What is left is the
 // interesting case: standard error shares this pipe, so a missing binary, a
 // crash or a shell error arrives here as plain text, and that is where a failed
-// run explains itself — it goes to the activity untouched.
+// run explains itself: it goes to the activity untouched.
 func routeTracedLine(trace *runTrace, line string, record func(string)) {
 	events, result, done := runner.ParseReasoningLine(line)
 	for _, event := range events {
@@ -251,6 +252,9 @@ func routeTracedLine(trace *runTrace, line string, record func(string)) {
 		if strings.TrimSpace(result) != "" {
 			record(result + "\n")
 		}
+		for _, denial := range permissionDenialLines(line) {
+			record(denial + "\n")
+		}
 	case len(events) > 0 || isStreamFrame(line):
 		// Shown in the trace, or protocol the reader had nothing to show for:
 		// either way it is not the activity's business.
@@ -260,9 +264,53 @@ func routeTracedLine(trace *runTrace, line string, record func(string)) {
 	}
 }
 
+// permissionDenialsShown bounds the refusals a run's activity lists one by one.
+const permissionDenialsShown = 10
+
+// permissionDenialLines names, for the run's activity, each tool call Claude
+// Code refused in a headless run, as its result message lists them, and where
+// it can be allowed (#700). The activity of a run speaks French. A command
+// the sandbox blocked without a refusal shows only as that command's own
+// error.
+func permissionDenialLines(line string) []string {
+	var frame struct {
+		Denials []struct {
+			Tool  string         `json:"tool_name"`
+			Input map[string]any `json:"tool_input"`
+		} `json:"permission_denials"`
+	}
+	if json.Unmarshal([]byte(line), &frame) != nil || len(frame.Denials) == 0 {
+		return nil
+	}
+	var lines []string
+	for i, denial := range frame.Denials {
+		if i == permissionDenialsShown {
+			lines = append(lines, fmt.Sprintf("… et %d autres refus de Claude Code", len(frame.Denials)-permissionDenialsShown))
+			break
+		}
+		call := strings.TrimSpace(denial.Tool)
+		if call == "" {
+			call = "outil inconnu"
+		}
+		for _, key := range []string{"command", "url", "file_path", "path", "pattern"} {
+			if target, _ := denial.Input[key].(string); strings.TrimSpace(target) != "" {
+				if runes := []rune(strings.Join(strings.Fields(target), " ")); len(runes) > 200 {
+					target = string(runes[:200]) + "…"
+				} else {
+					target = string(runes)
+				}
+				call += "(" + target + ")"
+				break
+			}
+		}
+		lines = append(lines, "Refusé par Claude Code : "+call+" · autorisez-le dans les réglages Sandbox du projet")
+	}
+	return lines
+}
+
 // isStreamFrame says whether a line the parser showed nothing for is still part
-// of the engine's protocol — the session banner, a user message carrying a tool
-// result, the tail of a stream cut mid-object — as opposed to a diagnostic
+// of the engine's protocol (the session banner, a user message carrying a tool
+// result, the tail of a stream cut mid-object), as opposed to a diagnostic
 // printed beside it. Only the second kind is worth recording on the task.
 func isStreamFrame(line string) bool {
 	trimmed := strings.TrimSpace(line)

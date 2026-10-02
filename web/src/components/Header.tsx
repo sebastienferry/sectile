@@ -35,6 +35,7 @@ export const Header: React.FC = () => {
     setTeamFilter,
     parentFilter,
     setParentFilter,
+    activeView,
     assigneeFilter,
     setAssigneeFilter,
     myTasksOnly,
@@ -158,7 +159,8 @@ export const Header: React.FC = () => {
               </button>
             </span>
           )}
-          {parentFilter && (
+          {/* The roadmap does not apply the parent filter (#630). */}
+          {parentFilter && activeView !== 'roadmap' && (
             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40 shrink-0">
               <Target size={10} />
               {parentFilter === '__no_macro__' || parentFilter === 'none' ? t.shell.header.noMacro : parentFilter}

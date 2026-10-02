@@ -80,3 +80,16 @@ test('a model glued to the prompt leaves the prompt behind',async()=>{
  assert.equal(dropModelSlot('cli --opt={model}{prompt}'),'cli --opt={prompt}')
  assert.equal(dropModelSlot('cli {model}{prompt}'),'cli{prompt}')
 })
+
+// A project with sandbox values hands its settings file to the built-in
+// claude lines only (#700), as the agent does.
+test('the settings file reaches only the built-in claude lines',async()=>{
+ const {commandPreview,previewLines}=await load()
+ const file='/home/me/.config/sectile/claude/p.json'
+ assert.equal(commandPreview('claude','','',false,'',file).command,"claude '{prompt}' --settings='"+file+"'")
+ assert.equal(commandPreview('claude','','',true,'',file).command,(await claudeAutonomous(''))+" --settings='"+file+"'")
+ assert.equal(commandPreview('codex','','',false,'',file).command,"codex '{prompt}'")
+ assert.equal(commandPreview('claude',"claude {mode:-p|} '{prompt}'",'',true,'',file).command,"claude -p '{prompt}'")
+ assert.equal(commandPreview('claude','','',false,'','').command,"claude '{prompt}'")
+ assert.ok(previewLines('claude','','','',file).every(line=>line.text.endsWith("--settings='"+file+"'")))
+})

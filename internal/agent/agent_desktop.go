@@ -10,10 +10,12 @@ import (
 	"github.com/google/uuid"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"tasks/internal/agentconfig"
@@ -79,6 +81,7 @@ func fileSha256(path string) string {
 }
 
 type desktopRun struct {
+	Conversation    bool      `json:"conversation,omitempty"`
 	EngineID        string    `json:"engineId,omitempty"`
 	EngineName      string    `json:"engineName,omitempty"`
 	Branch          string    `json:"branch,omitempty"`
@@ -128,6 +131,14 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Unauthorized", 401)
 		return
 	}
+	if r.URL.Path == "/desktop/conversation" {
+		d.desktopConversation(w, r)
+		return
+	}
+	if r.URL.Path == "/desktop/conversation-terminal" {
+		d.desktopConversationTerminal(w, r)
+		return
+	}
 	// The build the companion is talking to. It is its own route rather than a
 	// field on /desktop/status because status is polled every few seconds and
 	// the version never changes while the process lives.
@@ -159,7 +170,7 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 		// contractError separates a server that is merely unreachable from one
 		// that cannot be talked to at all. Without it the desktop reports both
 		// as a disconnection and the user has no reason to look at the build.
-		capabilities := []string{"git-diff", "create-task", "remove-project", "free-console", "transition-stage", "repositories", attachedFoldersCapability, "git-init", taskEnginesCapability, openEditorCapability}
+		capabilities := []string{"git-diff", markdownDocumentsCapability, "create-task", "remove-project", "free-console", "transition-stage", "repositories", attachedFoldersCapability, "git-init", taskEnginesCapability, openEditorCapability, "claude-conversation", conversationControlsCapability, conversationQueueCapability, runFoldersCapability}
 		if d.store != nil {
 			capabilities = append(capabilities, runStoreCapability)
 		}
@@ -252,6 +263,10 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 		d.desktopRepositories(w, r)
 		return
 	}
+	if r.URL.Path == "/desktop/run-folder" {
+		d.desktopRunFolder(w, r)
+		return
+	}
 	if r.URL.Path == "/desktop/folders" {
 		d.desktopFolders(w, r)
 		return
@@ -312,6 +327,25 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 	trace := run.trace
 	if r.URL.Path == "/desktop/stop" && r.Method == http.MethodPost {
 		run.canceled = true
+		if run.conversation != nil {
+			if !run.conversation.busy {
+				run.desktop.Status = conversationStoppedStatus(run)
+				run.once.Do(func() { close(run.exited) })
+				run.trace.close()
+			}
+			d.queue.mu.Unlock()
+			select {
+			case <-run.exited:
+				// A ticket discussion is a server run: stopping it ends it there too.
+				if entry.TaskID != "" {
+					_ = d.finishDesktopRun(context.Background(), entry.TaskID, id, stoppedStatus(entry.Skill), stoppedNote(entry.Skill, false))
+				}
+				w.WriteHeader(http.StatusNoContent)
+			case <-time.After(12 * time.Second):
+				http.Error(w, "Exit not confirmed", http.StatusGatewayTimeout)
+			}
+			return
+		}
 		d.queue.mu.Unlock()
 		// A supervised PTY run normally closes exited through agent-exec. If the
 		// terminal has already vanished, there is no process left that can send
@@ -636,6 +670,10 @@ func (d *agentDaemon) disconnectProject(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, err.Error(), 500)
 		return
 	}
+	// The settings file generated from its sandbox values goes too (#700).
+	if _, err := agentconfig.ClaudeSettingsFile(id, nil); err != nil {
+		log.Printf("[Agent] Could not remove the Claude settings of project %s: %v", id, err)
+	}
 	d.reportCapabilitiesLater()
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -769,8 +807,12 @@ func (d *agentDaemon) desktopProject(w http.ResponseWriter, r *http.Request) {
 			"aiModel":                     effective.AIModel,
 			"terminal":                    effective.ExternalTerminalCommand,
 			"terminalOverride":            section.Terminal != "",
-			"fields":                      fields,
-			"skills":                      skillNames(config),
+			"claudeSandbox":               claudeSandboxPayload(section.ClaudeSandbox),
+			// Claude Code's sandbox does not run on Windows: only the rules apply.
+			"platformSandbox":    runtime.GOOS != "windows",
+			"claudeSettingsPath": claudeSettingsPathOf(id),
+			"fields":             fields,
+			"skills":             skillNames(config),
 		})
 		return
 	}
@@ -795,8 +837,8 @@ func (d *agentDaemon) desktopProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	d.queue.mu.Unlock()
-	switch r.URL.Query().Get("action") {
-	case "initialize":
+	switch action := r.URL.Query().Get("action"); action {
+	case "initialize", "provider-skills":
 		provider := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("provider")))
 		if provider == "" {
 			settings, err := agentconfig.ReadSettings(d.localSettingsRoot())
@@ -814,7 +856,14 @@ func (d *agentDaemon) desktopProject(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		// Attempt failures are structured so the UI preserves partial success.
-		result, _ := d.initializeProvider(root, config, provider)
+		// provider-skills installs the skills alone, the MCP being registered
+		// from the MCP connection settings.
+		var result initializationResult
+		if action == "provider-skills" {
+			result, _ = installProviderSkills(root, config, provider)
+		} else {
+			result, _ = d.initializeProvider(root, config, provider)
+		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(result)
 	case "skills":
@@ -890,6 +939,11 @@ func (d *agentDaemon) desktopTasks(w http.ResponseWriter, r *http.Request) {
 		// Force asks the server to skip its duplicate-launch refusal. As with
 		// Mode, the agent does not interpret it, it passes it on.
 		Force bool
+		// View "conversation" asks for an interactive launch in Claude's
+		// structured view. The server never sees it: the agent keeps it until
+		// the dispatch comes back. An engine it cannot honour, or an
+		// autonomous launch, gets what it would have had without it.
+		View string
 	}
 	if json.NewDecoder(http.MaxBytesReader(w, r.Body, 8192)).Decode(&input) != nil || input.TaskID == "" {
 		http.Error(w, "Task and skill required", 400)
@@ -919,6 +973,9 @@ func (d *agentDaemon) desktopTasks(w http.ResponseWriter, r *http.Request) {
 	if !models.ValidSkillMode(input.Mode) {
 		http.Error(w, "Unknown execution mode", 400)
 		return
+	}
+	if input.View == "conversation" {
+		d.conversationViews.mark(task.ID)
 	}
 	body := mustJSON(map[string]any{"skillId": input.SkillID, "prompt": input.Prompt, "mode": input.Mode, "force": input.Force})
 	req, err := http.NewRequestWithContext(r.Context(), http.MethodPost, d.link.serverURL+"/api/tasks/"+url.PathEscape(task.ID)+"/run-skill", strings.NewReader(body))

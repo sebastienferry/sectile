@@ -41,7 +41,9 @@ import {
   RefreshCw,
   Target,
   Plus,
+  Map as MapIcon,
 } from 'lucide-react'
+import { canOpenEpicInRoadmap, projectOfTask } from '../lib/roadmapFocus'
 import { useApp } from '../context/AppContext'
 import { useProjectEngine } from '../hooks/useProjectEngine'
 import { useBackdropDismiss } from '../hooks/useBackdropDismiss'
@@ -90,6 +92,8 @@ export const TaskDetailModal: React.FC = () => {
     togglePin,
     isPinned,
     syncSingleTask,
+    openEpicInRoadmap,
+    currentProject,
     t,
   } = useApp()
   const td = t.taskDetail
@@ -572,6 +576,20 @@ export const TaskDetailModal: React.FC = () => {
               </span>
             )}
             {renderCopyKeyButton(selectedTask.parentKey)}
+            {canOpenEpicInRoadmap(selectedTask, projectOfTask(selectedTask, projects, currentProject)) && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedTask(null)
+                  openEpicInRoadmap(selectedTask)
+                }}
+                title={`${t.compactCard.openEpic} (${selectedTask.parentKey})`}
+                aria-label={t.compactCard.openEpic}
+                className="ml-1 inline-flex items-center self-center rounded p-0.5 opacity-60 hover:opacity-100 hover:bg-[var(--bg-tertiary)] hover:text-violet-300 focus-visible:opacity-100"
+              >
+                <MapIcon size={11} />
+              </button>
+            )}
             <span className="mx-1 text-[var(--text-muted)] opacity-50">/</span>
           </>
         )}

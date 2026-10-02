@@ -145,7 +145,10 @@ The tag is published twice, by two independent builds:
   changelog section as its notes.
 
 Both refuse a tag whose `desktop/package.json` does not match it, which is why
-step 4 matters. A merge into `main` publishes the image only: binaries and
-desktop archives come from tags and from nowhere else. See `.gitlab-ci.yml`,
-`docs/adrs/0018-semver-tags-and-changelog.md` and
-`docs/adrs/0034-a-release-is-published-on-both-forges.md`.
+step 4 matters. A merge into `main` is not a release: it publishes the image
+and re-uploads the same binaries and desktop archives to the rolling package
+version `main` on the GitLab mirror, stamped `<iid>-main`. Versioned packages
+and GitHub Releases come from tags and from nowhere else. See `.gitlab-ci.yml`,
+`docs/adrs/0018-semver-tags-and-changelog.md`,
+`docs/adrs/0034-a-release-is-published-on-both-forges.md` and
+`docs/adrs/0045-main-publishes-a-rolling-workstation-package.md`.

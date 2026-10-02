@@ -4,8 +4,10 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -120,12 +122,17 @@ func (d *DB) GetProjectMacros(projectID string) ([]models.MacroMeta, error) {
 	// M-<n> key, and building an address from that key would open another
 	// milestone, or none.
 	milestoneURLs := map[string]string{}
+	// The milestones the tracker listed, nil when it was not read: whether a
+	// macro's todos are copied on its milestone depends on it existing.
+	var listed map[string]bool
 	if githubMilestoneMacros(proj) {
-		if milestones, err := d.tracker(proj.ID).ListGithubMilestones(proj.GithubRepo, proj.RepoPath); err == nil && len(milestones) > 0 {
+		if milestones, err := d.tracker(proj.ID).ListGithubMilestones(proj.GithubRepo, proj.RepoPath); err == nil {
+			listed = make(map[string]bool, len(milestones))
 			repo := trackerapi.CleanGithubRepo(proj.GithubRepo)
 			d.mu.Lock()
 			for _, m := range milestones {
 				key := fmt.Sprintf("M-%d", m.Number)
+				listed[key] = true
 				if m.HTMLURL != "" {
 					milestoneURLs[key] = m.HTMLURL
 				} else if repo != "" {
@@ -142,7 +149,7 @@ func (d *DB) GetProjectMacros(projectID string) ([]models.MacroMeta, error) {
 						title = excluded.title,
 						status = excluded.status,
 						closed = excluded.closed
-				`, projectID, key, m.Title, m.Description, m.State, closedVal)
+				`, projectID, key, m.Title, milestoneDescription(m.Description), m.State, closedVal)
 			}
 			d.mu.Unlock()
 		}
@@ -150,7 +157,9 @@ func (d *DB) GetProjectMacros(projectID string) ([]models.MacroMeta, error) {
 
 	d.mu.RLock()
 	rows, err := d.conn.Query(`
-		SELECT project_id, key, horizon, description, framing_comment, todos, title, status, closed, priority, quarter, labels, updated_at
+		SELECT project_id, key, horizon, description, framing_comment, todos, title, status, closed, priority, quarter, readiness, labels, updated_at,
+			todos_mirror_ref, todos_mirror_hash, todos_mirror_error, todos_mirror_credential, todos_mirror_at,
+			framing_mirror_ref, framing_mirror_hash, framing_mirror_error, framing_mirror_credential, framing_mirror_at
 		FROM macros WHERE project_id = ? ORDER BY key ASC
 	`, projectID)
 	d.mu.RUnlock()
@@ -163,22 +172,54 @@ func (d *DB) GetProjectMacros(projectID string) ([]models.MacroMeta, error) {
 	// epic axes is a property of the project, only the key varies per macro.
 	writable := d.epicLabelsSupported(proj)
 	out := []models.MacroMeta{}
+	states, framingStates := []todosMirrorState{}, []todosMirrorState{}
 	for rows.Next() {
 		var e models.MacroMeta
 		var todosJSON, labelsJSON string
 		var closed int
-		if err := rows.Scan(&e.ProjectID, &e.Key, &e.Horizon, &e.Description, &e.FramingComment, &todosJSON, &e.Title, &e.Status, &closed, &e.Priority, &e.Quarter, &labelsJSON, &e.UpdatedAt); err != nil {
+		var state, framing todosMirrorState
+		var mirroredAt, framedAt sql.NullTime
+		if err := rows.Scan(&e.ProjectID, &e.Key, &e.Horizon, &e.Description, &e.FramingComment, &todosJSON, &e.Title, &e.Status, &closed, &e.Priority, &e.Quarter, &e.Readiness, &labelsJSON, &e.UpdatedAt,
+			&state.ref, &state.hash, &state.err, &state.credential, &mirroredAt,
+			&framing.ref, &framing.hash, &framing.err, &framing.credential, &framedAt); err != nil {
 			continue
 		}
+		if mirroredAt.Valid {
+			state.at = &mirroredAt.Time
+		}
+		if framedAt.Valid {
+			framing.at = &framedAt.Time
+		}
+		states = append(states, state)
+		framingStates = append(framingStates, framing)
 		e.Closed = closed == 1
 		e.Todos = parseMacroTodos(todosJSON)
 		e.ExternalURL = milestoneURLs[e.Key]
 		e.LabelsWritable = writable && macroKeyLabelable(e.Key, proj)
+		fillMacroOrigin(&e, proj, writable)
 		e.Labels = parseMacroLabels(labelsJSON)
 		out = append(out, e)
 	}
+	rows.Close()
 	d.fillMacroURLsFromTasks(projectID, out)
+	// After the addresses: the copies of a Jira epic's todos and framing link
+	// their comments on the epic's page.
+	scope := d.todosMirrorScope(proj, listed)
+	for i := range out {
+		kind, reason := scope.eligibility(out[i].Key)
+		out[i].TodosMirror = todosMirrorStatus(&out[i], kind, reason, states[i])
+		kind, reason = scope.eligibilityOf(framingCopy, out[i].Key)
+		out[i].FramingMirror = macroCopyStatus(framingCopy, &out[i], kind, reason, framingStates[i])
+	}
 	return out, nil
+}
+
+// milestoneDescription is the description of a milestone without the todo
+// block Sectile writes at its end (FR16): the block is a copy of the list, not
+// part of what the macro's description says.
+func milestoneDescription(description string) string {
+	outside, _ := splitTodosBlock(description)
+	return outside
 }
 
 // fillMacroURLsFromTasks gives a macro without an address the one of the work
@@ -301,45 +342,15 @@ func (d *DB) SaveEpicMeta(projectID string, key string, horizon *string, descrip
 // client refuses for want of their credential keeps the local edit, as any
 // failed milestone write does, and is returned with the saved macro so the
 // person learns that GitHub was not updated (#482).
+//
+// A save of the todos schedules their copy on the tracker (#663), and a save of
+// the framing that is not a bulk edit schedules its copy (#636). Neither runs
+// inside this call: the request does not wait on the tracker for them.
 func (d *DB) UpdateMacro(ctx context.Context, projectID string, key string, title *string, horizon *string, description *string, framingComment *string, todos *[]models.MacroTodo, closed *bool) (*models.MacroMeta, error) {
 	projectID = strings.TrimSpace(projectID)
 	key = strings.TrimSpace(key)
 	if projectID == "" || key == "" {
 		return nil, fmt.Errorf("projet et clé de macro obligatoires")
-	}
-
-	var refused error
-	proj, _ := d.GetProjectByID(projectID)
-	// Only what the milestone carries travels: the horizon, the framing and the
-	// slicing are Sectile's own.
-	if githubMilestoneMacros(proj) && (title != nil || description != nil || closed != nil) {
-		var num int
-		if strings.HasPrefix(strings.ToUpper(key), "M-") {
-			_, _ = fmt.Sscanf(strings.ToUpper(key), "M-%d", &num)
-		}
-		if num > 0 {
-			state := ""
-			if closed != nil {
-				if *closed {
-					state = "closed"
-				} else {
-					state = "open"
-				}
-			}
-			newTitle := ""
-			if title != nil {
-				newTitle = strings.TrimSpace(*title)
-			}
-			newDesc := ""
-			if description != nil {
-				newDesc = *description
-			}
-			if client, err := d.trackerForWrite(ctx, "github", proj.ID); err != nil {
-				refused = err
-			} else {
-				_ = client.UpdateGithubMilestone(proj.GithubRepo, proj.RepoPath, num, newTitle, newDesc, state)
-			}
-		}
 	}
 
 	// If title changed, update any task parent_title in tasks table as well
@@ -351,10 +362,70 @@ func (d *DB) UpdateMacro(ctx context.Context, projectID string, key string, titl
 	}
 
 	saved, err := d.saveMacroMetaFull(projectID, key, horizon, description, framingComment, todos, title, nil, closed, nil)
-	if err == nil && refused != nil {
+	if err != nil {
+		return nil, err
+	}
+
+	var refused error
+	proj, _ := d.GetProjectByID(projectID)
+	// Only what the milestone carries travels: the horizon, the framing and the
+	// slicing are Sectile's own. It is written after the local save, so the
+	// description goes out with the todo block of the list just saved.
+	if num := milestoneNumber(key); githubMilestoneMacros(proj) && num > 0 && (title != nil || description != nil || closed != nil) {
+		state := ""
+		if closed != nil {
+			if *closed {
+				state = "closed"
+			} else {
+				state = "open"
+			}
+		}
+		newTitle := ""
+		if title != nil {
+			newTitle = strings.TrimSpace(*title)
+		}
+		if client, err := d.trackerForWrite(ctx, "github", proj.ID); err != nil {
+			refused = err
+		} else {
+			if newTitle != "" || state != "" {
+				_ = client.UpdateGithubMilestone(proj.GithubRepo, proj.RepoPath, num, newTitle, "", state)
+			}
+			if description != nil {
+				// The milestone description is the local one followed by the
+				// block of the current list, so editing one never erases the
+				// other (FR16). Sent even when empty, which clears it.
+				block := renderTodosMirror(models.MacroTodosMirrorGithubDescription, saved.Todos)
+				if err := client.SetGithubMilestoneDescription(proj.GithubRepo, proj.RepoPath, num, joinTodosBlock(*description, block)); err == nil && block != "" {
+					d.recordTodosMirrorSuccess(projectID, key, "", todosMirrorHash(block))
+				}
+			}
+		}
+	}
+
+	if todos != nil {
+		d.scheduleTodosMirror(ctx, projectID, key)
+	}
+	if framingComment != nil && !bulkMacroEdit(ctx) {
+		d.scheduleMacroCopy(ctx, framingCopy, projectID, key)
+	}
+	if refused != nil {
 		return saved, fmt.Errorf("milestone GitHub de %s non mis à jour, modification gardée en local : %w", key, refused)
 	}
-	return saved, err
+	return saved, nil
+}
+
+// bulkMacroEditKey marks the context of an edit that is one of several.
+type bulkMacroEditKey struct{}
+
+// WithBulkMacroEdit marks ctx as an edit covering several macros, such as the
+// title seeding: it never schedules the framing copy (#636, US3.3).
+func WithBulkMacroEdit(ctx context.Context) context.Context {
+	return context.WithValue(ctx, bulkMacroEditKey{}, true)
+}
+
+func bulkMacroEdit(ctx context.Context) bool {
+	bulk, _ := ctx.Value(bulkMacroEditKey{}).(bool)
+	return bulk
 }
 
 func (d *DB) UpdateEpic(ctx context.Context, projectID string, key string, title *string, horizon *string, description *string, todos *[]models.EpicTodo, closed *bool) (*models.EpicMeta, error) {
@@ -365,6 +436,14 @@ func (d *DB) UpdateEpic(ctx context.Context, projectID string, key string, title
 // is left as it is, which is how a horizon or framing save keeps the labels the
 // sync recorded.
 func (d *DB) saveMacroMetaFull(projectID string, key string, horizon *string, description *string, framingComment *string, todos *[]models.MacroTodo, title *string, status *string, closed *bool, labels *[]string) (*models.MacroMeta, error) {
+	return d.saveMacroMetaKeys(projectID, key, horizon, description, framingComment, todos, title, status, closed, labels, nil)
+}
+
+// saveMacroMetaKeys is saveMacroMetaFull that also sets the story key of the
+// slicing lines storyKeys names (line id to key), on the slicing read under the
+// row lock, so an edit of another line committed in the meantime is kept
+// (#634).
+func (d *DB) saveMacroMetaKeys(projectID string, key string, horizon *string, description *string, framingComment *string, todos *[]models.MacroTodo, title *string, status *string, closed *bool, labels *[]string, storyKeys map[string]string) (*models.MacroMeta, error) {
 	projectID = strings.TrimSpace(projectID)
 	key = strings.TrimSpace(key)
 	if projectID == "" || key == "" {
@@ -392,8 +471,8 @@ func (d *DB) saveMacroMetaFull(projectID string, key string, horizon *string, de
 	var todosJSON, labelsJSON string
 	var closedInt int
 	err = tx.QueryRow(`
-		SELECT horizon, description, framing_comment, todos, title, status, closed, priority, quarter, labels FROM macros WHERE project_id = ? AND key = ?`+d.forUpdate(),
-		projectID, key).Scan(&current.Horizon, &current.Description, &current.FramingComment, &todosJSON, &current.Title, &current.Status, &closedInt, &current.Priority, &current.Quarter, &labelsJSON)
+		SELECT horizon, description, framing_comment, todos, title, status, closed, priority, quarter, readiness, labels FROM macros WHERE project_id = ? AND key = ?`+d.forUpdate(),
+		projectID, key).Scan(&current.Horizon, &current.Description, &current.FramingComment, &todosJSON, &current.Title, &current.Status, &closedInt, &current.Priority, &current.Quarter, &current.Readiness, &labelsJSON)
 	if err == nil {
 		current.Todos = parseMacroTodos(todosJSON)
 		current.Closed = closedInt == 1
@@ -423,8 +502,21 @@ func (d *DB) saveMacroMetaFull(projectID string, key string, horizon *string, de
 		current.FramingComment = *framingComment
 	}
 	if todos != nil {
+		// A save never clears a story key: a line the stored slicing attached
+		// keeps its key when the saved one carries none, as a tab loaded before
+		// a batch would send. Sectile offers no way to detach a line, so this
+		// takes nothing away; a line the save omits is still removed (#634).
+		storedKeys := make(map[string]string, len(current.Todos))
+		for _, stored := range current.Todos {
+			if strings.TrimSpace(stored.StoryKey) != "" {
+				storedKeys[stored.ID] = stored.StoryKey
+			}
+		}
 		cleaned := make([]models.MacroTodo, 0, len(*todos))
 		for _, todo := range *todos {
+			if strings.TrimSpace(todo.StoryKey) == "" && todo.ID != "" {
+				todo.StoryKey = storedKeys[todo.ID]
+			}
 			text := strings.TrimSpace(todo.Text)
 			if text == "" {
 				continue
@@ -439,11 +531,22 @@ func (d *DB) saveMacroMetaFull(projectID string, key string, horizon *string, de
 			// rejeté : une version ultérieure qui en ajoute un ne doit pas voir
 			// une version antérieure effacer ses lignes en les relisant.
 			todo.TargetProjectID = strings.TrimSpace(todo.TargetProjectID)
+			// A line aims at one place: a roadmap project of the tracker wins
+			// over a Sectile project, being the more specific choice.
+			todo.TargetTrackerProject = strings.ToUpper(strings.TrimSpace(todo.TargetTrackerProject))
+			if todo.TargetTrackerProject != "" {
+				todo.TargetProjectID = ""
+			}
 			todo.SourceKind = strings.TrimSpace(todo.SourceKind)
 			todo.SourceEntry = strings.TrimSpace(todo.SourceEntry)
 			cleaned = append(cleaned, todo)
 		}
 		current.Todos = cleaned
+	}
+	for i := range current.Todos {
+		if storyKey, ok := storyKeys[current.Todos[i].ID]; ok {
+			current.Todos[i].StoryKey = storyKey
+		}
 	}
 	current.UpdatedAt = time.Now()
 
@@ -499,36 +602,109 @@ func (d *DB) CreateStoryFromMacroTodo(ctx context.Context, projectID string, mac
 	if err != nil || proj == nil {
 		return nil, nil, "", fmt.Errorf("projet non trouvé")
 	}
-	metas, err := d.GetProjectMacros(projectID)
+	unlock := d.lockMacroStories(projectID, macroKey)
+	defer unlock()
+
+	meta, err := d.findMacroMeta(projectID, macroKey)
 	if err != nil {
 		return nil, nil, "", err
 	}
-	var meta *models.MacroMeta
-	for i := range metas {
-		if metas[i].Key == macroKey {
-			meta = &metas[i]
-			break
-		}
-	}
-	if meta == nil {
-		return nil, nil, "", fmt.Errorf("macro %s sans cadrage enregistré", macroKey)
-	}
-
-	var todo *models.MacroTodo
-	for i := range meta.Todos {
-		if meta.Todos[i].ID == todoID {
-			todo = &meta.Todos[i]
-			break
-		}
-	}
+	todo := findMacroTodo(meta, todoID)
 	if todo == nil {
 		return nil, nil, "", fmt.Errorf("ligne de TODO introuvable")
 	}
+	task, notice, err := d.createStoryFromLine(ctx, proj, macroKey, *todo)
+	if err != nil {
+		return nil, nil, "", err
+	}
+
+	saved, _, err := d.recordLineStoryKey(projectID, macroKey, todoID, task.Key)
+	if err != nil {
+		todo.StoryKey = task.Key
+		return meta, task, notice, nil
+	}
+	// The copy on the tracker shows the key on the line from now on.
+	d.scheduleTodosMirror(ctx, projectID, macroKey)
+	return saved, task, notice, nil
+}
+
+// lockMacroStories serializes the story creations of one macro on this server,
+// a batch and a single line alike, so the "already attached" check of one
+// always sees the key the other just recorded (#634). It is never taken while
+// d.mu is held: the tracker call it covers can be slow.
+func (d *DB) lockMacroStories(projectID, macroKey string) func() {
+	value, _ := d.macroStoryLocks.LoadOrStore(projectID+"\x00"+macroKey, &sync.Mutex{})
+	lock := value.(*sync.Mutex)
+	lock.Lock()
+	return lock.Unlock
+}
+
+// findMacroMeta reads the saved shaping of one macro.
+func (d *DB) findMacroMeta(projectID, macroKey string) (*models.MacroMeta, error) {
+	metas, err := d.GetProjectMacros(projectID)
+	if err != nil {
+		return nil, err
+	}
+	for i := range metas {
+		if metas[i].Key == macroKey {
+			return &metas[i], nil
+		}
+	}
+	return nil, fmt.Errorf("macro %s sans cadrage enregistré", macroKey)
+}
+
+func findMacroTodo(meta *models.MacroMeta, todoID string) *models.MacroTodo {
+	for i := range meta.Todos {
+		if meta.Todos[i].ID == todoID {
+			return &meta.Todos[i]
+		}
+	}
+	return nil
+}
+
+// macroLineAttachedError refuses a slicing line that already carries a story.
+// The single-line action answers it as a refusal, a batch as a skipped line.
+type macroLineAttachedError struct {
+	Key string
+	// Roadmap says the key belongs to a roadmap project, a story of another
+	// team's Jira project.
+	Roadmap bool
+}
+
+func (e *macroLineAttachedError) Error() string {
+	if e.Roadmap {
+		return fmt.Sprintf("cette ligne est déjà rattachée à %s, une story du projet de roadmap %s", e.Key, macroOrigin(e.Key))
+	}
+	return fmt.Sprintf("cette ligne a déjà produit %s", e.Key)
+}
+
+// createStoryFromLine checks one slicing line and creates its story, the same
+// way for the single-line action and for a batch. It returns a
+// *macroLineAttachedError when the line already carries a key.
+func (d *DB) createStoryFromLine(ctx context.Context, proj *models.Project, macroKey string, todo models.MacroTodo) (*models.Task, string, error) {
 	if isRoadmapProjectKey(proj, todo.StoryKey) {
-		return nil, nil, "", fmt.Errorf("cette ligne est rattachée à %s, d'un projet de roadmap que Sectile lit sans jamais y écrire", todo.StoryKey)
+		return nil, "", &macroLineAttachedError{Key: todo.StoryKey, Roadmap: true}
 	}
 	if strings.TrimSpace(todo.StoryKey) != "" {
-		return nil, nil, "", fmt.Errorf("cette ligne a déjà produit %s", todo.StoryKey)
+		return nil, "", &macroLineAttachedError{Key: todo.StoryKey}
+	}
+
+	// A roadmap project of the tracker takes the story on Jira only. The key is
+	// checked against today's declaration, not the one the line was saved
+	// under: a story created in a project nobody reads any more would be lost
+	// from sight at once.
+	if remote := strings.ToUpper(strings.TrimSpace(todo.TargetTrackerProject)); remote != "" {
+		if proj.IssueTracker != "jira" {
+			return nil, "", fmt.Errorf("« %s » est un projet Jira : seul un projet Jira peut y créer la story de cette ligne", remote)
+		}
+		if !isDeclaredRoadmapProject(proj, remote) {
+			return nil, "", fmt.Errorf("« %s » n'est plus un projet de roadmap de %s : choisissez une autre cible pour cette ligne", remote, proj.Name)
+		}
+		task, notice, err := d.createStoryInRoadmapProject(ctx, proj, remote, macroKey, todo.Text)
+		if err != nil {
+			return nil, "", fmt.Errorf("erreur création de story dans %s : %w", remote, err)
+		}
+		return task, notice, nil
 	}
 
 	// The line's target project is where its story lands; empty is the
@@ -536,29 +712,206 @@ func (d *DB) CreateStoryFromMacroTodo(ctx context.Context, projectID string, mac
 	// macro could not be the story's parent there.
 	target := proj
 	if targetID := strings.TrimSpace(todo.TargetProjectID); targetID != "" && targetID != proj.ID {
+		var err error
 		target, err = d.GetProjectByID(targetID)
 		if err != nil {
-			return nil, nil, "", err
+			return nil, "", err
 		}
 		if target == nil {
-			return nil, nil, "", fmt.Errorf("le projet cible %s n'existe plus : choisissez-en un autre pour cette ligne", targetID)
+			return nil, "", fmt.Errorf("le projet cible %s n'existe plus : choisissez-en un autre pour cette ligne", targetID)
 		}
 		if same, reason := d.sameTrackerInstance(proj, target); !same {
-			return nil, nil, "", fmt.Errorf("%s", reason)
+			return nil, "", fmt.Errorf("%s", reason)
 		}
 	}
 
 	task, notice, err := d.createStoryUnder(ctx, proj, target, macroKey, todo.Text)
 	if err != nil {
-		return nil, nil, "", fmt.Errorf("erreur création de story: %w", err)
+		return nil, "", fmt.Errorf("erreur création de story: %w", err)
+	}
+	return task, notice, nil
+}
+
+// recordLineStoryKey sets the story key of one slicing line and saves the
+// slicing, re-read under the row lock, so an edit of another line made in the
+// meantime is kept. It reports false when the line no longer exists.
+func (d *DB) recordLineStoryKey(projectID, macroKey, todoID, storyKey string) (*models.MacroMeta, bool, error) {
+	saved, err := d.saveMacroMetaKeys(projectID, macroKey, nil, nil, nil, nil, nil, nil, nil, nil, map[string]string{todoID: storyKey})
+	if err != nil {
+		return nil, false, err
+	}
+	return saved, findMacroTodo(saved, todoID) != nil, nil
+}
+
+// Outcomes of one slicing line in a batch.
+const (
+	MacroStoryCreated = "created"
+	MacroStorySkipped = "skipped"
+	MacroStoryFailed  = "failed"
+)
+
+// MacroStoryOutcome is what a batch did with one slicing line.
+type MacroStoryOutcome struct {
+	TodoID   string       `json:"todoId"`
+	Status   string       `json:"status"`
+	StoryKey string       `json:"storyKey,omitempty"`
+	Task     *models.Task `json:"task,omitempty"`
+	Notice   string       `json:"notice,omitempty"`
+	Error    string       `json:"error,omitempty"`
+	// Code and Tracker name the credential a failed line lacked, as the
+	// single-line refusal does.
+	Code    string `json:"code,omitempty"`
+	Tracker string `json:"tracker,omitempty"`
+}
+
+// MacroStoryBatch is the answer of a batch: one outcome per processed line, the
+// counts, and the macro as saved after it.
+type MacroStoryBatch struct {
+	Macro   *models.MacroMeta   `json:"macro"`
+	Results []MacroStoryOutcome `json:"results"`
+	Created int                 `json:"created"`
+	Skipped int                 `json:"skipped"`
+	Failed  int                 `json:"failed"`
+}
+
+// CreateStoriesFromMacroTodos creates the stories of several slicing lines in
+// one gesture (#634). Each line goes through the checks and the creation of the
+// single-line action, in the order of the saved slicing, one after the other;
+// its key is recorded before the next line is attempted, so an interrupted batch
+// never leaves a created story unrecorded. An attached line is skipped, and a
+// failing line does not stop the others. Only an empty selection, a missing
+// project or macro, and a context naming nobody to write as refuse the batch as
+// a whole.
+func (d *DB) CreateStoriesFromMacroTodos(ctx context.Context, projectID string, macroKey string, todoIDs []string) (*MacroStoryBatch, error) {
+	projectID = strings.TrimSpace(projectID)
+	macroKey = strings.TrimSpace(macroKey)
+	if projectID == "" || macroKey == "" {
+		return nil, fmt.Errorf("projet et clé de macro obligatoires")
+	}
+	requested := make([]string, 0, len(todoIDs))
+	seen := make(map[string]bool, len(todoIDs))
+	for _, id := range todoIDs {
+		id = strings.TrimSpace(id)
+		if id == "" || seen[id] {
+			continue
+		}
+		seen[id] = true
+		requested = append(requested, id)
+	}
+	if len(requested) == 0 {
+		return nil, fmt.Errorf("aucune ligne sélectionnée")
+	}
+	proj, err := d.GetProjectByID(projectID)
+	if err != nil || proj == nil {
+		return nil, fmt.Errorf("projet non trouvé")
 	}
 
-	todo.StoryKey = task.Key
-	saved, err := d.SaveMacroMeta(projectID, macroKey, nil, nil, nil, &meta.Todos)
+	unlock := d.lockMacroStories(projectID, macroKey)
+	defer unlock()
+
+	meta, err := d.findMacroMeta(projectID, macroKey)
 	if err != nil {
-		return meta, task, notice, nil
+		return nil, err
 	}
-	return saved, task, notice, nil
+	// The lines are processed in the order the slicing shows them, then the
+	// ids it does not know, in the order asked.
+	order := make([]string, 0, len(requested))
+	for _, todo := range meta.Todos {
+		if seen[todo.ID] {
+			order = append(order, todo.ID)
+			delete(seen, todo.ID)
+		}
+	}
+	for _, id := range requested {
+		if seen[id] {
+			order = append(order, id)
+		}
+	}
+
+	batch := &MacroStoryBatch{Macro: meta, Results: make([]MacroStoryOutcome, 0, len(order))}
+	for _, todoID := range order {
+		outcome := MacroStoryOutcome{TodoID: todoID}
+		// Re-read before each line, so a key an earlier line or another path
+		// recorded is seen.
+		// A failed read fails that line only: the lines created before it keep
+		// their report.
+		current, err := d.findMacroMeta(projectID, macroKey)
+		if err != nil {
+			outcome.Status = MacroStoryFailed
+			outcome.Error = err.Error()
+			batch.add(outcome)
+			continue
+		}
+		batch.Macro = current
+		todo := findMacroTodo(current, todoID)
+		if todo == nil {
+			outcome.Status = MacroStoryFailed
+			outcome.Error = "ligne de TODO introuvable"
+			batch.add(outcome)
+			continue
+		}
+		task, notice, err := d.createStoryFromLine(ctx, proj, macroKey, *todo)
+		var attached *macroLineAttachedError
+		switch {
+		case errors.As(err, &attached):
+			outcome.Status = MacroStorySkipped
+			outcome.StoryKey = attached.Key
+		case errors.Is(err, trackerapi.ErrNoActingUser):
+			// Nobody to write as holds for every line alike, and it is raised
+			// before the first tracker write: the batch is refused whole.
+			return nil, err
+		case err != nil:
+			outcome.Status = MacroStoryFailed
+			outcome.Error = err.Error()
+			if tracker := trackerapi.MissingCredentialTracker(err); tracker != "" {
+				outcome.Code = trackerapi.CredentialMissingCode
+				outcome.Tracker = tracker
+			}
+		default:
+			outcome.Status = MacroStoryCreated
+			outcome.StoryKey = task.Key
+			outcome.Task = task
+			outcome.Notice = notice
+			saved, found, recErr := d.recordLineStoryKey(projectID, macroKey, todoID, task.Key)
+			switch {
+			case recErr != nil:
+				outcome.Notice = joinNotice(notice, "clé non enregistrée sur la ligne : "+recErr.Error())
+			case !found:
+				outcome.Notice = joinNotice(notice, "clé non enregistrée sur la ligne : la ligne a été retirée du découpage")
+				batch.Macro = saved
+			default:
+				batch.Macro = saved
+			}
+		}
+		batch.add(outcome)
+	}
+	if final, err := d.findMacroMeta(projectID, macroKey); err == nil {
+		batch.Macro = final
+	}
+	// One copy for the whole batch rather than one per line.
+	if batch.Created > 0 {
+		d.scheduleTodosMirror(ctx, projectID, macroKey)
+	}
+	return batch, nil
+}
+
+func (b *MacroStoryBatch) add(outcome MacroStoryOutcome) {
+	switch outcome.Status {
+	case MacroStoryCreated:
+		b.Created++
+	case MacroStorySkipped:
+		b.Skipped++
+	default:
+		b.Failed++
+	}
+	b.Results = append(b.Results, outcome)
+}
+
+func joinNotice(notice, more string) string {
+	if notice == "" {
+		return more
+	}
+	return notice + " ; " + more
 }
 
 func (d *DB) CreateStoryFromEpicTodo(ctx context.Context, projectID string, epicKey string, todoID string) (*models.EpicMeta, *models.Task, string, error) {
@@ -1031,15 +1384,15 @@ func (d *DB) MigrateMacro(ctx context.Context, sourceProjectID string, macroKey 
 	d.mu.Unlock()
 
 	// 1. Read existing macro data from source project
-	var horizon, description, todosJSON, title, status, priority, quarter string
+	var horizon, description, todosJSON, title, status, priority, quarter, readiness string
 	labelsJSON := "[]"
 	var closed int
 	d.mu.RLock()
 	err = d.conn.QueryRow(`
-		SELECT horizon, description, todos, title, status, closed, priority, quarter, labels
+		SELECT horizon, description, todos, title, status, closed, priority, quarter, readiness, labels
 		FROM macros
 		WHERE project_id = ? AND key = ?
-	`, sourceProjectID, macroKey).Scan(&horizon, &description, &todosJSON, &title, &status, &closed, &priority, &quarter, &labelsJSON)
+	`, sourceProjectID, macroKey).Scan(&horizon, &description, &todosJSON, &title, &status, &closed, &priority, &quarter, &readiness, &labelsJSON)
 	d.mu.RUnlock()
 
 	if err != nil {
@@ -1083,9 +1436,9 @@ func (d *DB) MigrateMacro(ctx context.Context, sourceProjectID string, macroKey 
 	err = d.conn.WithTx(func(tx *sqlTx) error {
 		var freshTitle string
 		readErr := tx.QueryRow(`
-			SELECT horizon, description, todos, title, status, closed, priority, quarter, labels
+			SELECT horizon, description, todos, title, status, closed, priority, quarter, readiness, labels
 			FROM macros
-			WHERE project_id = ? AND key = ?`+d.forUpdate(), sourceProjectID, macroKey).Scan(&horizon, &description, &todosJSON, &freshTitle, &status, &closed, &priority, &quarter, &labelsJSON)
+			WHERE project_id = ? AND key = ?`+d.forUpdate(), sourceProjectID, macroKey).Scan(&horizon, &description, &todosJSON, &freshTitle, &status, &closed, &priority, &quarter, &readiness, &labelsJSON)
 		if readErr != nil && readErr != sql.ErrNoRows {
 			return readErr
 		}
@@ -1093,8 +1446,8 @@ func (d *DB) MigrateMacro(ctx context.Context, sourceProjectID string, macroKey 
 			title = freshTitle
 		}
 		if _, err := tx.Exec(`
-			INSERT INTO macros (project_id, key, horizon, description, todos, title, status, closed, priority, quarter, labels, updated_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+			INSERT INTO macros (project_id, key, horizon, description, todos, title, status, closed, priority, quarter, readiness, labels, updated_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
 			ON CONFLICT(project_id, key) DO UPDATE SET
 				horizon = excluded.horizon,
 				description = excluded.description,
@@ -1104,9 +1457,10 @@ func (d *DB) MigrateMacro(ctx context.Context, sourceProjectID string, macroKey 
 				closed = excluded.closed,
 				priority = excluded.priority,
 				quarter = excluded.quarter,
+				readiness = excluded.readiness,
 				labels = excluded.labels,
 				updated_at = CURRENT_TIMESTAMP
-		`, targetProjectID, targetMacroKey, horizon, description, todosJSON, title, status, closed, priority, quarter, labelsJSON); err != nil {
+		`, targetProjectID, targetMacroKey, horizon, description, todosJSON, title, status, closed, priority, quarter, readiness, labelsJSON); err != nil {
 			return err
 		}
 		// Delete from source project

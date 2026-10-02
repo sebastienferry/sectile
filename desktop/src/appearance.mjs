@@ -6,6 +6,12 @@ export const APPEARANCE_CHOICES=[
  {value:'light',label:'Light'}
 ]
 
+// How a Claude project prompt opens (see electron/appearance.cjs).
+export const CONSOLE_VIEW_CHOICES=[
+ {value:'terminal',label:'Terminal'},
+ {value:'conversation',label:'Conversation'}
+]
+
 // The console shows CLI output that picks its own ANSI colours, so each mode
 // carries a full palette rather than a background alone: a light background
 // with xterm's default ANSI white and yellow would leave text unreadable. The

@@ -26,6 +26,7 @@ Sectile supports multiple concurrent software repositories and projects from a s
   - `skill_overrides`: Project-specific prompt template overrides.
   - `repositories`: The remotes its tickets work in, the code remote first. A ticket pinned to one of them runs in a worktree of it, an unpinned one in the code repository; the others are context the agent is told not to change (an instruction, not enforced), and a skill asks for a worktree in one before changing it, which then needs its own pull request (#456, ADR 0028, ADR 0036).
   - Attached folders: other folders a workstation attaches to the project in the desktop settings, kept on that workstation only and handed to every launch as context. An attached Git repository with a remote is changed through a worktree and its own pull request, a folder without a remote in place (#484, ADR 0036).
+  - Sandbox values: what the project's Claude Code sessions are allowed on a workstation, set in the **Sandbox** category of the desktop project settings: Claude Code's sandbox (inherited, on or off), its allowed network domains and extra writable paths, and the allow and deny permission rules. Kept on that workstation only and handed to every built-in Claude Code launch of the project through a generated `--settings` file; "Always allow" in a conversation adds its rule to them (#700, ADR 0048).
 
 - **Dynamic Workspace Switcher**:
   - The UI allows filtering tasks by project (`All Projects` vs individual projects).
@@ -82,7 +83,7 @@ with the work all the way through the background queue: on a tracker that
 attributes a write to the account behind the token, that is what puts the right
 name on it. Jira accepts nothing else. GitHub also supports milestone
 operations and issue transfer. Jira additionally exposes what a board is made of
-— boards, columns, sprints, statuses, issue types, epics and teams — through the
+(boards, columns, sprints, statuses, issue types, epics and teams) through the
 read side of the ticketing abstraction, and writes sprint, team and epic. Local
 tasks stay in SQLite.
 
@@ -131,7 +132,7 @@ flowchart LR
 
 ### Stage 1: Clarification (`clarify-issue` / `/clarify`)
 - **Objective**: Resolves functional gaps, edge cases, and architectural ambiguities through an iterative feedback loop between the agent and the work item owner (analogous to how `adjust-issue` iterates on code reviews).
-- **Rounds & Reports**: Clarification executes in numbered rounds (Round 1, Round N). Findings are stored in `docs/clarifications/<n>.md` on the assigned work branch, with dated sections `## Round N - answers from the owner (<date>)` appended as feedback arrives. Each round commits incrementally with `docs(spec): clarify #<n> (round <r>)`.
+- **Rounds & Reports**: Clarification executes in numbered rounds (Round 1, Round N). Findings are stored in `docs/clarifications/<n>.md` on the assigned work branch, with dated sections `## Round N - answers from the owner (<date>)` appended as feedback arrives. Each round commits incrementally with `docs(spec): clarify #<n> (round <r>)`. On a workstation that drops the specification artefacts, the file stays uncommitted in the worktree and the rounds published on the ticket are the shared record: a worktree without the file rebuilds it from them and continues with the next round. (#487)
 - **Exit Condition & Transition Guard**: Clarification ends only when the owner explicitly confirms that the clarification is satisfactory (or zero open product questions remain in unattended pickup). A task must **never** be transitioned `new → clarified` while any product question or decision remains open.
 - **Pull request**: When the project's PR creation stage is `clarified` ("Draft after clarification"), the final round pushes the task branch and opens or reuses its draft pull request, and the `clarified` transition is refused without it. Intermediate rounds open none; a workstation that drops the specification artefacts defers it to implementation. (#580)
 - **Interactive vs. Unattended Execution**:
@@ -169,7 +170,7 @@ must run the project's checks before submitting a transition.
 
 ## 2b. Spec-Driven Design Toolchains (Spec Kit / OpenSpec)
 
-Sectile does not merely reference an SDD framework — it installs it. Two are
+Sectile does not merely reference an SDD framework: it installs it. Two are
 supported, selectable per project and as a global default:
 
 | | GitHub Spec Kit | OpenSpec |
@@ -182,11 +183,11 @@ supported, selectable per project and as a global default:
 
 Endpoints:
 
-- `GET /api/spec-framework/status?projectId=…&framework=…` — reports, per
+- `GET /api/spec-framework/status?projectId=…&framework=…`: reports, per
   framework, whether the CLI is reachable in `PATH` (`cliAvailable`,
   `cliCommand`) and whether the working directory is already initialized
   (`initialized`, `markerPaths`). Omitting `framework` reports on both.
-- `POST /api/spec-framework/install` — body `{framework, repoPath, projectId,
+- `POST /api/spec-framework/install`: body `{framework, repoPath, projectId,
   aiAgent, force}`. Installs the CLI when missing, then runs the initializer.
 
 The installer tries the richest invocation first and falls back to progressively
@@ -218,7 +219,7 @@ framework value; the database migrates that value to `openspec` on startup.
 ### Stage 5: Handoff (`handoff-issue`)
 - **Objective**: Confirms the merge and writes the handover and acceptance checklist.
 - **Output**: Finished ticket and safe cleanup of clean, unused local worktrees. Shared batch worktrees remain until every associated ticket is handed off.
-- **Where it is offered**: the web task card and detail modal, and the desktop app when an execution is stopped on a task already at `reviewed` — the desktop then proposes closing the task rather than leaving it at that stage.
+- **Where it is offered**: the web task card and detail modal, and the desktop app when an execution is stopped on a task already at `reviewed`; the desktop then proposes closing the task rather than leaving it at that stage.
 
 ---
 
@@ -274,7 +275,7 @@ is made in either shape.
 
 A headless run has no terminal, but it is not silent. Claude is launched with
 `--output-format stream-json --verbose`, which makes it print what it is doing as
-it does it — the prose it writes and the tools it calls, one JSON object per
+it does it: the prose it writes and the tools it calls, one JSON object per
 line. The agent reads that stream, renders it, and serves it to the desktop on
 the route a console is attached to (`/desktop/terminal?id=<runId>`), so selecting
 an autonomous run shows it working instead of the sentence explaining that it
@@ -282,7 +283,7 @@ cannot be answered.
 
 The trace is **read-only**: the agent discards anything the pane sends, because
 nobody is answering an autonomous run. It is **local to the workstation** that
-ran the skill — it is held in the agent's memory, bounded, and forgotten with the
+ran the skill: it is held in the agent's memory, bounded, and forgotten with the
 run; the web board is unchanged and shows what it always showed.
 
 What the task activity records does not change: the engine's final answer, plus
@@ -296,7 +297,7 @@ keeps showing them the notice.
 A headless run carries the provider's non-interactive approval mode because
 there is no terminal and no stdin: without it the CLI is denied every tool it
 asks for, the Sectile MCP tools included, and ends having only printed why it
-could not work. The interactive form carries no bypass — that is where a human
+could not work. The interactive form carries no bypass: that is where a human
 answers. A discussion and a bare terminal are always interactive, whatever the
 project default says: they open a live session with no prompt of their own, so
 headless they would be a CLI with no input at all.
@@ -381,7 +382,7 @@ Two entry points exist and they do not do the same thing:
   headless invocation, before enqueuing anything. Each step it enqueues carries
   the stop stage on its run; when that run closes having advanced the stage, the
   step that follows is enqueued, until the stop stage is reached. The chain stops
-  — and says so on the run that ended — when the step failed, when it completed
+  (and says so on the run that ended) when the step failed, when it completed
   without moving the task, or when no step follows the stage reached.
 
 `fullChainStopStage` is either `implemented` (before the pull request) or
@@ -409,7 +410,7 @@ provider installed a script under `~/.claude/hooks`, registered it in
 local agent whether the session was waiting for the user or working. That was
 withdrawn. It made Sectile a writer of a file it otherwise only reads, and it
 ran a process on every tool call of every Claude Code session on the
-workstation, launched by Sectile or not — too intrusive for what it answered.
+workstation, launched by Sectile or not, too intrusive for what it answered.
 A workstation that still carries the script and its registrations has both
 removed the next time a project is set up, whichever provider that project
 uses: the script is retired through the managed-file manifest, and only the
@@ -434,13 +435,13 @@ the run appears as waiting in the desktop list and raises the banner below. A ru
 someone started by hand in a free terminal is shown as waiting on the board only.
 
 **The desktop raises the banner on a run transition.** The notification comes
-from the desktop application, through Electron's notification API — a thin
+from the desktop application, through Electron's notification API, a thin
 binding over `UNUserNotificationCenter` on macOS, toast notifications on Windows
 and the freedesktop specification on Linux. The banner is therefore a real
 system notification, attributed to Sectile and carrying an icon, on the three
 platforms and with no external binary. The desktop polls `/desktop/runs` every
-two seconds; it is the *transition* that notifies — a run reaching a terminal
-status, or a run starting to wait should anything mark it so — and a repeated
+two seconds; it is the *transition* that notifies (a run reaching a terminal
+status, or a run starting to wait should anything mark it so), and a repeated
 poll of the same state raises nothing.
 
 A workstation that denies notifications is checked once and then left alone: the

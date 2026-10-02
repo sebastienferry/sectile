@@ -10,7 +10,7 @@ const storedKey=saved=>credentials.storedKey(saved,safeStorage)
 const {carryOverDataDirectory}=require('./datadir.cjs')
 const {readAgentLog}=require('./agent-log.cjs')
 const {fileSha256,agentOutdated}=require('./agent-identity.cjs')
-const {normalizeAppearance,windowColors}=require('./appearance.cjs')
+const {normalizeAppearance,windowColors,normalizeConsoleView}=require('./appearance.cjs')
 const {connectionUpdates,connectionView}=require('./connection-settings.cjs')
 if(process.env.SECTILE_DESKTOP_DATA_DIR)app.setPath('userData',process.env.SECTILE_DESKTOP_DATA_DIR)
 // The app kept its data under the previous package name; carry it over once.
@@ -34,7 +34,7 @@ function validConnection(value){
 }
 async function api(route,method='GET',body){
  if(!connection)throw Error('Connect to the local agent first')
- const response=await fetch(connection.url+route,{method,headers:{Authorization:'Bearer '+connection.token,'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined,signal:AbortSignal.timeout(route==="/desktop/create-task"?120000:route.startsWith("/desktop/tasks")&&method==="POST"?60000:route.startsWith("/desktop/project?")&&method==="POST"?420000:15000),redirect:'error'})
+ const response=await fetch(connection.url+route,{method,headers:{Authorization:'Bearer '+connection.token,'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined,signal:AbortSignal.timeout(route==="/desktop/create-task"?120000:route==="/desktop/run-folder"?45000:route.startsWith("/desktop/tasks")&&method==="POST"?60000:route.startsWith("/desktop/project?")&&method==="POST"?420000:15000),redirect:'error'})
  if(!response.ok){
   const detail=await response.text().catch(()=>'')
   // Display plain API errors; preserve structured refusals for callers that read their fields.
@@ -151,6 +151,18 @@ ipcMain.handle('set-appearance',(_,value)=>{
  fs.renameSync(settingsPath()+'.tmp',settingsPath())
  applyAppearance(appearance)
  return appearance
+})
+ipcMain.handle('console-view',()=>{
+ try{return normalizeConsoleView(readSettings().consoleView)}catch{return normalizeConsoleView()}
+})
+ipcMain.handle('set-console-view',(_,value)=>{
+ let previous={}
+ try{previous=readSettings()}catch{}
+ const consoleView=normalizeConsoleView(value)
+ fs.mkdirSync(path.dirname(settingsPath()),{recursive:true,mode:0o700})
+ fs.writeFileSync(settingsPath()+'.tmp',JSON.stringify({...previous,consoleView},null,2),{mode:0o600})
+ fs.renameSync(settingsPath()+'.tmp',settingsPath())
+ return consoleView
 })
 // A change of the setting, or of the OS appearance while it follows the
 // system, repaints what the stylesheet cannot reach. macOS draws its own
@@ -344,10 +356,11 @@ ipcMain.handle('choose-repository',async()=>{
  return result.canceled?null:result.filePaths[0]
 })
 ipcMain.handle('server-tasks',(_,id,q,launchable)=>api('/desktop/tasks?projectId='+encodeURIComponent(id)+'&q='+encodeURIComponent(q||'')+'&launchable='+Boolean(launchable)))
-ipcMain.handle('launch-console',(_,projectId,provider,engineId)=>api('/desktop/consoles','POST',engineId?{projectId,engineId}:{projectId,provider}))
+// An agent that predates the conversation view ignores `view` and opens a PTY.
+ipcMain.handle('launch-console',(_,projectId,provider,engineId,view)=>api('/desktop/consoles','POST',Object.assign(engineId?{projectId,engineId}:{projectId,provider},view==='conversation'?{view}:null)))
 // An absent mode means "no override": nothing is sent, so a launch with no
 // explicit choice puts exactly the payload on the wire that it always did.
-ipcMain.handle('launch-server-task',(_,id,taskID,skillID,prompt,mode,force)=>api('/desktop/tasks?projectId='+encodeURIComponent(id),'POST',Object.assign({taskID,skillID,prompt},mode?{mode}:null,force?{force:true}:null)))
+ipcMain.handle('launch-server-task',(_,id,taskID,skillID,prompt,mode,force,view)=>api('/desktop/tasks?projectId='+encodeURIComponent(id),'POST',Object.assign({taskID,skillID,prompt},mode?{mode}:null,force?{force:true}:null,view==='conversation'?{view}:null)))
 ipcMain.handle('launch-native-discussion',async(_,{projectId,taskId,terminal}={})=>api('/desktop/tasks/terminal-external','POST',{projectId,taskId,skillId:'discuss',terminal}))
 ipcMain.handle('detach-to-native-terminal',async(_,{runId,terminal}={})=>api('/desktop/terminal/detach','POST',{runId,terminal}))
 // Opening a worktree in the editor (#535) names the run, never a path: the
@@ -379,6 +392,12 @@ ipcMain.handle('open-task',async(_,id)=>{
 ipcMain.handle('open-pr',async(_,value)=>{
  const url=new URL(value)
  if(!['http:','https:'].includes(url.protocol)||url.username||url.password)throw Error('Invalid pull request URL')
+ await shell.openExternal(url.href)
+})
+// Links of a rendered Markdown document: web and mail only, never in this window.
+ipcMain.handle('open-link',async(_,value)=>{
+ const url=new URL(value)
+ if(!['http:','https:','mailto:'].includes(url.protocol)||url.username||url.password)throw Error('Only web and mail links can be opened')
  await shell.openExternal(url.href)
 })
 ipcMain.handle('create-task',async(_,input)=>{
@@ -420,6 +439,15 @@ async function requireAttachedFolders(){
 }
 ipcMain.handle('folders',async(_,projectId)=>{await requireAttachedFolders();return api('/desktop/folders?projectId='+encodeURIComponent(projectId))})
 ipcMain.handle('attach-folder',async(_,{projectId,path:folder})=>{await requireAttachedFolders();return api('/desktop/folders','POST',{projectId,path:folder})})
+// A folder attached from a conversation or a running ticket discussion
+// (#676). The agent may wait for the session to settle before typing into it,
+// which the default request timeout does not leave room for.
+ipcMain.handle('add-run-folder',async(_,{runId,path:folder}={})=>{
+ if(typeof runId!=='string'||!runId)throw Error('Select an execution first.')
+ const status=await api('/desktop/status')
+ if(!status.capabilities?.includes('run-folders'))throw Error('Update and restart the local agent to add folders from a discussion.')
+ return api('/desktop/run-folder','POST',{runId,path:folder})
+})
 ipcMain.handle('detach-folder',async(_,{projectId,path:folder})=>{await requireAttachedFolders();return api('/desktop/folders?projectId='+encodeURIComponent(projectId)+'&path='+encodeURIComponent(folder),'DELETE')})
 // The Git initialization of a project folder (#481). An agent that predates
 // it reports no state, so the settings offer nothing and behave as before.
@@ -440,7 +468,8 @@ ipcMain.handle('git-diff',async(_,id)=>{
  if(typeof id!=='string'||!id||id.length>512)throw Error('Select an execution to inspect changes.')
  const status=await api('/desktop/status')
  if(!status.capabilities?.includes('git-diff'))throw Error('Update and restart the local agent to inspect changes.')
- try{return await api('/desktop/git-diff?id='+encodeURIComponent(id))}
+ // markdownDocuments tells the renderer whether this agent sends Markdown contents (#575).
+ try{return {...await api('/desktop/git-diff?id='+encodeURIComponent(id)),markdownDocuments:!!status.capabilities.includes('markdown-documents')}}
  catch(err){
   let detail
   try{detail=JSON.parse(err.body||err.message)}catch{throw err}
@@ -448,6 +477,18 @@ ipcMain.handle('git-diff',async(_,id)=>{
  }
 })
 ipcMain.handle('runs',()=>api('/desktop/runs'))
+ipcMain.handle('create-conversation',async(_,sourceRunId)=>{
+ const status=await api('/desktop/status')
+ if(!status.capabilities?.includes('claude-conversation'))throw Error('Update and restart the local agent to try Claude conversations.')
+ return api('/desktop/conversation','POST',{sourceRunId})
+})
+// since is the version the window already shows: an unchanged history is not sent again.
+ipcMain.handle('conversation',(_,id,since)=>api('/desktop/conversation?id='+encodeURIComponent(id)+(Number.isSafeInteger(since)?'&since='+since:'')))
+ipcMain.handle('conversation-interrupt',(_,id)=>api('/desktop/conversation?id='+encodeURIComponent(id),'POST',{interrupt:true}))
+ipcMain.handle('conversation-approval',(_,{id,approvalId,decision,answers})=>api('/desktop/conversation?id='+encodeURIComponent(id),'POST',{approval:Object.assign({id:approvalId,decision},answers&&typeof answers==='object'?{answers}:null)}))
+ipcMain.handle('conversation-check-mcp',(_,id)=>api('/desktop/conversation?id='+encodeURIComponent(id),'POST',{checkMcp:true}))
+ipcMain.handle('conversation-terminal',(_,runId)=>api('/desktop/conversation-terminal','POST',{runId}))
+ipcMain.handle('conversation-message',(_,{id,message,effort,model,mode})=>api('/desktop/conversation?id='+encodeURIComponent(id),'POST',{message,effort:typeof effort==='string'?effort:'',model:typeof model==='string'?model:'',mode:typeof mode==='string'?mode:''}))
 // The agent forgets a run once its history is cleared or it restarts, and
 // answers 404 by contract. Report "no result" instead of rejecting the IPC
 // promise: Electron logs every rejected handler with a stack, and this outcome

@@ -20,4 +20,12 @@ function windowColors(dark) {
   : {background: '#f5f6f8', symbol: '#111315'}
 }
 
-module.exports = {APPEARANCES, normalizeAppearance, windowColors}
+// How a Claude project prompt opens: in a terminal (PTY), as it always has, or
+// in the structured conversation view. Anything else keeps the terminal.
+const CONSOLE_VIEWS = ['terminal', 'conversation']
+
+function normalizeConsoleView(value) {
+ return CONSOLE_VIEWS.includes(value) ? value : 'terminal'
+}
+
+module.exports = {APPEARANCES, normalizeAppearance, windowColors, CONSOLE_VIEWS, normalizeConsoleView}

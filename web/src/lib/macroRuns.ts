@@ -15,6 +15,8 @@ export interface MacroRun {
   summary: string
   createdAt: string
   completedAt?: string
+  /** Set while the run's skill waits for its user to answer a question. */
+  waitingSince?: string
 }
 
 export interface AgentPresence {
@@ -25,6 +27,17 @@ export interface AgentPresence {
 /** The run that makes the macro busy, if any: the most recent running one. */
 export function activeMacroRun(runs: MacroRun[]): MacroRun | null {
   return runs.find(run => run.status === 'running' || run.status === 'queued') || null
+}
+
+/** What the launch button says while a run is active, in the UI language. */
+export interface MacroRunLabelStrings {
+  running: string
+  waiting: string
+}
+
+/** The active run's label: waiting on its user (#648), or simply running. */
+export function macroRunLabel(run: MacroRun, strings: MacroRunLabelStrings): string {
+  return run.waitingSince ? strings.waiting : strings.running
 }
 
 /** The reasons the launch button gives when it is not offered, in the UI language. */

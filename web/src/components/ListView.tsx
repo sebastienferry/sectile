@@ -28,7 +28,9 @@ import {
   X,
   Rows2,
   Rows3,
+  Map as MapIcon,
 } from "lucide-react"
+import { canOpenEpicInRoadmap, projectOfTask } from '../lib/roadmapFocus'
 import { useApp } from "../context/AppContext"
 import { useClickOutside } from "../hooks/useClickOutside"
 import { TaskFilters } from "./TaskFilters"
@@ -97,6 +99,8 @@ export const ListView: React.FC = () => {
     moveTaskToTrackerStatus,
     moveTask,
     currentProject,
+    projects,
+    openEpicInRoadmap,
     startBatchPickup,
     addToast,
     t,
@@ -765,6 +769,17 @@ export const ListView: React.FC = () => {
         {/* Actions */}
         <td className={`${cellPad} text-right whitespace-nowrap`} onClick={e => e.stopPropagation()}>
           <div className="flex items-center justify-end gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
+            {canOpenEpicInRoadmap(task, projectOfTask(task, projects, currentProject)) && (
+              <button
+                type="button"
+                onClick={() => openEpicInRoadmap(task)}
+                className="p-1 rounded text-[var(--text-muted)] hover:text-violet-300 hover:bg-violet-500/10 transition-colors cursor-pointer"
+                title={`${t.compactCard.openEpic} (${task.parentKey})`}
+                aria-label={t.compactCard.openEpic}
+              >
+                <MapIcon size={13} />
+              </button>
+            )}
             <button
               onClick={() => togglePin(task.id)}
               className={`inline-flex items-center justify-center p-1 rounded-md border transition-colors cursor-pointer ${

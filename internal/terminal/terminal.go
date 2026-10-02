@@ -58,10 +58,13 @@ type Session struct {
 	watchersMu sync.Mutex
 	// agentLaunched dit qu'un agent tourne déjà dans cette session : les pas
 	// suivants du même ticket lui parlent au lieu d'en relancer un.
-	agentLaunched     bool
-	agentMu           sync.Mutex
-	CreatedAt         time.Time
+	agentLaunched bool
+	agentMu       sync.Mutex
+	CreatedAt     time.Time
+	// LastActiveAt is touched by every viewer connection: read and write it
+	// through touch and lastActive.
 	LastActiveAt      time.Time
+	activityMu        sync.Mutex
 	outputListeners   []func([]byte)
 	outputListenersMu sync.Mutex
 	// inputListeners see what a viewer types, from the console WebSocket or
@@ -112,7 +115,7 @@ func (m *Manager) GetOrCreateSession(sessionID string, cwd string, envVars map[s
 	defer m.mu.Unlock()
 
 	if sess, ok := m.sessions[sessionID]; ok && !sess.closed {
-		sess.LastActiveAt = time.Now()
+		sess.touch()
 		return sess, nil
 	}
 
@@ -151,20 +154,7 @@ func (m *Manager) GetOrCreateSession(sessionID string, cwd string, envVars map[s
 	cmd.Dir = workDir
 
 	// Prepare environment
-	env := runner.SanitizedEnviron()
-	customPath := runner.GetDynamicCustomPath()
-	separator := string(os.PathListSeparator)
-	foundPath := false
-	for i, e := range env {
-		if strings.HasPrefix(e, "PATH=") {
-			env[i] = "PATH=" + customPath + separator + strings.TrimPrefix(e, "PATH=")
-			foundPath = true
-			break
-		}
-	}
-	if !foundPath {
-		env = append(env, "PATH="+customPath)
-	}
+	env := runner.PathEnviron()
 
 	env = append(env, "TERM=xterm-256color", "COLORTERM=truecolor")
 	if runtime.GOOS != "windows" {
@@ -253,7 +243,7 @@ func (m *Manager) ListSessions() []SessionInfo {
 			Cwd:          sess.Cwd,
 			Clients:      clients,
 			CreatedAt:    sess.CreatedAt,
-			LastActiveAt: sess.LastActiveAt,
+			LastActiveAt: sess.lastActive(),
 			HistoryBytes: historyBytes,
 			AgentRunning: agentRunning,
 		})
@@ -333,6 +323,20 @@ func normalizeInput(input string) string {
 		return input
 	}
 	return strings.ReplaceAll(strings.ReplaceAll(input, "\r\n", "\n"), "\n", "\r\n")
+}
+
+// touch records activity on the session now.
+func (s *Session) touch() {
+	s.activityMu.Lock()
+	defer s.activityMu.Unlock()
+	s.LastActiveAt = time.Now()
+}
+
+// lastActive reports when the session last saw activity.
+func (s *Session) lastActive() time.Time {
+	s.activityMu.Lock()
+	defer s.activityMu.Unlock()
+	return s.LastActiveAt
 }
 
 // AddOutputListener adds a callback invoked for every byte chunk read from this session's PTY.
@@ -419,6 +423,11 @@ func (m *Manager) readPtyLoop(sess *Session) {
 			// Held from the history append to the listener notification, so
 			// TapOutput sees each chunk either in the history or as a call.
 			sess.outputListenersMu.Lock()
+			// Held from the history append to the broadcast, so a connecting
+			// viewer gets each chunk once, in the history or as a message, and
+			// a connection only ever has one writer: gorilla/websocket panics
+			// on concurrent writes.
+			sess.clientsMu.Lock()
 
 			// Append to history buffer
 			sess.historyMu.Lock()
@@ -436,10 +445,8 @@ func (m *Manager) readPtyLoop(sess *Session) {
 			for _, fn := range sess.outputListeners {
 				fn(chunk)
 			}
-			sess.outputListenersMu.Unlock()
 
 			// Broadcast to all active websockets
-			sess.clientsMu.Lock()
 			for conn := range sess.clients {
 				err := conn.WriteMessage(websocket.BinaryMessage, chunk)
 				if err != nil {
@@ -448,6 +455,7 @@ func (m *Manager) readPtyLoop(sess *Session) {
 				}
 			}
 			sess.clientsMu.Unlock()
+			sess.outputListenersMu.Unlock()
 		}
 
 		if err != nil {
@@ -476,17 +484,18 @@ func (m *Manager) HandleWebSocket(w http.ResponseWriter, r *http.Request, sessio
 		return
 	}
 
-	// Register client
+	// Send terminal history so screen is restored, then register the client,
+	// under the lock the read loop holds from the history append to the
+	// broadcast: no chunk is missed or sent twice, and the broadcast cannot
+	// write to this connection while the history is.
 	sess.clientsMu.Lock()
-	sess.clients[conn] = true
-	sess.clientsMu.Unlock()
-
-	// Send terminal history so screen is restored
 	sess.historyMu.RLock()
 	if len(sess.history) > 0 {
 		_ = conn.WriteMessage(websocket.BinaryMessage, sess.history)
 	}
 	sess.historyMu.RUnlock()
+	sess.clients[conn] = true
+	sess.clientsMu.Unlock()
 
 	defer func() {
 		sess.clientsMu.Lock()
@@ -501,7 +510,7 @@ func (m *Manager) HandleWebSocket(w http.ResponseWriter, r *http.Request, sessio
 			break
 		}
 
-		sess.LastActiveAt = time.Now()
+		sess.touch()
 
 		if msgType == websocket.BinaryMessage {
 			sess.feedInput(msgData)
@@ -523,7 +532,11 @@ func (m *Manager) HandleWebSocket(w http.ResponseWriter, r *http.Request, sessio
 						sess.feedInput([]byte(wsMsg.Data))
 						_, _ = sess.Pty.Write([]byte(wsMsg.Data))
 					case "ping":
+						// Writes to a registered connection go through the
+						// lock the broadcast holds.
+						sess.clientsMu.Lock()
 						_ = conn.WriteJSON(WsMessage{Type: "pong"})
+						sess.clientsMu.Unlock()
 					}
 					continue
 				}

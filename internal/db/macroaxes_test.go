@@ -69,7 +69,7 @@ func TestPriorityFromLabels(t *testing.T) {
 		{[]string{"priority:p7", "priority:p2"}, "p2"},
 		{[]string{"p1"}, ""},
 	} {
-		if got := PriorityFromLabels(tc.labels); got != tc.want {
+		if got := defaultAxisPrefixes.PriorityFromLabels(tc.labels); got != tc.want {
 			t.Errorf("PriorityFromLabels(%v) = %q, want %q", tc.labels, got, tc.want)
 		}
 	}
@@ -91,7 +91,7 @@ func TestQuarterFromLabels(t *testing.T) {
 		{[]string{"quarter:soon", "2026-Q2"}, "2026-Q2"},
 		{[]string{"release-2026-Q3"}, ""},
 	} {
-		if got := QuarterFromLabels(tc.labels); got != tc.want {
+		if got := defaultAxisPrefixes.QuarterFromLabels(tc.labels); got != tc.want {
 			t.Errorf("QuarterFromLabels(%v) = %q, want %q", tc.labels, got, tc.want)
 		}
 	}
@@ -102,7 +102,7 @@ func TestIsQuarterLabel(t *testing.T) {
 		"2026-Q3": true, "2026.q3": true, "quarter:2026-q4": true, "quarter:soon": true,
 		"roadmap:now": false, "priority:p1": false, "release-2026-Q3": false, "2026-Q5": false,
 	} {
-		if got := isQuarterLabel(label); got != want {
+		if got := defaultAxisPrefixes.isQuarterLabel(label); got != want {
 			t.Errorf("isQuarterLabel(%q) = %v, want %v", label, got, want)
 		}
 	}
@@ -117,7 +117,7 @@ func TestSaveMacroAxesStoresAndClearsWithoutTouchingTheRest(t *testing.T) {
 	}
 
 	p1, q := "P1", "2026.q4"
-	saved, err := database.SaveMacroAxes(proj.ID, "PE-1", &p1, &q)
+	saved, err := database.SaveMacroAxes(proj.ID, "PE-1", &p1, &q, nil)
 	if err != nil {
 		t.Fatalf("axes not saved: %v", err)
 	}
@@ -135,7 +135,7 @@ func TestSaveMacroAxesStoresAndClearsWithoutTouchingTheRest(t *testing.T) {
 
 	// A nil pointer leaves the axis alone, an empty value clears it.
 	empty := ""
-	if _, err := database.SaveMacroAxes(proj.ID, "PE-1", &empty, nil); err != nil {
+	if _, err := database.SaveMacroAxes(proj.ID, "PE-1", &empty, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	macros, _ = database.GetProjectMacros(proj.ID)
@@ -157,7 +157,7 @@ func TestSaveMacroAxesStoresAndClearsWithoutTouchingTheRest(t *testing.T) {
 func TestSaveMacroAxesRefusesAnUnreadableValue(t *testing.T) {
 	database, proj := jiraProjectWithTracker(t, newHorizonTracker(nil))
 	p2, bad := "p2", "2026-Q5"
-	if _, err := database.SaveMacroAxes(proj.ID, "PE-1", &p2, &bad); err == nil {
+	if _, err := database.SaveMacroAxes(proj.ID, "PE-1", &p2, &bad, nil); err == nil {
 		t.Fatal("an invalid quarter should be refused")
 	}
 	macros, _ := database.GetProjectMacros(proj.ID)
@@ -171,7 +171,7 @@ func TestSaveMacroAxesRefusesAnUnreadableValue(t *testing.T) {
 func TestMacrosAreLabelsWritableOnlyForTheProjectsOwnJiraEpics(t *testing.T) {
 	database, proj := jiraProjectWithTracker(t, newHorizonTracker(nil))
 	for _, key := range []string{"PE-1", "M-3", "OTHER-9"} {
-		if _, err := database.SaveMacroAxes(proj.ID, key, nil, nil); err != nil {
+		if _, err := database.SaveMacroAxes(proj.ID, key, nil, nil, nil); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -205,7 +205,7 @@ func TestMacrosOfATrackerWithoutEpicsAreNotLabelsWritable(t *testing.T) {
 		t.Fatal(err)
 	}
 	p0 := "p0"
-	if _, err := database.SaveMacroAxes(proj.ID, "EPIC-1", &p0, nil); err != nil {
+	if _, err := database.SaveMacroAxes(proj.ID, "EPIC-1", &p0, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	macros, _ := database.GetProjectMacros(proj.ID)
@@ -313,7 +313,7 @@ func TestImportMacroHorizonsReadsThePriorityAndTheQuarter(t *testing.T) {
 	database, proj := jiraProjectWithTracker(t, fake)
 	p3, q := "p3", "2027-Q1"
 	for _, key := range []string{"PE-1", "PE-2"} {
-		if _, err := database.SaveMacroAxes(proj.ID, key, &p3, &q); err != nil {
+		if _, err := database.SaveMacroAxes(proj.ID, key, &p3, &q, nil); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -355,7 +355,7 @@ func TestPendingPushesCoverThePriorityAndTheQuarter(t *testing.T) {
 	p1, q := "p1", "2026-Q4"
 	for _, key := range []string{"PE-1", "PE-2", "PE-3", "M-4"} {
 		mustSaveMacro(t, database, proj.ID, key, &now)
-		if _, err := database.SaveMacroAxes(proj.ID, key, &p1, &q); err != nil {
+		if _, err := database.SaveMacroAxes(proj.ID, key, &p1, &q, nil); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -396,7 +396,7 @@ func TestPushPendingHorizonsNamesTheFailingAxis(t *testing.T) {
 	fake.failKey = "PE-2"
 	database, proj := jiraProjectWithTracker(t, fake)
 	p0 := "p0"
-	if _, err := database.SaveMacroAxes(proj.ID, "PE-2", &p0, nil); err != nil {
+	if _, err := database.SaveMacroAxes(proj.ID, "PE-2", &p0, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	_, failures, err := database.PushPendingHorizons(t.Context(), proj.ID)

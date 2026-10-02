@@ -64,13 +64,16 @@ explicitly confirms that the clarification is satisfactory.
 
 ## Read first
 - The ticket: title, description, comments via get_task, parent epic if present.
-- The existing clarification report if one exists: docs/clarifications/<n>.md on the assigned work branch.
+- The existing clarification report if one exists: docs/clarifications/<n>.md on the assigned work branch,
+  or, when the report is ignored by Git (step 6), in the worktree and in the rounds already
+  published on the ticket.
 - The code the change would touch. Name the files you actually read.
 - Neighbouring features that already solve a similar problem in this codebase.
 
 ## Steps
 1. Re-read the assigned branch and worktree. If docs/clarifications/<n>.md already exists,
-   this run continues an existing clarification into Round N. If not, this is Round 1.
+   this run continues an existing clarification into Round N. If not, this is Round 1, unless the
+   report is ignored by Git and the ticket already carries published rounds (step 6).
 2. In Round 1:
    a. Restate the request in two sentences, including what is out of scope.
    b. List ambiguities, worst first. Only list an ambiguity if two readings lead to different code.
@@ -99,6 +102,11 @@ explicitly confirms that the clarification is satisfactory.
    drops its specification artefacts on this workstation: write and update the file in the worktree,
    never commit it, never force it with `git add -f`, and include the settled decisions
    in the round section used as the transition note, saying that the report file stays local to the worktree.
+   The published rounds are then the only shared record. A fresh worktree does not hold a report
+   written elsewhere: when the file is ignored and missing, read the rounds already published on
+   the ticket (the Clarification Report comments and each `## Round N` section in them), rebuild the
+   file from them in order, and continue with the next round. Never restart at Round 1 while the
+   ticket carries a published round.
 
 7. Optional stage publication: read `pushStageCommits` from `get_project_context`
    (or the supplied project configuration); missing or false means off. When true,
@@ -155,5 +163,6 @@ explicitly confirms that the clarification is satisfactory.
 - **Standalone invocation**: Read live context with `get_task` and `get_project_context`. After verifying each completed step, invoke `transition_stage` with the task key, completed stage, structured report note and actual branch. Check the tool result for errors before continuing.
 Transition new → clarified only when the exit condition is met: the owner confirms the clarification is satisfactory (or zero product questions remain open in unattended pickup). Never transition new → clarified while any product question or decision remains open.
 A task holds an ordered set of pull requests, `prUrl` being its current one. A pull request on a branch the task already used is a legitimate follow-up and is appended, even when the recorded one is merged; a pull request on an unrelated branch is refused, and its links are corrected from the task detail view rather than by forging evidence.
+A task whose work changed no repository (a configuration made through an API, a review, a follow-up) has no pull request to give: pass `noRepositoryChange: true` to `transition_stage` instead of `prUrl`, and say in the note what was done instead. The server refuses the statement when the task records a pull request on its branch or a repository prepared with `prepare_repository_worktree`; then give those pull requests.
 Use `add_comment` for an authorized ticket discussion update. Managed runs must not also invoke transition/comment tools for reports owned by Sectile. If MCP is unavailable, preserve work and report the pending transition; do not silently write to a different server or database.
 Reuse the assigned worktree and actual branch. Never merge or delete remote objects. Keep work available for review and retry until confirmed handoff.

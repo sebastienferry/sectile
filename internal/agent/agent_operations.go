@@ -373,6 +373,31 @@ func (d *agentDaemon) executeOperation(ctx context.Context, op agentprotocol.Ope
 		}
 		branch, err := gitLocal(ctx, target, "branch", "--show-current")
 		return map[string]any{"sha": strings.TrimSpace(sha), "branch": strings.TrimSpace(branch), "clean": strings.TrimSpace(status) == "", "path": target, "status": strings.TrimRight(status, "\r\n")}, err
+	case "branch_changes":
+		// The server asks before requiring a pull request in another repository
+		// the task prepared (#678): any checkout of that repository answers,
+		// branch checked out or not. The echo tells the server this agent
+		// understood the question.
+		repository := strings.TrimSpace(op.Repository)
+		if repository == "" {
+			return nil, fmt.Errorf("repository is required")
+		}
+		candidates, err := d.checkoutCandidates(ctx, task, op.ProjectID)
+		if err != nil {
+			return nil, err
+		}
+		if mapped, ok := repositoryFolder(ctx, overrides, config.ProjectID, root, codeIdentity(config), models.RepositoryIdentity(repository)); ok {
+			candidates = append([]string{mapped}, candidates...)
+		}
+		checkout, found := repositoryCheckout(ctx, repository, candidates)
+		if !found {
+			return branchChangesAnswer{Repository: repository}, nil
+		}
+		defaultBranch, exists, ahead, err := branchChanges(ctx, checkout, strings.TrimSpace(op.Branch))
+		if err != nil {
+			return nil, err
+		}
+		return branchChangesAnswer{Repository: repository, Found: true, DefaultBranch: defaultBranch, Exists: exists, Ahead: ahead}, nil
 	case "pr_evidence":
 		// The server verifies stage evidence on forges it cannot reach itself, with
 		// the CLI login this workstation already has. A forge that answered without

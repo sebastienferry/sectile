@@ -2,6 +2,7 @@ package runner
 
 import (
 	"os"
+	"runtime"
 	"strings"
 )
 
@@ -32,6 +33,33 @@ func SanitizedEnviron() []string {
 		out = append(out, entry)
 	}
 	return out
+}
+
+// PathEnviron is SanitizedEnviron with PATH set to the discovered tool
+// directories ahead of the inherited PATH. Windows spells the inherited
+// variable "Path" and matches names regardless of case, so every spelling is
+// dropped before the one PATH entry is added.
+func PathEnviron() []string {
+	env := SanitizedEnviron()
+	out := env[:0]
+	for _, entry := range env {
+		name := entry
+		if i := strings.IndexByte(entry, '='); i >= 0 {
+			name = entry[:i]
+		}
+		if isPathName(name) {
+			continue
+		}
+		out = append(out, entry)
+	}
+	return append(out, "PATH="+prefixedPath())
+}
+
+func isPathName(name string) bool {
+	if runtime.GOOS == "windows" {
+		return strings.EqualFold(name, "PATH")
+	}
+	return name == "PATH"
 }
 
 func hidden(name string) bool {

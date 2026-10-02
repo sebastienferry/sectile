@@ -452,9 +452,9 @@ func agentCommandLine(provider, template, model, prompt string, contexts ...agen
 // report the run and move the stage, so the run ends having only printed why it
 // could not work and the board never moves. Only an attested flag is passed, for
 // the same reason the provider list itself is attested.
-func headlessCommandLine(provider, model, prompt string, addDirs ...string) (string, error) {
+func headlessCommandLine(provider, model, prompt, settings string, addDirs ...string) (string, error) {
 	modelFlag := strings.Join(agentconfig.ModelArgs(provider, model), " ")
-	dirFlags := addDirArgs(provider, addDirs)
+	dirFlags := words(addDirArgs(provider, addDirs), settingsArg(provider, settings))
 	reasoning := ""
 	if engineStreamsReasoning(provider) {
 		reasoning = strings.Join(reasoningOptions, " ")
@@ -496,6 +496,17 @@ func addDirArgs(provider string, dirs []string) string {
 		}
 	}
 	return strings.Join(args, " ")
+}
+
+// settingsArg hands Claude Code the settings file generated from the
+// project's sandbox values (#700), and nothing to any other provider or when
+// the project has no values, which keeps their line as it was. It takes the
+// "=" form for the reason addDirArgs gives.
+func settingsArg(provider, path string) string {
+	if path = strings.TrimSpace(path); path == "" || !strings.EqualFold(strings.TrimSpace(provider), "claude") {
+		return ""
+	}
+	return "--settings=" + quoteShell(path)
 }
 
 // templateProvider is the CLI a command template starts: its first word,
@@ -564,18 +575,19 @@ func modeCommandLine(provider, template, model, prompt, mode string, contexts ..
 		return expandConfiguredTemplate(template, model, prompt, autonomous, contexts...)
 	}
 	var addDirs []string
+	settings := ""
 	if len(contexts) > 0 {
-		addDirs = contexts[0].AddDirs
+		addDirs, settings = contexts[0].AddDirs, contexts[0].ClaudeSettings
 	}
 	if autonomous {
-		return headlessCommandLine(provider, model, prompt, addDirs...)
+		return headlessCommandLine(provider, model, prompt, settings, addDirs...)
 	}
 	modelFlag := strings.Join(agentconfig.ModelArgs(provider, model), " ")
 	switch provider {
 	case "agy":
 		return words("agy", "-i", quoteShell(prompt)), nil
 	case "claude":
-		return words(provider, modelFlag, quoteShell(prompt), addDirArgs(provider, addDirs)), nil
+		return words(provider, modelFlag, quoteShell(prompt), addDirArgs(provider, addDirs), settingsArg(provider, settings)), nil
 	case "codex":
 		return words(provider, modelFlag, quoteShell(prompt), addDirArgs(provider, addDirs)), nil
 	default:
@@ -696,6 +708,17 @@ func launchEngine(config agentconfig.Config, skillID, modelOverride, mode string
 	return provider, agentconfig.EffectiveModel(provider, template, model)
 }
 
+// liveProvider is the engine a discussion or a bare terminal opens, as
+// runner.InteractiveAgentLaunch reads it: a custom engine opens its own binary,
+// which receives no folder option.
+func liveProvider(config agentconfig.Config) string {
+	provider := strings.ToLower(strings.TrimSpace(config.AIProvider))
+	if provider == "" {
+		return "agy"
+	}
+	return provider
+}
+
 // dispatchCommand distinguishes opening an interactive agent from running a skill.
 // mode is the execution mode the server resolved for this launch; an empty value
 // reads as interactive, which keeps an older server working. modelOverride is the
@@ -704,12 +727,18 @@ func dispatchCommand(config agentconfig.Config, taskKey, skillID, action, prompt
 	skillID = models.NormalizeSkillID(skillID)
 	action = models.NormalizeSkillID(action)
 	// A discussion or a bare terminal has no skill, so it runs against the model
-	// the project resolves rather than a per-skill one.
+	// the project resolves rather than a per-skill one. It is given the task's
+	// other folders like a skill run (#676), by an engine whose option for them
+	// is attested.
 	live := func() (string, error) {
-		return runner.InteractiveAgentLaunch(&models.Settings{
+		line, err := runner.InteractiveAgentLaunch(&models.Settings{
 			AIProvider: config.AIProvider, AICommandTemplate: config.AICommandTemplate,
 			AIModel: agentconfig.ResolveModel(config, ""),
 		})
+		if err != nil || len(contexts) == 0 {
+			return line, err
+		}
+		return words(line, addDirArgs(liveProvider(config), contexts[0].AddDirs), settingsArg(liveProvider(config), contexts[0].ClaudeSettings)), nil
 	}
 	model, err := LaunchModel(config, skillID, modelOverride)
 	if err != nil {
@@ -728,24 +757,36 @@ func dispatchCommand(config agentconfig.Config, taskKey, skillID, action, prompt
 	if skillID == "discuss" {
 		return live()
 	}
+	promptArg, contexts, err := dispatchPrompt(config, taskKey, skillID, action, prompt, contexts)
+	if err != nil {
+		return "", err
+	}
+	return launchCommandLine(config, model, promptArg, mode, contexts...)
+}
+
+// dispatchPrompt is what a skill launch hands the engine: the skill's command
+// with the task key and the dispatch's instructions, and the launch contexts a
+// custom skill widens with its own folder. A terminal types it as the engine's
+// prompt; a conversation sends it as its first message.
+func dispatchPrompt(config agentconfig.Config, taskKey, skillID, action, prompt string, contexts []agentCommandContext) (string, []agentCommandContext, error) {
 	if skillID == "custom" {
 		if strings.TrimSpace(prompt) == "" {
-			return "", fmt.Errorf("custom instructions required")
+			return "", nil, fmt.Errorf("custom instructions required")
 		}
-		return launchCommandLine(config, model, "Sectile task: "+taskKey+"\n\n"+prompt, mode, contexts...)
+		return "Sectile task: " + taskKey + "\n\n" + prompt, contexts, nil
 	}
 	skillCmd := ""
 	for _, skill := range config.Skills {
 		if skillID == skill.ID || skillID == skill.Directory || action == skill.ID {
 			if skill.RequiresReconciliation {
-				return "", fmt.Errorf("legacy customization requires reconciliation in Skills before adjustment")
+				return "", nil, fmt.Errorf("legacy customization requires reconciliation in Skills before adjustment")
 			}
 			skillCmd = skill.Command
 			break
 		}
 	}
 	if skillCmd == "" {
-		return "", fmt.Errorf("unknown configured skill %q", skillID)
+		return "", nil, fmt.Errorf("unknown configured skill %q", skillID)
 	}
 	var choice *skillChoice
 	if len(contexts) > 0 {
@@ -774,7 +815,7 @@ func dispatchCommand(config agentconfig.Config, taskKey, skillID, action, prompt
 	if skillID == "adjust" {
 		promptArg += "\n\n" + runner.AdjustmentContract
 	}
-	return launchCommandLine(config, model, promptArg, mode, contexts...)
+	return promptArg, contexts, nil
 }
 
 func (d *agentDaemon) discoverProjects(ctx context.Context) (agentconfig.Projects, error) {

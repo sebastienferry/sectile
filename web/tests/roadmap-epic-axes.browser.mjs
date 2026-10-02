@@ -156,7 +156,7 @@ try {
   await dialog.getByRole('button', { name: 'Poser 1 valeur' }).click();
   await dialog.waitFor({ state: 'detached' });
   assert.equal(await saveCount(), savesBeforeSeed + 1);
-  assert.deepEqual(await lastSave(), { key: 'PE-3', patch: { priority: 'p1' }, options: { quiet: true } });
+  assert.deepEqual(await lastSave(), { key: 'PE-3', patch: { priority: 'p1' }, options: { quiet: true, bulk: true } });
   const toast = await page.evaluate(() => window.toasts[window.toasts.length - 1]);
   assert.equal(toast.type, 'success');
   assert.equal(toast.description, '1 macro mise à jour');

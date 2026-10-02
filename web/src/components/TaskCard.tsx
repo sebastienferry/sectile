@@ -31,7 +31,9 @@ import {
   Cpu,
   Check,
   X,
+  Map as MapIcon,
 } from 'lucide-react'
+import { canOpenEpicInRoadmap, projectOfTask } from '../lib/roadmapFocus'
 import type { Task, Priority, SkillMode, EngineReport } from '../types'
 import { useApp } from '../context/AppContext'
 import { issueTypeStyle } from '../lib/issueTypes'
@@ -88,6 +90,8 @@ export const TaskCard: React.FC<TaskCardProps> = ({
     settings,
     parentFilter,
     setParentFilter,
+    openEpicInRoadmap,
+    currentProject,
     skillLabel,
     t,
     addToast,
@@ -701,6 +705,11 @@ export const TaskCard: React.FC<TaskCardProps> = ({
               {task.parentKey && (
                 <button type="button" className={compactActionClass} onClick={() => { setIsMenuOpen(false); setParentFilter(parentFilter === task.parentKey ? null : task.parentKey!) }}>
                   <ListFilter size={12} /><span>{parentFilter === task.parentKey ? t.compactCard.clearParent : t.compactCard.filterParent} {task.parentKey}</span>
+                </button>
+              )}
+              {canOpenEpicInRoadmap(task, projectOfTask(task, projects, currentProject)) && (
+                <button type="button" className={compactActionClass} onClick={() => { setIsMenuOpen(false); openEpicInRoadmap(task) }}>
+                  <MapIcon size={12} /><span>{t.compactCard.openEpic}</span>
                 </button>
               )}
               {task.prUrl && (

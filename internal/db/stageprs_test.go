@@ -3,7 +3,9 @@ package db
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -31,13 +33,28 @@ type fakeRepoAgent struct {
 	removed   []string
 	failRemov string
 	evidence  []string // repositories git_evidence was asked about ("" for the task checkout)
+	// changes holds the branch_changes answer per repository; a repository
+	// without one has a commit ahead, which keeps its pull request required.
+	changes  map[string]string
+	branches []string // repositories branch_changes was asked about
+	lookups  []string // repositories pr_evidence was asked about
 }
 
 func (f *fakeRepoAgent) operate(_ context.Context, op agentprotocol.Operation) (json.RawMessage, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	switch op.Action {
+	case "branch_changes":
+		f.branches = append(f.branches, op.Repository)
+		if answer, ok := f.changes[op.Repository]; ok {
+			if answer == "" {
+				return nil, errors.New("git ls-remote: origin unreachable")
+			}
+			return json.RawMessage(answer), nil
+		}
+		return json.RawMessage(fmt.Sprintf(`{"repository":%q,"found":true,"defaultBranch":"main","exists":true,"ahead":1}`, op.Repository)), nil
 	case "pr_evidence":
+		f.lookups = append(f.lookups, op.Repository)
 		url, ok := f.prs[op.Repository]
 		if !ok {
 			return json.RawMessage(fmt.Sprintf(`{"repository":%q,"forge":"gitlab","refusal":"no merge request from %s"}`, op.Repository, op.Branch)), nil
@@ -280,4 +297,165 @@ func TestAnAttachedRepositoryNeedsItsPullRequest(t *testing.T) {
 	if strings.Join(removed, " ") != "gitlab.com/g/a gitlab.com/g/lib" {
 		t.Errorf("asked to remove %v", removed)
 	}
+}
+
+// unchangedB is the agent's answer for a g/b checkout whose task branch has
+// no commit of its own (#678).
+const unchangedB = `{"repository":"gitlab.com/g/b","found":true,"defaultBranch":"main","exists":true,"ahead":0}`
+
+func TestAPreparedRepositoryLeftUnchangedIsSkipped(t *testing.T) {
+	for name, tc := range map[string]struct {
+		answer string
+		notice string
+	}{
+		"branch with no commit ahead": {unchangedB, "Prepared, unchanged: gitlab.com/g/b has no commit of feat/12 ahead of main, so no merge request is expected there."},
+		"branch gone":                 {`{"repository":"gitlab.com/g/b","found":true,"defaultBranch":"main","exists":false,"ahead":0}`, "Prepared, unchanged: in gitlab.com/g/b, feat/12 exists neither locally nor on origin, so no merge request is expected there."},
+	} {
+		t.Run(name, func(t *testing.T) {
+			d, task, agent := twoRepoTask(t)
+			agent.set(func(f *fakeRepoAgent) {
+				delete(f.prs, "gitlab.com/g/b")
+				f.changes = map[string]string{"gitlab.com/g/b": tc.answer}
+			})
+			set, err := d.validateStagePRs(task, "", "implement", "", "feat/12", []string{mrA})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Join(set.urls, " ") != mrA || set.notice != tc.notice {
+				t.Fatalf("set = %+v, want the primary merge request and the notice %q", set, tc.notice)
+			}
+			agent.set(func(f *fakeRepoAgent) {
+				if slices.Contains(f.lookups, "gitlab.com/g/b") || slices.Contains(f.evidence, "gitlab.com/g/b") {
+					t.Errorf("g/b was looked up on the forge: pr_evidence %v, git_evidence %v", f.lookups, f.evidence)
+				}
+			})
+
+			got, _, err := d.TransitionTaskStageWithPRs("", task.ID, "implemented", "done", []string{mrA}, "feat/12")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(got.PrLinks) != 1 || got.PrLinks[0].URL != mrA || got.PrURL == nil || *got.PrURL != mrA {
+				t.Fatalf("recorded %+v, want the primary merge request only", got.PrLinks)
+			}
+			if !slices.Contains(got.ChangedRepositories, "gitlab.com/g/b") {
+				t.Errorf("changed repositories = %v, g/b must stay recorded", got.ChangedRepositories)
+			}
+		})
+	}
+}
+
+// Anything but a verified "no commit ahead" keeps the pull request required.
+func TestAnUnprovenUnchangedRepositoryStillNeedsItsPullRequest(t *testing.T) {
+	for name, answer := range map[string]string{
+		"commit ahead":          `{"repository":"gitlab.com/g/b","found":true,"defaultBranch":"main","exists":true,"ahead":1}`,
+		"agent error":           "",
+		"no checkout":           `{"repository":"gitlab.com/g/b","found":false}`,
+		"another repository":    `{"repository":"gitlab.com/g/a","found":true,"defaultBranch":"main","exists":true,"ahead":0}`,
+		"no echo":               `{"found":true,"defaultBranch":"main","exists":true,"ahead":0}`,
+		"no ahead count":        `{"repository":"gitlab.com/g/b","found":true,"defaultBranch":"main","exists":true}`,
+		"no default branch":     `{"repository":"gitlab.com/g/b","found":true,"exists":true,"ahead":0}`,
+		"agent predates this":   "unsupported",
+		"branch is the default": `{"repository":"gitlab.com/g/b","found":true,"defaultBranch":"feat/12","exists":true,"ahead":0}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			d, task, agent := twoRepoTask(t)
+			agent.set(func(f *fakeRepoAgent) {
+				delete(f.prs, "gitlab.com/g/b")
+				f.changes = map[string]string{"gitlab.com/g/b": answer}
+			})
+			if answer == "unsupported" {
+				d.SetAgentOperations(func(ctx context.Context, op agentprotocol.Operation) (json.RawMessage, error) {
+					if op.Action == "branch_changes" {
+						return nil, &agentprotocol.UnsupportedOperationError{Device: "laptop", Operation: op.Action}
+					}
+					return agent.operate(ctx, op)
+				})
+			}
+			_, _, err := d.TransitionTaskStageWithPRs("", task.ID, "implemented", "done", []string{mrA}, "feat/12")
+			if err == nil || !strings.Contains(err.Error(), "gitlab.com/g/b") || !strings.Contains(err.Error(), "no merge request from feat/12") {
+				t.Fatalf("err = %v, want the current refusal naming gitlab.com/g/b", err)
+			}
+		})
+	}
+}
+
+func TestAGivenOrRecordedSecondaryPullRequestIsNotAskedAbout(t *testing.T) {
+	d, task, agent := twoRepoTask(t)
+	agent.set(func(f *fakeRepoAgent) { f.changes = map[string]string{"gitlab.com/g/b": unchangedB} })
+	if _, _, err := d.TransitionTaskStageWithPRs("", task.ID, "implemented", "done", []string{mrA, mrB}, "feat/12"); err != nil {
+		t.Fatal(err)
+	}
+	// Recorded on the branch now: the next check reads it, still without asking.
+	task, _ = d.GetTaskByID(task.ID)
+	if _, err := d.adjustmentPrerequisite(task, "", false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.validateStagePRs(task, "", "implement", "", "feat/12", []string{mrA}); err != nil {
+		t.Fatal(err)
+	}
+	agent.set(func(f *fakeRepoAgent) {
+		if len(f.branches) != 0 {
+			t.Errorf("branch_changes asked about %v for a repository with a merge request", f.branches)
+		}
+	})
+}
+
+func TestAdjustmentSkipsAnUnchangedSecondaryRepository(t *testing.T) {
+	d, task, agent := twoRepoTask(t)
+	agent.set(func(f *fakeRepoAgent) {
+		delete(f.prs, "gitlab.com/g/b")
+		f.changes = map[string]string{"gitlab.com/g/b": unchangedB}
+	})
+	if err := d.checkSecondaryPRs(mustProject(t, d, task), task, "", "feat/12"); err != nil {
+		t.Fatalf("an unchanged repository must be skipped: %v", err)
+	}
+	// A later commit there requires its merge request again.
+	agent.set(func(f *fakeRepoAgent) { f.changes = nil })
+	if err := d.checkSecondaryPRs(mustProject(t, d, task), task, "", "feat/12"); err == nil || !strings.Contains(err.Error(), "gitlab.com/g/b") {
+		t.Fatalf("err = %v, want the changed repository named", err)
+	}
+}
+
+// A project that opens its pull request at specification applies the same
+// rule at the specified stage, and a managed run's result does at any stage.
+func TestEveryPathSkipsAnUnchangedSecondaryRepository(t *testing.T) {
+	d, task, agent := twoRepoTask(t)
+	agent.set(func(f *fakeRepoAgent) {
+		delete(f.prs, "gitlab.com/g/b")
+		f.changes = map[string]string{"gitlab.com/g/b": unchangedB}
+	})
+	if _, err := d.conn.Exec(`UPDATE projects SET pr_creation_stage='specified' WHERE id=?`, task.ProjectID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.validateStagePRs(task, "", "specify", "", "feat/12", []string{mrA}); err != nil {
+		t.Fatalf("specified: %v", err)
+	}
+
+	run := models.TaskActivity{ID: "run-678", TaskID: task.ID, TaskKey: task.Key, SkillID: "implement", Status: string(models.ActivityStatusCompleted)}
+	if err := d.addTaskActivityDirect(run); err != nil {
+		t.Fatal(err)
+	}
+	stage, prURL, branch := "implemented", mrA, "feat/12"
+	got, _, err := d.PostBackTask(models.TaskPostBackPayload{TaskID: task.ID, Stage: &stage, PrURL: &prURL, BranchName: &branch, ActivityID: run.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.PrLinks) != 1 || got.PrLinks[0].URL != mrA {
+		t.Errorf("recorded %+v, want the primary merge request only", got.PrLinks)
+	}
+	d.mu.RLock()
+	steps := d.getActivityByIDUnsafe(run.ID).Steps
+	d.mu.RUnlock()
+	if !slices.ContainsFunc(steps, func(s string) bool { return strings.Contains(s, "Prepared, unchanged: gitlab.com/g/b") }) {
+		t.Fatalf("post-back run steps: %v", steps)
+	}
+}
+
+func mustProject(t *testing.T, d *DB, task *models.Task) *models.Project {
+	t.Helper()
+	p, err := d.GetProjectByID(task.ProjectID)
+	if err != nil || p == nil {
+		t.Fatalf("project: %v", err)
+	}
+	return p
 }

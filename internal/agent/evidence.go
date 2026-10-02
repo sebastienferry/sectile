@@ -4,7 +4,6 @@ import (
 	"context"
 	"net/url"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"tasks/internal/models"
@@ -30,20 +29,8 @@ type checkoutEvidence struct {
 func verifiedCheckout(ctx context.Context, repository, branch string, candidates []string) (checkoutEvidence, bool, error) {
 	seen := map[string]bool{}
 	for _, candidate := range candidates {
-		candidate = strings.TrimSpace(candidate)
-		if candidate == "" || !filepath.IsAbs(candidate) {
-			continue
-		}
-		candidate = filepath.Clean(candidate)
-		if seen[candidate] {
-			continue
-		}
-		seen[candidate] = true
-		if fi, err := os.Stat(candidate); err != nil || !fi.IsDir() {
-			continue
-		}
-		remote, err := gitLocal(ctx, candidate, "remote", "get-url", "origin")
-		if err != nil || models.RepositoryIdentity(remote) != repository {
+		candidate, ok := matchingCheckout(ctx, repository, candidate, seen)
+		if !ok {
 			continue
 		}
 		worktrees, err := gitLocal(ctx, candidate, "worktree", "list", "--porcelain")

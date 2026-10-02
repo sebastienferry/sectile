@@ -255,7 +255,8 @@ nothing is created either: the answer is the folder itself, an empty `branch`,
 `worktree: false` and a `warning` saying nothing will be committed or pushed.
 The server adds `projectId`, `macroKey` and the macro's `todos` when it relays
 the answer through the `prepare_macro_worktree` MCP tool, so a skill invoked by
-hand, which holds no API token, reads its input from the same call.
+hand, which holds no API token, reads its input from the same call. `todos` is
+always present, an empty array when the macro has none (#647).
 
 `macro_spec_file` (`payload.macroKey`, `payload.framework`, `payload.specFile`,
 no task) reads one file of a macro's specification for the server's slicing
@@ -337,6 +338,29 @@ project checkout:
 
 `found: false` means no verified checkout; the stage then proceeds on the
 forge's evidence and its report says the head was not verified locally.
+
+A task may prepare a worktree in a secondary repository and leave it untouched
+(#678). Before requiring the pull request of a secondary repository that has
+none given or recorded on the branch, the server sends `branch_changes` with
+`payload.repository` and `payload.branch`. The agent looks for any checkout of
+that repository, branch checked out or not, among the same candidates as
+`git_evidence`, and counts the commits the branch has ahead of
+`origin/HEAD` over every ref of it it sees: the local branch, the
+remote-tracking ref and the head `git ls-remote` reports on `origin`.
+`ahead` is the largest count, and `exists: false` says no ref was seen:
+
+```json
+{"value":{"repository":"gitlab.example/g/tools","found":true,"defaultBranch":"main","exists":true,"ahead":0}}
+{"value":{"repository":"gitlab.example/g/tools","found":false,"exists":false,"ahead":0}}
+```
+
+Only `found: true` with `ahead: 0`, echoing the repository, skips that pull
+request; the stage report then names the repository as prepared, unchanged.
+Every other answer keeps it required: no checkout, commits ahead, an unset
+`origin/HEAD`, a task branch that is the default branch, a head on `origin`
+this checkout has not fetched, any Git or
+network failure (an operation error), and an agent that predates the operation.
+`branch_changes` reaches `origin`, so it keeps the 45-second deadline.
 
 Requests normally have a 45-second deadline; purely local read-only inspections
 (Git evidence, status and branches, worktree info, SDD/skill status, skill
@@ -438,6 +462,12 @@ into. Skill and command bodies are not inlined: a caller that needs one opens
 agent uses its full configuration when it installs skills or updates the marked
 section of `AGENTS.md`; that configuration is unchanged.
 
+A task whose work changed no repository passes `noRepositoryChange: true`
+instead of `prUrl` (#584): the stage then needs no pull request, and the report
+ends with "No pull request: this task changed no repository." The statement is
+refused next to `prUrl` or `prUrls`, when the task records a pull request on its
+branch, and when it has a repository prepared with `prepare_repository_worktree`.
+
 `transition_stage` accepts `prUrl` for either a pull request or a merge
 request. A task holds an ordered set of such links, oldest first, each keeping
 the branch it was opened from; `prUrl` is its last entry, the task's current pull
@@ -495,7 +525,11 @@ liveness.
 
 A standalone skill calls `report_waiting(taskKey, runId, waiting)` with
 `waiting: true` right before it asks its user a question it cannot continue
-without. Ownership follows `finish_run`: the run's owner, an administrator, or
+without. A macro run, which has no task, is named by `projectId` and `macroKey`
+instead of `taskKey`, as for `start_run` and `finish_run` (#648); the macro's
+run list then carries `waitingSince`. A refusal says whether no run has the id,
+the run belongs to another task or macro, or it is no longer running (with its
+status). Ownership follows `finish_run`: the run's owner, an administrator, or
 anyone on a run with no recorded owner. The run keeps `running` and gains
 `waitingSince`; a repeated mark keeps the first instant. A headless run is left
 unmarked and the result says so (`applied: false`). The wait ends on the
@@ -503,6 +537,14 @@ declaring session's next tool call other than `report_waiting` (a ping does not
 count), on `waiting: false`, on any terminal status, and when the declaring
 session ends. Tool permission prompts are not reported: only a question the model
 asks deliberately is.
+
+A console the agent launched names its run on every MCP request: the stdio
+bridge sends `X-Sectile-Run-Id` with the value of `SECTILE_RUN_ID` (#498). A
+tool call other than `report_waiting` that carries it also ends that run's wait
+when a session declared it and the caller owns the run, whatever the calling
+session: after a server restart the console's client initializes a new session,
+and its next call still ends the wait. A bridge started without the variable
+sends no header.
 
 When a run an agent dispatched starts or stops waiting, the server sends the
 owner's agent a `run_waiting` message, `{"runId": "...", "waitingSince":
@@ -852,6 +894,16 @@ message naming what the folder already is. The agent reports the
 `attached-folders` capability on `/desktop/status`. No request to the server
 carries these paths.
 
+`POST /desktop/run-folder` `{runId, path}` attaches a folder from a run (#676),
+through the same checks and with the same refusals, for a conversation or a
+ticket discussion running in a Sectile terminal; another run, or one that has
+ended, answers 409, an unknown one 404. It answers `{"mappedAs", "typed",
+"appliesAt"}`: `next-turn` for a conversation, which reads the project's
+folders at each turn; `now` when `/add-dir <path>` was typed into a Claude Code
+discussion once its output settled; `next-launch` for another engine, a
+discussion moved to a native terminal, or a path holding a control character.
+The agent reports the `run-folders` capability on `/desktop/status`.
+
 Without effective worktrees, the agent enforces one execution and the UI
 disables parallelism selection. Requests are acknowledged when queued; their
 remote run remains active until completion or cancellation. The agent reserves
@@ -1090,6 +1142,17 @@ Each file has `path`, optional `oldPath`, `status`, `kind`, nullable text counts
 kind is text/binary/symlink/submodule/unsupported. Counts sum displayed known text
 changes only. Incomplete results cannot be clean.
 
+An agent that also advertises `markdown-documents` gives each listed file of kind
+`text` whose path ends in `.md` or `.markdown` (case-insensitive) an optional
+`document`: `side` is `new`, or `old` for a deleted file read at the merge base,
+then either `content`, the whole UTF-8 file in the snapshot tree the patch compares,
+or `omittedReason`. A document over 512 KiB is never read, and documents share a
+4 MiB budget in path order, separate from the response limit, applied after the file
+list is truncated, so no file or patch is removed to make room for one. Older agents
+send no `document`, and Desktop disables its rendered view with an explanation.
+`localAgent.openLink(url)` opens only `http`, `https` without credentials and
+`mailto` links of a rendered document, through the default browser.
+
 The baseline resolves existing local refs in this order: symbolic `origin/HEAD`,
 remote main/master, local main/master. An invalid recorded default does not permit
 fallback. Exactly one merge base is required. The comparison uses a private temporary
@@ -1115,8 +1178,11 @@ Messages explain recovery without returning subprocess output or source contents
 HTTP and stdio initialize with server name `sectile`; managed native registrations
 use the same name. The catalog is exactly `get_task`, `transition_stage`,
 `add_comment`, `list_tasks`, `get_project_context`, `list_projects`, `start_run`,
-`finish_run`, `create_task`, `update_task`, `report_waiting` and `prepare_macro_worktree`. The former `sectile_` names are unsupported on both
-transports.
+`finish_run`, `create_task`, `update_task`, `report_waiting`,
+`prepare_macro_worktree`, `prepare_repository_worktree`, `get_macro` and
+`update_macro_todos`. The stdio bridge refuses any other catalog, so a server
+and an agent from before `get_macro` (#663) must be upgraded together. The
+former `sectile_` names are unsupported on both transports.
 Tool schemas, return values, run ownership and managed-run validation are unchanged.
 
 Agent launch prompts, desktop exit reporting and built-in policy text use the

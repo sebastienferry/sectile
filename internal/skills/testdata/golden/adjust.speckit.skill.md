@@ -64,7 +64,9 @@ found and fixed, the risky parts pointed out, the test plan written down.
 
 ## Read first
 - The full diff of the branch against the default branch. All of it, not the summary.
-- The specification, to check that what was asked is what was built.
+- The specification, to check that what was asked is what was built. When its files are ignored by
+  Git (dropped artefacts), they are not in the diff: read them from the worktree, or from the
+  clarification and specification reports on the ticket.
 - The current remote default branch: fetch the remote and identify its configured
   default branch before reviewing or publishing.
 
@@ -111,5 +113,6 @@ found and fixed, the risky parts pointed out, the test plan written down.
 Transition implemented → reviewed only when this step is complete.
 Include prUrl with the verified pull request URL.
 A task holds an ordered set of pull requests, `prUrl` being its current one. A pull request on a branch the task already used is a legitimate follow-up and is appended, even when the recorded one is merged; a pull request on an unrelated branch is refused, and its links are corrected from the task detail view rather than by forging evidence.
+A task whose work changed no repository (a configuration made through an API, a review, a follow-up) has no pull request to give: pass `noRepositoryChange: true` to `transition_stage` instead of `prUrl`, and say in the note what was done instead. The server refuses the statement when the task records a pull request on its branch or a repository prepared with `prepare_repository_worktree`; then give those pull requests.
 Use `add_comment` for an authorized ticket discussion update. Managed runs must not also invoke transition/comment tools for reports owned by Sectile. If MCP is unavailable, preserve work and report the pending transition; do not silently write to a different server or database.
 Reuse the assigned worktree and actual branch. Never merge or delete remote objects. Keep work available for review and retry until confirmed handoff.
