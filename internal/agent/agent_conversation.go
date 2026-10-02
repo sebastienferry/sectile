@@ -306,7 +306,7 @@ func (d *agentDaemon) desktopConversation(w http.ResponseWriter, r *http.Request
 			http.Error(w, "Unknown decision", http.StatusBadRequest)
 			return
 		}
-		if err := decideApprovalLocked(run, input.Approval.ID, input.Approval.Decision, input.Approval.Answers); err != nil {
+		if err := d.decideApprovalLocked(run, input.Approval.ID, input.Approval.Decision, input.Approval.Answers); err != nil {
 			http.Error(w, err.Error(), http.StatusConflict)
 			return
 		}
@@ -434,7 +434,10 @@ func startConversationLocked(run *controlledRun, model, origin string) {
 // "=" form keeps a value from swallowing the arguments that follow it. The
 // message is not an argument either: it goes in on stdin, in the streaming
 // input format that also carries the tool approvals.
-func claudeConversationCommand(directory, model, effort, mode, session string, dirs []string, env map[string]string) *exec.Cmd {
+//
+// settings is the file generated from the project's sandbox values (#700),
+// "" when it has none, which leaves the command as it was.
+func claudeConversationCommand(directory, model, effort, mode, session, settings string, dirs []string, env map[string]string) *exec.Cmd {
 	// Partial messages stream each reply as Claude writes it; the complete
 	// messages still arrive, so the trace is built from them alone.
 	args := []string{"-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--permission-mode", conversationMode(mode), "--permission-prompt-tool", "stdio", conversationAllowedTools}
@@ -449,6 +452,9 @@ func claudeConversationCommand(directory, model, effort, mode, session string, d
 	}
 	for _, dir := range dirs {
 		args = append(args, "--add-dir="+dir)
+	}
+	if settings != "" {
+		args = append(args, "--settings="+settings)
 	}
 	cmd := agentexec.Hidden(exec.Command("claude", args...))
 	cmd.Dir = directory
@@ -526,6 +532,9 @@ func (d *agentDaemon) conversationTurn(run *controlledRun, prompt string) {
 	if err != nil {
 		conversationWrite(run.trace, "notice", "Attached folders could not be read for this message", err.Error())
 	}
+	// Each turn is a new Claude: it reads the project's values as they are
+	// now, rules an "Always allow" added during this conversation included.
+	settings, settingsErr := d.projectClaudeSettings(projectID)
 	d.queue.mu.Lock()
 	dirs = append(dirs, run.conversation.extraDirs...)
 	// The folder map read for this turn wins over the one recorded at launch.
@@ -534,7 +543,7 @@ func (d *agentDaemon) conversationTurn(run *controlledRun, prompt string) {
 			env[key] = value
 		}
 	}
-	cmd := claudeConversationCommand(directory, run.desktop.Model, run.conversation.effort, run.conversation.mode, run.conversation.session, dirs, env)
+	cmd := claudeConversationCommand(directory, run.desktop.Model, run.conversation.effort, run.conversation.mode, run.conversation.session, settings, dirs, env)
 	d.queue.mu.Unlock()
 	initialize, initID := conversationInitialize()
 	var input *conversationInput
@@ -678,6 +687,8 @@ func (d *agentDaemon) conversationTurn(run *controlledRun, prompt string) {
 	err = nil
 	if input == nil {
 		err = fmt.Errorf("Claude Code's input could not be opened")
+	} else if settingsErr != nil {
+		err = settingsErr
 	}
 	release := func() {}
 	if err == nil {
@@ -819,7 +830,7 @@ func (d *agentDaemon) loadConversationCommandsLocked(run *controlledRun) {
 	for key, value := range c.env {
 		env[key] = value
 	}
-	cmd := claudeConversationCommand(run.desktop.Directory, run.desktop.Model, "", c.mode, "", c.extraDirs, env)
+	cmd := claudeConversationCommand(run.desktop.Directory, run.desktop.Model, "", c.mode, "", "", c.extraDirs, env)
 	probe := d.probeConversationCommands
 	if d.probeCommandsFn != nil {
 		probe = d.probeCommandsFn

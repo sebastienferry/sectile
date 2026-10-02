@@ -52,7 +52,9 @@ The composer's permission mode is Claude Code's: **Ask before edits**,
 is no bypass. Sectile's own MCP tools, which every skill relies on, are always
 allowed. A tool call the owner's Claude Code rules do not allow waits in its card
 for **Allow**, **Always allow** (when Claude proposes a rule, which is then
-saved where Claude says) or **Deny**, as in Claude Code; the composer reads
+added to the project's Sandbox allow rules rather than to a file of the
+worktree, [ADR 0048](../adrs/0048-claude-sandbox-values-reach-claude-through-a-generated-settings-file.md))
+or **Deny**, as in Claude Code; the composer reads
 Waiting for your approval. The decision stays on the card. A question Claude
 asks through `AskUserQuestion` shows in its card with its options, radio
 buttons or checkboxes as the question allows, and a field for an answer of

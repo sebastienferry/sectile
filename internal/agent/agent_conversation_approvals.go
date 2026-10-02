@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"sort"
 	"strings"
 	"sync"
@@ -68,8 +69,9 @@ type conversationApproval struct {
 	Tool        string          `json:"tool"`
 	Description string          `json:"description,omitempty"`
 	Input       json.RawMessage `json:"input,omitempty"`
-	// Suggestions are the rules Claude proposes for "always allow"; they
-	// are handed back as they came.
+	// Suggestions are the updates Claude proposes for "always allow". They
+	// are handed back for the running conversation only, and their allow
+	// rules are added to the project's (#700).
 	Suggestions json.RawMessage `json:"suggestions,omitempty"`
 }
 
@@ -97,10 +99,83 @@ const askUserQuestion = "AskUserQuestion"
 // conversationAnswersLimit bounds what an owner's answers may weigh.
 const conversationAnswersLimit = 16 * 1024
 
+// sessionPermissions rewrites the updates an "Always allow" hands back so
+// that only the running conversation applies them: Claude proposes a
+// destination such as localSettings, the worktree's .claude/settings.local.json,
+// which goes with the worktree or gets committed by mistake (#700). It returns
+// the allow rules among them, as Claude writes a rule, for the project's own
+// allow rules, and the updates it could not read, which are passed on for
+// the conversation but persist nothing.
+func sessionPermissions(raw json.RawMessage) (json.RawMessage, []string, []string) {
+	var updates []json.RawMessage
+	if json.Unmarshal(raw, &updates) != nil {
+		return raw, nil, []string{string(raw)}
+	}
+	var rules, unread []string
+	for i, update := range updates {
+		var fields map[string]any
+		if json.Unmarshal(update, &fields) != nil || fields == nil {
+			unread = append(unread, string(update))
+			continue
+		}
+		if _, ok := fields["destination"]; ok {
+			fields["destination"] = "session"
+		}
+		if fields["type"] == "addRules" && fields["behavior"] == "allow" {
+			if found, ok := permissionRules(fields["rules"]); ok {
+				rules = append(rules, found...)
+			} else {
+				unread = append(unread, string(update))
+			}
+		}
+		if rewritten, err := json.Marshal(fields); err == nil {
+			updates[i] = rewritten
+		}
+	}
+	rewritten, err := json.Marshal(updates)
+	if err != nil {
+		return raw, nil, []string{string(raw)}
+	}
+	return rewritten, rules, unread
+}
+
+// permissionRules renders the rules of an addRules update as Claude writes
+// them in its settings: the tool alone, or the tool and its content in
+// parentheses. A rule without a tool name makes the update unreadable.
+func permissionRules(value any) ([]string, bool) {
+	list, ok := value.([]any)
+	if !ok {
+		return nil, false
+	}
+	var rules []string
+	for _, item := range list {
+		rule, _ := item.(map[string]any)
+		tool, _ := rule["toolName"].(string)
+		content, _ := rule["ruleContent"].(string)
+		if tool = strings.TrimSpace(tool); tool == "" || strings.ContainsAny(tool, "()") {
+			return nil, false
+		}
+		if content == "" {
+			rules = append(rules, tool)
+		} else {
+			rules = append(rules, tool+"("+content+")")
+		}
+	}
+	return rules, true
+}
+
 // approvalResponse is the control response that carries a decision. An
 // answer allows the AskUserQuestion call with its input plus the answers,
 // keyed by question text, which is how Claude reads them.
 func approvalResponse(approval conversationApproval, decision string, answers map[string]string) map[string]any {
+	response, _, _ := approvalDecision(approval, decision, answers)
+	return response
+}
+
+// approvalDecision is approvalResponse with what an "Always allow" approved:
+// the allow rules to add to the project, and the updates it could not read.
+func approvalDecision(approval conversationApproval, decision string, answers map[string]string) (map[string]any, []string, []string) {
+	var rules, unread []string
 	answer := map[string]any{"behavior": "deny", "message": "The user denied this tool call."}
 	if decision == "answer" {
 		input := map[string]any{}
@@ -114,10 +189,12 @@ func approvalResponse(approval conversationApproval, decision string, answers ma
 		}
 		answer = map[string]any{"behavior": "allow", "updatedInput": input}
 		if decision == "always" && len(approval.Suggestions) > 0 && string(approval.Suggestions) != "null" {
-			answer["updatedPermissions"] = approval.Suggestions
+			var updates json.RawMessage
+			updates, rules, unread = sessionPermissions(approval.Suggestions)
+			answer["updatedPermissions"] = updates
 		}
 	}
-	return map[string]any{"type": "control_response", "response": map[string]any{"subtype": "success", "request_id": approval.ID, "response": answer}}
+	return map[string]any{"type": "control_response", "response": map[string]any{"subtype": "success", "request_id": approval.ID, "response": answer}}, rules, unread
 }
 
 // controlError answers a control request the agent does not handle, so
@@ -128,7 +205,7 @@ func controlError(requestID, message string) map[string]any {
 
 // decideApprovalLocked answers a pending tool call and records the decision
 // in the trace. The queue lock is held.
-func decideApprovalLocked(run *controlledRun, id, decision string, answers map[string]string) error {
+func (d *agentDaemon) decideApprovalLocked(run *controlledRun, id, decision string, answers map[string]string) error {
 	c := run.conversation
 	for i, approval := range c.approvals {
 		if approval.ID != id {
@@ -140,7 +217,8 @@ func decideApprovalLocked(run *controlledRun, id, decision string, answers map[s
 		if err := checkAnswers(approval, decision, answers); err != nil {
 			return err
 		}
-		if err := c.input.send(approvalResponse(approval, decision, answers)); err != nil {
+		response, rules, unread := approvalDecision(approval, decision, answers)
+		if err := c.input.send(response); err != nil {
 			return err
 		}
 		c.approvals = append(c.approvals[:i:i], c.approvals[i+1:]...)
@@ -150,9 +228,32 @@ func decideApprovalLocked(run *controlledRun, id, decision string, answers map[s
 			event.Detail = answersDetail(answers)
 		}
 		conversationWriteEvent(run.trace, event)
+		d.keepAllowRulesLocked(run, rules, unread)
 		return nil
 	}
 	return fmt.Errorf("no tool call is waiting for that decision")
+}
+
+// keepAllowRulesLocked adds the rules an "Always allow" approved to the
+// project's allow rules, so the next turns and the next tasks of the project
+// apply them, and says so in the trace. An update it could not read applies
+// to this turn only, which is logged and said too. The queue lock is held.
+func (d *agentDaemon) keepAllowRulesLocked(run *controlledRun, rules, unread []string) {
+	for _, update := range unread {
+		log.Printf("[Agent] \"Always allow\" update kept for this turn only, not understood: %s", update)
+		conversationWrite(run.trace, "notice", "Allowed for this turn only", "Sectile could not read this rule to keep it in the project's Sandbox settings: "+update)
+	}
+	if len(rules) == 0 {
+		return
+	}
+	added, err := d.addProjectAllowRules(run.desktop.ProjectID, rules)
+	if err != nil {
+		conversationWrite(run.trace, "error", "The rule could not be kept in the project's Sandbox settings: "+err.Error(), "")
+		return
+	}
+	for _, rule := range added {
+		conversationWrite(run.trace, "notice", "Rule added to the project's Sandbox settings", rule)
+	}
 }
 
 // checkAnswers keeps answers to AskUserQuestion calls, and holds them to one
