@@ -71,7 +71,7 @@ test('Changes renders Markdown files by default, safely, with the raw diff chose
   let page
   ;({app,page}=await launch())
   const toggle=page.locator('.diff-render-toggle'),note=page.locator('.diff-render-note'),view=page.locator('.diff-rendered'),patch=page.locator('.diff-patch')
-  const pick=name=>page.locator('.diff-files button').filter({hasText:name}).click()
+  const pick=name=>page.getByRole('combobox',{name:'Changed file'}).selectOption({label:name})
   // A Markdown file opens rendered, with the toggle pressed; it turns back to the raw diff.
   await pick('docs/guide.md · modified')
   await expect(toggle).toBeVisible();await expect(toggle).toHaveAttribute('aria-pressed','true');await expect(toggle).toBeEnabled()
@@ -127,7 +127,7 @@ test('Changes renders Markdown files by default, safely, with the raw diff chose
   await app.close();app=null
   // The choice is not persisted: a new Desktop session starts rendered.
   ;({app,page}=await launch())
-  await page.locator('.diff-files button').filter({hasText:'docs/guide.md · modified'}).click()
+  await page.getByRole('combobox',{name:'Changed file'}).selectOption({label:'docs/guide.md · modified'})
   await expect(page.locator('.diff-render-toggle')).toHaveAttribute('aria-pressed','true');await expect(page.locator('.diff-rendered h1')).toHaveText('Guide')
  }finally{if(app)await app.close();ws.close();await new Promise(resolve=>server.close(resolve))}
 })
