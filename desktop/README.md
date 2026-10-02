@@ -783,13 +783,16 @@ anyway** stay labelled, because their meaning depends on the stage.
 ### Desktop Quick add
 
 Press **Cmd+K** (macOS) or **Ctrl+K** to open the command palette, search its
-actions, and choose **Quick add task** or **Tasks list**. Enter runs the first
-matching action. The selected project's identity is prefilled; without a
-selection, choose a project explicitly. Enter a title and optional description.
+actions, and choose **Quick add task**, **Tasks list** or **Add project**.
+Enter runs the first matching action. The selected project's identity is
+prefilled; without a selection, choose a project explicitly. Enter a title and
+optional description.
 The server creates the task using its project tracker configuration.
 GitHub and Jira creation must succeed remotely; errors do not silently create
 a local fallback. Local projects remain local. Creation does not start an execution;
-the success screen offers a separate **Launch task** action.
+the success screen offers a separate **Launch task** action. **Add project**
+opens the same dialog as the `+` next to PROJECTS, also when the sidebar is
+collapsed.
 
 The task launcher excludes finished tasks, including the finished workflow
 label. Each result shows its current workflow stage and tracker status when
