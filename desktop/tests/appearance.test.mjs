@@ -86,7 +86,7 @@ test('the pull request colours come from tokens both modes define',()=>{
 // Disabled controls (opacity, exempt under WCAG 1.4.3) and non-text graphics (effort bars, context ring; WCAG 1.4.11) are left out.
 test('the light conversation text reaches WCAG AA on its background',()=>{
  const {lightValues}=tokenBlocks()
- const pairs=[['text-faint','bg'],['text-faint','button-bg'],['text','bg'],['text','button-bg'],['danger','bg'],['danger','button-bg'],['text-muted','bg'],['accent-text','accent-button-bg']]
+ const pairs=[['text-faint','bg'],['text-faint','button-bg'],['text','bg'],['text','button-bg'],['danger','bg'],['danger','button-bg'],['text-muted','bg'],['accent-text','accent-button-bg'],['waiting','button-bg']]
  for(const [text,background] of pairs){
   assert.ok(lightValues.has(text)&&lightValues.has(background),text+' on '+background+' is not a hex token')
   const ratio=contrast(lightValues.get(text),lightValues.get(background))
