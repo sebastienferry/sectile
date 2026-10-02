@@ -116,6 +116,9 @@ func (d *agentDaemon) desktopConsole(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	run.desktop.Kind, run.desktop.Provider = consoleRunKind, provider
+	// The engine the console opens decides whether a folder attached from it
+	// is typed in (#689); a template whose provider is Claude counts as Claude.
+	run.interactiveProvider = liveProvider(agentconfig.Config{AIProvider: provider})
 	run.desktop.EngineID, run.desktop.EngineName = engine.ID, engine.Name
 	run.desktop.Model = config.AIModel
 	entry := run.desktop
