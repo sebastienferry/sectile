@@ -2915,7 +2915,14 @@ func (d *DB) updateTaskBy(actor Actor, id string, req models.UpdateTaskRequest) 
 		if existing.BranchName != nil {
 			branch = *existing.BranchName
 		}
-		existing.PrLinks = models.AppendPullRequestLink(existing.PrLinks, *req.PrURL, branch)
+		// The link is added, never refused: this is how a person corrects a
+		// task's links. It only never displaces the primary repository's pull
+		// request as the current one (#697).
+		var primary []string
+		if project, _ := d.getProjectByIDUnsafe(existing.ProjectID); project != nil {
+			primary, _ = taskPullRequestScope(project, existing)
+		}
+		existing.PrLinks = models.AddPullRequestLink(existing.PrLinks, *req.PrURL, branch, primary)
 		existing.PrURL = pullRequestURLValue(existing.PrLinks)
 	}
 

@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 
 	"tasks/internal/models"
@@ -137,6 +138,12 @@ func (d *DB) applyDiscoveredPullRequests(task *models.Task, found []models.TaskP
 	// Discovery read the forge from a snapshot of the task. The merge runs on
 	// the row locked and read again, so a link another writer attached in the
 	// meantime, on this instance or another, is kept rather than overwritten.
+	// Each candidate competes with the links of its own repository only, and
+	// a repository outside the task's is refused (#697).
+	var primary, allowed []string
+	if project, _ := d.GetProjectByID(task.ProjectID); project != nil {
+		primary, allowed = taskPullRequestScope(project, task)
+	}
 	var links []models.TaskPullRequest
 	var branchValue *string
 	d.mu.Lock()
@@ -153,13 +160,17 @@ func (d *DB) applyDiscoveredPullRequests(task *models.Task, found []models.TaskP
 			if url == "" {
 				continue
 			}
-			if !seeding {
-				if refusal := models.AcceptPullRequest(links, url, candidate.Branch); refusal != nil {
-					warnings = append(warnings, fmt.Sprintf("%s : %v", task.Key, refusal))
-					continue
-				}
+			// Seeding takes every branch the tracker reports, oldest first;
+			// only the repository is checked then.
+			recorded := links
+			if seeding {
+				recorded = nil
 			}
-			grown := models.AppendPullRequestLink(links, url, candidate.Branch)
+			if refusal := models.AcceptRepositoryPullRequest(recorded, url, candidate.Branch, allowed); refusal != nil {
+				warnings = append(warnings, fmt.Sprintf("%s : %v", task.Key, refusal))
+				continue
+			}
+			grown := models.AddPullRequestLink(links, url, candidate.Branch, primary)
 			if len(grown) == len(links) {
 				continue
 			}
@@ -212,16 +223,22 @@ func (d *DB) rediscoverPullRequests(ctx context.Context, proj *models.Project, t
 		return []string{fmt.Sprintf("⚠️ Pull requests %s : %v", task.Key, err)}, halt
 	}
 	attached, warnings, err := d.applyDiscoveredPullRequests(task, found)
+	return discoveryReport(task, attached, warnings, err), false
+}
+
+// discoveryReport is what the synchronisation activity says about the links
+// discovery wrote for a task.
+func discoveryReport(task *models.Task, attached, warnings []string, err error) (steps []string) {
 	for _, warning := range warnings {
 		steps = append(steps, "⚠️ Pull requests "+warning)
 	}
 	if err != nil {
-		return append(steps, fmt.Sprintf("⚠️ Pull requests %s : écriture locale échouée : %v", task.Key, err)), false
+		return append(steps, fmt.Sprintf("⚠️ Pull requests %s : écriture locale échouée : %v", task.Key, err))
 	}
 	if len(attached) > 0 {
 		steps = append(steps, fmt.Sprintf("🔗 %s — pull request(s) rattachée(s) : %s", task.Key, strings.Join(attached, ", ")))
 	}
-	return steps, false
+	return steps
 }
 
 // rediscoverProjectPullRequests runs the step over the tasks a full
@@ -229,9 +246,7 @@ func (d *DB) rediscoverPullRequests(ctx context.Context, proj *models.Project, t
 // re-reads tickets one by one, and a discovery call per ticket per minute is
 // exactly the cost the bounding rule exists to avoid.
 func (d *DB) rediscoverProjectPullRequests(ctx context.Context, proj *models.Project, ts tracker.TicketingSystem, imported []models.Task) []string {
-	if d.pullRequestDiscoverer(ts) == nil {
-		return nil
-	}
+	discover := d.pullRequestDiscoverer(ts) != nil
 	var steps []string
 	seen := map[string]bool{}
 	for i := range imported {
@@ -239,7 +254,14 @@ func (d *DB) rediscoverProjectPullRequests(ctx context.Context, proj *models.Pro
 		if err != nil || task == nil {
 			continue
 		}
+		if !discover {
+			steps = append(steps, d.discoverSecondaryPullRequests(ctx, proj, task)...)
+			continue
+		}
 		found, halt := d.rediscoverPullRequests(ctx, proj, ts, task, false)
+		if task, err = d.GetTaskByID(task.ID); err == nil && task != nil {
+			found = append(found, d.discoverSecondaryPullRequests(ctx, proj, task)...)
+		}
 		for _, step := range found {
 			// A refused credential would otherwise be reported once per
 			// ticket; the pass says it once.
@@ -279,4 +301,47 @@ func (d *DB) discoverAndApply(ctx context.Context, proj *models.Project, ts trac
 		return nil, nil, err
 	}
 	return d.applyDiscoveredPullRequests(task, found)
+}
+
+// discoverSecondaryPullRequests backfills the pull request of every repository
+// a task changed and holds no link for (#697), so a task whose secondary pull
+// request was opened outside a stage transition finds it again. Each one is
+// looked up by the task branch in its own repository: GitHub through the
+// server, any other forge through the local agent of whoever synchronizes.
+// The lookup is bounded like discovery: a task past its pull request creation
+// stage, not finished, on a branch, synchronized by a person. A failed lookup
+// writes nothing and says nothing: an agent that is not connected or a
+// repository with no pull request is not a synchronisation failure.
+func (d *DB) discoverSecondaryPullRequests(ctx context.Context, proj *models.Project, task *models.Task) []string {
+	actor := tracker.ActingUser(ctx)
+	if proj == nil || task == nil || actor == "" || task.BranchName == nil || strings.TrimSpace(*task.BranchName) == "" {
+		return nil
+	}
+	creation := "implemented"
+	if strings.TrimSpace(proj.PRCreationStage) != "" {
+		creation = proj.PRCreationStage
+	}
+	stage := d.StageOfTask(task)
+	if stage == "finished" || stageRank(stage) < stageRank(creation) {
+		return nil
+	}
+	branch := strings.TrimSpace(*task.BranchName)
+	var found []models.TaskPullRequest
+	for _, identity := range taskChangedRepositories(proj, task) {
+		if slices.ContainsFunc(task.PrLinks, func(link models.TaskPullRequest) bool {
+			return models.PullRequestRepository(link.URL) == identity
+		}) {
+			continue
+		}
+		pr, err := d.lookupStagePR(task, actor, "", branch, repositoryTarget(identity))
+		if err != nil || pr.URL == "" || pr.Branch != branch || (!pr.Open && !pr.Merged) || models.PullRequestRepository(pr.URL) != identity {
+			continue
+		}
+		found = append(found, models.TaskPullRequest{URL: pr.URL, Branch: pr.Branch})
+	}
+	if len(found) == 0 {
+		return nil
+	}
+	attached, warnings, err := d.applyDiscoveredPullRequests(task, found)
+	return discoveryReport(task, attached, warnings, err)
 }

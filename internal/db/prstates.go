@@ -45,15 +45,30 @@ func (d *DB) refreshPullRequestStates(ctx context.Context, projectID string, tas
 		if len(urls) == 0 {
 			continue
 		}
-		states, err := client.PullRequestStates(ctx, forge, urls)
-		if err != nil {
-			if isRateLimited(err) {
-				d.enterAutoSyncBackoff()
+		// Without a token for this forge the states stay unknown, and every
+		// link says which token is missing rather than the sync warning about
+		// it on every pass: a secondary repository on another forge is a
+		// normal case, not a failure (#697). A read clears the mark.
+		missing := ""
+		if !client.HasForgeToken(forge) {
+			missing = forge
+		}
+		marks := map[string]string{}
+		for _, url := range urls {
+			marks[url] = missing
+		}
+		var states map[string]string
+		if missing == "" {
+			states, err = client.PullRequestStates(ctx, forge, urls)
+			if err != nil {
+				if isRateLimited(err) {
+					d.enterAutoSyncBackoff()
+				}
+				warnings = append(warnings, fmt.Sprintf("⚠️ Pull requests %s : %v", forge, err))
 			}
-			warnings = append(warnings, fmt.Sprintf("⚠️ Pull requests %s : %v", forge, err))
 		}
 		for _, task := range tasks {
-			if err := d.applyPullRequestStates(task.ID, states); err != nil {
+			if err := d.applyPullRequestStates(task.ID, states, marks); err != nil {
 				warnings = append(warnings, fmt.Sprintf("⚠️ Pull requests %s : %v", task.Key, err))
 			}
 		}
@@ -64,8 +79,8 @@ func (d *DB) refreshPullRequestStates(ctx context.Context, projectID string, tas
 // Re-read on the locked row: a concurrent user detachment or new PR, on this
 // instance or another, must survive a slow response from the forge. Only state
 // on matching URLs changes.
-func (d *DB) applyPullRequestStates(taskID string, states map[string]string) error {
-	if len(states) == 0 {
+func (d *DB) applyPullRequestStates(taskID string, states, missingTokens map[string]string) error {
+	if len(states) == 0 && len(missingTokens) == 0 {
 		return nil
 	}
 	d.mu.Lock()
@@ -80,6 +95,10 @@ func (d *DB) applyPullRequestStates(taskID string, states map[string]string) err
 			state := models.NormalizePullRequestState(states[task.PrLinks[i].URL])
 			if state != "" && task.PrLinks[i].State != state {
 				task.PrLinks[i].State = state
+				changed = true
+			}
+			if missing, read := missingTokens[task.PrLinks[i].URL]; read && task.PrLinks[i].MissingToken != missing {
+				task.PrLinks[i].MissingToken = missing
 				changed = true
 			}
 		}
@@ -111,12 +130,13 @@ func (d *DB) refreshTaskPullRequestStates(ctx context.Context, task *models.Task
 		log.Print(warning)
 	}
 	if fresh, err := d.GetTaskByID(task.ID); err == nil && fresh != nil {
-		states := map[string]string{}
+		read := map[string]models.TaskPullRequest{}
 		for _, link := range fresh.PrLinks {
-			states[link.URL] = link.State
+			read[link.URL] = link
 		}
 		for i := range task.PrLinks {
-			task.PrLinks[i].State = states[task.PrLinks[i].URL]
+			task.PrLinks[i].State = read[task.PrLinks[i].URL].State
+			task.PrLinks[i].MissingToken = read[task.PrLinks[i].URL].MissingToken
 		}
 		return task
 	}
