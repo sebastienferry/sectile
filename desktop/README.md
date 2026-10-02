@@ -782,7 +782,7 @@ path stands alone.
 The controls whose action does not depend on the workflow stage (relaunch, log
 export, the **Console** / **Changes** switch, and the linked pull request) are
 icons, with their wording kept as tooltip and accessible name; the pull request
-keeps its number. **Next: <skill>**, **Mark reviewed**, **Retry** and **Launch
+keeps its number. **Next: <skill>**, **Skip to Handoff**, **Retry** and **Launch
 anyway** stay labelled, because their meaning depends on the stage.
 
 ### Desktop Quick add

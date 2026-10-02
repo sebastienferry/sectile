@@ -49,14 +49,14 @@ test('declare code as reviewed transitions task from ticket row, handles capabil
   const row1=page.locator('.ticket-row[data-task-id="task-1"]')
   const row2=page.locator('.ticket-row[data-task-id="task-2"]')
 
-  // Row 2 is specified: its menu should not have "Declare code as reviewed…"
+  // Row 2 is specified: its menu should not have "Skip to Handoff…"
   await row2.locator('.ticket-more').click()
-  assert.equal(await row2.locator('.ticket-menu').getByRole('menuitem',{name:'Declare code as reviewed…'}).count(),0)
+  assert.equal(await row2.locator('.ticket-menu').getByRole('menuitem',{name:'Skip to Handoff…'}).count(),0)
   await page.keyboard.press('Escape')
 
-  // Row 1 is implemented: its menu has "Declare code as reviewed…"
+  // Row 1 is implemented: its menu has "Skip to Handoff…"
   await row1.locator('.ticket-more').click()
-  const declareBtn=row1.locator('.ticket-menu').getByRole('menuitem',{name:'Declare code as reviewed…'})
+  const declareBtn=row1.locator('.ticket-menu').getByRole('menuitem',{name:'Skip to Handoff…'})
   assert.equal(await declareBtn.count(),1)
   assert.equal(await declareBtn.isEnabled(),true)
 
@@ -64,7 +64,7 @@ test('declare code as reviewed transitions task from ticket row, handles capabil
   activeRuns=[{id:'run-act',taskId:'task-1',projectId:'project-a',skill:'adjust',status:'running'}]
   // Wait for poll to refresh row
   await page.waitForFunction(()=>document.querySelector('.ticket-row[data-task-id="task-1"] .ticket-run')?.disabled)
-  assert.equal(await declareBtn.isDisabled(),true,'Active run disables Declare code as reviewed')
+  assert.equal(await declareBtn.isDisabled(),true,'Active run disables Skip to Handoff')
   await page.keyboard.press('Escape')
   await row1.locator('.ticket-more').click()
   const detachTicketBtn=row1.locator('.ticket-menu').getByRole('menuitem',{name:'Detach to native terminal'})
@@ -80,8 +80,8 @@ test('declare code as reviewed transitions task from ticket row, handles capabil
   // Test Escape dismisses dialog without transitioning
   await declareBtn.click()
   await page.waitForSelector('#project-dialog[open]')
-  assert.match(await page.locator('#dialog-body h2').textContent(),/Declare #1 as reviewed\?/)
-  assert.match(await page.locator('#dialog-body p').first().textContent(),/This transitions the task to #reviewed and proposes Handoff after human merge\./)
+  assert.match(await page.locator('#dialog-body h2').textContent(),/Skip to Handoff for #1\?/)
+  assert.match(await page.locator('#dialog-body p').first().textContent(),/Adjust is skipped, #1 moves to #reviewed, and Handoff is proposed once the pull request is merged\./)
   await page.keyboard.press('Escape')
   await page.waitForFunction(()=>document.querySelector('#project-dialog')?.open===false)
   assert.equal(transitions.length,0,'Escape closes dialog without transition')
@@ -89,7 +89,7 @@ test('declare code as reviewed transitions task from ticket row, handles capabil
   // Test outdated agent capability error
   capabilities=[]
   await row1.locator('.ticket-more').click()
-  await row1.locator('.ticket-menu').getByRole('menuitem',{name:'Declare code as reviewed…'}).click()
+  await row1.locator('.ticket-menu').getByRole('menuitem',{name:'Skip to Handoff…'}).click()
   await page.waitForSelector('#project-dialog[open]')
   const confirmBtn=page.locator('#dialog-body button')
   await confirmBtn.click()
@@ -109,9 +109,9 @@ test('declare code as reviewed transitions task from ticket row, handles capabil
   const runBtn=row1.locator('.ticket-run')
   assert.equal(await runBtn.textContent(),'Run: Handoff')
 
-  // The menu on row 1 no longer shows "Declare code as reviewed…"
+  // The menu on row 1 no longer shows "Skip to Handoff…"
   await row1.locator('.ticket-more').click()
-  assert.equal(await row1.locator('.ticket-menu').getByRole('menuitem',{name:'Declare code as reviewed…'}).count(),0)
+  assert.equal(await row1.locator('.ticket-menu').getByRole('menuitem',{name:'Skip to Handoff…'}).count(),0)
  }finally{
   if(app)await app.close()
   server.close();fs.rmSync(root,{recursive:true,force:true})

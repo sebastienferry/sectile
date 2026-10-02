@@ -102,20 +102,20 @@ test('console next step rechecks task state, guards active history and handles f
   prUrl='https://example.test/pull/1';await selectB();await selectA()
   await page.getByRole('button',{name:'Next: Adjust',exact:true}).waitFor()
   await page.waitForFunction(()=>document.querySelector('#next-step-status').textContent.includes('implemented'))
-  await page.getByRole('button',{name:'Mark reviewed',exact:true}).waitFor()
+  await page.getByRole('button',{name:'Skip to Handoff',exact:true}).waitFor()
   assert.equal(await page.locator('#mark-reviewed').isEnabled(),true)
 
-  // Declare code as reviewed opens confirmation dialog
+  // Skip to Handoff opens a confirmation dialog
   await page.locator('#mark-reviewed').click()
   await page.waitForSelector('#project-dialog[open]')
-  assert.match(await page.locator('#dialog-body h2').textContent(),/Declare #1 as reviewed\?/)
-  assert.match(await page.locator('#dialog-body p').first().textContent(),/proposes Handoff after human merge/)
-  await page.getByRole('button',{name:'Confirm',exact:true}).click()
+  assert.match(await page.locator('#dialog-body h2').textContent(),/Skip to Handoff for #1\?/)
+  assert.match(await page.locator('#dialog-body p').first().textContent(),/Handoff is proposed once the pull request is merged/)
+  await page.locator('#project-dialog').getByRole('button',{name:'Skip to Handoff',exact:true}).click()
   await page.waitForFunction(()=>!document.querySelector('#project-dialog').open)
   assert.equal(transitions.length,1)
   assert.equal(transitions[0].stage,'reviewed')
 
-  // In reviewed stage, Next: Handoff is proposed and Mark reviewed is hidden
+  // In reviewed stage, Next: Handoff is proposed and Skip to Handoff is hidden
   await page.getByRole('button',{name:'Next: Handoff',exact:true}).waitFor()
   assert.equal(await page.locator('#mark-reviewed').isHidden(),true)
   prUrl=null
