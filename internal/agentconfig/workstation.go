@@ -61,6 +61,25 @@ type Defaults struct {
 	// "direct" (the direct setup's copy) or "plugin" (the Claude plugin).
 	// Empty means "direct".
 	InstalledSkillSource string `json:"installedSkillSource,omitempty"`
+	// ConsoleView is how an interactive Claude launch opens on this
+	// workstation when its launch did not say (#711): "terminal" or
+	// "conversation". Desktop hands it over from its own setting; empty means
+	// "terminal".
+	ConsoleView string `json:"consoleView,omitempty"`
+}
+
+// Console views, as ConsoleView names them.
+const (
+	ConsoleViewTerminal     = "terminal"
+	ConsoleViewConversation = "conversation"
+)
+
+// ConsoleViewOrDefault reads ConsoleView with its default: the terminal.
+func (d Defaults) ConsoleViewOrDefault() string {
+	if d.ConsoleView == ConsoleViewConversation {
+		return ConsoleViewConversation
+	}
+	return ConsoleViewTerminal
 }
 
 // Installed skill sources, in the order InstalledSkillSource names them.
