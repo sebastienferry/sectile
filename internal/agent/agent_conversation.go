@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"os/exec"
+	"strconv"
 	"strings"
 	"tasks/internal/agentconfig"
 	"tasks/internal/agentexec"
@@ -259,7 +260,12 @@ func (d *agentDaemon) desktopConversation(w http.ResponseWriter, r *http.Request
 	}
 	if r.Method == http.MethodGet {
 		lines, version := run.trace.snapshot()
-		response := map[string]any{"id": id, "events": lines, "version": version, "busy": false, "readOnly": run.restored || run.canceled || run.conversation == nil}
+		response := map[string]any{"id": id, "version": version, "busy": false, "readOnly": run.restored || run.canceled || run.conversation == nil}
+		// Desktop polls a conversation several times a second and sends the
+		// version it already shows: the events go only when they changed.
+		if since := r.URL.Query().Get("since"); since == "" || since != strconv.FormatUint(version, 10) {
+			response["events"] = lines
+		}
 		if c := run.conversation; c != nil {
 			response["busy"], response["effort"], response["model"], response["mode"] = c.busy, c.effort, run.desktop.Model, conversationMode(c.mode)
 			response["approvals"] = append([]conversationApproval{}, c.approvals...)

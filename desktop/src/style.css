@@ -630,3 +630,36 @@ details.tool-card[open]>summary::before{content:'▾'}
 .conversation-mcp:is([data-status=needs-auth],[data-status=pending],[data-status=unknown]) .conversation-mcp-dot{background:var(--warn-text)}
 .conversation-mcp:is([data-status=failed],[data-status=missing]) .conversation-mcp-dot{background:var(--danger)}
 .conversation-mcp:is([data-status=failed],[data-status=missing]){color:var(--danger)}
+/* Command palette: a narrow box near the top, one compact row per entry,
+   grouped, the active row and its shortcut on the right. */
+dialog.palette-dialog{width:min(640px,92vw);margin-top:12vh;padding:10px}
+dialog.palette-dialog #close-dialog{display:none}
+.palette-filter{margin:0 0 8px;padding:10px 12px;font-size:14px;border-radius:8px}
+.palette-list{list-style:none;margin:0;padding:0;max-height:min(60vh,460px);overflow:auto}
+.palette-group{padding:8px 10px 4px;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--text-faint)}
+.palette-option{display:flex;align-items:baseline;gap:10px;padding:7px 10px;border-radius:6px;cursor:pointer;min-width:0}
+.palette-option[aria-selected=true]{background:var(--selected-bg)}
+.palette-label{flex:none;max-width:60%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}
+.palette-detail{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:var(--text-faint)}
+.palette-hint{flex:none;margin-left:auto;padding:1px 6px;border:1px solid var(--border-strong);border-radius:4px;font:11px Menlo,Consolas,monospace;color:var(--text-secondary)}
+.palette-empty{margin:8px 10px;font-size:13px;color:var(--text-faint)}
+/* New task: labelled fields, the description in the body font, the actions
+   on the right with their keyboard hint. */
+dialog.quick-add-dialog{width:min(640px,92vw)}
+.quick-add{display:flex;flex-direction:column;gap:14px;margin-top:8px}
+.quick-add-field{display:flex;flex-direction:column;gap:6px;margin:0}
+.quick-add-name{font-size:12px;font-weight:600;color:var(--text-secondary)}
+.quick-add-name small{margin-left:6px;font-weight:400;color:var(--text-faint)}
+.quick-add-field input,.quick-add-field select,.quick-add-field textarea{margin:0;width:100%}
+.quick-add-field select{margin-left:0;padding:9px 10px}
+.quick-add-field textarea{min-height:92px;resize:vertical;padding:10px;font:inherit;font-size:13px;line-height:1.5;color:var(--input-text);background:var(--surface);border:1px solid var(--border-strong);border-radius:6px}
+.quick-add-notice{margin:0;font-size:12.5px;color:var(--text-secondary)}
+.quick-add-notice:empty{display:none}
+.quick-add-created{margin:0;font-size:14px}
+.quick-add-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px}
+.quick-add-actions button{padding:8px 16px}
+.quick-add-actions button.secondary{color:var(--text);background:var(--button-bg);border:1px solid var(--border-strong);font-weight:400}
+.quick-add-keys{margin-right:auto;font-size:12px;color:var(--text-faint)}
+/* What an engine setup step reported, under its row. */
+.setup-result{margin:2px 0 10px;font-size:12px;color:var(--text-secondary);overflow-wrap:anywhere}
+.setup-result:empty{display:none}

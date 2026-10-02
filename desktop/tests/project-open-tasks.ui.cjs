@@ -59,9 +59,9 @@ test('the tickets pane lists, sorts and launches a project\'s open tasks',async(
   await heading.waitFor()
   // The command palette offers the list too; with no project selected it asks which one.
   await page.keyboard.press('Control+k')
-  await page.getByRole('textbox',{name:'Search commands'}).fill('tasks')
-  await expect(page.getByRole('button',{name:'Quick add task',exact:true})).toBeHidden()
-  await page.getByRole('button',{name:'Tasks list',exact:true}).click()
+  await page.getByRole('combobox',{name:'Search commands'}).fill('tasks')
+  await expect(page.locator('.palette-option',{hasText:'New task'})).toBeHidden()
+  await page.locator('.palette-option',{hasText:'Tasks list'}).click()
   await page.getByText('Choose the project whose tasks you want to browse.',{exact:true}).waitFor()
   await page.getByRole('button',{name:'Project B',exact:true}).click()
   await expect(page.getByRole('heading',{name:'Tickets · Project B',exact:true})).toBeVisible()
@@ -246,7 +246,7 @@ test('the tickets pane lists, sorts and launches a project\'s open tasks',async(
   await expect(page.locator('#workspace article')).toBeVisible()
   // With a project already selected the palette opens its list without asking.
   await page.keyboard.press('Control+k')
-  await page.getByRole('button',{name:'Tasks list',exact:true}).click()
+  await page.locator('.palette-option',{hasText:'Tasks list'}).click()
   await expect(page.getByRole('heading',{name:'Tickets · Project A',exact:true})).toBeVisible()
   await page.getByRole('button',{name:'Close tickets',exact:true}).click()
   await page.getByRole('button',{name:'▸ Project A',exact:true}).waitFor()

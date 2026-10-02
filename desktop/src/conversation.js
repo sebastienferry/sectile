@@ -326,7 +326,7 @@ export function createConversationView({api,container,onError,canAddFolder=()=>f
  }
  async function poll(token,id){
   try{
-   const data=await api.conversation(id)
+   const data=await api.conversation(id,version??undefined)
    if(token!==generation||id!==selected)return
    if(data.id!==id)throw Error('The agent returned another conversation.')
    if(Array.isArray(data.commands))commands=data.commands.filter(command=>command&&typeof command.name==='string')

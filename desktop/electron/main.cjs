@@ -482,7 +482,8 @@ ipcMain.handle('create-conversation',async(_,sourceRunId)=>{
  if(!status.capabilities?.includes('claude-conversation'))throw Error('Update and restart the local agent to try Claude conversations.')
  return api('/desktop/conversation','POST',{sourceRunId})
 })
-ipcMain.handle('conversation',(_,id)=>api('/desktop/conversation?id='+encodeURIComponent(id)))
+// since is the version the window already shows: an unchanged history is not sent again.
+ipcMain.handle('conversation',(_,id,since)=>api('/desktop/conversation?id='+encodeURIComponent(id)+(Number.isSafeInteger(since)?'&since='+since:'')))
 ipcMain.handle('conversation-interrupt',(_,id)=>api('/desktop/conversation?id='+encodeURIComponent(id),'POST',{interrupt:true}))
 ipcMain.handle('conversation-approval',(_,{id,approvalId,decision,answers})=>api('/desktop/conversation?id='+encodeURIComponent(id),'POST',{approval:Object.assign({id:approvalId,decision},answers&&typeof answers==='object'?{answers}:null)}))
 ipcMain.handle('conversation-check-mcp',(_,id)=>api('/desktop/conversation?id='+encodeURIComponent(id),'POST',{checkMcp:true}))

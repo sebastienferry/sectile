@@ -22,22 +22,23 @@ test('the command palette opens the Add project dialog of the sidebar',async()=>
  try{
   app=await electron.launch({args:[path.resolve(__dirname,'..')],env})
   const page=await app.firstWindow();page.setDefaultTimeout(7000)
-  const filter=page.getByRole('textbox',{name:'Search commands'})
-  const command=page.getByRole('button',{name:'Add project',exact:true})
+  const filter=page.getByRole('combobox',{name:'Search commands'})
+  const command=page.locator('.palette-option',{hasText:'Add project'})
   const heading=page.getByRole('heading',{name:'Add project',exact:true})
   const added=page.getByRole('button',{name:'Project A · Already added',exact:true})
   const available=page.getByRole('button',{name:'Project B',exact:true})
   const close=()=>page.getByRole('button',{name:'Close',exact:true}).click()
   await page.getByRole('button',{name:'▾ Project A',exact:true}).waitFor()
 
-  // The command is listed after the existing ones and filtered like them.
+  // The action is listed after Tasks list and filtered like the others.
   await page.keyboard.press('Control+k')
-  assert.deepEqual(await page.locator('#dialog-body button.discovered-project').allTextContents(),['Quick add task','Tasks list','Add project'])
+  const actions=await page.locator('.palette-option .palette-label').allTextContents()
+  assert.deepEqual(actions.slice(0,3),['New task','Tasks list','Add project'])
   await filter.fill('tasks')
   await expect(command).toBeHidden()
-  await filter.fill('PROJECT')
+  await filter.fill('ADD project')
   await expect(command).toBeVisible()
-  await expect(page.getByRole('button',{name:'Quick add task',exact:true})).toBeHidden()
+  await expect(page.locator('.palette-option',{hasText:'New task'})).toBeHidden()
 
   // Enter runs it: the dialog replaces the palette and lists the server's projects.
   const reads=projectReads
