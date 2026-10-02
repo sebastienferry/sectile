@@ -40,7 +40,7 @@ import { offerFor, initializedNotice } from './git-init.mjs'
 // agent stopped.
 import changelogSource from '../../CHANGELOG.md?raw'
 import { parseChangelog, releaseNotesFor } from './changelog.mjs'
-import { APPEARANCE_CHOICES, CONSOLE_VIEW_CHOICES, terminalTheme } from './appearance.mjs'
+import { APPEARANCE_CHOICES, CONSOLE_VIEW_CHOICES, terminalOptions } from './appearance.mjs'
 const api=window.localAgent
 // Concurrent execution workers ceiling per project, aligned with agentconfig.MaxParallelism.
 // Parallelism is a workstation setting: the server neither stores nor supplies it.
@@ -64,8 +64,8 @@ const TERMINAL_FONT='"FiraCode Nerd Font Mono", "JetBrainsMono Nerd Font Mono", 
 // The main process sets the appearance through nativeTheme, which is what this
 // query answers: the terminal follows it like the stylesheet does, live.
 const darkScheme=window.matchMedia('(prefers-color-scheme: dark)')
-const terminal=new Terminal({cursorBlink:true,fontSize:13,fontFamily:TERMINAL_FONT,scrollback:20000,theme:terminalTheme(darkScheme.matches)})
-darkScheme.addEventListener('change',event=>{terminal.options.theme=terminalTheme(event.matches)})
+const terminal=new Terminal({cursorBlink:true,fontSize:13,fontFamily:TERMINAL_FONT,scrollback:20000,...terminalOptions(darkScheme.matches)})
+darkScheme.addEventListener('change',event=>{terminal.options=terminalOptions(event.matches)})
 const fit=new FitAddon();terminal.loadAddon(fit)
 let nextStepData=null,nextStepGeneration=0,nextStepUpdated=0
 const submittingSteps=new Map()
