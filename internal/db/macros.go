@@ -263,12 +263,13 @@ func (d *DB) fillMacroURLsFromTasks(projectID string, macros []models.MacroMeta)
 	}
 	rows.Close()
 
+	urls := d.newExternalURLResolver()
 	for _, task := range found {
 		i := index[task.Key]
 		if macros[i].ExternalURL != "" {
 			continue
 		}
-		if u := d.computeExternalURLUnsafe(&task); u != nil {
+		if u := urls.resolve(&task); u != nil {
 			macros[i].ExternalURL = *u
 		}
 	}
