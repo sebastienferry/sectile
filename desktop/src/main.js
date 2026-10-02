@@ -163,7 +163,7 @@ let updateSettingsConnection=null
 let opened=false,selected=null,runs=[],last='',stopping=false,restarting=false,projects=[],projectsLoaded=false
 // Whether the local agent attaches a folder from a run (#676), read with the
 // editor setting from its status.
-let runFoldersAvailable=false,conversationControlsAvailable=false,conversationQueueAvailable=false,claudeModels=[]
+let runFoldersAvailable=false,runFoldersTerminalsAvailable=false,conversationControlsAvailable=false,conversationQueueAvailable=false,claudeModels=[]
 const conversation=createConversationView({api,container:document.querySelector('#terminal'),onError:error,canAddFolder:()=>runFoldersAvailable,canControl:()=>conversationControlsAvailable,canQueue:()=>conversationQueueAvailable,models:()=>claudeModels})
 const conversationButton=document.createElement('button')
 conversationButton.type='button';conversationButton.textContent='Claude chat (test)';conversationButton.hidden=true
@@ -172,24 +172,26 @@ let consoleView='terminal'
 api.consoleView().then(value=>{consoleView=value;render()}).catch(()=>{})
 conversationButton.title='Start an independent Claude Code conversation in this execution’s directory'
 document.querySelector('#save-log').before(conversationButton)
-// "Add folder…" on a running ticket discussion (#676): the folder joins the
-// project, and the agent types /add-dir into a Claude Code session.
+// "Add folder…" on a running ticket discussion or free console, in Sectile or
+// detached to the native terminal (#676, #689): the folder joins the project,
+// and the agent types /add-dir into a Claude Code session.
 const addFolderButton=document.createElement('button')
 addFolderButton.type='button';addFolderButton.id='add-run-folder';addFolderButton.textContent='Add folder…';addFolderButton.hidden=true
-addFolderButton.title='Attach a folder of this workstation to the project and give it to this discussion'
+addFolderButton.title='Attach a folder of this workstation to the project and give it to this session'
 const addFolderStatus=document.createElement('span')
 addFolderStatus.id='add-run-folder-status';addFolderStatus.className='run-folder-status';addFolderStatus.setAttribute('role','status')
 document.querySelector('#save-log').before(addFolderButton,addFolderStatus)
 let addFolderRun=null
 addFolderButton.onclick=async()=>{
- const id=selected
+ const id=selected,run=runs.find(item=>item.id===id)
+ const where={console:freeConsole(run),terminal:run?.externalTerminal?formatTerminalName(run.externalTerminal):''}
  addFolderStatus.textContent='';addFolderRun=id
  try{
   const path=await api.chooseRepository()
   if(!path)return
   addFolderButton.disabled=true
   const answer=await api.addRunFolder(id,path)
-  if(addFolderRun===id)addFolderStatus.textContent=runFolderOutcome(path,answer)
+  if(addFolderRun===id)addFolderStatus.textContent=runFolderOutcome(path,answer,where)
  }catch(err){if(addFolderRun===id)addFolderStatus.textContent=ipcMessage(err)}
  finally{addFolderButton.disabled=false}
 }
@@ -448,12 +450,13 @@ async function loadEditorSetting(){
   const [status,view]=await Promise.all([api.status(),api.workstationSettings().catch(()=>null)])
   openEditorAvailable=!!status.capabilities?.includes('open-editor')
   runFoldersAvailable=!!status.capabilities?.includes('run-folders')
+  runFoldersTerminalsAvailable=!!status.capabilities?.includes('run-folders-terminals')
   conversationControlsAvailable=!!status.capabilities?.includes('conversation-controls')
   conversationQueueAvailable=!!status.capabilities?.includes('conversation-queue')
   configuredEditor=String(view?.defaults?.editorCommand||'').trim()
   if(view)claudeModels=Array.isArray(view.defaults?.aiProviderModels?.claude)?view.defaults.aiProviderModels.claude:[]
   if(view)renderCustomSkillSignal(view.customSkillsUsed)
- }catch{openEditorAvailable=false;runFoldersAvailable=false;conversationControlsAvailable=false;conversationQueueAvailable=false;configuredEditor=''}
+ }catch{openEditorAvailable=false;runFoldersAvailable=false;runFoldersTerminalsAvailable=false;conversationControlsAvailable=false;conversationQueueAvailable=false;configuredEditor=''}
  renderOpenEditor();render({deferrable:true})
 }
 // A project's custom skill ran instead of the installed one (#267): a passive
@@ -718,7 +721,7 @@ function render(options){
  document.querySelector('#clear-history').disabled=!runs.some(run=>['completed','failed','canceled'].includes(run.status))
  const current=runs.find(run=>run.id===selected)
  conversationButton.hidden=consoleView!=='conversation'||!current?.directory||!!current.conversation||!agentConnected
- addFolderButton.hidden=!agentConnected||!!current?.conversation||!offersRunFolder(current,runFoldersAvailable)
+ addFolderButton.hidden=!agentConnected||!!current?.conversation||!offersRunFolder(current,runFoldersAvailable,runFoldersTerminalsAvailable)
  // The outcome belongs to the run it was given for.
  if(addFolderRun!==selected){addFolderRun=null;addFolderStatus.textContent=''}
  addFolderStatus.hidden=addFolderButton.hidden||!addFolderStatus.textContent

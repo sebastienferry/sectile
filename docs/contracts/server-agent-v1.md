@@ -895,14 +895,17 @@ message naming what the folder already is. The agent reports the
 carries these paths.
 
 `POST /desktop/run-folder` `{runId, path}` attaches a folder from a run (#676),
-through the same checks and with the same refusals, for a conversation or a
-ticket discussion running in a Sectile terminal; another run, or one that has
+through the same checks and with the same refusals, for a conversation, a
+running ticket discussion or a running free console (#689), in a Sectile
+terminal or detached to a native terminal; another run, or one that has
 ended, answers 409, an unknown one 404. It answers `{"mappedAs", "typed",
 "appliesAt"}`: `next-turn` for a conversation, which reads the project's
 folders at each turn; `now` when `/add-dir <path>` was typed into a Claude Code
-discussion once its output settled; `next-launch` for another engine, a
-discussion moved to a native terminal, or a path holding a control character.
-The agent reports the `run-folders` capability on `/desktop/status`.
+discussion or console once its output settled, detached or not, since the
+native terminal only attaches to the session the agent owns; `next-launch` for
+another engine or a path holding a control character. The agent reports the
+`run-folders` capability on `/desktop/status`, and `run-folders-terminals` once
+it serves free consoles and detached runs.
 
 Without effective worktrees, the agent enforces one execution and the UI
 disables parallelism selection. Requests are acknowledged when queued; their
