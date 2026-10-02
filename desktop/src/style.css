@@ -408,7 +408,12 @@ aside{display:flex;flex-direction:column;padding:0;overflow:hidden}
    is merely stretched, and the reader grew to the length of the log. */
 .settings-content.stretch{display:flex;flex-direction:column}
 .settings-content.stretch>section{min-height:0}
-.settings-content.stretch>section:not(#settings-panel-Logs){overflow-y:auto}
+/* An overlay scrollbar, as macOS draws it while scrolling, takes no layout
+   space and is painted over the panel's right edge, where the reset buttons
+   end. The padding sits inside the scroll container, so the scrollbar covers
+   it instead of a control; scrollbar-gutter reserves room for classic
+   scrollbars only. */
+.settings-content.stretch>section:not(#settings-panel-Logs){overflow-y:auto;padding-right:16px}
 #settings-panel-Logs{flex:1;display:flex;flex-direction:column;overflow:hidden}
 .settings-logs{display:flex;flex-direction:column;gap:8px;flex:1;min-height:0}
 .settings-logs h3{margin:0;font-size:15px}
@@ -590,6 +595,10 @@ details.tool-card[open]>summary::before{content:'▾'}
 .conversation-add-folder:focus-visible,.conversation-terminal:focus-visible{outline:1px solid var(--accent-border);border-radius:4px}
 .conversation-add-folder:disabled,.conversation-terminal:disabled{cursor:not-allowed;opacity:.6}
 .conversation-status{margin-left:auto;font-size:11px;color:var(--text-faint);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.conversation-status:is([data-kind=working],[data-kind=asking])::before{content:'';display:inline-block;width:6px;height:6px;margin-right:6px;border-radius:50%;vertical-align:middle;background:currentColor}
+.conversation-status[data-kind=working]::before{background:var(--accent);animation:run-state-pulse 2s ease-in-out infinite}
+.conversation-status[data-kind=asking]{color:var(--waiting)}
+@media(prefers-reduced-motion:reduce){.conversation-status[data-kind=working]::before{animation:none}}
 .conversation-send{flex:none;width:32px;height:32px;padding:0;display:grid;place-items:center;border-radius:50%;border:1px solid var(--accent-border);background:var(--accent-button-bg);color:var(--accent-text)}
 .conversation-send:disabled{border-color:var(--border-strong);background:transparent;color:var(--text-faint)}
 .conversation-interrupt{flex:none;width:32px;height:32px;padding:0;display:grid;place-items:center;border-radius:50%;border:1px solid var(--border-strong);background:var(--button-bg);color:var(--text)}

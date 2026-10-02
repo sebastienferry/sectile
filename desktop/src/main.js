@@ -2031,7 +2031,9 @@ async function fillChangelogPanel(panel){
  const current=releaseNotesFor(releases,installed)
  if(current)notesHeading.textContent='Release notes · '+current.version
 }
-document.querySelector('#add-project').onclick=async()=>{
+// The sidebar's + button and the command palette open the same dialog, so the
+// two entry points cannot drift apart.
+async function openAddProject(){
  showDialog('Add project')
  paragraph('Discover projects from your Sectile server and configure their local directory.')
  try{
@@ -2047,6 +2049,7 @@ document.querySelector('#add-project').onclick=async()=>{
   }
  }catch(err){error(err)}
 }
+document.querySelector('#add-project').onclick=openAddProject
 function requestRemoveProject(id,name){
  showDialog('Remove '+name+' from desktop?')
  paragraph('Disconnect this project from this workstation and remove its local configuration. Repository files and server data are preserved. Add the project again before launching new executions.')
@@ -2981,7 +2984,8 @@ document.querySelector('#toggle-sidebar').innerHTML='<svg viewBox="0 0 24 24" wi
 // command is a row and not another hidden-state to maintain by hand.
 const COMMANDS=[
  {label:'Quick add task',run:()=>quickAdd()},
- {label:'Tasks list',run:()=>openTicketsFromPalette()}
+ {label:'Tasks list',run:()=>openTicketsFromPalette()},
+ {label:'Add project',run:()=>openAddProject()}
 ]
 // The tickets list needs a project. The selected one answers that, and a single
 // configured project answers it too; otherwise the palette asks rather than
