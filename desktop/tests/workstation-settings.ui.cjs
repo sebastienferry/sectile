@@ -30,7 +30,9 @@ function fakeAgent({capabilities=['task-engines'],customSkillsUsed=[],defaults={
    state.puts.push(input);state.skillSettings={customSkillsWin:input.customSkillsWin,installedSkillSource:input.installedSkillSource}
    res.writeHead(204).end();return
   }
-  if(req.url==='/desktop/workstation'){res.end(JSON.stringify(view()));return}
+  // A held read answers only once the test releases it, so the panel can be
+  // edited while the refill that follows a save is still on its way.
+  if(req.url==='/desktop/workstation'){await state.heldRead;res.end(JSON.stringify(view()));return}
   if(req.url==='/desktop/engines'&&req.method==='PUT'){
    const input=await body(req)
    state.enginePuts.push(input)
@@ -236,6 +238,35 @@ test('the skill settings save through the agent and reset to their defaults',asy
   assert.equal(state.puts.length,2)
   assert.equal(state.puts[1].customSkillsWin,undefined)
   assert.equal(state.puts[1].installedSkillSource,undefined)
+ } finally {
+  await app?.close()
+  server.close()
+  fs.rmSync(root,{recursive:true,force:true})
+ }
+})
+
+// The refill that follows a save neither announces "saved" before it lands nor
+// undoes a setting edited while it was on its way.
+test('a setting edited while the saved settings reload is kept',async()=>{
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'sectile-skill-settings-refill-ui-'))
+ const {state,server}=fakeAgent()
+ await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve))
+ let app
+ try {
+  let panel
+  ;({app,panel}=await openExecutionDefaults(server,root))
+  const source=panel.getByRole('combobox',{name:'Installed skills source',exact:true})
+  await source.selectOption('plugin')
+  let release
+  state.heldRead=new Promise(resolve=>{release=resolve})
+  await panel.getByRole('button',{name:'Save execution defaults'}).click()
+  await expect.poll(()=>state.puts.length).toBe(1)
+  await expect(panel.locator('.workstation-notice')).toHaveText('Saving…')
+  await panel.getByRole('button',{name:'Reset installed skills source to default',exact:true}).click()
+  await expect(source).toHaveValue('direct')
+  release()
+  await expect(panel.locator('.workstation-notice')).toContainText('Execution defaults saved')
+  await expect(source).toHaveValue('direct')
  } finally {
   await app?.close()
   server.close()
