@@ -18,7 +18,7 @@ const bare = {
 const legacySecret = token => keyring.encryptString(token).toString('base64')
 
 // The key is kept in clear in the 0600 settings file so the standalone agent
-// reads the same key Desktop stores (ADR 0047): no encrypted copy is written.
+// reads the same key Desktop stores (ADR 0049): no encrypted copy is written.
 test('a host with a secure store keeps the credential in clear, as the standalone agent reads it', () => {
  const saved = {server: 'http://127.0.0.1:8090'}
  storeKey(saved, 'device-token')

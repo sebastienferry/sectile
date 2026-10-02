@@ -78,16 +78,18 @@ Keep Git remote identities consistent with the repositories on your workstation.
 
 Pairing lets your local agent act as you without putting a long-lived key in a prompt.
 
-1. In the web profile, open **Workstations & Agent** and select **Pair a workstation** (*Appairer une machine*). Copy the temporary, single-use code.
-2. Install [Sectile Desktop](../desktop/README.md#install-a-release) on the workstation, open it, enter the server URL, and paste the code on its connection screen. Desktop starts its bundled agent. **Settings → Agent connection** shows whether the agent and server are connected and offers Start, Stop, and Restart controls.
+1. Install [Sectile Desktop](../desktop/README.md#install-a-release) on the workstation, open it, enter the server URL, and select **Sign in with your browser**. Sign in to Sectile in the browser that opens, or let it return at once if you are already signed in, then close the tab. Desktop starts its bundled agent. **Settings → Agent connection** shows whether the agent and server are connected and offers Start, Stop, and Restart controls.
+2. Without a browser on that machine, pair with a code instead: in the web profile, open **Workstations & Agent** and select **Pair a workstation** (*Appairer une machine*), copy the temporary, single-use code, and paste it in the **Pairing code** field of Desktop's connection screen.
 3. To run the agent without Desktop, use the binary on that workstation:
 
    ```sh
-   sectile-agent pair --url https://sectile.example.com --code '<pairing-code>'
+   sectile-agent pair --url https://sectile.example.com
    sectile-agent --url https://sectile.example.com --project '<project-id>' --repo /path/to/clone
    ```
 
-   Replace the example URL, project ID, and path with your own values. Pairing stores the workstation credential for later starts. The [root README](../README.md#connect-a-workstation) shows the local-server form of these commands.
+   `pair` opens the browser to sign you in; `--no-browser` prints the address to open instead, in a browser on the same machine. On a remote or headless machine, pass a code from the web profile with `--code '<pairing-code>'`. Replace the example URL, project ID, and path with your own values. Pairing stores the workstation credential for later starts. The [root README](../README.md#connect-a-workstation) shows the local-server form of these commands.
+
+   The workstation keeps its key: after a reboot, Desktop starts the agent with it without asking again, and says why when it cannot (no key stored, or one it cannot read). Pairing the same workstation again, from Desktop or `sectile-agent pair`, revokes its previous key and updates the `sectile` MCP entries already registered on the workstation; restart an agent that was already running so it uses the new key. Your web session lasts up to 90 days and ends after 7 days without use.
 
 4. Confirm the workstation appears in the web profile and that Desktop reports **Connected**. If the agent cannot start a task, check **Settings → Agent logs** and the project's local folder mapping.
 

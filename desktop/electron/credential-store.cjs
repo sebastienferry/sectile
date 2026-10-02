@@ -1,5 +1,5 @@
 // The API key is stored in clear in the 0600 settings file, as `sectile-agent pair` does, so the standalone agent reads
-// the same key (ADR 0047). `secret` is what earlier versions encrypted with the OS store: read once, then replaced.
+// the same key (ADR 0049). `secret` is what earlier versions encrypted with the OS store: read once, then replaced.
 // Injecting the store keeps this pair testable without Electron.
 function storeKey(saved,token){saved.apiKey=token;delete saved.secret}
 function storedKey(saved,store){

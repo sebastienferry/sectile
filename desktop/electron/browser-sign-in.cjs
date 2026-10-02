@@ -1,5 +1,5 @@
 // Signing in through the browser: the server's web sign-in (Auth0 or local) hands a single-use pairing code back to a
-// one-shot listener on 127.0.0.1. The key itself never travels in a URL (ADR 0047).
+// one-shot listener on 127.0.0.1. The key itself never travels in a URL (ADR 0049).
 const http=require('node:http'),crypto=require('node:crypto')
 const SIGN_IN_TIMEOUT=5*60*1000
 const SIGNED_IN_PAGE='<!doctype html><html><head><meta charset="utf-8"><title>Sectile</title></head><body><p>You can close this tab and return to Sectile Desktop.</p></body></html>'

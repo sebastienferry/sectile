@@ -112,7 +112,7 @@ var workstationState = regexp.MustCompile(`^[A-Za-z0-9_-]{16,128}$`)
 // listens on a loopback port and opens this route with that port and a random state. A stranger is sent to the web
 // sign-in first, which comes back here; a signed-in browser is handed a single-use pairing code on
 // http://127.0.0.1:<port>/callback, which the workstation redeems on POST /api/v1/agent/pair. The key itself never
-// travels in a URL (ADR 0047).
+// travels in a URL (ADR 0049).
 //
 // Only the session cookie is consulted, not webSessionUser: that one also accepts a bearer key, and a key must not
 // mint keys. The redirects are rebuilt from the two validated inputs alone, so nothing else in the query is echoed.

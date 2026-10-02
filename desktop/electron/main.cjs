@@ -261,7 +261,7 @@ async function startAgent(settings){
 }
 // What the setup screen says when no agent runs: whether a stored key can start one without asking.
 ipcMain.handle('key-status',()=>{let saved={};try{saved=readSettings()}catch{}return {state:keyStatus(saved),server:saved.server||''}})
-// Signing in through the browser ends with a pairing code redeemed for a key, then the agent starts on it (ADR 0047).
+// Signing in through the browser ends with a pairing code redeemed for a key, then the agent starts on it (ADR 0049).
 let signInAbort=null
 ipcMain.handle('sign-in',async(_,{server})=>{
  if(starting)throw Error('Agent is starting')

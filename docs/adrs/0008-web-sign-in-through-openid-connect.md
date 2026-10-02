@@ -1,6 +1,8 @@
 # ADR 0008: Web sign-in through OpenID Connect
 
-Status: Accepted
+Status: Accepted. Amended by
+[ADR 0049](0049-workstations-sign-in-through-the-browser.md): sessions slide,
+90 days at most and 7 days without use.
 
 ## Context
 
@@ -32,6 +34,9 @@ hash is stored, alongside the user and an expiry. Signing out revokes the row,
 so a session ends on the server and not merely in the browser. The cookie is
 HttpOnly, SameSite=Lax so it survives the provider's redirect back, and Secure
 whenever the request arrived over TLS, directly or through a proxy.
+*Amended by [ADR 0049](0049-workstations-sign-in-through-the-browser.md): a
+session lasts at most 90 days from sign-in and ends after 7 days without use;
+the cookie's lifetime is the 90 days, and the server enforces the idle rule.*
 
 A configured provider is the only authority: the development switch from
 ADR 0007 is then ignored rather than left as a way around sign-in. Without a
