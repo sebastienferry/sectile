@@ -227,3 +227,33 @@ func (d *agentDaemon) initializeProvider(root string, config agentconfig.Config,
 	}
 	return result, nil
 }
+
+// installProviderSkills installs the server's skills for one provider, and
+// nothing else: the MCP registration is its own step, through the MCP
+// connection settings, so either can be done without the other.
+func installProviderSkills(root string, config agentconfig.Config, provider string) (initializationResult, error) {
+	provider = strings.ToLower(strings.TrimSpace(provider))
+	result := initializationResult{Provider: provider, MCP: initializationStep{Status: "not_run", Message: "Not part of this step"}}
+	loc, err := agentconfig.ResolveLocations(provider)
+	if err != nil {
+		result.Skills = initializationStep{Status: "failed", Message: err.Error()}
+		return result, err
+	}
+	config.AIProvider = provider
+	config.SetupProviders = []string{provider}
+	if _, err := agentconfig.ScaffoldProvider(root, config, provider); err != nil {
+		result.Skills = initializationStep{Status: "failed", Message: err.Error()}
+		result.Message = fmt.Sprintf("Skills could not be installed for %s: %v", provider, err)
+		return result, err
+	}
+	result.Success = true
+	if !loc.InstallsSkills() {
+		result.Skills = initializationStep{Status: "skipped", Message: "Provider has no user skill directory convention"}
+		result.Message = fmt.Sprintf("%s has no user skill directory convention: nothing was installed.", provider)
+		return result, nil
+	}
+	where := filepath.Join(loc.Home, loc.SkillDir)
+	result.Skills = initializationStep{Status: "success", Message: fmt.Sprintf("%d installed in %s", len(config.Skills), where)}
+	result.Message = fmt.Sprintf("%d skills installed for %s in %s.", len(config.Skills), provider, where)
+	return result, nil
+}

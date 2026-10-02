@@ -51,7 +51,7 @@ contextBridge.exposeInMainWorld('localAgent',{
  gitDiff:id=>ipcRenderer.invoke('git-diff',id),
  runs:()=>ipcRenderer.invoke('runs'),
  createConversation:sourceRunId=>ipcRenderer.invoke('create-conversation',sourceRunId),
- conversation:id=>ipcRenderer.invoke('conversation',id),
+ conversation:(id,since)=>ipcRenderer.invoke('conversation',id,since),
  conversationMessage:(id,message,effort,model,mode)=>ipcRenderer.invoke('conversation-message',{id,message,effort,model,mode}),
  conversationInterrupt:id=>ipcRenderer.invoke('conversation-interrupt',id),
  conversationTerminal:runId=>ipcRenderer.invoke('conversation-terminal',runId),

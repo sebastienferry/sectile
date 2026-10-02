@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"strconv"
 	"strings"
 	"tasks/internal/agentconfig"
 	"tasks/internal/agentprotocol"
@@ -1182,4 +1183,28 @@ printf '%s\n' '{"type":"result","is_error":false,"result":"ok","session_id":"111
 	}
 	waitConversationIdle(t, d, d.queue.runs[id])
 	wait("connected")
+}
+
+// A poll that already shows the latest version is not sent the history again.
+func TestAConversationPollSkipsAnUnchangedHistory(t *testing.T) {
+	testhome.Temp(t)
+	d, id := conversationFixture(t)
+	var full struct {
+		Version uint64            `json:"version"`
+		Events  []json.RawMessage `json:"events"`
+	}
+	if err := json.Unmarshal(conversationRequest(d, "GET", "/desktop/conversation?id="+id, "", "private").Body.Bytes(), &full); err != nil || len(full.Events) == 0 {
+		t.Fatalf("a first poll got no history: %v %+v", err, full)
+	}
+	since := strconv.FormatUint(full.Version, 10)
+	body := conversationRequest(d, "GET", "/desktop/conversation?id="+id+"&since="+since, "", "private").Body.String()
+	if strings.Contains(body, `"events"`) || !strings.Contains(body, `"version":`+since) || !strings.Contains(body, `"busy":false`) {
+		t.Fatalf("an unchanged history was sent again, or the state was not: %s", body)
+	}
+	d.queue.mu.Lock()
+	conversationWrite(d.queue.runs[id].trace, "notice", "something new", "")
+	d.queue.mu.Unlock()
+	if body := conversationRequest(d, "GET", "/desktop/conversation?id="+id+"&since="+since, "", "private").Body.String(); !strings.Contains(body, "something new") {
+		t.Fatalf("a changed history was not sent: %s", body)
+	}
 }

@@ -646,8 +646,13 @@ command. The three storing categories share one form, so
 whichever project category is open. Server metadata remains read-only; the
 configuration does not display skill content. **Deployment** separates global
 AI engine setup (user-level skills and MCP, shared by engines with the same
-provider) from local SDD setup (a selected project's repository). Global setup
-uses the current project's server skills as its source, shown in the panel.
+provider) from local SDD setup (a selected project's repository). In global
+setup, **Install skills** and **Register MCP** are separate steps, each reporting
+its own result. Skills come from the current project's server skills, shown in
+the panel. The MCP server registers over HTTP to the **Remote server**, with your
+API key written in the engine's configuration, or to the **Local agent**, which
+forwards with its own identity and writes no key; the panel opens on the target
+the engine is registered with. Stdio stays in **Settings → MCP connection**.
 
 Hover or keyboard-focus a project row and activate **Open tasks** to list its
 open server tasks in the **Tickets** pane, which takes the console's place; the
@@ -777,22 +782,35 @@ path stands alone.
 The controls whose action does not depend on the workflow stage (relaunch, log
 export, the **Console** / **Changes** switch, and the linked pull request) are
 icons, with their wording kept as tooltip and accessible name; the pull request
-keeps its number. **Next: <skill>**, **Mark reviewed**, **Retry** and **Launch
+keeps its number. **Next: <skill>**, **Skip to Handoff**, **Retry** and **Launch
 anyway** stay labelled, because their meaning depends on the stage.
 
 ### Desktop Quick add
 
-Press **Cmd+K** (macOS) or **Ctrl+K** to open the command palette, search its
-actions, and choose **Quick add task**, **Tasks list** or **Add project**.
-Enter runs the first matching action. The selected project's identity is
-prefilled; without a selection, choose a project explicitly. Enter a title and
-optional description.
+Press **Cmd+N** (macOS) or **Ctrl+N** to open **New task** directly; a focused
+terminal keeps Ctrl+N. It opens on the selected project, else on the one last
+used, else asks for one. Enter a title, and an optional Markdown description;
+Enter in the title or Cmd+Enter (Ctrl+Enter) in the description creates it.
 The server creates the task using its project tracker configuration.
 GitHub and Jira creation must succeed remotely; errors do not silently create
-a local fallback. Local projects remain local. Creation does not start an execution;
-the success screen offers a separate **Launch task** action. **Add project**
-opens the same dialog as the `+` next to PROJECTS, also when the sidebar is
-collapsed.
+a local fallback. Local projects remain local. Creation does not start an
+execution: the success screen offers **Clarify now**, **Launch task** for any
+other launch, and **Add another** in the same project.
+
+Press **Cmd+K** (macOS) or **Ctrl+K** to open the command palette. One list
+searches the desktop's actions (**New task**, **Tasks list**, **Add project**,
+the sidebar, Settings, the web interface, each with its shortcut), the projects
+added to this
+workstation, to open their tasks, and the executions the sidebar shows, by task
+key, title, project, skill or state. Every word typed must match; arrows move,
+Enter runs the highlighted entry, Escape closes. **Add project** opens the same
+dialog as the `+` next to PROJECTS, also when the sidebar is collapsed.
+
+In any dialog or settings page, **Cmd+Enter** (**Ctrl+Enter**) activates the
+default button: it submits the form being typed in, as **Create task** or
+**Save local configuration**. Shift+Enter stays a new line. A dialog of plain
+choices or confirmations has no default action, so the shortcut never
+confirms what was not typed.
 
 The task launcher excludes finished tasks, including the finished workflow
 label. Each result shows its current workflow stage and tracker status when

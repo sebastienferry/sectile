@@ -837,8 +837,8 @@ func (d *agentDaemon) desktopProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	d.queue.mu.Unlock()
-	switch r.URL.Query().Get("action") {
-	case "initialize":
+	switch action := r.URL.Query().Get("action"); action {
+	case "initialize", "provider-skills":
 		provider := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("provider")))
 		if provider == "" {
 			settings, err := agentconfig.ReadSettings(d.localSettingsRoot())
@@ -856,7 +856,14 @@ func (d *agentDaemon) desktopProject(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		// Attempt failures are structured so the UI preserves partial success.
-		result, _ := d.initializeProvider(root, config, provider)
+		// provider-skills installs the skills alone, the MCP being registered
+		// from the MCP connection settings.
+		var result initializationResult
+		if action == "provider-skills" {
+			result, _ = installProviderSkills(root, config, provider)
+		} else {
+			result, _ = d.initializeProvider(root, config, provider)
+		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(result)
 	case "skills":
