@@ -33,6 +33,16 @@ const bodyBackground=page=>page.evaluate(()=>getComputedStyle(document.body).bac
 const terminalBackground=page=>page.evaluate(()=>{const element=document.querySelector('#terminal .xterm-scrollable-element');return element?getComputedStyle(element).backgroundColor:null})
 const windowState=app=>app.evaluate(({BrowserWindow,nativeTheme})=>({source:nativeTheme.themeSource,background:BrowserWindow.getAllWindows()[0].getBackgroundColor().toLowerCase()}))
 const storedAppearance=root=>JSON.parse(fs.readFileSync(path.join(root,'settings.json'),'utf8')).appearance
+// Bytes for the console as the agent would send them, and the colour a marker is drawn in: computed, since a palette
+// colour that already passes comes from a class rule, not an inline style.
+const write=(app,text)=>app.evaluate(({BrowserWindow},bytes)=>BrowserWindow.getAllWindows()[0].webContents.send('terminal-output',bytes),[...Buffer.from(text)])
+const colorOf=(page,marker)=>page.waitForFunction(
+ m=>{const s=[...document.querySelectorAll('#terminal .xterm-rows span')].find(x=>x.textContent.includes(m));return s&&getComputedStyle(s).color},
+ marker)
+ .then(h=>h.jsonValue())
+// WCAG contrast ratio of two rgb(r, g, b) strings.
+const luminance=color=>{const [r,g,b]=color.match(/\d+/g).slice(0,3).map(v=>Number(v)/255).map(v=>v<=0.03928?v/12.92:((v+0.055)/1.055)**2.4);return 0.2126*r+0.7152*g+0.0722*b}
+const contrast=(a,b)=>{const [x,y]=[luminance(a),luminance(b)].sort((p,q)=>q-p);return (x+0.05)/(y+0.05)}
 
 test('the appearance setting switches the whole window live and is kept',async()=>{
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'sectile-appearance-'))
@@ -87,6 +97,48 @@ test('the appearance setting switches the whole window live and is kept',async()
   await page.locator('#settings').click()
   await page.getByRole('tab',{name:'Appearance',exact:true}).click()
   await expect(page.getByRole('group',{name:'Appearance'}).getByRole('button',{name:'Light',exact:true})).toHaveAttribute('aria-pressed','true')
+ }finally{
+  await app?.close()
+  server.close()
+ }
+})
+
+// #720: a CLI printing for a dark background - Claude Code's bold questions come in truecolor white - stays readable in
+// the light console, and the dark console shows colours as printed.
+test('the light console darkens pale text until it reads, the dark one leaves it as printed',async()=>{
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'sectile-contrast-'))
+ const server=await agent()
+ fs.writeFileSync(path.join(root,'agent-connection.json'),JSON.stringify({url:'http://127.0.0.1:'+server.address().port,token:'test-secret'}))
+ let app
+ try{
+  let page;({app,page}=await launch(root))
+  // The settings page takes the console's place, and xterm draws nothing in a hidden element: each switch goes back to
+  // the console.
+  const appearance=async name=>{
+   await page.locator('#settings').click()
+   await page.getByRole('tab',{name:'Appearance',exact:true}).click()
+   const button=page.getByRole('group',{name:'Appearance'}).getByRole('button',{name,exact:true})
+   await button.click();await expect(button).toHaveAttribute('aria-pressed','true')
+   await page.getByRole('button',{name:'Back',exact:true}).click()
+   await page.locator('#terminal').waitFor()
+  }
+
+  await appearance('Light')
+  await expect.poll(()=>terminalBackground(page)).toBe(LIGHT_BG)
+  await write(app,'\x1b[1;38;2;255;255;255mQ720RGB\x1b[0m \x1b[1;37mQ720ANSI\x1b[0m \x1b[38;2;60;60;60mQ720GREY\x1b[0m\r\n')
+  const background=await terminalBackground(page)
+  for(const marker of ['Q720RGB','Q720ANSI']){
+   const color=await colorOf(page,marker)
+   assert.ok(contrast(color,background)>=4.5,marker+' '+color+' on '+background)
+  }
+
+  // Dark grey fails 4.5 on the dark background: it is left as printed only if the floor really dropped to 1.
+  await appearance('Dark')
+  await expect.poll(()=>colorOf(page,'Q720RGB')).toBe('rgb(255, 255, 255)')
+  assert.equal(await colorOf(page,'Q720GREY'),'rgb(60, 60, 60)')
+
+  await appearance('Light')
+  await expect.poll(async()=>contrast(await colorOf(page,'Q720RGB'),background)).toBeGreaterThanOrEqual(4.5)
  }finally{
   await app?.close()
   server.close()
