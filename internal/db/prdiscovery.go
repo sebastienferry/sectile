@@ -254,13 +254,21 @@ func (d *DB) rediscoverProjectPullRequests(ctx context.Context, proj *models.Pro
 		if err != nil || task == nil {
 			continue
 		}
+		// Only a task that changed a secondary repository can miss one of
+		// its pull requests; the others are not read again for it.
+		secondary := len(task.ChangedRepositories) > 0
 		if !discover {
-			steps = append(steps, d.discoverSecondaryPullRequests(ctx, proj, task)...)
+			if secondary {
+				steps = append(steps, d.discoverSecondaryPullRequests(ctx, proj, task)...)
+			}
 			continue
 		}
 		found, halt := d.rediscoverPullRequests(ctx, proj, ts, task, false)
-		if task, err = d.GetTaskByID(task.ID); err == nil && task != nil {
-			found = append(found, d.discoverSecondaryPullRequests(ctx, proj, task)...)
+		if secondary {
+			// Read again: the issue's own discovery may have attached links.
+			if task, err = d.GetTaskByID(task.ID); err == nil && task != nil {
+				found = append(found, d.discoverSecondaryPullRequests(ctx, proj, task)...)
+			}
 		}
 		for _, step := range found {
 			// A refused credential would otherwise be reported once per

@@ -168,3 +168,16 @@ func TestStateRefreshWithoutATokenMarksTheLinkInsteadOfWarning(t *testing.T) {
 		t.Fatalf("a read state must clear the mark: %+v", got.PrLinks[0])
 	}
 }
+
+func TestTheSyncPassBackfillsFromTheStoredTaskNotTheTrackerCopy(t *testing.T) {
+	d, task, _ := twoRepoTask(t)
+	task = withPrimaryPR(t, d, task)
+	project, _ := d.GetProjectByID(task.ProjectID)
+	// The tracker's copy of a ticket knows nothing of the repositories it
+	// changed: the pass reads them from the stored task.
+	imported := []models.Task{{ID: task.ID, Key: task.Key}}
+	steps := d.rediscoverProjectPullRequests(tracker.WithActingUser(context.Background(), "u1"), project, nil, imported)
+	if len(steps) != 1 || !strings.Contains(steps[0], mrB) {
+		t.Fatalf("steps = %v", steps)
+	}
+}
