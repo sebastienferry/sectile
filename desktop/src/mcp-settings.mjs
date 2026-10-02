@@ -17,7 +17,11 @@ export function mcpSettings(api, providerSelect) {
  const cards = document.createElement('div'); cards.className = 'mcp-options'
  const apply = document.createElement('button'); apply.type = 'button'; apply.textContent = 'Update provider configuration'
  const notice = document.createElement('p'); notice.setAttribute('role', 'status')
- section.append(heading,target,explanation,path,cards,apply,notice)
+ // A Claude Code entry Sectile did not write, with a key this workstation does not use (#716).
+ const repair = document.createElement('div'); repair.className = 'mcp-repair'; repair.setAttribute('role', 'alert'); repair.hidden = true
+ const repairText = document.createElement('p'); const repairButton = document.createElement('button'); repairButton.type = 'button'; repairButton.textContent = 'Repair'
+ repair.append(repairText,repairButton)
+ section.append(heading,target,explanation,path,cards,apply,repair,notice)
  let info, revision = 0, busy = false
  const render = () => {
   cards.replaceChildren()
@@ -27,6 +31,9 @@ export function mcpSettings(api, providerSelect) {
    button.disabled = busy || !info
    button.setAttribute('aria-pressed', String(selectedMode === value))
   }
+  repair.hidden = !(provider === 'claude' && info?.needsRepair)
+  repairButton.disabled = busy
+  if (!repair.hidden) repairText.textContent = (info.entries || []).filter(entry => entry.stale).map(entry => entry.scope === 'project' ? 'Project '+entry.project : 'Your Claude Code user settings').join(', ')+' register sectile with a key this workstation does not use, so Claude Code cannot connect. Repair writes this workstation\'s key and removes the outdated project entries.'
   if (!info) return
   path.textContent = info.path
   const local = selectedMode === 'local'
@@ -79,6 +86,7 @@ export function mcpSettings(api, providerSelect) {
   } catch (e) {notice.textContent = 'Configuration update failed: '+e.message}
   finally {busy = false; providerSelect.disabled = false; render()}
  }
+ repairButton.onclick = async () => {busy = true; render(); try {await api.configureMCP('claude',{target:info.choice.target,transport:info.choice.transport,repair:true}); await load(); notice.textContent = 'Repaired. Restart Claude Code to reconnect.'} catch (e) {notice.textContent = 'Repair failed: '+e.message} finally {busy = false; render()}}
  providerSelect.addEventListener('change',load)
  return {section, load}
 }

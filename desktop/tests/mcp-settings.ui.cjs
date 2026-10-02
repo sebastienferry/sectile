@@ -83,3 +83,54 @@ claude mcp add --transport http --scope user sectile https://sectile.example.tes
   fs.rmSync(root,{recursive:true,force:true})
  }
 })
+
+// A Claude Code entry Sectile did not write, holding a key this workstation does
+// not use, is only reported; Repair rewrites it on request (#716).
+test('MCP settings offer to repair an outdated Claude Code entry',async()=>{
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'sectile-mcp-repair-ui-'))
+ const writes=[]
+ let repaired=false
+ const server=http.createServer((req,res)=>{
+  res.setHeader('Content-Type','application/json')
+  if(req.url.startsWith('/desktop/mcp?')) {
+   const provider=new URL(req.url,'http://localhost').searchParams.get('provider')
+   const reply=()=>res.end(JSON.stringify({path:'/test/'+provider,server:'https://sectile.example.test',localURL:'http://127.0.0.1:4567',choice:{target:'remote',transport:'http'},
+    ...(provider==='claude'?{entries:repaired?[{scope:'user',managed:true,keyMatches:true,urlMatches:true,stale:false}]:[{scope:'user',managed:false,keyMatches:true,urlMatches:true,stale:false},{scope:'project',project:'/work/app',managed:false,keyMatches:false,urlMatches:true,stale:true}],needsRepair:!repaired}:{})}))
+   if(req.method==='POST') {let data='';req.on('data',chunk=>data+=chunk);req.on('end',()=>{const body=JSON.parse(data);writes.push({provider,...body});if(body.repair)repaired=true;reply()})} else reply()
+   return
+  }
+  if(req.url==='/desktop/status'){res.end(JSON.stringify({connected:true,server:'https://sectile.example.test'}));return}
+  if(req.url==='/desktop/workstation'){res.end(JSON.stringify({defaults:{},effective:{aiProvider:'agy',useWorktrees:true,parallelism:1,aiProviderModels:{}},providerModels:{},setupProviders:['claude','codex','agy'],seeded:{}}));return}
+  if(['/desktop/runs','/desktop/projects'].includes(req.url)){res.end('[]');return}
+  if(req.url==='/desktop/version'){res.end('{"version":"test"}');return}
+  res.writeHead(404).end('{}')
+ })
+ await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve))
+ fs.writeFileSync(path.join(root,'agent-connection.json'),JSON.stringify({url:'http://127.0.0.1:'+server.address().port,token:'private'}))
+ const env={...process.env,SECTILE_DESKTOP_DATA_DIR:root,SECTILE_DESKTOP_TEST:'1'};delete env.ELECTRON_RUN_AS_NODE
+ let app
+ try {
+  app=await electron.launch({args:[path.resolve(__dirname,'..')],env})
+  const page=await app.firstWindow();page.setDefaultTimeout(10000)
+  // The launch reports the outdated entry once, before anybody opens the settings.
+  await expect(page.locator('#error')).toContainText('Open Settings → MCP to repair it.')
+  await page.locator('#settings').click()
+  await page.getByRole('tab',{name:'Execution defaults',exact:true}).click()
+  const section=page.locator('.mcp-settings'),row=section.locator('.mcp-repair')
+  await expect(section.getByRole('button',{name:'Remote HTTP (default)',exact:true})).toHaveAttribute('aria-pressed','true')
+  // The row is for Claude Code only.
+  await expect(row).toBeHidden()
+  await page.getByRole('combobox',{name:'MCP provider',exact:true}).selectOption('claude')
+  await expect(row).toBeVisible()
+  await expect(row.locator('p')).toHaveText('Project /work/app register sectile with a key this workstation does not use, so Claude Code cannot connect. Repair writes this workstation\'s key and removes the outdated project entries.')
+  assert.equal(writes.length,0,'nothing is written before Repair is clicked')
+  await row.getByRole('button',{name:'Repair',exact:true}).click()
+  await expect(section.getByRole('status')).toHaveText('Repaired. Restart Claude Code to reconnect.')
+  await expect(row).toBeHidden()
+  assert.deepEqual(writes,[{provider:'claude',target:'remote',transport:'http',repair:true}])
+ } finally {
+  if(app)await app.close()
+  await new Promise(resolve=>server.close(resolve))
+  fs.rmSync(root,{recursive:true,force:true})
+ }
+})
