@@ -312,7 +312,7 @@ function ready(){
  if(!document.querySelector('#connection a'))connectionStatus({text:'Local agent connected'})
  if(!opened){terminal.open(document.querySelector('#terminal'));opened=true;resize()}
  // A Claude Code entry with a key this workstation does not use is reported once per launch (#716).
- if(!claudeChecked){claudeChecked=true;api.mcpConfig('claude').then(info=>{if(info?.needsRepair)error("Claude Code's sectile MCP entry uses a key this workstation does not use. Open Settings → MCP to repair it.")}).catch(()=>{})}
+ if(!claudeChecked){claudeChecked=true;api.mcpConfig('claude').then(info=>{if(info?.needsRepair)error("Claude Code's sectile MCP entry uses a key this workstation does not use. Open Settings → Execution defaults → MCP configuration to repair it.")}).catch(()=>{})}
 }
 function select(run,background=false,options){
  if(hiddenProject(run.projectId))return

@@ -113,7 +113,7 @@ test('MCP settings offer to repair an outdated Claude Code entry',async()=>{
   app=await electron.launch({args:[path.resolve(__dirname,'..')],env})
   const page=await app.firstWindow();page.setDefaultTimeout(10000)
   // The launch reports the outdated entry once, before anybody opens the settings.
-  await expect(page.locator('#error')).toContainText('Open Settings → MCP to repair it.')
+  await expect(page.locator('#error')).toContainText('Open Settings → Execution defaults → MCP configuration to repair it.')
   await page.locator('#settings').click()
   await page.getByRole('tab',{name:'Execution defaults',exact:true}).click()
   const section=page.locator('.mcp-settings'),row=section.locator('.mcp-repair')
