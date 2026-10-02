@@ -24,10 +24,12 @@ const conversationQueueCapability = "conversation-queue"
 // older than this belongs to a launch the server refused or never sent.
 const conversationDiscussionTTL = 2 * time.Minute
 
-// pendingDiscussionViews remembers which ticket discussions Desktop asked to
-// open in the conversation view. The request goes through the server, which
+// pendingDiscussionViews remembers which task launches Desktop explicitly asked
+// to open in the conversation view. The request goes through the server, which
 // knows nothing of the view, so the agent keeps the preference until the
-// dispatch of that task's discussion arrives and consumes it.
+// dispatch of that task's launch arrives and consumes it. A mark wins; a
+// dispatch without one, such as a launch from the web app, follows the
+// workstation console view (#711).
 type pendingDiscussionViews struct {
 	mu sync.Mutex
 	at map[string]time.Time
