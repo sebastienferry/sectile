@@ -15,6 +15,10 @@ type sqliteDialect struct{}
 
 func (sqliteDialect) Name() string { return "SQLite" }
 
+// CheckEncoding has nothing to check: SQLite stores the store's text as UTF-8
+// and its LENGTH and SUBSTR count characters.
+func (sqliteDialect) CheckEncoding(*sql.DB) error { return nil }
+
 // LowerASCII is SQLite's own LOWER: it lowers A-Z and leaves every other
 // character untouched, on every build of the engine.
 func (sqliteDialect) LowerASCII(expr string) string { return "LOWER(" + expr + ")" }
@@ -28,7 +32,7 @@ func (sqliteDialect) Open(cfg Config) (*sql.DB, error) {
 	// time.Time.String(), which prints the zone abbreviation last. A date parsed
 	// from a tracker carries an offset that rarely matches the server's own
 	// zone, Go gives it a location with no name, and String() then writes the
-	// numeric offset where the abbreviation belongs — a form the driver cannot
+	// numeric offset where the abbreviation belongs, a form the driver cannot
 	// read back, so the Scan fails and the endpoint answers 500. The requested
 	// format ends with the offset itself and round trips in any zone. See
 	// repairNumericZoneTimestamps for the rows written before this was set.
@@ -97,7 +101,7 @@ func (sqliteDialect) AcquireProjectWorker(*sqlConn, string) (func(), error) {
 // is safe here for the one reason that made the old convention survive so long:
 // this package never turns foreign keys on, so SQLite accepts the "sync-<x>"
 // rows into the new table and the backfill then cleans them in place. The CHECK
-// is enforced from the start, and the copied rows satisfy it — none of them
+// is enforced from the start, and the copied rows satisfy it: none of them
 // carries a project_id yet.
 func (sqliteDialect) MigrateActivityAttachment(conn *sqlConn, backfill func(*sqlConn) error) error {
 	migrated, err := hasColumn(conn, "task_activities", "project_id")

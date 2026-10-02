@@ -225,6 +225,11 @@ func openWith(cfg Config, d dialect) (*DB, error) {
 		conn.Close()
 		return nil, fmt.Errorf("cannot reach the %s database: %w", d.Name(), err)
 	}
+	// Before the migration, so nothing is written to a database refused here.
+	if err := d.CheckEncoding(conn); err != nil {
+		conn.Close()
+		return nil, err
+	}
 
 	trackerClient := trackerapi.NewClient()
 	// The key sits beside the database: an operator who backs one up without the

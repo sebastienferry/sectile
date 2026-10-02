@@ -68,6 +68,10 @@ func (c Config) Validate() error {
 type dialect interface {
 	// Open dials the engine and returns a pool ready to use.
 	Open(cfg Config) (*sql.DB, error)
+	// CheckEncoding refuses a database whose text is not stored as UTF-8. The
+	// store counts and cuts text in SQL, and an engine that counts bytes cuts a
+	// run's output at half its length and through a character (#693).
+	CheckEncoding(conn *sql.DB) error
 	// Rebind turns the shared "?" placeholders into whatever the engine wants.
 	Rebind(query string) string
 	// LowerASCII wraps a TEXT expression in a case fold that lowers ASCII

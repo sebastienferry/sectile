@@ -896,8 +896,9 @@ func (d *DB) AppendRemoteRunOutput(taskKey, runID, chunk string) error {
 	//
 	// One statement, so two instances appending to the same run at once both
 	// land: the row lock of the UPDATE orders them, and each appends to what the
-	// other committed. LENGTH and SUBSTR count characters on both engines, so a
-	// cut never splits a multi-byte character, which PostgreSQL would refuse.
+	// other committed. LENGTH and SUBSTR count characters on both engines, a
+	// PostgreSQL database being UTF8 since Open refuses any other encoding
+	// (#693), so a cut never splits a multi-byte character.
 	// The marker holds neither % nor _, so LIKE matches it literally.
 	d.mu.Lock()
 	defer d.mu.Unlock()
