@@ -105,8 +105,13 @@ func (d *agentDaemon) handleMacroDispatch(ctx context.Context, conn *websocket.C
 		launchFailure = err
 		return
 	}
+	claudeSettings, err := d.launchClaudeSettings(config)
+	if err != nil {
+		launchFailure = err
+		return
+	}
 	fullLine, err := dispatchCommand(config, macroKey, payload.SkillID, payload.Action, strings.TrimSpace(prompt), payload.Command, payload.Mode, payload.Model,
-		agentCommandContext{Branch: workspace.Branch, Directory: root, Tracker: config.IssueTracker, Repo: config.GithubRepo, Skill: choice})
+		agentCommandContext{Branch: workspace.Branch, Directory: root, Tracker: config.IssueTracker, Repo: config.GithubRepo, ClaudeSettings: claudeSettings, Skill: choice})
 	if err != nil {
 		launchFailure = err
 		return

@@ -148,6 +148,7 @@ func overlay(base, top Settings) Settings {
 			Execution:     overlayExecution(b.Execution, p.Execution),
 			SkillCommands: mergeStrings(b.SkillCommands, p.SkillCommands),
 			SpecArtifacts: firstSet(p.SpecArtifacts, b.SpecArtifacts),
+			ClaudeSandbox: firstSandbox(p.ClaudeSandbox, b.ClaudeSandbox),
 		})
 	}
 	out.Repositories = mergeStrings(base.Repositories, top.Repositories)

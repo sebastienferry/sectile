@@ -114,6 +114,11 @@ type repositoryWorktreeInput struct {
 	Repository string `json:"repository" jsonschema:"one of the project's repositories or the remote of a Git folder attached to the project on the caller's workstation, as a remote URL or a host/path identity"`
 }
 
+type recordPullRequestInput struct {
+	TaskKey string `json:"taskKey" jsonschema:"task key or ID"`
+	URL     string `json:"url" jsonschema:"the pull request or merge request URL"`
+}
+
 type macroWorktreeInput struct {
 	ProjectID string `json:"projectId" jsonschema:"project primary key"`
 	MacroKey  string `json:"macroKey" jsonschema:"macro key, for example M-7"`
@@ -485,6 +490,21 @@ func NewServerWithCallers(database *db.DB, sessions *SessionRegistry, resolve Ca
 				return nil, nil, err
 			}
 			return nil, worktree, nil
+		})
+	mcp.AddTool(s, &mcp.Tool{Name: "record_pull_request", Description: "Record a pull request or merge request on a task without changing its stage, for a pull request opened outside a stage transition (create-pr, or a secondary repository pushed after its stage). Call it once per repository. The URL must name a pull request in one of the task's repositories (its primary one, a project repository, or one changed through prepare_repository_worktree); a pull request on a branch unrelated to the ones already recorded for that repository is refused. The primary repository's pull request stays the task's prUrl. Returns the task and its prLinks, each naming its repository."},
+		func(ctx context.Context, req *mcp.CallToolRequest, in recordPullRequestInput) (*mcp.CallToolResult, any, error) {
+			if strings.TrimSpace(in.TaskKey) == "" || strings.TrimSpace(in.URL) == "" {
+				return nil, nil, fmt.Errorf("taskKey and url are required")
+			}
+			caller := callerOf(resolve, req)
+			if err := requireCaller(caller); err != nil {
+				return nil, nil, err
+			}
+			task, err := database.RecordPullRequest(ctx, caller.UserID, in.TaskKey, in.URL)
+			if err != nil {
+				return nil, nil, err
+			}
+			return nil, map[string]any{"task": task, "prLinks": task.PrLinks}, nil
 		})
 	mcp.AddTool(s, &mcp.Tool{Name: "create_task", Description: "Create a task on an explicitly named project and return it with its key and external URL. Creation is remote whenever the project's tracker supports it, and fails rather than leaving a ticket that exists only on the local board. The new task enters the workflow at its first stage; it cannot be created at a later one.", InputSchema: map[string]any{
 		"type": "object", "additionalProperties": false, "required": []string{"projectId", "title"},

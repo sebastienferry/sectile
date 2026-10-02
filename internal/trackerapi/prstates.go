@@ -89,6 +89,15 @@ func (c *Client) pullRequestReference(forge, raw string) (pullRequestReference, 
 // is returned with the joined errors, and omitted links keep their state. Only a
 // rate limit or an expired context stops the reads, since every further call
 // would fail the same way.
+// HasForgeToken says whether the client holds a token for forge, "github" or
+// "gitlab". Without one, reading a pull request's state can only fail.
+func (c *Client) HasForgeToken(forge string) bool {
+	if forge == "gitlab" {
+		return strings.TrimSpace(c.GitlabToken) != ""
+	}
+	return strings.TrimSpace(c.GithubToken) != ""
+}
+
 func (c *Client) PullRequestStates(ctx context.Context, forge string, links []string) (map[string]string, error) {
 	states := map[string]string{}
 	groups := map[string][]pullRequestReference{}

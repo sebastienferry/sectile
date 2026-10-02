@@ -90,11 +90,11 @@ func (d *agentDaemon) desktopConsole(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	// A custom launch template is a command line the conversation cannot run.
-	if input.View == "conversation" && provider == "claude" && (input.EngineID == "" || config.AICommandTemplate == "") {
+	// A Claude engine with a launch template still converses: the template is
+	// not run, only its model is kept, and the first notice says so.
+	if input.View == "conversation" && provider == "claude" {
 		d.queue.mu.Lock()
-		// The same model the PTY command would have carried.
-		run, err := d.newConversationLocked(input.ProjectID, root, agentconfig.ResolveModel(config, ""), "It runs in this project's local repository.")
+		run, err := d.newConversationLocked(input.ProjectID, root, conversationModel(config), conversationOrigin(config, "It runs in this project's local repository."))
 		if err != nil {
 			d.queue.mu.Unlock()
 			http.Error(w, err.Error(), http.StatusConflict)
@@ -116,6 +116,9 @@ func (d *agentDaemon) desktopConsole(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	run.desktop.Kind, run.desktop.Provider = consoleRunKind, provider
+	// The engine the console opens decides whether a folder attached from it
+	// is typed in (#689); a template whose provider is Claude counts as Claude.
+	run.interactiveProvider = liveProvider(agentconfig.Config{AIProvider: provider})
 	run.desktop.EngineID, run.desktop.EngineName = engine.ID, engine.Name
 	run.desktop.Model = config.AIModel
 	entry := run.desktop

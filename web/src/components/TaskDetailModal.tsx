@@ -49,7 +49,7 @@ import { useProjectEngine } from '../hooks/useProjectEngine'
 import { useBackdropDismiss } from '../hooks/useBackdropDismiss'
 import type { TeamMember, Status, Priority, DetailMode, SpecFramework, WorkflowStage, MacroMeta, SkillMode, PullRequestLink } from '../types'
 import { WORKFLOW_ORDER, isTaskScopedSkill, prRecoverySkill, resolveTaskStage } from '../lib/workflow'
-import { addPullRequestLink, taskPullRequestLinks } from '../lib/pullRequests'
+import { addPullRequestLink, repositoryPullRequests, taskPullRequestLinks } from '../lib/pullRequests'
 import { TaskComments } from './TaskComments'
 import { Avatar } from './Avatar'
 import { LookupField, type LookupOption } from './LookupField'
@@ -165,6 +165,7 @@ export const TaskDetailModal: React.FC = () => {
   // L'ensemble ordonné des pull requests du ticket. `prUrl` en est le dernier
   // lien : le serveur le recalcule, la fiche n'édite que l'ensemble.
   const [prLinks, setPrLinks] = useState<PullRequestLink[]>([])
+  const prGroups = useMemo(() => repositoryPullRequests(prLinks), [prLinks])
   const [newPrUrl, setNewPrUrl] = useState('')
   const [repository, setRepository] = useState('')
   const [trackerStatus, setTrackerStatus] = useState('')
@@ -1398,37 +1399,51 @@ export const TaskDetailModal: React.FC = () => {
         {prLinks.length === 0 && (
           <p className="text-xs text-[var(--text-muted)]">{td.pr.none}</p>
         )}
-        {prLinks.map((link, index) => (
-          <div key={index} className="flex items-center gap-1.5">
-            <a
-              href={link.url}
-              target="_blank"
-              rel="noreferrer"
-              className="shrink-0 p-1.5 rounded-lg text-purple-400 hover:bg-purple-500/10 transition-colors"
-              title={t.skills.viewPr}
-            >
-              <PullRequestStateIcon link={link} size={13} />
-            </a>
-            <input
-              type="url"
-              value={link.url}
-              onChange={e => setPrLinks(prLinks.map((l, i) => (i === index ? { ...l, url: e.target.value } : l)))}
-              className="flex-1 min-w-0 px-2.5 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)]"
-            />
-            <span className="shrink-0 text-[10px] text-[var(--text-muted)] max-w-[10rem] truncate" title={link.branch || ''}>
-              {link.branch || EMPTY_VALUE}
-            </span>
-            {index === prLinks.length - 1 && (
-              <span className="shrink-0 text-[10px] font-semibold text-purple-400">{td.pr.current}</span>
+        {/* One group per repository the task changed, the primary one first;
+            a task with a single repository shows its links as before. */}
+        {prGroups.map(group => (
+          <div key={group.indices[0]} className="space-y-1.5">
+            {prGroups.length > 1 && (
+              <p className="text-[10px] font-semibold text-[var(--text-secondary)] truncate" title={group.repository}>
+                {group.repository || EMPTY_VALUE}
+              </p>
             )}
-            <button
-              type="button"
-              onClick={() => setPrLinks(prLinks.filter((_, i) => i !== index))}
-              className="shrink-0 p-1.5 rounded-lg text-[var(--text-muted)] hover:text-red-400 hover:bg-red-500/10 transition-colors cursor-pointer"
-              title={td.pr.detach}
-            >
-              <Trash2 size={13} />
-            </button>
+            {group.indices.map(index => {
+              const link = prLinks[index]
+              return (
+                <div key={index} className="flex items-center gap-1.5">
+                  <a
+                    href={link.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="shrink-0 p-1.5 rounded-lg text-purple-400 hover:bg-purple-500/10 transition-colors"
+                    title={t.skills.viewPr}
+                  >
+                    <PullRequestStateIcon link={link} size={13} />
+                  </a>
+                  <input
+                    type="url"
+                    value={link.url}
+                    onChange={e => setPrLinks(prLinks.map((l, i) => (i === index ? { ...l, url: e.target.value } : l)))}
+                    className="flex-1 min-w-0 px-2.5 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)]"
+                  />
+                  <span className="shrink-0 text-[10px] text-[var(--text-muted)] max-w-[10rem] truncate" title={link.branch || ''}>
+                    {link.branch || EMPTY_VALUE}
+                  </span>
+                  {index === group.indices[group.indices.length - 1] && (
+                    <span className="shrink-0 text-[10px] font-semibold text-purple-400">{td.pr.current}</span>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setPrLinks(prLinks.filter((_, i) => i !== index))}
+                    className="shrink-0 p-1.5 rounded-lg text-[var(--text-muted)] hover:text-red-400 hover:bg-red-500/10 transition-colors cursor-pointer"
+                    title={td.pr.detach}
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                </div>
+              )
+            })}
           </div>
         ))}
         <div className="flex items-center gap-1.5">

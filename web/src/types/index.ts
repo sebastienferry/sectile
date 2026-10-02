@@ -499,6 +499,10 @@ export interface PullRequestLink {
   state?: PullRequestState
   url: string
   branch?: string
+  /** The repository the URL names (`host/path`), derived by the server. */
+  repository?: string
+  /** The forge whose token the last state refresh lacked. */
+  missingToken?: 'github' | 'gitlab'
 }
 
 /** Where a ticket stands in the batch run that covers it. */

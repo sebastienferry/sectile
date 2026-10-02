@@ -1,13 +1,18 @@
-import { currentPullRequest, renderPullRequestIndicator } from './pullRequests.mjs'
+import { pullRequestPresentation, renderPullRequestIndicator, repositoryPullRequests } from './pullRequests.mjs'
 import { installTooltips } from './tooltips.js'
 import {mcpSettings} from './mcp-settings.mjs'
+import { mcpProviders } from '../../shared/mcpConfig.mjs'
+import { skillResultDue, skillResultStamp } from './skill-result-refresh.mjs'
+import { newTaskShortcutAction, newTaskShortcutLabel } from './new-task-shortcut.mjs'
+import { paletteMatches } from './command-palette.mjs'
+import { defaultActionShortcut, defaultActionTarget, defaultActionLabel } from './dialog-default.mjs'
 import { logText } from './log-text.mjs'
 import { createGitDiff } from './gitDiff.js'
 import { createConversationView } from './conversation.js'
 
 import { skillResult } from './skill-result.mjs'
 import { orderedQueueRuns } from './queue.mjs'
-import { orderedTaskGroups } from './task-order.mjs'
+import { followedExecution, orderedTaskGroups } from './task-order.mjs'
 import { transitions, announce } from './notifications.mjs'
 import { runStateOf, runStateLabel, runStateSvg } from '../../shared/runStates.ts'
 import { isMacPlatform, sidebarShortcutAction, sidebarShortcutAria, sidebarShortcutLabel } from '../../shared/sidebarShortcut.mjs'
@@ -21,6 +26,7 @@ import { launchModeOverride, modeSelect } from './skill-mode.mjs'
 import { orderedTasks, nextSort, DEFAULT_SORT, SORTABLE_FIELDS } from './task-list-order.mjs'
 import { consoleNotice, needsConsoleNotice, readOnlyConsole } from './run-console.mjs'
 import { previewLines } from './command-preview.mjs'
+import { sandboxSettings } from './sandbox-settings.mjs'
 import { EDITORS, editorChoice, editorLabel } from './editors.mjs'
 import { PROVIDERS, DEFAULT_PROVIDER, SETUP_PROVIDERS, projectFields, ownEntries, compact, parseModelList, sourceHint, describe, ipcMessage, agentUnreachable, validSkillCommand, workstationPayload } from './execution-fields.mjs'
 import { runEngine } from './run-engine.mjs'
@@ -46,7 +52,7 @@ document.querySelector('#app').innerHTML=`
 <header><div><button id="toggle-sidebar" aria-expanded="true"></button><strong id="app-title">Sectile Desktop</strong><small>Execution consoles</small></div><button id="command-palette" title="Commands (⌘K / Ctrl+K)">⌘K</button></header>
 <section id="setup" hidden><div class="setup-toolbar"><button id="setup-logs" type="button" title="View local-agent diagnostics">Agent logs</button></div><div id="agent-offline" role="status" hidden><strong>Local agent is stopped</strong><p>Start the agent to run tasks and access your local consoles.</p></div><h1>Connect to Sectile</h1><p>In the Sectile web interface, under your profile, choose <strong>Pair a workstation</strong> and paste the code here. A code is single use and expires within ten minutes; this machine keeps the credential it receives, so the code is never needed again.</p>
 <form id="start"><label>Sectile server<input name="server" type="url" value="http://localhost:8090" required></label><label>Pairing code<input name="code" type="text" autocomplete="off" spellcheck="false" placeholder="Paste the code from the web interface"></label><button>Connect</button></form></section>
-<main id="workspace" hidden><aside><div class="sidebar-scroll"><div class="section">PROJECTS <button id="add-project" title="Add a remote project">+</button></div><div id="runs"></div><button id="clear-history" class="icon-button" type="button" aria-label="Clear finished consoles" title="Clear finished consoles" disabled></button></div><footer class="sidebar-footer"><span id="connection" data-state="off">Connecting…</span><nav aria-label="Local agent controls"><button id="shutdown" class="icon-button" aria-label="Stop agent" title="Stop agent" hidden></button><button id="restart" class="icon-button" aria-label="Restart agent" title="Restart agent" hidden></button></nav><button id="settings" class="icon-button" type="button" aria-label="Settings" title="Settings"></button></footer></aside><div id="sidebar-resizer" role="separator" aria-label="Resize sidebar" aria-orientation="vertical" tabindex="0"></div><article><div id="toolbar"><div class="toolbar-row toolbar-primary"><div class="terminal-title-line"><strong id="title">Select an execution</strong><span id="native-terminal-badge" class="native-terminal-badge" hidden></span></div><div class="toolbar-meta"><select id="execution-history" aria-label="Execution history" hidden></select><span id="next-step-label" class="step-badge" aria-hidden="true" hidden></span></div></div><div class="toolbar-row toolbar-secondary"><div class="worktree-line"><button id="worktree" class="worktree" type="button" title="Copy this path" hidden><svg class="worktree-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2z"/></svg><span id="directory"></span></button><button id="open-editor" class="icon-button" type="button" hidden></button><span id="worktree-copied" class="worktree-copied" role="status"></span></div><div class="toolbar-actions"><div class="execution-views" role="group" aria-label="Execution view"><button id="view-console" class="icon-button" type="button" aria-label="Console" title="Console" aria-pressed="true" disabled></button><button id="view-changes" class="icon-button" type="button" aria-label="Changes" title="Changes" aria-pressed="false" disabled></button></div><button id="selected-pr" class="icon-button" type="button" hidden></button><button id="detach-terminal" class="icon-button" type="button" aria-label="Detach to native terminal" title="Detach to native terminal" hidden></button><button id="rerun" class="icon-button" type="button" aria-label="Relaunch" title="Relaunch" hidden></button><button id="save-log" class="icon-button" type="button" aria-label="Export log" title="Export log"></button><button id="stop" class="icon-button" type="button" aria-label="Stop execution" title="Stop execution" disabled></button><button id="next-step" class="icon-button" type="button" hidden disabled></button><button id="pickup-chain" class="icon-button" type="button" aria-label="Pickup (full chain)" title="Pickup (full chain)" hidden disabled></button><button id="mark-reviewed" type="button" class="secondary" hidden>Mark reviewed</button><button id="retry-next-step" type="button" title="Retry reading the task workflow" hidden>Retry</button><button id="force-next-step" type="button" class="secondary" title="Launch although a run is already active on this task" hidden>Launch anyway</button></div></div></div><div id="execution-content"><div id="terminal"></div><div id="execution-divider" role="separator" aria-label="Resize execution views" aria-orientation="vertical" aria-valuemin="25" aria-valuemax="75" aria-valuenow="50" tabindex="0" hidden></div><section id="changes" aria-label="Worktree changes" hidden></section></div><footer id="task-status"><div class="execution-status"><span id="run-state" class="run-state selected-run-state" hidden></span><span id="skill-result" role="status" hidden></span></div><span id="next-step-status" role="status" aria-live="polite">Select a task to see its next step</span></footer></article><section id="tickets-pane" aria-label="Tickets" hidden></section></main>
+<main id="workspace" hidden><aside><div class="sidebar-scroll"><div class="section">PROJECTS <button id="add-project" title="Add a remote project">+</button></div><div id="runs"></div><button id="clear-history" class="icon-button" type="button" aria-label="Clear finished consoles" title="Clear finished consoles" disabled></button></div><footer class="sidebar-footer"><span id="connection" data-state="off">Connecting…</span><nav aria-label="Local agent controls"><button id="shutdown" class="icon-button" aria-label="Stop agent" title="Stop agent" hidden></button><button id="restart" class="icon-button" aria-label="Restart agent" title="Restart agent" hidden></button></nav><button id="settings" class="icon-button" type="button" aria-label="Settings" title="Settings"></button></footer></aside><div id="sidebar-resizer" role="separator" aria-label="Resize sidebar" aria-orientation="vertical" tabindex="0"></div><article><div id="toolbar"><div class="toolbar-row toolbar-primary"><div class="terminal-title-line"><strong id="title">Select an execution</strong><span id="native-terminal-badge" class="native-terminal-badge" hidden></span></div><div class="toolbar-meta"><select id="execution-history" aria-label="Execution history" hidden></select><span id="next-step-label" class="step-badge" aria-hidden="true" hidden></span></div></div><div class="toolbar-row toolbar-secondary"><div class="worktree-line"><button id="worktree" class="worktree" type="button" title="Copy this path" hidden><svg class="worktree-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2z"/></svg><span id="directory"></span></button><button id="open-editor" class="icon-button" type="button" hidden></button><span id="worktree-copied" class="worktree-copied" role="status"></span></div><div class="toolbar-actions"><div class="execution-views" role="group" aria-label="Execution view"><button id="view-console" class="icon-button" type="button" aria-label="Console" title="Console" aria-pressed="true" disabled></button><button id="view-changes" class="icon-button" type="button" aria-label="Changes" title="Changes" aria-pressed="false" disabled></button></div><button id="selected-pr" class="icon-button" type="button" hidden></button><span id="selected-pr-others" hidden></span><button id="detach-terminal" class="icon-button" type="button" aria-label="Detach to native terminal" title="Detach to native terminal" hidden></button><button id="rerun" class="icon-button" type="button" aria-label="Relaunch" title="Relaunch" hidden></button><button id="save-log" class="icon-button" type="button" aria-label="Export log" title="Export log"></button><button id="stop" class="icon-button" type="button" aria-label="Stop execution" title="Stop execution" disabled></button><button id="next-step" class="icon-button" type="button" hidden disabled></button><button id="pickup-chain" class="icon-button" type="button" aria-label="Pickup (full chain)" title="Pickup (full chain)" hidden disabled></button><button id="mark-reviewed" type="button" class="secondary" title="The pull request needs no more changes: skip Adjust, move the task to reviewed, and hand off once it is merged" hidden>Skip to Handoff</button><button id="retry-next-step" type="button" title="Retry reading the task workflow" hidden>Retry</button><button id="force-next-step" type="button" class="secondary" title="Launch although a run is already active on this task" hidden>Launch anyway</button></div></div></div><div id="execution-content"><div id="terminal"></div><div id="execution-divider" role="separator" aria-label="Resize execution views" aria-orientation="vertical" aria-valuemin="25" aria-valuemax="75" aria-valuenow="50" tabindex="0" hidden></div><section id="changes" aria-label="Worktree changes" hidden></section></div><footer id="task-status"><div class="execution-status"><span id="run-state" class="run-state selected-run-state" hidden></span><span id="skill-result" role="status" hidden></span></div><span id="next-step-status" role="status" aria-live="polite">Select a task to see its next step</span></footer></article><section id="tickets-pane" aria-label="Tickets" hidden></section></main>
 <dialog id="project-dialog"><button id="close-dialog" class="icon-button" type="button" aria-label="Close" title="Close"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button><div id="dialog-body"></div><div class="dialog-footer" hidden></div></dialog><div id="error" role="alert"></div>`
 installTooltips()
 // The console shows a prompt the user configured elsewhere - oh-my-posh, starship, powerlevel10k -
@@ -85,12 +91,14 @@ const taskTitles=new Map()
 // The workflow stage of each listed task, read with its title; absent when unknown.
 const taskStages=new Map()
 const skillResults=new Map(),loadingSkillResults=new Set()
+// When each run's skill result was last read, and in what state the run was.
+const skillResultReads=new Map()
 const pullRequests=new Map()
 let localTasks={}
 try{localTasks=JSON.parse(localStorage.getItem('localTasks')||'{}')}catch{}
 const freeConsole=run=>run?.kind==='console'
 // Task runs show the skill and engine; project prompts show their engine name.
-const runLabel=run=>run.conversation?'Claude Code · Conversation (test)':freeConsole(run)?(run.engineName||run.provider||'AI')+' · Project prompt':(runEngine(run)?run.skill+' · '+runEngine(run):run.skill)
+const runLabel=run=>run.conversation&&run.taskId?run.skill+' · Conversation (test)':run.conversation?'Claude Code · Conversation (test)':freeConsole(run)?(run.engineName||run.provider||'AI')+' · Project prompt':(runEngine(run)?run.skill+' · '+runEngine(run):run.skill)
 // A macro skill run has no task: its executions group under the macro.
 const macroRun=run=>!!run?.macroKey
 const taskKey=run=>JSON.stringify([run.projectId,freeConsole(run)?run.id:macroRun(run)?'macro:'+run.macroKey:run.taskId])
@@ -133,6 +141,18 @@ const collapsedProjects=new Set(JSON.parse(localStorage.getItem('collapsedProjec
 const stageGroupedProjects=new Set()
 try{for(const id of JSON.parse(localStorage.getItem('stageGroupedProjects')||'[]'))stageGroupedProjects.add(id)}catch{}
 function saveStageGrouping(){localStorage.setItem('stageGroupedProjects',JSON.stringify([...stageGroupedProjects]))}
+// Projects the user hid from the sidebar. Hiding keeps the local configuration
+// and the executions: the project stays in Settings, where it can be shown again.
+const sidebarHiddenProjects=new Set()
+try{for(const id of JSON.parse(localStorage.getItem('sidebarHiddenProjects')||'[]'))sidebarHiddenProjects.add(id)}catch{}
+function setSidebarHidden(id,hidden){
+ if(hidden)sidebarHiddenProjects.add(id);else sidebarHiddenProjects.delete(id)
+ try{localStorage.setItem('sidebarHiddenProjects',JSON.stringify([...sidebarHiddenProjects]))}catch{}
+ if(hidden&&runs.find(run=>run.id===selected)?.projectId===id){selected=null;conversation.select(null);api.detach().catch(()=>{});terminal.reset()}
+ render()
+}
+// A project added to this workstation: configured, mapped, or with executions.
+const addedProject=project=>!hiddenProject(project.id)&&(project.configured||!!project.path||runs.some(run=>run.projectId===project.id))
 
 const queueProjects=new Set()
 
@@ -143,8 +163,8 @@ let updateSettingsConnection=null
 let opened=false,selected=null,runs=[],last='',stopping=false,restarting=false,projects=[],projectsLoaded=false
 // Whether the local agent attaches a folder from a run (#676), read with the
 // editor setting from its status.
-let runFoldersAvailable=false
-const conversation=createConversationView({api,container:document.querySelector('#terminal'),onError:error,canAddFolder:()=>runFoldersAvailable})
+let runFoldersAvailable=false,runFoldersTerminalsAvailable=false,conversationControlsAvailable=false,conversationQueueAvailable=false,claudeModels=[]
+const conversation=createConversationView({api,container:document.querySelector('#terminal'),onError:error,canAddFolder:()=>runFoldersAvailable,canControl:()=>conversationControlsAvailable,canQueue:()=>conversationQueueAvailable,models:()=>claudeModels})
 const conversationButton=document.createElement('button')
 conversationButton.type='button';conversationButton.textContent='Claude chat (test)';conversationButton.hidden=true
 // The conversation view is opt-in from Appearance; the terminal stays the default.
@@ -152,24 +172,26 @@ let consoleView='terminal'
 api.consoleView().then(value=>{consoleView=value;render()}).catch(()=>{})
 conversationButton.title='Start an independent Claude Code conversation in this execution’s directory'
 document.querySelector('#save-log').before(conversationButton)
-// "Add folder…" on a running ticket discussion (#676): the folder joins the
-// project, and the agent types /add-dir into a Claude Code session.
+// "Add folder…" on a running ticket discussion or free console, in Sectile or
+// detached to the native terminal (#676, #689): the folder joins the project,
+// and the agent types /add-dir into a Claude Code session.
 const addFolderButton=document.createElement('button')
 addFolderButton.type='button';addFolderButton.id='add-run-folder';addFolderButton.textContent='Add folder…';addFolderButton.hidden=true
-addFolderButton.title='Attach a folder of this workstation to the project and give it to this discussion'
+addFolderButton.title='Attach a folder of this workstation to the project and give it to this session'
 const addFolderStatus=document.createElement('span')
 addFolderStatus.id='add-run-folder-status';addFolderStatus.className='run-folder-status';addFolderStatus.setAttribute('role','status')
 document.querySelector('#save-log').before(addFolderButton,addFolderStatus)
 let addFolderRun=null
 addFolderButton.onclick=async()=>{
- const id=selected
+ const id=selected,run=runs.find(item=>item.id===id)
+ const where={console:freeConsole(run),terminal:run?.externalTerminal?formatTerminalName(run.externalTerminal):''}
  addFolderStatus.textContent='';addFolderRun=id
  try{
   const path=await api.chooseRepository()
   if(!path)return
   addFolderButton.disabled=true
   const answer=await api.addRunFolder(id,path)
-  if(addFolderRun===id)addFolderStatus.textContent=runFolderOutcome(path,answer)
+  if(addFolderRun===id)addFolderStatus.textContent=runFolderOutcome(path,answer,where)
  }catch(err){if(addFolderRun===id)addFolderStatus.textContent=ipcMessage(err)}
  finally{addFolderButton.disabled=false}
 }
@@ -352,6 +374,7 @@ async function refreshSkillResult(id=selected){
   // run; a run the latest poll still lists as live is the anomaly worth noting.
   if(result===null&&runs.includes(run)&&!['completed','failed','canceled'].includes(run.status))console.warn('The local agent reports no run '+run.id+' while the desktop still lists it as '+run.status)
   skillResults.set(run.id,result)
+  skillResultReads.set(run.id,skillResultStamp(run,Date.now(),skillResultReads.get(run.id)))
  }catch{skillResults.delete(run.id)}
  finally{loadingSkillResults.delete(run.id);renderHeader();renderTaskSkillStatuses()}
 }
@@ -359,7 +382,10 @@ let refreshingVisibleSkillResults=false
 async function refreshVisibleSkillResults(){
  if(refreshingVisibleSkillResults)return
  refreshingVisibleSkillResults=true
+ // Only the rows whose result can have changed are read again.
+ const now=Date.now()
  const ids=[...new Set([selected,...[...document.querySelectorAll('.task-skill-status')].map(item=>item.dataset.runId)].filter(Boolean))]
+  .filter(id=>{const run=runs.find(item=>item.id===id);return run&&skillResultDue(run,skillResultReads.get(id),now)})
  try{
   await Promise.all(Array.from({length:Math.min(4,ids.length)},async()=>{
    while(ids.length)await refreshSkillResult(ids.shift())
@@ -420,12 +446,17 @@ function renderOpenEditor(){
 }
 async function loadEditorSetting(){
  try{
-  const [status,view]=await Promise.all([api.status(),api.workstationSettings()])
+  // What the agent offers does not depend on reading the workstation settings.
+  const [status,view]=await Promise.all([api.status(),api.workstationSettings().catch(()=>null)])
   openEditorAvailable=!!status.capabilities?.includes('open-editor')
   runFoldersAvailable=!!status.capabilities?.includes('run-folders')
+  runFoldersTerminalsAvailable=!!status.capabilities?.includes('run-folders-terminals')
+  conversationControlsAvailable=!!status.capabilities?.includes('conversation-controls')
+  conversationQueueAvailable=!!status.capabilities?.includes('conversation-queue')
   configuredEditor=String(view?.defaults?.editorCommand||'').trim()
-  renderCustomSkillSignal(view?.customSkillsUsed)
- }catch{openEditorAvailable=false;runFoldersAvailable=false;configuredEditor=''}
+  if(view)claudeModels=Array.isArray(view.defaults?.aiProviderModels?.claude)?view.defaults.aiProviderModels.claude:[]
+  if(view)renderCustomSkillSignal(view.customSkillsUsed)
+ }catch{openEditorAvailable=false;runFoldersAvailable=false;runFoldersTerminalsAvailable=false;conversationControlsAvailable=false;conversationQueueAvailable=false;configuredEditor=''}
  renderOpenEditor();render({deferrable:true})
 }
 // A project's custom skill ran instead of the installed one (#267): a passive
@@ -529,6 +560,7 @@ function projectMenu(project,waitingCount=0){
   {label:'New task…',run:()=>newProjectTask(project.id)},
   {label:'Project prompt',disabled:!project.path,run:()=>openAgentConsole(project.id)},
   null,
+  {label:'Hide from sidebar',run:()=>setSidebarHidden(project.id,true)},
   {label:'Project settings…',run:()=>openProject(project.id)},
   {label:'Remove from desktop',danger:true,run:()=>requestRemoveProject(project.id,project.name)}
  ]
@@ -579,8 +611,9 @@ function render(options){
  try{list.replaceChildren()}finally{rebuildingSidebar=false}
  let renameField=null
 
- const groups=new Map(projects.filter(project=>project.path&&!hiddenProject(project.id)).map(project=>[project.id,project]))
- for(const run of runs)if(!hiddenProject(run.projectId)&&!groups.has(run.projectId))groups.set(run.projectId,{id:run.projectId,name:run.projectId})
+ const listed=id=>!hiddenProject(id)&&!sidebarHiddenProjects.has(id)
+ const groups=new Map(projects.filter(project=>project.path&&listed(project.id)).map(project=>[project.id,project]))
+ for(const run of runs)if(listed(run.projectId)&&!groups.has(run.projectId))groups.set(run.projectId,{id:run.projectId,name:run.projectId})
  for(const project of [...groups.values()].sort((a,b)=>a.name.localeCompare(b.name))){
   const group=document.createElement('section');group.className='project-group'
 
@@ -666,11 +699,12 @@ function render(options){
      renameField=field
     }
     row.append(state,keySlot,field||button)
-    const link=pullRequests.get(run.taskId)
+    const [link,...others]=pullRequests.get(run.taskId)||[]
     if(link){
      const pr=document.createElement('button');pr.className='pr-indicator'
      renderPullRequestIndicator(pr,link,prLabel(link.url)+' for '+(run.taskKey||run.taskId))
      pr.onclick=()=>api.openPR(link.url).catch(error);row.append(pr)
+     if(others.length)row.append(otherPullRequestsBadge(others))
     }
     row.append(archive,pencil);group.append(row)
    }
@@ -688,7 +722,7 @@ function render(options){
  document.querySelector('#clear-history').disabled=!runs.some(run=>['completed','failed','canceled'].includes(run.status))
  const current=runs.find(run=>run.id===selected)
  conversationButton.hidden=consoleView!=='conversation'||!current?.directory||!!current.conversation||!agentConnected
- addFolderButton.hidden=!agentConnected||!!current?.conversation||!offersRunFolder(current,runFoldersAvailable)
+ addFolderButton.hidden=!agentConnected||!!current?.conversation||!offersRunFolder(current,runFoldersAvailable,runFoldersTerminalsAvailable)
  // The outcome belongs to the run it was given for.
  if(addFolderRun!==selected){addFolderRun=null;addFolderStatus.textContent=''}
  addFolderStatus.hidden=addFolderButton.hidden||!addFolderStatus.textContent
@@ -698,7 +732,8 @@ function render(options){
  history.replaceChildren();history.hidden=executions.length<2
  for(const [i,run] of executions.entries()){const option=document.createElement('option');option.value=run.id;option.textContent=(i+1)+' · '+run.skill+' · '+run.status;history.append(option)}
  history.value=selected||'';history.onchange=()=>{const run=runs.find(run=>run.id===history.value);if(run)select(run)}
- const selectedPR=document.querySelector('#selected-pr'),link=current&&pullRequests.get(current.taskId)
+ const selectedPR=document.querySelector('#selected-pr'),selectedOthers=document.querySelector('#selected-pr-others')
+ const [link,...others]=(current&&pullRequests.get(current.taskId))||[]
  selectedPR.hidden=!link
  if(link){
   const label=prLabel(link.url)
@@ -706,6 +741,17 @@ function render(options){
   const text=document.createElement('span');text.className='pr-label';text.textContent=label;selectedPR.append(text)
   selectedPR.onclick=()=>api.openPR(link.url).catch(error)
  }
+ // The other repositories the task changed, each with its own pull request,
+ // after the primary repository's.
+ selectedOthers.replaceChildren(...others.map(other=>{
+  const button=document.createElement('button');button.type='button';button.className='icon-button selected-pr-other'
+  const label=prLabel(other.url)
+  renderPullRequestIndicator(button,other,label+' in '+other.repository)
+  const text=document.createElement('span');text.className='pr-label';text.textContent=repositoryName(other.repository)+' '+label;button.append(text)
+  button.onclick=()=>api.openPR(other.url).catch(error)
+  return button
+ }))
+ selectedOthers.hidden=!others.length
  // A macro run is relaunched from the macro panel: it has no task to relaunch here.
  document.querySelector('#rerun').hidden=!current||current.conversation||macroRun(current)||!['completed','failed','canceled'].includes(current.status)
  document.querySelector('#stop').disabled=stopping||!current||!activeRun(current)
@@ -756,11 +802,14 @@ async function refresh(){
   // Compare the two polls before the new list replaces the old: a session that
   // has just started waiting, or has just finished, is what earns a banner.
   announce(transitions(runs,next))
+  // A new execution of the displayed ticket takes the console over (#639).
+  const followed=followedExecution(runs,next,selected,taskKey,run=>!freeConsole(run)&&!macroRun(run)&&!hiddenRun(run))
   const serialized=JSON.stringify(next),changed=serialized!==last
   runs=next;last=serialized
   await updateDisconnected(status.disconnectedProjects||[],changed,true)
   const current=runs.find(run=>run.id===selected)
-  if(current&&((current.status!==previous?.status&&(current.status==='running'||!current.sessionId))||current.sessionId!==previous?.sessionId))select(current,true,{deferrable:true})
+  if(followed&&selected)select(followed,true,{deferrable:true})
+  else if(current&&((current.status!==previous?.status&&(current.status==='running'||!current.sessionId))||current.sessionId!==previous?.sessionId))select(current,true,{deferrable:true})
   if(!selected){const visible=runs.find(run=>!hiddenRun(run));if(visible)select(visible,true,{deferrable:true})}
   if(changed||Date.now()-nextStepUpdated>15000)refreshNextStep()
   if(changed)loadCustomSkillSignal()
@@ -800,17 +849,17 @@ if(detachTerminalBtn){
 }
 async function confirmDeclareReviewed(projectId,task){
  const key=task.key||task.id
- showDialog('Declare '+key+' as reviewed?')
- paragraph('This transitions the task to #reviewed and proposes Handoff after human merge.')
+ showDialog('Skip to Handoff for '+key+'?')
+ paragraph('Use this when the pull request needs no more changes: Adjust is skipped, '+key+' moves to #reviewed, and Handoff is proposed once the pull request is merged.')
  const confirm=document.createElement('button')
- confirm.textContent='Confirm'
+ confirm.textContent='Skip to Handoff'
  const notice=document.createElement('p')
  notice.setAttribute('role','status')
  dialogBody.append(confirm,notice)
  confirm.focus()
  confirm.onclick=async()=>{
   confirm.disabled=true
-  notice.textContent='Declaring code as reviewed…'
+  notice.textContent='Moving '+key+' to reviewed…'
   try{
    await api.transitionStage(projectId,task.id,'reviewed','Code declared as reviewed from desktop app')
    dialog.close()
@@ -887,7 +936,7 @@ document.querySelector('#clear-history').onclick=async()=>{
   // Drop the removed runs locally right away: until the next poll the desktop
   // would otherwise keep asking for results the agent no longer holds.
   runs=runs.filter(run=>!removed.includes(run.id))
-  for(const id of removed)skillResults.delete(id)
+  for(const id of removed){skillResults.delete(id);skillResultReads.delete(id)}
   if(removed.includes(selected)){
    conversation.select(null)
    selected=null;terminal.reset()
@@ -925,7 +974,7 @@ dialog.addEventListener('close',()=>{
 function showDialog(title){
  closeConfiguration()
  updateSettingsConnection=null
- dialog.classList.remove('workstation-settings')
+ dialog.classList.remove('workstation-settings','palette-dialog','quick-add-dialog')
  returnConnectForm()
  // The footer is shared by every dialog, so a control one of them added there
  // must go before the next one opens.
@@ -1559,10 +1608,13 @@ function executionDefaultsPanel(panel){
   if(invalidList){notice.textContent='Invalid model in the list of '+invalidList[0];notice.dataset.tone='error';return}
   save.disabled=true;notice.textContent='Saving…';notice.dataset.tone=''
   try{
-   await api.saveWorkstationSettings(workstationPayload(state(),view.defaults))
-   notice.textContent='Execution defaults saved'
+   const current=state(),saved=JSON.stringify(current)
+   await api.saveWorkstationSettings(workstationPayload(current,view.defaults))
    loadEditorSetting()
-   try{view=await api.workstationSettings();if(body.isConnected){fill();notice.textContent='Execution defaults saved'}}catch{}
+   // "Saved" is announced once the panel shows what the agent now serves, and
+   // that refill leaves alone a setting edited while it was on its way.
+   try{view=await api.workstationSettings();if(body.isConnected&&JSON.stringify(state())===saved)fill()}catch{}
+   notice.textContent='Execution defaults saved'
   }catch(err){
    // The agent refused: its reason is shown as it gave it, and nothing changed.
    if(agentUnreachable(err))showUnavailable(STOPPED_NOTICE)
@@ -1604,7 +1656,8 @@ const SETTINGS_CATEGORIES=[
 const PROJECT_SETTINGS_CATEGORIES=[
  {id:'Remove',label:'General',saves:true,icon:'<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7h.01"/>'},
  {id:'General',label:'Folders',saves:true,icon:'<path d="M4 7a2 2 0 0 1 2-2h3l2 2.5h7a2 2 0 0 1 2 2V18a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2Z"/>'},
- {id:'Execution',label:'Execution',saves:true,icon:'<path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="2.4"/><circle cx="15" cy="17" r="2.4"/>'}
+ {id:'Execution',label:'Execution',saves:true,icon:'<path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="2.4"/><circle cx="15" cy="17" r="2.4"/>'},
+ {id:'Sandbox',label:'Sandbox',saves:true,icon:'<path d="M12 3 5 6v5c0 4.4 3 8.3 7 9.5 4-1.2 7-5.1 7-9.5V6Z"/><path d="m9 12 2 2 4-4"/>'}
 ]
 function configurationNavigation(tabs,projectId){
  if(projectId)expandedConfigurationProject=projectId
@@ -1639,25 +1692,73 @@ function configurationNavigation(tabs,projectId){
   }
  }
  group('General',SETTINGS_CATEGORIES,!projectId,name=>openSettings(name))
- for(const project of projects)group(project.name,PROJECT_SETTINGS_CATEGORIES,project.id===projectId,name=>openProject(project.id,name),project.id)
+ // Only the projects added to this workstation have settings here; the others
+ // are reached from Add project.
+ for(const project of projects)if(addedProject(project)||project.id===projectId)group(project.name+(sidebarHiddenProjects.has(project.id)?' (hidden)':''),PROJECT_SETTINGS_CATEGORIES,project.id===projectId,name=>openProject(project.id,name),project.id)
  updateProjectGroups()
 }
 function deploymentPanel(panel){
  const globalTitle=document.createElement('h3');globalTitle.textContent='Global AI engine setup'
- const globalHint=document.createElement('p');globalHint.textContent='Install skills and register MCP in your user configuration for the selected engine’s provider. Engines sharing a provider share this installation. This setup is optional: for Claude, installing the sectile plugin does the same, and a dispatch never installs anything.'
+ const globalHint=document.createElement('p');globalHint.textContent='Install Sectile’s skills and register its MCP server in your user configuration for the selected engine’s provider, each on its own. Engines sharing a provider share this installation. This setup is optional: for Claude, installing the sectile plugin does both, and a dispatch never installs anything.'
  const engine=document.createElement('select');engine.setAttribute('aria-label','Setup AI engine')
  panel.append(globalTitle,globalHint,settingRow('AI engine',{},engine).section)
  const source=projects.find(project=>project.id===selectedProject)||projects[0]
- const sourceHint=document.createElement('p');sourceHint.textContent=source?'Skills supplied by '+source.name+'. Installation is user-wide, not project-local.':'Connect a project to obtain the server skills.';panel.append(sourceHint)
  let engines=[]
+ const selectedEngine=()=>engines.find(item=>item.id===engine.value)
+ // Skills: the server's skills for the provider, nothing else.
+ const installSkills=document.createElement('button');installSkills.type='button';installSkills.textContent='Install skills';installSkills.disabled=true
+ const skillsRow=settingRow('Skills',null,installSkills)
+ skillsRow.hint.textContent=source?'Supplied by '+source.name+'. Installation is user-wide, not project-local.':'Connect a project to obtain the server skills.'
+ const skillsResult=document.createElement('p');skillsResult.className='setup-result';skillsResult.setAttribute('role','status')
+ // MCP: registered on its own, over HTTP, to the server or through the agent.
+ const mcpModes=document.createElement('div');mcpModes.className='segmented';mcpModes.setAttribute('role','group');mcpModes.setAttribute('aria-label','MCP target')
+ let mcpTarget='remote'
+ const MCP_TARGETS=[['remote','Remote server','The engine calls the Sectile server over HTTP with your API key, written in its configuration.'],['local','Local agent','The engine calls this workstation’s agent over HTTP, which forwards with its own identity: no key is written, and the agent must keep running.']]
+ const registerMCP=document.createElement('button');registerMCP.type='button';registerMCP.textContent='Register MCP';registerMCP.disabled=true
+ const mcpRow=settingRow('MCP server',null,mcpModes,registerMCP)
+ const markTarget=()=>{for(const button of mcpModes.children)button.setAttribute('aria-pressed',String(button.dataset.value===mcpTarget));mcpRow.hint.textContent=MCP_TARGETS.find(([value])=>value===mcpTarget)[2]}
+ for(const [value,label] of MCP_TARGETS){const button=document.createElement('button');button.type='button';button.dataset.value=value;button.textContent=label;button.onclick=()=>{mcpTarget=value;markTarget()};mcpModes.append(button)}
+ const mcpResult=document.createElement('p');mcpResult.className='setup-result';mcpResult.setAttribute('role','status')
+ panel.append(skillsRow.section,skillsResult,mcpRow.section,mcpResult)
+ markTarget()
+ // The mode the provider is registered in today, when the agent knows it.
+ const loadTarget=()=>{
+  const provider=selectedEngine()?.provider
+  if(!provider||!mcpProviders[provider])return
+  api.mcpConfig(provider).then(info=>{if(panel.isConnected&&info?.choice?.target){mcpTarget=info.choice.target==='local'?'local':'remote';markTarget()}}).catch(()=>{})
+ }
+ const enable=()=>{const ready=!!selectedEngine();installSkills.disabled=!ready||!source;registerMCP.disabled=!ready}
  api.engines().then(view=>{
   if(!panel.isConnected)return
   engines=view.catalogue||[]
   for(const item of engines){const option=document.createElement('option');option.value=item.id;option.textContent=item.name+' ('+item.provider+')';engine.append(option)}
   engine.value=view.default||engines[0]?.id||''
-  initialize.disabled=!source||!engines.length
+  enable();loadTarget()
  }).catch(()=>{globalHint.textContent='Update the local agent to configure setup by AI engine.'})
- const globalActions=document.createElement('div');globalActions.className='deployment-actions';panel.append(globalActions)
+ engine.addEventListener('change',()=>{skillsResult.textContent='';mcpResult.textContent='';enable();loadTarget()})
+ installSkills.onclick=async()=>{
+  const chosen=selectedEngine();if(!chosen||!source)return
+  installSkills.disabled=true;skillsResult.textContent='Installing skills…'
+  try{
+   const info=await api.project(source.id)
+   if(!info.configured)throw Error('Configure '+source.name+'’s local folder first: the skills come from its server configuration.')
+   const result=await api.deployProject(source.id,'provider-skills',chosen.provider)
+   if(!panel.isConnected)return
+   const step=result.skills||{}
+   skillsResult.textContent=({success:'Installed',failed:'Failed',skipped:'Skipped'}[step.status]||'Done')+' · '+(step.message||result.message||'')
+  }catch(err){if(panel.isConnected)skillsResult.textContent=/unknown/i.test(ipcMessage(err))?'Update and restart the local agent to install skills on their own.':ipcMessage(err)}
+  finally{enable()}
+ }
+ registerMCP.onclick=async()=>{
+  const chosen=selectedEngine();if(!chosen)return
+  if(!mcpProviders[chosen.provider]){mcpResult.textContent='Register MCP manually for this provider: see Settings → MCP connection.';return}
+  registerMCP.disabled=true;mcpResult.textContent='Registering the MCP server…'
+  try{
+   const result=await api.configureMCP(chosen.provider,{target:mcpTarget,transport:'http'})
+   if(panel.isConnected)mcpResult.textContent='Registered in '+result.path+' ('+(mcpTarget==='local'?'local agent':'remote server')+', HTTP). Restart the AI engine to reconnect.'
+  }catch(err){if(panel.isConnected)mcpResult.textContent='Registration failed: '+ipcMessage(err)}
+  finally{enable()}
+ }
  const localTitle=document.createElement('h3');localTitle.textContent='Local project SDD setup'
  const localHint=document.createElement('p');localHint.textContent='Install the project’s SDD framework in its local repository. This does not install global engine skills or MCP.'
  panel.append(localTitle,localHint)
@@ -1669,32 +1770,20 @@ function deploymentPanel(panel){
  const results=document.createElement('div');results.className='initialization-result';results.setAttribute('role','status')
  const actions=document.createElement('div');actions.className='deployment-actions'
  let pending=false
- let initialize
- for(const [action,label] of [['initialize','Set up engine globally'],['framework','Install SDD in project']]){
-  const button=document.createElement('button');button.type='button';button.textContent=label;button.disabled=!projects.length
-  if(action==='initialize'){initialize=button;button.disabled=true}
-  button.onclick=async()=>{
-   const projectId=action==='initialize'?source?.id:target.value
-   const selectedEngine=engines.find(item=>item.id===engine.value)
-   if(pending||!projectId||(action==='initialize'&&!selectedEngine))return
-   pending=true;target.disabled=true
-   engine.disabled=true;initialize.disabled=true;for(const item of actions.children)item.disabled=true
-   results.replaceChildren();notice.textContent=action==='initialize'?'Initialization in progress…':'Deployment in progress…'
-   try{
-    const info=await api.project(projectId)
-    if(!info.configured)throw Error('Configure this project’s local folder before deployment.')
-    const result=await api.deployProject(projectId,action,action==='initialize'?selectedEngine.provider:undefined)
-    if(!panel.isConnected)return
-    notice.textContent=result.message||'Deployment complete'
-    if(action==='initialize')for(const [label,step] of [['MCP',result.mcp],['Skills',result.skills]]){
-     if(!step)continue
-     const line=document.createElement('p');line.textContent=label+': '+({success:'Success',failed:'Failed',skipped:'Skipped',not_run:'Not run'}[step.status]||step.status)+' - '+step.message;results.append(line)
-    }
-   }catch(err){if(panel.isConnected)notice.textContent=ipcMessage(err)}finally{
-    pending=false;target.disabled=false;engine.disabled=false;initialize.disabled=!source||!engines.length;for(const item of actions.children)item.disabled=false
-   }
-  };(action==='initialize'?globalActions:actions).append(button)
+ const framework=document.createElement('button');framework.type='button';framework.textContent='Install SDD in project';framework.disabled=!projects.length
+ framework.onclick=async()=>{
+  const projectId=target.value
+  if(pending||!projectId)return
+  pending=true;target.disabled=true;framework.disabled=true
+  results.replaceChildren();notice.textContent='Deployment in progress…'
+  try{
+   const info=await api.project(projectId)
+   if(!info.configured)throw Error('Configure this project’s local folder before deployment.')
+   const result=await api.deployProject(projectId,'framework')
+   if(panel.isConnected)notice.textContent=result.message||'Deployment complete'
+  }catch(err){if(panel.isConnected)notice.textContent=ipcMessage(err)}finally{pending=false;target.disabled=false;framework.disabled=false}
  }
+ actions.append(framework)
  panel.append(actions,notice,results)
 }
 function openSettings(initial='Profile',project){
@@ -2009,7 +2098,9 @@ async function fillChangelogPanel(panel){
  const current=releaseNotesFor(releases,installed)
  if(current)notesHeading.textContent='Release notes · '+current.version
 }
-document.querySelector('#add-project').onclick=async()=>{
+// The sidebar's + button and the command palette open the same dialog, so the
+// two entry points cannot drift apart.
+async function openAddProject(){
  showDialog('Add project')
  paragraph('Discover projects from your Sectile server and configure their local directory.')
  try{
@@ -2017,14 +2108,15 @@ document.querySelector('#add-project').onclick=async()=>{
   if(!projects.length)paragraph('No projects available on the server.')
   for(const project of projects){
    const button=document.createElement('button');button.className='discovered-project'
-   const added=!hiddenProject(project.id)&&(project.configured||!!project.path||runs.some(run=>run.projectId===project.id))
-   button.textContent=project.name+(added?' · Already added':'')
-   button.disabled=added
-   if(added)button.title='Use the project settings button in the sidebar to edit this project.'
-   button.onclick=()=>openProject(project.id);dialogBody.append(button)
+   const added=addedProject(project),hidden=added&&sidebarHiddenProjects.has(project.id)
+   button.textContent=project.name+(hidden?' · Hidden, show in sidebar':added?' · Already added':'')
+   button.disabled=added&&!hidden
+   if(added&&!hidden)button.title='Use the project settings button in the sidebar to edit this project.'
+   button.onclick=hidden?()=>{setSidebarHidden(project.id,false);dialog.close()}:()=>openProject(project.id);dialogBody.append(button)
   }
  }catch(err){error(err)}
 }
+document.querySelector('#add-project').onclick=openAddProject
 function requestRemoveProject(id,name){
  showDialog('Remove '+name+' from desktop?')
  paragraph('Disconnect this project from this workstation and remove its local configuration. Repository files and server data are preserved. Add the project again before launching new executions.')
@@ -2037,6 +2129,7 @@ function requestRemoveProject(id,name){
   catch(err){notice.textContent=err.message;confirm.disabled=false;cancel.disabled=false;return}
   projectStateVersion++
   if(stageGroupedProjects.delete(id))saveStageGrouping()
+  if(sidebarHiddenProjects.has(id))setSidebarHidden(id,false)
   await updateDisconnected([...disconnectedProjects,id])
   dialog.close()
   try{await loadProjects()}catch(err){error('Project disconnected, but refreshing projects failed: '+err.message)}
@@ -2384,12 +2477,23 @@ async function openProject(id,initial='Remove'){
   const notice=document.createElement('p');notice.setAttribute('role','status')
   panels.General.append(repository.section,specRepository.section,repositoriesRow.section,foldersRow.section)
   panels.Execution.append(controls.worktrees.section,controls.specArtifacts.section,controls.parallel.section,terminalRow.section,setupRow.section)
+  // What the project's Claude Code sessions are allowed (#700). An agent that
+  // predates it sends no values, and the save sends none back.
+  const sandbox=sandboxSettings({settingRow,stored:info.claudeSandbox,platformSandbox:info.platformSandbox!==false,settingsPath:info.claudeSettingsPath,project:info})
+  panels.Sandbox.append(...sandbox.sections)
   panels.Remove.append(engineRow.section)
   const remove=document.createElement('button');remove.type='button';remove.textContent='Remove from desktop';remove.className='remove-project'
   remove.onclick=()=>requestRemoveProject(id,config.projectName)
   const removalNote=document.createElement('p');removalNote.textContent='Remove this project from this workstation. The project remains on the Sectile server.'
   panels.Remove.append(removalNote)
   if(info.configured||runs.some(run=>run.projectId===id))panels.Remove.append(remove)
+  if(sidebarHiddenProjects.has(id)){
+   const show=document.createElement('button');show.type='button';show.textContent='Show in sidebar'
+   show.onclick=()=>{setSidebarHidden(id,false);show.remove();hiddenRow.section.remove()}
+   const hiddenRow=settingRow('Sidebar',null,show)
+   hiddenRow.hint.textContent='This project is hidden from the sidebar. Its configuration and executions are kept.'
+   panels.Remove.prepend(hiddenRow.section)
+  }
   content.append(notice)
   form.onsubmit=async event=>{
    event.preventDefault()
@@ -2399,7 +2503,8 @@ async function openProject(id,initial='Remove'){
      useWorktrees,inheritWorktrees,specArtifacts,inheritSpecArtifacts,parallelism,inheritParallelism,
      ...(engineView?{defaultEngine,inheritDefaultEngine}:{}),
      terminal:terminal.get(),inheritTerminal,
-     setupProviders:[...setupProviders],inheritSetupProviders})
+     setupProviders:[...setupProviders],inheritSetupProviders,
+     ...(info.claudeSandbox?{claudeSandbox:sandbox.payload(),claudeSandboxBase:sandbox.base()}:{})})
     // Each repository folder is checked against its origin by the agent, so
     // a wrong folder is refused by name rather than saved. The settings above
     // are saved by then, which the notice says rather than hiding it.
@@ -2414,7 +2519,7 @@ async function openProject(id,initial='Remove'){
     notice.textContent=refused.length?'Local configuration saved, except the folder of '+refused.join('; '):'Local configuration saved'
     // The agent normalised the folder and detected its kind: show what it
     // stored, not what was typed.
-    try{const fresh=await api.project(id);info.specPath=fresh.specPath||'';specPath.value=info.specPath;renderSpec(fresh);applyFields(fresh)}catch(err){error(err)}
+    try{const fresh=await api.project(id);info.specPath=fresh.specPath||'';specPath.value=info.specPath;renderSpec(fresh);applyFields(fresh);if(fresh.claudeSandbox)sandbox.set(fresh.claudeSandbox)}catch(err){error(err)}
     await loadProjects()
    }catch(err){notice.textContent=err.message}finally{save.disabled=false}
   }
@@ -2602,8 +2707,9 @@ function ticketRow(view,task){
  const prCell=cell('ticket-pr')
  if(task.prUrl&&/^https?:\/\//i.test(task.prUrl)){
   const pr=document.createElement('button');pr.type='button';pr.className='pr-indicator'
-  const link=currentPullRequest(task);renderPullRequestIndicator(pr,link,prLabel(link.url)+' for '+key)
+  const [link,...others]=repositoryPullRequests(task);renderPullRequestIndicator(pr,link,prLabel(link.url)+' for '+key)
   pr.onclick=()=>api.openPR(link.url).catch(error);prCell.append(pr)
+  if(others.length)prCell.append(otherPullRequestsBadge(others))
  }
  const actions=cell('ticket-actions')
  const run=document.createElement('button');run.type='button';run.className='ticket-run'
@@ -2662,7 +2768,7 @@ function ticketRow(view,task){
  if(skills.some(item=>item.id==='pickup'))items.push({label:'Pickup (full chain)',skillId:'pickup'})
  for(const item of skills)if(item.id!=='pickup')items.push({label:item.command||item.id,skillId:item.id})
  if(taskStage(task)==='implemented'){
-  items.push({label:'Declare code as reviewed…',transition:'reviewed'})
+  items.push({label:'Skip to Handoff…',transition:'reviewed'})
  }
  items.push({label:'Discussion (no skill)',skillId:'discuss'},{label:'Discussion in native terminal',nativeTerminal:true},{label:'Custom instructions…',compose:true})
  for(const item of items){
@@ -2811,7 +2917,9 @@ async function submitTicketLaunch(view,entry,skillId,prompt,mode){
  view.submitting.add(entry.task.id);updateTicketRow(view,entry)
  view.status.textContent='Submitting execution for '+key+'…'
  try{
-  await api.launchServerTask(view.projectID,entry.task.id,skillId,prompt,mode)
+  // An interactive launch follows the Claude consoles preference; the agent
+  // falls back to the terminal for an engine that cannot hold a conversation.
+  await api.launchServerTask(view.projectID,entry.task.id,skillId,prompt,mode,false,consoleView)
   view.status.textContent='Execution submitted for '+key
   await refresh()
  }catch(err){view.status.textContent='Could not launch '+key+': '+err.message;throw err}
@@ -2863,13 +2971,23 @@ document.querySelector('#rerun').onclick=async()=>{
    if(skill.value==='custom'&&!prompt.value.trim()){notice.textContent='Enter custom instructions.';prompt.focus();return}
    submit.disabled=true
    try{
-    await api.launchServerTask(run.projectId,run.taskId,skill.value,prompt.value,launchModeOverride(mode.value))
+    await api.launchServerTask(run.projectId,run.taskId,skill.value,prompt.value,launchModeOverride(mode.value),false,consoleView)
     dialog.close();await refresh()
    }catch(err){notice.textContent=err.message;submit.disabled=false}
   }
  }catch(err){paragraph(err.message)}
 }
 
+// The last segment of a repository identity, enough to tell two of a task's
+// repositories apart in the toolbar.
+function repositoryName(repository){return String(repository||'').split('/').pop()||'PR / MR'}
+// A task's other repositories are counted where a single indicator fits: the
+// toolbar of the selected task lists them.
+function otherPullRequestsBadge(others){
+ const badge=document.createElement('span');badge.className='pr-others';badge.textContent='+'+others.length
+ badge.title=others.map(other=>other.repository+': '+prLabel(other.url)+' ('+pullRequestPresentation(other).label+')').join('\n')
+ return badge
+}
 function prLabel(value){
  try{
   const url=new URL(value)
@@ -2892,7 +3010,7 @@ async function refreshPRs(executions){
      const stage=task&&taskStage(task)
      if(STAGES.includes(stage))taskStages.set(run.taskId,stage)
      else taskStages.delete(run.taskId)
-     if(task?.prUrl&&/^https?:\/\//i.test(task.prUrl))pullRequests.set(run.taskId,currentPullRequest(task))
+     if(task?.prUrl&&/^https?:\/\//i.test(task.prUrl))pullRequests.set(run.taskId,repositoryPullRequests(task))
      else pullRequests.delete(run.taskId)
     }
    }catch{}
@@ -2940,12 +3058,30 @@ sidebarHandle.onlostpointercapture=()=>document.body.classList.remove('resizing-
 sidebarHandle.onkeydown=event=>{if(event.key==='ArrowLeft'||event.key==='ArrowRight'){event.preventDefault();sidebarWidth(document.querySelector('aside').getBoundingClientRect().width+(event.key==='ArrowRight'?20:-20))}}
 document.querySelector('#toggle-sidebar').innerHTML='<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16m7-12-4 4 4 4"/></svg>'
 
-// The palette is a list of actions rather than a hardcoded one, so adding a
-// command is a row and not another hidden-state to maintain by hand.
-const COMMANDS=[
- {label:'Quick add task',run:()=>quickAdd()},
- {label:'Tasks list',run:()=>openTicketsFromPalette()}
-]
+// The palette searches, in one list, the desktop's actions, the projects and
+// the executions: a few keys reach anything the sidebar shows. Actions are a
+// list rather than hardcoded rows, so adding one is a line.
+function paletteEntries(){
+ const mac=isMacPlatform(navigator)
+ const entries=[
+  {group:'action',label:'New task',detail:'Create a task in a project',hint:newTaskShortcutLabel(mac),run:()=>quickAdd()},
+  {group:'action',label:'Tasks list',detail:'Browse the open tasks of a project',run:()=>openTicketsFromPalette()},
+  {group:'action',label:'Add project',detail:'Connect a project of the server to this workstation',run:()=>openAddProject()},
+  {group:'action',label:(document.querySelector('#workspace').classList.contains('sidebar-hidden')?'Show':'Hide')+' the sidebar',hint:sidebarShortcutLabel(mac),run:()=>{dialog.close();toggleSidebar()}},
+  {group:'action',label:'Settings',hint:configShortcutLabel(mac),run:()=>{dialog.close();openSettings('Profile')}},
+  {group:'action',label:'Open the web interface',run:()=>{dialog.close();api.openBoard().catch(error)}},
+ ]
+ for(const project of projects.filter(addedProject))entries.push({group:'project',label:project.name,detail:'Open its tasks',run:()=>{dialog.close();openTickets(project.id)}})
+ // The executions the sidebar shows, the latest first.
+ const shown=runs.filter(run=>!hiddenRun(run)&&!sidebarHiddenProjects.has(run.projectId))
+ for(const run of shown.slice().reverse()){
+  const key=run.taskKey||'',name=taskTitles.get(run.taskId)||taskState(run).name||''
+  const label=[key,name||runLabel(run)].filter(Boolean).join(' · ')
+  const project=projects.find(item=>item.id===run.projectId)?.name||run.projectId
+  entries.push({group:'execution',label,detail:[project,run.skill,runStateLabel(runStateOf(run))].filter(Boolean).join(' · '),run:()=>{dialog.close();select(run)}})
+ }
+ return entries
+}
 // The tickets list needs a project. The selected one answers that, and a single
 // configured project answers it too; otherwise the palette asks rather than
 // guessing which project the user meant.
@@ -2955,7 +3091,7 @@ async function openTicketsFromPalette(){
  }
  const known=projects.filter(project=>!hiddenProject(project.id))
  const chosen=known.find(project=>project.id===selectedProject)||(known.length===1?known[0]:null)
- if(chosen){openTickets(chosen.id);return}
+ if(chosen){dialog.close();openTickets(chosen.id);return}
  showDialog('Tasks list')
  if(!known.length){paragraph('Add a project before browsing its tasks.');return}
  paragraph('Choose the project whose tasks you want to browse.')
@@ -2966,24 +3102,43 @@ async function openTicketsFromPalette(){
  }
  dialogBody.querySelector('.discovered-project')?.focus()
 }
+const PALETTE_GROUPS={action:'Actions',project:'Projects',execution:'Executions'}
 function openCommandPalette(){
- showDialog('Commands')
- const filter=document.createElement('input');filter.placeholder='Search actions…';filter.setAttribute('aria-label','Search commands')
- const buttons=COMMANDS.map(command=>{
-  const button=document.createElement('button');button.className='discovered-project';button.textContent=command.label
-  button.onclick=()=>command.run()
-  return button
- })
- filter.oninput=()=>{
-  const text=filter.value.trim().toLowerCase()
-  for(const [index,button] of buttons.entries())button.hidden=!COMMANDS[index].label.toLowerCase().includes(text)
+ showDialog('Commands');dialog.classList.add('palette-dialog')
+ dialogBody.querySelector('h2').className='visually-hidden'
+ const entries=paletteEntries()
+ const filter=document.createElement('input');filter.className='palette-filter';filter.placeholder='Search actions, projects and tasks…'
+ filter.setAttribute('role','combobox');filter.setAttribute('aria-label','Search commands');filter.setAttribute('aria-controls','palette-list');filter.setAttribute('aria-expanded','true');filter.setAttribute('aria-autocomplete','list')
+ const list=document.createElement('ul');list.id='palette-list';list.className='palette-list';list.setAttribute('role','listbox');list.setAttribute('aria-label','Commands')
+ const empty=document.createElement('p');empty.className='palette-empty';empty.textContent='Nothing matches'
+ let shown=[],active=0
+ const mark=()=>{
+  for(const [index,item] of [...list.querySelectorAll('[role=option]')].entries())item.setAttribute('aria-selected',String(index===active))
+  const current=list.querySelectorAll('[role=option]')[active]
+  if(current){filter.setAttribute('aria-activedescendant',current.id);current.scrollIntoView({block:'nearest'})}else filter.removeAttribute('aria-activedescendant')
  }
+ const draw=()=>{
+  shown=paletteMatches(entries,filter.value);active=Math.min(active,Math.max(0,shown.length-1))
+  list.replaceChildren();empty.hidden=shown.length>0
+  let group=null
+  for(const [index,entry] of shown.entries()){
+   if(entry.group!==group){group=entry.group;const heading=document.createElement('li');heading.className='palette-group';heading.setAttribute('role','presentation');heading.textContent=PALETTE_GROUPS[group];list.append(heading)}
+   const item=document.createElement('li');item.id='palette-option-'+index;item.className='palette-option';item.setAttribute('role','option')
+   const label=document.createElement('span');label.className='palette-label';label.textContent=entry.label;item.append(label)
+   if(entry.detail){const detail=document.createElement('span');detail.className='palette-detail';detail.textContent=entry.detail;item.append(detail)}
+   if(entry.hint){const hint=document.createElement('kbd');hint.className='palette-hint';hint.textContent=entry.hint;item.append(hint)}
+   item.addEventListener('mousemove',()=>{if(active!==index){active=index;mark()}})
+   item.addEventListener('click',()=>entry.run())
+   list.append(item)
+  }
+  mark()
+ }
+ filter.oninput=()=>{active=0;draw()}
  filter.onkeydown=event=>{
-  if(event.key!=='Enter')return
-  const first=buttons.find(button=>!button.hidden)
-  if(first){event.preventDefault();first.click()}
+  if(event.key==='ArrowDown'||event.key==='ArrowUp'){event.preventDefault();if(shown.length){active=(active+(event.key==='ArrowDown'?1:shown.length-1))%shown.length;mark()}}
+  else if(event.key==='Enter'){const entry=shown[active];if(entry){event.preventDefault();entry.run()}}
  }
- dialogBody.append(filter,...buttons);filter.focus()
+ dialogBody.append(filter,list,empty);draw();filter.focus()
 }
 document.querySelector('#command-palette').onclick=openCommandPalette
 window.addEventListener('keydown',event=>{
@@ -2995,6 +3150,21 @@ window.addEventListener('keydown',event=>{
 window.addEventListener('keydown',event=>{
  if((event.metaKey||event.ctrlKey)&&event.key.toLowerCase()==='k'){event.preventDefault();event.stopPropagation();openCommandPalette()}
 },true)
+// Cmd+Enter / Ctrl+Enter activates the default button of the open dialog or
+// settings page: the submit of the form being typed in, else a marked button.
+window.addEventListener('keydown',event=>{
+ if(!defaultActionShortcut({key:event.key,metaKey:event.metaKey,ctrlKey:event.ctrlKey,shiftKey:event.shiftKey,altKey:event.altKey,repeat:event.repeat,isComposing:event.isComposing,mac:isMacPlatform(navigator)}))return
+ const root=dialog.open?dialog:configurationActive()?dialogBody.parentElement:null
+ const target=root&&defaultActionTarget(root,document.activeElement)
+ if(!target)return
+ event.preventDefault();event.stopPropagation()
+ if(target.form)target.form.requestSubmit(target.button);else target.button.click()
+},true)
+// Cmd+N / Ctrl+N opens the new task dialog; a focused terminal keeps Ctrl+N.
+window.addEventListener('keydown',event=>{
+ const action=newTaskShortcutAction({key:event.key,metaKey:event.metaKey,ctrlKey:event.ctrlKey,shiftKey:event.shiftKey,altKey:event.altKey,repeat:event.repeat,defaultPrevented:event.defaultPrevented,mac:isMacPlatform(navigator),inTerminal:!!document.activeElement?.closest?.('.xterm'),modalOpen:dialog.open})
+ if(action==='open'&&agentConnected){event.preventDefault();event.stopPropagation();quickAdd()}
+},true)
 // Cmd+B / Ctrl+B toggles the projects sidebar (#474). In the capture phase, so
 // that on macOS Cmd+B never reaches the terminal; an ignored key is left
 // untouched, which is how Ctrl+B still reaches a focused terminal elsewhere.
@@ -3002,32 +3172,71 @@ window.addEventListener('keydown',event=>{
  const action=sidebarShortcutAction({key:event.key,metaKey:event.metaKey,ctrlKey:event.ctrlKey,shiftKey:event.shiftKey,altKey:event.altKey,repeat:event.repeat,defaultPrevented:event.defaultPrevented,mac:isMacPlatform(navigator),inTerminal:!!document.activeElement?.closest?.('.xterm'),modalOpen:dialog.open})
  if(action==='toggle'){event.preventDefault();event.stopPropagation();toggleSidebar()}
 },true)
-async function quickAdd(projectID=selectedProject){
- showDialog('Quick add task')
- const form=document.createElement('form'),projectLabel=document.createElement('label'),project=document.createElement('select')
- projectLabel.textContent='Project';project.setAttribute('aria-label','Quick add project')
+// The project quick add opens on: the selected one, else the one last used.
+const QUICK_ADD_PROJECT='quickAddProject'
+async function quickAdd(projectID){
+ showDialog('New task');dialog.classList.add('quick-add-dialog')
  try{await loadProjects()}catch(err){paragraph(err.message);return}
- for(const item of projects){const option=document.createElement('option');option.value=item.id;option.textContent=item.name;project.append(option)}
- project.value=projectID||''
- if(!project.value){const empty=document.createElement('option');empty.value='';empty.textContent='Select a project';project.prepend(empty);project.value=''}
- project.required=true;projectLabel.append(project)
- const title=document.createElement('input');title.placeholder='Task title';title.setAttribute('aria-label','Task title');title.required=true;title.maxLength=500
- const description=document.createElement('textarea');description.className='cli-command';description.placeholder='Description (optional)';description.setAttribute('aria-label','Task description')
- const submit=document.createElement('button');submit.textContent='Create task'
- const notice=document.createElement('p');notice.setAttribute('role','status')
- form.append(projectLabel,title,description,submit,notice);dialogBody.append(form);title.focus()
+ let remembered='';try{remembered=localStorage.getItem(QUICK_ADD_PROJECT)||''}catch{}
+ const known=projects.filter(addedProject)
+ const choice=[projectID,selectedProject,remembered].find(id=>id&&known.some(project=>project.id===id))||(known.length===1?known[0].id:'')
+ const mac=isMacPlatform(navigator)
+ const form=document.createElement('form');form.className='quick-add'
+ const field=(text,control,hint)=>{
+  const label=document.createElement('label');label.className='quick-add-field'
+  const name=document.createElement('span');name.className='quick-add-name';name.textContent=text;label.append(name)
+  if(hint){const small=document.createElement('small');small.textContent=hint;name.append(small)}
+  label.append(control);return label
+ }
+ const project=document.createElement('select')
+ if(!choice){const none=document.createElement('option');none.value='';none.textContent='Select a project';project.append(none)}
+ for(const item of known){const option=document.createElement('option');option.value=item.id;option.textContent=item.name;project.append(option)}
+ project.value=choice;project.required=true
+ const title=document.createElement('input');title.placeholder='What needs doing?';title.required=true;title.maxLength=500
+ const description=document.createElement('textarea');description.rows=4;description.placeholder='Context, acceptance criteria, links…'
+ const grow=()=>{description.style.height='auto';description.style.height=Math.min(description.scrollHeight,320)+'px'}
+ description.addEventListener('input',grow)
+ const notice=document.createElement('p');notice.className='quick-add-notice';notice.setAttribute('role','status')
+ const actions=document.createElement('div');actions.className='quick-add-actions'
+ const keys=document.createElement('span');keys.className='quick-add-keys';keys.textContent=defaultActionLabel(mac)+' to create'
+ const cancel=document.createElement('button');cancel.type='button';cancel.className='secondary';cancel.textContent='Cancel';cancel.onclick=()=>dialog.close()
+ const submit=document.createElement('button');submit.type='submit';submit.textContent='Create task'
+ actions.append(keys,cancel,submit)
+ form.append(field('Project',project),field('Title',title),field('Description',description,'Optional, Markdown'),notice,actions)
+ dialogBody.append(form);(choice?title:project).focus()
  form.onsubmit=async event=>{
-  event.preventDefault();if(!title.value.trim())return;submit.disabled=true
-  notice.textContent='Creating task on the server and configured tracker…'
+  event.preventDefault();if(!title.value.trim()||!project.value)return
+  submit.disabled=cancel.disabled=true
+  notice.textContent='Creating the task on the server and its tracker…'
   try{
    const task=await api.createTask({projectID:project.value,title:title.value.trim(),description:description.value})
    selectedProject=project.value
-   form.replaceChildren()
-   notice.textContent='Created '+(task.key||task.id)+' · '+task.title
-   const launch=document.createElement('button');launch.type='button';launch.textContent='Launch task'
-   launch.onclick=()=>openTickets(task.projectId,task.key||task.title)
-   form.append(notice,launch)
-  }catch(err){notice.textContent=err.message;submit.disabled=false}
+   try{localStorage.setItem(QUICK_ADD_PROJECT,project.value)}catch{}
+   created(task,project.value)
+  }catch(err){notice.textContent=err.message;submit.disabled=cancel.disabled=false}
+ }
+ // What follows a creation: clarify it at once, pick another launch, or add
+ // the next one in the same project.
+ function created(task,projectId){
+  form.replaceChildren()
+  const done=document.createElement('p');done.className='quick-add-created'
+  done.textContent='Created '+(task.key||task.id)+' · '+task.title
+  const next=document.createElement('div');next.className='quick-add-actions'
+  const status=document.createElement('p');status.className='quick-add-notice';status.setAttribute('role','status')
+  const clarify=document.createElement('button');clarify.type='button';clarify.textContent='Clarify now';clarify.dataset.defaultAction=''
+  clarify.onclick=async()=>{
+   clarify.disabled=true;status.textContent='Launching clarify…'
+   try{await api.launchServerTask(projectId,task.id,'clarify','','',false,consoleView);dialog.close();await refresh()}
+   catch(err){status.textContent=err.message;clarify.disabled=false}
+  }
+  const launch=document.createElement('button');launch.type='button';launch.className='secondary';launch.textContent='Launch task'
+  launch.onclick=()=>{dialog.close();openTickets(projectId,task.key||task.title)}
+  const another=document.createElement('button');another.type='button';another.className='secondary';another.textContent='Add another'
+  another.onclick=()=>quickAdd(projectId)
+  const close=document.createElement('button');close.type='button';close.className='secondary';close.textContent='Done'
+  close.onclick=()=>dialog.close()
+  next.append(another,launch,close,clarify)
+  form.append(done,status,next);clarify.focus()
  }
 }
 
@@ -3118,12 +3327,12 @@ async function launchTaskWork(kind,force){
   if(abandoned){await refresh();return}
   const launchSkill=kind==='pickup'?'pickup':fresh.step.skillId
   submittingSteps.set(key,launchSkill)
-  await api.launchServerTask(run.projectId,run.taskId,launchSkill,'',kind==='pickup'?'autonomous':undefined,force)
+  await api.launchServerTask(run.projectId,run.taskId,launchSkill,'',kind==='pickup'?'autonomous':undefined,force,consoleView)
   submittedSteps.set(key,{skillId:launchSkill,kind,runIds:latestRuns.filter(item=>taskKey(item)===key).map(item=>item.id)})
   await refresh()
   if(taskKey(currentTaskRun()||{})===key){
    const launched=runs.find(item=>taskKey(item)===key&&!latestRuns.some(previous=>previous.id===item.id))
-   if(launched)select(launched)
+   if(launched&&launched.id!==selected)select(launched)
   }
  }catch(err){
   const refusal=refusedActiveRun(err.message)

@@ -175,6 +175,15 @@ export SECTILE_SECRET_KEY='<64 hex characters>'
 ./bin/server
 ```
 
+The database must be encoded in UTF8, the PostgreSQL default. The server
+refuses to start on any other encoding, such as the SQL_ASCII that
+`initdb --locale=C` gives without `--encoding`, because the run output it caps
+in SQL would be counted in bytes. Create the database with:
+
+```sql
+CREATE DATABASE sectile ENCODING 'UTF8' TEMPLATE template0;
+```
+
 Use one server instance per database unless the deployment follows the shared
 PostgreSQL design documented in the architecture guide.
 

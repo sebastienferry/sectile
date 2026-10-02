@@ -122,7 +122,9 @@ const fr = {
       merged: 'PR fusionnée',
       closed: 'PR fermée sans fusion',
       unknown: 'État de la PR inconnu',
+      missingToken: 'État de la PR inconnu : aucun jeton {forge}',
     },
+    otherRepositories: 'Autres dépôts : {list}',
   },
   workflow: {
     completePrSetup: 'Finaliser la PR via {skill}',
@@ -354,7 +356,9 @@ const en: TaskDetailStrings = {
       merged: 'PR merged',
       closed: 'PR closed without merging',
       unknown: 'PR state unknown',
+      missingToken: 'PR state unknown: no {forge} token',
     },
+    otherRepositories: 'Other repositories: {list}',
   },
   workflow: {
     completePrSetup: 'Complete PR setup through {skill}',

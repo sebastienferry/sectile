@@ -104,6 +104,9 @@ type ProjectSettings struct {
 	// tasks' specification artefacts (#487): "keep" or "drop"; empty follows
 	// the server.
 	SpecArtifacts string `json:"specArtifacts,omitempty"`
+	// ClaudeSandbox holds what this project's Claude Code sessions are allowed
+	// (#700). It is handed to every built-in Claude line through --settings.
+	ClaudeSandbox *ClaudeSandbox `json:"claudeSandbox,omitempty"`
 }
 
 // Seeded records the one-time copies of the server values (US6), so they are
@@ -136,7 +139,7 @@ func (e Execution) isZero() bool {
 // IsZero reports a project section that states nothing and can be dropped.
 func (p ProjectSettings) IsZero() bool {
 	return strings.TrimSpace(p.Path) == "" && strings.TrimSpace(p.SpecPath) == "" && p.Execution.isZero() && len(p.SkillCommands) == 0 &&
-		strings.TrimSpace(p.SpecArtifacts) == "" && len(p.Folders) == 0
+		strings.TrimSpace(p.SpecArtifacts) == "" && len(p.Folders) == 0 && p.ClaudeSandbox.IsZero()
 }
 
 // Project returns the project's section, empty when it has none.
@@ -401,6 +404,11 @@ func ValidateProject(p ProjectSettings) error {
 	case "", "keep", "drop":
 	default:
 		return fmt.Errorf("specArtifacts must be keep or drop")
+	}
+	if p.ClaudeSandbox != nil {
+		if _, err := NormalizeClaudeSandbox(*p.ClaudeSandbox); err != nil {
+			return err
+		}
 	}
 	return nil
 }

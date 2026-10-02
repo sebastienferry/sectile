@@ -66,14 +66,19 @@ test('a conversation attaches a folder from its composer',async()=>{
   // Closing the picker changes nothing.
   await choose(null);await add.click()
   await expect(status).toHaveText('Ready')
+  await expect(status).toHaveAttribute('data-kind','idle')
   assert.equal(posted.length,0)
 
   // Claude may be working: the folder is still added, for the next turn.
   state.busy=true
   await expect(status).toHaveText('Claude Code is working…')
+  await expect(status).toHaveAttribute('data-kind','working')
   await expect(add).toBeEnabled()
   await choose('/notes');await add.click()
   await expect(status).toHaveText('Attached /notes: Claude sees it from your next message')
+  // A notice is idle even while Claude works: no indicator before it.
+  await expect(status).toHaveAttribute('data-kind','idle')
+  assert.equal(await status.evaluate(el=>getComputedStyle(el,'::before').content),'none')
   assert.deepEqual(posted.at(-1),{runId:'chat',path:'/notes'})
   // The outcome is not overwritten by the next poll.
   await page.waitForTimeout(1600)
@@ -132,4 +137,37 @@ test('a running ticket discussion attaches a folder from its toolbar',async()=>{
   await expect(page.locator('#title')).toContainText('#4')
   await expect(add).toBeHidden()
  }finally{await agent.close()}
+})
+
+test('a free console and a detached discussion attach a folder on an agent that serves them',async()=>{
+ const console={id:'free',taskId:'',projectId:'project',kind:'console',provider:'codex',status:'running',directory:'/tmp/project',sessionId:'free'}
+ const detached={id:'away',taskId:'away',taskKey:'#5',title:'Detached discussion',projectId:'project',skill:'discuss',status:'running',directory:'/tmp/project',sessionId:'away',externalTerminal:'ghostty'}
+ const answers={'/later':{typed:false,appliesAt:'next-launch'},'/now':{typed:true,appliesAt:'now'}}
+ for(const capabilities of [['run-folders'],['run-folders','run-folders-terminals']]){
+  const agent=await fakeAgent({runs:[{...console},{...detached}],capabilities,answer:input=>({body:answers[input.path]})})
+  const {page,choose,posted}=agent
+  const served=capabilities.includes('run-folders-terminals')
+  try{
+   const add=page.locator('#add-run-folder'),status=page.locator('#add-run-folder-status')
+   await page.locator('.run').filter({hasText:'Detached discussion'}).click()
+   await expect(page.locator('#native-terminal-badge')).toHaveText('Active in Ghostty')
+   if(!served){
+    // An agent that predates #689 would not type into it, or refuse a console.
+    await expect(add).toBeHidden()
+    await page.locator('.run').filter({hasText:'Project prompt'}).click()
+    await expect(page.locator('#native-terminal-badge')).toBeHidden()
+    await expect(add).toBeHidden()
+    continue
+   }
+   await choose('/now');await add.click()
+   await expect(status).toHaveText('Attached /now and typed /add-dir into the session in Ghostty')
+   assert.deepEqual(posted.at(-1),{runId:'away',path:'/now'})
+   await page.locator('.run').filter({hasText:'Project prompt'}).click()
+   await expect(page.locator('#native-terminal-badge')).toBeHidden()
+   await expect(status).toBeHidden()
+   await choose('/later');await add.click()
+   await expect(status).toHaveText('Attached /later: a new Project prompt or a relaunch sees it')
+   assert.deepEqual(posted.at(-1),{runId:'free',path:'/later'})
+  }finally{await agent.close()}
+ }
 })

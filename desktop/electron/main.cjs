@@ -360,7 +360,7 @@ ipcMain.handle('server-tasks',(_,id,q,launchable)=>api('/desktop/tasks?projectId
 ipcMain.handle('launch-console',(_,projectId,provider,engineId,view)=>api('/desktop/consoles','POST',Object.assign(engineId?{projectId,engineId}:{projectId,provider},view==='conversation'?{view}:null)))
 // An absent mode means "no override": nothing is sent, so a launch with no
 // explicit choice puts exactly the payload on the wire that it always did.
-ipcMain.handle('launch-server-task',(_,id,taskID,skillID,prompt,mode,force)=>api('/desktop/tasks?projectId='+encodeURIComponent(id),'POST',Object.assign({taskID,skillID,prompt},mode?{mode}:null,force?{force:true}:null)))
+ipcMain.handle('launch-server-task',(_,id,taskID,skillID,prompt,mode,force,view)=>api('/desktop/tasks?projectId='+encodeURIComponent(id),'POST',Object.assign({taskID,skillID,prompt},mode?{mode}:null,force?{force:true}:null,view==='conversation'?{view}:null)))
 ipcMain.handle('launch-native-discussion',async(_,{projectId,taskId,terminal}={})=>api('/desktop/tasks/terminal-external','POST',{projectId,taskId,skillId:'discuss',terminal}))
 ipcMain.handle('detach-to-native-terminal',async(_,{runId,terminal}={})=>api('/desktop/terminal/detach','POST',{runId,terminal}))
 // Opening a worktree in the editor (#535) names the run, never a path: the
@@ -482,8 +482,13 @@ ipcMain.handle('create-conversation',async(_,sourceRunId)=>{
  if(!status.capabilities?.includes('claude-conversation'))throw Error('Update and restart the local agent to try Claude conversations.')
  return api('/desktop/conversation','POST',{sourceRunId})
 })
-ipcMain.handle('conversation',(_,id)=>api('/desktop/conversation?id='+encodeURIComponent(id)))
-ipcMain.handle('conversation-message',(_,{id,message,effort})=>api('/desktop/conversation?id='+encodeURIComponent(id),'POST',{message,effort:typeof effort==='string'?effort:''}))
+// since is the version the window already shows: an unchanged history is not sent again.
+ipcMain.handle('conversation',(_,id,since)=>api('/desktop/conversation?id='+encodeURIComponent(id)+(Number.isSafeInteger(since)?'&since='+since:'')))
+ipcMain.handle('conversation-interrupt',(_,id)=>api('/desktop/conversation?id='+encodeURIComponent(id),'POST',{interrupt:true}))
+ipcMain.handle('conversation-approval',(_,{id,approvalId,decision,answers})=>api('/desktop/conversation?id='+encodeURIComponent(id),'POST',{approval:Object.assign({id:approvalId,decision},answers&&typeof answers==='object'?{answers}:null)}))
+ipcMain.handle('conversation-check-mcp',(_,id)=>api('/desktop/conversation?id='+encodeURIComponent(id),'POST',{checkMcp:true}))
+ipcMain.handle('conversation-terminal',(_,runId)=>api('/desktop/conversation-terminal','POST',{runId}))
+ipcMain.handle('conversation-message',(_,{id,message,effort,model,mode})=>api('/desktop/conversation?id='+encodeURIComponent(id),'POST',{message,effort:typeof effort==='string'?effort:'',model:typeof model==='string'?model:'',mode:typeof mode==='string'?mode:''}))
 // The agent forgets a run once its history is cleared or it restarts, and
 // answers 404 by contract. Report "no result" instead of rejecting the IPC
 // promise: Electron logs every rejected handler with a stack, and this outcome

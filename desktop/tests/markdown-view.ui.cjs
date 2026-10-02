@@ -24,7 +24,7 @@ Some *emphasis* and a table:
 ![diagram](docs/x.png) ![remote](https://example.com/x.png)
 `
 
-test('Changes renders Markdown files on request, safely, for the whole session',async()=>{
+test('Changes renders Markdown files by default, safely, with the raw diff chosen per execution',async()=>{
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'sectile-markdown-ui-'))
  let capabilities=['git-diff','markdown-documents']
  const runs=['a','b'].map(id=>({id,taskId:id,taskKey:'#'+id,projectId:'project',skill:'implement',status:'completed',directory:'/tmp/'+id,sessionId:id}))
@@ -71,11 +71,13 @@ test('Changes renders Markdown files on request, safely, for the whole session',
   let page
   ;({app,page}=await launch())
   const toggle=page.locator('.diff-render-toggle'),note=page.locator('.diff-render-note'),view=page.locator('.diff-rendered'),patch=page.locator('.diff-patch')
-  const pick=name=>page.locator('.diff-files button').filter({hasText:name}).click()
-  // A Markdown file opens on its raw diff, with the toggle offered and not pressed.
+  const pick=name=>page.getByRole('combobox',{name:'Changed file'}).selectOption({label:name})
+  // A Markdown file opens rendered, with the toggle pressed; it turns back to the raw diff.
   await pick('docs/guide.md · modified')
-  await expect(toggle).toBeVisible();await expect(toggle).toHaveAttribute('aria-pressed','false');await expect(toggle).toBeEnabled()
-  await expect(patch).toContainText('+raw docs/guide.md');await expect(view).toBeHidden()
+  await expect(toggle).toBeVisible();await expect(toggle).toHaveAttribute('aria-pressed','true');await expect(toggle).toBeEnabled()
+  await expect(patch).toBeHidden();await expect(view).toBeVisible()
+  await toggle.click()
+  await expect(toggle).toHaveAttribute('aria-pressed','false');await expect(patch).toContainText('+raw docs/guide.md');await expect(view).toBeHidden()
   await toggle.click()
   await expect(toggle).toHaveAttribute('aria-pressed','true');await expect(patch).toBeHidden();await expect(view).toBeVisible()
   await expect(view.locator('h1')).toHaveText('Guide');await expect(view.locator('em')).toHaveText('emphasis')
@@ -111,8 +113,10 @@ test('Changes renders Markdown files on request, safely, for the whole session',
   await expect(toggle).toHaveAttribute('aria-pressed','true');await expect(note).toHaveText('Old version: this file is deleted.');await expect(view.locator('h1')).toHaveText('Old title')
   await page.getByRole('button',{name:'Refresh',exact:true}).click();await expect(page.locator('.diff-status')).toHaveText('Changes loaded.')
   await expect(view.locator('h1')).toHaveText('Old title');await expect(toggle).toHaveAttribute('aria-pressed','true')
+  // The raw diff chosen on one execution is forgotten when another is selected.
+  await toggle.click();await expect(toggle).toHaveAttribute('aria-pressed','false')
   await page.locator('.run').filter({hasText:'Task b'}).click();await expect(page.locator('.diff-context')).toContainText('feat/b')
-  await expect(view.locator('h1')).toHaveText('Other execution')
+  await expect(view.locator('h1')).toHaveText('Other execution');await expect(toggle).toHaveAttribute('aria-pressed','true')
   await toggle.click();await expect(toggle).toHaveAttribute('aria-pressed','false');await expect(patch).toContainText('+raw other.md');await expect(view).toBeHidden()
   await toggle.click();await expect(view.locator('h1')).toHaveText('Other execution')
   await view.focus();await expect(view).toBeFocused()
@@ -121,9 +125,9 @@ test('Changes renders Markdown files on request, safely, for the whole session',
   await expect(toggle).toBeDisabled();await expect(note).toHaveText('Update and restart the local agent to render Markdown.');await expect(patch).toContainText('+raw other.md')
   capabilities=['git-diff','markdown-documents']
   await app.close();app=null
-  // The choice is not persisted: a new Desktop session starts on the raw diff.
+  // The choice is not persisted: a new Desktop session starts rendered.
   ;({app,page}=await launch())
-  await page.locator('.diff-files button').filter({hasText:'docs/guide.md · modified'}).click()
-  await expect(page.locator('.diff-render-toggle')).toHaveAttribute('aria-pressed','false');await expect(page.locator('.diff-patch')).toContainText('+raw docs/guide.md')
+  await page.getByRole('combobox',{name:'Changed file'}).selectOption({label:'docs/guide.md · modified'})
+  await expect(page.locator('.diff-render-toggle')).toHaveAttribute('aria-pressed','true');await expect(page.locator('.diff-rendered h1')).toHaveText('Guide')
  }finally{if(app)await app.close();ws.close();await new Promise(resolve=>server.close(resolve))}
 })
