@@ -100,6 +100,8 @@ export function createConversationView({api,container,onError,canAddFolder=()=>f
  let selected=null,directory='',busy=false,generation=0,timer=null,version=null,pending=false,available=false,effortLoaded=false,readOnly=true,attaching=false
  // The outcome of an added folder stays in the status for a while, over polling.
  let notice='',noticeUntil=0
+ // kind is working, asking or idle; the stylesheet draws the indicator from it.
+ const showStatus=(text,kind='idle')=>{status.textContent=text;status.dataset.kind=kind}
  const showAddFolder=()=>{addFolder.hidden=!selected||!canAddFolder();addFolder.disabled=readOnly||attaching}
  // While Claude answers, Stop answer appears; Send stays beside it when the
  // agent takes a message mid-answer, as in Claude Code. The terminal is
@@ -139,7 +141,12 @@ export function createConversationView({api,container,onError,canAddFolder=()=>f
   }
   model.disabled=mode.disabled=!!data.readOnly
   showContext(data.context)
-  status.textContent=Date.now()<noticeUntil?notice:data.readOnly?'Read-only history':data.approvals?.some(item=>item.tool==='AskUserQuestion')?'Claude is asking you a question':data.approvals?.length?'Waiting for your approval':data.busy?'Claude Code is working…':'Ready'
+  if(Date.now()<noticeUntil)showStatus(notice)
+  else if(data.readOnly)showStatus('Read-only history')
+  else if(data.approvals?.some(item=>item.tool==='AskUserQuestion'))showStatus('Claude is asking you a question','asking')
+  else if(data.approvals?.length)showStatus('Waiting for your approval','asking')
+  else if(data.busy)showStatus('Claude Code is working…','working')
+  else showStatus('Ready')
  }
  // Claude may be working: the folder is attached at once and given from the
  // next turn on, so the action stays available while busy.
@@ -157,14 +164,14 @@ export function createConversationView({api,container,onError,canAddFolder=()=>f
   finally{
    if(token===generation){
     attaching=false;showAddFolder()
-    if(notice){noticeUntil=Date.now()+8000;status.textContent=notice}
+    if(notice){noticeUntil=Date.now()+8000;showStatus(notice)}
    }
   }
  })
  interrupt.addEventListener('click',async()=>{
   const id=selected,token=generation
   if(!id)return
-  interrupt.disabled=true;status.textContent='Stopping the answer…'
+  interrupt.disabled=true;showStatus('Stopping the answer…','working')
   try{await api.conversationInterrupt(id)}
   catch(err){if(token===generation){interrupt.disabled=false;onError(err)}}
  })
@@ -326,7 +333,7 @@ export function createConversationView({api,container,onError,canAddFolder=()=>f
    draw(data);drawPartial(data.busy?data.partial||'':'');drawApprovals(Array.isArray(data.approvals)?data.approvals:[]);controls(data);busy=!!data.busy
   }catch(err){
    if(token!==generation)return
-   available=false;send.disabled=true;status.textContent=err.message||String(err)
+   available=false;send.disabled=true;showStatus(err.message||String(err))
   }finally{if(token===generation&&selected)timer=setTimeout(()=>poll(token,id),busy?250:750)}
  }
  // The conversation's model first, then the workstation's Claude models.
@@ -348,7 +355,7 @@ export function createConversationView({api,container,onError,canAddFolder=()=>f
    await api.conversationMessage(id,message,effort.value,model.value,mode.value)
    if(token!==generation)return
    const shell=message.trimStart().startsWith('!'),local=message.trim()==='/mcp'
-   input.value='';grow();showShellMode();available=shell||local||canQueue();status.textContent=shell?'Running in the shell…':local?'Checking MCP servers…':'Claude Code is working…'
+   input.value='';grow();showShellMode();available=shell||local||canQueue();showStatus(shell?'Running in the shell…':local?'Checking MCP servers…':'Claude Code is working…','working')
   }catch(err){if(token===generation)onError(err)}
   finally{if(token===generation){pending=false;send.disabled=!available}}
  })
@@ -356,6 +363,6 @@ export function createConversationView({api,container,onError,canAddFolder=()=>f
   generation++;clearTimeout(timer);selected=run?.conversation?run.id:null;directory=run?.directory||'';busy=false;commands=[];closeCompletion();openTerminal.hidden=true;mcp.hidden=true;interrupt.hidden=true;send.hidden=false;partialNode=null;partialText='';version=null;pending=false;available=false;effortLoaded=false;readOnly=true;attaching=false;notice='';noticeUntil=0;showAddFolder()
   events.replaceChildren();effort.value='';effort.disabled=true;showEffort();showContext(null);input.value='';grow();fillModels(run?.model);mode.value='acceptEdits';model.disabled=mode.disabled=true;input.disabled=true;send.disabled=true
   panel.hidden=!selected;container.classList.toggle('conversation-active',!!selected)
-  if(selected){status.textContent='Loading conversation…';poll(generation,selected)}
+  if(selected){showStatus('Loading conversation…','working');poll(generation,selected)}
  },get active(){return !!selected}}
 }

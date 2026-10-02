@@ -66,14 +66,19 @@ test('a conversation attaches a folder from its composer',async()=>{
   // Closing the picker changes nothing.
   await choose(null);await add.click()
   await expect(status).toHaveText('Ready')
+  await expect(status).toHaveAttribute('data-kind','idle')
   assert.equal(posted.length,0)
 
   // Claude may be working: the folder is still added, for the next turn.
   state.busy=true
   await expect(status).toHaveText('Claude Code is working…')
+  await expect(status).toHaveAttribute('data-kind','working')
   await expect(add).toBeEnabled()
   await choose('/notes');await add.click()
   await expect(status).toHaveText('Attached /notes: Claude sees it from your next message')
+  // A notice is idle even while Claude works: no indicator before it.
+  await expect(status).toHaveAttribute('data-kind','idle')
+  assert.equal(await status.evaluate(el=>getComputedStyle(el,'::before').content),'none')
   assert.deepEqual(posted.at(-1),{runId:'chat',path:'/notes'})
   // The outcome is not overwritten by the next poll.
   await page.waitForTimeout(1600)

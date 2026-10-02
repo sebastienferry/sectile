@@ -3,13 +3,16 @@ const assert=require('node:assert/strict')
 const {_electron:electron,expect}=require('@playwright/test')
 const http=require('node:http'),fs=require('node:fs'),os=require('node:os'),path=require('node:path')
 const {WebSocketServer}=require('ws')
+// The status indicator is the ::before of the status; idle draws none.
+const indicator=(status,property)=>status.evaluate((el,property)=>getComputedStyle(el,'::before')[property],property)
+const token=(page,name)=>page.evaluate(name=>{const probe=document.createElement('div');probe.style.color=`var(${name})`;document.body.append(probe);const value=getComputedStyle(probe).color;probe.remove();return value},name)
 
 test('Claude chat renders structured output safely and sends messages without a PTY',async()=>{
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'sectile-conversation-ui-'))
  const source={id:'source',taskId:'source',taskKey:'#1',projectId:'project',skill:'implement',status:'completed',directory:'/tmp/project',sessionId:'source'}
  const chat={id:'chat',taskId:'',projectId:'project',kind:'console',provider:'claude',conversation:true,headless:true,status:'running',directory:'/tmp/project'}
  const runs=[source],events=[{kind:'notice',text:'Claude Code conversation · experimental',detail:'Edits accepted; approvals unavailable.'}]
- let sentMode='',mcpState={status:'needs-auth',detail:'! Needs authentication'},mcpChecks=0,busy=false,partial='',interrupts=0,joined=[],terminals=[],approvals=[],decisions=[],readOnly=false,attachments=0,message='',effort='',context
+ let sentMode='',mcpState={status:'needs-auth',detail:'! Needs authentication'},mcpChecks=0,busy=false,partial='',interrupts=0,joined=[],terminals=[],approvals=[],decisions=[],readOnly=false,foreign=false,attachments=0,message='',effort='',context
  const server=http.createServer((req,res)=>{
   res.setHeader('Content-Type','application/json')
   if(req.url==='/desktop/status'){res.end(JSON.stringify({connected:true,capabilities:['claude-conversation','conversation-controls','conversation-queue']}));return}
@@ -22,7 +25,7 @@ test('Claude chat renders structured output safely and sends messages without a 
   }
   if(req.url==='/desktop/conversation-terminal'){let body='';req.on('data',chunk=>body+=chunk);req.on('end',()=>{terminals.push(JSON.parse(body).runId);res.end(JSON.stringify({opened:true}))});return}
   if(req.url==='/desktop/conversation?id=chat'){
-   if(req.method==='GET'){res.end(JSON.stringify({id:'chat',events:events.map(e=>JSON.stringify(e)),version:events.length,busy,readOnly,effort,context,partial,approvals,sectileMcp:mcpState,commands:[{name:'clarify-issue',description:'Clarify a <b>ticket</b>',argumentHint:'<KEY>'},{name:'specify-issue',description:'Write the spec'},{name:'code-review'}]}));return}
+   if(req.method==='GET'){res.end(JSON.stringify({id:foreign?'other':'chat',events:events.map(e=>JSON.stringify(e)),version:events.length,busy,readOnly,effort,context,partial,approvals,sectileMcp:mcpState,commands:[{name:'clarify-issue',description:'Clarify a <b>ticket</b>',argumentHint:'<KEY>'},{name:'specify-issue',description:'Write the spec'},{name:'code-review'}]}));return}
    let body='';req.on('data',chunk=>body+=chunk);req.on('end',()=>{
     const sent=JSON.parse(body)
     if(sent.checkMcp){mcpChecks++;mcpState={status:'connected',detail:'✔ Connected'};res.writeHead(202).end(JSON.stringify({accepted:true}));return}
@@ -99,6 +102,23 @@ test('Claude chat renders structured output safely and sends messages without a 
   await expect(page.locator('.conversation-assistant')).toContainText('Safe output')
   await expect(input).toHaveValue('')
   await expect(page.locator('#error')).toHaveText('')
+  // While Claude works, a dot pulses before the status, still under reduced motion.
+  const status=page.locator('.conversation-status')
+  await expect(status).toHaveText('Claude Code is working…')
+  await expect(status).toHaveAttribute('data-kind','working')
+  assert.equal(await indicator(status,'animationName'),'run-state-pulse')
+  await page.emulateMedia({reducedMotion:'reduce'})
+  assert.equal(await indicator(status,'animationName'),'none')
+  assert.notEqual(await indicator(status,'content'),'none')
+  await page.emulateMedia({reducedMotion:'no-preference'})
+  assert.equal(await indicator(status,'animationName'),'run-state-pulse')
+  // An error is idle even while Claude works.
+  foreign=true
+  await expect(status).toHaveText('The agent returned another conversation.')
+  await expect(status).toHaveAttribute('data-kind','idle')
+  assert.equal(await indicator(status,'content'),'none')
+  foreign=false
+  await expect(status).toHaveText('Claude Code is working…')
   await expect(page.locator('.conversation-assistant pre code')).toHaveText('<img src=x onerror="window.hostile=true">')
   // Claude's Markdown is rendered like a changed file's: tables, task lists,
   // inert relative links and images left as their alt text.
@@ -157,6 +177,12 @@ test('Claude chat renders structured output safely and sends messages without a 
   const asking=page.locator('.tool-card-asking')
   await expect(asking).toHaveCount(2)
   await expect(page.locator('.conversation-status')).toHaveText('Waiting for your approval')
+  // Claude waits for the owner: the status and a still dot take the waiting colour.
+  const waiting=await token(page,'--waiting')
+  await expect(status).toHaveAttribute('data-kind','asking')
+  await expect(status).toHaveCSS('color',waiting)
+  assert.equal(await indicator(status,'animationName'),'none')
+  assert.equal(await indicator(status,'backgroundColor'),waiting)
   await expect(card('Bash').getByRole('button',{name:'Always allow',exact:true})).toBeVisible()
   await expect(card('close_issue').getByRole('button',{name:'Always allow',exact:true})).toHaveCount(0)
   await expect(card('close_issue').locator('.tool-approval-question')).toHaveText('Allow mcp__tracker__close_issue?')
@@ -173,6 +199,9 @@ test('Claude chat renders structured output safely and sends messages without a 
   const question=page.locator('.tool-question')
   await expect(question).toBeVisible()
   await expect(page.locator('.conversation-status')).toHaveText('Claude is asking you a question')
+  await expect(status).toHaveAttribute('data-kind','asking')
+  await expect(status).toHaveCSS('color',waiting)
+  assert.equal(await indicator(status,'animationName'),'none')
   await expect(question.locator('input[type=radio]')).toHaveCount(2)
   await expect(question.locator('input[type=checkbox]')).toHaveCount(2)
   await expect(question.locator('small')).toHaveText('Warm <b>tone</b>')
@@ -184,6 +213,9 @@ test('Claude chat renders structured output safely and sends messages without a 
   await question.getByRole('button',{name:'Answer',exact:true}).click()
   await expect.poll(()=>decisions.at(-1)).toEqual({id:'ask-1',decision:'answer',answers:{'Which color?':'Blue','Which days?':'Mon, Tue, Fri'}})
   await expect(question).toHaveCount(0)
+  // Once answered, Claude resumes and the dot pulses again.
+  await expect(status).toHaveText('Claude Code is working…')
+  assert.equal(await indicator(status,'animationName'),'run-state-pulse')
   assert.equal(await page.locator('.conversation b').count(),0)
   // The reply in progress streams after the history, rendered, and leaves
   // the history untouched; it disappears once the turn ends.
@@ -203,12 +235,17 @@ test('Claude chat renders structured output safely and sends messages without a 
   await expect(page.getByRole('button',{name:'Send',exact:true})).toBeEnabled()
   await expect(page.getByRole('button',{name:'Stop answer',exact:true})).toBeHidden()
   await expect(input).toBeEnabled()
+  await expect(status).toHaveText('Ready')
+  await expect(status).toHaveAttribute('data-kind','idle')
+  assert.equal(await indicator(status,'content'),'none')
   await page.setViewportSize({width:1000,height:750})
   await page.screenshot({path:path.join(root,'conversation.png')})
   await page.getByRole('button',{name:'Stop execution',exact:true}).click()
   await expect(input).toBeDisabled()
   await expect(page.getByLabel('Effort',{exact:true})).toBeDisabled()
   await expect(page.locator('.conversation-status')).toHaveText('Read-only history')
+  await expect(status).toHaveAttribute('data-kind','idle')
+  assert.equal(await indicator(status,'content'),'none')
   await page.locator('.run').filter({hasText:'Source execution'}).click()
   await expect(page.locator('.conversation')).toBeHidden()
   await expect(page.locator('.xterm')).toBeVisible()
