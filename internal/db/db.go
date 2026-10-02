@@ -218,7 +218,7 @@ func openWith(cfg Config, d dialect) (*DB, error) {
 		return nil, err
 	}
 	// A pool hands out connections lazily, so a DSN pointing nowhere would not
-	// be noticed until the first query — by which time the server is up and
+	// be noticed until the first query, by which time the server is up and
 	// answering with errors. Failing here keeps a misconfiguration a startup
 	// failure.
 	if err := conn.Ping(); err != nil {
@@ -551,7 +551,7 @@ func (d *DB) initSchema() error {
 
 	// task_activities: task_id points at a task again, and project_id carries a
 	// project activity. This runs on both engines and outside the legacy block
-	// above — a PostgreSQL database created since #304 holds the very
+	// above: a PostgreSQL database created since #304 holds the very
 	// "sync-<x>" rows the backfill exists for, and leaving them behind would
 	// make the restored foreign key impossible to create. It runs after the
 	// legacy migrations so that, under SQLite, the table it rebuilds already has
@@ -1348,7 +1348,7 @@ func (d *DB) foldSearch(expr string) string {
 	return d.dialect.FoldSearch(expr)
 }
 
-// asciiLower lowers A-Z, and leaves every other character as it is — an
+// asciiLower lowers A-Z, and leaves every other character as it is, an
 // accented letter included. It is the Go half of lowerASCII.
 func asciiLower(s string) string {
 	return strings.Map(func(r rune) rune {
@@ -3576,7 +3576,7 @@ func (d *DB) getTaskActivitiesUnsafe(taskID string) ([]models.TaskActivity, erro
 }
 
 // getProjectActivitiesUnsafe is the project history: the activities attached to
-// a project rather than to one of its tickets — its synchronisations, above all.
+// a project rather than to one of its tickets: its synchronisations, above all.
 //
 // It is a reader of its own rather than a project identifier smuggled into
 // getTaskActivitiesUnsafe, which is exactly the overloading #310 removes from
@@ -4397,7 +4397,7 @@ func syncWindow(ts tracker.TicketingSystem, opts SyncOptions) int {
 //
 // The first two describe the project rather than its work items, and cost the
 // same whether one ticket moved or none. A background pass therefore only asks
-// for them on a full read — every half hour — while a synchronisation somebody
+// for them on a full read (every half hour), while a synchronisation somebody
 // asked for always does. Pull request rediscovery follows the imported work
 // items, so an incremental pass pays for exactly what changed.
 func (d *DB) afterTrackerSync(ctx context.Context, proj *models.Project, ts tracker.TicketingSystem, tasks []models.Task, opts SyncOptions) []string {
@@ -5330,7 +5330,7 @@ func (d *DB) resolveTaskSkillMode(projectID, skillID, modeOverride string) strin
 //
 // It matches the recorded attachment and nothing else. Before #310 it also ran
 // "a.task_id LIKE '%id%' OR a.prompt LIKE '%id%'", which caught project
-// activities by the shape of their made-up identifier — and caught, with them,
+// activities by the shape of their made-up identifier, and caught, with them,
 // any activity whose prompt happened to mention another project.
 //
 // The identifier may be a project id or a project slug, as it always could, so
@@ -5661,10 +5661,36 @@ func (d *DB) cancelLocal(activityID string) {
 	}
 }
 
+// deletedRemoteRunRetention is how long the record of a deleted finished
+// remote run is kept (#675).
+const deletedRemoteRunRetention = 30 * 24 * time.Hour
+
+// recordDeletedRemoteRunsUnsafe remembers the finished remote runs that the
+// caller's DELETE with the same condition is about to remove, so that an agent
+// still reporting one of them cannot recreate it (#675), and forgets the
+// records past their retention. A run deleted while it still runs is not
+// recorded: the agent really is running it. The caller holds d.mu.
+func (d *DB) recordDeletedRemoteRunsUnsafe(where string, args ...any) error {
+	now := time.Now()
+	insertArgs := append([]any{now}, args...)
+	if _, err := d.conn.Exec(`INSERT INTO deleted_remote_runs (id, deleted_at)
+		SELECT id, ? FROM task_activities WHERE skill_id = 'remote_run' AND status IN ('completed', 'failed', 'canceled') AND `+where+`
+		ON CONFLICT (id) DO NOTHING`, insertArgs...); err != nil {
+		return fmt.Errorf("recording the deleted remote runs: %w", err)
+	}
+	if _, err := d.conn.Exec("DELETE FROM deleted_remote_runs WHERE deleted_at < ?", now.Add(-deletedRemoteRunRetention)); err != nil {
+		return fmt.Errorf("purging the deleted remote runs: %w", err)
+	}
+	return nil
+}
+
 func (d *DB) DeleteActivity(activityID string) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
+	if err := d.recordDeletedRemoteRunsUnsafe("id = ?", activityID); err != nil {
+		return err
+	}
 	_, err := d.conn.Exec("DELETE FROM task_activities WHERE id = ?", activityID)
 	return err
 }
@@ -5673,6 +5699,9 @@ func (d *DB) ClearCompletedActivities() (int, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
+	if err := d.recordDeletedRemoteRunsUnsafe("1 = 1"); err != nil {
+		return 0, err
+	}
 	res, err := d.conn.Exec("DELETE FROM task_activities WHERE status IN ('completed', 'failed', 'canceled')")
 	if err != nil {
 		return 0, err

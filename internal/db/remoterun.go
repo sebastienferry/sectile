@@ -356,7 +356,8 @@ func (d *DB) finishRemoteRun(taskKey, runID, status, note string, authorize func
 // stays ended: a late "running" from the agent never reopens a run the server,
 // its owner or another instance has closed (#407). A terminal run may still move
 // to another terminal status, since an owner may report the real outcome of a
-// run the server closed (ADR 0007).
+// run the server closed (ADR 0007). A finished run that was deleted is not
+// recreated either: the call records nothing and returns no activity (#675).
 func (d *DB) SyncRemoteRunStatus(activityID, taskID, projectID, taskKey, skillName, status, summary string, startedAt *time.Time) (*models.TaskActivity, error) {
 	return d.SyncRemoteRunStatusFor("", activityID, taskID, projectID, taskKey, skillName, status, summary, startedAt)
 }
@@ -413,6 +414,19 @@ func (d *DB) SyncRemoteRunStatusFor(ownerID, activityID, taskID, projectID, task
 			return nil, err
 		}
 	} else {
+		// A finished run someone deleted stays deleted: the agent keeps
+		// reporting it until its console exits, and that report is no new run
+		// (#675).
+		var deleted int
+		lookupErr := d.conn.QueryRow("SELECT 1 FROM deleted_remote_runs WHERE id = ?", activityID).Scan(&deleted)
+		if lookupErr == nil {
+			d.mu.Unlock()
+			return nil, nil
+		}
+		if !errors.Is(lookupErr, sql.ErrNoRows) {
+			d.mu.Unlock()
+			return nil, lookupErr
+		}
 		action := RunActionAgent
 		if summary == "" {
 			if status == "queued" {

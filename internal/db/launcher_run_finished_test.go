@@ -114,3 +114,107 @@ func TestFinishedLauncherRunSurvivesRestartPaths(t *testing.T) {
 		wantStillFinished(t, d, finished, "start_run with its runId")
 	})
 }
+
+// wantNoActivity fails unless no activity carries the id.
+func wantNoActivity(t *testing.T, d *DB, id, after string) {
+	t.Helper()
+	got, err := d.GetActivityByID(id)
+	if err != nil {
+		t.Fatalf("reading the run back after %s: %v", after, err)
+	}
+	if got != nil {
+		t.Errorf("after %s, the run exists again as %q (%q)", after, got.Status, got.Summary)
+	}
+}
+
+// reportRunning applies one agent report of the run, as ApplyAgentRunningTasksFor does.
+func reportRunning(t *testing.T, d *DB, id, status string) *models.TaskActivity {
+	t.Helper()
+	started := time.Now().Add(-time.Hour)
+	act, err := d.SyncRemoteRunStatusFor("u1", id, "t1", "p1", "#1", "clarify-issue", status, "Execution "+status+" on agent", &started)
+	if err != nil {
+		t.Fatalf("agent report %s: %v", status, err)
+	}
+	return act
+}
+
+// TestDeletedFinishedRunIsNotRecreatedByAgentReports is the acceptance test of
+// #675: a finished run deleted from the activities view while its console is
+// still open must not come back from the agent's next reports. Before the fix
+// the insert branch recreated it as running with a fresh createdAt.
+func TestDeletedFinishedRunIsNotRecreatedByAgentReports(t *testing.T) {
+	batchEngines(t, func(t *testing.T, d *DB) {
+		finished := finishedLauncherRun(t, d)
+		if err := d.DeleteActivity(finished.ID); err != nil {
+			t.Fatalf("deleting the finished run: %v", err)
+		}
+		for _, status := range []string{"running", "queued"} {
+			if act := reportRunning(t, d, finished.ID, status); act != nil {
+				t.Errorf("agent report %s answered %#v, want no activity", status, act)
+			}
+			wantNoActivity(t, d, finished.ID, "an agent report "+status)
+		}
+	})
+}
+
+// TestClearedFinishedRunIsNotRecreatedByAgentReports is the same sequence
+// through "clear completed activities", which removes the same finished runs.
+func TestClearedFinishedRunIsNotRecreatedByAgentReports(t *testing.T) {
+	batchEngines(t, func(t *testing.T, d *DB) {
+		finished := finishedLauncherRun(t, d)
+		if n, err := d.ClearCompletedActivities(); err != nil || n == 0 {
+			t.Fatalf("clearing completed activities = %d, %v, want the finished run removed", n, err)
+		}
+		reportRunning(t, d, finished.ID, "running")
+		wantNoActivity(t, d, finished.ID, "an agent report after the clear")
+	})
+}
+
+// TestUnknownAgentRunIsStillInserted keeps the reason the insert branch exists:
+// a run that started on the agent, which the server never created, is recorded.
+func TestUnknownAgentRunIsStillInserted(t *testing.T) {
+	batchEngines(t, func(t *testing.T, d *DB) {
+		seedProjectAndUser(t, d)
+		seedTask(t, d)
+		act := reportRunning(t, d, "agent-run-675", "running")
+		if act == nil || act.Status != "running" || act.SkillID != "remote_run" || act.UserID != "u1" {
+			t.Fatalf("agent report of an unknown run answered %#v, want a running remote_run owned by u1", act)
+		}
+	})
+}
+
+// TestDeletedRunningRunIsRecreatedByAgentReports covers a deletion that does
+// not end the run: the agent is still running it, so its report records it again.
+func TestDeletedRunningRunIsRecreatedByAgentReports(t *testing.T) {
+	batchEngines(t, func(t *testing.T, d *DB) {
+		seedProjectAndUser(t, d)
+		seedTask(t, d)
+		reportRunning(t, d, "agent-run-675", "running")
+		if err := d.DeleteActivity("agent-run-675"); err != nil {
+			t.Fatalf("deleting the running run: %v", err)
+		}
+		if act := reportRunning(t, d, "agent-run-675", "running"); act == nil || act.Status != "running" {
+			t.Fatalf("agent report after deleting a running run answered %#v, want it running again", act)
+		}
+	})
+}
+
+// TestDeletedRemoteRunRecordsExpire checks that the record of a deletion is
+// kept for a bounded time: the next deletion purges one older than 30 days.
+func TestDeletedRemoteRunRecordsExpire(t *testing.T) {
+	batchEngines(t, func(t *testing.T, d *DB) {
+		finished := finishedLauncherRun(t, d)
+		if err := d.DeleteActivity(finished.ID); err != nil {
+			t.Fatalf("deleting the finished run: %v", err)
+		}
+		if _, err := d.conn.Exec("UPDATE deleted_remote_runs SET deleted_at = ? WHERE id = ?", time.Now().Add(-31*24*time.Hour), finished.ID); err != nil {
+			t.Fatalf("ageing the record: %v", err)
+		}
+		if err := d.DeleteActivity("no-such-activity"); err != nil {
+			t.Fatalf("a later deletion: %v", err)
+		}
+		if act := reportRunning(t, d, finished.ID, "running"); act == nil {
+			t.Fatal("an agent report after the record expired was ignored, want it inserted")
+		}
+	})
+}
