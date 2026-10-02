@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -123,6 +124,18 @@ func (d *agentDaemon) refreshMCPConnections() error {
 			return err
 		}
 		rewritten[provider] = fingerprint
+	}
+	// A registration written by `sectile-agent init` or an earlier key, with no saved desktop choice, still carries the
+	// key it was written with: follow the key the agent now holds (#717). Never creates one.
+	if !(temporaryExecutable(executable) && !runningUnderTest()) {
+		for _, provider := range agentconfig.MCPProviders {
+			if _, saved := settings.MCPConnections[provider]; saved {
+				continue
+			}
+			if _, err := agentconfig.RefreshRegisteredMCPKey(provider, executable, d.link.serverURL, d.link.token); err != nil {
+				log.Printf("[Agent] MCP configuration for %s not refreshed: %v", provider, err)
+			}
+		}
 	}
 	if len(rewritten) == 0 {
 		return nil
