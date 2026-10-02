@@ -798,11 +798,13 @@ execution: the success screen offers **Clarify now**, **Launch task** for any
 other launch, and **Add another** in the same project.
 
 Press **Cmd+K** (macOS) or **Ctrl+K** to open the command palette. One list
-searches the desktop's actions (**New task**, **Tasks list**, the sidebar,
-Settings, the web interface, each with its shortcut), the projects added to this
+searches the desktop's actions (**New task**, **Tasks list**, **Add project**,
+the sidebar, Settings, the web interface, each with its shortcut), the projects
+added to this
 workstation, to open their tasks, and the executions the sidebar shows, by task
 key, title, project, skill or state. Every word typed must match; arrows move,
-Enter runs the highlighted entry, Escape closes.
+Enter runs the highlighted entry, Escape closes. **Add project** opens the same
+dialog as the `+` next to PROJECTS, also when the sidebar is collapsed.
 
 In any dialog or settings page, **Cmd+Enter** (**Ctrl+Enter**) activates the
 default button: it submits the form being typed in, as **Create task** or

@@ -2074,7 +2074,9 @@ async function fillChangelogPanel(panel){
  const current=releaseNotesFor(releases,installed)
  if(current)notesHeading.textContent='Release notes · '+current.version
 }
-document.querySelector('#add-project').onclick=async()=>{
+// The sidebar's + button and the command palette open the same dialog, so the
+// two entry points cannot drift apart.
+async function openAddProject(){
  showDialog('Add project')
  paragraph('Discover projects from your Sectile server and configure their local directory.')
  try{
@@ -2090,6 +2092,7 @@ document.querySelector('#add-project').onclick=async()=>{
   }
  }catch(err){error(err)}
 }
+document.querySelector('#add-project').onclick=openAddProject
 function requestRemoveProject(id,name){
  showDialog('Remove '+name+' from desktop?')
  paragraph('Disconnect this project from this workstation and remove its local configuration. Repository files and server data are preserved. Add the project again before launching new executions.')
@@ -3023,6 +3026,7 @@ function paletteEntries(){
  const entries=[
   {group:'action',label:'New task',detail:'Create a task in a project',hint:newTaskShortcutLabel(mac),run:()=>quickAdd()},
   {group:'action',label:'Tasks list',detail:'Browse the open tasks of a project',run:()=>openTicketsFromPalette()},
+  {group:'action',label:'Add project',detail:'Connect a project of the server to this workstation',run:()=>openAddProject()},
   {group:'action',label:(document.querySelector('#workspace').classList.contains('sidebar-hidden')?'Show':'Hide')+' the sidebar',hint:sidebarShortcutLabel(mac),run:()=>{dialog.close();toggleSidebar()}},
   {group:'action',label:'Settings',hint:configShortcutLabel(mac),run:()=>{dialog.close();openSettings('Profile')}},
   {group:'action',label:'Open the web interface',run:()=>{dialog.close();api.openBoard().catch(error)}},
