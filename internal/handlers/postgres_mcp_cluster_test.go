@@ -24,7 +24,8 @@ func openPostgresInstance(t *testing.T) *db.DB {
 	}
 	d, err := db.Open(db.Config{Driver: db.DriverPostgres, DSN: dsn})
 	if err != nil {
-		t.Fatalf("opening PostgreSQL: %v", err)
+		// A non-UTF8 database is refused here (#693).
+		t.Fatalf("SECTILE_TEST_POSTGRES_DSN cannot be used: %v", err)
 	}
 	t.Cleanup(func() { d.Close() })
 	return d

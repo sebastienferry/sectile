@@ -317,6 +317,8 @@ aside{flex-shrink:0}.sidebar-hidden #sidebar-resizer{display:none}#sidebar-resiz
 
 #selected-pr{gap:5px;width:auto;min-width:36px;padding:8px 10px;color:var(--link);font-size:12px;white-space:nowrap}
 #selected-pr svg{width:14px;height:14px}
+#selected-pr-others{display:inline-flex;gap:4px}#selected-pr-others[hidden]{display:none}.selected-pr-other{gap:5px;width:auto;min-width:36px;padding:8px 10px;font-size:12px;white-space:nowrap}.selected-pr-other svg{width:14px;height:14px}
+.pr-others{flex-shrink:0;padding:0 4px;border-radius:4px;color:var(--link);font-size:10px;font-weight:600;line-height:16px;background:var(--pr-hover-bg)}
 .skill-result{font-size:11px;color:var(--text-muted);white-space:nowrap}.skill-result.completed{color:var(--accent-text)}.skill-result.failed{color:var(--danger)}.skill-result.canceled{color:var(--canceled)}.skill-result.waiting{color:var(--waiting)}
 .native-terminal-badge{font-size:11px;font-weight:500;color:var(--badge-text);background:var(--badge-bg);border:1px solid var(--badge-border);border-radius:9999px;padding:1px 7px;white-space:nowrap;display:inline-flex;align-items:center;gap:4px}
 #detach-terminal{flex-shrink:0;background:transparent;color:var(--info);border:1px solid var(--detach-border);cursor:pointer}

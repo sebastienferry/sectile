@@ -76,6 +76,7 @@ func TestAttachingAFolderFromARun(t *testing.T) {
 		return path
 	}
 	notes, spaced, other, tabbed, chat := folder("notes"), folder("my notes"), folder("other"), folder("tab\there"), folder("chat")
+	detachedFolder, codexFolder, later := folder("detached"), folder("codex"), folder("later")
 	if err := agentconfig.WriteSettings(agentconfig.Settings{ProjectSettings: map[string]agentconfig.ProjectSettings{"p": {Path: root}}}); err != nil {
 		t.Fatal(err)
 	}
@@ -100,6 +101,18 @@ func TestAttachingAFolderFromARun(t *testing.T) {
 			desktop: desktopRun{ID: id, ProjectID: "p", Skill: "discuss", SessionID: id, Status: status}}
 	}
 	claudeTyped, codexTyped := session("claude-run"), session("codex-run")
+	// A free console and a run detached to a native terminal are typed into
+	// as a discussion in Sectile is (#689).
+	consoleTyped, detachedTyped, codexConsoleTyped := session("claude-console"), session("detached"), session("codex-console")
+	console := func(id, provider, status string) *controlledRun {
+		run := discussion(id, provider, status)
+		run.desktop.Skill, run.desktop.Kind = "", consoleRunKind
+		return run
+	}
+	detached := discussion("detached", "claude", "running")
+	detached.desktop.ExternalTerminal = "ghostty"
+	unlaunched := console("unlaunched", "claude", "preparing")
+	unlaunched.desktop.SessionID = ""
 	finished := discussion("finished", "claude", "completed")
 	close(finished.exited)
 	skill := discussion("skill", "claude", "running")
@@ -110,6 +123,11 @@ func TestAttachingAFolderFromARun(t *testing.T) {
 		"codex-run":  discussion("codex-run", "codex", "running"),
 		"finished":   finished,
 		"skill":      skill,
+
+		"claude-console": console("claude-console", "claude", "running"),
+		"codex-console":  console("codex-console", "codex", "running"),
+		"detached":       detached,
+		"unlaunched":     unlaunched,
 	}
 	attach := func(runID, path string) (int, string) {
 		w := do("POST", "/desktop/run-folder", map[string]string{"runId": runID, "path": path})
@@ -138,6 +156,24 @@ func TestAttachingAFolderFromARun(t *testing.T) {
 	if got := typed(codexTyped); got != "" {
 		t.Fatalf("typed into Codex: %q", got)
 	}
+	if code, body := attach("claude-console", notes); code != 200 || !strings.Contains(body, `"typed":true`) || !strings.Contains(body, `"appliesAt":"now"`) {
+		t.Fatalf("claude console: %d %s", code, body)
+	}
+	if got := typed(consoleTyped); got != "/add-dir "+notes+"\n" {
+		t.Fatalf("typed into the Claude console: %q", got)
+	}
+	if code, body := attach("detached", detachedFolder); code != 200 || !strings.Contains(body, `"typed":true`) || !strings.Contains(body, `"appliesAt":"now"`) {
+		t.Fatalf("detached discussion: %d %s", code, body)
+	}
+	if got := typed(detachedTyped); got != "/add-dir "+detachedFolder+"\n" {
+		t.Fatalf("typed into the detached discussion: %q", got)
+	}
+	if code, body := attach("codex-console", codexFolder); code != 200 || !strings.Contains(body, `"typed":false`) || !strings.Contains(body, `"appliesAt":"next-launch"`) {
+		t.Fatalf("codex console: %d %s", code, body)
+	}
+	if got := typed(codexConsoleTyped); got != "" {
+		t.Fatalf("typed into the Codex console: %q", got)
+	}
 	// A checkout of a project repository becomes its folder, and Claude is
 	// given it too.
 	if code, body := attach("claude-run", c); code != 200 || !strings.Contains(body, `"mappedAs":"github.com/o/c"`) || !strings.Contains(body, `"typed":true`) {
@@ -160,10 +196,12 @@ func TestAttachingAFolderFromARun(t *testing.T) {
 		{"claude-run", spaced, 409, "already attached"},
 		{"claude-run", root, 409, "local repository"},
 		{"claude-run", c, 409, "already the folder of github.com/o/c"},
+		{"claude-console", notes, 409, "already attached"},
 		{"chat", notes + "/missing", 400, "does not exist"},
-		{"unknown", notes, 404, "not found"},
-		{"finished", notes, 409, "ended"},
-		{"skill", notes, 409, "conversation or a running ticket discussion"},
+		{"unlaunched", later, 409, "a running ticket discussion or a Project prompt"},
+		{"unknown", later, 404, "not found"},
+		{"finished", later, 409, "ended"},
+		{"skill", later, 409, "a running ticket discussion or a Project prompt"},
 	} {
 		if code, body := attach(tt.run, tt.path); code != tt.code || !strings.Contains(body, tt.why) {
 			t.Errorf("%s %s: %d %s, want %d %q", tt.run, tt.path, code, body, tt.code, tt.why)
@@ -175,16 +213,16 @@ func TestAttachingAFolderFromARun(t *testing.T) {
 
 	settings, _ := agentconfig.ReadSettings(root)
 	folders := settings.Project("p").Folders
-	if len(folders) != 4 || !samePath(t, settings.Repositories["github.com/o/c"], c) {
+	if len(folders) != 7 || !samePath(t, settings.Repositories["github.com/o/c"], c) {
 		t.Fatalf("settings = %v %v", folders, settings.Repositories)
 	}
-	for _, want := range []string{chat, spaced, other, tabbed} {
+	for _, want := range []string{chat, spaced, other, tabbed, notes, detachedFolder, codexFolder} {
 		if !containsPath(t, folders, want) {
 			t.Errorf("%s not attached: %v", want, folders)
 		}
 	}
 
-	if w := do("GET", "/desktop/status", nil); !strings.Contains(w.Body.String(), `"`+runFoldersCapability+`"`) {
+	if w := do("GET", "/desktop/status", nil); !strings.Contains(w.Body.String(), `"`+runFoldersCapability+`"`) || !strings.Contains(w.Body.String(), `"`+runFoldersTerminalsCapability+`"`) {
 		t.Errorf("status = %s", w.Body.String())
 	}
 }

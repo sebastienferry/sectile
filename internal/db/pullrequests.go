@@ -32,6 +32,11 @@ func encodePullRequestLinks(links []models.TaskPullRequest) string {
 	if len(links) == 0 {
 		return "[]"
 	}
+	// The repository is derived from the URL on every read: storing it would
+	// only give it a way to disagree with the URL.
+	for i := range links {
+		links[i].Repository = ""
+	}
 	encoded, err := json.Marshal(links)
 	if err != nil {
 		return "[]"

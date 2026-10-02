@@ -255,10 +255,13 @@ func TestConsoleAdmissionUsesLocalMappingAndQueue(t *testing.T) {
 		}
 		d.queue.mu.Lock()
 		run := d.queue.runs[entry.ID]
-		isolated := run.isolated
+		isolated, recorded := run.isolated, run.interactiveProvider
 		d.queue.mu.Unlock()
 		if isolated {
 			t.Fatal("console must reserve mapped checkout")
+		}
+		if recorded != provider {
+			t.Fatalf("%s console recorded the engine %q", provider, recorded)
 		}
 		rec = disconnectRequest(d, "POST", "/desktop/stop?id="+entry.ID, "")
 		if rec.Code != 204 {
@@ -286,11 +289,14 @@ func TestConsoleAdmissionUsesLocalMappingAndQueue(t *testing.T) {
 	}
 	settings.Engines.Catalogue = append(settings.Engines.Catalogue,
 		agentconfig.Engine{ID: "e-custom", Name: "Custom prompt", Provider: "custom", Model: "local-model", Command: "my-cli {mode:--batch|--interactive} --model {model} --directory {repoPath} {prompt}"},
-		agentconfig.Engine{ID: "e-codex", Name: "Codex prompt", Provider: "codex", Model: "codex-model"})
+		agentconfig.Engine{ID: "e-codex", Name: "Codex prompt", Provider: "codex", Model: "codex-model"},
+		agentconfig.Engine{ID: "e-claude", Name: "Claude template", Provider: "claude", Model: "claude-model", Command: "claude --model {model} {prompt}"})
 	if err = agentconfig.WriteSettings(settings); err != nil {
 		t.Fatal(err)
 	}
-	for _, id := range []string{"e-custom", "e-codex"} {
+	// The engine a console opens decides whether a folder is typed into it
+	// (#689): a template whose provider is Claude counts as Claude.
+	for id, typedInto := range map[string]string{"e-custom": "custom", "e-codex": "codex", "e-claude": "claude"} {
 		rec := disconnectRequest(d, "POST", "/desktop/consoles", `{"projectId":"p","engineId":"`+id+`"}`)
 		var entry desktopRun
 		if rec.Code != 202 || json.Unmarshal(rec.Body.Bytes(), &entry) != nil {
@@ -299,6 +305,12 @@ func TestConsoleAdmissionUsesLocalMappingAndQueue(t *testing.T) {
 		engine, _ := settings.Engine(id)
 		if entry.EngineID != id || entry.EngineName != engine.Name || entry.Provider != engine.Provider || entry.Model != engine.Model {
 			t.Fatalf("engine profile lost: %+v", entry)
+		}
+		d.queue.mu.Lock()
+		recorded := d.queue.runs[entry.ID].interactiveProvider
+		d.queue.mu.Unlock()
+		if recorded != typedInto {
+			t.Fatalf("%s recorded the engine %q, want %q", id, recorded, typedInto)
 		}
 		disconnectRequest(d, "POST", "/desktop/stop?id="+entry.ID, "")
 	}
