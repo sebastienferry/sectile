@@ -5,7 +5,11 @@ import (
 
 	"encoding/json"
 	"errors"
+	"net"
 	"net/http"
+	"net/url"
+	"regexp"
+	"strconv"
 	"strings"
 	"tasks/internal/tracker"
 	"time"
@@ -101,6 +105,68 @@ func (h *Handler) HandlePairingCode(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// workstationState bounds what a workstation may hand the broker as its state: it travels back in a URL, nothing else does.
+var workstationState = regexp.MustCompile(`^[A-Za-z0-9_-]{16,128}$`)
+
+// HandleWorkstationSignIn lets Desktop and `sectile-agent pair` sign in through the browser (#717). The workstation
+// listens on a loopback port and opens this route with that port and a random state. A stranger is sent to the web
+// sign-in first, which comes back here; a signed-in browser is handed a single-use pairing code on
+// http://127.0.0.1:<port>/callback, which the workstation redeems on POST /api/v1/agent/pair. The key itself never
+// travels in a URL (ADR 0047).
+//
+// Only the session cookie is consulted, not webSessionUser: that one also accepts a bearer key, and a key must not
+// mint keys. The redirects are rebuilt from the two validated inputs alone, so nothing else in the query is echoed.
+func (h *Handler) HandleWorkstationSignIn(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+	port, err := strconv.Atoi(r.URL.Query().Get("port"))
+	state := r.URL.Query().Get("state")
+	if err != nil || port < 1024 || port > 65535 || !workstationState.MatchString(state) {
+		writeError(w, http.StatusBadRequest, "Invalid workstation sign-in request")
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Referrer-Policy", "no-referrer")
+	self := "/auth/workstation?" + url.Values{"port": {strconv.Itoa(port)}, "state": {state}}.Encode()
+	userID := ""
+	if cookie, err := r.Cookie(sessionCookie); err == nil {
+		userID = h.db.UserForWebSession(cookie.Value)
+	}
+	if userID == "" {
+		http.Redirect(w, r, "/auth/login?redirect="+url.QueryEscape(self), http.StatusFound)
+		return
+	}
+	user, err := h.db.GetUser(userID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if user != nil && user.Blocked {
+		writeError(w, http.StatusForbidden, msgBlocked)
+		return
+	}
+	// The pairing code's foreign key needs the user's row, as in HandlePairingCode.
+	if err := h.db.EnsureUser(userID); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	code, _, err := h.db.CreatePairingCode(userID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	// The host is fixed: only a process on this machine can receive the code.
+	callback := url.URL{
+		Scheme:   "http",
+		Host:     net.JoinHostPort("127.0.0.1", strconv.Itoa(port)),
+		Path:     "/callback",
+		RawQuery: url.Values{"code": {code}, "state": {state}}.Encode(),
+	}
+	http.Redirect(w, r, callback.String(), http.StatusFound)
+}
+
 // HandleAgentPair exchanges a pairing code for a device credential. It is the
 // only agent endpoint that is not itself authenticated: the code is the proof.
 func (h *Handler) HandleAgentPair(w http.ResponseWriter, r *http.Request) {
@@ -115,6 +181,8 @@ func (h *Handler) HandleAgentPair(w http.ResponseWriter, r *http.Request) {
 	var payload struct {
 		Code  string `json:"code"`
 		Label string `json:"label"`
+		// DeviceID is the credential the workstation held until now: redeeming revokes it (#717).
+		DeviceID string `json:"deviceId"`
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&payload); err != nil {
 		writeError(w, http.StatusBadRequest, "Invalid pairing request")
@@ -124,7 +192,7 @@ func (h *Handler) HandleAgentPair(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "A pairing code is required")
 		return
 	}
-	token, credential, err := h.db.RedeemPairingCode(payload.Code, strings.TrimSpace(payload.Label))
+	token, credential, err := h.db.RedeemPairingCode(payload.Code, strings.TrimSpace(payload.Label), payload.DeviceID)
 	if errors.Is(err, db.ErrPairingCode) {
 		// One message for unknown, consumed and expired codes: which of the
 		// three it is would tell an attacker whether a code ever existed.

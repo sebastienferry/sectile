@@ -242,7 +242,11 @@ func (d *DB) CreatePairingCode(userID string) (string, time.Time, error) {
 // RedeemPairingCode consumes a code and returns a device credential bound to
 // the same user. The code is marked consumed in the same transaction that
 // creates the credential, so a replayed exchange yields nothing.
-func (d *DB) RedeemPairingCode(code, label string) (string, *DeviceCredential, error) {
+//
+// replaces names the credential the workstation held until now, if any: it is
+// revoked in the same transaction, provided it is the same user's and still live.
+// An unknown or foreign id is ignored and the pairing still succeeds.
+func (d *DB) RedeemPairingCode(code, label, replaces string) (string, *DeviceCredential, error) {
 	tx, err := d.conn.Begin()
 	if err != nil {
 		return "", nil, err
@@ -267,6 +271,12 @@ func (d *DB) RedeemPairingCode(code, label string) (string, *DeviceCredential, e
 	secret, credential, err := insertCredential(tx, userID, label, DefaultAPIKeyTTL)
 	if err != nil {
 		return "", nil, err
+	}
+	if replaces = strings.TrimSpace(replaces); replaces != "" {
+		// The key this workstation held until now stops working: one live key per workstation. Someone else's id is ignored.
+		if _, err = revokeOwnCredential(tx, userID, replaces, time.Now().UTC()); err != nil {
+			return "", nil, err
+		}
 	}
 	if _, err = tx.Exec(`UPDATE pairing_codes SET consumed_at = ? WHERE code_hash = ?`,
 		time.Now().UTC(), hashSecret(code)); err != nil {
@@ -379,19 +389,29 @@ func (d *DB) ListDeviceCredentials(userID string) ([]DeviceCredential, error) {
 
 // RevokeDeviceCredential disables one workstation without touching the others.
 func (d *DB) RevokeDeviceCredential(userID, id string) error {
-	result, err := d.conn.Exec(`UPDATE device_credentials SET revoked_at = ?
-		WHERE id = ? AND user_id = ? AND revoked_at IS NULL`, time.Now().UTC(), id, userID)
+	revoked, err := revokeOwnCredential(d.conn, userID, id, time.Now().UTC())
 	if err != nil {
 		return err
 	}
-	affected, err := result.RowsAffected()
-	if err != nil {
-		return err
-	}
-	if affected == 0 {
+	if !revoked {
 		return errors.New("unknown device credential")
 	}
 	return nil
+}
+
+// revokeOwnCredential revokes one of userID's live credentials through exec,
+// the connection or a transaction in progress; it reports whether a row changed.
+func revokeOwnCredential(exec execer, userID, id string, at time.Time) (bool, error) {
+	result, err := exec.Exec(`UPDATE device_credentials SET revoked_at = ?
+		WHERE id = ? AND user_id = ? AND revoked_at IS NULL`, at, id, userID)
+	if err != nil {
+		return false, err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	return affected > 0, nil
 }
 
 // PurgeExpiredPairingCodes drops codes that can no longer be redeemed.

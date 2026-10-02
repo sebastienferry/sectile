@@ -5,6 +5,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"tasks/internal/db"
 )
 
 // An open redirect in a sign-in flow turns the interface into a bounce to
@@ -178,5 +180,29 @@ func TestRenameWithoutASessionIsRefused(t *testing.T) {
 	h.HandleCurrentUser(w, httptest.NewRequest(http.MethodDelete, "/api/me", nil))
 	if w.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("unsupported method = %d", w.Code)
+	}
+}
+
+// The cookie lives as long as the session row it names (#717): the browser must
+// not drop a session the server still honours.
+func TestLocalSignInCookieLastsAsLongAsTheSession(t *testing.T) {
+	h, _, cleanup := setupTestHandler(t)
+	defer cleanup()
+	w := httptest.NewRecorder()
+	h.HandleLocalSignIn(w, httptest.NewRequest(http.MethodPost, "/auth/local", strings.NewReader(`{"email":"alice@example.com"}`)))
+	if w.Code != http.StatusOK {
+		t.Fatalf("local sign-in: %d %s", w.Code, w.Body.String())
+	}
+	var session *http.Cookie
+	for _, cookie := range w.Result().Cookies() {
+		if cookie.Name == sessionCookie {
+			session = cookie
+		}
+	}
+	if session == nil {
+		t.Fatal("local sign-in set no session cookie")
+	}
+	if want := int(db.WebSessionTTL.Seconds()); session.MaxAge != want {
+		t.Fatalf("session cookie MaxAge = %d, want %d", session.MaxAge, want)
 	}
 }
