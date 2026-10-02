@@ -55,8 +55,10 @@ func (d *DB) adjustmentPrerequisite(task *models.Task, actorID string, ready boo
 		return pr, fmt.Errorf("adjustment prerequisite: %w (creation owner: %s)", err, d.prCreationOwner(task))
 	}
 	// A task holds several PRs over its life: the one the forge reports for the
-	// branch is a follow-up as long as it shares a branch with a recorded link.
-	if err = models.AcceptPullRequest(task.PrLinks, pr.URL, pr.Branch); err != nil {
+	// branch is a follow-up as long as it shares a branch with a recorded link
+	// of its own repository (#697).
+	primary, allowed := taskPullRequestScope(project, task)
+	if err = models.AcceptRepositoryPullRequest(task.PrLinks, pr.URL, pr.Branch, allowed); err != nil {
 		return pr, err
 	}
 	if ready && pr.Draft {
@@ -75,7 +77,7 @@ func (d *DB) adjustmentPrerequisite(task *models.Task, actorID string, ready boo
 		if err != nil || locked == nil {
 			return err
 		}
-		links = models.AppendPullRequestLink(locked.PrLinks, pr.URL, pr.Branch)
+		links = models.AddPullRequestLink(locked.PrLinks, pr.URL, pr.Branch, primary)
 		if len(links) == len(locked.PrLinks) {
 			return nil
 		}
@@ -109,7 +111,9 @@ func validatePullRequestEvidence(pr trackerapi.PullRequest, branch, url string, 
 	if (!pr.Open && !pr.Merged) || pr.Branch != branch || pr.URL == "" || pr.URL != url {
 		return fmt.Errorf("%s does not confirm the matching open or merged %s", source, request)
 	}
-	if err := models.AcceptPullRequest(recorded, pr.URL, pr.Branch); err != nil {
+	// Scoped to the pull request's repository: the repositories a stage may
+	// name are checked by validateStagePRs, which knows the task's project.
+	if err := models.AcceptRepositoryPullRequest(recorded, pr.URL, pr.Branch, nil); err != nil {
 		return err
 	}
 	if ready && pr.Draft {

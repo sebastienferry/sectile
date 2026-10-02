@@ -1,4 +1,5 @@
 import { PullRequestStateIcon } from './PullRequestStateIcon'
+import { pullRequestStateLabel, repositoryPullRequests, taskPullRequestLinks } from '../lib/pullRequests'
 import { RemoteRunBadge } from './RemoteRunBadge'
 import { BatchBadge } from './BatchBadge'
 import { batchIndicator } from '../lib/batchMembership'
@@ -98,6 +99,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({
     setTaskSprint,
   } = useApp()
   const showsEpicColors = useEpicColors()
+  const otherPullRequests = React.useMemo(() => repositoryPullRequests(taskPullRequestLinks(task)).slice(1), [task])
 
   // Le menu est rendu dans un portail avec un positionnement fixe : les colonnes
   // du board défilent en overflow-y-auto, ce qui découpait un menu en position
@@ -1009,6 +1011,18 @@ export const TaskCard: React.FC<TaskCardProps> = ({
             >
               <PullRequestStateIcon task={task} size={12} />
             </a>
+          )}
+          {/* The other repositories the task changed have their own pull
+              requests: the card counts them, the task detail lists them. */}
+          {otherPullRequests.length > 0 && (
+            <span
+              className="px-1 rounded text-[10px] font-semibold text-purple-300 bg-purple-500/10 border border-purple-500/30"
+              title={format(t.taskDetail.pr.otherRepositories, {
+                list: otherPullRequests.map(group => group.repository + ' (' + pullRequestStateLabel(group.current, t.taskDetail.pr.states) + ')').join(', '),
+              })}
+            >
+              +{otherPullRequests.length}
+            </span>
           )}
 
           {/* Labels compacts (max 2 visibles pour ne pas surcharger) */}

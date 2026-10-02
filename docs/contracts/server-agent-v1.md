@@ -1182,9 +1182,10 @@ HTTP and stdio initialize with server name `sectile`; managed native registratio
 use the same name. The catalog is exactly `get_task`, `transition_stage`,
 `add_comment`, `list_tasks`, `get_project_context`, `list_projects`, `start_run`,
 `finish_run`, `create_task`, `update_task`, `report_waiting`,
-`prepare_macro_worktree`, `prepare_repository_worktree`, `get_macro` and
-`update_macro_todos`. The stdio bridge refuses any other catalog, so a server
-and an agent from before `get_macro` (#663) must be upgraded together. The
+`prepare_macro_worktree`, `prepare_repository_worktree`, `record_pull_request`,
+`get_macro` and `update_macro_todos`. The stdio bridge refuses any other
+catalog, so a server and an agent from before `record_pull_request` (#697) must
+be upgraded together. The
 former `sectile_` names are unsupported on both transports.
 Tool schemas, return values, run ownership and managed-run validation are unchanged.
 

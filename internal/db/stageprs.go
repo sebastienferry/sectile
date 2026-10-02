@@ -37,6 +37,43 @@ func multiRepoTask(project *models.Project, task *models.Task) bool {
 	return pinned != "" && !slices.Contains(projectRepositoryIdentities(project), pinned)
 }
 
+// taskPullRequestScope says which repositories a ticket's pull requests may
+// live in (#697). primary lists the identities its primary repository goes by,
+// whose pull request stays the ticket's current one: the pin when it is not
+// the project's own repository, else every identity of the project's own
+// repository. allowed adds the project's other repositories and every
+// repository the ticket changed. Both are empty for a project that names no
+// repository at all, which leaves the guard as it was before.
+func taskPullRequestScope(project *models.Project, task *models.Task) (primary, allowed []string) {
+	if project == nil || task == nil {
+		return nil, nil
+	}
+	own := projectRepositoryIdentities(project)
+	if pin := taskPin(project, task); pin != "" && !slices.Contains(own, pin) {
+		primary = []string{pin}
+	} else {
+		primary = slices.Clone(own)
+		if identity := TaskPrimaryRepository(project, task); identity != "" && !slices.Contains(primary, identity) {
+			primary = append(primary, identity)
+		}
+	}
+	allowed = slices.Clone(primary)
+	for _, repository := range project.Repositories {
+		if repository.Identity != "" && !slices.Contains(allowed, repository.Identity) {
+			allowed = append(allowed, repository.Identity)
+		}
+	}
+	for _, identity := range taskChangedRepositories(project, task) {
+		if !slices.Contains(allowed, identity) {
+			allowed = append(allowed, identity)
+		}
+	}
+	if len(primary) == 0 {
+		return nil, nil
+	}
+	return primary, allowed
+}
+
 // validateStagePRs checks one pull request per repository the ticket changed
 // (#456): its primary repository and every secondary one it has a worktree in.
 // Each is looked up and checked with the rules of #392, on the head of its own

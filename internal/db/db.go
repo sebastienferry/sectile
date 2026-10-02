@@ -2913,6 +2913,12 @@ func (d *DB) updateTaskBy(actor Actor, id string, req models.UpdateTaskRequest) 
 		for i := range existing.PrLinks {
 			existing.PrLinks[i].State = previousStates[existing.PrLinks[i].URL]
 		}
+		// Detaching the primary repository's last link must not leave a
+		// secondary repository's as the current one (#697).
+		if project, _ := d.getProjectByIDUnsafe(existing.ProjectID); project != nil {
+			primary, _ := taskPullRequestScope(project, existing)
+			existing.PrLinks = models.KeepPrimaryLast(existing.PrLinks, primary)
+		}
 		existing.PrURL = pullRequestURLValue(existing.PrLinks)
 	}
 	if req.PrURL != nil {
@@ -2920,7 +2926,14 @@ func (d *DB) updateTaskBy(actor Actor, id string, req models.UpdateTaskRequest) 
 		if existing.BranchName != nil {
 			branch = *existing.BranchName
 		}
-		existing.PrLinks = models.AppendPullRequestLink(existing.PrLinks, *req.PrURL, branch)
+		// The link is added, never refused: this is how a person corrects a
+		// task's links. It only never displaces the primary repository's pull
+		// request as the current one (#697).
+		var primary []string
+		if project, _ := d.getProjectByIDUnsafe(existing.ProjectID); project != nil {
+			primary, _ = taskPullRequestScope(project, existing)
+		}
+		existing.PrLinks = models.AddPullRequestLink(existing.PrLinks, *req.PrURL, branch, primary)
 		existing.PrURL = pullRequestURLValue(existing.PrLinks)
 	}
 
