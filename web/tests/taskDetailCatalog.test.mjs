@@ -64,6 +64,7 @@ test('the labels French browser tests assert are unchanged', () => {
     merged: 'PR fusionnée',
     closed: 'PR fermée sans fusion',
     unknown: 'État de la PR inconnu',
+    missingToken: 'État de la PR inconnu : aucun jeton {forge}',
   })
   assert.equal(format(fr.workflow.launchInteractive, { skill: 'Clarify' }), 'Lancer Clarify en interactif')
 })

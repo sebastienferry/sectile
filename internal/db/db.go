@@ -2908,6 +2908,12 @@ func (d *DB) updateTaskBy(actor Actor, id string, req models.UpdateTaskRequest) 
 		for i := range existing.PrLinks {
 			existing.PrLinks[i].State = previousStates[existing.PrLinks[i].URL]
 		}
+		// Detaching the primary repository's last link must not leave a
+		// secondary repository's as the current one (#697).
+		if project, _ := d.getProjectByIDUnsafe(existing.ProjectID); project != nil {
+			primary, _ := taskPullRequestScope(project, existing)
+			existing.PrLinks = models.KeepPrimaryLast(existing.PrLinks, primary)
+		}
 		existing.PrURL = pullRequestURLValue(existing.PrLinks)
 	}
 	if req.PrURL != nil {
