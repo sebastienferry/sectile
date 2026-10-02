@@ -897,9 +897,10 @@ type Task struct {
 	DueDate        *string  `json:"dueDate"`
 	BranchName     *string  `json:"branchName,omitempty"`
 	// PrURL is the task's current pull request: always the last entry of
-	// PrLinks. One ticket routinely produces several PRs, so the set is the
-	// authority and this field is the one link the tracker comment, the
-	// transition contract and the cards carry.
+	// PrLinks, which every write keeps the primary repository's (#697). One
+	// ticket routinely produces several PRs, in one repository or several, so
+	// the set is the authority and this field is the one link the tracker
+	// comment, the transition contract and the cards carry.
 	PrURL        *string           `json:"prUrl,omitempty"`
 	PrLinks      []TaskPullRequest `json:"prLinks,omitempty"`
 	WorktreePath *string           `json:"worktreePath,omitempty"`
@@ -1274,6 +1275,14 @@ type TaskPullRequest struct {
 	State  string `json:"state,omitempty"`
 	URL    string `json:"url"`
 	Branch string `json:"branch,omitempty"`
+	// Repository is derived from URL on every read and never stored: the
+	// repository a pull request lives in, in RepositoryIdentity form, empty
+	// when the URL is not a recognized pull request (#697).
+	Repository string `json:"repository,omitempty"`
+	// MissingToken names the forge whose token the last state refresh lacked,
+	// so a view can say why the state is unknown. A refresh that reads the
+	// state clears it.
+	MissingToken string `json:"missingToken,omitempty"`
 }
 
 type ConvertTaskRequest struct {

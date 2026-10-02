@@ -645,6 +645,20 @@ var migrations = []migration{
 			"ALTER TABLE macros ADD COLUMN framing_mirror_at TIMESTAMP NULL;",
 		},
 	},
+	{
+		// The remote runs deleted after they ended (#675). An agent keeps
+		// reporting a run while its console is open, and without a row to
+		// protect, its report would recreate the run as running. A record is
+		// kept for 30 days, which outlives any console left open.
+		version: 46,
+		name:    "deleted_remote_runs",
+		statements: []string{
+			`CREATE TABLE IF NOT EXISTS deleted_remote_runs (
+				id TEXT PRIMARY KEY,
+				deleted_at TIMESTAMP NOT NULL
+			);`,
+		},
+	},
 }
 
 // migrateSchema brings the database to the schema this binary expects, and is

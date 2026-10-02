@@ -170,7 +170,7 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 		// contractError separates a server that is merely unreachable from one
 		// that cannot be talked to at all. Without it the desktop reports both
 		// as a disconnection and the user has no reason to look at the build.
-		capabilities := []string{"git-diff", markdownDocumentsCapability, "create-task", "remove-project", "free-console", "transition-stage", "repositories", attachedFoldersCapability, "git-init", taskEnginesCapability, openEditorCapability, "claude-conversation", conversationControlsCapability, conversationQueueCapability, runFoldersCapability}
+		capabilities := []string{"git-diff", markdownDocumentsCapability, "create-task", "remove-project", "free-console", "transition-stage", "repositories", attachedFoldersCapability, "git-init", taskEnginesCapability, openEditorCapability, "claude-conversation", conversationControlsCapability, conversationQueueCapability, runFoldersCapability, runFoldersTerminalsCapability}
 		if d.store != nil {
 			capabilities = append(capabilities, runStoreCapability)
 		}
@@ -1276,6 +1276,8 @@ func (d *agentDaemon) desktopTasksTerminalExternal(w http.ResponseWriter, r *htt
 		http.Error(w, err.Error(), http.StatusConflict)
 		return
 	}
+	// The engine is the task's, as for the discussion the app opens (#690).
+	config = agentconfig.ResolveTask(config, overrides, task.ID)
 
 	root, _, err = primaryRoot(r.Context(), config, overrides, root, task)
 	if err != nil {
@@ -1299,6 +1301,21 @@ func (d *agentDaemon) desktopTasksTerminalExternal(w http.ResponseWriter, r *htt
 		}
 	}
 
+	// The same line the app's discussion runs: the task's engine, given the
+	// project's folders and its Claude settings (#690). It is built before the
+	// run is registered, so a refusal leaves nothing to release.
+	folders := d.taskFolderMap(r.Context(), config, task, workDir)
+	claudeSettings, err := d.launchClaudeSettings(config)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
+	line, err := dispatchCommand(config, task.ID, input.SkillID, "", "", "", "", "", agentCommandContext{Task: task, Branch: branch, Directory: workDir, Tracker: config.IssueTracker, Repo: config.GithubRepo, AddDirs: folderMapDirs(folders), ClaudeSettings: claudeSettings})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
+
 	runID := uuid.NewString()
 
 	d.queue.mu.Lock()
@@ -1312,6 +1329,7 @@ func (d *agentDaemon) desktopTasksTerminalExternal(w http.ResponseWriter, r *htt
 
 	termChoice := d.resolveTerminalForProject(r.Context(), input.ProjectID, input.Terminal)
 
+	// Preparing until the line is typed: wrapRun only takes a run in that state.
 	run.desktop = desktopRun{
 		ID:               runID,
 		TaskID:           task.ID,
@@ -1321,12 +1339,23 @@ func (d *agentDaemon) desktopTasksTerminalExternal(w http.ResponseWriter, r *htt
 		SessionID:        runID,
 		Directory:        workDir,
 		Branch:           branch,
-		Status:           "running",
+		Status:           "preparing",
 		CreatedAt:        time.Now().UTC(),
-		StartedAt:        time.Now().UTC(),
 		ExternalTerminal: termChoice,
 	}
+	run.interactiveProvider = discussionProvider(config, input.SkillID)
 	d.queue.mu.Unlock()
+	release := func() {
+		if d.terminal.manager != nil {
+			_ = d.terminal.manager.CloseSession(runID)
+		}
+		d.queue.mu.Lock()
+		// Closed so the run store's exit watcher lets go of it.
+		run.once.Do(func() { close(run.exited) })
+		delete(d.queue.runs, runID)
+		d.queue.mu.Unlock()
+		d.store.remove(runID)
+	}
 
 	envVars := map[string]string{
 		"SECTILE_TASK_KEY":      task.Key,
@@ -1341,20 +1370,32 @@ func (d *agentDaemon) desktopTasksTerminalExternal(w http.ResponseWriter, r *htt
 		"SECTILE_LOOPBACK_URL":  d.loopback.url,
 		"SECTILE_PROJECT_ID":    input.ProjectID,
 	}
-
-	if d.terminal.manager != nil {
-		if _, err := d.terminal.manager.GetOrCreateSession(runID, workDir, envVars); err != nil {
-			d.queue.mu.Lock()
-			// Closed so the run store's exit watcher lets go of it.
-			run.once.Do(func() { close(run.exited) })
-			delete(d.queue.runs, runID)
-			d.queue.mu.Unlock()
-			d.store.remove(runID)
-			http.Error(w, fmt.Sprintf("Failed to initialize PTY session: %v", err), http.StatusInternalServerError)
-			return
-		}
-		d.tapConsole(runID)
+	if raw, err := json.Marshal(folders); err == nil && len(folders) > 0 {
+		envVars["SECTILE_REPOSITORIES"] = string(raw)
 	}
+
+	if d.terminal.manager == nil {
+		release()
+		http.Error(w, "Failed to initialize PTY session: terminal manager unavailable", http.StatusInternalServerError)
+		return
+	}
+	wrapped, err := d.wrapRun(task.ID, runID, line)
+	if err != nil {
+		release()
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
+	if err := d.runInPty(runID, workDir, envVars, wrapped); err != nil {
+		release()
+		http.Error(w, fmt.Sprintf("Failed to initialize PTY session: %v", err), http.StatusInternalServerError)
+		return
+	}
+	d.queue.mu.Lock()
+	// A fast engine may have already reported its exit.
+	if run.desktop.Status == "preparing" {
+		run.desktop.Status = "running"
+	}
+	d.queue.mu.Unlock()
 
 	if err := d.launchExternalTerminal(termChoice, runID); err != nil {
 		http.Error(w, fmt.Sprintf("Failed to launch external terminal: %v", err), http.StatusInternalServerError)

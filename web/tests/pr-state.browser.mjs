@@ -12,6 +12,7 @@ window.ctx={settings:{density:'standard'},projects:[],activities:[],t:translatio
 const task={id:'fixture',key:'#233',title:'PR state fixture',projectId:'p',status:'to_test',priority:'medium',source:'github',labels:['#implemented'],description:'Current PR',prUrl:'https://github.com/acme/app/pull/2'};
 const root=createRoot(document.getElementById('root'));
 window.render=(state,compact)=>root.render(<div style={{width:320,margin:20}}><TaskCard compact={compact} task={{...task,prLinks:[{url:'https://github.com/acme/app/pull/1',state:'merged'},{url:task.prUrl,state}]}}/><div id="history"><PullRequestStateIcon link={{url:'old',state:'merged'}}/></div></div>);
+window.renderTwoRepositories=()=>root.render(<div style={{width:320,margin:20}}><TaskCard task={{...task,prLinks:[{url:'https://gitlab.com/acme/deploy/-/merge_requests/7',missingToken:'gitlab'},{url:task.prUrl,state:'open'}]}}/></div>);
 window.render('open',false);`
 const server = await createServer({root,resolve:{preserveSymlinks},configFile:root+'/vite.config.ts',server:{port:0,host:'127.0.0.1'},plugins:[{
  name:'pr-state-fixture',enforce:'pre',
@@ -42,6 +43,13 @@ try {
    if(compact)await page.keyboard.press('Escape')
   }
  }
+ // A task that changed a second repository shows its primary pull request and
+ // counts the other one, naming its repository and why its state is unknown.
+ await page.evaluate(()=>window.renderTwoRepositories())
+ await page.locator('a[href="https://github.com/acme/app/pull/2"]').getByRole('img',{name:'PR ouverte',exact:true}).waitFor()
+ const badge=page.getByText('+1',{exact:true})
+ await badge.waitFor()
+ assert.equal(await badge.getAttribute('title'),'Autres dépôts : gitlab.com/acme/deploy (État de la PR inconnu : aucun jeton GitLab)')
  assert.deepEqual(errors,[])
  console.log('PASS: all PR states in detailed cards, compact menus and independent history icons.')
 }finally{await browser?.close();await server.close()}
