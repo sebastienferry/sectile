@@ -101,6 +101,8 @@ test('the Sandbox category edits, saves and reads back the project values',async
   await expect(preview).toContainText("--settings='/home/me/.config/sectile/claude/project-a.json'")
   const body=await save()
   assert.deepEqual(body.claudeSandbox,{enabled:true,allowedDomains:['registry.npmjs.org'],allowWrite:['~/.cache/go-build'],allow:['Bash(make test:*)'],deny:['Bash(git push:*)']})
+  // The base is what the dialog read, so the agent keeps a rule added meanwhile.
+  assert.deepEqual(body.claudeSandboxBase,{enabled:null,allowedDomains:[],allowWrite:[],allow:[],deny:[]})
 
   // Reopened, the category shows what was saved; a removed entry is gone
   // from the next save.
@@ -108,7 +110,9 @@ test('the Sandbox category edits, saves and reads back the project values',async
   await expect(page.getByRole('group',{name:'Claude Code sandbox',exact:true}).getByRole('button',{name:'On',exact:true})).toHaveAttribute('aria-pressed','true')
   await expect(page.getByRole('list',{name:'Extra writable paths',exact:true})).toContainText('~/.cache/go-build')
   await page.getByRole('button',{name:'Remove registry.npmjs.org from Allowed network domains',exact:true}).click()
-  assert.deepEqual((await save()).claudeSandbox.allowedDomains,[])
+  const second=await save()
+  assert.deepEqual(second.claudeSandbox.allowedDomains,[])
+  assert.deepEqual(second.claudeSandboxBase.allowedDomains,['registry.npmjs.org'])
  })
 })
 

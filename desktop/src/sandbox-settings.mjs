@@ -97,7 +97,9 @@ function listEditor(label,placeholder,onChange){
 // builder, so the panel reads as the other categories do. project carries
 // the engine fields of the project, for the command preview.
 export function sandboxSettings({settingRow,stored,platformSandbox,settingsPath,project}){
- let values=fromStored(stored)
+ // loaded is what the agent last sent: the save sends it back as the base, so
+ // a rule "Always allow" added meanwhile is kept rather than overwritten.
+ let values=fromStored(stored),loaded=values
  const changed=()=>{values={...values,allowedDomains:domains.get(),allowWrite:writes.get(),allow:allow.get(),deny:deny.get()};render()}
 
  const stateGroup=document.createElement('div');stateGroup.className='segmented'
@@ -146,7 +148,7 @@ export function sandboxSettings({settingRow,stored,platformSandbox,settingsPath,
   }
  }
  function set(next){
-  values=fromStored(next)
+  values=fromStored(next);loaded=values
   domains.set(values.allowedDomains);writes.set(values.allowWrite);allow.set(values.allow);deny.set(values.deny)
   domains.disable(!platformSandbox);writes.disable(!platformSandbox)
   render()
@@ -155,6 +157,7 @@ export function sandboxSettings({settingRow,stored,platformSandbox,settingsPath,
  return {
   sections:[stateRow.section,domainsRow.section,writesRow.section,allowRow.section,denyRow.section,previewRow.section],
   payload:()=>sandboxPayload(values),
+  base:()=>sandboxPayload(loaded),
   set,
  }
 }

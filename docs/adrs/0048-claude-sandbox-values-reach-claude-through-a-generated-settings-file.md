@@ -47,7 +47,9 @@ binary and a live run on 2026-10-02.
   file (checked on 2026-10-02). The allow rules among them are added to the
   project's allow rules. Since every turn of a conversation is a new process
   (ADR 0047) that regenerates the file, the next turns and the next tasks of
-  the project apply them.
+  the project apply them. A save of the Desktop settings sends the values it
+  read as a base, and the agent keeps the entries the store gained since, so
+  a rule approved while the dialog is open is not overwritten.
 - **A headless run reports Claude's refusals.** The `permission_denials` of its
   result message become lines of the run's activity, bounded to ten.
 

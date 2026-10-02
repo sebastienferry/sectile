@@ -96,6 +96,42 @@ func (c *ClaudeSandbox) AddAllow(rules ...string) bool {
 	return changed
 }
 
+// MergeClaudeSandbox reconciles a save of the values with what the store holds
+// now. sent is what the owner saves, base what the dialog read when it opened,
+// stored the current values: an entry the store gained since base, such as a
+// rule an "Always allow" added while the dialog was open, is kept, and only an
+// entry the owner removed from base goes. The sandbox state is the owner's.
+func MergeClaudeSandbox(sent, base, stored ClaudeSandbox) ClaudeSandbox {
+	merge := func(sent, base, stored []string) []string {
+		known := map[string]bool{}
+		for _, entry := range base {
+			known[strings.TrimSpace(entry)] = true
+		}
+		out := append([]string{}, sent...)
+		have := map[string]bool{}
+		for _, entry := range sent {
+			have[strings.TrimSpace(entry)] = true
+		}
+		for _, entry := range stored {
+			if key := strings.TrimSpace(entry); !known[key] && !have[key] {
+				have[key] = true
+				out = append(out, entry)
+			}
+		}
+		if len(out) == 0 {
+			return nil
+		}
+		return out
+	}
+	return ClaudeSandbox{
+		Enabled:        sent.Enabled,
+		AllowedDomains: merge(sent.AllowedDomains, base.AllowedDomains, stored.AllowedDomains),
+		AllowWrite:     merge(sent.AllowWrite, base.AllowWrite, stored.AllowWrite),
+		Allow:          merge(sent.Allow, base.Allow, stored.Allow),
+		Deny:           merge(sent.Deny, base.Deny, stored.Deny),
+	}
+}
+
 // claudeSettingsDocument is the values in Claude Code's settings shape, with
 // only the keys that are set. Claude Code's sandbox does not run on Windows,
 // where the sandbox object is left out and the rules still apply.

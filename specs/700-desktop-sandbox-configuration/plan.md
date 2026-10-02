@@ -190,6 +190,10 @@ as the command's own error.
   project's engine, since the engine editor's preview is not project-scoped.
   `GET /desktop/project` returns `claudeSettingsPath` for it.
 - Removing a project from Desktop also removes its generated settings file.
+- A Desktop save sends `claudeSandboxBase`, the values the dialog read, and
+  the agent merges three ways (`agentconfig.MergeClaudeSandbox`): an entry the
+  store gained since, such as a rule "Always allow" added while the dialog was
+  open, is kept; only the entries the owner removed go.
 
 ## Rejected alternatives
 

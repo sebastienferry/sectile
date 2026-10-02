@@ -2482,7 +2482,7 @@ async function openProject(id,initial='Remove'){
      ...(engineView?{defaultEngine,inheritDefaultEngine}:{}),
      terminal:terminal.get(),inheritTerminal,
      setupProviders:[...setupProviders],inheritSetupProviders,
-     ...(info.claudeSandbox?{claudeSandbox:sandbox.payload()}:{})})
+     ...(info.claudeSandbox?{claudeSandbox:sandbox.payload(),claudeSandboxBase:sandbox.base()}:{})})
     // Each repository folder is checked against its origin by the agent, so
     // a wrong folder is refused by name rather than saved. The settings above
     // are saved by then, which the notice says rather than hiding it.

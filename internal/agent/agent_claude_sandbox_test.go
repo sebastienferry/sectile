@@ -305,3 +305,49 @@ func TestDesktopProjectSandboxSettings(t *testing.T) {
 		t.Fatalf("clearing left %+v", settings.Project("p"))
 	}
 }
+
+// A rule "Always allow" adds while the project dialog is open survives the
+// dialog's save, which carries the values it read as its base (#700).
+func TestDesktopSaveKeepsARuleAddedWhileTheDialogWasOpen(t *testing.T) {
+	root := t.TempDir()
+	testhome.Set(t, root)
+	for _, args := range [][]string{{"init"}, {"remote", "add", "origin", "https://example.test/project.git"}} {
+		if _, err := gitLocal(context.Background(), root, args...); err != nil {
+			t.Fatal(err)
+		}
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/api/v1/agent/config") {
+			_ = json.NewEncoder(w).Encode(agentconfig.Config{SchemaVersion: agentconfig.Version, ProjectID: "p", GitRemoteURL: "https://example.test/project.git"})
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+	d := &agentDaemon{repoRoot: root, loopback: loopbackServer{desktopToken: "private"}, link: serverLink{serverURL: srv.URL, projectID: "p"}}
+	save := func(body any) {
+		t.Helper()
+		raw, _ := json.Marshal(body)
+		r := httptest.NewRequest("POST", "/desktop/projects", bytes.NewReader(raw))
+		r.Header.Set("Authorization", "Bearer private")
+		w := httptest.NewRecorder()
+		d.desktopHandler(w, r)
+		if w.Code != 204 {
+			t.Fatalf("save: %d %s", w.Code, w.Body.String())
+		}
+	}
+	opened := map[string]any{"allow": []string{"Read", "Bash(ls:*)"}, "deny": []string{}}
+	save(map[string]any{"projectId": "p", "path": root, "claudeSandbox": opened})
+	if _, err := d.addProjectAllowRules("p", []string{"Bash(npm test:*)"}); err != nil {
+		t.Fatal(err)
+	}
+	// The owner removed Bash(ls:*) and added a deny rule in the open dialog.
+	save(map[string]any{"projectId": "p", "path": root,
+		"claudeSandbox":     map[string]any{"allow": []string{"Read"}, "deny": []string{"Bash(rm:*)"}},
+		"claudeSandboxBase": opened})
+	settings, _ := agentconfig.ReadSettings(root)
+	got := settings.Project("p").ClaudeSandbox
+	if got == nil || !reflect.DeepEqual(got.Allow, []string{"Read", "Bash(npm test:*)"}) || !reflect.DeepEqual(got.Deny, []string{"Bash(rm:*)"}) {
+		t.Fatalf("the save lost a concurrent rule or kept a removed one: %+v", got)
+	}
+}

@@ -218,3 +218,19 @@ func TestClaudeSettingsFileRefusesAPathAsProjectID(t *testing.T) {
 		}
 	}
 }
+
+func TestMergeClaudeSandboxKeepsWhatTheStoreGained(t *testing.T) {
+	base := ClaudeSandbox{Allow: []string{"Read", "Bash(ls:*)"}, AllowedDomains: []string{"a.example"}}
+	stored := ClaudeSandbox{Allow: []string{"Read", "Bash(ls:*)", "Bash(npm test:*)"}, AllowedDomains: []string{"a.example"}}
+	sent := ClaudeSandbox{Enabled: boolPtr(false), Allow: []string{"Read", "Edit"}}
+	got := MergeClaudeSandbox(sent, base, stored)
+	if !reflect.DeepEqual(got.Allow, []string{"Read", "Edit", "Bash(npm test:*)"}) {
+		t.Fatalf("allow = %v", got.Allow)
+	}
+	if got.AllowedDomains != nil || got.Enabled == nil || *got.Enabled {
+		t.Fatalf("a removal or the state was not the owner's: %+v", got)
+	}
+	if cleared := MergeClaudeSandbox(ClaudeSandbox{}, stored, stored); !cleared.IsZero() {
+		t.Fatalf("clearing every entry kept %+v", cleared)
+	}
+}
