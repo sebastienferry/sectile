@@ -74,7 +74,7 @@ export function mcpSettings(api, providerSelect) {
    const result = await api.mcpConfig(providerSelect.value)
    if (current !== revision || !section.isConnected) return
    info = result; selectedMode = info.choice.transport === 'stdio' ? 'stdio' : info.choice.target === 'local' ? 'local' : 'remote'
-   notice.textContent = ''; render()
+   notice.textContent = info.entriesError || ''; render()
   } catch (e) {if (current === revision) notice.textContent = 'Connect to an up-to-date local agent to configure MCP. '+e.message}
  }
  apply.onclick = async () => {

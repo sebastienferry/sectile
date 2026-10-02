@@ -27,6 +27,9 @@ func (e ClaudeEntry) KeyMatches(key string) bool {
 	return subtle.ConstantTimeCompare([]byte(e.key), []byte(key)) == 1
 }
 
+// Keyless reports whether the entry carries no key, as a local-choice entry is written.
+func (e ClaudeEntry) Keyless() bool { return e.key == "" }
+
 // ReadClaudeEntries lists the Sectile registrations Claude Code reads from
 // ~/.claude.json: the user-scope entry and every project-scope entry, which
 // Claude Code prefers over the user one (#716). A missing file has none.

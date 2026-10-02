@@ -287,6 +287,79 @@ func TestDesktopMCPRepairRewritesUserEntryAndRemovesStaleProjectEntry(t *testing
 	}
 }
 
+func decodeClaudeMCP(t *testing.T, d *agentDaemon) claudeMCPResponse {
+	t.Helper()
+	w := disconnectRequest(d, "GET", "/desktop/mcp?provider=claude", "")
+	if w.Code != 200 {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	var response claudeMCPResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	return response
+}
+
+func TestDesktopMCPReportsATamperedManagedEntry(t *testing.T) {
+	d, home := mcpTestDaemon(t)
+	if w := disconnectRequest(d, "POST", "/desktop/mcp?provider=claude", `{"target":"remote","transport":"http"}`); w.Code != 200 {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	// The fingerprint still matches, so only the entry content tells the key was replaced.
+	tampered := strings.ReplaceAll(readClaudeMCP(t, home), "Bearer secret-key", "Bearer other-key")
+	if err := os.WriteFile(filepath.Join(home, ".claude.json"), []byte(tampered), 0600); err != nil {
+		t.Fatal(err)
+	}
+	response := decodeClaudeMCP(t, d)
+	if !response.NeedsRepair || len(response.Entries) != 1 {
+		t.Fatalf("response: %+v", response)
+	}
+	if entry := response.Entries[0]; entry.Scope != "user" || !entry.Managed || entry.KeyMatches || !entry.Stale {
+		t.Fatalf("entry: %+v", entry)
+	}
+}
+
+func TestDesktopMCPAcceptsAKeylessLoopbackProjectEntryUnderALocalChoice(t *testing.T) {
+	d, home := mcpTestDaemon(t)
+	d.loopback.url = "http://127.0.0.1:4567"
+	settings := agentconfig.Settings{MCPConnections: map[string]agentconfig.MCPConnection{"claude": {Target: "local", Transport: "http"}}}
+	if err := agentconfig.WriteSettings(settings); err != nil {
+		t.Fatal(err)
+	}
+	fixture := `{"projects": {"/work/app": {"mcpServers": {"sectile": {"type": "http", "url": "` + agentconfig.MCPURL(d.loopback.url) + `"}}}}}`
+	if err := os.WriteFile(filepath.Join(home, ".claude.json"), []byte(fixture), 0600); err != nil {
+		t.Fatal(err)
+	}
+	response := decodeClaudeMCP(t, d)
+	if response.NeedsRepair || len(response.Entries) != 1 {
+		t.Fatalf("response: %+v", response)
+	}
+	if entry := response.Entries[0]; entry.Scope != "project" || !entry.KeyMatches || !entry.URLMatches || entry.Stale {
+		t.Fatalf("entry: %+v", entry)
+	}
+}
+
+func TestDesktopMCPReportsAMalformedClaudeFileWithoutFailing(t *testing.T) {
+	d, home := mcpTestDaemon(t)
+	if err := os.WriteFile(filepath.Join(home, ".claude.json"), []byte(`{"mcpServers": `), 0600); err != nil {
+		t.Fatal(err)
+	}
+	w := disconnectRequest(d, "GET", "/desktop/mcp?provider=claude", "")
+	if w.Code != 200 {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	var response struct {
+		claudeMCPResponse
+		EntriesError string `json:"entriesError"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if response.EntriesError == "" || response.NeedsRepair || response.Entries == nil || len(response.Entries) != 0 {
+		t.Fatalf("response: %s", w.Body.String())
+	}
+}
+
 func TestDesktopMCPRepairRejectsOtherProviders(t *testing.T) {
 	d, home := mcpTestDaemon(t)
 	w := disconnectRequest(d, "POST", "/desktop/mcp?provider=codex", `{"target":"remote","transport":"http","repair":true}`)

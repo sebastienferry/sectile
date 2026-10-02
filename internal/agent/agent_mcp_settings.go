@@ -130,8 +130,10 @@ func (d *agentDaemon) desktopMCP(w http.ResponseWriter, r *http.Request) {
 	if provider == "claude" {
 		views, err := d.claudeEntryViews(settings, executable)
 		if err != nil {
-			http.Error(w, err.Error(), 500)
-			return
+			// A malformed ~/.claude.json must not hide the whole section. A fixed message, as a JSON syntax
+			// error may quote a character of the file.
+			views = []mcpEntryView{}
+			response["entriesError"] = "Claude Code's ~/.claude.json could not be read"
 		}
 		needsRepair := false
 		for _, view := range views {
@@ -156,8 +158,10 @@ type mcpEntryView struct {
 }
 
 // claudeEntryViews compares every "sectile" entry in ~/.claude.json with what
-// this agent would write. An entry the agent did not save is only reported,
-// never adopted (ADR 0023): it is rewritten when the user asks for a repair.
+// this agent would write. An entry is stale when its content differs from that,
+// whether the agent saved it or not, so a managed entry replaced by hand is
+// caught too. An unmanaged entry is still only reported, never adopted (ADR
+// 0023): it is rewritten when the user asks for a repair.
 func (d *agentDaemon) claudeEntryViews(settings agentconfig.Settings, executable string) ([]mcpEntryView, error) {
 	entries, err := agentconfig.ReadClaudeEntries()
 	if err != nil {
@@ -171,16 +175,18 @@ func (d *agentDaemon) claudeEntryViews(settings agentconfig.Settings, executable
 	}
 	views := make([]mcpEntryView, 0, len(entries))
 	for _, entry := range entries {
-		view := mcpEntryView{Scope: entry.Scope, Project: entry.Project, KeyMatches: entry.KeyMatches(d.link.token)}
+		view := mcpEntryView{Scope: entry.Scope, Project: entry.Project}
+		// A local choice writes no key by design, so "the key we would write" is none.
+		if local {
+			view.KeyMatches = entry.Keyless()
+		} else {
+			view.KeyMatches = entry.KeyMatches(d.link.token)
+		}
 		view.URLMatches = entry.URL == "" || entry.URL == agentconfig.MCPURL(expected)
 		if entry.Scope == "user" {
 			view.Managed = saved && choice.Written == mcpFingerprint(expected, d.link.token, executable)
-			// A managed local entry carries no key by design.
-			view.KeyMatches = view.KeyMatches || (view.Managed && local)
-			view.Stale = !view.Managed && !(view.KeyMatches && view.URLMatches)
-		} else {
-			view.Stale = !view.KeyMatches || !view.URLMatches
 		}
+		view.Stale = !(view.KeyMatches && view.URLMatches)
 		views = append(views, view)
 	}
 	return views, nil
