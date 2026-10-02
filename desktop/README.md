@@ -783,9 +783,10 @@ anyway** stay labelled, because their meaning depends on the stage.
 ### Desktop Quick add
 
 Press **Cmd+K** (macOS) or **Ctrl+K** to open the command palette, search its
-actions, and choose **Quick add task**, **Tasks list** or **Add project**. Enter
-runs the first matching action. The selected project's identity is prefilled; without a
-selection, choose a project explicitly. Enter a title and optional description.
+actions, and choose **Quick add task**, **Tasks list** or **Add project**.
+Enter runs the first matching action. The selected project's identity is
+prefilled; without a selection, choose a project explicitly. Enter a title and
+optional description.
 The server creates the task using its project tracker configuration.
 GitHub and Jira creation must succeed remotely; errors do not silently create
 a local fallback. Local projects remain local. Creation does not start an execution;
