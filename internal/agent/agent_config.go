@@ -452,9 +452,9 @@ func agentCommandLine(provider, template, model, prompt string, contexts ...agen
 // report the run and move the stage, so the run ends having only printed why it
 // could not work and the board never moves. Only an attested flag is passed, for
 // the same reason the provider list itself is attested.
-func headlessCommandLine(provider, model, prompt string, addDirs ...string) (string, error) {
+func headlessCommandLine(provider, model, prompt, settings string, addDirs ...string) (string, error) {
 	modelFlag := strings.Join(agentconfig.ModelArgs(provider, model), " ")
-	dirFlags := addDirArgs(provider, addDirs)
+	dirFlags := words(addDirArgs(provider, addDirs), settingsArg(provider, settings))
 	reasoning := ""
 	if engineStreamsReasoning(provider) {
 		reasoning = strings.Join(reasoningOptions, " ")
@@ -496,6 +496,17 @@ func addDirArgs(provider string, dirs []string) string {
 		}
 	}
 	return strings.Join(args, " ")
+}
+
+// settingsArg hands Claude Code the settings file generated from the
+// project's sandbox values (#700), and nothing to any other provider or when
+// the project has no values, which keeps their line as it was. It takes the
+// "=" form for the reason addDirArgs gives.
+func settingsArg(provider, path string) string {
+	if path = strings.TrimSpace(path); path == "" || !strings.EqualFold(strings.TrimSpace(provider), "claude") {
+		return ""
+	}
+	return "--settings=" + quoteShell(path)
 }
 
 // templateProvider is the CLI a command template starts: its first word,
@@ -564,18 +575,19 @@ func modeCommandLine(provider, template, model, prompt, mode string, contexts ..
 		return expandConfiguredTemplate(template, model, prompt, autonomous, contexts...)
 	}
 	var addDirs []string
+	settings := ""
 	if len(contexts) > 0 {
-		addDirs = contexts[0].AddDirs
+		addDirs, settings = contexts[0].AddDirs, contexts[0].ClaudeSettings
 	}
 	if autonomous {
-		return headlessCommandLine(provider, model, prompt, addDirs...)
+		return headlessCommandLine(provider, model, prompt, settings, addDirs...)
 	}
 	modelFlag := strings.Join(agentconfig.ModelArgs(provider, model), " ")
 	switch provider {
 	case "agy":
 		return words("agy", "-i", quoteShell(prompt)), nil
 	case "claude":
-		return words(provider, modelFlag, quoteShell(prompt), addDirArgs(provider, addDirs)), nil
+		return words(provider, modelFlag, quoteShell(prompt), addDirArgs(provider, addDirs), settingsArg(provider, settings)), nil
 	case "codex":
 		return words(provider, modelFlag, quoteShell(prompt), addDirArgs(provider, addDirs)), nil
 	default:
@@ -726,7 +738,7 @@ func dispatchCommand(config agentconfig.Config, taskKey, skillID, action, prompt
 		if err != nil || len(contexts) == 0 {
 			return line, err
 		}
-		return words(line, addDirArgs(liveProvider(config), contexts[0].AddDirs)), nil
+		return words(line, addDirArgs(liveProvider(config), contexts[0].AddDirs), settingsArg(liveProvider(config), contexts[0].ClaudeSettings)), nil
 	}
 	model, err := LaunchModel(config, skillID, modelOverride)
 	if err != nil {

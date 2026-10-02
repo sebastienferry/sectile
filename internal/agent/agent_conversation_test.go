@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"tasks/internal/agentconfig"
@@ -82,7 +83,7 @@ func TestConversationRequiresDesktopAuthenticationAndOwnedDirectory(t *testing.T
 }
 
 func TestConversationCommandTakesTheMessageOnStdinOnly(t *testing.T) {
-	cmd := claudeConversationCommand(t.TempDir(), "sonnet", "high", "", "session", nil, nil)
+	cmd := claudeConversationCommand(t.TempDir(), "sonnet", "high", "", "session", "", nil, nil)
 	got := strings.Join(cmd.Args, " ")
 	for _, want := range []string{"--resume session", "--model sonnet", "--effort high", "--input-format stream-json", "--permission-prompt-tool stdio", "--allowedTools=mcp__sectile", "--include-partial-messages"} {
 		if !strings.Contains(got, want) {
@@ -97,8 +98,8 @@ func TestConversationCommandTakesTheMessageOnStdinOnly(t *testing.T) {
 // Each folder is one argument, whatever it holds, and the folder map reaches
 // the session's environment (#676).
 func TestConversationCommandCarriesTheProjectFolders(t *testing.T) {
-	plain := claudeConversationCommand(t.TempDir(), "", "", "", "", nil, nil)
-	cmd := claudeConversationCommand(t.TempDir(), "", "", "", "", []string{"/a", "/b c"}, map[string]string{"SECTILE_REPOSITORIES": `[{"path":"/a"}]`})
+	plain := claudeConversationCommand(t.TempDir(), "", "", "", "", "", nil, nil)
+	cmd := claudeConversationCommand(t.TempDir(), "", "", "", "", "", []string{"/a", "/b c"}, map[string]string{"SECTILE_REPOSITORIES": `[{"path":"/a"}]`})
 	if got := cmd.Args[len(plain.Args):]; len(got) != 2 || got[0] != "--add-dir=/a" || got[1] != "--add-dir=/b c" {
 		t.Fatalf("folder arguments = %q", got)
 	}
@@ -532,8 +533,17 @@ printf '%s\n' '{"type":"result","is_error":false,"result":"Deployed","session_id
 	if json.Unmarshal(raw, &answer) != nil || answer.Response.RequestID != "req-1" || answer.Response.Response.Behavior != "allow" || !strings.Contains(string(answer.Response.Response.UpdatedPermissions), "make deploy") || !strings.Contains(string(answer.Response.Response.UpdatedInput), "make deploy") {
 		t.Fatalf("Claude did not get the decision: %s", raw)
 	}
+	// "Always allow" names no persistent destination: the rule goes to the
+	// project's allow rules instead of a file of the worktree (#700).
+	if permissions := string(answer.Response.Response.UpdatedPermissions); strings.Contains(permissions, "localSettings") || !strings.Contains(permissions, `"destination":"session"`) {
+		t.Fatalf("a persistent destination reached Claude: %s", permissions)
+	}
+	settings, err := agentconfig.ReadSettings(d.localSettingsRoot())
+	if sandbox := settings.Project("project").ClaudeSandbox; err != nil || sandbox == nil || !reflect.DeepEqual(sandbox.Allow, []string{"Bash(make deploy)"}) {
+		t.Fatalf("the project's allow rules did not gain the rule: %+v %v", sandbox, err)
+	}
 	lines, _ := run.trace.snapshot()
-	if text := strings.Join(lines, "\n"); !strings.Contains(text, `"kind":"approval","text":"always"`) || strings.Contains(text, `"kind":"error"`) {
+	if text := strings.Join(lines, "\n"); !strings.Contains(text, `"kind":"approval","text":"always"`) || strings.Contains(text, `"kind":"error"`) || !strings.Contains(text, "Bash(make deploy)") {
 		t.Fatalf("unexpected transcript: %s", text)
 	}
 }
@@ -938,7 +948,7 @@ cat > /dev/null
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	d := &agentDaemon{}
 	started := time.Now()
-	commands := d.probeConversationCommands(claudeConversationCommand(t.TempDir(), "", "", "", "", nil, nil))
+	commands := d.probeConversationCommands(claudeConversationCommand(t.TempDir(), "", "", "", "", "", nil, nil))
 	if len(commands) != 1 || commands[0].Name != "clarify-issue" {
 		t.Fatalf("commands = %+v", commands)
 	}
@@ -1102,9 +1112,9 @@ func TestSectileMCPStatusIsReadFromClaudeCode(t *testing.T) {
 	}
 	for output, want := range map[string]string{
 		"  Status: ! Needs authentication\n":                   "needs-auth",
-		"  Status: ✗ Failed to connect\n":                       "failed",
+		"  Status: ✗ Failed to connect\n":                      "failed",
 		`No MCP server named "sectile". Configured servers: x`: "missing",
-		"garbage":                                               "unknown",
+		"garbage": "unknown",
 	} {
 		if got := parseMCPGet(output).Status; got != want {
 			t.Errorf("%q = %s, want %s", output, got, want)

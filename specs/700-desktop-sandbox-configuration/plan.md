@@ -166,6 +166,31 @@ as the command's own error.
    conversation (a Bash call outside the rules) and keep it as a test
    fixture.
 
+### Verified on 2026-10-02 (Claude Code 2.1.286)
+
+1. The keys are as above: the binary documents `sandbox.filesystem.allowWrite`
+   and `sandbox.network.allowedDomains`, and a live `claude -p` run accepted a
+   `--settings` file with `sandbox.enabled`, both lists and
+   `permissions.deny`.
+2. A real `can_use_tool` request carries
+   `[{"type":"addRules","rules":[{"toolName":"Bash","ruleContent":"make x *"}],"behavior":"allow","destination":"localSettings"}]`
+   (kept as `internal/agent/testdata/conversation_always_allow.json`).
+   Answering with `destination: "session"` ran the call and wrote no
+   `.claude/` directory.
+
+### Deviations from this plan
+
+- The conversation notices and the launch failure message are in English, the
+  language the conversation trace and the dispatch errors already speak
+  (AGENTS.md); only the headless refusal lines are in French, as US5 asks.
+- A conversation regenerates the settings file at every turn, since every
+  turn is a new Claude process: this is what applies an "Always allow" rule to
+  the rest of the conversation.
+- The command preview lives in the project's Sandbox category, built from the
+  project's engine, since the engine editor's preview is not project-scoped.
+  `GET /desktop/project` returns `claudeSettingsPath` for it.
+- Removing a project from Desktop also removes its generated settings file.
+
 ## Rejected alternatives
 
 - Writing into `~/.claude/settings.json`: applies to every Claude session on

@@ -10,10 +10,12 @@ import (
 	"github.com/google/uuid"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"tasks/internal/agentconfig"
@@ -668,6 +670,10 @@ func (d *agentDaemon) disconnectProject(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, err.Error(), 500)
 		return
 	}
+	// The settings file generated from its sandbox values goes too (#700).
+	if _, err := agentconfig.ClaudeSettingsFile(id, nil); err != nil {
+		log.Printf("[Agent] Could not remove the Claude settings of project %s: %v", id, err)
+	}
 	d.reportCapabilitiesLater()
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -801,8 +807,12 @@ func (d *agentDaemon) desktopProject(w http.ResponseWriter, r *http.Request) {
 			"aiModel":                     effective.AIModel,
 			"terminal":                    effective.ExternalTerminalCommand,
 			"terminalOverride":            section.Terminal != "",
-			"fields":                      fields,
-			"skills":                      skillNames(config),
+			"claudeSandbox":               claudeSandboxPayload(section.ClaudeSandbox),
+			// Claude Code's sandbox does not run on Windows: only the rules apply.
+			"platformSandbox":    runtime.GOOS != "windows",
+			"claudeSettingsPath": claudeSettingsPathOf(id),
+			"fields":             fields,
+			"skills":             skillNames(config),
 		})
 		return
 	}

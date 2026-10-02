@@ -49,6 +49,9 @@ type projectSettingsInput struct {
 	// clears the override, so the code checkout carries the specifications
 	// again.
 	SpecPath *string `json:"specPath"`
+	// ClaudeSandbox replaces the project's sandbox values (#700); an empty
+	// object clears them, nil keeps them.
+	ClaudeSandbox *agentconfig.ClaudeSandbox `json:"claudeSandbox"`
 }
 
 // statesEngine reports an input carrying an engine field of #305.
@@ -110,6 +113,18 @@ func (in projectSettingsInput) apply(p agentconfig.ProjectSettings) agentconfig.
 		p.SkillCommands = nil
 	} else if in.SkillCommands != nil {
 		p.SkillCommands = compactStrings(in.SkillCommands)
+	}
+	if in.ClaudeSandbox != nil {
+		// Values that do not normalize are kept as sent, for ValidateProject
+		// to refuse with its reason.
+		sandbox := *in.ClaudeSandbox
+		if normalized, err := agentconfig.NormalizeClaudeSandbox(sandbox); err == nil {
+			sandbox = normalized
+		}
+		p.ClaudeSandbox = &sandbox
+		if sandbox.IsZero() {
+			p.ClaudeSandbox = nil
+		}
 	}
 	return p
 }
