@@ -50,8 +50,8 @@ const MAX_PARALLELISM=10
 const DEFAULT_PARALLELISM=5
 document.querySelector('#app').innerHTML=`
 <header><div><button id="toggle-sidebar" aria-expanded="true"></button><strong id="app-title">Sectile Desktop</strong><small>Execution consoles</small></div><button id="command-palette" title="Commands (⌘K / Ctrl+K)">⌘K</button></header>
-<section id="setup" hidden><div class="setup-toolbar"><button id="setup-logs" type="button" title="View local-agent diagnostics">Agent logs</button></div><div id="agent-offline" role="status" hidden><strong>Local agent is stopped</strong><p>Start the agent to run tasks and access your local consoles.</p></div><h1>Connect to Sectile</h1><p>In the Sectile web interface, under your profile, choose <strong>Pair a workstation</strong> and paste the code here. A code is single use and expires within ten minutes; this machine keeps the credential it receives, so the code is never needed again.</p>
-<form id="start"><label>Sectile server<input name="server" type="url" value="http://localhost:8090" required></label><label>Pairing code<input name="code" type="text" autocomplete="off" spellcheck="false" placeholder="Paste the code from the web interface"></label><button>Connect</button></form></section>
+<section id="setup" hidden><div class="setup-toolbar"><button id="setup-logs" type="button" title="View local-agent diagnostics">Agent logs</button></div><div id="agent-offline" role="status" hidden><strong>Local agent is stopped</strong><p>Start the agent to run tasks and access your local consoles.</p></div><h1>Connect to Sectile</h1><p>Sign in with your browser to connect this workstation. Without a browser here, generate a pairing code under your profile in the web interface (<strong>Pair a workstation</strong>) and paste it below.</p><p id="setup-reason" role="status" hidden></p>
+<button id="browser-sign-in" type="button">Sign in with your browser</button><form id="start"><label>Sectile server<input name="server" type="url" value="http://localhost:8090" required></label><label>Pairing code<input name="code" type="text" autocomplete="off" spellcheck="false" placeholder="Paste the code from the web interface"></label><button>Connect</button></form></section>
 <main id="workspace" hidden><aside><div class="sidebar-scroll"><div class="section">PROJECTS <button id="add-project" title="Add a remote project">+</button></div><div id="runs"></div><button id="clear-history" class="icon-button" type="button" aria-label="Clear finished consoles" title="Clear finished consoles" disabled></button></div><footer class="sidebar-footer"><span id="connection" data-state="off">Connecting…</span><nav aria-label="Local agent controls"><button id="shutdown" class="icon-button" aria-label="Stop agent" title="Stop agent" hidden></button><button id="restart" class="icon-button" aria-label="Restart agent" title="Restart agent" hidden></button></nav><button id="settings" class="icon-button" type="button" aria-label="Settings" title="Settings"></button></footer></aside><div id="sidebar-resizer" role="separator" aria-label="Resize sidebar" aria-orientation="vertical" tabindex="0"></div><article><div id="toolbar"><div class="toolbar-row toolbar-primary"><div class="terminal-title-line"><strong id="title">Select an execution</strong><span id="native-terminal-badge" class="native-terminal-badge" hidden></span></div><div class="toolbar-meta"><select id="execution-history" aria-label="Execution history" hidden></select><span id="next-step-label" class="step-badge" aria-hidden="true" hidden></span></div></div><div class="toolbar-row toolbar-secondary"><div class="worktree-line"><button id="worktree" class="worktree" type="button" title="Copy this path" hidden><svg class="worktree-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2z"/></svg><span id="directory"></span></button><button id="open-editor" class="icon-button" type="button" hidden></button><span id="worktree-copied" class="worktree-copied" role="status"></span></div><div class="toolbar-actions"><div class="execution-views" role="group" aria-label="Execution view"><button id="view-console" class="icon-button" type="button" aria-label="Console" title="Console" aria-pressed="true" disabled></button><button id="view-changes" class="icon-button" type="button" aria-label="Changes" title="Changes" aria-pressed="false" disabled></button></div><button id="selected-pr" class="icon-button" type="button" hidden></button><span id="selected-pr-others" hidden></span><button id="detach-terminal" class="icon-button" type="button" aria-label="Detach to native terminal" title="Detach to native terminal" hidden></button><button id="rerun" class="icon-button" type="button" aria-label="Relaunch" title="Relaunch" hidden></button><button id="save-log" class="icon-button" type="button" aria-label="Export log" title="Export log"></button><button id="stop" class="icon-button" type="button" aria-label="Stop execution" title="Stop execution" disabled></button><button id="next-step" class="icon-button" type="button" hidden disabled></button><button id="pickup-chain" class="icon-button" type="button" aria-label="Pickup (full chain)" title="Pickup (full chain)" hidden disabled></button><button id="mark-reviewed" type="button" class="secondary" title="The pull request needs no more changes: skip Adjust, move the task to reviewed, and hand off once it is merged" hidden>Skip to Handoff</button><button id="retry-next-step" type="button" title="Retry reading the task workflow" hidden>Retry</button><button id="force-next-step" type="button" class="secondary" title="Launch although a run is already active on this task" hidden>Launch anyway</button></div></div></div><div id="execution-content"><div id="terminal"></div><div id="execution-divider" role="separator" aria-label="Resize execution views" aria-orientation="vertical" aria-valuemin="25" aria-valuemax="75" aria-valuenow="50" tabindex="0" hidden></div><section id="changes" aria-label="Worktree changes" hidden></section></div><footer id="task-status"><div class="execution-status"><span id="run-state" class="run-state selected-run-state" hidden></span><span id="skill-result" role="status" hidden></span></div><span id="next-step-status" role="status" aria-live="polite">Select a task to see its next step</span></footer></article><section id="tickets-pane" aria-label="Tickets" hidden></section></main>
 <dialog id="project-dialog"><button id="close-dialog" class="icon-button" type="button" aria-label="Close" title="Close"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button><div id="dialog-body"></div><div class="dialog-footer" hidden></div></dialog><div id="error" role="alert"></div>`
 installTooltips()
@@ -268,7 +268,10 @@ function connectionStatus(status){
  container.title=board?'Open '+status.server+' in the default browser':status.server
  connectionLabelled(container,'Connected',board)
 }
-function agentUnavailable(){
+// Why the desktop could not start the agent on its own at launch, by key-status state.
+const KEY_REASONS={none:'No API key is stored on this workstation. Sign in to connect it.',unreadable:'The API key stored on this workstation cannot be read. Sign in again to replace it.'}
+// reason is given at launch only, so a transient disconnect shows no key reason.
+function agentUnavailable(reason){
  agentConnected=false
  changes.disconnect()
  document.querySelector('#start button').disabled=false
@@ -283,6 +286,7 @@ function agentUnavailable(){
  projectsLoaded=false
  openEditorAvailable=false;renderOpenEditor()
  api.detach().catch(()=>{})
+ const line=document.querySelector('#setup-reason');line.textContent=reason||'';line.hidden=!reason
 }
 function ready(){
  agentConnected=true
@@ -823,6 +827,8 @@ async function startLocalAgent(form){
  catch(err){error(err)}finally{button.disabled=!document.querySelector('#shutdown').hidden}
 }
 document.querySelector('#start').onsubmit=event=>{event.preventDefault();return startLocalAgent(event.target)}
+document.querySelector('#browser-sign-in').onclick=async event=>{const button=event.currentTarget;button.disabled=true
+ try{await api.signIn(document.querySelector('#start').elements.server.value);error('');ready();await refresh()}catch(err){error(err)}finally{button.disabled=false}}
 document.querySelector('#stop').onclick=async()=>{
  if(!selected)return
  stopping=true;render()
@@ -877,7 +883,16 @@ function flushSidebar(){if(pendingRender&&!sidebarBusy())render()}
 const scheduleFlush=()=>setTimeout(flushSidebar,0)
 sidebarList().addEventListener('pointerout',scheduleFlush)
 sidebarList().addEventListener('focusout',scheduleFlush)
-api.connect().then(connected=>{if(connected){ready();refresh()}else{agentUnavailable()}}).catch(error)
+// After a reboot nothing runs: a stored key starts the agent once, without asking (#717). No retry loop.
+async function startup(){
+ if(await api.connect()){ready();refresh();return}
+ const key=await api.keyStatus()
+ if(key.server)document.querySelector('#start').elements.server.value=key.server
+ if(key.state!=='ok'){agentUnavailable(KEY_REASONS[key.state]);return}
+ agentUnavailable()
+ try{if(await api.start({server:key.server})){ready();await refresh()}}catch(err){agentUnavailable();error(err)}
+}
+startup().catch(error)
 setInterval(async()=>{
  const action=pollAction({restarting,agentConnected,shutdownVisible:!document.querySelector('#shutdown').hidden})
  if(action==='refresh')refresh()
