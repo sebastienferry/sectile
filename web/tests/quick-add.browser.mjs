@@ -8,7 +8,8 @@
 // project's open macros, follows the board's macro filter, starts over on a
 // project change, and attaches after the creation, a refusal being a warning;
 // the after-saving choice is exclusive, reset at every opening, and either
-// opens the ticket and rewrites it, or clarifies it from the board.
+// opens the ticket and rewrites it, or clarifies it from the board. An
+// English pass checks that no French label is left in the dialog (#455).
 import { createServer } from 'vite';
 import { browserRoot } from './browserRoot.mjs';
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
@@ -18,7 +19,7 @@ const { root, preserveSymlinks } = browserRoot(import.meta.url);
 const harness = `
 const json = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 const stamp = '2026-09-25T00:00:00Z';
-const project = (id, name, issueTracker) => ({ id, name, slug: id, color: 'indigo', icon: 'Folder', issueTracker, githubRepo: issueTracker === 'github' ? 'org/' + id : '', jiraProject: issueTracker === 'jira' ? 'BETA' : '', isDefault: id === 'a', description: '', repoPath: '', enabledViews: [], bookmarked: true, taskCount: 1 });
+const project = (id, name, issueTracker) => ({ id, name, slug: id, color: 'indigo', icon: 'Folder', issueTracker, githubRepo: issueTracker === 'github' ? 'org/' + id : '', jiraProject: issueTracker === 'jira' ? 'BETA' : '', isDefault: id === 'a', description: '', repoPath: '', enabledViews: [], bookmarked: id === 'a', taskCount: 1 });
 const task = (id, projectId, key, title) => ({ id, projectId, key, title, labels: [], description: '', status: 'to_clarify', priority: 'medium', source: 'github', position: 0, createdAt: stamp, updatedAt: stamp });
 const macro = (projectId, key, title, closed = false) => ({ projectId, key, title, closed, horizon: '', description: '', todos: [], updatedAt: stamp });
 window.fake = {
@@ -62,7 +63,7 @@ window.fetch = async (input, init = {}) => {
     if (url.pathname === '/api/tasks/facets') return json({ sprints: [], teams: [], macros: [], assignees: [], trackerStatuses: [], statuses: [], sources: [], issueTypes: [], labels: [], total: fake.tasks.length });
     return json(fake.tasks);
   }
-  if (url.pathname === '/api/settings') return json({ userName: 'Alice', language: 'fr', aiProvider: 'claude' });
+  if (url.pathname === '/api/settings') return json({ userName: 'Alice', language: localStorage.getItem('sectile_test_language') || 'fr', aiProvider: 'claude' });
   if (/stats|settings|status/.test(url.pathname)) return json({});
   return json([]);
 };
@@ -116,7 +117,7 @@ try {
     ([m, src]) => fake.requests.filter(r => r.method === m && new RegExp(src).test(r.path)),
     [method, pattern.source],
   );
-  const dialog = page.getByRole('dialog', { name: 'Ajout rapide' });
+  let dialog = page.getByRole('dialog', { name: 'Ajout rapide' });
   const macroSelect = dialog.getByLabel('Macro', { exact: true });
   const followUp = name => dialog.getByRole('radio', { name, exact: true });
   const open = async () => {
@@ -252,6 +253,29 @@ try {
   assert.ok(narrowDetails.y >= narrowMain.y + narrowMain.height, 'the columns stack');
   assert.ok(await dialog.locator('button[type="submit"]').isVisible(), 'the footer stays reachable');
   await page.keyboard.press('Escape');
+
+  // ---------- English interface: no French label left (#455) ----------
+  await page.setViewportSize({ width: 1280, height: 860 });
+  await page.evaluate(() => localStorage.setItem('sectile_test_language', 'en'));
+  await page.reload();
+  await page.getByText('Existing story').first().waitFor();
+  dialog = page.getByRole('dialog', { name: 'Quick Add Task' });
+  await open();
+  // Scoped to the details column so 'Default', 'Task' or 'Sprint' cannot collide with a status/priority option or a follow-up radio.
+  const detailsColumn = dialog.locator('[data-quick-add-column="details"]');
+  for (const label of ['Project *', 'Tracker:', 'Ticket type', 'Default', 'Task', 'Sprint']) {
+    assert.equal(await detailsColumn.getByText(label, { exact: true }).count(), 1, `English label "${label}" is missing`);
+  }
+  assert.deepEqual(await dialog.locator('optgroup').evaluateAll(groups => groups.map(g => g.label)), ['Favorites', 'Other projects']);
+  assert.equal(await dialog.getByPlaceholder('Assign a sprint (optional)…').count(), 1);
+  // textContent, not innerText: the labels are CSS-uppercased.
+  const text = await dialog.evaluate(d => d.textContent + [...d.querySelectorAll('optgroup')].map(g => g.label).join(' '));
+  for (const french of ['Projet *', 'Tracker :', 'Type de ticket', 'Défaut', 'Tâche', 'Favoris', 'Autres projets']) {
+    assert.ok(!text.includes(french), `French label "${french}" is still shown`);
+  }
+  assert.equal(await dialog.getByPlaceholder('Affecter un sprint (optionnel)…').count(), 0);
+  await page.keyboard.press('Escape');
+  await dialog.waitFor({ state: 'detached' });
 
   assert.deepEqual(errors, [], 'no page error');
   console.log('quick-add browser regression: passed');
