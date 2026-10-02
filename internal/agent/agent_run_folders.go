@@ -15,17 +15,21 @@ import (
 // /desktop/run-folder (#676).
 const runFoldersCapability = "run-folders"
 
+// runFoldersTerminalsCapability tells the desktop that /desktop/run-folder also
+// serves a free console and a run detached to the native terminal (#689).
+const runFoldersTerminalsCapability = "run-folders-terminals"
+
 // When a folder attached from a run reaches it.
 const (
 	// appliesNextTurn: a conversation reads the project's folders at each turn.
 	appliesNextTurn = "next-turn"
 	// appliesNow: the folder was typed into the running Claude Code session.
 	appliesNow = "now"
-	// appliesNextLaunch: the discussion is given it when it is launched again.
+	// appliesNextLaunch: the run is given it when it is launched again.
 	appliesNextLaunch = "next-launch"
 )
 
-// How long a discussion's output must stay quiet before /add-dir is typed into
+// How long a session's output must stay quiet before /add-dir is typed into
 // it, and how long the agent waits for that at most. Past the cap the line is
 // typed anyway: Claude Code queues what is typed while it works.
 var (
@@ -44,11 +48,13 @@ type runFolderAnswer struct {
 	AppliesAt string `json:"appliesAt"`
 }
 
-// desktopRunFolder attaches a folder to the project of a conversation or of a
-// running ticket discussion, through the same checks as the project settings
-// (#676). Nothing reaches the server. A conversation sees the folder from its
-// next turn; a Claude Code discussion has /add-dir typed into it, so it sees
-// the folder at once and keeps its context.
+// desktopRunFolder attaches a folder to the project of a conversation, of a
+// running ticket discussion or of a running free console, through the same
+// checks as the project settings (#676, #689). Nothing reaches the server. A
+// conversation sees the folder from its next turn; a Claude Code discussion or
+// console has /add-dir typed into it, so it sees the folder at once and keeps
+// its context. A run detached to a native terminal is typed into all the same:
+// the terminal only attaches to the session the agent owns.
 //
 // POST {runId, path} answers runFolderAnswer, or the reason of a refusal.
 func (d *agentDaemon) desktopRunFolder(w http.ResponseWriter, r *http.Request) {
@@ -78,19 +84,16 @@ func (d *agentDaemon) desktopRunFolder(w http.ResponseWriter, r *http.Request) {
 	default:
 	}
 	conversation := run.desktop.Conversation && run.conversation != nil
-	discussion := models.NormalizeSkillID(run.desktop.Skill) == "discuss" && !run.desktop.Conversation && run.desktop.SessionID != "" && run.desktop.Status == "running"
+	live := !run.desktop.Conversation && run.desktop.SessionID != "" && run.desktop.Status == "running"
+	terminalRun := live && (models.NormalizeSkillID(run.desktop.Skill) == "discuss" || run.isConsole())
 	projectID, sessionID, provider := run.desktop.ProjectID, run.desktop.SessionID, run.interactiveProvider
-	if run.desktop.ExternalTerminal != "" {
-		// Detached to a native terminal: Sectile no longer types into it.
-		provider = ""
-	}
 	d.queue.mu.Unlock()
 	if ended {
 		http.Error(w, "This execution has ended", http.StatusConflict)
 		return
 	}
-	if !conversation && !discussion {
-		http.Error(w, "A folder is added from a conversation or a running ticket discussion", http.StatusConflict)
+	if !conversation && !terminalRun {
+		http.Error(w, "A folder is added from a conversation, a running ticket discussion or a Project prompt", http.StatusConflict)
 		return
 	}
 	config, err := d.fetchConfig(r.Context(), projectID, "")
@@ -115,10 +118,10 @@ func (d *agentDaemon) desktopRunFolder(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(answer)
 }
 
-// typeAddDir types /add-dir and the folder into a Claude Code discussion, once
+// typeAddDir types /add-dir and the folder into a Claude Code session, once
 // the session has settled. It types nothing into another engine, whose command
 // for it is not attested, nor a path that would not arrive as one line. The
-// folder is attached either way; false says the discussion sees it at its next
+// folder is attached either way; false says the run sees it at its next
 // launch.
 func (d *agentDaemon) typeAddDir(r *http.Request, sessionID, provider, path string) bool {
 	if provider != "claude" || !typeablePath(path) || d.terminal.manager == nil {
@@ -162,7 +165,7 @@ func claudePromptPath(path string) string {
 
 // discussionProvider is the engine a ticket discussion opens, which the run
 // records so a folder attached from it can be typed in; empty for every other
-// launch.
+// launch but a free console, which records its own.
 func discussionProvider(config agentconfig.Config, skillID string) string {
 	if models.NormalizeSkillID(skillID) != "discuss" {
 		return ""

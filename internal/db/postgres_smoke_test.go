@@ -32,7 +32,9 @@ func openPostgres(t *testing.T) *DB {
 	t.Helper()
 	d, err := Open(Config{Driver: DriverPostgres, DSN: postgresDSN(t)})
 	if err != nil {
-		t.Fatalf("opening PostgreSQL: %v", err)
+		// A non-UTF8 database is refused here, before any test counts
+		// characters on it (#693).
+		t.Fatalf("SECTILE_TEST_POSTGRES_DSN cannot be used: %v", err)
 	}
 	t.Cleanup(func() { d.Close() })
 	for _, table := range migrationTables {

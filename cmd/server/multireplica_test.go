@@ -52,6 +52,13 @@ func TestPostgresMultiReplicaHarness(t *testing.T) {
 	if dsn == "" {
 		t.Skip("set SECTILE_TEST_POSTGRES_DSN to run the multi-replica harness")
 	}
+	// The replicas would refuse a non-UTF8 database and never become ready:
+	// opening it here says why instead (#693).
+	if store, err := db.Open(db.Config{Driver: db.DriverPostgres, DSN: dsn}); err != nil {
+		t.Fatalf("SECTILE_TEST_POSTGRES_DSN cannot be used: %v", err)
+	} else {
+		store.Close()
+	}
 	bin := buildServer(t)
 	a := startReplica(t, bin, dsn, "A", 0, 0)
 	b := startReplica(t, bin, dsn, "B", 0, 0)
