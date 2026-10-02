@@ -42,3 +42,26 @@ Provider schema references:
 - [Codex MCP](https://developers.openai.com/codex/mcp)
 - [Antigravity MCP](https://antigravity.google/docs/mcp)
 - [Vibe MCP](https://docs.mistral.ai/vibe/code/cli/mcp-servers)
+
+## Amendment (2026-10-03, #716)
+
+A provider without a saved selection kept its bootstrap default, and the agent
+start rewrites only saved selections. Claude Code's `sectile` entry written by
+`sectile-agent init`, **Initialize** or `sync_config` was therefore never
+rewritten: after a new pairing it kept the revoked key and Claude Code could no
+longer connect.
+
+- `init`, **Initialize** and `sync_config` now record the Claude Code
+  registration they write as the saved choice `remote/http`, with its
+  fingerprint. An existing saved choice is honoured as it is, local included.
+  The agent start then rewrites the entry after a new pairing, through the
+  fingerprint rule of ADR 0039. The other providers keep their bootstrap
+  default unrecorded.
+- An entry in `~/.claude.json` that the agent did not save and whose key is not
+  the daemon's (the user-scope entry, or a project-scope entry, which Claude
+  Code prefers over the user one) is only reported: the MCP settings flag it
+  and offer **Repair**. It is rewritten, and the outdated project entries are
+  removed, only when the user clicks **Repair**. Nothing adopts it unasked.
+- No key appears in any preview or response: the desktop learns, per entry,
+  whether the key and the address match, never the key. The start-up rewrite
+  logs the file it rewrote, not the key or its fingerprint.
