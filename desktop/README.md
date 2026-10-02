@@ -804,6 +804,12 @@ workstation, to open their tasks, and the executions the sidebar shows, by task
 key, title, project, skill or state. Every word typed must match; arrows move,
 Enter runs the highlighted entry, Escape closes.
 
+In any dialog or settings page, **Cmd+Enter** (**Ctrl+Enter**) activates the
+default button: it submits the form being typed in, as **Create task** or
+**Save local configuration**. Shift+Enter stays a new line. A dialog of plain
+choices or confirmations has no default action, so the shortcut never
+confirms what was not typed.
+
 The task launcher excludes finished tasks, including the finished workflow
 label. Each result shows its current workflow stage and tracker status when
 available. The agent checks again before submitting a launch, so a task finished

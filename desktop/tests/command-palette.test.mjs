@@ -41,3 +41,17 @@ test('Cmd+N on macOS and Ctrl+N elsewhere open the new task dialog', () => {
   assert.equal(newTaskShortcutLabel(true), '⌘N')
   assert.equal(newTaskShortcutLabel(false), 'Ctrl+N')
 })
+
+test('Cmd+Enter on macOS and Ctrl+Enter elsewhere are the default action; Shift+Enter is not', async () => {
+  const { defaultActionShortcut, defaultActionLabel } = await import('../src/dialog-default.mjs')
+  const key = (extra = {}) => ({ key: 'Enter', metaKey: false, ctrlKey: false, shiftKey: false, altKey: false, repeat: false, isComposing: false, ...extra })
+  assert.equal(defaultActionShortcut(key({ mac: true, metaKey: true })), true)
+  assert.equal(defaultActionShortcut(key({ mac: false, ctrlKey: true })), true)
+  assert.equal(defaultActionShortcut(key({ mac: true, ctrlKey: true })), false)
+  assert.equal(defaultActionShortcut(key({ mac: true, shiftKey: true })), false)
+  assert.equal(defaultActionShortcut(key({ mac: true, metaKey: true, shiftKey: true })), false)
+  assert.equal(defaultActionShortcut(key({ mac: true, metaKey: true, isComposing: true })), false)
+  assert.equal(defaultActionShortcut(key({ mac: true })), false)
+  assert.equal(defaultActionLabel(true), '⌘↵')
+  assert.equal(defaultActionLabel(false), 'Ctrl+Enter')
+})

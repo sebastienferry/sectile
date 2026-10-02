@@ -5,6 +5,7 @@ import { mcpProviders } from '../../shared/mcpConfig.mjs'
 import { skillResultDue, skillResultStamp } from './skill-result-refresh.mjs'
 import { newTaskShortcutAction, newTaskShortcutLabel } from './new-task-shortcut.mjs'
 import { paletteMatches } from './command-palette.mjs'
+import { defaultActionShortcut, defaultActionTarget, defaultActionLabel } from './dialog-default.mjs'
 import { logText } from './log-text.mjs'
 import { createGitDiff } from './gitDiff.js'
 import { createConversationView } from './conversation.js'
@@ -3105,6 +3106,16 @@ window.addEventListener('keydown',event=>{
 window.addEventListener('keydown',event=>{
  if((event.metaKey||event.ctrlKey)&&event.key.toLowerCase()==='k'){event.preventDefault();event.stopPropagation();openCommandPalette()}
 },true)
+// Cmd+Enter / Ctrl+Enter activates the default button of the open dialog or
+// settings page: the submit of the form being typed in, else a marked button.
+window.addEventListener('keydown',event=>{
+ if(!defaultActionShortcut({key:event.key,metaKey:event.metaKey,ctrlKey:event.ctrlKey,shiftKey:event.shiftKey,altKey:event.altKey,repeat:event.repeat,isComposing:event.isComposing,mac:isMacPlatform(navigator)}))return
+ const root=dialog.open?dialog:configurationActive()?dialogBody.parentElement:null
+ const target=root&&defaultActionTarget(root,document.activeElement)
+ if(!target)return
+ event.preventDefault();event.stopPropagation()
+ if(target.form)target.form.requestSubmit(target.button);else target.button.click()
+},true)
 // Cmd+N / Ctrl+N opens the new task dialog; a focused terminal keeps Ctrl+N.
 window.addEventListener('keydown',event=>{
  const action=newTaskShortcutAction({key:event.key,metaKey:event.metaKey,ctrlKey:event.ctrlKey,shiftKey:event.shiftKey,altKey:event.altKey,repeat:event.repeat,defaultPrevented:event.defaultPrevented,mac:isMacPlatform(navigator),inTerminal:!!document.activeElement?.closest?.('.xterm'),modalOpen:dialog.open})
@@ -3143,13 +3154,12 @@ async function quickAdd(projectID){
  description.addEventListener('input',grow)
  const notice=document.createElement('p');notice.className='quick-add-notice';notice.setAttribute('role','status')
  const actions=document.createElement('div');actions.className='quick-add-actions'
- const keys=document.createElement('span');keys.className='quick-add-keys';keys.textContent=(mac?'⌘↵':'Ctrl+Enter')+' to create'
+ const keys=document.createElement('span');keys.className='quick-add-keys';keys.textContent=defaultActionLabel(mac)+' to create'
  const cancel=document.createElement('button');cancel.type='button';cancel.className='secondary';cancel.textContent='Cancel';cancel.onclick=()=>dialog.close()
  const submit=document.createElement('button');submit.type='submit';submit.textContent='Create task'
  actions.append(keys,cancel,submit)
  form.append(field('Project',project),field('Title',title),field('Description',description,'Optional, Markdown'),notice,actions)
  dialogBody.append(form);(choice?title:project).focus()
- description.addEventListener('keydown',event=>{if(event.key==='Enter'&&(mac?event.metaKey:event.ctrlKey)){event.preventDefault();form.requestSubmit()}})
  form.onsubmit=async event=>{
   event.preventDefault();if(!title.value.trim()||!project.value)return
   submit.disabled=cancel.disabled=true
@@ -3169,7 +3179,7 @@ async function quickAdd(projectID){
   done.textContent='Created '+(task.key||task.id)+' · '+task.title
   const next=document.createElement('div');next.className='quick-add-actions'
   const status=document.createElement('p');status.className='quick-add-notice';status.setAttribute('role','status')
-  const clarify=document.createElement('button');clarify.type='button';clarify.textContent='Clarify now'
+  const clarify=document.createElement('button');clarify.type='button';clarify.textContent='Clarify now';clarify.dataset.defaultAction=''
   clarify.onclick=async()=>{
    clarify.disabled=true;status.textContent='Launching clarify…'
    try{await api.launchServerTask(projectId,task.id,'clarify','','',false,consoleView);dialog.close();await refresh()}
