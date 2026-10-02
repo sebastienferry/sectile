@@ -262,6 +262,7 @@ func (d *DB) ApplyRepositoryConversion(userID, projectID string, report models.R
 		_, err = tx.Exec("UPDATE tasks SET repo_path = '' WHERE project_id = ?", project.ID)
 		return err
 	})
+	d.projectURLs.clear()
 	d.mu.Unlock()
 	if err != nil {
 		return nil, err
