@@ -46,6 +46,11 @@ const editorBaseline = (entry: SkillEditorEntry): { kind: SkillOverrideKind; con
 export const SkillsView: React.FC = () => {
   const { t, settings, currentProject, fetchSkillEditor, saveSkillContent, resetSkillContent, saveSkillMode } = useApp()
   const { modes, list, indicators, editor, overrideKinds, overrideKind } = t.skillsEditor
+  // A kind this client does not know shows as stored rather than breaking the list.
+  const overrideKindLabel = (value: SkillOverrideKind | undefined): string => {
+    const key = value || ''
+    return (overrideKinds as Record<string, string>)[key] ?? key
+  }
 
   const [entries, setEntries] = useState<SkillEditorEntry[]>([])
   const [isLoading, setIsLoading] = useState(false)
@@ -85,6 +90,10 @@ export const SkillsView: React.FC = () => {
 
   const baseline = selected ? editorBaseline(selected) : null
   const isDirty = Boolean(selected && baseline && (draft !== baseline.content || kind !== baseline.kind || selected.requiresReconciliation))
+  // A full replacement of a skill with no override, still holding the built-in
+  // skill, would store a row equal to the built-in: there is nothing to save.
+  const unchangedFull = Boolean(selected && !selected.isCustom && !selected.requiresReconciliation && kind === '' && draft === selected.defaultContent)
+  const canSave = isDirty && !unchangedFull
 
   const applyEntry = (entry: SkillEditorEntry | null) => {
     if (!entry) return
@@ -172,9 +181,9 @@ export const SkillsView: React.FC = () => {
                     {entry.isCustom && (
                       <span
                         className={`${entry.scope === 'macro' ? '' : 'ml-auto'} text-[8px] font-bold px-1 rounded text-[var(--accent-color)] bg-[var(--accent-light)] border border-[var(--accent-color)]/30 shrink-0`}
-                        title={`${indicators.customTitle} · ${overrideKinds[entry.overrideKind || '']}`}
+                        title={`${indicators.customTitle} · ${overrideKindLabel(entry.overrideKind)}`}
                       >
-                        {indicators.custom} · {overrideKinds[entry.overrideKind || ''].toUpperCase()}
+                        {indicators.custom} · {overrideKindLabel(entry.overrideKind).toUpperCase()}
                       </span>
                     )}
                   </div>
@@ -292,12 +301,12 @@ export const SkillsView: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => run('save', () => saveSkillContent(selected.id, draft, kind))}
-                  disabled={busy !== null || !isDirty}
+                  disabled={busy !== null || !canSave}
                   className="flex items-center gap-1 px-3 py-1.5 rounded-xl text-[11px] font-bold text-white accent-bg hover:opacity-90 disabled:opacity-40 cursor-pointer"
-                  title={editor.saveTitle}
+                  title={unchangedFull ? editor.unchangedFullTitle : editor.saveTitle}
                 >
                   {busy === 'save' ? <Loader2 size={11} className="animate-spin" /> : <Save size={11} />}
-                  <span>{isDirty ? editor.save : editor.upToDate}</span>
+                  <span>{canSave ? editor.save : editor.upToDate}</span>
                 </button>
               </div>
             </div>
