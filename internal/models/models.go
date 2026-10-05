@@ -671,6 +671,23 @@ func ValidSkillMode(mode string) bool {
 	return trimmed == SkillModeUnset || trimmed == SkillModeInteractive || trimmed == SkillModeAutonomous
 }
 
+// SkillOverrideKind says what a skill override replaces (#732). A full
+// replacement is the whole SKILL.md, the only kind before #732, which is why
+// it is the empty value every existing row and every older client carries. A
+// work-only override replaces some of the work sections (Goal, Read first,
+// Steps, the guard and Report) and leaves the Sectile contracts in place.
+type SkillOverrideKind string
+
+const (
+	SkillOverrideFull SkillOverrideKind = ""
+	SkillOverrideWork SkillOverrideKind = "work"
+)
+
+// ValidSkillOverrideKind says whether a stored or received kind is one we know.
+func ValidSkillOverrideKind(kind SkillOverrideKind) bool {
+	return kind == SkillOverrideFull || kind == SkillOverrideWork
+}
+
 // TemplateModePlaceholder is how a custom AI command template says which part of
 // the command line depends on the execution mode: {mode:AUTONOMOUS|INTERACTIVE}.
 // A template without it owns the mode its author wrote, so it cannot serve an
@@ -839,6 +856,13 @@ type SkillEditorEntry struct {
 	Diverged       bool     `json:"diverged"`
 	RepoContent    string   `json:"repoContent,omitempty"`
 	RepoPath       string   `json:"repoPath,omitempty"`
+
+	// OverrideKind is what the stored content replaces (#732); Overridable says
+	// the skill takes a work-only override, whose built-in sections are
+	// DefaultWorkContent.
+	OverrideKind       SkillOverrideKind `json:"overrideKind"`
+	DefaultWorkContent string            `json:"defaultWorkContent,omitempty"`
+	Overridable        bool              `json:"overridable"`
 }
 
 type ProjectSkillsStatus struct {

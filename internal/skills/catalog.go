@@ -688,6 +688,11 @@ type ProjectSkillTemplate struct {
 	DirName     string
 	Description string
 	Content     string
+	// OverrideKind and WorkContent are copied from a project's override row
+	// (#732): a work-only override keeps its own sections in WorkContent while
+	// Content holds the composed skill.
+	OverrideKind models.SkillOverrideKind
+	WorkContent  string
 }
 
 // ProjectSkillTemplates returns the unified set ready to be written, with the

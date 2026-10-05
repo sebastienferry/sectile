@@ -92,6 +92,7 @@ func dropCredentialAccountColumn(d *DB) {
 	_, _ = d.conn.Exec("ALTER TABLE macros DROP COLUMN framing_mirror_at")
 	_, _ = d.conn.Exec("ALTER TABLE projects DROP COLUMN priority_mapping")
 	_, _ = d.conn.Exec("ALTER TABLE projects DROP COLUMN epic_axis_fields")
+	_, _ = d.conn.Exec("ALTER TABLE project_skills DROP COLUMN override_kind")
 	_, _ = d.conn.Exec("ALTER TABLE projects ADD COLUMN mono_repo INTEGER NOT NULL DEFAULT 1")
 	_, _ = d.conn.Exec("ALTER TABLE user_tracker_credentials DROP COLUMN account")
 	_, _ = d.conn.Exec("ALTER TABLE projects DROP COLUMN spec_artifacts")
@@ -512,6 +513,7 @@ func TestMigrationThirtyOneRemovesTheRepositoryLayout(t *testing.T) {
 		"ALTER TABLE macros DROP COLUMN framing_mirror_at",
 		"ALTER TABLE projects DROP COLUMN priority_mapping",
 		"ALTER TABLE projects DROP COLUMN epic_axis_fields",
+		"ALTER TABLE project_skills DROP COLUMN override_kind",
 		"DELETE FROM schema_migrations WHERE version >= 31",
 	} {
 		if _, err := d.conn.Exec(stmt); err != nil {
@@ -549,6 +551,8 @@ func TestMigrationThirtyOneRemovesTheRepositoryLayout(t *testing.T) {
 func rewindTrackerMigration(t *testing.T, d *DB) {
 	t.Helper()
 	undoTrackerMigration(d)
+	// Migration 51 (#732) replays with them, so its column goes too.
+	_, _ = d.conn.Exec("ALTER TABLE project_skills DROP COLUMN override_kind")
 	if _, err := d.conn.Exec("DELETE FROM schema_migrations WHERE version >= 49"); err != nil {
 		t.Fatalf("rewinding: %v", err)
 	}

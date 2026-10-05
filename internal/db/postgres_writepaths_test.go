@@ -267,6 +267,21 @@ func TestPostgresProjectSkillMode(t *testing.T) {
 	}
 }
 
+// project_skills.override_kind is added by migration 51 (#732), and the skill
+// editor reads and writes it through the same rows.
+func TestPostgresProjectSkillOverrideKind(t *testing.T) {
+	d := openPostgres(t)
+	seedProjectAndUser(t, d)
+
+	work := models.SkillOverrideWork
+	if _, err := d.SaveProjectSkillContent("p1", "clarify", "## Steps\nAsk.", &work); err != nil {
+		t.Fatalf("saving a work-only override: %v", err)
+	}
+	if got := d.projectSkillOverrides("p1")["clarify"].kind; got != models.SkillOverrideWork {
+		t.Fatalf("override_kind = %q", got)
+	}
+}
+
 func TestPostgresMacroFramingComment(t *testing.T) {
 	d := openPostgres(t)
 	seedProjectAndUser(t, d)

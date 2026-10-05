@@ -1529,12 +1529,15 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 		case r.Method == http.MethodPut && skillID != "":
 			var payload struct {
 				Content string `json:"content"`
+				// OverrideKind is what the content replaces (#732). Absent, a
+				// new override defaults and an existing one keeps its kind.
+				OverrideKind *models.SkillOverrideKind `json:"overrideKind"`
 			}
 			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 				writeError(w, http.StatusBadRequest, "Invalid payload: "+err.Error())
 				return
 			}
-			entry, err := h.db.SaveProjectSkillContent(id, skillID, payload.Content)
+			entry, err := h.db.SaveProjectSkillContent(id, skillID, payload.Content, payload.OverrideKind)
 			if err != nil {
 				writeError(w, http.StatusBadRequest, err.Error())
 				return
