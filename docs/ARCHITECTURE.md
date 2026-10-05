@@ -276,6 +276,25 @@ modified skills remain personal. Root-bound file access rejects escaping
 symlinks. The downloaded `.taskflow/remote-config.json` is diagnostic, never an
 offline configuration fallback.
 
+A skill override replaces either a whole skill or only its work sections
+([ADR 0050](adrs/0050-sectile-owns-the-skill-contracts-and-overrides-replace-the-work.md)).
+The server stores the kind per project skill and sends, with each skill, its
+own composite in `content` plus `overrideKind` and `workContent`;
+the agent composes a launched run's skill from its embedded fragments, layering
+the project's work sections over the workstation's (`skills` in
+`settings.json`) over the built-in, and keeps Sectile's contracts around them.
+A stage run through a `skillCommands` command gets the stage contract appended
+to its launch prompt instead. The direct setup (`sectile-agent init`, the
+desktop's **Initialize**, `sync_config`) writes one copy per skill for every
+project of the workstation, with a subsection per project that overrides a
+section, chosen from the `projectId` `get_project_context` reports; it fetches
+every known project's configuration and writes nothing if one fetch fails.
+After a skill save, reset or import, the server sends `refresh_skills`,
+best-effort, to the connected agents serving the project, which rewrite only
+the direct copies `agent-manifest.json` already manages and register nothing.
+An agent that predates the operation answers it as unsupported, which is
+ignored.
+
 ## Local operations and consoles
 
 The server sends named workspace capabilities over the authenticated agent
