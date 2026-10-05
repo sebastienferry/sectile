@@ -210,10 +210,15 @@ func (d *agentDaemon) executeOperation(ctx context.Context, op agentprotocol.Ope
 	case "sync_config":
 		// The direct copies carry every known project's work-only overrides
 		// (#732). Only they are taken from the helper: it resolves the engine
-		// again, which would undo the provider this operation asks for.
-		direct, err := d.directSetupConfig(ctx, fetched)
+		// again, which would undo the provider this operation asks for. A
+		// project that cannot be read refuses the sync: the copies stay as
+		// they are rather than silently losing its variants.
+		direct, warnings, err := d.directSetupConfig(ctx, fetched)
 		if err != nil {
 			return nil, err
+		}
+		if len(warnings) > 0 {
+			return nil, errors.New(strings.Join(warnings, "; "))
 		}
 		config = withDirectContent(config, direct)
 		if op.Framework != "" {
@@ -268,9 +273,14 @@ func (d *agentDaemon) executeOperation(ctx context.Context, op agentprotocol.Ope
 		if len(providers) == 0 {
 			return map[string]any{"written": 0}, nil
 		}
-		direct, err := d.directSetupConfig(ctx, fetched)
+		// As for sync_config, a project that cannot be read leaves the
+		// copies untouched.
+		direct, warnings, err := d.directSetupConfig(ctx, fetched)
 		if err != nil {
 			return nil, err
+		}
+		if len(warnings) > 0 {
+			return nil, errors.New(strings.Join(warnings, "; "))
 		}
 		config = withDirectContent(config, direct)
 		d.prepareMu.Lock()
