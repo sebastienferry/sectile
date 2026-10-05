@@ -11,6 +11,7 @@ contextBridge.exposeInMainWorld('localAgent',{
  setAppearance:value=>ipcRenderer.invoke('set-appearance',value),
  consoleView:()=>ipcRenderer.invoke('console-view'),
  setConsoleView:value=>ipcRenderer.invoke('set-console-view',value),
+ syncConsoleView:()=>ipcRenderer.invoke('sync-console-view'),
  version:()=>ipcRenderer.invoke('version'),
  shutdown:()=>ipcRenderer.invoke('shutdown'),
  restart:()=>ipcRenderer.invoke('restart'),
