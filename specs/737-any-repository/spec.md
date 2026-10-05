@@ -196,8 +196,6 @@ repository.
    its repository, then besides the project's repositories I can pick
    **Other repository…** and type a repository URL or `host/path`, which is
    stored on the task.
-5. Given a project that stops declaring a repository, when it is saved, then
-   the tasks pinned to that repository are unpinned.
 2. Given a task pinned to an undeclared repository and the option on, when it
    is launched, then its primary worktree is created in that repository, found
    through its known folder or cloned (US3), never through `path`.
@@ -205,6 +203,8 @@ repository.
    one, and the code repository needs none unless the ticket changed it.
 4. Given the option off on the launching workstation, then the launch fails as
    in US1.4.
+5. Given a project that stops declaring a repository, when it is saved, then
+   the tasks pinned to that repository are unpinned.
 
 ### US9 (P1) - Set the option in Desktop
 
