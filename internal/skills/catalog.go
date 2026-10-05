@@ -515,7 +515,16 @@ func renderPickupSteps(specFramework string, batch bool, overrides SkillOverride
 	for _, id := range pickupStages {
 		step, _ := StageSkillByID(id)
 		work := overrides[id].Over(BuiltinWorkSections(step, specFramework))
-		fmt.Fprintf(&b, "\n### %s\n%s\n\n%s\n\n%s\n\nExit condition before recording %s: %s\n\nReport and persist before continuing:\n%s\n", step.Title, work.ReadFirst, work.Steps, work.Guard, step.ToStage, stageExit(id), work.Report)
+		fmt.Fprintf(
+			&b,
+			"\n### %s\n%s\n\n%s\n\n%s\n\nExit condition before recording %s: %s\n\nReport and persist before continuing:\n%s\n",
+			step.Title,
+			work.ReadFirst,
+			work.Steps,
+			work.Guard,
+			step.ToStage,
+			stageExit(id),
+			work.Report)
 	}
 	return b.String()
 }
@@ -665,7 +674,16 @@ func renderGenericPickupSteps(batch bool, workstation SkillOverrides, projects [
 		steps := directSection(id, "steps", "####", workstation, projects)
 		guard := directSection(id, "guard", "####", workstation, projects)
 		report := directSection(id, "report", "####", workstation, projects)
-		fmt.Fprintf(&b, "\n### %s\n%s\n\n%s\n\n%s\n\nExit condition before recording %s: %s\n\nReport and persist before continuing:\n%s\n", step.Title, readFirst, steps, guard, step.ToStage, stageExit(id), report)
+		fmt.Fprintf(
+			&b,
+			"\n### %s\n%s\n\n%s\n\n%s\n\nExit condition before recording %s: %s\n\nReport and persist before continuing:\n%s\n",
+			step.Title,
+			readFirst,
+			steps,
+			guard,
+			step.ToStage,
+			stageExit(id),
+			report)
 	}
 	return b.String()
 }
