@@ -55,6 +55,7 @@ const fr = {
     save: 'Enregistrer',
     saveTitle: "Enregistrer les instructions de la skill pour l'agent local",
     upToDate: 'À jour',
+    unchangedFullTitle: "Identique à la skill intégrée : un remplacement complet n'aurait rien à remplacer",
     lines: { one: '{count} ligne', other: '{count} lignes' },
     updatedAt: 'modifiée le {date}',
     customContent: 'contenu propre à ce projet',
@@ -72,9 +73,9 @@ const fr = {
     contractsHint:
       'Sectile garde ses contrats : accès au ticket, cycle du run, transition, condition de sortie, politique de PR. Seules les sections Goal, Read first, Steps, la garde et Report se remplacent.',
     confirmWork:
-      "Passer en travail seul remplace le contenu de l'éditeur par les sections de travail intégrées. Les modifications non enregistrées sont perdues. Continuer ?",
+      "Passer en travail seul remplace le contenu de l'éditeur par les sections de travail intégrées. Les modifications non enregistrées sont perdues, et enregistrer en travail seul remplace aussi la surcharge enregistrée. Continuer ?",
     confirmFull:
-      "Passer en remplacement complet remplace le contenu de l'éditeur par la skill intégrée complète. Les modifications non enregistrées sont perdues. Continuer ?",
+      "Passer en remplacement complet remplace le contenu de l'éditeur par la skill intégrée complète. Les modifications non enregistrées sont perdues, et enregistrer en remplacement complet remplace aussi la surcharge enregistrée. Continuer ?",
   },
   feedback: {
     modeDecidedByCommand:
@@ -136,6 +137,7 @@ const en: SkillsEditorStrings = {
     save: 'Save',
     saveTitle: 'Save skill instructions for the local agent',
     upToDate: 'Up to date',
+    unchangedFullTitle: 'Identical to the built-in skill: a full replacement would replace nothing',
     lines: { one: '{count} line', other: '{count} lines' },
     updatedAt: 'updated {date}',
     customContent: 'content specific to this project',
@@ -153,9 +155,9 @@ const en: SkillsEditorStrings = {
     contractsHint:
       'Sectile keeps its contracts: task access, run lifecycle, transition, exit condition, PR policy. Only the Goal, Read first, Steps, guard and Report sections are replaced.',
     confirmWork:
-      "Switching to work only replaces the editor's content with the built-in work sections. Unsaved changes are lost. Continue?",
+      "Switching to work only replaces the editor's content with the built-in work sections. Unsaved changes are lost, and saving as work only also replaces the saved override. Continue?",
     confirmFull:
-      "Switching to full replacement replaces the editor's content with the complete built-in skill. Unsaved changes are lost. Continue?",
+      "Switching to full replacement replaces the editor's content with the complete built-in skill. Unsaved changes are lost, and saving as a full replacement also replaces the saved override. Continue?",
   },
   feedback: {
     modeDecidedByCommand:
