@@ -42,9 +42,11 @@ import {
   PanelRightClose,
   PanelRightOpen,
   Lock,
+  Upload,
 } from 'lucide-react'
 import type { RefineMacroResult } from '../types'
 import { useApp } from '../context/AppContext'
+import type { MacroSlicingUpload } from '../context/AppContext'
 import { useBackdropDismiss } from '../hooks/useBackdropDismiss'
 import { useEscapeKey } from '../hooks/useEscapeKey'
 import { LookupField } from './LookupField'
@@ -175,6 +177,8 @@ const EPIC_LABEL_BADGE =
   'text-[9.5px] px-1 rounded font-mono bg-[var(--bg-tertiary)] text-[var(--text-secondary)] border border-[var(--border-color)]'
 /** How many free labels the condensed row shows before counting the rest. */
 const CONDENSED_LABELS = 2
+// The largest file the slicing upload sends; the server enforces the same (#735).
+const SLICING_UPLOAD_LIMIT = 1 << 20
 
 /**
  * The tabs. Horizon tabs show the horizon label as is; the two others take
@@ -507,6 +511,8 @@ export const RoadmapView: React.FC = () => {
   // tourne : deux sources côte à côte, un seul témoin, et on ne sait plus
   // laquelle on a demandée.
   const [slicingSource, setSlicingSource] = useState<MacroTodoSource | null>(null)
+  // The hidden file inputs behind the upload buttons, one per file source (#735).
+  const slicingUploads = useRef<Partial<Record<MacroTodoSource, HTMLInputElement | null>>>({})
   // Prototypage de la macro : créer une story a la volée, ou y pousser un ticket existant
   const [newStory, setNewStory] = useState('')
   const [attachQuery, setAttachQuery] = useState('')
@@ -3420,35 +3426,85 @@ export const RoadmapView: React.FC = () => {
                         {strings.framing.importHeading}
                       </span>
                       {([
-                        { source: 'tasks' as const, label: 'tasks.md', hint: strings.framing.importTasksHint },
-                        { source: 'spec' as const, label: 'spec.md', hint: strings.framing.importSpecHint },
+                        { source: 'tasks' as const, label: 'tasks.md', hint: strings.framing.importTasksHint, upload: strings.framing.uploadTasksTitle },
+                        { source: 'spec' as const, label: 'spec.md', hint: strings.framing.importSpecHint, upload: strings.framing.uploadSpecTitle },
                         // L'inverse de « Créer story » : celui-ci descend d'une
                         // ligne vers un ticket, celui-là remonte d'un ticket
                         // vers sa ligne. Une macro dont les stories ont été
                         // créées ailleurs avait une découpe vide alors que le
                         // travail était déjà découpé.
-                        { source: 'stories' as const, label: strings.framing.importStories, hint: strings.framing.importStoriesHint },
-                      ]).map(option => (
-                        <button
-                          key={option.source}
-                          type="button"
-                          disabled={slicingSource !== null || slicingLocked}
-                          title={option.hint}
-                          onClick={async () => {
-                            setSlicingSource(option.source)
-                            const macro = await produceMacroSlicing(currentProject!.id, selected.key, option.source)
-                            setSlicingSource(null)
-                            if (macro) {
-                              setMacroMeta(prev => [...prev.filter(m => m.key !== macro.key), macro])
-                              setSelectedKey(macro.key)
-                            }
-                          }}
-                          className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-semibold bg-[var(--bg-primary)] border border-[var(--border-color)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] disabled:opacity-40 cursor-pointer"
-                        >
-                          {slicingSource === option.source ? <Loader2 size={12} className="animate-spin" /> : <FileCode size={12} />}
-                          {option.label}
-                        </button>
-                      ))}
+                        { source: 'stories' as const, label: strings.framing.importStories, hint: strings.framing.importStoriesHint, upload: '' },
+                      ]).map(option => {
+                        const importDisabled = slicingSource !== null || slicingLocked
+                        const runImport = async (upload?: MacroSlicingUpload) => {
+                          setSlicingSource(option.source)
+                          const macro = await produceMacroSlicing(currentProject!.id, selected.key, option.source, upload)
+                          setSlicingSource(null)
+                          if (macro) {
+                            setMacroMeta(prev => [...prev.filter(m => m.key !== macro.key), macro])
+                            setSelectedKey(macro.key)
+                          }
+                        }
+                        // The file is checked here so that nothing is sent for
+                        // a file the server would refuse; the server checks again
+                        // for any other client.
+                        const uploadFile = async (input: HTMLInputElement) => {
+                          const file = input.files?.[0]
+                          // Reset so that picking the same file again imports again.
+                          input.value = ''
+                          if (!file) return
+                          const refuse = (description: string) => addToast({ type: 'error', title: t.operations.notifications.macros.slicingFailed, description })
+                          if (file.size > SLICING_UPLOAD_LIMIT) {
+                            refuse(strings.framing.uploadTooLarge)
+                            return
+                          }
+                          let content: string
+                          try {
+                            content = new TextDecoder('utf-8', { fatal: true }).decode(await file.arrayBuffer())
+                          } catch {
+                            refuse(strings.framing.uploadNotText)
+                            return
+                          }
+                          await runImport({ fileName: file.name, content })
+                        }
+                        return (
+                          <div key={option.source} className="flex items-center">
+                            <button
+                              type="button"
+                              disabled={importDisabled}
+                              title={option.hint}
+                              onClick={() => runImport()}
+                              className={`flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold bg-[var(--bg-primary)] border border-[var(--border-color)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] disabled:opacity-40 cursor-pointer ${option.upload ? 'rounded-l-xl' : 'rounded-xl'}`}
+                            >
+                              {slicingSource === option.source ? <Loader2 size={12} className="animate-spin" /> : <FileCode size={12} />}
+                              {option.label}
+                            </button>
+                            {option.upload && (
+                              <>
+                                <button
+                                  type="button"
+                                  disabled={importDisabled}
+                                  title={option.upload}
+                                  aria-label={option.upload}
+                                  onClick={() => slicingUploads.current[option.source]?.click()}
+                                  className="flex items-center px-2 py-1.5 rounded-r-xl text-xs bg-[var(--bg-primary)] border border-l-0 border-[var(--border-color)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] disabled:opacity-40 cursor-pointer"
+                                >
+                                  <Upload size={12} />
+                                </button>
+                                <input
+                                  ref={el => { slicingUploads.current[option.source] = el }}
+                                  type="file"
+                                  disabled={importDisabled}
+                                  accept=".md,.markdown,.txt,text/markdown,text/plain"
+                                  className="hidden"
+                                  data-testid={`slicing-upload-${option.source}`}
+                                  onChange={e => { void uploadFile(e.currentTarget) }}
+                                />
+                              </>
+                            )}
+                          </div>
+                        )
+                      })}
                     </div>
                   </div>
                     )
