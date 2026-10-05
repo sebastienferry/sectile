@@ -163,6 +163,64 @@ An unauthenticated `401` does not test Host acceptance: authenticate an MCP
 initialization and verify `tools/list` after deployment. See
 [ADR 0037](docs/adrs/0037-explicit-mcp-ingress-hosts.md).
 
+### Connecting an Auth0 application
+
+Register Sectile as an Auth0 **Regular Web Application** (a server-side client).
+See Auth0's [application registration guide](https://auth0.com/docs/get-started/auth0-overview/create-applications/regular-web-apps)
+and [authorization code guide](https://auth0.com/docs/get-started/authentication-and-authorization-flow/authorization-code-flow/add-login-auth-code-flow).
+Enable the intended login connection for that application and configure who may
+use it in Auth0. Sectile keeps its existing role and blocked-account rules.
+
+Use the authorization code grant and client-secret authentication. Sectile uses
+PKCE and requests `openid profile email`; browser sign-in does not need an API
+audience, a machine-to-machine grant or a separate API registration. Register the
+exact externally reachable callback URL in **Allowed Callback URLs**, for example
+`https://sectile.example.com/auth/callback`. That value must match the server's
+`SECTILE_OIDC_REDIRECT_URL`.
+
+Set these on the server through the deployment's configuration and secret store:
+
+| Setting | Value |
+| --- | --- |
+| `SECTILE_OIDC_ISSUER` | The HTTPS issuer URL for the Auth0 application, consistently using the same tenant or custom domain |
+| `SECTILE_OIDC_CLIENT_ID` | The registered application's client ID |
+| `SECTILE_OIDC_CLIENT_SECRET` | The application's secret, supplied privately |
+| `SECTILE_OIDC_REDIRECT_URL` | The exact registered callback, such as `https://sectile.example.com/auth/callback` |
+
+Sectile discovers the authorization, token and UserInfo endpoints from the issuer
+at startup. Restart the server after changing these values. Keep the issuer's
+spelling stable, including its trailing slash: it forms part of the stored user
+identity. Keep actual tenant identifiers, deployment URLs, credentials and
+organization-specific configuration in private deployment records, never in
+public issues, examples or commits.
+
+Verify the deployment with an allowed test user:
+
+1. Restart Sectile and confirm provider discovery succeeds. An unreachable or
+   invalid provider must stop startup, not enable local sign-in.
+2. Open Sectile in a private browser window and sign in. Confirm the return to
+   Sectile, the displayed identity and the intended role. Local e-mail sign-in is
+   unavailable while the provider is configured.
+3. Sign out and verify the old Sectile session no longer grants access. Sign in
+   again and confirm the same account is used.
+
+Logout revokes the Sectile session only; the Auth0 SSO session may still sign the
+user back in without another password prompt. Existing local accounts are not
+automatically linked to provider accounts, even when their e-mail matches.
+Before enabling the provider on an existing board, arrange administrator access:
+without a configured role claim, the first-account bootstrap grants admin only
+while no administrator exists. Optional role-claim configuration uses `SECTILE_OIDC_ROLE_CLAIM` and `SECTILE_OIDC_ADMIN_GROUP`, which must be
+set together or left unset. The claim is read from UserInfo, then the ID token,
+and may be a string or list. Its role overwrites manual role changes on the next
+sign-in; without it, the stored role remains authoritative. Do not assume a
+tenant supplies a particular claim. Workstation pairing and device keys continue to work independently of browser sessions.
+
+A callback mismatch requires checking the registered URL against the server
+setting. Discovery errors require checking issuer spelling and server access to
+provider metadata; token exchange errors require checking application credentials
+and the authorization code grant. Record actual deployment verification privately.
+The repository's synthetic-provider tests do not prove a live tenant is configured.
+
 ### PostgreSQL
 
 SQLite is the default and is what the desktop application ships with. A server
