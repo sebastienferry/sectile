@@ -63,7 +63,7 @@ func TestFolderMapDescribesEveryFolder(t *testing.T) {
 	gitTest(t, b, "branch", "feat/1")
 	secondary := filepath.Join(t.TempDir(), "b-wt")
 	gitTest(t, b, "worktree", "add", "-q", secondary, "feat/1")
-	overrides := agentconfig.Settings{Repositories: map[string]string{"github.com/o/b": b}, ProjectSettings: map[string]agentconfig.ProjectSettings{"p": {MacroSpecPath: spec}}}
+	overrides := agentconfig.Settings{Repositories: map[string]string{"github.com/o/b": b}, ProjectSettings: map[string]agentconfig.ProjectSettings{"p": {IssueSpecPath: spec}}}
 	task := models.Task{Key: "#1", BranchName: branchOf("feat/1"), ChangedRepositories: []string{"github.com/o/b"}}
 
 	entries := buildFolderMap(ctx, multiRepoConfig(), overrides, projectRoot, "github.com/o/a", "/work/a", task)
@@ -311,7 +311,7 @@ func TestFolderMapListsAttachedFolders(t *testing.T) {
 	spec := t.TempDir()
 	overrides := attachedTo(agentconfig.Settings{Repositories: map[string]string{"github.com/o/b": b}}, ui, lib, bAgain, notes, missing, projectRoot, spec, notes)
 	overrides.ProjectSettings["p"] = func(section agentconfig.ProjectSettings) agentconfig.ProjectSettings {
-		section.MacroSpecPath = spec
+		section.IssueSpecPath = spec
 		return section
 	}(overrides.ProjectSettings["p"])
 	task := models.Task{Key: "#1", BranchName: branchOf("feat/1"), ChangedRepositories: []string{"github.com/o/lib"}}

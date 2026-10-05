@@ -240,7 +240,9 @@ func (d *agentDaemon) attachFolder(r *http.Request, config agentconfig.Config, p
 	case same(root):
 		return "", 409, fmt.Errorf("%s is already the project's local repository", path)
 	case same(overrides.MacroSpecPath(config.ProjectID)):
-		return "", 409, fmt.Errorf("%s is already the project's specifications folder", path)
+		return "", 409, fmt.Errorf("%s is already the project's Macro specifications folder", path)
+	case same(overrides.IssueSpecPath(config.ProjectID)):
+		return "", 409, fmt.Errorf("%s is already the project's Issue specifications folder", path)
 	case folder.Identity != "" && folder.Identity == code:
 		return "", 409, fmt.Errorf("%s is a checkout of the project's own repository %s: set it as the local repository instead", path, code)
 	}

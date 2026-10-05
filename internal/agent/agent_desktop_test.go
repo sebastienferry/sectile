@@ -932,7 +932,7 @@ func TestDesktopTasksTerminalExternalRunsTheDiscussion(t *testing.T) {
 	testhome.Temp(t)
 	bin := t.TempDir()
 	argsFile := filepath.Join(t.TempDir(), "args.txt")
-	script := "#!/bin/sh\n{ printf '%s\\n' \"$@\"; printf 'REPOS=%s\\n' \"$SECTILE_REPOSITORIES\"; } > " + quoteShell(argsFile+".tmp") + " && mv " + quoteShell(argsFile+".tmp") + " " + quoteShell(argsFile) + "\nsleep 60\n"
+	script := "#!/bin/sh\n{ printf '%s\\n' \"$@\"; printf 'REPOS=%s\\n' \"$SECTILE_REPOSITORIES\"; printf 'SPEC=%s %s\\n' \"$SECTILE_SPEC_REPO\" \"$SECTILE_SPEC_WORKTREE\"; } > " + quoteShell(argsFile+".tmp") + " && mv " + quoteShell(argsFile+".tmp") + " " + quoteShell(argsFile) + "\nsleep 60\n"
 	if err := os.WriteFile(filepath.Join(bin, "claude"), []byte(script), 0700); err != nil {
 		t.Fatal(err)
 	}
@@ -1013,6 +1013,11 @@ func TestDesktopTasksTerminalExternalRunsTheDiscussion(t *testing.T) {
 	}
 	if !strings.Contains(string(got), `"path":"`+notes+`"`) {
 		t.Errorf("SECTILE_REPOSITORIES does not name the attached folder:\n%s", got)
+	}
+	// Without an Issue specifications folder, the task's checkout carries its
+	// specifications (#736).
+	if !strings.Contains(string(got), "SPEC="+root+" false\n") {
+		t.Errorf("SECTILE_SPEC_REPO does not name the task's checkout:\n%s", got)
 	}
 	d.queue.mu.Lock()
 	run := d.queue.runs[runID]

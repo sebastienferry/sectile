@@ -161,6 +161,9 @@ func (d *agentDaemon) executeOperation(ctx context.Context, op agentprotocol.Ope
 		if op.Action == "repository_worktree" {
 			return repositoryWorktree(ctx, config, overrides, root, task, op.Repository, d.link.deviceID)
 		}
+		if op.Action == "task_spec_worktree" {
+			return taskSpecWorktreeFor(ctx, config, overrides, root, task)
+		}
 		if op.Action == "remove_workspace" && len(op.Repositories) > 0 {
 			return removeRepositoryWorktrees(ctx, config, overrides, root, task, op.Repositories), nil
 		}

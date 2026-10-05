@@ -369,3 +369,32 @@ func remoteIdentity(identity string) bool {
 	host, path, ok := strings.Cut(identity, "/")
 	return ok && host != "" && path != "" && !strings.ContainsAny(identity, `\~`) && !strings.HasPrefix(host, ".")
 }
+
+// PrepareTaskSpecWorktree asks the caller's local agent to prepare where a
+// task's clarification report and specification are written (#736): a
+// worktree of the project's Issue specifications folder on the task's branch,
+// or the task's own worktree when that folder is the code checkout. The folder
+// is a setting of the workstation, so only its agent can answer.
+func (d *DB) PrepareTaskSpecWorktree(ctx context.Context, userID, taskKey string) (*models.TaskSpecWorkspace, error) {
+	task, err := d.GetTaskByID(taskKey)
+	if err != nil {
+		return nil, err
+	}
+	if task == nil {
+		return nil, fmt.Errorf("task not found")
+	}
+	branch := ""
+	if task.BranchName != nil {
+		branch = strings.TrimSpace(*task.BranchName)
+	}
+	var workspace models.TaskSpecWorkspace
+	err = d.callAgentContext(ctx, agentprotocol.Operation{UserID: strings.TrimSpace(userID), ProjectID: task.ProjectID, TaskID: task.ID,
+		Action: "task_spec_worktree", Branch: branch}, &workspace)
+	if err != nil {
+		return nil, err
+	}
+	if workspace.Path == "" {
+		return nil, fmt.Errorf("local agent is too old to prepare a task's specifications worktree; update it")
+	}
+	return &workspace, nil
+}

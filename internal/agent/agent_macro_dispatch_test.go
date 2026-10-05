@@ -20,20 +20,20 @@ import (
 // workstation names another folder (#484).
 func TestLocalSpecRepoPrefersTheWorkstationMapping(t *testing.T) {
 	root := t.TempDir()
-	if got, err := localSpecRepo(agentconfig.Settings{}, "p1", root); err != nil || got != root {
+	if got, err := localMacroSpecRepo(agentconfig.Settings{}, "p1", root); err != nil || got != root {
 		t.Fatalf("without an override the code checkout carries the specifications: %q %v", got, err)
 	}
 	wiki := t.TempDir()
 	overrides := agentconfig.Settings{ProjectSettings: map[string]agentconfig.ProjectSettings{"p1": {MacroSpecPath: wiki}}}
-	if got, err := localSpecRepo(overrides, "p1", root); err != nil || got != wiki {
+	if got, err := localMacroSpecRepo(overrides, "p1", root); err != nil || got != wiki {
 		t.Fatalf("the override must win: %q %v", got, err)
 	}
-	if got, _ := localSpecRepo(overrides, "p2", root); got != root {
+	if got, _ := localMacroSpecRepo(overrides, "p2", root); got != root {
 		t.Fatalf("another project's override must not apply, got %q", got)
 	}
 	missing := filepath.Join(t.TempDir(), "gone")
 	overrides.ProjectSettings["p1"] = agentconfig.ProjectSettings{MacroSpecPath: missing}
-	if _, err := localSpecRepo(overrides, "p1", root); err == nil || !strings.Contains(err.Error(), missing) {
+	if _, err := localMacroSpecRepo(overrides, "p1", root); err == nil || !strings.Contains(err.Error(), missing) {
 		t.Fatalf("an override to a missing directory must be refused by name, got %v", err)
 	}
 }
