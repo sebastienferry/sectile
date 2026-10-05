@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 )
 
@@ -244,4 +245,165 @@ func firstSandbox(top, base *ClaudeSandbox) *ClaudeSandbox {
 		return nil
 	}
 	return base
+}
+
+// CoversProject reports whether the workstation Sandbox values apply to the
+// project (#730): an empty whitelist covers every project, a project added
+// later included.
+func (d Defaults) CoversProject(projectID string) bool {
+	if len(d.ClaudeSandboxProjects) == 0 {
+		return true
+	}
+	for _, id := range d.ClaudeSandboxProjects {
+		if strings.TrimSpace(id) == projectID {
+			return true
+		}
+	}
+	return false
+}
+
+// ResolvedClaudeSandbox is what a launch of the project applies (#730): the
+// workstation values under the project's own when the whitelist covers the
+// project, the project's alone otherwise. Each list is the workstation
+// entries then the project's, without duplicates; the project's sandbox state
+// speaks over the workstation's when it states one. Nil when nothing is
+// stated.
+func (s Settings) ResolvedClaudeSandbox(projectID string) *ClaudeSandbox {
+	project := s.Project(projectID).ClaudeSandbox
+	var global *ClaudeSandbox
+	if s.Defaults.CoversProject(projectID) {
+		global = s.Defaults.ClaudeSandbox
+	}
+	if global.IsZero() {
+		if project.IsZero() {
+			return nil
+		}
+		return project
+	}
+	if project.IsZero() {
+		return global
+	}
+	out := ClaudeSandbox{
+		Enabled:        global.Enabled,
+		AllowedDomains: unionEntries(global.AllowedDomains, project.AllowedDomains),
+		AllowWrite:     unionEntries(global.AllowWrite, project.AllowWrite),
+		Allow:          unionEntries(global.Allow, project.Allow),
+		Deny:           unionEntries(global.Deny, project.Deny),
+	}
+	if project.Enabled != nil {
+		out.Enabled = project.Enabled
+	}
+	return &out
+}
+
+// unionEntries is the entries of the lists in order, each once, compared
+// trimmed.
+func unionEntries(lists ...[]string) []string {
+	var out []string
+	seen := map[string]bool{}
+	for _, list := range lists {
+		for _, entry := range list {
+			if key := strings.TrimSpace(entry); !seen[key] {
+				seen[key] = true
+				out = append(out, entry)
+			}
+		}
+	}
+	return out
+}
+
+// layoutSandboxWorkstation is the layout from which the Sandbox values have a
+// workstation level (#730): an older file still holds them per project.
+const layoutSandboxWorkstation = 4
+
+// foldProjectSandboxes moves the Sandbox values the projects hold into the
+// workstation values, once (#730): only a file written before the workstation
+// level has them to move, and the next save stamps the current layout, so a
+// value a project gains later stays with it. The four lists of every project,
+// in project ID order (the order of the settings file), join the workstation
+// lists and leave the projects; a sandbox state goes up only when every
+// project stating one states the same. The whitelist is left empty, so every
+// project applies the result. An entry the Sandbox category would refuse
+// stays on its project and is reported.
+func foldProjectSandboxes(s *Settings) (bool, []string) {
+	if s.Layout >= layoutSandboxWorkstation {
+		return false, nil
+	}
+	ids := make([]string, 0, len(s.ProjectSettings))
+	for id, project := range s.ProjectSettings {
+		if project.ClaudeSandbox != nil {
+			ids = append(ids, id)
+		}
+	}
+	sort.Strings(ids)
+	if len(ids) == 0 {
+		return false, nil
+	}
+	global := ClaudeSandbox{}
+	if s.Defaults.ClaudeSandbox != nil {
+		global = *s.Defaults.ClaudeSandbox
+	}
+	var warnings []string
+	var states []bool
+	for _, id := range ids {
+		project := s.Project(id)
+		sandbox := *project.ClaudeSandbox
+		if sandbox.Enabled != nil {
+			states = append(states, *sandbox.Enabled)
+		}
+		for _, list := range []struct {
+			name         string
+			from, global *[]string
+		}{
+			{"allowedDomains", &sandbox.AllowedDomains, &global.AllowedDomains},
+			{"allowWrite", &sandbox.AllowWrite, &global.AllowWrite},
+			{"allow", &sandbox.Allow, &global.Allow},
+			{"deny", &sandbox.Deny, &global.Deny},
+		} {
+			var kept []string
+			for _, entry := range *list.from {
+				if _, err := normalizeEntries([]string{entry}); err != nil {
+					kept = append(kept, entry)
+					warnings = append(warnings, fmt.Sprintf("project %s, %s: %v", id, list.name, err))
+					continue
+				}
+				*list.global = unionEntries(*list.global, []string{strings.TrimSpace(entry)})
+			}
+			*list.from = kept
+		}
+		project.ClaudeSandbox = &sandbox
+		s.SetProject(id, project)
+	}
+	if len(states) > 0 && allEqual(states) {
+		global.Enabled = &states[0]
+		for _, id := range ids {
+			project := s.Project(id)
+			if project.ClaudeSandbox != nil {
+				sandbox := *project.ClaudeSandbox
+				sandbox.Enabled = nil
+				project.ClaudeSandbox = &sandbox
+			}
+			s.SetProject(id, project)
+		}
+	}
+	for _, id := range ids {
+		if project, ok := s.ProjectSettings[id]; ok && project.ClaudeSandbox.IsZero() {
+			project.ClaudeSandbox = nil
+			s.SetProject(id, project)
+		}
+	}
+	s.Defaults.ClaudeSandbox = nil
+	if !global.IsZero() {
+		s.Defaults.ClaudeSandbox = &global
+	}
+	return true, warnings
+}
+
+func allEqual(states []bool) bool {
+	for _, state := range states[1:] {
+		if state != states[0] {
+			return false
+		}
+	}
+	return true
 }

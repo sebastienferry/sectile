@@ -151,6 +151,43 @@ func TestProjectAllowRulesGainTheRuleOnce(t *testing.T) {
 	}
 }
 
+// A project with no values of its own launches with the workstation ones it
+// is covered by, and with nothing once the whitelist leaves it out (#730).
+func TestALaunchAppliesTheWorkstationSandbox(t *testing.T) {
+	testhome.Temp(t)
+	d := &agentDaemon{repoRoot: t.TempDir()}
+	settings := agentconfig.Settings{
+		Defaults: agentconfig.Defaults{ClaudeSandbox: &agentconfig.ClaudeSandbox{Deny: []string{"Bash(git push:*)"}}},
+		ProjectSettings: map[string]agentconfig.ProjectSettings{
+			"project": {Path: "/checkout", ClaudeSandbox: &agentconfig.ClaudeSandbox{Allow: []string{"Read"}}},
+			"other":   {Path: "/other"},
+		},
+	}
+	if err := agentconfig.WriteSettings(settings); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"project", "other"} {
+		path, err := d.projectClaudeSettings(id)
+		if err != nil || path == "" {
+			t.Fatalf("%s gets no settings: %q %v", id, path, err)
+		}
+		if raw, _ := os.ReadFile(path); !strings.Contains(string(raw), `"Bash(git push:*)"`) {
+			t.Fatalf("%s lacks the workstation rule: %s", id, raw)
+		}
+	}
+	settings.Defaults.ClaudeSandboxProjects = []string{"project"}
+	if err := agentconfig.WriteSettings(settings); err != nil {
+		t.Fatal(err)
+	}
+	if path, err := d.projectClaudeSettings("other"); err != nil || path != "" {
+		t.Fatalf("a project left out of the whitelist still gets settings: %q %v", path, err)
+	}
+	path, err := d.projectClaudeSettings("project")
+	if raw, _ := os.ReadFile(path); err != nil || !strings.Contains(string(raw), `"Bash(git push:*)"`) || !strings.Contains(string(raw), `"Read"`) {
+		t.Fatalf("a covered project lacks a level: %s %v", raw, err)
+	}
+}
+
 func TestAProjectWithoutValuesGetsNoSettings(t *testing.T) {
 	testhome.Temp(t)
 	d := &agentDaemon{repoRoot: t.TempDir()}

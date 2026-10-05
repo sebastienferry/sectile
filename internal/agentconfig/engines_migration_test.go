@@ -2,9 +2,11 @@ package agentconfig
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"tasks/internal/testhome"
 	"testing"
@@ -208,7 +210,7 @@ func TestMigrateSettingsBacksUpOnce(t *testing.T) {
 	raw, _ := os.ReadFile(path)
 	var fields map[string]json.RawMessage
 	json.Unmarshal(raw, &fields)
-	if string(fields["layout"]) != "3" || string(fields["server"]) != `"https://s"` ||
+	if string(fields["layout"]) != strconv.Itoa(SettingsLayout) || string(fields["server"]) != `"https://s"` ||
 		strings.Contains(string(fields["defaults"]), "aiProvider") || strings.Contains(string(fields["projectSettings"]), "aiModel") {
 		t.Fatalf("rewritten file:\n%s", raw)
 	}
@@ -221,7 +223,7 @@ func TestMigrateSettingsBacksUpOnce(t *testing.T) {
 		t.Fatalf("second start: %v %v", changed, err)
 	}
 	// Engine fields written again by an older agent convert again, beside the first backup.
-	os.WriteFile(path, []byte(strings.Replace(string(raw), `"layout": 3`, `"layout": 2`, 1)), 0600)
+	os.WriteFile(path, []byte(strings.Replace(string(raw), fmt.Sprintf(`"layout": %d`, SettingsLayout), `"layout": 2`, 1)), 0600)
 	if changed, _ := MigrateSettings(t.TempDir()); !changed {
 		t.Fatal("a layout-2 stamp must be rewritten")
 	}

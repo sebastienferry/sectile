@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"tasks/internal/testhome"
 	"testing"
@@ -156,7 +157,7 @@ func TestLegacyLayoutIsFoldedAndRewritten(t *testing.T) {
 			t.Errorf("connection key %q lost", key)
 		}
 	}
-	if string(fields["layout"]) != "3" {
+	if string(fields["layout"]) != strconv.Itoa(SettingsLayout) {
 		t.Fatalf("layout: %s", fields["layout"])
 	}
 	again, err := ReadSettings(t.TempDir())
