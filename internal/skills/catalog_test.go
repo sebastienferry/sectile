@@ -529,7 +529,16 @@ func TestClarificationPublicationContract(t *testing.T) {
 		for _, id := range []string{"clarify", "pickup", "pickup_issues"} {
 			stage, _ := skills.StageSkillByID(id)
 			content := skills.RenderSkillContent(stage, framework)
-			for _, requirement := range []string{"Every round, interactive or unattended", "Round N uses only its newly appended section", "no separate", "30,000 characters", "last numbered part", "pushStageCommits", "Never force", "Report a refused push and continue"} {
+			for _, requirement := range []string{
+				"Every round, interactive or unattended",
+				"Round N uses only its newly appended section",
+				"no separate",
+				"30,000 characters",
+				"last numbered part",
+				"pushStageCommits",
+				"Never force",
+				"Report a refused push and continue",
+			} {
 				if !strings.Contains(content, requirement) {
 					t.Errorf("%s/%s missing publication rule %q", framework, id, requirement)
 				}
