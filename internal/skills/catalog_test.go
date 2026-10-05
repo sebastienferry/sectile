@@ -469,3 +469,32 @@ func TestClarificationPublicationContract(t *testing.T) {
 		}
 	}
 }
+
+// Every issue skill says where the task's artefacts live and how they are
+// published when that is another repository than the code (#736); the macro
+// skills keep their own workspace and do not carry it.
+func TestIssueSkillsCarryTheSpecificationsWorkspace(t *testing.T) {
+	for _, id := range []string{"clarify", "specify", "implement", "adjust", "handoff", "pickup", "pickup_issues"} {
+		skill, ok := skills.StageSkillByID(id)
+		if !ok {
+			t.Fatalf("unknown skill %s", id)
+		}
+		for _, content := range []string{skills.RenderSkillContent(skill, "speckit"), skills.RenderGenericSkillContent(skill)} {
+			for _, want := range []string{"## Specifications workspace", "SECTILE_SPEC_REPO", "prepare_task_spec_worktree", "never in the code branch", "Never force"} {
+				if !strings.Contains(content, want) {
+					t.Errorf("%s: the body must say %q", id, want)
+				}
+			}
+		}
+	}
+	for _, id := range []string{"refine_macro", "realign_macro", "rewrite_story", "create_pr"} {
+		skill, _ := skills.StageSkillByID(id)
+		if strings.Contains(skills.RenderGenericSkillContent(skill), "## Specifications workspace") {
+			t.Errorf("%s must not carry the issue specifications workspace", id)
+		}
+	}
+	handoff, _ := skills.StageSkillByID("handoff")
+	if content := skills.RenderGenericSkillContent(handoff); !strings.Contains(content, "merged into that repository's default branch") {
+		t.Error("handoff must clean the specifications worktree only once its branch is merged")
+	}
+}
