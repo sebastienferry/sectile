@@ -597,6 +597,16 @@ func (d *agentDaemon) desktopProjects(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	clonesPath := ""
+	if input.ClonesPath != nil {
+		if clonesPath = strings.TrimSpace(*input.ClonesPath); clonesPath != "" {
+			if !filepath.IsAbs(clonesPath) {
+				http.Error(w, "Clones folder must be an absolute path", 400)
+				return
+			}
+			clonesPath = filepath.Clean(clonesPath)
+		}
+	}
 	d.prepareMu.Lock()
 	defer d.prepareMu.Unlock()
 	unlock := agentconfig.LockSettings()
@@ -617,6 +627,17 @@ func (d *agentDaemon) desktopProjects(w http.ResponseWriter, r *http.Request) {
 	}
 	if input.IssueSpecPath != nil {
 		project.IssueSpecPath = issueSpecPath
+	}
+	if input.AnyRepository != nil {
+		// Off is the default, so it is stored as nothing.
+		project.AnyRepository = nil
+		if *input.AnyRepository {
+			on := true
+			project.AnyRepository = &on
+		}
+	}
+	if input.ClonesPath != nil {
+		project.ClonesPath = clonesPath
 	}
 	if err := agentconfig.ValidateProject(project); err != nil {
 		http.Error(w, err.Error(), 400)
@@ -833,6 +854,9 @@ func (d *agentDaemon) desktopProject(w http.ResponseWriter, r *http.Request) {
 			"issueSpecPath":               section.IssueSpecPath,
 			"issueSpecDefault":            specDefault,
 			"issueSpecKind":               specFolderKind(r.Context(), issueSpecEffective),
+			"anyRepository":               overrides.AnyRepository(id),
+			"clonesPath":                  section.ClonesPath,
+			"clonesDefault":               overrides.ClonesPath(id, specDefault),
 			"useWorktrees":                effective.UseWorktrees,
 			"configured":                  mappingErr == nil,
 			"aiCommandTemplate":           effective.AICommandTemplate,
@@ -1348,7 +1372,7 @@ func (d *agentDaemon) desktopTasksTerminalExternal(w http.ResponseWriter, r *htt
 	// project's folders and its Claude settings (#690). It is built before the
 	// run is registered, so a refusal leaves nothing to release.
 	specWorkspace := d.knownTaskSpecWorkspace(r.Context(), config, task, workDir, branch)
-	folders := d.taskFolderMap(r.Context(), config, task, workDir, specWorkspace)
+	folders := d.taskFolderMap(r.Context(), config, task, workDir, specWorkspace, false)
 	claudeSettings, err := d.launchClaudeSettings(config)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusConflict)

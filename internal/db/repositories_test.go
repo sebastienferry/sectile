@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 
@@ -88,12 +89,22 @@ func TestTaskRepositoryPin(t *testing.T) {
 	if updated.Repository != "github.com/o/b" {
 		t.Errorf("pinned = %q, want the identity", updated.Repository)
 	}
-	outside := "https://github.com/o/elsewhere"
-	if _, err := d.UpdateTask(task.ID, models.UpdateTaskRequest{Repository: &outside}); !errors.Is(err, ErrRepositoryNotInProject) {
-		t.Errorf("pin outside the list: err = %v", err)
+	// Any remote may be pinned (#737); what names no repository may not.
+	for _, refused := range []string{"elsewhere", "/src/elsewhere", "~/src/elsewhere"} {
+		if _, err := d.UpdateTask(task.ID, models.UpdateTaskRequest{Repository: &refused}); !errors.Is(err, ErrRepositoryNotInProject) {
+			t.Errorf("pin %q: err = %v", refused, err)
+		}
 	}
 	if reread, _ := d.GetTaskByID(task.ID); reread.Repository != "github.com/o/b" {
 		t.Errorf("a refused pin changed the task: %q", reread.Repository)
+	}
+	outside := "https://github.com/o/elsewhere"
+	if updated, err = d.UpdateTask(task.ID, models.UpdateTaskRequest{Repository: &outside}); err != nil || updated.Repository != "github.com/o/elsewhere" {
+		t.Fatalf("pin outside the list = %q, %v", updated.Repository, err)
+	}
+	project, _ := d.GetProjectByID(task.ProjectID)
+	if got := TaskPrimaryRepository(project, updated); got != "github.com/o/elsewhere" {
+		t.Errorf("primary repository = %q, want the undeclared pin", got)
 	}
 	empty := ""
 	if updated, err = d.UpdateTask(task.ID, models.UpdateTaskRequest{Repository: &empty}); err != nil || updated.Repository != "" {
@@ -173,7 +184,9 @@ func testRepositoryConversion(t *testing.T, d *DB) {
 type fakeWorktreeAgent struct {
 	calls  []agentprotocol.Operation
 	noEcho bool
-	err    error
+	// ignoresPath answers like an agent that predates #737.
+	ignoresPath bool
+	err         error
 }
 
 func (f *fakeWorktreeAgent) call(_ context.Context, op agentprotocol.Operation) (json.RawMessage, error) {
@@ -185,7 +198,37 @@ func (f *fakeWorktreeAgent) call(_ context.Context, op agentprotocol.Operation) 
 	if f.noEcho {
 		repository = ""
 	}
-	return json.Marshal(models.RepositoryWorktree{Repository: repository, Path: "/src/" + op.Repository + "/.tasks/worktrees/x", Branch: op.Branch})
+	return json.Marshal(models.RepositoryWorktree{Repository: repository, Path: "/src/" + op.Repository + "/.tasks/worktrees/x", Branch: op.Branch,
+		PathChecked: op.Path != "" && !f.ignoresPath})
+}
+
+// The repository as typed and the checkout the caller found reach the agent
+// (#737), and an agent that does not check the path is refused rather than
+// trusted.
+func TestPrepareRepositoryWorktreeRelaysThePath(t *testing.T) {
+	d := testDB(t)
+	_, task := multiRepoProject(t, d)
+	agent := &fakeWorktreeAgent{}
+	d.SetAgentOperations(agent.call)
+
+	worktree, err := d.PrepareRepositoryWorktree(context.Background(), "", task.Key, "git@gitlab.com:g/undeclared.git", " /src/undeclared ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	call := agent.calls[0]
+	if call.Repository != "gitlab.com/g/undeclared" || call.RepositoryURL != "git@gitlab.com:g/undeclared.git" || call.Path != "/src/undeclared" || !worktree.PathChecked {
+		t.Fatalf("call = %+v, worktree = %+v", call, worktree)
+	}
+	if reread, _ := d.GetTaskByID(task.ID); len(reread.ChangedRepositories) != 1 || reread.ChangedRepositories[0] != "gitlab.com/g/undeclared" {
+		t.Errorf("changed = %v, want the undeclared repository", reread.ChangedRepositories)
+	}
+	agent.ignoresPath = true
+	if _, err := d.PrepareRepositoryWorktree(context.Background(), "", task.Key, "gitlab.com/g/other", "/src/other"); err == nil || !strings.Contains(err.Error(), "too old to use a repository path") {
+		t.Errorf("an agent ignoring the path: %v", err)
+	}
+	if reread, _ := d.GetTaskByID(task.ID); len(reread.ChangedRepositories) != 1 {
+		t.Errorf("a refused path recorded a repository: %v", reread.ChangedRepositories)
+	}
 }
 
 func TestPrepareRepositoryWorktree(t *testing.T) {
@@ -194,30 +237,29 @@ func TestPrepareRepositoryWorktree(t *testing.T) {
 	agent := &fakeWorktreeAgent{}
 	d.SetAgentOperations(agent.call)
 
-	worktree, err := d.PrepareRepositoryWorktree(context.Background(), "", task.Key, "git@github.com:o/b.git")
+	worktree, err := d.PrepareRepositoryWorktree(context.Background(), "", task.Key, "git@github.com:o/b.git", "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if worktree.Branch != "feat/12" || len(agent.calls) != 1 || agent.calls[0].Action != "repository_worktree" || agent.calls[0].Repository != "github.com/o/b" || agent.calls[0].TaskID != task.ID {
 		t.Errorf("worktree = %+v, calls = %+v", worktree, agent.calls)
 	}
-	if _, err := d.PrepareRepositoryWorktree(context.Background(), "", task.Key, "github.com/o/b"); err != nil {
+	if _, err := d.PrepareRepositoryWorktree(context.Background(), "", task.Key, "github.com/o/b", ""); err != nil {
 		t.Fatal(err)
 	}
 	if reread, _ := d.GetTaskByID(task.ID); len(reread.ChangedRepositories) != 1 || reread.ChangedRepositories[0] != "github.com/o/b" {
 		t.Errorf("changed = %v, want github.com/o/b once", reread.ChangedRepositories)
 	}
 
-	// Neither the primary repository nor what names no repository is relayed.
+	// What names no repository is not relayed.
 	calls := len(agent.calls)
 	for name, repository := range map[string]string{
-		"primary repository": "git@github.com:o/a.git",
-		"folder path":        "/src/elsewhere",
-		"bare name":          "elsewhere",
-		"relative path":      "./elsewhere",
-		"home path":          "~/src/elsewhere",
+		"folder path":   "/src/elsewhere",
+		"bare name":     "elsewhere",
+		"relative path": "./elsewhere",
+		"home path":     "~/src/elsewhere",
 	} {
-		if _, err := d.PrepareRepositoryWorktree(context.Background(), "", task.Key, repository); err == nil {
+		if _, err := d.PrepareRepositoryWorktree(context.Background(), "", task.Key, repository, ""); err == nil {
 			t.Errorf("%s: accepted", name)
 		}
 	}
@@ -225,12 +267,58 @@ func TestPrepareRepositoryWorktree(t *testing.T) {
 		t.Errorf("a refused repository reached the agent: %+v", agent.calls[calls:])
 	}
 	agent.noEcho = true
-	if _, err := d.PrepareRepositoryWorktree(context.Background(), "", task.Key, "github.com/o/b"); err == nil || !strings.Contains(err.Error(), "too old") {
+	if _, err := d.PrepareRepositoryWorktree(context.Background(), "", task.Key, "github.com/o/b", ""); err == nil || !strings.Contains(err.Error(), "too old") {
 		t.Errorf("no echo: err = %v", err)
 	}
 	agent.noEcho = false
 	if p.Repositories[0].Identity != "github.com/o/a" {
 		t.Fatalf("repositories = %+v", p.Repositories)
+	}
+}
+
+// The code repository of an unpinned ticket may be prepared like any other
+// (#737): a launch without its code worktree makes it there. The repository a
+// ticket is pinned to already has its worktree and is still refused.
+func TestPrepareRepositoryWorktreeForTheCodeRepository(t *testing.T) {
+	d := testDB(t)
+	_, task := multiRepoProject(t, d)
+	agent := &fakeWorktreeAgent{}
+	d.SetAgentOperations(agent.call)
+
+	if _, err := d.PrepareRepositoryWorktree(context.Background(), "", task.Key, "git@github.com:o/a.git", ""); err != nil {
+		t.Fatal(err)
+	}
+	if reread, _ := d.GetTaskByID(task.ID); !slices.Contains(reread.ChangedRepositories, "github.com/o/a") {
+		t.Errorf("changed = %v, want the code repository recorded", reread.ChangedRepositories)
+	}
+
+	if _, err := d.conn.Exec("UPDATE tasks SET repository='https://github.com/o/b' WHERE id=?", task.ID); err != nil {
+		t.Fatal(err)
+	}
+	calls := len(agent.calls)
+	if _, err := d.PrepareRepositoryWorktree(context.Background(), "", task.Key, "github.com/o/b", ""); err == nil || !strings.Contains(err.Error(), "already has its worktree") {
+		t.Errorf("the pinned repository: %v", err)
+	}
+	if len(agent.calls) != calls {
+		t.Errorf("the pinned repository reached the agent")
+	}
+}
+
+// A task with no branch yet gets the one its code worktree would carry.
+func TestPrepareRepositoryWorktreeNamesAMissingBranch(t *testing.T) {
+	d := testDB(t)
+	_, task := multiRepoProject(t, d)
+	if _, err := d.conn.Exec("UPDATE tasks SET branch_name=NULL WHERE id=?", task.ID); err != nil {
+		t.Fatal(err)
+	}
+	agent := &fakeWorktreeAgent{}
+	d.SetAgentOperations(agent.call)
+	if _, err := d.PrepareRepositoryWorktree(context.Background(), "", task.Key, "github.com/o/b", ""); err != nil {
+		t.Fatal(err)
+	}
+	want, _ := models.TaskBranchName("", task.Key, task.Title)
+	if agent.calls[0].Branch != want || want == "" {
+		t.Errorf("branch = %q, want %q", agent.calls[0].Branch, want)
 	}
 }
 
@@ -243,7 +331,7 @@ func TestPrepareRepositoryWorktreeInAnAttachedFolder(t *testing.T) {
 	agent := &fakeWorktreeAgent{err: errors.New("github.com/o/lib is not attached to this project on this workstation")}
 	d.SetAgentOperations(agent.call)
 
-	if _, err := d.PrepareRepositoryWorktree(context.Background(), "", task.Key, "git@github.com:o/lib.git"); err == nil || !strings.Contains(err.Error(), "not attached") {
+	if _, err := d.PrepareRepositoryWorktree(context.Background(), "", task.Key, "git@github.com:o/lib.git", ""); err == nil || !strings.Contains(err.Error(), "not attached") {
 		t.Fatalf("unattached: err = %v", err)
 	}
 	if len(agent.calls) != 1 || agent.calls[0].Repository != "github.com/o/lib" {
@@ -254,7 +342,7 @@ func TestPrepareRepositoryWorktreeInAnAttachedFolder(t *testing.T) {
 	}
 
 	agent.err = nil
-	worktree, err := d.PrepareRepositoryWorktree(context.Background(), "", task.Key, "https://github.com/o/lib")
+	worktree, err := d.PrepareRepositoryWorktree(context.Background(), "", task.Key, "https://github.com/o/lib", "")
 	if err != nil || worktree.Repository != "github.com/o/lib" || worktree.Branch != "feat/12" {
 		t.Fatalf("attached: %+v %v", worktree, err)
 	}
@@ -335,6 +423,11 @@ func TestAPinTheProjectNoLongerDeclaresIsNoPin(t *testing.T) {
 	reread, _ := d.GetTaskByID(task.ID)
 	if multiRepoTask(project, reread) || TaskPrimaryRepository(project, reread) != "github.com/o/a" {
 		t.Errorf("a removed repository still decides: multi=%v primary=%q", multiRepoTask(project, reread), TaskPrimaryRepository(project, reread))
+	}
+	// The pin itself goes (#737): any remote may be pinned, so one left
+	// behind would read as deliberate.
+	if reread.Repository != "" {
+		t.Errorf("pin after the removal = %q, want none", reread.Repository)
 	}
 }
 

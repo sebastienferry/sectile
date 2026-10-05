@@ -49,9 +49,15 @@ func TestPrimaryRootFollowsThePin(t *testing.T) {
 	if root, _, err := primaryRoot(ctx, multiRepoConfig(), agentconfig.Settings{}, projectRoot, models.Task{Key: "#1"}); err != nil || root != projectRoot {
 		t.Errorf("only the code repository mapped: %q %v", root, err)
 	}
-	// A pin to a repository the project no longer declares reads as none.
-	if root, _, err := primaryRoot(ctx, multiRepoConfig(), overrides, projectRoot, models.Task{Key: "#1", Repository: "github.com/o/gone"}); err != nil || root != projectRoot {
-		t.Errorf("stale pin: %q %v", root, err)
+	// A pin to a repository the project does not declare needs the Any
+	// repository option (#737); without it the launch fails, naming it,
+	// rather than run the ticket in another repository.
+	if _, _, err := primaryRoot(ctx, multiRepoConfig(), overrides, projectRoot, models.Task{Key: "#1", Repository: "github.com/o/gone"}); err == nil || !strings.Contains(err.Error(), "Any repository option") {
+		t.Errorf("undeclared pin without the option: %v", err)
+	}
+	// What names no repository still reads as no pin.
+	if root, _, err := primaryRoot(ctx, multiRepoConfig(), overrides, projectRoot, models.Task{Key: "#1", Repository: "gone"}); err != nil || root != projectRoot {
+		t.Errorf("a pin naming no repository: %q %v", root, err)
 	}
 }
 

@@ -159,7 +159,13 @@ func (d *agentDaemon) executeOperation(ctx context.Context, op agentprotocol.Ope
 			return specArtifactsMode(config, task.Key), nil
 		}
 		if op.Action == "repository_worktree" {
-			return repositoryWorktree(ctx, config, overrides, root, task, op.Repository, d.link.deviceID)
+			worktree, err := repositoryWorktreeFor(ctx, config, overrides, root, task, repositoryRequest{
+				Repository: op.Repository, URL: op.RepositoryURL, Path: op.Path, Device: d.link.deviceID, SettingsRoot: d.localSettingsRoot(),
+			})
+			if err == nil {
+				worktree.AddedToSession = d.addDirToTaskRuns(task, worktree.Path)
+			}
+			return worktree, err
 		}
 		if op.Action == "task_spec_worktree" {
 			return taskSpecWorktreeFor(ctx, config, overrides, root, task)
@@ -400,7 +406,9 @@ func (d *agentDaemon) executeOperation(ctx context.Context, op agentprotocol.Ope
 		if err != nil {
 			return nil, err
 		}
-		return branchChangesAnswer{Repository: repository, Found: true, DefaultBranch: defaultBranch, Exists: exists, Ahead: ahead}, nil
+		lazyCode := models.RepositoryIdentity(repository) == codeIdentity(config) && strings.TrimSpace(task.Repository) == "" &&
+			overrides.AnyRepository(config.ProjectID) && specificationsAwayFromCode(config, overrides, root)
+		return branchChangesAnswer{Repository: repository, Found: true, DefaultBranch: defaultBranch, Exists: exists, Ahead: ahead, LazyCode: lazyCode}, nil
 	case "pr_evidence":
 		// The server verifies stage evidence on forges it cannot reach itself, with
 		// the CLI login this workstation already has. A forge that answered without

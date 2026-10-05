@@ -231,6 +231,20 @@ func worktreeForBranch(ctx context.Context, root, branch string) (string, error)
 }
 
 func ensureLocalWorktree(ctx context.Context, root string, task models.Task, useWorktrees bool, branchFormat string) (string, string, error) {
+	dir, branch, _, err := ensureTaskWorktree(ctx, root, task, useWorktrees, branchFormat, false)
+	return dir, branch, err
+}
+
+// ensureFetchedWorktree is ensureLocalWorktree for a repository other than the
+// launch's code checkout (#737): a branch that exists neither locally nor on
+// origin starts from the remote default branch, fetched first, rather than
+// from whatever the checkout has checked out. A fetch that fails is a warning,
+// and the base is then what is known locally.
+func ensureFetchedWorktree(ctx context.Context, root string, task models.Task, branchFormat string) (dir, branch, warning string, err error) {
+	return ensureTaskWorktree(ctx, root, task, true, branchFormat, true)
+}
+
+func ensureTaskWorktree(ctx context.Context, root string, task models.Task, useWorktrees bool, branchFormat string, fetch bool) (string, string, string, error) {
 	branch := ""
 	if task.BranchName != nil {
 		branch = strings.TrimSpace(*task.BranchName)
@@ -238,20 +252,20 @@ func ensureLocalWorktree(ctx context.Context, root string, task models.Task, use
 	if !useWorktrees {
 		current, err := gitLocal(ctx, root, "branch", "--show-current")
 		if branch != "" && current != branch {
-			return "", "", fmt.Errorf("checkout branch %s does not match assigned branch %s", current, branch)
+			return "", "", "", fmt.Errorf("checkout branch %s does not match assigned branch %s", current, branch)
 		}
-		return root, current, err
+		return root, current, "", err
 	}
 	name, err := safeWorktreeName(task.Key)
 	if err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
 	branch, err = taskWorktreeBranch(task, branchFormat)
 	if err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
 	if _, err := gitLocal(ctx, root, "check-ref-format", "--branch", branch); err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
 	// The worktree is resolved by branch, not by path. git reports every linked
 	// worktree and the main checkout in one call, so the tree that carries the
@@ -260,37 +274,73 @@ func ensureLocalWorktree(ctx context.Context, root string, task models.Task, use
 	// precisely what made a launch fail while the branch was alive next door.
 	existing, err := worktreeForBranch(ctx, root, branch)
 	if err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
 	if existing != "" {
 		// git reports fully resolved paths; on macOS the main checkout comes
 		// back through /private, so the caller's own root is preferred when the
 		// two name the same directory.
 		if sameDirectory(existing, root) {
-			return root, branch, nil
+			return root, branch, "", nil
 		}
-		return existing, branch, nil
+		return existing, branch, "", nil
 	}
 
 	target, err := availableTaskWorktreePath(root, name, branch)
 	if err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
 	if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
+	warning := ""
 	args := []string{"worktree", "add", target, branch}
 	if _, err := gitLocal(ctx, root, "show-ref", "--verify", "refs/heads/"+branch); err != nil {
+		if fetch {
+			warning = fetchOrigin(ctx, root)
+		}
 		base := "HEAD"
 		if _, err := gitLocal(ctx, root, "show-ref", "--verify", "refs/remotes/origin/"+branch); err == nil {
 			base = "refs/remotes/origin/" + branch
+		} else if fetch {
+			if _, remoteBase := macroBaseBranch(ctx, root); remoteBase != "" {
+				base = remoteBase
+			} else {
+				warning = joinWarnings(warning, "no default branch found: the branch starts from the checkout's current HEAD")
+			}
 		}
 		args = []string{"worktree", "add", "-b", branch, target, base}
 	}
 	if _, err := gitLocal(ctx, root, args...); err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
-	return target, branch, nil
+	return target, branch, warning, nil
+}
+
+// fetchOrigin brings origin's branches up to date in repo, within the bound a
+// macro fetch has, and answers a warning instead of failing: a remote that
+// hangs or refuses leaves the base to what is known locally.
+func fetchOrigin(ctx context.Context, repo string) string {
+	if _, err := gitLocal(ctx, repo, "remote", "get-url", "origin"); err != nil {
+		return "no origin remote: the branch starts from what is known locally"
+	}
+	fetchCtx, cancel := context.WithTimeout(ctx, macroFetchTimeout)
+	defer cancel()
+	if _, err := gitLocal(fetchCtx, repo, "fetch", "--quiet", "origin"); err != nil {
+		return "fetch failed, the base may be stale: " + err.Error()
+	}
+	return ""
+}
+
+// joinWarnings joins the warnings that are not empty.
+func joinWarnings(warnings ...string) string {
+	kept := make([]string, 0, len(warnings))
+	for _, warning := range warnings {
+		if warning = strings.TrimSpace(warning); warning != "" {
+			kept = append(kept, warning)
+		}
+	}
+	return strings.Join(kept, "; ")
 }
 
 // prepareDispatch resolves the task's workspace, then provisions its
@@ -299,9 +349,22 @@ func ensureLocalWorktree(ctx context.Context, root string, task models.Task, use
 // the agent behind one npm ci. The launch path waits for the install, so the
 // session starts with its dependencies in place.
 func (d *agentDaemon) prepareDispatch(ctx context.Context, taskKey string, useWorktrees ...bool) (agentconfig.Config, string, string, models.Task, error) {
-	config, root, workDir, branch, task, err := d.prepareWorkspace(ctx, taskKey, useWorktrees...)
+	config, workDir, branch, task, _, err := d.prepareLaunch(ctx, taskKey, false, useWorktrees...)
+	return config, workDir, branch, task, err
+}
+
+// prepareLaunch is prepareDispatch for a launch, which may go without the
+// ticket's code worktree when allowLazy is set and the project's Any
+// repository option says so (#737): lazy reports it, and workDir is then the
+// project checkout, where nothing is provisioned.
+func (d *agentDaemon) prepareLaunch(ctx context.Context, taskKey string, allowLazy bool, useWorktrees ...bool) (agentconfig.Config, string, string, models.Task, bool, error) {
+	d.prepareMu.Lock()
+	config, root, workDir, branch, task, lazy, err := d.prepareTaskWorkspaceLocked(ctx, taskKey, allowLazy, useWorktrees...)
+	d.prepareMu.Unlock()
 	if err == nil {
-		provisionWorktree(ctx, root, workDir)
+		if !lazy {
+			provisionWorktree(ctx, root, workDir)
+		}
 		// A pinned ticket may work in another checkout than the one it
 		// was admitted against: the queue compares checkouts through this.
 		d.queue.mu.Lock()
@@ -312,7 +375,7 @@ func (d *agentDaemon) prepareDispatch(ctx context.Context, taskKey string, useWo
 		}
 		d.queue.mu.Unlock()
 	}
-	return config, workDir, branch, task, err
+	return config, workDir, branch, task, lazy, err
 }
 
 // prepareWorkspace resolves the task's workspace under prepareMu without
@@ -327,45 +390,60 @@ func (d *agentDaemon) prepareWorkspace(ctx context.Context, taskKey string, useW
 // prepareMu. It also returns the project root, so the caller can tell a linked
 // worktree from the main checkout.
 func (d *agentDaemon) prepareDispatchLocked(ctx context.Context, taskKey string, useWorktrees ...bool) (agentconfig.Config, string, string, string, models.Task, error) {
+	config, root, workDir, branch, task, _, err := d.prepareTaskWorkspaceLocked(ctx, taskKey, false, useWorktrees...)
+	return config, root, workDir, branch, task, err
+}
+
+// prepareTaskWorkspaceLocked is prepareDispatchLocked that may skip the code
+// worktree, when allowLazy is set and lazyCodeWorktree says so.
+func (d *agentDaemon) prepareTaskWorkspaceLocked(ctx context.Context, taskKey string, allowLazy bool, useWorktrees ...bool) (agentconfig.Config, string, string, string, models.Task, bool, error) {
 	var task models.Task
 	config, err := d.fetchConfig(ctx, "", taskKey)
 	if err != nil {
-		return config, "", "", "", task, err
+		return config, "", "", "", task, false, err
 	}
 	root, overrides, err := d.localProjectRoot(ctx, config)
 	if err != nil {
-		return config, "", "", "", task, err
+		return config, "", "", "", task, false, err
 	}
 	if err := d.readAPI(ctx, "/api/tasks/"+url.PathEscape(taskKey), &task); err != nil {
-		return config, "", "", "", task, err
+		return config, "", "", "", task, false, err
 	}
 	if task.ProjectID != config.ProjectID {
-		return config, "", "", "", task, fmt.Errorf("task project changed during configuration sync")
+		return config, "", "", "", task, false, fmt.Errorf("task project changed during configuration sync")
 	}
 	config = agentconfig.ResolveTask(config, overrides, task.ID)
 	if len(useWorktrees) > 0 {
 		config.UseWorktrees = useWorktrees[0]
 	}
 	if err := config.Validate(); err != nil {
-		return config, "", "", "", task, err
+		return config, "", "", "", task, false, err
 	}
 	// The worktree lives in the ticket's own repository: the one it is pinned
 	// to, else the project root (#456, #484).
 	primary, _, err := primaryRoot(ctx, config, overrides, root, task)
 	if err != nil {
-		return config, "", "", "", task, err
+		return config, "", "", "", task, false, err
 	}
 	root = primary
+	if allowLazy {
+		if branch, lazy := lazyCodeWorktree(ctx, config, overrides, root, task); lazy {
+			if err := applySpecArtifacts(ctx, &config, root, task.Key); err != nil {
+				return config, "", "", "", task, false, err
+			}
+			return config, root, root, branch, task, true, nil
+		}
+	}
 	workDir, branch, err := ensureLocalWorktree(ctx, root, task, config.UseWorktrees, config.BranchNameFormat)
 	if err != nil {
-		return config, "", "", "", task, err
+		return config, "", "", "", task, false, err
 	}
 	if err := applySpecArtifacts(ctx, &config, root, task.Key); err != nil {
-		return config, "", "", "", task, err
+		return config, "", "", "", task, false, err
 	}
 	// Nothing is installed here (#267): the skills and the MCP registration are
 	// the user's to set up, through the Claude plugin or the agent's init.
-	return config, root, workDir, branch, task, nil
+	return config, root, workDir, branch, task, false, nil
 }
 
 // bootstrapLocalMCP registers the Sectile MCP server for every agent the project

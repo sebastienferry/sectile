@@ -154,6 +154,8 @@ func overlay(base, top Settings) Settings {
 			SkillCommands: mergeStrings(b.SkillCommands, p.SkillCommands),
 			SpecArtifacts: firstSet(p.SpecArtifacts, b.SpecArtifacts),
 			ClaudeSandbox: firstSandbox(p.ClaudeSandbox, b.ClaudeSandbox),
+			AnyRepository: firstBool(p.AnyRepository, b.AnyRepository),
+			ClonesPath:    firstSet(p.ClonesPath, b.ClonesPath),
 		})
 	}
 	out.Repositories = mergeStrings(base.Repositories, top.Repositories)
@@ -183,6 +185,16 @@ func overlayExecution(base, top Execution) Execution {
 		out.SetupProviders = base.SetupProviders
 	}
 	return out
+}
+
+// firstBool is the first value that is stated.
+func firstBool(values ...*bool) *bool {
+	for _, value := range values {
+		if value != nil {
+			return value
+		}
+	}
+	return nil
 }
 
 func firstSet(values ...string) string {

@@ -73,8 +73,13 @@ func primaryRoot(ctx context.Context, config agentconfig.Config, overrides agent
 		return projectRoot, code, nil
 	case models.PrimaryUnmapped:
 		return "", "", fmt.Errorf("Le dépôt %s de la tâche n'est associé à aucun dossier sur ce poste : choisissez son dossier dans les réglages du projet de l'app desktop.", repository.Identity)
+	case models.PrimaryUndeclared:
+		if root, err = undeclaredPrimaryRoot(ctx, config, overrides, projectRoot, repository.URL, repository.Identity); err != nil {
+			return "", "", err
+		}
+	default:
+		root, _ = repositoryFolder(ctx, overrides, config.ProjectID, projectRoot, code, repository.Identity)
 	}
-	root, _ = repositoryFolder(ctx, overrides, config.ProjectID, projectRoot, code, repository.Identity)
 	if repository.Identity != code {
 		// The project's own checkout ignores .tasks/ through its .gitignore;
 		// another repository has no reason to, so its status is kept clean
@@ -390,7 +395,15 @@ func resolveLegacyRepoPaths(ctx context.Context, paths []models.LegacyRepoPath) 
 // names device, the workstation that answered, and what each attached folder
 // turned out to be (#589).
 func repositoryWorktree(ctx context.Context, config agentconfig.Config, overrides agentconfig.Settings, projectRoot string, task models.Task, repository, device string) (models.RepositoryWorktree, error) {
-	repository = strings.TrimSpace(repository)
+	return repositoryWorktreeFor(ctx, config, overrides, projectRoot, task, repositoryRequest{Repository: repository, Device: device})
+}
+
+// repositoryWorktreeFor is repositoryWorktree with what the project's Any
+// repository option adds (#737): a repository no folder here holds is found at
+// the path the caller gave, or cloned, then remembered in the workstation
+// mapping. A known folder always wins over a path.
+func repositoryWorktreeFor(ctx context.Context, config agentconfig.Config, overrides agentconfig.Settings, projectRoot string, task models.Task, request repositoryRequest) (models.RepositoryWorktree, error) {
+	repository := strings.TrimSpace(request.Repository)
 	folders := attachedFolders(ctx, overrides, config.ProjectID)
 	for _, folder := range folders {
 		if folder.Identity == "" && filepath.IsAbs(repository) && (sameDirectory(folder.Stored, repository) || sameDirectory(folder.Path, repository)) {
@@ -401,21 +414,39 @@ func repositoryWorktree(ctx context.Context, config agentconfig.Config, override
 	if target, ok := models.FindProjectRepository(projectRepositories(config), repository); ok {
 		identity = target.Identity
 	}
-	root, ok := repositoryFolder(ctx, overrides, config.ProjectID, projectRoot, codeIdentity(config), identity)
-	if !ok || identity == "" {
-		return models.RepositoryWorktree{}, repositoryNotFound(repository, device, folders)
+	given := strings.TrimSpace(request.Path)
+	answer := models.RepositoryWorktree{Repository: identity, PathChecked: given != ""}
+	root, source, ok := locateRepository(ctx, overrides, config.ProjectID, projectRoot, codeIdentity(config), identity)
+	switch {
+	case ok && identity != "":
+		if given != "" && !sameDirectory(given, root) {
+			answer.Warning = fmt.Sprintf("%s is already known here at %s: the path given was not used", identity, root)
+		}
+	case given != "" && !overrides.AnyRepository(config.ProjectID):
+		return models.RepositoryWorktree{}, errPathWithoutOption
+	case identity == "" || !overrides.AnyRepository(config.ProjectID):
+		return models.RepositoryWorktree{}, repositoryNotFound(repository, request.Device, folders)
+	default:
+		var err error
+		if root, source, err = unknownRepositoryFolder(ctx, config, overrides, projectRoot, identity, request); err != nil {
+			return models.RepositoryWorktree{}, err
+		}
+		if answer.Remembered, err = rememberRepositoryFolder(request.SettingsRoot, identity, root); err != nil {
+			return models.RepositoryWorktree{}, err
+		}
 	}
-	target := models.ProjectRepository{URL: repository, Identity: identity}
-	if target.Identity != codeIdentity(config) {
+	answer.Source = source
+	if identity != codeIdentity(config) {
 		if err := excludeTaskWorktrees(ctx, root); err != nil {
 			return models.RepositoryWorktree{}, err
 		}
 	}
-	dir, branch, err := ensureLocalWorktree(ctx, root, task, true, config.BranchNameFormat)
+	dir, branch, warning, err := ensureFetchedWorktree(ctx, root, task, config.BranchNameFormat)
 	if err != nil {
 		return models.RepositoryWorktree{}, err
 	}
-	return models.RepositoryWorktree{Repository: target.Identity, Path: dir, Branch: branch}, nil
+	answer.Path, answer.Branch, answer.Warning = dir, branch, joinWarnings(answer.Warning, warning)
+	return answer, nil
 }
 
 // repositoryNotFound is the refusal of a repository that no mapping and no
@@ -451,7 +482,7 @@ func repositoryNotFound(repository, device string, folders []attachedFolder) err
 	if unread {
 		return fmt.Errorf("Le dépôt %s n'a été trouvé dans aucun dossier lisible du projet %s ; des dossiers attachés n'ont pas pu être lus :%s", repository, where, lines.String())
 	}
-	message := fmt.Sprintf("Le dépôt %s n'est ni associé ni attaché au projet %s : attachez son dossier dans les réglages du projet de l'app desktop.", repository, where)
+	message := fmt.Sprintf("Le dépôt %s n'est ni associé ni attaché au projet %s : attachez son dossier dans les réglages du projet de l'app desktop, ou activez-y l'option « Any repository ».", repository, where)
 	if len(folders) > 0 {
 		message += " Dossiers attachés au projet :" + lines.String()
 	}
@@ -497,8 +528,10 @@ func removeRepositoryWorktrees(ctx context.Context, config agentconfig.Config, o
 
 // taskFolderMap is the folder map of a launch, read from this workstation's
 // mappings once the worktree exists. A failure leaves the map empty: it
-// describes the launch, it never decides it.
-func (d *agentDaemon) taskFolderMap(ctx context.Context, config agentconfig.Config, task models.Task, workDir string, spec models.TaskSpecWorkspace) []models.FolderMapEntry {
+// describes the launch, it never decides it. A launch without its code
+// worktree (#737) lists the code repository as context, which
+// prepare_repository_worktree makes writable.
+func (d *agentDaemon) taskFolderMap(ctx context.Context, config agentconfig.Config, task models.Task, workDir string, spec models.TaskSpecWorkspace, lazyCode bool) []models.FolderMapEntry {
 	root, overrides, err := d.localProjectRoot(ctx, config)
 	if err != nil {
 		return nil
@@ -506,6 +539,9 @@ func (d *agentDaemon) taskFolderMap(ctx context.Context, config agentconfig.Conf
 	_, primary, err := primaryRoot(ctx, config, overrides, root, task)
 	if err != nil {
 		return nil
+	}
+	if lazyCode {
+		primary = ""
 	}
 	return withSpecWorktree(buildFolderMap(ctx, config, overrides, root, primary, workDir, task), spec)
 }

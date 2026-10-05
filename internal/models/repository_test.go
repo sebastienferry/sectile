@@ -123,7 +123,8 @@ func TestResolvePrimaryRepository(t *testing.T) {
 		{"no pin, several mapped", "", repositories, mappedSet("github.com/o/a", "github.com/o/b"), "", PrimaryDefault},
 		{"no pin, only another mapped", "", repositories, mappedSet("github.com/o/c"), "", PrimaryDefault},
 		{"no pin, none mapped", "", repositories, mappedSet(), "", PrimaryDefault},
-		{"stale pin reads as absent", "github.com/o/gone", repositories, mappedSet("github.com/o/a", "github.com/o/b"), "", PrimaryDefault},
+		{"pin to an undeclared repository", "github.com/o/gone", repositories, mappedSet("github.com/o/a", "github.com/o/b"), "github.com/o/gone", PrimaryUndeclared},
+		{"pin naming no repository", "gone", repositories, mappedSet("github.com/o/a"), "", PrimaryDefault},
 	}
 	for _, c := range cases {
 		got, outcome := ResolvePrimaryRepository(c.pinned, c.repos, c.mapped)
