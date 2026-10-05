@@ -411,11 +411,11 @@ func repositoryWorktree(ctx context.Context, config agentconfig.Config, override
 			return models.RepositoryWorktree{}, err
 		}
 	}
-	dir, branch, err := ensureLocalWorktree(ctx, root, task, true, config.BranchNameFormat)
+	dir, branch, warning, err := ensureFetchedWorktree(ctx, root, task, config.BranchNameFormat)
 	if err != nil {
 		return models.RepositoryWorktree{}, err
 	}
-	return models.RepositoryWorktree{Repository: target.Identity, Path: dir, Branch: branch}, nil
+	return models.RepositoryWorktree{Repository: target.Identity, Path: dir, Branch: branch, Warning: warning}, nil
 }
 
 // repositoryNotFound is the refusal of a repository that no mapping and no

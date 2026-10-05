@@ -235,7 +235,30 @@ type RepositoryWorktree struct {
 	Repository string `json:"repository"`
 	Path       string `json:"path"`
 	Branch     string `json:"branch"`
+	// Source says where the repository's checkout was found (#737): its
+	// mapping, the project checkout, an attached folder, the path the caller
+	// gave, or a clone the agent made.
+	Source string `json:"source,omitempty"`
+	// PathChecked echoes a path the caller gave, so the server can tell an
+	// agent that checked it from one that ignored it.
+	PathChecked bool `json:"pathChecked,omitempty"`
+	// Remembered says the checkout was written to the workstation mapping.
+	Remembered bool `json:"remembered,omitempty"`
+	// AddedToSession says the worktree was added to the ticket's running
+	// Claude Code sessions.
+	AddedToSession bool `json:"addedToSession,omitempty"`
+	// Warning is what the caller should know, a failed fetch for instance.
+	Warning string `json:"warning,omitempty"`
 }
+
+// Where a repository_worktree found the repository's checkout (#737).
+const (
+	RepositorySourceMapping  = "mapping"
+	RepositorySourceProject  = "project"
+	RepositorySourceAttached = "attached"
+	RepositorySourcePath     = "path"
+	RepositorySourceClone    = "clone"
+)
 
 // WorktreeRemoval answers a remove_workspace operation over several
 // repositories.

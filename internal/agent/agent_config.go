@@ -231,6 +231,20 @@ func worktreeForBranch(ctx context.Context, root, branch string) (string, error)
 }
 
 func ensureLocalWorktree(ctx context.Context, root string, task models.Task, useWorktrees bool, branchFormat string) (string, string, error) {
+	dir, branch, _, err := ensureTaskWorktree(ctx, root, task, useWorktrees, branchFormat, false)
+	return dir, branch, err
+}
+
+// ensureFetchedWorktree is ensureLocalWorktree for a repository other than the
+// launch's code checkout (#737): a branch that exists neither locally nor on
+// origin starts from the remote default branch, fetched first, rather than
+// from whatever the checkout has checked out. A fetch that fails is a warning,
+// and the base is then what is known locally.
+func ensureFetchedWorktree(ctx context.Context, root string, task models.Task, branchFormat string) (dir, branch, warning string, err error) {
+	return ensureTaskWorktree(ctx, root, task, true, branchFormat, true)
+}
+
+func ensureTaskWorktree(ctx context.Context, root string, task models.Task, useWorktrees bool, branchFormat string, fetch bool) (string, string, string, error) {
 	branch := ""
 	if task.BranchName != nil {
 		branch = strings.TrimSpace(*task.BranchName)
@@ -238,20 +252,20 @@ func ensureLocalWorktree(ctx context.Context, root string, task models.Task, use
 	if !useWorktrees {
 		current, err := gitLocal(ctx, root, "branch", "--show-current")
 		if branch != "" && current != branch {
-			return "", "", fmt.Errorf("checkout branch %s does not match assigned branch %s", current, branch)
+			return "", "", "", fmt.Errorf("checkout branch %s does not match assigned branch %s", current, branch)
 		}
-		return root, current, err
+		return root, current, "", err
 	}
 	name, err := safeWorktreeName(task.Key)
 	if err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
 	branch, err = taskWorktreeBranch(task, branchFormat)
 	if err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
 	if _, err := gitLocal(ctx, root, "check-ref-format", "--branch", branch); err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
 	// The worktree is resolved by branch, not by path. git reports every linked
 	// worktree and the main checkout in one call, so the tree that carries the
@@ -260,37 +274,73 @@ func ensureLocalWorktree(ctx context.Context, root string, task models.Task, use
 	// precisely what made a launch fail while the branch was alive next door.
 	existing, err := worktreeForBranch(ctx, root, branch)
 	if err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
 	if existing != "" {
 		// git reports fully resolved paths; on macOS the main checkout comes
 		// back through /private, so the caller's own root is preferred when the
 		// two name the same directory.
 		if sameDirectory(existing, root) {
-			return root, branch, nil
+			return root, branch, "", nil
 		}
-		return existing, branch, nil
+		return existing, branch, "", nil
 	}
 
 	target, err := availableTaskWorktreePath(root, name, branch)
 	if err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
 	if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
+	warning := ""
 	args := []string{"worktree", "add", target, branch}
 	if _, err := gitLocal(ctx, root, "show-ref", "--verify", "refs/heads/"+branch); err != nil {
+		if fetch {
+			warning = fetchOrigin(ctx, root)
+		}
 		base := "HEAD"
 		if _, err := gitLocal(ctx, root, "show-ref", "--verify", "refs/remotes/origin/"+branch); err == nil {
 			base = "refs/remotes/origin/" + branch
+		} else if fetch {
+			if _, remoteBase := macroBaseBranch(ctx, root); remoteBase != "" {
+				base = remoteBase
+			} else {
+				warning = joinWarnings(warning, "no default branch found: the branch starts from the checkout's current HEAD")
+			}
 		}
 		args = []string{"worktree", "add", "-b", branch, target, base}
 	}
 	if _, err := gitLocal(ctx, root, args...); err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
-	return target, branch, nil
+	return target, branch, warning, nil
+}
+
+// fetchOrigin brings origin's branches up to date in repo, within the bound a
+// macro fetch has, and answers a warning instead of failing: a remote that
+// hangs or refuses leaves the base to what is known locally.
+func fetchOrigin(ctx context.Context, repo string) string {
+	if _, err := gitLocal(ctx, repo, "remote", "get-url", "origin"); err != nil {
+		return "no origin remote: the branch starts from what is known locally"
+	}
+	fetchCtx, cancel := context.WithTimeout(ctx, macroFetchTimeout)
+	defer cancel()
+	if _, err := gitLocal(fetchCtx, repo, "fetch", "--quiet", "origin"); err != nil {
+		return "fetch failed, the base may be stale: " + err.Error()
+	}
+	return ""
+}
+
+// joinWarnings joins the warnings that are not empty.
+func joinWarnings(warnings ...string) string {
+	kept := make([]string, 0, len(warnings))
+	for _, warning := range warnings {
+		if warning = strings.TrimSpace(warning); warning != "" {
+			kept = append(kept, warning)
+		}
+	}
+	return strings.Join(kept, "; ")
 }
 
 // prepareDispatch resolves the task's workspace, then provisions its
