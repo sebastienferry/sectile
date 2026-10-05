@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"path/filepath"
@@ -111,7 +112,7 @@ func (d *agentDaemon) desktopRunFolder(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case conversation:
 		answer.AppliesAt = appliesNextTurn
-	case d.typeAddDir(r, sessionID, provider, filepath.Clean(path)):
+	case d.typeAddDir(r.Context(), sessionID, provider, filepath.Clean(path)):
 		answer.Typed, answer.AppliesAt = true, appliesNow
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -123,11 +124,11 @@ func (d *agentDaemon) desktopRunFolder(w http.ResponseWriter, r *http.Request) {
 // for it is not attested, nor a path that would not arrive as one line. The
 // folder is attached either way; false says the run sees it at its next
 // launch.
-func (d *agentDaemon) typeAddDir(r *http.Request, sessionID, provider, path string) bool {
+func (d *agentDaemon) typeAddDir(ctx context.Context, sessionID, provider, path string) bool {
 	if provider != "claude" || !typeablePath(path) || d.terminal.manager == nil {
 		return false
 	}
-	if !d.terminal.manager.WaitQuiet(r.Context(), sessionID, runFolderQuiet, runFolderQuietCap) {
+	if !d.terminal.manager.WaitQuiet(ctx, sessionID, runFolderQuiet, runFolderQuietCap) {
 		return false
 	}
 	// Claude Code reads its prompt in raw mode, where Enter is a carriage
@@ -137,6 +138,44 @@ func (d *agentDaemon) typeAddDir(r *http.Request, sessionID, provider, path stri
 	}
 	time.Sleep(typedLineSubmitDelay)
 	return d.terminal.manager.SendInput(sessionID, "\r") == nil
+}
+
+// addDirToTaskRuns types /add-dir and path into every live Claude Code session
+// this agent runs for the task (#737), so a worktree prepared mid-run in a
+// folder the session was not launched with can be written to. The typing
+// waits for the session to settle, which a session waiting on the tool call
+// that asked for the worktree does not do before the cap: it runs in the
+// background, and the answer only says a session was found.
+func (d *agentDaemon) addDirToTaskRuns(task models.Task, path string) bool {
+	if d.terminal.manager == nil || !typeablePath(path) {
+		return false
+	}
+	var sessions []string
+	d.queue.mu.Lock()
+	for _, run := range d.queue.runs {
+		if run.taskID != task.ID && run.desktop.TaskID != task.ID && (task.Key == "" || run.desktop.TaskKey != task.Key) {
+			continue
+		}
+		ended := run.restored || run.canceled
+		select {
+		case <-run.exited:
+			ended = true
+		default:
+		}
+		provider := run.interactiveProvider
+		if provider == "" {
+			provider = strings.ToLower(strings.TrimSpace(run.desktop.Provider))
+		}
+		if ended || run.desktop.Conversation || run.desktop.Headless || run.desktop.SessionID == "" || run.desktop.Status != "running" || provider != "claude" {
+			continue
+		}
+		sessions = append(sessions, run.desktop.SessionID)
+	}
+	d.queue.mu.Unlock()
+	for _, sessionID := range sessions {
+		go d.typeAddDir(context.Background(), sessionID, "claude", path)
+	}
+	return len(sessions) > 0
 }
 
 // typeablePath says whether a path can be typed into a terminal as it is: a

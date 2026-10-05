@@ -159,9 +159,13 @@ func (d *agentDaemon) executeOperation(ctx context.Context, op agentprotocol.Ope
 			return specArtifactsMode(config, task.Key), nil
 		}
 		if op.Action == "repository_worktree" {
-			return repositoryWorktreeFor(ctx, config, overrides, root, task, repositoryRequest{
+			worktree, err := repositoryWorktreeFor(ctx, config, overrides, root, task, repositoryRequest{
 				Repository: op.Repository, URL: op.RepositoryURL, Path: op.Path, Device: d.link.deviceID, SettingsRoot: d.localSettingsRoot(),
 			})
+			if err == nil {
+				worktree.AddedToSession = d.addDirToTaskRuns(task, worktree.Path)
+			}
+			return worktree, err
 		}
 		if op.Action == "task_spec_worktree" {
 			return taskSpecWorktreeFor(ctx, config, overrides, root, task)

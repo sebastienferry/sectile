@@ -226,3 +226,70 @@ func TestAttachingAFolderFromARun(t *testing.T) {
 		t.Errorf("status = %s", w.Body.String())
 	}
 }
+
+// A worktree prepared mid-run (#737) is typed into the task's live Claude Code
+// sessions, whatever their skill, and into nothing else.
+func TestWorktreeIsAddedToTheTaskSessions(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the sessions run a POSIX shell")
+	}
+	quiet, limit := runFolderQuiet, runFolderQuietCap
+	runFolderQuiet, runFolderQuietCap = 200*time.Millisecond, 3*time.Second
+	t.Cleanup(func() { runFolderQuiet, runFolderQuietCap = quiet, limit })
+	d := &agentDaemon{}
+	d.terminal.manager = terminal.NewManager()
+	session := func(id string) string {
+		t.Helper()
+		dir := t.TempDir()
+		if _, err := d.terminal.manager.GetOrCreateSession(id, dir, nil); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = d.terminal.manager.CloseSession(id) })
+		if err := d.terminal.manager.InjectLine(id, "exec cat > typed.txt"); err != nil {
+			t.Fatal(err)
+		}
+		// cat creates the file once it runs: a line typed before would reach
+		// the shell instead.
+		file := filepath.Join(dir, "typed.txt")
+		for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(50 * time.Millisecond) {
+			if _, err := os.Stat(file); err == nil || time.Now().After(deadline) {
+				break
+			}
+		}
+		return file
+	}
+	run := func(id, taskID, provider string) *controlledRun {
+		return &controlledRun{exited: make(chan struct{}), taskID: taskID,
+			desktop: desktopRun{ID: id, ProjectID: "p", Skill: "implement", TaskID: taskID, SessionID: id, Status: "running", Provider: provider}}
+	}
+	implement, codex, other := session("implement"), session("codex"), session("other")
+	d.queue.runs = map[string]*controlledRun{
+		"implement": run("implement", "t1", "claude"),
+		"codex":     run("codex", "t1", "codex"),
+		"other":     run("other", "t2", "claude"),
+	}
+	path := filepath.Join(t.TempDir(), "lib", ".tasks", "worktrees", "issue-1")
+
+	if !d.addDirToTaskRuns(models.Task{ID: "t1", Key: "#1"}, path) {
+		t.Fatal("the task's Claude session was not found")
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		raw, _ := os.ReadFile(implement)
+		if string(raw) == "/add-dir "+path+"\n" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("typed into the task's session: %q", raw)
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	for name, file := range map[string]string{"codex": codex, "another task": other} {
+		if raw, _ := os.ReadFile(file); len(raw) != 0 {
+			t.Errorf("typed into %s: %q", name, raw)
+		}
+	}
+	if d.addDirToTaskRuns(models.Task{ID: "t3", Key: "#3"}, path) {
+		t.Error("a task without a session reported one")
+	}
+}
