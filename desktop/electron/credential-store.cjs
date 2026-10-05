@@ -11,4 +11,9 @@ function storedKey(saved,store){
  if(saved.secret&&store.isEncryptionAvailable())return store.decryptString(Buffer.from(saved.secret,'base64'))
  return saved.apiKey||''
 }
-module.exports={storeKey,storedKey}
+// keyState says whether a key is usable, never what it is: a secret the OS store can no longer read counts as unreadable.
+function keyState(saved,store){
+ if(saved.secret){if(!store.isEncryptionAvailable())return 'unreadable';try{return store.decryptString(Buffer.from(saved.secret,'base64'))?'present':'unreadable'}catch{return 'unreadable'}}
+ return saved.apiKey?'present':'missing'
+}
+module.exports={storeKey,storedKey,keyState}

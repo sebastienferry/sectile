@@ -30,6 +30,10 @@ async function exchangePairingCode(server, code, label = os.hostname(), fetcher 
  return {token: body.token, deviceId: body.deviceId, userId: body.userId}
 }
 
+// pairingNeeded marks a refusal only a new pairing code can fix, so the start
+// screen can ask for one instead of reporting a failure.
+function pairingNeeded(message) { const e = Error(message); e.pairingNeeded = true; return e }
+
 // Pairing is the only way in: the form asks for a code, which is spent once for
 // a device credential. `token` is not something a user types any more, it is the
 // credential an earlier pairing stored; the code wins when both are present,
@@ -38,11 +42,11 @@ async function resolveConnectCredential(settings, exchange = exchangePairingCode
  const code = String(settings.code || '').trim()
  if (!code) {
   const token = String(settings.token || '').trim()
-  if (!token) throw Error('Enter a pairing code from your profile in the web interface')
+  if (!token) throw pairingNeeded('This workstation has no saved key yet. Paste a pairing code from your profile in the web interface.')
   return {token, paired: false}
  }
  const credential = await exchange(settings.server, code, label)
  return {token: credential.token, deviceId: credential.deviceId, paired: true}
 }
 
-module.exports = {exchangePairingCode, resolveConnectCredential}
+module.exports = {exchangePairingCode, resolveConnectCredential, pairingNeeded}

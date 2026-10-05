@@ -1,3 +1,4 @@
+const {pairingNeeded}=require('./pairing.cjs')
 // An unavailable server must not prevent the independent local agent starting.
 async function checkServer(server,token,fetcher=fetch){
  let response
@@ -11,8 +12,8 @@ async function checkServer(server,token,fetcher=fetch){
   // An expired key is the one refusal with a remedy other than retyping.
   let detail=''
   try{detail=(await response.json()).error||''}catch{}
-  if(/expired/i.test(detail))throw Error('This API key has expired. Renew it from your profile in the web interface, or create a new one.')
-  throw Error('Authentication rejected by the server. Check your API key.')
+  if(/expired/i.test(detail))throw pairingNeeded('This API key has expired. Renew it from your profile in the web interface, or create a new one.')
+  throw pairingNeeded('Authentication rejected by the server. Check your API key.')
  }
  if(!response.ok)return false
  let catalog

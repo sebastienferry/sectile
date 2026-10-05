@@ -661,3 +661,5 @@ dialog.quick-add-dialog{width:min(640px,92vw)}
 /* What an engine setup step reported, under its row. */
 .setup-result{margin:2px 0 10px;font-size:12px;color:var(--text-secondary);overflow-wrap:anywhere}
 .setup-result:empty{display:none}
+/* The reason a start failed or needs a pairing, shown inside the start form (#716). */
+.start-reason{color:var(--danger-text)}
