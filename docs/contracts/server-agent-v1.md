@@ -243,9 +243,10 @@ Without `origin` in the task checkout, the lookup fails with
 `macro_worktree` (`payload.macroKey`, `payload.macroTitle`, no task) prepares a
 macro's specification checkout on the workstation and answers
 `{"path", "branch", "worktree", "warning"}`. The specifications folder is the
-workstation's own setting for the project (`specRepos` in the local settings,
-edited as "Specifications folder" in the desktop project dialog), else the
-project's mapped checkout (#484). The server holds no
+workstation's Macro specifications folder for the project
+(`projectSettings.<id>.specPath` in the local settings, edited as "Macro
+specifications folder" in the desktop project dialog), else the project's
+mapped checkout (#484). The server holds no
 specifications path (#443). On a Git folder the worktree is
 `.tasks/worktrees/<safe-name>` in that repository, on the existing branch named after
 the key or a new `<KEY>-<slug>` from the fetched default branch; an existing tree
@@ -270,6 +271,25 @@ French, and shown as they are. An agent that predates the action answers
 `unknown local operation "macro_spec_file"`, which the server turns into a
 request to update the desktop app; no agent connected for the requesting user
 is likewise reported as the desktop app to connect.
+
+`task_spec_worktree` (`payload.branch`, a task) prepares where a task's
+clarification report and specification are written (#736) and answers
+`{"repository", "path", "branch", "worktree", "distinct", "warning"}`. The
+folder is the workstation's Issue specifications folder for the project
+(`projectSettings.<id>.issueSpecPath`, "Issue specifications folder" in the
+desktop project dialog), else the task's code checkout. In the code checkout,
+the answer is the task's worktree wherever its branch is checked out (else the
+checkout), with `distinct: false`, and nothing is created. In another Git
+folder it is `.tasks/worktrees/<safe-name>` there, on a branch named like the
+task's, prepared as `macro_worktree` prepares a macro's; worktrees off and a
+plain folder behave as they do there. A configured folder that no longer
+exists is refused naming the setting. The server relays it through the
+`prepare_task_spec_worktree` MCP tool. Every task launch prepares the same
+workspace and gives it to the run as `SECTILE_SPEC_REPO`,
+`SECTILE_SPEC_BRANCH` and `SECTILE_SPEC_WORKTREE`; a native terminal opened on
+a task creates nothing and names a distinct folder only once the task's
+specifications worktree exists. An agent that predates the action answers
+`unknown local operation "task_spec_worktree"`.
 
 New task and macro directory names use `issue-<number>` for canonical numeric
 GitHub keys and `key-<slug>-<sha256>` otherwise (at most 120 ASCII bytes).
@@ -1220,10 +1240,11 @@ HTTP and stdio initialize with server name `sectile`; managed native registratio
 use the same name. The catalog is exactly `get_task`, `transition_stage`,
 `add_comment`, `list_tasks`, `get_project_context`, `list_projects`, `start_run`,
 `finish_run`, `create_task`, `update_task`, `report_waiting`,
-`prepare_macro_worktree`, `prepare_repository_worktree`, `record_pull_request`,
-`get_macro` and `update_macro_todos`. The stdio bridge refuses any other
-catalog, so a server and an agent from before `record_pull_request` (#697) must
-be upgraded together. The
+`prepare_macro_worktree`, `prepare_repository_worktree`,
+`prepare_task_spec_worktree`, `record_pull_request`, `get_macro` and
+`update_macro_todos`. The stdio bridge refuses any other catalog, so a server
+and an agent from before `prepare_task_spec_worktree` (#736) must be upgraded
+together. The
 former `sectile_` names are unsupported on both transports.
 Tool schemas, return values, run ownership and managed-run validation are unchanged.
 

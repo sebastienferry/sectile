@@ -3,7 +3,9 @@
 Status: Accepted. Superseded in part by
 [ADR 0036](0036-attached-folders-and-one-kind-of-project.md): the repository
 layout is gone, and every project's specifications folder defaults to its code
-checkout.
+checkout. Superseded in part by
+[ADR 0051](0051-macro-and-issue-specifications-folders.md): the single folder
+became the Macro specifications folder, beside an Issue specifications folder.
 
 Supersedes in part: [ADR 0026](0026-macro-runs-and-macro-worktrees.md), its
 paragraph "The specifications repository has two declarations".

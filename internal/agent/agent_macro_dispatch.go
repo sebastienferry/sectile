@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 
@@ -15,24 +13,6 @@ import (
 	"tasks/internal/models"
 	"tasks/internal/sddfiles"
 )
-
-// localSpecRepo is the folder carrying a project's specifications on this
-// workstation: the workstation's own override when there is one, else the
-// project's checkout (#484). The server holds no specifications path: it would
-// name a directory on another machine.
-func localSpecRepo(overrides agentconfig.Settings, projectID, root string) (string, error) {
-	mapped := strings.TrimSpace(overrides.ProjectSettings[projectID].SpecPath)
-	if mapped == "" {
-		return root, nil
-	}
-	if !filepath.IsAbs(mapped) {
-		mapped = filepath.Join(root, mapped)
-	}
-	if _, err := os.Stat(mapped); err != nil {
-		return "", fmt.Errorf("le dossier des spécifications %s déclaré sur ce poste est introuvable", mapped)
-	}
-	return mapped, nil
-}
 
 // handleMacroDispatch runs a macro-scoped skill. It follows a task dispatch
 // where it can (admission, queue slot, skills, MCP, supervised console) and
@@ -189,7 +169,7 @@ func (d *agentDaemon) prepareMacroSkills(ctx context.Context, config agentconfig
 	if err := config.Validate(); err != nil {
 		return config, "", "", err
 	}
-	spec, err := localSpecRepo(overrides, config.ProjectID, root)
+	spec, err := localMacroSpecRepo(overrides, config.ProjectID, root)
 	return config, root, spec, err
 }
 
@@ -207,7 +187,7 @@ func (d *agentDaemon) macroWorkspaceFor(ctx context.Context, projectID, macroKey
 		return macroWorkspace{}, err
 	}
 	config = agentconfig.Resolve(config, overrides)
-	spec, err := localSpecRepo(overrides, config.ProjectID, root)
+	spec, err := localMacroSpecRepo(overrides, config.ProjectID, root)
 	if err != nil {
 		return macroWorkspace{}, err
 	}
@@ -228,7 +208,7 @@ func (d *agentDaemon) macroSpecFileFor(ctx context.Context, projectID, macroKey,
 	if err != nil {
 		return agentprotocol.MacroSpecFile{}, err
 	}
-	folder, err := localSpecRepo(overrides, config.ProjectID, root)
+	folder, err := localMacroSpecRepo(overrides, config.ProjectID, root)
 	if err != nil {
 		return agentprotocol.MacroSpecFile{}, err
 	}

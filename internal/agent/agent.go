@@ -1125,6 +1125,18 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 		return
 	}
 	payload.ProjectID = config.ProjectID
+	// The issue skills write their clarification report and specification in
+	// the project's Issue specifications folder, prepared beside the code
+	// worktree when it is a folder of its own (#736).
+	specWorkspace, err := d.taskSpecWorkspace(ctx, config, task, workDir, branch)
+	if err != nil {
+		launchFailure = err
+		d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", err.Error())
+		return
+	}
+	if specWorkspace.Warning != "" {
+		payload.Prompt += "\nSpecifications workspace notice: " + specWorkspace.Warning + "."
+	}
 	// A branch derived from the task key exists only in this process until it is
 	// written back: the next launch would derive it again against a branch since
 	// assigned elsewhere and resolve a different tree. Recording it is a
@@ -1194,7 +1206,7 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 		return
 	}
 	logIgnoredModel(config, taskRef, payload.Model)
-	folders := d.taskFolderMap(ctx, config, task, workDir)
+	folders := d.taskFolderMap(ctx, config, task, workDir, specWorkspace)
 	payload.Prompt += folderMapPrompt(folders)
 	// What runs for the skill is resolved here, from what is installed, and
 	// nothing is installed to make it resolve (#267).
@@ -1261,6 +1273,9 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 	}
 	if raw, err := json.Marshal(folders); err == nil && len(folders) > 0 {
 		envVars["SECTILE_REPOSITORIES"] = string(raw)
+	}
+	for name, value := range taskSpecEnvironment(specWorkspace) {
+		envVars[name] = value
 	}
 
 	// An interactive launch Desktop asked to see as a conversation, or any

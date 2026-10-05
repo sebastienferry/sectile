@@ -125,13 +125,10 @@ func buildFolderMap(ctx context.Context, config agentconfig.Config, overrides ag
 		listed[repository.Identity] = true
 		entries = append(entries, entry)
 	}
-	spec, err := localSpecRepo(overrides, config.ProjectID, projectRoot)
-	if err != nil {
-		spec = ""
-	}
+	specs := specFolders(overrides, config.ProjectID, projectRoot, task.Key != "")
 	// Folders compare as directories: an attached checkout is described at
 	// its top level, which Git reports with its symbolic links resolved.
-	taken := []string{projectRoot, spec}
+	taken := append([]string{projectRoot}, specs...)
 	for root := range seen {
 		taken = append(taken, root)
 	}
@@ -168,10 +165,38 @@ func buildFolderMap(ctx context.Context, config agentconfig.Config, overrides ag
 		}
 		entries = append(entries, entry)
 	}
-	if spec != "" && !seen[filepath.Clean(spec)] {
-		entries = append(entries, models.FolderMapEntry{Role: models.FolderRoleSpec, Path: spec})
+	for _, spec := range specs {
+		if !seen[filepath.Clean(spec)] {
+			entries = append(entries, models.FolderMapEntry{Role: models.FolderRoleSpec, Path: spec})
+		}
 	}
 	return entries
+}
+
+// specFolders are the specifications folders a folder map lists (#736): a
+// ticket's run writes only in the Issue folder, so it is the only one listed;
+// a project-level session may work on a macro or on a ticket, so it lists the
+// Macro folder, then the Issue folder when it is another one. A folder that
+// cannot be resolved is left out: the map describes a launch, it never decides
+// it.
+func specFolders(overrides agentconfig.Settings, projectID, projectRoot string, ticket bool) []string {
+	var folders []string
+	add := func(folder string, err error) {
+		if err != nil || folder == "" {
+			return
+		}
+		for _, other := range folders {
+			if filepath.Clean(other) == filepath.Clean(folder) {
+				return
+			}
+		}
+		folders = append(folders, folder)
+	}
+	if !ticket {
+		add(localMacroSpecRepo(overrides, projectID, projectRoot))
+	}
+	add(localIssueSpecRepo(overrides, projectID, projectRoot))
+	return folders
 }
 
 // folderMapDirs are the folders a CLI is given beside its working directory:
@@ -185,9 +210,18 @@ func folderMapDirs(entries []models.FolderMapEntry) []string {
 			continue
 		}
 		switch entry.Role {
-		case models.FolderRoleContext, models.FolderRoleSpec, models.FolderRoleLocal:
+		case models.FolderRoleContext, models.FolderRoleLocal:
 			if entry.Path != "" {
 				dirs = append(dirs, entry.Path)
+			}
+		case models.FolderRoleSpec:
+			if entry.Path != "" {
+				dirs = append(dirs, entry.Path)
+			}
+			// A specifications worktree reused where its branch was already
+			// checked out may sit outside the folder.
+			if entry.Worktree != "" && !strings.HasPrefix(filepath.Clean(entry.Worktree)+string(filepath.Separator), filepath.Clean(entry.Path)+string(filepath.Separator)) {
+				dirs = append(dirs, entry.Worktree)
 			}
 		case models.FolderRoleChanged:
 			if entry.Worktree != "" {
@@ -464,7 +498,7 @@ func removeRepositoryWorktrees(ctx context.Context, config agentconfig.Config, o
 // taskFolderMap is the folder map of a launch, read from this workstation's
 // mappings once the worktree exists. A failure leaves the map empty: it
 // describes the launch, it never decides it.
-func (d *agentDaemon) taskFolderMap(ctx context.Context, config agentconfig.Config, task models.Task, workDir string) []models.FolderMapEntry {
+func (d *agentDaemon) taskFolderMap(ctx context.Context, config agentconfig.Config, task models.Task, workDir string, spec models.TaskSpecWorkspace) []models.FolderMapEntry {
 	root, overrides, err := d.localProjectRoot(ctx, config)
 	if err != nil {
 		return nil
@@ -473,7 +507,21 @@ func (d *agentDaemon) taskFolderMap(ctx context.Context, config agentconfig.Conf
 	if err != nil {
 		return nil
 	}
-	return buildFolderMap(ctx, config, overrides, root, primary, workDir, task)
+	return withSpecWorktree(buildFolderMap(ctx, config, overrides, root, primary, workDir, task), spec)
+}
+
+// withSpecWorktree names the task's specifications worktree on the entry of
+// the Issue folder it was prepared in (#736).
+func withSpecWorktree(entries []models.FolderMapEntry, spec models.TaskSpecWorkspace) []models.FolderMapEntry {
+	if !spec.Distinct || spec.Path == "" || sameDirectory(spec.Path, spec.Repository) {
+		return entries
+	}
+	for i := range entries {
+		if entries[i].Role == models.FolderRoleSpec && sameDirectory(entries[i].Path, spec.Repository) {
+			entries[i].Worktree = spec.Path
+		}
+	}
+	return entries
 }
 
 // projectFolderMap is the folder map of a project-level session: a

@@ -34,8 +34,8 @@ func disconnectFixture(t *testing.T) (*agentDaemon, agentconfig.Config) {
 	}
 	on := true
 	settings := agentconfig.Settings{ProjectSettings: map[string]agentconfig.ProjectSettings{
-		"p":     {Path: root, SpecPath: root, Execution: agentconfig.Execution{AICommandTemplate: "custom {prompt}", UseWorktrees: &on, Parallelism: 3}},
-		"other": {Path: "/other", SpecPath: "/other-specs"},
+		"p":     {Path: root, MacroSpecPath: root, Execution: agentconfig.Execution{AICommandTemplate: "custom {prompt}", UseWorktrees: &on, Parallelism: 3}},
+		"other": {Path: "/other", MacroSpecPath: "/other-specs"},
 	}}
 	if err := agentconfig.WriteSettings(settings); err != nil {
 		t.Fatal(err)
@@ -98,7 +98,7 @@ func TestProjectDisconnectionPersistenceAndReadd(t *testing.T) {
 		}
 	}
 	settings, err := agentconfig.ReadSettings(d.repoRoot)
-	if err != nil || !settings.DisconnectedProjects["p"] || !settings.Project("p").IsZero() || settings.ProjectPath("other") != "/other" || settings.SpecPath("other") != "/other-specs" {
+	if err != nil || !settings.DisconnectedProjects["p"] || !settings.Project("p").IsZero() || settings.ProjectPath("other") != "/other" || settings.MacroSpecPath("other") != "/other-specs" {
 		t.Fatalf("settings: %+v %v", settings, err)
 	}
 	if len(d.queue.runs) != 1 {
