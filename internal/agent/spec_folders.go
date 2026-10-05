@@ -195,6 +195,11 @@ func (d *agentDaemon) knownTaskSpecWorkspace(ctx context.Context, config agentco
 	if _, err := gitLocal(ctx, issue, "rev-parse", "--git-dir"); err != nil {
 		return models.TaskSpecWorkspace{Repository: issue, Path: issue, Distinct: true}
 	}
+	// The task's specifications are never written on that folder's default
+	// branch, which a terminal on a task without a branch would name.
+	if defaultBranch, _ := macroBaseBranch(ctx, issue); strings.TrimSpace(branch) == "" || branch == defaultBranch {
+		return models.TaskSpecWorkspace{}
+	}
 	existing, err := worktreeForBranch(ctx, issue, branch)
 	if err != nil || existing == "" {
 		return models.TaskSpecWorkspace{}

@@ -325,3 +325,34 @@ func TestDesktopProjectIssueSpecificationsFolder(t *testing.T) {
 		t.Fatalf("clearing the Issue folder keeps the Macro one: %+v", settings.Project("p"))
 	}
 }
+
+// A terminal on a task creates no specifications worktree: it names one only
+// once it exists, and never the Issue folder's default branch.
+func TestKnownTaskSpecWorkspaceCreatesNothing(t *testing.T) {
+	testhome.Temp(t)
+	ctx := context.Background()
+	root := checkoutOf(t, "git@github.com:o/a.git")
+	specs, _ := specRepoWithRemote(t)
+	if err := agentconfig.WriteSettings(agentconfig.Settings{ProjectSettings: map[string]agentconfig.ProjectSettings{"p": {Path: root, IssueSpecPath: specs}}}); err != nil {
+		t.Fatal(err)
+	}
+	d, _, _ := desktopAgent(t, root, models.Task{})
+	config := multiRepoConfig()
+	task := models.Task{ID: "t", Key: "#1", ProjectID: "p"}
+	if got := d.knownTaskSpecWorkspace(ctx, config, task, root, "feat/1"); got.Path != "" {
+		t.Fatalf("no worktree yet, nothing named: %+v", got)
+	}
+	if _, err := os.Stat(filepath.Join(specs, ".tasks")); !os.IsNotExist(err) {
+		t.Fatalf("a terminal must create nothing: %v", err)
+	}
+	if got := d.knownTaskSpecWorkspace(ctx, config, task, root, "main"); got.Path != "" {
+		t.Fatalf("the default branch is never named: %+v", got)
+	}
+	prepared, err := ensureTaskSpecWorktree(ctx, specs, root, root, "feat/1", "#1", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := d.knownTaskSpecWorkspace(ctx, config, task, root, "feat/1"); !got.Distinct || !samePath(t, got.Path, prepared.Path) {
+		t.Fatalf("an existing worktree is named: %+v", got)
+	}
+}
