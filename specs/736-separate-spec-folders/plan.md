@@ -186,3 +186,24 @@ type TaskSpecWorkspace struct {
 `internal/skills/fragments/*`, `internal/skills/testdata/plugin/*`,
 `desktop/src/main.js`, `desktop/tests/*.ui.cjs`, docs listed above, and their
 tests.
+
+## Implementation notes (deviations from the plan above)
+
+- The launch keeps `prepareDispatch` as it was: the specifications workspace is
+  prepared right after it by `agentDaemon.taskSpecWorkspace`
+  (`internal/agent/spec_folders.go`), which avoids widening a signature used by
+  a dozen callers and tests.
+- The native terminal opened on a task (`desktopTasksTerminalExternal`) creates
+  no code worktree, so it creates no specifications worktree either: it names a
+  distinct Issue folder only once the task's specifications worktree exists,
+  and otherwise sets no `SECTILE_SPEC_*`, so a skill typed there calls
+  `prepare_task_spec_worktree`.
+- A project-level session (conversation, console) lists both folders in its
+  folder map, Macro first, since it may work on either; a ticket lists the Issue
+  folder only.
+- The skill guidance is one contract fragment,
+  `internal/skills/fragments/contracts/spec-workspace.md`, rendered as a
+  "Specifications workspace" section in clarify, specify, implement, adjust,
+  handoff and both pickups, instead of a paragraph repeated in each read-first.
+  It also carries the pull request timing: with a distinct workspace no code
+  pull request is opened before implementation. `create-pr` is left unchanged.
