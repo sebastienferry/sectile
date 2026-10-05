@@ -154,7 +154,9 @@ func TestParseWorkSectionsRejects(t *testing.T) {
 
 func TestParseWorkSectionsIgnoresFencedHeadings(t *testing.T) {
 	implement := stageSkill(t, "implement")
-	content := "\r\n## Steps\r\n1. Write the file:\r\n\r\n   ```markdown\r\n## Not a section\r\n   ```\r\n\r\n### A subsection\r\n2. Done.\r\n\r\n~~~~\r\n## Still not one\r\n```\r\n~~~~\r\n\r\n## Do not\r\n- Push on red.\r\n"
+	content := "\r\n## Steps\r\n1. Write the file:\r\n\r\n   ```markdown\r\n## Not a section\r\n   ```\r\n\r\n### A subsection\r\n2. Done.\r\n\r\n" +
+		"~~~~\r\n## Still not one\r\n```\r\n~~~~\r\n\r\n" +
+		"## Do not\r\n- Push on red.\r\n"
 	w, err := skills.ParseWorkSections(implement, content)
 	if err != nil {
 		t.Fatal(err)

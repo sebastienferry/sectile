@@ -133,7 +133,8 @@ func TestSaveKeepsAnExistingRowKind(t *testing.T) {
 	if err := d.SetProjectSkillMode(project.ID, "implement", models.SkillModeAutonomous); err != nil {
 		t.Fatal(err)
 	}
-	if entry, err = d.SaveProjectSkillContent(project.ID, "implement", "## Steps\nImplement it.", nil); err != nil || entry.OverrideKind != models.SkillOverrideWork || entry.Mode != models.SkillModeAutonomous {
+	entry, err = d.SaveProjectSkillContent(project.ID, "implement", "## Steps\nImplement it.", nil)
+	if err != nil || entry.OverrideKind != models.SkillOverrideWork || entry.Mode != models.SkillModeAutonomous {
 		t.Fatalf("a mode-only row: %+v %v", entry, err)
 	}
 

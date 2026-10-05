@@ -73,9 +73,11 @@ const fr = {
     contractsHint:
       'Sectile garde ses contrats : accès au ticket, cycle du run, transition, condition de sortie, politique de PR. Seules les sections Goal, Read first, Steps, la garde et Report se remplacent.',
     confirmWork:
-      "Passer en travail seul remplace le contenu de l'éditeur par les sections de travail intégrées. Les modifications non enregistrées sont perdues, et enregistrer en travail seul remplace aussi la surcharge enregistrée. Continuer ?",
+      "Passer en travail seul remplace le contenu de l'éditeur par les sections de travail intégrées. " +
+      "Les modifications non enregistrées sont perdues, et enregistrer en travail seul remplace aussi la surcharge enregistrée. Continuer ?",
     confirmFull:
-      "Passer en remplacement complet remplace le contenu de l'éditeur par la skill intégrée complète. Les modifications non enregistrées sont perdues, et enregistrer en remplacement complet remplace aussi la surcharge enregistrée. Continuer ?",
+      "Passer en remplacement complet remplace le contenu de l'éditeur par la skill intégrée complète. " +
+      "Les modifications non enregistrées sont perdues, et enregistrer en remplacement complet remplace aussi la surcharge enregistrée. Continuer ?",
   },
   feedback: {
     modeDecidedByCommand:
@@ -157,7 +159,8 @@ const en: SkillsEditorStrings = {
     confirmWork:
       "Switching to work only replaces the editor's content with the built-in work sections. Unsaved changes are lost, and saving as work only also replaces the saved override. Continue?",
     confirmFull:
-      "Switching to full replacement replaces the editor's content with the complete built-in skill. Unsaved changes are lost, and saving as a full replacement also replaces the saved override. Continue?",
+      "Switching to full replacement replaces the editor's content with the complete built-in skill. " +
+      "Unsaved changes are lost, and saving as a full replacement also replaces the saved override. Continue?",
   },
   feedback: {
     modeDecidedByCommand:
