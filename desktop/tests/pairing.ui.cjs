@@ -131,6 +131,84 @@ test('launching without a key explains why',async()=>{
  }
 })
 
+// A server that knows the stored key, and records each bearer it is shown.
+async function keyServer(accepted){
+ const presented=[]
+ const server=http.createServer((req,res)=>{
+  const url=new URL(req.url,'http://localhost')
+  if(url.pathname==='/api/v1/agent/projects'){
+   presented.push(req.headers.authorization)
+   if(req.headers.authorization!=='Bearer '+accepted){res.writeHead(401,{'Content-Type':'application/json'}).end(JSON.stringify({error:'Invalid API key'}));return}
+   res.writeHead(200,{'Content-Type':'application/json'});res.end(JSON.stringify({projects:[]}));return
+  }
+  res.writeHead(404).end()
+ })
+ await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve))
+ return {server,presented,address:'http://127.0.0.1:'+server.address().port}
+}
+
+// After a reboot nothing runs and a key is stored: the app starts the agent on
+// it and opens the workspace, and the pairing form is never shown on the way,
+// not even while the agent starts (#717).
+test('launching with a stored key starts the agent without showing the pairing form',async()=>{
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'sectile-stored-key-'))
+ const {server,address}=await keyServer('stored-key')
+ fs.writeFileSync(path.join(root,'settings.json'),JSON.stringify({server:address,apiKey:'stored-key'}),{mode:0o600})
+ const record=path.join(root,'fake-agent.json')
+ const env={...pairingEnv(root),SECTILE_DESKTOP_TEST_AGENT_BINARY:path.join(__dirname,'fake-agent.cjs'),SECTILE_FAKE_AGENT_RECORD:record}
+ let application
+ try{
+  application=await electron.launch({executablePath:process.env.SECTILE_DESKTOP_EXECUTABLE,args:process.env.SECTILE_DESKTOP_EXECUTABLE?[]:[path.resolve(__dirname,'..')],env})
+  const page=await application.firstWindow()
+  const heading=page.getByRole('heading',{name:'Connect to Sectile'})
+  let workspace=false,starting=false
+  for(let attempt=0;attempt<300&&!workspace;attempt++){
+   const seen=await page.evaluate(()=>({
+    setup:Boolean(document.querySelector('#setup'))&&!document.querySelector('#setup').hidden,
+    workspace:Boolean(document.querySelector('#workspace'))&&!document.querySelector('#workspace').hidden,
+    starting:Boolean(document.querySelector('#launch-status'))&&!document.querySelector('#launch-status').hidden
+   }))
+   assert.equal(seen.setup,false,'the setup screen was shown while the stored key started the agent')
+   assert.equal(await heading.isVisible(),false,'the pairing form was shown while the stored key started the agent')
+   workspace=seen.workspace;starting||=seen.starting
+   if(!workspace)await new Promise(resolve=>setTimeout(resolve,20))
+  }
+  assert.ok(workspace,'the workspace opens on the agent the stored key started')
+  assert.ok(starting,'the start is announced while it runs')
+  assert.equal(JSON.parse(fs.readFileSync(record,'utf8')).token,'stored-key','the agent is started on the stored key')
+  await page.waitForTimeout(2500)
+  assert.equal(await page.locator('#setup').isHidden(),true,'the poll does not fall back to the setup screen')
+  assert.equal(await heading.isVisible(),false)
+ }finally{
+  // The agent is started detached, so closing the app leaves it running.
+  try{process.kill(JSON.parse(fs.readFileSync(record,'utf8')).pid)}catch{}
+  if(application)await application.close().catch(()=>{})
+  server.close()
+  fs.rmSync(root,{recursive:true,force:true,maxRetries:10,retryDelay:100})
+ }
+})
+
+// A stored key the server no longer knows is not started on: the setup screen
+// says why, so signing in again is the obvious next step.
+test('launching with a revoked stored key shows the setup screen with the reason',async()=>{
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'sectile-revoked-key-'))
+ const {server,address,presented}=await keyServer('another-key')
+ fs.writeFileSync(path.join(root,'settings.json'),JSON.stringify({server:address,apiKey:'stored-key'}),{mode:0o600})
+ let application
+ try{
+  application=await electron.launch({executablePath:process.env.SECTILE_DESKTOP_EXECUTABLE,args:process.env.SECTILE_DESKTOP_EXECUTABLE?[]:[path.resolve(__dirname,'..')],env:pairingEnv(root)})
+  const page=await application.firstWindow()
+  await page.getByRole('heading',{name:'Connect to Sectile'}).waitFor()
+  await page.locator('#setup-reason').filter({hasText:'This API key was revoked or is unknown. Sign in again.'}).waitFor()
+  assert.ok(presented.includes('Bearer stored-key'),'the stored key is what was checked')
+  assert.equal(await page.locator('#launch-status').isHidden(),true)
+ }finally{
+  if(application)await application.close().catch(()=>{})
+  server.close()
+  fs.rmSync(root,{recursive:true,force:true})
+ }
+})
+
 test('a sign-in button is offered above the pairing form',async()=>{
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'sectile-sign-in-button-'))
  let application

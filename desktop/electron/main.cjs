@@ -105,7 +105,12 @@ function saveCredential(server,credential){
 }
 // storedDeviceId is the device this workstation was paired as on that server, so a new pairing replaces its key.
 function storedDeviceId(server){
- try{const saved=readSettings();return saved.server===server&&saved.deviceId||''}catch{return ''}
+ try{const saved=readSettings();return sameServer(saved.server,server)&&saved.deviceId||''}catch{return ''}
+}
+// sameServer compares two server addresses as the agent stores them: trimmed, without a trailing slash.
+function sameServer(a,b){
+ const canonical=value=>String(value||'').trim().replace(/\/+$/,'')
+ return Boolean(canonical(a))&&canonical(a)===canonical(b)
 }
 ipcMain.handle('pair',async(_,{server,code,label})=>{
  const credential=await exchangePairingCode(server,code,label)
@@ -194,7 +199,11 @@ ipcMain.handle('version',async()=>{
  try{agent=(await api('/desktop/version')).version||null}catch{}
  return {desktop:app.getVersion(),agent,outdated:Boolean(agent)&&outdated}
 })
+// The browser sign-in waiting for its callback, if any.
+let signInAbort=null
 ipcMain.handle('start',async(_,settings)=>{
+ // A pasted pairing code supersedes a browser sign-in still waiting for its callback.
+ signInAbort?.abort()
  if(starting)throw Error('Agent is starting')
  starting=true
  let started=false
@@ -242,9 +251,12 @@ async function startAgent(settings){
  const output=fs.openSync(path.join(app.getPath('userData'),'agent.log'),'a',0o600)
  const info=infoPath()
  if(fs.existsSync(info))fs.unlinkSync(info)
- const child=spawn(binary,['--desktop-info',info,'--url',settings.server,'--repo',repo],{
+ // The UI tests stand a Node script in for the agent: a script cannot be spawned as is on every platform, so Electron
+ // runs it as Node.
+ const script=process.env.SECTILE_DESKTOP_TEST==='1'&&/\.c?js$/.test(binary)
+ const child=spawn(script?process.execPath:binary,[...(script?[binary]:[]),'--desktop-info',info,'--url',settings.server,'--repo',repo],{
   detached:true,stdio:['ignore',output,output],
-  env:{...process.env,TOKEN:token,SECTILE_DESKTOP_TOKEN:crypto.randomBytes(32).toString('hex')}
+  env:{...process.env,...(script?{ELECTRON_RUN_AS_NODE:'1'}:{}),TOKEN:token,SECTILE_DESKTOP_TOKEN:crypto.randomBytes(32).toString('hex')}
  })
  let spawnError
  child.on('error',error=>{spawnError=error})
@@ -262,17 +274,27 @@ async function startAgent(settings){
 // What the setup screen says when no agent runs: whether a stored key can start one without asking.
 ipcMain.handle('key-status',()=>{let saved={};try{saved=readSettings()}catch{}return {state:keyStatus(saved),server:saved.server||''}})
 // Signing in through the browser ends with a pairing code redeemed for a key, then the agent starts on it (ADR 0049).
-let signInAbort=null
 ipcMain.handle('sign-in',async(_,{server})=>{
  if(starting)throw Error('Agent is starting')
  signInAbort?.abort();const abort=signInAbort=new AbortController()
- const code=await browserSignIn(server,{signal:abort.signal,open:href=>{const url=new URL(href);if(!['http:','https:'].includes(url.protocol)||url.username||url.password)throw Error('Invalid sign-in URL');return shell.openExternal(url.href)}})
- starting=true;let started=false
+ let held=false,started=false
  try{
+  const open=href=>{const url=new URL(href);if(!['http:','https:'].includes(url.protocol)||url.username||url.password)throw Error('Invalid sign-in URL');return shell.openExternal(url.href)}
+  const code=await browserSignIn(server,{signal:abort.signal,open})
+  // The wait may have outlasted a start from the form, or an agent started elsewhere: the code is then left unspent,
+  // since redeeming it with the stored device would revoke the key that agent runs on.
+  if(starting)throw Error('Agent is starting')
+  if(await connectAgent())throw Error('The local agent is already connected')
+  starting=held=true
   saveCredential(server,await exchangePairingCode(server,code,os.hostname(),fetch,storedDeviceId(server)))
   started=await startAgent({server})
   return started
- }finally{starting=false;if(signInAbort===abort)signInAbort=null;if(started)scheduleIdentityCheck()}
+ }finally{
+  // Only the guard this sign-in took is released: a start that took it meanwhile keeps it.
+  if(held)starting=false
+  if(signInAbort===abort)signInAbort=null
+  if(started)scheduleIdentityCheck()
+ }
 })
 async function lifecycle(action,{reason}={}){
  if(starting)throw Error('Agent lifecycle operation already in progress')

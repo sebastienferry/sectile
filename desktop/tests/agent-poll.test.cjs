@@ -23,6 +23,12 @@ test('a lifecycle operation is left to finish',async()=>{
  assert.equal(pollAction({agentConnected:false,shutdownVisible:true}),'idle')
 })
 
+// The launch's start on the stored key is not raced by a reconnect, nor reported as a restart.
+test('the launch start is left to finish',async()=>{
+ const {pollAction}=await load()
+ assert.equal(pollAction({launching:true,agentConnected:false,shutdownVisible:false}),'idle')
+})
+
 test('an undeclared state reconnects rather than polling a dead connection',async()=>{
  const {pollAction}=await load()
  assert.equal(pollAction({}),'connect')

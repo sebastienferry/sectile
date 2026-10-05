@@ -127,8 +127,11 @@ cd desktop
 npm start
 ```
 
-The first window asks only for the server URL and authentication token. Account
-sign-in is not implemented yet. Repository directories are configured per project
+The first window asks for the server URL, then offers **Sign in with your browser**:
+the browser signs you in to Sectile and the workstation gets its key without a code to
+copy. Without a browser on that machine, paste a pairing code from **Pair a
+workstation** under your profile in the web interface. Once a key is stored, later
+launches start the agent on it without asking. Repository directories are configured per project
 after connecting. New installations keep mappings in private application data. The bundled binary is
 selected automatically. Local servers without SECTILE_SERVER_TOKEN accept any
 non-empty agent token.

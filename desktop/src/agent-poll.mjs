@@ -8,8 +8,9 @@
 // precisely what the user opens when the agent is in trouble.
 
 // pollAction says which of the two calls the tick makes, or neither.
-export function pollAction({restarting,agentConnected,shutdownVisible}){
- if(restarting)return 'idle'
+// launching is the launch's own start on the stored key: connecting under it would race that start.
+export function pollAction({restarting,launching,agentConnected,shutdownVisible}){
+ if(restarting||launching)return 'idle'
  if(agentConnected)return 'refresh'
  // The stop button is offered only while the app drives the agent's lifecycle;
  // reconnecting under it would race that operation.
