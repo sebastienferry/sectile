@@ -78,8 +78,11 @@ func (d *DB) saveSlicing(ctx context.Context, userID, projectID, macroKey string
 
 - The request struct gains `Content *string` and `FileName string`.
 - The body is decoded through `http.MaxBytesReader`. A `*http.MaxBytesError`
-  is answered with the 1 MiB refusal. Other decoding errors keep today's
-  tolerance (an absent body is the default source).
+  is answered with the 1 MiB refusal. An absent body (`io.EOF`) keeps the
+  default source; any other decoding error is refused, since a broken body
+  may be an upload cut short and must not pass for an agent-read import
+  (found in review: `json.Decoder` fills nothing on a syntax error, so the
+  request used to fall back on the agent).
 - When `req.Content != nil`:
   - the source must be `tasks` or `spec`, otherwise
     `an uploaded file is sliced as tasks.md or spec.md, not as "<source>"`;

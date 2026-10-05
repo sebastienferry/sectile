@@ -87,10 +87,10 @@ func TestProjectUpdateIgnoresTheRetiredSpecificationsPath(t *testing.T) {
 func TestSlicingImportFromAnUploadedFile(t *testing.T) {
 	database, _, server, project := macroRunFixture(t)
 	cookie := defaultSession(t, database)
-	database.SetAgentOperations(func(context.Context, agentprotocol.Operation) (json.RawMessage, error) {
+	noUploadAgent := func(context.Context, agentprotocol.Operation) (json.RawMessage, error) {
 		t.Error("an upload import must not ask the agent")
 		return nil, fmt.Errorf("%w for project %s", handlers.ErrNoAgentConnected, project.ID)
-	})
+	}
 	post := func(body string) (int, string) {
 		t.Helper()
 		req, _ := http.NewRequest(http.MethodPost, server.URL+"/api/projects/"+project.ID+"/macros/M-8/slicing", strings.NewReader(body))
@@ -110,6 +110,17 @@ func TestSlicingImportFromAnUploadedFile(t *testing.T) {
 		return string(raw)
 	}
 
+	// An absent body is still the default source, read by the agent.
+	asked := false
+	database.SetAgentOperations(func(context.Context, agentprotocol.Operation) (json.RawMessage, error) {
+		asked = true
+		return nil, errors.New("local agent: aucun dossier de spécification pour M-8")
+	})
+	if status, body := post(""); status != http.StatusBadRequest || !asked {
+		t.Fatalf("an absent body must keep the agent-read default, got %d %s", status, body)
+	}
+	database.SetAgentOperations(noUploadAgent)
+
 	status, body := post(upload("tasks", "## 1. First group\n\n- [ ] 1.1 Do it.\n\n## 2. Second group\n"))
 	if status != http.StatusOK || !strings.Contains(body, `"origin":"imported file: plan.md"`) || !strings.Contains(body, "Second group") {
 		t.Fatalf("expected the uploaded groups and their origin, got %d %s", status, body)
@@ -125,6 +136,7 @@ func TestSlicingImportFromAnUploadedFile(t *testing.T) {
 		{"too large content", upload("tasks", strings.Repeat("a", 1<<20+1)), "exceeds the 1 MiB limit"},
 		{"body over the reader limit", upload("tasks", strings.Repeat("\x01", 1<<20)), "exceeds the 1 MiB limit"},
 		{"no group", upload("spec", "Nothing to slice.\n"), "has no requirement or user story"},
+		{"broken body after the content", `{"source":"tasks","content":"## 1. Half a file\n","fileName":`, "not valid JSON"},
 	} {
 		if status, body := post(tc.body); status != http.StatusBadRequest || !strings.Contains(body, tc.want) {
 			t.Errorf("%s: expected 400 with %q, got %d %.200s", tc.name, tc.want, status, body)

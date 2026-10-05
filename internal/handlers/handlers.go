@@ -1447,6 +1447,13 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 					writeError(w, http.StatusBadRequest, db.ErrSlicingUploadTooLarge.Error())
 					return
 				}
+				// Only an absent body is the default source: a broken one may
+				// be an upload cut short, which must not pass for an import of
+				// the specifications folder.
+				if !errors.Is(err, io.EOF) {
+					writeError(w, http.StatusBadRequest, "the slicing request is not valid JSON: the slicing is left unchanged")
+					return
+				}
 			}
 			// Les stories déjà créées ne sont pas une source de fichier : elles
 			// sont routées avant la normalisation, qui ne connaît que le dépôt

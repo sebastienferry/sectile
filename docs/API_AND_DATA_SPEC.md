@@ -212,7 +212,8 @@ unless the body carries `content`, a file the user picked in the browser, with
 its `fileName` (#735): the server then slices that text without asking the
 agent, and the answer's `origin` reads `imported file: <fileName>`. Uploaded
 content is refused with `400` above 1 MiB, when it is not UTF-8 text or holds a
-NUL character, and with any source other than `tasks` or `spec`.
+NUL character, and with any source other than `tasks` or `spec`. An absent
+body reads `tasks` through the agent; a body that is not valid JSON is refused.
 
 The todos of a macro are copied on its tracker, one way (#663, ADR 0046): a
 comment on a Jira epic, a block at the end of a GitHub milestone description.
