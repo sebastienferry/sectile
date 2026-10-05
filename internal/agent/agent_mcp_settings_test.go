@@ -1,7 +1,10 @@
 package agent
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -193,5 +196,254 @@ func TestDaemonStartLeavesMCPAloneWhenTheDaemonHoldsAnOlderKey(t *testing.T) {
 				t.Fatalf("a saved desktop choice was given the older key: %s %v", raw, err)
 			}
 		})
+	}
+}
+
+// claudeMCPFixture is a ~/.claude.json Sectile did not write: the user entry
+// and one project entry carry a key from an earlier pairing (#716).
+const claudeMCPFixture = `{
+  "mcpServers": {"sectile": {"type": "http", "url": "https://sectile.example.test/mcp", "headers": {"Authorization": "Bearer old-key"}}},
+  "projects": {"/work/app": {"mcpServers": {"sectile": {"type": "http", "url": "https://sectile.example.test/mcp", "headers": {"Authorization": "Bearer old-key"}}, "other": {"command": "other-server"}}}}
+}`
+
+type claudeMCPResponse struct {
+	Entries     []mcpEntryView `json:"entries"`
+	NeedsRepair bool           `json:"needsRepair"`
+}
+
+func mcpTestDaemon(t *testing.T) (*agentDaemon, string) {
+	t.Helper()
+	home := testhome.Temp(t)
+	d := &agentDaemon{repoRoot: t.TempDir(), loopback: loopbackServer{desktopToken: "private"}, link: serverLink{serverURL: "https://sectile.example.test", token: "secret-key"}}
+	return d, home
+}
+
+func readClaudeMCP(t *testing.T, home string) string {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join(home, ".claude.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(raw)
+}
+
+func TestRefreshMCPConnectionsRewritesOnlyWhenTheKeyChanged(t *testing.T) {
+	d, home := mcpTestDaemon(t)
+	if w := disconnectRequest(d, "POST", "/desktop/mcp?provider=claude", `{"target":"remote","transport":"http"}`); w.Code != 200 {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	// Tamper with the written entry: a refresh that rewrote it would restore the key.
+	path := filepath.Join(home, ".claude.json")
+	tampered := strings.ReplaceAll(readClaudeMCP(t, home), "Bearer secret-key", "Bearer tampered")
+	if err := os.WriteFile(path, []byte(tampered), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.refreshMCPConnections(); err != nil {
+		t.Fatal(err)
+	}
+	if readClaudeMCP(t, home) != tampered {
+		t.Fatal("an unchanged registration was rewritten")
+	}
+	var logs bytes.Buffer
+	log.SetOutput(&logs)
+	defer log.SetOutput(os.Stderr)
+	d.link.token = "rotated-key"
+	if err := d.refreshMCPConnections(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(readClaudeMCP(t, home), "Bearer rotated-key") {
+		t.Fatalf("key not rewritten: %s", readClaudeMCP(t, home))
+	}
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	settings, err := agentconfig.ReadSettings(d.localSettingsRoot())
+	if err != nil || settings.MCPConnections["claude"].Written != mcpFingerprint(d.link.serverURL, "rotated-key", executable) {
+		t.Fatalf("fingerprint not saved: %+v %v", settings.MCPConnections, err)
+	}
+	if !strings.Contains(logs.String(), "MCP registration for claude rewritten") || strings.Contains(logs.String(), "secret-key") || strings.Contains(logs.String(), "rotated-key") {
+		t.Fatalf("log: %s", logs.String())
+	}
+}
+
+func TestRefreshMCPConnectionsContinuesPastAFailingProvider(t *testing.T) {
+	d, home := mcpTestDaemon(t)
+	// Codex is saved local, but this daemon has no loopback, so its rewrite fails.
+	settings := agentconfig.Settings{MCPConnections: map[string]agentconfig.MCPConnection{
+		"codex":  {Target: "local", Transport: "http"},
+		"claude": {Target: "remote", Transport: "http"},
+	}}
+	if err := agentconfig.WriteSettings(settings); err != nil {
+		t.Fatal(err)
+	}
+	err := d.refreshMCPConnections()
+	if err == nil || !strings.Contains(err.Error(), "codex") {
+		t.Fatalf("failure not reported: %v", err)
+	}
+	if !strings.Contains(readClaudeMCP(t, home), "Bearer secret-key") {
+		t.Fatal("Claude was not rewritten past the failing provider")
+	}
+	saved, err := agentconfig.ReadSettings(d.localSettingsRoot())
+	if err != nil || saved.MCPConnections["claude"].Written == "" || saved.MCPConnections["codex"].Written != "" {
+		t.Fatalf("fingerprints: %+v %v", saved.MCPConnections, err)
+	}
+}
+
+func TestDesktopMCPReportsUnmanagedStaleEntries(t *testing.T) {
+	d, home := mcpTestDaemon(t)
+	path := filepath.Join(home, ".claude.json")
+	if err := os.WriteFile(path, []byte(claudeMCPFixture), 0600); err != nil {
+		t.Fatal(err)
+	}
+	w := disconnectRequest(d, "GET", "/desktop/mcp?provider=claude", "")
+	if w.Code != 200 {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	if strings.Contains(w.Body.String(), "old-key") || strings.Contains(w.Body.String(), "secret-key") {
+		t.Fatalf("response leaked a key: %s", w.Body.String())
+	}
+	var response claudeMCPResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if len(response.Entries) != 2 || !response.NeedsRepair {
+		t.Fatalf("response: %s", w.Body.String())
+	}
+	for _, entry := range response.Entries {
+		if !entry.Stale || entry.Managed || entry.KeyMatches || !entry.URLMatches {
+			t.Fatalf("entry: %+v", entry)
+		}
+	}
+	if response.Entries[0].Scope != "user" || response.Entries[1].Scope != "project" || response.Entries[1].Project != "/work/app" {
+		t.Fatalf("scopes: %+v", response.Entries)
+	}
+	if readClaudeMCP(t, home) != claudeMCPFixture {
+		t.Fatal("a report changed the file")
+	}
+}
+
+func TestDesktopMCPRepairRewritesUserEntryAndRemovesStaleProjectEntry(t *testing.T) {
+	d, home := mcpTestDaemon(t)
+	if err := os.WriteFile(filepath.Join(home, ".claude.json"), []byte(claudeMCPFixture), 0600); err != nil {
+		t.Fatal(err)
+	}
+	w := disconnectRequest(d, "POST", "/desktop/mcp?provider=claude", `{"target":"remote","transport":"http","repair":true}`)
+	if w.Code != 200 {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	var data map[string]any
+	if err := json.Unmarshal([]byte(readClaudeMCP(t, home)), &data); err != nil {
+		t.Fatal(err)
+	}
+	user := data["mcpServers"].(map[string]any)["sectile"].(map[string]any)
+	if user["headers"].(map[string]any)["Authorization"] != "Bearer secret-key" {
+		t.Fatalf("user entry: %#v", user)
+	}
+	servers := data["projects"].(map[string]any)["/work/app"].(map[string]any)["mcpServers"].(map[string]any)
+	if servers["sectile"] != nil || servers["other"] == nil {
+		t.Fatalf("project servers: %#v", servers)
+	}
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	settings, err := agentconfig.ReadSettings(d.localSettingsRoot())
+	if choice := settings.MCPConnections["claude"]; err != nil || choice.Target != "remote" || choice.Transport != "http" || choice.Written != mcpFingerprint(d.link.serverURL, "secret-key", executable) {
+		t.Fatalf("choice: %+v %v", choice, err)
+	}
+	var response claudeMCPResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if response.NeedsRepair || len(response.Entries) != 1 || !response.Entries[0].Managed || response.Entries[0].Stale {
+		t.Fatalf("response: %s", w.Body.String())
+	}
+	if strings.Contains(w.Body.String(), "secret-key") {
+		t.Fatalf("response leaked the key: %s", w.Body.String())
+	}
+}
+
+func decodeClaudeMCP(t *testing.T, d *agentDaemon) claudeMCPResponse {
+	t.Helper()
+	w := disconnectRequest(d, "GET", "/desktop/mcp?provider=claude", "")
+	if w.Code != 200 {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	var response claudeMCPResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	return response
+}
+
+func TestDesktopMCPReportsATamperedManagedEntry(t *testing.T) {
+	d, home := mcpTestDaemon(t)
+	if w := disconnectRequest(d, "POST", "/desktop/mcp?provider=claude", `{"target":"remote","transport":"http"}`); w.Code != 200 {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	// The fingerprint still matches, so only the entry content tells the key was replaced.
+	tampered := strings.ReplaceAll(readClaudeMCP(t, home), "Bearer secret-key", "Bearer other-key")
+	if err := os.WriteFile(filepath.Join(home, ".claude.json"), []byte(tampered), 0600); err != nil {
+		t.Fatal(err)
+	}
+	response := decodeClaudeMCP(t, d)
+	if !response.NeedsRepair || len(response.Entries) != 1 {
+		t.Fatalf("response: %+v", response)
+	}
+	if entry := response.Entries[0]; entry.Scope != "user" || !entry.Managed || entry.KeyMatches || !entry.Stale {
+		t.Fatalf("entry: %+v", entry)
+	}
+}
+
+func TestDesktopMCPAcceptsAKeylessLoopbackProjectEntryUnderALocalChoice(t *testing.T) {
+	d, home := mcpTestDaemon(t)
+	d.loopback.url = "http://127.0.0.1:4567"
+	settings := agentconfig.Settings{MCPConnections: map[string]agentconfig.MCPConnection{"claude": {Target: "local", Transport: "http"}}}
+	if err := agentconfig.WriteSettings(settings); err != nil {
+		t.Fatal(err)
+	}
+	fixture := `{"projects": {"/work/app": {"mcpServers": {"sectile": {"type": "http", "url": "` + agentconfig.MCPURL(d.loopback.url) + `"}}}}}`
+	if err := os.WriteFile(filepath.Join(home, ".claude.json"), []byte(fixture), 0600); err != nil {
+		t.Fatal(err)
+	}
+	response := decodeClaudeMCP(t, d)
+	if response.NeedsRepair || len(response.Entries) != 1 {
+		t.Fatalf("response: %+v", response)
+	}
+	if entry := response.Entries[0]; entry.Scope != "project" || !entry.KeyMatches || !entry.URLMatches || entry.Stale {
+		t.Fatalf("entry: %+v", entry)
+	}
+}
+
+func TestDesktopMCPReportsAMalformedClaudeFileWithoutFailing(t *testing.T) {
+	d, home := mcpTestDaemon(t)
+	if err := os.WriteFile(filepath.Join(home, ".claude.json"), []byte(`{"mcpServers": `), 0600); err != nil {
+		t.Fatal(err)
+	}
+	w := disconnectRequest(d, "GET", "/desktop/mcp?provider=claude", "")
+	if w.Code != 200 {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	var response struct {
+		claudeMCPResponse
+		EntriesError string `json:"entriesError"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if response.EntriesError == "" || response.NeedsRepair || response.Entries == nil || len(response.Entries) != 0 {
+		t.Fatalf("response: %s", w.Body.String())
+	}
+}
+
+func TestDesktopMCPRepairRejectsOtherProviders(t *testing.T) {
+	d, home := mcpTestDaemon(t)
+	w := disconnectRequest(d, "POST", "/desktop/mcp?provider=codex", `{"target":"remote","transport":"http","repair":true}`)
+	if w.Code != 400 || !strings.Contains(w.Body.String(), "Claude Code only") {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	if _, err := os.Stat(filepath.Join(home, ".codex", "config.toml")); !os.IsNotExist(err) {
+		t.Fatalf("refused repair wrote the configuration: %v", err)
 	}
 }

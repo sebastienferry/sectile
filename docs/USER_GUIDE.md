@@ -93,6 +93,8 @@ Pairing lets your local agent act as you without putting a long-lived key in a p
 
 4. Confirm the workstation appears in the web profile and that Desktop reports **Connected**. If the agent cannot start a task, check **Settings → Agent logs** and the project's local folder mapping.
 
+Once the workstation is paired, Desktop starts the local agent with the saved key each time it opens, so you do not paste a code again after a restart. It asks for a new pairing code, under **Pair again**, only when the saved key is missing, can no longer be read, or is refused by the server, and it says which.
+
 ## Configure the project in Desktop
 
 1. Select **Add project** from Desktop's project sidebar, or use the project configuration view for one already shown. Choose the local Git checkout with **Choose folder…**.
@@ -106,7 +108,7 @@ The [Desktop guide](../desktop/README.md#user-configuration-and-commands) covers
 
 You can run a workflow skill in an existing Claude Code session rather than launching it from a ticket:
 
-1. Configure Claude Code's Sectile MCP connection in Desktop under **Settings → Execution defaults → MCP configuration**. Choose the transport appropriate to your setup, select **Update provider configuration**, and restart Claude Code. Desktop can also deploy the server's skills under **Settings → Deployment**. See [MCP connections](../desktop/README.md#mcp-connections).
+1. Configure Claude Code's Sectile MCP connection in Desktop under **Settings → Execution defaults → MCP configuration**. Choose the transport appropriate to your setup, select **Update provider configuration**, and restart Claude Code. If Claude Code's `sectile` entry uses a key this workstation does not use, for example one Sectile did not write or one left from an earlier pairing in a project's settings, this section flags it and offers **Repair**, which writes the current key and removes the outdated project entries. Desktop can also deploy the server's skills under **Settings → Deployment**. See [MCP connections](../desktop/README.md#mcp-connections).
 2. Open Claude Code in the ticket's repository on the paired workstation. Open the ticket in the web interface and use **Copy** for the next workflow skill or **Copy** for `/pickup-issue`; on the board, the copy button of a full card copies the next workflow skill's prompt in one click. Paste the complete copied prompt into Claude Code. It includes the task's full ID and instructions to read Sectile MCP context and report the run.
 3. Follow the conversation and task activity. Answer a clarification question if the skill asks one. For a single step, launch the next stage after Sectile records the prior stage. For the pickup prompt, the skill continues through the stages it can complete and stops before merge.
 

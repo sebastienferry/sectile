@@ -3,12 +3,12 @@ const path=require('node:path'),fs=require('node:fs'),crypto=require('node:crypt
 const {spawn}=require('node:child_process')
 const WebSocket=require('ws')
 const {checkServer}=require('./server-check.cjs')
-const {exchangePairingCode,resolveConnectCredential}=require('./pairing.cjs')
+const {exchangePairingCode,resolveConnectCredential,pairingNeeded}=require('./pairing.cjs')
 const {browserSignIn}=require('./browser-sign-in.cjs')
 const credentials=require('./credential-store.cjs')
-const storeKey=(saved,token)=>credentials.storeKey(saved,token)
+const storeKey=(saved,token)=>credentials.storeKey(saved,token,safeStorage)
 const storedKey=saved=>credentials.storedKey(saved,safeStorage)
-const keyStatus=saved=>credentials.keyStatus(saved,safeStorage)
+const keyState=saved=>credentials.keyState(saved,safeStorage)
 const {carryOverDataDirectory}=require('./datadir.cjs')
 const {readAgentLog}=require('./agent-log.cjs')
 const {fileSha256,agentOutdated}=require('./agent-identity.cjs')
@@ -132,9 +132,11 @@ function readSettings(){
 ipcMain.handle('settings',()=>{
  try{
   const saved=readSettings()
-  return connectionView(saved,(()=>{try{return storedKey(saved)}catch{return ''}})())
+  return connectionView(saved,storedKey(saved))
  }catch{return {}}
 })
+// Whether this workstation holds a usable key, and for which server: the key itself never crosses to the renderer here.
+ipcMain.handle('credential-state',()=>{try{const saved=readSettings();return {state:keyState(saved),server:saved.server||''}}catch{return {state:'unreadable',server:''}}})
 // Only connection keys are written; any execution key is dropped, since the
 // agent is the only writer of the execution sections (#305). What the agent
 // wrote in the file is kept as it was.
@@ -145,7 +147,7 @@ ipcMain.handle('save-settings',async(_,updates)=>{
  fs.mkdirSync(path.dirname(settingsPath()),{recursive:true,mode:0o700})
  fs.writeFileSync(settingsPath()+'.tmp',JSON.stringify(saved,null,2),{mode:0o600})
  fs.renameSync(settingsPath()+'.tmp',settingsPath())
- return connectionView(saved,(()=>{try{return storedKey(saved)}catch{return ''}})())
+ return connectionView(saved,storedKey(saved))
 })
 // The appearance is applied here rather than in the renderer: themeSource
 // moves prefers-color-scheme and the native widgets together, and the window
@@ -210,6 +212,11 @@ ipcMain.handle('start',async(_,settings)=>{
  try{
   started=await startAgent(settings)
   return started
+ }catch(err){
+  // Electron passes only the message across invoke, so a refusal only a new
+  // pairing fixes resolves with the reason instead of throwing (#716).
+  if(err.pairingNeeded)return {started:false,needsPairing:err.message+(/pair again/i.test(err.message)?'':' Pair again to get a new key.')}
+  throw err
  }finally{
   starting=false
   if(started)scheduleIdentityCheck()
@@ -225,9 +232,10 @@ async function startAgent(settings){
  // burning a single-use code on a malformed URL would cost the user a new one.
  // With no code, the credential an earlier pairing left behind restarts the
  // agent: the form asks for a code, never for a key to paste back in.
- let kept=''
- // A key that cannot be read is said so, not turned into a request for a pairing code (#717).
- if(!String(settings.code||'').trim())kept=storedKey(readSettings())
+ let stored={};try{stored=readSettings()}catch{}
+ const state=keyState(stored),kept=state==='present'?storedKey(stored):''
+ if(state==='unreadable'&&!settings.code)throw pairingNeeded('The key saved on this workstation can no longer be read. Pair again to replace it.')
+ // A new pairing names the device this workstation was paired as, so the server replaces its key (#717).
  const credential=await resolveConnectCredential({...settings,token:kept,deviceId:storedDeviceId(settings.server)})
  const token=credential.token
  await checkServer(url,token)
@@ -271,8 +279,6 @@ async function startAgent(settings){
  }
  throw Error('Agent did not become ready. Check agent.log in the application data directory.')
 }
-// What the setup screen says when no agent runs: whether a stored key can start one without asking.
-ipcMain.handle('key-status',()=>{let saved={};try{saved=readSettings()}catch{}return {state:keyStatus(saved),server:saved.server||''}})
 // Signing in through the browser ends with a pairing code redeemed for a key, then the agent starts on it (ADR 0049).
 ipcMain.handle('sign-in',async(_,{server})=>{
  if(starting)throw Error('Agent is starting')

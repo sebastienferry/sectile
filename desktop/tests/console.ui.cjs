@@ -273,8 +273,9 @@ test('desktop console reconnects, accepts input and stops the owned run',async()
   available=false
   await page.getByText('Local agent is stopped',{exact:true}).waitFor()
   // Starting is the connection screen's own button: the sidebar that would
-  // carry a start control is hidden precisely while the agent is stopped.
-  assert.equal(await page.getByRole('button',{name:'Start local agent',exact:true}).isEnabled(),true)
+  // carry a start control is hidden precisely while the agent is stopped. With
+  // no saved key it reads Connect (#716).
+  assert.equal(await page.locator('#start button[type=submit]').isEnabled(),true)
   console.log('Screenshot:',path.join(root,'console.png'))
  }finally{
   if(application)await application.close()

@@ -8,11 +8,15 @@
 // precisely what the user opens when the agent is in trouble.
 
 // pollAction says which of the two calls the tick makes, or neither.
-// launching is the launch's own start on the stored key: connecting under it would race that start.
-export function pollAction({restarting,launching,agentConnected,shutdownVisible}){
- if(restarting||launching)return 'idle'
+// A start in progress is left alone too: connecting under it would drop the
+// connection the start is setting up (#716).
+export function pollAction({restarting,starting,agentConnected,shutdownVisible}){
+ if(restarting||starting)return 'idle'
  if(agentConnected)return 'refresh'
  // The stop button is offered only while the app drives the agent's lifecycle;
  // reconnecting under it would race that operation.
  return shutdownVisible?'idle':'connect'
 }
+
+// Every start control is clickable whenever no agent runs and nothing is in progress (#716).
+export const startEnabled=({agentConnected,restarting,pending,starting})=>!agentConnected&&!restarting&&!pending&&!starting

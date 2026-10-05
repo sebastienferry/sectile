@@ -28,7 +28,7 @@ func UsesHTTPMCP(provider string) bool {
 // The workstation API key travels in it: the file is user-level and owner-only,
 // and the key is revocable and expires, which is the trade-off ADR 0011 makes.
 func mcpEntry(provider, executable, server, apiKey string) map[string]any {
-	endpoint := server + "/mcp"
+	endpoint := MCPURL(server)
 	headers := map[string]any{"Authorization": "Bearer " + apiKey}
 	switch provider {
 	case "claude":
@@ -92,28 +92,38 @@ func ConfigureMCP(provider, executable, server, apiKey, transport string, local 
 	if err := checkExternalMCPPolicies(loc.Home, provider, filepath.Join(loc.Home, path)); err != nil {
 		return "", err
 	}
+	if err := writeMCPFile(fs, path, isTOML, data); err != nil {
+		return "", err
+	}
+	return filepath.Join(root, path), nil
+}
+
+// MCPURL is the MCP endpoint of a Sectile server. Writers and readers share it,
+// so a registered URL is compared by the same rule it was written with.
+func MCPURL(server string) string { return strings.TrimRight(server, "/") + "/mcp" }
+
+// writeMCPFile replaces path under fs atomically, owner-only: the file carries the workstation key.
+func writeMCPFile(fs *os.Root, path string, isTOML bool, data map[string]any) error {
 	var raw []byte
+	var err error
 	if isTOML {
 		raw, err = toml.Marshal(data)
 	} else {
 		raw, err = json.MarshalIndent(data, "", "  ")
 	}
 	if err != nil {
-		return "", err
+		return err
 	}
 	if err = fs.MkdirAll(filepath.Dir(path), 0755); err != nil {
-		return "", err
+		return err
 	}
 	temp := filepath.Join(filepath.Dir(path), ".sectile-mcp-"+uuid.NewString()+".tmp")
 	defer fs.Remove(temp)
 	// Owner-only: the file now carries the workstation API key.
 	if err = fs.WriteFile(temp, raw, 0600); err != nil {
-		return "", err
+		return err
 	}
-	if err = fs.Rename(temp, path); err != nil {
-		return "", err
-	}
-	return filepath.Join(root, path), nil
+	return fs.Rename(temp, path)
 }
 
 // readMCPConfig decodes the provider's user-level MCP configuration. A
@@ -241,7 +251,7 @@ func selectedMCPEntry(provider, executable, server, apiKey, transport string, lo
 		entry := map[string]any{"command": executable, "args": []string{"mcp", "--url", server}, "env": map[string]any{"SECTILE_AGENT_TOKEN": apiKey}}
 		return entry
 	}
-	entry := map[string]any{"url": server + "/mcp"}
+	entry := map[string]any{"url": MCPURL(server)}
 	headerField := "headers"
 	switch provider {
 	case "claude":
@@ -250,7 +260,7 @@ func selectedMCPEntry(provider, executable, server, apiKey, transport string, lo
 		headerField = "http_headers"
 	case "agy":
 		delete(entry, "url")
-		entry["serverUrl"] = server + "/mcp"
+		entry["serverUrl"] = MCPURL(server)
 	}
 	if !local {
 		entry[headerField] = map[string]any{"Authorization": "Bearer " + apiKey}

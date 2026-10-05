@@ -1,13 +1,19 @@
-// The API key is stored in clear in the 0600 settings file, as `sectile-agent pair` does, so the standalone agent reads
-// the same key (ADR 0049). `secret` is what earlier versions encrypted with the OS store: read once, then replaced.
-// Injecting the store keeps this pair testable without Electron.
-function storeKey(saved,token){saved.apiKey=token;delete saved.secret}
-function storedKey(saved,store){
- if(saved.apiKey)return saved.apiKey
- if(!saved.secret)return ''
- if(!store.isEncryptionAvailable())throw Error('The stored API key cannot be read on this machine. Sign in again.')
- return store.decryptString(Buffer.from(saved.secret,'base64'))
+// The API key goes in the settings file either way: encrypted with the OS store
+// when there is one, in clear under the same 0600 permissions otherwise. A
+// pairing code is single use, so a key that was not saved would be lost and the
+// next launch would demand a fresh code, indefinitely, on a host without a
+// secret service. Injecting the store keeps this pair testable without Electron.
+function storeKey(saved,token,store){
+ if(store.isEncryptionAvailable()){saved.secret=store.encryptString(token).toString('base64');delete saved.apiKey}
+ else{saved.apiKey=token;delete saved.secret}
 }
-// keyStatus says why the desktop cannot start on its own: no key stored, or one it cannot read.
-function keyStatus(saved,store){try{return storedKey(saved||{},store)?'ok':'none'}catch{return 'unreadable'}}
-module.exports={storeKey,storedKey,keyStatus}
+function storedKey(saved,store){
+ if(saved.secret&&store.isEncryptionAvailable())return store.decryptString(Buffer.from(saved.secret,'base64'))
+ return saved.apiKey||''
+}
+// keyState says whether a key is usable, never what it is: a secret the OS store can no longer read counts as unreadable.
+function keyState(saved,store){
+ if(saved.secret){if(!store.isEncryptionAvailable())return 'unreadable';try{return store.decryptString(Buffer.from(saved.secret,'base64'))?'present':'unreadable'}catch{return 'unreadable'}}
+ return saved.apiKey?'present':'missing'
+}
+module.exports={storeKey,storedKey,keyState}
