@@ -100,8 +100,14 @@ func TestPairKeepsTheOtherSettingsAndRefusesABadCode(t *testing.T) {
 	if _, err := agentconfig.ReadConnection(); err == nil {
 		t.Fatal("a refused pairing stored a key")
 	}
-	if _, err := Pair([]string{"--url", srv.URL}); err == nil {
-		t.Fatal("pairing without a code succeeded")
+	// Without a code the browser signs in; one that never comes back times out.
+	stubBrowser(t, func(string) error { return nil })
+	shortenBrowserSignIn(t, 50*time.Millisecond)
+	if _, err := Pair([]string{"--url", srv.URL}); err == nil || !strings.Contains(err.Error(), "timed out") {
+		t.Fatalf("pairing without a code nor a browser = %v", err)
+	}
+	if _, err := agentconfig.ReadConnection(); err == nil {
+		t.Fatal("an unfinished browser sign-in stored a key")
 	}
 	if _, err := Pair([]string{"--code", "code-2"}); err == nil {
 		t.Fatal("pairing without a server succeeded")
@@ -139,5 +145,151 @@ func TestExpiryNoticeOnlyInsideTheWarningWindow(t *testing.T) {
 	soon := now.Add(3 * time.Hour)
 	if got := expiryNotice(&soon, now); !strings.Contains(got, "1 day") {
 		t.Fatalf("three hours left = %q", got)
+	}
+}
+
+// stubBrowser replaces the browser `pair` opens for one test.
+func stubBrowser(t *testing.T, open func(string) error) {
+	t.Helper()
+	previous := openBrowser
+	openBrowser = open
+	t.Cleanup(func() { openBrowser = previous })
+}
+
+// Pairing again names the device the workstation held, so the server revokes
+// its key; a device stored for another server is not sent (#717).
+func TestPairSendsTheStoredDeviceSoTheServerRevokesIt(t *testing.T) {
+	testhome.Temp(t)
+	srv, seen := pairingServer(t, "code-1")
+	if err := agentconfig.WriteConnection(agentconfig.Connection{Server: srv.URL, APIKey: "sectile_old", DeviceID: "dev_0"}); err != nil {
+		t.Fatal(err)
+	}
+
+	message, err := Pair([]string{"--url", srv.URL + "/", "--code", "code-1", "--label", "laptop"})
+	if err != nil {
+		t.Fatalf("pair: %v", err)
+	}
+	if (*seen)["deviceId"] != "dev_0" {
+		t.Fatalf("server received %v", *seen)
+	}
+	if !strings.Contains(message, "previous key of this workstation is revoked") {
+		t.Fatalf("message does not say the previous key is revoked: %s", message)
+	}
+
+	other, otherSeen := pairingServer(t, "code-2")
+	message, err = Pair([]string{"--url", other.URL, "--code", "code-2", "--label", "laptop"})
+	if err != nil {
+		t.Fatalf("pair with another server: %v", err)
+	}
+	if _, sent := (*otherSeen)["deviceId"]; sent {
+		t.Fatalf("a device of another server was sent: %v", *otherSeen)
+	}
+	if strings.Contains(message, "revoked") {
+		t.Fatalf("message claims a revocation another server did not make: %s", message)
+	}
+}
+
+// Without --code, `pair` signs in through the browser and spends the code the
+// server sends back to the loopback; --no-browser only prints the URL.
+func TestPairWithoutACodeSignsInThroughTheBrowser(t *testing.T) {
+	testhome.Temp(t)
+	srv, seen := pairingServer(t, "good-code")
+
+	stubBrowser(t, func(string) error {
+		t.Error("--no-browser opened the browser")
+		return nil
+	})
+	shortenBrowserSignIn(t, 50*time.Millisecond)
+	if _, err := Pair([]string{"--url", srv.URL, "--no-browser"}); err == nil || !strings.Contains(err.Error(), "timed out") {
+		t.Fatalf("--no-browser without a sign-in = %v", err)
+	}
+
+	shortenBrowserSignIn(t, 5*time.Second)
+	stubBrowser(t, func(target string) error {
+		if status := followSignIn(t, target, "good-code", ""); status != http.StatusOK {
+			t.Errorf("callback answered %d", status)
+		}
+		return nil
+	})
+	if _, err := Pair([]string{"--url", srv.URL, "--label", "laptop"}); err != nil {
+		t.Fatalf("pair: %v", err)
+	}
+	if (*seen)["code"] != "good-code" || (*seen)["label"] != "laptop" {
+		t.Fatalf("server received %v", *seen)
+	}
+	stored, err := agentconfig.ReadConnection()
+	if err != nil || stored.APIKey != "sectile_issued" {
+		t.Fatalf("stored = %+v, %v", stored, err)
+	}
+}
+
+// The key a registration held is revoked by pairing again: the managed Claude
+// Code choice and an existing Antigravity entry follow the new key, and a
+// provider without one still has none.
+func TestPairRefreshesTheManagedChoiceAndAnExistingMCPRegistration(t *testing.T) {
+	home := testhome.Temp(t)
+	srv, _ := pairingServer(t, "code-1")
+	claude := filepath.Join(home, ".claude.json")
+	if err := os.WriteFile(claude, []byte(`{"mcpServers":{"sectile":{"type":"http","url":"`+srv.URL+`/mcp","headers":{"Authorization":"Bearer old"}}}}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := agentconfig.WriteSettings(agentconfig.Settings{MCPConnections: map[string]agentconfig.MCPConnection{"claude": {Target: "remote", Transport: "http"}}}); err != nil {
+		t.Fatal(err)
+	}
+	agy := filepath.Join(home, ".gemini", "config", "mcp_config.json")
+	if err := os.MkdirAll(filepath.Dir(agy), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(agy, []byte(`{"mcpServers":{"sectile":{"serverUrl":"`+srv.URL+`/mcp","headers":{"Authorization":"Bearer old"}}}}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	message, err := Pair([]string{"--url", srv.URL, "--code", "code-1"})
+	if err != nil {
+		t.Fatalf("pair: %v", err)
+	}
+	for _, path := range []string{claude, agy} {
+		raw, err := os.ReadFile(path)
+		if err != nil || !strings.Contains(string(raw), "Bearer sectile_issued") || strings.Contains(string(raw), "Bearer old") {
+			t.Fatalf("registration %s not refreshed: %s %v", path, raw, err)
+		}
+	}
+	if !strings.Contains(message, "MCP configuration updated for: agy, claude") {
+		t.Fatalf("message does not name the refreshed providers: %s", message)
+	}
+	// Recorded as written with the new key, so Desktop still counts the entry as managed.
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	settings, err := agentconfig.ReadSettings(t.TempDir())
+	if err != nil || settings.MCPConnections["claude"].Written != mcpFingerprint(srv.URL, "sectile_issued", executable) {
+		t.Fatalf("managed choice not recorded: %+v %v", settings.MCPConnections, err)
+	}
+	if _, err := os.Stat(filepath.Join(home, ".codex", "config.toml")); !os.IsNotExist(err) {
+		t.Fatalf("a provider without a registration was given one: %v", err)
+	}
+}
+
+// A Claude Code entry no saved choice manages is only reported by Desktop and
+// rewritten on Repair (ADR 0023): pairing again leaves it as it is.
+func TestPairLeavesAnUnmanagedClaudeEntryForRepair(t *testing.T) {
+	home := testhome.Temp(t)
+	srv, _ := pairingServer(t, "code-1")
+	claude := filepath.Join(home, ".claude.json")
+	unmanaged := `{"mcpServers":{"sectile":{"type":"http","url":"` + srv.URL + `/mcp","headers":{"Authorization":"Bearer old"}}}}`
+	if err := os.WriteFile(claude, []byte(unmanaged), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	message, err := Pair([]string{"--url", srv.URL, "--code", "code-1"})
+	if err != nil {
+		t.Fatalf("pair: %v", err)
+	}
+	if raw, err := os.ReadFile(claude); err != nil || string(raw) != unmanaged {
+		t.Fatalf("an unmanaged Claude Code entry was adopted: %s %v", raw, err)
+	}
+	if strings.Contains(message, "MCP configuration updated") {
+		t.Fatalf("message names a provider that was not refreshed: %s", message)
 	}
 }

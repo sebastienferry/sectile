@@ -463,3 +463,27 @@ func TestDeletingAnAccountForgetsItsUnlocks(t *testing.T) {
 		t.Fatalf("a deleted account keeps no unlock, %d left", n)
 	}
 }
+
+// A session is valid for days without use (#717), but an unlock still ends 30
+// minutes after its owner's last presence: the session's idle rule must not leak
+// into the unlock's (ADR 0032).
+func TestAValidSessionIdleForAnHourDoesNotKeepAnUnlock(t *testing.T) {
+	now := time.Now().UTC()
+	d := testDB(t)
+	sealedAndUnlocked(t, d, "u1", now.Add(-time.Hour))
+	token := browserSession(t, d, "u1", now.Add(-time.Hour))
+	if got := d.UserForWebSession(token); got != "u1" {
+		t.Fatalf("the session idle for an hour no longer resolves (%q): the test no longer proves anything", got)
+	}
+	// Resolving it just marked it seen: put the last use back an hour ago.
+	if _, err := d.conn.Exec(`UPDATE web_sessions SET last_seen_at = ? WHERE token_hash = ?`, now.Add(-time.Hour), hashSecret(token)); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := d.ForgetIdleUnlocks(now); err != nil {
+		t.Fatal(err)
+	}
+	if n := unlockRows(t, d, "u1"); n != 0 {
+		t.Fatalf("an unlock idle for an hour was kept by a still-valid session (%d rows)", n)
+	}
+}

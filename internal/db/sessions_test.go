@@ -3,6 +3,7 @@ package db
 import (
 	"errors"
 	"testing"
+	"time"
 )
 
 func TestWebSessionResolvesToItsUser(t *testing.T) {
@@ -99,5 +100,72 @@ func TestLoginFlowDefaultsToTheInterfaceRoot(t *testing.T) {
 	}
 	if flow.Redirect != "/" {
 		t.Fatalf("redirect defaulted to %q, want /", flow.Redirect)
+	}
+}
+
+// sessionTimes backdates one web session's creation and last use; a nil seen leaves it never used.
+func sessionTimes(t *testing.T, d *DB, token string, created time.Time, seen *time.Time) {
+	t.Helper()
+	var lastSeen any
+	if seen != nil {
+		lastSeen = seen.UTC()
+	}
+	if _, err := d.conn.Exec(`UPDATE web_sessions SET created_at = ?, last_seen_at = ? WHERE token_hash = ?`, created.UTC(), lastSeen, hashSecret(token)); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestWebSessionEndsAfterAWeekWithoutActivity(t *testing.T) {
+	database := identityDB(t)
+	userID, _ := database.UpsertUser("https://issuer.example|alice", "", "")
+	token, _, _ := database.CreateWebSession(userID)
+	now := time.Now().UTC()
+	seen := now.Add(-8 * 24 * time.Hour)
+	sessionTimes(t, database, token, now.Add(-9*24*time.Hour), &seen)
+
+	if got := database.UserForWebSession(token); got != "" {
+		t.Fatalf("a session unused for 8 days resolved to %q, want empty", got)
+	}
+	// The refusal must not revive it: the touch comes after the idle check.
+	if got := database.UserForWebSession(token); got != "" {
+		t.Fatalf("an idle session was revived by the request that found it: %q", got)
+	}
+}
+
+func TestWebSessionSlidesWhileUsed(t *testing.T) {
+	database := identityDB(t)
+	userID, _ := database.UpsertUser("https://issuer.example|bob", "", "")
+	token, _, _ := database.CreateWebSession(userID)
+	now := time.Now().UTC()
+	seen := now.Add(-time.Hour)
+	sessionTimes(t, database, token, now.Add(-30*24*time.Hour), &seen)
+
+	if got := database.UserForWebSession(token); got != userID {
+		t.Fatalf("a 30-day-old session used an hour ago resolved to %q, want %q", got, userID)
+	}
+}
+
+func TestWebSessionNeverOutlivesItsAbsoluteLifetime(t *testing.T) {
+	database := identityDB(t)
+	userID, _ := database.UpsertUser("https://issuer.example|carol", "", "")
+	token, _, _ := database.CreateWebSession(userID)
+	now := time.Now().UTC()
+	if _, err := database.conn.Exec(`UPDATE web_sessions SET expires_at = ?, last_seen_at = ? WHERE token_hash = ?`, now.Add(-time.Second), now, hashSecret(token)); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := database.UserForWebSession(token); got != "" {
+		t.Fatalf("an expired session in use resolved to %q, want empty", got)
+	}
+}
+
+func TestUnusedWebSessionExpiresOnItsCreationDate(t *testing.T) {
+	database := identityDB(t)
+	userID, _ := database.UpsertUser("https://issuer.example|dave", "", "")
+	token, _, _ := database.CreateWebSession(userID)
+	sessionTimes(t, database, token, time.Now().UTC().Add(-8*24*time.Hour), nil)
+
+	if got := database.UserForWebSession(token); got != "" {
+		t.Fatalf("a session created 8 days ago and never used resolved to %q, want empty", got)
 	}
 }

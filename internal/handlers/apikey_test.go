@@ -309,3 +309,104 @@ func TestCurrentUserReportsTheSharedTokenDeprecation(t *testing.T) {
 		t.Fatal("deprecation not reported with the variable set")
 	}
 }
+
+// Pairing again with the device the workstation stored retires its previous key
+// on the agent APIs at once (#717).
+func TestAgentPairWithTheStoredDeviceRevokesItsPreviousKey(t *testing.T) {
+	h, database, cleanup := setupTestHandler(t)
+	defer cleanup()
+	userID, _ := database.UpsertUser("okta|kim", "kim@example.com", "Kim")
+	identity := h.AgentAPIAuth(http.HandlerFunc(h.HandleAgentIdentity))
+	whoAmI := func(token string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/agent/identity", nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		rr := httptest.NewRecorder()
+		identity.ServeHTTP(rr, req)
+		return rr
+	}
+	pair := func(body string) (token, deviceID string) {
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/agent/pair", strings.NewReader(body))
+		rr := httptest.NewRecorder()
+		h.HandleAgentPair(rr, req)
+		if rr.Code != http.StatusCreated {
+			t.Fatalf("pair: %d %s", rr.Code, rr.Body.String())
+		}
+		var paired struct {
+			Token    string `json:"token"`
+			DeviceID string `json:"deviceId"`
+		}
+		if err := json.Unmarshal(rr.Body.Bytes(), &paired); err != nil {
+			t.Fatal(err)
+		}
+		return paired.Token, paired.DeviceID
+	}
+
+	firstCode, _, _ := database.CreatePairingCode(userID)
+	oldKey, oldDevice := pair(`{"code":"` + firstCode + `","label":"laptop"}`)
+	if rr := whoAmI(oldKey); rr.Code != http.StatusOK {
+		t.Fatalf("first key refused: %d %s", rr.Code, rr.Body.String())
+	}
+
+	secondCode, _, _ := database.CreatePairingCode(userID)
+	newKey, _ := pair(`{"code":"` + secondCode + `","label":"laptop","deviceId":"` + oldDevice + `"}`)
+	if rr := whoAmI(oldKey); rr.Code != http.StatusUnauthorized {
+		t.Fatalf("replaced key: %d %s, want 401", rr.Code, rr.Body.String())
+	}
+	if rr := whoAmI(newKey); rr.Code != http.StatusOK {
+		t.Fatalf("new key refused: %d %s", rr.Code, rr.Body.String())
+	}
+}
+
+// A database that cannot be read says nothing about the key: the agent surfaces
+// answer 503, which a client retries, rather than calling a good key invalid (#717).
+func TestAgentAPIAuthReportsADatabaseFailureAs503(t *testing.T) {
+	h, database, cleanup := setupTestHandler(t)
+	defer cleanup()
+	userID, _ := database.UpsertUser("okta|lea", "lea@example.com", "Lea")
+	key, _, err := database.CreateAPIKey(userID, "laptop", db.DefaultAPIKeyTTL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	identity := h.AgentAPIAuth(http.HandlerFunc(h.HandleAgentIdentity))
+	mcpRoute := h.MCPHandler()
+	if err := database.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, route := range []struct {
+		method, path string
+		handler      http.Handler
+	}{
+		{http.MethodGet, "/api/v1/agent/identity", identity},
+		{http.MethodGet, "/api/v1/agent/identity", http.HandlerFunc(h.HandleAgentIdentity)},
+		{http.MethodPost, "/mcp", mcpRoute},
+	} {
+		req := httptest.NewRequest(route.method, route.path, strings.NewReader(""))
+		req.Header.Set("Authorization", "Bearer "+key)
+		rr := httptest.NewRecorder()
+		route.handler.ServeHTTP(rr, req)
+		if rr.Code != http.StatusServiceUnavailable || strings.Contains(rr.Body.String(), "Valid agent bearer token required") {
+			t.Errorf("%s %s with the database down: %d %s, want 503 without the invalid-key text", route.method, route.path, rr.Code, rr.Body.String())
+		}
+	}
+}
+
+func TestAgentConnectReportsADatabaseFailureAs503(t *testing.T) {
+	h, database, cleanup := setupTestHandler(t)
+	defer cleanup()
+	userID, _ := database.UpsertUser("okta|max", "", "")
+	key, _, err := database.CreateAPIKey(userID, "laptop", db.DefaultAPIKeyTTL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := database.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/ws/agent-connect?token="+key, nil)
+	rr := httptest.NewRecorder()
+	h.HandleAgentConnect(rr, req)
+	if rr.Code != http.StatusServiceUnavailable || strings.Contains(rr.Body.String(), "Invalid agent token") {
+		t.Fatalf("handshake with the database down: %d %s, want 503", rr.Code, rr.Body.String())
+	}
+}

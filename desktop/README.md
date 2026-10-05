@@ -129,8 +129,12 @@ cd desktop
 npm start
 ```
 
-The first window asks only for the server URL and authentication token. Account
-sign-in is not implemented yet. Repository directories are configured per project
+The first window asks for the server URL, then offers **Sign in with your browser**:
+the browser signs you in to Sectile and the workstation gets its key without a code to
+copy. Without a browser on that machine, paste a pairing code from **Pair a
+workstation** under your profile in the web interface. Once a key is stored, Desktop
+starts the agent with it each time it opens, and asks to pair again only when that
+key is missing, unreadable or refused. Repository directories are configured per project
 after connecting. New installations keep mappings in private application data. The bundled binary is
 selected automatically. Local servers without SECTILE_SERVER_TOKEN accept any
 non-empty agent token.
@@ -391,9 +395,11 @@ The **Local agent** panel exposes launch configuration. Stop the daemon before
 changing settings, then use **Start local agent**. **Stop agent** uses authenticated
 `POST /desktop/shutdown` with the same confirmed-exit guard as restart.
 Desktop launch settings are saved locally; the server token is encrypted using
-Electron safeStorage when OS encryption is available, otherwise it must be
-entered again. Existing agents launched outside the desktop do not expose their
-server credentials to this panel.
+Electron safeStorage when OS encryption is available, otherwise it is kept in
+clear in the same owner-only settings file. `sectile-agent pair` stores its key
+in clear and drops the encrypted one, so Desktop then starts on the newer key.
+Existing agents launched outside the desktop do not expose their server
+credentials to this panel.
 
 **Clear finished consoles** removes completed, failed and canceled consoles from
 the local agent through authenticated `DELETE /desktop/history`, and deletes
@@ -623,10 +629,14 @@ use the same side navigation: **User profile**, **Agent connection**, **Executio
 **Changelog**, with **User profile** first. **Agent connection** reports the local
 agent with Start, Stop, and Restart controls, the server link (green when connected, orange otherwise), and the connect form itself: the same form the
 connection screen shows, borrowed while the category is open and returned when
-the panel closes. Pairing is the only credential the desktop asks for: paste a
-code from **Pair a workstation** in the web interface. There is no API key field;
-the credential a pairing leaves behind is what restarts a stopped agent, with no
-code to type again. A running agent owns the link, so **Connect** stays disabled
+the panel closes. **Sign in with your browser** pairs the workstation through
+the web sign-in, with no code to copy; without a browser on that machine, paste
+a code from **Pair a workstation** in the web interface instead. There is no API
+key field. The key a pairing leaves behind is what restarts a stopped agent:
+each time it opens, the desktop starts the agent with it, and when it cannot,
+the connection screen says why and opens **Pair again**, which offers the
+browser sign-in and the pairing code. Pairing again revokes the workstation's
+previous key. A running agent owns the link, so **Connect** stays disabled
 until the agent is stopped, and the panel says so.
 
 Project names in the configuration sidebar toggle collapsible sections. Only

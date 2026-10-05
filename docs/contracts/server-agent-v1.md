@@ -732,8 +732,11 @@ changing settings, then use **Start local agent**. **Stop agent** uses authentic
 `POST /desktop/shutdown` with the same confirmed-exit guard as restart.
 Desktop launch settings are saved locally; the API key is encrypted with
 Electron safeStorage when OS encryption is available, and kept in the same
-owner-only settings file otherwise, so a single-use pairing code is never lost. Existing agents launched outside the desktop do not expose their
-server credentials to this panel.
+owner-only settings file otherwise, so a single-use pairing code is never lost.
+`sectile-agent pair` writes `apiKey` and deletes any encrypted `secret`, so the
+two never coexist and Desktop starts on the newer key (ADR 0049). Existing
+agents launched outside the desktop do not expose their server credentials to
+this panel.
 
 **Clear finished consoles** removes completed, failed and canceled consoles from
 the local agent through authenticated `DELETE /desktop/history`. Only sessions
@@ -746,9 +749,20 @@ The server, local agent and desktop app are independent components. Start the
 agent without the app:
 
 ```sh
-sectile-agent pair --url http://localhost:8090 --code '<pairing code>'   # once
+sectile-agent pair --url http://localhost:8090   # once: signs in through the browser
 sectile-agent --url http://localhost:8090 --repo /path/to/repository
 ```
+
+`sectile-agent pair [--url] [--code] [--label] [--no-browser]` signs in through
+the browser when `--code` is absent: it opens the server's
+`/auth/workstation`, receives a pairing code on a loopback listener and redeems
+it (see [Workstation API keys and identity](#workstation-api-keys-and-identity)).
+`--no-browser` prints the URL instead of opening it; the callback still targets
+this machine, so a headless or remote host passes `--code` from the web
+profile. `--label` names the workstation, the hostname by default. On success
+the command also names the MCP registrations it pointed at the new key and,
+when it replaced a key, says the previous one is revoked and that a running
+agent must be restarted.
 
 The agent owns PTYs, supervision and console history. The desktop discovers it
 through `~/.taskflow/agent-connection.json` (private, mode 0600), including when
@@ -1021,11 +1035,28 @@ copy of the database yields no usable key.
   `PUT /api/devices?id=` with `{"ttlDays"}` moves or clears the expiry without
   changing the secret; `DELETE /api/devices?id=` revokes one.
 - `POST /api/pairing-codes` issues a single-use code valid ten minutes;
-  `POST /api/v1/agent/pair` with `{"code", "label"}` exchanges it for a key with
-  the default expiry and answers `{"token", "deviceId", "userId"}`. This is the
-  only unauthenticated agent endpoint: the code is the proof, consumed
-  atomically, so a replay returns 401. Unknown, consumed and expired codes all
-  answer `401 Invalid or expired pairing code`.
+  `POST /api/v1/agent/pair` with `{"code", "label", "deviceId"}` exchanges it for
+  a key with the default expiry and answers `{"token", "deviceId", "userId"}`.
+  This is the only unauthenticated agent endpoint: the code is the proof,
+  consumed atomically, so a replay returns 401. Unknown, consumed and expired
+  codes all answer `401 Invalid or expired pairing code`. `deviceId` is
+  optional: it names the device the workstation was paired as on that server,
+  and its key is revoked in the same transaction, provided it is the same
+  user's and still live. An unknown or foreign `deviceId` is ignored and the
+  pairing succeeds. Desktop and `sectile-agent pair` send it only when their
+  stored server is the one they pair with.
+- `GET /auth/workstation?port=&state=` is the browser sign-in of a workstation
+  (ADR 0049). The workstation listens on `127.0.0.1:<port>` and opens this URL
+  in the browser. `port` must be 1024 to 65535 and `state` must match
+  `^[A-Za-z0-9_-]{16,128}$`, else `400 Invalid workstation sign-in request`.
+  Without a session cookie the answer is `302 /auth/login?redirect=` back to
+  the same route, rebuilt from the two validated inputs; a blocked account gets
+  `403`; otherwise the server creates a pairing code and answers
+  `302 http://127.0.0.1:<port>/callback?code=&state=`. Only the session cookie
+  is read: a bearer key never mints a code. Answers carry
+  `Cache-Control: no-store` and `Referrer-Policy: no-referrer`. The workstation
+  checks `state` and redeems the code on `POST /api/v1/agent/pair`, so the key
+  never travels in a URL.
 - `GET /api/v1/agent/identity` tells a key holder `{"userId", "role", "mode",
   "deviceId", "label", "expiresAt", "sharedToken"}`; the agent calls it before
   connecting and logs a warning when fewer than ten days remain.
@@ -1033,6 +1064,13 @@ copy of the database yields no usable key.
 A key past its expiry is refused on every surface with `401 {"error":"API key
 expired"}`, distinct from the generic refusal, so the owner renews it rather
 than retyping it. Revocation cuts every surface at once.
+
+When the check itself fails, for any reason other than an unknown, expired or
+blocked key (a database error, for instance), `/api/v1/agent/*`, `/mcp` and the
+`/ws/agent-connect` handshake answer `503 {"error":"Authentication temporarily
+unavailable"}`, which clients retry; it is never reported as an invalid key.
+The `401` texts are unchanged, and the WebSocket handshake keeps its
+`403 Invalid agent token` for an unknown key.
 
 The agent gateway takes the same key on `/mcp` and `/api/`, and consoles it
 launches receive it as `SECTILE_AGENT_TOKEN` with `SECTILE_AGENT_URL` set to the

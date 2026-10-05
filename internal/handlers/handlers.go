@@ -3721,8 +3721,15 @@ func (h *Handler) HandleAgentConnect(w http.ResponseWriter, r *http.Request) {
 	// Resolve the user from the API key. An expired key is refused by name so
 	// the agent log tells its owner to renew rather than to check for a typo.
 	credential, err := h.resolveAgentCredential(token)
+	// A failed check is the server's failure, not a bad token: 503, which the agent retries like any failed dial (#717).
+	if err != nil {
+		if status, message := agentAuthStatus(err); status == http.StatusServiceUnavailable {
+			writeError(w, status, message)
+			return
+		}
+	}
 	if errors.Is(err, db.ErrAPIKeyExpired) {
-		writeError(w, http.StatusUnauthorized, agentAuthMessage(err))
+		writeError(w, http.StatusUnauthorized, db.ErrAPIKeyExpired.Error())
 		return
 	}
 	if err != nil {

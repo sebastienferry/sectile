@@ -27,6 +27,33 @@ test('the code and the label reach the server', async () => {
  assert.strictEqual(seen.label, 'workstation')
 })
 
+test('the stored device id reaches the server so it revokes the old key', async () => {
+ let seen
+ await exchangePairingCode('http://127.0.0.1:8090', 'code-5', 'laptop', async (_, options) => {
+  seen = JSON.parse(options.body)
+  return {status: 201, ok: true, json: async () => ({token: 't'})}
+ }, 'dev_old')
+ assert.deepStrictEqual(seen, {code: 'code-5', label: 'laptop', deviceId: 'dev_old'})
+})
+
+test('no device id, no field', async () => {
+ let seen
+ await exchangePairingCode('http://127.0.0.1:8090', 'code-6', 'laptop', async (_, options) => {
+  seen = JSON.parse(options.body)
+  return {status: 201, ok: true, json: async () => ({token: 't'})}
+ })
+ assert.deepStrictEqual(seen, {code: 'code-6', label: 'laptop'})
+})
+
+test('the connect form passes the stored device id to the exchange', async () => {
+ let seen
+ await resolveConnectCredential(
+  {server: 'http://127.0.0.1:8090', code: 'code-7', token: '', deviceId: 'dev_old'},
+  async (server, code, label, fetcher, deviceId) => { seen = {fetcher, deviceId}; return {token: 'fresh-token', deviceId: 'dev_new'} },
+  'laptop')
+ assert.deepStrictEqual(seen, {fetcher: undefined, deviceId: 'dev_old'}, 'the default fetcher is kept')
+})
+
 test('a rejected code is reported as expired rather than as a server error', async () => {
  await assert.rejects(
   exchangePairingCode('http://127.0.0.1:8090', 'stale', 'laptop', responder(401, {})),

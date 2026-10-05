@@ -70,13 +70,19 @@ Vite runs on port 5173 and proxies API requests to port 8090.
 
 ## Connect a workstation
 
-From the server profile, create a pairing code under **Pair a workstation**.
-Then, on the machine that has the repository and coding tools:
+On the machine that has the repository and coding tools, pair it once; `pair`
+opens the browser to sign you in, and Sectile Desktop does the same from its
+**Sign in with your browser** button:
 
 ```sh
-./bin/agent pair --url http://localhost:8090 --code '<pairing code>'
+./bin/agent pair --url http://localhost:8090
 ./bin/agent --url http://localhost:8090 --project '<project-id>' --repo /path/to/clone
 ```
+
+Without a browser on that machine, create a pairing code under **Pair a
+workstation** in the server profile and pass it with `--code '<pairing code>'`.
+Pairing again revokes the workstation's previous key; restart a running agent
+afterwards.
 
 The agent owns local Git operations and launches. Keep tracker credentials on
 the server and personal write credentials in the profile; do not put tokens in

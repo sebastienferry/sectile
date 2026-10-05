@@ -102,32 +102,52 @@ One API key per workstation is the credential every machine surface takes: the
 agent, the desktop app, `/mcp` on the server and the agent gateway. The user
 creates it from the profile, where it is shown once, or earns it by spending a
 pairing code, which is worth nothing on its own and short lived. The desktop app
-takes the pairing code only: it never asks for a key to paste, and reuses the one
-an earlier pairing stored when it restarts its agent. Keys expire
-after 90 days by default, can be renewed without changing the secret, and are
-revocable one workstation at a time ([ADR 0011](adrs/0011-one-api-key-for-agent-and-mcp.md)).
+and `sectile-agent pair` get that code through the browser: the web sign-in
+hands it to a loopback listener on the workstation, so nobody copies it and the
+key never travels in a URL; a code copied from the profile remains the
+fallback. The desktop never asks for a key to paste, and starts its agent with
+the key an earlier pairing stored, after a reboot too. A new pairing revokes
+the key the workstation held until then, and the MCP registrations follow the
+new one. Keys expire after 90 days by default, can be renewed without changing
+the secret, and are revocable one workstation at a time
+([ADR 0011](adrs/0011-one-api-key-for-agent-and-mcp.md),
+[ADR 0049](adrs/0049-workstations-sign-in-through-the-browser.md)).
 
 ```mermaid
 sequenceDiagram
     autonumber
     actor U as User
     participant UI as Web UI
+    participant B as Browser
     participant S as sectile-server
     participant D as Sectile Desktop
     participant A as sectile-agent
     participant L as MCP client<br/>(Claude Code, or a CLI via the bridge)
 
-    Note over UI,S: Web session: an OIDC cookie, or the local e-mail sign-in<br/>when no identity provider is configured. Signing in is mandatory.
-    U->>UI: create an API key (or a pairing code)
-    UI->>S: POST /api/devices {label, ttlDays}
-    S-->>UI: the key, shown once, and its expiry
-    alt pairing code instead
+    Note over UI,S: Web session: an OIDC cookie, or the local e-mail sign-in<br/>when no identity provider is configured. Signing in is mandatory.<br/>It lasts 90 days at most and ends after 7 days without use.
+    alt Browser sign-in (Desktop button, or sectile-agent pair without --code)
+        D->>D: listen on 127.0.0.1, pick a random state
+        D->>B: open /auth/workstation with the port and the state
+        B->>S: GET /auth/workstation
+        opt no web session yet
+            S-->>B: 302 /auth/login, then back to /auth/workstation
+        end
+        S-->>B: 302 to the loopback /callback with a pairing code and the state
+        B->>D: the code reaches the listener, which checks the state
+        D->>S: POST /api/v1/agent/pair {code, label, deviceId}
+        Note right of S: the only unauthenticated agent endpoint<br/>browser Origin refused<br/>unknown, spent and expired codes answer alike<br/>the key of deviceId is revoked
+        S-->>D: API key + deviceId + userId
+    else Pairing code copied from the profile
+        U->>UI: create a pairing code
         UI->>S: POST /api/pairing-codes
         S-->>UI: single-use code + expiry
-        U->>D: paste the code (or run sectile-agent pair)
-        D->>S: POST /api/v1/agent/pair {code, label}
-        Note right of S: the only unauthenticated agent endpoint<br/>browser Origin refused<br/>unknown, spent and expired codes answer alike
+        U->>D: paste the code (or run sectile-agent pair --code)
+        D->>S: POST /api/v1/agent/pair {code, label, deviceId}
         S-->>D: API key + deviceId + userId
+    else API key, the advanced case
+        U->>UI: create an API key
+        UI->>S: POST /api/devices {label, ttlDays}
+        S-->>UI: the key, shown once, and its expiry
     end
     D->>A: start the agent with the key and a private desktop secret
     A->>S: GET /api/v1/agent/identity (expiry warning under ten days)
@@ -136,7 +156,7 @@ sequenceDiagram
     L->>S: /mcp with the key, no agent required
     L->>A: or the loopback gateway with the same key
     U->>UI: renew or revoke the key (/api/devices)
-    S--xA: an expired or revoked key answers 401, expiry by name
+    S--xA: an expired or revoked key answers 401, expiry by name<br/>a failed check answers 503 and is retried
 ```
 
 Loopback alone authorizes nothing: every local process can reach the gateway
