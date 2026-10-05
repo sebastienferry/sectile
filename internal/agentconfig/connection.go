@@ -50,8 +50,9 @@ func ReadConnection() (Connection, error) {
 }
 
 // WriteConnection stores the server and key beside the local overrides,
-// preserving every other field of the file. The file is owner-readable only:
-// the key authenticates as its owner on every machine surface.
+// preserving every other field of the file except the superseded `secret`.
+// The file is owner-readable only: the key authenticates as its owner on
+// every machine surface.
 func WriteConnection(connection Connection) error {
 	path, err := SettingsPath()
 	if err != nil {
@@ -76,6 +77,10 @@ func WriteConnection(connection Connection) error {
 	}
 	set("server", strings.TrimRight(strings.TrimSpace(connection.Server), "/"))
 	set("apiKey", strings.TrimSpace(connection.APIKey))
+	// A key encrypted by an earlier desktop pairing would otherwise outrank this one on the desktop's next read (#717).
+	if strings.TrimSpace(connection.APIKey) != "" {
+		delete(fields, "secret")
+	}
 	set("deviceId", strings.TrimSpace(connection.DeviceID))
 	raw, err = json.MarshalIndent(fields, "", "  ")
 	if err != nil {

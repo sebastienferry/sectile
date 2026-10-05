@@ -87,11 +87,13 @@ func (d *agentDaemon) desktopMCP(w http.ResponseWriter, r *http.Request) {
 		if choice.Target == "local" {
 			server = d.loopback.url
 		}
-		if _, err := agentconfig.ConfigureMCP(provider, executable, server, d.link.token, choice.Transport, choice.Target == "local"); err != nil {
+		// The newest key this workstation holds, so a repair never writes back the older one a daemon restarted with.
+		key := d.currentMCPKey()
+		if _, err := agentconfig.ConfigureMCP(provider, executable, server, key, choice.Transport, choice.Target == "local"); err != nil {
 			http.Error(w, err.Error(), 400)
 			return
 		}
-		choice.Written = mcpFingerprint(server, d.link.token, executable)
+		choice.Written = mcpFingerprint(server, key, executable)
 		_, err = agentconfig.UpdateSettings(d.localSettingsRoot(), func(settings *agentconfig.Settings) error {
 			if settings.MCPConnections == nil {
 				settings.MCPConnections = map[string]agentconfig.MCPConnection{}
@@ -173,6 +175,7 @@ func (d *agentDaemon) claudeEntryViews(settings agentconfig.Settings, executable
 	if local {
 		expected = d.loopback.url
 	}
+	key := d.currentMCPKey()
 	views := make([]mcpEntryView, 0, len(entries))
 	for _, entry := range entries {
 		view := mcpEntryView{Scope: entry.Scope, Project: entry.Project}
@@ -180,11 +183,11 @@ func (d *agentDaemon) claudeEntryViews(settings agentconfig.Settings, executable
 		if local {
 			view.KeyMatches = entry.Keyless()
 		} else {
-			view.KeyMatches = entry.KeyMatches(d.link.token)
+			view.KeyMatches = entry.KeyMatches(key)
 		}
 		view.URLMatches = entry.URL == "" || entry.URL == agentconfig.MCPURL(expected)
 		if entry.Scope == "user" {
-			view.Managed = saved && choice.Written == mcpFingerprint(expected, d.link.token, executable)
+			view.Managed = saved && choice.Written == mcpFingerprint(expected, key, executable)
 		}
 		view.Stale = !(view.KeyMatches && view.URLMatches)
 		views = append(views, view)
@@ -201,8 +204,9 @@ func (d *agentDaemon) registerMCP(provider, executable string) (string, error) {
 		return "", err
 	}
 	choice, selected := settings.MCPConnections[provider]
+	key := d.currentMCPKey()
 	if !selected && provider != "claude" {
-		return agentconfig.BootstrapMCP(provider, executable, d.link.serverURL, d.link.token)
+		return agentconfig.BootstrapMCP(provider, executable, d.link.serverURL, key)
 	}
 	if !selected {
 		choice = agentconfig.MCPConnection{Target: "remote", Transport: "http"}
@@ -220,10 +224,10 @@ func (d *agentDaemon) registerMCP(provider, executable string) (string, error) {
 		if choice.Target == "local" {
 			server = d.loopback.url
 		}
-		if path, err = agentconfig.ConfigureMCP(provider, executable, server, d.link.token, choice.Transport, choice.Target == "local"); err != nil {
+		if path, err = agentconfig.ConfigureMCP(provider, executable, server, key, choice.Transport, choice.Target == "local"); err != nil {
 			return "", err
 		}
-		choice.Written = mcpFingerprint(server, d.link.token, executable)
+		choice.Written = mcpFingerprint(server, key, executable)
 	}
 	_, err = agentconfig.UpdateSettings(d.localSettingsRoot(), func(s *agentconfig.Settings) error {
 		if s.MCPConnections == nil {
@@ -249,19 +253,27 @@ func (d *agentDaemon) refreshMCPConnections() error {
 	if err != nil {
 		return err
 	}
+	// A daemon restarted with an older key (TOKEN survives the self-restart) must not write it over the newer one that
+	// `sectile-agent pair` or the desktop stored and already put in the registrations (ADR 0049): the old one may be revoked.
+	_, newerKeyStored := d.newerStoredKey()
+	key := d.currentMCPKey()
 	rewritten := map[string]string{}
 	var errs []error
 	for provider, choice := range settings.MCPConnections {
+		// A local choice never carries the key, so it still follows the loopback.
+		if newerKeyStored && choice.Target != "local" {
+			continue
+		}
 		server := d.link.serverURL
 		if choice.Target == "local" {
 			server = d.loopback.url
 		}
-		fingerprint := mcpFingerprint(server, d.link.token, executable)
+		fingerprint := mcpFingerprint(server, key, executable)
 		if choice.Written == fingerprint {
 			continue
 		}
 		// One broken provider must not keep the others on a stale key (#716).
-		path, err := agentconfig.ConfigureMCP(provider, executable, server, d.link.token, choice.Transport, choice.Target == "local")
+		path, err := agentconfig.ConfigureMCP(provider, executable, server, key, choice.Transport, choice.Target == "local")
 		if err != nil {
 			errs = append(errs, fmt.Errorf("%s: %w", provider, err))
 			continue
@@ -269,6 +281,16 @@ func (d *agentDaemon) refreshMCPConnections() error {
 		// The path only: neither the key nor its fingerprint belongs in the log.
 		log.Printf("[Agent] MCP registration for %s rewritten after a server, key or executable change: %s", provider, path)
 		rewritten[provider] = fingerprint
+	}
+	// A Codex or Antigravity registration written by `sectile-agent init` or with an earlier key, with no saved desktop
+	// choice, still carries the key it was written with: it follows the key the agent now holds (#717). It is never
+	// created. An unsaved Claude Code entry is only reported, and rewritten on Repair (ADR 0023).
+	if !newerKeyStored && !(temporaryExecutable(executable) && !runningUnderTest()) {
+		for _, provider := range unsavedMCPProviders(settings) {
+			if _, err := agentconfig.RefreshRegisteredMCPKey(provider, executable, d.link.serverURL, d.link.token); err != nil {
+				errs = append(errs, fmt.Errorf("%s: %w", provider, err))
+			}
+		}
 	}
 	if len(rewritten) == 0 {
 		return errors.Join(errs...)
@@ -283,6 +305,38 @@ func (d *agentDaemon) refreshMCPConnections() error {
 		return nil
 	})
 	return errors.Join(append(errs, err)...)
+}
+
+// unsavedMCPProviders are the providers whose existing registration follows a new key without a saved desktop choice:
+// Codex and Antigravity. Claude Code is left out, as its unmanaged entry is only reported (ADR 0023).
+func unsavedMCPProviders(settings agentconfig.Settings) []string {
+	var providers []string
+	for _, provider := range agentconfig.MCPProviders {
+		if _, saved := settings.MCPConnections[provider]; !saved && provider != "claude" {
+			providers = append(providers, provider)
+		}
+	}
+	return providers
+}
+
+// newerStoredKey returns the key `sectile-agent pair` or the desktop stored for this server when it differs from the
+// one the daemon started with: a daemon restarted with an older key keeps TOKEN across the self-restart, and that key
+// may be revoked (ADR 0049). A stored connection with no server is the same server, as in resolveCredential.
+func (d *agentDaemon) newerStoredKey() (string, bool) {
+	stored, _ := agentconfig.ReadConnection()
+	if stored.APIKey == "" || stored.APIKey == d.link.token || (stored.Server != "" && stored.Server != strings.TrimRight(d.link.serverURL, "/")) {
+		return "", false
+	}
+	return stored.APIKey, true
+}
+
+// currentMCPKey is the key a registration is written with and compared to: the newer stored one when there is one,
+// else the daemon's own, so a report or a repair never pushes an older key back.
+func (d *agentDaemon) currentMCPKey() string {
+	if key, newer := d.newerStoredKey(); newer {
+		return key
+	}
+	return d.link.token
 }
 
 // mcpFingerprint identifies what a registration was written with, without

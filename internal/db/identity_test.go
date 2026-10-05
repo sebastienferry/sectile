@@ -29,7 +29,7 @@ func TestPairingCodeBindsWorkstationToUser(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create pairing code: %v", err)
 	}
-	token, credential, err := database.RedeemPairingCode(code, "laptop")
+	token, credential, err := database.RedeemPairingCode(code, "laptop", "")
 	if err != nil {
 		t.Fatalf("redeem pairing code: %v", err)
 	}
@@ -48,17 +48,17 @@ func TestPairingCodeIsSingleUse(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create pairing code: %v", err)
 	}
-	if _, _, err = database.RedeemPairingCode(code, "first"); err != nil {
+	if _, _, err = database.RedeemPairingCode(code, "first", ""); err != nil {
 		t.Fatalf("first redemption: %v", err)
 	}
-	if _, _, err = database.RedeemPairingCode(code, "replay"); !errors.Is(err, ErrPairingCode) {
+	if _, _, err = database.RedeemPairingCode(code, "replay", ""); !errors.Is(err, ErrPairingCode) {
 		t.Fatalf("replayed redemption returned %v, want ErrPairingCode", err)
 	}
 }
 
 func TestUnknownPairingCodeIsRejected(t *testing.T) {
 	database := identityDB(t)
-	if _, _, err := database.RedeemPairingCode("not-a-code", ""); !errors.Is(err, ErrPairingCode) {
+	if _, _, err := database.RedeemPairingCode("not-a-code", "", ""); !errors.Is(err, ErrPairingCode) {
 		t.Fatalf("unknown code returned %v, want ErrPairingCode", err)
 	}
 }
@@ -67,7 +67,7 @@ func TestRevokedCredentialStopsResolving(t *testing.T) {
 	database := identityDB(t)
 	userID, _ := database.UpsertUser("okta|carol", "", "")
 	code, _, _ := database.CreatePairingCode(userID)
-	token, credential, err := database.RedeemPairingCode(code, "desktop")
+	token, credential, err := database.RedeemPairingCode(code, "desktop", "")
 	if err != nil {
 		t.Fatalf("redeem: %v", err)
 	}
@@ -86,9 +86,9 @@ func TestRevocationIsScopedToOneDevice(t *testing.T) {
 	userID, _ := database.UpsertUser("okta|dave", "", "")
 
 	firstCode, _, _ := database.CreatePairingCode(userID)
-	firstToken, first, _ := database.RedeemPairingCode(firstCode, "laptop")
+	firstToken, first, _ := database.RedeemPairingCode(firstCode, "laptop", "")
 	secondCode, _, _ := database.CreatePairingCode(userID)
-	secondToken, _, _ := database.RedeemPairingCode(secondCode, "desktop")
+	secondToken, _, _ := database.RedeemPairingCode(secondCode, "desktop", "")
 
 	if err := database.RevokeDeviceCredential(userID, first.ID); err != nil {
 		t.Fatalf("revoke: %v", err)
@@ -105,7 +105,7 @@ func TestDeviceCredentialsAreNotStoredInPlaintext(t *testing.T) {
 	database := identityDB(t)
 	userID, _ := database.UpsertUser("okta|erin", "", "")
 	code, _, _ := database.CreatePairingCode(userID)
-	token, _, err := database.RedeemPairingCode(code, "laptop")
+	token, _, err := database.RedeemPairingCode(code, "laptop", "")
 	if err != nil {
 		t.Fatalf("redeem: %v", err)
 	}
@@ -140,7 +140,7 @@ func TestListDeviceCredentialsReadsANeverSeenWorkstation(t *testing.T) {
 	database := identityDB(t)
 	userID, _ := database.UpsertUser("okta|erin", "", "")
 	code, _, _ := database.CreatePairingCode(userID)
-	if _, _, err := database.RedeemPairingCode(code, "laptop"); err != nil {
+	if _, _, err := database.RedeemPairingCode(code, "laptop", ""); err != nil {
 		t.Fatalf("redeem: %v", err)
 	}
 
@@ -165,7 +165,7 @@ func TestListDeviceCredentialsReportsTheLastCall(t *testing.T) {
 	database := identityDB(t)
 	userID, _ := database.UpsertUser("okta|frank", "", "")
 	code, _, _ := database.CreatePairingCode(userID)
-	token, _, _ := database.RedeemPairingCode(code, "desktop")
+	token, _, _ := database.RedeemPairingCode(code, "desktop", "")
 
 	if got := database.UserForDeviceToken(token); got != userID {
 		t.Fatalf("token resolved to %q, want %q", got, userID)
@@ -187,7 +187,7 @@ func TestListDeviceCredentialsOmitsRevoked(t *testing.T) {
 	database := identityDB(t)
 	userID, _ := database.UpsertUser("okta|grace", "", "")
 	code, _, _ := database.CreatePairingCode(userID)
-	_, credential, _ := database.RedeemPairingCode(code, "laptop")
+	_, credential, _ := database.RedeemPairingCode(code, "laptop", "")
 	if err := database.RevokeDeviceCredential(userID, credential.ID); err != nil {
 		t.Fatalf("revoke: %v", err)
 	}
@@ -247,5 +247,67 @@ func TestStoredUserResolvesTheNameTheChromeShows(t *testing.T) {
 	}
 	if got := renamed.Name(); got != "Bob Martin" {
 		t.Fatalf("after the rename = %q, want the chosen name", got)
+	}
+}
+
+// Pairing again from the same workstation retires the key it held (#717): one
+// live key per workstation, without a trip to the profile page.
+func TestRedeemingWithTheStoredDeviceRevokesThePreviousKey(t *testing.T) {
+	database := identityDB(t)
+	userID, _ := database.UpsertUser("okta|erin", "", "")
+	firstCode, _, _ := database.CreatePairingCode(userID)
+	firstToken, first, err := database.RedeemPairingCode(firstCode, "laptop", "")
+	if err != nil {
+		t.Fatalf("first pairing: %v", err)
+	}
+
+	secondCode, _, _ := database.CreatePairingCode(userID)
+	secondToken, _, err := database.RedeemPairingCode(secondCode, "laptop", first.ID)
+	if err != nil {
+		t.Fatalf("second pairing: %v", err)
+	}
+	if _, err := database.LookupDeviceToken(firstToken); !errors.Is(err, ErrAPIKeyUnknown) {
+		t.Fatalf("the replaced key looked up with %v, want ErrAPIKeyUnknown", err)
+	}
+	if credential, err := database.LookupDeviceToken(secondToken); err != nil || credential.UserID != userID {
+		t.Fatalf("the new key looked up as %+v, %v", credential, err)
+	}
+}
+
+// A code can only retire a key of the account that issued it: naming someone
+// else's device revokes nothing, and the pairing still goes through.
+func TestRedeemIgnoresAnotherUsersDevice(t *testing.T) {
+	database := identityDB(t)
+	alice, _ := database.UpsertUser("okta|alice", "", "")
+	bob, _ := database.UpsertUser("okta|bob", "", "")
+	aliceCode, _, _ := database.CreatePairingCode(alice)
+	aliceToken, aliceDevice, err := database.RedeemPairingCode(aliceCode, "alice-laptop", "")
+	if err != nil {
+		t.Fatalf("alice pairing: %v", err)
+	}
+
+	bobCode, _, _ := database.CreatePairingCode(bob)
+	bobToken, _, err := database.RedeemPairingCode(bobCode, "bob-laptop", aliceDevice.ID)
+	if err != nil {
+		t.Fatalf("bob pairing naming alice's device: %v", err)
+	}
+	if got := database.UserForDeviceToken(aliceToken); got != alice {
+		t.Fatalf("alice's key resolved to %q after bob named her device, want %q", got, alice)
+	}
+	if got := database.UserForDeviceToken(bobToken); got != bob {
+		t.Fatalf("bob's key resolved to %q, want %q", got, bob)
+	}
+}
+
+func TestRedeemWithAnUnknownDeviceStillPairs(t *testing.T) {
+	database := identityDB(t)
+	userID, _ := database.UpsertUser("okta|frank", "", "")
+	code, _, _ := database.CreatePairingCode(userID)
+	token, _, err := database.RedeemPairingCode(code, "laptop", "dev_doesnotexist")
+	if err != nil {
+		t.Fatalf("pairing naming an unknown device: %v", err)
+	}
+	if got := database.UserForDeviceToken(token); got != userID {
+		t.Fatalf("the new key resolved to %q, want %q", got, userID)
 	}
 }
