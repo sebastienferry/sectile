@@ -289,6 +289,11 @@ func TestStageLaunchContractCarriesTheExitCondition(t *testing.T) {
 		if has := strings.Contains(contract, "transition_stage"); has != (s.FromStage != "") {
 			t.Errorf("%s: transition_stage present = %v", s.ID, has)
 		}
+		// The foreign command reaches the task the way a launched run's direct
+		// copy does.
+		if !strings.Contains(contract, "## Sectile task access") || !strings.Contains(contract, "http://localhost:8090") {
+			t.Errorf("%s: contract lacks the task access contract:\n%s", s.ID, contract)
+		}
 	}
 	// A foreign command for a stage that reads or writes the task's issue
 	// artefacts is told where they go.

@@ -88,7 +88,14 @@ The question was clarified over three rounds in `docs/clarifications/732.md`.
   command from `skillCommands`, the launch prompt appends a
   "Sectile stage contract": the run lifecycle, the stage transition with its
   evidence, and the exit condition, so `/plan-jira` advances the card. Inside
-  pickup, a stage with a foreign command keeps the built-in work.
+  pickup, a stage with a foreign command keeps the built-in work. The prompt
+  also carries the specifications workspace contract when the stage reads or
+  writes the task's issue artefacts, and the task access contract with the
+  fallback a launched run's direct copy names. It carries the exit condition
+  of the stage the command stands for, and only that one: a foreign command
+  standing for pickup or pickup_issues gets that skill's own exit, not the exits
+  of the stages pickup inlines, which the command must honour by itself; the
+  server's `transition_stage` validation still has the last word.
 - **The direct copy carries per-project variants.** The direct setup writes
   one copy per skill, shared by every project of the workstation (ADR 0039).
   When a project the workstation knows, or the workstation itself, has a
