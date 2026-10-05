@@ -446,3 +446,65 @@ func TestASavedViewStillFiltersByLabelOverTrackerScope(t *testing.T) {
 		t.Fatalf("the view lists %v, want the labelled ticket of the tracker only", keys)
 	}
 }
+
+// A project alone on its tracker that switches to a space another project's
+// tracker already names joins that tracker: its own is not renamed onto an
+// identity that exists. Its old tracker keeps its tickets, unlinked (#741).
+func TestAProjectSwitchingToAnExistingTrackerJoinsItInsteadOfRenamingItsOwn(t *testing.T) {
+	d := testDB(t)
+	p1, err := d.CreateProject(models.CreateProjectRequest{Name: "Delivery", IssueTracker: "jira", JiraProject: "GODE"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p2, err := d.CreateProject(models.CreateProjectRequest{Name: "Backend", IssueTracker: "jira", JiraProject: "BE"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	gode, be := defaultTrackerID(t, d, p1.ID), defaultTrackerID(t, d, p2.ID)
+	if err := d.ImportOrUpdateTasks(gode, []models.Task{{Key: "GODE-1", Title: "Gode", Source: "jira", Status: models.StatusToClarify, Labels: []string{}}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.ImportOrUpdateTasks(be, []models.Task{{Key: "BE-1", Title: "Be", Source: "jira", Status: models.StatusToClarify, Labels: []string{}}}); err != nil {
+		t.Fatal(err)
+	}
+
+	key := "BE"
+	switched, err := d.UpdateProject(p1.ID, models.UpdateProjectRequest{JiraProject: &key})
+	if err != nil {
+		t.Fatalf("switching to an existing space failed: %v", err)
+	}
+	if switched.DefaultTrackerID != be || len(switched.Trackers) != 1 || switched.Trackers[0].TrackerID != be {
+		t.Fatalf("the project must join the BE tracker %s: default %q, trackers %+v", be, switched.DefaultTrackerID, switched.Trackers)
+	}
+	all, _ := d.GetTrackers()
+	identities := map[string]int{}
+	for _, trk := range all {
+		identities[trk.Identity]++
+	}
+	for identity, n := range identities {
+		if n != 1 {
+			t.Fatalf("%d trackers share the identity %s", n, identity)
+		}
+	}
+	old, _ := d.GetTrackerByID(gode)
+	if old == nil || old.Scope != "GODE" {
+		t.Fatalf("the old tracker must stay GODE, not be renamed: %+v", old)
+	}
+	if links, _ := d.ProjectTrackers(p2.ID); len(links) != 1 || links[0].ID != be {
+		t.Fatalf("the other project keeps its tracker: %+v", links)
+	}
+	ticket, err := d.GetTaskByID("jira-" + gode + "-GODE-1")
+	if err != nil || ticket == nil || ticket.TrackerID != gode {
+		t.Fatalf("the GODE ticket stays on its tracker: %+v %v", ticket, err)
+	}
+	tasks, err := d.GetTasksInScope(TaskScope{ProjectID: p1.ID}, "", "", "", "", "", "", "", "", nil, nil, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if keys := taskKeys(tasks); len(keys) != 1 || keys["BE-1"] != 1 {
+		t.Fatalf("the switched project lists %v, want the BE tickets", keys)
+	}
+	if err := d.DeleteTrackerAs("admin", gode); !errors.Is(err, ErrTrackerInUse) {
+		t.Fatalf("the old tracker still holds its ticket and cannot be deleted: %v", err)
+	}
+}
