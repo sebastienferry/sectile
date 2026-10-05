@@ -13,9 +13,15 @@ test fixtures or internal plumbing.
 
 ## [Unreleased]
 
+### Added
+
+- **Override part of a skill without losing its Sectile steps.** In the web Skills view, a project's override of a stage skill can now be **Work only**: it replaces only the sections it states among Goal, Read first, Steps, the guard and Report, the others keep Sectile's, and Sectile keeps the task access, run reporting, stage transition, exit condition and pull-request policy around them, so the card still advances. A workstation does the same under `skills` in `settings.json` with `{"kind":"work","content":"..."}`, filling the sections the project left built-in. A command chosen for a stage in `skillCommands`, such as `/plan-jira`, now advances the card too. The direct skill copies a workstation installed follow the change: a section a project overrides gets one variant per project, and a save in the Skills view rewrites the copies of the connected workstations serving the project (others at their next `sectile-agent init`, **Initialize** or configuration sync). Upgrade the agent along with the server. (#732)
+- **Record a stage by hand with `/transition`.** `/transition <ticket> <stage>` reads the ticket, gathers the stage's evidence (note, branch, pull requests), checks the stage's exit condition, shows you what it will send and records the stage once you confirm, without starting a run. It ships in the Claude plugin and the direct setup, and is not offered as a launch. (#732)
+
 ### Changed
 
 - **Shorter worktree folders for Jira and macro keys.** New worktrees for keys such as `AUC-1234` or `M-7` are named `auc-1234` and `m-7` instead of carrying a long hash; existing worktrees stay where they are. (#798)
+- **Existing custom skills keep replacing the whole skill.** A project's override made before work-only overrides existed is shown as **Full replacement** in the Skills view and runs as before; switch it to **Work only** there to get Sectile's steps back. A workstation's plain-text entry under `skills` in `settings.json` stays a full replacement until it is rewritten as `{"kind":"work","content":"..."}`. (#732)
 
 ## [0.4.1] - 2026-10-09
 
