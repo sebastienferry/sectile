@@ -152,3 +152,46 @@ func TestDaemonStartRefreshesAnUnsavedRegistrationsKey(t *testing.T) {
 		t.Fatalf("a missing provider file was created: %v", err)
 	}
 }
+
+// `sectile-agent pair` or the desktop stored a newer key and rewrote the
+// registrations to it, then revoked the old one; a daemon restarting with the
+// old key (TOKEN survives the self-restart) leaves them alone, saved desktop
+// choice or not (#717, ADR 0049). A legacy stored connection without a server
+// counts as the same server, as in resolveCredential.
+func TestDaemonStartLeavesMCPAloneWhenTheDaemonHoldsAnOlderKey(t *testing.T) {
+	for name, storedServer := range map[string]string{"same server": "https://sectile.example.test", "legacy connection without a server": ""} {
+		t.Run(name, func(t *testing.T) {
+			home := testhome.Temp(t)
+			claude := filepath.Join(home, ".claude.json")
+			unsaved := `{"mcpServers":{"sectile":{"type":"http","url":"https://sectile.example.test/mcp","headers":{"Authorization":"Bearer stored-key"}}}}`
+			if err := os.WriteFile(claude, []byte(unsaved), 0600); err != nil {
+				t.Fatal(err)
+			}
+			agy := filepath.Join(home, ".gemini", "config", "mcp_config.json")
+			if err := os.MkdirAll(filepath.Dir(agy), 0700); err != nil {
+				t.Fatal(err)
+			}
+			saved := `{"mcpServers":{"sectile":{"serverUrl":"https://sectile.example.test/mcp","headers":{"Authorization":"Bearer stored-key"}}}}`
+			if err := os.WriteFile(agy, []byte(saved), 0600); err != nil {
+				t.Fatal(err)
+			}
+			if err := agentconfig.WriteSettings(agentconfig.Settings{MCPConnections: map[string]agentconfig.MCPConnection{"agy": {Target: "remote", Transport: "http"}}}); err != nil {
+				t.Fatal(err)
+			}
+			if err := agentconfig.WriteConnection(agentconfig.Connection{Server: storedServer, APIKey: "stored-key"}); err != nil {
+				t.Fatal(err)
+			}
+			d := &agentDaemon{repoRoot: t.TempDir(), loopback: loopbackServer{url: "http://127.0.0.1:4567", desktopToken: "private"}, link: serverLink{serverURL: "https://sectile.example.test/", token: "older-key"}}
+
+			if err := d.refreshMCPConnections(); err != nil {
+				t.Fatal(err)
+			}
+			if raw, err := os.ReadFile(claude); err != nil || string(raw) != unsaved {
+				t.Fatalf("an unsaved registration was given the older key: %s %v", raw, err)
+			}
+			if raw, err := os.ReadFile(agy); err != nil || string(raw) != saved {
+				t.Fatalf("a saved desktop choice was given the older key: %s %v", raw, err)
+			}
+		})
+	}
+}

@@ -100,6 +100,19 @@ func TestBrowserSignInTimesOut(t *testing.T) {
 	}
 }
 
+// With --no-browser nothing is opened, so the notice gives the URL to visit
+// without claiming a browser is opening.
+func TestBrowserSignInWithoutABrowserOnlyPrintsTheURL(t *testing.T) {
+	shortenBrowserSignIn(t, 50*time.Millisecond)
+	var notice bytes.Buffer
+	if _, err := browserSignInCode(context.Background(), "https://sectile.example.test", nil, &notice); err == nil || !strings.Contains(err.Error(), "timed out") {
+		t.Fatalf("err = %v", err)
+	}
+	if strings.Contains(notice.String(), "Opening the browser") || !strings.Contains(notice.String(), "https://sectile.example.test/auth/workstation?") {
+		t.Fatalf("notice = %s", notice.String())
+	}
+}
+
 // The code is handed to a listener on the loopback only: another machine on
 // the network cannot receive it.
 func TestBrowserSignInOnlyListensOnLoopback(t *testing.T) {

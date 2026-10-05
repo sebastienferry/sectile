@@ -90,11 +90,13 @@ func browserSignInCode(ctx context.Context, server string, open func(string) err
 
 	port := strconv.Itoa(listener.Addr().(*net.TCPAddr).Port)
 	target := server + "/auth/workstation?" + url.Values{"port": {port}, "state": {state}}.Encode()
-	fmt.Fprintf(notice, "Opening the browser to sign in to %s.\nIf it does not open, visit:\n  %s\n", server, target)
 	if open != nil {
+		fmt.Fprintf(notice, "Opening the browser to sign in to %s.\nIf it does not open, visit:\n  %s\n", server, target)
 		if err := open(target); err != nil {
 			fmt.Fprintf(notice, "Could not open the browser (%v); visit the URL above.\n", err)
 		}
+	} else {
+		fmt.Fprintf(notice, "To sign in to %s, visit:\n  %s\n", server, target)
 	}
 	timeout := time.NewTimer(browserSignInTimeout)
 	defer timeout.Stop()

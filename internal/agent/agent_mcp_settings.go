@@ -110,8 +110,17 @@ func (d *agentDaemon) refreshMCPConnections() error {
 	if err != nil {
 		return err
 	}
+	// A daemon restarted with an older key (TOKEN survives the self-restart) must not write it over the newer one that
+	// `sectile-agent pair` or the desktop stored and already put in the registrations (ADR 0049): the old one may be revoked.
+	// A stored connection with no server is the same server, as in resolveCredential.
+	stored, _ := agentconfig.ReadConnection()
+	newerKeyStored := stored.APIKey != "" && (stored.Server == "" || stored.Server == strings.TrimRight(d.link.serverURL, "/")) && stored.APIKey != d.link.token
 	rewritten := map[string]string{}
 	for provider, choice := range settings.MCPConnections {
+		// A local choice never carries the key, so it still follows the loopback.
+		if newerKeyStored && choice.Target != "local" {
+			continue
+		}
 		server := d.link.serverURL
 		if choice.Target == "local" {
 			server = d.loopback.url
@@ -127,7 +136,7 @@ func (d *agentDaemon) refreshMCPConnections() error {
 	}
 	// A registration written by `sectile-agent init` or an earlier key, with no saved desktop choice, still carries the
 	// key it was written with: follow the key the agent now holds (#717). Never creates one.
-	if !(temporaryExecutable(executable) && !runningUnderTest()) {
+	if !newerKeyStored && !(temporaryExecutable(executable) && !runningUnderTest()) {
 		for _, provider := range agentconfig.MCPProviders {
 			if _, saved := settings.MCPConnections[provider]; saved {
 				continue
