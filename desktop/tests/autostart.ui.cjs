@@ -75,10 +75,12 @@ test('a saved key the server refuses asks for a new pairing, with the reason',as
   application=await launch(autostartEnv(root))
   const page=await application.firstWindow();page.setDefaultTimeout(10000)
   const reason=page.locator('#start .start-reason')
-  await expect(reason).toHaveText('Authentication rejected by the server. Check your API key. Pair again to get a new key.')
+  await expect(reason).toHaveText('This API key was revoked or is unknown. Pair again to get a new key.')
   assert.ok(presented.includes('Bearer stored-key'))
   await expect(page.locator('#pair-again')).toHaveJSProperty('open',true)
   await expect(page.getByLabel('Pairing code',{exact:true})).toBeVisible()
+  // Signing in through the browser is the other way to pair again (#717).
+  await expect(page.getByRole('button',{name:'Sign in with your browser',exact:true})).toBeEnabled()
   const button=page.locator('#start button[type=submit]')
   await expect(button).toHaveText('Connect')
   await expect(button).toBeEnabled()

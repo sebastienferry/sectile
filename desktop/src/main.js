@@ -920,8 +920,9 @@ sidebarList().addEventListener('focusout',scheduleFlush)
 // After a reboot the agent is not running: with a usable saved key the desktop starts it once, unasked (#716).
 async function launch(){
  if(await api.connect()){ready();refresh();api.credentialState().then(state=>{credential=state;updateStartControl()}).catch(()=>{});return}
- agentUnavailable()
+ // The saved key is read before the setup screen is drawn, so a start on it never shows the pairing code on the way (#717).
  credential=await api.credentialState().catch(()=>({state:'unreadable',server:''}))
+ agentUnavailable()
  if(credential.server)connectForm.elements.server.value=credential.server
  if(credential.state!=='present'){pairingReason=credentialReason(credential.state);updateStartControl();return}
  if(autoStartTried)return

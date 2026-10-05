@@ -116,22 +116,6 @@ test('a malformed server address is refused before the pairing code is spent',as
  }
 })
 
-// With no agent running and no key stored, the setup screen says why rather
-// than leaving the user to guess why nothing started (#717).
-test('launching without a key explains why',async()=>{
- const root=fs.mkdtempSync(path.join(os.tmpdir(),'sectile-no-key-'))
- let application
- try{
-  application=await electron.launch({executablePath:process.env.SECTILE_DESKTOP_EXECUTABLE,args:process.env.SECTILE_DESKTOP_EXECUTABLE?[]:[path.resolve(__dirname,'..')],env:pairingEnv(root)})
-  const page=await application.firstWindow()
-  await page.getByRole('heading',{name:'Connect to Sectile'}).waitFor()
-  await page.locator('#setup-reason').filter({hasText:'No API key is stored on this workstation. Sign in to connect it.'}).waitFor()
- }finally{
-  if(application)await application.close().catch(()=>{})
-  fs.rmSync(root,{recursive:true,force:true})
- }
-})
-
 // A server that knows the stored key, and records each bearer it is shown.
 async function keyServer(accepted){
  const presented=[]
@@ -149,11 +133,12 @@ async function keyServer(accepted){
 }
 
 // After a reboot nothing runs and a key is stored: the app starts the agent on
-// it and opens the workspace, and the pairing form is never shown on the way,
-// not even while the agent starts (#717).
-test('launching with a stored key starts the agent without showing the pairing form',async()=>{
+// it and opens the workspace. While it starts, the setup screen says so and
+// never asks for a pairing code (#716, #717).
+test('a stored key starts the agent at launch without asking for a pairing code',async()=>{
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'sectile-stored-key-'))
  const {server,address}=await keyServer('stored-key')
+ // A key in clear is what keyState reads as present whether or not the OS store can encrypt.
  fs.writeFileSync(path.join(root,'settings.json'),JSON.stringify({server:address,apiKey:'stored-key'}),{mode:0o600})
  const record=path.join(root,'fake-agent.json')
  const env={...pairingEnv(root),SECTILE_DESKTOP_TEST_AGENT_BINARY:path.join(__dirname,'fake-agent.cjs'),SECTILE_FAKE_AGENT_RECORD:record}
@@ -161,17 +146,26 @@ test('launching with a stored key starts the agent without showing the pairing f
  try{
   application=await electron.launch({executablePath:process.env.SECTILE_DESKTOP_EXECUTABLE,args:process.env.SECTILE_DESKTOP_EXECUTABLE?[]:[path.resolve(__dirname,'..')],env})
   const page=await application.firstWindow()
-  const heading=page.getByRole('heading',{name:'Connect to Sectile'})
   let workspace=false,starting=false
   for(let attempt=0;attempt<300&&!workspace;attempt++){
-   const seen=await page.evaluate(()=>({
-    setup:Boolean(document.querySelector('#setup'))&&!document.querySelector('#setup').hidden,
-    workspace:Boolean(document.querySelector('#workspace'))&&!document.querySelector('#workspace').hidden,
-    starting:Boolean(document.querySelector('#launch-status'))&&!document.querySelector('#launch-status').hidden
-   }))
-   assert.equal(seen.setup,false,'the setup screen was shown while the stored key started the agent')
-   assert.equal(await heading.isVisible(),false,'the pairing form was shown while the stored key started the agent')
-   workspace=seen.workspace;starting||=seen.starting
+   const seen=await page.evaluate(()=>{
+    const setup=document.querySelector('#setup'),code=document.querySelector('#start input[name=code]'),button=document.querySelector('#start button[type=submit]')
+    return {
+     setup:Boolean(setup)&&!setup.hidden,
+     workspace:Boolean(document.querySelector('#workspace'))&&!document.querySelector('#workspace').hidden,
+     codeVisible:Boolean(code)&&code.checkVisibility(),
+     pairOpen:Boolean(document.querySelector('#pair-again')?.open),
+     disabled:Boolean(button?.disabled),
+     text:button?.textContent||''
+    }
+   })
+   if(seen.setup){
+    assert.equal(seen.codeVisible,false,'the pairing code was asked for while the stored key started the agent')
+    assert.equal(seen.pairOpen,false,'Pair again was opened while the stored key started the agent')
+    assert.equal(seen.disabled,true,'the start control was clickable while the stored key started the agent')
+    starting||=seen.text==='Starting…'
+   }
+   workspace=seen.workspace
    if(!workspace)await new Promise(resolve=>setTimeout(resolve,20))
   }
   assert.ok(workspace,'the workspace opens on the agent the stored key started')
@@ -179,7 +173,6 @@ test('launching with a stored key starts the agent without showing the pairing f
   assert.equal(JSON.parse(fs.readFileSync(record,'utf8')).token,'stored-key','the agent is started on the stored key')
   await page.waitForTimeout(2500)
   assert.equal(await page.locator('#setup').isHidden(),true,'the poll does not fall back to the setup screen')
-  assert.equal(await heading.isVisible(),false)
  }finally{
   // The agent is started detached, so closing the app leaves it running.
   try{process.kill(JSON.parse(fs.readFileSync(record,'utf8')).pid)}catch{}
@@ -189,28 +182,8 @@ test('launching with a stored key starts the agent without showing the pairing f
  }
 })
 
-// A stored key the server no longer knows is not started on: the setup screen
-// says why, so signing in again is the obvious next step.
-test('launching with a revoked stored key shows the setup screen with the reason',async()=>{
- const root=fs.mkdtempSync(path.join(os.tmpdir(),'sectile-revoked-key-'))
- const {server,address,presented}=await keyServer('another-key')
- fs.writeFileSync(path.join(root,'settings.json'),JSON.stringify({server:address,apiKey:'stored-key'}),{mode:0o600})
- let application
- try{
-  application=await electron.launch({executablePath:process.env.SECTILE_DESKTOP_EXECUTABLE,args:process.env.SECTILE_DESKTOP_EXECUTABLE?[]:[path.resolve(__dirname,'..')],env:pairingEnv(root)})
-  const page=await application.firstWindow()
-  await page.getByRole('heading',{name:'Connect to Sectile'}).waitFor()
-  await page.locator('#setup-reason').filter({hasText:'This API key was revoked or is unknown. Sign in again.'}).waitFor()
-  assert.ok(presented.includes('Bearer stored-key'),'the stored key is what was checked')
-  assert.equal(await page.locator('#launch-status').isHidden(),true)
- }finally{
-  if(application)await application.close().catch(()=>{})
-  server.close()
-  fs.rmSync(root,{recursive:true,force:true})
- }
-})
-
-test('a sign-in button is offered above the pairing form',async()=>{
+// Pairing again offers the browser sign-in first, then the code to paste.
+test('a sign-in button is offered before the pairing code',async()=>{
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'sectile-sign-in-button-'))
  let application
  try{
@@ -218,11 +191,11 @@ test('a sign-in button is offered above the pairing form',async()=>{
   const page=await application.firstWindow()
   const button=page.getByRole('button',{name:'Sign in with your browser',exact:true})
   await button.waitFor()
-  const above=await page.evaluate(()=>{
-   const button=document.querySelector('#browser-sign-in'),form=document.querySelector('#start')
-   return Boolean(button.compareDocumentPosition(form)&Node.DOCUMENT_POSITION_FOLLOWING)
+  const before=await page.evaluate(()=>{
+   const button=document.querySelector('#browser-sign-in'),code=document.querySelector('#start input[name=code]')
+   return Boolean(button.compareDocumentPosition(code)&Node.DOCUMENT_POSITION_FOLLOWING)
   })
-  assert.ok(above,'the sign-in button comes before the pairing form')
+  assert.ok(before,'the sign-in button comes before the pairing code')
  }finally{
   if(application)await application.close().catch(()=>{})
   fs.rmSync(root,{recursive:true,force:true})
@@ -272,16 +245,23 @@ test('browser sign-in end to end',async()=>{
    }
   })
   const page=await application.firstWindow()
-  await page.locator('#setup-reason').filter({hasText:'No API key is stored'}).waitFor()
+  await page.locator('#start .start-reason').filter({hasText:'This workstation has no saved key yet.'}).waitFor()
   assert.equal(await page.getByLabel('Sectile server',{exact:true}).inputValue(),address,'the stored server is offered')
   await page.getByRole('button',{name:'Sign in with your browser',exact:true}).click()
   for(let attempt=0;attempt<100&&!presented.includes('Bearer device-token');attempt++)await new Promise(resolve=>setTimeout(resolve,100))
   assert.deepEqual(paired,{code:'code-from-the-browser',label:os.hostname(),deviceId:'dev_old'})
   assert.ok(presented.includes('Bearer device-token'),'the redeemed key is what reaches the server')
   const saved=JSON.parse(fs.readFileSync(path.join(root,'settings.json'),'utf8'))
-  assert.equal(saved.apiKey,'device-token')
   assert.equal(saved.deviceId,'dev_new')
-  assert.equal(saved.secret,undefined)
+  // Stored as every pairing stores it: encrypted when the OS store can, in clear otherwise (#716).
+  if(await application.evaluate(({safeStorage})=>safeStorage.isEncryptionAvailable())){
+   assert.equal(typeof saved.secret,'string')
+   assert.ok(!saved.secret.includes('device-token'),'the encrypted key is not the key in clear')
+   assert.equal(saved.apiKey,undefined)
+  }else{
+   assert.equal(saved.apiKey,'device-token')
+   assert.equal(saved.secret,undefined)
+  }
  }finally{
   if(application)await application.close().catch(()=>{})
   server.close()
