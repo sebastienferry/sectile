@@ -485,6 +485,8 @@ func stageExit(id string) string {
 // handTransitionSteps are the steps of a hand transition: its own, then the
 // evidence rules and every stage's exit condition, generated from the same
 // contract fragments the stage skills carry so that they cannot drift (#732).
+// Pickup and pickup_issues are left out: they run the other stages, which
+// /transition records one by one.
 func handTransitionSteps(s StageSkill) string {
 	var b strings.Builder
 	b.WriteString(strings.TrimRight(readSkillFragment(s.ID, "steps", ""), "\n"))
@@ -492,7 +494,7 @@ func handTransitionSteps(s StageSkill) string {
 	b.WriteString(strings.TrimRight(readContractFragment("stage-evidence"), "\n"))
 	b.WriteString("\n\n### Exit condition per stage\nRecord a stage only when its exit condition is met:\n")
 	for _, stage := range StageSkills {
-		if stage.FromStage == "" || stage.Scope == "macro" {
+		if stage.FromStage == "" || stage.Scope == "macro" || isPickup(stage.ID) {
 			continue
 		}
 		fmt.Fprintf(&b, "- `%s` (from `%s`, %s): %s\n", stage.ToStage, stage.FromStage, stage.Title, stageExit(stage.ID))

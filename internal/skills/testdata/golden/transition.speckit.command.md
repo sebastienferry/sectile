@@ -40,8 +40,6 @@ Record a stage only when its exit condition is met:
 - `implemented` (from `specified`, Implement Code): this step is complete.
 - `reviewed` (from `implemented`, Adjust Existing Pull Request): the pull request is verified and the branch is not behind the remote default branch.
 - `finished` (from `reviewed`, Handoff and Close): the merge is confirmed. Do not clean up while the merge is unconfirmed.
-- `reviewed` (from `new`, Pickup Issue (Auto-Pilot to PR)): the test suite passes. Do not push or open a PR while it is failing.
-- `reviewed` (from `new`, Batch Pickup Issues (Single Worktree & Combined PR)): this step is complete.
 
 ## Do not
 - Do not call `start_run`, `finish_run` or `report_waiting`: a hand transition is not a run.

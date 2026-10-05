@@ -418,6 +418,12 @@ func TestTransitionSkillListsEveryStageExit(t *testing.T) {
 		}
 		listed := 0
 		for _, stage := range skills.StageSkills {
+			if stage.ID == "pickup" || stage.ID == "pickup_issues" {
+				if strings.Contains(content, ", "+stage.Title+"): ") {
+					t.Errorf("%s: the exit table lists %s, which runs the other stages", name, stage.ID)
+				}
+				continue
+			}
 			if stage.FromStage == "" || stage.Scope == "macro" {
 				continue
 			}
