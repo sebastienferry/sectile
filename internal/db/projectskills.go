@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -157,6 +158,7 @@ func (d *DB) EffectiveProjectSkills(projectIDOrPath, specFramework string) []ski
 	}
 	overrides := d.projectSkillOverrides(projectID)
 	work := projectWorkOverrides(overrides)
+	logSkippedWorkOverrides(projectID, overrides)
 
 	timing := models.PRCreationImplemented
 	if project, err := d.GetProjectByID(projectID); err == nil && project != nil && models.ValidPRCreationStage(project.PRCreationStage) {
@@ -487,6 +489,25 @@ func projectWorkOverrides(overrides map[string]projectSkillOverride) skills.Skil
 		}
 	}
 	return work
+}
+
+// logSkippedWorkOverrides logs the work-only overrides projectWorkOverrides
+// skips, so a row the catalogue no longer accepts is visible rather than
+// silently replaced by the built-in.
+func logSkippedWorkOverrides(projectID string, overrides map[string]projectSkillOverride) {
+	for id, ov := range overrides {
+		if ov.kind != models.SkillOverrideWork || strings.TrimSpace(ov.content) == "" {
+			continue
+		}
+		stage, ok := skills.StageSkillByID(id)
+		if !ok {
+			log.Printf("[ProjectSkills] project=%s skill=%s: work-only override skipped, unknown skill", projectID, id)
+			continue
+		}
+		if _, err := skills.ParseWorkSections(stage, ov.content); err != nil {
+			log.Printf("[ProjectSkills] project=%s skill=%s: work-only override skipped as unparsable: %v", projectID, id, err)
+		}
+	}
 }
 
 // composesWork says a skill is composed from work-only overrides: its own, or

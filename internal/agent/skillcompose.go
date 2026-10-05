@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"log"
 	"strings"
 	"tasks/internal/agentconfig"
 	"tasks/internal/models"
@@ -46,7 +47,7 @@ func projectWork(config agentconfig.Config) skills.SkillOverrides {
 		if skill.OverrideKind != models.SkillOverrideWork || strings.TrimSpace(skill.WorkContent) == "" {
 			continue
 		}
-		addWork(out, skill.ID, skill.WorkContent)
+		addWork(out, skill.ID, skill.WorkContent, "project "+config.ProjectID)
 	}
 	return out
 }
@@ -59,7 +60,7 @@ func workstationWork(config agentconfig.Config) skills.SkillOverrides {
 		if strings.TrimSpace(skill.WorkstationWork) == "" {
 			continue
 		}
-		addWork(out, skill.ID, skill.WorkstationWork)
+		addWork(out, skill.ID, skill.WorkstationWork, "workstation")
 	}
 	return out
 }
@@ -113,7 +114,7 @@ func (d *agentDaemon) directSetupConfig(ctx context.Context, config agentconfig.
 	workstation := skills.SkillOverrides{}
 	for id, override := range settings.Skills {
 		if override.Kind == models.SkillOverrideWork && strings.TrimSpace(override.Content) != "" {
-			addWork(workstation, id, override.Content)
+			addWork(workstation, id, override.Content, "workstation")
 		}
 	}
 	resolved := agentconfig.Resolve(config, settings)
@@ -171,12 +172,18 @@ func overriddenAnywhere(id string, workstation skills.SkillOverrides, projects [
 	return false
 }
 
-func addWork(out skills.SkillOverrides, id, content string) {
+// addWork parses a work-only override into out. One for an unknown skill or
+// one that does not parse is skipped and logged, origin saying whose it is.
+func addWork(out skills.SkillOverrides, id, content, origin string) {
 	stage, ok := skills.StageSkillByID(id)
 	if !ok {
+		log.Printf("[Agent] %s skill %q: work-only override skipped, unknown skill", origin, id)
 		return
 	}
-	if work, err := skills.ParseWorkSections(stage, content); err == nil {
-		out[stage.ID] = work
+	work, err := skills.ParseWorkSections(stage, content)
+	if err != nil {
+		log.Printf("[Agent] %s skill %q: work-only override skipped as unparsable: %v", origin, id, err)
+		return
 	}
+	out[stage.ID] = work
 }
