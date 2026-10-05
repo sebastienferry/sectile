@@ -6,10 +6,10 @@ const http=require('node:http'),fs=require('node:fs'),os=require('node:os'),path
 // The Sandbox category of a project's settings (#700): the state, the two
 // sandbox lists and the two rule lists, saved with the project's other local
 // settings and read back on reopening.
-async function withDesktop(project,run){
+async function withDesktop(project,run,workstation=WORKSTATION){
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'sectile-sandbox-ui-'))
- const saved=[]
- let current=project
+ const saved=[],workstationSaves=[],promotions=[]
+ let current=project,global=workstation
  const server=http.createServer((req,res)=>{
   if(req.headers.authorization!=='Bearer test-secret'){res.writeHead(401).end();return}
   res.setHeader('Content-Type','application/json')
@@ -17,6 +17,20 @@ async function withDesktop(project,run){
    const body=JSON.parse(raw);saved.push(body)
    if(body.claudeSandbox)current={...current,claudeSandbox:body.claudeSandbox}
    res.writeHead(204).end()
+  });return}
+  // The workstation Sandbox values and the move of a rule up (#730).
+  if(req.url==='/desktop/workstation/sandbox'&&req.method==='PUT'){let raw='';req.on('data',chunk=>raw+=chunk);req.on('end',()=>{
+   const body=JSON.parse(raw);workstationSaves.push(body)
+   global={...global,claudeSandbox:body.claudeSandbox,projects:body.projects}
+   res.end(JSON.stringify(global))
+  });return}
+  if(req.url==='/desktop/workstation/sandbox'){res.end(JSON.stringify(global));return}
+  if(req.url==='/desktop/project/sandbox/promote'&&req.method==='POST'){let raw='';req.on('data',chunk=>raw+=chunk);req.on('end',()=>{
+   const body=JSON.parse(raw);promotions.push(body)
+   const own={...current.claudeSandbox,allow:current.claudeSandbox.allow.filter(rule=>rule!==body.rule)}
+   const inherited={...current.claudeSandboxGlobal,allow:[...current.claudeSandboxGlobal.allow,body.rule]}
+   current={...current,claudeSandbox:own,claudeSandboxGlobal:inherited}
+   res.end(JSON.stringify({claudeSandbox:own,claudeSandboxGlobal:inherited,claudeSandboxCovered:true}))
   });return}
   if(req.url==='/desktop/projects'){res.end(JSON.stringify([{id:'project-a',name:'Example project',path:'/tmp/sandbox-worktree'}]));return}
   if(req.url==='/desktop/project?id=project-a'){res.end(JSON.stringify(current));return}
@@ -37,7 +51,7 @@ async function withDesktop(project,run){
   const open=async()=>{
    await page.getByRole('button',{name:'Actions for Example project',exact:true}).click()
    await page.getByRole('menuitem',{name:'Project settings…',exact:true}).click()
-   await page.getByRole('tab',{name:'Sandbox',exact:true}).click()
+   await page.locator('#project-tab-Sandbox').click()
   }
   const close=async()=>{
    await page.locator('.configuration-page').getByRole('button',{name:'Back',exact:true}).click()
@@ -49,13 +63,19 @@ async function withDesktop(project,run){
    await expect.poll(()=>saved.length).toBe(before+1)
    return saved.at(-1)
   }
-  await run({page,open,close,save,saved})
+  const openWorkstation=async()=>{
+   await page.locator('#settings').click()
+   await page.locator('#settings-tab-Sandbox').click()
+  }
+  await run({page,open,close,save,saved,openWorkstation,workstationSaves,promotions})
  }finally{
   if(app)await app.close()
   server.close()
  }
 }
 
+const EMPTY={enabled:null,allowedDomains:[],allowWrite:[],allow:[],deny:[]}
+const WORKSTATION={claudeSandbox:EMPTY,projects:[],platformSandbox:true}
 const PROJECT={server:{projectName:'Example project',skills:[]},path:'/tmp/sandbox-worktree',configured:true,aiProvider:'claude',
  claudeSandbox:{enabled:null,allowedDomains:[],allowWrite:[],allow:[],deny:[]},platformSandbox:true,claudeSettingsPath:'/home/me/.config/sectile/claude/project-a.json'}
 
@@ -126,5 +146,65 @@ test('on Windows the sandbox part is disabled and the rules stay editable',async
   await expect(page.getByRole('textbox',{name:'New entry for Extra writable paths',exact:true})).toBeDisabled()
   await expect(page.getByRole('textbox',{name:'New entry for Allow rules',exact:true})).toBeEnabled()
   await expect(page.getByRole('textbox',{name:'New entry for Deny rules',exact:true})).toBeEnabled()
+ })
+})
+
+// The workstation Sandbox category (#730): its values and the projects they
+// cover, saved through their own endpoint.
+test('the workstation Sandbox category saves its values and its whitelist',async()=>{
+ await withDesktop(PROJECT,async({page,openWorkstation,workstationSaves})=>{
+  await openWorkstation()
+  const panel=page.locator('#settings-panel-Sandbox')
+  const whitelist=page.getByRole('group',{name:'Projects the Sandbox values apply to',exact:true})
+  const checkbox=whitelist.getByRole('checkbox',{name:'Example project',exact:true})
+  await expect(checkbox).not.toBeChecked()
+  await expect(panel.locator('.setting-row').filter({has:whitelist}).locator('.setting-text p').first()).toContainText('every project')
+  await expect(panel.locator('.command-preview')).toHaveCount(0)
+  await panel.getByRole('group',{name:'Claude Code sandbox',exact:true}).getByRole('button',{name:'On',exact:true}).click()
+  await panel.getByRole('textbox',{name:'New entry for Deny rules',exact:true}).fill('Bash(git push:*)')
+  await panel.getByRole('button',{name:'Add to Deny rules',exact:true}).click()
+  await checkbox.check()
+  await expect(panel.locator('.setting-row').filter({has:whitelist}).locator('.setting-text p').first()).toContainText('only to the checked projects')
+  await panel.getByRole('button',{name:'Save Sandbox settings',exact:true}).click()
+  await expect.poll(()=>workstationSaves.length).toBe(1)
+  assert.deepEqual(workstationSaves[0],{claudeSandbox:{...EMPTY,enabled:true,deny:['Bash(git push:*)']},claudeSandboxBase:EMPTY,projects:['project-a']})
+  await expect(panel.getByRole('status')).toHaveText('Sandbox settings saved')
+ })
+})
+
+test('a covered project shows what it inherits and moves a rule up',async()=>{
+ const covered={...PROJECT,claudeSandbox:{...EMPTY,allow:['Bash(npm test:*)']},claudeSandboxCovered:true,
+  claudeSandboxGlobal:{...EMPTY,enabled:true,allow:['Read'],deny:['Bash(git push:*)']}}
+ await withDesktop(covered,async({page,open,save,promotions})=>{
+  await open()
+  const panel=page.locator('#project-panel-Sandbox')
+  await expect(panel.locator('.sandbox-coverage')).toContainText('apply to this project')
+  const state=page.getByRole('group',{name:'Claude Code sandbox',exact:true})
+  await expect(panel.locator('.setting-row').filter({has:state}).locator('.setting-text p').first()).toHaveText('Inherited from the workstation Sandbox settings · On')
+  const allow=panel.getByRole('list',{name:'Allow rules',exact:true})
+  const inherited=allow.locator('.sandbox-entry-inherited')
+  await expect(inherited).toHaveCount(1)
+  await expect(inherited).toContainText('Read')
+  await expect(inherited.getByRole('button')).toHaveCount(0)
+  // A project with only inherited values still hands its launches the file.
+  await expect(panel.locator('.command-preview')).toContainText('--settings=')
+
+  await panel.getByRole('button',{name:'Move to global: Bash(npm test:*)',exact:true}).click()
+  await expect.poll(()=>promotions.length).toBe(1)
+  assert.deepEqual(promotions[0],{projectId:'project-a',rule:'Bash(npm test:*)'})
+  await expect(allow.locator('.sandbox-entry-inherited')).toHaveCount(2)
+  await expect(allow.locator('.sandbox-entry:not(.sandbox-entry-inherited)')).toHaveCount(0)
+  // The project save sends only the project's own values.
+  const body=await save()
+  assert.deepEqual(body.claudeSandbox.allow,[])
+ })
+})
+
+test('a project left out of the whitelist says so and inherits nothing',async()=>{
+ await withDesktop({...PROJECT,claudeSandboxCovered:false,claudeSandboxGlobal:null},async({page,open})=>{
+  await open()
+  const panel=page.locator('#project-panel-Sandbox')
+  await expect(panel.locator('.sandbox-coverage')).toContainText('do not apply to this project')
+  await expect(panel.locator('.sandbox-entry-inherited')).toHaveCount(0)
  })
 })

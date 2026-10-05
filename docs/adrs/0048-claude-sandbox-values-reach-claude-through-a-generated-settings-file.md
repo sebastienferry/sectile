@@ -1,6 +1,6 @@
 # ADR 0048: Claude sandbox values reach Claude through a generated settings file
 
-- Status: Proposed
+- Status: Proposed; amended by [ADR 0050](0050-claude-sandbox-values-have-a-workstation-level.md)
 - Date: 2026-10-02
 - Issue: [#700](https://github.com/sebastienferry/sectile/issues/700)
 - Extends: [ADR 0047](0047-claude-conversations-speak-the-streaming-input-protocol.md)

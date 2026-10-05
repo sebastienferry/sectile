@@ -62,7 +62,7 @@ func (d *agentDaemon) desktopWorkstationSandbox(w http.ResponseWriter, r *http.R
 			if !normalized.IsZero() {
 				settings.Defaults.ClaudeSandbox = &normalized
 			}
-			settings.Defaults.ClaudeSandboxProjects = knownProjects(*settings, input.Projects)
+			settings.Defaults.ClaudeSandboxProjects = whitelistOf(input.Projects)
 			return nil
 		})
 		d.prepareMu.Unlock()
@@ -89,15 +89,16 @@ func (e errInvalidSandbox) Error() string { return "Invalid Sandbox settings: " 
 
 func (e errInvalidSandbox) Unwrap() error { return e.err }
 
-// knownProjects is the whitelist as saved: trimmed, each project once, in the
-// order sent, restricted to the projects added to this workstation. A project
-// removed meanwhile is dropped rather than refused.
-func knownProjects(settings agentconfig.Settings, ids []string) []string {
+// whitelistOf is the whitelist as saved: trimmed, each project once, in the
+// order sent. A project is not required to have a section of its own (one
+// mapped through its repository has none); an ID no project has covers
+// nothing, and removing a project from Desktop takes it out.
+func whitelistOf(ids []string) []string {
 	var out []string
 	seen := map[string]bool{}
 	for _, id := range ids {
 		id = strings.TrimSpace(id)
-		if _, known := settings.ProjectSettings[id]; !known || seen[id] {
+		if id == "" || seen[id] {
 			continue
 		}
 		seen[id] = true

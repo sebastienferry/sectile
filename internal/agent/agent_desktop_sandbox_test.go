@@ -28,13 +28,13 @@ func readWorkstationSandbox(t *testing.T, d *agentDaemon) workstationSandboxView
 }
 
 // The workstation Sandbox values (#730) are read and saved through their own
-// endpoint, with the whitelist restricted to the projects of the workstation.
+// endpoint, with the whitelist trimmed and each project once.
 func TestDesktopWorkstationSandboxEndpoint(t *testing.T) {
 	d, _ := disconnectFixture(t)
 	if view := readWorkstationSandbox(t, d); view.ClaudeSandbox.Enabled != nil || len(view.ClaudeSandbox.Allow) != 0 || view.Projects == nil || len(view.Projects) != 0 {
 		t.Fatalf("an empty workstation: %+v", view)
 	}
-	body := `{"claudeSandbox":{"enabled":true,"allow":[" Read ","Read"],"deny":["Bash(git push:*)"]},"projects":["other"," p","gone","p"]}`
+	body := `{"claudeSandbox":{"enabled":true,"allow":[" Read ","Read"],"deny":["Bash(git push:*)"]},"projects":["other"," p","","p"]}`
 	if rec := disconnectRequest(d, "PUT", "/desktop/workstation/sandbox", body); rec.Code != 200 {
 		t.Fatalf("PUT = %d %s", rec.Code, rec.Body.String())
 	}

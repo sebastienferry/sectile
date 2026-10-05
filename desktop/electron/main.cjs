@@ -407,6 +407,16 @@ ipcMain.handle('save-workstation-settings',(_,defaults)=>{
  if(!defaults||typeof defaults!=='object'||Array.isArray(defaults))throw Error('Invalid workstation settings')
  return api('/desktop/workstation','PUT',defaults)
 })
+// The workstation Sandbox values and their project whitelist (#730).
+ipcMain.handle('workstation-sandbox',()=>api('/desktop/workstation/sandbox'))
+ipcMain.handle('save-workstation-sandbox',(_,values)=>{
+ if(!values||typeof values!=='object'||Array.isArray(values))throw Error('Invalid Sandbox settings')
+ return api('/desktop/workstation/sandbox','PUT',values)
+})
+ipcMain.handle('promote-sandbox-rule',(_,projectId,rule)=>{
+ if(typeof projectId!=='string'||typeof rule!=='string')throw Error('Invalid rule')
+ return api('/desktop/project/sandbox/promote','POST',{projectId,rule})
+})
 // The engine catalogue and the per-task engine (#510). An agent that predates
 // them answers nothing useful, so a write names the update it needs.
 async function requireTaskEngines(){

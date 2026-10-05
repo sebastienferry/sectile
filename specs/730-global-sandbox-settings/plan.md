@@ -197,6 +197,30 @@ line:
 > that should stay with one project. Upgrade the agent along with the
 > desktop. (#730)
 
+## Deviations from this plan
+
+- **Layout 4 instead of a `Seeded.SandboxFolded` marker.** A marker set on
+  every read put a time stamp into every settings value and broke the
+  round-trip tests; the settings file already records its migrations with its
+  layout. `SettingsLayout` is 4, the fold runs on a file of an older layout,
+  and the next save stamps 4. Every layout-3 file is therefore rewritten once
+  at agent start, with its `.bak-layout3` backup, even with nothing to fold.
+- **`MigrateSettingsReport` returns a `SettingsMigration`**, which embeds the
+  former `RetiredDrop` and adds `SandboxFolded` and `SandboxWarnings`, so the
+  agent logs the fold and the entries left on their project. Its start log line
+  now says "Workstation settings migrated" rather than naming the engine
+  catalogue only.
+- **The workstation category reads `GET /desktop/workstation/sandbox`**
+  rather than new fields of `workstationView`: the values have one endpoint
+  for both directions, as the console view of #711 does.
+- **The whitelist is not restricted to projects with a settings section.** A
+  project mapped through its repository has none and is still added to the
+  workstation. The agent trims and deduplicates the IDs; project removal takes
+  one out, and an unknown ID covers nothing. Desktop lists the projects hidden
+  from the sidebar too, so their checkbox survives a save.
+- **A project entry equal to an inherited one is listed once**, as the
+  inherited entry; it stays in the project values and in the save.
+
 ## Rejected alternatives
 
 - Resolving the two levels as two `--settings` files: Claude Code takes one
