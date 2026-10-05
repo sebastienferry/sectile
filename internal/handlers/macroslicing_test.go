@@ -81,3 +81,53 @@ func TestProjectUpdateIgnoresTheRetiredSpecificationsPath(t *testing.T) {
 		t.Fatalf("expected the update to succeed without the path, got %d %s", resp.StatusCode, raw)
 	}
 }
+
+// A file picked in the browser is sliced with no agent connected, and what is
+// not a tasks.md or spec.md upload is refused in English.
+func TestSlicingImportFromAnUploadedFile(t *testing.T) {
+	database, _, server, project := macroRunFixture(t)
+	cookie := defaultSession(t, database)
+	database.SetAgentOperations(func(context.Context, agentprotocol.Operation) (json.RawMessage, error) {
+		t.Error("an upload import must not ask the agent")
+		return nil, fmt.Errorf("%w for project %s", handlers.ErrNoAgentConnected, project.ID)
+	})
+	post := func(body string) (int, string) {
+		t.Helper()
+		req, _ := http.NewRequest(http.MethodPost, server.URL+"/api/projects/"+project.ID+"/macros/M-8/slicing", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.AddCookie(cookie)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		raw, _ := io.ReadAll(resp.Body)
+		return resp.StatusCode, string(raw)
+	}
+	upload := func(source, content string) string {
+		t.Helper()
+		raw, _ := json.Marshal(map[string]string{"source": source, "fileName": "plan.md", "content": content})
+		return string(raw)
+	}
+
+	status, body := post(upload("tasks", "## 1. First group\n\n- [ ] 1.1 Do it.\n\n## 2. Second group\n"))
+	if status != http.StatusOK || !strings.Contains(body, `"origin":"imported file: plan.md"`) || !strings.Contains(body, "Second group") {
+		t.Fatalf("expected the uploaded groups and their origin, got %d %s", status, body)
+	}
+
+	for _, tc := range []struct {
+		name string
+		body string
+		want string
+	}{
+		{"stories source", upload("stories", "## 1. Group\n"), `not as \"stories\"`},
+		{"unknown source", upload("plan", "## 1. Group\n"), `not as \"plan\"`},
+		{"too large content", upload("tasks", strings.Repeat("a", 1<<20+1)), "exceeds the 1 MiB limit"},
+		{"body over the reader limit", upload("tasks", strings.Repeat("\x01", 1<<20)), "exceeds the 1 MiB limit"},
+		{"no group", upload("spec", "Nothing to slice.\n"), "has no requirement or user story"},
+	} {
+		if status, body := post(tc.body); status != http.StatusBadRequest || !strings.Contains(body, tc.want) {
+			t.Errorf("%s: expected 400 with %q, got %d %.200s", tc.name, tc.want, status, body)
+		}
+	}
+}

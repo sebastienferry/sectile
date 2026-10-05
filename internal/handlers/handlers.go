@@ -1432,17 +1432,38 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 			}
 			var req struct {
 				Source string `json:"source"`
+				// Content is a file the user picked in the browser: when it is
+				// present, it is sliced instead of asking the agent for the file.
+				Content  *string `json:"content"`
+				FileName string  `json:"fileName"`
 			}
 			// Un corps absent vaut la source par défaut : le geste courant ne
 			// doit pas exiger une charge utile pour être appelable.
-			_ = json.NewDecoder(r.Body).Decode(&req)
+			// The reader leaves room for JSON escaping above the file limit,
+			// which TodosFromUpload enforces on the decoded content.
+			if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 2*db.SlicingUploadLimit+64<<10)).Decode(&req); err != nil {
+				var tooLarge *http.MaxBytesError
+				if errors.As(err, &tooLarge) {
+					writeError(w, http.StatusBadRequest, db.ErrSlicingUploadTooLarge.Error())
+					return
+				}
+			}
 			// Les stories déjà créées ne sont pas une source de fichier : elles
 			// sont routées avant la normalisation, qui ne connaît que le dépôt
 			// et ferait retomber « stories » sur tasks.md en silence.
 			var meta *models.MacroMeta
 			var origin string
 			var err error
-			if strings.EqualFold(strings.TrimSpace(req.Source), models.MacroTodoFromStories) {
+			if req.Content != nil {
+				// Checked before NormalizeSlicingSource, which would read any
+				// other source as tasks.md without a word.
+				source := strings.ToLower(strings.TrimSpace(req.Source))
+				if source != string(db.SlicingFromTasks) && source != string(db.SlicingFromSpec) {
+					writeError(w, http.StatusBadRequest, fmt.Sprintf("an uploaded file is sliced as tasks.md or spec.md, not as %q", req.Source))
+					return
+				}
+				meta, origin, err = h.db.TodosFromUpload(r.Context(), h.webSessionUser(r), id, key, db.SlicingSource(source), req.FileName, *req.Content)
+			} else if strings.EqualFold(strings.TrimSpace(req.Source), models.MacroTodoFromStories) {
 				meta, origin, err = h.db.TodosFromMacroStories(h.actingContext(r), id, key)
 			} else {
 				meta, origin, err = h.db.TodosFromSDD(r.Context(), h.webSessionUser(r), id, key, db.NormalizeSlicingSource(req.Source))
