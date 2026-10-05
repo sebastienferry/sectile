@@ -730,16 +730,13 @@ console output on start; an older one clears its in-memory console history.
 The **Local agent** panel exposes launch configuration. Stop the daemon before
 changing settings, then use **Start local agent**. **Stop agent** uses authenticated
 `POST /desktop/shutdown` with the same confirmed-exit guard as restart.
-Desktop launch settings are saved locally; the API key is kept in clear as
-`apiKey` in the owner-only (0600) `~/.config/sectile/settings.json`, as
-`sectile-agent pair` stores it, so a single-use pairing code is never lost and
-an agent started by hand uses the same key. A `secret` encrypted with Electron
-safeStorage by an earlier version is read once, when no `apiKey` is stored, and
-replaced by `apiKey` at the next successful start; `sectile-agent pair` deletes
-it when it writes `apiKey` (ADR 0049). At launch with a stored key and no agent
-running, the desktop starts the agent once without asking. Existing agents
-launched outside the desktop do not expose their server credentials to this
-panel.
+Desktop launch settings are saved locally; the API key is encrypted with
+Electron safeStorage when OS encryption is available, and kept in the same
+owner-only settings file otherwise, so a single-use pairing code is never lost.
+`sectile-agent pair` writes `apiKey` and deletes any encrypted `secret`, so the
+two never coexist and Desktop starts on the newer key (ADR 0049). Existing
+agents launched outside the desktop do not expose their server credentials to
+this panel.
 
 **Clear finished consoles** removes completed, failed and canceled consoles from
 the local agent through authenticated `DELETE /desktop/history`. Only sessions

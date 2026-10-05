@@ -39,9 +39,9 @@ for an MCP client configured by hand on a machine with no agent to pair for it.
 *Amended by [ADR 0049](0049-workstations-sign-in-through-the-browser.md): the
 code can also reach the workstation through the browser, which hands it to a
 loopback listener after the web sign-in, so nobody copies it. A new pairing
-revokes the key the workstation held until then. Desktop no longer keeps the
-key in encrypted settings: it stores it in clear in the owner-only settings
-file, where `sectile-agent pair` stores it too.*
+revokes the key the workstation held until then. Desktop still encrypts the key
+when the OS can; `sectile-agent pair` stores it in clear and drops an older
+encrypted one.*
 
 The same key is the bearer credential on every machine surface: the agent
 WebSocket, `/api/v1/agent/*`, `/mcp` on the server, and the agent gateway. The

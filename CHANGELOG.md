@@ -103,7 +103,6 @@ test fixtures or internal plumbing.
 - **Desktop configuration opens as a full page.** Settings and a project's configuration now share one full-page Configuration view with a Back button. Its sidebar lists General workstation categories first, followed by the selected project's categories, while existing save actions and configuration controls remain available. (#545)
 - **Web sessions last up to 90 days.** A browser stays signed in to Sectile for 90 days at most, instead of 12 hours, and is signed out after 7 days without use. (#717)
 - **Pairing a workstation again revokes its previous key.** Signing in again from Desktop or running `sectile-agent pair` again replaces the workstation's key instead of adding one, so the profile lists one live key per workstation; restart an agent that was already running so it uses the new key. (#717)
-- **Desktop keeps the workstation key in the settings file the agent reads.** The key is stored in the owner-only `~/.config/sectile/settings.json`, as `sectile-agent pair` does, instead of encrypted by the operating system, so an agent started by hand uses the key Desktop received. A key stored by an earlier version is moved over at the next start. (#717)
 
 ### Removed
 
@@ -153,8 +152,7 @@ test fixtures or internal plumbing.
 
 - Switching desktop configuration categories or projects no longer accumulates Refresh from server buttons.
 - **MCP connections behind a hosting proxy.** Servers whose ingress forwards over loopback can now allow their public hostname with `SECTILE_MCP_ALLOWED_HOSTS`, so Codex and other MCP clients can initialize and load tools instead of receiving `403 invalid Host header`. Authentication and protection against unlisted loopback hosts remain enforced.
-- **Desktop no longer asks to pair again after a reboot.** At launch it starts the agent with the key it stored, and when it cannot, its connection screen says why: no key is stored, the stored one cannot be read, or the server refused it as expired, revoked or blocked. (#717)
-- **The `sectile` MCP entry follows the workstation key.** When the workstation's key changes, `sectile-agent pair`, and the agent at its next start, rewrite the `sectile` entry already registered for Claude Code, Codex or Antigravity on that server with the new key, instead of leaving it on a key that was revoked. (#717)
+- **Codex and Antigravity MCP entries follow the workstation key.** When the workstation's key changes, `sectile-agent pair`, and the agent at its next start, rewrite the `sectile` entry already registered for Codex or Antigravity on that server with the new key, instead of leaving it on a key that was revoked. Claude Code's entry follows its managed choice, and one Sectile did not write is still repaired from the MCP settings (#716). An agent restarted on an older key than the one stored leaves every entry on the newer key, and **Repair** writes the newer key. (#717)
 - **A server that cannot check a key no longer calls it invalid.** When a database error prevents the check, the agent, MCP and agent API answer that authentication is temporarily unavailable (HTTP 503), and the agent retries, instead of reporting a bad key. (#717)
 
 ## [0.3.0] - 2026-09-26

@@ -19,6 +19,11 @@ clear `apiKey` that `sectile-agent pair` writes in the same settings file; and
 writing that `apiKey` left the older encrypted `secret` in place. Go cannot
 decrypt safeStorage, so a standalone agent never saw the key Desktop held.
 
+Issue #716, merged alongside this one, already makes Desktop start the agent
+at launch with its stored key and keeps Claude Code's managed `sectile` entry
+on the current key (its amendments to ADR 0023 and ADR 0039). This decision
+keeps those mechanisms and adds what they leave out.
+
 Re-pairing created a new key without revoking the old one, and the `sectile`
 entry of `~/.claude.json` kept the key it had been written with, so the MCP
 client went on sending a key that was later revoked. Finally, a database
@@ -56,23 +61,32 @@ hunting for a typo while the server was the one failing.
   is the absolute lifetime; the idle rule is enforced on the server only. The
   30-minute idle window that keeps sealed tracker credentials unlocked
   (ADR 0032) is unchanged.
-- **Desktop stores the key in clear in the owner-only settings file.** Desktop
-  writes `apiKey` in `~/.config/sectile/settings.json` (mode 0600), as
-  `sectile-agent pair` already did, so the agent started by hand reads the key
-  Desktop stored. The safeStorage `secret` of earlier versions is read once,
-  when no `apiKey` is there, and replaced by `apiKey` at the next successful
-  start; writing `apiKey` from Go deletes any `secret`. This is option E1 of
-  the plan, chosen following its recommendation; the owner may revisit it. At
-  launch with a stored key, Desktop starts the agent once without asking, and
-  when it cannot, its setup screen says whether no key is stored or the stored
-  one cannot be read.
+- **Desktop keeps the key storage of #716.** Desktop encrypts the key with
+  Electron safeStorage as `secret` when the OS can, and writes `apiKey` in clear
+  in the owner-only `~/.config/sectile/settings.json` otherwise, never both;
+  it reads `secret` first. `sectile-agent pair` writes `apiKey` and deletes any
+  `secret`, so a newer key from the CLI is never shadowed by an older one from
+  Desktop. The plan recommended storing the key in clear on every host
+  (option E1); the owner kept #716's encrypted storage (option E2). Starting
+  the agent at launch is #716's: with a usable stored key Desktop starts it
+  once, its setup screen reading "Starting…" with **Pair again** closed, and
+  when it cannot it says why and opens **Pair again**, which offers the browser
+  sign-in beside the pairing code. A key refused as revoked, unknown or expired
+  asks to pair again; a blocked account does not, since a new pairing would not
+  open it.
 - **MCP registrations follow the key.** When the key changes, the user-level
-  top-level `sectile` entry of Claude Code, Codex and Antigravity that
-  addresses the same server with a different non-empty key is rewritten with
-  the new key, keeping its transport. `sectile-agent pair` does it right after
-  storing the key, and the agent at start for the registrations that have no
-  saved Desktop choice. No entry is ever created, and a local entry, which
-  carries no key, is never touched.
+  top-level `sectile` entry of Codex and Antigravity that addresses the same
+  server with a different non-empty key is rewritten with the new key, keeping
+  its transport. `sectile-agent pair` does it right after storing the key, and
+  the agent at start for the registrations that have no saved Desktop choice.
+  No entry is ever created, and a local entry, which carries no key, is never
+  touched. Claude Code follows the amendments of #716 to ADR 0023 and ADR 0039:
+  its managed choice is rewritten through the fingerprint rule, by
+  `sectile-agent pair` and at the next agent start, and an entry Sectile did
+  not write is only reported, then rewritten on **Repair**, which also removes
+  the outdated project-scoped entries. A daemon restarted with an older key
+  than the one stored (TOKEN survives its self-restart) rewrites no entry, and
+  the MCP settings compare entries with, and repair them to, the stored key.
 - **A failed check is not an invalid key.** On `/api/v1/agent/*`, `/mcp` and
   the `/ws/agent-connect` handshake, a credential check that fails for any
   reason other than an unknown, expired or blocked key answers
@@ -100,16 +114,20 @@ hunting for a typo while the server was the one failing.
 - If an agent started by hand with the old key is already running when Desktop
   signs in, Desktop connects to it and it fails at its next reconnect. This is
   rare: Desktop shows its setup screen only when no agent answers.
-- The key sits in clear in a file only its owner can read, as the CLI
-  configurations of ADR 0011 already hold it.
+- Where the OS cannot encrypt, the key sits in clear in a file only its owner
+  can read, as the CLI configurations of ADR 0011 already hold it. Elsewhere an
+  agent started by hand cannot read the key Desktop encrypted, and runs on the
+  key of its own `sectile-agent pair`, which Desktop then starts on too.
 - An idle session leaves a cookie that resolves to nobody, so the interface
   shows its sign-in screen.
 - Project-scoped `sectile` overrides in `~/.claude.json`
-  (`projects[<path>].mcpServers`) are not refreshed.
+  (`projects[<path>].mcpServers`) are not refreshed: they are reported, and
+  removed by **Repair** (ADR 0023, amendment of #716).
 - Rejected: putting the key in the redirect URL (it would land in browser
   history and logs); an identity-provider SDK or the device-code flow (it
   contradicts ADR 0008 and needs a provider change); replacing the key of a
   workstation matched by label (labels collide and change); re-issuing the
   cookie on every use (the session is read several times per request, where
-  no response writer is at hand); keeping the safeStorage `secret` (option E2:
-  an agent started by hand would work only after its own pairing).
+  no response writer is at hand); storing the key in clear on every host
+  (option E1, the plan's recommendation: the owner kept #716's encrypted
+  storage).
