@@ -2322,51 +2322,63 @@ async function openProject(id,initial='Remove'){
   const picker=document.createElement('div');picker.className='repository-picker';picker.append(path,browse)
   const repository=settingRow('Local repository',{stacked:true},picker)
   const pathOffer=attachGitOffer(path,repository,'Local repository')
-  // Macro operations read and write specifications here. Only an override is
-  // stored: every project inherits its local repository otherwise (#484).
-  const specPath=document.createElement('input');specPath.value=info.specPath||'';specPath.setAttribute('aria-label','Specifications folder')
-  const specBrowse=document.createElement('button');specBrowse.type='button';specBrowse.textContent='Choose folder…';specBrowse.setAttribute('aria-label','Choose specifications folder…')
-  specBrowse.onclick=async()=>{try{const selected=await api.chooseRepository();if(selected){specPath.value=selected;renderSpec({...specData,specPath:selected});specOffer.examine()}}catch(err){error(err)}}
-  const specPicker=document.createElement('div');specPicker.className='repository-picker';specPicker.append(specPath,specBrowse)
-  // The specifications either share the code checkout or live in a folder of
-  // their own. Unticking reveals the folder; ticking drops the override so the
-  // folder follows the local repository again.
-  const sameRepo=document.createElement('input');sameRepo.type='checkbox';sameRepo.id='spec-same-repository'
-  const sameRepoLabel=document.createElement('label');sameRepoLabel.className='spec-same-repository';sameRepoLabel.htmlFor=sameRepo.id
-  sameRepoLabel.append(sameRepo,document.createTextNode(' Specifications live in the code repository'))
-  sameRepo.onchange=()=>{
-   if(sameRepo.checked)specPath.value=''
-   renderSpec({...specData,specPath:specPath.value},{separate:!sameRepo.checked})
-   if(!sameRepo.checked)specPath.focus()
+  // Two specifications folders (#736): the macro skills read and write the
+  // Macro one, the issue skills write the tasks' clarifications and
+  // specifications in the Issue one. Only an override is stored: each follows
+  // the local repository otherwise (#484).
+  function specFolderRow(kind,field,skills){
+   const name=kind+' specifications folder'
+   const input=document.createElement('input');input.value=info[field]||'';input.setAttribute('aria-label',name)
+   const browse=document.createElement('button');browse.type='button';browse.textContent='Choose folder…';browse.setAttribute('aria-label','Choose '+name+'…')
+   browse.onclick=async()=>{try{const selected=await api.chooseRepository();if(selected){input.value=selected;render({...data,[field]:selected});offer.examine()}}catch(err){error(err)}}
+   const picker=document.createElement('div');picker.className='repository-picker';picker.append(input,browse)
+   // The specifications either share the code checkout or live in a folder of
+   // their own. Unticking reveals the folder; ticking drops the override so the
+   // folder follows the local repository again.
+   const sameRepo=document.createElement('input');sameRepo.type='checkbox';sameRepo.id='spec-same-repository-'+kind.toLowerCase()
+   const sameRepoLabel=document.createElement('label');sameRepoLabel.className='spec-same-repository';sameRepoLabel.htmlFor=sameRepo.id
+   sameRepoLabel.append(sameRepo,document.createTextNode(' '+kind+' specifications live in the code repository'))
+   sameRepo.onchange=()=>{
+    if(sameRepo.checked)input.value=''
+    render({...data,[field]:input.value},{separate:!sameRepo.checked})
+    if(!sameRepo.checked)input.focus()
+   }
+   input.oninput=()=>render({...data,[field]:input.value},{separate:true})
+   const kindStatus=document.createElement('span');kindStatus.className='spec-kind';kindStatus.setAttribute('role','status');kindStatus.setAttribute('aria-label',name+' kind')
+   const row=settingRow(name,{stacked:true},sameRepoLabel,picker,kindStatus)
+   const offer=attachGitOffer(input,row,name,folder=>render({...data,[field]:folder},{separate:true}))
+   const defaultKey=field.replace(/Path$/,'Default'),kindKey=field.replace(/Path$/,'Kind')
+   let data=info
+   function render(next,options){
+    data=next
+    const override=!!(next[field]||'').trim()
+    const separate=override||!!options?.separate
+    sameRepo.checked=!separate
+    // Following the local repository, the folder has no offer of its own.
+    if(picker.hidden!==!separate)offer.show(separate)
+    picker.hidden=!separate
+    input.placeholder='Folder holding the specifications'
+    row.hint.textContent=!separate?skills+' in the local repository.'
+     :'A folder of its own · Tick the box to use the local repository again.'
+    // The kind is detected on the folder the agent resolves, which is not
+    // always the one typed: name it, so the verdict says what it is about.
+    // A value typed but not saved yet has not been examined.
+    const stored=(next[field]||'').trim()===(info[field]||'').trim()
+    const examined=(stored?(next[field]||'').trim():'')||(!override?next[defaultKey]:'')||''
+    const verdict={git:'Git repository',folder:'Folder, not a Git repository',missing:'Folder not found'}[stored?next[kindKey]:'']||''
+    kindStatus.textContent=verdict&&examined?verdict+' · '+examined:''
+    kindStatus.title=kindStatus.textContent
+    kindStatus.dataset.kind=stored?next[kindKey]||'':''
+   }
+   render(info)
+   return {input,row,render,field,showOffer:()=>offer.show(!picker.hidden)}
   }
-  specPath.oninput=()=>renderSpec({...specData,specPath:specPath.value},{separate:true})
-  const specKind=document.createElement('span');specKind.className='spec-kind';specKind.setAttribute('role','status');specKind.setAttribute('aria-label','Specifications folder kind')
-  const specRepository=settingRow('Specifications folder',{stacked:true},sameRepoLabel,specPicker,specKind)
-  const specOffer=attachGitOffer(specPath,specRepository,'Specifications folder',folder=>renderSpec({...specData,specPath:folder},{separate:true}))
-  let specData=info
-  function renderSpec(data,options){
-   specData=data
-   const override=!!(data.specPath||'').trim()
-   const separate=override||!!options?.separate
-   sameRepo.checked=!separate
-   // Following the local repository, the folder has no offer of its own.
-   if(specPicker.hidden!==!separate)specOffer.show(separate)
-   specPicker.hidden=!separate
-   specPath.placeholder='Folder holding the specifications'
-   specRepository.hint.textContent=!separate?'Macro skills read and write specifications in the local repository.'
-    :'A folder of its own · Tick the box to use the local repository again.'
-   // The kind is detected on the folder the agent resolves, which is not
-   // always the one typed: name it, so the verdict says what it is about.
-   // A value typed but not saved yet has not been examined.
-   const stored=(data.specPath||'').trim()===(info.specPath||'').trim()
-   const examined=(stored?(data.specPath||'').trim():'')||(!override?data.specDefault:'')||''
-   const verdict={git:'Git repository',folder:'Folder, not a Git repository',missing:'Folder not found'}[stored?data.specKind:'']||''
-   specKind.textContent=verdict&&examined?verdict+' · '+examined:''
-   specKind.title=specKind.textContent
-   specKind.dataset.kind=stored?data.specKind||'':''
-  }
-  renderSpec(info)
-  pathOffer.examine();specOffer.show(!specPicker.hidden)
+  const macroSpec=specFolderRow('Macro','specPath','Macro skills read and write specifications')
+  const issueSpec=specFolderRow('Issue','issueSpecPath','Issue skills write clarifications and specifications')
+  const specRows=[macroSpec,issueSpec]
+  // Each row re-renders from fresh agent data with its own typed value.
+  const renderSpecs=(fresh,typed)=>{for(const spec of specRows)spec.render(typed?{...fresh,[spec.field]:spec.input.value}:fresh)}
+  pathOffer.examine();for(const spec of specRows)spec.showOffer()
   // The other repositories the project declares, each in a folder of this
   // workstation (#456), on every project (#484). The project's own repository
   // is the local repository above; the list itself is a project setting of
@@ -2590,7 +2602,7 @@ async function openProject(id,initial='Remove'){
   }
 
   const notice=document.createElement('p');notice.setAttribute('role','status')
-  panels.General.append(repository.section,specRepository.section,repositoriesRow.section,foldersRow.section)
+  panels.General.append(repository.section,macroSpec.row.section,issueSpec.row.section,repositoriesRow.section,foldersRow.section)
   panels.Execution.append(controls.worktrees.section,controls.specArtifacts.section,controls.parallel.section,terminalRow.section,setupRow.section)
   // What the project's Claude Code sessions are allowed (#700). An agent that
   // predates it sends no values, and the save sends none back.
@@ -2618,7 +2630,7 @@ async function openProject(id,initial='Remove'){
    event.preventDefault()
    save.disabled=true
    try{
-    await api.mapProject({projectId:id,path:path.value,specPath:specPath.value.trim(),
+    await api.mapProject({projectId:id,path:path.value,specPath:macroSpec.input.value.trim(),issueSpecPath:issueSpec.input.value.trim(),
      useWorktrees,inheritWorktrees,specArtifacts,inheritSpecArtifacts,parallelism,inheritParallelism,
      ...(engineView?{defaultEngine,inheritDefaultEngine}:{}),
      terminal:terminal.get(),inheritTerminal,
@@ -2638,7 +2650,7 @@ async function openProject(id,initial='Remove'){
     notice.textContent=refused.length?'Local configuration saved, except the folder of '+refused.join('; '):'Local configuration saved'
     // The agent normalised the folder and detected its kind: show what it
     // stored, not what was typed.
-    try{const fresh=await api.project(id);info.specPath=fresh.specPath||'';specPath.value=info.specPath;renderSpec(fresh);applyFields(fresh);if(fresh.claudeSandbox)sandbox.set(fresh.claudeSandbox,fresh.claudeSandboxGlobal||null,fresh.claudeSandboxCovered!==false)}catch(err){error(err)}
+    try{const fresh=await api.project(id);for(const spec of specRows){info[spec.field]=fresh[spec.field]||'';spec.input.value=info[spec.field]};renderSpecs(fresh);applyFields(fresh);if(fresh.claudeSandbox)sandbox.set(fresh.claudeSandbox,fresh.claudeSandboxGlobal||null,fresh.claudeSandboxCovered!==false)}catch(err){error(err)}
     await loadProjects()
    }catch(err){notice.textContent=err.message}finally{save.disabled=false}
   }
@@ -2661,7 +2673,7 @@ async function openProject(id,initial='Remove'){
     config=fresh.server
     if(!configurationActive()||generation!==configurationGeneration)return
     if(inheritSpecArtifacts)specArtifacts=config.specArtifacts==='drop'?'drop':'keep'
-    applyFields(fresh,true);renderServer();renderSpec({...fresh,specPath:specPath.value})
+    applyFields(fresh,true);renderServer();renderSpecs(fresh,true)
     notice.textContent='Server settings refreshed. Local overrides preserved.'
    }catch(err){notice.textContent=err.message}finally{reload.disabled=false}
   }

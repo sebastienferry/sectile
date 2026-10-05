@@ -337,3 +337,43 @@ func TestAPinTheProjectNoLongerDeclaresIsNoPin(t *testing.T) {
 		t.Errorf("a removed repository still decides: multi=%v primary=%q", multiRepoTask(project, reread), TaskPrimaryRepository(project, reread))
 	}
 }
+
+// fakeSpecAgent answers task_spec_worktree like a current agent, or with an
+// empty answer like an agent that predates the operation's result.
+type fakeSpecAgent struct {
+	calls []agentprotocol.Operation
+	empty bool
+}
+
+func (f *fakeSpecAgent) call(_ context.Context, op agentprotocol.Operation) (json.RawMessage, error) {
+	f.calls = append(f.calls, op)
+	if f.empty {
+		return json.Marshal(map[string]any{})
+	}
+	return json.Marshal(models.TaskSpecWorkspace{Repository: "/specs", Path: "/specs/.tasks/worktrees/x", Branch: op.Branch, Worktree: true, Distinct: true})
+}
+
+// The server relays the task's identity and branch to the caller's agent, the
+// only one that knows its Issue specifications folder (#736).
+func TestPrepareTaskSpecWorktree(t *testing.T) {
+	d := testDB(t)
+	_, task := multiRepoProject(t, d)
+	agent := &fakeSpecAgent{}
+	d.SetAgentOperations(agent.call)
+
+	workspace, err := d.PrepareTaskSpecWorktree(context.Background(), "", task.Key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if workspace.Branch != "feat/12" || !workspace.Distinct || len(agent.calls) != 1 ||
+		agent.calls[0].Action != "task_spec_worktree" || agent.calls[0].TaskID != task.ID || agent.calls[0].ProjectID != task.ProjectID {
+		t.Errorf("workspace = %+v, calls = %+v", workspace, agent.calls)
+	}
+	agent.empty = true
+	if _, err := d.PrepareTaskSpecWorktree(context.Background(), "", task.Key); err == nil || !strings.Contains(err.Error(), "too old") {
+		t.Errorf("an empty answer: err = %v", err)
+	}
+	if _, err := d.PrepareTaskSpecWorktree(context.Background(), "", "#999999"); err == nil {
+		t.Error("an unknown task must be refused")
+	}
+}

@@ -45,10 +45,13 @@ type projectSettingsInput struct {
 	// InheritSpecArtifacts removes the override.
 	SpecArtifacts        *string `json:"specArtifacts"`
 	InheritSpecArtifacts bool    `json:"inheritSpecArtifacts"`
-	// SpecPath is the specifications folder on this workstation; empty
+	// SpecPath is the Macro specifications folder on this workstation; empty
 	// clears the override, so the code checkout carries the specifications
 	// again.
 	SpecPath *string `json:"specPath"`
+	// IssueSpecPath is the Issue specifications folder (#736), cleared the
+	// same way.
+	IssueSpecPath *string `json:"issueSpecPath"`
 	// ClaudeSandbox replaces the project's sandbox values (#700); an empty
 	// object clears them, nil keeps them.
 	ClaudeSandbox *agentconfig.ClaudeSandbox `json:"claudeSandbox"`

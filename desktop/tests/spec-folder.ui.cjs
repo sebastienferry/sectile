@@ -3,12 +3,12 @@ const assert=require('node:assert/strict')
 const {_electron:electron,expect}=require('@playwright/test')
 const http=require('node:http'),fs=require('node:fs'),os=require('node:os'),path=require('node:path')
 
-// The specifications folder shares the code repository behind a checkbox on
-// every project (#484), is never flagged as required, and the detected kind
-// names the folder it was detected on.
-test('desktop specifications folder shares the code repository and names what it detected',async()=>{
+// Each specifications folder, Macro and Issue (#736), shares the code
+// repository behind a checkbox on every project (#484), is never flagged as
+// required, and the detected kind names the folder it was detected on.
+test('desktop specifications folders share the code repository and name what they detected',async()=>{
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'sectile-spec-ui-')),saves=[]
- let project={configured:true,path:'/test/repo',specPath:'',specDefault:'/test/repo',specKind:'git',aiProvider:'agy',server:{projectId:'p',projectName:'Test project',aiProvider:'agy',skills:[]}}
+ let project={configured:true,path:'/test/repo',specPath:'',specDefault:'/test/repo',specKind:'git',issueSpecPath:'',issueSpecDefault:'/test/repo',issueSpecKind:'git',aiProvider:'agy',server:{projectId:'p',projectName:'Test project',aiProvider:'agy',skills:[]}}
  const server=http.createServer((req,res)=>{
   res.setHeader('Content-Type','application/json')
   const url=new URL(req.url,'http://localhost')
@@ -18,7 +18,7 @@ test('desktop specifications folder shares the code repository and names what it
     let body='';req.on('data',chunk=>body+=chunk);req.on('end',()=>{
      const input=JSON.parse(body);saves.push(input)
      // The agent stores a plain folder as typed and says it is one.
-     project={...project,specPath:input.specPath,specKind:input.specPath?'folder':'git'}
+     project={...project,specPath:input.specPath,specKind:input.specPath?'folder':'git',issueSpecPath:input.issueSpecPath,issueSpecKind:input.issueSpecPath?'folder':'git'}
      res.statusCode=204;res.end()
     });return
    }
@@ -39,13 +39,14 @@ test('desktop specifications folder shares the code repository and names what it
   const open=async()=>{
    await page.getByRole('button',{name:'Actions for Test project',exact:true}).click();await page.getByRole('menuitem',{name:'Project settings…',exact:true}).click()
    await page.getByRole('tab',{name:'Folders',exact:true}).click()
-   return {
-    field:page.getByRole('textbox',{name:'Specifications folder',exact:true}),
-    same:page.getByRole('checkbox',{name:'Specifications live in the code repository',exact:true}),
-    kind:page.getByRole('status',{name:'Specifications folder kind',exact:true}),
-    row:page.locator('.setting-row',{hasText:'Specifications folder'})
-   }
+   return rowOf('Macro')
   }
+  const rowOf=kind=>({
+   field:page.getByRole('textbox',{name:kind+' specifications folder',exact:true}),
+   same:page.getByRole('checkbox',{name:kind+' specifications live in the code repository',exact:true}),
+   kind:page.getByRole('status',{name:kind+' specifications folder kind',exact:true}),
+   row:page.locator('.setting-row',{hasText:kind+' specifications folder'})
+  })
   const save=()=>page.getByRole('button',{name:'Save local configuration',exact:true}).click()
 
   // No override: the box is ticked, the folder hidden, and the kind names the
@@ -91,6 +92,29 @@ test('desktop specifications folder shares the code repository and names what it
   await expect.poll(()=>saves.length).toBe(3)
   assert.equal(saves[2].specPath,'/test/plain-specs')
   await expect(kind).toHaveText('Folder, not a Git repository · /test/plain-specs')
+
+  // The Issue folder is a row of its own, saved beside the Macro one, which
+  // it leaves as it is.
+  const issue=rowOf('Issue')
+  await expect(issue.same).toBeChecked()
+  await expect(issue.field).toBeHidden()
+  await expect(issue.row).toContainText('Issue skills write clarifications and specifications in the local repository.')
+  await expect(issue.kind).toHaveText('Git repository · /test/repo')
+  await issue.same.uncheck()
+  await expect(issue.field).toBeVisible()
+  await issue.field.fill('/test/issue-specs')
+  await save()
+  await expect.poll(()=>saves.length).toBe(4)
+  assert.equal(saves[3].issueSpecPath,'/test/issue-specs')
+  assert.equal(saves[3].specPath,'/test/plain-specs')
+  await expect(issue.kind).toHaveText('Folder, not a Git repository · /test/issue-specs')
+  await expect(kind).toHaveText('Folder, not a Git repository · /test/plain-specs')
+  await issue.same.check()
+  await save()
+  await expect.poll(()=>saves.length).toBe(5)
+  assert.equal(saves[4].issueSpecPath,'')
+  assert.equal(saves[4].specPath,'/test/plain-specs')
+  await expect(issue.kind).toHaveText('Git repository · /test/repo')
  }finally{
   if(app)await app.close()
   await new Promise(resolve=>server.close(resolve))

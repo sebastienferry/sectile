@@ -409,6 +409,20 @@ func renderSessionTitleContract(s StageSkill) string {
 	return strings.TrimRight(res, "\n") + "\n\n"
 }
 
+// specWorkspaceSkills are the skills that read or write a task's issue
+// artefacts, which may live in another repository than the code (#736).
+var specWorkspaceSkills = map[string]bool{"clarify": true, "specify": true, "implement": true, "adjust": true, "handoff": true, "pickup": true, "pickup_issues": true}
+
+// renderSpecWorkspaceContract tells an issue skill where the task's
+// clarification report and specification are written and how they are
+// published.
+func renderSpecWorkspaceContract(s StageSkill) string {
+	if !specWorkspaceSkills[s.ID] {
+		return ""
+	}
+	return strings.TrimRight(readContractFragment("spec-workspace"), "\n") + "\n\n"
+}
+
 // renderTicketTransitionContract generates the autonomous ticket transition instructions
 // for the skill based on its from/to stages in the sequence:
 // new -> clarified -> specified -> implemented -> reviewed -> finished
@@ -531,6 +545,7 @@ func assembleSkill(s StageSkill, name, readFirst, steps, taskAccessFallback stri
 	b.WriteString("\n\n")
 	b.WriteString(renderTaskAccessContract(taskAccessFallback))
 	b.WriteString(renderSessionTitleContract(s))
+	b.WriteString(renderSpecWorkspaceContract(s))
 	fmt.Fprintf(&b, "## Goal\n%s\n\n", goal)
 	if readFirst != "" {
 		fmt.Fprintf(&b, "## Read first\n%s\n\n", readFirst)

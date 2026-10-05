@@ -75,7 +75,7 @@ var Operations = []string{
 	"macro_worktree", "macro_spec_file",
 	"git_status", "git_branches", "git_checkout", "git_clean", "git_delete",
 	"open_editor", "cli_status", "prepare_workspace", "remove_workspace",
-	"repository_worktree", "workspace_info", "git_diff", "git_evidence", "branch_changes",
+	"repository_worktree", "task_spec_worktree", "workspace_info", "git_diff", "git_evidence", "branch_changes",
 	"pr_evidence", "run_prompt", "skills_status", "skill_files", "sync_config",
 	"read_skill", "spec_status", "spec_install", "init_git", "spec_artifacts",
 }

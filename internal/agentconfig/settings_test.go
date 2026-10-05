@@ -126,7 +126,7 @@ func TestLegacyLayoutIsFoldedAndRewritten(t *testing.T) {
 			AIModel: "claude-opus-5", AISkillModels: map[string]string{"implement": "claude-sonnet-5"}, Terminal: "ghostty",
 		}},
 		ProjectSettings: map[string]ProjectSettings{"p": {
-			Path: "/repo", SpecPath: "/specs",
+			Path: "/repo", MacroSpecPath: "/specs",
 			Execution: Execution{
 				AIProvider: "codex", AICommandTemplate: "codex {prompt}", AICommandTemplateAutonomous: "codex exec {prompt}",
 				AIModel: "gpt-5", Terminal: "iterm", UseWorktrees: boolPtr(false), Parallelism: 3,
@@ -178,13 +178,13 @@ func TestWriteSettingsRemovesEmptiedMaps(t *testing.T) {
 	testhome.Temp(t)
 	s := Settings{
 		Defaults:        Defaults{Execution: Execution{AISkillModels: map[string]string{"implement": "m"}}, AIProviderModels: map[string][]string{"claude": {"m"}}},
-		ProjectSettings: map[string]ProjectSettings{"p": {SpecPath: "/specs", SkillCommands: map[string]string{"implement": "x"}}},
+		ProjectSettings: map[string]ProjectSettings{"p": {MacroSpecPath: "/specs", SkillCommands: map[string]string{"implement": "x"}}},
 		Repositories:    map[string]string{"r": "/r"},
 	}
 	if err := WriteSettings(s); err != nil {
 		t.Fatal(err)
 	}
-	if got, err := ReadSettings(t.TempDir()); err != nil || got.SpecPath("p") != "/specs" || got.Repositories["r"] != "/r" {
+	if got, err := ReadSettings(t.TempDir()); err != nil || got.MacroSpecPath("p") != "/specs" || got.Repositories["r"] != "/r" {
 		t.Fatalf("not stored: %+v %v", got, err)
 	}
 	if err := WriteSettings(Settings{ProjectSettings: map[string]ProjectSettings{}, Repositories: map[string]string{}}); err != nil {
