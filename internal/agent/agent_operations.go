@@ -137,6 +137,9 @@ func (d *agentDaemon) executeOperation(ctx context.Context, op agentprotocol.Ope
 	if err != nil {
 		return nil, err
 	}
+	// The direct setup composes from the server's configuration before it is
+	// resolved (#732).
+	fetched := config
 	// An operation on a task runs the task's engine; without one, the project
 	// default engine.
 	config = agentconfig.ResolveTask(config, overrides, op.TaskID)
@@ -205,6 +208,14 @@ func (d *agentDaemon) executeOperation(ctx context.Context, op agentprotocol.Ope
 	r := runner.NewRunner()
 	switch op.Action {
 	case "sync_config":
+		// The direct copies carry every known project's work-only overrides
+		// (#732). Only they are taken from the helper: it resolves the engine
+		// again, which would undo the provider this operation asks for.
+		direct, err := d.directSetupConfig(ctx, fetched)
+		if err != nil {
+			return nil, err
+		}
+		config = withDirectContent(config, direct)
 		if op.Framework != "" {
 			config.SpecFramework = op.Framework
 		}
@@ -245,6 +256,41 @@ func (d *agentDaemon) executeOperation(ctx context.Context, op agentprotocol.Ope
 			written = len(config.Skills)
 		}
 		return map[string]any{"written": written}, nil
+	case "refresh_skills":
+		// After a skill override changed on the server (#732): rewrite the
+		// direct copies of the providers this workstation already set up, and
+		// nothing else. No MCP bootstrap, no other provider, and a workstation
+		// without a direct setup is left untouched.
+		providers, err := agentconfig.ManagedProviders()
+		if err != nil {
+			return nil, err
+		}
+		if len(providers) == 0 {
+			return map[string]any{"written": 0}, nil
+		}
+		direct, err := d.directSetupConfig(ctx, fetched)
+		if err != nil {
+			return nil, err
+		}
+		config = withDirectContent(config, direct)
+		d.prepareMu.Lock()
+		defer d.prepareMu.Unlock()
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		paths, err := localWorktreePaths(ctx, root)
+		if err != nil {
+			return nil, err
+		}
+		// Each checkout keeps the backups of the copies edited by hand.
+		for _, path := range paths {
+			for _, provider := range providers {
+				if _, err := agentconfig.ScaffoldProvider(path, config, provider); err != nil {
+					return nil, err
+				}
+			}
+		}
+		return map[string]any{"written": len(config.Skills)}, nil
 	case "skill_files", "read_skill":
 		files, err := localSkillFiles(config)
 		if err != nil {

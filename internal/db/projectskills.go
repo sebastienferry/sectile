@@ -299,8 +299,9 @@ func (d *DB) ListProjectSkillEditor(projectIDOrPath string) ([]models.SkillEdito
 	return entries, nil
 }
 
-// SaveProjectSkillContent stores the edited content. Nothing is written on any
-// workstation (#267): the next dispatch of the skill hands it to its run.
+// SaveProjectSkillContent stores the edited content. The next dispatch of the
+// skill hands it to its run (#267); on a workstation, only the direct copies it
+// already manages are refreshed (#732), and nothing is installed.
 //
 // kind says what the content replaces (#732). Left nil, a new override is
 // work-only when the skill takes one and a full replacement otherwise, while an
@@ -365,7 +366,8 @@ func (d *DB) defaultSkillOverrideKind(projectID string, stage skills.StageSkill)
 }
 
 // ResetProjectSkillContent drops the override and puts the built-in template
-// back. Like a save, it writes nothing on any workstation.
+// back. Like a save, it only refreshes the direct copies a workstation already
+// manages (#732).
 func (d *DB) ResetProjectSkillContent(projectIDOrPath, skillID string) (*models.SkillEditorEntry, error) {
 	stage, ok := skills.StageSkillByID(skillID)
 	if !ok {
