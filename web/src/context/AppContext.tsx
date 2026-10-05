@@ -114,6 +114,12 @@ export interface RoadmapFocusRequest {
   from: ViewMode
 }
 
+/** A tasks.md or spec.md the user picked in the browser, sliced as is (#735). */
+export interface MacroSlicingUpload {
+  fileName: string
+  content: string
+}
+
 interface AppContextType {
   projects: Project[]
   selectedProjectId: string | 'all'
@@ -419,8 +425,16 @@ interface AppContextType {
    * whole, which a toast has already said.
    */
   createStoriesFromMacroTodos: (projectId: string, macroKey: string, todoIds: string[]) => Promise<MacroStoryBatch | null>
-  /** Produit la découpe d'une macro depuis les artefacts SDD du dépôt. */
-  produceMacroSlicing: (projectId: string, macroKey: string, source: MacroTodoSource) => Promise<MacroMeta | null>
+  /**
+   * Produit la découpe d'une macro depuis les artefacts SDD du dépôt, or from
+   * a file the user picked in the browser when `upload` is given.
+   */
+  produceMacroSlicing: (
+    projectId: string,
+    macroKey: string,
+    source: MacroTodoSource,
+    upload?: MacroSlicingUpload
+  ) => Promise<MacroMeta | null>
   createStoryFromEpicTodo: (projectId: string, epicKey: string, todoId: string) => Promise<{ macro: MacroMeta | null; epic: MacroMeta | null; storyKey: string } | null>
   pendingHorizonPushes: (projectId: string) => Promise<MacroMeta[]>
   /** Met la poussée des labels d'horizon en file d'activités. Retourne true si la file a accepté. */
@@ -3053,7 +3067,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const produceMacroSlicing = async (
     projectId: string,
     macroKey: string,
-    source: MacroTodoSource
+    source: MacroTodoSource,
+    upload?: MacroSlicingUpload
   ): Promise<MacroMeta | null> => {
     try {
       const res = await fetch(
@@ -3061,7 +3076,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ source }),
+          // An upload carries its file: the server slices it without asking
+          // the local agent.
+          body: JSON.stringify(upload ? { source, fileName: upload.fileName, content: upload.content } : { source }),
         }
       )
       const data = await res.json().catch(() => ({}))

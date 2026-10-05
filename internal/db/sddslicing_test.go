@@ -532,3 +532,137 @@ func TestSlicingReturnsTheAgentFailure(t *testing.T) {
 		t.Fatalf("nothing must be saved on failure: %v %v", meta, err)
 	}
 }
+
+// noAgent fails the test when the slicing asks the agent: an upload carries
+// its file, and works with no desktop app.
+func noAgent(t *testing.T) AgentOperations {
+	return func(context.Context, agentprotocol.Operation) (json.RawMessage, error) {
+		t.Error("an upload import must not ask the agent")
+		return nil, errors.New("no local agent connected")
+	}
+}
+
+// An uploaded file gives the slicing the agent-read import gives from the same
+// content, without asking the agent, and names the file as its origin.
+func TestUploadSlicesLikeTheAgentRead(t *testing.T) {
+	database, proj, repo := sddProject(t, "openspec")
+	writeSpecDir(t, repo, "openspec/changes", "pe-460-read", map[string]string{"tasks.md": tasksFile})
+	seedMacro(t, database, proj.ID, "PE-460")
+	seedMacro(t, database, proj.ID, "PE-461")
+	read, _, err := database.TodosFromSDD(context.Background(), "", proj.ID, "PE-460", SlicingFromTasks)
+	if err != nil {
+		t.Fatalf("agent read: %v", err)
+	}
+
+	database.SetAgentOperations(noAgent(t))
+	uploaded, origin, err := database.TodosFromUpload(context.Background(), "", proj.ID, "PE-461", SlicingFromTasks, "plan-v2.md", tasksFile)
+	if err != nil {
+		t.Fatalf("upload: %v", err)
+	}
+	if len(uploaded.Todos) != len(read.Todos) {
+		t.Fatalf("expected %d lines, got %v", len(read.Todos), uploaded.Todos)
+	}
+	for i := range read.Todos {
+		if uploaded.Todos[i].Text != read.Todos[i].Text || uploaded.Todos[i].SourceKind != models.MacroTodoFromTasks ||
+			uploaded.Todos[i].SourceEntry != read.Todos[i].SourceEntry {
+			t.Fatalf("line %d differs: %+v vs %+v", i, uploaded.Todos[i], read.Todos[i])
+		}
+	}
+	if origin != "imported file: plan-v2.md" {
+		t.Fatalf("unexpected origin %q", origin)
+	}
+}
+
+// The spec source reads requirements, and a Spec Kit file its user stories.
+func TestUploadReadsTheSpecSource(t *testing.T) {
+	database, proj, _ := sddProject(t, "speckit")
+	seedMacro(t, database, proj.ID, "PE-462")
+	database.SetAgentOperations(noAgent(t))
+
+	meta, origin, err := database.TodosFromUpload(context.Background(), "", proj.ID, "PE-462", SlicingFromSpec, "spec.md", specFile)
+	if err != nil {
+		t.Fatalf("upload: %v", err)
+	}
+	if len(meta.Todos) != 2 || meta.Todos[0].SourceKind != models.MacroTodoFromSpec || origin != "imported file: spec.md" {
+		t.Fatalf("expected two spec lines from spec.md, got %v %q", meta.Todos, origin)
+	}
+}
+
+// A second upload keeps what the first one and the user made of the slicing.
+func TestUploadKeepsExistingLines(t *testing.T) {
+	database, proj, _ := sddProject(t, "openspec")
+	seedMacro(t, database, proj.ID, "PE-463")
+	database.SetAgentOperations(noAgent(t))
+	first, _, err := database.TodosFromUpload(context.Background(), "", proj.ID, "PE-463", SlicingFromTasks, "tasks.md", tasksFile)
+	if err != nil {
+		t.Fatalf("first upload: %v", err)
+	}
+	todos := append([]models.MacroTodo{}, first.Todos...)
+	todos[0].Done, todos[0].StoryKey = true, "PE-900"
+	keptID := todos[0].ID
+	todos = append(todos, models.MacroTodo{Text: "A line typed by hand"})
+	if _, err := database.SaveMacroMeta(proj.ID, "PE-463", nil, nil, nil, &todos); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+
+	second, origin, err := database.TodosFromUpload(context.Background(), "", proj.ID, "PE-463", SlicingFromTasks, "tasks.md", tasksFile)
+	if err != nil {
+		t.Fatalf("second upload: %v", err)
+	}
+	if second.Todos[0].ID != keptID || !second.Todos[0].Done || second.Todos[0].StoryKey != "PE-900" {
+		t.Fatalf("the matched line must keep its state, got %+v", second.Todos[0])
+	}
+	if second.Todos[len(second.Todos)-1].Text != "A line typed by hand" {
+		t.Fatalf("the hand-typed line must be kept, got %v", second.Todos)
+	}
+	if origin != "imported file: tasks.md" {
+		t.Fatalf("unexpected origin %q", origin)
+	}
+}
+
+func TestUploadNameIsTheBaseName(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		source SlicingSource
+		want   string
+	}{
+		{"C:\\Users\\me\\specs\\tasks.md", SlicingFromTasks, "tasks.md"},
+		{"/home/me/specs/spec-v3.md", SlicingFromSpec, "spec-v3.md"},
+		{"  ", SlicingFromSpec, "spec.md"},
+		{"", SlicingFromTasks, "tasks.md"},
+		{strings.Repeat("é", 250), SlicingFromTasks, strings.Repeat("é", 200)},
+	} {
+		if got := uploadName(tc.name, tc.source); got != tc.want {
+			t.Errorf("uploadName(%q) = %q, want %q", tc.name, got, tc.want)
+		}
+	}
+}
+
+// Every refusal says its cause in English and leaves the slicing as it was.
+func TestUploadRefusals(t *testing.T) {
+	database, proj, _ := sddProject(t, "openspec")
+	seedMacro(t, database, proj.ID, "PE-464")
+	database.SetAgentOperations(noAgent(t))
+	for _, tc := range []struct {
+		name    string
+		source  SlicingSource
+		content string
+		want    string
+	}{
+		{"empty", SlicingFromTasks, "", "imported file: notes.md has no task group"},
+		{"no group", SlicingFromTasks, "Some text without any group heading.\n", "has no task group"},
+		{"no requirement", SlicingFromSpec, "Some text.\n", "has no requirement or user story"},
+		{"too large", SlicingFromTasks, strings.Repeat("a", SlicingUploadLimit+1), "exceeds the 1 MiB limit"},
+		{"not UTF-8", SlicingFromTasks, "## 1. Group\xff\n", "not UTF-8 text"},
+		{"NUL", SlicingFromTasks, "## 1. Group\x00\n", "NUL character"},
+	} {
+		_, _, err := database.TodosFromUpload(context.Background(), "", proj.ID, "PE-464", tc.source, "notes.md", tc.content)
+		if err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%s: expected a refusal with %q, got %v", tc.name, tc.want, err)
+		}
+	}
+	meta, err := database.macroMetaByKey(proj.ID, "PE-464")
+	if err != nil || len(meta.Todos) != 0 {
+		t.Fatalf("a refusal must save nothing: %v %v", meta, err)
+	}
+}
