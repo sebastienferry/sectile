@@ -85,7 +85,7 @@ export function whitelistEditor({settingRow,projects,selected}){
   box.replaceChildren()
   if(!projects.length){const empty=document.createElement('p');empty.className='sandbox-empty';empty.textContent='No project is added to this workstation yet.';box.append(empty)}
   for(const project of projects){
-   const label=document.createElement('label');label.className='sandbox-whitelist-entry'
+   const label=document.createElement('label');label.className='checkbox-label sandbox-whitelist-entry'
    const input=document.createElement('input');input.type='checkbox';input.checked=checked.has(project.id)
    input.onchange=()=>{input.checked?checked.add(project.id):checked.delete(project.id);row.hint.textContent=whitelistSummary(get())}
    label.append(input,document.createTextNode(project.name||project.id));box.append(label)
