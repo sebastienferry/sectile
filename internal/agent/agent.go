@@ -1142,11 +1142,13 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 			d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", verifyErr.Error())
 			return
 		}
-		// A task holds several PRs over its life. The forge PR is the task's own
-		// as long as it shares a branch with a recorded link, even when that link
-		// is merged; only a PR on an unrelated branch is a substitution. This is
-		// the same rule the server applies, shared through `models`.
-		if acceptErr := models.AcceptPullRequest(task.PrLinks, pr.URL, pr.Branch); acceptErr != nil {
+		// A task holds several PRs over its life, one or more per repository it
+		// changed. The forge PR is the task's own as long as it shares a branch
+		// with a recorded link of its repository, even when that link is
+		// merged; only a PR on an unrelated branch is a substitution. This is
+		// the same rule the server applies, shared through `models`; the
+		// server also checks the repository is one of the task's.
+		if acceptErr := models.AcceptRepositoryPullRequest(task.PrLinks, pr.URL, pr.Branch, nil); acceptErr != nil {
 			d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", acceptErr.Error())
 			return
 		}

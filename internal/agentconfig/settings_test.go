@@ -85,6 +85,19 @@ func TestDisconnectionIsWorkstationOnlyAndSurvivesLegacyFallback(t *testing.T) {
 	}
 }
 
+func TestCheckoutWithoutLegacyFileReadsEmptySettings(t *testing.T) {
+	testhome.Temp(t)
+	root := t.TempDir()
+	settings, err := ReadSettings(root)
+	if err != nil || len(settings.ProjectSettings) != 0 || len(settings.DisconnectedProjects) != 0 || len(settings.Repositories) != 0 {
+		t.Fatal(settings, err)
+	}
+	overlaid, err := WithRepositoryFile(settings, root)
+	if err != nil || len(overlaid.ProjectSettings) != 0 {
+		t.Fatal(overlaid, err)
+	}
+}
+
 // Every legacy key lands in its new place, with the same meaning, and the next
 // save rewrites the file in the current layout.
 func TestLegacyLayoutIsFoldedAndRewritten(t *testing.T) {

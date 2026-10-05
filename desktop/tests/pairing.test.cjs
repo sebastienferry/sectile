@@ -87,7 +87,18 @@ test('an empty form with no stored credential is refused before anything is spen
  await assert.rejects(
   resolveConnectCredential({server: 'http://127.0.0.1:8090', code: '  ', token: '  '},
    () => { throw Error('the network must not be reached') }),
-  /Enter a pairing code/)
+  err => /no saved key yet/.test(err.message) && err.pairingNeeded === true)
+})
+
+// Only a refusal a new code can fix asks for one: a code the user typed and the
+// server refused is reported as it is.
+test('a refused or malformed exchange is not flagged as needing a pairing', async () => {
+ await assert.rejects(
+  exchangePairingCode('http://127.0.0.1:8090', 'stale', 'laptop', responder(401, {})),
+  err => /Invalid or expired pairing code/.test(err.message) && err.pairingNeeded === undefined)
+ await assert.rejects(
+  exchangePairingCode('http://127.0.0.1:8090', 'code', 'laptop', responder(201, {deviceId: 'dev_1'})),
+  err => /no device credential/.test(err.message) && err.pairingNeeded === undefined)
 })
 
 test('a server that answers nothing is reported as unreachable, pointing at the address', async () => {

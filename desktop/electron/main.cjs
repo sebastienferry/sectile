@@ -3,10 +3,11 @@ const path=require('node:path'),fs=require('node:fs'),crypto=require('node:crypt
 const {spawn}=require('node:child_process')
 const WebSocket=require('ws')
 const {checkServer}=require('./server-check.cjs')
-const {exchangePairingCode,resolveConnectCredential}=require('./pairing.cjs')
+const {exchangePairingCode,resolveConnectCredential,pairingNeeded}=require('./pairing.cjs')
 const credentials=require('./credential-store.cjs')
 const storeKey=(saved,token)=>credentials.storeKey(saved,token,safeStorage)
 const storedKey=saved=>credentials.storedKey(saved,safeStorage)
+const keyState=saved=>credentials.keyState(saved,safeStorage)
 const {carryOverDataDirectory}=require('./datadir.cjs')
 const {readAgentLog}=require('./agent-log.cjs')
 const {fileSha256,agentOutdated}=require('./agent-identity.cjs')
@@ -120,6 +121,8 @@ ipcMain.handle('settings',()=>{
   return connectionView(saved,storedKey(saved))
  }catch{return {}}
 })
+// Whether this workstation holds a usable key, and for which server: the key itself never crosses to the renderer here.
+ipcMain.handle('credential-state',()=>{try{const saved=readSettings();return {state:keyState(saved),server:saved.server||''}}catch{return {state:'unreadable',server:''}}})
 // Only connection keys are written; any execution key is dropped, since the
 // agent is the only writer of the execution sections (#305). What the agent
 // wrote in the file is kept as it was.
@@ -207,6 +210,11 @@ ipcMain.handle('start',async(_,settings)=>{
  try{
   started=await startAgent(settings)
   return started
+ }catch(err){
+  // Electron passes only the message across invoke, so a refusal only a new
+  // pairing fixes resolves with the reason instead of throwing (#716).
+  if(err.pairingNeeded)return {started:false,needsPairing:err.message+(err.message.includes('Pair again')?'':' Pair again to get a new key.')}
+  throw err
  }finally{
   starting=false
   if(started)scheduleIdentityCheck()
@@ -222,8 +230,9 @@ async function startAgent(settings){
  // burning a single-use code on a malformed URL would cost the user a new one.
  // With no code, the credential an earlier pairing left behind restarts the
  // agent: the form asks for a code, never for a key to paste back in.
- let kept=''
- try{kept=storedKey(readSettings())}catch{}
+ let stored={};try{stored=readSettings()}catch{}
+ const state=keyState(stored),kept=state==='present'?storedKey(stored):''
+ if(state==='unreadable'&&!settings.code)throw pairingNeeded('The key saved on this workstation can no longer be read. Pair again to replace it.')
  const credential=await resolveConnectCredential({...settings,token:kept})
  const token=credential.token
  await checkServer(url,token)

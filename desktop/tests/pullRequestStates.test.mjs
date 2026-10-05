@@ -25,3 +25,20 @@ test('untrusted state never becomes SVG markup',()=>{
  assert.equal(pullRequestPresentation({state:'<script>'}).state,'unknown')
  assert.equal(pullRequestPresentation({state:'constructor'}).state,'unknown')
 })
+test('each repository the task changed shows its current pull request, the primary one first',async()=>{
+ const {repositoryPullRequests,pullRequestRepository}=await import('../src/pullRequests.mjs')
+ assert.equal(pullRequestRepository('https://gitlab.com/g/Deploy/-/merge_requests/7'),'gitlab.com/g/deploy')
+ assert.equal(pullRequestRepository('https://example.org/o/app/pull/1'),'')
+ const task={prLinks:[
+  {url:'https://github.com/o/app/pull/1',state:'merged'},
+  {url:'https://gitlab.com/g/deploy/-/merge_requests/7',missingToken:'gitlab'},
+  {url:'https://github.com/o/app/pull/2',state:'open'},
+ ]}
+ assert.deepEqual(repositoryPullRequests(task).map(link=>[link.repository,link.url]),[
+  ['github.com/o/app','https://github.com/o/app/pull/2'],
+  ['gitlab.com/g/deploy','https://gitlab.com/g/deploy/-/merge_requests/7'],
+ ])
+ assert.deepEqual(repositoryPullRequests({prUrl:'https://forge/pr'}).map(link=>link.url),['https://forge/pr'])
+ assert.deepEqual(repositoryPullRequests({}),[])
+ assert.equal(pullRequestPresentation(task.prLinks[1]).label,'State unknown: no GitLab token')
+})

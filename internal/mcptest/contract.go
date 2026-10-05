@@ -34,6 +34,8 @@ func AssertNaming(t *testing.T, ctx context.Context, session *mcp.ClientSession,
 		// Listed for the catalog check only: it needs a connected agent.
 		"prepare_macro_worktree":      {"projectId": "default", "macroKey": "M-1"},
 		"prepare_repository_worktree": {"taskKey": task.ID, "repository": "github.com/o/b"},
+		// Listed for the catalog check only: the db tests cover recording.
+		"record_pull_request": {"taskKey": task.ID, "url": "https://github.com/o/b/pull/1"},
 		// Listed for the catalog check only: they need a macro, which the
 		// taskmcp tests cover.
 		"get_macro":          {"projectId": "default", "macroKey": "M-1"},

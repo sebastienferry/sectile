@@ -112,6 +112,9 @@ func (d *DB) PostBackTask(payload models.TaskPostBackPayload) (*models.Task, *mo
 		d.notifyPostBackListeners(nil, nil, err)
 		return nil, nil, err
 	}
+	// Read before the transaction opens: it decides which repository's pull
+	// request stays the current one.
+	project, _ := d.getProjectByIDUnsafe(existing.ProjectID)
 	// The row is locked and read again, so the merge below starts from what a
 	// writer on another server instance committed, and the running-stage rule is
 	// checked on that same state.
@@ -184,6 +187,11 @@ func (d *DB) PostBackTask(payload models.TaskPostBackPayload) (*models.Task, *mo
 		existing.PrLinks = models.AppendPullRequestLink(existing.PrLinks, *payload.PrURL, branch)
 		if len(payload.PrURLs) > 0 {
 			existing.PrLinks = pullRequestLinkLast(existing.PrLinks, *payload.PrURL)
+		} else if project != nil {
+			// A lone secondary repository's pull request must not displace
+			// the primary one as the current link (#697).
+			primary, _ := taskPullRequestScope(project, existing)
+			existing.PrLinks = models.KeepPrimaryLast(existing.PrLinks, primary)
 		}
 		existing.PrURL = pullRequestURLValue(existing.PrLinks)
 	}

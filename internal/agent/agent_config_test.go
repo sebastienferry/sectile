@@ -246,7 +246,7 @@ func TestMCPStdioBridge(t *testing.T) {
 	defer session.Close()
 	mcptest.AssertNaming(t, ctx, session, database, task, connect)
 	list, err := session.ListTools(ctx, nil)
-	if err != nil || len(list.Tools) != 15 {
+	if err != nil || len(list.Tools) != 16 {
 		t.Fatalf("stdio discovery %v %v", list, err)
 	}
 	result, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "list_tasks", Arguments: map[string]any{"projectId": "default"}})
@@ -703,5 +703,33 @@ func TestDerivedBranchIsRecordedOnceOnTheTask(t *testing.T) {
 	d = &agentDaemon{link: serverLink{serverURL: refused.URL, token: "token"}}
 	if err := d.patchTask(context.Background(), "#308", map[string]string{"branchName": "feat/308"}); err == nil {
 		t.Fatal("a refused update reported success")
+	}
+}
+
+// sync_config registers Claude as a managed remote HTTP choice, so a new key
+// reaches ~/.claude.json at the next refresh (#716).
+func TestBootstrapLocalMCPRecordsClaudeDefault(t *testing.T) {
+	home := testhome.Temp(t)
+	d := &agentDaemon{repoRoot: t.TempDir(), link: serverLink{serverURL: "https://sectile.example.test", token: "first-key"}}
+	config := agentconfig.Config{AIProvider: "claude"}
+	if err := d.bootstrapLocalMCP(&config); err != nil {
+		t.Fatal(err)
+	}
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	settings, err := agentconfig.ReadSettings(d.localSettingsRoot())
+	want := agentconfig.MCPConnection{Target: "remote", Transport: "http", Written: mcpFingerprint(d.link.serverURL, "first-key", executable)}
+	if err != nil || settings.MCPConnections["claude"] != want {
+		t.Fatalf("choice: %+v %v", settings.MCPConnections, err)
+	}
+	d.link.token = "second-key"
+	if err := d.refreshMCPConnections(); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(filepath.Join(home, ".claude.json"))
+	if err != nil || !strings.Contains(string(raw), "Bearer second-key") || strings.Contains(string(raw), "first-key") {
+		t.Fatalf("key not refreshed: %s %v", raw, err)
 	}
 }

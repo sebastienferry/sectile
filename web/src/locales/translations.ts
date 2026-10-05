@@ -259,6 +259,19 @@ export interface TranslationSchema {
     attachFailed: string
     /** Submit button label while the ticket is being created. */
     creating: string
+    /** Project field label; the asterisk marks it required. */
+    project: string
+    /** Prefix of the active project's tracker, e.g. "Tracker: GitHub (repo)". */
+    tracker: string
+    /** Shown in "Jira (…)" when the project has no Jira key. */
+    trackerNotConfigured: string
+    /** Shown in "GitLab (…)" when the project names no GitLab project. */
+    trackerDefaultProject: string
+    issueType: string
+    /** Issue type that leaves the choice to the tracker. */
+    issueTypeDefault: string
+    sprint: string
+    sprintPlaceholder: string
   }
   commandPalette: {
     searchPlaceholder: string
@@ -1139,6 +1152,14 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
       followUpClarify: 'Clarifier',
       attachFailed: 'Ticket créé, mais non rattaché à {macro}',
       creating: 'Création…',
+      project: 'Projet *',
+      tracker: 'Tracker :',
+      trackerNotConfigured: 'projet non configuré',
+      trackerDefaultProject: 'projet par défaut',
+      issueType: 'Type de ticket',
+      issueTypeDefault: 'Défaut',
+      sprint: 'Sprint',
+      sprintPlaceholder: 'Affecter un sprint (optionnel)…',
     },
     commandPalette: {
       searchPlaceholder: 'Tapez une commande, skill ou tâche...',
@@ -2016,6 +2037,14 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
       followUpClarify: 'Clarify',
       attachFailed: 'Ticket created, but not attached to {macro}',
       creating: 'Creating…',
+      project: 'Project *',
+      tracker: 'Tracker:',
+      trackerNotConfigured: 'project not configured',
+      trackerDefaultProject: 'default project',
+      issueType: 'Ticket type',
+      issueTypeDefault: 'Default',
+      sprint: 'Sprint',
+      sprintPlaceholder: 'Assign a sprint (optional)…',
     },
     commandPalette: {
       searchPlaceholder: 'Type a command, skill or task...',

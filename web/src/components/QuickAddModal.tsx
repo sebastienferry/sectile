@@ -291,18 +291,18 @@ export const QuickAddModal: React.FC = () => {
                 <div>
                   <div className="flex items-center justify-between mb-1">
                     <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
-                      Projet *
+                      {t.quickAdd.project}
                     </label>
                     {activeProject && (
                       <span className="text-[10px] text-[var(--text-muted)] flex items-center gap-1 font-mono">
-                        <span>Tracker :</span>
+                        <span>{t.quickAdd.tracker}</span>
                         <span className="font-semibold text-[var(--accent-color)]">
                           {activeProject.issueTracker === 'github'
                             ? `GitHub (${activeProject.githubRepo ? activeProject.githubRepo.split('/')[1] || activeProject.githubRepo : 'repo'})`
                             : activeProject.issueTracker === 'jira'
-                            ? `Jira (${activeProject.jiraProject || 'projet non configuré'})`
+                            ? `Jira (${activeProject.jiraProject || t.quickAdd.trackerNotConfigured})`
                             : activeProject.issueTracker === 'gitlab'
-                            ? `GitLab (${activeProject.gitlabProject || 'projet par défaut'})`
+                            ? `GitLab (${activeProject.gitlabProject || t.quickAdd.trackerDefaultProject})`
                             : 'Local'}
                         </span>
                       </span>
@@ -330,14 +330,14 @@ export const QuickAddModal: React.FC = () => {
                       if (bookmarked.length > 0 && others.length > 0) {
                         return (
                           <>
-                            <optgroup label="Favoris">
+                            <optgroup label={t.taskDetail.fields.favorites}>
                               {bookmarked.map(p => (
                                 <option key={p.id} value={p.id}>
                                   {p.name}
                                 </option>
                               ))}
                             </optgroup>
-                            <optgroup label="Autres projets">
+                            <optgroup label={t.taskDetail.fields.otherProjects}>
                               {others.map(p => (
                                 <option key={p.id} value={p.id}>
                                   {p.name}
@@ -383,14 +383,14 @@ export const QuickAddModal: React.FC = () => {
               {/* Issue Type Selector */}
               <div>
                 <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
-                  Type de ticket
+                  {t.quickAdd.issueType}
                 </label>
                 <div className="grid grid-cols-4 gap-1.5">
                   {[
-                    { id: '', label: 'Défaut', icon: '⚪' },
+                    { id: '', label: t.quickAdd.issueTypeDefault, icon: '⚪' },
                     { id: 'Story', label: 'Story', icon: '📘' },
                     { id: 'Bug', label: 'Bug', icon: '🐛' },
-                    { id: 'Task', label: 'Tâche', icon: '📝' },
+                    { id: 'Task', label: t.taskDetail.issueType.task, icon: '📝' },
                   ].map(opt => (
                     <button
                       key={opt.id}
@@ -444,18 +444,18 @@ export const QuickAddModal: React.FC = () => {
               {/* Sprint */}
               <div>
                 <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
-                  Sprint
+                  {t.quickAdd.sprint}
                 </label>
                 <LookupField
                   value={sprint}
                   icon={<CalendarRange size={12} />}
-                  placeholder="Affecter un sprint (optionnel)…"
-                  clearLabel="Backlog (aucun sprint)"
-                  emptyHint="Aucun sprint trouvé. Tapez un nom pour créer."
+                  placeholder={t.quickAdd.sprintPlaceholder}
+                  clearLabel={t.taskDetail.lookups.sprintClear}
+                  emptyHint={t.taskDetail.lookups.sprintEmpty}
                   onSearch={async (query: string) => {
                     const res = await searchSprint(query)
                     if (query.trim() && !res.some(o => o.label.toLowerCase() === query.trim().toLowerCase())) {
-                      res.unshift({ id: query.trim(), label: query.trim(), sublabel: 'Nouveau sprint' })
+                      res.unshift({ id: query.trim(), label: query.trim(), sublabel: t.taskDetail.lookups.newSprint })
                     }
                     return res
                   }}

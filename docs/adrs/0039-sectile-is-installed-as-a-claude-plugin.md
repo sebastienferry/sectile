@@ -70,7 +70,9 @@ registrations on its own; a dispatch uses what it finds.**
   address, the key or the executable it was written with changed. A
   fingerprint of the three, never the key, records what was written. The
   loopback port can change between starts when 8091 is taken, which is the
-  case the start-up rewrite existed for.
+  case the start-up rewrite existed for. `init`, **Initialize** and
+  `sync_config` record their Claude Code entry the same way (see *Second
+  amendment* below).
 - Using a custom skill is a passive signal: a step on the run's activity, and,
   in the desktop, a dot on the settings button with the list of the custom
   skills that ran since the agent started.
@@ -116,6 +118,22 @@ A copy written before this change is not detected at dispatch: comparing
 installed skills with the server's is the reconciliation the owner rejected.
 It is replaced by the next `sectile-agent init`, **Initialize** or
 `sync_config`, which the changelog asks users of the direct setup to run.
+
+## Second amendment (2026-10-03, #716): explicit setups record the Claude choice
+
+The fingerprint rule above covered only the connection saved from the desktop.
+The other explicit requests (`sectile-agent init`, **Initialize** and
+`sync_config`) wrote Claude Code's `sectile` entry without saving a choice, so
+the agent start never rewrote it, and a new pairing left Claude Code on the
+revoked key.
+
+These requests now record a managed Claude Code choice (`remote/http` unless
+one is already saved) with the fingerprint of what they wrote. A new pairing
+changes the key, so the next agent start rewrites the entry through the
+existing fingerprint rule. A start-up rewrite that fails for one provider no
+longer stops the others. This is still a write the user asked for once, not a
+reconciliation: an entry Sectile did not write is reported, and rewritten only
+by the **Repair** action of the MCP settings (ADR 0023, amendment of #716).
 
 ## Alternatives rejected
 

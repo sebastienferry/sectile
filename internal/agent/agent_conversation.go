@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os/exec"
@@ -567,13 +568,19 @@ func (d *agentDaemon) conversationTurn(run *controlledRun, prompt string) {
 			ModelUsage map[string]struct {
 				ContextWindow int `json:"contextWindow"`
 			} `json:"modelUsage"`
-			Event      conversationStream `json:"event"`
+			// Only a stream_event's event is an object; other frames, such
+			// as ui_invalidate, carry a string there.
+			Event      json.RawMessage `json:"event"`
 			MCPServers []struct {
 				Name   string `json:"name"`
 				Status string `json:"status"`
 			} `json:"mcp_servers"`
 		}
-		if json.Unmarshal([]byte(line), &frame) == nil && frame.Type != "" {
+		// A field of an unexpected type is skipped while the others are
+		// still decoded, so such a frame is read rather than shown raw.
+		err := json.Unmarshal([]byte(line), &frame)
+		var mismatch *json.UnmarshalTypeError
+		if (err == nil || errors.As(err, &mismatch)) && frame.Type != "" {
 			// Claude asks before using a tool its rules do not allow; the
 			// call waits for the owner. Other requests are refused at once.
 			if frame.Type == "control_request" {
@@ -600,8 +607,11 @@ func (d *agentDaemon) conversationTurn(run *controlledRun, prompt string) {
 			d.queue.mu.Lock()
 			if frame.Type == "stream_event" {
 				if frame.Parent == nil {
-					streamPartial(run.conversation, frame.Event)
-					if frame.Event.Type == "message_start" {
+					// An event that is not an object leaves the draft as it is.
+					var event conversationStream
+					_ = json.Unmarshal(frame.Event, &event)
+					streamPartial(run.conversation, event)
+					if event.Type == "message_start" {
 						run.conversation.requestAt = time.Now()
 					}
 				}
@@ -675,7 +685,9 @@ func (d *agentDaemon) conversationTurn(run *controlledRun, prompt string) {
 			}
 			return
 		}
-		if strings.TrimSpace(line) != "" {
+		// JSON Sectile does not read stays out of the chat; only a line that
+		// is not JSON at all is Claude Code reporting a problem.
+		if strings.TrimSpace(line) != "" && !json.Valid([]byte(line)) {
 			conversationWrite(run.trace, "error", line, "")
 		}
 	}}
