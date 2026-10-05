@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -78,9 +79,12 @@ func Pair(args []string) (string, error) {
 	return message, nil
 }
 
-// refreshMCPAfterPair points every existing registration for this server at the new key: the one it held is revoked now.
-// It returns the providers rewritten and, as warnings, those it could not rewrite: the key is already stored, so nothing
-// here fails the pairing.
+// refreshMCPAfterPair points the registrations for this server at the new key: the one they held is revoked now. A
+// saved desktop choice, the managed Claude Code one included, is rewritten as the next agent start would rewrite it
+// (#716); an existing Codex or Antigravity entry with no saved choice follows the key too (#717). An unmanaged Claude
+// Code entry is left for Desktop to report and repair (ADR 0023), and a local choice carries no key. It returns the
+// providers rewritten and, as warnings, those it could not rewrite: the key is already stored, so nothing here fails
+// the pairing.
 func refreshMCPAfterPair(connection agentconfig.Connection) ([]string, []string) {
 	executable, err := os.Executable()
 	if err != nil {
@@ -89,8 +93,26 @@ func refreshMCPAfterPair(connection agentconfig.Connection) ([]string, []string)
 	if temporaryExecutable(executable) && !runningUnderTest() {
 		return nil, nil
 	}
+	root, _ := os.Getwd()
+	root = findRepoRoot(root)
+	settings, err := agentconfig.ReadSettings(root)
+	if err != nil {
+		return nil, []string{fmt.Sprintf("MCP configuration not refreshed: %v", err)}
+	}
 	var refreshed, warnings []string
-	for _, provider := range agentconfig.MCPProviders {
+	rewritten := map[string]string{}
+	for provider, choice := range settings.MCPConnections {
+		if choice.Target == "local" {
+			continue
+		}
+		if _, err := agentconfig.ConfigureMCP(provider, executable, connection.Server, connection.APIKey, choice.Transport, false); err != nil {
+			warnings = append(warnings, fmt.Sprintf("MCP configuration for %s not refreshed: %v", provider, err))
+			continue
+		}
+		refreshed = append(refreshed, provider)
+		rewritten[provider] = mcpFingerprint(connection.Server, connection.APIKey, executable)
+	}
+	for _, provider := range unsavedMCPProviders(settings) {
 		wrote, err := agentconfig.RefreshRegisteredMCPKey(provider, executable, connection.Server, connection.APIKey)
 		if err != nil {
 			warnings = append(warnings, fmt.Sprintf("MCP configuration for %s not refreshed: %v", provider, err))
@@ -98,6 +120,23 @@ func refreshMCPAfterPair(connection agentconfig.Connection) ([]string, []string)
 			refreshed = append(refreshed, provider)
 		}
 	}
+	if len(rewritten) > 0 {
+		// Recorded as written, so Desktop counts the Claude Code entry as managed and the next start leaves it alone.
+		_, err = agentconfig.UpdateSettings(root, func(settings *agentconfig.Settings) error {
+			for provider, fingerprint := range rewritten {
+				if choice, ok := settings.MCPConnections[provider]; ok {
+					choice.Written = fingerprint
+					settings.MCPConnections[provider] = choice
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			warnings = append(warnings, fmt.Sprintf("MCP choices not recorded: %v", err))
+		}
+	}
+	sort.Strings(refreshed)
+	sort.Strings(warnings)
 	return refreshed, warnings
 }
 

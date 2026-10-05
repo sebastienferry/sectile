@@ -230,12 +230,14 @@ func firstString(entry map[string]any, fields ...string) string {
 func RefreshRegisteredMCPKey(provider, executable, server, apiKey string) (bool, error) {
 	entry, found, err := RegisteredMCPEntry(provider)
 	server = strings.TrimRight(server, "/")
-	if err != nil || !found || entry.APIKey == "" || strings.TrimSpace(apiKey) == "" || entry.APIKey == apiKey || strings.TrimRight(entry.Server, "/") != server {
+	// Compared by the rule the entry was written with, so a URL written by ConfigureMCP always matches.
+	if err != nil || !found || entry.APIKey == "" || strings.TrimSpace(apiKey) == "" || entry.APIKey == apiKey || MCPURL(entry.Server) != MCPURL(server) {
 		return false, err
 	}
 	if entry.Transport == "stdio" && filepath.IsAbs(entry.Command) {
 		executable = entry.Command
 	}
+	// ConfigureMCP writes through writeMCPFile: atomically, owner-only.
 	_, err = ConfigureMCP(provider, executable, server, apiKey, entry.Transport, false)
 	return err == nil, err
 }

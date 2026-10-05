@@ -223,22 +223,24 @@ func TestPairWithoutACodeSignsInThroughTheBrowser(t *testing.T) {
 	}
 }
 
-// The key a registration held is revoked by pairing again: an existing
-// registration for this server follows the new key, and a provider without
-// one still has none.
-func TestPairRefreshesAnExistingMCPRegistration(t *testing.T) {
+// The key a registration held is revoked by pairing again: the managed Claude
+// Code choice and an existing Antigravity entry follow the new key, and a
+// provider without one still has none.
+func TestPairRefreshesTheManagedChoiceAndAnExistingMCPRegistration(t *testing.T) {
 	home := testhome.Temp(t)
 	srv, _ := pairingServer(t, "code-1")
 	claude := filepath.Join(home, ".claude.json")
 	if err := os.WriteFile(claude, []byte(`{"mcpServers":{"sectile":{"type":"http","url":"`+srv.URL+`/mcp","headers":{"Authorization":"Bearer old"}}}}`), 0600); err != nil {
 		t.Fatal(err)
 	}
+	if err := agentconfig.WriteSettings(agentconfig.Settings{MCPConnections: map[string]agentconfig.MCPConnection{"claude": {Target: "remote", Transport: "http"}}}); err != nil {
+		t.Fatal(err)
+	}
 	agy := filepath.Join(home, ".gemini", "config", "mcp_config.json")
 	if err := os.MkdirAll(filepath.Dir(agy), 0700); err != nil {
 		t.Fatal(err)
 	}
-	unregistered := `{"mcpServers":{"other":{"command":"other-server"}}}`
-	if err := os.WriteFile(agy, []byte(unregistered), 0600); err != nil {
+	if err := os.WriteFile(agy, []byte(`{"mcpServers":{"sectile":{"serverUrl":"`+srv.URL+`/mcp","headers":{"Authorization":"Bearer old"}}}}`), 0600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -246,14 +248,48 @@ func TestPairRefreshesAnExistingMCPRegistration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("pair: %v", err)
 	}
-	raw, err := os.ReadFile(claude)
-	if err != nil || !strings.Contains(string(raw), "Bearer sectile_issued") || strings.Contains(string(raw), "Bearer old") {
-		t.Fatalf("registration not refreshed: %s %v", raw, err)
+	for _, path := range []string{claude, agy} {
+		raw, err := os.ReadFile(path)
+		if err != nil || !strings.Contains(string(raw), "Bearer sectile_issued") || strings.Contains(string(raw), "Bearer old") {
+			t.Fatalf("registration %s not refreshed: %s %v", path, raw, err)
+		}
 	}
-	if !strings.Contains(message, "MCP configuration updated for: claude") {
-		t.Fatalf("message does not name the refreshed provider: %s", message)
+	if !strings.Contains(message, "MCP configuration updated for: agy, claude") {
+		t.Fatalf("message does not name the refreshed providers: %s", message)
 	}
-	if raw, err := os.ReadFile(agy); err != nil || string(raw) != unregistered {
-		t.Fatalf("a provider without a registration was given one: %s %v", raw, err)
+	// Recorded as written with the new key, so Desktop still counts the entry as managed.
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	settings, err := agentconfig.ReadSettings(t.TempDir())
+	if err != nil || settings.MCPConnections["claude"].Written != mcpFingerprint(srv.URL, "sectile_issued", executable) {
+		t.Fatalf("managed choice not recorded: %+v %v", settings.MCPConnections, err)
+	}
+	if _, err := os.Stat(filepath.Join(home, ".codex", "config.toml")); !os.IsNotExist(err) {
+		t.Fatalf("a provider without a registration was given one: %v", err)
+	}
+}
+
+// A Claude Code entry no saved choice manages is only reported by Desktop and
+// rewritten on Repair (ADR 0023): pairing again leaves it as it is.
+func TestPairLeavesAnUnmanagedClaudeEntryForRepair(t *testing.T) {
+	home := testhome.Temp(t)
+	srv, _ := pairingServer(t, "code-1")
+	claude := filepath.Join(home, ".claude.json")
+	unmanaged := `{"mcpServers":{"sectile":{"type":"http","url":"` + srv.URL + `/mcp","headers":{"Authorization":"Bearer old"}}}}`
+	if err := os.WriteFile(claude, []byte(unmanaged), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	message, err := Pair([]string{"--url", srv.URL, "--code", "code-1"})
+	if err != nil {
+		t.Fatalf("pair: %v", err)
+	}
+	if raw, err := os.ReadFile(claude); err != nil || string(raw) != unmanaged {
+		t.Fatalf("an unmanaged Claude Code entry was adopted: %s %v", raw, err)
+	}
+	if strings.Contains(message, "MCP configuration updated") {
+		t.Fatalf("message names a provider that was not refreshed: %s", message)
 	}
 }
