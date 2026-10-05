@@ -107,6 +107,7 @@ test fixtures or internal plumbing.
 
 ### Fixed
 
+- **A Desktop conversation no longer shows Claude Code's internal messages as errors.** In Conversation mode, some interface messages Claude Code sends for itself, such as `ui_invalidate`, appeared in the chat as a red error block holding raw JSON; they are now ignored, like the other messages a conversation does not display. Upgrade the agent. (#727)
 - **Desktop console text stays readable in light appearance.** Text an agent prints in white or another pale colour, such as Claude Code's bold questions, is darkened in the light console until it reads against the background, and the light console colours are darker, as is the Conversation's "asking" status; the dark appearance is unchanged. (#720)
 - **"Always allow" in a Desktop conversation no longer loses its rule with the task.** The rule was written in the task worktree's `.claude/settings.local.json`, removed with the worktree or committed by mistake; it is now added to the project's **Sandbox** allow rules, so the next tasks of the project apply it too, and you can remove it there. (#700)
 - **Desktop settings controls stay clickable next to the macOS scrollbar.** In a settings panel that scrolls, such as Execution defaults, the controls on the right, the reset buttons first, no longer sit under the overlay scrollbar macOS shows while scrolling. (#703)
