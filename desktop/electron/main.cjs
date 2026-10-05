@@ -179,8 +179,24 @@ ipcMain.handle('set-console-view',(_,value)=>{
  fs.mkdirSync(path.dirname(settingsPath()),{recursive:true,mode:0o700})
  fs.writeFileSync(settingsPath()+'.tmp',JSON.stringify({...previous,consoleView},null,2),{mode:0o600})
  fs.renameSync(settingsPath()+'.tmp',settingsPath())
+ // Saving never waits for the agent, nor fails on it: the next connection
+ // hands the setting over again.
+ syncConsoleView()
  return consoleView
 })
+// The agent keeps its own copy of the setting (#711), so that a launch the web
+// app started opens as this workstation shows Claude, even with Desktop closed.
+// An agent that predates it is left alone; every failure is swallowed.
+async function syncConsoleView(){
+ try{
+  let view
+  try{view=normalizeConsoleView(readSettings().consoleView)}catch{view=normalizeConsoleView()}
+  const status=await api('/desktop/status')
+  if(!status.capabilities?.includes('console-view-default'))return
+  await api('/desktop/console-view','PUT',{view})
+ }catch{}
+}
+ipcMain.handle('sync-console-view',()=>syncConsoleView())
 // A change of the setting, or of the OS appearance while it follows the
 // system, repaints what the stylesheet cannot reach. macOS draws its own
 // traffic lights and has no overlay colours to set.

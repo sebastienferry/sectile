@@ -101,8 +101,9 @@ type agentDaemon struct {
 	// store keeps the runs the desktop lists across a restart (#588). Nil
 	// disables it, which is what a daemon built by hand gets.
 	store *runStore
-	// conversationViews holds the task launches Desktop asked to open as a
-	// conversation, until their dispatch arrives.
+	// conversationViews holds the task launches Desktop explicitly asked to
+	// open as a conversation, until their dispatch arrives. A dispatch without
+	// a mark falls back to the workstation console view.
 	conversationViews pendingDiscussionViews
 }
 
@@ -1255,12 +1256,15 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 		envVars["SECTILE_REPOSITORIES"] = string(raw)
 	}
 
-	// An interactive launch Desktop asked to see as a conversation runs Claude
-	// over pipes in the task's worktree, one turn per message, with the same
-	// environment the terminal would have carried. A discussion waits for the
-	// first message; a skill sends its command as that message at once. The
-	// run holds its slot until it is stopped.
-	if !autonomous && models.NormalizeSkillID(payload.Action) != "open_terminal" && d.conversationViews.take(taskRef, task.ID) && conversationDiscussionEngine(config) {
+	// An interactive launch Desktop asked to see as a conversation, or any
+	// interactive launch when the workstation console view is the conversation
+	// (#711), runs Claude over pipes in the task's worktree, one turn per
+	// message, with the same environment the terminal would have carried. A
+	// discussion waits for the first message; a skill sends its command as that
+	// message at once. The run holds its slot until it is stopped. The mark is
+	// taken first, so that it is consumed whatever the workstation view says.
+	marked := d.conversationViews.take(taskRef, task.ID)
+	if opensConversation(autonomous, models.NormalizeSkillID(payload.Action), marked, d.workstationConsoleView(), config) {
 		model, first, origin := conversationModel(config), "", "It runs in this task's worktree. Stop it to end the discussion."
 		var extraDirs []string
 		if payload.SkillID != "discuss" {

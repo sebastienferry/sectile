@@ -309,7 +309,7 @@ function agentUnavailable(){
 function ready(){
  agentConnected=true
  document.querySelector('#agent-offline').hidden=true
- if(!projectsLoaded){projectsLoaded=true;loadProjects().catch(()=>{projectsLoaded=false});loadEditorSetting()}
+ if(!projectsLoaded){projectsLoaded=true;loadProjects().catch(()=>{projectsLoaded=false});loadEditorSetting();api.syncConsoleView().catch(()=>{})}
  updateStartControl();document.querySelector('#restart').hidden=false;document.querySelector('#shutdown').hidden=false
  document.querySelector('#setup').hidden=true;document.querySelector('#workspace').hidden=false
  if(!document.querySelector('#connection a'))connectionStatus({text:'Local agent connected'})

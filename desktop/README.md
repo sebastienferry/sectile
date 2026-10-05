@@ -10,7 +10,9 @@ and **Claude chat (test)** appears for an execution with a local directory.
 A task's interactive launches open there too, a skill such as clarify starting
 on its own command and **Discussion (no skill)** waiting for your first message,
 in the task's worktree and with the task's environment, when the project's
-engine is a Claude one. An autonomous launch keeps its read-only trace; a
+engine is a Claude one. The setting is handed to the local agent, so a launch
+started from the web app, or a chain the server continues, opens there as well,
+even with Desktop closed. An autonomous launch keeps its read-only trace; a
 launch template is not run there, only its model is kept, and the conversation
 says so. Another engine keeps the terminal. While Claude answers, a message you
 send joins the answer in progress, as in Claude Code; one sent as the answer
