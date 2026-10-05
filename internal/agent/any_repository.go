@@ -129,6 +129,9 @@ func cloneRepository(ctx context.Context, clones, remote, identity string) (stri
 	if name == "" || name == "." || name == "/" {
 		return "", fmt.Errorf("%s names no repository to clone", identity)
 	}
+	if strings.HasPrefix(strings.TrimSpace(remote), "-") {
+		return "", fmt.Errorf("%q is not a repository URL", remote)
+	}
 	target := filepath.Join(clones, name)
 	if _, err := os.Lstat(target); err == nil {
 		folder := describeFolder(ctx, target)
@@ -159,7 +162,10 @@ func cloneRepository(ctx context.Context, clones, remote, identity string) (stri
 // credential the workstation's git cannot supply fails the clone instead of
 // waiting on a terminal nobody watches.
 func cloneCommand(ctx context.Context, remote, dest string) *exec.Cmd {
-	cmd := agentexec.Hidden(exec.CommandContext(ctx, "git", "clone", "--quiet", remote, dest))
+	// "--" keeps a remote that starts with a dash from being read as an
+	// option, such as --upload-pack, which would run a command outside the
+	// session's sandbox.
+	cmd := agentexec.Hidden(exec.CommandContext(ctx, "git", "clone", "--quiet", "--", remote, dest))
 	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
 	return cmd
 }

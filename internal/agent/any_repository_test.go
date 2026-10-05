@@ -474,3 +474,19 @@ func TestUndeclaredPinIsClonedWithTheOption(t *testing.T) {
 		t.Errorf("second launch: %q %v", again, err)
 	}
 }
+
+// A remote typed as an option is refused, and never reaches git as one.
+func TestCloneRefusesARemoteReadAsAnOption(t *testing.T) {
+	clones := t.TempDir()
+	marker := filepath.Join(t.TempDir(), "ran")
+	remote := "--upload-pack=touch " + marker + "@gitlab.com:g/p"
+	if _, err := cloneRepository(context.Background(), clones, remote, "gitlab.com/g/p"); err == nil || !strings.Contains(err.Error(), "not a repository URL") {
+		t.Fatalf("an option as remote: %v", err)
+	}
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatalf("the option ran: %v", err)
+	}
+	if args := cloneCommand(context.Background(), "-x", "/dest").Args; strings.Join(args[len(args)-3:], " ") != "-- -x /dest" {
+		t.Errorf("clone arguments = %q, want the remote after --", args)
+	}
+}
