@@ -801,6 +801,9 @@ func TestForeignCommandCarriesTheStageContract(t *testing.T) {
 		if err != nil || !strings.HasPrefix(prompt, "/plan-jira T-1") || !strings.Contains(prompt, contract) || !strings.Contains(prompt, "transition_stage") {
 			t.Fatalf("%s: %s %v", name, prompt, err)
 		}
+		if !strings.Contains(prompt, "## Specifications workspace") {
+			t.Fatalf("%s: the prompt does not say where the issue artefacts go: %s", name, prompt)
+		}
 	}
 }
 

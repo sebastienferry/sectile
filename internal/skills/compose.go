@@ -377,12 +377,18 @@ func sortedProjects(projects []ProjectOverrides) []ProjectOverrides {
 // StageLaunchContract is the Sectile contract a foreign slash command is
 // launched with (#732): such a command replaces the whole skill, so the launch
 // prompt carries the run lifecycle, the stage transition and its exit condition
-// for the stage it stands for. A macro skill and a hand transition have none.
+// for the stage it stands for, and the specifications workspace contract when
+// the stage reads or writes the task's issue artefacts. A macro skill and a hand
+// transition have none.
 func StageLaunchContract(s StageSkill) string {
 	if s.Scope == "macro" || s.HandTransition {
 		return ""
 	}
 	contract := renderTicketTransitionContract(s)
 	_, body, _ := strings.Cut(contract, "\n")
-	return "## Sectile stage contract\n" + strings.TrimRight(body, "\n") + "\n"
+	out := "## Sectile stage contract\n" + strings.TrimRight(body, "\n") + "\n"
+	if workspace := renderSpecWorkspaceContract(s); workspace != "" {
+		out += "\n" + strings.TrimRight(workspace, "\n") + "\n"
+	}
+	return out
 }

@@ -290,6 +290,14 @@ func TestStageLaunchContractCarriesTheExitCondition(t *testing.T) {
 			t.Errorf("%s: transition_stage present = %v", s.ID, has)
 		}
 	}
+	// A foreign command for a stage that reads or writes the task's issue
+	// artefacts is told where they go.
+	specWorkspace := map[string]bool{"clarify": true, "specify": true, "implement": true, "adjust": true, "handoff": true, "pickup": true, "pickup_issues": true}
+	for _, s := range skills.StageSkills {
+		if has := strings.Contains(skills.StageLaunchContract(s), "## Specifications workspace"); has != specWorkspace[s.ID] {
+			t.Errorf("%s: specifications workspace contract present = %v", s.ID, has)
+		}
+	}
 	for id, exit := range map[string]string{
 		"clarify": exitFragment(t, "clarify"),
 		"adjust":  exitFragment(t, "adjust"),
