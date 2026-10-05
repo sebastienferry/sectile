@@ -134,9 +134,9 @@ func TestDirectSetupConfigCarriesEveryProjectsVariant(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	config, err := d.directSetupConfig(context.Background(), projects.config("alpha"))
-	if err != nil {
-		t.Fatal(err)
+	config, warnings, err := d.directSetupConfig(context.Background(), projects.config("alpha"))
+	if err != nil || len(warnings) != 0 {
+		t.Fatal(err, warnings)
 	}
 	clarify := skillByID(t, config, "clarify")
 	for _, want := range []string{`projectId "alpha"`, "Alpha steps.", `projectId "beta"`, "Beta steps.", "Otherwise", "Workstation goal."} {
@@ -156,16 +156,47 @@ func TestDirectSetupConfigCarriesEveryProjectsVariant(t *testing.T) {
 	}
 }
 
-// A project whose configuration cannot be read aborts the composition: a copy
-// that silently lacks its variant is worse than the copy already there.
-func TestDirectSetupConfigAbortsOnAFailedFetch(t *testing.T) {
+// A project whose configuration cannot be read is left out of the copies,
+// with a warning naming it: the caller decides whether to write them.
+func TestDirectSetupConfigWarnsOnAFailedFetch(t *testing.T) {
 	testhome.Temp(t)
 	projects, srv := newDirectProjectsServer(t, "alpha", "beta")
 	projects.override("alpha", "clarify", "## Steps\nAlpha steps.")
+	projects.override("beta", "clarify", "## Steps\nBeta steps.")
 	projects.failing["beta"] = true
 	d := &agentDaemon{repoRoot: t.TempDir(), link: serverLink{serverURL: srv.URL, token: "token", projectID: "alpha"}}
-	if _, err := d.directSetupConfig(context.Background(), projects.config("alpha")); err == nil || !strings.Contains(err.Error(), `"beta"`) {
-		t.Fatalf("err = %v, want the failed fetch of beta", err)
+	config, warnings, err := d.directSetupConfig(context.Background(), projects.config("alpha"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(warnings) != 1 || !strings.Contains(warnings[0], `project "beta" configuration not read`) {
+		t.Fatalf("warnings = %q, want one naming beta", warnings)
+	}
+	clarify := skillByID(t, config, "clarify")
+	if !strings.Contains(clarify.DirectContent, `projectId "alpha"`) || !strings.Contains(clarify.DirectContent, "Alpha steps.") {
+		t.Fatalf("the direct clarify lacks alpha's variant:\n%s", clarify.DirectContent)
+	}
+	if strings.Contains(clarify.DirectContent, `projectId "beta"`) || strings.Contains(clarify.DirectContent, "Beta steps.") {
+		t.Fatalf("the direct clarify carries the unreadable beta:\n%s", clarify.DirectContent)
+	}
+}
+
+// init writes the direct copies without an unreachable project's variant, as
+// it did before work overrides existed, and its message names the project.
+func TestInitWarnsAboutAnUnreachableProject(t *testing.T) {
+	home := testhome.Temp(t)
+	projects, srv := newDirectProjectsServer(t, "alpha", "beta")
+	projects.override("alpha", "clarify", "## Steps\nAlpha steps.")
+	projects.failing["beta"] = true
+	out, err := InitContext(context.Background(), []string{"--provider", "codex", "--url", srv.URL, "--token", "token", "--project", "alpha", "--repo", t.TempDir()})
+	if err != nil {
+		t.Fatalf("init failed: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "\nWarning: project \"beta\" configuration not read") {
+		t.Fatalf("the message does not name beta:\n%s", out)
+	}
+	if content := codexClarify(t, home); !strings.Contains(content, "Alpha steps.") {
+		t.Fatalf("the copy lacks alpha's variant:\n%s", content)
 	}
 }
 
@@ -261,6 +292,22 @@ func TestRefreshSkillsBacksUpAHandEdit(t *testing.T) {
 	})
 	if !found {
 		t.Fatal("the hand edit was not backed up")
+	}
+}
+
+// A refresh that cannot read a project fails and leaves the copy already there,
+// rather than writing one that silently lacks the project's variant.
+func TestRefreshSkillsKeepsTheCopiesWhenAProjectFails(t *testing.T) {
+	home, _, projects, d := refreshFixture(t, true)
+	before := codexClarify(t, home)
+	projects.override("alpha", "clarify", "## Steps\nAlpha steps.")
+	projects.failing["beta"] = true
+	_, err := d.executeOperation(context.Background(), agentprotocol.Operation{ProjectID: "alpha", Action: "refresh_skills"})
+	if err == nil || !strings.Contains(err.Error(), `"beta"`) {
+		t.Fatalf("err = %v, want the unreadable beta", err)
+	}
+	if content := codexClarify(t, home); content != before {
+		t.Fatalf("the copy changed:\n%s", content)
 	}
 }
 

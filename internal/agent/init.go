@@ -142,8 +142,9 @@ func InitContext(ctx context.Context, args []string) (string, error) {
 		return "", fmt.Errorf("fetch project %q configuration: %w", selectedProject, err)
 	}
 	// The workstation settings and every known project's work-only
-	// overrides reach the direct copies (#732).
-	config, err = d.directSetupConfig(ctx, config)
+	// overrides reach the direct copies (#732); a project that cannot be read
+	// is left out with a warning.
+	config, warnings, err := d.directSetupConfig(ctx, config)
 	if err != nil {
 		return "", err
 	}
@@ -153,9 +154,9 @@ func InitContext(ctx context.Context, args []string) (string, error) {
 	}
 	result, err := d.initializeProvider(root, config, provider)
 	if err != nil {
-		return result.Message, err
+		return result.Message + directSetupWarnings(warnings), err
 	}
-	return result.Message + "\n" + directSetupNote(provider), nil
+	return result.Message + "\n" + directSetupNote(provider) + directSetupWarnings(warnings), nil
 }
 
 // directSetupNote says what the direct setup is: optional, and, for Claude,
