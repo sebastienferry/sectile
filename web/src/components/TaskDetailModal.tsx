@@ -63,6 +63,9 @@ import { copyText } from '../lib/clipboard'
 import { EMPTY_VALUE, format, plural, formatDate, formatDateTime, formatTime } from '../lib/i18n'
 import { localizeActivityText } from '../lib/activityText'
 
+// The repository select's entry for a repository typed by hand (#737).
+const OTHER_REPOSITORY = '\u0000other'
+
 export const TaskDetailModal: React.FC = () => {
   const {
     selectedTask,
@@ -168,6 +171,8 @@ export const TaskDetailModal: React.FC = () => {
   const prGroups = useMemo(() => repositoryPullRequests(prLinks), [prLinks])
   const [newPrUrl, setNewPrUrl] = useState('')
   const [repository, setRepository] = useState('')
+  // A repository typed by hand rather than picked among the project's (#737).
+  const [otherRepository, setOtherRepository] = useState(false)
   const [trackerStatus, setTrackerStatus] = useState('')
   const [sprint, setSprint] = useState('')
   const [labels, setLabels] = useState<string[]>([])
@@ -287,6 +292,7 @@ export const TaskDetailModal: React.FC = () => {
       setPrLinks(taskPullRequestLinks(selectedTask))
       setNewPrUrl('')
       setRepository(selectedTask.repository || '')
+      setOtherRepository(false)
       setTrackerStatus(selectedTask.trackerStatus || '')
       setSprint(selectedTask.sprint || '')
       setLabels(selectedTask.labels || [])
@@ -1159,8 +1165,12 @@ export const TaskDetailModal: React.FC = () => {
                   {td.fields.repository}
                 </label>
                 <select
-                  value={repository}
-                  onChange={e => setRepository(e.target.value)}
+                  value={otherRepository ? OTHER_REPOSITORY : repository}
+                  onChange={e => {
+                    const value = e.target.value
+                    setOtherRepository(value === OTHER_REPOSITORY)
+                    setRepository(value === OTHER_REPOSITORY ? '' : value)
+                  }}
                   className="w-full px-2.5 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)] font-mono"
                   title={td.fields.repositoryTitle}
                 >
@@ -1168,10 +1178,23 @@ export const TaskDetailModal: React.FC = () => {
                   {projectRepositories.map(repo => (
                     <option key={repo.identity} value={repo.identity}>{repo.identity}</option>
                   ))}
-                  {repository && !projectRepositories.some(repo => repo.identity === repository) && (
+                  {repository && !otherRepository && !projectRepositories.some(repo => repo.identity === repository) && (
                     <option value={repository}>{format(td.fields.outsideProject, { repository })}</option>
                   )}
+                  <option value={OTHER_REPOSITORY}>{td.fields.otherRepository}</option>
                 </select>
+                {otherRepository && (
+                  <input
+                    type="text"
+                    value={repository}
+                    onChange={e => setRepository(e.target.value.trim())}
+                    placeholder={td.fields.otherRepositoryPlaceholder}
+                    title={td.fields.otherRepositoryTitle}
+                    aria-label={td.fields.otherRepository}
+                    autoFocus
+                    className="mt-1.5 w-full px-2.5 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)] font-mono"
+                  />
+                )}
               </div>
             )}
 
