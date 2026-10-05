@@ -172,7 +172,7 @@ func TestDesktopAttachesFoldersToAProject(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := agentconfig.WriteSettings(agentconfig.Settings{
-		ProjectSettings: map[string]agentconfig.ProjectSettings{"p": {Path: root, SpecPath: spec}},
+		ProjectSettings: map[string]agentconfig.ProjectSettings{"p": {Path: root, MacroSpecPath: spec}},
 		Repositories:    map[string]string{"github.com/o/b": b},
 	}); err != nil {
 		t.Fatal(err)

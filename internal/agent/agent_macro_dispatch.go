@@ -21,7 +21,7 @@ import (
 // project's checkout (#484). The server holds no specifications path: it would
 // name a directory on another machine.
 func localSpecRepo(overrides agentconfig.Settings, projectID, root string) (string, error) {
-	mapped := strings.TrimSpace(overrides.ProjectSettings[projectID].SpecPath)
+	mapped := strings.TrimSpace(overrides.ProjectSettings[projectID].MacroSpecPath)
 	if mapped == "" {
 		return root, nil
 	}

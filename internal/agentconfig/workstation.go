@@ -113,9 +113,16 @@ func (d Defaults) InstalledSkillSourceOrDefault() string {
 type ProjectSettings struct {
 	// Path is the project's checkout on this workstation.
 	Path string `json:"path,omitempty"`
-	// SpecPath is the project's specifications folder, a Git checkout or a
-	// plain folder. Without one, the project uses its code checkout.
-	SpecPath string `json:"specPath,omitempty"`
+	// MacroSpecPath is the project's Macro specifications folder, a Git
+	// checkout or a plain folder, where the macro skills, the macro worktree and
+	// the slicing import read and write. Without one, the project uses its code
+	// checkout. Its key is the one of the single folder it replaced (#736), so a
+	// workstation keeps its value.
+	MacroSpecPath string `json:"specPath,omitempty"`
+	// IssueSpecPath is the project's Issue specifications folder (#736), where
+	// the issue skills write the tasks' clarification reports and
+	// specifications. Without one, the project uses its code checkout.
+	IssueSpecPath string `json:"issueSpecPath,omitempty"`
 	// Folders are the folders attached to the project on this workstation
 	// (#484): absolute, cleaned paths in the order they were added. Only the
 	// paths are kept: what each one is, and its remote, are read from the
@@ -164,7 +171,7 @@ func (e Execution) isZero() bool {
 
 // IsZero reports a project section that states nothing and can be dropped.
 func (p ProjectSettings) IsZero() bool {
-	return strings.TrimSpace(p.Path) == "" && strings.TrimSpace(p.SpecPath) == "" && p.Execution.isZero() && len(p.SkillCommands) == 0 &&
+	return strings.TrimSpace(p.Path) == "" && strings.TrimSpace(p.MacroSpecPath) == "" && strings.TrimSpace(p.IssueSpecPath) == "" && p.Execution.isZero() && len(p.SkillCommands) == 0 &&
 		strings.TrimSpace(p.SpecArtifacts) == "" && len(p.Folders) == 0 && p.ClaudeSandbox.IsZero()
 }
 
@@ -188,9 +195,16 @@ func (s Settings) ProjectPath(id string) string {
 	return strings.TrimSpace(s.ProjectSettings[id].Path)
 }
 
-// SpecPath is the project's specifications folder, "" when none is set.
-func (s Settings) SpecPath(id string) string {
-	return strings.TrimSpace(s.ProjectSettings[id].SpecPath)
+// MacroSpecPath is the project's Macro specifications folder, "" when none is
+// set.
+func (s Settings) MacroSpecPath(id string) string {
+	return strings.TrimSpace(s.ProjectSettings[id].MacroSpecPath)
+}
+
+// IssueSpecPath is the project's Issue specifications folder, "" when none is
+// set.
+func (s Settings) IssueSpecPath(id string) string {
+	return strings.TrimSpace(s.ProjectSettings[id].IssueSpecPath)
 }
 
 // Editor is the editor this workstation opens a task or a project with.

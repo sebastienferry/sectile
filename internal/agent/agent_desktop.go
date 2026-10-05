@@ -606,7 +606,7 @@ func (d *agentDaemon) desktopProjects(w http.ResponseWriter, r *http.Request) {
 	project := input.apply(settings.Project(input.ProjectID))
 	project.Path = input.Path
 	if input.SpecPath != nil {
-		project.SpecPath = specPath
+		project.MacroSpecPath = specPath
 	}
 	if err := agentconfig.ValidateProject(project); err != nil {
 		http.Error(w, err.Error(), 400)
@@ -802,7 +802,7 @@ func (d *agentDaemon) desktopProject(w http.ResponseWriter, r *http.Request) {
 		if mappingErr == nil {
 			specDefault = root
 		}
-		specEffective := section.SpecPath
+		specEffective := section.MacroSpecPath
 		if strings.TrimSpace(specEffective) == "" {
 			specEffective = specDefault
 		}
@@ -812,7 +812,7 @@ func (d *agentDaemon) desktopProject(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"server":                      withoutExecution(config),
 			"path":                        root,
-			"specPath":                    section.SpecPath,
+			"specPath":                    section.MacroSpecPath,
 			"specDefault":                 specDefault,
 			"specKind":                    specFolderKind(r.Context(), specEffective),
 			"useWorktrees":                effective.UseWorktrees,

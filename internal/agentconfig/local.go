@@ -85,7 +85,7 @@ func (l legacySettings) fold() Settings {
 		edit(id, func(p *ProjectSettings) { p.Path = path })
 	}
 	for id, path := range l.SpecRepos {
-		edit(id, func(p *ProjectSettings) { p.SpecPath = path })
+		edit(id, func(p *ProjectSettings) { p.MacroSpecPath = path })
 	}
 	for id, value := range l.Worktrees {
 		value := value
@@ -147,7 +147,8 @@ func overlay(base, top Settings) Settings {
 		b := out.Project(id)
 		out.SetProject(id, ProjectSettings{
 			Path:          firstSet(p.Path, b.Path),
-			SpecPath:      firstSet(p.SpecPath, b.SpecPath),
+			MacroSpecPath: firstSet(p.MacroSpecPath, b.MacroSpecPath),
+			IssueSpecPath: firstSet(p.IssueSpecPath, b.IssueSpecPath),
 			Folders:       firstList(p.Folders, b.Folders),
 			Execution:     overlayExecution(b.Execution, p.Execution),
 			SkillCommands: mergeStrings(b.SkillCommands, p.SkillCommands),

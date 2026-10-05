@@ -1134,7 +1134,7 @@ func TestDesktopProjectSpecificationsFolder(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		return settings.SpecPath("p")
+		return settings.MacroSpecPath("p")
 	}
 
 	// Without an override the code checkout is inherited, and it is a Git
