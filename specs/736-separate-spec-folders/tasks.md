@@ -80,6 +80,6 @@ step they cover.
 
 ## 9. Verification
 
-- [ ] T9.1 `go build ./...`, `go vet ./...`, `gofmt -l`, `go test ./...`
+- [x] T9.1 `go build ./...`, `go vet ./...`, `gofmt -l`, `go test ./...`
       (outside the sandbox for httptest), desktop UI tests, web unaffected.
-- [ ] T9.2 Re-read the diff against this specification.
+- [x] T9.2 Re-read the diff against this specification.
