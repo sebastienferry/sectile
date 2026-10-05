@@ -277,7 +277,7 @@ symlinks. The downloaded `.taskflow/remote-config.json` is diagnostic, never an
 offline configuration fallback.
 
 A skill override replaces either a whole skill or only its work sections
-([ADR 0050](adrs/0050-sectile-owns-the-skill-contracts-and-overrides-replace-the-work.md)).
+([ADR 0052](adrs/0052-sectile-owns-the-skill-contracts-and-overrides-replace-the-work.md)).
 The server stores the kind per project skill and sends, with each skill, its
 own composite in `content` plus `overrideKind` and `workContent`;
 the agent composes a launched run's skill from its embedded fragments, layering
