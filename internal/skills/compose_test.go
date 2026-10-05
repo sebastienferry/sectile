@@ -182,7 +182,12 @@ func TestDirectSkillCarriesProjectVariants(t *testing.T) {
 	if alpha < 0 || zeta < 0 || otherwise < 0 || !(alpha < zeta && zeta < otherwise) {
 		t.Fatalf("variants missing or out of order (alpha %d, zeta %d, otherwise %d):\n%s", alpha, zeta, otherwise, content)
 	}
-	for _, required := range []string{"## Steps\nRead projectId from get_project_context and follow the subsection that matches it.", "transition_stage", exitFragment(t, "clarify"), "http://localhost:8090"} {
+	for _, required := range []string{
+		"## Steps\nRead projectId from get_project_context and follow the subsection that matches it.",
+		"transition_stage",
+		exitFragment(t, "clarify"),
+		"http://localhost:8090",
+	} {
 		if !strings.Contains(content, required) {
 			t.Errorf("direct skill is missing %q", required)
 		}

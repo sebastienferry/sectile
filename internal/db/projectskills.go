@@ -380,7 +380,11 @@ func (d *DB) ResetProjectSkillContent(projectIDOrPath, skillID string) (*models.
 	var err error
 	if stage.ID == "adjust" {
 		// An explicit reset selects the default while retaining legacy entries.
-		_, err = d.conn.Exec(`INSERT INTO project_skills(project_id, skill_id, content, updated_at) VALUES (?, 'adjust', ?, ?) ON CONFLICT(project_id,skill_id) DO UPDATE SET content=excluded.content,updated_at=excluded.updated_at,override_kind=''`, projectID, skills.RenderSkillContent(stage, ""), time.Now().Format(time.RFC3339))
+		_, err = d.conn.Exec(
+			`INSERT INTO project_skills(project_id, skill_id, content, updated_at) VALUES (?, 'adjust', ?, ?) ON CONFLICT(project_id,skill_id) DO UPDATE SET content=excluded.content,updated_at=excluded.updated_at,override_kind=''`,
+			projectID,
+			skills.RenderSkillContent(stage, ""),
+			time.Now().Format(time.RFC3339))
 	} else {
 		_, err = d.conn.Exec(`DELETE FROM project_skills WHERE project_id = ? AND skill_id = ?`, projectID, stage.ID)
 	}
