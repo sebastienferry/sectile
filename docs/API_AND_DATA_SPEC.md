@@ -205,6 +205,15 @@ free labels. Its priority and quarter are queued only when the project's
 names a roadmap project creates its story in that Jira project, and the answer's
 `task` carries no `id`: the story is not imported.
 
+`POST /api/projects/{id}/macros/{key}/slicing` produces a macro's slicing from
+`source` (`tasks`, `spec` or `stories`). For `tasks` and `spec`, the requesting
+user's local agent reads the file in the workstation's specifications folder,
+unless the body carries `content`, a file the user picked in the browser, with
+its `fileName` (#735): the server then slices that text without asking the
+agent, and the answer's `origin` reads `imported file: <fileName>`. Uploaded
+content is refused with `400` above 1 MiB, when it is not UTF-8 text or holds a
+NUL character, and with any source other than `tasks` or `spec`.
+
 The todos of a macro are copied on its tracker, one way (#663, ADR 0046): a
 comment on a Jira epic, a block at the end of a GitHub milestone description.
 Every save of the list queues that copy a few seconds after the last save, as an

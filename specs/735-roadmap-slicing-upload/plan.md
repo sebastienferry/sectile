@@ -39,21 +39,23 @@ Limits:
 
 ### `internal/db/sddslicing.go`
 
-Split `TodosFromSDD` into the read and the shared step.
+Split `TodosFromSDD` into the read and two shared helpers.
 
 ```go
 // SlicingUploadLimit is the largest file an upload import accepts.
 const SlicingUploadLimit = 1 << 20
 
-// sliceFromContent extracts the units of content for source, merges them
-// into the macro's slicing, saves it and schedules the tracker mirror.
-func (d *DB) sliceFromContent(ctx context.Context, userID string, proj *models.Project,
-    macroKey string, source SlicingSource, content string, emptyRefusal func() error,
-) (*models.MacroMeta, []SDDEntry, error)
+// slicingEntries reads the units a source offers in content.
+func slicingEntries(proj *models.Project, source SlicingSource, content string) []SDDEntry
+
+// saveSlicing merges entries into the macro's slicing, saves it and schedules
+// its tracker mirror.
+func (d *DB) saveSlicing(ctx context.Context, userID, projectID, macroKey string,
+    source SlicingSource, entries []SDDEntry) (*models.MacroMeta, error)
 ```
 
-- `TodosFromSDD` keeps the project check and the agent call, then calls
-  `sliceFromContent` with its current French refusal
+- `TodosFromSDD` keeps the project check and the agent call, then calls both
+  helpers and keeps its own French refusal when there is no entry
   (`"%s ne porte aucune %s : la découpe est laissée telle quelle"`). Its
   behaviour and messages are unchanged.
 - New `TodosFromUpload(ctx, userID, projectID, macroKey string, source
@@ -63,9 +65,10 @@ func (d *DB) sliceFromContent(ctx context.Context, userID string, proj *models.P
     reused, since they are not new);
   - validates size, UTF-8 and NUL with English refusals;
   - `origin := "imported file: " + uploadName(fileName, source)`;
-  - calls `sliceFromContent` with the English refusal
+  - refuses an empty entry list with
     `"%s has no %s: the slicing is left unchanged"`, the unit being
-    `task group` or `requirement or user story` (`sourceUnitNameEnglish`);
+    `task group` or `requirement or user story` (`sourceUnitNameEnglish`),
+    then calls `saveSlicing`;
   - returns `origin + describeAttached(entries)`.
 - `uploadName` keeps the base name only (`path.Base` after replacing `\` with
   `/`), trims it, caps it at 200 runes, and falls back on `sddFileName(source)`
@@ -82,7 +85,7 @@ func (d *DB) sliceFromContent(ctx context.Context, userID string, proj *models.P
     `an uploaded file is sliced as tasks.md or spec.md, not as "<source>"`;
   - call `h.db.TodosFromUpload(r.Context(), h.webSessionUser(r), id, key,
     source, req.FileName, *req.Content)`, like `TodosFromSDD`: the tracker
-    mirror gets its acting user from `userID` in `sliceFromContent`
+    mirror gets its acting user from `userID` in `saveSlicing`
     (`tracker.WithActingUser`), as today;
   - `slicingReadError` is not applied: no agent is involved.
 - Otherwise the current routing is unchanged.
