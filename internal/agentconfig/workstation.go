@@ -3,6 +3,7 @@ package agentconfig
 import (
 	"errors"
 	"fmt"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"tasks/internal/models"
@@ -140,6 +141,14 @@ type ProjectSettings struct {
 	// ClaudeSandbox holds what this project's Claude Code sessions are allowed
 	// (#700). It is handed to every built-in Claude line through --settings.
 	ClaudeSandbox *ClaudeSandbox `json:"claudeSandbox,omitempty"`
+	// AnyRepository lets the project's tickets change a repository the project
+	// neither declares, maps nor attaches (#737): a checkout the session names,
+	// or a clone the agent makes. A pointer, so that "off" can be stated over
+	// a layer that says "on"; nil is off.
+	AnyRepository *bool `json:"anyRepository,omitempty"`
+	// ClonesPath is where the agent clones such a repository, one folder per
+	// repository name. Empty means the parent folder of the project checkout.
+	ClonesPath string `json:"clonesPath,omitempty"`
 }
 
 // Seeded records the one-time copies of the server values (US6), so they are
@@ -172,7 +181,8 @@ func (e Execution) isZero() bool {
 // IsZero reports a project section that states nothing and can be dropped.
 func (p ProjectSettings) IsZero() bool {
 	return strings.TrimSpace(p.Path) == "" && strings.TrimSpace(p.MacroSpecPath) == "" && strings.TrimSpace(p.IssueSpecPath) == "" && p.Execution.isZero() && len(p.SkillCommands) == 0 &&
-		strings.TrimSpace(p.SpecArtifacts) == "" && len(p.Folders) == 0 && p.ClaudeSandbox.IsZero()
+		strings.TrimSpace(p.SpecArtifacts) == "" && len(p.Folders) == 0 && p.ClaudeSandbox.IsZero() &&
+		p.AnyRepository == nil && strings.TrimSpace(p.ClonesPath) == ""
 }
 
 // Project returns the project's section, empty when it has none.
@@ -205,6 +215,26 @@ func (s Settings) MacroSpecPath(id string) string {
 // set.
 func (s Settings) IssueSpecPath(id string) string {
 	return strings.TrimSpace(s.ProjectSettings[id].IssueSpecPath)
+}
+
+// AnyRepository reports whether the project's tickets may change a
+// repository the project does not know (#737).
+func (s Settings) AnyRepository(id string) bool {
+	value := s.ProjectSettings[id].AnyRepository
+	return value != nil && *value
+}
+
+// ClonesPath is the folder the agent clones the project's undeclared
+// repositories into: the setting, else the parent folder of projectRoot, ""
+// when neither is known.
+func (s Settings) ClonesPath(id, projectRoot string) string {
+	if path := strings.TrimSpace(s.ProjectSettings[id].ClonesPath); path != "" {
+		return path
+	}
+	if projectRoot = strings.TrimSpace(projectRoot); projectRoot == "" {
+		return ""
+	}
+	return filepath.Dir(filepath.Clean(projectRoot))
 }
 
 // Editor is the editor this workstation opens a task or a project with.

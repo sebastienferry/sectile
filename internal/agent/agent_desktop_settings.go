@@ -52,6 +52,12 @@ type projectSettingsInput struct {
 	// IssueSpecPath is the Issue specifications folder (#736), cleared the
 	// same way.
 	IssueSpecPath *string `json:"issueSpecPath"`
+	// AnyRepository turns on the project's Any repository option (#737), nil
+	// keeps it.
+	AnyRepository *bool `json:"anyRepository"`
+	// ClonesPath is the folder undeclared repositories are cloned into; empty
+	// clears it, so the parent folder of the local repository is used.
+	ClonesPath *string `json:"clonesPath"`
 	// ClaudeSandbox replaces the project's sandbox values (#700); an empty
 	// object clears them, nil keeps them.
 	ClaudeSandbox *agentconfig.ClaudeSandbox `json:"claudeSandbox"`

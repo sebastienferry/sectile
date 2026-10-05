@@ -2,11 +2,14 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"tasks/internal/agentconfig"
 	"tasks/internal/models"
+	"tasks/internal/testhome"
 )
 
 // bareOrigin is a bare repository holding main with one commit, and a clone of
@@ -121,5 +124,53 @@ func TestLaunchWorktreeDoesNotFetch(t *testing.T) {
 	}
 	if got := gitTest(t, dir, "rev-parse", "HEAD"); got != head {
 		t.Errorf("the launch's code worktree starts at %s, want the local HEAD %s", got, head)
+	}
+}
+
+func TestDesktopProjectAnyRepository(t *testing.T) {
+	testhome.Temp(t)
+	root := checkoutOf(t, "git@github.com:o/a.git")
+	if err := agentconfig.WriteSettings(agentconfig.Settings{ProjectSettings: map[string]agentconfig.ProjectSettings{"p": {Path: root}}}); err != nil {
+		t.Fatal(err)
+	}
+	_, _, do := desktopAgent(t, root, models.Task{})
+	info := func() map[string]any {
+		t.Helper()
+		w := do("GET", "/desktop/project?id=p", nil)
+		if w.Code != 200 {
+			t.Fatalf("GET /desktop/project returned %d: %s", w.Code, w.Body.String())
+		}
+		var out map[string]any
+		if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil {
+			t.Fatal(err)
+		}
+		return out
+	}
+	if got := info(); got["anyRepository"] != false || got["clonesPath"] != "" || !samePath(t, got["clonesDefault"].(string), filepath.Dir(root)) {
+		t.Fatalf("the option is off and clones go next to the checkout: %v", got)
+	}
+
+	clones := t.TempDir()
+	if w := do("POST", "/desktop/projects", map[string]any{"projectId": "p", "path": root, "anyRepository": true, "clonesPath": clones}); w.Code >= 300 {
+		t.Fatalf("saving: %d %s", w.Code, w.Body.String())
+	}
+	if got := info(); got["anyRepository"] != true || got["clonesPath"] != clones || got["clonesDefault"] != clones {
+		t.Fatalf("saved values: %v", got)
+	}
+	// A save that does not mention the option keeps it.
+	if w := do("POST", "/desktop/projects", map[string]any{"projectId": "p", "path": root}); w.Code >= 300 {
+		t.Fatalf("saving without the option: %d %s", w.Code, w.Body.String())
+	}
+	if settings, _ := agentconfig.ReadSettings(root); !settings.AnyRepository("p") {
+		t.Fatalf("a save without the option turned it off: %+v", settings.Project("p"))
+	}
+	if w := do("POST", "/desktop/projects", map[string]any{"projectId": "p", "path": root, "clonesPath": "relative"}); w.Code != 400 || !strings.Contains(w.Body.String(), "Clones folder") {
+		t.Fatalf("a relative clones folder is refused by name: %d %s", w.Code, w.Body.String())
+	}
+	if w := do("POST", "/desktop/projects", map[string]any{"projectId": "p", "path": root, "anyRepository": false, "clonesPath": ""}); w.Code >= 300 {
+		t.Fatalf("clearing: %d %s", w.Code, w.Body.String())
+	}
+	if settings, _ := agentconfig.ReadSettings(root); settings.AnyRepository("p") || settings.Project("p").ClonesPath != "" || settings.Project("p").AnyRepository != nil {
+		t.Fatalf("clearing leaves nothing stored: %+v", settings.Project("p"))
 	}
 }
