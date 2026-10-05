@@ -315,7 +315,7 @@ func TaskPrimaryRepository(project *models.Project, task *models.Task) string {
 // is one of the project's, or a Git folder attached to the project on the
 // caller's workstation (#484), which only that agent knows: the server never
 // learns its path, and records its identity once the agent returned a worktree.
-func (d *DB) PrepareRepositoryWorktree(ctx context.Context, userID, taskKey, repository string) (*models.RepositoryWorktree, error) {
+func (d *DB) PrepareRepositoryWorktree(ctx context.Context, userID, taskKey, repository, path string) (*models.RepositoryWorktree, error) {
 	task, err := d.GetTaskByID(taskKey)
 	if err != nil {
 		return nil, err
@@ -350,12 +350,17 @@ func (d *DB) PrepareRepositoryWorktree(ctx context.Context, userID, taskKey, rep
 	}
 	var worktree models.RepositoryWorktree
 	err = d.callAgentContext(ctx, agentprotocol.Operation{UserID: strings.TrimSpace(userID), ProjectID: project.ID, TaskID: task.ID,
-		Action: "repository_worktree", Repository: target.Identity, Branch: branch}, &worktree)
+		Action: "repository_worktree", Repository: target.Identity, RepositoryURL: target.URL, Path: strings.TrimSpace(path), Branch: branch}, &worktree)
 	if err != nil {
 		return nil, err
 	}
 	if worktree.Repository != target.Identity {
 		return nil, fmt.Errorf("local agent is too old to prepare a worktree in another repository; update it")
+	}
+	// An agent that predates #737 would answer from a known folder and
+	// silently ignore the checkout it was given.
+	if strings.TrimSpace(path) != "" && !worktree.PathChecked {
+		return nil, fmt.Errorf("local agent is too old to use a repository path; update it")
 	}
 	if err := d.AddChangedRepository(task.ID, target.Identity); err != nil {
 		return nil, err

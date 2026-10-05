@@ -105,16 +105,6 @@ func attachedFolders(ctx context.Context, overrides agentconfig.Settings, projec
 // attached to the project whose origin is identity. A mapping wins over an
 // attached folder of the same repository.
 func repositoryFolder(ctx context.Context, overrides agentconfig.Settings, projectID, projectRoot, code, identity string) (string, bool) {
-	if root, ok := repositoryRoot(overrides, projectRoot, code, identity); ok {
-		return root, true
-	}
-	if identity == "" {
-		return "", false
-	}
-	for _, folder := range attachedFolders(ctx, overrides, projectID) {
-		if folder.Kind == folderKindGit && folder.Identity == identity {
-			return folder.Path, true
-		}
-	}
-	return "", false
+	folder, _, ok := locateRepository(ctx, overrides, projectID, projectRoot, code, identity)
+	return folder, ok
 }

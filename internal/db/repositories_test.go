@@ -173,7 +173,9 @@ func testRepositoryConversion(t *testing.T, d *DB) {
 type fakeWorktreeAgent struct {
 	calls  []agentprotocol.Operation
 	noEcho bool
-	err    error
+	// ignoresPath answers like an agent that predates #737.
+	ignoresPath bool
+	err         error
 }
 
 func (f *fakeWorktreeAgent) call(_ context.Context, op agentprotocol.Operation) (json.RawMessage, error) {
@@ -185,7 +187,37 @@ func (f *fakeWorktreeAgent) call(_ context.Context, op agentprotocol.Operation) 
 	if f.noEcho {
 		repository = ""
 	}
-	return json.Marshal(models.RepositoryWorktree{Repository: repository, Path: "/src/" + op.Repository + "/.tasks/worktrees/x", Branch: op.Branch})
+	return json.Marshal(models.RepositoryWorktree{Repository: repository, Path: "/src/" + op.Repository + "/.tasks/worktrees/x", Branch: op.Branch,
+		PathChecked: op.Path != "" && !f.ignoresPath})
+}
+
+// The repository as typed and the checkout the caller found reach the agent
+// (#737), and an agent that does not check the path is refused rather than
+// trusted.
+func TestPrepareRepositoryWorktreeRelaysThePath(t *testing.T) {
+	d := testDB(t)
+	_, task := multiRepoProject(t, d)
+	agent := &fakeWorktreeAgent{}
+	d.SetAgentOperations(agent.call)
+
+	worktree, err := d.PrepareRepositoryWorktree(context.Background(), "", task.Key, "git@gitlab.com:g/undeclared.git", " /src/undeclared ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	call := agent.calls[0]
+	if call.Repository != "gitlab.com/g/undeclared" || call.RepositoryURL != "git@gitlab.com:g/undeclared.git" || call.Path != "/src/undeclared" || !worktree.PathChecked {
+		t.Fatalf("call = %+v, worktree = %+v", call, worktree)
+	}
+	if reread, _ := d.GetTaskByID(task.ID); len(reread.ChangedRepositories) != 1 || reread.ChangedRepositories[0] != "gitlab.com/g/undeclared" {
+		t.Errorf("changed = %v, want the undeclared repository", reread.ChangedRepositories)
+	}
+	agent.ignoresPath = true
+	if _, err := d.PrepareRepositoryWorktree(context.Background(), "", task.Key, "gitlab.com/g/other", "/src/other"); err == nil || !strings.Contains(err.Error(), "too old to use a repository path") {
+		t.Errorf("an agent ignoring the path: %v", err)
+	}
+	if reread, _ := d.GetTaskByID(task.ID); len(reread.ChangedRepositories) != 1 {
+		t.Errorf("a refused path recorded a repository: %v", reread.ChangedRepositories)
+	}
 }
 
 func TestPrepareRepositoryWorktree(t *testing.T) {
@@ -194,14 +226,14 @@ func TestPrepareRepositoryWorktree(t *testing.T) {
 	agent := &fakeWorktreeAgent{}
 	d.SetAgentOperations(agent.call)
 
-	worktree, err := d.PrepareRepositoryWorktree(context.Background(), "", task.Key, "git@github.com:o/b.git")
+	worktree, err := d.PrepareRepositoryWorktree(context.Background(), "", task.Key, "git@github.com:o/b.git", "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if worktree.Branch != "feat/12" || len(agent.calls) != 1 || agent.calls[0].Action != "repository_worktree" || agent.calls[0].Repository != "github.com/o/b" || agent.calls[0].TaskID != task.ID {
 		t.Errorf("worktree = %+v, calls = %+v", worktree, agent.calls)
 	}
-	if _, err := d.PrepareRepositoryWorktree(context.Background(), "", task.Key, "github.com/o/b"); err != nil {
+	if _, err := d.PrepareRepositoryWorktree(context.Background(), "", task.Key, "github.com/o/b", ""); err != nil {
 		t.Fatal(err)
 	}
 	if reread, _ := d.GetTaskByID(task.ID); len(reread.ChangedRepositories) != 1 || reread.ChangedRepositories[0] != "github.com/o/b" {
@@ -217,7 +249,7 @@ func TestPrepareRepositoryWorktree(t *testing.T) {
 		"relative path":      "./elsewhere",
 		"home path":          "~/src/elsewhere",
 	} {
-		if _, err := d.PrepareRepositoryWorktree(context.Background(), "", task.Key, repository); err == nil {
+		if _, err := d.PrepareRepositoryWorktree(context.Background(), "", task.Key, repository, ""); err == nil {
 			t.Errorf("%s: accepted", name)
 		}
 	}
@@ -225,7 +257,7 @@ func TestPrepareRepositoryWorktree(t *testing.T) {
 		t.Errorf("a refused repository reached the agent: %+v", agent.calls[calls:])
 	}
 	agent.noEcho = true
-	if _, err := d.PrepareRepositoryWorktree(context.Background(), "", task.Key, "github.com/o/b"); err == nil || !strings.Contains(err.Error(), "too old") {
+	if _, err := d.PrepareRepositoryWorktree(context.Background(), "", task.Key, "github.com/o/b", ""); err == nil || !strings.Contains(err.Error(), "too old") {
 		t.Errorf("no echo: err = %v", err)
 	}
 	agent.noEcho = false
@@ -243,7 +275,7 @@ func TestPrepareRepositoryWorktreeInAnAttachedFolder(t *testing.T) {
 	agent := &fakeWorktreeAgent{err: errors.New("github.com/o/lib is not attached to this project on this workstation")}
 	d.SetAgentOperations(agent.call)
 
-	if _, err := d.PrepareRepositoryWorktree(context.Background(), "", task.Key, "git@github.com:o/lib.git"); err == nil || !strings.Contains(err.Error(), "not attached") {
+	if _, err := d.PrepareRepositoryWorktree(context.Background(), "", task.Key, "git@github.com:o/lib.git", ""); err == nil || !strings.Contains(err.Error(), "not attached") {
 		t.Fatalf("unattached: err = %v", err)
 	}
 	if len(agent.calls) != 1 || agent.calls[0].Repository != "github.com/o/lib" {
@@ -254,7 +286,7 @@ func TestPrepareRepositoryWorktreeInAnAttachedFolder(t *testing.T) {
 	}
 
 	agent.err = nil
-	worktree, err := d.PrepareRepositoryWorktree(context.Background(), "", task.Key, "https://github.com/o/lib")
+	worktree, err := d.PrepareRepositoryWorktree(context.Background(), "", task.Key, "https://github.com/o/lib", "")
 	if err != nil || worktree.Repository != "github.com/o/lib" || worktree.Branch != "feat/12" {
 		t.Fatalf("attached: %+v %v", worktree, err)
 	}

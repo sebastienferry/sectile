@@ -159,7 +159,9 @@ func (d *agentDaemon) executeOperation(ctx context.Context, op agentprotocol.Ope
 			return specArtifactsMode(config, task.Key), nil
 		}
 		if op.Action == "repository_worktree" {
-			return repositoryWorktree(ctx, config, overrides, root, task, op.Repository, d.link.deviceID)
+			return repositoryWorktreeFor(ctx, config, overrides, root, task, repositoryRequest{
+				Repository: op.Repository, URL: op.RepositoryURL, Path: op.Path, Device: d.link.deviceID, SettingsRoot: d.localSettingsRoot(),
+			})
 		}
 		if op.Action == "task_spec_worktree" {
 			return taskSpecWorktreeFor(ctx, config, overrides, root, task)
