@@ -1,6 +1,7 @@
 package agentconfig
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -38,6 +39,27 @@ func (o *SkillOverride) UnmarshalJSON(raw []byte) error {
 		return err
 	}
 	*o = SkillOverride{Kind: object.Kind, Content: object.Content}
+	return nil
+}
+
+// dropNullSkillOverrides removes the skills raw states as null. UnmarshalJSON
+// reads a null as an empty full replacement, which would blank the skill: such
+// an entry is absent instead (#732).
+func dropNullSkillOverrides(raw []byte, overrides map[string]SkillOverride) error {
+	if len(overrides) == 0 {
+		return nil
+	}
+	var fields struct {
+		Skills map[string]json.RawMessage `json:"skills"`
+	}
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		return err
+	}
+	for id, value := range fields.Skills {
+		if string(bytes.TrimSpace(value)) == "null" {
+			delete(overrides, id)
+		}
+	}
 	return nil
 }
 
@@ -151,6 +173,9 @@ func readFolded(legacyRoot string) (Settings, error) {
 	}
 	var settings Settings
 	if err = json.Unmarshal(raw, &settings); err != nil {
+		return settings, err
+	}
+	if err = dropNullSkillOverrides(raw, settings.Skills); err != nil {
 		return settings, err
 	}
 	// Legacy keys are folded whatever the layout: an agent that predates #305

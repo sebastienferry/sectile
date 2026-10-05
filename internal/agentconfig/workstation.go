@@ -3,6 +3,7 @@ package agentconfig
 import (
 	"errors"
 	"fmt"
+	"log"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -347,10 +348,15 @@ func resolve(c Config, s Settings, engine Engine) Config {
 			// full one wins wholesale, so the agent composes nothing over it.
 			c.Skills[i].Custom = true
 			c.Skills[i].OverrideKind, c.Skills[i].WorkContent = models.SkillOverrideFull, ""
-		} else if ok && ValidateSkillOverride(id, override) == nil && !(c.Skills[i].Custom && c.Skills[i].OverrideKind == models.SkillOverrideFull) {
+		} else if ok && !(c.Skills[i].Custom && c.Skills[i].OverrideKind == models.SkillOverrideFull) {
 			// A work-only override fills the sections the project left
 			// built-in; the agent composes it at launch, so Content stays the
 			// server's. A project's full replacement has no sections, and wins.
+			// One that does not validate is skipped, and logged.
+			if err := ValidateSkillOverride(id, override); err != nil {
+				log.Printf("[Settings] project=%s: workstation skill override skipped: %v", c.ProjectID, err)
+				continue
+			}
 			c.Skills[i].WorkstationWork = override.Content
 			c.Skills[i].Custom = true
 		}

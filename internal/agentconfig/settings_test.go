@@ -324,6 +324,19 @@ func TestSettingsSkillsRoundTripPlainString(t *testing.T) {
 	}
 }
 
+// A skill stated as null is absent, not an empty full replacement that would
+// blank the skill (#732).
+func TestSettingsNullSkillOverrideIsAbsent(t *testing.T) {
+	testhome.Temp(t)
+	path, _ := SettingsPath()
+	os.MkdirAll(filepath.Dir(path), 0700)
+	os.WriteFile(path, []byte(`{"layout":3,"skills":{"clarify":null,"implement":"whole"}}`), 0600)
+	got, err := ReadSettings(t.TempDir())
+	if err != nil || !reflect.DeepEqual(got.Skills, map[string]SkillOverride{"implement": {Content: "whole"}}) {
+		t.Fatalf("read: %+v %v", got.Skills, err)
+	}
+}
+
 // An object states a work-only override (#732); it survives a round trip and
 // passes validation, while an unknown kind or a malformed body does not.
 func TestSettingsSkillsWorkObject(t *testing.T) {

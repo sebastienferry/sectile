@@ -277,6 +277,9 @@ func readLegacyRepositoryFile(root string) (Settings, error) {
 	if err := json.Unmarshal(raw, &current); err != nil {
 		return Settings{}, err
 	}
+	if err := dropNullSkillOverrides(raw, current.Skills); err != nil {
+		return Settings{}, err
+	}
 	s := legacy.fold()
 	// Disconnection and MCP connections are workstation-owned, never a
 	// repository override.
