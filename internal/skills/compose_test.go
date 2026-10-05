@@ -136,6 +136,9 @@ func TestParseWorkSectionsRejects(t *testing.T) {
 		"nothing":      {"clarify", "\n\n", "needs at least one"},
 		"pickup steps": {"pickup", "## Steps\n1. Do it.", "inlined stages"},
 		"macro":        {"refine_macro", "## Steps\n1. Do it.", "no work-only override"},
+		"open fence":   {"clarify", "## Steps\n1. Write:\n```\n## Report\nx", "unclosed code fence \"```\""},
+		"open tildes":  {"clarify", "## Steps\n1. Write:\n~~~~\nx\n```", "unclosed code fence \"~~~~\""},
+		"indented":     {"clarify", "## Steps\n1.\n  ## Notes\nx", `unknown section "Notes"`},
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, err := skills.ParseWorkSections(stageSkill(t, tc.skill), tc.content)
@@ -164,6 +167,16 @@ func TestParseWorkSectionsIgnoresFencedHeadings(t *testing.T) {
 	}
 	if w.Goal != "" || w.ReadFirst != "" || w.Report != "" {
 		t.Fatalf("sections not in the override are set: %+v", w)
+	}
+}
+
+func TestParseWorkSectionsReadsIndentedHeadings(t *testing.T) {
+	w, err := skills.ParseWorkSections(stageSkill(t, "clarify"), "## Steps\n1. Do it.\n\n   ## Do not\n- Stop.\n\n    ## Not a heading")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w.Steps != "1. Do it." || w.Guard != "- Stop.\n\n    ## Not a heading" {
+		t.Fatalf("steps = %q, guard = %q", w.Steps, w.Guard)
 	}
 }
 

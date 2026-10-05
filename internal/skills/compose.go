@@ -172,8 +172,10 @@ func FormatWorkSections(s StageSkill, w WorkSections) string {
 
 // ParseWorkSections reads a work-only override: markdown made only of the
 // "## Goal", "## Read first", "## Steps", "## <guard>" and "## Report"
-// sections, each at most once and none empty. Headings inside code fences and
-// "###" or deeper headings belong to the section they appear in. Pickup's Steps
+// sections, each at most once and none empty. A "##" heading may be indented by
+// up to three spaces; headings inside code fences and "###" or deeper headings
+// belong to the section they appear in, and a code fence left open is refused so
+// the Sectile contracts never end up inside it. Pickup's Steps
 // are its inlined stages, overridden through each stage instead.
 func ParseWorkSections(s StageSkill, content string) (WorkSections, error) {
 	if !Overridable(s) {
@@ -217,8 +219,7 @@ func ParseWorkSections(s StageSkill, content string) (WorkSections, error) {
 			} else if marker[0] == fence[0] && len(marker) >= len(fence) && strings.TrimSpace(rest) == "" {
 				fence = ""
 			}
-		} else if fence == "" && (line == "##" || strings.HasPrefix(line, "## ")) {
-			title := strings.TrimSpace(strings.TrimPrefix(line, "##"))
+		} else if title, ok := sectionTitle(line); ok && fence == "" {
 			fragment := sectionFragment(s, title)
 			if fragment == "" {
 				return WorkSections{}, fmt.Errorf("unknown section %q: a work-only override uses %s", title, allowed)
@@ -244,6 +245,9 @@ func ParseWorkSections(s StageSkill, content string) (WorkSections, error) {
 		}
 		body = append(body, line)
 	}
+	if fence != "" {
+		return WorkSections{}, fmt.Errorf("unclosed code fence %q: close it so the Sectile contracts stay out of it", fence)
+	}
 	if err := flush(); err != nil {
 		return WorkSections{}, err
 	}
@@ -251,6 +255,16 @@ func ParseWorkSections(s StageSkill, content string) (WorkSections, error) {
 		return WorkSections{}, fmt.Errorf("a work-only override needs at least one of %s", allowed)
 	}
 	return w, nil
+}
+
+// sectionTitle returns the title of a "##" heading line, indented by at most
+// three spaces as in CommonMark; false when the line is no such heading.
+func sectionTitle(line string) (string, bool) {
+	trimmed := strings.TrimLeft(line, " ")
+	if len(line)-len(trimmed) > 3 || (trimmed != "##" && !strings.HasPrefix(trimmed, "## ")) {
+		return "", false
+	}
+	return strings.TrimSpace(strings.TrimPrefix(trimmed, "##")), true
 }
 
 // fenceMarker returns the backtick or tilde run opening a code fence line, and
