@@ -813,6 +813,7 @@ var SkillDirNames = map[string]string{
 	"refine_macro":    "refine-macro",
 	"refine-macro":    "refine-macro",
 	"refine":          "refine-macro",
+	"transition":      "transition",
 }
 
 // LegacySkillDirs maps a skill directory to the name it had before, which is

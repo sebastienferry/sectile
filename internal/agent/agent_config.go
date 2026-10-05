@@ -844,6 +844,11 @@ func dispatchPrompt(config agentconfig.Config, taskKey, skillID, action, prompt 
 		}
 		return "Sectile task: " + taskKey + "\n\n" + prompt, contexts, nil
 	}
+	// A hand transition is in the configuration for its direct copy, but it
+	// records a stage without running one: it is never launched (#732).
+	if stage, ok := skills.StageSkillByID(skillID); ok && stage.HandTransition {
+		return "", nil, fmt.Errorf("%s records a stage by hand and is never launched as a run", stage.Command)
+	}
 	skillCmd := ""
 	overridden := false
 	for _, skill := range config.Skills {

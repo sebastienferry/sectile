@@ -278,6 +278,27 @@ var StageSkills = []StageSkill{
 		FrontmatterDesc: "Batch process a list of selected board tickets sequentially in autonomy inside a single dedicated worktree, producing one combined Pull Request covered by tests and lints.",
 		GuardTitle:      "Do not",
 	},
+	{
+		ID:          "transition",
+		Name:        "Transition",
+		DirName:     models.SkillDirNames["transition"],
+		Command:     "/transition",
+		Description: "Enregistre à la main le passage d'un ticket à une étape, avec ses preuves, après confirmation de l'utilisateur.",
+		Icon:        "ArrowRightLeft",
+		Color:       "slate",
+		Steps: []string{
+			"Lecture du ticket et de l'étape demandée",
+			"Rassemblement des preuves : note, branche réelle, PR ou absence de changement de dépôt",
+			"Vérification de la condition de sortie de l'étape",
+			"Affichage des preuves et confirmation par l'utilisateur",
+			"Appel de transition_stage, sans démarrer ni terminer de run",
+		},
+		Title:           "Record a stage transition",
+		FrontmatterDesc: "Record by hand that a ticket completed a stage: gather the stage's evidence, show it, and call transition_stage once the user confirms.",
+		GuardTitle:      "Do not",
+		ArgumentHint:    "<TICKET-KEY> <stage>",
+		HandTransition:  true,
+	},
 }
 
 // StageSkillByID resolves canonical and legacy workflow identities.
@@ -434,7 +455,7 @@ func renderSpecWorkspaceContract(s StageSkill) string {
 // for the skill based on its from/to stages in the sequence:
 // new -> clarified -> specified -> implemented -> reviewed -> finished
 func renderTicketTransitionContract(s StageSkill) string {
-	if s.Scope == "macro" {
+	if s.Scope == "macro" || s.HandTransition {
 		return ""
 	}
 	tmpl := readContractFragment("transition")
@@ -459,6 +480,24 @@ func stageExit(id string) string {
 		return exit
 	}
 	return "this step is complete."
+}
+
+// handTransitionSteps are the steps of a hand transition: its own, then the
+// evidence rules and every stage's exit condition, generated from the same
+// contract fragments the stage skills carry so that they cannot drift (#732).
+func handTransitionSteps(s StageSkill) string {
+	var b strings.Builder
+	b.WriteString(strings.TrimRight(readSkillFragment(s.ID, "steps", ""), "\n"))
+	b.WriteString("\n\n### Evidence\n")
+	b.WriteString(strings.TrimRight(readContractFragment("stage-evidence"), "\n"))
+	b.WriteString("\n\n### Exit condition per stage\nRecord a stage only when its exit condition is met:\n")
+	for _, stage := range StageSkills {
+		if stage.FromStage == "" || stage.Scope == "macro" {
+			continue
+		}
+		fmt.Fprintf(&b, "- `%s` (from `%s`, %s): %s\n", stage.ToStage, stage.FromStage, stage.Title, stageExit(stage.ID))
+	}
+	return strings.TrimRight(b.String(), "\n")
 }
 
 // Pickup embeds the maintained stage bodies, so batch and single-ticket runs
@@ -542,7 +581,9 @@ func assembleSkill(s StageSkill, name string, work WorkSections, taskAccessFallb
 	}
 	b.WriteString("\n\n")
 	b.WriteString(renderTaskAccessContract(taskAccessFallback))
-	b.WriteString(renderSessionTitleContract(s))
+	if !s.HandTransition {
+		b.WriteString(renderSessionTitleContract(s))
+	}
 	b.WriteString(renderSpecWorkspaceContract(s))
 	fmt.Fprintf(&b, "## Goal\n%s\n\n", work.Goal)
 	if work.ReadFirst != "" {
@@ -752,7 +793,9 @@ func skillCommand(s StageSkill, body string) string {
 	b.WriteString("---\n")
 	fmt.Fprintf(&b, "description: %s\n", YAMLString(s.FrontmatterDesc))
 	hint := "<TICKET-KEY> [contexte]"
-	if s.Scope == "macro" {
+	if s.ArgumentHint != "" {
+		hint = s.ArgumentHint
+	} else if s.Scope == "macro" {
 		hint = "<MACRO-KEY> [contexte]"
 	}
 	fmt.Fprintf(&b, "argument-hint: %s\n", hint)

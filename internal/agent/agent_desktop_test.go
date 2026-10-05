@@ -385,6 +385,14 @@ func TestLaunchAdmissionOfReservedSkills(t *testing.T) {
 			t.Fatalf("accepted %q without instructions", skillID)
 		}
 	}
+	// A hand transition is configured for its direct copy, never launched (#732).
+	config.Skills = append(config.Skills, agentconfig.Skill{ID: "transition", Directory: "transition", Command: "/transition"})
+	if launchableSkill(config, "transition", "") {
+		t.Fatal("accepted a hand transition as a launch")
+	}
+	if _, _, err := dispatchPrompt(config, "T-1", "transition", "transition", "", nil); err == nil {
+		t.Fatal("dispatched a hand transition")
+	}
 }
 
 func TestDesktopProjectDefaultEngine(t *testing.T) {

@@ -226,6 +226,17 @@ func TestScaffoldInstallsTheGenericSkill(t *testing.T) {
 	if got := skillBody(c.Skills[0], loc); got != "generic steps" {
 		t.Fatalf("a CLI that does not substitute arguments gets %q", got)
 	}
+	// /transition is installed like any stage skill, never launched (#732).
+	c.Skills = append(c.Skills, Skill{ID: "transition", Directory: "transition", Command: "/transition",
+		Content: "transition steps", CommandContent: "transition command", DirectContent: "generic transition", DirectCommandContent: "generic transition command"})
+	if _, err := Scaffold(root, c); err != nil {
+		t.Fatal(err)
+	}
+	raw, err = os.ReadFile(installed(t, home, "claude", "transition/SKILL.md"))
+	if err != nil || string(raw) != "generic transition command" {
+		t.Fatalf("installed transition %q, %v", raw, err)
+	}
+	c.Skills = c.Skills[:1]
 
 	c.Skills[0].DirectContent, c.Skills[0].DirectCommandContent = "", ""
 	if _, err := Scaffold(root, c); err != nil {

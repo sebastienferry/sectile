@@ -22,6 +22,7 @@ import (
 	"tasks/internal/agenthttp"
 	"tasks/internal/models"
 	"tasks/internal/runner"
+	"tasks/internal/skills"
 	"tasks/internal/version"
 	"time"
 )
@@ -1202,6 +1203,10 @@ func launchableSkill(config agentconfig.Config, skillID, prompt string) bool {
 	}
 	if skillID == "custom" {
 		return strings.TrimSpace(prompt) != ""
+	}
+	// A hand transition records a stage without running one (#732).
+	if stage, ok := skills.StageSkillByID(skillID); ok && stage.HandTransition {
+		return false
 	}
 	for _, skill := range config.Skills {
 		if skill.ID == skillID {
