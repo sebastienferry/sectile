@@ -2447,6 +2447,25 @@ async function openProject(id,initial='Remove'){
    }catch(err){folderStatus.textContent=ipcMessage(err)}finally{addFolder.disabled=false}
   }
   loadFolders()
+  // Any repository (#737): tickets may change a repository the project does
+  // not list, at a checkout the session names or in a clone the agent makes in
+  // the clones folder. Off by default.
+  const anyRepository=document.createElement('input');anyRepository.type='checkbox';anyRepository.id='any-repository';anyRepository.checked=!!info.anyRepository
+  const anyRepositoryLabel=document.createElement('label');anyRepositoryLabel.htmlFor=anyRepository.id
+  anyRepositoryLabel.append(anyRepository,document.createTextNode(' Let tasks change any repository'))
+  const clonesPath=document.createElement('input');clonesPath.value=info.clonesPath||'';clonesPath.setAttribute('aria-label','Clones folder')
+  clonesPath.placeholder=info.clonesDefault||'Folder the agent clones repositories into'
+  const chooseClones=document.createElement('button');chooseClones.type='button';chooseClones.textContent='Choose folder…';chooseClones.setAttribute('aria-label','Choose the clones folder…')
+  chooseClones.onclick=async()=>{try{const selected=await api.chooseRepository();if(selected)clonesPath.value=selected}catch(err){error(err)}}
+  const clonesPicker=document.createElement('div');clonesPicker.className='repository-picker';clonesPicker.append(clonesPath,chooseClones)
+  const anyRepositoryRow=settingRow('Any repository',{stacked:true},anyRepositoryLabel,clonesPicker)
+  const renderAnyRepository=()=>{
+   clonesPicker.hidden=!anyRepository.checked
+   anyRepositoryRow.hint.textContent=anyRepository.checked
+    ?'A repository no folder here holds is used at the checkout the session finds, or cloned into '+(clonesPath.value.trim()||info.clonesDefault||'the clones folder')+'. Either is remembered on this workstation.'
+    :'Tasks change only the repositories listed above and the attached folders.'
+  }
+  anyRepository.onchange=renderAnyRepository;clonesPath.oninput=renderAnyRepository;renderAnyRepository()
   // Every execution field reads {value, inherited, source} from the agent: set
   // for the project, or inherited from the workstation defaults, else the
   // provider default. The server never supplies one (#305).
@@ -2603,7 +2622,7 @@ async function openProject(id,initial='Remove'){
   }
 
   const notice=document.createElement('p');notice.setAttribute('role','status')
-  panels.General.append(repository.section,macroSpec.row.section,issueSpec.row.section,repositoriesRow.section,foldersRow.section)
+  panels.General.append(repository.section,macroSpec.row.section,issueSpec.row.section,repositoriesRow.section,foldersRow.section,anyRepositoryRow.section)
   panels.Execution.append(controls.worktrees.section,controls.specArtifacts.section,controls.parallel.section,terminalRow.section,setupRow.section)
   // What the project's Claude Code sessions are allowed (#700). An agent that
   // predates it sends no values, and the save sends none back.
@@ -2632,6 +2651,7 @@ async function openProject(id,initial='Remove'){
    save.disabled=true
    try{
     await api.mapProject({projectId:id,path:path.value,specPath:macroSpec.input.value.trim(),issueSpecPath:issueSpec.input.value.trim(),
+     anyRepository:anyRepository.checked,clonesPath:clonesPath.value.trim(),
      useWorktrees,inheritWorktrees,specArtifacts,inheritSpecArtifacts,parallelism,inheritParallelism,
      ...(engineView?{defaultEngine,inheritDefaultEngine}:{}),
      terminal:terminal.get(),inheritTerminal,
