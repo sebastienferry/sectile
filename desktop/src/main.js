@@ -1773,8 +1773,9 @@ function workstationSandboxPanel(panel){
  const STOPPED_NOTICE='Sandbox settings are unavailable while the local agent is stopped. Start the agent to edit them.'
  function showUnavailable(text){unavailable.textContent=text;unavailable.hidden=false;body.hidden=true}
  function fill(view){
-  // A project hidden from the sidebar is still covered, so it is listed too:
-  // left out, its checkbox would be dropped by the next save.
+  // A disconnected project that keeps its local settings is still covered, so
+  // it is listed too, marked hidden: left out, its checkbox would be dropped by
+  // the next save. A project hidden from the sidebar only is an added project.
   const added=projects.filter(project=>addedProject(project)||(hiddenProject(project.id)&&(project.configured||!!project.path)))
    .map(project=>({id:project.id,name:project.name+(hiddenProject(project.id)?' (hidden)':'')}))
   sandbox=sandboxSettings({settingRow,stored:view.claudeSandbox,platformSandbox:view.platformSandbox!==false,workstation:true})

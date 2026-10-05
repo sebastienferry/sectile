@@ -6,7 +6,7 @@ const http=require('node:http'),fs=require('node:fs'),os=require('node:os'),path
 // The Sandbox category of a project's settings (#700): the state, the two
 // sandbox lists and the two rule lists, saved with the project's other local
 // settings and read back on reopening.
-async function withDesktop(project,run,workstation=WORKSTATION){
+async function withDesktop(project,run,workstation=WORKSTATION,{others=[],disconnected=[]}={}){
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'sectile-sandbox-ui-'))
  const saved=[],workstationSaves=[],promotions=[]
  let current=project,global=workstation
@@ -32,9 +32,9 @@ async function withDesktop(project,run,workstation=WORKSTATION){
    current={...current,claudeSandbox:own,claudeSandboxGlobal:inherited}
    res.end(JSON.stringify({claudeSandbox:own,claudeSandboxGlobal:inherited,claudeSandboxCovered:true}))
   });return}
-  if(req.url==='/desktop/projects'){res.end(JSON.stringify([{id:'project-a',name:'Example project',path:'/tmp/sandbox-worktree'}]));return}
+  if(req.url==='/desktop/projects'){res.end(JSON.stringify([{id:'project-a',name:'Example project',path:'/tmp/sandbox-worktree'},...others]));return}
   if(req.url==='/desktop/project?id=project-a'){res.end(JSON.stringify(current));return}
-  if(req.url==='/desktop/status'){res.end(JSON.stringify({connected:true,server:'http://example.test',capabilities:['repositories']}));return}
+  if(req.url==='/desktop/status'){res.end(JSON.stringify({connected:true,server:'http://example.test',capabilities:['repositories'],disconnectedProjects:disconnected}));return}
   if(req.url==='/desktop/runs'){res.end('[]');return}
   if(req.url.startsWith('/desktop/repositories')){res.end('[]');return}
   if(req.url.startsWith('/desktop/tasks?')){res.end('[]');return}
@@ -172,6 +172,47 @@ test('the workstation Sandbox category saves its values and its whitelist',async
  })
 })
 
+test('on Windows the workstation sandbox part is disabled and the rules and whitelist stay editable',async()=>{
+ await withDesktop(PROJECT,async({page,openWorkstation})=>{
+  await openWorkstation()
+  const panel=page.locator('#settings-panel-Sandbox')
+  const state=panel.getByRole('group',{name:'Claude Code sandbox',exact:true})
+  for(const name of ['Inherited','On','Off'])await expect(state.getByRole('button',{name,exact:true})).toBeDisabled()
+  // has: takes a locator relative to the row, so the group is not scoped to the panel.
+  const stateRow=panel.locator('.setting-row').filter({has:page.getByRole('group',{name:'Claude Code sandbox',exact:true})})
+  await expect(stateRow.locator('.setting-text p').first()).toHaveText('Claude Code’s sandbox does not run on Windows: only the permission rules below apply.')
+  await expect(panel.getByRole('textbox',{name:'New entry for Allowed network domains',exact:true})).toBeDisabled()
+  await expect(panel.getByRole('textbox',{name:'New entry for Extra writable paths',exact:true})).toBeDisabled()
+  await expect(panel.getByRole('textbox',{name:'New entry for Allow rules',exact:true})).toBeEnabled()
+  await expect(panel.getByRole('textbox',{name:'New entry for Deny rules',exact:true})).toBeEnabled()
+  const whitelist=panel.getByRole('group',{name:'Projects the Sandbox values apply to',exact:true})
+  await expect(whitelist.getByRole('checkbox',{name:'Example project',exact:true})).toBeEnabled()
+ },{...WORKSTATION,platformSandbox:false})
+})
+
+// A disconnected project keeps its settings and its place in the whitelist, so
+// it is still listed, marked hidden: left out, the next save would drop it. A
+// project hidden from the sidebar only is listed under its own name.
+test('the workstation whitelist keeps a disconnected project and a project hidden from the sidebar',async()=>{
+ const others=[{id:'project-b',name:'Gone project',configured:true},{id:'project-c',name:'Quiet project',path:'/tmp/quiet-worktree'}]
+ await withDesktop(PROJECT,async({page,openWorkstation,workstationSaves})=>{
+  await page.getByRole('button',{name:'Actions for Quiet project',exact:true}).click()
+  await page.getByRole('menuitem',{name:'Hide from sidebar',exact:true}).click()
+  await expect(page.getByRole('button',{name:'Actions for Quiet project',exact:true})).toHaveCount(0)
+  await expect(page.getByRole('button',{name:'Actions for Gone project',exact:true})).toHaveCount(0)
+  await openWorkstation()
+  const panel=page.locator('#settings-panel-Sandbox')
+  const whitelist=panel.getByRole('group',{name:'Projects the Sandbox values apply to',exact:true})
+  await expect(whitelist.getByRole('checkbox')).toHaveCount(3)
+  await expect(whitelist.getByRole('checkbox',{name:'Gone project (hidden)',exact:true})).toBeChecked()
+  await expect(whitelist.getByRole('checkbox',{name:'Quiet project',exact:true})).toBeChecked()
+  await whitelist.getByRole('checkbox',{name:'Example project',exact:true}).check()
+  await panel.getByRole('button',{name:'Save Sandbox settings',exact:true}).click()
+  await expect.poll(()=>workstationSaves.length).toBe(1)
+  assert.deepEqual([...workstationSaves[0].projects].sort(),['project-a','project-b','project-c'])
+ },{...WORKSTATION,projects:['project-b','project-c']},{others,disconnected:['project-b']})
+})
+
 test('a covered project shows what it inherits and moves a rule up',async()=>{
  const covered={...PROJECT,claudeSandbox:{...EMPTY,allow:['Bash(npm test:*)']},claudeSandboxCovered:true,
   claudeSandboxGlobal:{...EMPTY,enabled:true,allow:['Read'],deny:['Bash(git push:*)']}}
@@ -208,3 +249,4 @@ test('a project left out of the whitelist says so and inherits nothing',async()=
   await expect(panel.locator('.sandbox-entry-inherited')).toHaveCount(0)
  })
 })
+
