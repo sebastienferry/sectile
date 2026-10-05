@@ -238,6 +238,8 @@ async function startAgent(settings){
  // A new pairing names the device this workstation was paired as, so the server replaces its key (#717).
  const credential=await resolveConnectCredential({...settings,token:kept,deviceId:storedDeviceId(settings.server)})
  const token=credential.token
+ // The exchange has already revoked the old key: the new one is saved before anything else can fail.
+ if(credential.paired)saveCredential(settings.server,credential)
  await checkServer(url,token)
  // Preserve existing mappings when upgrading; new installations use private app data.
  let previous={}
@@ -261,7 +263,7 @@ async function startAgent(settings){
  if(fs.existsSync(info))fs.unlinkSync(info)
  // The UI tests stand a Node script in for the agent: a script cannot be spawned as is on every platform, so Electron
  // runs it as Node.
- const script=process.env.SECTILE_DESKTOP_TEST==='1'&&/\.c?js$/.test(binary)
+ const script=!app.isPackaged&&process.env.SECTILE_DESKTOP_TEST==='1'&&/\.c?js$/.test(binary)
  const child=spawn(script?process.execPath:binary,[...(script?[binary]:[]),'--desktop-info',info,'--url',settings.server,'--repo',repo],{
   detached:true,stdio:['ignore',output,output],
   env:{...process.env,...(script?{ELECTRON_RUN_AS_NODE:'1'}:{}),TOKEN:token,SECTILE_DESKTOP_TOKEN:crypto.randomBytes(32).toString('hex')}
@@ -290,8 +292,9 @@ ipcMain.handle('sign-in',async(_,{server})=>{
   // The wait may have outlasted a start from the form, or an agent started elsewhere: the code is then left unspent,
   // since redeeming it with the stored device would revoke the key that agent runs on.
   if(starting)throw Error('Agent is starting')
-  if(await connectAgent())throw Error('The local agent is already connected')
+  // The guard is taken before the connection check, so no start can slip in between the two.
   starting=held=true
+  if(await connectAgent())throw Error('The local agent is already connected')
   saveCredential(server,await exchangePairingCode(server,code,os.hostname(),fetch,storedDeviceId(server)))
   started=await startAgent({server})
   return started

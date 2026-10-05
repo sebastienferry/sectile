@@ -287,7 +287,8 @@ let lastStored
 function renderStartForm(stored){
  const pair=connectForm.querySelector('#pair-again');pair.querySelector('summary').hidden=!stored;if(stored!==lastStored){pair.open=!stored;lastStored=stored}
  document.querySelector('#setup-intro').textContent=stored?'This workstation is paired. Start the local agent to run tasks and reconnect your AI engines.':'Sign in with your browser, or, in the Sectile web interface, under your profile, choose Pair a workstation and paste the code here. A code is single use and expires within ten minutes.'
- setStartReason(pairingReason||startReason)
+ // A refusal stays said while a sign-in after it waits or fails: the two are shown together, the refusal first (#717).
+ setStartReason([pairingReason,startReason].filter(Boolean).join(' '))
 }
 function setStartReason(text){const p=connectForm.querySelector('.start-reason');p.textContent=text;p.hidden=!text}
 function agentUnavailable(){
@@ -856,11 +857,18 @@ document.querySelector('#start').onsubmit=event=>{event.preventDefault();return 
 // A browser sign-in holds the start controls like a start does: it ends by starting the agent on the key it pairs (#717).
 document.querySelector('#browser-sign-in').onclick=async()=>{
  if(startPending)return
- startPending=true;pairingReason='';startReason='Waiting for the sign-in in your browser…';updateStartControl()
+ // A refusal is kept until the sign-in succeeds: the pairing form stays open, never offering the refused key again.
+ startPending=true;startReason='Waiting for the sign-in in your browser…';updateStartControl()
+ const before=credential.state
  try{
   await api.signIn(connectForm.elements.server.value)
-  startReason='';credential=await api.credentialState();document.querySelector('#error').textContent='';ready();await refresh()
- }catch(err){startReason=startFailure(err)}
+  pairingReason='';startReason='';credential=await api.credentialState();document.querySelector('#error').textContent='';ready();await refresh()
+ }catch(err){
+  startReason=startFailure(err)
+  try{credential=await api.credentialState()}catch{}
+  // A key the sign-in saved before failing replaces a missing or unreadable one: that reason no longer holds.
+  if(before!=='present'&&credential.state==='present')pairingReason=''
+ }
  finally{startPending=false;updateStartControl()}
 }
 document.querySelector('#stop').onclick=async()=>{
