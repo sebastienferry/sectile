@@ -9,7 +9,49 @@ import (
 	"path/filepath"
 	"strconv"
 	"sync"
+	"tasks/internal/models"
 )
+
+// SkillOverride is this workstation's override of one skill, under "skills" in
+// settings.json. A plain string replaces the whole skill, as before #732; an
+// object {"kind":"work","content":"..."} replaces only the work sections it
+// states, and Sectile keeps the contracts (#732).
+type SkillOverride struct {
+	Kind    models.SkillOverrideKind
+	Content string
+}
+
+// UnmarshalJSON reads a JSON string as a full replacement and an object as
+// {"kind","content"}. The kind is not checked here, so a typo never stops the
+// settings from being read: ValidateSkillOverride refuses it.
+func (o *SkillOverride) UnmarshalJSON(raw []byte) error {
+	var content string
+	if err := json.Unmarshal(raw, &content); err == nil {
+		*o = SkillOverride{Content: content}
+		return nil
+	}
+	var object struct {
+		Kind    models.SkillOverrideKind `json:"kind"`
+		Content string                   `json:"content"`
+	}
+	if err := json.Unmarshal(raw, &object); err != nil {
+		return err
+	}
+	*o = SkillOverride{Kind: object.Kind, Content: object.Content}
+	return nil
+}
+
+// MarshalJSON writes a full replacement back as a plain string, the shape every
+// agent reads, and any other kind as an object.
+func (o SkillOverride) MarshalJSON() ([]byte, error) {
+	if o.Kind == models.SkillOverrideFull {
+		return json.Marshal(o.Content)
+	}
+	return json.Marshal(struct {
+		Kind    models.SkillOverrideKind `json:"kind"`
+		Content string                   `json:"content"`
+	}{o.Kind, o.Content})
+}
 
 // SettingsPath is shared by the standalone agent and its optional companion.
 func SettingsPath() (string, error) {
