@@ -856,6 +856,11 @@ func dispatchPrompt(config agentconfig.Config, taskKey, skillID, action, prompt 
 			if skill.RequiresReconciliation {
 				return "", nil, fmt.Errorf("legacy customization requires reconciliation in Skills before adjustment")
 			}
+			// The dispatch may name the hand transition through its action
+			// rather than its skill: it is refused whichever matched (#732).
+			if stage, ok := skills.StageSkillByID(skill.ID); ok && stage.HandTransition {
+				return "", nil, fmt.Errorf("%s records a stage by hand and is never launched as a run", stage.Command)
+			}
 			skillCmd, overridden = skill.Command, skill.CommandOverridden
 			break
 		}

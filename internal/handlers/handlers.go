@@ -24,6 +24,7 @@ import (
 	"tasks/internal/auth"
 	"tasks/internal/db"
 	"tasks/internal/models"
+	"tasks/internal/skills"
 	"tasks/internal/taskmcp"
 
 	"github.com/google/uuid"
@@ -2383,6 +2384,12 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 		}
 		if req.SkillID == "" {
 			writeError(w, http.StatusBadRequest, "Skill ID is required")
+			return
+		}
+		// A hand transition records a stage without running one: it is refused
+		// before any run is recorded (#732).
+		if stage, ok := skills.StageSkillByID(req.SkillID); ok && stage.HandTransition {
+			writeError(w, http.StatusBadRequest, stage.Command+" records a stage by hand and is never launched as a run")
 			return
 		}
 		// An absent mode means "no override", which is not the same as

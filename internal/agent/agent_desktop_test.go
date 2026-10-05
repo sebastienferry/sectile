@@ -393,6 +393,10 @@ func TestLaunchAdmissionOfReservedSkills(t *testing.T) {
 	if _, _, err := dispatchPrompt(config, "T-1", "transition", "transition", "", nil); err == nil {
 		t.Fatal("dispatched a hand transition")
 	}
+	// The dispatch can name it through its action alone: refused all the same.
+	if _, _, err := dispatchPrompt(config, "T-1", "unconfigured", "transition", "", nil); err == nil || !strings.Contains(err.Error(), "never launched") {
+		t.Fatalf("dispatched a hand transition named by its action: %v", err)
+	}
 }
 
 func TestDesktopProjectDefaultEngine(t *testing.T) {
