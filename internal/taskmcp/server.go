@@ -419,7 +419,7 @@ func NewServerWithCallers(database *db.DB, sessions *SessionRegistry, resolve Ca
 			}
 			return nil, result, nil
 		})
-	mcp.AddTool(s, &mcp.Tool{Name: "transition_stage", Description: "Record a verified standalone workflow stage, optionally attach the task pull request or merge request URL using prUrl, and queue tracker synchronization. Managed runs must use their result contract.", InputSchema: map[string]any{
+	mcp.AddTool(s, &mcp.Tool{Name: "transition_stage", Description: "Record a verified standalone workflow stage, optionally attach the task pull request or merge request URL using prUrl, and queue tracker synchronization.", InputSchema: map[string]any{
 		"type": "object", "additionalProperties": false, "required": []string{"taskKey", "stage", "note"},
 		"properties": map[string]any{
 			"taskKey": map[string]any{"type": "string", "minLength": 1},

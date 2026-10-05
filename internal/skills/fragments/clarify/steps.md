@@ -19,10 +19,7 @@
    e. Commit updates with docs(spec): clarify #<n> (round N), unless the file is ignored by Git (step 6).
    f. Publish the round as described below. If follow-up product questions remain,
       ask them and stop without transitioning.
-4. Exit condition:
-   Rounds continue until the owner confirms that the clarification is satisfactory (or zero open
-   product questions remain in unattended pickup). Never transition new → clarified while product
-   questions remain open.
+4. Exit condition: the Sectile contract below states it; rounds continue until it is met.
 5. Persist the settled scope, decisions, and assumptions in the report before concluding.
 6. Dropped artefacts: `<n>` is the task key without its leading `#` (`487` for `#487`). Before
    committing, run `git check-ignore -q docs/clarifications/<n>.md`. When it succeeds, the project
@@ -50,17 +47,13 @@
   Retain the Markdown file as the chronological history, even when it stays local.
   Include the report path, commit/local status, settled decisions, open questions
   and publication failures in that section; a path or summary alone is insufficient.
-- Standalone intermediate rounds with open questions use `add_comment`. The final
+- Intermediate rounds with open questions use `add_comment`. The final
   round uses its full section as the `transition_stage` note, with no separate
   `add_comment` for the same content. Verify each response before claiming publication.
-- Managed runs call no comment or stage tool: put the full round section in the
-  supplied result note and let Sectile publish it through its completion contract.
 - If a section exceeds the tracker comment limit (GitHub 65,536 characters; Jira
   about 32,767), split at Markdown paragraph boundaries into numbered parts, reserving
   space for the server header and part numbering. Use at most 30,000 characters per
   part for either tracker, and split an oversized paragraph without dropping text.
-  Standalone intermediate parts use `add_comment` in order. For a final round, post
+  Intermediate parts use `add_comment` in order. For a final round, post
   all preceding parts with `add_comment` and use only the last numbered part as the
-  transition note, so each part appears once. Managed runs keep the complete section
-  in the result note and report any completion-contract size limitation rather than
-  bypassing the contract.
+  transition note, so each part appears once.

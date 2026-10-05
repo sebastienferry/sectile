@@ -47,6 +47,15 @@ func TestGeneratedSkillContracts(t *testing.T) {
 				if stage.FromStage != "" && stage.Scope != "macro" && (strings.Contains(content, "sectile stage") || strings.Contains(content, "curl --")) {
 					t.Fatal("workflow skill must use native MCP tools")
 				}
+				if stage.FromStage != "" && stage.Scope != "macro" && !strings.Contains(content, "only when the exit condition is met: ") {
+					t.Fatal("workflow skill does not state its exit condition in the transition contract")
+				}
+				// The managed-run result-file contract is retired (#732).
+				for _, retired := range []string{"result-file contract", "Managed Sectile run", "standalone only", "managed or standalone"} {
+					if strings.Contains(content, retired) {
+						t.Fatalf("skill still carries the retired wording %q", retired)
+					}
+				}
 				if stage.ID == "clarify" {
 					for _, required := range []string{
 						"docs/clarifications/",
@@ -372,7 +381,7 @@ func TestGoldenSkillParity(t *testing.T) {
 }
 
 func TestSkillFragmentsIntegrity(t *testing.T) {
-	requiredContracts := []string{"task-access.md", "session-title.md", "transition.md", "pickup-header.md"}
+	requiredContracts := []string{"task-access.md", "session-title.md", "transition.md", "stage-evidence.md", "pickup-header.md"}
 	for _, c := range requiredContracts {
 		path := filepath.Join("fragments", "contracts", c)
 		data, err := os.ReadFile(path)
@@ -454,10 +463,14 @@ func TestClarificationPublicationContract(t *testing.T) {
 		for _, id := range []string{"clarify", "pickup", "pickup_issues"} {
 			stage, _ := skills.StageSkillByID(id)
 			content := skills.RenderSkillContent(stage, framework)
-			for _, requirement := range []string{"Every round, interactive or unattended", "Round N uses only its newly appended section", "no separate", "Managed runs call no comment or stage tool", "30,000 characters", "last numbered part", "pushStageCommits", "Never force", "Report a refused push and continue"} {
+			for _, requirement := range []string{"Every round, interactive or unattended", "Round N uses only its newly appended section", "no separate", "30,000 characters", "last numbered part", "pushStageCommits", "Never force", "Report a refused push and continue"} {
 				if !strings.Contains(content, requirement) {
 					t.Errorf("%s/%s missing publication rule %q", framework, id, requirement)
 				}
+			}
+			// The managed-run result contract is retired (#732): every run publishes through the MCP tools.
+			if strings.Contains(content, "Managed runs") {
+				t.Errorf("%s/%s still carries the retired managed-run wording", framework, id)
 			}
 		}
 		stage, _ := skills.StageSkillByID("specify")
