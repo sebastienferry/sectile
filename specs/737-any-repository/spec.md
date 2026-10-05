@@ -192,9 +192,12 @@ repository.
 
 ### US8 (P2) - Pin a ticket to an undeclared repository
 
-1. Given the task detail, when I set its repository, then besides the
-   project's repositories I can type a repository URL or `host/path`, which is
+1. Given the task detail of a project with several repositories, when I set
+   its repository, then besides the project's repositories I can pick
+   **Other repository…** and type a repository URL or `host/path`, which is
    stored on the task.
+5. Given a project that stops declaring a repository, when it is saved, then
+   the tasks pinned to that repository are unpinned.
 2. Given a task pinned to an undeclared repository and the option on, when it
    is launched, then its primary worktree is created in that repository, found
    through its known folder or cloned (US3), never through `path`.
@@ -247,8 +250,8 @@ repository.
   for the agent side, and on a test database for the server side.
 - AC2. With the option off, the existing suites of `internal/agent` and
   `internal/db` pass unchanged, except the tests updated for US5.
-- AC3. The MCP contract test and the bridge whitelist list the new `path`
-  parameter.
+- AC3. The MCP tool `prepare_repository_worktree` exposes the new `path`
+  input; the bridge relays it without change (it whitelists tool names only).
 - AC4. `CHANGELOG.md` has one line under `Added` for the option and one under
   `Fixed` for US5.
 - AC5. `docs/USER_GUIDE.md` and `docs/CAPABILITIES.md` describe the option, the

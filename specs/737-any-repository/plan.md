@@ -37,9 +37,11 @@ Choices the clarification left to the specification, taken from the code.
   scp-like `git@host:path`; else from `host/path`, with the scheme of the
   project's `GitRemoteURL` (`git@host:path.git` for SSH, `https://host/path.git`
   otherwise).
-- D6. **Fetch.** `ensureLocalWorktree` gains a `fetch bool`. Secondary callers
-  (`repositoryWorktree`, the pinned primary of an undeclared repository, the
-  lazy code worktree) pass true: `git fetch origin` (no prune, no tags), then
+- D6. **Fetch.** `ensureFetchedWorktree` wraps the worktree creation with a
+  fetch. `repositoryWorktree` uses it for every repository it prepares, the
+  lazy code worktree included; the launch's primary worktree, a pinned
+  undeclared repository's included, keeps `ensureLocalWorktree` (Q5 covered
+  the secondary repositories only): `git fetch origin` (no prune, no tags), then
   base `origin/<branch>` when present, else `origin/HEAD`, else the remote
   default read by `git ls-remote --symref origin HEAD`, else local `HEAD` with
   a warning. The launch's code worktree keeps passing false: its behaviour is
@@ -82,6 +84,12 @@ Choices the clarification left to the specification, taken from the code.
   identity for an undeclared pin too. `ErrRepositoryNotInProject` remains for
   a value that is neither (a bare word, a path). The launching agent decides
   (US8.4).
+- D16. **Removing a repository clears its pins.** Since any remote may be
+  pinned, a pin left behind by a repository the project stopped declaring
+  would read as a deliberate pin. `UpdateProjectAs` clears the pins of the
+  removed identities in the same transaction. Pins left behind before this
+  change cannot be told apart in SQL; they now need the option, which the
+  changelog says.
 - D13. **Pin resolution on the agent.** `models.ResolvePrimaryRepository` gains
   an `any bool`; with it, an undeclared pin resolves to
   `ProjectRepository{URL: pin, Identity: RepositoryIdentity(pin)}` and the
@@ -93,8 +101,12 @@ Choices the clarification left to the specification, taken from the code.
   Code sessions of the ticket (`d.terminal.manager`, the runs of
   `d.queue` with that task ID) and types `/add-dir` through `typeAddDir`
   (`agent_run_folders.go`), skipping a folder already inside the session's
-  directories. `models.RepositoryWorktree` gains `AddedToSession bool`; the MCP
-  answer says to run `/add-dir <path>` when it is false.
+  directories. The typing waits for the session to settle, which a session
+  blocked on the very tool call does not do before the cap, so it runs in the
+  background and `AddedToSession` only says a session was found. A folder
+  already inside the session is typed anyway: Claude Code ignores it.
+  `models.RepositoryWorktree` gains `AddedToSession bool`; the MCP description
+  says to run `/add-dir <path>` when it is false.
 - D15. **Message language.** New runtime messages are written in English;
   the French messages they sit next to (`repositoryNotFound`, `primaryRoot`)
   only gain a sentence naming the option, in French, inside the existing
@@ -168,6 +180,8 @@ worktree.
 - **Clone duration.** A large clone runs inside an MCP call. The existing
   agent call timeout applies; the clone runs with the call's context so a
   cancelled call stops it, and D4's temporary folder is removed.
+- **Bridge.** `agentmcp` relays each tool's schema from the server and only
+  whitelists tool names, so the new `path` input needs no bridge change.
 - **Sandbox writes.** Claude Code's sandbox allows writing in the session's
   directories, `--add-dir` and `/add-dir` included; US4 relies on it. Verify
   on a sandboxed launch before closing the ticket.
