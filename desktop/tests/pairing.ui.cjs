@@ -48,9 +48,10 @@ test('a pairing code typed in the connect form is exchanged for a device token',
   await page.getByRole('heading',{name:'Connect to Sectile'}).waitFor()
   await page.getByLabel('Sectile server',{exact:true}).fill(address)
   await page.getByLabel('Pairing code',{exact:true}).fill('code-from-the-web-interface')
-  // With no agent running the form's button reads 'Start local agent'; target the
-  // form's own button rather than a label that depends on the agent's state.
-  await page.locator('#start button').click()
+  // With no saved key the button reads 'Connect' and the pairing disclosure is
+  // open; target the form's own submit button rather than a label that depends
+  // on the stored key.
+  await page.locator('#start button[type=submit]').click()
   // The exchange and the credential check both happen before the agent binary is
   // spawned, so they are observable even though no agent can start here.
   for(let attempt=0;attempt<100&&!(paired&&presented.includes('Bearer device-token'));attempt++){
@@ -98,14 +99,14 @@ test('a malformed server address is refused before the pairing code is spent',as
   const code=page.getByLabel('Pairing code',{exact:true})
   await page.getByLabel('Sectile server',{exact:true}).fill('http://user:secret@127.0.0.1:'+port)
   await code.fill('code-worth-keeping')
-  await page.locator('#start button').click()
-  await page.locator('#error').filter({hasText:'HTTP or HTTPS server URL'}).waitFor()
+  await page.locator('#start button[type=submit]').click()
+  await page.locator('#start .start-reason').filter({hasText:'HTTP or HTTPS server URL'}).waitFor()
   assert.deepEqual(pairRequests,[],'no pairing request leaves the machine on a rejected address')
   assert.equal(await code.inputValue(),'code-worth-keeping','the code stays in the form, unspent')
 
   // The very same code now works, which is what "unspent" has to mean.
   await page.getByLabel('Sectile server',{exact:true}).fill('http://127.0.0.1:'+port)
-  await page.locator('#start button').click()
+  await page.locator('#start button[type=submit]').click()
   for(let attempt=0;attempt<100&&!pairRequests.length;attempt++)await new Promise(resolve=>setTimeout(resolve,100))
   assert.deepEqual(pairRequests,[{code:'code-worth-keeping',label:os.hostname()}])
  }finally{

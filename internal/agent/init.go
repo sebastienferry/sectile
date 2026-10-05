@@ -204,7 +204,7 @@ func (d *agentDaemon) initializeProvider(root string, config agentconfig.Config,
 		return result, fmt.Errorf("agent is running from a temporary build at %s; run a built binary so native clients keep resolving it", executable)
 	}
 
-	mcpPath, err := agentconfig.BootstrapMCP(provider, executable, d.link.serverURL, d.link.token)
+	mcpPath, err := d.registerMCP(provider, executable)
 	if err != nil {
 		result.MCP = initializationStep{Status: "failed", Message: err.Error()}
 		return result, fmt.Errorf("bootstrap MCP for provider %q: %w", provider, err)
