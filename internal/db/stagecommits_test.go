@@ -149,6 +149,9 @@ func TestPushStageCommitsMigration(t *testing.T) {
 	if _, err := d.conn.Exec("ALTER TABLE projects DROP COLUMN epic_axis_fields"); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := d.conn.Exec("ALTER TABLE project_skills DROP COLUMN override_kind"); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := d.conn.Exec("DELETE FROM schema_migrations WHERE version >= 32"); err != nil {
 		t.Fatal(err)
 	}

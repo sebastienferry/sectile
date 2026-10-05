@@ -204,7 +204,7 @@ func TestAdjustmentReconciliationRetainsHistoryAndReset(t *testing.T) {
 	if err != nil || !entry.RequiresReconciliation || entry.OverrideOrigin != "review" || entry.Content != "legacy review" {
 		t.Fatalf("%+v %v", entry, err)
 	}
-	entry, err = d.SaveProjectSkillContent(p.ID, "adjust", "Reviewed custom instructions")
+	entry, err = d.SaveProjectSkillContent(p.ID, "adjust", "Reviewed custom instructions", fullOverride())
 	if err != nil || entry.RequiresReconciliation || entry.OverrideOrigin != "adjust" {
 		t.Fatalf("%+v %v", entry, err)
 	}
@@ -490,4 +490,34 @@ func TestGitLabEvidenceThroughTheLookupHook(t *testing.T) {
 	if err != nil || d.StageOfTask(got) != "reviewed" || got.PrURL == nil || *got.PrURL != mr.URL {
 		t.Fatalf("merged MR rejected: %+v %v", got, err)
 	}
+}
+
+// A work-only adjust override is composed around the adjustment contract like
+// any other stage: the legacy wrapping is for full replacements only.
+func TestAdjustWorkOverrideSkipsLegacyWrapping(t *testing.T) {
+	d, err := testsqlite.New(t, filepath.Join(t.TempDir(), "test.db"), NewDB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	p, err := d.CreateProject(models.CreateProjectRequest{Name: "Adjust", IssueTracker: "local"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.SaveProjectSkillContent(p.ID, "adjust", "## Steps\nProject adjustment steps.", nil); err != nil {
+		t.Fatal(err)
+	}
+	for _, skill := range d.EffectiveProjectSkills(p.ID, "") {
+		if skill.ID != "adjust" {
+			continue
+		}
+		if !strings.Contains(skill.Content, "Project adjustment steps.") || !strings.Contains(skill.Content, "transition_stage") {
+			t.Fatalf("the adjust work override is not composed:\n%s", skill.Content)
+		}
+		if strings.Contains(skill.Content, "## Project instructions") || strings.Contains(skill.Content, "## Mandatory adjustment requirements") {
+			t.Fatal("a work-only adjust override got the legacy wrapping")
+		}
+		return
+	}
+	t.Fatal("no adjust skill")
 }
