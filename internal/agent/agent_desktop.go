@@ -942,6 +942,14 @@ func (d *agentDaemon) desktopProject(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
+		// The workstation settings and every known project's work-only
+		// overrides reach the direct copies (#732); without them nothing is
+		// written.
+		config, err = d.directSetupConfig(r.Context(), config)
+		if err != nil {
+			http.Error(w, err.Error(), 502)
+			return
+		}
 		// Attempt failures are structured so the UI preserves partial success.
 		// provider-skills installs the skills alone, the MCP being registered
 		// from the MCP connection settings.
@@ -954,6 +962,11 @@ func (d *agentDaemon) desktopProject(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(result)
 	case "skills":
+		config, err = d.directSetupConfig(r.Context(), config)
+		if err != nil {
+			http.Error(w, err.Error(), 502)
+			return
+		}
 		_, err = agentconfig.Scaffold(root, config)
 		if err != nil {
 			http.Error(w, err.Error(), 500)

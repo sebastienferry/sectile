@@ -1542,6 +1542,8 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 				writeError(w, http.StatusBadRequest, err.Error())
 				return
 			}
+			// The direct copies a workstation manages follow the change (#732).
+			h.refreshSkillCopies(id)
 			writeJSON(w, http.StatusOK, entry)
 			return
 
@@ -1551,6 +1553,7 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 				writeError(w, http.StatusBadRequest, err.Error())
 				return
 			}
+			h.refreshSkillCopies(id)
 			writeJSON(w, http.StatusOK, entry)
 			return
 
@@ -1586,6 +1589,7 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 				writeError(w, http.StatusBadRequest, err.Error())
 				return
 			}
+			h.refreshSkillCopies(id)
 			writeJSON(w, http.StatusOK, entry)
 			return
 		}

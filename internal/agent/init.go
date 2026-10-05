@@ -141,6 +141,12 @@ func InitContext(ctx context.Context, args []string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("fetch project %q configuration: %w", selectedProject, err)
 	}
+	// The workstation settings and every known project's work-only
+	// overrides reach the direct copies (#732).
+	config, err = d.directSetupConfig(ctx, config)
+	if err != nil {
+		return "", err
+	}
 
 	if fi, err := os.Stat(root); err != nil || !fi.IsDir() {
 		root, _ = os.Getwd()

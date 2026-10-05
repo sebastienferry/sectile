@@ -88,6 +88,7 @@ var Operations = []string{
 	"repository_worktree", "task_spec_worktree", "workspace_info", "git_diff", "git_evidence", "branch_changes",
 	"pr_evidence", "skills_status", "skill_files", "sync_config",
 	"read_skill", "spec_status", "spec_install", "init_git", "spec_artifacts",
+	"refresh_skills",
 }
 
 // ErrUnsupportedOperation is what every "the local agent cannot run this

@@ -317,6 +317,48 @@ func ManifestPath() (string, error) {
 	return filepath.Join(filepath.Dir(settings), "agent-manifest.json"), nil
 }
 
+// skillAliasDirs are the compatibility forwards Scaffold installs next to the
+// skills (create-pr for adjust-issue, code-issue for implement-issue). They
+// alone do not say a provider has a direct setup.
+var skillAliasDirs = map[string]bool{"create-pr": true, "code-issue": true}
+
+// ManagedProviders are the skill providers this workstation already has a
+// direct setup for: those with a managed <SkillDir>/<dir>/SKILL.md in the
+// manifest (#732). A missing manifest means none. A refresh of the direct
+// copies rewrites these and never installs a provider the user did not set up.
+func ManagedProviders() ([]string, error) {
+	manifestPath, err := ManifestPath()
+	if err != nil {
+		return nil, err
+	}
+	raw, err := os.ReadFile(manifestPath)
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	manifest := map[string]string{}
+	if err := json.Unmarshal(raw, &manifest); err != nil {
+		return nil, err
+	}
+	var providers []string
+	for _, provider := range SkillProviders {
+		loc, err := ResolveLocations(provider)
+		if err != nil {
+			return nil, err
+		}
+		for p := range manifest {
+			parts := strings.Split(filepath.ToSlash(p), "/")
+			if managedPath(p, loc) && !skillAliasDirs[parts[len(parts)-2]] {
+				providers = append(providers, provider)
+				break
+			}
+		}
+	}
+	return providers, nil
+}
+
 // Scaffold installs the fresh server-owned skill set into the user configuration
 // of every agent the project sets up. Changed local copies are backed up before
 // replacement, and unrelated personal skill paths are never touched. The checkout
