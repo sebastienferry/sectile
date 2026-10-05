@@ -5,6 +5,7 @@ import (
 	"errors"
 	"reflect"
 	"strings"
+	"tasks/internal/models"
 	"testing"
 )
 
@@ -42,7 +43,7 @@ func TestResolveIgnoresServerExecutionValues(t *testing.T) {
 
 func TestResolveDoesNotMutateContract(t *testing.T) {
 	c := Config{Skills: []Skill{{ID: "implement", Content: "remote"}}}
-	effective := Resolve(c, converted(Settings{Defaults: Defaults{Execution: Execution{AIProvider: "claude"}}, Skills: map[string]string{"implement": "local"}}))
+	effective := Resolve(c, converted(Settings{Defaults: Defaults{Execution: Execution{AIProvider: "claude"}}, Skills: map[string]SkillOverride{"implement": {Content: "local"}}}))
 	if c.Skills[0].Content != "remote" || effective.Skills[0].Content != "local" || effective.AIProvider != "claude" {
 		t.Fatal("precedence or isolation failed")
 	}
@@ -259,7 +260,7 @@ func TestValidateLevels(t *testing.T) {
 
 func TestResolveMarksAWorkstationSkillOverrideCustom(t *testing.T) {
 	c := Config{ProjectID: "p", Skills: []Skill{{ID: "implement", Content: "server"}, {ID: "clarify", Content: "server", Custom: true}, {ID: "specify", Content: "server"}}}
-	got := Resolve(c, Settings{Skills: map[string]string{"implement": "local"}})
+	got := Resolve(c, Settings{Skills: map[string]SkillOverride{"implement": {Content: "local"}}})
 	if !got.Skills[0].Custom || got.Skills[0].Content != "local" {
 		t.Fatalf("a workstation override is a custom skill: %+v", got.Skills[0])
 	}
@@ -345,5 +346,56 @@ func TestAttachedFoldersAreKeptWhole(t *testing.T) {
 	s.SetProject("p", ProjectSettings{})
 	if _, kept := s.ProjectSettings["p"]; kept {
 		t.Fatal("an emptied section must be dropped")
+	}
+}
+
+// A workstation work-only override leaves the server's content alone: the agent
+// composes it at launch, section by section, over the project's (#732). Pickup
+// inlines the stage, so it becomes custom too.
+func TestResolveWorkOverrideLeavesContentForComposition(t *testing.T) {
+	c := Config{ProjectID: "p", Skills: []Skill{
+		{ID: "clarify", Content: "server", OverrideKind: models.SkillOverrideWork, WorkContent: "## Goal\nProject goal."},
+		{ID: "pickup", Content: "server pickup"},
+		{ID: "specify", Content: "server"},
+	}}
+	work := "## Steps\nAsk twice."
+	got := Resolve(c, Settings{Skills: map[string]SkillOverride{"clarify": {Kind: models.SkillOverrideWork, Content: work}}})
+	clarify := got.Skills[0]
+	if clarify.Content != "server" || clarify.WorkstationWork != work || !clarify.Custom || clarify.OverrideKind != models.SkillOverrideWork || clarify.WorkContent != "## Goal\nProject goal." {
+		t.Fatalf("work override: %+v", clarify)
+	}
+	if !got.Skills[1].Custom || got.Skills[1].OverrideKind != models.SkillOverrideWork || got.Skills[1].Content != "server pickup" {
+		t.Fatalf("pickup inlines the overridden stage: %+v", got.Skills[1])
+	}
+	if got.Skills[2].Custom {
+		t.Fatal("a skill nobody edited reads as custom")
+	}
+	invalid := Resolve(c, Settings{Skills: map[string]SkillOverride{"specify": {Kind: models.SkillOverrideWork, Content: "no heading"}}})
+	if invalid.Skills[2].Custom || invalid.Skills[2].WorkstationWork != "" {
+		t.Fatalf("an invalid work override was applied: %+v", invalid.Skills[2])
+	}
+}
+
+// A project's full replacement has no sections: a workstation work-only
+// override of the same skill is ignored (#732).
+func TestResolveProjectFullBeatsWorkstationWork(t *testing.T) {
+	c := Config{ProjectID: "p", Skills: []Skill{{ID: "clarify", Content: "project whole", Custom: true}}}
+	got := Resolve(c, Settings{Skills: map[string]SkillOverride{"clarify": {Kind: models.SkillOverrideWork, Content: "## Steps\nAsk."}}})
+	if got.Skills[0].Content != "project whole" || got.Skills[0].WorkstationWork != "" || !got.Skills[0].Custom {
+		t.Fatalf("the project's full replacement lost: %+v", got.Skills[0])
+	}
+}
+
+// A workstation full replacement still wins wholesale, over a project's work
+// override too, which the agent then does not recompose (#732).
+func TestResolveWorkstationFullStillWins(t *testing.T) {
+	c := Config{ProjectID: "p", Skills: []Skill{{ID: "clarify", Content: "composite", Custom: true, OverrideKind: models.SkillOverrideWork, WorkContent: "## Goal\nProject goal."}}}
+	got := Resolve(c, Settings{Skills: map[string]SkillOverride{"clarify": {Content: "local whole"}}})
+	skill := got.Skills[0]
+	if skill.Content != "local whole" || !skill.Custom || skill.OverrideKind != models.SkillOverrideFull || skill.WorkContent != "" || skill.WorkstationWork != "" {
+		t.Fatalf("workstation full override: %+v", skill)
+	}
+	if c.Skills[0].OverrideKind != models.SkillOverrideWork {
+		t.Fatal("the contract was mutated")
 	}
 }

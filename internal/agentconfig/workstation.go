@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strings"
 	"tasks/internal/models"
+	"tasks/internal/skills"
 )
 
 // SettingsLayout is the layout WriteSettings emits. A file without a layout
@@ -329,22 +330,57 @@ func resolve(c Config, s Settings, engine Engine) Config {
 		}
 		if id == "adjust" {
 			for _, legacy := range []string{"review"} {
-				if strings.TrimSpace(s.Skills[id]) == "" && strings.TrimSpace(s.Skills[legacy]) != "" {
+				if strings.TrimSpace(s.Skills[id].Content) == "" && strings.TrimSpace(s.Skills[legacy].Content) != "" {
 					c.Skills[i].RequiresReconciliation = true
 				}
 			}
 		}
-		if content, ok := s.Skills[id]; ok {
+		override, ok := s.Skills[id]
+		if ok && override.Kind == models.SkillOverrideFull {
+			content := override.Content
 			if id == "adjust" {
 				content += "\n" + c.Skills[i].Content
 			}
 			c.Skills[i].Content = content
 			c.Skills[i].CommandContent = content + "\n\n## Ticket\n$ARGUMENTS\n"
-			// A workstation override is this workstation's custom skill.
+			// A workstation override is this workstation's custom skill. A
+			// full one wins wholesale, so the agent composes nothing over it.
+			c.Skills[i].Custom = true
+			c.Skills[i].OverrideKind, c.Skills[i].WorkContent = models.SkillOverrideFull, ""
+		} else if ok && ValidateSkillOverride(id, override) == nil && !(c.Skills[i].Custom && c.Skills[i].OverrideKind == models.SkillOverrideFull) {
+			// A work-only override fills the sections the project left
+			// built-in; the agent composes it at launch, so Content stays the
+			// server's. A project's full replacement has no sections, and wins.
+			c.Skills[i].WorkstationWork = override.Content
 			c.Skills[i].Custom = true
 		}
 	}
+	markComposedSkillsCustom(c.Skills)
 	return c
+}
+
+// markComposedSkillsCustom marks pickup and pickup_issues custom when a stage
+// they inline carries this workstation's work-only override, so a launch runs
+// the composite that inlines it rather than the installed skill (#732). Like
+// the server's composed pickup, it is a work kind without work of its own; a
+// full replacement of pickup is left as it is, and wins.
+func markComposedSkillsCustom(list []Skill) {
+	overridden := map[string]bool{}
+	for _, skill := range list {
+		if skill.WorkstationWork != "" {
+			overridden[models.NormalizeSkillID(skill.ID)] = true
+		}
+	}
+	for i := range list {
+		if list[i].Custom && list[i].OverrideKind == models.SkillOverrideFull && list[i].WorkstationWork == "" {
+			continue
+		}
+		for _, id := range skills.ComposedStageIDs(list[i].ID) {
+			if overridden[id] {
+				list[i].Custom, list[i].OverrideKind = true, models.SkillOverrideWork
+			}
+		}
+	}
 }
 
 // withCatalogueProviders extends the configured setup providers with the
@@ -461,6 +497,38 @@ func ValidateDefaults(d Defaults) error {
 	case "", SkillSourceDirect, SkillSourcePlugin:
 	default:
 		return fmt.Errorf("installedSkillSource must be %s or %s", SkillSourceDirect, SkillSourcePlugin)
+	}
+	return nil
+}
+
+// ValidateSkillOverrides checks the workstation's skill overrides (#732). The
+// skills live beside the defaults rather than in them, and settings.json is
+// their only editor, so Resolve also applies a work-only override only when
+// it passes.
+func ValidateSkillOverrides(overrides map[string]SkillOverride) error {
+	for id, override := range overrides {
+		if err := ValidateSkillOverride(id, override); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// ValidateSkillOverride checks one skill override: a known kind and, for a
+// work-only override, a skill that takes one and well-formed work sections.
+func ValidateSkillOverride(id string, override SkillOverride) error {
+	if !models.ValidSkillOverrideKind(override.Kind) {
+		return fmt.Errorf("skill %q: unknown override kind %q, use %q or a plain string", id, override.Kind, models.SkillOverrideWork)
+	}
+	if override.Kind != models.SkillOverrideWork {
+		return nil
+	}
+	stage, ok := skills.StageSkillByID(id)
+	if !ok {
+		return fmt.Errorf("skill %q: unknown skill for a work-only override", id)
+	}
+	if _, err := skills.ParseWorkSections(stage, override.Content); err != nil {
+		return fmt.Errorf("skill %q: %w", id, err)
 	}
 	return nil
 }

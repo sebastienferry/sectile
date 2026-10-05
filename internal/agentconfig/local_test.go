@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"tasks/internal/models"
 	"tasks/internal/testhome"
 	"testing"
 )
@@ -153,7 +154,7 @@ func TestAdjustmentScaffoldPreservesLegacyEdits(t *testing.T) {
 	if string(raw) != "personal legacy edits" {
 		t.Fatal("legacy edits overwritten")
 	}
-	c = Resolve(c, Settings{Skills: map[string]string{"review": "old review"}})
+	c = Resolve(c, Settings{Skills: map[string]SkillOverride{"review": {Content: "old review"}}})
 	if !c.Skills[0].RequiresReconciliation {
 		t.Fatal("legacy local override not flagged")
 	}
@@ -199,7 +200,7 @@ func TestScaffoldInstallsSeparatePRSkills(t *testing.T) {
 			t.Fatalf("%s: %s %v", skill.ID, raw, err)
 		}
 	}
-	got := Resolve(c, Settings{Skills: map[string]string{"create_pr": "Custom creation"}})
+	got := Resolve(c, Settings{Skills: map[string]SkillOverride{"create_pr": {Content: "Custom creation"}}})
 	if got.Skills[0].RequiresReconciliation || got.Skills[0].Content != c.Skills[0].Content {
 		t.Fatal("creation override changed Adjust")
 	}
@@ -232,5 +233,19 @@ func TestScaffoldInstallsTheGenericSkill(t *testing.T) {
 	raw, _ = os.ReadFile(installed(t, home, "claude", "specify-issue/SKILL.md"))
 	if string(raw) != "Spec Kit command" {
 		t.Fatalf("a server without generic content installs %q", raw)
+	}
+}
+
+// The overlay merges skill overrides key by key: one the top level states with
+// content wins, kind and all; a blank one keeps the base's (#732).
+func TestOverlayMergesSkillOverrides(t *testing.T) {
+	base := Settings{Skills: map[string]SkillOverride{"clarify": {Content: "legacy"}, "implement": {Content: "legacy"}, "specify": {Content: "legacy"}}}
+	top := Settings{Skills: map[string]SkillOverride{
+		"clarify":   {Kind: models.SkillOverrideWork, Content: "## Steps\nAsk."},
+		"implement": {Kind: models.SkillOverrideWork, Content: " "},
+	}}
+	got := overlay(base, top).Skills
+	if got["clarify"] != top.Skills["clarify"] || got["implement"] != base.Skills["implement"] || got["specify"] != base.Skills["specify"] {
+		t.Fatalf("overlay: %+v", got)
 	}
 }

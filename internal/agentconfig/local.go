@@ -35,9 +35,10 @@ type Settings struct {
 	Repositories         map[string]string        `json:"repositories,omitempty"`
 	DisconnectedProjects map[string]bool          `json:"disconnectedProjects,omitempty"`
 	MCPConnections       map[string]MCPConnection `json:"mcpConnections,omitempty"`
-	// Skills overrides a skill's content, by skill ID.
-	Skills map[string]string `json:"skills,omitempty"`
-	Seeded Seeded            `json:"seeded"`
+	// Skills overrides a skill, by skill ID: its whole content, or only its
+	// work sections (#732).
+	Skills map[string]SkillOverride `json:"skills,omitempty"`
+	Seeded Seeded                   `json:"seeded"`
 	// Engines is the engine catalogue and the choices pointing into it (#510).
 	Engines Engines `json:"engines"`
 }
@@ -162,7 +163,7 @@ func overlay(base, top Settings) Settings {
 		})
 	}
 	out.Repositories = mergeStrings(base.Repositories, top.Repositories)
-	out.Skills = mergeStrings(base.Skills, top.Skills)
+	out.Skills = mergeSkillOverrides(base.Skills, top.Skills)
 	return out
 }
 
@@ -236,6 +237,24 @@ func mergeStrings(base, top map[string]string) map[string]string {
 	return out
 }
 
+// mergeSkillOverrides merges skill overrides as mergeStrings merges strings:
+// an override top states with content wins, kind and all.
+func mergeSkillOverrides(base, top map[string]SkillOverride) map[string]SkillOverride {
+	if len(base) == 0 && len(top) == 0 {
+		return nil
+	}
+	out := make(map[string]SkillOverride, len(base)+len(top))
+	for key, value := range base {
+		out[key] = value
+	}
+	for key, value := range top {
+		if strings.TrimSpace(value.Content) != "" || out[key].Content == "" {
+			out[key] = value
+		}
+	}
+	return out
+}
+
 // readLegacyRepositoryFile reads a checkout's .taskflow/agent.json, the path
 // that preceded ~/.config/sectile/settings.json. It is read only, as a
 // fallback, and never written.
@@ -252,8 +271,8 @@ func readLegacyRepositoryFile(root string) (Settings, error) {
 		return Settings{}, err
 	}
 	var current struct {
-		Skills       map[string]string `json:"skills"`
-		Repositories map[string]string `json:"repositories"`
+		Skills       map[string]SkillOverride `json:"skills"`
+		Repositories map[string]string        `json:"repositories"`
 	}
 	if err := json.Unmarshal(raw, &current); err != nil {
 		return Settings{}, err

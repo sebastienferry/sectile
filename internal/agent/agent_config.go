@@ -19,6 +19,7 @@ import (
 	"tasks/internal/agentconfig"
 	"tasks/internal/models"
 	"tasks/internal/runner"
+	"tasks/internal/skills"
 )
 
 // contractPrefix is the path every versioned agent route shares. A server that
@@ -844,12 +845,13 @@ func dispatchPrompt(config agentconfig.Config, taskKey, skillID, action, prompt 
 		return "Sectile task: " + taskKey + "\n\n" + prompt, contexts, nil
 	}
 	skillCmd := ""
+	overridden := false
 	for _, skill := range config.Skills {
 		if skillID == skill.ID || skillID == skill.Directory || action == skill.ID {
 			if skill.RequiresReconciliation {
 				return "", nil, fmt.Errorf("legacy customization requires reconciliation in Skills before adjustment")
 			}
-			skillCmd = skill.Command
+			skillCmd, overridden = skill.Command, skill.CommandOverridden
 			break
 		}
 	}
@@ -879,6 +881,15 @@ func dispatchPrompt(config agentconfig.Config, taskKey, skillID, action, prompt 
 		contexts = append([]agentCommandContext{launch}, contexts[1:]...)
 	} else if strings.TrimSpace(prompt) != "" {
 		promptArg += "\n\n" + prompt
+	}
+	// A foreign command (skillCommands) replaces the whole skill: the prompt
+	// carries the Sectile stage contract, so the card still advances (#732).
+	if overridden && (choice == nil || choice.Kind == skillKindCommand) {
+		if stage, ok := skills.StageSkillByID(models.NormalizeSkillID(skillID)); ok {
+			if c := skills.StageLaunchContract(stage); c != "" {
+				promptArg += "\n\n" + c
+			}
+		}
 	}
 	if skillID == "adjust" {
 		promptArg += "\n\n" + runner.AdjustmentContract
