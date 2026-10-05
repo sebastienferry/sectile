@@ -128,6 +128,7 @@ func overlay(base, top Settings) Settings {
 		// No legacy layout knows the skill settings: the current file states them.
 		CustomSkillsWin:      top.Defaults.CustomSkillsWin,
 		InstalledSkillSource: top.Defaults.InstalledSkillSource,
+		ConsoleView:          firstSet(top.Defaults.ConsoleView, base.Defaults.ConsoleView),
 	}
 	if out.Defaults.SkillCommands == nil {
 		out.Defaults.SkillCommands = base.Defaults.SkillCommands

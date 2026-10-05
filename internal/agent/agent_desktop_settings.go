@@ -318,6 +318,8 @@ func (d *agentDaemon) desktopWorkstation(w http.ResponseWriter, r *http.Request)
 			if input.InitializationProvider == "" {
 				input.InitializationProvider = settings.Defaults.InitializationProvider
 			}
+			// The console view has its own endpoint: this form never carries it.
+			input.ConsoleView = settings.Defaults.ConsoleView
 			settings.Defaults = input
 			return nil
 		})

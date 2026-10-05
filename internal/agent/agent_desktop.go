@@ -170,7 +170,7 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 		// contractError separates a server that is merely unreachable from one
 		// that cannot be talked to at all. Without it the desktop reports both
 		// as a disconnection and the user has no reason to look at the build.
-		capabilities := []string{"git-diff", markdownDocumentsCapability, "create-task", "remove-project", "free-console", "transition-stage", "repositories", attachedFoldersCapability, "git-init", taskEnginesCapability, openEditorCapability, "claude-conversation", conversationControlsCapability, conversationQueueCapability, runFoldersCapability, runFoldersTerminalsCapability}
+		capabilities := []string{"git-diff", markdownDocumentsCapability, "create-task", "remove-project", "free-console", "transition-stage", "repositories", attachedFoldersCapability, "git-init", taskEnginesCapability, openEditorCapability, "claude-conversation", conversationControlsCapability, conversationQueueCapability, runFoldersCapability, runFoldersTerminalsCapability, consoleViewCapability}
 		if d.store != nil {
 			capabilities = append(capabilities, runStoreCapability)
 		}
@@ -241,6 +241,10 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	if r.URL.Path == "/desktop/engines" {
 		d.desktopEngines(w, r)
+		return
+	}
+	if r.URL.Path == "/desktop/console-view" {
+		d.desktopConsoleView(w, r)
 		return
 	}
 	if r.URL.Path == "/desktop/task-engines" {
@@ -939,10 +943,11 @@ func (d *agentDaemon) desktopTasks(w http.ResponseWriter, r *http.Request) {
 		// Force asks the server to skip its duplicate-launch refusal. As with
 		// Mode, the agent does not interpret it, it passes it on.
 		Force bool
-		// View "conversation" asks for an interactive launch in Claude's
-		// structured view. The server never sees it: the agent keeps it until
-		// the dispatch comes back. An engine it cannot honour, or an
-		// autonomous launch, gets what it would have had without it.
+		// View "conversation" explicitly asks for an interactive launch in
+		// Claude's structured view. The server never sees it: the agent keeps
+		// it until the dispatch comes back. Without it, the dispatch follows
+		// the workstation console view (#711). An engine it cannot honour, or
+		// an autonomous launch, gets what it would have had without it.
 		View string
 	}
 	if json.NewDecoder(http.MaxBytesReader(w, r.Body, 8192)).Decode(&input) != nil || input.TaskID == "" {

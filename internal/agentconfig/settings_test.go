@@ -294,3 +294,37 @@ func TestSkillSourceSettingsRoundTrip(t *testing.T) {
 		t.Fatalf("absent settings were written: %s", raw)
 	}
 }
+
+// The workstation console view (#711) survives a save, a file written before
+// it reads as the terminal, and a legacy repository file does not erase it.
+func TestConsoleViewSettingsRoundTrip(t *testing.T) {
+	testhome.Temp(t)
+	root := t.TempDir()
+	settings, err := ReadSettings(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if settings.Defaults.ConsoleView != "" || settings.Defaults.ConsoleViewOrDefault() != ConsoleViewTerminal {
+		t.Fatalf("a fresh file must read as the terminal: %+v", settings.Defaults)
+	}
+	settings.Defaults.ConsoleView = ConsoleViewConversation
+	if err := WriteSettings(settings); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := ReadSettings(root); err != nil || got.Defaults.ConsoleViewOrDefault() != ConsoleViewConversation {
+		t.Fatalf("console view lost: %+v %v", got.Defaults, err)
+	}
+	merged := overlay(Settings{Defaults: Defaults{EditorCommand: "vim"}}, settings)
+	if merged.Defaults.ConsoleView != ConsoleViewConversation || merged.Defaults.EditorCommand != "vim" {
+		t.Fatalf("overlay = %+v", merged.Defaults)
+	}
+	settings.Defaults.ConsoleView = ""
+	if err := WriteSettings(settings); err != nil {
+		t.Fatal(err)
+	}
+	path, _ := SettingsPath()
+	raw, _ := os.ReadFile(path)
+	if strings.Contains(string(raw), "consoleView") {
+		t.Fatalf("an absent console view was written: %s", raw)
+	}
+}
