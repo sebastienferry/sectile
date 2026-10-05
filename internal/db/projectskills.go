@@ -169,13 +169,7 @@ func (d *DB) EffectiveProjectSkills(projectIDOrPath, specFramework string) []ski
 		}
 	}
 	for i := range out {
-		// Clarification only hears about pull requests when it opens one (#580).
-		if out[i].ID == "clarify" && timing != models.PRCreationClarified {
-			continue
-		}
-		if skills.HasPullRequestPolicy(out[i].ID) {
-			out[i].Content += skills.ProjectPullRequestPolicy(timing)
-		}
+		out[i].Content += skills.ProjectSkillPolicy(out[i].ID, timing)
 	}
 
 	return out
