@@ -1,0 +1,3 @@
+- The invocation text: the full ticket key, then the stage to record (`clarified`, `specified`, `implemented`, `reviewed` or `finished`). A command that substitutes its arguments gives them under `## Ticket` below; otherwise take them from the text the skill was invoked with. When either is missing or ambiguous, ask the user for it before doing anything else.
+- The task, with `get_task`, and its project, with `get_project_context`: the current stage, the assigned branch, the recorded pull requests and the repositories the task changed.
+- The task's worktree when there is one: its actual branch (`git branch --show-current`) and whether its commits are pushed.

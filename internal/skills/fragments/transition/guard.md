@@ -1,0 +1,5 @@
+- Do not call `start_run`, `finish_run` or `report_waiting`: a hand transition is not a run.
+- Do not forge, guess or borrow evidence: no pull request from an unrelated branch, no branch other than the actual one, no `noRepositoryChange` for a task that changed a repository.
+- Do not call `transition_stage` before the user confirmed the evidence shown, and never record more than one stage per invocation.
+- Do not edit labels in the remote tracker: recording the stage is the transition.
+- Do not do the stage's work, merge, or delete anything remote.

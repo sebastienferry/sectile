@@ -67,6 +67,9 @@ func BuiltinWorkSections(s StageSkill, specFramework string) WorkSections {
 	if isPickup(s.ID) {
 		w.Steps = renderPickupSteps(specFramework, s.ID == "pickup_issues", nil)
 	}
+	if s.HandTransition {
+		w.Steps = handTransitionSteps(s)
+	}
 	return w
 }
 
@@ -314,6 +317,9 @@ func renderDirectComposed(s StageSkill, workstation SkillOverrides, projects []P
 	}
 	if isPickup(s.ID) {
 		work.Steps = renderGenericPickupSteps(s.ID == "pickup_issues", workstation, projects)
+	}
+	if s.HandTransition {
+		work.Steps = handTransitionSteps(s)
 	}
 	content := assembleSkill(s, name, work, taskAccessFallback)
 	if HasPullRequestPolicy(s.ID) {

@@ -256,9 +256,9 @@ func TestDirectSkillWithoutOverridesIsUnchanged(t *testing.T) {
 func TestStageLaunchContractCarriesTheExitCondition(t *testing.T) {
 	for _, s := range skills.StageSkills {
 		contract := skills.StageLaunchContract(s)
-		if s.Scope == "macro" {
+		if s.Scope == "macro" || s.HandTransition {
 			if contract != "" {
-				t.Errorf("%s: a macro skill got a stage contract", s.ID)
+				t.Errorf("%s: a macro skill or a hand transition got a stage contract", s.ID)
 			}
 			continue
 		}

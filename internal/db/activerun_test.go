@@ -125,7 +125,8 @@ func TestActiveRunSkillsCoverTheCatalog(t *testing.T) {
 		known[id] = true
 	}
 	for _, s := range skills.StageSkills {
-		if !known[s.ID] {
+		// A hand transition never starts a run (#732).
+		if !known[s.ID] && !s.HandTransition {
 			t.Errorf("catalog skill %q is missing from activeRunSkillIDs and from the index", s.ID)
 		}
 	}
