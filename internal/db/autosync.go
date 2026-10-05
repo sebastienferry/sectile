@@ -16,16 +16,16 @@ import (
 
 // The background synchronisation loop.
 //
-// Reading a whole project costs one request per hundred work items: fourteen
-// for a project of fourteen hundred. Repeating that every minute is both
+// Reading a whole tracker costs one request per hundred work items: fourteen
+// for a tracker of fourteen hundred. Repeating that every minute is both
 // pointless and rude to the instance. The loop therefore queues one single
-// synchronisation per project, bounded on the update date — `updated >= -Nm` in
-// JQL, `since` on GitHub — which brings back only what the tracker has touched
-// since the previous pass. A tracker that cannot narrow a search is asked for
+// synchronisation per tracker (#741), however many projects select it, bounded
+// on the update date — `updated >= -Nm` in JQL, `since` on GitHub — which
+// brings back only what the tracker has touched since the previous pass. A tracker that cannot narrow a search is asked for
 // all of it, which is still one request per hundred work items where the unit
 // re-read it replaces cost one per work item.
 //
-// Three guards complete it: one pass at a time per project, a step back when
+// Three guards complete it: one pass at a time per tracker, a step back when
 // the instance answers that it has had enough (429), and a spaced full pass
 // that catches what a read by update date cannot see, namely a work item that
 // left the perimeter.
@@ -62,6 +62,20 @@ type AutoSyncState struct {
 	Imported int `json:"imported"`
 	// BackoffUntil is set when the tracker asked to be left alone.
 	BackoffUntil string `json:"backoffUntil,omitempty"`
+	// Trackers is the pacing of each tracker the loop reads (#741), or of the
+	// trackers of one project when the status is asked for it.
+	Trackers []TrackerAutoSyncState `json:"trackers"`
+}
+
+// TrackerAutoSyncState is what the loop knows of one tracker.
+type TrackerAutoSyncState struct {
+	TrackerID      string `json:"trackerId"`
+	Name           string `json:"name"`
+	Provider       string `json:"provider"`
+	Enabled        bool   `json:"enabled"`
+	IntervalMin    int    `json:"intervalMin"`
+	LastPassAt     string `json:"lastPassAt,omitempty"`
+	LastFullSyncAt string `json:"lastFullSyncAt,omitempty"`
 }
 
 // autoSync is what stays in the process: whether this process is in the middle
@@ -73,7 +87,7 @@ type autoSync struct {
 	running bool
 }
 
-// autoSyncPacing is when a project was last claimed by a pass, and when it was
+// autoSyncPacing is when a tracker was last claimed by a pass, and when it was
 // last read in full. A zero time means never.
 type autoSyncPacing struct {
 	lastPass time.Time
@@ -96,14 +110,14 @@ func (d *DB) StartAutoSync() {
 		for {
 			time.Sleep(30 * time.Second)
 
-			projects, err := d.GetProjects()
+			trackers, err := d.autoSyncTrackers()
 			if err != nil {
 				continue
 			}
 
 			hasActiveAutoSync := false
-			for _, p := range projects {
-				if p.AutoSyncEnabled {
+			for _, t := range trackers {
+				if t.AutoSyncEnabled {
 					hasActiveAutoSync = true
 					break
 				}
@@ -175,8 +189,8 @@ func (d *DB) setAutoSyncRunning(running bool) {
 	d.auto.mu.Unlock()
 }
 
-// runAutoSyncPass queues one synchronisation per project that opted in, bounded
-// on what the tracker has touched since the previous pass.
+// runAutoSyncPass queues one synchronisation per tracker that opted in, bounded
+// on what the tracker has touched since the previous pass (#741).
 func (d *DB) runAutoSyncPass(settings *models.Settings) {
 	defer func() {
 		d.setAutoSyncRunning(false)
@@ -185,7 +199,7 @@ func (d *DB) runAutoSyncPass(settings *models.Settings) {
 		}
 	}()
 
-	projects, err := d.GetProjects()
+	trackers, err := d.autoSyncTrackers()
 	if err != nil {
 		d.recordAutoSyncError(err)
 		return
@@ -194,44 +208,44 @@ func (d *DB) runAutoSyncPass(settings *models.Settings) {
 	queued := 0
 	var failures []string
 
-	for _, proj := range projects {
-		if !proj.AutoSyncEnabled {
+	for _, trk := range trackers {
+		if !trk.AutoSyncEnabled {
 			continue
 		}
 
-		ts, tsErr := d.TrackerForProject(&proj)
+		ts, tsErr := d.TrackerFor(trk)
 		if tsErr != nil || ts == nil || ts.Name() == "local" || !ts.Supports(tracker.CapSync) {
 			continue
 		}
 
 		// The claim is what makes one pass, among the instances sharing the
-		// database, the one that queues this project. It also dates the pass,
+		// database, the one that queues this tracker. It also dates the pass,
 		// and returns the pacing as it stood before, which is what the window
 		// is computed from.
-		intervalMin := models.NormalizeAutoSyncIntervalMin(proj.AutoSyncIntervalMin)
+		intervalMin := models.NormalizeAutoSyncIntervalMin(trk.AutoSyncIntervalMin)
 		now := time.Now().UTC()
-		pacing, claimed, claimErr := d.claimAutoSyncPass(proj.ID, time.Duration(intervalMin)*time.Minute, now)
+		pacing, claimed, claimErr := d.claimAutoSyncPass(trk.ID, time.Duration(intervalMin)*time.Minute, now)
 		if claimErr != nil {
-			failures = append(failures, fmt.Sprintf("%s: %v", proj.Name, claimErr))
+			failures = append(failures, fmt.Sprintf("%s: %v", trk.Name, claimErr))
 			continue
 		}
 		if !claimed {
 			continue
 		}
 
-		// A tracker that cannot narrow a search reads the whole project, and
-		// that read counts as the full pass it is.
+		// A tracker that cannot narrow a search is read whole, and that read
+		// counts as the full pass it is.
 		window := 0
 		if ts.Supports(tracker.CapIncrementalSync) {
 			window = autoSyncWindowFrom(pacing, now)
 		}
 
 		// Nobody asked for this pass, and it reads with the server credential
-		// of the project's provider, as every synchronisation does (#464). It
+		// of the tracker's provider, as every synchronisation does (#464). It
 		// used to borrow the owner's personal token, which failed the day that
 		// token was locked, missing, or its owner gone.
-		if _, syncErr := d.EnqueueSyncWith("", ts.Name(), "", proj.ID, SyncOptions{WindowMin: window, Background: true}); syncErr != nil {
-			failures = append(failures, fmt.Sprintf("%s: %v", proj.Name, syncErr))
+		if _, syncErr := d.EnqueueTrackerSyncWith("", trk.ID, SyncOptions{WindowMin: window, Background: true}); syncErr != nil {
+			failures = append(failures, fmt.Sprintf("%s: %v", trk.Name, syncErr))
 			continue
 		}
 		queued++
@@ -242,24 +256,24 @@ func (d *DB) runAutoSyncPass(settings *models.Settings) {
 	}
 
 	if queued > 0 {
-		log.Printf("[autosync] %d synchronisation(s) de projet en file d'attente", queued)
+		log.Printf("[autosync] %d synchronisation(s) de tracker en file d'attente", queued)
 	}
 }
 
-// claimAutoSyncPass claims a project for this pass when it is due, and reports
+// claimAutoSyncPass claims a tracker for this pass when it is due, and reports
 // whether it did along with the pacing read before the claim.
 //
 // The claim is one conditional UPDATE: it dates the pass only if nobody dated
 // one within the interval. Two instances claiming at the same moment both read
 // the same pacing, and exactly one of them sees its UPDATE touch the row.
-func (d *DB) claimAutoSyncPass(projectID string, interval time.Duration, now time.Time) (autoSyncPacing, bool, error) {
+func (d *DB) claimAutoSyncPass(trackerID string, interval time.Duration, now time.Time) (autoSyncPacing, bool, error) {
 	var pacing autoSyncPacing
-	if _, err := d.conn.Exec(`INSERT INTO auto_sync_projects (project_id) VALUES (?) ON CONFLICT DO NOTHING`, projectID); err != nil {
-		return pacing, false, fmt.Errorf("pacing of project %s: %w", projectID, err)
+	if _, err := d.conn.Exec(`INSERT INTO auto_sync_trackers (tracker_id) VALUES (?) ON CONFLICT DO NOTHING`, trackerID); err != nil {
+		return pacing, false, fmt.Errorf("pacing of tracker %s: %w", trackerID, err)
 	}
 	var lastPass, lastFull sql.NullTime
-	if err := d.conn.QueryRow(`SELECT last_pass_at, last_full_sync_at FROM auto_sync_projects WHERE project_id = ?`, projectID).Scan(&lastPass, &lastFull); err != nil {
-		return pacing, false, fmt.Errorf("pacing of project %s: %w", projectID, err)
+	if err := d.conn.QueryRow(`SELECT last_pass_at, last_full_sync_at FROM auto_sync_trackers WHERE tracker_id = ?`, trackerID).Scan(&lastPass, &lastFull); err != nil {
+		return pacing, false, fmt.Errorf("pacing of tracker %s: %w", trackerID, err)
 	}
 	if lastPass.Valid {
 		pacing.lastPass = lastPass.Time
@@ -267,11 +281,11 @@ func (d *DB) claimAutoSyncPass(projectID string, interval time.Duration, now tim
 	if lastFull.Valid {
 		pacing.lastFull = lastFull.Time
 	}
-	result, err := d.conn.Exec(`UPDATE auto_sync_projects SET last_pass_at = ?
-		WHERE project_id = ? AND (last_pass_at IS NULL OR last_pass_at < ?)`,
-		now, projectID, now.Add(-interval))
+	result, err := d.conn.Exec(`UPDATE auto_sync_trackers SET last_pass_at = ?
+		WHERE tracker_id = ? AND (last_pass_at IS NULL OR last_pass_at < ?)`,
+		now, trackerID, now.Add(-interval))
 	if err != nil {
-		return pacing, false, fmt.Errorf("claiming project %s: %w", projectID, err)
+		return pacing, false, fmt.Errorf("claiming tracker %s: %w", trackerID, err)
 	}
 	touched, _ := result.RowsAffected()
 	return pacing, touched == 1, nil
@@ -283,9 +297,9 @@ func (d *DB) claimAutoSyncPass(projectID string, interval time.Duration, now tim
 //
 // A full pass that failed is not one: dating it would narrow every pass that
 // follows for half an hour, on a project whose copy the failure just left
-// incomplete. It stays undated, so the loop keeps asking for the whole project
+// incomplete. It stays undated, so the loop keeps asking for the whole tracker
 // until one read comes back.
-func (d *DB) recordAutoSyncPass(projectID string, window int, imported int, failed bool, message string) {
+func (d *DB) recordAutoSyncPass(trackerID string, window int, imported int, failed bool, message string) {
 	lastError := ""
 	if failed {
 		lastError = message
@@ -294,17 +308,17 @@ func (d *DB) recordAutoSyncPass(projectID string, window int, imported int, fail
 		imported, imported, lastError); err != nil {
 		log.Printf("[autosync] résultat de la passe non enregistré: %v", err)
 	}
-	if failed || window != 0 || projectID == "" {
+	if failed || window != 0 || trackerID == "" {
 		return
 	}
-	if _, err := d.conn.Exec(`INSERT INTO auto_sync_projects (project_id, last_full_sync_at) VALUES (?, ?)
-		ON CONFLICT (project_id) DO UPDATE SET last_full_sync_at = excluded.last_full_sync_at`,
-		projectID, time.Now().UTC()); err != nil {
-		log.Printf("[autosync] lecture complète de %s non datée: %v", projectID, err)
+	if _, err := d.conn.Exec(`INSERT INTO auto_sync_trackers (tracker_id, last_full_sync_at) VALUES (?, ?)
+		ON CONFLICT (tracker_id) DO UPDATE SET last_full_sync_at = excluded.last_full_sync_at`,
+		trackerID, time.Now().UTC()); err != nil {
+		log.Printf("[autosync] lecture complète de %s non datée: %v", trackerID, err)
 	}
 }
 
-// autoSyncWindowFrom returns the number of minutes to read back for a project:
+// autoSyncWindowFrom returns the number of minutes to read back for a tracker:
 // zero for a full pass, which happens on the first pass and at a slow cadence
 // afterwards.
 func autoSyncWindowFrom(p autoSyncPacing, now time.Time) int {
@@ -362,6 +376,12 @@ func (d *DB) recordAutoSyncError(err error) {
 
 // AutoSyncStatus reports what the loop has been doing, for the interface.
 func (d *DB) AutoSyncStatus() AutoSyncState {
+	return d.AutoSyncStatusFor("")
+}
+
+// AutoSyncStatusFor is AutoSyncStatus with the pacing of the trackers of one
+// project, or of every tracker the loop reads when projectID is empty (#741).
+func (d *DB) AutoSyncStatusFor(projectID string) AutoSyncState {
 	settings, _ := d.GetSettings()
 	state := AutoSyncState{IntervalSec: 60}
 	if settings != nil {
@@ -376,6 +396,8 @@ func (d *DB) AutoSyncStatus() AutoSyncState {
 		d.auto.mu.Unlock()
 	}
 
+	state.Trackers = d.trackerAutoSyncStates(projectID)
+
 	var lastRun, backoff sql.NullTime
 	if err := d.conn.QueryRow(`SELECT last_run_at, last_error, last_imported, passes, imported, backoff_until FROM auto_sync_state WHERE id = 1`).
 		Scan(&lastRun, &state.LastError, &state.LastImported, &state.Passes, &state.Imported, &backoff); err != nil {
@@ -388,4 +410,38 @@ func (d *DB) AutoSyncStatus() AutoSyncState {
 		state.BackoffUntil = backoff.Time.Format(time.RFC3339)
 	}
 	return state
+}
+
+// autoSyncTrackers lists the trackers the loop may read: those a project
+// selects, local boards excepted (#741).
+func (d *DB) autoSyncTrackers() ([]*models.Tracker, error) {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return d.syncedTrackersUnsafe()
+}
+
+// trackerAutoSyncStates reads the pacing of the trackers of one project, or of
+// every tracker the loop reads.
+func (d *DB) trackerAutoSyncStates(projectID string) []TrackerAutoSyncState {
+	var trackers []*models.Tracker
+	if strings.TrimSpace(projectID) != "" {
+		trackers, _ = d.ProjectTrackers(projectID)
+	} else {
+		trackers, _ = d.autoSyncTrackers()
+	}
+	states := []TrackerAutoSyncState{}
+	for _, t := range trackers {
+		state := TrackerAutoSyncState{TrackerID: t.ID, Name: t.Name, Provider: t.Provider, Enabled: t.AutoSyncEnabled, IntervalMin: t.AutoSyncIntervalMin}
+		var lastPass, lastFull sql.NullTime
+		if err := d.conn.QueryRow(`SELECT last_pass_at, last_full_sync_at FROM auto_sync_trackers WHERE tracker_id = ?`, t.ID).Scan(&lastPass, &lastFull); err == nil {
+			if lastPass.Valid {
+				state.LastPassAt = lastPass.Time.Format(time.RFC3339)
+			}
+			if lastFull.Valid {
+				state.LastFullSyncAt = lastFull.Time.Format(time.RFC3339)
+			}
+		}
+		states = append(states, state)
+	}
+	return states
 }

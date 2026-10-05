@@ -21,7 +21,7 @@ import (
 // Each call writes to the tracker before it answers. A tracker that does not
 // manage its sprints is a 409, any other refusal a 400 carrying its reason.
 func (h *Handler) handleProjectSprints(w http.ResponseWriter, r *http.Request, projectID string, parts []string) {
-	ctx := tracker.WithProject(h.actingContext(r), projectID)
+	ctx := tracker.WithTracker(h.actingContext(r), h.db.ProjectDefaultTracker(projectID))
 	sprintID := ""
 	if len(parts) >= 3 {
 		sprintID = parts[2]

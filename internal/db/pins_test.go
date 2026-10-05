@@ -162,15 +162,17 @@ func TestImportOrUpdateTasksPinnedSync(t *testing.T) {
 	}
 
 	// Import with 'pinned' label
-	if err := database.ImportOrUpdateTasks(syncedTasks); err != nil {
+	if err := database.ImportOrUpdateTasks("", syncedTasks); err != nil {
 		t.Fatalf("ImportOrUpdateTasks failed: %v", err)
 	}
 
 	// A synced work item takes the identity its tracker gives it, whatever the
-	// importer proposed: jira-<KEY> here, the default project being nameless.
+	// importer proposed: jira-<tracker>-<KEY>, here the default project's
+	// tracker (#741).
 	jira, _ := database.TrackerRegistry().Get("jira")
-	taskID := jira.FormatTaskID("default", "JIRA-101", "sync-task-1")
-	if taskID != "jira-JIRA-101" {
+	trackerID := defaultTrackerID(t, database, "default")
+	taskID := jira.FormatTaskID(trackerID, "JIRA-101", "sync-task-1")
+	if taskID != "jira-"+trackerID+"-JIRA-101" {
 		t.Fatalf("unexpected canonical identity %q", taskID)
 	}
 	task, err := database.GetTaskByID(taskID)
@@ -188,7 +190,7 @@ func TestImportOrUpdateTasksPinnedSync(t *testing.T) {
 
 	// Re-import without 'pinned' label
 	syncedTasks[0].Labels = []string{"backend"}
-	if err := database.ImportOrUpdateTasks(syncedTasks); err != nil {
+	if err := database.ImportOrUpdateTasks("", syncedTasks); err != nil {
 		t.Fatalf("ImportOrUpdateTasks (update) failed: %v", err)
 	}
 

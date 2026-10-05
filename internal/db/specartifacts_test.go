@@ -155,6 +155,7 @@ func TestMigrationTwentyFiveKeepsExistingProjectsArtefacts(t *testing.T) {
 			t.Fatalf("%s: %v", stmt, err)
 		}
 	}
+	undoTrackerMigration(d)
 	d.Close()
 
 	reopened, err := NewDB(path)

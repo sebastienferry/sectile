@@ -85,7 +85,7 @@ func TestMacroAddressComesFromTheTaskCarryingItsKey(t *testing.T) {
 		t.Fatal(err)
 	}
 	page := "https://jira.example/browse/PROJ-7"
-	if err := d.ImportOrUpdateTasks([]models.Task{{
+	if err := d.ImportOrUpdateTasks("", []models.Task{{
 		ProjectID: project.ID, Key: "PROJ-7", Title: "The epic", IssueType: "Epic", Source: "jira",
 		ExternalURL: &page, Status: models.StatusToClarify, Priority: models.PriorityMedium,
 	}}); err != nil {

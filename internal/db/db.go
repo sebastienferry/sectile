@@ -33,8 +33,11 @@ type SkillJob struct {
 	ActivityID string
 	TaskID     string
 	ProjectID  string
-	SkillID    string
-	Prompt     string
+	// TrackerID names the tracker a synchronisation reads (#741). Empty on a
+	// job that is not one, and on the passes of a database no adoption reached.
+	TrackerID string
+	SkillID   string
+	Prompt    string
 	// ActingUser is whoever asked for the work, carried onto the queue so a
 	// tracker credential belonging to a person can still be resolved once the
 	// request that started it is gone. Empty means nobody asked, which is what
@@ -187,9 +190,9 @@ type DB struct {
 	// copied part: the tracker copy of its todos (#663) or of its framing
 	// (#636) waiting for the saves to settle.
 	todosMirrorTimers sync.Map
-	// projectURLs caches the project fields the tracker links are built from (#486). Per DB, never a package global:
-	// tests open several DBs on one file as separate instances. See internal/db/projectcache.go.
-	projectURLs projectURLCache
+	// trackerCache caches the trackers the ticket links and the tracker clients are built from (#486, #741). Per DB,
+	// never a package global: tests open several DBs on one file as separate instances. See internal/db/projectcache.go.
+	trackerCache trackerCache
 }
 
 // NewDB opens a SQLite database at dbPath. It is the path-shaped entry point the
@@ -279,6 +282,13 @@ func openWith(cfg Config, d dialect) (*DB, error) {
 		conn.Close()
 		return nil, fmt.Errorf("failed to adopt the server tracker tokens: %w", err)
 	}
+	// Then the trackers each project held become shared sources, and the
+	// tickets two projects imported from one tracker become one (#741). The
+	// same "does nothing once done" contract, under the migration lock.
+	if err := db.adoptTrackers(); err != nil {
+		conn.Close()
+		return nil, fmt.Errorf("failed to adopt the trackers: %w", err)
+	}
 
 	// Work the previous process was running when it stopped. This is not a
 	// migration and must never become one: it runs on every start, not once.
@@ -359,12 +369,50 @@ func (d *DB) TrackerForProject(proj *models.Project) (tracker.TicketingSystem, e
 	return d.TrackerRegistry().ForProject(proj)
 }
 
+// TrackerFor returns the ticketing system of a tracker's provider (#741).
+func (d *DB) TrackerFor(t *models.Tracker) (tracker.TicketingSystem, error) {
+	return d.TrackerRegistry().ForTracker(t)
+}
+
 func (d *DB) TrackerForTask(task *models.Task) (tracker.TicketingSystem, error) {
-	var proj *models.Project
-	if task != nil && task.ProjectID != "" {
-		proj, _ = d.GetProjectByID(task.ProjectID)
+	return d.TrackerRegistry().ForTask(task, d.trackerOfTaskUnsafe(task))
+}
+
+// trackerOfTaskUnsafe is the tracker a ticket belongs to: the one it names,
+// else, for a row written before it named one, its project's default tracker.
+// Nil when neither exists.
+func (d *DB) trackerOfTaskUnsafe(task *models.Task) *models.Tracker {
+	if task == nil {
+		return nil
 	}
-	return d.TrackerRegistry().ForTask(task, proj)
+	if task.TrackerID != "" {
+		if t, err := trackerByIDOn(d.conn, task.TrackerID); err == nil && t != nil {
+			return t
+		}
+	}
+	if task.ProjectID == "" {
+		return nil
+	}
+	t, _ := d.defaultTrackerOfUnsafe(task.ProjectID)
+	return t
+}
+
+// trackerOfProjectUnsafe is the default tracker of a project: where its new
+// tickets go and what its tracker settings read through from. Nil for none.
+//
+// A project no adoption reached yet, written straight into the table, gets the
+// tracker its own fields name, with no id: its calls resolve the deployment's
+// credentials, as they did before trackers existed.
+func (d *DB) trackerOfProjectUnsafe(p *models.Project) *models.Tracker {
+	if p == nil {
+		return nil
+	}
+	if t, _ := d.defaultTrackerOfUnsafe(p.ID); t != nil {
+		return t
+	}
+	settings, _ := d.getSettingsUnsafe()
+	t := legacyTrackerOf(p, settings)
+	return &t
 }
 
 func (d *DB) initSchema() error {
@@ -975,12 +1023,32 @@ func (d *DB) SeedDemoData() error {
 	return nil
 }
 
-func (d *DB) ImportOrUpdateTasks(syncedTasks []models.Task) error {
+// ImportOrUpdateTasks writes what a synchronisation read from one tracker
+// (#741). A ticket is found by its tracker and key, or by its id, then through
+// the alias a merged-away duplicate left; the tracker's board mapping decides
+// its stage; a new one gets its id from FormatTaskID with the tracker id, and
+// the first project selecting the tracker as its project_id (the D1 shim).
+//
+// An empty trackerID takes each ticket's tracker from its project, the default
+// project when it names none: the path of the callers that import into a
+// project rather than from a tracker.
+func (d *DB) ImportOrUpdateTasks(trackerID string, syncedTasks []models.Task) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
 	now := time.Now()
 	var importErrs []string
+	trackers := map[string]*models.Tracker{}
+	shims := map[string]string{}
+	projectTrackers := map[string]string{}
+	trackerNamed := func(id string) *models.Tracker {
+		if t, ok := trackers[id]; ok {
+			return t
+		}
+		t, _ := trackerByIDOn(d.conn, id)
+		trackers[id] = t
+		return t
+	}
 	for _, t := range syncedTasks {
 		labelsJSON, _ := json.Marshal(t.Labels)
 		isPinned := HasPinnedLabel(t.Labels)
@@ -998,9 +1066,54 @@ func (d *DB) ImportOrUpdateTasks(syncedTasks []models.Task) error {
 			}
 			projID = defaultProjID
 		}
+		tid := trackerID
+		if tid == "" {
+			cached, ok := projectTrackers[projID]
+			if !ok {
+				if def, _ := d.defaultTrackerOfUnsafe(projID); def != nil {
+					cached = def.ID
+				}
+				projectTrackers[projID] = cached
+			}
+			tid = cached
+		} else {
+			shim, ok := shims[tid]
+			if !ok {
+				if linked, _ := d.trackerLinkedProjectsUnsafe(tid); len(linked) > 0 {
+					shim = linked[0]
+				}
+				shims[tid] = shim
+			}
+			if shim == "" {
+				// Part A of #741 only creates a tracker through a project, so a
+				// tracker no project selects has nowhere to put its tickets.
+				log.Printf("[DB.ImportOrUpdateTasks] tracker %s sélectionné par aucun projet : %s ignoré", tid, t.Key)
+				continue
+			}
+			projID = shim
+		}
+		trk := trackerNamed(tid)
+		var trackerValue any
+		if tid != "" {
+			trackerValue = tid
+		}
 
 		var existingID string
-		err := d.conn.QueryRow("SELECT id FROM tasks WHERE project_id = ? AND (key = ? OR id = ?)", projID, t.Key, t.ID).Scan(&existingID)
+		err := sql.ErrNoRows
+		if tid != "" {
+			err = d.conn.QueryRow("SELECT id FROM tasks WHERE tracker_id = ? AND (key = ? OR id = ?)", tid, t.Key, t.ID).Scan(&existingID)
+		}
+		if err == sql.ErrNoRows && t.ID != "" {
+			err = d.conn.QueryRow("SELECT t.id FROM task_aliases a JOIN tasks t ON t.id = a.task_id WHERE a.old_id = ?", t.ID).Scan(&existingID)
+		}
+		if err == sql.ErrNoRows {
+			// A ticket written before it named its tracker is adopted by the
+			// first import that finds it.
+			err = d.conn.QueryRow("SELECT id FROM tasks WHERE tracker_id IS NULL AND project_id = ? AND (key = ? OR id = ?)", projID, t.Key, t.ID).Scan(&existingID)
+			if err == nil && trackerValue != nil {
+				_, _ = d.conn.Exec("UPDATE tasks SET tracker_id = ? WHERE id = ?", trackerValue, existingID)
+			}
+		}
 
 		src := t.Source
 		if src == "" {
@@ -1011,8 +1124,9 @@ func (d *DB) ImportOrUpdateTasks(syncedTasks []models.Task) error {
 			}
 		}
 
-		// Calculate task.Status dynamically based on project's trackerColumns + stageColumns mapping
-		if proj, _ := d.getProjectByIDUnsafe(projID); proj != nil && len(proj.TrackerColumns) > 0 {
+		// The stage follows the tracker's own board mapping: its columns and the
+		// stage each one is assigned to.
+		if trk != nil && len(trk.TrackerColumns) > 0 {
 			stName := strings.TrimSpace(t.TrackerStatus)
 			if stName == "" && len(t.Labels) > 0 {
 				stName = t.Labels[len(t.Labels)-1]
@@ -1020,7 +1134,7 @@ func (d *DB) ImportOrUpdateTasks(syncedTasks []models.Task) error {
 			if stName != "" {
 				// Find which column contains this status
 				matchedCol := ""
-				for _, col := range proj.TrackerColumns {
+				for _, col := range trk.TrackerColumns {
 					for _, s := range col.Statuses {
 						if strings.EqualFold(strings.TrimSpace(s), stName) {
 							matchedCol = col.Name
@@ -1033,8 +1147,8 @@ func (d *DB) ImportOrUpdateTasks(syncedTasks []models.Task) error {
 				}
 
 				// If matched column found, find corresponding stage
-				if matchedCol != "" && proj.StageColumns != nil {
-					for stageID, cols := range proj.StageColumns {
+				if matchedCol != "" && trk.StageColumns != nil {
+					for stageID, cols := range trk.StageColumns {
 						for _, colName := range cols {
 							if strings.EqualFold(colName, matchedCol) {
 								t.Status = models.Status(stageID)
@@ -1050,7 +1164,7 @@ func (d *DB) ImportOrUpdateTasks(syncedTasks []models.Task) error {
 			// Insert new task
 			newID := t.ID
 			if ts, ok := d.TrackerRegistry().Get(src); ok && ts != nil {
-				newID = ts.FormatTaskID(projID, t.Key, t.ID)
+				newID = ts.FormatTaskID(tid, t.Key, t.ID)
 			} else if newID == "" {
 				newID = uuid.New().String()
 			}
@@ -1061,9 +1175,9 @@ func (d *DB) ImportOrUpdateTasks(syncedTasks []models.Task) error {
 				`, newID, t.UpdatedAt.Format(time.RFC3339))
 			}
 			if _, insErr := d.conn.Exec(`
-				INSERT INTO tasks (id, project_id, key, title, description, status, priority, labels, pinned, assignee, assignee_avatar, creator, creator_avatar, position, due_date, source, external_url, issue_type, parent_key, parent_title, parent_type, sprint, team, team_id, tracker_status, tracker_created_at, tracker_updated_at, status_changed_at, created_at, updated_at)
-				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-			`, newID, projID, t.Key, t.Title, t.Description, string(t.Status), string(t.Priority), string(labelsJSON), pinnedVal, t.Assignee, t.AssigneeAvatar, t.Creator, t.CreatorAvatar, t.Position, t.DueDate, src, t.ExternalURL, t.IssueType, t.ParentKey, t.ParentTitle, t.ParentType, t.Sprint, t.Team, t.TeamID, t.TrackerStatus, t.TrackerCreatedAt, t.TrackerUpdatedAt, t.StatusChangedAt, t.CreatedAt, now); insErr != nil {
+				INSERT INTO tasks (id, project_id, tracker_id, key, title, description, status, priority, labels, pinned, assignee, assignee_avatar, creator, creator_avatar, position, due_date, source, external_url, issue_type, parent_key, parent_title, parent_type, sprint, team, team_id, tracker_status, tracker_created_at, tracker_updated_at, status_changed_at, created_at, updated_at)
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			`, newID, projID, trackerValue, t.Key, t.Title, t.Description, string(t.Status), string(t.Priority), string(labelsJSON), pinnedVal, t.Assignee, t.AssigneeAvatar, t.Creator, t.CreatorAvatar, t.Position, t.DueDate, src, t.ExternalURL, t.IssueType, t.ParentKey, t.ParentTitle, t.ParentType, t.Sprint, t.Team, t.TeamID, t.TrackerStatus, t.TrackerCreatedAt, t.TrackerUpdatedAt, t.StatusChangedAt, t.CreatedAt, now); insErr != nil {
 				// Never swallow this: a silent failure here makes a sync report
 				// "N tickets imported" while the board stays empty.
 				log.Printf("[DB.ImportOrUpdateTasks] insert of %s failed: %v", t.Key, insErr)
@@ -1124,6 +1238,29 @@ type externalURLResolver struct {
 	d              *DB
 	settings       *models.Settings
 	settingsLoaded bool
+	// defaults memoises the default tracker of the projects whose tickets name
+	// no tracker, so a list reads each project once.
+	defaults map[string]*models.Tracker
+}
+
+// trackerOf is the tracker a ticket's link is built from: its own, else its
+// project's default one. Nil when neither can be read.
+func (r *externalURLResolver) trackerOf(t *models.Task) *models.Tracker {
+	if t.TrackerID != "" {
+		return r.d.trackerByIDUnsafe(t.TrackerID)
+	}
+	if t.ProjectID == "" {
+		return nil
+	}
+	if found, ok := r.defaults[t.ProjectID]; ok {
+		return found
+	}
+	found, _ := r.d.defaultTrackerOfUnsafe(t.ProjectID)
+	if r.defaults == nil {
+		r.defaults = map[string]*models.Tracker{}
+	}
+	r.defaults[t.ProjectID] = found
+	return found
 }
 
 func (d *DB) newExternalURLResolver() *externalURLResolver { return &externalURLResolver{d: d} }
@@ -1154,27 +1291,31 @@ func (r *externalURLResolver) resolve(t *models.Task) *string {
 		return t.ExternalURL
 	}
 	source := t.Source
-	// Only these trackers build a link from the project: a local task never reads it.
-	var proj projectURLFields
-	if t.ProjectID != "" && (source == "" || source == "github" || source == "jira" || source == "gitlab") {
-		proj, _ = r.d.projectURLFieldsUnsafe(t.ProjectID)
+	// Only these trackers build a link from the tracker: a local task never reads it.
+	var tr models.Tracker
+	if source == "" || source == "github" || source == "jira" || source == "gitlab" {
+		if found := r.trackerOf(t); found != nil {
+			tr = *found
+		}
 	}
 	if source == "" {
-		source = proj.IssueTracker
+		source = tr.Provider
+	}
+	// A tracker's site and scope only answer for its own provider.
+	site, scope := "", ""
+	if tr.Provider == source {
+		site, scope = tr.Site, tr.Scope
 	}
 	switch source {
 	case "github":
-		repo := proj.GithubRepo
-		if repo == "" && proj.GitRemoteUrl != "" {
-			repo = trackerapi.CleanGithubRepo(proj.GitRemoteUrl)
-		}
+		repo := scope
 		cleanNum := strings.TrimPrefix(strings.TrimPrefix(strings.TrimPrefix(t.Key, "GH-#"), "gh-"), "#")
 		if repo != "" {
 			u := fmt.Sprintf("https://github.com/%s/issues/%s", repo, cleanNum)
 			return &u
 		}
 	case "jira":
-		base := proj.TrackerUrl
+		base := site
 		if base == "" {
 			if s := r.settingsOnce(); s != nil && s.JiraUrl != "" {
 				base = s.JiraUrl
@@ -1187,7 +1328,7 @@ func (r *externalURLResolver) resolve(t *models.Task) *string {
 	case "gitlab":
 		// The adapter records the issue's web_url; this only answers for a task
 		// imported without one.
-		apiURL, projectPath := proj.GitlabUrl, proj.GitlabProject
+		apiURL, projectPath := site, scope
 		if s := r.settingsOnce(); s != nil {
 			apiURL, projectPath = firstNonEmpty(apiURL, s.GitlabUrl), firstNonEmpty(projectPath, s.GitlabProject)
 		}
@@ -1287,21 +1428,59 @@ type TaskScope struct {
 	Mine *MyTasks
 }
 
-// taskScopeUnsafe returns the scope as two SQL conditions over tasks: the
-// projects, and the labels a saved view asks for. They are kept apart because
-// the macros table shares the project column but carries no labels.
-func (d *DB) taskScopeUnsafe(scope TaskScope) (projectCond string, projectArgs []interface{}, labelCond string, labelArgs []interface{}, err error) {
+// taskScopeUnsafe returns the scope as SQL conditions: over tasks, the
+// trackers the projects select (#741) and the labels a saved view asks for,
+// and over macros, the projects themselves. The macro condition stays on the
+// project column until the epics move to their tracker; the labels are kept
+// apart because the macros table carries none.
+func (d *DB) taskScopeUnsafe(scope TaskScope) (taskCond string, taskArgs []interface{}, macroCond string, macroArgs []interface{}, labelCond string, labelArgs []interface{}, err error) {
 	if strings.TrimSpace(scope.ViewID) == "" {
-		projectCond, projectArgs = projectScope(scope.ProjectID, scope.UserID)
-		return projectCond, projectArgs, "", nil, nil
+		taskCond, taskArgs = trackerScopeOf(scope.ProjectID, scope.UserID)
+		macroCond, macroArgs = projectScope(scope.ProjectID, scope.UserID)
+		return taskCond, taskArgs, macroCond, macroArgs, "", nil, nil
 	}
 	view, err := d.getBoardViewUnsafe(scope.UserID, scope.ViewID)
 	if err != nil {
-		return "", nil, "", nil, err
+		return "", nil, "", nil, "", nil, err
 	}
-	projectCond, projectArgs = viewProjectScope(view.ProjectIDs)
+	taskCond, taskArgs = trackerScope(view.ProjectIDs)
+	macroCond, macroArgs = viewProjectScope(view.ProjectIDs)
 	labelCond, labelArgs = viewLabelScope(view.Labels, d.lowerASCII("labels"))
-	return projectCond, projectArgs, labelCond, labelArgs, nil
+	return taskCond, taskArgs, macroCond, macroArgs, labelCond, labelArgs, nil
+}
+
+// trackerScopeOf is trackerScope over one project, or over the projects the
+// user bookmarked ("all"), or nothing.
+func trackerScopeOf(projectID, userID string) (string, []interface{}) {
+	if projectID != "" && projectID != "all" {
+		return trackerScope([]string{projectID})
+	}
+	if strings.TrimSpace(userID) != "" {
+		return "(tracker_id IN (SELECT tracker_id FROM project_trackers WHERE project_id IN (SELECT project_id FROM user_project_bookmarks WHERE user_id = ?))" +
+				" OR (tracker_id IS NULL AND (project_id IN (SELECT project_id FROM user_project_bookmarks WHERE user_id = ?) OR project_id IN (SELECT slug FROM projects WHERE id IN (SELECT project_id FROM user_project_bookmarks WHERE user_id = ?)))))",
+			[]interface{}{userID, userID, userID}
+	}
+	return "", nil
+}
+
+// trackerScope keeps the tickets of the trackers the projects select, the
+// projects named by id or slug (#741). A ticket shared by two of them is one
+// row, so it is listed once. A ticket that names no tracker yet, written
+// before the adoption reached it, keeps its project.
+func trackerScope(projectIDs []string) (string, []interface{}) {
+	if len(projectIDs) == 0 {
+		return "1 = 0", nil
+	}
+	in := placeholders(len(projectIDs))
+	var args []interface{}
+	for range 5 {
+		for _, id := range projectIDs {
+			args = append(args, id)
+		}
+	}
+	return fmt.Sprintf("(tracker_id IN (SELECT tracker_id FROM project_trackers WHERE project_id IN (%s) OR project_id IN (SELECT id FROM projects WHERE slug IN (%s)))"+
+		" OR (tracker_id IS NULL AND (project_id IN (%s) OR project_id IN (SELECT slug FROM projects WHERE id IN (%s)) OR project_id IN (SELECT id FROM projects WHERE slug IN (%s)))))",
+		in, in, in, in, in), args
 }
 
 // lockDefaultProjectUnsafe serialises every change to which project is the
@@ -1492,11 +1671,11 @@ func (d *DB) GetTaskFacetsInScope(scope TaskScope) (*TaskFacets, error) {
 		Labels:          []TaskFacetValue{},
 	}
 
-	projectCond, projectArgs, labelCond, labelArgs, err := d.taskScopeUnsafe(scope)
+	taskCond, taskArgs, macroCond, macroArgs, labelCond, labelArgs, err := d.taskScopeUnsafe(scope)
 	if err != nil {
 		return nil, err
 	}
-	scopeCond, scopeArgs := joinScope(projectCond, projectArgs, labelCond, labelArgs)
+	scopeCond, scopeArgs := joinScope(taskCond, taskArgs, labelCond, labelArgs)
 	scopeSQL := ""
 	if scopeCond != "" {
 		scopeSQL = " AND " + scopeCond
@@ -1582,10 +1761,10 @@ func (d *DB) GetTaskFacetsInScope(scope TaskScope) (*TaskFacets, error) {
 	d.ensureMacrosTable()
 	// Scan macros table for existing macros
 	macroTableQuery := "SELECT key, title FROM macros WHERE 1=1"
-	macroArgs := []interface{}{}
-	if projectCond != "" {
-		macroTableQuery += " AND " + projectCond
-		macroArgs = append(macroArgs, projectArgs...)
+	if macroCond != "" {
+		macroTableQuery += " AND " + macroCond
+	} else {
+		macroArgs = nil
 	}
 	if rows, err := d.conn.Query(macroTableQuery, macroArgs...); err == nil {
 		for rows.Next() {
@@ -1737,11 +1916,11 @@ func (d *DB) GetTasksInScope(scope TaskScope, query, status, priority, label, sp
 	var conditions []string
 	var args []interface{}
 
-	projectCond, projectArgs, labelCond, labelArgs, err := d.taskScopeUnsafe(scope)
+	taskCond, taskArgs, _, _, labelCond, labelArgs, err := d.taskScopeUnsafe(scope)
 	if err != nil {
 		return nil, err
 	}
-	if scopeCond, scopeArgs := joinScope(projectCond, projectArgs, labelCond, labelArgs); scopeCond != "" {
+	if scopeCond, scopeArgs := joinScope(taskCond, taskArgs, labelCond, labelArgs); scopeCond != "" {
 		conditions = append(conditions, scopeCond)
 		args = append(args, scopeArgs...)
 	}
@@ -1861,7 +2040,7 @@ func (d *DB) GetTasksInScope(scope TaskScope, query, status, priority, label, sp
 		args = append(args, mineArgs...)
 	}
 
-	sqlQuery := "SELECT id, project_id, key, title, description, status, priority, labels, assignee, assignee_avatar, creator, creator_avatar, position, due_date, branch_name, pr_url, pr_links, repo_path, repository, changed_repositories, sprint, team, team_id, tracker_status, source, external_url, issue_type, parent_key, parent_title, parent_type, tracker_created_at, tracker_updated_at, status_changed_at, created_at, updated_at FROM tasks"
+	sqlQuery := "SELECT id, project_id, COALESCE(tracker_id, ''), key, title, description, status, priority, labels, assignee, assignee_avatar, creator, creator_avatar, position, due_date, branch_name, pr_url, pr_links, repo_path, repository, changed_repositories, sprint, team, team_id, tracker_status, source, external_url, issue_type, parent_key, parent_title, parent_type, tracker_created_at, tracker_updated_at, status_changed_at, created_at, updated_at FROM tasks"
 	if len(conditions) > 0 {
 		sqlQuery += " WHERE " + strings.Join(conditions, " AND ")
 	}
@@ -1887,6 +2066,7 @@ func (d *DB) GetTasksInScope(scope TaskScope, query, status, priority, label, sp
 		err := rows.Scan(
 			&t.ID,
 			&t.ProjectID,
+			&t.TrackerID,
 			&t.Key,
 			&t.Title,
 			&t.Description,
@@ -2001,164 +2181,12 @@ func (d *DB) GetTaskByID(id string) (*models.Task, error) {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 
-	var t models.Task
-	var labelsJSON string
-	var dueDate, branchName, prURL, repoPath, sprint, team, teamID, trackerStatus, source, extURL, issueType, parentKey, parentTitle, parentType sql.NullString
-	var prLinksJSON sql.NullString
-	var taskRepository, changedRepositoriesJSON sql.NullString
-	var trackerCreatedAt, trackerUpdatedAt, statusChangedAt sql.NullTime
-	var statusStr, priorityStr string
-
-	err := d.conn.QueryRow(`
-		SELECT id, project_id, key, title, description, status, priority, labels, assignee, assignee_avatar, creator, creator_avatar, position, due_date, branch_name, pr_url, pr_links, repo_path, repository, changed_repositories, sprint, team, team_id, tracker_status, source, external_url, issue_type, parent_key, parent_title, parent_type, tracker_created_at, tracker_updated_at, status_changed_at, created_at, updated_at
-		FROM tasks WHERE id = ?
-	`, id).Scan(
-		&t.ID,
-		&t.ProjectID,
-		&t.Key,
-		&t.Title,
-		&t.Description,
-		&statusStr,
-		&priorityStr,
-		&labelsJSON,
-		&t.Assignee,
-		&t.AssigneeAvatar,
-		&t.Creator,
-		&t.CreatorAvatar,
-		&t.Position,
-		&dueDate,
-		&branchName,
-		&prURL,
-		&prLinksJSON,
-		&repoPath,
-		&taskRepository,
-		&changedRepositoriesJSON,
-		&sprint,
-		&team,
-		&teamID,
-		&trackerStatus,
-		&source,
-		&extURL,
-		&issueType,
-		&parentKey,
-		&parentTitle,
-		&parentType,
-		&trackerCreatedAt,
-		&trackerUpdatedAt,
-		&statusChangedAt,
-		&t.CreatedAt,
-		&t.UpdatedAt,
-	)
-	if err == sql.ErrNoRows {
-		err = d.conn.QueryRow(`
-			SELECT id, project_id, key, title, description, status, priority, labels, assignee, assignee_avatar, creator, creator_avatar, position, due_date, branch_name, pr_url, pr_links, repo_path, repository, changed_repositories, sprint, team, team_id, tracker_status, source, external_url, issue_type, parent_key, parent_title, parent_type, tracker_created_at, tracker_updated_at, status_changed_at, created_at, updated_at
-			FROM tasks WHERE key = ? LIMIT 1
-		`, id).Scan(
-			&t.ID,
-			&t.ProjectID,
-			&t.Key,
-			&t.Title,
-			&t.Description,
-			&statusStr,
-			&priorityStr,
-			&labelsJSON,
-			&t.Assignee,
-			&t.AssigneeAvatar,
-			&t.Creator,
-			&t.CreatorAvatar,
-			&t.Position,
-			&dueDate,
-			&branchName,
-			&prURL,
-			&prLinksJSON,
-			&repoPath,
-			&taskRepository,
-			&changedRepositoriesJSON,
-			&sprint,
-			&team,
-			&teamID,
-			&trackerStatus,
-			&source,
-			&extURL,
-			&issueType,
-			&parentKey,
-			&parentTitle,
-			&parentType,
-			&trackerCreatedAt,
-			&trackerUpdatedAt,
-			&statusChangedAt,
-			&t.CreatedAt,
-			&t.UpdatedAt,
-		)
+	t, err := d.taskByIDOn(d.conn, id, "")
+	if err != nil || t == nil {
+		return t, err
 	}
-	if err != nil {
-		if err == sql.ErrNoRows {
-			return nil, nil
-		}
-		return nil, err
-	}
-
-	t.Status = models.Status(statusStr)
-	t.Priority = models.Priority(priorityStr)
-	if dueDate.Valid {
-		t.DueDate = &dueDate.String
-	}
-	if branchName.Valid {
-		t.BranchName = &branchName.String
-	}
-	if prURL.Valid {
-		t.PrURL = &prURL.String
-	}
-	t.PrLinks = decodePullRequestLinks(prLinksJSON.String)
-	if repoPath.Valid && repoPath.String != "" {
-		p := repoPath.String
-		t.RepoPath = &p
-	}
-	t.Repository = taskRepository.String
-	t.ChangedRepositories = parseIdentityList(changedRepositoriesJSON.String)
-	if sprint.Valid {
-		t.Sprint = sprint.String
-	}
-	if team.Valid {
-		t.Team = team.String
-		t.TeamID = teamID.String
-		if trackerCreatedAt.Valid {
-			created := trackerCreatedAt.Time
-			t.TrackerCreatedAt = &created
-		}
-		if trackerUpdatedAt.Valid {
-			updated := trackerUpdatedAt.Time
-			t.TrackerUpdatedAt = &updated
-		}
-		if statusChangedAt.Valid {
-			changed := statusChangedAt.Time
-			t.StatusChangedAt = &changed
-		}
-	}
-	if trackerStatus.Valid {
-		t.TrackerStatus = trackerStatus.String
-	}
-	t.Source = taskSource(source, t.Key)
-
-	if extURL.Valid && extURL.String != "" {
-		t.ExternalURL = &extURL.String
-	} else {
-		t.ExternalURL = d.computeExternalURLUnsafe(&t)
-	}
-
-	t.IssueType = issueType.String
-	t.ParentKey = parentKey.String
-	t.ParentTitle = parentTitle.String
-	t.ParentType = parentType.String
-	_ = json.Unmarshal([]byte(labelsJSON), &t.Labels)
-	if t.Labels == nil {
-		t.Labels = []string{}
-	}
-	t.Pinned = HasPinnedLabel(t.Labels)
-
 	t.Batch, _ = d.activeBatchOfUnsafe(t.ID)
-
-	return &t, nil
+	return t, nil
 }
 
 func repoPathValue(p *string) string {
@@ -2520,7 +2548,17 @@ func (d *DB) CreateTaskAs(ctx context.Context, req models.CreateTaskRequest) (*m
 			projID = proj.ID
 		}
 	}
+	// A new ticket goes to the project's default tracker (#741).
+	trk := d.trackerOfProjectUnsafe(proj)
 	d.mu.RUnlock()
+	trackerID := ""
+	if trk != nil {
+		trackerID = trk.ID
+	}
+	var trackerValue any
+	if trackerID != "" {
+		trackerValue = trackerID
+	}
 
 	githubRepo := settings.GithubRepo
 	jiraProject := settings.JiraProject
@@ -2571,7 +2609,7 @@ func (d *DB) CreateTaskAs(ctx context.Context, req models.CreateTaskRequest) (*m
 
 	// Under the strict contract a task is filed on its tracker or not at all:
 	// the adapter must resolve, be the one the request names, and create.
-	ts, tsErr := d.TrackerForProject(proj)
+	ts, tsErr := d.TrackerFor(trk)
 	if req.RequireRemoteCreation && req.Source != "local" {
 		switch {
 		case tsErr != nil:
@@ -2608,19 +2646,20 @@ func (d *DB) CreateTaskAs(ctx context.Context, req models.CreateTaskRequest) (*m
 	priorityNotice := ""
 	if tsErr == nil && ts != nil && req.Source != "local" && ts.Name() != "local" && ts.Supports(tracker.CapCreate) {
 		created, err := ts.CreateIssue(ctx, tracker.CreateIssueRequest{
-			Project:     proj,
-			Title:       req.Title,
-			Description: req.Description,
-			Priority:    req.Priority,
-			Labels:      req.Labels,
-			IssueType:   strings.TrimSpace(req.IssueType),
-			ParentKey:   strings.TrimSpace(req.ParentKey),
+			Tracker:         trk,
+			Title:           req.Title,
+			Description:     req.Description,
+			Priority:        req.Priority,
+			Labels:          req.Labels,
+			IssueType:       strings.TrimSpace(req.IssueType),
+			ParentKey:       strings.TrimSpace(req.ParentKey),
+			PriorityMapping: d.priorityMappingForUnsafe(proj, trk),
 		})
 		if err != nil {
 			return nil, fmt.Errorf("%s issue creation failed: %w", trackerDisplayName(ts.Name()), err)
 		}
 		if created != nil {
-			id = ts.FormatTaskID(projID, created.Key, created.ID)
+			id = ts.FormatTaskID(trackerID, created.Key, created.ID)
 			key = created.Key
 			local = false
 			extURL = created.ExternalURL
@@ -2687,9 +2726,9 @@ func (d *DB) CreateTaskAs(ctx context.Context, req models.CreateTaskRequest) (*m
 			}
 		}
 		_, err := tx.Exec(`
-			INSERT INTO tasks (id, project_id, key, title, description, status, priority, labels, pinned, assignee, assignee_avatar, creator, creator_avatar, position, due_date, source, external_url, issue_type, parent_key, parent_title, parent_type, sprint, created_at, updated_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-		`, id, projID, key, req.Title, req.Description, string(req.Status), string(req.Priority), string(labelsJSON), boolToInt(isPinned), req.Assignee, req.AssigneeAvatar, req.Creator, req.CreatorAvatar, newPos, req.DueDate, req.Source, extURL, issueType, parentKey, parentTitle, parentType, strings.TrimSpace(req.Sprint), now, now)
+			INSERT INTO tasks (id, project_id, tracker_id, key, title, description, status, priority, labels, pinned, assignee, assignee_avatar, creator, creator_avatar, position, due_date, source, external_url, issue_type, parent_key, parent_title, parent_type, sprint, created_at, updated_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`, id, projID, trackerValue, key, req.Title, req.Description, string(req.Status), string(req.Priority), string(labelsJSON), boolToInt(isPinned), req.Assignee, req.AssigneeAvatar, req.Creator, req.CreatorAvatar, newPos, req.DueDate, req.Source, extURL, issueType, parentKey, parentTitle, parentType, strings.TrimSpace(req.Sprint), now, now)
 		return err
 	})
 	if err != nil {
@@ -2699,6 +2738,7 @@ func (d *DB) CreateTaskAs(ctx context.Context, req models.CreateTaskRequest) (*m
 	task := &models.Task{
 		ID:             id,
 		ProjectID:      projID,
+		TrackerID:      trackerID,
 		Key:            key,
 		Title:          req.Title,
 		Description:    req.Description,
@@ -2882,7 +2922,7 @@ func (d *DB) updateTaskBy(actor Actor, id string, req models.UpdateTaskRequest) 
 		if err != nil {
 			return nil, err
 		}
-		if err := CheckPriorityWritable(proj, *req.Priority); err != nil {
+		if err := CheckPriorityWritable(d.mappingProjectUnsafe(proj, d.trackerOfTaskUnsafe(existing)), *req.Priority); err != nil {
 			return nil, err
 		}
 	}
@@ -3000,16 +3040,16 @@ func (d *DB) updateTaskBy(actor Actor, id string, req models.UpdateTaskRequest) 
 		if internal, ok := InternalStatusForStage(explicitStage); ok && req.Status == nil {
 			existing.Status = internal
 		}
-		if proj, _ := d.getProjectByIDUnsafe(existing.ProjectID); proj != nil {
-			if target := TrackerStatusForStage(proj, explicitStage); target != "" {
+		if trk := d.trackerOfTaskUnsafe(existing); trk != nil {
+			if target := TrackerStatusForStage(trk, explicitStage); target != "" {
 				existing.TrackerStatus = target
 			}
 		}
 	} else if req.TrackerStatus != nil {
 		trimmedStatus := strings.TrimSpace(*req.TrackerStatus)
 		existing.TrackerStatus = trimmedStatus
-		if proj, _ := d.getProjectByIDUnsafe(existing.ProjectID); proj != nil && trimmedStatus != "" {
-			if stage := StageForTrackerStatus(proj, trimmedStatus); stage != "" {
+		if trk := d.trackerOfTaskUnsafe(existing); trk != nil && trimmedStatus != "" {
+			if stage := StageForTrackerStatus(trk, trimmedStatus); stage != "" {
 				existing.Labels = SetWorkflowLabel(existing.Labels, "#"+stage)
 				if internal, ok := InternalStatusForStage(stage); ok && req.Status == nil {
 					existing.Status = internal
@@ -3017,13 +3057,13 @@ func (d *DB) updateTaskBy(actor Actor, id string, req models.UpdateTaskRequest) 
 			}
 		}
 	} else if req.Labels != nil {
-		if proj, _ := d.getProjectByIDUnsafe(existing.ProjectID); proj != nil {
+		if trk := d.trackerOfTaskUnsafe(existing); trk != nil {
 			for _, l := range existing.Labels {
 				stage := strings.ToLower(strings.TrimPrefix(l, "#"))
 				if _, isStage := stageToInternalStatus[stage]; !isStage {
 					continue
 				}
-				if target := TrackerStatusForStage(proj, stage); target != "" && !strings.EqualFold(target, existing.TrackerStatus) {
+				if target := TrackerStatusForStage(trk, stage); target != "" && !strings.EqualFold(target, existing.TrackerStatus) {
 					existing.TrackerStatus = target
 				}
 				if req.Status == nil {
@@ -3040,8 +3080,8 @@ func (d *DB) updateTaskBy(actor Actor, id string, req models.UpdateTaskRequest) 
 	if explicitStage == "finished" || explicitStage == "closed" || strings.EqualFold(existing.TrackerStatus, "Done") || strings.EqualFold(existing.TrackerStatus, "Closed") || strings.EqualFold(existing.TrackerStatus, "Terminé") || existing.Status == models.StatusFinished || existing.Status == models.StatusDone || string(existing.Status) == "closed" {
 		existing.Status = models.StatusFinished
 		existing.Labels = SetWorkflowLabel(existing.Labels, "#finished")
-		if proj, _ := d.getProjectByIDUnsafe(existing.ProjectID); proj != nil {
-			if target := TrackerStatusForStage(proj, "finished"); target != "" {
+		if trk := d.trackerOfTaskUnsafe(existing); trk != nil {
+			if target := TrackerStatusForStage(trk, "finished"); target != "" {
 				existing.TrackerStatus = target
 			}
 		}
@@ -3444,22 +3484,75 @@ type rowQuerier interface {
 	QueryRow(query string, args ...any) *sql.Row
 }
 
-// taskByIDOn reads a task by id, then by key, through q; lock is appended to
-// both SELECTs.
+// taskColumns are the columns scanTaskRow reads, in its order.
+const taskColumns = `id, project_id, tracker_id, key, title, description, status, priority, labels, assignee, assignee_avatar, creator, creator_avatar, position, due_date, branch_name, pr_url, pr_links, repo_path, repository, changed_repositories, sprint, team, team_id, tracker_status, source, external_url, issue_type, parent_key, parent_title, parent_type, tracker_created_at, tracker_updated_at, status_changed_at, created_at, updated_at`
+
+// ErrTaskKeyAmbiguous refuses a ticket named by a key that two trackers carry
+// (#741): reading the first of them would act on the wrong ticket.
+var ErrTaskKeyAmbiguous = errors.New("cette clé désigne des tickets de plusieurs trackers : utilisez l'identifiant du ticket")
+
+// taskByIDOn reads a task by id, then through the alias a merged-away
+// duplicate left, then by key when only one ticket carries it (#741); lock is
+// appended to the SELECT of the row.
 func (d *DB) taskByIDOn(q rowQuerier, id string, lock string) (*models.Task, error) {
+	t, err := d.scanTaskRow(q.QueryRow(`SELECT `+taskColumns+` FROM tasks WHERE id = ?`+lock, id))
+	if err == sql.ErrNoRows {
+		resolved, rerr := resolveTaskRefOn(q, id)
+		if rerr != nil {
+			return nil, rerr
+		}
+		if resolved == "" {
+			return nil, nil
+		}
+		t, err = d.scanTaskRow(q.QueryRow(`SELECT `+taskColumns+` FROM tasks WHERE id = ?`+lock, resolved))
+	}
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	return t, err
+}
+
+// resolveTaskRefOn finds the ticket a reference names when no ticket has it as
+// its id: the survivor of a merged duplicate, then the one ticket carrying it
+// as its key. Two tickets carrying the key are refused rather than one picked.
+// "" means none.
+func resolveTaskRefOn(q rowQuerier, ref string) (string, error) {
+	var id string
+	err := q.QueryRow(`SELECT a.task_id FROM task_aliases a JOIN tasks t ON t.id = a.task_id WHERE a.old_id = ?`, ref).Scan(&id)
+	if err == nil {
+		return id, nil
+	}
+	if err != sql.ErrNoRows {
+		return "", err
+	}
+	var count int
+	var first sql.NullString
+	if err := q.QueryRow(`SELECT COUNT(*), MIN(id) FROM tasks WHERE key = ?`, ref).Scan(&count, &first); err != nil {
+		return "", err
+	}
+	switch {
+	case count == 0:
+		return "", nil
+	case count > 1:
+		return "", ErrTaskKeyAmbiguous
+	}
+	return first.String, nil
+}
+
+// scanTaskRow reads one row of taskColumns, sql.ErrNoRows when there is none.
+func (d *DB) scanTaskRow(row *sql.Row) (*models.Task, error) {
 	var t models.Task
 	var labelsJSON string
-	var dueDate, branchName, prURL, repoPath, sprint, team, teamID, trackerStatus, source, extURL, issueType, parentKey, parentTitle, parentType sql.NullString
+	var trackerID, dueDate, branchName, prURL, repoPath, sprint, team, teamID, trackerStatus, source, extURL, issueType, parentKey, parentTitle, parentType sql.NullString
 	var prLinksJSON sql.NullString
 	var taskRepository, changedRepositoriesJSON sql.NullString
 	var trackerCreatedAt, trackerUpdatedAt, statusChangedAt sql.NullTime
 	var statusStr, priorityStr string
 
-	err := q.QueryRow(`
-		SELECT id, project_id, key, title, description, status, priority, labels, assignee, assignee_avatar, creator, creator_avatar, position, due_date, branch_name, pr_url, pr_links, repo_path, repository, changed_repositories, sprint, team, team_id, tracker_status, source, external_url, issue_type, parent_key, parent_title, parent_type, tracker_created_at, tracker_updated_at, status_changed_at, created_at, updated_at
-		FROM tasks WHERE id = ?`+lock, id).Scan(
+	err := row.Scan(
 		&t.ID,
 		&t.ProjectID,
+		&trackerID,
 		&t.Key,
 		&t.Title,
 		&t.Description,
@@ -3494,54 +3587,11 @@ func (d *DB) taskByIDOn(q rowQuerier, id string, lock string) (*models.Task, err
 		&t.CreatedAt,
 		&t.UpdatedAt,
 	)
-	if err == sql.ErrNoRows {
-		err = q.QueryRow(`
-			SELECT id, project_id, key, title, description, status, priority, labels, assignee, assignee_avatar, creator, creator_avatar, position, due_date, branch_name, pr_url, pr_links, repo_path, repository, changed_repositories, sprint, team, team_id, tracker_status, source, external_url, issue_type, parent_key, parent_title, parent_type, tracker_created_at, tracker_updated_at, status_changed_at, created_at, updated_at
-			FROM tasks WHERE key = ? LIMIT 1`+lock, id).Scan(
-			&t.ID,
-			&t.ProjectID,
-			&t.Key,
-			&t.Title,
-			&t.Description,
-			&statusStr,
-			&priorityStr,
-			&labelsJSON,
-			&t.Assignee,
-			&t.AssigneeAvatar,
-			&t.Creator,
-			&t.CreatorAvatar,
-			&t.Position,
-			&dueDate,
-			&branchName,
-			&prURL,
-			&prLinksJSON,
-			&repoPath,
-			&taskRepository,
-			&changedRepositoriesJSON,
-			&sprint,
-			&team,
-			&teamID,
-			&trackerStatus,
-			&source,
-			&extURL,
-			&issueType,
-			&parentKey,
-			&parentTitle,
-			&parentType,
-			&trackerCreatedAt,
-			&trackerUpdatedAt,
-			&statusChangedAt,
-			&t.CreatedAt,
-			&t.UpdatedAt,
-		)
-	}
 	if err != nil {
-		if err == sql.ErrNoRows {
-			return nil, nil
-		}
 		return nil, err
 	}
 
+	t.TrackerID = trackerID.String
 	t.Status = models.Status(statusStr)
 	t.Priority = models.Priority(priorityStr)
 	if dueDate.Valid {
@@ -3618,9 +3668,9 @@ func insertTaskActivity(conn activityExecutor, instanceID string, act models.Tas
 		stepsJSON = []byte("[]")
 	}
 	_, err := conn.Exec(`
-		INSERT INTO task_activities (id, task_id, project_id, skill_id, skill_name, action, status, summary, output, steps, prompt, started_at, completed_at, error, created_at, waiting_since, user_id, run_provider, run_model, instance_id, concurrent)
-		VALUES (?, NULLIF(?, ''), NULLIF(?, ''), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, act.ID, act.TaskID, act.ProjectID, act.SkillID, act.SkillName, act.Action, act.Status, act.Summary, act.Output, string(stepsJSON), act.Prompt, act.StartedAt, act.CompletedAt, act.Error, act.CreatedAt, act.WaitingSince, act.UserID, act.Provider, act.Model, instanceID, boolToInt(act.Concurrent))
+		INSERT INTO task_activities (id, task_id, project_id, run_project_id, tracker_id, skill_id, skill_name, action, status, summary, output, steps, prompt, started_at, completed_at, error, created_at, waiting_since, user_id, run_provider, run_model, instance_id, concurrent)
+		VALUES (?, NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, act.ID, act.TaskID, act.ProjectID, act.RunProjectID, act.TrackerID, act.SkillID, act.SkillName, act.Action, act.Status, act.Summary, act.Output, string(stepsJSON), act.Prompt, act.StartedAt, act.CompletedAt, act.Error, act.CreatedAt, act.WaitingSince, act.UserID, act.Provider, act.Model, instanceID, boolToInt(act.Concurrent))
 	return err
 }
 
@@ -4459,34 +4509,42 @@ func syncWindow(ts tracker.TicketingSystem, opts SyncOptions) int {
 	return opts.WindowMin
 }
 
-// afterTrackerSync follows an import with what the tracker can tell about the
-// project's structure: the teams met on the work items, the board columns and
-// sprints when the tracker has them, and the pull requests of what was just
-// imported. Neither failure undoes the import.
+// afterTrackerSync follows an import with what the tracker can tell about its
+// structure: the teams met on the work items, the board columns and sprints
+// when the tracker has them, and the pull requests of what was just imported.
+// Neither failure undoes the import.
 //
-// The first two describe the project rather than its work items, and cost the
+// The tracker's board lands on the tracker row (#741). The teams, the roadmap
+// horizons and the pull requests still run once per project selecting the
+// tracker: teams and horizons are kept per project until the epics move to the
+// tracker, and pull requests are found through each project's repositories,
+// their writes landing on the shared record.
+//
+// The first two describe the tracker rather than its work items, and cost the
 // same whether one ticket moved or none. A background pass therefore only asks
 // for them on a full read (every half hour), while a synchronisation somebody
 // asked for always does. Pull request rediscovery follows the imported work
 // items, so an incremental pass pays for exactly what changed.
-func (d *DB) afterTrackerSync(ctx context.Context, proj *models.Project, ts tracker.TicketingSystem, tasks []models.Task, opts SyncOptions) []string {
-	if proj == nil || ts == nil {
+func (d *DB) afterTrackerSync(ctx context.Context, trk *models.Tracker, projects []*models.Project, ts tracker.TicketingSystem, tasks []models.Task, opts SyncOptions) []string {
+	if trk == nil || ts == nil {
 		return nil
 	}
 	describesProject := !opts.Background || opts.WindowMin == 0
 	var steps []string
 	if describesProject && ts.Supports(tracker.CapTeam) {
-		if note, err := d.RefreshProjectTeamMembers(ctx, proj.ID, tasks); err != nil {
-			steps = append(steps, fmt.Sprintf("⚠️ Équipes : %v", err))
-		} else {
-			steps = append(steps, "4. Équipes : "+note)
+		for _, proj := range projects {
+			if note, err := d.RefreshProjectTeamMembers(ctx, proj.ID, tasks); err != nil {
+				steps = append(steps, fmt.Sprintf("⚠️ Équipes : %v", err))
+			} else {
+				steps = append(steps, "4. Équipes : "+note)
+			}
 		}
 	}
-	// No board recorded yet is not a reason to skip: SyncProjectBoardColumns
-	// resolves the project's board itself and persists the one it retained, so
+	// No board recorded yet is not a reason to skip: SyncTrackerBoardColumns
+	// resolves the tracker's board itself and persists the one it retained, so
 	// the columns follow the tracker from the very first sync.
-	if describesProject && ts.Supports(tracker.CapBoard) {
-		if note, err := d.SyncProjectBoardColumns(ctx, proj.ID); err != nil {
+	if describesProject && ts.Supports(tracker.CapBoard) && trk.ID != "" {
+		if note, err := d.SyncTrackerBoardColumns(ctx, trk.ID); err != nil {
 			steps = append(steps, fmt.Sprintf("⚠️ Board : %v", err))
 		} else {
 			steps = append(steps, "5. Board : "+note)
@@ -4508,29 +4566,98 @@ func (d *DB) afterTrackerSync(ctx context.Context, proj *models.Project, ts trac
 	// The failure is not fatal, as for the teams and the board: a tracker that
 	// cannot be reached must not undo an import that succeeded.
 	if ts.Supports(tracker.CapEpic) {
-		if note, err := d.ImportMacroHorizons(ctx, proj.ID); err != nil {
-			steps = append(steps, fmt.Sprintf("⚠️ Roadmap : horizons non importés : %v", err))
-		} else {
-			steps = append(steps, "6. Roadmap : "+note)
+		for _, proj := range projects {
+			if note, err := d.ImportMacroHorizons(ctx, proj.ID); err != nil {
+				steps = append(steps, fmt.Sprintf("⚠️ Roadmap : horizons non importés : %v", err))
+			} else {
+				steps = append(steps, "6. Roadmap : "+note)
+			}
 		}
 	}
 	// The priority mapping follows the scheme like the board follows its
 	// columns (#679): on a sync that describes the project, never on the
 	// incremental polls. A scheme that cannot be read leaves the stored
-	// mapping as it is.
+	// mapping as it is. The mapping stays on the project (#741): each linked
+	// project whose default tracker this is gets it refreshed.
 	if _, ok := ts.(tracker.PrioritySchemeReader); describesProject && ok {
-		if note, err := d.RefreshPriorityMapping(ctx, proj.ID, false); err != nil {
-			steps = append(steps, fmt.Sprintf("⚠️ Priorities: %v", err))
-		} else if note != "" {
-			steps = append(steps, "7. Priorities: "+note)
+		for _, proj := range projects {
+			if def := d.trackerOfProjectUnsafe(proj); def == nil || def.ID != trk.ID {
+				continue
+			}
+			if note, err := d.RefreshPriorityMapping(ctx, proj.ID, false); err != nil {
+				steps = append(steps, fmt.Sprintf("⚠️ Priorities: %v", err))
+			} else if note != "" {
+				steps = append(steps, "7. Priorities: "+note)
+			}
 		}
 	}
 	// Pull-request rediscovery runs here rather than in the import: the import
 	// must keep its property of never writing pr_url / pr_links, which is what
 	// protects the links a workflow produced.
-	steps = append(steps, d.rediscoverProjectPullRequests(ctx, proj, ts, tasks)...)
-	steps = append(steps, d.refreshProjectPullRequestStates(ctx, proj.ID)...)
+	for _, proj := range projects {
+		steps = append(steps, d.rediscoverProjectPullRequests(ctx, proj, ts, tasks)...)
+		steps = append(steps, d.refreshProjectPullRequestStates(ctx, proj.ID)...)
+	}
 	return steps
+}
+
+// trackerProjectsUnsafe loads the projects selecting a tracker, oldest link
+// first.
+func (d *DB) trackerProjectsUnsafe(trackerID string) []*models.Project {
+	if trackerID == "" {
+		return nil
+	}
+	ids, _ := d.trackerLinkedProjectsUnsafe(trackerID)
+	var projects []*models.Project
+	for _, id := range ids {
+		if p, _ := d.getProjectByIDUnsafe(id); p != nil {
+			projects = append(projects, p)
+		}
+	}
+	return projects
+}
+
+// syncedTrackersUnsafe lists the trackers a synchronisation of everything
+// reads: those a project selects (#741 Part A only creates a tracker through
+// a project), local boards excepted.
+func (d *DB) syncedTrackersUnsafe() ([]*models.Tracker, error) {
+	rows, err := d.conn.Query(trackerSelect + ` WHERE provider <> 'local' AND id IN (SELECT tracker_id FROM project_trackers) ORDER BY created_at, id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var trackers []*models.Tracker
+	for rows.Next() {
+		t, err := scanTracker(rows)
+		if err != nil {
+			return nil, err
+		}
+		trackers = append(trackers, t)
+	}
+	return trackers, rows.Err()
+}
+
+// legacySyncTracker is the tracker a synchronisation that names none reads:
+// that of its project, else the one the settings describe, with no id.
+func (d *DB) legacySyncTracker(trackerName string, proj *models.Project, settings *models.Settings, param string) *models.Tracker {
+	if proj != nil {
+		return d.trackerOfProjectUnsafe(proj)
+	}
+	t := &models.Tracker{Provider: trackerName}
+	if settings != nil {
+		switch trackerName {
+		case "github":
+			t.Scope = models.CleanGithubRepo(settings.GithubRepo)
+		case "jira":
+			t.Scope = strings.ToUpper(strings.TrimSpace(settings.JiraProject))
+		case "gitlab":
+			t.Scope = strings.Trim(strings.TrimSpace(settings.GitlabProject), "/")
+		}
+	}
+	if trackerName == "github" && strings.TrimSpace(param) != "" {
+		t.Scope = models.CleanGithubRepo(param)
+	}
+	return t
 }
 
 func (d *DB) processSyncJob(ctx context.Context, job SkillJob, settings *models.Settings) {
@@ -4551,56 +4678,36 @@ func (d *DB) processSyncJob(ctx context.Context, job SkillJob, settings *models.
 		steps = append(steps, "1. Starting global multi-tracker synchronization...")
 		outputLines = append(outputLines, "### 🌐 Global Synchronization\n")
 
-		projects, _ := d.getProjectsUnsafe()
-		if len(projects) == 0 {
-			projects = []models.Project{
-				{
-					ID:           "default",
-					GithubRepo:   settings.GithubRepo,
-					RepoPath:     settings.RepoPath,
-					IssueTracker: settings.IssueTracker,
-				},
-			}
-		}
-
-		for _, p := range projects {
-			ts, err := d.TrackerForProject(&p)
+		// Every tracker a project selects is read once, whatever number of
+		// projects show its tickets (#741).
+		trackers, _ := d.syncedTrackersUnsafe()
+		for _, trk := range trackers {
+			ts, err := d.TrackerFor(trk)
 			if err != nil || ts == nil || ts.Name() == "local" || !ts.Supports(tracker.CapSync) {
 				continue
 			}
 			tName := ts.Name()
-			tRepo := p.GithubRepo
-			if tRepo == "" && settings != nil {
-				tRepo = settings.GithubRepo
-			}
-			tPath := p.RepoPath
-			if tPath == "" && settings != nil {
-				tPath = settings.RepoPath
-			}
 
 			syncTasks, syncErr := ts.SyncIssues(ctx, tracker.SyncRequest{
-				Project:          &p,
-				Repo:             tRepo,
-				RepoPath:         tPath,
+				Tracker:          trk,
 				UpdatedWithinMin: syncWindow(ts, job.Sync),
 			})
 			if syncErr != nil {
 				hasError = true
-				steps = append(steps, fmt.Sprintf("⚠️ %s (%s): %v", tName, p.Name, syncErr))
-				outputLines = append(outputLines, fmt.Sprintf("❌ %s (%s): %v", tName, p.Name, syncErr))
+				steps = append(steps, fmt.Sprintf("⚠️ %s (%s): %v", tName, trk.Name, syncErr))
+				outputLines = append(outputLines, fmt.Sprintf("❌ %s (%s): %v", tName, trk.Name, syncErr))
 			} else {
 				for i := range syncTasks {
-					syncTasks[i].ProjectID = p.ID
-					syncTasks[i].ID = ts.FormatTaskID(p.ID, syncTasks[i].Key, syncTasks[i].ID)
+					syncTasks[i].ID = ts.FormatTaskID(trk.ID, syncTasks[i].Key, syncTasks[i].ID)
 				}
-				if impErr := d.ImportOrUpdateTasks(syncTasks); impErr != nil {
+				if impErr := d.ImportOrUpdateTasks(trk.ID, syncTasks); impErr != nil {
 					hasError = true
 					steps = append(steps, fmt.Sprintf("⚠️ %s: écriture locale échouée: %v", tName, impErr))
 				} else {
-					steps = append(steps, d.afterTrackerSync(ctx, &p, ts, syncTasks, job.Sync)...)
+					steps = append(steps, d.afterTrackerSync(ctx, trk, d.trackerProjectsUnsafe(trk.ID), ts, syncTasks, job.Sync)...)
 				}
-				steps = append(steps, fmt.Sprintf("✅ %s (%s): %d issues imported", tName, p.Name, len(syncTasks)))
-				outputLines = append(outputLines, fmt.Sprintf("✅ %s (%s): %d issues synced", tName, p.Name, len(syncTasks)))
+				steps = append(steps, fmt.Sprintf("✅ %s (%s): %d issues imported", tName, trk.Name, len(syncTasks)))
+				outputLines = append(outputLines, fmt.Sprintf("✅ %s (%s): %d issues synced", tName, trk.Name, len(syncTasks)))
 				totalImported += len(syncTasks)
 			}
 		}
@@ -4610,16 +4717,30 @@ func (d *DB) processSyncJob(ctx context.Context, job SkillJob, settings *models.
 
 	case strings.HasPrefix(job.SkillID, "sync_"):
 		trackerName := strings.TrimPrefix(job.SkillID, "sync_")
-		var proj *models.Project
-		if job.ProjectID != "" {
-			if p, _ := d.getProjectByIDUnsafe(job.ProjectID); p != nil {
-				proj = p
+		// The tracker the job names, else, for a job filed without one, its
+		// project's or the settings' (#741).
+		var trk *models.Tracker
+		var projects []*models.Project
+		if job.TrackerID != "" {
+			trk, _ = trackerByIDOn(d.conn, job.TrackerID)
+			projects = d.trackerProjectsUnsafe(job.TrackerID)
+		}
+		if trk == nil {
+			var proj *models.Project
+			if job.ProjectID != "" {
+				proj, _ = d.getProjectByIDUnsafe(job.ProjectID)
+			}
+			trk = d.legacySyncTracker(trackerName, proj, settings, job.Prompt)
+			if trk.ID != "" {
+				projects = d.trackerProjectsUnsafe(trk.ID)
+			} else if proj != nil {
+				projects = []*models.Project{proj}
 			}
 		}
 
 		ts, ok := d.TrackerRegistry().Get(trackerName)
-		if (!ok || ts == nil) && proj != nil {
-			ts, _ = d.TrackerForProject(proj)
+		if !ok || ts == nil {
+			ts, _ = d.TrackerFor(trk)
 		}
 		if ts == nil || !ts.Supports(tracker.CapSync) {
 			hasError = true
@@ -4628,32 +4749,13 @@ func (d *DB) processSyncJob(ctx context.Context, job SkillJob, settings *models.
 			break
 		}
 
-		repo := ""
-		repoPath := ""
-		if proj != nil {
-			repo = proj.GithubRepo
-			repoPath = proj.RepoPath
-		}
-		if repo == "" && trackerName == "github" && job.Prompt != "" {
-			repo = job.Prompt
-		}
-		if repo == "" && settings != nil {
-			repo = settings.GithubRepo
-		}
-		if repoPath == "" && settings != nil {
-			repoPath = settings.RepoPath
-		}
-
 		trackerTitle := trackerDisplayName(ts.Name())
 
-		targetDesc := repo
-		if ts.Name() == "gitlab" {
-			// A GitLab project is named by its path, never by a repository.
-			project := proj
-			if project == nil {
-				project = &models.Project{}
-			}
-			targetDesc = d.gitlabProjectOf(project)
+		// A GitLab project is named by its path, a Jira space by its key, a
+		// GitHub repository by owner/repo: the tracker's scope either way.
+		targetDesc := trk.Scope
+		if ts.Name() == "gitlab" && targetDesc == "" {
+			targetDesc = d.gitlabProjectOf(&models.Project{})
 		}
 		if targetDesc != "" {
 			steps = append(steps, fmt.Sprintf("1. Connecting to %s API (%s)...", trackerTitle, targetDesc))
@@ -4664,9 +4766,7 @@ func (d *DB) processSyncJob(ctx context.Context, job SkillJob, settings *models.
 		}
 
 		tasks, err := ts.SyncIssues(ctx, tracker.SyncRequest{
-			Project:          proj,
-			Repo:             repo,
-			RepoPath:         repoPath,
+			Tracker:          trk,
 			UpdatedWithinMin: syncWindow(ts, job.Sync),
 		})
 		if err != nil {
@@ -4678,18 +4778,18 @@ func (d *DB) processSyncJob(ctx context.Context, job SkillJob, settings *models.
 		} else {
 			steps = append(steps, fmt.Sprintf("2. %d tickets fetched from %s", len(tasks), trackerTitle))
 			for i := range tasks {
-				if job.ProjectID != "" {
+				if trk.ID == "" && job.ProjectID != "" {
 					tasks[i].ProjectID = job.ProjectID
 				}
-				tasks[i].ID = ts.FormatTaskID(tasks[i].ProjectID, tasks[i].Key, tasks[i].ID)
+				tasks[i].ID = ts.FormatTaskID(trk.ID, tasks[i].Key, tasks[i].ID)
 			}
-			if impErr := d.ImportOrUpdateTasks(tasks); impErr != nil {
+			if impErr := d.ImportOrUpdateTasks(trk.ID, tasks); impErr != nil {
 				hasError = true
 				steps = append(steps, "⚠️ 3. Local database write failed: "+impErr.Error())
 				outputLines = append(outputLines, "**Error:** "+impErr.Error())
 			} else {
 				steps = append(steps, "3. Local database updated successfully")
-				steps = append(steps, d.afterTrackerSync(ctx, proj, ts, tasks, job.Sync)...)
+				steps = append(steps, d.afterTrackerSync(ctx, trk, projects, ts, tasks, job.Sync)...)
 			}
 			totalImported = len(tasks)
 			summary = fmt.Sprintf("%d %s issues synchronized successfully", len(tasks), trackerTitle)
@@ -4705,7 +4805,7 @@ func (d *DB) processSyncJob(ctx context.Context, job SkillJob, settings *models.
 		// The loop counts what its passes actually wrote, rather than what they
 		// queued: the job outlives the pass, so this is the only place that
 		// knows.
-		d.recordAutoSyncPass(job.ProjectID, job.Sync.WindowMin, totalImported, hasError, summary)
+		d.recordAutoSyncPass(job.TrackerID, job.Sync.WindowMin, totalImported, hasError, summary)
 
 		// A pass nobody asked for that brought nothing back has nothing to
 		// say, and it runs every few minutes on every project that opted in.
@@ -4767,8 +4867,8 @@ func (d *DB) enqueueTrackerUpdateAsUnsafe(actorID string, task *models.Task, sta
 		return
 	}
 
-	proj, _ := d.getProjectByIDUnsafe(task.ProjectID)
-	ts, err := d.TrackerRegistry().ForTask(task, proj)
+	trk := d.trackerOfTaskUnsafe(task)
+	ts, err := d.TrackerRegistry().ForTask(task, trk)
 	if err != nil || ts == nil || ts.Name() == "local" || !ts.Supports(tracker.CapUpdate) {
 		return
 	}
@@ -4805,8 +4905,8 @@ func (d *DB) enqueueTrackerUpdateAsUnsafe(actorID string, task *models.Task, sta
 
 	trackerName = trackerDisplayName(ts.Name())
 	target := ""
-	if proj != nil {
-		target = firstNonEmpty(proj.GithubRepo, proj.JiraProject, proj.GitlabProject)
+	if trk != nil {
+		target = trk.Scope
 	}
 	initialSteps = []string{
 		fmt.Sprintf("Mise à jour du ticket %s [%s] (%s)", trackerName, task.Key, target),
@@ -4868,7 +4968,6 @@ func (d *DB) processTrackerUpdateJob(ctx context.Context, job SkillJob) {
 	ctx = tracker.WithActingUser(ctx, job.ActingUser)
 	d.mu.RLock()
 	task, err := d.getTaskByIDUnsafe(job.TaskID)
-	settings, _ := d.getSettingsUnsafe()
 	d.mu.RUnlock()
 
 	if err != nil || task == nil {
@@ -4882,23 +4981,10 @@ func (d *DB) processTrackerUpdateJob(ctx context.Context, job SkillJob) {
 		return
 	}
 
-	proj, _ := d.getProjectByIDUnsafe(task.ProjectID)
-	repo := ""
-	repoPath := ""
-	if proj != nil {
-		if proj.GithubRepo != "" {
-			repo = proj.GithubRepo
-		}
-		if proj.RepoPath != "" {
-			repoPath = proj.RepoPath
-		}
-	}
-	if repo == "" && settings != nil {
-		repo = settings.GithubRepo
-	}
-	if repoPath == "" && settings != nil {
-		repoPath = settings.RepoPath
-	}
+	// The tracker the write goes to travels with it, for the key-only writes
+	// an update makes on the way (#741, D10).
+	trk := d.trackerOfTaskUnsafe(task)
+	ctx = tracker.WithTracker(ctx, trk)
 
 	steps := []string{
 		fmt.Sprintf("Démarrage de la mise à jour CLI pour [%s] %s", task.Key, task.Title),
@@ -4935,16 +5021,25 @@ func (d *DB) processTrackerUpdateJob(ctx context.Context, job SkillJob) {
 	ts, tsErr := d.TrackerForTask(task)
 	if tsErr == nil && ts != nil && ts.Supports(tracker.CapUpdate) {
 		steps = append(steps, fmt.Sprintf("Exécution: mise à jour %s pour %s (statut: %s, labels: %v)", ts.Name(), task.Key, syncStatus, task.Labels))
+		// The priority goes through the mapping of the project the change was
+		// checked against in updateTaskBy (#679).
+		var priorityMapping models.PriorityMapping
+		if priorityForUpdate != nil {
+			if proj, _ := d.GetProjectByID(task.ProjectID); proj != nil {
+				priorityMapping = d.priorityMappingForUnsafe(proj, trk)
+			}
+		}
 		err := ts.UpdateIssue(ctx, tracker.UpdateIssueRequest{
-			Project:       proj,
-			Task:          task,
-			Key:           task.Key,
-			Title:         titleForUpdate,
-			Description:   descForUpdate,
-			Priority:      priorityForUpdate,
-			Status:        &syncStatus,
-			Labels:        task.Labels,
-			RemovedLabels: job.RemovedLabels,
+			Tracker:         trk,
+			Task:            task,
+			Key:             task.Key,
+			Title:           titleForUpdate,
+			Description:     descForUpdate,
+			Priority:        priorityForUpdate,
+			Status:          &syncStatus,
+			Labels:          task.Labels,
+			RemovedLabels:   job.RemovedLabels,
+			PriorityMapping: priorityMapping,
 		})
 		if err != nil {
 			hasError = true
@@ -5012,7 +5107,6 @@ func (d *DB) ForceSyncSingleTask(ctx context.Context, taskID string) (*models.Ta
 func (d *DB) syncSingleTask(ctx context.Context, taskID string, force bool) (*models.Task, error) {
 	d.mu.RLock()
 	task, err := d.getTaskByIDUnsafe(taskID)
-	settings, _ := d.getSettingsUnsafe()
 	d.mu.RUnlock()
 
 	if err != nil || task == nil {
@@ -5020,24 +5114,13 @@ func (d *DB) syncSingleTask(ctx context.Context, taskID string, force bool) (*mo
 	}
 
 	proj, _ := d.GetProjectByID(task.ProjectID)
-	repo := ""
-	repoPath := ""
-	if proj != nil {
-		repo = proj.GithubRepo
-		repoPath = proj.RepoPath
-	}
-	if repo == "" && settings != nil {
-		repo = settings.GithubRepo
-	}
-	if repoPath == "" && settings != nil {
-		repoPath = settings.RepoPath
-	}
+	trk := d.trackerOfTaskUnsafe(task)
 
 	var syncedTask *models.Task
 	ts, tsErr := d.TrackerForTask(task)
 	if tsErr == nil && ts != nil && ts.Supports(tracker.CapGet) {
 		syncedTask, err = ts.GetIssue(ctx, tracker.GetIssueRequest{
-			Project: proj,
+			Tracker: trk,
 			Key:     task.Key,
 		})
 		if err != nil {
@@ -5062,7 +5145,11 @@ func (d *DB) syncSingleTask(ctx context.Context, taskID string, force bool) (*mo
 			syncedTask.PrURL = task.PrURL
 		}
 
-		if impErr := d.ImportOrUpdateTasks([]models.Task{*syncedTask}); impErr != nil {
+		trackerID := ""
+		if trk != nil {
+			trackerID = trk.ID
+		}
+		if impErr := d.ImportOrUpdateTasks(trackerID, []models.Task{*syncedTask}); impErr != nil {
 			return nil, impErr
 		}
 		imported, readErr := d.GetTaskByID(task.ID)
@@ -5100,6 +5187,31 @@ func (d *DB) EnqueueSyncAs(userID string, syncType string, param string, project
 // the window to read back, and the fact that nobody is watching. userID only
 // records who asked.
 func (d *DB) EnqueueSyncWith(userID string, syncType string, param string, projectID string, opts SyncOptions) (*models.TaskActivity, error) {
+	// A pass asked for one project reads its trackers, one pass each (#741).
+	// The activity stays attached to the project, as before.
+	if projectID != "" && projectID != "all" && strings.TrimPrefix(strings.TrimSpace(syncType), "sync_") != "all" {
+		d.mu.RLock()
+		proj, _ := d.getProjectByIDUnsafe(projectID)
+		var trackers []*models.Tracker
+		if proj != nil {
+			trackers, _ = d.projectTrackersUnsafe(proj.ID)
+		}
+		d.mu.RUnlock()
+		if len(trackers) > 0 {
+			var first *models.TaskActivity
+			for _, trk := range trackers {
+				act, err := d.enqueueTrackerSync(userID, trk, param, proj.ID, opts)
+				if err != nil {
+					return nil, err
+				}
+				if first == nil {
+					first = act
+				}
+			}
+			return first, nil
+		}
+	}
+
 	d.mu.RLock()
 	settings, _ := d.getSettingsUnsafe()
 	var proj *models.Project
@@ -5223,6 +5335,89 @@ func (d *DB) EnqueueSyncWith(userID string, syncType string, param string, proje
 		Sync: opts,
 	})
 
+	return &act, nil
+}
+
+// EnqueueTrackerSyncWith queues one synchronisation of one tracker, attached
+// to no project: the background loop's pass, which reads a tracker whatever
+// projects select it (#741).
+func (d *DB) EnqueueTrackerSyncWith(userID string, trackerID string, opts SyncOptions) (*models.TaskActivity, error) {
+	d.mu.RLock()
+	trk, err := trackerByIDOn(d.conn, trackerID)
+	d.mu.RUnlock()
+	if err != nil {
+		return nil, err
+	}
+	if trk == nil {
+		return nil, fmt.Errorf("tracker non trouvé")
+	}
+	return d.enqueueTrackerSync(userID, trk, "", "", opts)
+}
+
+// enqueueTrackerSync files the job of one tracker's synchronisation. The skill
+// is named after the tracker's provider, as before; the activity records the
+// tracker, and the project when the pass was asked for from one.
+func (d *DB) enqueueTrackerSync(userID string, trk *models.Tracker, param string, attachedProject string, opts SyncOptions) (*models.TaskActivity, error) {
+	provider := strings.ToLower(strings.TrimSpace(trk.Provider))
+	syncType := "sync_" + provider
+	skillName := "Sync " + trackerDisplayName(provider)
+	target := trk.Scope
+	if strings.TrimSpace(param) != "" && (provider == "github" || provider == "jira") {
+		target = strings.TrimSpace(param)
+		if provider == "jira" {
+			target = strings.ToUpper(target)
+		}
+	}
+	var summary string
+	var steps []string
+	switch provider {
+	case "github":
+		summary = fmt.Sprintf("Synchronisation GitHub (%s) en file d'attente", target)
+		steps = []string{fmt.Sprintf("Cible : GitHub Repository (%s)", target)}
+	case "jira":
+		summary = fmt.Sprintf("Synchronisation Jira (%s) en file d'attente", target)
+		steps = []string{fmt.Sprintf("Cible : Jira Project (%s)", target)}
+	default:
+		summary = fmt.Sprintf("Synchronisation %s en file d'attente", skillName[5:])
+		steps = []string{fmt.Sprintf("Cible : %s", skillName[5:])}
+	}
+	steps = append(steps, "Poussée dans la file d'attente d'exécution...")
+	if opts.WindowMin > 0 {
+		steps = append(steps, fmt.Sprintf("Lecture incrémentale : les tickets modifiés depuis %d minute(s)", opts.WindowMin))
+	}
+
+	act := models.TaskActivity{
+		ID:        uuid.New().String(),
+		ProjectID: attachedProject,
+		TrackerID: trk.ID,
+		SkillID:   syncType,
+		SkillName: skillName,
+		Action:    "Synchronisation des tickets distants",
+		Status:    string(models.ActivityStatusQueued),
+		Summary:   summary,
+		Steps:     steps,
+		Prompt:    param,
+		CreatedAt: time.Now(),
+		// Who asked for the pass, empty for the timer. It is not the account
+		// the read runs under: a synchronisation always reads with the server
+		// credential of its provider (#464).
+		UserID: strings.TrimSpace(userID),
+	}
+
+	d.mu.Lock()
+	_ = d.addTaskActivityDirect(act)
+	d.mu.Unlock()
+
+	// No acting user: a synchronisation is nobody's write, and resolving one
+	// would substitute their personal token for the server's.
+	d.enqueueJob(SkillJob{
+		ActivityID: act.ID,
+		ProjectID:  attachedProject,
+		TrackerID:  trk.ID,
+		SkillID:    syncType,
+		Prompt:     param,
+		Sync:       opts,
+	})
 	return &act, nil
 }
 
@@ -5796,9 +5991,9 @@ func (d *DB) ClearCompletedActivities() (int, error) {
 func (d *DB) AddTaskCommentAs(ctx context.Context, taskID string, body string) error {
 	d.mu.RLock()
 	task, err := d.getTaskByIDUnsafe(taskID)
-	var proj *models.Project
-	if task != nil && task.ProjectID != "" {
-		proj, _ = d.getProjectByIDUnsafe(task.ProjectID)
+	var trk *models.Tracker
+	if task != nil {
+		trk = d.trackerOfTaskUnsafe(task)
 	}
 	d.mu.RUnlock()
 
@@ -5810,8 +6005,10 @@ func (d *DB) AddTaskCommentAs(ctx context.Context, taskID string, body string) e
 	if err != nil {
 		return err
 	}
-	return ts.AddComment(ctx, tracker.AddCommentRequest{
-		Project: proj,
+	// The comment is written with the tracker of the task, which also travels
+	// in the context for the adapters that read it there (#741, D10).
+	return ts.AddComment(tracker.WithTracker(ctx, trk), tracker.AddCommentRequest{
+		Tracker: trk,
 		Key:     task.Key,
 		Body:    body,
 	})
@@ -5854,6 +6051,26 @@ func (d *DB) ConvertTaskToRemote(ctx context.Context, taskID string, target stri
 	if !ok || !ts.Supports(tracker.CapCreate) {
 		return nil, fmt.Errorf("tracker distant non supporté: %s", target)
 	}
+	// The issue is created on the project's tracker of that provider (#741).
+	var trk *models.Tracker
+	if proj != nil {
+		trackers, _ := d.projectTrackersUnsafe(proj.ID)
+		for _, candidate := range trackers {
+			if strings.EqualFold(candidate.Provider, target) {
+				trk = candidate
+				break
+			}
+		}
+		if trk == nil {
+			if fallback := d.trackerOfProjectUnsafe(proj); fallback != nil && strings.EqualFold(fallback.Provider, target) {
+				trk = fallback
+			}
+		}
+	}
+	var trackerValue any
+	if trk != nil && trk.ID != "" {
+		trackerValue = trk.ID
+	}
 
 	// Claim the task before creating anything. The claim holds only while the
 	// key is still the one read above and no other conversion holds it: a
@@ -5891,11 +6108,12 @@ func (d *DB) ConvertTaskToRemote(ctx context.Context, taskID string, target stri
 	}
 
 	created, err := ts.CreateIssue(ctx, tracker.CreateIssueRequest{
-		Project:     proj,
-		Title:       task.Title,
-		Description: task.Description,
-		Priority:    task.Priority,
-		Labels:      task.Labels,
+		Tracker:         trk,
+		Title:           task.Title,
+		Description:     task.Description,
+		Priority:        task.Priority,
+		Labels:          task.Labels,
+		PriorityMapping: d.priorityMappingForUnsafe(proj, trk),
 	})
 	if err != nil {
 		release()
@@ -5934,11 +6152,15 @@ func (d *DB) ConvertTaskToRemote(ctx context.Context, taskID string, target stri
 		task.ExternalURL = extURL
 		task.UpdatedAt = now
 		labelsJSON, _ := json.Marshal(task.Labels)
+		// The ticket now belongs to the tracker it was created on; its id stays.
 		_, err = tx.Exec(`
 			UPDATE tasks
-			SET key = ?, source = ?, external_url = ?, labels = ?, updated_at = ?
+			SET key = ?, source = ?, external_url = ?, labels = ?, tracker_id = COALESCE(?, tracker_id), updated_at = ?
 			WHERE id = ?
-		`, task.Key, task.Source, task.ExternalURL, string(labelsJSON), now, task.ID)
+		`, task.Key, task.Source, task.ExternalURL, string(labelsJSON), trackerValue, now, task.ID)
+		if trk != nil && trk.ID != "" {
+			task.TrackerID = trk.ID
+		}
 		return err
 	})
 	if err != nil {
@@ -6184,8 +6406,16 @@ func parseStageColumns(raw string) map[string][]string {
 }
 
 func (d *DB) getProjectsUnsafe() ([]models.Project, error) {
+	return d.scanProjectsUnsafe(true)
+}
+
+// scanProjectsUnsafe reads every project. With readThrough, each one carries
+// its trackers and reads its tracker fields through from its default tracker
+// (#741); without, it is the row as stored, which is what the tracker adoption
+// derives the trackers from.
+func (d *DB) scanProjectsUnsafe(readThrough bool) ([]models.Project, error) {
 	rows, err := d.conn.Query(`
-		SELECT p.id, p.name, p.slug, p.description, p.icon, p.color, p.repo_path, p.repo_paths, p.repositories, p.repositories_migration, p.use_worktrees, p.default_skill_mode, p.full_chain_stop_stage, p.push_stage_commits, p.pr_creation_stage, p.spec_artifacts, p.branch_name_format, p.board_id, p.tracker_columns, p.stage_columns, p.sprints, p.issue_types, p.enabled_views, p.epic_colors, p.roadmap_projects, p.roadmap_axis_writes, p.epic_axis_prefixes, p.priority_mapping, p.epic_axis_fields, p.git_remote_url, p.github_repo, p.github_api_url, p.gitlab_url, p.gitlab_project, p.jira_project, p.issue_tracker, p.tracker_url, p.is_default, p.skill_overrides, p.setup_providers, p.ai_provider, p.ai_command_template, p.ai_command_template_autonomous, p.ai_model, p.ai_skill_models, p.spec_framework, p.external_terminal_command, p.auto_sync_enabled, p.auto_sync_interval_min, p.owner_user_id, p.created_at, p.updated_at,
+		SELECT p.id, p.name, p.slug, p.description, p.icon, p.color, p.repo_path, p.repo_paths, p.repositories, p.repositories_migration, p.use_worktrees, p.default_skill_mode, p.full_chain_stop_stage, p.push_stage_commits, p.pr_creation_stage, p.spec_artifacts, p.branch_name_format, p.board_id, p.tracker_columns, p.stage_columns, p.sprints, p.issue_types, p.enabled_views, p.epic_colors, p.roadmap_projects, p.roadmap_axis_writes, p.epic_axis_prefixes, p.priority_mapping, p.epic_axis_fields, p.git_remote_url, p.github_repo, p.github_api_url, p.gitlab_url, p.gitlab_project, p.jira_project, p.issue_tracker, p.tracker_url, p.is_default, p.skill_overrides, p.setup_providers, p.ai_provider, p.ai_command_template, p.ai_command_template_autonomous, p.ai_model, p.ai_skill_models, p.spec_framework, p.external_terminal_command, p.auto_sync_enabled, p.auto_sync_interval_min, p.owner_user_id, p.label, p.default_tracker_id, p.created_at, p.updated_at,
 		       COUNT(t.id) as task_count
 		FROM projects p
 		LEFT JOIN tasks t ON t.project_id = p.id
@@ -6215,7 +6445,7 @@ func (d *DB) getProjectsUnsafe() ([]models.Project, error) {
 		var ghURL, glURL, glProj sql.NullString
 		var ownerUserID sql.NullString
 		err := rows.Scan(
-			&p.ID, &p.Name, &p.Slug, &p.Description, &p.Icon, &p.Color, &p.RepoPath, &repoPathsJSON, &repositoriesJSON, &p.RepositoriesMigration, &useWorktrees, &defaultSkillMode, &fullChainStopStage, &pushStageCommits, &p.PRCreationStage, &p.SpecArtifacts, &p.BranchNameFormat, &p.BoardID, &trackerColumnsJSON, &stageColumnsJSON, &sprintsJSON, &issueTypesJSON, &enabledViewsJSON, &epicColors, &roadmapProjectsJSON, &roadmapAxisWrites, &epicAxisPrefixesJSON, &priorityMappingJSON, &epicAxisFieldsJSON, &p.GitRemoteUrl, &p.GithubRepo, &ghURL, &glURL, &glProj, &jiraProj, &p.IssueTracker, &p.TrackerUrl, &isDefault, &skillOverridesJSON, &setupProvidersJSON, &aiProv, &aiCmd, &aiCmdAuto, &projModel, &projSkillModelsJSON, &specFw, &extTerm, &autoSyncEnabledInt, &autoSyncIntervalMin, &ownerUserID, &p.CreatedAt, &p.UpdatedAt, &p.TaskCount,
+			&p.ID, &p.Name, &p.Slug, &p.Description, &p.Icon, &p.Color, &p.RepoPath, &repoPathsJSON, &repositoriesJSON, &p.RepositoriesMigration, &useWorktrees, &defaultSkillMode, &fullChainStopStage, &pushStageCommits, &p.PRCreationStage, &p.SpecArtifacts, &p.BranchNameFormat, &p.BoardID, &trackerColumnsJSON, &stageColumnsJSON, &sprintsJSON, &issueTypesJSON, &enabledViewsJSON, &epicColors, &roadmapProjectsJSON, &roadmapAxisWrites, &epicAxisPrefixesJSON, &priorityMappingJSON, &epicAxisFieldsJSON, &p.GitRemoteUrl, &p.GithubRepo, &ghURL, &glURL, &glProj, &jiraProj, &p.IssueTracker, &p.TrackerUrl, &isDefault, &skillOverridesJSON, &setupProvidersJSON, &aiProv, &aiCmd, &aiCmdAuto, &projModel, &projSkillModelsJSON, &specFw, &extTerm, &autoSyncEnabledInt, &autoSyncIntervalMin, &ownerUserID, &p.Label, &p.DefaultTrackerID, &p.CreatedAt, &p.UpdatedAt, &p.TaskCount,
 		)
 		if err != nil {
 			return nil, err
@@ -6267,8 +6497,19 @@ func (d *DB) getProjectsUnsafe() ([]models.Project, error) {
 		p.OwnerUserID = strings.TrimSpace(ownerUserID.String)
 		projects = append(projects, p)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	rows.Close()
 	if projects == nil {
 		projects = []models.Project{}
+	}
+	if readThrough {
+		for i := range projects {
+			if err := d.fillProjectTrackersUnsafe(&projects[i]); err != nil {
+				return nil, err
+			}
+		}
 	}
 	return projects, nil
 }
@@ -6332,12 +6573,12 @@ func (d *DB) getProjectByIDUnsafe(id string) (*models.Project, error) {
 	var ghURL, glURL, glProj sql.NullString
 	var ownerUserID sql.NullString
 	err := d.conn.QueryRow(`
-		SELECT p.id, p.name, p.slug, p.description, p.icon, p.color, p.repo_path, p.repo_paths, p.repositories, p.repositories_migration, p.use_worktrees, p.default_skill_mode, p.full_chain_stop_stage, p.push_stage_commits, p.pr_creation_stage, p.spec_artifacts, p.branch_name_format, p.board_id, p.tracker_columns, p.stage_columns, p.sprints, p.issue_types, p.enabled_views, p.epic_colors, p.roadmap_projects, p.roadmap_axis_writes, p.epic_axis_prefixes, p.priority_mapping, p.epic_axis_fields, p.git_remote_url, p.github_repo, p.github_api_url, p.gitlab_url, p.gitlab_project, p.jira_project, p.issue_tracker, p.tracker_url, p.is_default, p.skill_overrides, p.setup_providers, p.ai_provider, p.ai_command_template, p.ai_command_template_autonomous, p.ai_model, p.ai_skill_models, p.spec_framework, p.external_terminal_command, p.auto_sync_enabled, p.auto_sync_interval_min, p.owner_user_id, p.created_at, p.updated_at,
+		SELECT p.id, p.name, p.slug, p.description, p.icon, p.color, p.repo_path, p.repo_paths, p.repositories, p.repositories_migration, p.use_worktrees, p.default_skill_mode, p.full_chain_stop_stage, p.push_stage_commits, p.pr_creation_stage, p.spec_artifacts, p.branch_name_format, p.board_id, p.tracker_columns, p.stage_columns, p.sprints, p.issue_types, p.enabled_views, p.epic_colors, p.roadmap_projects, p.roadmap_axis_writes, p.epic_axis_prefixes, p.priority_mapping, p.epic_axis_fields, p.git_remote_url, p.github_repo, p.github_api_url, p.gitlab_url, p.gitlab_project, p.jira_project, p.issue_tracker, p.tracker_url, p.is_default, p.skill_overrides, p.setup_providers, p.ai_provider, p.ai_command_template, p.ai_command_template_autonomous, p.ai_model, p.ai_skill_models, p.spec_framework, p.external_terminal_command, p.auto_sync_enabled, p.auto_sync_interval_min, p.owner_user_id, p.label, p.default_tracker_id, p.created_at, p.updated_at,
 		       (SELECT COUNT(*) FROM tasks WHERE project_id = p.id) as task_count
 		FROM projects p
 		WHERE p.id = ? OR p.slug = ?
 	`, id, id).Scan(
-		&p.ID, &p.Name, &p.Slug, &p.Description, &p.Icon, &p.Color, &p.RepoPath, &repoPathsJSON, &repositoriesJSON, &p.RepositoriesMigration, &useWorktrees, &defaultSkillMode, &fullChainStopStage, &pushStageCommits, &p.PRCreationStage, &p.SpecArtifacts, &p.BranchNameFormat, &p.BoardID, &trackerColumnsJSON, &stageColumnsJSON, &sprintsJSON, &issueTypesJSON, &enabledViewsJSON, &epicColors, &roadmapProjectsJSON, &roadmapAxisWrites, &epicAxisPrefixesJSON, &priorityMappingJSON, &epicAxisFieldsJSON, &p.GitRemoteUrl, &p.GithubRepo, &ghURL, &glURL, &glProj, &jiraProj, &p.IssueTracker, &p.TrackerUrl, &isDefault, &skillOverridesJSON, &setupProvidersJSON, &aiProv, &aiCmd, &aiCmdAuto, &projModel, &projSkillModelsJSON, &specFw, &extTerm, &autoSyncEnabledInt, &autoSyncIntervalMin, &ownerUserID, &p.CreatedAt, &p.UpdatedAt, &p.TaskCount,
+		&p.ID, &p.Name, &p.Slug, &p.Description, &p.Icon, &p.Color, &p.RepoPath, &repoPathsJSON, &repositoriesJSON, &p.RepositoriesMigration, &useWorktrees, &defaultSkillMode, &fullChainStopStage, &pushStageCommits, &p.PRCreationStage, &p.SpecArtifacts, &p.BranchNameFormat, &p.BoardID, &trackerColumnsJSON, &stageColumnsJSON, &sprintsJSON, &issueTypesJSON, &enabledViewsJSON, &epicColors, &roadmapProjectsJSON, &roadmapAxisWrites, &epicAxisPrefixesJSON, &priorityMappingJSON, &epicAxisFieldsJSON, &p.GitRemoteUrl, &p.GithubRepo, &ghURL, &glURL, &glProj, &jiraProj, &p.IssueTracker, &p.TrackerUrl, &isDefault, &skillOverridesJSON, &setupProvidersJSON, &aiProv, &aiCmd, &aiCmdAuto, &projModel, &projSkillModelsJSON, &specFw, &extTerm, &autoSyncEnabledInt, &autoSyncIntervalMin, &ownerUserID, &p.Label, &p.DefaultTrackerID, &p.CreatedAt, &p.UpdatedAt, &p.TaskCount,
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -6390,6 +6631,9 @@ func (d *DB) getProjectByIDUnsafe(id string) (*models.Project, error) {
 	p.GitlabUrl, p.GitlabProject = glURL.String, glProj.String
 	p.SpecFramework = models.NormalizeSpecFramework(specFw.String)
 	p.OwnerUserID = strings.TrimSpace(ownerUserID.String)
+	if err := d.fillProjectTrackersUnsafe(&p); err != nil {
+		return nil, err
+	}
 	return &p, nil
 }
 
@@ -6521,6 +6765,16 @@ func (d *DB) CreateProjectAs(ownerUserID string, req models.CreateProjectRequest
 		return nil, formatErr
 	}
 
+	settings, _ := d.getSettingsUnsafe()
+	created := &models.Project{
+		ID: id, Name: name, Slug: slug, IssueTracker: issueTracker, GithubRepo: githubRepo, GithubApiUrl: strings.TrimSpace(req.GithubApiUrl),
+		GitlabUrl: strings.TrimSpace(req.GitlabUrl), GitlabProject: strings.TrimSpace(req.GitlabProject), JiraProject: jiraProject, TrackerUrl: req.TrackerUrl,
+		BoardID: req.BoardID, IssueTypes: issueTypes, AutoSyncEnabled: autoSyncEnabledInt == 1, AutoSyncIntervalMin: autoSyncIntervalMin,
+	}
+	// A tracker the new project joins keeps its own board mirror; it only
+	// takes the project's auto-sync when the project asks for it.
+	joined := trackerFieldsTouched{autoSync: created.AutoSyncEnabled}
+
 	// The previous default is cleared in the same transaction as the insert,
 	// under the default-project lock, so there is never zero or two defaults.
 	err := d.conn.WithTx(func(tx *sqlTx) error {
@@ -6539,9 +6793,12 @@ func (d *DB) CreateProjectAs(ownerUserID string, req models.CreateProjectRequest
 		INSERT INTO projects (id, name, slug, description, icon, color, repositories, default_skill_mode, full_chain_stop_stage, push_stage_commits, pr_creation_stage, spec_artifacts, branch_name_format, board_id, tracker_columns, stage_columns, sprints, issue_types, enabled_views, epic_colors, roadmap_projects, roadmap_axis_writes, epic_axis_prefixes, git_remote_url, github_repo, github_api_url, gitlab_url, gitlab_project, jira_project, issue_tracker, tracker_url, is_default, spec_framework, auto_sync_enabled, auto_sync_interval_min, owner_user_id, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`, id, name, slug, req.Description, icon, color, repositoriesJSON, models.NormalizeSkillMode(req.DefaultSkillMode), models.NormalizeFullChainStopStage(req.FullChainStopStage), boolInt(req.PushStageCommits), prCreationStage, models.NormalizeSpecArtifacts(req.SpecArtifacts), branchNameFormat, req.BoardID, "[]", "{}", "[]", string(issueTypesBytes), string(enabledViewsBytes), epicColorsInt, string(roadmapProjectsBytes), boolInt(roadmapAxisWrites), string(epicAxisPrefixesBytes), gitRemote, githubRepo, strings.TrimSpace(req.GithubApiUrl), strings.TrimSpace(req.GitlabUrl), strings.TrimSpace(req.GitlabProject), jiraProject, issueTracker, req.TrackerUrl, isDefInt, specFramework, autoSyncEnabledInt, autoSyncIntervalMin, strings.TrimSpace(ownerUserID), now, now)
-		return err
+		if err != nil {
+			return err
+		}
+		return d.ensureProjectTrackerUnsafe(tx, created, settings, joined)
 	})
-	d.projectURLs.clear()
+	d.trackerCache.clear()
 	if err != nil {
 		d.mu.Unlock()
 		return nil, err
@@ -6571,6 +6828,7 @@ func (d *DB) UpdateProject(id string, req models.UpdateProjectRequest) (*models.
 // would otherwise hand its synchronisation to the last person who touched it.
 func (d *DB) UpdateProjectAs(actingUserID string, id string, req models.UpdateProjectRequest) (*models.Project, error) {
 	d.mu.Lock()
+	settings, _ := d.getSettingsUnsafe()
 
 	// The project row is locked before it is read, so an edit racing on another
 	// server instance waits and this one merges into what it committed, instead
@@ -6823,10 +7081,15 @@ func (d *DB) UpdateProjectAs(actingUserID string, id string, req models.UpdatePr
 		_, err = tx.Exec("UPDATE tasks SET repository = '' WHERE project_id = ? AND repository = ?", p.ID, identity)
 	}
 	if err == nil {
+		// The tracker fields the request carries land on the project's tracker,
+		// which the project reads them back from (#741).
+		err = d.ensureProjectTrackerUnsafe(tx, p, settings, touchedByUpdate(req))
+	}
+	if err == nil {
 		err = tx.Commit()
 		committed = err == nil
 	}
-	d.projectURLs.clear()
+	d.trackerCache.clear()
 	if err != nil {
 		d.mu.Unlock()
 		return nil, err
@@ -6871,13 +7134,17 @@ func (d *DB) DeleteProject(id string) error {
 			return fmt.Errorf("impossible de supprimer le projet par défaut")
 		}
 
-		// Reassign tasks to default project
+		// The tickets of a tracker belong to it, not to the project (#741): the
+		// project lets go of its trackers and their tickets stay, shown by the
+		// other projects selecting them. Only the tickets of its own local board
+		// move to the default project, onto that project's tracker, as every
+		// ticket did before trackers existed.
 		var defaultProjID string
 		_ = tx.QueryRow("SELECT id FROM projects WHERE is_default = 1 LIMIT 1").Scan(&defaultProjID)
 		if defaultProjID == "" {
 			defaultProjID = "default"
 		}
-		if _, err := tx.Exec("UPDATE tasks SET project_id = ? WHERE project_id = ?", defaultProjID, p.ID); err != nil {
+		if err := d.releaseProjectTrackersUnsafe(tx, p, defaultProjID); err != nil {
 			return err
 		}
 		if _, err := tx.Exec("DELETE FROM user_project_bookmarks WHERE project_id = ?", p.ID); err != nil {
@@ -6892,7 +7159,7 @@ func (d *DB) DeleteProject(id string) error {
 		_, err := tx.Exec("DELETE FROM projects WHERE id = ?", p.ID)
 		return err
 	})
-	d.projectURLs.clear()
+	d.trackerCache.clear()
 	if err != nil {
 		return err
 	}
@@ -6948,13 +7215,14 @@ func (d *DB) remoteTrackerStatuses(ctx context.Context, projectID, trackerName s
 	if proj == nil {
 		proj = &models.Project{IssueTracker: trackerName}
 	}
-	ts, err := d.TrackerForProject(proj)
+	trk := d.trackerOfProjectUnsafe(proj)
+	ts, err := d.TrackerFor(trk)
 	if err != nil || !ts.Supports(tracker.CapBoard) {
 		return nil
 	}
 	ctx, cancel := context.WithTimeout(ctx, boardAPITimeout)
 	defer cancel()
-	statuses, err := ts.ListStatuses(ctx, tracker.ProjectRequest{Project: proj})
+	statuses, err := ts.ListStatuses(ctx, tracker.ProjectRequest{Tracker: trk})
 	if err != nil {
 		log.Printf("[statuses] %s n'a pas répondu ses statuts: %v", trackerName, err)
 		return nil

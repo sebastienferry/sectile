@@ -102,6 +102,13 @@ type TaskActivity struct {
 	// project activity with no task; the field is read by the macro run
 	// queries only and is empty everywhere else.
 	MacroKey string `json:"macroKey,omitempty"`
+	// RunProjectID is the project a task run works for (#741). A ticket may
+	// belong to several projects, and a task run cannot store one in ProjectID,
+	// which a task activity leaves empty. Empty on every other row.
+	RunProjectID string `json:"runProjectId,omitempty"`
+	// TrackerID names the tracker a synchronisation read. Empty on every other
+	// row.
+	TrackerID string `json:"trackerId,omitempty"`
 }
 
 type ActivityStats struct {
@@ -232,6 +239,16 @@ type Project struct {
 	TaskCount               int       `json:"taskCount"`
 	CreatedAt               time.Time `json:"createdAt"`
 	UpdatedAt               time.Time `json:"updatedAt"`
+	// Trackers are the trackers the project selects its tickets from, in
+	// order (#741). Until the tracker settings move to their own screen, the
+	// tracker fields above are read through from DefaultTrackerID.
+	Trackers []ProjectTracker `json:"trackers"`
+	// Label, when set, narrows the project to the tickets carrying it. Empty
+	// shows every ticket of its trackers.
+	Label string `json:"label"`
+	// DefaultTrackerID is where a new ticket goes, the first tracker when
+	// empty.
+	DefaultTrackerID string `json:"defaultTrackerId"`
 }
 
 // TrackerColumn is one column of the tracker's own board, with the tracker
@@ -889,8 +906,11 @@ type WorktreeInfo struct {
 }
 
 type Task struct {
-	ID             string   `json:"id"`
-	ProjectID      string   `json:"projectId"`
+	ID        string `json:"id"`
+	ProjectID string `json:"projectId"`
+	// TrackerID is the tracker the ticket belongs to (#741): one record per
+	// remote ticket, whatever projects show it.
+	TrackerID      string   `json:"trackerId"`
 	Key            string   `json:"key"`
 	Title          string   `json:"title"`
 	Description    string   `json:"description"`

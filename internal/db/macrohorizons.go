@@ -108,7 +108,7 @@ func (d *DB) macroTracker(projectID string, macroKey string, axis macroAxis) (tr
 	if !belongsToProject(macroKey, proj) && !foreignAxisWritable(macroKey, proj, axis) {
 		return nil, nil, fmt.Errorf("%s appartient à un autre projet que %s : la classification reste locale", macroKey, proj.JiraProject)
 	}
-	ts, err := d.TrackerForProject(proj)
+	ts, err := d.TrackerFor(d.trackerOfProjectUnsafe(proj))
 	if err != nil {
 		return nil, nil, err
 	}
@@ -157,8 +157,11 @@ func (d *DB) pushMacroLabels(ctx context.Context, projectID string, macroKey str
 	// Only the labels travel. No status, no title, no description: an axis write
 	// that also carried the rest would push back whatever the local copy held,
 	// which on an epic Sectile never imported is nothing at all.
-	return ts.UpdateIssue(ctx, tracker.UpdateIssueRequest{
-		Project:       proj,
+	// The write carries the project's tracker, in the request and in the
+	// context (#741).
+	trk := d.trackerOfProjectUnsafe(proj)
+	return ts.UpdateIssue(tracker.WithTracker(ctx, trk), tracker.UpdateIssueRequest{
+		Tracker:       trk,
 		Key:           macroKey,
 		Labels:        added,
 		RemovedLabels: removed,
@@ -180,7 +183,8 @@ func (d *DB) remoteMacros(ctx context.Context, proj *models.Project) (map[string
 	if proj == nil {
 		return nil, fmt.Errorf("projet non trouvé")
 	}
-	ts, err := d.TrackerForProject(proj)
+	trk := d.trackerOfProjectUnsafe(proj)
+	ts, err := d.TrackerFor(trk)
 	if err != nil {
 		return nil, err
 	}
@@ -190,7 +194,7 @@ func (d *DB) remoteMacros(ctx context.Context, proj *models.Project) (map[string
 
 	ctx, cancel := context.WithTimeout(ctx, macroReadTimeout)
 	defer cancel()
-	epics, err := ts.ListEpics(ctx, tracker.ProjectRequest{Project: proj})
+	epics, err := ts.ListEpics(ctx, tracker.ProjectRequest{Tracker: trk, EpicAxisFields: proj.EpicAxisFields})
 	if err != nil {
 		return nil, err
 	}
@@ -329,8 +333,8 @@ func (d *DB) roadmapProjectMacros(ctx context.Context, proj *models.Project) (ma
 // roadmapProjectEpics lists the epics of one roadmap project, through the
 // project's own tracker and credentials, the key alone changing.
 func (d *DB) roadmapProjectEpics(ctx context.Context, proj *models.Project, key string) ([]models.Task, error) {
-	view := roadmapProjectView(proj, key)
-	ts, err := d.TrackerForProject(view)
+	view := roadmapTrackerView(d.trackerOfProjectUnsafe(proj), key)
+	ts, err := d.TrackerFor(view)
 	if err != nil {
 		return nil, err
 	}
@@ -339,7 +343,7 @@ func (d *DB) roadmapProjectEpics(ctx context.Context, proj *models.Project, key 
 	}
 	ctx, cancel := context.WithTimeout(ctx, macroReadTimeout)
 	defer cancel()
-	return ts.ListEpics(ctx, tracker.ProjectRequest{Project: view})
+	return ts.ListEpics(ctx, tracker.ProjectRequest{Tracker: view, EpicAxisFields: proj.EpicAxisFields})
 }
 
 // ImportEpicHorizons is the epic-named alias of ImportMacroHorizons.

@@ -21,7 +21,7 @@ func (d *DB) refreshPullRequestStates(ctx context.Context, projectID string, tas
 	for _, forge := range []string{"github", "gitlab"} {
 		// Resolve errors (including locked credentials) must never fall back to a
 		// different identity's token.
-		client, _, err := d.trackers.ForActingUser(tracker.ActingUser(ctx), forge, projectID)
+		client, _, err := d.trackers.ForActingUser(tracker.ActingUser(ctx), forge, d.projectTrackerID(projectID))
 		if err != nil {
 			warnings = append(warnings, fmt.Sprintf("⚠️ Pull requests %s : %v", forge, err))
 			continue

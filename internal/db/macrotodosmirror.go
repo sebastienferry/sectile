@@ -632,7 +632,7 @@ func (d *DB) pushMacroCopy(ctx context.Context, part macroCopyPart, projectID, k
 	case models.MacroTodosMirrorJiraComment:
 		err = retryTransient(ctx, func(ctx context.Context) error {
 			id, err := scope.writer.UpsertMarkedComment(ctx, tracker.UpsertMarkedCommentRequest{
-				Project:   proj,
+				Tracker:   d.trackerOfProjectUnsafe(proj),
 				Key:       key,
 				CommentID: ref,
 				Marker:    part.marker,

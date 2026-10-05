@@ -54,8 +54,8 @@ func jiraSprintDate(raw string, end bool) (string, error) {
 // CreateSprint creates one sprint on the project's board.
 func (j *JiraAdapter) CreateSprint(ctx context.Context, req tracker.SprintCreateRequest) (models.TrackerSprint, error) {
 	boardID := strings.TrimSpace(req.BoardID)
-	if boardID == "" && req.Project != nil {
-		boardID = strings.TrimSpace(req.Project.BoardID)
+	if boardID == "" && req.Tracker != nil {
+		boardID = strings.TrimSpace(req.Tracker.BoardID)
 	}
 	if boardID == "" {
 		return models.TrackerSprint{}, fmt.Errorf("choisissez d'abord un board dans les options du projet")
@@ -64,7 +64,7 @@ func (j *JiraAdapter) CreateSprint(ctx context.Context, req tracker.SprintCreate
 	if _, err := fmt.Sscanf(boardID, "%d", &board); err != nil {
 		return models.TrackerSprint{}, fmt.Errorf("board Jira invalide %q", boardID)
 	}
-	c, err := j.forWrite(ctx, req.Project)
+	c, err := j.forWrite(ctx, req.Tracker)
 	if err != nil {
 		return models.TrackerSprint{}, err
 	}
@@ -83,7 +83,7 @@ func (j *JiraAdapter) CreateSprint(ctx context.Context, req tracker.SprintCreate
 
 // UpdateSprint sends only the fields the patch carries. A state Jira refuses,
 // such as closing a sprint that never started, comes back as Jira says it.
-func (j *JiraAdapter) UpdateSprint(ctx context.Context, project *models.Project, sprintID string, patch models.SprintPatch) (models.TrackerSprint, error) {
+func (j *JiraAdapter) UpdateSprint(ctx context.Context, t *models.Tracker, sprintID string, patch models.SprintPatch) (models.TrackerSprint, error) {
 	id := strings.TrimSpace(sprintID)
 	if id == "" {
 		return models.TrackerSprint{}, fmt.Errorf("sprint manquant")
@@ -120,7 +120,7 @@ func (j *JiraAdapter) UpdateSprint(ctx context.Context, project *models.Project,
 	if len(body) == 0 {
 		return models.TrackerSprint{}, fmt.Errorf("rien à modifier sur ce sprint")
 	}
-	c, err := j.forWrite(ctx, project)
+	c, err := j.forWrite(ctx, t)
 	if err != nil {
 		return models.TrackerSprint{}, err
 	}
@@ -134,12 +134,12 @@ func (j *JiraAdapter) UpdateSprint(ctx context.Context, project *models.Project,
 
 // DeleteSprint deletes a sprint. A 404 is a sprint already gone, which is
 // what the caller asked for.
-func (j *JiraAdapter) DeleteSprint(ctx context.Context, project *models.Project, sprintID string) error {
+func (j *JiraAdapter) DeleteSprint(ctx context.Context, t *models.Tracker, sprintID string) error {
 	id := strings.TrimSpace(sprintID)
 	if id == "" {
 		return fmt.Errorf("sprint manquant")
 	}
-	c, err := j.forWrite(ctx, project)
+	c, err := j.forWrite(ctx, t)
 	if err != nil {
 		return err
 	}

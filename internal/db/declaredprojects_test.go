@@ -45,7 +45,7 @@ func newDeclaredTracker(epics map[string][]models.Task) *declaredTracker {
 }
 
 func (f *declaredTracker) ListEpics(ctx context.Context, req tracker.ProjectRequest) ([]models.Task, error) {
-	key := req.Project.JiraProject
+	key := req.Tracker.Scope
 	f.listed = append(f.listed, key)
 	if f.failing[key] {
 		return nil, errors.New("403 no permission")
@@ -68,8 +68,8 @@ func (f *declaredTracker) CreateIssue(ctx context.Context, req tracker.CreateIss
 		return nil, f.createErr
 	}
 	f.nextNumber++
-	key := req.Project.JiraProject + "-" + strconv.Itoa(f.nextNumber)
-	return &models.Task{ID: "jira-" + req.Project.ID + "-" + key, ProjectID: req.Project.ID, Key: key, Title: req.Title}, nil
+	key := req.Tracker.Scope + "-" + strconv.Itoa(f.nextNumber)
+	return &models.Task{ID: "jira-" + req.Tracker.ID + "-" + key, ProjectID: req.Tracker.ID, Key: key, Title: req.Title}, nil
 }
 
 func (f *declaredTracker) SetParent(ctx context.Context, key string, parentKey string) error {
@@ -394,7 +394,7 @@ func TestALineCreatesItsStoryInADeclaredProject(t *testing.T) {
 	if err != nil {
 		t.Fatalf("creation refused without the opt-in: %v", err)
 	}
-	if len(fake.created) != 1 || fake.created[0].Project.JiraProject != "DATA" || fake.created[0].Title != "Export the data" {
+	if len(fake.created) != 1 || fake.created[0].Tracker.Scope != "DATA" || fake.created[0].Title != "Export the data" {
 		t.Fatalf("created = %+v, want one story in DATA with the line's text", fake.created)
 	}
 	if fake.parents[task.Key] != "PE-460" {
@@ -480,7 +480,7 @@ func TestABatchCreatesTheStoriesOfLinesAimedAtADeclaredProject(t *testing.T) {
 	if batch.Created != 1 || batch.Failed != 1 {
 		t.Fatalf("batch = %+v, want the declared line created and the undeclared one failed", batch)
 	}
-	if len(fake.created) != 1 || fake.created[0].Project.JiraProject != "DATA" {
+	if len(fake.created) != 1 || fake.created[0].Tracker.Scope != "DATA" {
 		t.Errorf("created = %+v, want one story in DATA", fake.created)
 	}
 	tasks, _ := database.GetTasks("", "", "", "", proj.ID, "", "", "", "", nil, nil, false)

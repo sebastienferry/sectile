@@ -678,6 +678,59 @@ var migrations = []migration{
 			"ALTER TABLE projects ADD COLUMN epic_axis_fields TEXT NOT NULL DEFAULT '{}';",
 		},
 	},
+	{
+		// Trackers become server-side sources that projects select their
+		// tickets from (#741). The tables and columns only: adoptTrackers
+		// moves the data in Go, once every replica runs this binary, and
+		// creates the unique index over (tracker_id, key) after it merged the
+		// duplicates two projects of one tracker had imported. The project
+		// tracker columns stay, for that adoption and for a rollback.
+		version: 49,
+		name:    "trackers",
+		statements: []string{
+			`CREATE TABLE IF NOT EXISTS trackers (
+				id TEXT PRIMARY KEY,
+				name TEXT NOT NULL DEFAULT '',
+				provider TEXT NOT NULL,
+				site TEXT NOT NULL DEFAULT '',
+				scope TEXT NOT NULL DEFAULT '',
+				identity TEXT NOT NULL UNIQUE,
+				board_id TEXT NOT NULL DEFAULT '',
+				tracker_columns TEXT NOT NULL DEFAULT '[]',
+				stage_columns TEXT NOT NULL DEFAULT '{}',
+				sprints TEXT NOT NULL DEFAULT '[]',
+				issue_types TEXT NOT NULL DEFAULT '[]',
+				auto_sync_enabled INTEGER NOT NULL DEFAULT 0,
+				auto_sync_interval_min INTEGER NOT NULL DEFAULT 5,
+				created_at TIMESTAMP NOT NULL,
+				updated_at TIMESTAMP NOT NULL
+			);`,
+			`CREATE TABLE IF NOT EXISTS project_trackers (
+				project_id TEXT NOT NULL,
+				tracker_id TEXT NOT NULL,
+				position INTEGER NOT NULL DEFAULT 0,
+				PRIMARY KEY (project_id, tracker_id)
+			);`,
+			"CREATE INDEX IF NOT EXISTS idx_project_trackers_tracker ON project_trackers (tracker_id);",
+			"ALTER TABLE projects ADD COLUMN label TEXT NOT NULL DEFAULT '';",
+			"ALTER TABLE projects ADD COLUMN default_tracker_id TEXT NOT NULL DEFAULT '';",
+			"ALTER TABLE tasks ADD COLUMN tracker_id TEXT NULL;",
+			"CREATE INDEX IF NOT EXISTS idx_tasks_tracker ON tasks (tracker_id);",
+			`CREATE TABLE IF NOT EXISTS task_aliases (
+				old_id TEXT PRIMARY KEY,
+				task_id TEXT NOT NULL
+			);`,
+			"ALTER TABLE task_activities ADD COLUMN run_project_id TEXT NULL;",
+			"ALTER TABLE task_activities ADD COLUMN tracker_id TEXT NULL;",
+			"ALTER TABLE macros ADD COLUMN tracker_id TEXT NULL;",
+			// The same columns as auto_sync_projects (migration 7), per tracker.
+			`CREATE TABLE IF NOT EXISTS auto_sync_trackers (
+				tracker_id TEXT PRIMARY KEY,
+				last_pass_at DATETIME,
+				last_full_sync_at DATETIME
+			);`,
+		},
+	},
 }
 
 // migrateSchema brings the database to the schema this binary expects, and is

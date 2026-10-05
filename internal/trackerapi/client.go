@@ -94,12 +94,12 @@ type Client struct {
 	// with the grant's access token. JiraURL stays the site, for the links
 	// shown to people and the caches keyed by site.
 	JiraAPIBase, JiraBearer string
-	// Resolve returns the credentials stored for one project, by project id, an
-	// empty id meaning "no project". It is injected by the store, which is the
-	// only component able to read both the settings and the project row; the
+	// Resolve returns the credentials of one tracker, by tracker id (#741), an
+	// empty id meaning "no tracker". It is injected by the store, which is the
+	// only component able to read both the settings and the tracker row; the
 	// values above stay as the environment-derived fallback. Without it the
 	// client behaves exactly as it did before the configuration existed.
-	Resolve func(projectID string) Credentials
+	Resolve func(trackerID string) Credentials
 	// ResolveUser returns one person's own credential for one tracker, empty
 	// when they stored none. site is the Jira site the call is for, the
 	// project's own or the deployment's, so a grant covering several sites
@@ -130,8 +130,8 @@ type PersonalCredential struct {
 // where they have any. The second result says whether the client carries a
 // personal credential: a tracker that attributes its writes to the account
 // behind the token uses it to refuse rather than write under the server's name.
-func (c *Client) ForActingUser(userID, tracker, projectID string) (*Client, bool, error) {
-	resolved := c.For(projectID)
+func (c *Client) ForActingUser(userID, tracker, trackerID string) (*Client, bool, error) {
+	resolved := c.For(trackerID)
 	if resolved == nil || resolved.ResolveUser == nil || strings.TrimSpace(userID) == "" {
 		return resolved, false, nil
 	}
@@ -255,15 +255,15 @@ func providerName(tracker string) string {
 // personal credential or an error, never the server's; an unattended context
 // gets the server credential; a context naming neither is refused. Reads keep
 // ForActingUser and its fallback: a read attributes nothing.
-func (c *Client) ForWrite(ctx context.Context, trackerName, projectID string) (*Client, error) {
+func (c *Client) ForWrite(ctx context.Context, trackerName, trackerID string) (*Client, error) {
 	user := tracker.ActingUser(ctx)
 	if user == "" {
 		if tracker.Unattended(ctx) {
-			return c.For(projectID), nil
+			return c.For(trackerID), nil
 		}
 		return nil, ErrNoActingUser
 	}
-	client, personal, err := c.ForActingUser(user, trackerName, projectID)
+	client, personal, err := c.ForActingUser(user, trackerName, trackerID)
 	if err != nil {
 		return nil, err
 	}
@@ -295,16 +295,16 @@ func NewClient() *Client {
 	}
 }
 
-// For returns the client to use for one project: the same one when nothing is
+// For returns the client to use for one tracker: the same one when nothing is
 // stored, a shallow copy carrying the stored credentials otherwise. Resolving
 // per request rather than at startup is what lets a token typed in the
-// interface take effect without restarting the server, and lets two projects
+// interface take effect without restarting the server, and lets two trackers
 // reach two instances with two credentials.
-func (c *Client) For(projectID string) *Client {
+func (c *Client) For(trackerID string) *Client {
 	if c == nil || c.Resolve == nil {
 		return c
 	}
-	cred := c.Resolve(projectID)
+	cred := c.Resolve(trackerID)
 	if cred == (Credentials{}) {
 		return c
 	}

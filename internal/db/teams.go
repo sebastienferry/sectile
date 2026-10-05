@@ -144,7 +144,7 @@ func (d *DB) RefreshProjectTeamMembers(ctx context.Context, projectID string, ta
 		return "aucune équipe portée par les tickets, rien à rafraîchir", nil
 	}
 
-	ts, proj, err := d.trackerReaderFor(projectID)
+	ts, trk, err := d.trackerReaderFor(projectID)
 	if err != nil {
 		return "", err
 	}
@@ -159,7 +159,7 @@ func (d *DB) RefreshProjectTeamMembers(ctx context.Context, projectID string, ta
 	refreshed := 0
 	var failures []string
 	for _, team := range teams {
-		members, err := ts.TeamMembers(ctx, tracker.TeamRequest{Project: proj, TeamID: team.ID})
+		members, err := ts.TeamMembers(ctx, tracker.TeamRequest{Tracker: trk, TeamID: team.ID})
 		if err != nil {
 			// The team stays, its members unknown: a sync never fails on this.
 			failures = append(failures, fmt.Sprintf("%s: %v", team.Name, err))
@@ -200,7 +200,7 @@ func (d *DB) RefreshTeamMembersNowAs(ctx context.Context, projectID string, team
 		return nil, fmt.Errorf("identifiant d'équipe manquant")
 	}
 
-	ts, proj, err := d.trackerReaderFor(projectID)
+	ts, trk, err := d.trackerReaderFor(projectID)
 	if err != nil {
 		return nil, err
 	}
@@ -217,7 +217,7 @@ func (d *DB) RefreshTeamMembersNowAs(ctx context.Context, projectID string, team
 	ctx, cancel := context.WithTimeout(ctx, teamsAPITimeout)
 	defer cancel()
 
-	members, err := ts.TeamMembers(ctx, tracker.TeamRequest{Project: proj, TeamID: teamID})
+	members, err := ts.TeamMembers(ctx, tracker.TeamRequest{Tracker: trk, TeamID: teamID})
 	if err != nil {
 		return nil, err
 	}
@@ -555,9 +555,9 @@ func (d *DB) SearchAssignableUsersAs(ctx context.Context, taskIDOrKey string, qu
 	if err != nil || ts == nil || !ts.Supports(tracker.CapAssign) {
 		return []models.TeamMember{}, nil
 	}
-	// The call takes a key and nothing else: the project travels in the
+	// The call takes a key and nothing else: the tracker travels in the
 	// context, or GitLab would search the members of the default project.
-	ctx, cancel := context.WithTimeout(tracker.WithProject(ctx, task.ProjectID), teamsAPITimeout)
+	ctx, cancel := context.WithTimeout(tracker.WithTracker(ctx, d.trackerOfTaskUnsafe(task)), teamsAPITimeout)
 	defer cancel()
 	people, err := ts.SearchAssignable(ctx, task.Key, query, 20)
 	if err != nil {
@@ -583,7 +583,7 @@ func (d *DB) SearchTrackerTeams(projectID string, query string) ([]models.Tracke
 // SearchTrackerTeamsAs runs on behalf of whoever asked, so a personal tracker
 // credential can be resolved for the call.
 func (d *DB) SearchTrackerTeamsAs(ctx context.Context, projectID string, query string) ([]models.TrackerTeam, error) {
-	ts, proj, err := d.trackerReaderFor(projectID)
+	ts, trk, err := d.trackerReaderFor(projectID)
 	if err != nil {
 		return nil, err
 	}
@@ -594,7 +594,7 @@ func (d *DB) SearchTrackerTeamsAs(ctx context.Context, projectID string, query s
 	// shadowing it here sent the search out under the server's credential.
 	ctx, cancel := context.WithTimeout(ctx, teamsAPITimeout)
 	defer cancel()
-	return ts.SearchTeams(ctx, tracker.TeamSearchRequest{Project: proj, Query: query})
+	return ts.SearchTeams(ctx, tracker.TeamSearchRequest{Tracker: trk, Query: query})
 }
 
 // SetTasksTeam records the team locally on a batch of work items and queues the

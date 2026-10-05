@@ -28,7 +28,7 @@ const epicEditMeta = `{"fields":{
 func TestJiraEpicAxisFieldCandidatesKeepClosedListCustomFields(t *testing.T) {
 	site := newJiraSite(t)
 	site.reply("GET", "/rest/api/3/issue/PE-4/editmeta", epicEditMeta)
-	got, err := site.adapter().EpicAxisFieldCandidates(unattended(), jiraProject(), "PE-4")
+	got, err := site.adapter().EpicAxisFieldCandidates(unattended(), jiraTracker(), "PE-4")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,7 +56,7 @@ func TestJiraSetEpicAxisFieldSendsTheOptionOnly(t *testing.T) {
 		field models.EpicAxisField
 		path  string
 	}{{selectField, "o1"}, {cascadeField, "y26/q4"}, {selectField, ""}} {
-		if err := adapter.SetEpicAxisField(ctx, jiraProject(), "PE-4", write.field, write.path); err != nil {
+		if err := adapter.SetEpicAxisField(ctx, jiraTracker(), "PE-4", write.field, write.path); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -77,7 +77,7 @@ func TestJiraSetEpicAxisFieldSendsTheOptionOnly(t *testing.T) {
 			t.Errorf("write %d = %s, want %s", i, body, want[i])
 		}
 	}
-	if err := adapter.SetEpicAxisField(ctx, jiraProject(), "PE-4", cascadeField, "y26"); err == nil {
+	if err := adapter.SetEpicAxisField(ctx, jiraTracker(), "PE-4", cascadeField, "y26"); err == nil {
 		t.Error("a cascade path without a child was sent")
 	}
 }
@@ -99,12 +99,12 @@ func TestJiraListEpicsReadsTheMappedFields(t *testing.T) {
 			"cf-epic-rank":{"id":"o1","value":"P1"},"cf-epic-period":{"id":"y26","value":"2026","child":{"id":"q4","value":"Q4"}}}},
 		{"key":"PE-2","fields":{"summary":"Two","status":{"name":"To Do","statusCategory":{"key":"new"}},"cf-epic-rank":null}}
 	],"isLast":true}`)
-	project := jiraProject()
-	project.EpicAxisFields = models.EpicAxisFields{
+	// The mapped fields stay on the project and travel beside its tracker (#741).
+	mapped := models.EpicAxisFields{
 		Priority: &models.EpicAxisField{ID: "cf-epic-rank", Kind: models.EpicFieldSelect},
 		Quarter:  &models.EpicAxisField{ID: "cf-epic-period", Kind: models.EpicFieldCascade},
 	}
-	epics, err := site.adapter().ListEpics(unattended(), tracker.ProjectRequest{Project: project})
+	epics, err := site.adapter().ListEpics(unattended(), tracker.ProjectRequest{Tracker: jiraTracker(), EpicAxisFields: mapped})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -123,7 +123,7 @@ func TestJiraListEpicsReadsTheMappedFields(t *testing.T) {
 func TestJiraListEpicsWithoutMappedFieldsAsksTheSameFields(t *testing.T) {
 	site := newJiraSite(t)
 	site.reply("GET", "/rest/api/3/search/jql", `{"issues":[],"isLast":true}`)
-	if _, err := site.adapter().ListEpics(unattended(), tracker.ProjectRequest{Project: jiraProject()}); err != nil {
+	if _, err := site.adapter().ListEpics(unattended(), tracker.ProjectRequest{Tracker: jiraTracker()}); err != nil {
 		t.Fatal(err)
 	}
 	if got := epicSearchFields(t, site); !reflect.DeepEqual(got, jiraBaseFields) {

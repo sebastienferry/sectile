@@ -597,7 +597,7 @@ func (d *DB) PushMacroQuarterLabel(ctx context.Context, projectID string, macroK
 		return fail(err)
 	}
 	readCtx, cancel := context.WithTimeout(ctx, macroWriteTimeout)
-	epic, err := ts.GetIssue(readCtx, tracker.GetIssueRequest{Project: proj, Key: key})
+	epic, err := ts.GetIssue(readCtx, tracker.GetIssueRequest{Tracker: d.trackerOfProjectUnsafe(proj), Key: key})
 	cancel()
 	if err != nil {
 		return fail(err)

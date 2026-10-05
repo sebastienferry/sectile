@@ -283,20 +283,19 @@ func jiraBrowseURL(site, key string) string {
 	return strings.TrimSuffix(site, "/") + "/browse/" + key
 }
 
-// jiraProjectKey is the project's Jira key: the configured one, else the slug
-// upper-cased without dashes, which is what projects created before the
-// dedicated field stored.
-func jiraProjectKey(p *models.Project) string {
-	if p == nil {
+// jiraTrackerKey is the Jira space a tracker names, upper-cased: its scope. The
+// project fallbacks (the slug of a project created before the dedicated field)
+// were settled when the tracker was derived from the project (#741).
+func jiraTrackerKey(t *models.Tracker) string {
+	if t == nil {
 		return ""
 	}
-	if key := strings.ToUpper(strings.TrimSpace(p.JiraProject)); key != "" {
-		return key
-	}
-	return strings.ToUpper(strings.ReplaceAll(strings.TrimSpace(p.Slug), "-", ""))
+	return strings.ToUpper(strings.TrimSpace(t.Scope))
 }
 
-// jiraJQL builds the project query, restricted to the configured issue types.
+// jiraJQL builds the query over a tracker's whole space, restricted to its
+// configured issue types: every project selecting the tracker reads from the
+// same synchronisation (#741).
 // The project key is quoted like the types: it comes from configuration rather
 // than from a stranger, but a key derived from a slug can land on a JQL reserved
 // word, and the site then answers a parse error that names nothing useful.

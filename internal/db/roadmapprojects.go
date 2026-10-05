@@ -121,14 +121,15 @@ func fillMacroOrigin(m *models.MacroMeta, proj *models.Project, supported bool) 
 	m.AxesWritable = macroAxesWritable(m.Key, proj, supported, false)
 }
 
-// roadmapProjectView is the project as a request to one of its roadmap
-// projects sees it: the same id, site and credentials, another Jira key. It
-// declares nothing, so nothing reading it can follow the declaration further.
-func roadmapProjectView(proj *models.Project, key string) *models.Project {
-	view := *proj
-	view.JiraProject = strings.ToUpper(strings.TrimSpace(key))
-	view.RoadmapProjects = nil
-	view.RoadmapAxisWrites = false
+// roadmapTrackerView is a project's tracker as a request to one of its roadmap
+// projects sees it (#741): the same tracker, so the same site and credentials,
+// its scope the roadmap project's key.
+func roadmapTrackerView(base *models.Tracker, key string) *models.Tracker {
+	view := models.Tracker{Provider: "jira"}
+	if base != nil {
+		view = *base
+	}
+	view.Scope = strings.ToUpper(strings.TrimSpace(key))
 	return &view
 }
 

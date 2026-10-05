@@ -147,7 +147,7 @@ func TestGitlabSyncJobImportsThroughTheAdapter(t *testing.T) {
 		byKey[task.Key] = task
 	}
 	first, second := byKey["#1"], byKey["#2"]
-	if first.ID != "gl-"+f.project.ID+"-1" || first.Source != "gitlab" {
+	if first.ID != "gl-"+defaultTrackerID(t, f.d, f.project.ID)+"-1" || first.Source != "gitlab" {
 		t.Fatalf("identity: %q %q", first.ID, first.Source)
 	}
 	if first.Status != models.StatusToImplement || second.Status != models.StatusFinished {
@@ -164,7 +164,7 @@ func TestGitlabSyncJobImportsThroughTheAdapter(t *testing.T) {
 func TestGitlabTeamWriteIsAcceptedAndGithubRefused(t *testing.T) {
 	f := newGitlabFixture(t)
 	f.sync(t)
-	task, _ := f.d.GetTaskByID("gl-" + f.project.ID + "-1")
+	task, _ := f.d.GetTaskByID("gl-" + defaultTrackerID(t, f.d, f.project.ID) + "-1")
 	if task == nil {
 		t.Fatal("task #1 imported")
 	}
@@ -184,10 +184,10 @@ func TestGitlabTeamWriteIsAcceptedAndGithubRefused(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := f.d.ImportOrUpdateTasks([]models.Task{{ID: "gh-" + github.ID + "-5", ProjectID: github.ID, Key: "#5", Title: "Hub", Source: "github", Status: models.StatusToClarify, Priority: models.PriorityMedium}}); err != nil {
+	if err := f.d.ImportOrUpdateTasks("", []models.Task{{ID: "gh-" + defaultTrackerID(t, f.d, github.ID) + "-5", ProjectID: github.ID, Key: "#5", Title: "Hub", Source: "github", Status: models.StatusToClarify, Priority: models.PriorityMedium}}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := f.d.SetTasksTeam(f.ada, github.ID, []string{"gh-" + github.ID + "-5"}, "data", "data"); err == nil {
+	if _, err := f.d.SetTasksTeam(f.ada, github.ID, []string{"gh-" + defaultTrackerID(t, f.d, github.ID) + "-5"}, "data", "data"); err == nil {
 		t.Fatal("a GitHub task still has no team")
 	}
 }
@@ -200,7 +200,7 @@ func TestGitlabMacroIsWrittenAsLabels(t *testing.T) {
 		t.Fatal(err)
 	}
 	var steps []string
-	if _, err := f.d.applyTaskMacro(f.ada, "gl-"+f.project.ID+"-1", "M-9", &steps); err != nil {
+	if _, err := f.d.applyTaskMacro(f.ada, "gl-"+defaultTrackerID(t, f.d, f.project.ID)+"-1", "M-9", &steps); err != nil {
 		t.Fatalf("attach: %v %v", err, steps)
 	}
 	writes := f.gitlab.writesTo("/projects/acme%2Fapp/issues/1")
@@ -211,7 +211,7 @@ func TestGitlabMacroIsWrittenAsLabels(t *testing.T) {
 	if body["add_labels"] != "macro:Payments,parent:M-9" || body["remove_labels"] != "macro:Core features,parent:M-8" || writes[0].token != "ada-token" {
 		t.Fatalf("macro labels replace the previous ones as the person: %v", body)
 	}
-	task, _ := f.d.GetTaskByID("gl-" + f.project.ID + "-1")
+	task, _ := f.d.GetTaskByID("gl-" + defaultTrackerID(t, f.d, f.project.ID) + "-1")
 	if task.ParentKey != "M-9" {
 		t.Fatalf("the attachment is recorded locally: %q", task.ParentKey)
 	}

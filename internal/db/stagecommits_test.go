@@ -152,6 +152,7 @@ func TestPushStageCommitsMigration(t *testing.T) {
 	if _, err := d.conn.Exec("DELETE FROM schema_migrations WHERE version >= 32"); err != nil {
 		t.Fatal(err)
 	}
+	undoTrackerMigration(d)
 	d.Close()
 	for range 2 {
 		d, err = NewDB(path)

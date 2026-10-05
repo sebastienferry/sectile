@@ -303,7 +303,7 @@ func TestFullSyncRediscoversPullRequests(t *testing.T) {
 	if err != nil || result.Status != "completed" {
 		t.Fatalf("the sync did not complete: %+v %v", result, err)
 	}
-	task, err := database.GetTaskByID("jira-" + project.ID + "-PE-1")
+	task, err := database.GetTaskByID("jira-" + defaultTrackerID(t, database, project.ID) + "-PE-1")
 	if err != nil || task == nil || task.PrURL == nil || *task.PrURL != "https://forge/pull/1" {
 		t.Fatalf("the full sync did not rediscover the pull request: %+v %v", task, err)
 	}

@@ -70,6 +70,9 @@ const (
 type TrackerOp struct {
 	Kind      TrackerOpKind
 	ProjectID string
+	// TrackerID is the tracker the write goes to (#741). Empty, it is the
+	// tracker of TaskID, else the project's default one.
+	TrackerID string
 	// TaskID / TaskKey identify the single work item of an assign or set_parent.
 	TaskID  string
 	TaskKey string
@@ -384,9 +387,9 @@ func (d *DB) processTrackerOpJob(ctx context.Context, job SkillJob) {
 	if op.Unattended {
 		ctx = tracker.WithUnattended(ctx)
 	}
-	// And the project it concerns: a project may override the tracker site, and
-	// a write resolved without it goes to the instance of another project.
-	ctx = tracker.WithProject(ctx, op.ProjectID)
+	// And the tracker it concerns: a tracker may override its site, and a
+	// write resolved without it goes to the instance of another tracker (#741).
+	ctx = tracker.WithTracker(ctx, d.trackerOfOp(op))
 	steps := []string{}
 
 	var output string
@@ -742,16 +745,10 @@ func (d *DB) runTransitionOp(ctx context.Context, op TrackerOp, steps *[]string)
 			cleanStatus := strings.TrimSpace(op.TargetStatus)
 			cleanStatusLower := strings.ToLower(cleanStatus)
 
-			var projObj *models.Project
-			if proj, _ := d.GetProjectByID(task.ProjectID); proj != nil {
-				projObj = proj
-			}
+			trk := d.trackerOfTaskUnsafe(task)
 
 			// Resolve stage and internal status
-			resolvedStage := ""
-			if projObj != nil {
-				resolvedStage = StageForTrackerStatus(projObj, cleanStatus)
-			}
+			resolvedStage := StageForTrackerStatus(trk, cleanStatus)
 
 			var statusVal models.Status = models.StatusToClarify
 			if cleanStatusLower == "closed" || cleanStatusLower == "done" || cleanStatusLower == "terminé" || cleanStatusLower == "finished" {
@@ -785,7 +782,7 @@ func (d *DB) runTransitionOp(ctx context.Context, op TrackerOp, steps *[]string)
 
 			if ts.Supports(tracker.CapUpdate) {
 				if err := ts.UpdateIssue(ctx, tracker.UpdateIssueRequest{
-					Project:       projObj,
+					Tracker:       trk,
 					Task:          task,
 					Key:           task.Key,
 					Status:        &statusVal,
@@ -867,9 +864,8 @@ func (d *DB) runStageOp(ctx context.Context, op TrackerOp, steps *[]string) (str
 			statusVal = models.StatusFinished
 		}
 		if ts.Supports(tracker.CapUpdate) {
-			proj, _ := d.GetProjectByID(task.ProjectID)
 			if err := ts.UpdateIssue(ctx, tracker.UpdateIssueRequest{
-				Project:       proj,
+				Tracker:       d.trackerOfTaskUnsafe(task),
 				Task:          task,
 				Key:           task.Key,
 				Status:        &statusVal,
@@ -1032,4 +1028,27 @@ func (d *DB) finishTrackerOp(activityID string, steps []string, output string, o
 		`, status, summary, output, string(stepsJSON), errText, trackerapi.MissingCredentialTracker(opErr), time.Now(), activityID)
 		return err
 	})
+}
+
+// trackerOfOp is the tracker a queued write goes to: the one it names, else
+// that of its task, else the default tracker of its project (#741).
+func (d *DB) trackerOfOp(op TrackerOp) *models.Tracker {
+	if op.TrackerID != "" {
+		if t, err := trackerByIDOn(d.conn, op.TrackerID); err == nil && t != nil {
+			return t
+		}
+	}
+	if op.TaskID != "" {
+		if task, _ := d.getTaskByIDUnsafe(op.TaskID); task != nil {
+			if t := d.trackerOfTaskUnsafe(task); t != nil {
+				return t
+			}
+		}
+	}
+	if op.ProjectID != "" {
+		if t, _ := d.defaultTrackerOfUnsafe(op.ProjectID); t != nil {
+			return t
+		}
+	}
+	return nil
 }

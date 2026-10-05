@@ -168,7 +168,7 @@ func TestImportedTaskReadsBackOutsideTheTrackersZone(t *testing.T) {
 			t.Fatal(err)
 		}
 		trackerUpdated := trackerCreated.Add(time.Hour)
-		if err := database.ImportOrUpdateTasks([]models.Task{{
+		if err := database.ImportOrUpdateTasks("", []models.Task{{
 			ProjectID:        "default",
 			Key:              "KEY-1",
 			Title:            "A ticket synced from a tracker two hours ahead",

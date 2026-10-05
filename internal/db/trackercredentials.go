@@ -12,23 +12,24 @@ import (
 	"time"
 )
 
-// trackerCredentials resolves one project's connection parameters. The URLs and
-// the GitLab project come from the project override first, then the user
+// trackerCredentials resolves one tracker's connection parameters (#741). The
+// URLs and the GitLab project come from the tracker first, then the user
 // configuration; the caller (trackerapi.Client) keeps its environment-derived
 // value for every field left empty here.
 //
 // The credentials come from the stored server credential of each provider and
-// from nowhere else (#464): a project has none of its own, and the settings row
-// no longer holds any. A stored credential wins as a whole, the Jira e-mail
-// with its token, so it is never completed with half of the environment's
-// pair. Nothing stored leaves the fields empty and the environment answers. A
-// stored credential the key does not open is flagged, so the call fails
-// instead of reaching the tracker under the environment's account.
+// from nowhere else (#464): a tracker has none of its own, and the settings
+// row no longer holds any. A stored credential wins as a whole, the Jira
+// e-mail with its token, so it is never completed with half of the
+// environment's pair. Nothing stored leaves the fields empty and the
+// environment answers. A stored credential the key does not open is flagged,
+// so the call fails instead of reaching the tracker under the environment's
+// account.
 //
 // It reads through the unsafe getters on purpose: it is called from the tracker
 // client, itself called from code paths that already hold d.mu, and a plain
 // SELECT needs no lock of its own.
-func (d *DB) trackerCredentials(projectID string) trackerapi.Credentials {
+func (d *DB) trackerCredentials(trackerID string) trackerapi.Credentials {
 	var cred trackerapi.Credentials
 	if settings, err := d.getSettingsUnsafe(); err == nil && settings != nil {
 		cred = trackerapi.Credentials{
@@ -53,20 +54,21 @@ func (d *DB) trackerCredentials(projectID string) trackerapi.Credentials {
 			cred.JiraEmail, cred.JiraToken, cred.JiraUnreadable = email, token, unreadable
 		}
 	}
-	if strings.TrimSpace(projectID) == "" {
+	t := d.trackerByIDUnsafe(strings.TrimSpace(trackerID))
+	if t == nil {
 		return cred
 	}
-	proj, err := d.getProjectByIDUnsafe(projectID)
-	if err != nil || proj == nil {
-		return cred
-	}
-	overrideWith(&cred.GithubURL, proj.GithubApiUrl)
-	overrideWith(&cred.GitlabURL, proj.GitlabUrl)
-	overrideWith(&cred.GitlabProject, proj.GitlabProject)
-	// A project overrides the Jira site only: one Atlassian API token is valid
-	// on every site of the account, so the server credential serves them all.
-	if strings.EqualFold(strings.TrimSpace(proj.IssueTracker), "jira") {
-		overrideWith(&cred.JiraURL, proj.TrackerUrl)
+	// A tracker overrides the site of its own provider only. One Atlassian API
+	// token is valid on every site of the account, so the server credential
+	// serves them all.
+	switch t.Provider {
+	case "github":
+		overrideWith(&cred.GithubURL, t.Site)
+	case "gitlab":
+		overrideWith(&cred.GitlabURL, t.Site)
+		overrideWith(&cred.GitlabProject, t.Scope)
+	case "jira":
+		overrideWith(&cred.JiraURL, t.Site)
 	}
 	return cred
 }
@@ -77,14 +79,29 @@ func overrideWith(target *string, override string) {
 	}
 }
 
-// tracker returns the tracker client carrying the credentials of one project.
-func (d *DB) tracker(projectID string) *trackerapi.Client { return d.trackers.For(projectID) }
+// projectTrackerID is the tracker a call addressed to a project resolves its
+// credentials through: the project's default tracker (#741), "" for none.
+func (d *DB) projectTrackerID(projectID string) string {
+	if strings.TrimSpace(projectID) == "" {
+		return ""
+	}
+	if t, err := d.defaultTrackerOfUnsafe(projectID); err == nil && t != nil {
+		return t.ID
+	}
+	return ""
+}
+
+// tracker returns the tracker client carrying the credentials of one
+// project's default tracker.
+func (d *DB) tracker(projectID string) *trackerapi.Client {
+	return d.trackers.For(d.projectTrackerID(projectID))
+}
 
 // trackerForWrite is the client of a write made directly on the tracker client,
 // such as a GitHub milestone: the acting person's own credential, the server's
 // for unattended work, and a refusal otherwise (trackerapi.ForWrite, #482).
 func (d *DB) trackerForWrite(ctx context.Context, trackerName, projectID string) (*trackerapi.Client, error) {
-	return d.trackers.ForWrite(ctx, trackerName, projectID)
+	return d.trackers.ForWrite(ctx, trackerName, d.projectTrackerID(projectID))
 }
 
 // trackerAs is tracker with the credentials of the person who asked for the
@@ -92,12 +109,13 @@ func (d *DB) trackerForWrite(ctx context.Context, trackerName, projectID string)
 // to the project credential when theirs cannot be resolved, which a read may do
 // and a write may not. Writes use trackerForWrite.
 func (d *DB) trackerAs(userID, trackerName, projectID string) *trackerapi.Client {
-	client, _, err := d.trackers.ForActingUser(userID, trackerName, projectID)
+	trackerID := d.projectTrackerID(projectID)
+	client, _, err := d.trackers.ForActingUser(userID, trackerName, trackerID)
 	if err != nil || client == nil {
 		// A credential that cannot be resolved is not a reason to drop the
-		// request: the project's own is still there, and the call will say for
+		// request: the tracker's own is still there, and the call will say for
 		// itself whether it is accepted.
-		return d.trackers.For(projectID)
+		return d.trackers.For(trackerID)
 	}
 	return client
 }

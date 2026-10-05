@@ -99,6 +99,30 @@ func dropCredentialAccountColumn(d *DB) {
 	_, _ = d.conn.Exec("DROP TABLE user_credential_unlocks")
 	_, _ = d.conn.Exec("DROP TABLE batch_members")
 	undoWorkstationMigrations(d)
+	undoTrackerMigration(d)
+}
+
+// undoTrackerMigration removes what migration 49 and the tracker adoption add
+// (#741), for the fixtures that put a database back before them and reopen it.
+// SQLite refuses to drop a column an index still names, so the indexes go
+// first.
+func undoTrackerMigration(d *DB) {
+	for _, statement := range []string{
+		"DROP TABLE IF EXISTS trackers",
+		"DROP TABLE IF EXISTS project_trackers",
+		"DROP TABLE IF EXISTS task_aliases",
+		"DROP TABLE IF EXISTS auto_sync_trackers",
+		"DROP INDEX IF EXISTS ux_tasks_tracker_key",
+		"DROP INDEX IF EXISTS idx_tasks_tracker",
+		"ALTER TABLE tasks DROP COLUMN tracker_id",
+		"ALTER TABLE projects DROP COLUMN label",
+		"ALTER TABLE projects DROP COLUMN default_tracker_id",
+		"ALTER TABLE task_activities DROP COLUMN run_project_id",
+		"ALTER TABLE task_activities DROP COLUMN tracker_id",
+		"ALTER TABLE macros DROP COLUMN tracker_id",
+	} {
+		_, _ = d.conn.Exec(statement)
+	}
 }
 
 // undoWorkstationMigrations puts back the schema migrations 26 and 27 change
@@ -493,6 +517,7 @@ func TestMigrationThirtyOneRemovesTheRepositoryLayout(t *testing.T) {
 			t.Fatalf("%s: %v", stmt, err)
 		}
 	}
+	undoTrackerMigration(d)
 	d.Close()
 
 	reopened, err := NewDB(path)
@@ -517,4 +542,88 @@ func TestMigrationThirtyOneRemovesTheRepositoryLayout(t *testing.T) {
 	if got := appliedVersions(t, reopened); got[len(got)-1] != migrations[len(migrations)-1].version {
 		t.Errorf("applied versions = %v", got)
 	}
+}
+
+// rewindTrackerMigration puts a database back before migration 49 (#741).
+func rewindTrackerMigration(t *testing.T, d *DB) {
+	t.Helper()
+	undoTrackerMigration(d)
+	if _, err := d.conn.Exec("DELETE FROM schema_migrations WHERE version >= 49"); err != nil {
+		t.Fatalf("rewinding: %v", err)
+	}
+}
+
+// assertTrackerSchema fails unless every table and column migration 49 adds
+// can be read.
+func assertTrackerSchema(t *testing.T, d *DB) {
+	t.Helper()
+	for _, query := range []string{
+		"SELECT id, name, provider, site, scope, identity, board_id, tracker_columns, stage_columns, sprints, issue_types, auto_sync_enabled, auto_sync_interval_min, created_at, updated_at FROM trackers",
+		"SELECT project_id, tracker_id, position FROM project_trackers",
+		"SELECT label, default_tracker_id FROM projects",
+		"SELECT tracker_id FROM tasks",
+		"SELECT old_id, task_id FROM task_aliases",
+		"SELECT run_project_id, tracker_id FROM task_activities",
+		"SELECT tracker_id FROM macros",
+		"SELECT tracker_id, last_pass_at, last_full_sync_at FROM auto_sync_trackers",
+	} {
+		rows, err := d.conn.Query(query)
+		if err != nil {
+			t.Fatalf("%s: %v", query, err)
+		}
+		rows.Close()
+	}
+}
+
+func TestMigrationFortyNineAddsTheTrackerTablesAndColumns(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "trackers.db")
+	d, err := NewDB(path)
+	if err != nil {
+		t.Fatalf("creating the database: %v", err)
+	}
+	rewindTrackerMigration(t, d)
+	if _, err := d.conn.Exec("SELECT tracker_id FROM tasks"); err == nil {
+		t.Fatal("the rewind left the column in place")
+	}
+	d.Close()
+
+	reopened, err := NewDB(path)
+	if err != nil {
+		t.Fatalf("upgrading: %v", err)
+	}
+	defer reopened.Close()
+	assertTrackerSchema(t, reopened)
+	if got := appliedVersions(t, reopened); !slices.Contains(got, 49) || got[len(got)-1] != migrations[len(migrations)-1].version {
+		t.Errorf("applied versions = %v", got)
+	}
+	var label, defaultTracker string
+	if err := reopened.conn.QueryRow("SELECT label, default_tracker_id FROM projects WHERE id = 'default'").Scan(&label, &defaultTracker); err != nil {
+		t.Fatalf("reading the default project: %v", err)
+	}
+	if label != "" {
+		t.Errorf("a migrated project carries no label, got %q", label)
+	}
+}
+
+func TestMigrationFortyNineRunsTwiceWithoutError(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "trackers-twice.db")
+	d, err := NewDB(path)
+	if err != nil {
+		t.Fatalf("creating the database: %v", err)
+	}
+	for round := range 2 {
+		rewindTrackerMigration(t, d)
+		d.Close()
+		if d, err = NewDB(path); err != nil {
+			t.Fatalf("upgrade %d: %v", round+1, err)
+		}
+		assertTrackerSchema(t, d)
+	}
+	d.Close()
+	// And a start with nothing left to apply changes nothing.
+	if d, err = NewDB(path); err != nil {
+		t.Fatalf("restarting: %v", err)
+	}
+	defer d.Close()
+	assertTrackerSchema(t, d)
 }

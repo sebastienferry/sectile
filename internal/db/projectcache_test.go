@@ -9,17 +9,18 @@ import (
 	"tasks/internal/models"
 )
 
-// importLinklessTickets imports n Jira and n GitLab tickets, keys from+1 to from+n, with no stored external_url, as a
-// sync that recorded no link leaves them.
-func importLinklessTickets(t *testing.T, d *DB, projectID string, from, n int) {
+// importLinklessTickets imports n Jira tickets into jiraProjectID and n GitLab tickets into gitlabProjectID, when set,
+// keys from+1 to from+n, with no stored external_url, as a sync that recorded no link leaves them.
+func importLinklessTickets(t *testing.T, d *DB, jiraProjectID, gitlabProjectID string, from, n int) {
 	t.Helper()
 	var batch []models.Task
 	for i := from + 1; i <= from+n; i++ {
-		batch = append(batch,
-			models.Task{ID: fmt.Sprintf("jira-%d", i), ProjectID: projectID, Key: fmt.Sprintf("PE-%d", i), Title: "Jira", Source: "jira", Status: models.StatusBacklog, Labels: []string{}},
-			models.Task{ID: fmt.Sprintf("gitlab-%d", i), ProjectID: projectID, Key: fmt.Sprintf("#%d", i), Title: "GitLab", Source: "gitlab", Status: models.StatusBacklog, Labels: []string{}})
+		batch = append(batch, models.Task{ID: fmt.Sprintf("jira-%d", i), ProjectID: jiraProjectID, Key: fmt.Sprintf("PE-%d", i), Title: "Jira", Source: "jira", Status: models.StatusBacklog, Labels: []string{}})
+		if gitlabProjectID != "" {
+			batch = append(batch, models.Task{ID: fmt.Sprintf("gitlab-%d", i), ProjectID: gitlabProjectID, Key: fmt.Sprintf("#%d", i), Title: "GitLab", Source: "gitlab", Status: models.StatusBacklog, Labels: []string{}})
+		}
 	}
-	if err := d.ImportOrUpdateTasks(batch); err != nil {
+	if err := d.ImportOrUpdateTasks("", batch); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -40,25 +41,23 @@ func jiraLinkOf(t *testing.T, d *DB, projectID string) string {
 	return ""
 }
 
-// A board's tracker links cost the same statements whatever the number of tickets without a stored link: one project
-// read and at most one settings read per list, never one per row (#486).
+// A board's tracker links cost the same statements whatever the number of tickets without a stored link: one tracker
+// read and at most one settings read per list, never one per row (#486). Each source's link comes from its own
+// tracker (#741).
 func TestTaskListQueryCountIsTheSameForOneAndTwentyTicketsWithoutAStoredLink(t *testing.T) {
 	d := testDB(t)
-	project, err := d.CreateProject(models.CreateProjectRequest{
-		Name:          "Links",
-		IssueTracker:  "jira",
-		JiraProject:   "PE",
-		TrackerUrl:    "https://acme.atlassian.net",
-		GitlabUrl:     "https://gitlab.example.org/api/v4",
-		GitlabProject: "acme/app",
-	})
+	project, err := d.CreateProject(models.CreateProjectRequest{Name: "Links", IssueTracker: "jira", JiraProject: "PE", TrackerUrl: "https://acme.atlassian.net"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	listCost := func() int64 {
-		d.projectURLs.clear()
+	gitlab, err := d.CreateProject(models.CreateProjectRequest{Name: "Links GitLab", IssueTracker: "gitlab", GitlabUrl: "https://gitlab.example.org/api/v4", GitlabProject: "acme/app"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	listCost := func(projectID string) int64 {
+		d.trackerCache.clear()
 		before := d.conn.queries.Load()
-		tasks, err := d.GetTasksInScope(TaskScope{ProjectID: project.ID}, "", "", "", "", "", "", "", "", nil, nil, false)
+		tasks, err := d.GetTasksInScope(TaskScope{ProjectID: projectID}, "", "", "", "", "", "", "", "", nil, nil, false)
 		cost := d.conn.queries.Load() - before
 		if err != nil {
 			t.Fatal(err)
@@ -74,12 +73,12 @@ func TestTaskListQueryCountIsTheSameForOneAndTwentyTicketsWithoutAStoredLink(t *
 		}
 		return cost
 	}
-	importLinklessTickets(t, d, project.ID, 0, 1)
-	one := listCost()
-	importLinklessTickets(t, d, project.ID, 1, 19)
-	twenty := listCost()
-	if one != twenty {
-		t.Fatalf("listing 1 ticket of each tracker cost %d statements, 20 cost %d", one, twenty)
+	importLinklessTickets(t, d, project.ID, gitlab.ID, 0, 1)
+	oneJira, oneGitlab := listCost(project.ID), listCost(gitlab.ID)
+	importLinklessTickets(t, d, project.ID, gitlab.ID, 1, 19)
+	twentyJira, twentyGitlab := listCost(project.ID), listCost(gitlab.ID)
+	if oneJira != twentyJira || oneGitlab != twentyGitlab {
+		t.Fatalf("listing 1 ticket of each tracker cost %d and %d statements, 20 cost %d and %d", oneJira, oneGitlab, twentyJira, twentyGitlab)
 	}
 }
 
@@ -91,7 +90,7 @@ func TestAProjectSavedOnThisInstanceChangesItsTicketLinksOnTheNextRead(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	importLinklessTickets(t, d, project.ID, 0, 1)
+	importLinklessTickets(t, d, project.ID, "", 0, 1)
 	if got, want := jiraLinkOf(t, d, project.ID), "https://old.atlassian.net/browse/PE-1"; got != want {
 		t.Fatalf("link before the save %s, want %s", got, want)
 	}
@@ -105,7 +104,7 @@ func TestAProjectSavedOnThisInstanceChangesItsTicketLinksOnTheNextRead(t *testin
 }
 
 // A project changed by another instance reaches this one's links once the cached entry expires, never later than
-// projectURLCacheTTL: the staleness accepted in #486, since nothing tells this instance about the change.
+// trackerCacheTTL: the staleness accepted in #486, since nothing tells this instance about the change.
 func TestAProjectChangedByAnotherInstanceShowsInItsLinksOnceTheCacheEntryExpires(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "tasks.db")
 	writer, err := NewDB(path)
@@ -117,14 +116,14 @@ func TestAProjectChangedByAnotherInstanceShowsInItsLinksOnceTheCacheEntryExpires
 	if err != nil {
 		t.Fatal(err)
 	}
-	importLinklessTickets(t, writer, project.ID, 0, 1)
+	importLinklessTickets(t, writer, project.ID, "", 0, 1)
 	reader, err := NewDB(path)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { reader.Close() })
 	now := time.Now()
-	reader.projectURLs.now = func() time.Time { return now }
+	reader.trackerCache.now = func() time.Time { return now }
 	oldLink, newLink := "https://old.atlassian.net/browse/PE-1", "https://new.atlassian.net/browse/PE-1"
 	if got := jiraLinkOf(t, reader, project.ID); got != oldLink {
 		t.Fatalf("link before the change %s, want %s", got, oldLink)
@@ -133,7 +132,7 @@ func TestAProjectChangedByAnotherInstanceShowsInItsLinksOnceTheCacheEntryExpires
 	if _, err := writer.UpdateProject(project.ID, models.UpdateProjectRequest{TrackerUrl: &newURL}); err != nil {
 		t.Fatal(err)
 	}
-	now = now.Add(projectURLCacheTTL - time.Second)
+	now = now.Add(trackerCacheTTL - time.Second)
 	if got := jiraLinkOf(t, reader, project.ID); got != oldLink {
 		t.Fatalf("the reader serves its cached fields until they expire: link %s, want %s", got, oldLink)
 	}
@@ -144,12 +143,12 @@ func TestAProjectChangedByAnotherInstanceShowsInItsLinksOnceTheCacheEntryExpires
 }
 
 // A fill that read the database before a clear is not stored after it: it may carry the fields the clearing write replaced.
-func TestAProjectURLFillThatStartedBeforeAClearIsNotStored(t *testing.T) {
-	var c projectURLCache
-	_, gen, _ := c.get("p1")
+func TestATrackerFillThatStartedBeforeAClearIsNotStored(t *testing.T) {
+	var c trackerCache
+	_, gen, _ := c.get("t1")
 	c.clear()
-	c.put("p1", projectURLFields{TrackerUrl: "https://old.atlassian.net"}, gen)
-	if _, _, ok := c.get("p1"); ok {
+	c.put("t1", models.Tracker{Site: "https://old.atlassian.net"}, gen)
+	if _, _, ok := c.get("t1"); ok {
 		t.Fatal("a fill older than the last clear must not be stored")
 	}
 }

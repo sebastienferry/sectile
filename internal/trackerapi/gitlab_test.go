@@ -931,3 +931,23 @@ func TestGitlabTeams(t *testing.T) {
 		t.Fatalf("members: %+v %v", members, err)
 	}
 }
+
+// The GitLab project path is the tracker's scope, whatever the settings or the
+// environment name as the default project (#741).
+func TestGitlabAdapterTakesTheProjectPathFromTheTracker(t *testing.T) {
+	site := newGitlabSite(t)
+	site.json("GET", "/projects/platform%2Fsvc/issues", `[{"iid":3,"title":"c","state":"opened","labels":[]}]`)
+	site.json("GET", "/projects/platform%2Fsvc/boards", `[]`)
+	g := site.adapter()
+	svc := &models.Tracker{ID: "t-svc", Provider: "gitlab", Scope: "platform/svc"}
+	tasks, err := g.SyncIssues(context.Background(), tracker.SyncRequest{Tracker: svc})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tasks) != 1 || len(site.recorded("GET", "/projects/platform%2Fsvc/issues")) != 1 {
+		t.Fatalf("the read did not go to the tracker's project: %+v", tasks)
+	}
+	if got := g.FormatTaskID(svc.ID, tasks[0].Key, ""); got != "gl-t-svc-3" {
+		t.Fatalf("identity %q", got)
+	}
+}

@@ -153,8 +153,9 @@ func (d *DB) PushMacroLabels(ctx context.Context, projectID string, macroKey str
 	defer cancel()
 	// Only the delta travels: the other labels of the epic, those of the axes
 	// included, stay as the tracker holds them.
-	if err := ts.UpdateIssue(ctx, tracker.UpdateIssueRequest{
-		Project:       proj,
+	trk := d.trackerOfProjectUnsafe(proj)
+	if err := ts.UpdateIssue(tracker.WithTracker(ctx, trk), tracker.UpdateIssueRequest{
+		Tracker:       trk,
 		Key:           macroKey,
 		Labels:        add,
 		RemovedLabels: remove,

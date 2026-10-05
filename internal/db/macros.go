@@ -1041,7 +1041,7 @@ func (d *DB) writeGitlabMacroLabels(ctx context.Context, proj *models.Project, t
 	if len(add) == 0 && len(remove) == 0 {
 		return nil
 	}
-	return ts.UpdateLabels(tracker.WithProject(ctx, proj.ID), task.Key, add, remove)
+	return ts.UpdateLabels(tracker.WithTracker(ctx, d.trackerOfTaskUnsafe(task)), task.Key, add, remove)
 }
 
 func containsFold(list []string, s string) bool {
@@ -1134,7 +1134,7 @@ func (d *DB) createStoryUnder(ctx context.Context, macroProject, target *models.
 		// The epic parents the story on Jira itself, not only on the board.
 		if ts, tsErr := d.TrackerForProject(target); tsErr != nil {
 			notice = fmt.Sprintf("épic %s non posé comme parent sur Jira : %v ; rattachement gardé en local", macroKey, tsErr)
-		} else if setErr := ts.SetParent(tracker.WithProject(ctx, target.ID), task.Key, macroKey); setErr != nil {
+		} else if setErr := ts.SetParent(tracker.WithTracker(ctx, d.trackerOfTaskUnsafe(task)), task.Key, macroKey); setErr != nil {
 			notice = fmt.Sprintf("épic %s non posé comme parent sur Jira : %v ; rattachement gardé en local", macroKey, setErr)
 		}
 	}
@@ -1506,10 +1506,17 @@ func (d *DB) MigrateMacro(ctx context.Context, sourceProjectID string, macroKey 
 			}
 			rows.Close()
 
+			targetTrackerID := d.projectTrackerID(targetProjectID)
 			for _, t := range tasksList {
 				newID := t.id
 				newKey := t.key
 				newExternalUrl := t.externalUrl.String
+				// A ticket changes tracker only when it is a local one or its
+				// issue was transferred to the target repository (#741).
+				var newTracker any
+				if !t.source.Valid || t.source.String == "" || t.source.String == "local" {
+					newTracker = nullIfEmpty(targetTrackerID)
+				}
 
 				if sourceWriter != nil {
 					var issueNum int
@@ -1518,7 +1525,8 @@ func (d *DB) MigrateMacro(ctx context.Context, sourceProjectID string, macroKey 
 						num, u, transferErr := sourceWriter.TransferGithubIssue(sourceProj.GithubRepo, sourceProj.RepoPath, issueNum, targetProj.GithubRepo, targetProj.RepoPath)
 						if transferErr == nil && num > 0 {
 							newKey = fmt.Sprintf("#%d", num)
-							newID = fmt.Sprintf("gh-%s-%d", targetProjectID, num)
+							newID = d.githubTaskID(targetTrackerID, newKey)
+							newTracker = nullIfEmpty(targetTrackerID)
 							if u != "" {
 								newExternalUrl = u
 							}
@@ -1530,9 +1538,9 @@ func (d *DB) MigrateMacro(ctx context.Context, sourceProjectID string, macroKey 
 				d.mu.Lock()
 				_, updateErr := d.conn.Exec(`
 					UPDATE tasks
-					SET id = ?, key = ?, project_id = ?, parent_key = ?, parent_title = ?, parent_type = 'macro', external_url = ?, updated_at = CURRENT_TIMESTAMP
+					SET id = ?, key = ?, project_id = ?, tracker_id = COALESCE(?, tracker_id), parent_key = ?, parent_title = ?, parent_type = 'macro', external_url = ?, updated_at = CURRENT_TIMESTAMP
 					WHERE id = ?
-				`, newID, newKey, targetProjectID, targetMacroKey, title, newExternalUrl, t.id)
+				`, newID, newKey, targetProjectID, newTracker, targetMacroKey, title, newExternalUrl, t.id)
 				d.mu.Unlock()
 
 				if updateErr == nil {
@@ -1624,6 +1632,13 @@ func (d *DB) MigrateTasks(ctx context.Context, taskIDs []string, targetProjectID
 		}
 		newParentKey := task.ParentKey
 		newParentTitle := task.ParentTitle
+		// A ticket changes tracker only when it is a local one or its issue was
+		// transferred to the target repository (#741).
+		targetTrackerID := d.projectTrackerID(targetProj.ID)
+		var newTracker any
+		if task.Source == "" || task.Source == "local" {
+			newTracker = nullIfEmpty(targetTrackerID)
+		}
 
 		if githubTransferBetween(sourceProj, targetProj) {
 			var issueNum int
@@ -1640,7 +1655,8 @@ func (d *DB) MigrateTasks(ctx context.Context, taskIDs []string, targetProjectID
 				num, u, transferErr := sourceWriter.TransferGithubIssue(sourceProj.GithubRepo, sourceProj.RepoPath, issueNum, targetProj.GithubRepo, targetProj.RepoPath)
 				if transferErr == nil && num > 0 {
 					newKey = fmt.Sprintf("#%d", num)
-					newID = fmt.Sprintf("gh-%s-%d", targetProjectID, num)
+					newID = d.githubTaskID(targetTrackerID, newKey)
+					newTracker = nullIfEmpty(targetTrackerID)
 					if u != "" {
 						newExternalUrl = u
 					}
@@ -1662,9 +1678,9 @@ func (d *DB) MigrateTasks(ctx context.Context, taskIDs []string, targetProjectID
 		d.mu.Lock()
 		_, updateErr := d.conn.Exec(`
 			UPDATE tasks
-			SET id = ?, key = ?, project_id = ?, parent_key = ?, parent_title = ?, external_url = ?, updated_at = CURRENT_TIMESTAMP
+			SET id = ?, key = ?, project_id = ?, tracker_id = COALESCE(?, tracker_id), parent_key = ?, parent_title = ?, external_url = ?, updated_at = CURRENT_TIMESTAMP
 			WHERE id = ?
-		`, newID, newKey, targetProjectID, newParentKey, newParentTitle, newExternalUrl, task.ID)
+		`, newID, newKey, targetProjectID, newTracker, newParentKey, newParentTitle, newExternalUrl, task.ID)
 		d.mu.Unlock()
 
 		if updateErr == nil {
@@ -1673,4 +1689,21 @@ func (d *DB) MigrateTasks(ctx context.Context, taskIDs []string, targetProjectID
 	}
 
 	return migratedCount, nil
+}
+
+// githubTaskID is the local id of a GitHub issue of a tracker, as the adapter
+// formats it (#741).
+func (d *DB) githubTaskID(trackerID, key string) string {
+	if ts, ok := d.TrackerRegistry().Get("github"); ok && ts != nil {
+		return ts.FormatTaskID(trackerID, key, "")
+	}
+	return "gh-" + trackerID + "-" + strings.TrimPrefix(key, "#")
+}
+
+// nullIfEmpty is nil for an empty value, which a COALESCE then ignores.
+func nullIfEmpty(value string) any {
+	if value == "" {
+		return nil
+	}
+	return value
 }

@@ -46,7 +46,7 @@ func (s *sprintTracker) CreateSprint(ctx context.Context, req tracker.SprintCrea
 		StartDate: req.Start.Format(time.RFC3339), EndDate: req.End.Format(time.RFC3339)}, nil
 }
 
-func (s *sprintTracker) UpdateSprint(ctx context.Context, project *models.Project, id string, patch models.SprintPatch) (models.TrackerSprint, error) {
+func (s *sprintTracker) UpdateSprint(ctx context.Context, trk *models.Tracker, id string, patch models.SprintPatch) (models.TrackerSprint, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.order = append(s.order, "update")
@@ -63,7 +63,7 @@ func (s *sprintTracker) UpdateSprint(ctx context.Context, project *models.Projec
 	return sprint, nil
 }
 
-func (s *sprintTracker) DeleteSprint(ctx context.Context, project *models.Project, id string) error {
+func (s *sprintTracker) DeleteSprint(ctx context.Context, trk *models.Tracker, id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.deleted = append(s.deleted, id)

@@ -2224,7 +2224,8 @@ func (h *Handler) HandleAutoSyncStatus(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
 		return
 	}
-	writeJSON(w, http.StatusOK, h.db.AutoSyncStatus())
+	// The pacing is per tracker (#741); a project asks for its own trackers.
+	writeJSON(w, http.StatusOK, h.db.AutoSyncStatusFor(r.URL.Query().Get("projectId")))
 }
 
 // HandleTaskFacets serves the distinct sprint and team values present on the

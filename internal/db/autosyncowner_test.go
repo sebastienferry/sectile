@@ -191,7 +191,7 @@ func TestABackgroundGithubPassReadsWithTheServerTokenWhateverTheOwnerStored(t *t
 		asked := len(authorizations) > 0
 		mu.Unlock()
 		pending := false
-		activities, err := database.GetProjectActivities(project.ID)
+		activities, err := database.activitiesAttachedTo("tracker_id", defaultTrackerID(t, database, project.ID))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -215,7 +215,7 @@ func TestABackgroundGithubPassReadsWithTheServerTokenWhateverTheOwnerStored(t *t
 			t.Fatalf("the pass must read with the server token, GitHub saw %v", authorizations)
 		}
 	}
-	activities, err := database.GetProjectActivities(project.ID)
+	activities, err := database.activitiesAttachedTo("tracker_id", defaultTrackerID(t, database, project.ID))
 	if err != nil {
 		t.Fatal(err)
 	}

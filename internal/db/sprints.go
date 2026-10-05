@@ -28,7 +28,7 @@ const (
 // sprintManagerOf resolves the project's tracker and checks it manages its own
 // sprints, with the refusal the interface shows when it does not.
 func (d *DB) sprintManagerOf(proj *models.Project) (tracker.TicketingSystem, tracker.SprintManager, error) {
-	ts, err := d.TrackerForProject(proj)
+	ts, err := d.TrackerFor(d.trackerOfProjectUnsafe(proj))
 	if err != nil {
 		return nil, nil, err
 	}
@@ -90,7 +90,8 @@ func (d *DB) CreateProjectSprints(ctx context.Context, projectID, pattern string
 	for _, sp := range proj.Sprints {
 		taken[sprintNameKey(sp.Name)] = true
 	}
-	if live, err := ts.ListSprints(ctx, tracker.BoardRequest{Project: proj, BoardID: boardID}); err == nil {
+	trk := d.trackerOfProjectUnsafe(proj)
+	if live, err := ts.ListSprints(ctx, tracker.BoardRequest{Tracker: trk, BoardID: boardID}); err == nil {
 		for _, sp := range live {
 			taken[sprintNameKey(sp.Name)] = true
 		}
@@ -109,7 +110,7 @@ func (d *DB) CreateProjectSprints(ctx context.Context, projectID, pattern string
 	var failure error
 	for _, name := range names {
 		next := cursor.AddDate(0, 0, 7*weeks)
-		sprint, err := manager.CreateSprint(ctx, tracker.SprintCreateRequest{Project: proj, BoardID: boardID, Name: name, Start: cursor, End: next.Add(-time.Second)})
+		sprint, err := manager.CreateSprint(ctx, tracker.SprintCreateRequest{Tracker: trk, BoardID: boardID, Name: name, Start: cursor, End: next.Add(-time.Second)})
 		if err != nil {
 			failure = fmt.Errorf("%d sprint(s) créé(s), puis échec sur « %s » : %w", len(created), name, err)
 			break
@@ -160,7 +161,7 @@ func (d *DB) UpdateProjectSprint(ctx context.Context, projectID, sprintID string
 			return nil, err
 		}
 	}
-	updated, err := manager.UpdateSprint(ctx, proj, current.ID, patch)
+	updated, err := manager.UpdateSprint(ctx, d.trackerOfProjectUnsafe(proj), current.ID, patch)
 	if err != nil {
 		return nil, err
 	}
@@ -221,7 +222,7 @@ func (d *DB) moveOpenWork(ctx context.Context, proj *models.Project, ts tracker.
 		return nil
 	}
 	if len(keys) > 0 {
-		if err := ts.SetSprint(tracker.WithProject(ctx, proj.ID), targetID, keys); err != nil {
+		if err := ts.SetSprint(tracker.WithTracker(ctx, d.trackerOfProjectUnsafe(proj)), targetID, keys); err != nil {
 			return fmt.Errorf("déplacement des %d ticket(s) ouvert(s) refusé, le sprint n'est pas clôturé : %w", len(keys), err)
 		}
 	}
@@ -250,7 +251,7 @@ func (d *DB) DeleteProjectSprint(ctx context.Context, projectID, sprintID string
 	if !found {
 		return nil
 	}
-	if err := manager.DeleteSprint(ctx, proj, sprint.ID); err != nil {
+	if err := manager.DeleteSprint(ctx, d.trackerOfProjectUnsafe(proj), sprint.ID); err != nil {
 		return err
 	}
 	// The tracker sends the sprint's work items to the backlog; the board says
@@ -269,14 +270,20 @@ func (d *DB) DeleteProjectSprint(ctx context.Context, projectID, sprintID string
 	})
 }
 
-// mirrorSprints rewrites the project's sprint list from its current value.
+// mirrorSprints rewrites the sprint list of the project's tracker from its
+// current value (#741).
 func (d *DB) mirrorSprints(projectID string, change func([]models.TrackerSprint) []models.TrackerSprint) error {
 	proj, err := d.GetProjectByID(projectID)
 	if err != nil || proj == nil {
 		return fmt.Errorf("projet non trouvé")
 	}
-	list := change(append([]models.TrackerSprint{}, proj.Sprints...))
-	_, err = d.UpdateProject(projectID, models.UpdateProjectRequest{Sprints: &list})
+	trk := d.trackerOfProjectUnsafe(proj)
+	if trk == nil || trk.ID == "" {
+		return fmt.Errorf("projet sans tracker")
+	}
+	_, err = d.UpdateTrackerMirror(trk.ID, func(t *models.Tracker) {
+		t.Sprints = change(append([]models.TrackerSprint{}, t.Sprints...))
+	})
 	return err
 }
 

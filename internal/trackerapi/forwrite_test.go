@@ -91,37 +91,37 @@ func TestAdapterWritesAreRefusedWithoutAPersonalCredential(t *testing.T) {
 		JiraURL: site.URL, JiraEmail: "service@example.com", JiraToken: "server-token"}
 	client.ResolveUser = legacyResolver(func(string, string) (string, string, string, error) { return "", "", "", nil })
 	github, jira := NewGithubAdapter(client), NewJiraAdapter(client)
-	ghProject := &models.Project{ID: "p1", GithubRepo: "acme/app"}
-	jiraProject := jiraProject()
+	ghProject := &models.Tracker{ID: "p1", Provider: "github", Scope: "acme/app"}
+	jiraTrk := jiraTracker()
 
 	writes := func(ctx context.Context) map[string]func() error {
 		return map[string]func() error{
 			"github CreateIssue": func() error {
-				_, err := github.CreateIssue(ctx, tracker.CreateIssueRequest{Project: ghProject, Title: "T"})
+				_, err := github.CreateIssue(ctx, tracker.CreateIssueRequest{Tracker: ghProject, Title: "T"})
 				return err
 			},
 			"github UpdateIssue": func() error {
-				return github.UpdateIssue(ctx, tracker.UpdateIssueRequest{Project: ghProject, Key: "#7"})
+				return github.UpdateIssue(ctx, tracker.UpdateIssueRequest{Tracker: ghProject, Key: "#7"})
 			},
 			"github DeleteIssue": func() error {
-				return github.DeleteIssue(ctx, tracker.DeleteIssueRequest{Project: ghProject, Key: "#7"})
+				return github.DeleteIssue(ctx, tracker.DeleteIssueRequest{Tracker: ghProject, Key: "#7"})
 			},
 			"github AddComment": func() error {
-				return github.AddComment(ctx, tracker.AddCommentRequest{Project: ghProject, Key: "#7", Body: "b"})
+				return github.AddComment(ctx, tracker.AddCommentRequest{Tracker: ghProject, Key: "#7", Body: "b"})
 			},
 			"github UpdateLabels": func() error { return github.UpdateLabels(ctx, "#7", []string{"a"}, nil) },
 			"jira CreateIssue": func() error {
-				_, err := jira.CreateIssue(ctx, tracker.CreateIssueRequest{Project: jiraProject, Title: "T"})
+				_, err := jira.CreateIssue(ctx, tracker.CreateIssueRequest{Tracker: jiraTrk, Title: "T"})
 				return err
 			},
 			"jira UpdateIssue": func() error {
-				return jira.UpdateIssue(ctx, tracker.UpdateIssueRequest{Project: jiraProject, Key: "PE-1"})
+				return jira.UpdateIssue(ctx, tracker.UpdateIssueRequest{Tracker: jiraTrk, Key: "PE-1"})
 			},
 			"jira DeleteIssue": func() error {
-				return jira.DeleteIssue(ctx, tracker.DeleteIssueRequest{Project: jiraProject, Key: "PE-1"})
+				return jira.DeleteIssue(ctx, tracker.DeleteIssueRequest{Tracker: jiraTrk, Key: "PE-1"})
 			},
 			"jira AddComment": func() error {
-				return jira.AddComment(ctx, tracker.AddCommentRequest{Project: jiraProject, Key: "PE-1", Body: "b"})
+				return jira.AddComment(ctx, tracker.AddCommentRequest{Tracker: jiraTrk, Key: "PE-1", Body: "b"})
 			},
 			"jira Assign":       func() error { return jira.Assign(ctx, "PE-1", "acc") },
 			"jira Transition":   func() error { return jira.Transition(ctx, "PE-1", "Done") },
@@ -130,15 +130,15 @@ func TestAdapterWritesAreRefusedWithoutAPersonalCredential(t *testing.T) {
 			"jira SetParent":    func() error { return jira.SetParent(ctx, "PE-1", "PE-2") },
 			"jira UpdateLabels": func() error { return jira.UpdateLabels(ctx, "PE-1", []string{"a"}, nil) },
 			"jira CreateSprint": func() error {
-				_, err := jira.CreateSprint(ctx, tracker.SprintCreateRequest{Project: jiraProject, BoardID: "3", Name: "S"})
+				_, err := jira.CreateSprint(ctx, tracker.SprintCreateRequest{Tracker: jiraTrk, BoardID: "3", Name: "S"})
 				return err
 			},
 			"jira UpdateSprint": func() error {
 				name := "S2"
-				_, err := jira.UpdateSprint(ctx, jiraProject, "12", models.SprintPatch{Name: &name})
+				_, err := jira.UpdateSprint(ctx, jiraTrk, "12", models.SprintPatch{Name: &name})
 				return err
 			},
-			"jira DeleteSprint": func() error { return jira.DeleteSprint(ctx, jiraProject, "12") },
+			"jira DeleteSprint": func() error { return jira.DeleteSprint(ctx, jiraTrk, "12") },
 		}
 	}
 
@@ -173,13 +173,13 @@ func TestGithubReadsKeepTheServerTokenForAPersonWithoutOne(t *testing.T) {
 	client := &Client{HTTP: site.Client(), GithubURL: site.URL, GithubToken: "server-token"}
 	client.ResolveUser = legacyResolver(func(string, string) (string, string, string, error) { return "", "", "", nil })
 	adapter := NewGithubAdapter(client)
-	project := &models.Project{ID: "p1", GithubRepo: "acme/app"}
+	project := &models.Tracker{ID: "p1", Provider: "github", Scope: "acme/app"}
 	ctx := tracker.WithActingUser(context.Background(), "u-grace")
 
-	if _, err := adapter.SyncIssues(ctx, tracker.SyncRequest{Project: project}); err != nil {
+	if _, err := adapter.SyncIssues(ctx, tracker.SyncRequest{Tracker: project}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := adapter.GetComments(ctx, tracker.GetCommentsRequest{Project: project, Key: "#7"}); err != nil {
+	if _, err := adapter.GetComments(ctx, tracker.GetCommentsRequest{Tracker: project, Key: "#7"}); err != nil {
 		t.Fatal(err)
 	}
 	if len(seen) != 2 || seen[0] != "Bearer server-token" || seen[1] != "Bearer server-token" {

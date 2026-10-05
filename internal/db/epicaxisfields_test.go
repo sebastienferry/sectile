@@ -31,12 +31,12 @@ type fieldWrite struct {
 	key, field, path string
 }
 
-func (f *fieldTracker) EpicAxisFieldCandidates(ctx context.Context, project *models.Project, epicKey string) ([]models.EpicFieldCandidate, error) {
+func (f *fieldTracker) EpicAxisFieldCandidates(ctx context.Context, trk *models.Tracker, epicKey string) ([]models.EpicFieldCandidate, error) {
 	f.candidateReads++
 	return f.candidates, nil
 }
 
-func (f *fieldTracker) SetEpicAxisField(ctx context.Context, project *models.Project, epicKey string, field models.EpicAxisField, optionPath string) error {
+func (f *fieldTracker) SetEpicAxisField(ctx context.Context, trk *models.Tracker, epicKey string, field models.EpicAxisField, optionPath string) error {
 	f.fieldWrites = append(f.fieldWrites, fieldWrite{epicKey, field.ID, optionPath})
 	if f.failFieldWrites {
 		return errors.New("option refused")

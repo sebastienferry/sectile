@@ -226,7 +226,10 @@ func (d *DB) EpicAxisFieldCandidates(ctx context.Context, projectID string) (Epi
 		out.NoEpic = true
 		return out, nil
 	}
-	ts, err := d.TrackerForProject(proj)
+	// The fields stay on the project while its epics come from its default
+	// tracker (#741): the candidates are read there.
+	trk := d.trackerOfProjectUnsafe(proj)
+	ts, err := d.TrackerFor(trk)
 	if err != nil {
 		return out, err
 	}
@@ -236,7 +239,7 @@ func (d *DB) EpicAxisFieldCandidates(ctx context.Context, projectID string) (Epi
 	}
 	ctx, cancel := context.WithTimeout(ctx, epicAxisFieldsTimeout)
 	defer cancel()
-	candidates, err := manager.EpicAxisFieldCandidates(ctx, proj, epicKey)
+	candidates, err := manager.EpicAxisFieldCandidates(tracker.WithTracker(ctx, trk), trk, epicKey)
 	if err != nil {
 		return out, err
 	}
@@ -298,6 +301,7 @@ func (d *DB) pushEpicAxisField(ctx context.Context, projectID string, macroKey s
 	if err != nil {
 		return "", err
 	}
+	trk := d.trackerOfProjectUnsafe(proj)
 	manager, ok := ts.(tracker.EpicAxisFieldManager)
 	if !ok {
 		return "", nil
@@ -311,7 +315,7 @@ func (d *DB) pushEpicAxisField(ctx context.Context, projectID string, macroKey s
 	// A line a person cleared by hand stays cleared: no deduction refills it,
 	// so the screen is not read for it.
 	if value != "" && path == "" && axis == models.EpicAxisQuarter && !field.IsManual(value) {
-		learned, present, err := d.learnEpicAxisOption(ctx, manager, proj, key, axis, *field, value)
+		learned, present, err := d.learnEpicAxisOption(ctx, manager, proj, trk, key, axis, *field, value)
 		if err != nil {
 			return "", fmt.Errorf("label written but field %q not read on %s: %w", name, key, err)
 		}
@@ -323,9 +327,9 @@ func (d *DB) pushEpicAxisField(ctx context.Context, projectID string, macroKey s
 	if value != "" && path == "" {
 		return fmt.Sprintf("%s has no option in field %q: field left as it is", value, name), nil
 	}
-	writeCtx, cancel := context.WithTimeout(ctx, macroWriteTimeout)
+	writeCtx, cancel := context.WithTimeout(tracker.WithTracker(ctx, trk), macroWriteTimeout)
 	defer cancel()
-	if err := manager.SetEpicAxisField(writeCtx, proj, key, *field, path); err != nil {
+	if err := manager.SetEpicAxisField(writeCtx, trk, key, *field, path); err != nil {
 		return "", fmt.Errorf("label written but field %q not: %w", name, err)
 	}
 	if path == "" {
@@ -338,9 +342,9 @@ func (d *DB) pushEpicAxisField(ctx context.Context, projectID string, macroKey s
 // options the epic's edit screen offers, and stores what the deduction finds
 // there, filling holes only. It answers the option found, "" for none, and
 // whether the epic's screen carries the field at all.
-func (d *DB) learnEpicAxisOption(ctx context.Context, manager tracker.EpicAxisFieldManager, proj *models.Project, key, axis string, field models.EpicAxisField, value string) (string, bool, error) {
-	readCtx, cancel := context.WithTimeout(ctx, epicAxisFieldsTimeout)
-	candidates, err := manager.EpicAxisFieldCandidates(readCtx, proj, key)
+func (d *DB) learnEpicAxisOption(ctx context.Context, manager tracker.EpicAxisFieldManager, proj *models.Project, trk *models.Tracker, key, axis string, field models.EpicAxisField, value string) (string, bool, error) {
+	readCtx, cancel := context.WithTimeout(tracker.WithTracker(ctx, trk), epicAxisFieldsTimeout)
+	candidates, err := manager.EpicAxisFieldCandidates(readCtx, trk, key)
 	cancel()
 	if err != nil {
 		return "", false, err

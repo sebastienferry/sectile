@@ -135,13 +135,13 @@ func TestGithubAdapterIssuePullRequests(t *testing.T) {
 	})
 	gh := NewGithubAdapter(c)
 	links, err := gh.IssuePullRequests(context.Background(), tracker.IssuePullRequestsRequest{
-		Project: &models.Project{GithubRepo: "acme/app"},
+		Tracker: &models.Tracker{Provider: "github", Scope: "acme/app"},
 		Key:     "#42",
 	})
 	if err != nil || len(links) != 1 || links[0].URL != "https://github.com/acme/app/pull/4" || links[0].Branch != "feat/42" {
 		t.Fatalf("adapter did not map the discovery: %+v %v", links, err)
 	}
-	if _, err = gh.IssuePullRequests(context.Background(), tracker.IssuePullRequestsRequest{Project: &models.Project{}, Key: "#42"}); err == nil {
+	if _, err = gh.IssuePullRequests(context.Background(), tracker.IssuePullRequestsRequest{Tracker: &models.Tracker{}, Key: "#42"}); err == nil {
 		t.Fatal("a project with no repository must be refused")
 	}
 }
