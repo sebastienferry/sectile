@@ -353,15 +353,22 @@ func Run(args []string) {
 
 	daemon.loopback.binarySha256 = executableSha256()
 	// The engine settings of #305 become the engine catalogue once, before the
-	// first project sync and capability report (#510), and the settings naming
-	// a retired provider are dropped (#614). A failure leaves the file alone:
-	// every read converts it in memory anyway.
-	if migrated, drop, err := agentconfig.MigrateSettingsReport(daemon.localSettingsRoot()); err != nil {
-		log.Printf("[Agent] Engine settings not converted to the engine catalogue: %v", err)
+	// first project sync and capability report (#510), the settings naming a
+	// retired provider are dropped (#614), and the project Sandbox values are
+	// folded into the workstation ones (#730). A failure leaves the file
+	// alone: every read converts it in memory anyway.
+	if migrated, report, err := agentconfig.MigrateSettingsReport(daemon.localSettingsRoot()); err != nil {
+		log.Printf("[Agent] Workstation settings not migrated: %v", err)
 	} else if migrated {
-		log.Printf("[Agent] Engine settings converted to the engine catalogue; the previous file is kept beside it")
-		if !drop.Empty() {
-			log.Printf("[Agent] Settings for retired AI providers (Gemini, Cursor, Vibe) removed: %s", drop)
+		log.Printf("[Agent] Workstation settings migrated; the previous file is kept beside it")
+		if !report.Empty() {
+			log.Printf("[Agent] Settings for retired AI providers (Gemini, Cursor, Vibe) removed: %s", report.RetiredDrop)
+		}
+		if report.SandboxFolded {
+			log.Printf("[Agent] Project Sandbox values moved to the workstation Sandbox settings, applied to every project")
+		}
+		for _, warning := range report.SandboxWarnings {
+			log.Printf("[Agent] Sandbox entry left on its project, not valid: %s", warning)
 		}
 	}
 	// Start local agent HTTP reverse proxy gateway

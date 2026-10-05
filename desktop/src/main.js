@@ -26,7 +26,7 @@ import { launchModeOverride, modeSelect } from './skill-mode.mjs'
 import { orderedTasks, nextSort, DEFAULT_SORT, SORTABLE_FIELDS } from './task-list-order.mjs'
 import { consoleNotice, needsConsoleNotice, readOnlyConsole } from './run-console.mjs'
 import { previewLines } from './command-preview.mjs'
-import { sandboxSettings } from './sandbox-settings.mjs'
+import { sandboxSettings, whitelistEditor } from './sandbox-settings.mjs'
 import { EDITORS, editorChoice, editorLabel } from './editors.mjs'
 import { PROVIDERS, DEFAULT_PROVIDER, SETUP_PROVIDERS, projectFields, ownEntries, compact, parseModelList, sourceHint, describe, ipcMessage, agentUnreachable, validSkillCommand, workstationPayload } from './execution-fields.mjs'
 import { runEngine } from './run-engine.mjs'
@@ -1708,6 +1708,7 @@ const SETTINGS_CATEGORIES=[
  {id:'Connection',label:'Agent connection',icon:'<path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="3"/><circle cx="15" cy="17" r="3"/>'},
  {id:'AgentCli',label:'Execution defaults',icon:'<rect x="3" y="4" width="18" height="16" rx="2"/><path d="m7 9 3 3-3 3M12 15h5"/>'},
  {id:'Engines',label:'AI engines',icon:'<rect x="4" y="8" width="16" height="11" rx="3"/><path d="M12 4v4M9 13h.01M15 13h.01"/>'},
+ {id:'Sandbox',label:'Sandbox',icon:'<path d="M12 3 5 6v5c0 4.4 3 8.3 7 9.5 4-1.2 7-5.1 7-9.5V6Z"/><path d="m9 12 2 2 4-4"/>'},
  {id:'Deployment',label:'Deployment',icon:'<path d="M12 20V7m0 0 4 4m-4-4-4 4"/><path d="M5 4h14"/>'},
  {id:'Logs',label:'Agent logs',icon:'<path d="M14 3H7a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V7Z"/><path d="M14 3v4h4"/><path d="M9 13h6M9 17h6"/>'},
  {id:'Changelog',label:'Changelog',icon:'<circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 8h.01"/>'}
@@ -1755,6 +1756,58 @@ function configurationNavigation(tabs,projectId){
  // are reached from Add project.
  for(const project of projects)if(addedProject(project)||project.id===projectId)group(project.name+(sidebarHiddenProjects.has(project.id)?' (hidden)':''),PROJECT_SETTINGS_CATEGORIES,project.id===projectId,name=>openProject(project.id,name),project.id)
  updateProjectGroups()
+}
+// The workstation Sandbox category (#730): the Sandbox values every covered
+// project applies under its own, and the projects they cover. It has its own
+// save: the execution defaults form replaces the defaults whole and does not
+// carry them.
+function workstationSandboxPanel(panel){
+ const unavailable=document.createElement('p');unavailable.className='execution-unavailable';unavailable.setAttribute('role','status');unavailable.hidden=true
+ const body=document.createElement('div');body.className='workstation-sandbox';body.hidden=true
+ const notice=document.createElement('p');notice.setAttribute('role','status');notice.className='workstation-notice'
+ const save=document.createElement('button');save.type='button';save.className='dialog-action primary';save.textContent='Save Sandbox settings'
+ const actions=document.createElement('div');actions.className='deployment-actions';actions.style.marginTop='16px'
+ actions.append(save,notice)
+ panel.append(unavailable,body)
+ let sandbox=null,whitelist=null
+ const STOPPED_NOTICE='Sandbox settings are unavailable while the local agent is stopped. Start the agent to edit them.'
+ function showUnavailable(text){unavailable.textContent=text;unavailable.hidden=false;body.hidden=true}
+ function fill(view){
+  // A project hidden from the sidebar is still covered, so it is listed too:
+  // left out, its checkbox would be dropped by the next save.
+  const added=projects.filter(project=>addedProject(project)||(hiddenProject(project.id)&&(project.configured||!!project.path)))
+   .map(project=>({id:project.id,name:project.name+(hiddenProject(project.id)?' (hidden)':'')}))
+  sandbox=sandboxSettings({settingRow,stored:view.claudeSandbox,platformSandbox:view.platformSandbox!==false,workstation:true})
+  whitelist=whitelistEditor({settingRow,projects:added,selected:view.projects||[]})
+  body.replaceChildren(whitelist.section,...sandbox.sections,actions)
+  body.hidden=false
+ }
+ save.onclick=async()=>{
+  if(!sandbox)return
+  save.disabled=true;notice.textContent='Saving…';notice.dataset.tone=''
+  try{
+   const fresh=await api.saveWorkstationSandbox({claudeSandbox:sandbox.payload(),claudeSandboxBase:sandbox.base(),projects:whitelist.get()})
+   sandbox.set(fresh.claudeSandbox);whitelist.set(fresh.projects||[])
+   notice.textContent='Sandbox settings saved'
+  }catch(err){
+   if(agentUnreachable(err))showUnavailable(STOPPED_NOTICE)
+   else{notice.textContent='Not saved: '+ipcMessage(err);notice.dataset.tone='error'}
+  }finally{save.disabled=false}
+ }
+ async function load(){
+  if(!agentConnected){showUnavailable(STOPPED_NOTICE);return}
+  unavailable.hidden=true
+  let view
+  try{view=await api.workstationSandbox()}
+  catch(err){
+   if(!body.isConnected)return
+   const text=ipcMessage(err)
+   showUnavailable(agentUnreachable(err)?STOPPED_NOTICE:/404|not found/i.test(text)?'Update and restart the local agent to edit the workstation Sandbox settings here.':'Unable to read the Sandbox settings: '+text)
+   return
+  }
+  if(body.isConnected)fill(view)
+ }
+ return {load}
 }
 function deploymentPanel(panel){
  const globalTitle=document.createElement('h3');globalTitle.textContent='Global AI engine setup'
@@ -1932,6 +1985,8 @@ function openSettings(initial='Profile',project){
  engines.section.querySelector('h3').remove()
  panels.Engines.append(engines.section)
  engines.load().catch(()=>{})
+ const workstationSandbox=workstationSandboxPanel(panels.Sandbox)
+ workstationSandbox.load().catch(()=>{})
  const mcpPanel=mcpSettings(api,execution.providerSelect)
  mcpPanel.section.insertBefore(settingRow('Provider',null,execution.providerSelect).section,mcpPanel.section.children[1])
  panels.AgentCli.append(mcpPanel.section)
@@ -2017,6 +2072,7 @@ function openSettings(initial='Profile',project){
   // The agent answers for the execution defaults; a start or a stop from the
   // connection panel reloads them, so the panel follows the agent's state.
   if(execution.providerSelect.isConnected)execution.load().catch(()=>{}).finally(()=>{if(execution.providerSelect.isConnected)mcpPanel.load()})
+  if(panels.Sandbox.isConnected)workstationSandbox.load().catch(()=>{})
   if(!agentConnected)return
   try{
    const status=await api.status()
@@ -2538,7 +2594,11 @@ async function openProject(id,initial='Remove'){
   panels.Execution.append(controls.worktrees.section,controls.specArtifacts.section,controls.parallel.section,terminalRow.section,setupRow.section)
   // What the project's Claude Code sessions are allowed (#700). An agent that
   // predates it sends no values, and the save sends none back.
-  const sandbox=sandboxSettings({settingRow,stored:info.claudeSandbox,platformSandbox:info.platformSandbox!==false,settingsPath:info.claudeSettingsPath,project:info})
+  // The workstation values it inherits come with it (#730); an agent that
+  // predates them sends none, and the project then shows only its own.
+  const sandbox=sandboxSettings({settingRow,stored:info.claudeSandbox,platformSandbox:info.platformSandbox!==false,settingsPath:info.claudeSettingsPath,project:info,
+   inherited:info.claudeSandboxGlobal||null,covered:info.claudeSandboxCovered!==false,
+   onPromote:'claudeSandboxCovered' in info?rule=>api.promoteSandboxRule(id,rule):null})
   panels.Sandbox.append(...sandbox.sections)
   panels.Remove.append(engineRow.section)
   const remove=document.createElement('button');remove.type='button';remove.textContent='Remove from desktop';remove.className='remove-project'
@@ -2578,7 +2638,7 @@ async function openProject(id,initial='Remove'){
     notice.textContent=refused.length?'Local configuration saved, except the folder of '+refused.join('; '):'Local configuration saved'
     // The agent normalised the folder and detected its kind: show what it
     // stored, not what was typed.
-    try{const fresh=await api.project(id);info.specPath=fresh.specPath||'';specPath.value=info.specPath;renderSpec(fresh);applyFields(fresh);if(fresh.claudeSandbox)sandbox.set(fresh.claudeSandbox)}catch(err){error(err)}
+    try{const fresh=await api.project(id);info.specPath=fresh.specPath||'';specPath.value=info.specPath;renderSpec(fresh);applyFields(fresh);if(fresh.claudeSandbox)sandbox.set(fresh.claudeSandbox,fresh.claudeSandboxGlobal||null,fresh.claudeSandboxCovered!==false)}catch(err){error(err)}
     await loadProjects()
    }catch(err){notice.textContent=err.message}finally{save.disabled=false}
   }

@@ -320,6 +320,9 @@ func (d *agentDaemon) desktopWorkstation(w http.ResponseWriter, r *http.Request)
 			}
 			// The console view has its own endpoint: this form never carries it.
 			input.ConsoleView = settings.Defaults.ConsoleView
+			// So do the Sandbox values (#730).
+			input.ClaudeSandbox = settings.Defaults.ClaudeSandbox
+			input.ClaudeSandboxProjects = settings.Defaults.ClaudeSandboxProjects
 			settings.Defaults = input
 			return nil
 		})

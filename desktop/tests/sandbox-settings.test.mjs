@@ -1,6 +1,6 @@
 import {test} from 'node:test'
 import assert from 'node:assert/strict'
-import {addEntry,bothLists,fromStored,launchesGetSettings,sandboxPayload,sandboxState} from '../src/sandbox-settings.mjs'
+import {addEntry,bothLists,fromStored,launchesGetSettings,resolvedValues,sandboxPayload,sandboxState,whitelistSummary} from '../src/sandbox-settings.mjs'
 
 // The lists of the Sandbox category (#700) normalise their entries as the
 // agent does: trimmed, never twice, never empty.
@@ -37,4 +37,30 @@ test('a launch gets settings only when its values state something',()=>{
  assert.equal(launchesGetSettings(fromStored({enabled:true}),true),true)
  assert.equal(launchesGetSettings(fromStored({enabled:true,allowedDomains:['a']}),false),false)
  assert.equal(launchesGetSettings(fromStored({deny:['Read']}),false),true)
+})
+
+// A covered project applies the workstation entries then its own, and its
+// state over the workstation's unless it inherits (#730).
+test('a project lays its values over the workstation ones',()=>{
+ const workstation=fromStored({enabled:true,allowedDomains:['registry.npmjs.org'],allow:['Read'],deny:['Bash(git push:*)']})
+ const own=fromStored({allow:['Grep','Read'],allowWrite:['~/.cache']})
+ assert.deepEqual(resolvedValues(own,workstation),{state:'On',allowedDomains:['registry.npmjs.org'],allowWrite:['~/.cache'],allow:['Read','Grep'],deny:['Bash(git push:*)']})
+ assert.equal(resolvedValues(fromStored({enabled:false}),workstation).state,'Off')
+ assert.deepEqual(resolvedValues(own,null),own)
+})
+
+test('the preview of a project with only workstation values carries the settings',()=>{
+ const resolved=resolvedValues(fromStored(null),fromStored({deny:['Bash(rm:*)']}))
+ assert.equal(launchesGetSettings(resolved,true),true)
+ assert.equal(launchesGetSettings(fromStored(null),true),false)
+})
+
+test('a rule allowed by the workstation and denied by the project is named',()=>{
+ const resolved=resolvedValues(fromStored({deny:['Read']}),fromStored({allow:['Read']}))
+ assert.deepEqual(bothLists(resolved.allow,resolved.deny),['Read'])
+})
+
+test('the whitelist says when it covers every project',()=>{
+ assert.match(whitelistSummary([]),/every project/)
+ assert.match(whitelistSummary(['p']),/only to the checked projects/)
 })

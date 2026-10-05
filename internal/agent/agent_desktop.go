@@ -255,8 +255,16 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 		d.desktopWorkstation(w, r)
 		return
 	}
+	if r.URL.Path == "/desktop/workstation/sandbox" {
+		d.desktopWorkstationSandbox(w, r)
+		return
+	}
 	if r.URL.Path == "/desktop/project" {
 		d.desktopProject(w, r)
+		return
+	}
+	if r.URL.Path == "/desktop/project/sandbox/promote" {
+		d.desktopPromoteSandboxRule(w, r)
 		return
 	}
 	if r.URL.Path == "/desktop/projects" {
@@ -670,6 +678,15 @@ func (d *agentDaemon) disconnectProject(w http.ResponseWriter, r *http.Request) 
 	// from what was chosen before. Its seed marker stays, so the server values
 	// are not taken a second time.
 	delete(settings.ProjectSettings, id)
+	// It leaves the workstation Sandbox whitelist too (#730); emptied, the
+	// whitelist covers every project again.
+	var whitelist []string
+	for _, listed := range settings.Defaults.ClaudeSandboxProjects {
+		if listed != id {
+			whitelist = append(whitelist, listed)
+		}
+	}
+	settings.Defaults.ClaudeSandboxProjects = whitelist
 	if err := agentconfig.WriteSettings(settings); err != nil {
 		http.Error(w, err.Error(), 500)
 		return
@@ -790,6 +807,7 @@ func (d *agentDaemon) desktopProject(w http.ResponseWriter, r *http.Request) {
 			specEffective = specDefault
 		}
 		fields := executionFields(config, overrides)
+		sandboxCovered, sandboxGlobal := projectSandboxInheritance(overrides, id)
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"server":                      withoutExecution(config),
@@ -812,6 +830,8 @@ func (d *agentDaemon) desktopProject(w http.ResponseWriter, r *http.Request) {
 			"terminal":                    effective.ExternalTerminalCommand,
 			"terminalOverride":            section.Terminal != "",
 			"claudeSandbox":               claudeSandboxPayload(section.ClaudeSandbox),
+			"claudeSandboxGlobal":         sandboxGlobal,
+			"claudeSandboxCovered":        sandboxCovered,
 			// Claude Code's sandbox does not run on Windows: only the rules apply.
 			"platformSandbox":    runtime.GOOS != "windows",
 			"claudeSettingsPath": claudeSettingsPathOf(id),

@@ -11,8 +11,9 @@ import (
 // SettingsLayout is the layout WriteSettings emits. A file without a layout
 // predates #305: its flat keys and per-project maps are folded on read and
 // rewritten in this layout on the next save. Layout 3 (#510) moves the engine
-// settings into the engine catalogue.
-const SettingsLayout = 3
+// settings into the engine catalogue, and layout 4 (#730) the project Sandbox
+// values into the workstation ones.
+const SettingsLayout = 4
 
 // DefaultProvider is the provider a workstation runs when neither its defaults
 // nor the project section name one.
@@ -66,6 +67,12 @@ type Defaults struct {
 	// "conversation". Desktop hands it over from its own setting; empty means
 	// "terminal".
 	ConsoleView string `json:"consoleView,omitempty"`
+	// ClaudeSandbox is the Sandbox values every covered project applies
+	// (#730), under its own values. Nil states nothing.
+	ClaudeSandbox *ClaudeSandbox `json:"claudeSandbox,omitempty"`
+	// ClaudeSandboxProjects is the whitelist of the projects ClaudeSandbox
+	// applies to, by project ID. Empty covers every project.
+	ClaudeSandboxProjects []string `json:"claudeSandboxProjects,omitempty"`
 }
 
 // Console views, as ConsoleView names them.
