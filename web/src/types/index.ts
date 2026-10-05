@@ -1114,7 +1114,20 @@ export interface SkillEditorEntry {
   diverged: boolean
   repoContent?: string
   repoPath?: string
+  /** What the stored content replaces: the whole skill, or only its work sections. */
+  overrideKind: SkillOverrideKind
+  /** Built-in work sections, the starting point of a work-only override. Absent when the skill is not overridable. */
+  defaultWorkContent?: string
+  /** Whether the skill takes a work-only override. */
+  overridable: boolean
 }
+
+/**
+ * What a project skill override replaces (#732). The empty string is a full
+ * replacement of the SKILL.md; `work` replaces only the work sections (Goal,
+ * Read first, Steps, guard, Report) and Sectile keeps its contracts.
+ */
+export type SkillOverrideKind = '' | 'work'
 
 /**
  * Mode d'exécution d'un run. `autonomous` lance la CLI en headless et laisse le

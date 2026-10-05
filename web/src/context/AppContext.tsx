@@ -14,6 +14,7 @@ import type {
   MacroRequiredField,
   SkillEditorEntry,
   SkillMode,
+  SkillOverrideKind,
   Task,
   CloneTaskRequest,
   Status,
@@ -497,7 +498,7 @@ interface AppContextType {
   /** Tape l'appel d'une skill dans l'agent déjà démarré. */
 
   fetchSkillEditor: () => Promise<SkillEditorEntry[]>
-  saveSkillContent: (skillId: string, content: string) => Promise<SkillEditorEntry | null>
+  saveSkillContent: (skillId: string, content: string, overrideKind: SkillOverrideKind) => Promise<SkillEditorEntry | null>
   resetSkillContent: (skillId: string) => Promise<SkillEditorEntry | null>
   saveSkillMode: (skillId: string, mode: SkillMode) => Promise<SkillEditorEntry | null>
   importSkillFromRepo: (skillId: string) => Promise<SkillEditorEntry | null>
@@ -3668,13 +3669,14 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   }
 
-  const saveSkillContent = (skillId: string, content: string) =>
+  // The kind is always sent: left out, the server would pick its own default.
+  const saveSkillContent = (skillId: string, content: string, overrideKind: SkillOverrideKind) =>
     skillEditorAction(
       `/${encodeURIComponent(skillId)}`,
       {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content }),
+        body: JSON.stringify({ content, overrideKind }),
       },
       t.operations.notifications.skills.saved
     )
