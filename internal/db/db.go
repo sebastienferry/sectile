@@ -3059,7 +3059,13 @@ func (d *DB) updateTaskBy(actor Actor, id string, req models.UpdateTaskRequest) 
 				repository, ok = models.FindProjectRepository(project.Repositories, *req.Repository)
 			}
 			if !ok {
-				return nil, fmt.Errorf("%w: %s", ErrRepositoryNotInProject, strings.TrimSpace(*req.Repository))
+				// Any remote may be pinned (#737): whether a workstation can
+				// work there is its Any repository option's to say.
+				undeclared := models.RepositoryIdentity(*req.Repository)
+				if !remoteIdentity(undeclared) {
+					return nil, fmt.Errorf("%w: %s", ErrRepositoryNotInProject, strings.TrimSpace(*req.Repository))
+				}
+				repository.Identity = undeclared
 			}
 			identity = repository.Identity
 		}
@@ -6573,6 +6579,7 @@ func (d *DB) UpdateProjectAs(actingUserID string, id string, req models.UpdatePr
 	// The declared repositories, read before the code remote may change: the
 	// old code remote is not one of them, and must not become one.
 	repositoryURLs := declaredRepositoryURLs(p)
+	previousRepositories := declaredIdentities(p)
 
 	if req.Name != nil && strings.TrimSpace(*req.Name) != "" {
 		p.Name = strings.TrimSpace(*req.Name)
@@ -6750,6 +6757,17 @@ func (d *DB) UpdateProjectAs(actingUserID string, id string, req models.UpdatePr
 		SET name = ?, slug = ?, description = ?, icon = ?, color = ?, repositories = ?, default_skill_mode = ?, full_chain_stop_stage = ?, push_stage_commits = ?, pr_creation_stage = ?, spec_artifacts = ?, branch_name_format = ?, board_id = ?, tracker_columns = ?, stage_columns = ?, sprints = ?, issue_types = ?, enabled_views = ?, epic_colors = ?, roadmap_projects = ?, roadmap_axis_writes = ?, epic_axis_prefixes = ?, git_remote_url = ?, github_repo = ?, github_api_url = ?, gitlab_url = ?, gitlab_project = ?, jira_project = ?, issue_tracker = ?, tracker_url = ?, is_default = ?, spec_framework = ?, auto_sync_enabled = ?, auto_sync_interval_min = ?, owner_user_id = ?, updated_at = ?
 		WHERE id = ?
 	`, p.Name, p.Slug, p.Description, p.Icon, p.Color, encodeRepositoryURLs(projectCodeRemote(p), repositoryURLs), p.DefaultSkillMode, p.FullChainStopStage, boolInt(p.PushStageCommits), p.PRCreationStage, models.NormalizeSpecArtifacts(p.SpecArtifacts), p.BranchNameFormat, p.BoardID, string(trackerColumnsBytes), string(stageColumnsBytes), string(sprintsBytes), string(issueTypesBytes), string(enabledViewsBytes), epicColorsInt, string(roadmapProjectsBytes), boolInt(p.RoadmapAxisWrites), string(epicAxisPrefixesBytes), p.GitRemoteUrl, p.GithubRepo, p.GithubApiUrl, p.GitlabUrl, p.GitlabProject, p.JiraProject, p.IssueTracker, p.TrackerUrl, isDefInt, p.SpecFramework, autoSyncEnabledInt, p.AutoSyncIntervalMin, strings.TrimSpace(p.OwnerUserID), p.UpdatedAt, p.ID)
+	// A repository the project stops declaring no longer decides where its
+	// tickets run: their pins to it go. Since any remote may be pinned
+	// (#737), a pin left behind would otherwise read as a deliberate pin to an
+	// undeclared repository.
+	current := declaredIdentities(p)
+	for _, identity := range previousRepositories {
+		if err != nil || slices.Contains(current, identity) {
+			continue
+		}
+		_, err = tx.Exec("UPDATE tasks SET repository = '' WHERE project_id = ? AND repository = ?", p.ID, identity)
+	}
 	if err == nil {
 		err = tx.Commit()
 		committed = err == nil

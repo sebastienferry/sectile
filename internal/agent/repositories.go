@@ -73,8 +73,13 @@ func primaryRoot(ctx context.Context, config agentconfig.Config, overrides agent
 		return projectRoot, code, nil
 	case models.PrimaryUnmapped:
 		return "", "", fmt.Errorf("Le dépôt %s de la tâche n'est associé à aucun dossier sur ce poste : choisissez son dossier dans les réglages du projet de l'app desktop.", repository.Identity)
+	case models.PrimaryUndeclared:
+		if root, err = undeclaredPrimaryRoot(ctx, config, overrides, projectRoot, repository.URL, repository.Identity); err != nil {
+			return "", "", err
+		}
+	default:
+		root, _ = repositoryFolder(ctx, overrides, config.ProjectID, projectRoot, code, repository.Identity)
 	}
-	root, _ = repositoryFolder(ctx, overrides, config.ProjectID, projectRoot, code, repository.Identity)
 	if repository.Identity != code {
 		// The project's own checkout ignores .tasks/ through its .gitignore;
 		// another repository has no reason to, so its status is kept clean
@@ -523,8 +528,10 @@ func removeRepositoryWorktrees(ctx context.Context, config agentconfig.Config, o
 
 // taskFolderMap is the folder map of a launch, read from this workstation's
 // mappings once the worktree exists. A failure leaves the map empty: it
-// describes the launch, it never decides it.
-func (d *agentDaemon) taskFolderMap(ctx context.Context, config agentconfig.Config, task models.Task, workDir string, spec models.TaskSpecWorkspace) []models.FolderMapEntry {
+// describes the launch, it never decides it. A launch without its code
+// worktree (#737) lists the code repository as context, which
+// prepare_repository_worktree makes writable.
+func (d *agentDaemon) taskFolderMap(ctx context.Context, config agentconfig.Config, task models.Task, workDir string, spec models.TaskSpecWorkspace, lazyCode bool) []models.FolderMapEntry {
 	root, overrides, err := d.localProjectRoot(ctx, config)
 	if err != nil {
 		return nil
@@ -532,6 +539,9 @@ func (d *agentDaemon) taskFolderMap(ctx context.Context, config agentconfig.Conf
 	_, primary, err := primaryRoot(ctx, config, overrides, root, task)
 	if err != nil {
 		return nil
+	}
+	if lazyCode {
+		primary = ""
 	}
 	return withSpecWorktree(buildFolderMap(ctx, config, overrides, root, primary, workDir, task), spec)
 }

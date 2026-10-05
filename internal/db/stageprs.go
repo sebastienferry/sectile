@@ -146,11 +146,23 @@ func (d *DB) validateStagePRs(task *models.Task, actorID, skillID, repoPath, bra
 
 	set := stagePRSet{}
 	var notices []string
+	skippedPrimary := false
 	for _, identity := range required {
 		url := chosen[identity]
 		if identity != primary && url == "" {
 			if notice, unchanged := d.unchangedRepository(task, actorID, identity, branch); unchanged {
 				notices = append(notices, notice)
+				continue
+			}
+		}
+		// A ticket launched without its code worktree (#737) needs no pull
+		// request there when it never prepared the code repository, the agent
+		// confirms the launch went without it, and nothing was committed on
+		// the branch there.
+		if identity == primary && url == "" && len(required) > 1 && !slices.Contains(task.ChangedRepositories, primary) {
+			if notice, unchanged, lazy := d.repositoryChanges(task, actorID, identity, branch); unchanged && lazy {
+				notices = append(notices, notice)
+				skippedPrimary = true
 				continue
 			}
 		}
@@ -177,6 +189,13 @@ func (d *DB) validateStagePRs(task *models.Task, actorID, skillID, repoPath, bra
 		if notice != "" {
 			notices = append(notices, notice)
 		}
+	}
+	if skippedPrimary {
+		if len(set.urls) == 0 {
+			return stagePRSet{}, fmt.Errorf("%s changed no repository with a pull request: give one in prUrls, or say noRepositoryChange", task.Key)
+		}
+		// The first changed repository's pull request stands for the ticket.
+		set.urls = append(set.urls[1:], set.urls[0])
 	}
 	set.notice = strings.Join(notices, "\n")
 	return set, nil
@@ -245,25 +264,37 @@ func (d *DB) checkSecondaryPRs(project *models.Project, task *models.Task, actor
 // repository stays recorded as changed, so the question is asked again at the
 // next check and a later commit there requires its pull request.
 func (d *DB) unchangedRepository(task *models.Task, actorID, identity, branch string) (notice string, unchanged bool) {
+	notice, unchanged, _ = d.repositoryChanges(task, actorID, identity, branch)
+	return notice, unchanged
+}
+
+// repositoryChanges is unchangedRepository with whether the agent launched the
+// task without its code worktree (#737), which only an agent that knows the
+// question answers.
+func (d *DB) repositoryChanges(task *models.Task, actorID, identity, branch string) (notice string, unchanged, lazyCode bool) {
 	var answer struct {
 		Repository    string `json:"repository"`
 		Found         bool   `json:"found"`
 		DefaultBranch string `json:"defaultBranch"`
 		Exists        bool   `json:"exists"`
 		Ahead         *int   `json:"ahead"`
+		LazyCode      bool   `json:"lazyCode"`
 	}
 	op := agentprotocol.Operation{ProjectID: task.ProjectID, TaskID: task.ID, Action: "branch_changes", UserID: actorID, Repository: identity, Branch: branch}
 	if err := d.callAgent(op, &answer); err != nil {
-		return "", false
+		return "", false, false
 	}
 	if answer.Repository != identity || !answer.Found || answer.DefaultBranch == "" || answer.DefaultBranch == branch || answer.Ahead == nil || *answer.Ahead != 0 {
-		return "", false
+		return "", false, false
 	}
 	_, request := evidenceTerms(repositoryTarget(identity).link.Forge)
-	if !answer.Exists {
-		return fmt.Sprintf("Prepared, unchanged: in %s, %s exists neither locally nor on origin, so no %s is expected there.", identity, branch, request), true
+	if answer.LazyCode {
+		return fmt.Sprintf("Not prepared: %s was launched without a worktree in %s and %s carries nothing there, so no %s is expected there.", task.Key, identity, branch, request), true, true
 	}
-	return fmt.Sprintf("Prepared, unchanged: %s has no commit of %s ahead of %s, so no %s is expected there.", identity, branch, answer.DefaultBranch, request), true
+	if !answer.Exists {
+		return fmt.Sprintf("Prepared, unchanged: in %s, %s exists neither locally nor on origin, so no %s is expected there.", identity, branch, request), true, false
+	}
+	return fmt.Sprintf("Prepared, unchanged: %s has no commit of %s ahead of %s, so no %s is expected there.", identity, branch, answer.DefaultBranch, request), true, false
 }
 
 // pullRequestLinkLast moves the link to url to the end of the set, which makes

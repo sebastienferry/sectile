@@ -23,6 +23,9 @@ type branchChangesAnswer struct {
 	DefaultBranch string `json:"defaultBranch,omitempty"`
 	Exists        bool   `json:"exists"`
 	Ahead         int    `json:"ahead"`
+	// LazyCode says the task's launches here go without its code worktree
+	// (#737), so its code repository needs no pull request when unchanged.
+	LazyCode bool `json:"lazyCode,omitempty"`
 }
 
 // matchingCheckout says whether candidate is a usable directory whose own

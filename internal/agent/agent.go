@@ -1114,7 +1114,7 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 		return
 	}
 	d.convertLegacyRepoPaths(ctx, queueConfig)
-	config, workDir, branch, task, err := d.prepareDispatch(ctx, taskRef, run.isolated)
+	config, workDir, branch, task, lazyCode, err := d.prepareLaunch(ctx, taskRef, true, run.isolated)
 	if err != nil {
 		launchFailure = err
 		d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", err.Error())
@@ -1136,6 +1136,14 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 	}
 	if specWorkspace.Warning != "" {
 		payload.Prompt += "\nSpecifications workspace notice: " + specWorkspace.Warning + "."
+	}
+	if lazyCode {
+		// Without its code worktree, the session starts where the task's
+		// specifications are written, else in the project checkout (#737).
+		if specWorkspace.Distinct && specWorkspace.Path != "" {
+			workDir = specWorkspace.Path
+		}
+		payload.Prompt += lazyCodeNotice
 	}
 	// A branch derived from the task key exists only in this process until it is
 	// written back: the next launch would derive it again against a branch since
@@ -1206,7 +1214,7 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 		return
 	}
 	logIgnoredModel(config, taskRef, payload.Model)
-	folders := d.taskFolderMap(ctx, config, task, workDir, specWorkspace)
+	folders := d.taskFolderMap(ctx, config, task, workDir, specWorkspace, lazyCode)
 	payload.Prompt += folderMapPrompt(folders)
 	// What runs for the skill is resolved here, from what is installed, and
 	// nothing is installed to make it resolve (#267).

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 
@@ -88,12 +89,22 @@ func TestTaskRepositoryPin(t *testing.T) {
 	if updated.Repository != "github.com/o/b" {
 		t.Errorf("pinned = %q, want the identity", updated.Repository)
 	}
-	outside := "https://github.com/o/elsewhere"
-	if _, err := d.UpdateTask(task.ID, models.UpdateTaskRequest{Repository: &outside}); !errors.Is(err, ErrRepositoryNotInProject) {
-		t.Errorf("pin outside the list: err = %v", err)
+	// Any remote may be pinned (#737); what names no repository may not.
+	for _, refused := range []string{"elsewhere", "/src/elsewhere", "~/src/elsewhere"} {
+		if _, err := d.UpdateTask(task.ID, models.UpdateTaskRequest{Repository: &refused}); !errors.Is(err, ErrRepositoryNotInProject) {
+			t.Errorf("pin %q: err = %v", refused, err)
+		}
 	}
 	if reread, _ := d.GetTaskByID(task.ID); reread.Repository != "github.com/o/b" {
 		t.Errorf("a refused pin changed the task: %q", reread.Repository)
+	}
+	outside := "https://github.com/o/elsewhere"
+	if updated, err = d.UpdateTask(task.ID, models.UpdateTaskRequest{Repository: &outside}); err != nil || updated.Repository != "github.com/o/elsewhere" {
+		t.Fatalf("pin outside the list = %q, %v", updated.Repository, err)
+	}
+	project, _ := d.GetProjectByID(task.ProjectID)
+	if got := TaskPrimaryRepository(project, updated); got != "github.com/o/elsewhere" {
+		t.Errorf("primary repository = %q, want the undeclared pin", got)
 	}
 	empty := ""
 	if updated, err = d.UpdateTask(task.ID, models.UpdateTaskRequest{Repository: &empty}); err != nil || updated.Repository != "" {
@@ -240,14 +251,13 @@ func TestPrepareRepositoryWorktree(t *testing.T) {
 		t.Errorf("changed = %v, want github.com/o/b once", reread.ChangedRepositories)
 	}
 
-	// Neither the primary repository nor what names no repository is relayed.
+	// What names no repository is not relayed.
 	calls := len(agent.calls)
 	for name, repository := range map[string]string{
-		"primary repository": "git@github.com:o/a.git",
-		"folder path":        "/src/elsewhere",
-		"bare name":          "elsewhere",
-		"relative path":      "./elsewhere",
-		"home path":          "~/src/elsewhere",
+		"folder path":   "/src/elsewhere",
+		"bare name":     "elsewhere",
+		"relative path": "./elsewhere",
+		"home path":     "~/src/elsewhere",
 	} {
 		if _, err := d.PrepareRepositoryWorktree(context.Background(), "", task.Key, repository, ""); err == nil {
 			t.Errorf("%s: accepted", name)
@@ -263,6 +273,52 @@ func TestPrepareRepositoryWorktree(t *testing.T) {
 	agent.noEcho = false
 	if p.Repositories[0].Identity != "github.com/o/a" {
 		t.Fatalf("repositories = %+v", p.Repositories)
+	}
+}
+
+// The code repository of an unpinned ticket may be prepared like any other
+// (#737): a launch without its code worktree makes it there. The repository a
+// ticket is pinned to already has its worktree and is still refused.
+func TestPrepareRepositoryWorktreeForTheCodeRepository(t *testing.T) {
+	d := testDB(t)
+	_, task := multiRepoProject(t, d)
+	agent := &fakeWorktreeAgent{}
+	d.SetAgentOperations(agent.call)
+
+	if _, err := d.PrepareRepositoryWorktree(context.Background(), "", task.Key, "git@github.com:o/a.git", ""); err != nil {
+		t.Fatal(err)
+	}
+	if reread, _ := d.GetTaskByID(task.ID); !slices.Contains(reread.ChangedRepositories, "github.com/o/a") {
+		t.Errorf("changed = %v, want the code repository recorded", reread.ChangedRepositories)
+	}
+
+	if _, err := d.conn.Exec("UPDATE tasks SET repository='https://github.com/o/b' WHERE id=?", task.ID); err != nil {
+		t.Fatal(err)
+	}
+	calls := len(agent.calls)
+	if _, err := d.PrepareRepositoryWorktree(context.Background(), "", task.Key, "github.com/o/b", ""); err == nil || !strings.Contains(err.Error(), "already has its worktree") {
+		t.Errorf("the pinned repository: %v", err)
+	}
+	if len(agent.calls) != calls {
+		t.Errorf("the pinned repository reached the agent")
+	}
+}
+
+// A task with no branch yet gets the one its code worktree would carry.
+func TestPrepareRepositoryWorktreeNamesAMissingBranch(t *testing.T) {
+	d := testDB(t)
+	_, task := multiRepoProject(t, d)
+	if _, err := d.conn.Exec("UPDATE tasks SET branch_name=NULL WHERE id=?", task.ID); err != nil {
+		t.Fatal(err)
+	}
+	agent := &fakeWorktreeAgent{}
+	d.SetAgentOperations(agent.call)
+	if _, err := d.PrepareRepositoryWorktree(context.Background(), "", task.Key, "github.com/o/b", ""); err != nil {
+		t.Fatal(err)
+	}
+	want, _ := models.TaskBranchName("", task.Key, task.Title)
+	if agent.calls[0].Branch != want || want == "" {
+		t.Errorf("branch = %q, want %q", agent.calls[0].Branch, want)
 	}
 }
 
@@ -367,6 +423,11 @@ func TestAPinTheProjectNoLongerDeclaresIsNoPin(t *testing.T) {
 	reread, _ := d.GetTaskByID(task.ID)
 	if multiRepoTask(project, reread) || TaskPrimaryRepository(project, reread) != "github.com/o/a" {
 		t.Errorf("a removed repository still decides: multi=%v primary=%q", multiRepoTask(project, reread), TaskPrimaryRepository(project, reread))
+	}
+	// The pin itself goes (#737): any remote may be pinned, so one left
+	// behind would read as deliberate.
+	if reread.Repository != "" {
+		t.Errorf("pin after the removal = %q, want none", reread.Repository)
 	}
 }
 

@@ -1372,7 +1372,7 @@ func (d *agentDaemon) desktopTasksTerminalExternal(w http.ResponseWriter, r *htt
 	// project's folders and its Claude settings (#690). It is built before the
 	// run is registered, so a refusal leaves nothing to release.
 	specWorkspace := d.knownTaskSpecWorkspace(r.Context(), config, task, workDir, branch)
-	folders := d.taskFolderMap(r.Context(), config, task, workDir, specWorkspace)
+	folders := d.taskFolderMap(r.Context(), config, task, workDir, specWorkspace, false)
 	claudeSettings, err := d.launchClaudeSettings(config)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusConflict)

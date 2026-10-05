@@ -126,15 +126,30 @@ func declaredRepositoryURLs(p *models.Project) []string {
 	return urls
 }
 
-// taskPin is the repository a ticket is pinned to, as far as its project is
-// concerned: nothing for a pin to a repository the project no longer declares.
-// The agent reads a pin the same way (models.ResolvePrimaryRepository).
+// declaredIdentities are the identities of every repository the project
+// lists, its code remote included.
+func declaredIdentities(p *models.Project) []string {
+	identities := make([]string, 0, len(p.Repositories))
+	for _, repository := range p.Repositories {
+		identities = append(identities, repository.Identity)
+	}
+	return identities
+}
+
+// taskPin is the repository a ticket is pinned to: one its project declares,
+// or any other remote (#737); nothing for what names no repository. The agent
+// reads a pin the same way (models.ResolvePrimaryRepository).
 func taskPin(project *models.Project, task *models.Task) string {
 	if project == nil || task == nil {
 		return ""
 	}
 	if repository, ok := models.FindProjectRepository(project.Repositories, task.Repository); ok {
 		return repository.Identity
+	}
+	// A pin to a repository the project does not declare (#737) stands: the
+	// launching workstation decides whether it can work there.
+	if identity := models.RepositoryIdentity(task.Repository); remoteIdentity(identity) {
+		return identity
 	}
 	return ""
 }
@@ -343,9 +358,19 @@ func (d *DB) PrepareRepositoryWorktree(ctx context.Context, userID, taskKey, rep
 		branch = strings.TrimSpace(*task.BranchName)
 	}
 	if branch == "" {
-		return nil, fmt.Errorf("task %s has no branch yet: its primary worktree comes first", task.Key)
+		// A launch without its code worktree (#737) may come before any
+		// branch was recorded: the branch is the one the code worktree would
+		// have carried.
+		named, err := models.TaskBranchName(project.BranchNameFormat, task.Key, task.Title)
+		if err != nil {
+			return nil, fmt.Errorf("task %s has no branch yet: %w", task.Key, err)
+		}
+		branch = named
 	}
-	if target.Identity == TaskPrimaryRepository(project, task) {
+	// The repository a ticket is pinned to gets its worktree at launch. The
+	// code repository of an unpinned ticket may not have one (#737): the
+	// agent then creates it, or answers with the one it already has.
+	if pin := taskPin(project, task); pin != "" && target.Identity == pin {
 		return nil, fmt.Errorf("%s is the primary repository of %s: it already has its worktree", target.Identity, task.Key)
 	}
 	var worktree models.RepositoryWorktree
@@ -371,8 +396,7 @@ func (d *DB) PrepareRepositoryWorktree(ctx context.Context, userID, taskKey, rep
 // remoteIdentity tells an identity derived from a remote (host/path) from what
 // a folder path or a bare name reduces to, which names no repository.
 func remoteIdentity(identity string) bool {
-	host, path, ok := strings.Cut(identity, "/")
-	return ok && host != "" && path != "" && !strings.ContainsAny(identity, `\~`) && !strings.HasPrefix(host, ".")
+	return models.IsRemoteIdentity(identity)
 }
 
 // PrepareTaskSpecWorktree asks the caller's local agent to prepare where a

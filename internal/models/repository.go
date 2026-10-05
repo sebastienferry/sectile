@@ -169,14 +169,18 @@ const (
 	// PrimaryUnmapped means the task's repository is known but has no folder
 	// on this workstation.
 	PrimaryUnmapped
+	// PrimaryUndeclared means the task is pinned to a repository its project
+	// does not declare (#737), which only the Any repository option resolves.
+	PrimaryUndeclared
 )
 
 // ResolvePrimaryRepository decides which repository a task runs in, before
 // anything is launched. pinned is the task's repository identity, "" when not
 // pinned; mapped tells whether a repository has a folder on this workstation.
 // A pin to a listed repository names it, resolved when it has a folder here
-// and unmapped otherwise; anything else is the code repository (#484). The
-// returned repository is set for PrimaryResolved and PrimaryUnmapped.
+// and unmapped otherwise; a pin to another repository is undeclared (#737);
+// anything else is the code repository (#484). The returned repository is set
+// for every outcome but PrimaryDefault.
 func ResolvePrimaryRepository(pinned string, repositories []ProjectRepository, mapped func(identity string) bool) (ProjectRepository, PrimaryResolution) {
 	if pinned = strings.TrimSpace(pinned); pinned != "" {
 		if found, ok := FindProjectRepository(repositories, pinned); ok {
@@ -185,10 +189,20 @@ func ResolvePrimaryRepository(pinned string, repositories []ProjectRepository, m
 			}
 			return found, PrimaryUnmapped
 		}
-		// A pin outside the list cannot be stored (the server refuses it); an
-		// old one is treated as absent rather than trusted.
+		// A pin outside the list names a repository the project does not
+		// declare (#737); what names no repository is treated as absent.
+		if identity := RepositoryIdentity(pinned); IsRemoteIdentity(identity) {
+			return ProjectRepository{URL: pinned, Identity: identity}, PrimaryUndeclared
+		}
 	}
 	return ProjectRepository{}, PrimaryDefault
+}
+
+// IsRemoteIdentity reports an identity that names a repository on a host,
+// host/path, as opposed to a folder, a bare name or a home path.
+func IsRemoteIdentity(identity string) bool {
+	host, path, ok := strings.Cut(identity, "/")
+	return ok && host != "" && path != "" && !strings.ContainsAny(identity, `\~`) && !strings.HasPrefix(host, ".")
 }
 
 // LegacyRepoPath is one working directory typed before repositories existed:

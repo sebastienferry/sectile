@@ -349,9 +349,22 @@ func joinWarnings(warnings ...string) string {
 // the agent behind one npm ci. The launch path waits for the install, so the
 // session starts with its dependencies in place.
 func (d *agentDaemon) prepareDispatch(ctx context.Context, taskKey string, useWorktrees ...bool) (agentconfig.Config, string, string, models.Task, error) {
-	config, root, workDir, branch, task, err := d.prepareWorkspace(ctx, taskKey, useWorktrees...)
+	config, workDir, branch, task, _, err := d.prepareLaunch(ctx, taskKey, false, useWorktrees...)
+	return config, workDir, branch, task, err
+}
+
+// prepareLaunch is prepareDispatch for a launch, which may go without the
+// ticket's code worktree when allowLazy is set and the project's Any
+// repository option says so (#737): lazy reports it, and workDir is then the
+// project checkout, where nothing is provisioned.
+func (d *agentDaemon) prepareLaunch(ctx context.Context, taskKey string, allowLazy bool, useWorktrees ...bool) (agentconfig.Config, string, string, models.Task, bool, error) {
+	d.prepareMu.Lock()
+	config, root, workDir, branch, task, lazy, err := d.prepareTaskWorkspaceLocked(ctx, taskKey, allowLazy, useWorktrees...)
+	d.prepareMu.Unlock()
 	if err == nil {
-		provisionWorktree(ctx, root, workDir)
+		if !lazy {
+			provisionWorktree(ctx, root, workDir)
+		}
 		// A pinned ticket may work in another checkout than the one it
 		// was admitted against: the queue compares checkouts through this.
 		d.queue.mu.Lock()
@@ -362,7 +375,7 @@ func (d *agentDaemon) prepareDispatch(ctx context.Context, taskKey string, useWo
 		}
 		d.queue.mu.Unlock()
 	}
-	return config, workDir, branch, task, err
+	return config, workDir, branch, task, lazy, err
 }
 
 // prepareWorkspace resolves the task's workspace under prepareMu without
@@ -377,45 +390,60 @@ func (d *agentDaemon) prepareWorkspace(ctx context.Context, taskKey string, useW
 // prepareMu. It also returns the project root, so the caller can tell a linked
 // worktree from the main checkout.
 func (d *agentDaemon) prepareDispatchLocked(ctx context.Context, taskKey string, useWorktrees ...bool) (agentconfig.Config, string, string, string, models.Task, error) {
+	config, root, workDir, branch, task, _, err := d.prepareTaskWorkspaceLocked(ctx, taskKey, false, useWorktrees...)
+	return config, root, workDir, branch, task, err
+}
+
+// prepareTaskWorkspaceLocked is prepareDispatchLocked that may skip the code
+// worktree, when allowLazy is set and lazyCodeWorktree says so.
+func (d *agentDaemon) prepareTaskWorkspaceLocked(ctx context.Context, taskKey string, allowLazy bool, useWorktrees ...bool) (agentconfig.Config, string, string, string, models.Task, bool, error) {
 	var task models.Task
 	config, err := d.fetchConfig(ctx, "", taskKey)
 	if err != nil {
-		return config, "", "", "", task, err
+		return config, "", "", "", task, false, err
 	}
 	root, overrides, err := d.localProjectRoot(ctx, config)
 	if err != nil {
-		return config, "", "", "", task, err
+		return config, "", "", "", task, false, err
 	}
 	if err := d.readAPI(ctx, "/api/tasks/"+url.PathEscape(taskKey), &task); err != nil {
-		return config, "", "", "", task, err
+		return config, "", "", "", task, false, err
 	}
 	if task.ProjectID != config.ProjectID {
-		return config, "", "", "", task, fmt.Errorf("task project changed during configuration sync")
+		return config, "", "", "", task, false, fmt.Errorf("task project changed during configuration sync")
 	}
 	config = agentconfig.ResolveTask(config, overrides, task.ID)
 	if len(useWorktrees) > 0 {
 		config.UseWorktrees = useWorktrees[0]
 	}
 	if err := config.Validate(); err != nil {
-		return config, "", "", "", task, err
+		return config, "", "", "", task, false, err
 	}
 	// The worktree lives in the ticket's own repository: the one it is pinned
 	// to, else the project root (#456, #484).
 	primary, _, err := primaryRoot(ctx, config, overrides, root, task)
 	if err != nil {
-		return config, "", "", "", task, err
+		return config, "", "", "", task, false, err
 	}
 	root = primary
+	if allowLazy {
+		if branch, lazy := lazyCodeWorktree(ctx, config, overrides, root, task); lazy {
+			if err := applySpecArtifacts(ctx, &config, root, task.Key); err != nil {
+				return config, "", "", "", task, false, err
+			}
+			return config, root, root, branch, task, true, nil
+		}
+	}
 	workDir, branch, err := ensureLocalWorktree(ctx, root, task, config.UseWorktrees, config.BranchNameFormat)
 	if err != nil {
-		return config, "", "", "", task, err
+		return config, "", "", "", task, false, err
 	}
 	if err := applySpecArtifacts(ctx, &config, root, task.Key); err != nil {
-		return config, "", "", "", task, err
+		return config, "", "", "", task, false, err
 	}
 	// Nothing is installed here (#267): the skills and the MCP registration are
 	// the user's to set up, through the Claude plugin or the agent's init.
-	return config, root, workDir, branch, task, nil
+	return config, root, workDir, branch, task, false, nil
 }
 
 // bootstrapLocalMCP registers the Sectile MCP server for every agent the project

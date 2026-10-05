@@ -406,7 +406,9 @@ func (d *agentDaemon) executeOperation(ctx context.Context, op agentprotocol.Ope
 		if err != nil {
 			return nil, err
 		}
-		return branchChangesAnswer{Repository: repository, Found: true, DefaultBranch: defaultBranch, Exists: exists, Ahead: ahead}, nil
+		lazyCode := models.RepositoryIdentity(repository) == codeIdentity(config) && strings.TrimSpace(task.Repository) == "" &&
+			overrides.AnyRepository(config.ProjectID) && specificationsAwayFromCode(config, overrides, root)
+		return branchChangesAnswer{Repository: repository, Found: true, DefaultBranch: defaultBranch, Exists: exists, Ahead: ahead, LazyCode: lazyCode}, nil
 	case "pr_evidence":
 		// The server verifies stage evidence on forges it cannot reach itself, with
 		// the CLI login this workstation already has. A forge that answered without

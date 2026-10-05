@@ -190,3 +190,70 @@ func rememberRepositoryFolder(settingsRoot, identity, folder string) (bool, erro
 
 // errPathWithoutOption refuses a checkout given while the option is off.
 var errPathWithoutOption = errors.New("the project's Any repository option is off on this workstation: a path is only accepted when it is on")
+
+// lazyCodeWorktree says whether a launch goes without the ticket's code
+// worktree (#737), and names the ticket's branch: the project's Any repository
+// option is on, its specifications are away from the code checkout (dropped,
+// or in an Issue specifications folder of their own), the ticket is not
+// pinned, and no tree carries its branch yet. The worktree is then made only
+// when the session asks for the code repository through
+// prepare_repository_worktree, so a ticket that changes only another
+// repository leaves no empty worktree, and needs no pull request, there.
+func lazyCodeWorktree(ctx context.Context, config agentconfig.Config, overrides agentconfig.Settings, projectRoot string, task models.Task) (string, bool) {
+	if !overrides.AnyRepository(config.ProjectID) || !config.UseWorktrees || strings.TrimSpace(task.Repository) != "" {
+		return "", false
+	}
+	if !specificationsAwayFromCode(config, overrides, projectRoot) {
+		return "", false
+	}
+	branch, err := taskWorktreeBranch(task, config.BranchNameFormat)
+	if err != nil {
+		return "", false
+	}
+	if existing, err := worktreeForBranch(ctx, projectRoot, branch); err != nil || existing != "" {
+		return "", false
+	}
+	return branch, true
+}
+
+// specificationsAwayFromCode reports a project whose issue specifications are
+// not committed in its code checkout on this workstation: dropped (#487), or
+// written in an Issue specifications folder of their own (#736).
+func specificationsAwayFromCode(config agentconfig.Config, overrides agentconfig.Settings, projectRoot string) bool {
+	if config.DropsSpecArtifacts() {
+		return true
+	}
+	if overrides.IssueSpecPath(config.ProjectID) == "" {
+		return false
+	}
+	issue, err := localIssueSpecRepo(overrides, config.ProjectID, projectRoot)
+	return err == nil && !sameDirectory(issue, projectRoot)
+}
+
+// lazyCodeNotice is what the prompt of a launch without its code worktree
+// says.
+const lazyCodeNotice = "\nNo worktree was created in the project's code repository for this task: it is read-only context. Call prepare_repository_worktree for the code repository before changing it, as for any other repository; a repository left unchanged needs no pull request."
+
+// undeclaredPrimaryRoot is the checkout of the repository a ticket is pinned
+// to when its project does not declare it (#737): its known folder, else a
+// clone, remembered like one prepare_repository_worktree makes. There is no
+// path to give at launch. Without the project's Any repository option the
+// launch fails rather than run the ticket elsewhere.
+func undeclaredPrimaryRoot(ctx context.Context, config agentconfig.Config, overrides agentconfig.Settings, projectRoot, pin, identity string) (string, error) {
+	if !overrides.AnyRepository(config.ProjectID) {
+		return "", fmt.Errorf("the task is pinned to %s, which the project does not declare: turn on the project's Any repository option on this workstation, or pin the task to one of the project's repositories", identity)
+	}
+	if root, _, ok := locateRepository(ctx, overrides, config.ProjectID, projectRoot, codeIdentity(config), identity); ok {
+		return root, nil
+	}
+	root, _, err := unknownRepositoryFolder(ctx, config, overrides, projectRoot, identity, repositoryRequest{URL: pin})
+	if err != nil {
+		return "", err
+	}
+	// The workstation settings exist whenever the option is on, so their
+	// legacy location is never read.
+	if _, err := rememberRepositoryFolder("", identity, root); err != nil {
+		return "", err
+	}
+	return root, nil
+}

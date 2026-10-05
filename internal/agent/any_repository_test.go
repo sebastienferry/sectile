@@ -376,3 +376,101 @@ func evalPath(t *testing.T, path string) string {
 	}
 	return resolved
 }
+
+func TestLaunchGoesWithoutTheCodeWorktreeOnlyWhenNothingNeedsIt(t *testing.T) {
+	ctx := context.Background()
+	root := checkoutOf(t, "git@github.com:o/a.git")
+	issue := t.TempDir()
+	task := models.Task{Key: "#1", BranchName: branchOf("feat/1")}
+	drop := agentconfig.Config{ProjectID: "p", GitRemoteURL: "git@github.com:o/a.git", UseWorktrees: true, SpecArtifacts: models.SpecArtifactsDrop}
+	keep := drop
+	keep.SpecArtifacts = models.SpecArtifactsKeep
+	on := anyRepositoryOn(agentconfig.Settings{})
+	distinct := anyRepositoryOn(agentconfig.Settings{ProjectSettings: map[string]agentconfig.ProjectSettings{"p": {IssueSpecPath: issue}}})
+	sameAsCode := anyRepositoryOn(agentconfig.Settings{ProjectSettings: map[string]agentconfig.ProjectSettings{"p": {IssueSpecPath: root}}})
+	pinned := task
+	pinned.Repository = "github.com/o/b"
+	noWorktrees := drop
+	noWorktrees.UseWorktrees = false
+
+	for name, c := range map[string]struct {
+		config    agentconfig.Config
+		overrides agentconfig.Settings
+		task      models.Task
+		want      bool
+	}{
+		"option on, artefacts dropped":         {drop, on, task, true},
+		"option on, distinct Issue folder":     {keep, distinct, task, true},
+		"option off":                           {drop, agentconfig.Settings{}, task, false},
+		"specifications committed in the code": {keep, on, task, false},
+		"Issue folder is the code checkout":    {keep, sameAsCode, task, false},
+		"pinned ticket":                        {drop, on, pinned, false},
+		"worktrees off":                        {noWorktrees, on, task, false},
+	} {
+		branch, lazy := lazyCodeWorktree(ctx, c.config, c.overrides, root, c.task)
+		if lazy != c.want || (lazy && branch != "feat/1") {
+			t.Errorf("%s: lazy = %v (branch %q), want %v", name, lazy, branch, c.want)
+		}
+	}
+
+	// Once the code worktree exists, a launch reuses it.
+	if _, _, err := ensureLocalWorktree(ctx, root, task, true, ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, lazy := lazyCodeWorktree(ctx, drop, on, root, task); lazy {
+		t.Error("an existing code worktree was skipped")
+	}
+}
+
+func TestFolderMapOfALaunchWithoutCodeWorktree(t *testing.T) {
+	ctx := context.Background()
+	root := checkoutOf(t, "git@github.com:o/a.git")
+	task := models.Task{Key: "#1", BranchName: branchOf("feat/1")}
+	entries := buildFolderMap(ctx, multiRepoConfig(), agentconfig.Settings{}, root, "", root, task)
+	for _, entry := range entries {
+		if entry.Identity == "github.com/o/a" && (entry.Role != models.FolderRoleContext || entry.Worktree != "") {
+			t.Errorf("the code repository is %+v, want read-only context", entry)
+		}
+		if entry.Role == models.FolderRolePrimary {
+			t.Errorf("a primary entry was listed: %+v", entry)
+		}
+	}
+	if !strings.Contains(lazyCodeNotice, "prepare_repository_worktree") {
+		t.Errorf("the notice does not say how to change the code repository: %q", lazyCodeNotice)
+	}
+}
+
+func TestUndeclaredPinIsClonedWithTheOption(t *testing.T) {
+	testhome.Temp(t)
+	ctx := context.Background()
+	projectRoot := checkoutOf(t, "git@github.com:o/a.git")
+	origin, _ := bareOrigin(t)
+	identity := models.RepositoryIdentity("file://" + origin)
+	clones := t.TempDir()
+	overrides := anyRepositoryOn(agentconfig.Settings{})
+	section := overrides.ProjectSettings["p"]
+	section.ClonesPath = clones
+	overrides.ProjectSettings["p"] = section
+	if err := agentconfig.WriteSettings(overrides); err != nil {
+		t.Fatal(err)
+	}
+	// A file remote has no host to rebuild a URL from, so the pin is the
+	// URL itself, as a task pinned from the web would carry a remote.
+	task := models.Task{Key: "#1", Repository: "file://" + origin}
+
+	root, got, err := primaryRoot(ctx, multiRepoConfig(), overrides, projectRoot, task)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != identity || !samePath(t, root, filepath.Join(clones, "origin")) {
+		t.Fatalf("primary = %q %q", root, got)
+	}
+	settings, _ := agentconfig.ReadSettings("")
+	if !samePath(t, settings.Repositories[identity], root) {
+		t.Errorf("the clone is not remembered: %v", settings.Repositories)
+	}
+	// The next launch finds it without cloning again.
+	if again, _, err := primaryRoot(ctx, multiRepoConfig(), settings, projectRoot, task); err != nil || !samePath(t, again, root) {
+		t.Errorf("second launch: %q %v", again, err)
+	}
+}

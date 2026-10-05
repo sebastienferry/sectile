@@ -459,3 +459,53 @@ func mustProject(t *testing.T, d *DB, task *models.Task) *models.Project {
 	}
 	return p
 }
+
+// lazyA is the agent's answer for the code repository g/a of a task launched
+// without its code worktree (#737), whose branch was never created there.
+const lazyA = `{"repository":"gitlab.com/g/a","found":true,"defaultBranch":"main","exists":false,"ahead":0,"lazyCode":true}`
+
+func TestACodeRepositoryLaunchedWithoutWorktreeNeedsNoPullRequest(t *testing.T) {
+	d, task, agent := twoRepoTask(t)
+	agent.set(func(f *fakeRepoAgent) {
+		delete(f.prs, "")
+		f.changes = map[string]string{"gitlab.com/g/a": lazyA}
+	})
+	got, _, err := d.TransitionTaskStageWithPRs("", task.ID, "implemented", "done", []string{mrB}, "feat/12")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.PrURL == nil || *got.PrURL != mrB || len(got.PrLinks) != 1 {
+		t.Fatalf("recorded %+v (current %v), want the secondary merge request alone", got.PrLinks, got.PrURL)
+	}
+}
+
+// Every other answer keeps the code repository's pull request required: the
+// agent does not run the task lazily, the branch carries commits there, or
+// the code repository was prepared through prepare_repository_worktree.
+func TestACodeRepositoryPullRequestStaysRequiredOtherwise(t *testing.T) {
+	for name, tc := range map[string]struct {
+		answer   string
+		prepared bool
+	}{
+		"not lazy":       {`{"repository":"gitlab.com/g/a","found":true,"defaultBranch":"main","exists":false,"ahead":0}`, false},
+		"commits ahead":  {`{"repository":"gitlab.com/g/a","found":true,"defaultBranch":"main","exists":true,"ahead":2,"lazyCode":true}`, false},
+		"agent error":    {"", false},
+		"prepared later": {lazyA, true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			d, task, agent := twoRepoTask(t)
+			agent.set(func(f *fakeRepoAgent) {
+				delete(f.prs, "")
+				f.changes = map[string]string{"gitlab.com/g/a": tc.answer}
+			})
+			if tc.prepared {
+				if err := d.AddChangedRepository(task.ID, "gitlab.com/g/a"); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if _, _, err := d.TransitionTaskStageWithPRs("", task.ID, "implemented", "done", []string{mrB}, "feat/12"); err == nil || !strings.Contains(err.Error(), "gitlab.com/g/a") {
+				t.Fatalf("err = %v, want a refusal naming the code repository", err)
+			}
+		})
+	}
+}
