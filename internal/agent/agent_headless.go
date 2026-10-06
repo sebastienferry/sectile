@@ -104,7 +104,7 @@ func (d *agentDaemon) registerHeadlessRun(taskRef string, payload agentconfig.Di
 	run.desktop = desktopRun{
 		CreatedAt: run.desktop.CreatedAt, Prompt: run.desktop.Prompt,
 		ID: payload.RunID, TaskID: taskRef, TaskKey: payload.TaskKey, ProjectID: config.ProjectID,
-		Skill: payload.SkillID, Directory: workDir, Branch: branch, Status: "running",
+		Skill: payload.SkillID, Directory: workDir, Folders: run.desktop.Folders, Branch: branch, Status: "running",
 		Provider: provider, Model: model,
 		Headless: true, Trace: run.trace != nil,
 	}
