@@ -3,7 +3,6 @@ package db
 import (
 	"context"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"tasks/internal/models"
@@ -167,99 +166,6 @@ func TestMigrateSingleTask(t *testing.T) {
 	}
 	if migratedTask.ProjectID != p2.ID {
 		t.Errorf("Expected task project ID to be %s, got %s", p2.ID, migratedTask.ProjectID)
-	}
-}
-
-func TestRefineMacro(t *testing.T) {
-	tempDir := t.TempDir()
-	dbPath := filepath.Join(tempDir, "test.db")
-
-	database, err := testsqlite.New(t, dbPath, NewDB)
-	if err != nil {
-		t.Fatalf("Failed to initialize database: %v", err)
-	}
-	defer database.Close()
-
-	// 1. Create a project with OpenSpec framework
-	projOpenSpec, err := database.CreateProject(models.CreateProjectRequest{
-		Name:          "OpenSpec Project",
-		Slug:          "openspec-project",
-		IssueTracker:  "local",
-		SpecFramework: "openspec",
-	})
-	if err != nil {
-		t.Fatalf("Failed to create project: %v", err)
-	}
-
-	// 2. Create a macro with framing description
-	h := "now"
-	desc := "- User authentication system\n- Password reset flow\n- Session token management"
-	todos := []models.MacroTodo{}
-	_, err = database.SaveMacroMeta(projOpenSpec.ID, "M-10", &h, &desc, nil, &todos)
-	if err != nil {
-		t.Fatalf("Failed to save macro: %v", err)
-	}
-
-	// 3. Test refinement under OpenSpec
-	refinedTodos, proposedOpenSpec, fw, err := database.RefineMacro(projOpenSpec.ID, "M-10")
-	if err != nil {
-		t.Fatalf("RefineMacro failed: %v", err)
-	}
-	if fw != "openspec" {
-		t.Errorf("Expected framework openspec, got %s", fw)
-	}
-	if len(refinedTodos) != 3 {
-		t.Fatalf("Expected 3 refined todos, got %d", len(refinedTodos))
-	}
-	if len(proposedOpenSpec) != 3 {
-		t.Fatalf("Expected 3 proposed tasks, got %d", len(proposedOpenSpec))
-	}
-	if !strings.HasPrefix(refinedTodos[0].Text, "[CAP-1]") {
-		t.Errorf("Expected [CAP-1] prefix, got %s", refinedTodos[0].Text)
-	}
-	if !strings.HasPrefix(refinedTodos[1].Text, "[CHANGE-1]") {
-		t.Errorf("Expected [CHANGE-1] prefix, got %s", refinedTodos[1].Text)
-	}
-
-	// 4. Create a project with SpecKit framework
-	projSpecKit, err := database.CreateProject(models.CreateProjectRequest{
-		Name:          "SpecKit Project",
-		Slug:          "speckit-project",
-		IssueTracker:  "local",
-		SpecFramework: "speckit",
-	})
-	if err != nil {
-		t.Fatalf("Failed to create project: %v", err)
-	}
-
-	_, err = database.SaveMacroMeta(projSpecKit.ID, "M-20", &h, &desc, nil, &todos)
-	if err != nil {
-		t.Fatalf("Failed to save macro: %v", err)
-	}
-
-	refinedSpecKit, proposedSpecKit, fwSpec, err := database.RefineMacro(projSpecKit.ID, "M-20")
-	if err != nil {
-		t.Fatalf("RefineMacro failed: %v", err)
-	}
-	if fwSpec != "speckit" {
-		t.Errorf("Expected framework speckit, got %s", fwSpec)
-	}
-	if len(refinedSpecKit) != 3 {
-		t.Fatalf("Expected 3 refined todos, got %d", len(refinedSpecKit))
-	}
-	if len(proposedSpecKit) != 3 {
-		t.Fatalf("Expected 3 proposed tasks, got %d", len(proposedSpecKit))
-	}
-	if !strings.HasPrefix(refinedSpecKit[0].Text, "[US-1]") {
-		t.Errorf("Expected [US-1] prefix, got %s", refinedSpecKit[0].Text)
-	}
-
-	// 5. Test empty description validation
-	emptyDesc := ""
-	_, _ = database.SaveMacroMeta(projSpecKit.ID, "M-30", &h, &emptyDesc, nil, &todos)
-	_, _, _, err = database.RefineMacro(projSpecKit.ID, "M-30")
-	if err == nil {
-		t.Errorf("Expected error for empty framing description, got nil")
 	}
 }
 

@@ -75,6 +75,7 @@ test fixtures or internal plumbing.
 
 ### Changed
 
+- **AI refine launches the refine-macro skill on your local agent.** In a macro's **Framing** panel, **AI refine** now starts the interactive refine-macro skill, as **Realign the spec** starts realign-macro: the run shows on the button with a stop button, the button says why it cannot launch without a connected agent, and while one of the two skills runs on a macro the other is unavailable. The TODOs the skill saves appear in the panel once its run ends. (#672)
 - **Archiving a task in Sectile Desktop removes its worktree.** **Archive** on a ticket task now removes its worktrees from the workstation first: the code worktree, the one of each other repository the task changed, and its specifications worktree. A worktree with uncommitted or untracked changes is never deleted: the archive is refused and says which repository to commit or discard in, and so it is when the local agent is stopped or a repository is not found here. The task's local branch goes too once every pull request of the task is merged and the branch holds nothing unpushed; otherwise it stays. A worktree shared with other tickets of a batch, free consoles and macro runs are left as they are. Upgrade the agent along with the server and the desktop. (#755)
 - **The Roadmap's Framing, Execution, Phases and Goals switcher moved into the macro panel.** It is now a row of tabs at the bottom of the selected macro's panel header, in the expanded panel too, and it only changes what the panel shows; with no macro selected or the panel hidden, there is no switcher. On Now and Next the list always shows the placement badges, the **À corriger** filter and the sprint strip, whatever the panel shows; on Later, the unclassified and the hidden macros, rows show their TODO count. (#671)
 - **The Dangerous actions preset no longer denies `git push --force-with-lease`.** It still denies `git push --force` and `git push -f`. A workstation that applied the preset before keeps its two old rules, `Bash(git push --force*)` and `Bash(git push * --force*)`, which still deny `--force-with-lease`: remove them from the workstation deny rules, then apply the preset again to add the exact ones. (#764)
@@ -125,6 +126,7 @@ test fixtures or internal plumbing.
 
 ### Removed
 
+- **The line-by-line TODO preview of a macro's framing.** **AI refine** no longer splits the framing text into prefixed lines in a preview window; the refine-macro skill does that work, and stories are created from the macro's TODOs with **Create the stories**. (#672)
 - **Gemini CLI, Cursor CLI and Mistral Vibe CLI are no longer AI engines.** Sectile runs Antigravity, Claude Code, Codex or a custom command; the desktop settings, `sectile-agent init --provider` and the MCP setup no longer offer the other three. On its first start after the upgrade, the local agent removes a workstation's engines, model lists and MCP choices for them, keeping a backup of the settings file beside it; the projects and tasks that used such an engine run their default engine. The Cursor editor ("Open in editor") is unaffected. (#614)
 
 ### Fixed
