@@ -114,6 +114,24 @@ You can run a workflow skill in an existing Claude Code session rather than laun
 
 A free-form Claude Code prompt is useful for discussion or exploration, but it does not by itself record a Sectile stage transition. Use the copied workflow prompt or the task's configured skill action for tracked workflow work.
 
+### What the session shows
+
+When you run a workflow skill in the Claude desktop app, the skill keeps the session readable from the sidebar. As soon as it has identified the ticket, it renames the session `<ticket ID> - <ticket title>`, for example `#47 - Remove the parallelism setting`. A batch pickup uses the first ticket and the number of others, as in `#47 (+2) - Remove the parallelism setting`, and a macro skill uses the macro's ID and title. The ID and title then stay fixed; only a leading status emoji comes and goes. While the skill works, the title carries no emoji, since the app already shows that the session is running.
+
+| Emoji | Meaning | When it appears |
+| --- | --- | --- |
+| ❓ | The skill waits for you. | Right before a question it cannot continue without, or when it stops with open questions. It disappears when the work resumes. |
+| ✅ | The skill reached its goal. | When the run finishes as completed. |
+| ❌ | The skill stopped on a failure or a blocker. | When the run finishes as failed. |
+
+The emoji changes at the same moment Sectile records the run's state, so the title and the board agree.
+
+Right after the rename, the conversation shows a `Ticket:` line linking the ticket in its tracker (`Macro:` for a macro), unless it has no external link. Once the skill creates or finds a pull request or merge request, a `PR:` line links it. A GitHub pull request is also bound to the session, so it appears in the app's pull request bar; on GitLab, the `PR:` line is the only link.
+
+The skill also files the session under a sidebar group named after the Sectile project, reusing the group when it exists. It marks chapters: one per stage under a pickup, such as `Specify #47`, and one when a single skill starts in a session that already holds earlier work. When implement, adjust or a pickup changed code, it opens the session's diff pane, or names the worktree when the pane does not cover it. On ✅ the reply ends with the next step, ready to copy, using the command name the skills run under: `/handoff-issue <task ID>`, for example, or `/sectile:handoff-issue <task ID>` with the [Claude plugin](../README.md#install-sectile-in-your-coding-cli). On ❓ or ❌ it says instead what you have to answer or fix. On ❓, ✅ or ❌ the skill sends one desktop notification, and none for routine progress.
+
+A stage skill nested in a pickup leaves all of this to the pickup, so the session keeps one title and one set of links. When Sectile Desktop launches the run, the skill skips the links, the next step and the notification, since Desktop shows them itself; see the [Desktop guide](../desktop/README.md#skill-result-indicator) for Desktop's own indicators. With another coding CLI, the same skills use only what that host exposes. A missing capability, or an action the app refuses or leaves unapproved, such as a rename, is skipped and the run continues. A host that cannot rename the session still shows the run's state on the board.
+
 ## Run the full workflow autonomously
 
 For a configured project with an available workstation agent and coding engine:
