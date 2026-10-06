@@ -26,7 +26,7 @@ test('the state reads inherited, on or off, and saves as null, true or false',()
  assert.equal(sandboxState(true),'On')
  assert.equal(sandboxState(false),'Off')
  const values=fromStored({enabled:false,allowedDomains:['a.example']})
- assert.deepEqual(sandboxPayload(values),{enabled:false,allowedDomains:['a.example'],allowWrite:[],allow:[],deny:[]})
+ assert.deepEqual(sandboxPayload(values),{enabled:false,allowedDomains:['a.example'],excludedCommands:[],allowWrite:[],allow:[],deny:[]})
  assert.equal(sandboxPayload(fromStored(null)).enabled,null)
 })
 
@@ -44,7 +44,7 @@ test('a launch gets settings only when its values state something',()=>{
 test('a project lays its values over the workstation ones',()=>{
  const workstation=fromStored({enabled:true,allowedDomains:['registry.npmjs.org'],allow:['Read'],deny:['Bash(git push:*)']})
  const own=fromStored({allow:['Grep','Read'],allowWrite:['~/.cache']})
- assert.deepEqual(resolvedValues(own,workstation),{state:'On',allowedDomains:['registry.npmjs.org'],allowWrite:['~/.cache'],allow:['Read','Grep'],deny:['Bash(git push:*)']})
+ assert.deepEqual(resolvedValues(own,workstation),{state:'On',allowedDomains:['registry.npmjs.org'],excludedCommands:[],allowWrite:['~/.cache'],allow:['Read','Grep'],deny:['Bash(git push:*)']})
  assert.equal(resolvedValues(fromStored({enabled:false}),workstation).state,'Off')
  assert.deepEqual(resolvedValues(own,null),own)
 })
@@ -78,4 +78,17 @@ test('autonomy policy inherits, overrides false, and preserves folder access on 
  assert.equal(launchesGetSettings(fromStored({autoAllowBashIfSandboxed:false}),false),false)
  assert.equal(launchesGetSettings(fromStored({additionalDirectories:['/shared']}),false),true)
  assert.deepEqual(sandboxPayload({...own,additionalDirectories:[]}).additionalDirectories,[])
+})
+
+// The commands Claude Code runs outside its sandbox (#764) are a sandbox list:
+// saved, joined across levels, and written only where the sandbox runs.
+test('commands outside the sandbox are saved, joined and written where the sandbox runs',()=>{
+ const values=fromStored({excludedCommands:['git fetch *','glab *']})
+ assert.deepEqual(sandboxPayload(values).excludedCommands,['git fetch *','glab *'])
+ assert.deepEqual(sandboxPayload({...values,excludedCommands:[]}).excludedCommands,[],'emptying the list clears it')
+ assert.deepEqual(fromStored({}).excludedCommands,[],'an agent that sends no list reads as empty')
+ assert.equal(launchesGetSettings(values,true),true)
+ assert.equal(launchesGetSettings(values,false),false)
+ const resolved=resolvedValues(fromStored({excludedCommands:['gh *','glab *']}),fromStored({excludedCommands:['git fetch *','gh *']}))
+ assert.deepEqual(resolved.excludedCommands,['git fetch *','gh *','glab *'])
 })
