@@ -1,4 +1,4 @@
-import { markdownModel, renderMarkdown } from './markdownView.mjs'
+import { markdownModel, renderMarkdown, resolveImageTarget } from './markdownView.mjs'
 
 // A Markdown file is offered a rendered view of its content (#575).
 const isMarkdown=file=>file.kind==='text'&&/\.(md|markdown)$/i.test(file.path)
@@ -17,6 +17,15 @@ export function createGitDiff({api,container,terminal,panel,divider,consoleButto
   note.hidden=true;note.textContent='';view.hidden=true;view.replaceChildren();find('.diff-patch').hidden=false
  }
  function clear(){result=null;find('.diff-context').textContent='';find('.diff-summary').textContent='';find('.diff-files').replaceChildren();find('.diff-files').hidden=true;find('.diff-patch').replaceChildren();find('.diff-file-info').textContent='';clearDocument()}
+ // An image of a document is looked up among the paths the agent read for it
+ // (#683); a target the agent did not list keeps its alt text.
+ function documentImage(file,item){
+  const target=resolveImageTarget(file.path,item.src)
+  if(!target||target.reason)return target
+  const ref=file.document.images?.find(r=>r.path===target.path)
+  if(!ref)return null
+  return ref.omittedReason?{reason:ref.omittedReason}:result.images?.[ref.image]||null
+ }
  function showDocument(file){
   const toggle=find('.diff-render-toggle'),note=find('.diff-render-note'),view=find('.diff-rendered')
   const reason=!result.markdownDocuments?'Update and restart the local agent to render Markdown.':!file.document?'This file cannot be rendered.':file.document.omittedReason
@@ -25,7 +34,7 @@ export function createGitDiff({api,container,terminal,panel,divider,consoleButto
   if(reason){note.textContent=reason;note.hidden=false}
   if(!shown)return false
   if(file.document.side==='old'){note.textContent='Old version: this file is deleted.';note.hidden=false}
-  view.append(renderMarkdown(markdownModel(file.document.content),{openLink:url=>api.openLink(url)}))
+  view.append(renderMarkdown(markdownModel(file.document.content),{openLink:url=>api.openLink(url),image:result.markdownImages?item=>documentImage(file,item):undefined}))
   view.hidden=false;find('.diff-patch').hidden=true
   return true
  }

@@ -170,7 +170,7 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 		// contractError separates a server that is merely unreachable from one
 		// that cannot be talked to at all. Without it the desktop reports both
 		// as a disconnection and the user has no reason to look at the build.
-		capabilities := []string{"git-diff", markdownDocumentsCapability, "create-task", "remove-project", "free-console", "transition-stage", "repositories", attachedFoldersCapability, "git-init", taskEnginesCapability, openEditorCapability, "claude-conversation", conversationControlsCapability, conversationQueueCapability, runFoldersCapability, runFoldersTerminalsCapability, consoleViewCapability}
+		capabilities := []string{"git-diff", markdownDocumentsCapability, markdownImagesCapability, "create-task", "remove-project", "free-console", "transition-stage", "repositories", attachedFoldersCapability, "git-init", taskEnginesCapability, openEditorCapability, "claude-conversation", conversationControlsCapability, conversationQueueCapability, runFoldersCapability, runFoldersTerminalsCapability, consoleViewCapability}
 		if d.store != nil {
 			capabilities = append(capabilities, runStoreCapability)
 		}
@@ -1179,7 +1179,31 @@ func desktopTaskFinished(task models.Task) bool {
 func (d *agentDaemon) desktopRunResult(w http.ResponseWriter, r *http.Request) {
 	id := r.URL.Query().Get("id")
 	var taskID, projectID string
-	if !d.queue.read(id, func(run *controlledRun) { taskID, projectID = run.taskID, run.desktop.ProjectID }) {
+	var exited bool
+	var exitedAt time.Time
+	held := map[string]bool{}
+	d.queue.mu.Lock()
+	run := d.queue.runs[id]
+	if run != nil {
+		taskID, projectID = run.taskID, run.desktop.ProjectID
+		exited = run.restored
+		select {
+		case <-run.exited:
+			exited = true
+		default:
+		}
+		// finishedAt is when the run was first seen to have exited, and this
+		// read may be the first to see it.
+		if exited && run.finishedAt.IsZero() && !run.restored {
+			run.finishedAt = time.Now().UTC()
+		}
+		exitedAt = run.finishedAt
+		for heldID := range d.queue.runs {
+			held[heldID] = true
+		}
+	}
+	d.queue.mu.Unlock()
+	if run == nil {
 		http.Error(w, "Run not found", 404)
 		return
 	}
@@ -1201,17 +1225,59 @@ func (d *agentDaemon) desktopRunResult(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 502)
 		return
 	}
-	var activity any
+	var activity, successor any
 	for _, item := range activities {
 		if item.ID == id && item.TaskID == taskID {
 			// A remote run stores the record kind in SkillID ("remote_run") and the
 			// launched skill in SkillName. The desktop matches the launched skill.
 			activity = map[string]string{"id": item.ID, "taskId": item.TaskID, "skillId": item.SkillName, "status": item.Status}
+			if next := skillSuccessor(item, activities, held, exited, exitedAt); next != nil {
+				entry := map[string]any{"id": next.ID, "taskId": next.TaskID, "skillId": next.SkillName, "status": next.Status}
+				if next.WaitingSince != nil {
+					entry["waitingSince"] = next.WaitingSince
+				}
+				successor = entry
+			}
 			break
 		}
 	}
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{"activity": activity, "task": map[string]any{"status": task.Status, "labels": task.Labels}})
+	_ = json.NewEncoder(w).Encode(map[string]any{"activity": activity, "successor": successor, "task": map[string]any{"status": task.Status, "labels": task.Labels}})
+}
+
+// skillSuccessor finds the skill a console went on to run once the one it was
+// launched for ended (#586). That skill's start_run cannot reuse the console's
+// SECTILE_RUN_ID, which the server refuses once ended, so it records a new
+// remote run carrying no link to the console. It is recognised by task and
+// time: the newest remote run of the task created after the console's own
+// activity ended and while its process was alive, and which is no execution
+// the agent launched itself. A parallel session on the same task can be taken
+// for it; the owner accepted that heuristic. own is the console's activity,
+// held the ids of the executions the agent holds, exitedAt when the process
+// was first seen to have exited.
+func skillSuccessor(own models.TaskActivity, activities []models.TaskActivity, held map[string]bool, exited bool, exitedAt time.Time) *models.TaskActivity {
+	if own.Status != "completed" && own.Status != "failed" && own.Status != "canceled" {
+		return nil
+	}
+	// An exit whose time is unknown leaves nothing to tell a skill started in
+	// the console from one started after it.
+	if exited && exitedAt.IsZero() {
+		return nil
+	}
+	var newest *models.TaskActivity
+	for i := range activities {
+		item := &activities[i]
+		if item.SkillID != "remote_run" || item.TaskID != own.TaskID || held[item.ID] || !item.CreatedAt.After(own.CreatedAt) {
+			continue
+		}
+		if exited && !item.CreatedAt.Before(exitedAt) {
+			continue
+		}
+		if newest == nil || item.CreatedAt.After(newest.CreatedAt) {
+			newest = item
+		}
+	}
+	return newest
 }
 
 // resolveTerminalForProject determines the terminal emulator based on precedence:

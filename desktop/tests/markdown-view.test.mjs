@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
-import { isExternalLink, markdownModel } from '../src/markdownView.mjs'
+import { isExternalLink, markdownModel, renderMarkdown, resolveImageTarget } from '../src/markdownView.mjs'
+
+const testdata=name=>readFileSync(new URL('../../internal/runner/testdata/'+name,import.meta.url),'utf8')
 
 const blocks=source=>markdownModel(source).children
 const find=(tree,type)=>{
@@ -53,8 +56,56 @@ test('only absolute web and mail links are external',()=>{
 })
 
 test('images become their alt text and target, local or remote',()=>{
- const images=blocks('![A diagram](docs/diagram.png) ![remote](https://example.com/x.png)')[0].children.filter(c=>c.type==='image')
- assert.deepEqual(images.map(i=>[i.alt,i.src]),[['A diagram','docs/diagram.png'],['remote','https://example.com/x.png']])
+ const images=blocks('![A diagram](docs/diagram.png "The flow") ![remote](https://example.com/x.png)')[0].children.filter(c=>c.type==='image')
+ assert.deepEqual(images.map(i=>[i.alt,i.src,i.title]),[['A diagram','docs/diagram.png','The flow'],['remote','https://example.com/x.png',undefined]])
+})
+
+// The agent finds the same images in the same document
+// (internal/runner/markdown_images_test.go): a drift would leave an image
+// the agent did not read.
+test('markdown-it finds the images the agent reads',()=>{
+ const images=[]
+ const walk=tree=>{for(const child of tree.children||[]){if(child.type==='image')images.push(child.src);walk(child)}}
+ walk(markdownModel(testdata('markdown_image_document.md')))
+ const agent=['a.png','../logo.png','collapsed.png','cell.png','list.png','badge.svg','inline-html.png','block-html.png','my_shot.png','a&b.png','my shot.png','struck.png']
+ assert.deepEqual(images.map(src=>resolveImageTarget('x.md',src)?.path),agent.map(target=>resolveImageTarget('x.md',target)?.path))
+})
+
+test('image targets resolve as the agent resolves them',()=>{
+ const rows=JSON.parse(testdata('markdown_image_targets.json'))
+ assert.ok(rows.length>=20)
+ for(const row of rows){
+  const resolved=resolveImageTarget(row.document,row.target)
+  assert.deepEqual([resolved?.path??'',resolved?.reason??''],[row.path,row.reason],row.document+' + '+JSON.stringify(row.target))
+  // markdown-it hands the renderer an encoded target: it resolves the same.
+  if(row.target&&!/^[a-z][a-z0-9+.-]*:/i.test(row.target)&&!/[\n\0]/.test(row.path)&&!/%(?![0-9A-Fa-f]{2})/.test(row.target)){
+   const parsed=find(markdownModel(`![x](<${row.target}>)`),'image')
+   if(parsed)assert.deepEqual(resolveImageTarget(row.document,parsed.src),resolved,'parsed '+row.target)
+  }
+ }
+})
+
+// A minimal DOM: enough for renderMarkdown to build images and fallbacks.
+function fakeDocument(){
+ const node=props=>({children:[],listeners:{},append(...items){this.children.push(...items)},addEventListener(type,listener){this.listeners[type]=listener},replaceWith(other){this.replacedBy=other},...props})
+ return {createElement:tag=>node({tag}),createTextNode:text=>node({tag:'#text',textContent:text}),createDocumentFragment:()=>node({tag:'#fragment'})}
+}
+const rendered=(source,options)=>renderMarkdown(markdownModel(source),{document:fakeDocument(),...options}).children[0].children[0]
+
+test('an image is shown only from data the caller supplies',()=>{
+ const source='![Flow](flow.png "Request flow")'
+ const fallback=rendered(source)
+ assert.deepEqual([fallback.tag,fallback.className,fallback.textContent,fallback.title],['span','md-image','[Flow] (flow.png)',undefined])
+ assert.equal(rendered(source,{image:()=>null}).title,undefined)
+ assert.equal(rendered(source,{image:()=>({reason:'Image not found in the inspected state.'})}).title,'Image not found in the inspected state.')
+ const shown=rendered(source,{image:item=>{assert.equal(item.src,'flow.png');return {mimeType:'image/png',data:'iVBORw0KGgo='}}})
+ assert.deepEqual([shown.tag,shown.className,shown.alt,shown.title,shown.src],['img','md-picture','Flow','Request flow','data:image/png;base64,iVBORw0KGgo='])
+ shown.listeners.error()
+ assert.deepEqual([shown.replacedBy.className,shown.replacedBy.title],['md-image','This image could not be displayed.'])
+ for(const refused of [{mimeType:'text/html',data:'PGI+'},{mimeType:'image/png',data:'a"b'},{mimeType:'image/png'}]){
+  const item=rendered(source,{image:()=>refused})
+  assert.deepEqual([item.tag,item.title],['span',undefined],JSON.stringify(refused))
+ }
 })
 
 test('empty and missing sources render nothing',()=>{

@@ -1,0 +1,218 @@
+[
+ {
+  "document": "docs/guide.md",
+  "target": "images/flow.png",
+  "path": "docs/images/flow.png",
+  "reason": ""
+ },
+ {
+  "document": "docs/guide.md",
+  "target": "./images/flow.png",
+  "path": "docs/images/flow.png",
+  "reason": ""
+ },
+ {
+  "document": "docs/guide.md",
+  "target": "../logo.png",
+  "path": "logo.png",
+  "reason": ""
+ },
+ {
+  "document": "docs/guide.md",
+  "target": "../../outside.png",
+  "path": "",
+  "reason": "This image path leaves the repository."
+ },
+ {
+  "document": "README.md",
+  "target": "../outside.png",
+  "path": "",
+  "reason": "This image path leaves the repository."
+ },
+ {
+  "document": "README.md",
+  "target": "docs/img/flow.png",
+  "path": "docs/img/flow.png",
+  "reason": ""
+ },
+ {
+  "document": "README.md",
+  "target": ".",
+  "path": "",
+  "reason": "This image path leaves the repository."
+ },
+ {
+  "document": "docs/guide.md",
+  "target": "/web/public/logo.svg",
+  "path": "web/public/logo.svg",
+  "reason": ""
+ },
+ {
+  "document": "docs/guide.md",
+  "target": "//web/logo.svg",
+  "path": "web/logo.svg",
+  "reason": ""
+ },
+ {
+  "document": "docs/guide.md",
+  "target": "/../outside.png",
+  "path": "",
+  "reason": "This image path leaves the repository."
+ },
+ {
+  "document": "docs/guide.md",
+  "target": "shot.png?raw=1",
+  "path": "docs/shot.png",
+  "reason": ""
+ },
+ {
+  "document": "docs/guide.md",
+  "target": "diagram.svg#dark",
+  "path": "docs/diagram.svg",
+  "reason": ""
+ },
+ {
+  "document": "docs/guide.md",
+  "target": "a.png#b?c",
+  "path": "docs/a.png",
+  "reason": ""
+ },
+ {
+  "document": "docs/guide.md",
+  "target": "#fragment",
+  "path": "",
+  "reason": ""
+ },
+ {
+  "document": "docs/guide.md",
+  "target": "?query",
+  "path": "",
+  "reason": ""
+ },
+ {
+  "document": "docs/guide.md",
+  "target": "my%20shot.png",
+  "path": "docs/my shot.png",
+  "reason": ""
+ },
+ {
+  "document": "docs/guide.md",
+  "target": "my shot.png",
+  "path": "docs/my shot.png",
+  "reason": ""
+ },
+ {
+  "document": "docs/guide.md",
+  "target": "%C3%A9t%C3%A9.png",
+  "path": "docs/été.png",
+  "reason": ""
+ },
+ {
+  "document": "docs/guide.md",
+  "target": "été.png",
+  "path": "docs/été.png",
+  "reason": ""
+ },
+ {
+  "document": "docs/guide.md",
+  "target": "100%.png",
+  "path": "docs/100%.png",
+  "reason": ""
+ },
+ {
+  "document": "docs/guide.md",
+  "target": "100%25.png",
+  "path": "docs/100%.png",
+  "reason": ""
+ },
+ {
+  "document": "docs/guide.md",
+  "target": "bad%FF.png",
+  "path": "",
+  "reason": ""
+ },
+ {
+  "document": "docs/guide.md",
+  "target": "sub%2Fimg.png",
+  "path": "docs/sub/img.png",
+  "reason": ""
+ },
+ {
+  "document": "docs/guide.md",
+  "target": "img/",
+  "path": "docs/img",
+  "reason": ""
+ },
+ {
+  "document": "docs/guide.md",
+  "target": "line%0Abreak.png",
+  "path": "docs/line\nbreak.png",
+  "reason": "This path cannot be rendered."
+ },
+ {
+  "document": "docs/guide.md",
+  "target": "nul%00.png",
+  "path": "docs/nul\u0000.png",
+  "reason": "This path cannot be rendered."
+ },
+ {
+  "document": "docs/guide.md",
+  "target": "",
+  "path": "",
+  "reason": ""
+ },
+ {
+  "document": "docs/guide.md",
+  "target": "http://example.com/a.png",
+  "path": "",
+  "reason": ""
+ },
+ {
+  "document": "docs/guide.md",
+  "target": "https://example.com/a.png",
+  "path": "",
+  "reason": ""
+ },
+ {
+  "document": "docs/guide.md",
+  "target": "HTTPS://EXAMPLE.COM/a.png",
+  "path": "",
+  "reason": ""
+ },
+ {
+  "document": "docs/guide.md",
+  "target": "data:image/png;base64,AAAA",
+  "path": "",
+  "reason": ""
+ },
+ {
+  "document": "docs/guide.md",
+  "target": "file:///etc/passwd",
+  "path": "",
+  "reason": ""
+ },
+ {
+  "document": "docs/guide.md",
+  "target": "mailto:someone@example.com",
+  "path": "",
+  "reason": ""
+ },
+ {
+  "document": "docs/guide.md",
+  "target": "c:/windows/a.png",
+  "path": "",
+  "reason": ""
+ },
+ {
+  "document": "a/b/c/d.md",
+  "target": "../../x.png",
+  "path": "a/x.png",
+  "reason": ""
+ },
+ {
+  "document": "a/b/c/d.md",
+  "target": "../../../../x.png",
+  "path": "",
+  "reason": "This image path leaves the repository."
+ }
+]

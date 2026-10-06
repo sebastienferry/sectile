@@ -42,11 +42,22 @@ export function orderedTaskGroups(groups,{stageOf}={}){
   return index===-1?STAGES.length:index
  }
  const compare=stageOf?(a,b)=>stageRank(a)-stageRank(b)||compareGroups(a,b):compareGroups
- return [...groups].map(executions=>({
-  executions,
-  run:[...executions].sort(compareRuns)[0],
-  anchor:anchorTime(executions)
- })).sort(compare)
+ return [...groups].map(executions=>{
+  const run=[...executions].sort(compareRuns)[0]
+  return {executions,run,skillRun:newestSkillRun(executions)||run,anchor:anchorTime(executions)}
+ }).sort(compare)
+}
+
+// The execution a row's skill badge speaks for (#586): the newest one that runs
+// a skill, so that a console left open after its skill ended does not keep its
+// verdict on the row once another skill is launched on the task. The row is
+// still led, ordered and selected by run.
+function newestSkillRun(executions){
+ return executions.filter(run=>run.kind!=='console'&&run.skill!=='discuss').sort((a,b)=>{
+  const left=submissionTime(a),right=submissionTime(b)
+  if(left!==right)return left>right?-1:1
+  return identityCompare(a.id,b.id)
+ })[0]
 }
 
 // The execution the console moves to after a poll (#639): among the executions
