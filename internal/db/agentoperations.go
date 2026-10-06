@@ -97,9 +97,6 @@ func operationTimeout(action string) time.Duration {
 	if action == "spec_install" {
 		return 7 * time.Minute
 	}
-	if action == "run_prompt" {
-		return 12 * time.Minute
-	}
 	if d, ok := localInspections[action]; ok {
 		return d
 	}

@@ -442,9 +442,6 @@ func (d *agentDaemon) executeOperation(ctx context.Context, op agentprotocol.Ope
 			return nil, err
 		}
 		return map[string]any{"forge": pr.Forge, "url": pr.URL, "branch": pr.Branch, "sha": pr.SHA, "open": pr.Open, "draft": pr.Draft, "merged": pr.Merged, "repository": repository}, nil
-	case "run_prompt":
-		output, steps, err := r.RunAgentPrompt(ctx, &models.Settings{RepoPath: root, AIProvider: config.AIProvider, AICommandTemplate: config.AICommandTemplate, AIModel: agentconfig.ResolveModel(config, "")}, op.Prompt)
-		return map[string]any{"output": output, "steps": steps}, err
 	case "git_status":
 		return r.GetCwdGitStatus(root)
 	case "git_branches":
