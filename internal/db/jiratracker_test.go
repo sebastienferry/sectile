@@ -458,7 +458,7 @@ func TestATrackerWithoutBoardsAnswersAnUnsupportedCapability(t *testing.T) {
 			_, err := database.ListTrackerIssueTypesAs(context.Background(), project.DefaultTrackerID)
 			return err
 		},
-		"teams":  func() error { _, err := database.SearchTrackerTeams(project.ID, "x"); return err },
+		"teams": func() error { _, err := database.SearchTrackerTeams(project.ID, "x"); return err },
 		"members": func() error {
 			_, err := database.RefreshTeamMembersNow(project.ID, "team-1")
 			return err
