@@ -79,7 +79,7 @@ const WORKSTATION={claudeSandbox:EMPTY,projects:[],platformSandbox:true}
 const PROJECT={server:{projectName:'Example project',skills:[]},path:'/tmp/sandbox-worktree',configured:true,aiProvider:'claude',
  claudeSandbox:{enabled:null,allowedDomains:[],allowWrite:[],allow:[],deny:[]},platformSandbox:true,claudeSettingsPath:'/home/me/.config/sectile/claude/project-a.json'}
 
-test('the Sandbox category edits, saves and reads back the project values',async()=>{
+test('the Claude settings category edits, saves and reads back the project values',async()=>{
  await withDesktop(PROJECT,async({page,open,close,save,saved})=>{
   await open()
   const state=page.getByRole('group',{name:'Claude Code sandbox',exact:true})
@@ -151,11 +151,11 @@ test('on Windows the sandbox part is disabled and the rules stay editable',async
 
 // The workstation Sandbox category (#730): its values and the projects they
 // cover, saved through their own endpoint.
-test('the workstation Sandbox category saves its values and its whitelist',async()=>{
+test('the workstation Claude settings category saves its values and its whitelist',async()=>{
  await withDesktop(PROJECT,async({page,openWorkstation,workstationSaves})=>{
   await openWorkstation()
   const panel=page.locator('#settings-panel-Sandbox')
-  const whitelist=page.getByRole('group',{name:'Projects the Sandbox values apply to',exact:true})
+  const whitelist=page.getByRole('group',{name:'Projects the Claude settings apply to',exact:true})
   const checkbox=whitelist.getByRole('checkbox',{name:'Example project',exact:true})
   await expect(checkbox).not.toBeChecked()
   await expect(panel.locator('.setting-row').filter({has:whitelist}).locator('.setting-text p').first()).toContainText('every project')
@@ -165,10 +165,10 @@ test('the workstation Sandbox category saves its values and its whitelist',async
   await panel.getByRole('button',{name:'Add to Deny rules',exact:true}).click()
   await checkbox.check()
   await expect(panel.locator('.setting-row').filter({has:whitelist}).locator('.setting-text p').first()).toContainText('only to the checked projects')
-  await panel.getByRole('button',{name:'Save Sandbox settings',exact:true}).click()
+  await panel.getByRole('button',{name:'Save Claude settings',exact:true}).click()
   await expect.poll(()=>workstationSaves.length).toBe(1)
   assert.deepEqual(workstationSaves[0],{claudeSandbox:{...EMPTY,enabled:true,deny:['Bash(git push:*)']},claudeSandboxBase:EMPTY,projects:['project-a']})
-  await expect(panel.getByRole('status')).toHaveText('Sandbox settings saved')
+  await expect(panel.getByRole('status')).toHaveText('Claude settings saved')
  })
 })
 
@@ -185,7 +185,7 @@ test('on Windows the workstation sandbox part is disabled and the rules and whit
   await expect(panel.getByRole('textbox',{name:'New entry for Extra writable paths',exact:true})).toBeDisabled()
   await expect(panel.getByRole('textbox',{name:'New entry for Allow rules',exact:true})).toBeEnabled()
   await expect(panel.getByRole('textbox',{name:'New entry for Deny rules',exact:true})).toBeEnabled()
-  const whitelist=panel.getByRole('group',{name:'Projects the Sandbox values apply to',exact:true})
+  const whitelist=panel.getByRole('group',{name:'Projects the Claude settings apply to',exact:true})
   await expect(whitelist.getByRole('checkbox',{name:'Example project',exact:true})).toBeEnabled()
  },{...WORKSTATION,platformSandbox:false})
 })
@@ -202,12 +202,12 @@ test('the workstation whitelist keeps a disconnected project and a project hidde
   await expect(page.getByRole('button',{name:'Actions for Gone project',exact:true})).toHaveCount(0)
   await openWorkstation()
   const panel=page.locator('#settings-panel-Sandbox')
-  const whitelist=panel.getByRole('group',{name:'Projects the Sandbox values apply to',exact:true})
+  const whitelist=panel.getByRole('group',{name:'Projects the Claude settings apply to',exact:true})
   await expect(whitelist.getByRole('checkbox')).toHaveCount(3)
   await expect(whitelist.getByRole('checkbox',{name:'Gone project (hidden)',exact:true})).toBeChecked()
   await expect(whitelist.getByRole('checkbox',{name:'Quiet project',exact:true})).toBeChecked()
   await whitelist.getByRole('checkbox',{name:'Example project',exact:true}).check()
-  await panel.getByRole('button',{name:'Save Sandbox settings',exact:true}).click()
+  await panel.getByRole('button',{name:'Save Claude settings',exact:true}).click()
   await expect.poll(()=>workstationSaves.length).toBe(1)
   assert.deepEqual([...workstationSaves[0].projects].sort(),['project-a','project-b','project-c'])
  },{...WORKSTATION,projects:['project-b','project-c']},{others,disconnected:['project-b']})
@@ -221,7 +221,7 @@ test('a covered project shows what it inherits and moves a rule up',async()=>{
   const panel=page.locator('#project-panel-Sandbox')
   await expect(panel.locator('.sandbox-coverage')).toContainText('apply to this project')
   const state=page.getByRole('group',{name:'Claude Code sandbox',exact:true})
-  await expect(panel.locator('.setting-row').filter({has:state}).locator('.setting-text p').first()).toHaveText('Inherited from the workstation Sandbox settings · On')
+  await expect(panel.locator('.setting-row').filter({has:state}).locator('.setting-text p').first()).toHaveText('Inherited from the workstation Claude settings · On')
   const allow=panel.getByRole('list',{name:'Allow rules',exact:true})
   const inherited=allow.locator('.sandbox-entry-inherited')
   await expect(inherited).toHaveCount(1)
@@ -250,3 +250,82 @@ test('a project left out of the whitelist says so and inherits nothing',async()=
  })
 })
 
+
+// The presets of the workstation Claude settings (#745): applying one copies
+// its entries into the lists, which the save keeps like any other edit.
+const presetsOf=async()=>(await import('../src/claude-presets.mjs')).PRESETS
+// has: takes a locator relative to the card, so it starts from the page.
+const presetCard=(panel,name)=>panel.locator('.claude-preset').filter({has:panel.page().locator('.claude-preset-head strong').getByText(name,{exact:true})})
+
+test('an empty workstation applies the recommended presets in one click',async()=>{
+ const presets=await presetsOf()
+ const common=presets.find(p=>p.id==='common'),dangerous=presets.find(p=>p.id==='dangerous')
+ await withDesktop(PROJECT,async({page,openWorkstation,workstationSaves})=>{
+  await openWorkstation()
+  const panel=page.locator('#settings-panel-Sandbox')
+  const recommended=panel.getByRole('button',{name:'Apply recommended',exact:true})
+  await expect(recommended).toBeVisible()
+  await expect(panel.locator('.claude-preset')).toHaveCount(presets.length)
+  await recommended.click()
+  await expect(recommended).toBeHidden()
+  for(const name of ['Common','Dangerous actions']){
+   await expect(presetCard(panel,name).locator('.sandbox-origin')).toBeVisible()
+   await expect(panel.getByRole('button',{name:'Remove preset '+name,exact:true})).toBeVisible()
+  }
+  await expect(presetCard(panel,'Go').locator('.sandbox-origin')).toBeHidden()
+  await expect(panel.getByRole('list',{name:'Deny rules',exact:true}).getByText('Bash(terraform apply *)',{exact:true})).toBeVisible()
+  await panel.getByRole('button',{name:'Save Claude settings',exact:true}).click()
+  await expect.poll(()=>workstationSaves.length).toBe(1)
+  assert.deepEqual(workstationSaves[0].claudeSandbox,{...EMPTY,allow:common.allow,deny:dangerous.deny,allowedDomains:common.allowedDomains})
+ })
+})
+
+test('a preset applied then edited by hand offers Apply again, and Remove takes its entries out',async()=>{
+ const presets=await presetsOf()
+ const go=presets.find(p=>p.id==='go')
+ const start={...EMPTY,allow:['Bash(git add *)']}
+ await withDesktop(PROJECT,async({page,openWorkstation,workstationSaves})=>{
+  await openWorkstation()
+  const panel=page.locator('#settings-panel-Sandbox')
+  // The lists are not empty, so nothing is recommended.
+  await expect(panel.getByRole('button',{name:'Apply recommended',exact:true})).toBeHidden()
+  await panel.getByRole('button',{name:'Apply preset Go',exact:true}).click()
+  await expect(panel.getByRole('button',{name:'Remove preset Go',exact:true})).toBeVisible()
+  await panel.getByRole('button',{name:'Remove '+go.allowWrite[0]+' from Extra writable paths',exact:true}).click()
+  await expect(panel.getByRole('button',{name:'Apply preset Go',exact:true})).toBeVisible()
+  await panel.getByRole('button',{name:'Apply preset Go',exact:true}).click()
+  await panel.getByRole('button',{name:'Remove preset Go',exact:true}).click()
+  await expect(panel.getByRole('button',{name:'Apply preset Go',exact:true})).toBeVisible()
+  await panel.getByRole('button',{name:'Save Claude settings',exact:true}).click()
+  await expect.poll(()=>workstationSaves.length).toBe(1)
+  // The rule typed before stays: Go never held it.
+  assert.deepEqual(workstationSaves[0].claudeSandbox,start)
+ },{...WORKSTATION,claudeSandbox:start})
+})
+
+test('on Windows a preset adds its rules only',async()=>{
+ const presets=await presetsOf()
+ const go=presets.find(p=>p.id==='go')
+ await withDesktop(PROJECT,async({page,openWorkstation,workstationSaves})=>{
+  await openWorkstation()
+  const panel=page.locator('#settings-panel-Sandbox')
+  const card=presetCard(panel,'Go')
+  await card.locator('summary').click()
+  await expect(card).toContainText('do not apply on Windows')
+  await panel.getByRole('button',{name:'Apply preset Go',exact:true}).click()
+  await expect(panel.getByRole('button',{name:'Remove preset Go',exact:true})).toBeVisible()
+  await panel.getByRole('button',{name:'Save Claude settings',exact:true}).click()
+  await expect.poll(()=>workstationSaves.length).toBe(1)
+  assert.deepEqual(workstationSaves[0].claudeSandbox,{...EMPTY,allow:go.allow})
+ },{...WORKSTATION,platformSandbox:false})
+})
+
+test('a project’s Claude settings offer no presets',async()=>{
+ await withDesktop(PROJECT,async({page,open})=>{
+  await open()
+  const panel=page.locator('#project-panel-Sandbox')
+  await expect(panel.getByRole('group',{name:'Claude Code sandbox',exact:true})).toBeVisible()
+  await expect(panel.locator('.claude-preset')).toHaveCount(0)
+  await expect(panel.getByRole('button',{name:'Apply recommended',exact:true})).toHaveCount(0)
+ })
+})

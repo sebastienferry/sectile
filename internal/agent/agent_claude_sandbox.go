@@ -24,7 +24,7 @@ func (d *agentDaemon) projectClaudeSettings(projectID string) (string, error) {
 			return path, nil
 		}
 	}
-	return "", fmt.Errorf("the project's Sandbox settings could not be written: %w", err)
+	return "", fmt.Errorf("the project's Claude settings could not be written: %w", err)
 }
 
 // launchClaudeSettings is projectClaudeSettings for a launch of config: an

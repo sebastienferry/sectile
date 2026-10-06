@@ -303,7 +303,7 @@ func permissionDenialLines(line string) []string {
 				break
 			}
 		}
-		lines = append(lines, "Refusé par Claude Code : "+call+" · autorisez-le dans les réglages Sandbox du projet")
+		lines = append(lines, "Refusé par Claude Code : "+call+" · autorisez-le dans les réglages Claude du projet")
 	}
 	return lines
 }

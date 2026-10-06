@@ -5,13 +5,13 @@ they cover.
 
 ## 1. Rename
 
-- [ ] T1.1 Category labels in `SETTINGS_CATEGORIES` and
+- [x] T1.1 Category labels in `SETTINGS_CATEGORIES` and
       `PROJECT_SETTINGS_CATEGORIES`, plus the save button, notices and
       unavailable texts of `workstationSandboxPanel` (`desktop/src/main.js`).
-- [ ] T1.2 The strings of `desktop/src/sandbox-settings.mjs` listed in plan.md.
-- [ ] T1.3 The agent strings listed in plan.md (`internal/agent`), the French
+- [x] T1.2 The strings of `desktop/src/sandbox-settings.mjs` listed in plan.md.
+- [x] T1.3 The agent strings listed in plan.md (`internal/agent`), the French
       headless line kept in French.
-- [ ] T1.4 `docs/CAPABILITIES.md`, the two category lines.
+- [x] T1.4 `docs/CAPABILITIES.md`, the two category lines.
 - Tests: update `desktop/tests/settings-version.ui.cjs` (tab names),
   `desktop/tests/sandbox-settings.ui.cjs` (button, notice, whitelist group
   name) and any Go test asserting a renamed text (`grep -rn "Sandbox settings"
@@ -20,7 +20,7 @@ they cover.
 
 ## 2. Catalogue
 
-- [ ] T2.1 `desktop/src/claude-presets.mjs`: `PRESETS` exactly as spec.md ›
+- [x] T2.1 `desktop/src/claude-presets.mjs`: `PRESETS` exactly as spec.md ›
       Catalogue, `RECOMMENDED`, and the functions of plan.md.
 - Tests (`desktop/tests/claude-presets.test.mjs`, `node --test`):
   - Catalogue invariants: unique ids, every entry trimmed and passing
@@ -40,14 +40,14 @@ they cover.
 
 ## 3. Panel
 
-- [ ] T3.1 The Presets row in `sandboxSettings` at workstation level, with the
+- [x] T3.1 The Presets row in `sandboxSettings` at workstation level, with the
       apply and remove buttons, the Applied badge, the expandable entries, the
       Windows note and the guardrail description of the deny preset
       (`desktop/src/sandbox-settings.mjs`).
-- [ ] T3.2 "Apply recommended" while the lists are empty.
-- [ ] T3.3 Styles for the row (`desktop/src/style.css`), reusing the existing
+- [x] T3.2 "Apply recommended" while the lists are empty.
+- [x] T3.3 Styles for the row (`desktop/src/style.css`), reusing the existing
       `sandbox-*` classes where they fit.
-- [ ] T3.4 No Presets row in a project's Claude settings.
+- [x] T3.4 No Presets row in a project's Claude settings.
 - Tests (`desktop/tests/sandbox-settings.ui.cjs`; build first with
   `npx vite build`, run unsandboxed):
   - Empty workstation: "Apply recommended" shown; clicking it fills Common and
@@ -60,16 +60,16 @@ they cover.
 
 ## 4. Docs and changelog
 
-- [ ] T4.1 `CHANGELOG.md` `[Unreleased]`: edit the #700 and #730 lines to say
+- [x] T4.1 `CHANGELOG.md` `[Unreleased]`: edit the #700 and #730 lines to say
       **Claude settings**; add an `### Added` line for the presets (#745).
-- [ ] T4.2 `docs/CAPABILITIES.md`: a sentence on the presets after the
+- [x] T4.2 `docs/CAPABILITIES.md`: a sentence on the presets after the
       workstation line.
 
 ## 5. Gates
 
-- [ ] `node --test desktop/tests/*.test.mjs`
-- [ ] Desktop UI suites touched (`sandbox-settings.ui.cjs`,
+- [x] `node --test desktop/tests/*.test.mjs`
+- [x] Desktop UI suites touched (`sandbox-settings.ui.cjs`,
       `settings-version.ui.cjs`), after `npx vite build`.
-- [ ] `go build ./...`, `go vet ./internal/agent/...`, and
+- [x] `go build ./...`, `go vet ./internal/agent/...`, and
       `go test ./internal/agent/... ./internal/agentconfig/...`.
-- [ ] Repository lint used by CI for desktop sources, if any (`oxlint`).
+- [x] Repository lint used by CI for desktop sources, if any (`oxlint`).
