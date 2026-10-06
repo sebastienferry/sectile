@@ -548,8 +548,10 @@ func (d *AgentDispatcher) dispatchAndWaitLocal(ctx context.Context, ac *AgentCon
 		}
 		return nil
 	case <-ac.done:
-		return fmt.Errorf("agent disconnected before confirming terminal launch of %s after %s; check the local agent (%s) before retrying",
-			action, waited(started), ac.DeviceID)
+		// Delivery succeeded. A socket loss says nothing about the process
+		// already started on the workstation; only its owner can finish it.
+		return fmt.Errorf("%w: agent disconnected before confirming terminal launch of %s after %s; check the local agent (%s) before retrying",
+			ErrLaunchUnconfirmed, action, waited(started), ac.DeviceID)
 	case <-ctx.Done():
 		log.Printf("[AgentDispatcher] Launch of %s on device=%s not confirmed after %s: %v", action, ac.DeviceID, waited(started), ctx.Err())
 		return fmt.Errorf("%w: %s was not confirmed after %s; the local agent (%s) may still be running it, so its run stays open: %w",

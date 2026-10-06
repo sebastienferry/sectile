@@ -5,7 +5,7 @@ const http=require('node:http'),fs=require('node:fs'),os=require('node:os'),path
 
 test('the tickets pane lists, sorts and launches a project\'s open tasks',async()=>{
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'sectile-open-tasks-'))
- const requests=[],launches=[],pending=[]
+ const requests=[],launches=[],pending=[],archives=[]
  let failRead=false,failLaunch=false,configured=true,empty=false,offline=false,runs=[]
  const tasks=[
   {id:'a1',key:'#1',title:'First open task',status:'to_clarify',priority:'medium'},
@@ -20,10 +20,16 @@ test('the tickets pane lists, sorts and launches a project\'s open tasks',async(
   res.setHeader('Content-Type','application/json')
   if(offline){res.writeHead(503).end('{}');return}
   const url=new URL(req.url,'http://localhost'),project=url.searchParams.get('projectId')
-  if(url.pathname==='/desktop/status'){res.end(JSON.stringify({connected:true,server:'http://example.test'}));return}
+  if(url.pathname==='/desktop/status'){res.end(JSON.stringify({connected:true,server:'http://example.test',capabilities:['archive-workspace']}));return}
   if(url.pathname==='/desktop/projects'){res.end(JSON.stringify(['A','B'].map(name=>({id:'project-'+name.toLowerCase(),name:'Project '+name,path:'/tmp/'+name}))));return}
   if(url.pathname==='/desktop/runs'){res.end(JSON.stringify(runs));return}
   if(url.pathname==='/desktop/project'){res.end(JSON.stringify({configured,server:{defaultSkillMode:'interactive',skills:[{id:'clarify'},{id:'pickup',mode:'interactive'},{id:'specify'}]}}));return}
+  if(url.pathname==='/desktop/tasks/archive-workspace'&&req.method==='POST'){
+   let raw='';req.on('data',chunk=>raw+=chunk);req.on('end',()=>{
+    archives.push({project,...JSON.parse(raw)})
+    res.end(JSON.stringify({archivable:true,repositories:[{role:'code',outcome:'absent'}]}))
+   });return
+  }
   if(url.pathname==='/desktop/tasks'){
    if(req.method==='POST'){
     let raw='';req.on('data',chunk=>raw+=chunk);req.on('end',()=>{
@@ -210,8 +216,10 @@ test('the tickets pane lists, sorts and launches a project\'s open tasks',async(
   await expect(more).toBeFocused()
   assert.deepEqual(await keys(),['#1'])
   // An archived execution is hidden here as it is in the sidebar.
-  await page.getByRole('button',{name:'Archive #1',exact:true}).click()
+  await page.getByRole('button',{name:'Archive #1 and remove its worktree',exact:true}).click()
   await expect(state).toBeEmpty()
+  await expect.poll(()=>archives).toEqual([{project:'project-b',taskId:'b1'}])
+  await expect(page.locator('#runs .run[data-run-id=run-b1]')).toHaveCount(0)
   // Selecting an execution leaves the pane instead of changing it behind a hidden view.
   runs=[{...runs[0],status:'running'}]
   await expect(state).toHaveAttribute('aria-label','Process: Running')

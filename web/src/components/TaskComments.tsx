@@ -1,18 +1,17 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { MessageSquare, Send, RefreshCw, Loader2, User } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { MarkdownEditor, MarkdownView } from './Markdown'
 import { format, formatDateTime } from '../lib/i18n'
 import type { Task, TaskComment } from '../types'
+import { createLatestRequest } from '../lib/latestRequest'
 
-/**
- * Commentaires d'une tâche : lecture et écriture.
- *
- * Sur un ticket suivi par un tracker, le tracker est la source de vérité : les
- * commentaires y sont lus à l'ouverture et publiés dessus, plutôt que recopiés
- * en base où ils divergeraient. Une tâche purement locale les garde en base.
- */
-export const TaskComments: React.FC<{ task: Task }> = ({ task }) => {
+/** Keep drafts and pending requests scoped to one ticket. */
+export const TaskComments: React.FC<{ task: Task }> = ({ task }) => (
+  <TaskCommentsForTask key={task.id} task={task} />
+)
+
+const TaskCommentsForTask: React.FC<{ task: Task }> = ({ task }) => {
   const { getTaskComments, postTaskComment, t, settings } = useApp()
   const strings = t.taskDetail.comments
   const onTracker = Boolean(task.source && task.source !== 'local')
@@ -22,30 +21,51 @@ export const TaskComments: React.FC<{ task: Task }> = ({ task }) => {
   const [draft, setDraft] = useState('')
   const [isPosting, setIsPosting] = useState(false)
 
+  const [loadFailed, setLoadFailed] = useState(false)
+  const [request] = useState(createLatestRequest)
+  const posting = useRef(false)
+
   const load = async () => {
+    if (posting.current) return
+    const ticket = request.begin()
     setIsLoading(true)
-    const list = await getTaskComments(task.id)
-    // Le tracker les renvoie du plus ancien au plus récent ; on inverse pour
-    // avoir le dernier échange en haut, sans avoir à dérouler.
-    setComments([...list].reverse())
-    setIsLoading(false)
+    setLoadFailed(false)
+    try {
+      const list = await getTaskComments(task.id)
+      if (!request.isLatest(ticket)) return
+      if (list === null) setLoadFailed(true)
+      else setComments([...list].reverse())
+    } finally {
+      if (request.isLatest(ticket)) setIsLoading(false)
+    }
   }
 
   useEffect(() => {
     load()
-    // Rechargé au changement de tâche uniquement : chaque lecture coûte un appel
-    // au tracker.
+    return () => { request.begin() }
+    // Read once per ticket; provider rerenders do not reload tracker comments.
   }, [task.id])
 
   const submit = async () => {
-    const body = draft.trim()
-    if (!body || isPosting) return
+    const submittedDraft = draft
+    const body = submittedDraft.trim()
+    if (!body || posting.current) return
+    posting.current = true
+    const ticket = request.begin()
+    setIsLoading(false)
     setIsPosting(true)
-    const updated = await postTaskComment(task.id, body)
-    setIsPosting(false)
-    if (updated) {
-      setComments([...updated].reverse())
-      setDraft('')
+    try {
+      const updated = await postTaskComment(task.id, body)
+      if (!request.isLatest(ticket)) return
+      if (updated) {
+        setComments([...updated].reverse())
+        setLoadFailed(false)
+        // Preserve anything written while the previous comment was being sent.
+        setDraft(current => current === submittedDraft ? '' : current)
+      }
+    } finally {
+      posting.current = false
+      if (request.isLatest(ticket)) setIsPosting(false)
     }
   }
 
@@ -73,7 +93,7 @@ export const TaskComments: React.FC<{ task: Task }> = ({ task }) => {
         <button
           type="button"
           onClick={load}
-          disabled={isLoading}
+          disabled={isLoading || isPosting}
           className="flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-bold text-[var(--text-secondary)] bg-[var(--bg-tertiary)] border border-[var(--border-color)] hover:text-[var(--text-primary)] disabled:opacity-40 transition-colors cursor-pointer"
           title={strings.refreshTitle}
         >
@@ -88,7 +108,7 @@ export const TaskComments: React.FC<{ task: Task }> = ({ task }) => {
           onChange={setDraft}
           minHeight={80}
           onKeyDown={e => {
-            // Cmd/Ctrl+Entrée publie, comme partout ailleurs dans l'app.
+            // Cmd/Ctrl+Enter publishes the comment.
             if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
               e.preventDefault()
               submit()
@@ -113,12 +133,17 @@ export const TaskComments: React.FC<{ task: Task }> = ({ task }) => {
         </div>
       </div>
 
+      {loadFailed && (
+        <p role="alert" className="text-xs text-[var(--text-secondary)]">
+          {t.operations.notifications.comments.unavailable}
+        </p>
+      )}
       {isLoading && comments.length === 0 ? (
         <div className="flex items-center justify-center gap-2 py-6 text-[var(--text-muted)]">
           <Loader2 size={14} className="animate-spin text-[var(--accent-color)]" />
           <span className="text-xs">{strings.loading}</span>
         </div>
-      ) : comments.length === 0 ? (
+      ) : comments.length === 0 && !loadFailed ? (
         <p className="text-[11px] text-[var(--text-muted)] py-2">
           {onTracker ? format(strings.emptyTracker, { key: task.key, source: task.source || '' }) : strings.emptyLocal}
         </p>

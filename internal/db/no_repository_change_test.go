@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"tasks/internal/agentprotocol"
@@ -16,7 +17,7 @@ import (
 // configurationTask is SFE-367 of #584: a task at specified on a project that
 // opens its pull request at implemented and whose checkout has no origin
 // remote, so every pull request lookup fails with the explicit #392 error.
-func configurationTask(t *testing.T) (*DB, *models.Task, *int) {
+func configurationTask(t *testing.T) (*DB, *models.Task, *atomic.Int64) {
 	t.Helper()
 	d := testDB(t)
 	p, err := d.CreateProject(models.CreateProjectRequest{Name: "Coordination", IssueTracker: "local", PRCreationStage: "implemented"})
@@ -34,9 +35,9 @@ func configurationTask(t *testing.T) (*DB, *models.Task, *int) {
 	d.SetAgentOperations(func(ctx context.Context, op agentprotocol.Operation) (json.RawMessage, error) {
 		return nil, fmt.Errorf("unexpected local operation %q", op.Action)
 	})
-	lookups := new(int)
+	lookups := new(atomic.Int64)
 	d.prEvidenceLookup = func(string, string, string) (trackerapi.PullRequest, error) {
-		*lookups++
+		lookups.Add(1)
 		return trackerapi.PullRequest{}, fmt.Errorf("pull request lookup failed on the local agent: local agent: %w", runner.ErrNoOriginRemote)
 	}
 	task, err = d.GetTaskByID(task.ID)
@@ -56,6 +57,14 @@ func TestNoRepositoryChangeStandsInForThePullRequest(t *testing.T) {
 		t.Fatalf("without the statement the transition must keep the explicit #392 error, got %v", err)
 	}
 
+	if lookups.Load() != 1 {
+		t.Errorf("pull request lookups = %d, want only the one of the call without the statement", lookups.Load())
+	}
+	set, err := d.noRepositoryChangeEvidence(task, "implement", "feat/sfe-367")
+	if err != nil || set.notice != noRepositoryChangeNotice || len(set.urls) != 0 {
+		t.Fatalf("the report must say no pull request was expected: %+v %v", set, err)
+	}
+
 	for _, stage := range []string{"implemented", "reviewed"} {
 		got, _, err := d.TransitionTaskStageWithoutRepositoryChange("", task.ID, stage, "webhook fixed through the API, delivery checked", "feat/sfe-367")
 		if err != nil {
@@ -65,13 +74,7 @@ func TestNoRepositoryChangeStandsInForThePullRequest(t *testing.T) {
 			t.Fatalf("%s: stage %q, links %v; want the stage and no pull request", stage, d.StageOfTask(got), got.PrLinks)
 		}
 	}
-	if *lookups != 1 {
-		t.Errorf("pull request lookups = %d, want only the one of the call without the statement", *lookups)
-	}
-	set, err := d.noRepositoryChangeEvidence(task, "implement", "feat/sfe-367")
-	if err != nil || set.notice != noRepositoryChangeNotice || len(set.urls) != 0 {
-		t.Fatalf("the report must say no pull request was expected: %+v %v", set, err)
-	}
+
 }
 
 // The statement is refused when the task shows that it changed a repository.

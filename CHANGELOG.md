@@ -135,6 +135,14 @@ test fixtures or internal plumbing.
 ### Fixed
 
 - **Claude runs no longer fail to reach GitLab or GitHub when they chain git or glab with other commands.** A command listed in **Commands outside the sandbox** only leaves the sandbox when it runs alone, and runs used to write `cd … && glab mr view …` or `git fetch … | tail`, which stayed sandboxed and failed on SSH or certificates. A Claude run with listed commands is now told to call each of them on its own. Upgrade the agent.
+- Concurrent account changes cannot remove the last active administrator; padded role values follow the same protection, and an already blocked administrator can be removed without affecting the active administrator.
+- An agent connection lost after receiving a skill launch no longer marks the execution as failed while it may still be running on the workstation.
+- Desktop stacks the console and Changes panel when their available width is narrow, retaining both views and keyboard resizing.
+- Desktop model-list reset buttons stay aligned with their inputs inside execution defaults.
+- Desktop conversations without a skill name show a readable fallback label and no empty title separator.
+- The skill editor loads the selected project's own content, retains unsaved drafts when switching skills or changing execution mode, and protects edits while a save is pending.
+- Quick task creation keeps unfinished input when projects refresh and prevents closing or editing the form while a creation is pending.
+- Ticket comments keep responses and drafts on their own ticket, preserve text typed during publication, and distinguish a failed read from an empty conversation without discarding previously loaded comments.
 
 - **Open Desktop settings with Cmd+, across keyboard layouts.** macOS resolves the shortcut through the native application menu, which also offers Settings.
 

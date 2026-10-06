@@ -157,3 +157,30 @@ func TestUnconfirmedOperationNamesWhatItWaitedFor(t *testing.T) {
 		t.Fatalf("error does not report how long it waited: %v", err)
 	}
 }
+
+func TestDisconnectAfterDispatchLeavesLaunchUnconfirmed(t *testing.T) {
+	d := NewAgentDispatcher()
+	conn := launchConnection(t, d)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		done <- d.DispatchAndWait(ctx, "default", "project", "task",
+			agentconfig.Dispatch{SchemaVersion: agentconfig.Version, TaskID: "task", SkillID: "clarify", Action: "clarify"})
+	}()
+	_ = conn.SetReadDeadline(time.Now().Add(time.Second))
+	var request AgentMessage
+	if err := conn.ReadJSON(&request); err != nil {
+		t.Fatal(err)
+	}
+	// Receipt proves the agent may have started the process before losing its socket.
+	_ = conn.Close()
+	select {
+	case err := <-done:
+		if !errors.Is(err, ErrLaunchUnconfirmed) {
+			t.Fatalf("disconnect after delivery must not fail the remote run: %v", err)
+		}
+	case <-ctx.Done():
+		t.Fatal("disconnect did not release the waiting caller")
+	}
+}

@@ -12,6 +12,7 @@ import { PrioritySelect } from './PrioritySelect'
 import { MarkdownEditor } from './Markdown'
 import { sprintLookup } from '../lib/lookups'
 import { useBackdropDismiss } from '../hooks/useBackdropDismiss'
+import { useEscapeKey } from '../hooks/useEscapeKey'
 import { initialLabelsForView } from '../lib/boardViews'
 import { initialQuickAddMacro, quickAddMacroOptions, QUICK_ADD_FOLLOW_UPS, type QuickAddFollowUp } from '../lib/quickAdd'
 
@@ -48,6 +49,8 @@ export const QuickAddModal: React.FC = () => {
   const [labelInput, setLabelInput] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
 
+  const wasOpen = useRef(false)
+  const submitting = useRef(false)
   const inputRef = useRef<HTMLInputElement>(null)
   // The last macro request: a response for a project no longer selected is dropped.
   const macroRequest = useRef(0)
@@ -80,7 +83,10 @@ export const QuickAddModal: React.FC = () => {
   const searchSprint = useMemo(() => sprintLookup(availableSprints, t.taskDetail.lookups.sprintKinds), [availableSprints, t])
 
   useEffect(() => {
-    if (isQuickAddOpen) {
+    const opening = isQuickAddOpen && !wasOpen.current
+    wasOpen.current = isQuickAddOpen
+    // Snapshot defaults only on opening; background project reads must not erase a draft.
+    if (opening) {
       setTitle('')
       setDescription('')
       setStatus(quickAddInitialStatus || 'to_clarify')
@@ -130,19 +136,12 @@ export const QuickAddModal: React.FC = () => {
     // board filter only matters on opening: neither may trigger a reload.
   }, [isQuickAddOpen, taskProjectId])
 
-  const handleClose = useCallback(() => setIsQuickAddOpen(false), [setIsQuickAddOpen])
+  const handleClose = useCallback(() => {
+    if (!submitting.current) setIsQuickAddOpen(false)
+  }, [setIsQuickAddOpen])
   const backdrop = useBackdropDismiss(handleClose)
 
-  useEffect(() => {
-    if (!isQuickAddOpen) return
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        handleClose()
-      }
-    }
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [isQuickAddOpen, handleClose])
+  useEscapeKey(isQuickAddOpen, handleClose)
 
   const activeProject = projects.find(p => p.id === taskProjectId) || (currentBoardView ? undefined : projects[0])
   const viewProjects = currentBoardView
@@ -160,22 +159,28 @@ export const QuickAddModal: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!title.trim() || isSubmitting) return
+    if (!title.trim() || submitting.current) return
     if (!taskProjectId) return
 
+    submitting.current = true
     setIsSubmitting(true)
-    const created = await createTask({
-      title: title.trim(),
-      description: description.trim(),
-      status,
-      priority,
-      issueType: issueType.trim() || undefined,
-      labels,
-      sprint: sprint.trim() || undefined,
-      projectId: taskProjectId,
-      macroKey: macroKey || undefined,
-    })
-    setIsSubmitting(false)
+    let created
+    try {
+      created = await createTask({
+        title: title.trim(),
+        description: description.trim(),
+        status,
+        priority,
+        issueType: issueType.trim() || undefined,
+        labels,
+        sprint: sprint.trim() || undefined,
+        projectId: taskProjectId,
+        macroKey: macroKey || undefined,
+      })
+    } finally {
+      submitting.current = false
+      setIsSubmitting(false)
+    }
     if (!created) return
 
     setIsQuickAddOpen(false)
@@ -220,7 +225,9 @@ export const QuickAddModal: React.FC = () => {
           </div>
           <button
             type="button"
-            onClick={() => setIsQuickAddOpen(false)}
+            onClick={handleClose}
+            disabled={isSubmitting}
+            aria-label={t.taskModal.cancel}
             className="p-1 rounded-md text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] transition-colors"
           >
             <X size={16} />
@@ -229,7 +236,7 @@ export const QuickAddModal: React.FC = () => {
 
         {/* Form Body */}
         <form onSubmit={handleSubmit} className="flex flex-col min-h-0 flex-1">
-          <div className="flex-1 min-h-0 overflow-y-auto p-5 grid grid-cols-1 md:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] gap-5 items-start">
+          <fieldset disabled={isSubmitting} className="flex-1 min-h-0 overflow-y-auto p-5 grid grid-cols-1 md:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] gap-5 items-start">
             {/* Left: what the ticket says */}
             <div data-quick-add-column="main" className="min-w-0 space-y-4">
               <input
@@ -512,7 +519,7 @@ export const QuickAddModal: React.FC = () => {
                 </div>
               </div>
             </div>
-          </div>
+          </fieldset>
 
           {/* Footer */}
           <div className="shrink-0 flex items-center justify-between px-5 py-3 border-t border-[var(--border-color)]">
@@ -522,7 +529,8 @@ export const QuickAddModal: React.FC = () => {
             <div className="flex items-center gap-2">
               <button
                 type="button"
-                onClick={() => setIsQuickAddOpen(false)}
+                onClick={handleClose}
+                disabled={isSubmitting}
                 className="px-3 py-1.5 rounded-xl text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] transition-colors"
               >
                 {t.taskModal.cancel}
