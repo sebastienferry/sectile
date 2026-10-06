@@ -268,16 +268,28 @@ func (d *DB) fillProjectTrackersUnsafe(p *models.Project) error {
 	if err != nil {
 		return err
 	}
+	own, err := d.projectOwnStageColumnsUnsafe(p.ID)
+	if err != nil {
+		return err
+	}
 	p.Trackers = []models.ProjectTracker{}
+	effective := map[string]map[string][]string{}
 	for _, t := range trackers {
-		p.Trackers = append(p.Trackers, models.ProjectTracker{TrackerID: t.ID, Identity: t.Identity})
+		entry := models.ProjectTracker{TrackerID: t.ID, Identity: t.Identity, TrackerColumns: t.TrackerColumns, TrackerStageColumns: t.StageColumns, StageColumns: t.StageColumns}
+		if stages := own[t.ID]; len(stages) > 0 {
+			entry.StageColumns, entry.OwnStageColumns = stages, true
+		}
+		effective[t.ID] = entry.StageColumns
+		p.Trackers = append(p.Trackers, entry)
 	}
 	def := defaultTrackerAmong(trackers, p.DefaultTrackerID)
 	if def == nil {
 		return nil
 	}
 	p.DefaultTrackerID = def.ID
-	p.BoardID, p.TrackerColumns, p.StageColumns, p.Sprints, p.IssueTypes = def.BoardID, def.TrackerColumns, def.StageColumns, def.Sprints, def.IssueTypes
+	// The stage mapping read is the one that applies in this project: its own
+	// for the default tracker, else the tracker's (#741).
+	p.BoardID, p.TrackerColumns, p.StageColumns, p.Sprints, p.IssueTypes = def.BoardID, def.TrackerColumns, effective[def.ID], def.Sprints, def.IssueTypes
 	p.AutoSyncEnabled, p.AutoSyncIntervalMin = def.AutoSyncEnabled, def.AutoSyncIntervalMin
 	if legacyFieldsMatchTracker(p, def) {
 		return nil
@@ -292,6 +304,27 @@ func (d *DB) fillProjectTrackersUnsafe(p *models.Project) error {
 		p.GitlabProject, p.GitlabUrl = def.Scope, def.Site
 	}
 	return nil
+}
+
+// projectOwnStageColumnsUnsafe is a project's own stage mapping per tracker
+// it selects, by tracker id; a tracker it maps no stage of is absent (#741).
+func (d *DB) projectOwnStageColumnsUnsafe(projectID string) (map[string]map[string][]string, error) {
+	rows, err := d.conn.Query(`SELECT tracker_id, stage_columns FROM project_trackers WHERE project_id = ?`, projectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	own := map[string]map[string][]string{}
+	for rows.Next() {
+		var trackerID, raw string
+		if err := rows.Scan(&trackerID, &raw); err != nil {
+			return nil, err
+		}
+		if stages := parseStageColumns(raw); len(stages) > 0 {
+			own[trackerID] = stages
+		}
+	}
+	return own, rows.Err()
 }
 
 // defaultTrackerAmong is the tracker named by id among a project's trackers,
@@ -627,6 +660,9 @@ func (d *DB) UpdateTrackerAs(userID string, t models.Tracker) (*models.Tracker, 
 		if err := updateTrackerOn(tx, &t); err != nil {
 			return err
 		}
+		if err := pruneProjectStageColumnsOn(tx, &t); err != nil {
+			return err
+		}
 		if moved {
 			return resetTrackerSyncWindowOn(tx, t.ID)
 		}
@@ -700,9 +736,12 @@ func (d *DB) UpdateTrackerMirror(trackerID string, change func(t *models.Tracker
 		t.BoardID = strings.TrimSpace(t.BoardID)
 		t.UpdatedAt = time.Now().UTC()
 		columns, stages, sprints, types := trackerMirrorJSON(t)
-		_, err = tx.Exec(`UPDATE trackers SET board_id = ?, tracker_columns = ?, stage_columns = ?, sprints = ?, issue_types = ?, updated_at = ? WHERE id = ?`,
-			t.BoardID, columns, stages, sprints, types, t.UpdatedAt, t.ID)
-		return err
+		if _, err = tx.Exec(`UPDATE trackers SET board_id = ?, tracker_columns = ?, stage_columns = ?, sprints = ?, issue_types = ?, updated_at = ? WHERE id = ?`,
+			t.BoardID, columns, stages, sprints, types, t.UpdatedAt, t.ID); err != nil {
+			return err
+		}
+		// The projects' own mappings lose the columns the board lost (#741).
+		return pruneProjectStageColumnsOn(tx, t)
 	})
 	d.trackerCache.clear()
 	if err != nil {
@@ -716,17 +755,19 @@ func (d *DB) UpdateTrackerMirror(trackerID string, change func(t *models.Tracker
 // only join a tracker already recorded (a write from the API, ADR 0054, D11),
 // and whether it names a source at all: a provider or a scope. A write naming
 // none keeps the project's default tracker, whatever its stored fields say.
+//
+// The stage mapping is not among them: a project write sets the project's own
+// (applyProjectStageColumnsUnsafe), never its tracker's (#741).
 type trackerFieldsTouched struct {
-	boardID, columns, stages, sprints, issueTypes, autoSync bool
-	joinOnly                                                bool
-	source                                                  bool
+	boardID, columns, sprints, issueTypes, autoSync bool
+	joinOnly                                        bool
+	source                                          bool
 }
 
 func touchedByUpdate(req models.UpdateProjectRequest) trackerFieldsTouched {
 	return trackerFieldsTouched{
 		boardID:    req.BoardID != nil,
 		columns:    req.TrackerColumns != nil,
-		stages:     req.StageColumns != nil,
 		sprints:    req.Sprints != nil,
 		issueTypes: req.IssueTypes != nil,
 		autoSync:   req.AutoSyncEnabled != nil || req.AutoSyncIntervalMin != nil,
@@ -748,7 +789,8 @@ func touchedByUpdate(req models.UpdateProjectRequest) trackerFieldsTouched {
 // the project's other trackers: nothing but that project shows its tickets, so
 // unlinking it would hide them all. The board mirror and auto-sync fields
 // the write carries then land on the tracker; a tracker the project just
-// joined keeps its own.
+// joined keeps its own. The stage mapping never does: it is the project's own
+// (applyProjectStageColumnsUnsafe).
 //
 // A write that may only join (touched.joinOnly, every write from the API)
 // never renames nor creates a tracker, not even the project's local board:
@@ -831,6 +873,12 @@ func (d *DB) ensureProjectTrackerUnsafe(tx *sqlTx, p *models.Project, settings *
 			}
 			keepBoard = used > 0
 		}
+		// A tracker the project already selected keeps the project's own
+		// stage mapping for it as it becomes the default (#741).
+		targetStages := "{}"
+		if err := tx.QueryRow(`SELECT stage_columns FROM project_trackers WHERE project_id = ? AND tracker_id = ?`, p.ID, target.ID).Scan(&targetStages); err != nil && err != sql.ErrNoRows {
+			return err
+		}
 		if current != nil {
 			if _, err := tx.Exec(`DELETE FROM project_trackers WHERE project_id = ? AND tracker_id = ?`, p.ID, target.ID); err != nil {
 				return err
@@ -842,10 +890,11 @@ func (d *DB) ensureProjectTrackerUnsafe(tx *sqlTx, p *models.Project, settings *
 			}
 		}
 		if _, err := tx.Exec(
-			`INSERT INTO project_trackers (project_id, tracker_id, position) VALUES (?, ?, ?) ON CONFLICT (project_id, tracker_id) DO NOTHING`,
+			`INSERT INTO project_trackers (project_id, tracker_id, position, stage_columns) VALUES (?, ?, ?, ?) ON CONFLICT (project_id, tracker_id) DO NOTHING`,
 			p.ID,
 			target.ID,
 			currentPosition,
+			targetStages,
 		); err != nil {
 			return err
 		}
@@ -873,9 +922,6 @@ func (d *DB) ensureProjectTrackerUnsafe(tx *sqlTx, p *models.Project, settings *
 	}
 	if touched.columns {
 		target.TrackerColumns, changed = wanted.TrackerColumns, true
-	}
-	if touched.stages {
-		target.StageColumns, changed = wanted.StageColumns, true
 	}
 	if touched.sprints {
 		target.Sprints, changed = wanted.Sprints, true
@@ -940,11 +986,34 @@ func (d *DB) applyProjectSelectionUnsafe(tx *sqlTx, p *models.Project, trackers 
 			resolved = append(resolved, models.ProjectTracker{TrackerID: t.ID, Identity: t.Identity})
 		}
 		resolved = models.NormalizeProjectTrackers(resolved)
+		// A tracker the project keeps keeps the project's own stage mapping
+		// for it (#741): the rows are rewritten, not the mappings.
+		own := map[string]string{}
+		rows, err := tx.Query(`SELECT tracker_id, stage_columns FROM project_trackers WHERE project_id = ?`, p.ID)
+		if err != nil {
+			return err
+		}
+		for rows.Next() {
+			var id, raw string
+			if err := rows.Scan(&id, &raw); err != nil {
+				rows.Close()
+				return err
+			}
+			own[id] = raw
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return err
+		}
 		if _, err := tx.Exec(`DELETE FROM project_trackers WHERE project_id = ?`, p.ID); err != nil {
 			return err
 		}
 		for position, entry := range resolved {
-			if _, err := tx.Exec(`INSERT INTO project_trackers (project_id, tracker_id, position) VALUES (?, ?, ?)`, p.ID, entry.TrackerID, position); err != nil {
+			stages := own[entry.TrackerID]
+			if stages == "" {
+				stages = "{}"
+			}
+			if _, err := tx.Exec(`INSERT INTO project_trackers (project_id, tracker_id, position, stage_columns) VALUES (?, ?, ?, ?)`, p.ID, entry.TrackerID, position, stages); err != nil {
 				return err
 			}
 		}

@@ -759,7 +759,7 @@ func (d *DB) runTransitionOp(ctx context.Context, op TrackerOp, steps *[]string)
 			cleanStatus := strings.TrimSpace(op.TargetStatus)
 			cleanStatusLower := strings.ToLower(cleanStatus)
 
-			trk := d.trackerOfTaskUnsafe(task)
+			trk := d.stageTrackerOfTaskUnsafe(task, "")
 
 			// Resolve stage and internal status
 			resolvedStage := StageForTrackerStatus(trk, cleanStatus)

@@ -80,8 +80,17 @@ const fr = {
     labelHint: 'sans label : tous les tickets des trackers',
     labelHelp:
       "Avec un label, le projet ne montre que les tickets de ses trackers qui le portent. Un ticket sans label de projet attend dans l'entrée « Hors projet » de son tracker.",
-    adminOnlyMapping:
-      "Les colonnes du board, leur correspondance avec les étapes, les types importés et la synchronisation en arrière-plan se règlent par tracker, dans l'Administration.",
+    adminOnlyBoard:
+      "Les colonnes du board, la correspondance par défaut des étapes, les types importés et la synchronisation en arrière-plan se règlent par tracker, dans l'Administration.",
+    stageMappingTitle: 'Étapes → colonnes',
+    stageMappingHelp:
+      "Les colonnes du board où se trouve chaque étape du workflow, pour les tickets de ce tracker dans ce projet. Sans réglage propre, le projet suit celui du tracker, défini dans l'Administration. Un ticket de plusieurs projets suit celui du projet d'où on le déplace.",
+    stageMappingInherited: 'Hérité du tracker',
+    stageMappingOwn: 'Propre à ce projet',
+    stageMappingReset: 'Revenir à celui du tracker',
+    stageMappingNoColumns:
+      "Ce tracker n'a pas encore de colonnes : un admin les importe depuis son board, dans l'Administration.",
+    stageMappingAfterCreate: 'La correspondance des étapes se règle une fois le projet créé.',
     forgesTitle: 'Forges des dépôts',
     forgesHelp:
       "L'instance GitHub ou GitLab où vivent les dépôts du projet et leurs pull requests. Vide : celle de la configuration.",
@@ -400,8 +409,16 @@ const en: ProjectSettingsStrings = {
     labelHint: 'no label: every ticket of the trackers',
     labelHelp:
       "With a label, the project only shows the tickets of its trackers that carry it. A ticket without a project label waits in its tracker's \"Not in a project\" entry.",
-    adminOnlyMapping:
-      'The board columns, their mapping onto the stages, the imported issue types and the background sync are set per tracker, in the Administration page.',
+    adminOnlyBoard:
+      'The board columns, the default mapping of the stages, the imported issue types and the background sync are set per tracker, in the Administration page.',
+    stageMappingTitle: 'Stages → columns',
+    stageMappingHelp:
+      "The board columns each workflow stage sits in, for this tracker's tickets in this project. Without a mapping of its own, the project follows the tracker's, set in the Administration page. A ticket of several projects follows the one of the project it is moved from.",
+    stageMappingInherited: 'Inherited from the tracker',
+    stageMappingOwn: 'Set for this project',
+    stageMappingReset: "Use the tracker's",
+    stageMappingNoColumns: 'This tracker has no columns yet: an admin imports them from its board, in the Administration page.',
+    stageMappingAfterCreate: 'The stage mapping is set once the project is created.',
     forgesTitle: 'Repository forges',
     forgesHelp: "The GitHub or GitLab instance the project's repositories and their pull requests live on. Empty: the configured one.",
     typeLabel: 'Issue tracker type',

@@ -37,7 +37,7 @@ func TestCreatingAJiraProjectCreatesItsTrackerAndLinksIt(t *testing.T) {
 	if trk.Provider != "jira" || trk.Scope != "GODE" || trk.Site != "https://acme.atlassian.net" || trk.Identity != "jira|acme.atlassian.net|GODE" || trk.BoardID != "12" {
 		t.Fatalf("tracker = %+v", trk)
 	}
-	if p.DefaultTrackerID != trk.ID || len(p.Trackers) != 1 || p.Trackers[0] != (models.ProjectTracker{TrackerID: trk.ID, Identity: trk.Identity}) {
+	if p.DefaultTrackerID != trk.ID || len(p.Trackers) != 1 || p.Trackers[0].TrackerID != trk.ID || p.Trackers[0].Identity != trk.Identity {
 		t.Fatalf("project = default %q, trackers %+v", p.DefaultTrackerID, p.Trackers)
 	}
 }
@@ -125,15 +125,23 @@ func TestAProjectReadsItsBoardMirrorFromItsDefaultTracker(t *testing.T) {
 			t.Fatalf("%s does not read the tracker's mirror: board %q columns %+v stages %+v", p.Name, p.BoardID, p.TrackerColumns, p.StageColumns)
 		}
 	}
-	// A project edit of the mapping lands on the tracker, which the other
-	// project then reads.
+	// A project edit of the mapping is that project's own: the tracker and
+	// the other project keep the tracker's (#741).
 	stages := map[string][]string{"implemented": {"Review"}}
 	if _, err := d.UpdateProject(second.ID, models.UpdateProjectRequest{StageColumns: &stages}); err != nil {
 		t.Fatal(err)
 	}
 	p, _ := d.GetProjectByID(first.ID)
-	if len(p.StageColumns["implemented"]) != 1 || len(p.StageColumns["reviewed"]) != 0 {
-		t.Fatalf("the mapping saved from one project is not the tracker's: %+v", p.StageColumns)
+	if len(p.StageColumns["implemented"]) != 0 || len(p.StageColumns["reviewed"]) != 1 {
+		t.Fatalf("the mapping saved from one project changed the other's: %+v", p.StageColumns)
+	}
+	p, _ = d.GetProjectByID(second.ID)
+	if len(p.StageColumns["implemented"]) != 1 || len(p.StageColumns["reviewed"]) != 0 || !p.Trackers[0].OwnStageColumns {
+		t.Fatalf("the project does not read its own mapping: %+v %+v", p.StageColumns, p.Trackers)
+	}
+	trk, _ := d.GetTrackerByID(defaultTrackerID(t, d, first.ID))
+	if len(trk.StageColumns["reviewed"]) != 1 || len(trk.StageColumns["implemented"]) != 0 {
+		t.Fatalf("a project save changed the tracker's mapping: %+v", trk.StageColumns)
 	}
 }
 

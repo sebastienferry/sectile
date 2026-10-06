@@ -554,14 +554,14 @@ func rewindTrackerMigration(t *testing.T, d *DB) {
 	}
 }
 
-// assertTrackerSchema fails unless every table and column migration 49 adds
-// can be read.
+// assertTrackerSchema fails unless every table and column migrations 49 and
+// 50 add can be read.
 func assertTrackerSchema(t *testing.T, d *DB) {
 	t.Helper()
 	for _, query := range []string{
 		"SELECT id, name, provider, site, scope, identity, board_id, tracker_columns, stage_columns, sprints, issue_types, auto_sync_enabled, auto_sync_interval_min, created_at, updated_at" +
 			" FROM trackers",
-		"SELECT project_id, tracker_id, position FROM project_trackers",
+		"SELECT project_id, tracker_id, position, stage_columns FROM project_trackers",
 		"SELECT label, default_tracker_id FROM projects",
 		"SELECT tracker_id FROM tasks",
 		"SELECT old_id, task_id FROM task_aliases",

@@ -28,6 +28,9 @@ type memberProject struct {
 	Label     string
 	CreatedAt time.Time
 	Trackers  []string
+	// StageColumns is the project's own stage mapping per tracker it selects,
+	// by tracker id; a tracker it maps no stage of is absent (#741).
+	StageColumns map[string]map[string][]string
 }
 
 // membershipIndex holds every project's trackers and label, oldest project
@@ -125,14 +128,14 @@ func (d *DB) loadMembershipIndexUnsafe() (*membershipIndex, error) {
 			}
 		}
 	}
-	links, err := d.conn.Query(`SELECT project_id, tracker_id FROM project_trackers ORDER BY position`)
+	links, err := d.conn.Query(`SELECT project_id, tracker_id, stage_columns FROM project_trackers ORDER BY position`)
 	if err != nil {
 		return nil, err
 	}
 	defer links.Close()
 	for links.Next() {
-		var projectID, trackerID string
-		if err := links.Scan(&projectID, &trackerID); err != nil {
+		var projectID, trackerID, stagesJSON string
+		if err := links.Scan(&projectID, &trackerID, &stagesJSON); err != nil {
 			return nil, err
 		}
 		i, ok := index.byRef[projectID]
@@ -140,6 +143,12 @@ func (d *DB) loadMembershipIndexUnsafe() (*membershipIndex, error) {
 			continue
 		}
 		index.projects[i].Trackers = append(index.projects[i].Trackers, trackerID)
+		if stages := parseStageColumns(stagesJSON); len(stages) > 0 {
+			if index.projects[i].StageColumns == nil {
+				index.projects[i].StageColumns = map[string]map[string][]string{}
+			}
+			index.projects[i].StageColumns[trackerID] = stages
+		}
 	}
 	if err := links.Err(); err != nil {
 		return nil, err
@@ -293,12 +302,12 @@ func (d *DB) fillTaskProjectsWithRunUnsafe(t *models.Task, scoped string, withRu
 		return
 	}
 	t.ProjectIDs = d.memberProjectIDsUnsafe(t.TrackerID, t.Labels)
-	t.ProjectID = ""
+	t.ProjectID, t.ContextProjectID = "", ""
 	if scoped != "" {
 		if p, ok := d.membershipUnsafe().project(scoped); ok {
 			for _, id := range t.ProjectIDs {
 				if id == p.ID {
-					t.ProjectID = p.ID
+					t.ProjectID, t.ContextProjectID = p.ID, p.ID
 					return
 				}
 			}
@@ -308,7 +317,7 @@ func (d *DB) fillTaskProjectsWithRunUnsafe(t *models.Task, scoped string, withRu
 		if run := d.runProjectOfTaskUnsafe(t.ID); run != "" {
 			for _, id := range t.ProjectIDs {
 				if id == run {
-					t.ProjectID = run
+					t.ProjectID, t.ContextProjectID = run, run
 					return
 				}
 			}

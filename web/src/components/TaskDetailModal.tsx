@@ -63,6 +63,7 @@ import { copyText } from '../lib/clipboard'
 import { EMPTY_VALUE, format, plural, formatDate, formatDateTime, formatTime } from '../lib/i18n'
 import { localizeActivityText } from '../lib/activityText'
 import { isTrackerTicket } from '../lib/projectTrackers'
+import { trackerBoard } from '../lib/stageMapping'
 
 // The repository select's entry for a repository typed by hand (#737).
 const OTHER_REPOSITORY = '\u0000other'
@@ -223,7 +224,10 @@ export const TaskDetailModal: React.FC = () => {
   // Statuts du projet, groupés par colonne, et étape du workflow associée. Les
   // deux sélecteurs de la fiche sont deux vues du même mapping : changer l'un
   // met l'autre à jour, et le serveur refait la même dérivation de son côté.
-  const projectColumns = taskProject?.trackerColumns || []
+  // Les colonnes et la correspondance sont celles du tracker du ticket dans
+  // le projet (#741).
+  const taskBoard = trackerBoard(taskProject, selectedTask?.trackerId)
+  const projectColumns = taskBoard.trackerColumns
   // Pinning a repository only means something when the ticket has a choice:
   // a mono-repo or a single repository leaves the agent nothing to decide.
   const projectRepositories = taskProject?.repositories || []
@@ -232,7 +236,7 @@ export const TaskDetailModal: React.FC = () => {
   // project no longer lists, would make the server refuse the whole save.
   const repositoryUpdate = () =>
     repository !== (selectedTask?.repository || '') ? { repository } : {}
-  const projectStageColumns = taskProject?.stageColumns || {}
+  const projectStageColumns = taskBoard.stageColumns
   const hasProjectStatuses = projectColumns.some(c => c.statuses.length > 0)
 
   const stageOfStatus = (value: string): WorkflowStage | null => {

@@ -138,9 +138,11 @@ func (h *Handler) requireOwnerOrAdmin(w http.ResponseWriter, r *http.Request, ow
 // exists, what role they hold, and whether their account still opens, the
 // admin page that watches over it, the server credentials the deployment
 // reaches its trackers with (#464), and the trackers themselves (#741): their
-// source, board, columns, status-to-stage mapping, issue types and background
-// sync are shared by every project selecting them, so a member no longer
-// configures them from a project (ADR 0054, D11).
+// source, board, columns, default stage-to-columns mapping, issue types and
+// background sync are shared by every project selecting them, so a member no
+// longer configures them from a project (ADR 0054, D11). How a project maps the
+// workflow stages onto a tracker's columns is the project's own, and a
+// member's to set from its settings.
 func adminOnlyRoute(_ string, path string) bool {
 	return path == "/api/users" || strings.HasPrefix(path, "/api/users/") ||
 		path == AdminStatsPath ||
@@ -151,16 +153,17 @@ func adminOnlyRoute(_ string, path string) bool {
 
 // memberProjectCreate and memberProjectUpdate drop the tracker configuration a
 // member's project write still carries (#741, ADR 0054, D11). Since #741 the
-// project's board, columns, status-to-stage mapping, issue types and
-// background sync are its default tracker's, shared by every project selecting
-// it, so they are an admin's to change, from Administration. An older client
-// still sends them with the rest of the project: they are ignored rather than
-// refused, so its save keeps working. The site a tracker reaches is dropped
-// too: the server sends its credentials there. The tracker the project names
-// may only be one already recorded (JoinTrackerOnly, set on every project
-// write from the API, an admin's included): trackers are recorded in
-// Administration. Its label, its default tracker and its sprints stay a
-// member's.
+// project's board, columns, issue types and background sync are its default
+// tracker's, shared by every project selecting it, so they are an admin's to
+// change, from Administration. An older client still sends them with the rest
+// of the project: they are ignored rather than refused, so its save keeps
+// working. The site a tracker reaches is dropped too: the server sends its
+// credentials there. The tracker the project names may only be one already
+// recorded (JoinTrackerOnly, set on every project write from the API, an
+// admin's included): trackers are recorded in Administration. Its label, its
+// default tracker, its sprints and its own stage-to-columns mapping per tracker
+// (stageColumns, trackerStageColumns) stay a member's: they write the
+// project's mapping, never the tracker's.
 func memberProjectCreate(req *models.CreateProjectRequest) {
 	req.BoardID, req.IssueTypes = "", nil
 	req.AutoSyncEnabled, req.AutoSyncIntervalMin = nil, nil
@@ -169,7 +172,7 @@ func memberProjectCreate(req *models.CreateProjectRequest) {
 }
 
 func memberProjectUpdate(req *models.UpdateProjectRequest) {
-	req.BoardID, req.TrackerColumns, req.StageColumns, req.IssueTypes = nil, nil, nil, nil
+	req.BoardID, req.TrackerColumns, req.IssueTypes = nil, nil, nil
 	req.AutoSyncEnabled, req.AutoSyncIntervalMin = nil, nil
 	req.TrackerUrl, req.GithubApiUrl, req.GitlabUrl = nil, nil, nil
 	req.JoinTrackerOnly = true

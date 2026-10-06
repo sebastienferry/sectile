@@ -130,7 +130,8 @@ func TestSyncBoardColumnsMergeKeepsTheUsersWork(t *testing.T) {
 	if got[2].Name != "Peer review" {
 		t.Fatalf("a user column emptied by the board must be dropped: %+v", got)
 	}
-	// The stage mapped to the vanished column goes with it, the other stays.
+	// The stage mapped to the vanished column goes with it, the other stays:
+	// the mapping is the project's own (#741), pruned with the tracker's.
 	if len(refreshed.StageColumns["specified"]) != 1 || len(refreshed.StageColumns["reviewed"]) != 0 {
 		t.Fatalf("stage mappings not pruned as expected: %+v", refreshed.StageColumns)
 	}

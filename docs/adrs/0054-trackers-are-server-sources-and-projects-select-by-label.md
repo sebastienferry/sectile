@@ -42,8 +42,9 @@ subset of its trackers' tickets that carries its label.
   [ADR 0028](0028-repositories-are-keyed-by-remote.md). GODE and BE are two
   trackers even on one Jira site. The tracker also holds the board mirror a
   project held before (board, columns, status-to-stage mapping, sprints, issue
-  types) and the background synchronisation settings, so the status-to-stage
-  mapping is now one per tracker.
+  types) and the background synchronisation settings. The tracker's
+  status-to-stage mapping is the default: each project selecting the tracker
+  may map the stages onto its columns its own way (D11).
 - **A project selects N trackers and one optional label.** `project_trackers`
   links them in order. The project's `defaultTrackerId` is where its new
   tickets go: the first tracker unless it names another, and the first
@@ -110,10 +111,27 @@ subset of its trackers' tickets that carries its label.
   recently updated wins and keeps the other's todos when it has none) and
   creates `ux_macros_tracker_key`. Both do nothing once done.
 - **Tracker configuration is an admin's (D11).** The trackers, their source,
-  board, columns, status-to-stage mapping, issue types and background
+  board, columns, default status-to-stage mapping, issue types and background
   synchronisation are configured from Administration (`/api/admin/trackers`).
   A member chooses a project's trackers, its default tracker and its label,
   reads a tracker's backlog and asks for a synchronisation (`/api/trackers`).
+- **The stage mapping is per project and tracker.** On the owner's decision, a
+  project maps the workflow stages onto the columns of each tracker it
+  selects its own way (`project_trackers.stage_columns`, migration 50), from
+  the **Trackers & label** tab of its settings, a member as well as an admin
+  (`trackerStageColumns` on the project save). An empty mapping reads the
+  tracker's, which stays the default an admin sets in Administration; nothing
+  was copied at the upgrade, so every project keeps reading its trackers'
+  mappings until it sets its own. The columns, the statuses they group and the
+  board stay the tracker's: a project only says which column each stage sits
+  in, and a board import or an admin's edit that drops a column drops it from
+  every project's mapping too. Which mapping applies to a ticket, for its
+  stage on import and for the status a stage move writes back: (1) the project
+  in context, when it selects the ticket's tracker (the board's project, the
+  run's `run_project_id`, the project an API request names); (2) else the
+  single project the ticket belongs to; (3) else the tracker's own. A ticket
+  of two projects may therefore resolve to two stages, which the owner chose
+  knowingly over a single shared mapping.
 
 ## Consequences
 
@@ -121,10 +139,12 @@ subset of its trackers' tickets that carries its label.
   ADR 0018, which made "configuring the tracker [a project] reads from" a
   member's, and the comment `adminOnlyRoute` carried: the admin tracker routes
   are in the admin-only table, and a member's project creation or update that
-  still carries `boardId`, `trackerColumns`, `stageColumns`, `issueTypes`,
-  `autoSyncEnabled` or `autoSyncIntervalMin` is saved without them rather than
-  refused, so an older client keeps saving the rest. An admin's still writes
-  them through to the project's default tracker. The sprints are the
+  still carries `boardId`, `trackerColumns`, `issueTypes`, `autoSyncEnabled`
+  or `autoSyncIntervalMin` is saved without them rather than refused, so an
+  older client keeps saving the rest. An admin's still writes them through to
+  the project's default tracker. `stageColumns` is the exception, a member's
+  as an admin's: it writes the project's own mapping for its default tracker,
+  never the tracker's, dropping the stages and columns the tracker lacks. The sprints are the
   exception: they stay a member's, through the sprint routes and the project
   save, because planning sprints is board work. The deployment's tracker
   settings keys of ADR 0018 (`trackerSettingsKeys`) lose their sites, as the
@@ -170,9 +190,11 @@ subset of its trackers' tickets that carries its label.
   scope no longer change once it holds tickets or epics (409): they were read
   from that source. An empty tracker may change them, and like a tracker
   renamed in place its next background pass reads the new source whole.
-- **Members lose the status-to-stage mapping editor** they had in a project's
-  settings. The mapping belongs to the tracker, so only an admin edits it, in
-  Administration → Trackers.
+- **Members keep a status-to-stage mapping editor** in a project's settings,
+  now per tracker the project selects, showing whether the project follows the
+  tracker's mapping or has its own, with a reset to the tracker's. The
+  tracker's own mapping, the default, is an admin's, in Administration →
+  Trackers.
 - **`tasks.project_id` is unused** and holds the `tracker:<id>` sentinel on new
   rows. **The old tracker columns of `projects` are kept** (issue tracker, Jira
   project, GitHub repository, GitLab project, board, columns, mapping, sprints,

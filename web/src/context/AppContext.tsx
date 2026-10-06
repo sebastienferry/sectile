@@ -404,7 +404,7 @@ interface AppContextType {
    * assigneeAccountId accompagne un changement d'assigné : Jira n'assigne que
    * par identifiant de compte, jamais par nom affiché.
    */
-  updateTask: (id: string, updates: Partial<Task> & { assigneeAccountId?: string }) => Promise<Task | null>
+  updateTask: (id: string, updates: Partial<Task> & { assigneeAccountId?: string; stageProjectId?: string }) => Promise<Task | null>
   moveTaskToTrackerStatus: (id: string, status: string) => Promise<Task | null>
   getTaskComments: (id: string) => Promise<TaskComment[]>
 
@@ -594,6 +594,7 @@ import { toastDuration } from '../lib/toastTimer'
 import { applyDocumentLocale, format, isLocale, plural, rememberLocale, resolveInitialLocale } from '../lib/i18n'
 import { localizeActivityText } from '../lib/activityText'
 import { batchSummary } from '../lib/roadmap'
+import { projectForTracker } from '../lib/stageMapping'
 import { createLatestRequest } from '../lib/latestRequest'
 import { staleFilters } from '../lib/filterPruning'
 import { readProjectHistory, recordProjectOpening, writeProjectHistory, type ProjectOpening } from '../lib/projectHistory'
@@ -2667,7 +2668,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   }
 
-  const updateTask = async (id: string, updates: Partial<Task> & { assigneeAccountId?: string }): Promise<Task | null> => {
+  const updateTask = async (id: string, updates: Partial<Task> & { assigneeAccountId?: string; stageProjectId?: string }): Promise<Task | null> => {
     try {
       const res = await fetch(`${API_BASE}/tasks/${encodeURIComponent(id)}`, {
         method: 'PUT',
@@ -2733,16 +2734,24 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   }
 
+  // The project a stage or status move is made from, whose stage mapping the
+  // server follows (#741): the board's project when the ticket belongs to it,
+  // else the ticket's only project. None leaves the server to its own rule.
+  const stageProjectOf = (task: Task | undefined): string | undefined =>
+    boardRunProject(task, selectedProjectId, projects) || (task?.projectIds?.length === 1 ? task.projectIds[0] : undefined)
+
   // Déplacement par colonne de board : le statut local est écrit tout de suite,
   // donc la carte reste où elle a été lâchée, et la transition dans le tracker
   // part dans la file d'activités. Un refus du tracker apparaît alors comme une
   // activité en échec, et la synchronisation suivante remet la carte en place.
   const moveTaskToTrackerStatus = async (id: string, status: string): Promise<Task | null> => {
     const task = tasks.find(t => t.id === id)
+    const stageProject = stageProjectOf(task)
     if (task) {
       const cleanSt = status.toLowerCase()
       let targetStage: WorkflowStage = 'new'
-      const proj = projects.find(p => p.id === task.projectId) || currentProject
+      // The columns and the stage mapping of the ticket's tracker in the project (#741).
+      const proj = projectForTracker(projects.find(p => p.id === (stageProject || task.projectId)) || currentProject, task.trackerId)
 
       // Resolve matching column name from tracker columns (e.g. "Code" status -> "In Progress" column)
       const matchingCol = proj?.trackerColumns?.find(
@@ -2787,7 +2796,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       const res = await fetch(`${API_BASE}/tasks/${encodeURIComponent(id)}/tracker-status`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status }),
+        body: JSON.stringify({ status, ...(stageProject ? { projectId: stageProject } : {}) }),
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) {
@@ -3482,10 +3491,18 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     branch?: string
   ): Promise<{ success: boolean; task?: Task; activity?: TaskActivity; error?: string }> => {
     try {
+      // The board's project, whose stage mapping the move follows (#741).
+      const stageProject = stageProjectOf(tasks.find(t => t.id === taskIdOrKey || t.key === taskIdOrKey))
       const res = await fetch(`${API_BASE}/tasks/${encodeURIComponent(taskIdOrKey)}/stage`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ stage, note: note || '', prUrl: prUrl || '', branch: branch || '' }),
+        body: JSON.stringify({
+          stage,
+          note: note || '',
+          prUrl: prUrl || '',
+          branch: branch || '',
+          ...(stageProject ? { projectId: stageProject } : {}),
+        }),
       })
       const data = await res.json().catch(() => ({}))
       const copy = t.operations.notifications.tasks
@@ -3828,8 +3845,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     cleanLabels.push(targetLabel)
 
     // Stage and internal status are the same six-way split, so the fold needs no
-    // per-project configuration; the server holds the same table.
-    const proj = projects.find(p => p.id === task.projectId) || currentProject
+    // per-project configuration; the server holds the same table. The tracker
+    // status follows the stage mapping of the ticket's tracker in the board's
+    // project, which the server is told (#741).
+    const stageProject = stageProjectOf(task)
+    const proj = projectForTracker(projects.find(p => p.id === (stageProject || task.projectId)) || currentProject, task.trackerId)
     const mappedStatus: Status = INTERNAL_STATUS_BY_STAGE[targetStage] ?? task.status
 
     // Determine target tracker status if project has stageColumns mapping
@@ -3848,6 +3868,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       labels: cleanLabels,
       status: mappedStatus,
       ...(mappedTrackerStatus ? { trackerStatus: mappedTrackerStatus } : {}),
+      ...(stageProject ? { stageProjectId: stageProject } : {}),
     })
 
     if (updated) {

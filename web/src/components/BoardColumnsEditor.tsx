@@ -15,9 +15,11 @@ import { fetchTrackerBoards, fetchTrackerDetectedStatuses, fetchTrackerStatuses,
  * Éditeur des colonnes du board : des colonnes, les statuts du tracker qu'on y dépose,
  * et les étapes du workflow agentique déposées de la même façon.
  *
- * It edits a tracker's board mirror (#741): the columns and their mapping onto
- * the stages are the tracker's, shared by every project selecting it, and only
- * an admin sets them.
+ * It edits a tracker's board mirror (#741): the columns and their default
+ * mapping onto the stages are the tracker's, shared by every project selecting
+ * it, and only an admin sets them, in Administration. A project may map the
+ * stages onto those columns its own way, from its settings (StageColumnsEditor),
+ * which then applies to the tracker's tickets in that project.
  */
 
 const WORKFLOW_STAGES: { id: WorkflowStage; label: string }[] = [

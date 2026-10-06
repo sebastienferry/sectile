@@ -276,7 +276,9 @@ const trackerConfiguration = `"boardId":"9","trackerColumns":[{"name":"Doing","s
 
 // A tracker is configured by an admin (#741, D11): a member's project save
 // that still carries the board, the mapping or the background sync leaves the
-// tracker as it was, and the rest of the save goes through.
+// tracker as it was, and the rest of the save goes through. The mapping it
+// carries is the project's own, and names a column the tracker lacks: it is
+// dropped rather than refused.
 func TestAMemberCannotConfigureATrackerThroughAProject(t *testing.T) {
 	h, database, cleanup := setupTestHandler(t)
 	defer cleanup()
@@ -322,6 +324,65 @@ func TestAMemberCannotConfigureATrackerThroughAProject(t *testing.T) {
 	}
 	if joined.BoardID != before.BoardID || len(joined.TrackerColumns) != len(before.TrackerColumns) || len(joined.IssueTypes) != len(before.IssueTypes) || joined.AutoSyncEnabled != before.AutoSyncEnabled {
 		t.Fatalf("a member configured the tracker their new project joined: %+v", joined)
+	}
+}
+
+// A member maps the workflow stages of their project onto its tracker's
+// columns (#741): the project's mapping changes, the tracker's does not; an
+// unknown column is a 400, and an empty mapping reads the tracker's again.
+func TestAMemberMapsTheStagesOfTheirProjectOntoATrackersColumns(t *testing.T) {
+	h, database, cleanup := setupTestHandler(t)
+	defer cleanup()
+	server := projectServer(t, h)
+	_, _ = account(t, database, "alice@example.com") // the first account is the admin
+	_, bob := account(t, database, "bob@example.com")
+	project, err := database.CreateProject(models.CreateProjectRequest{Name: "Platform", IssueTracker: "jira", JiraProject: "PE"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	trackerID := project.DefaultTrackerID
+	if _, err := database.UpdateTrackerMirror(trackerID, func(trk *models.Tracker) {
+		trk.TrackerColumns = []models.TrackerColumn{{Name: "Doing", Statuses: []string{"In Progress"}}, {Name: "Review", Statuses: []string{"In Review"}}}
+		trk.StageColumns = map[string][]string{"implemented": {"Doing"}}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	read := func(body string) models.Project {
+		t.Helper()
+		var p models.Project
+		if err := json.Unmarshal([]byte(body), &p); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+
+	status, body := call(t, server, bob, http.MethodPut, "/api/projects/"+project.ID, `{"trackerStageColumns":{"`+trackerID+`":{"implemented":["Review"]}}}`)
+	if status != http.StatusOK {
+		t.Fatalf("member mapping save: %d %s", status, body)
+	}
+	if p := read(body); p.StageColumns["implemented"][0] != "Review" || !p.Trackers[0].OwnStageColumns || p.Trackers[0].TrackerStageColumns["implemented"][0] != "Doing" {
+		t.Fatalf("the project must read its own mapping: %+v %+v", p.StageColumns, p.Trackers)
+	}
+	trk, err := database.GetTrackerByID(trackerID)
+	if err != nil || trk == nil || trk.StageColumns["implemented"][0] != "Doing" {
+		t.Fatalf("a member's mapping changed the tracker's: %+v (%v)", trk, err)
+	}
+
+	status, body = call(t, server, bob, http.MethodPut, "/api/projects/"+project.ID, `{"trackerStageColumns":{"`+trackerID+`":{"implemented":["Shipped"]}}}`)
+	if status != http.StatusBadRequest {
+		t.Fatalf("a column the tracker lacks: %d %s", status, body)
+	}
+	status, body = call(t, server, bob, http.MethodPut, "/api/projects/"+project.ID, `{"trackerStageColumns":{"`+trackerID+`":{"deployed":["Review"]}}}`)
+	if status != http.StatusBadRequest {
+		t.Fatalf("an unknown stage: %d %s", status, body)
+	}
+
+	status, body = call(t, server, bob, http.MethodPut, "/api/projects/"+project.ID, `{"trackerStageColumns":{"`+trackerID+`":{}}}`)
+	if status != http.StatusOK {
+		t.Fatalf("member mapping reset: %d %s", status, body)
+	}
+	if p := read(body); p.StageColumns["implemented"][0] != "Doing" || p.Trackers[0].OwnStageColumns {
+		t.Fatalf("a reset must read the tracker's mapping again: %+v %+v", p.StageColumns, p.Trackers)
 	}
 }
 
@@ -552,8 +613,20 @@ func TestAnAdminStillConfiguresTheTrackerThroughAProject(t *testing.T) {
 	if err != nil || after == nil {
 		t.Fatalf("tracker: %+v (%v)", after, err)
 	}
-	if after.BoardID != "9" || len(after.TrackerColumns) != 1 || len(after.StageColumns["implemented"]) != 1 || !after.AutoSyncEnabled || after.AutoSyncIntervalMin != 2 {
+	if after.BoardID != "9" || len(after.TrackerColumns) != 1 || !after.AutoSyncEnabled || after.AutoSyncIntervalMin != 2 {
 		t.Fatalf("the admin's configuration must reach the tracker: %+v", after)
+	}
+	// The stage mapping a project save carries is the project's own, an
+	// admin's included: the tracker's is set in Administration (#741).
+	if len(after.StageColumns) != 0 {
+		t.Fatalf("a project save set the tracker's stage mapping: %+v", after.StageColumns)
+	}
+	var saved models.Project
+	if err := json.Unmarshal([]byte(body), &saved); err != nil {
+		t.Fatal(err)
+	}
+	if len(saved.StageColumns["implemented"]) != 1 || len(saved.Trackers) != 1 || !saved.Trackers[0].OwnStageColumns {
+		t.Fatalf("the admin's mapping must be the project's own: %+v %+v", saved.StageColumns, saved.Trackers)
 	}
 
 	// A creation no longer records a tracker to carry the configuration (#741).

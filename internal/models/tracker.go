@@ -12,8 +12,10 @@ import (
 //
 // It holds the board mirror a project held before: the board, its columns,
 // how those columns map onto the workflow stages, its sprints and the issue
-// types imported, plus the background synchronisation settings. The
-// status→stage mapping is therefore one per tracker.
+// types imported, plus the background synchronisation settings. Its
+// stage→columns mapping is the default: a project selecting it may map the
+// stages onto its columns its own way (ProjectTracker.StageColumns), which then
+// applies to the tracker's tickets read in that project.
 type Tracker struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
@@ -47,9 +49,19 @@ type Tracker struct {
 
 // ProjectTracker is one tracker a project selects its tickets from, by id and
 // by identity, on the pattern of ProjectRepository.
+//
+// The other fields are read, never written through a selection: the tracker's
+// board columns, its own stage→columns mapping, and the mapping that applies to
+// its tickets in the project, the project's own (OwnStageColumns) or else the
+// tracker's. A project's own mapping is written through
+// UpdateProjectRequest.TrackerStageColumns (#741).
 type ProjectTracker struct {
-	TrackerID string `json:"trackerId"`
-	Identity  string `json:"identity"`
+	TrackerID           string              `json:"trackerId"`
+	Identity            string              `json:"identity"`
+	TrackerColumns      []TrackerColumn     `json:"trackerColumns,omitempty"`
+	TrackerStageColumns map[string][]string `json:"trackerStageColumns,omitempty"`
+	StageColumns        map[string][]string `json:"stageColumns,omitempty"`
+	OwnStageColumns     bool                `json:"ownStageColumns,omitempty"`
 }
 
 // TrackerAddress reduces a tracker URL to what tells two sites apart: no

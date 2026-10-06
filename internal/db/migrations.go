@@ -731,6 +731,17 @@ var migrations = []migration{
 			);`,
 		},
 	},
+	{
+		// A project maps the workflow stages onto the columns of each tracker
+		// it selects (#741): '{}' is "no mapping of its own", which reads the
+		// tracker's, the default an admin sets. Nothing is copied: every
+		// existing project keeps reading its trackers' mappings.
+		version: 50,
+		name:    "project_trackers.stage_columns",
+		statements: []string{
+			"ALTER TABLE project_trackers ADD COLUMN stage_columns TEXT NOT NULL DEFAULT '{}';",
+		},
+	},
 }
 
 // migrateSchema brings the database to the schema this binary expects, and is

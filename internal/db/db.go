@@ -1137,9 +1137,17 @@ func (d *DB) ImportOrUpdateTasks(trackerID string, syncedTasks []models.Task) er
 			}
 		}
 
-		// The stage follows the tracker's own board mapping: its columns and the
-		// stage each one is assigned to.
+		// The stage follows the tracker's board: its columns and the stage each
+		// one is assigned to, by the mapping that applies to the ticket (#741,
+		// stagemapping.go): no project is in context for a tracker's
+		// synchronisation, so the single project the ticket belongs to, else
+		// the tracker's own. A project's import has that project in context.
 		if trk != nil && len(trk.TrackerColumns) > 0 {
+			stageContext := ""
+			if trackerID == "" {
+				stageContext = projID
+			}
+			trk := d.withStageMappingUnsafe(trk, stageContext, d.memberProjectIDsUnsafe(trk.ID, t.Labels))
 			stName := strings.TrimSpace(t.TrackerStatus)
 			if stName == "" && len(t.Labels) > 0 {
 				stName = t.Labels[len(t.Labels)-1]
@@ -3161,13 +3169,21 @@ func (d *DB) updateTaskBy(actor Actor, id string, req models.UpdateTaskRequest) 
 		}
 	}
 
-	// Statut du tracker & workflow : alignement bidirectionnel
+	// Statut du tracker & workflow : alignement bidirectionnel, par la
+	// correspondance étapes → colonnes du projet de la requête, sinon de celui
+	// du ticket (#741, stagemapping.go).
+	stageContext := ""
+	if req.StageProjectID != nil {
+		stageContext = *req.StageProjectID
+	} else if req.ProjectID != nil {
+		stageContext = *req.ProjectID
+	}
 	if explicitStage != "" {
 		existing.Labels = SetWorkflowLabel(existing.Labels, "#"+explicitStage)
 		if internal, ok := InternalStatusForStage(explicitStage); ok && req.Status == nil {
 			existing.Status = internal
 		}
-		if trk := d.trackerOfTaskUnsafe(existing); trk != nil {
+		if trk := d.stageTrackerOfTaskUnsafe(existing, stageContext); trk != nil {
 			if target := TrackerStatusForStage(trk, explicitStage); target != "" {
 				existing.TrackerStatus = target
 			}
@@ -3175,7 +3191,7 @@ func (d *DB) updateTaskBy(actor Actor, id string, req models.UpdateTaskRequest) 
 	} else if req.TrackerStatus != nil {
 		trimmedStatus := strings.TrimSpace(*req.TrackerStatus)
 		existing.TrackerStatus = trimmedStatus
-		if trk := d.trackerOfTaskUnsafe(existing); trk != nil && trimmedStatus != "" {
+		if trk := d.stageTrackerOfTaskUnsafe(existing, stageContext); trk != nil && trimmedStatus != "" {
 			if stage := StageForTrackerStatus(trk, trimmedStatus); stage != "" {
 				existing.Labels = SetWorkflowLabel(existing.Labels, "#"+stage)
 				if internal, ok := InternalStatusForStage(stage); ok && req.Status == nil {
@@ -3184,7 +3200,7 @@ func (d *DB) updateTaskBy(actor Actor, id string, req models.UpdateTaskRequest) 
 			}
 		}
 	} else if req.Labels != nil {
-		if trk := d.trackerOfTaskUnsafe(existing); trk != nil {
+		if trk := d.stageTrackerOfTaskUnsafe(existing, stageContext); trk != nil {
 			for _, l := range existing.Labels {
 				stage := strings.ToLower(strings.TrimPrefix(l, "#"))
 				if _, isStage := stageToInternalStatus[stage]; !isStage {
@@ -3207,7 +3223,7 @@ func (d *DB) updateTaskBy(actor Actor, id string, req models.UpdateTaskRequest) 
 	if explicitStage == "finished" || explicitStage == "closed" || strings.EqualFold(existing.TrackerStatus, "Done") || strings.EqualFold(existing.TrackerStatus, "Closed") || strings.EqualFold(existing.TrackerStatus, "Terminé") || existing.Status == models.StatusFinished || existing.Status == models.StatusDone || string(existing.Status) == "closed" {
 		existing.Status = models.StatusFinished
 		existing.Labels = SetWorkflowLabel(existing.Labels, "#finished")
-		if trk := d.trackerOfTaskUnsafe(existing); trk != nil {
+		if trk := d.stageTrackerOfTaskUnsafe(existing, stageContext); trk != nil {
 			if target := TrackerStatusForStage(trk, "finished"); target != "" {
 				existing.TrackerStatus = target
 			}
@@ -7553,6 +7569,11 @@ func (d *DB) UpdateProjectAs(actingUserID string, id string, req models.UpdatePr
 	}
 	if err == nil {
 		err = d.applyProjectSelectionUnsafe(tx, p, req.Trackers, req.Label, req.DefaultTrackerID)
+	}
+	if err == nil {
+		// The project's own stage mappings, once its trackers are selected:
+		// never its trackers' (#741).
+		err = d.applyProjectStageColumnsUnsafe(tx, p, req)
 	}
 	if err == nil && req.Trackers == nil && req.Label == nil {
 		var trackersAfter string

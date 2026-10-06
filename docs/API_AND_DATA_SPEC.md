@@ -169,7 +169,7 @@ CREATE TABLE IF NOT EXISTS trackers (
     identity TEXT NOT NULL UNIQUE,           -- derived from provider, resolved site and scope
     board_id TEXT NOT NULL DEFAULT '',
     tracker_columns TEXT NOT NULL DEFAULT '[]',
-    stage_columns TEXT NOT NULL DEFAULT '{}', -- the status-to-stage mapping, one per tracker
+    stage_columns TEXT NOT NULL DEFAULT '{}', -- the default status-to-stage mapping, an admin's
     sprints TEXT NOT NULL DEFAULT '[]',
     issue_types TEXT NOT NULL DEFAULT '[]',
     auto_sync_enabled INTEGER NOT NULL DEFAULT 0,
@@ -183,6 +183,9 @@ CREATE TABLE IF NOT EXISTS project_trackers (
     project_id TEXT NOT NULL,
     tracker_id TEXT NOT NULL,
     position INTEGER NOT NULL DEFAULT 0,
+    -- The project's own stage -> columns mapping for the tracker (migration 50);
+    -- '{}' reads the tracker's stage_columns.
+    stage_columns TEXT NOT NULL DEFAULT '{}',
     PRIMARY KEY (project_id, tracker_id)
 );
 CREATE INDEX IF NOT EXISTS idx_project_trackers_tracker ON project_trackers (tracker_id);
@@ -378,12 +381,35 @@ code remote (`gitRemoteUrl`) names no tracker: no GitHub repository is derived
 from it.
 
 The tracker fields a project still returns (`issueTracker`, `boardId`,
-`trackerColumns`, `stageColumns`, `sprints`, `issueTypes`, `autoSync*`, …) are
-read from its default tracker. A tracker is configured by an admin (2.3.0.3): a
-member's creation or update carrying `boardId`, `trackerColumns`,
-`stageColumns`, `issueTypes`, `autoSyncEnabled` or `autoSyncIntervalMin` is
-saved without them, and answers as if they were not sent. An admin's still
-writes them to the project's default tracker. `sprints` stays a member's.
+`trackerColumns`, `sprints`, `issueTypes`, `autoSync*`, …) are read from its
+default tracker; `stageColumns` is the mapping that applies to that tracker's
+tickets in the project, the project's own else the tracker's. Each entry of
+`trackers` also returns, read only, the tracker's `trackerColumns`, its own
+mapping `trackerStageColumns`, the mapping that applies in the project
+`stageColumns`, and `ownStageColumns` when that one is the project's. A tracker
+is configured by an admin (2.3.0.3): a member's creation or update carrying
+`boardId`, `trackerColumns`, `issueTypes`, `autoSyncEnabled` or
+`autoSyncIntervalMin` is saved without them, and answers as if they were not
+sent. An admin's still writes them to the project's default tracker. `sprints`
+stays a member's.
+
+The stage mapping is the project's own, per tracker (#741, ADR 0054), and a
+member's to write as an admin's. An update may carry `trackerStageColumns:
+{trackerId: {stage: [column]}}`: each tracker named gets that mapping, an empty
+one going back to the tracker's, a tracker left out keeping its own. A stage
+outside the six workflow stages, a column the tracker does not have or a
+tracker the project does not select is refused with `400`. The legacy
+`stageColumns` sets the default tracker's, leniently: the stages and columns the
+tracker lacks are dropped, and a mapping then empty or equal to the tracker's
+keeps the tracker's. Neither ever changes the tracker's own mapping.
+
+Which mapping a ticket's stage follows is ADR 0054's rule: the project in
+context when it selects the ticket's tracker, else the ticket's single project,
+else the tracker's. A stage or column move names its context:
+`POST /api/tasks/{id}/stage` and `POST /api/tasks/{id}/tracker-status` take an
+optional `projectId`, and `PUT /api/tasks/{id}` an optional `stageProjectId`,
+which, unlike `projectId`, moves nothing. The web sends the board's project when
+the ticket belongs to it.
 
 ### 2.3.0 Current Account API
 
@@ -460,9 +486,10 @@ and the view's own labels narrow it further.
 A tracker is one server-side source of tickets (#741, ADR 0054): a Jira space,
 a GitHub repository, a GitLab project, or the local board of one project. It is
 synchronised in full whatever projects exist, holds the board mirror (board,
-columns, status-to-stage mapping, sprints, issue types) and the background sync
-settings, and projects select their tickets from it (2.3). A local board is
-its project's own: no route below lists it.
+columns, default status-to-stage mapping, sprints, issue types) and the
+background sync settings, and projects select their tickets from it (2.3). A
+project may map the stages onto the tracker's columns its own way (2.3). A
+local board is its project's own: no route below lists it.
 
 **Member routes.** Any signed-in account. A member reaches a tracker's routes
 when at least one project selects it (every member sees every project); an
@@ -470,7 +497,7 @@ admin always does.
 
 | Method | Path | Body | Description |
 | :--- | :--- | :--- | :--- |
-| `GET` | `/api/trackers` | (none) | The trackers to pick from: `[{id, name, provider, site, scope, identity}]`, without the board mirror. |
+| `GET` | `/api/trackers` | (none) | The trackers to pick from: `[{id, name, provider, site, scope, identity, trackerColumns?, stageColumns?}]`, with, read only and for a tracker a project selects (any tracker for an admin), the columns a project maps its stages onto and the tracker's own mapping; the rest of the board mirror is left out. |
 | `POST` | `/api/trackers/{id}/sync` | (none) | Queues a synchronisation of the tracker: `202 {queued, activity}`. |
 | `GET` | `/api/trackers/{id}/backlog` | (none) | The tracker's tickets that no project shows. Empty while a project without label selects the tracker. |
 | `POST` | `/api/trackers/{id}/backlog/{taskId}/project` | `{projectId}` | Gives the ticket the project's label: the ticket joins the project at once, and the label write on the tracker is queued with the caller's own credential. `200 {task, activity}`; `404` when the ticket is not one of the tracker's; `409` when the project does not select the tracker or has no label. |
@@ -577,7 +604,8 @@ names its tracker (`trackerId`) and stays attached to the project. The
 background loop reads every tracker whose `autoSyncEnabled` is on, at its own
 `autoSyncIntervalMin`, and keeps its pacing in `auto_sync_trackers`, so several
 server instances still queue one pass per due tracker. The status-to-stage
-mapping a sync applies is the tracker's.
+mapping a sync applies to a ticket is that of the single project the ticket
+belongs to, else the tracker's (ADR 0054).
 
 ### 2.5 Spec-Driven Design Toolchain API
 

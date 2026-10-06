@@ -29,7 +29,14 @@ func (d *DB) TransitionTaskStageBy(actorID string, taskIDOrKey string, targetSta
 // carry one pull request per repository it changed (#456). The first link is
 // the one prUrl names; the others follow in any order.
 func (d *DB) TransitionTaskStageWithPRs(actorID string, taskIDOrKey string, targetStage string, note string, prURLs []string, branch string) (*models.Task, *models.TaskActivity, error) {
-	return d.transitionTaskStage(actorID, taskIDOrKey, targetStage, note, prURLs, branch, false)
+	return d.transitionTaskStage(actorID, "", taskIDOrKey, targetStage, note, prURLs, branch, false)
+}
+
+// TransitionTaskStageIn is TransitionTaskStageBy made from a project's board:
+// the tracker status the stage lands on is read through that project's stage
+// mapping when it selects the ticket's tracker (#741, stagemapping.go).
+func (d *DB) TransitionTaskStageIn(actorID string, projectID string, taskIDOrKey string, targetStage string, note string, prURL string, branch string) (*models.Task, *models.TaskActivity, error) {
+	return d.transitionTaskStage(actorID, projectID, taskIDOrKey, targetStage, note, []string{prURL}, branch, false)
 }
 
 // TransitionTaskStageWithoutRepositoryChange is TransitionTaskStageBy for a
@@ -38,10 +45,10 @@ func (d *DB) TransitionTaskStageWithPRs(actorID string, taskIDOrKey string, targ
 // otherwise require, and the report says that none was expected. It is refused
 // when the task shows that it did change a repository.
 func (d *DB) TransitionTaskStageWithoutRepositoryChange(actorID string, taskIDOrKey string, targetStage string, note string, branch string) (*models.Task, *models.TaskActivity, error) {
-	return d.transitionTaskStage(actorID, taskIDOrKey, targetStage, note, nil, branch, true)
+	return d.transitionTaskStage(actorID, "", taskIDOrKey, targetStage, note, nil, branch, true)
 }
 
-func (d *DB) transitionTaskStage(actorID string, taskIDOrKey string, targetStage string, note string, prURLs []string, branch string, noRepositoryChange bool) (*models.Task, *models.TaskActivity, error) {
+func (d *DB) transitionTaskStage(actorID string, projectID string, taskIDOrKey string, targetStage string, note string, prURLs []string, branch string, noRepositoryChange bool) (*models.Task, *models.TaskActivity, error) {
 	prURL := ""
 	if len(prURLs) > 0 {
 		prURL = prURLs[0]
@@ -55,6 +62,9 @@ func (d *DB) transitionTaskStage(actorID string, taskIDOrKey string, targetStage
 	task, err := d.GetTaskByID(taskIDOrKey)
 	if err != nil || task == nil {
 		return nil, nil, fmt.Errorf("tâche %q non trouvée", taskIDOrKey)
+	}
+	if projectID = strings.TrimSpace(projectID); projectID != "" {
+		task.ContextProjectID = projectID
 	}
 	d.mu.RLock()
 	running, runErr := d.managedStageRunningUnsafe(task.ID)
@@ -115,7 +125,9 @@ func (d *DB) transitionTaskStage(actorID string, taskIDOrKey string, targetStage
 	if d.StageOfTask(task) == "implemented" && cleanStage == "specified" {
 		cleanStage = "implemented"
 	}
-	trk := d.trackerOfTaskUnsafe(task)
+	// The ticket's tracker, carrying the stage mapping that applies to it: the
+	// one of the project the move is made for (#741, stagemapping.go).
+	trk := d.stageTrackerOfTaskUnsafe(task, "")
 	trackerID := ""
 	if trk != nil {
 		trackerID = trk.ID

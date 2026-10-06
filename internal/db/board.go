@@ -244,6 +244,13 @@ func githubRepoStatuses(client *trackerapi.Client, githubRepo string) []string {
 // readable instead of being lost in an expired request. The returned task is the
 // local state, the returned activity is the transition to follow.
 func (d *DB) MoveTaskToTrackerStatus(ctx context.Context, taskIDOrKey string, statusName string) (*models.Task, *models.TaskActivity, error) {
+	return d.MoveTaskToTrackerStatusIn(ctx, taskIDOrKey, statusName, "")
+}
+
+// MoveTaskToTrackerStatusIn is MoveTaskToTrackerStatus made from a project's
+// board: the stage the status gives is read through that project's stage
+// mapping when it selects the ticket's tracker (#741, stagemapping.go).
+func (d *DB) MoveTaskToTrackerStatusIn(ctx context.Context, taskIDOrKey string, statusName string, projectID string) (*models.Task, *models.TaskActivity, error) {
 	statusName = strings.TrimSpace(statusName)
 	if statusName == "" {
 		return nil, nil, fmt.Errorf("statut cible manquant")
@@ -253,10 +260,13 @@ func (d *DB) MoveTaskToTrackerStatus(ctx context.Context, taskIDOrKey string, st
 	if err != nil || task == nil {
 		return nil, nil, fmt.Errorf("tâche non trouvée")
 	}
+	if projectID = strings.TrimSpace(projectID); projectID != "" {
+		task.ContextProjectID = projectID
+	}
 
-	// Determine workflow stage for this status/column, through the mapping of
-	// the ticket's tracker (#741).
-	trk := d.trackerOfTaskUnsafe(task)
+	// Determine workflow stage for this status/column, through the stage
+	// mapping that applies to the ticket (#741, stagemapping.go).
+	trk := d.stageTrackerOfTaskUnsafe(task, "")
 	targetStage := StageForTrackerStatus(trk, statusName)
 	if targetStage == "" {
 		targetStage = GetStageLabelForStatus(models.Status(statusName))
@@ -507,7 +517,8 @@ var workflowStageOrder = []string{"new", "clarified", "specified", "implemented"
 // StageForTrackerStatus returns the workflow stage a tracker status belongs to,
 // through the column that groups it on the tracker's board (#741). Empty when
 // the tracker has no mapping for it, in which case the caller keeps whatever
-// it had.
+// it had. trk carries the stage mapping that applies (withStageMappingUnsafe):
+// a project's own or the tracker's.
 func StageForTrackerStatus(trk *models.Tracker, trackerStatus string) string {
 	trackerStatus = strings.ToLower(strings.TrimSpace(trackerStatus))
 	if trk == nil || trackerStatus == "" {
@@ -559,7 +570,8 @@ func StageForTrackerStatus(trk *models.Tracker, trackerStatus string) string {
 
 // TrackerStatusForStage returns the tracker status a workflow stage lands on:
 // the first status of the first column that stage is assigned to on the
-// tracker's board (#741).
+// tracker's board (#741), by the stage mapping trk carries, as for
+// StageForTrackerStatus.
 func TrackerStatusForStage(trk *models.Tracker, stage string) string {
 	stage = strings.ToLower(strings.TrimPrefix(strings.TrimSpace(stage), "#"))
 	if trk == nil || stage == "" {
@@ -609,8 +621,9 @@ func (d *DB) StageOfTask(task *models.Task) string {
 		}
 	}
 
-	// 2. The board column of the ticket's tracker when no label says (#741).
-	trk := d.trackerOfTaskUnsafe(task)
+	// 2. The board column of the ticket's tracker when no label says, through
+	// the stage mapping that applies to the ticket (#741).
+	trk := d.stageTrackerOfTaskUnsafe(task, "")
 	if stage := StageForTrackerStatus(trk, task.TrackerStatus); stage != "" {
 		return stage
 	}

@@ -61,8 +61,10 @@ import { DEFAULT_EPIC_AXIS_PREFIXES, cleanEpicAxisPrefix, epicAxisPrefixProblem,
 import { declaredRepositories, droppedRepositoryPaths, duplicateRepository, repositoryIdentity } from '../lib/repositories'
 import { BRANCH_NAME_PRESETS, BRANCH_NAME_SAMPLE, checkBranchNameFormat } from '../lib/branchNameFormat'
 import { DEFAULT_FULL_CHAIN_STOP_STAGE } from '../lib/workflow'
+import { ownStageMappings, stageMappingPayload, type OwnStageMappings } from '../lib/stageMapping'
 import PriorityMappingTable from './PriorityMappingTable'
 import EpicAxisFieldsEditor from './EpicAxisFieldsEditor'
+import { StageColumnsEditor } from './StageColumnsEditor'
 
 type ProjectTab = 'general' | 'tracker' | 'workflow' | 'skills'
 
@@ -200,6 +202,9 @@ export const ProjectModal: React.FC = () => {
   const [selectedTrackers, setSelectedTrackers] = useState<string[]>([])
   const [defaultTrackerId, setDefaultTrackerId] = useState('')
   const [label, setLabel] = useState('')
+  // The project's own stage mapping per tracker (#741), null for the
+  // tracker's: a member's to set as well as an admin's.
+  const [stageMappings, setStageMappings] = useState<OwnStageMappings>({})
 
   // A project on a remote tracker without access imports nothing: the
   // person's credentials are read to say so once the project is saved.
@@ -259,6 +264,7 @@ export const ProjectModal: React.FC = () => {
       setSelectedTrackers(selectedTrackerIds(editingProject.trackers))
       setDefaultTrackerId(editingProject.defaultTrackerId || '')
       setLabel(editingProject.label || '')
+      setStageMappings(ownStageMappings(editingProject.trackers))
       setGithubApiUrl(editingProject.githubApiUrl || '')
       setGitlabUrl(editingProject.gitlabUrl || '')
       setRoadmapProjects(formatProjectKeyList(editingProject.roadmapProjects))
@@ -296,6 +302,7 @@ export const ProjectModal: React.FC = () => {
       setSelectedTrackers([])
       setDefaultTrackerId('')
       setLabel('')
+      setStageMappings({})
       setGithubApiUrl('')
       setGitlabUrl('')
       setRoadmapProjects('')
@@ -419,6 +426,11 @@ export const ProjectModal: React.FC = () => {
       }
       const savedRepositories = pending ? [...repositories, pending] : repositories
       const selection = projectSelectionPayload(selectedTrackers, defaultTrackerId, label, trackerChoices, editingProject?.trackers)
+      // The project's own stage mappings that changed (#741); a new project
+      // has none yet.
+      const trackerStageColumns = editingProject
+        ? stageMappingPayload(stageMappings, ownStageMappings(editingProject.trackers), selectedTrackers)
+        : undefined
       // The priority mapping (#679) and the epic axis fields (#680) stay on
       // the project, read from its default tracker's Jira space, so only a
       // saved Jira project sends them.
@@ -441,9 +453,11 @@ export const ProjectModal: React.FC = () => {
         specFramework,
         specArtifacts: dropSpecArtifacts ? 'drop' as const : 'keep' as const,
         // The trackers, the default and the label (#741). The tracker's own
-        // fields (board, columns, mapping, issue types, auto-sync) are an
-        // admin's, on the tracker, so the project's save does not send them (D11).
+        // fields (board, columns, default mapping, issue types, auto-sync) are
+        // an admin's, on the tracker, so the project's save does not send them
+        // (D11); the project's own stage mapping per tracker it does.
         ...selection,
+        ...(trackerStageColumns ? { trackerStageColumns } : {}),
         githubApiUrl: githubApiUrl.trim(),
         gitlabUrl: gitlabUrl.trim(),
         roadmapProjects: selectsJira ? parseProjectKeyList(roadmapProjects, jiraKey) : [],
@@ -1299,10 +1313,44 @@ export const ProjectModal: React.FC = () => {
                 <PriorityMappingTable projectId={editingProject.id} mapping={priorityMapping} onChange={setPriorityMapping} />
               )}
 
-              {/* D11: the mapping editor belongs to the tracker now. */}
+              {/* The project's own mapping of the stages onto each of its
+                  trackers' columns (#741), a member's to set; the columns
+                  and the tracker's default mapping stay an admin's (D11). */}
+              {selectedTrackers.length > 0 && (
+                <div data-project-stage-mappings>
+                  <span className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
+                    {ps.tracker.stageMappingTitle}
+                  </span>
+                  <p className="text-[10px] text-[var(--text-muted)] mb-2">{ps.tracker.stageMappingHelp}</p>
+                  {editingProject ? (
+                    <div className="space-y-2">
+                      {selectedTrackers.map(id => {
+                        const ref = editingProject.trackers?.find(item => item.trackerId === id)
+                        const summary = trackerSummaries.find(item => item.id === id)
+                        const option = trackerChoices.find(item => item.id === id)
+                        return (
+                          <StageColumnsEditor
+                            key={id}
+                            trackerId={id}
+                            trackerName={option ? trackerChoiceLabel(option) : id}
+                            columns={ref?.trackerColumns || summary?.trackerColumns || []}
+                            inherited={ref?.trackerStageColumns || summary?.stageColumns}
+                            own={stageMappings[id] ?? null}
+                            onChange={own => setStageMappings(prev => ({ ...prev, [id]: own }))}
+                          />
+                        )
+                      })}
+                    </div>
+                  ) : (
+                    <p className="text-[10px] text-[var(--text-muted)]">{ps.tracker.stageMappingAfterCreate}</p>
+                  )}
+                </div>
+              )}
+
+              {/* D11: the board itself belongs to the tracker. */}
               <div className="p-3 rounded-xl bg-[var(--bg-tertiary)]/50 border border-[var(--border-color)] flex items-start gap-2 text-[11px] text-[var(--text-muted)] leading-relaxed">
                 <Info size={13} className="text-[var(--accent-color)] shrink-0 mt-0.5" />
-                <span>{ps.tracker.adminOnlyMapping}</span>
+                <span>{ps.tracker.adminOnlyBoard}</span>
               </div>
             </div>
           )}

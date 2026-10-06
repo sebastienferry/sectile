@@ -1770,6 +1770,9 @@ func (h *Handler) HandleTasks(w http.ResponseWriter, r *http.Request) {
 			Comment string `json:"comment"`
 			PrURL   string `json:"prUrl"`
 			Branch  string `json:"branch"`
+			// ProjectID is the project the move is made from, whose stage
+			// mapping applies (#741).
+			ProjectID string `json:"projectId"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			writeError(w, http.StatusBadRequest, "Invalid payload: "+err.Error())
@@ -1801,7 +1804,7 @@ func (h *Handler) HandleTasks(w http.ResponseWriter, r *http.Request) {
 		if note == "" {
 			note = req.Comment
 		}
-		task, act, err := h.db.TransitionTaskStageBy(h.webSessionUser(r), targetID, stage, note, req.PrURL, req.Branch)
+		task, act, err := h.db.TransitionTaskStageIn(h.webSessionUser(r), req.ProjectID, targetID, stage, note, req.PrURL, req.Branch)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
@@ -2854,6 +2857,9 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 			Comment string `json:"comment"`
 			PrURL   string `json:"prUrl"`
 			Branch  string `json:"branch"`
+			// ProjectID is the project the move is made from, whose stage
+			// mapping applies (#741).
+			ProjectID string `json:"projectId"`
 		}
 		_ = json.NewDecoder(r.Body).Decode(&req)
 		targetID := id
@@ -2897,7 +2903,7 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 		if note == "" {
 			note = req.Comment
 		}
-		task, act, err := h.db.TransitionTaskStageBy(h.webSessionUser(r), targetID, stage, note, req.PrURL, req.Branch)
+		task, act, err := h.db.TransitionTaskStageIn(h.webSessionUser(r), req.ProjectID, targetID, stage, note, req.PrURL, req.Branch)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
@@ -3095,12 +3101,15 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 	if subAction == "tracker-status" && (r.Method == http.MethodPost || r.Method == http.MethodPut) {
 		var req struct {
 			Status string `json:"status"`
+			// ProjectID is the board's project, whose stage mapping
+			// applies (#741).
+			ProjectID string `json:"projectId"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			writeError(w, http.StatusBadRequest, "Invalid payload: "+err.Error())
 			return
 		}
-		task, activity, err := h.db.MoveTaskToTrackerStatus(h.actingContext(r), id, req.Status)
+		task, activity, err := h.db.MoveTaskToTrackerStatusIn(h.actingContext(r), id, req.Status, req.ProjectID)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
@@ -4258,7 +4267,7 @@ func repositoryErrorStatus(err error) int {
 	if errors.Is(err, db.ErrDuplicateRepository) || errors.Is(err, db.ErrRepositoryNotInProject) || errors.Is(err, db.ErrInvalidSpecArtifacts) || errors.Is(err, db.ErrInvalidBranchNameFormat) || errors.Is(err, db.ErrInvalidEpicAxisPrefix) || errors.Is(err, db.ErrInvalidPriorityMapping) || errors.Is(err, db.ErrInvalidEpicAxisFields) {
 		return http.StatusBadRequest
 	}
-	if errors.Is(err, db.ErrUnknownTracker) || errors.Is(err, db.ErrForeignLocalTracker) || errors.Is(err, db.ErrInvalidProjectLabel) {
+	if errors.Is(err, db.ErrUnknownTracker) || errors.Is(err, db.ErrForeignLocalTracker) || errors.Is(err, db.ErrInvalidProjectLabel) || errors.Is(err, db.ErrInvalidStageColumns) {
 		return http.StatusBadRequest
 	}
 	if errors.Is(err, db.ErrTaskKeyAmbiguous) {

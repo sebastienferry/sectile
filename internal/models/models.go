@@ -199,7 +199,10 @@ type Project struct {
 	// Sprints mirrors the board's sprints with their state, refreshed by the sync.
 	Sprints []TrackerSprint `json:"sprints,omitempty"`
 	// StageColumns assigns each agentic workflow stage to one or several of those
-	// columns, which is what decides the skill proposed on a card.
+	// columns, which is what decides the skill proposed on a card. Read, it is
+	// the mapping that applies to the default tracker's tickets in this
+	// project: the project's own, else the tracker's (#741). Each tracker's is
+	// in Trackers.
 	StageColumns map[string][]string `json:"stageColumns,omitempty"`
 	GitRemoteUrl string              `json:"gitRemoteUrl"` // e.g. "git@github.com:owner/repo.git"
 	GithubRepo   string              `json:"githubRepo"`   // e.g. "owner/repo"
@@ -605,9 +608,21 @@ type UpdateProjectRequest struct {
 	Trackers         *[]ProjectTracker `json:"trackers,omitempty"`
 	Label            *string           `json:"label,omitempty"`
 	DefaultTrackerID *string           `json:"defaultTrackerId,omitempty"`
+	// TrackerStageColumns sets the project's own stage→columns mapping for the
+	// trackers it selects, by tracker id (#741): an empty mapping goes back to
+	// the tracker's, a tracker left out keeps what it had, and an unknown
+	// stage, a column the tracker does not have or a tracker the project does
+	// not select is ErrInvalidStageColumns. StageColumns, the form an older
+	// client sends, sets the default tracker's leniently: the stages and
+	// columns the tracker lacks are dropped, and a mapping then empty, or equal
+	// to the tracker's, keeps the tracker's. Neither writes the tracker's own.
+	TrackerStageColumns *StageMappings `json:"trackerStageColumns,omitempty"`
 	// JoinTrackerOnly: see CreateProjectRequest.
 	JoinTrackerOnly bool `json:"-"`
 }
+
+// StageMappings is a stage→columns mapping per tracker, by tracker id (#741).
+type StageMappings map[string]map[string][]string
 
 // NormalizeAutoSyncIntervalMin clamps the project background sync interval between 1 and 30 minutes (default 5).
 func NormalizeAutoSyncIntervalMin(min int) int {
@@ -935,6 +950,11 @@ type Task struct {
 	// ProjectIDs are the projects the ticket belongs to: those selecting its
 	// tracker whose label it carries, or which have no label.
 	ProjectIDs []string `json:"projectIds"`
+	// ContextProjectID is the project the ticket was read for, when one was:
+	// the project a listing is scoped to, or the one its run works for. Unlike
+	// ProjectID it stays empty for a ticket that merely belongs to several
+	// projects. Never sent: it decides whose stage mapping applies (#741).
+	ContextProjectID string `json:"-"`
 	// TrackerID is the tracker the ticket belongs to (#741): one issue per
 	// remote ticket, whatever projects show it.
 	TrackerID      string   `json:"trackerId"`
@@ -1263,6 +1283,10 @@ type UpdateTaskRequest struct {
 	Source        *string            `json:"source,omitempty"`
 	ExternalURL   *string            `json:"externalUrl,omitempty"`
 	IssueType     *string            `json:"issueType,omitempty"`
+	// StageProjectID is the project a stage or tracker status change is made
+	// from, such as the board's (#741): its stage mapping applies when it
+	// selects the ticket's tracker. Unlike ProjectID it moves nothing.
+	StageProjectID *string `json:"stageProjectId,omitempty"`
 }
 
 type Skill struct {

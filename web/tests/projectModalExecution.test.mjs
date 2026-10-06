@@ -32,8 +32,10 @@ test('no save carries an execution setting', () => {
 })
 
 // The project selects trackers and a label (#741); the tracker's own settings
-// (board, columns, mapping, issue types, background sync) are an admin's, on
-// the tracker (D11), so no save of the project carries them.
+// (board, columns, default mapping, issue types, background sync) are an
+// admin's, on the tracker (D11), so no save of the project carries them. The
+// project's own stage mapping per tracker travels as trackerStageColumns, never
+// as the legacy stageColumns.
 const LEGACY_TRACKER_KEYS = [
   'issueTracker',
   'trackerUrl',
@@ -48,10 +50,11 @@ const LEGACY_TRACKER_KEYS = [
   'autoSyncIntervalMin',
 ]
 
-test('the project payload carries its trackers and label, never the tracker settings', () => {
+test('the project payload carries its trackers, label and own stage mappings, never the tracker settings', () => {
   const payload = modal.match(/const payload = \{[\s\S]*?\n {6}\}/)
   assert.ok(payload, 'the project payload is still built in one place')
   assert.match(payload[0], /\.\.\.selection/, 'the payload carries the tracker selection')
+  assert.match(payload[0], /trackerStageColumns/, "the payload carries the project's own stage mappings")
   for (const key of LEGACY_TRACKER_KEYS) {
     assert.doesNotMatch(payload[0], new RegExp(`\\b${key}\\b`), `the project payload carries ${key}`)
   }

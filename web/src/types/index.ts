@@ -435,7 +435,12 @@ export interface Project {
    * Le projet tient dans un seul dépôt. La branche courante, son sélecteur et la
    * branche affichée sur une carte n'ont de sens que dans ce cas.
    */
-  /** Étape du workflow agentique -> colonnes concernées (une ou plusieurs). */
+  /**
+   * Étape du workflow agentique -> colonnes concernées (une ou plusieurs) : la
+   * correspondance qui s'applique au tracker par défaut dans ce projet, la
+   * sienne sinon celle du tracker (#741). Celle de chaque tracker est dans
+   * `trackers`.
+   */
   stageColumns?: Record<string, string[]>
   gitRemoteUrl?: string
   /**
@@ -489,10 +494,19 @@ export interface Project {
   updatedAt: string
 }
 
-/** One tracker a project selects, by id and identity (#741). */
+/**
+ * One tracker a project selects, by id and identity (#741). The other fields
+ * are read only: the tracker's columns, its own stage mapping, and the one that
+ * applies in the project, the project's own when `ownStageColumns`, else the
+ * tracker's.
+ */
 export interface ProjectTrackerRef {
   trackerId: string
   identity: string
+  trackerColumns?: TrackerColumn[]
+  trackerStageColumns?: Record<string, string[]>
+  stageColumns?: Record<string, string[]>
+  ownStageColumns?: boolean
 }
 
 /** The providers a tracker can be recorded on (#741); local boards are each project's own. */
@@ -508,6 +522,10 @@ export interface TrackerSummary {
   /** A Jira key, a GitHub owner/repo or a GitLab project path. */
   scope: string
   identity: string
+  /** Its board columns, read only: a project maps its stages onto them (#741). */
+  trackerColumns?: TrackerColumn[]
+  /** Its own stage mapping, the default a project falls back on (#741). */
+  stageColumns?: Record<string, string[]>
 }
 
 /**
@@ -536,6 +554,12 @@ export interface Tracker extends TrackerSummary {
 export type ProjectSavePayload = Omit<Partial<Project>, 'repositories'> & {
   /** Remote URLs of the full declared list; the code remote may be included or not. */
   repositories?: string[]
+  /**
+   * The project's own stage mapping per tracker it selects, by tracker id
+   * (#741): an empty mapping goes back to the tracker's, a tracker left out
+   * keeps what it had.
+   */
+  trackerStageColumns?: Record<string, Record<string, string[]>>
 }
 
 /** One repository of a project: its remote URL and its host/path identity. */

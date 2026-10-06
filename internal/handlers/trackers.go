@@ -15,22 +15,29 @@ import (
 const TrackersPath = "/api/trackers"
 
 // AdminTrackersPath is where an admin records and configures the trackers:
-// their source, board, column mapping, issue types and auto-sync (#741, D11).
+// their source, board, columns, default stage mapping, issue types and
+// auto-sync (#741, D11). A project's own stage mapping is saved with the
+// project, by a member as by an admin.
 const AdminTrackersPath = "/api/admin/trackers"
 
-// trackerSummary is what a member sees of a tracker: enough to pick it.
+// trackerSummary is what a member sees of a tracker: enough to pick it, and,
+// read only, once a project selects it, its board columns and its own stage
+// mapping, which a project's settings map its stages onto and fall back on
+// (#741).
 type trackerSummary struct {
-	ID       string `json:"id"`
-	Name     string `json:"name"`
-	Provider string `json:"provider"`
-	Site     string `json:"site"`
-	Scope    string `json:"scope"`
-	Identity string `json:"identity"`
+	ID             string                 `json:"id"`
+	Name           string                 `json:"name"`
+	Provider       string                 `json:"provider"`
+	Site           string                 `json:"site"`
+	Scope          string                 `json:"scope"`
+	Identity       string                 `json:"identity"`
+	TrackerColumns []models.TrackerColumn `json:"trackerColumns,omitempty"`
+	StageColumns   map[string][]string    `json:"stageColumns,omitempty"`
 }
 
 // HandleTrackers serves the member routes:
 //
-//	GET  /api/trackers                                   the trackers to pick from
+//	GET  /api/trackers                                   the trackers to pick from, with their columns
 //	POST /api/trackers/{id}/sync                         a synchronisation of the tracker
 //	GET  /api/trackers/{id}/backlog                      its tickets in no project
 //	POST /api/trackers/{id}/backlog/{taskId}/project     {projectId}: label one into a project
@@ -59,7 +66,13 @@ func (h *Handler) HandleTrackers(w http.ResponseWriter, r *http.Request) {
 			if t.Provider == "local" {
 				continue
 			}
-			list = append(list, trackerSummary{ID: t.ID, Name: t.Name, Provider: t.Provider, Site: t.Site, Scope: t.Scope, Identity: t.Identity})
+			summary := trackerSummary{ID: t.ID, Name: t.Name, Provider: t.Provider, Site: t.Site, Scope: t.Scope, Identity: t.Identity}
+			// The columns, as the tracker's other member routes, once a
+			// project selects it (#741).
+			if caller.IsAdmin() || h.db.TrackerHasProjects(t.ID) {
+				summary.TrackerColumns, summary.StageColumns = t.TrackerColumns, t.StageColumns
+			}
+			list = append(list, summary)
 		}
 		writeJSON(w, http.StatusOK, list)
 		return
