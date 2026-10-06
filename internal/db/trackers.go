@@ -822,6 +822,11 @@ var ErrUnknownTracker = errors.New("tracker inconnu")
 // board.
 var ErrForeignLocalTracker = errors.New("le tableau local d'un autre projet ne peut pas être sélectionné")
 
+// ErrInvalidProjectLabel refuses a project label its trackers cannot carry: a
+// label with a space, when one of the project's trackers is Jira. Adding a
+// ticket to the project would write it on Jira, which refuses it.
+var ErrInvalidProjectLabel = errors.New("le label d'un projet sur Jira ne peut pas contenir d'espace")
+
 // applyProjectSelectionUnsafe writes what a project selects its tickets with
 // (#741): its trackers, by id or identity, in order, when trackers is not nil;
 // its label when label is not nil; its default tracker, which must be one of
@@ -864,6 +869,15 @@ func (d *DB) applyProjectSelectionUnsafe(tx *sqlTx, p *models.Project, trackers 
 			if _, err := tx.Exec(`INSERT INTO project_trackers (project_id, tracker_id, position) VALUES (?, ?, ?)`, p.ID, entry.TrackerID, position); err != nil {
 				return err
 			}
+		}
+	}
+	if (label != nil || trackers != nil) && labelHasSpace(p.Label) {
+		var jira int
+		if err := tx.QueryRow(`SELECT COUNT(*) FROM project_trackers pt JOIN trackers t ON t.id = pt.tracker_id WHERE pt.project_id = ? AND t.provider = 'jira'`, p.ID).Scan(&jira); err != nil {
+			return err
+		}
+		if jira > 0 {
+			return fmt.Errorf("%w : « %s »", ErrInvalidProjectLabel, p.Label)
 		}
 	}
 	if trackers == nil && defaultID == nil {

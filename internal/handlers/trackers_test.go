@@ -451,6 +451,40 @@ func TestAProjectNamingAnUnknownTrackerIsABadRequest(t *testing.T) {
 	}
 }
 
+// Jira refuses a label with a space, so a project on Jira cannot take one: the
+// tickets added to it would leave it again at the next sync (#741). GitHub
+// labels may hold spaces.
+func TestAProjectLabelWithASpaceIsABadRequestOnJiraOnly(t *testing.T) {
+	h, database, cleanup := setupTestHandler(t)
+	defer cleanup()
+	server := projectServer(t, h)
+	_, alice := account(t, database, "alice@example.com")
+	onJira, err := database.CreateProject(models.CreateProjectRequest{Name: "Platform", IssueTracker: "jira", JiraProject: "PE"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	onGithub, err := database.CreateProject(models.CreateProjectRequest{Name: "App", IssueTracker: "github", GithubRepo: "acme/app"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	status, body := call(t, server, alice, http.MethodPut, "/api/projects/"+onJira.ID, `{"label":"delivery admin"}`)
+	if status != http.StatusBadRequest || !strings.Contains(body, "espace") {
+		t.Fatalf("a label with a space on a Jira project: %d %s", status, body)
+	}
+	if p, _ := database.GetProjectByID(onJira.ID); p == nil || p.Label != "" {
+		t.Fatalf("the refused label was kept: %+v", p)
+	}
+	status, body = call(t, server, alice, http.MethodPut, "/api/projects/"+onGithub.ID, `{"label":"delivery admin"}`)
+	if status != http.StatusOK {
+		t.Fatalf("a label with a space on a GitHub project: %d %s", status, body)
+	}
+	status, body = call(t, server, alice, http.MethodPut, "/api/projects/"+onGithub.ID, `{"trackers":[{"trackerId":"`+onJira.DefaultTrackerID+`"}]}`)
+	if status != http.StatusBadRequest || !strings.Contains(body, "espace") {
+		t.Fatalf("a Jira tracker on a project whose label has a space: %d %s", status, body)
+	}
+}
+
 // A tracker holding tickets keeps its source: an admin moving it is told so,
 // with a conflict rather than a malformed request.
 func TestMovingATrackerHoldingTicketsIsAConflict(t *testing.T) {

@@ -4191,7 +4191,7 @@ func repositoryErrorStatus(err error) int {
 	if errors.Is(err, db.ErrDuplicateRepository) || errors.Is(err, db.ErrRepositoryNotInProject) || errors.Is(err, db.ErrInvalidSpecArtifacts) || errors.Is(err, db.ErrInvalidBranchNameFormat) || errors.Is(err, db.ErrInvalidEpicAxisPrefix) || errors.Is(err, db.ErrInvalidPriorityMapping) || errors.Is(err, db.ErrInvalidEpicAxisFields) {
 		return http.StatusBadRequest
 	}
-	if errors.Is(err, db.ErrUnknownTracker) || errors.Is(err, db.ErrForeignLocalTracker) {
+	if errors.Is(err, db.ErrUnknownTracker) || errors.Is(err, db.ErrForeignLocalTracker) || errors.Is(err, db.ErrInvalidProjectLabel) {
 		return http.StatusBadRequest
 	}
 	return http.StatusInternalServerError

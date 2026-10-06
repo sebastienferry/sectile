@@ -439,6 +439,37 @@ func TestAKeyMatchingTwoTrackersIsRefusedAsAmbiguous(t *testing.T) {
 	}
 }
 
+func TestAKeyNoneOfTheProjectsTrackersCarryIsLookedUpAcrossEveryTracker(t *testing.T) {
+	d := testDB(t)
+	var projects []*models.Project
+	for _, repo := range []string{"app", "api", "web"} {
+		p, err := d.CreateProject(models.CreateProjectRequest{Name: repo, IssueTracker: "github", GithubRepo: "acme/" + repo})
+		if err != nil {
+			t.Fatal(err)
+		}
+		projects = append(projects, p)
+	}
+	app, api, web := projects[0], projects[1], projects[2]
+	if err := d.ImportOrUpdateTasks(defaultTrackerID(t, d, api.ID), []models.Task{{Key: "#7", Title: "Api", Source: "github", Status: models.StatusToClarify, Labels: []string{}}}); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []*models.Project{api, web} {
+		if err := d.ImportOrUpdateTasks(defaultTrackerID(t, d, p.ID), []models.Task{{Key: "#12", Title: p.Name, Source: "github", Status: models.StatusToClarify, Labels: []string{}}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	task, err := d.GetTaskByIDIn(app.ID, "#7")
+	if err != nil || task == nil || task.Title != "Api" {
+		t.Fatalf("a key only Api's tracker carries, read within App: %+v %v", task, err)
+	}
+	if task.ProjectID != api.ID {
+		t.Fatalf("the ticket is Api's, not the scoped App's: %q", task.ProjectID)
+	}
+	if _, err := d.GetTaskByIDIn(app.ID, "#12"); !errors.Is(err, ErrTaskKeyAmbiguous) {
+		t.Fatalf("a key two other trackers carry must stay ambiguous, got %v", err)
+	}
+}
+
 // twoProjectsOnGode creates two projects on the GODE space, and imports three
 // tickets into their shared tracker.
 func twoProjectsOnGode(t *testing.T, d *DB) (first, second *models.Project, trackerID string) {

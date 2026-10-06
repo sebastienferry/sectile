@@ -370,11 +370,24 @@ func (d *DB) UpdateMacro(ctx context.Context, projectID string, key string, titl
 		return nil, fmt.Errorf("projet et clé de macro obligatoires")
 	}
 
-	// If title changed, update any task parent_title in tasks table as well
+	// If title changed, update any task parent_title in tasks table as well.
+	// The tickets are found as DeleteMacro finds them (#741): a Jira epic of one
+	// of the project's trackers is shared by every project selecting that
+	// tracker, so all its tickets follow; any other macro renames the parent of
+	// the project's own tickets.
 	if title != nil && strings.TrimSpace(*title) != "" {
 		newTitle := strings.TrimSpace(*title)
 		d.mu.Lock()
-		_, _ = d.conn.Exec("UPDATE tasks SET parent_title = ? WHERE project_id = ? AND (parent_key = ? OR parent_title = ?)", newTitle, projectID, key, key)
+		scope, scopeArgs := d.membershipScopeUnsafe([]string{projectID})
+		if _, trk := d.macroRowUnsafe(projectID, key); trk != nil {
+			if trackerID, ok := trk.(string); ok && trackerID != "" {
+				scope, scopeArgs = "tracker_id = ?", []any{trackerID}
+			}
+		}
+		_, _ = d.conn.Exec(
+			"UPDATE tasks SET parent_title = ? WHERE (project_id = ? OR "+scope+") AND (parent_key = ? OR parent_title = ?)",
+			append(append([]any{newTitle, projectID}, scopeArgs...), key, key)...,
+		)
 		d.mu.Unlock()
 	}
 

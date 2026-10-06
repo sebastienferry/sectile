@@ -173,3 +173,44 @@ func TestTheMcpResolvesAKeyWithinItsProjectAndRefusesAnAmbiguousOneInEnglish(t *
 		t.Fatalf("a run on Alpha's TASK-1: %v, %v", activity, err)
 	}
 }
+
+func TestARunFindsTheKeyOfAnotherProjectsTicketAndRefusesOneTwoOtherTrackersCarry(t *testing.T) {
+	database := openDB(t)
+	tickets := map[string][]string{"Alpha": {"TASK-1"}, "Beta": {"ONLY-B", "SHARED-2"}, "Gamma": {"SHARED-2"}}
+	var alpha *models.Project
+	for _, name := range []string{"Alpha", "Beta", "Gamma"} {
+		p, err := database.CreateProject(models.CreateProjectRequest{Name: name})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if alpha == nil {
+			alpha = p
+		}
+		for _, key := range tickets[name] {
+			if err := database.ImportOrUpdateTasks(p.DefaultTrackerID, []models.Task{{ID: strings.ToLower(name + "-" + key), Key: key, Title: name, Status: models.StatusToClarify,
+				Priority: models.PriorityMedium, Source: "local", CreatedAt: time.Now(), UpdatedAt: time.Now()}}); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	run, err := call(t, database, "start_run", map[string]any{"taskKey": "TASK-1", "skill": "clarify", "projectId": alpha.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runID, _ := run["id"].(string)
+
+	result, err := callAsInRun(t, database, &tester, runID, "get_task", map[string]any{"taskKey": "ONLY-B"})
+	if err != nil {
+		t.Fatalf("Beta's ONLY-B within Alpha's run: %v", err)
+	}
+	if task, _ := result["task"].(map[string]any); task == nil || task["id"] != "beta-only-b" {
+		t.Fatalf("Beta's ONLY-B within Alpha's run read %v", result["task"])
+	}
+	if _, err := callAsInRun(t, database, &tester, runID, "add_comment", map[string]any{"taskKey": "ONLY-B", "body": "Seen from Alpha"}); err != nil {
+		t.Fatalf("a comment on Beta's ONLY-B within Alpha's run: %v", err)
+	}
+	_, err = callAsInRun(t, database, &tester, runID, "get_task", map[string]any{"taskKey": "SHARED-2"})
+	if err == nil || !strings.Contains(err.Error(), "several trackers") {
+		t.Fatalf("a key Beta and Gamma carry within Alpha's run: %v", err)
+	}
+}

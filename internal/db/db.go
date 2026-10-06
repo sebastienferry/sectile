@@ -2203,9 +2203,10 @@ func (d *DB) GetTaskByID(id string) (*models.Task, error) {
 // GetTaskByIDIn is GetTaskByID for a caller working in a project (#741): a key
 // is looked up among the tickets of the project's trackers only, so two
 // projects each holding TASK-1 resolve to their own. Only a key two of the
-// project's trackers carry is ambiguous. The ticket's computed project is the
-// scoped one when the ticket belongs to it. An empty projectID looks the key
-// up across every tracker.
+// project's trackers carry is ambiguous. A key none of them carry falls back
+// to every tracker, where two carrying it is ambiguous again. The ticket's
+// computed project is the scoped one when the ticket belongs to it. An empty
+// projectID looks the key up across every tracker.
 func (d *DB) GetTaskByIDIn(projectID, id string) (*models.Task, error) {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
@@ -2222,6 +2223,12 @@ func (d *DB) GetTaskByIDIn(projectID, id string) (*models.Task, error) {
 		}
 	}
 	t, err := d.taskByRefOn(d.conn, id, scope, "")
+	if err == nil && t == nil && scope != nil {
+		// A key none of the project's trackers carry still names the one
+		// ticket of another tracker holding it, as GetTaskByID does: the
+		// scope only settles a key both the project and another tracker hold.
+		t, err = d.taskByRefOn(d.conn, id, nil, "")
+	}
 	if err != nil || t == nil {
 		return t, err
 	}

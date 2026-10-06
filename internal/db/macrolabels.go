@@ -69,6 +69,12 @@ func (d *DB) storedMacroLabels(projectID string, key string) []string {
 	return parseMacroLabels(raw)
 }
 
+// labelHasSpace says whether a label holds a space, which Jira refuses in a
+// label.
+func labelHasSpace(label string) bool {
+	return strings.ContainsAny(label, " \t\n\r")
+}
+
 // cleanLabelEdit trims one side of an edit and refuses what can never be
 // written: an empty label, a label with a space, which Jira refuses, and a label
 // of one of the roadmap's axes, under the project's prefixes.
@@ -79,7 +85,7 @@ func cleanLabelEdit(prefixes axisPrefixes, labels []string) ([]string, error) {
 		if label == "" {
 			return nil, fmt.Errorf("un label vide ne peut pas être posé")
 		}
-		if strings.ContainsAny(label, " \t\n\r") {
+		if labelHasSpace(label) {
 			return nil, fmt.Errorf("un label ne peut pas contenir d'espace : « %s »", label)
 		}
 		if prefixes.isMacroAxisLabel(label) {

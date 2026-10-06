@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"errors"
 	"sort"
 	"strings"
 	"sync"
@@ -20,6 +21,8 @@ type labelRecorder struct {
 	key    string
 	added  []string
 	on, as string
+	// refusal, when set, is what the tracker answers every label write with.
+	refusal error
 }
 
 func newLabelRecorder(provider string) *labelRecorder {
@@ -38,7 +41,7 @@ func (l *labelRecorder) UpdateLabels(ctx context.Context, key string, add []stri
 	if trk := tracker.Tracker(ctx); trk != nil {
 		l.on = trk.ID
 	}
-	return nil
+	return l.refusal
 }
 
 // written waits for the queued label write and returns what it recorded.
@@ -186,4 +189,59 @@ func TestLabellingABacklogTicketWritesTheLabelOnGithub(t *testing.T) {
 
 func TestLabellingABacklogTicketWritesTheLabelOnGitlab(t *testing.T) {
 	labelsWrittenOn(t, "gitlab", "acme/api", "#5")
+}
+
+func TestARefusedLabelWriteTakesTheTicketBackOutOfTheProject(t *testing.T) {
+	d := testDB(t)
+	recorder := newLabelRecorder("jira")
+	recorder.refusal = errors.New("label refused")
+	d.TrackerRegistry().Register("jira", recorder)
+	trk, err := d.CreateTrackerAs("admin", models.Tracker{Provider: "jira", Scope: "GODE"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	project, err := d.CreateProject(models.CreateProjectRequest{Name: "Delivery", Label: "delivery-admin", Trackers: []models.ProjectTracker{{TrackerID: trk.ID}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := d.ImportOrUpdateTasks(trk.ID, []models.Task{
+		{ID: "5", Key: "GODE-5", Title: "Backlog", Labels: []string{"ops"}, Status: models.StatusToClarify, Priority: models.PriorityMedium, Source: "jira", CreatedAt: time.Now(), UpdatedAt: time.Now()},
+		{ID: "6", Key: "GODE-6", Title: "Already in", Labels: []string{"Delivery-Admin"}, Status: models.StatusToClarify, Priority: models.PriorityMedium, Source: "jira", CreatedAt: time.Now(), UpdatedAt: time.Now()},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	backlog, err := d.GetTrackerBacklog(trk.ID)
+	if err != nil || len(backlog) != 1 {
+		t.Fatalf("backlog = %d tickets (%v)", len(backlog), err)
+	}
+	task, activity, err := d.AddTaskToProjectAs(tracker.WithActingUser(context.Background(), "u-ada"), backlog[0].ID, project.ID)
+	if err != nil || activity == nil || !labelCarried(task.Labels, "delivery-admin") {
+		t.Fatalf("labelling: task %+v, activity %v, %v", task, activity, err)
+	}
+	recorder.written(t)
+
+	var reverted *models.Task
+	var act *models.TaskActivity
+	for i := 0; i < 200; i++ {
+		reverted, _ = d.GetTaskByID(task.ID)
+		act, _ = d.GetActivityByID(activity.ID)
+		if reverted != nil && !labelCarried(reverted.Labels, "delivery-admin") && act != nil && act.Status == string(models.ActivityStatusFailed) {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if reverted == nil || labelCarried(reverted.Labels, "delivery-admin") || strings.Join(reverted.Labels, ",") != "ops" {
+		t.Fatalf("after the refused write the ticket keeps labels %v, want ops alone", reverted)
+	}
+	if act == nil || act.Status != string(models.ActivityStatusFailed) {
+		t.Fatalf("the refused write's activity = %+v, want failed", act)
+	}
+	if got := strings.Join(backlogKeys(t, d, trk.ID), ","); got != "GODE-5" {
+		t.Fatalf("backlog = %s, want the ticket back in it", got)
+	}
+
+	again, activity, err := d.AddTaskToProjectAs(tracker.WithActingUser(context.Background(), "u-ada"), trk.Provider+"-"+trk.ID+"-GODE-6", project.ID)
+	if err != nil || activity != nil || again == nil || strings.Join(again.Labels, ",") != "Delivery-Admin" {
+		t.Fatalf("a ticket already carrying the label queues no write: task %+v, activity %v, %v", again, activity, err)
+	}
 }

@@ -65,7 +65,9 @@ func (d *DB) TrackerHasProjects(trackerID string) bool {
 
 // AddTaskToProjectAs gives a ticket the label of a project selecting its
 // tracker, so it joins the project at once, and queues the label write on the
-// tracker with the acting user's credential (#741).
+// tracker with the acting user's credential (#741). A ticket already carrying
+// the label queues no write: the write would add nothing, and its failure
+// would withdraw a label the ticket held before.
 func (d *DB) AddTaskToProjectAs(ctx context.Context, taskID, projectID string) (*models.Task, *models.TaskActivity, error) {
 	userID := tracker.ActingUser(ctx)
 	d.mu.Lock()
@@ -76,6 +78,7 @@ func (d *DB) AddTaskToProjectAs(ctx context.Context, taskID, projectID string) (
 	}
 	label := strings.TrimSpace(project.Label)
 	var task *models.Task
+	added := false
 	err = d.conn.WithTx(func(tx *sqlTx) error {
 		var err error
 		task, err = d.lockTaskUnsafe(tx, taskID)
@@ -101,6 +104,7 @@ func (d *DB) AddTaskToProjectAs(ctx context.Context, taskID, projectID string) (
 		labelsJSON, _ := json.Marshal(task.Labels)
 		task.UpdatedAt = time.Now()
 		_, err = tx.Exec(`UPDATE tasks SET labels = ?, updated_at = ? WHERE id = ?`, string(labelsJSON), task.UpdatedAt, task.ID)
+		added = err == nil
 		return err
 	})
 	if err != nil {
@@ -109,7 +113,7 @@ func (d *DB) AddTaskToProjectAs(ctx context.Context, taskID, projectID string) (
 	}
 	d.fillTaskProjectsUnsafe(task, project.ID)
 	var activity *models.TaskActivity
-	if task.Source != "local" {
+	if added && task.Source != "local" {
 		activity, err = d.enqueueTrackerOpUnsafe(ctx, TrackerOp{Kind: TrackerOpTaskLabels, TaskID: task.ID, TaskKey: task.Key, TrackerID: task.TrackerID, Labels: []string{label}, UserID: userID})
 	}
 	d.mu.Unlock()
@@ -136,4 +140,64 @@ func (d *DB) runTaskLabelsOp(ctx context.Context, op TrackerOp, steps *[]string)
 	note := fmt.Sprintf("Labels de %s mis à jour sur %s : +%s", task.Key, trackerDisplayName(ts.Name()), strings.Join(op.Labels, ", +"))
 	*steps = append(*steps, "✅ "+note)
 	return note, nil
+}
+
+// revertTaskLabelsUnsafe undoes on the local ticket what a failed task_labels
+// operation wrote ahead of the tracker: the labels it added are withdrawn,
+// A-Z folded as membership compares them, and those it removed come back.
+// Otherwise the next sync would rewrite the labels from the tracker and the
+// ticket would leave its project with nothing saying why. It returns the
+// labels actually withdrawn and restored. The caller holds d.mu.
+func (d *DB) revertTaskLabelsUnsafe(op TrackerOp) (withdrawn, restored []string, err error) {
+	err = d.conn.WithTx(func(tx *sqlTx) error {
+		task, err := d.lockTaskUnsafe(tx, op.TaskID)
+		if err != nil || task == nil {
+			return err
+		}
+		labels := []string{}
+		for _, l := range task.Labels {
+			if labelCarried(op.Labels, l) {
+				withdrawn = append(withdrawn, l)
+				continue
+			}
+			labels = append(labels, l)
+		}
+		for _, l := range op.RemovedLabels {
+			if l = strings.TrimSpace(l); l != "" && !labelCarried(labels, l) {
+				labels = append(labels, l)
+				restored = append(restored, l)
+			}
+		}
+		if len(withdrawn) == 0 && len(restored) == 0 {
+			return nil
+		}
+		labelsJSON, _ := json.Marshal(labels)
+		_, err = tx.Exec(`UPDATE tasks SET labels = ?, updated_at = ? WHERE id = ?`, string(labelsJSON), time.Now(), task.ID)
+		return err
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	return withdrawn, restored, nil
+}
+
+// revertFailedTaskLabelsOp reverts the local labels of a failed task_labels
+// operation and says so in a step of its activity.
+func (d *DB) revertFailedTaskLabelsOp(activityID string, op TrackerOp) {
+	d.mu.Lock()
+	withdrawn, restored, err := d.revertTaskLabelsUnsafe(op)
+	d.mu.Unlock()
+	switch {
+	case err != nil:
+		d.appendActivityStep(activityID, fmt.Sprintf("⚠️ Labels locaux de %s non rétablis : %v", op.TaskKey, err))
+	case len(withdrawn) > 0 || len(restored) > 0:
+		var changes []string
+		for _, l := range withdrawn {
+			changes = append(changes, "-"+l)
+		}
+		for _, l := range restored {
+			changes = append(changes, "+"+l)
+		}
+		d.appendActivityStep(activityID, fmt.Sprintf("↩️ Labels de %s rétablis localement : %s", op.TaskKey, strings.Join(changes, ", ")))
+	}
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"tasks/internal/models"
 	"tasks/internal/testsqlite"
@@ -326,5 +327,56 @@ func TestCreateStoryFromMacroTodoReturnsTheTask(t *testing.T) {
 	}
 	if meta == nil || len(meta.Todos) != 1 || meta.Todos[0].StoryKey != task.Key {
 		t.Errorf("the todo line should carry the story key %q, got %+v", task.Key, meta)
+	}
+}
+
+// A ticket imported since the adoption (#741) names its tracker rather than a
+// project; renaming its macro still renames its parent. A Jira epic is shared
+// by every project selecting its tracker, so the tickets of each follow.
+func TestRenamingAMacroRenamesTheParentOfItsTrackerTickets(t *testing.T) {
+	d := testDB(t)
+	delivery := spaceProject(t, d, "Delivery", "delivery-admin")
+	bidder := spaceProject(t, d, "Bidder", "bidder")
+	if delivery.DefaultTrackerID != bidder.DefaultTrackerID {
+		t.Fatalf("the two projects select trackers %s and %s, want GODE's alone", delivery.DefaultTrackerID, bidder.DefaultTrackerID)
+	}
+	notes, err := d.CreateProject(models.CreateProjectRequest{Name: "Notes"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ticket := func(key string, labels []string) models.Task {
+		return models.Task{Key: key, Title: key, Status: models.StatusToClarify, Priority: models.PriorityMedium, Labels: labels, Source: "jira",
+			ParentKey: "GODE-100", ParentTitle: "Old epic", CreatedAt: time.Now(), UpdatedAt: time.Now()}
+	}
+	if err := d.ImportOrUpdateTasks(delivery.DefaultTrackerID, []models.Task{ticket("GODE-1", []string{"delivery-admin"}), ticket("GODE-2", []string{"bidder"})}); err != nil {
+		t.Fatal(err)
+	}
+	local := ticket("N-1", []string{})
+	local.Source, local.ParentKey, local.ParentTitle = "local", "M-1", "Old local"
+	if err := d.ImportOrUpdateTasks(notes.DefaultTrackerID, []models.Task{local}); err != nil {
+		t.Fatal(err)
+	}
+	var trackerRows int
+	_ = d.conn.QueryRow(`SELECT COUNT(*) FROM tasks WHERE project_id = ?`, trackerSentinel(delivery.DefaultTrackerID)).Scan(&trackerRows)
+	if trackerRows != 2 {
+		t.Fatalf("%d tickets name GODE's tracker, want both imported ones", trackerRows)
+	}
+
+	renamed := "New epic"
+	if _, err := d.UpdateMacro(context.Background(), delivery.ID, "GODE-100", &renamed, nil, nil, nil, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	renamedLocal := "New local"
+	if _, err := d.UpdateMacro(context.Background(), notes.ID, "M-1", &renamedLocal, nil, nil, nil, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	for key, want := range map[string]string{"GODE-1": "New epic", "GODE-2": "New epic", "N-1": "New local"} {
+		var parentTitle string
+		if err := d.conn.QueryRow(`SELECT parent_title FROM tasks WHERE key = ?`, key).Scan(&parentTitle); err != nil {
+			t.Fatal(err)
+		}
+		if parentTitle != want {
+			t.Fatalf("%s has parent title %q after the rename, want %q", key, parentTitle, want)
+		}
 	}
 }

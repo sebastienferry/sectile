@@ -439,6 +439,12 @@ func (d *DB) processTrackerOpJob(ctx context.Context, job SkillJob) {
 	}
 
 	d.finishTrackerOp(job.ActivityID, steps, output, err)
+	if err != nil && op.Kind == TrackerOpTaskLabels {
+		// The labels were written locally ahead of the tracker: a refused
+		// write takes them back, before the post-back below re-reads the
+		// ticket and tells the boards.
+		d.revertFailedTaskLabelsOp(job.ActivityID, op)
+	}
 
 	// Wire worker execution results to trigger local post-back handler
 	now := time.Now()
