@@ -444,8 +444,10 @@ export function trackerDraftProblem(draft: TrackerDraft): TrackerDraftProblem | 
  */
 export function trackerPayload(draft: TrackerDraft, current?: Partial<Tracker>): Partial<Tracker> {
   const provider = draft.provider as TrackerProvider
+  // The ticket count is the server's to read, never sent back.
+  const { ticketCount: _ticketCount, ...kept } = current ?? {}
   return {
-    ...(current ?? {}),
+    ...kept,
     provider,
     name: draft.name.trim(),
     site: draft.site.trim(),
@@ -453,6 +455,14 @@ export function trackerPayload(draft: TrackerDraft, current?: Partial<Tracker>):
     autoSyncEnabled: current?.autoSyncEnabled ?? false,
     autoSyncIntervalMin: current?.autoSyncIntervalMin || 5,
   }
+}
+
+/**
+ * Whether a tracker keeps its provider, site and scope: once it holds tickets
+ * they were read from that source, and the server refuses to move it.
+ */
+export function trackerSourceLocked(tracker: Pick<Tracker, 'ticketCount'>): boolean {
+  return (tracker.ticketCount ?? 0) > 0
 }
 
 /** The projects selecting a tracker, in the order they are listed. */

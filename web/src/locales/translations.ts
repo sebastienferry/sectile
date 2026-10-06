@@ -887,6 +887,7 @@ export interface TranslationSchema {
       sitePlaceholder: string
       scope: string
       scopePlaceholders: { jira: string; github: string; gitlab: string }
+      sourceLocked: string
       problems: { provider: string; scope: string; githubScope: string }
       create: string
       created: string
@@ -1831,6 +1832,7 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
         sitePlaceholder: 'Celui du déploiement',
         scope: 'Espace, dépôt ou projet',
         scopePlaceholders: { jira: 'Clé Jira, ex. GODE', github: 'owner/repo', gitlab: 'groupe/projet' },
+        sourceLocked: 'Ce tracker a déjà des tickets : son fournisseur, son site et son périmètre ne changent plus.',
         problems: {
           provider: 'Choisissez le fournisseur du tracker.',
           scope: "Nommez l'espace Jira, le dépôt GitHub ou le projet GitLab.",
@@ -2776,6 +2778,7 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
         sitePlaceholder: "The deployment's",
         scope: 'Space, repository or project',
         scopePlaceholders: { jira: 'Jira key, e.g. GODE', github: 'owner/repo', gitlab: 'group/project' },
+        sourceLocked: 'This tracker already holds tickets: its provider, site and scope no longer change.',
         problems: {
           provider: "Choose the tracker's provider.",
           scope: 'Name the Jira space, the GitHub repository or the GitLab project.',

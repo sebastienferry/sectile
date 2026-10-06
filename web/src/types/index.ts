@@ -524,6 +524,8 @@ export interface Tracker extends TrackerSummary {
   autoSyncIntervalMin: number
   createdAt?: string
   updatedAt?: string
+  /** How many tickets and epics it holds, read only: one holding some keeps its source. */
+  ticketCount?: number
 }
 
 /**

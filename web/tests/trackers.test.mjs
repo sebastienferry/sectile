@@ -9,6 +9,7 @@ import {
   trackerDraftProblem,
   trackerPayload,
   trackerProjects,
+  trackerSourceLocked,
 } from '../src/lib/trackers.ts'
 
 // The admin Trackers screen (#741): what a tracker draft must hold before it
@@ -64,6 +65,16 @@ test('a rewrite keeps the board mirror of the tracker it replaces', () => {
   assert.deepEqual(payload.issueTypes, ['Story'])
   assert.equal(payload.autoSyncEnabled, true)
   assert.equal(payload.autoSyncIntervalMin, 10)
+})
+
+test('a tracker holding tickets keeps its source, and its count is never sent back', () => {
+  assert.equal(trackerSourceLocked({}), false)
+  assert.equal(trackerSourceLocked({ ticketCount: 0 }), false)
+  assert.equal(trackerSourceLocked({ ticketCount: 3 }), true)
+  const current = { id: 't1', provider: 'jira', name: 'Gode', site: '', scope: 'GODE', identity: 'jira|acme|GODE', autoSyncEnabled: false, autoSyncIntervalMin: 5, ticketCount: 3 }
+  const payload = trackerPayload({ provider: 'jira', name: 'Gode', site: '', scope: 'GODE' }, current)
+  assert.equal('ticketCount' in payload, false)
+  assert.equal(payload.id, 't1')
 })
 
 test('a tracker reopens in the form as it was saved', () => {

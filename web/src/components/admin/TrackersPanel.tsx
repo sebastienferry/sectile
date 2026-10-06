@@ -17,6 +17,7 @@ import {
   trackerDraftProblem,
   trackerPayload,
   trackerProjects,
+  trackerSourceLocked,
   updateTracker,
   type TrackerDraft,
 } from '../../lib/trackers'
@@ -36,11 +37,13 @@ interface SourceFieldsProps {
   onChange: (draft: TrackerDraft) => void
   /** A recorded tracker keeps its provider: its tickets were imported from it. */
   providerLocked?: boolean
+  /** A tracker holding tickets also keeps its site and scope: they were read from them. */
+  sourceLocked?: boolean
   idPrefix: string
 }
 
 /** The provider, name, site and scope of a tracker. */
-function SourceFields({ draft, onChange, providerLocked, idPrefix }: SourceFieldsProps) {
+function SourceFields({ draft, onChange, providerLocked, sourceLocked, idPrefix }: SourceFieldsProps) {
   const { t } = useApp()
   const labels = t.admin.trackers
   const scopePlaceholder = draft.provider ? labels.scopePlaceholders[draft.provider] : ''
@@ -51,7 +54,7 @@ function SourceFields({ draft, onChange, providerLocked, idPrefix }: SourceField
         <select
           id={`${idPrefix}-provider`}
           value={draft.provider}
-          disabled={providerLocked}
+          disabled={providerLocked || sourceLocked}
           onChange={e => onChange({ ...draft, provider: e.target.value as TrackerProvider | '' })}
           className={`${fieldClass} cursor-pointer`}
         >
@@ -67,6 +70,7 @@ function SourceFields({ draft, onChange, providerLocked, idPrefix }: SourceField
           id={`${idPrefix}-scope`}
           type="text"
           value={draft.scope}
+          disabled={sourceLocked}
           onChange={e => onChange({ ...draft, scope: e.target.value })}
           placeholder={scopePlaceholder}
           className={`${fieldClass} font-mono`}
@@ -89,11 +93,15 @@ function SourceFields({ draft, onChange, providerLocked, idPrefix }: SourceField
           id={`${idPrefix}-site`}
           type="text"
           value={draft.site}
+          disabled={sourceLocked}
           onChange={e => onChange({ ...draft, site: e.target.value })}
           placeholder={labels.sitePlaceholder}
           className={`${fieldClass} font-mono`}
         />
       </div>
+      {sourceLocked && (
+        <span className="text-[9px] text-[var(--text-muted)] sm:col-span-2">{labels.sourceLocked}</span>
+      )}
     </div>
   )
 }
@@ -185,7 +193,13 @@ function TrackerEditor({ tracker, onSaved, onClose }: EditorProps) {
 
   return (
     <div className="space-y-4 border-t border-[var(--border-color)] pt-3" data-tracker-editor={tracker.id}>
-      <SourceFields draft={draft} onChange={setDraft} providerLocked idPrefix={`tracker-${tracker.id}`} />
+      <SourceFields
+        draft={draft}
+        onChange={setDraft}
+        providerLocked
+        sourceLocked={trackerSourceLocked(current)}
+        idPrefix={`tracker-${tracker.id}`}
+      />
 
       {tracker.provider === 'jira' && (
         <div>

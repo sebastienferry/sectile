@@ -39,6 +39,10 @@ type Tracker struct {
 	AutoSyncIntervalMin int                 `json:"autoSyncIntervalMin"`
 	CreatedAt           time.Time           `json:"createdAt"`
 	UpdatedAt           time.Time           `json:"updatedAt"`
+	// TicketCount is how many tickets and epics the tracker holds, read for
+	// an admin and never written: a tracker holding some keeps its provider,
+	// site and scope.
+	TicketCount int `json:"ticketCount"`
 }
 
 // ProjectTracker is one tracker a project selects its tickets from, by id and

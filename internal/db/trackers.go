@@ -22,6 +22,10 @@ const trackerSelect = `SELECT id, name, provider, site, scope, identity, board_i
 // ticket still belongs to.
 var ErrTrackerInUse = fmt.Errorf("ce tracker est encore utilisé par un projet ou par des tickets")
 
+// ErrTrackerSourceInUse refuses to point a tracker holding tickets at another
+// source: its tickets, read from the first one, would be left behind.
+var ErrTrackerSourceInUse = errors.New("ce tracker a déjà des tickets : son fournisseur, son site et son périmètre ne changent plus")
+
 // ErrTrackerNotInProject refuses a tracker a project does not select, named
 // to create a ticket on it (#741).
 var ErrTrackerNotInProject = errors.New("ce tracker n'est pas un tracker du projet")
@@ -402,7 +406,69 @@ func (d *DB) trackerLinkedProjectsUnsafe(trackerID string) ([]string, error) {
 	return ids, rows.Err()
 }
 
-// GetTrackers lists every tracker.
+// trackerUsageOn counts the tickets and the epics a tracker holds.
+func trackerUsageOn(q rowQuerier, trackerID string) (int, error) {
+	var tasks, macros int
+	if err := q.QueryRow(`SELECT COUNT(*) FROM tasks WHERE tracker_id = ?`, trackerID).Scan(&tasks); err != nil {
+		return 0, err
+	}
+	if err := q.QueryRow(`SELECT COUNT(DISTINCT key) FROM macros WHERE tracker_id = ?`, trackerID).Scan(&macros); err != nil {
+		return 0, err
+	}
+	return tasks + macros, nil
+}
+
+// trackerWithUsageOn reads one tracker with its TicketCount, nil when there is
+// none.
+func trackerWithUsageOn(q rowQuerier, id string) (*models.Tracker, error) {
+	t, err := trackerByIDOn(q, id)
+	if err != nil || t == nil {
+		return t, err
+	}
+	if t.TicketCount, err = trackerUsageOn(q, t.ID); err != nil {
+		return nil, err
+	}
+	return t, nil
+}
+
+// resetTrackerSyncWindowOn forgets when a tracker was last read whole, so its
+// next background pass reads it whole: a tracker pointed at another source
+// has nothing of it yet.
+func resetTrackerSyncWindowOn(tx *sqlTx, trackerID string) error {
+	_, err := tx.Exec(`UPDATE auto_sync_trackers SET last_full_sync_at = NULL WHERE tracker_id = ?`, trackerID)
+	return err
+}
+
+// trackerUsagesUnsafe counts the tickets and the epics of every tracker that
+// holds some, by tracker id.
+func (d *DB) trackerUsagesUnsafe() (map[string]int, error) {
+	usages := map[string]int{}
+	for _, query := range []string{
+		`SELECT tracker_id, COUNT(*) FROM tasks WHERE tracker_id IS NOT NULL GROUP BY tracker_id`,
+		`SELECT tracker_id, COUNT(DISTINCT key) FROM macros WHERE tracker_id IS NOT NULL GROUP BY tracker_id`,
+	} {
+		rows, err := d.conn.Query(query)
+		if err != nil {
+			return nil, err
+		}
+		for rows.Next() {
+			var id string
+			var n int
+			if err := rows.Scan(&id, &n); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			usages[id] += n
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return nil, err
+		}
+	}
+	return usages, nil
+}
+
+// GetTrackers lists every tracker, with how many tickets each holds.
 func (d *DB) GetTrackers() ([]*models.Tracker, error) {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
@@ -419,14 +485,25 @@ func (d *DB) GetTrackers() ([]*models.Tracker, error) {
 		}
 		trackers = append(trackers, t)
 	}
-	return trackers, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	usages, err := d.trackerUsagesUnsafe()
+	if err != nil {
+		return nil, err
+	}
+	for _, t := range trackers {
+		t.TicketCount = usages[t.ID]
+	}
+	return trackers, nil
 }
 
-// GetTrackerByID reads one tracker, nil when there is none.
+// GetTrackerByID reads one tracker, with how many tickets it holds, nil when
+// there is none.
 func (d *DB) GetTrackerByID(id string) (*models.Tracker, error) {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
-	return trackerByIDOn(d.conn, id)
+	return trackerWithUsageOn(d.conn, id)
 }
 
 func (d *DB) getTrackerByIdentityUnsafe(identity string) (*models.Tracker, error) {
@@ -483,11 +560,13 @@ func (d *DB) CreateTrackerAs(userID string, t models.Tracker) (*models.Tracker, 
 	if err != nil {
 		return nil, err
 	}
-	return trackerByIDOn(d.conn, t.ID)
+	return trackerWithUsageOn(d.conn, t.ID)
 }
 
 // UpdateTrackerAs rewrites a tracker. Its identity is recomputed, and may not
-// become that of another tracker.
+// become that of another tracker. A tracker holding tickets keeps its source,
+// ErrTrackerSourceInUse otherwise; one holding none may change it, and its
+// next background pass then reads the new source whole.
 func (d *DB) UpdateTrackerAs(userID string, t models.Tracker) (*models.Tracker, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -509,13 +588,43 @@ func (d *DB) UpdateTrackerAs(userID string, t models.Tracker) (*models.Tracker, 
 		} else if other != nil && other.ID != t.ID {
 			return fmt.Errorf("ce tracker existe déjà : %s", other.Name)
 		}
-		return updateTrackerOn(tx, &t)
+		moved := trackerSourceChanged(current, &t)
+		if moved {
+			used, err := trackerUsageOn(tx, t.ID)
+			if err != nil {
+				return err
+			}
+			if used > 0 {
+				return ErrTrackerSourceInUse
+			}
+		}
+		if err := updateTrackerOn(tx, &t); err != nil {
+			return err
+		}
+		if moved {
+			return resetTrackerSyncWindowOn(tx, t.ID)
+		}
+		return nil
 	})
 	d.trackerCache.clear()
 	if err != nil {
 		return nil, err
 	}
-	return trackerByIDOn(d.conn, t.ID)
+	return trackerWithUsageOn(d.conn, t.ID)
+}
+
+// trackerSourceChanged says whether a rewrite points a tracker at another
+// source: another provider, site or scope, which another identity confirms. A
+// site spelled differently that resolves to the same address is the same
+// source, and so is a tracker left as it was while the deployment's own site
+// changed under it.
+func trackerSourceChanged(current, next *models.Tracker) bool {
+	if current.Identity == next.Identity {
+		return false
+	}
+	return current.Provider != next.Provider ||
+		models.TrackerScope(current.Provider, current.Scope) != models.TrackerScope(next.Provider, next.Scope) ||
+		models.TrackerAddress(current.Site) != models.TrackerAddress(next.Site)
 }
 
 // DeleteTrackerAs deletes a tracker no project selects and no ticket belongs
@@ -577,9 +686,11 @@ func (d *DB) UpdateTrackerMirror(trackerID string, change func(t *models.Tracker
 }
 
 // trackerFieldsTouched says which tracker fields a project write carries, so
-// that only those are written through to its tracker.
+// that only those are written through to its tracker, and whether the write
+// may only join a tracker already recorded (a member's, ADR 0050, D11).
 type trackerFieldsTouched struct {
 	boardID, columns, stages, sprints, issueTypes, autoSync bool
+	joinOnly                                                bool
 }
 
 func touchedByUpdate(req models.UpdateProjectRequest) trackerFieldsTouched {
@@ -590,6 +701,7 @@ func touchedByUpdate(req models.UpdateProjectRequest) trackerFieldsTouched {
 		sprints:    req.Sprints != nil,
 		issueTypes: req.IssueTypes != nil,
 		autoSync:   req.AutoSyncEnabled != nil || req.AutoSyncIntervalMin != nil,
+		joinOnly:   req.JoinTrackerOnly,
 	}
 }
 
@@ -603,6 +715,11 @@ func touchedByUpdate(req models.UpdateProjectRequest) trackerFieldsTouched {
 // created and takes the default's place. The board mirror and auto-sync fields
 // the write carries then land on the tracker; a tracker the project just
 // joined keeps its own.
+//
+// A write that may only join (touched.joinOnly, a member's) never renames nor
+// creates a tracker but its project's local board: naming a source nobody
+// recorded is ErrUnknownTracker. Its project keeps its default tracker when
+// its fields still name it, whatever the deployment's site became since.
 func (d *DB) ensureProjectTrackerUnsafe(tx *sqlTx, p *models.Project, settings *models.Settings, touched trackerFieldsTouched) error {
 	wanted := legacyTrackerOf(p, settings)
 	var currentID string
@@ -627,9 +744,17 @@ func (d *DB) ensureProjectTrackerUnsafe(tx *sqlTx, p *models.Project, settings *
 	fresh := false
 	switch {
 	case target != nil:
-	case current != nil && current.Identity != wanted.Identity && d.trackerExclusiveTo(tx, current.ID, p.ID):
+	case touched.joinOnly && current != nil && legacyFieldsMatchTracker(p, current):
+		target = current
+	case touched.joinOnly && wanted.Provider != "local":
+		return fmt.Errorf("%w : %s", ErrUnknownTracker, wanted.Identity)
+	case !touched.joinOnly && current != nil && current.Identity != wanted.Identity && d.trackerExclusiveTo(tx, current.ID, p.ID):
 		current.Provider, current.Site, current.Scope, current.Identity, current.UpdatedAt = wanted.Provider, wanted.Site, wanted.Scope, wanted.Identity, now
 		if err := updateTrackerOn(tx, current); err != nil {
+			return err
+		}
+		// The tracker now reads another source: its next pass reads it whole.
+		if err := resetTrackerSyncWindowOn(tx, current.ID); err != nil {
 			return err
 		}
 		target = current

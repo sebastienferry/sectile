@@ -557,6 +557,10 @@ type CreateProjectRequest struct {
 	// DefaultTrackerID is where the project's new tickets go, the first
 	// tracker when empty or not one of them.
 	DefaultTrackerID string `json:"defaultTrackerId,omitempty"`
+	// JoinTrackerOnly is set by the server, never read from a payload, on a
+	// member's write (ADR 0050, D11): the project's tracker fields may then only
+	// join a tracker already recorded, never create or rename one.
+	JoinTrackerOnly bool `json:"-"`
 }
 
 type UpdateProjectRequest struct {
@@ -600,6 +604,8 @@ type UpdateProjectRequest struct {
 	Trackers         *[]ProjectTracker `json:"trackers,omitempty"`
 	Label            *string           `json:"label,omitempty"`
 	DefaultTrackerID *string           `json:"defaultTrackerId,omitempty"`
+	// JoinTrackerOnly: see CreateProjectRequest.
+	JoinTrackerOnly bool `json:"-"`
 }
 
 // NormalizeAutoSyncIntervalMin clamps the project background sync interval between 1 and 30 minutes (default 5).

@@ -155,16 +155,23 @@ func adminOnlyRoute(_ string, path string) bool {
 // background sync are its default tracker's, shared by every project selecting
 // it, so they are an admin's to change, from Administration. An older client
 // still sends them with the rest of the project: they are ignored rather than
-// refused, so its save keeps working. The tracker the project names, its
-// label, its default tracker and its sprints stay a member's.
+// refused, so its save keeps working. The site a tracker reaches is dropped
+// too: the server sends its credentials there. The tracker the project names
+// may only be one already recorded (JoinTrackerOnly): creating a tracker or
+// renaming one is an admin's. Its label, its default tracker and its sprints
+// stay a member's.
 func memberProjectCreate(req *models.CreateProjectRequest) {
 	req.BoardID, req.IssueTypes = "", nil
 	req.AutoSyncEnabled, req.AutoSyncIntervalMin = nil, nil
+	req.TrackerUrl, req.GithubApiUrl, req.GitlabUrl = "", "", ""
+	req.JoinTrackerOnly = true
 }
 
 func memberProjectUpdate(req *models.UpdateProjectRequest) {
 	req.BoardID, req.TrackerColumns, req.StageColumns, req.IssueTypes = nil, nil, nil, nil
 	req.AutoSyncEnabled, req.AutoSyncIntervalMin = nil, nil
+	req.TrackerUrl, req.GithubApiUrl, req.GitlabUrl = nil, nil, nil
+	req.JoinTrackerOnly = true
 }
 
 // personalSettingsKeys is the routing table between the two settings stores

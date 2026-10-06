@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"testing"
 	"time"
@@ -212,6 +213,87 @@ func TestATrackerStillLinkedToAProjectCannotBeDeleted(t *testing.T) {
 	}
 	if err := d.DeleteTrackerAs("admin", free.ID); err != nil {
 		t.Fatalf("a tracker nobody uses is deleted: %v", err)
+	}
+}
+
+// A tracker holding tickets keeps its source: they were read from it. One
+// holding none may change it, and its next background pass reads the new
+// source whole.
+func TestATrackerHoldingTicketsKeepsItsSource(t *testing.T) {
+	d := testDB(t)
+	used, err := d.CreateTrackerAs("admin", models.Tracker{Provider: "jira", Scope: "GODE"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := d.ImportOrUpdateTasks(used.ID, []models.Task{{Key: "GODE-1", Title: "Imported", Source: "jira", Status: models.StatusToClarify, Labels: []string{}}}); err != nil {
+		t.Fatal(err)
+	}
+	read, err := d.GetTrackerByID(used.ID)
+	if err != nil || read == nil || read.TicketCount != 1 {
+		t.Fatalf("the tracker must count its ticket: %+v (%v)", read, err)
+	}
+	moved := *read
+	moved.Scope = "OTHER"
+	if _, err := d.UpdateTrackerAs("admin", moved); !errors.Is(err, ErrTrackerSourceInUse) {
+		t.Fatalf("a tracker holding tickets changed its scope: %v", err)
+	}
+	moved = *read
+	moved.Site = "https://elsewhere.atlassian.net"
+	if _, err := d.UpdateTrackerAs("admin", moved); !errors.Is(err, ErrTrackerSourceInUse) {
+		t.Fatalf("a tracker holding tickets changed its site: %v", err)
+	}
+	renamed := *read
+	renamed.Name = "Delivery"
+	if saved, err := d.UpdateTrackerAs("admin", renamed); err != nil || saved.Name != "Delivery" || saved.Scope != "GODE" || saved.TicketCount != 1 {
+		t.Fatalf("a tracker holding tickets is still renamed: %+v (%v)", saved, err)
+	}
+
+	empty, err := d.CreateTrackerAs("admin", models.Tracker{Provider: "jira", Scope: "BE"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.conn.Exec(`INSERT INTO auto_sync_trackers (tracker_id, last_pass_at, last_full_sync_at) VALUES (?, ?, ?)`, empty.ID, time.Now().UTC(), time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	empty.Scope = "OPS"
+	saved, err := d.UpdateTrackerAs("admin", *empty)
+	if err != nil || saved.Scope != "OPS" || saved.TicketCount != 0 {
+		t.Fatalf("an empty tracker changes its scope: %+v (%v)", saved, err)
+	}
+	var lastFull sql.NullTime
+	if err := d.conn.QueryRow(`SELECT last_full_sync_at FROM auto_sync_trackers WHERE tracker_id = ?`, empty.ID).Scan(&lastFull); err != nil {
+		t.Fatal(err)
+	}
+	if lastFull.Valid {
+		t.Fatalf("the tracker's next pass must read its new source whole, last full read %v", lastFull.Time)
+	}
+}
+
+// A project's own tracker renamed in place through its tracker fields reads
+// another source: its next background pass reads it whole.
+func TestATrackerRenamedInPlaceReadsItsNewSourceWhole(t *testing.T) {
+	d := testDB(t)
+	p, err := d.CreateProject(models.CreateProjectRequest{Name: "Delivery", IssueTracker: "jira", JiraProject: "GODE"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	trackerID := defaultTrackerID(t, d, p.ID)
+	if _, err := d.conn.Exec(`INSERT INTO auto_sync_trackers (tracker_id, last_pass_at, last_full_sync_at) VALUES (?, ?, ?)`, trackerID, time.Now().UTC(), time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	other := "OPS"
+	if _, err := d.UpdateProject(p.ID, models.UpdateProjectRequest{JiraProject: &other}); err != nil {
+		t.Fatal(err)
+	}
+	if trk, _ := d.GetTrackerByID(trackerID); trk == nil || trk.Scope != "OPS" {
+		t.Fatalf("the project's own tracker must be renamed in place: %+v", trk)
+	}
+	var lastFull sql.NullTime
+	if err := d.conn.QueryRow(`SELECT last_full_sync_at FROM auto_sync_trackers WHERE tracker_id = ?`, trackerID).Scan(&lastFull); err != nil {
+		t.Fatal(err)
+	}
+	if lastFull.Valid {
+		t.Fatalf("the renamed tracker kept its last full read %v", lastFull.Time)
 	}
 }
 

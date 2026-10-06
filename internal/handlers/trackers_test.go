@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"tasks/internal/db"
 	"tasks/internal/models"
 	"tasks/internal/tracker"
 )
@@ -268,7 +269,7 @@ func TestAMemberCannotConfigureATrackerThroughAProject(t *testing.T) {
 		t.Fatalf("a member configured the tracker through a project:\nbefore %+v\nafter  %+v", before, after)
 	}
 
-	status, body = call(t, server, bob, http.MethodPost, "/api/projects", `{"name":"Billing","issueTracker":"jira","jiraProject":"BILL",`+trackerConfiguration+`}`)
+	status, body = call(t, server, bob, http.MethodPost, "/api/projects", `{"name":"Billing","issueTracker":"jira","jiraProject":"PE",`+trackerConfiguration+`}`)
 	if status != http.StatusCreated {
 		t.Fatalf("member create: %d %s", status, body)
 	}
@@ -276,12 +277,109 @@ func TestAMemberCannotConfigureATrackerThroughAProject(t *testing.T) {
 	if err := json.Unmarshal([]byte(body), &created); err != nil {
 		t.Fatal(err)
 	}
-	fresh, err := database.GetTrackerByID(created.DefaultTrackerID)
-	if err != nil || fresh == nil || fresh.Scope != "BILL" {
-		t.Fatalf("the member's project must still get its tracker: %+v (%v)", fresh, err)
+	if created.DefaultTrackerID != before.ID {
+		t.Fatalf("the member's project must join the recorded tracker: default %q, want %q", created.DefaultTrackerID, before.ID)
 	}
-	if fresh.BoardID != "" || len(fresh.TrackerColumns) != 0 || len(fresh.StageColumns) != 0 || len(fresh.IssueTypes) != 0 || fresh.AutoSyncEnabled {
-		t.Fatalf("a member configured a new tracker through a project: %+v", fresh)
+	joined, err := database.GetTrackerByID(before.ID)
+	if err != nil || joined == nil {
+		t.Fatalf("tracker: %+v (%v)", joined, err)
+	}
+	if joined.BoardID != before.BoardID || len(joined.TrackerColumns) != len(before.TrackerColumns) || len(joined.IssueTypes) != len(before.IssueTypes) || joined.AutoSyncEnabled != before.AutoSyncEnabled {
+		t.Fatalf("a member configured the tracker their new project joined: %+v", joined)
+	}
+}
+
+// trackerScoped finds the tracker of a scope, nil when none is recorded.
+func trackerScoped(t *testing.T, database *db.DB, scope string) *models.Tracker {
+	t.Helper()
+	trackers, err := database.GetTrackers()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, trk := range trackers {
+		if trk.Scope == scope {
+			return trk
+		}
+	}
+	return nil
+}
+
+// A member's project may join a recorded tracker by its legacy fields, never
+// create one, rename one or set the site the server sends its credentials to
+// (#741, ADR 0050, D11). A local board is the project's own, and still made
+// for a member's local project.
+func TestAMemberOnlyJoinsARecordedTrackerThroughAProject(t *testing.T) {
+	h, database, cleanup := setupTestHandler(t)
+	defer cleanup()
+	server := projectServer(t, h)
+	_, alice := account(t, database, "alice@example.com") // the first account is the admin
+	_, bob := account(t, database, "bob@example.com")
+	project, err := database.CreateProject(models.CreateProjectRequest{Name: "Platform", IssueTracker: "jira", JiraProject: "PE"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, err := database.GetTrackerByID(project.DefaultTrackerID)
+	if err != nil || before == nil {
+		t.Fatalf("tracker: %+v (%v)", before, err)
+	}
+
+	status, body := call(t, server, bob, http.MethodPost, "/api/projects", `{"name":"Billing","issueTracker":"jira","jiraProject":"BILL"}`)
+	if status != http.StatusBadRequest || !strings.Contains(body, "tracker inconnu") {
+		t.Fatalf("member create on an unknown Jira space: %d %s", status, body)
+	}
+	if trk := trackerScoped(t, database, "BILL"); trk != nil {
+		t.Fatalf("a member's refused project created a tracker: %+v", trk)
+	}
+
+	status, body = call(t, server, bob, http.MethodPut, "/api/projects/"+project.ID, `{"trackerUrl":"https://elsewhere.example.com"}`)
+	if status != http.StatusOK {
+		t.Fatalf("member save naming a site: %d %s", status, body)
+	}
+	status, body = call(t, server, bob, http.MethodPut, "/api/projects/"+project.ID, `{"jiraProject":"OTHER"}`)
+	if status != http.StatusBadRequest || !strings.Contains(body, "tracker inconnu") {
+		t.Fatalf("member renaming the project's tracker: %d %s", status, body)
+	}
+	after, err := database.GetTrackerByID(before.ID)
+	if err != nil || after == nil {
+		t.Fatalf("tracker: %+v (%v)", after, err)
+	}
+	if after.Site != before.Site || after.Scope != "PE" || after.Identity != before.Identity {
+		t.Fatalf("a member moved the tracker:\nbefore %+v\nafter  %+v", before, after)
+	}
+	if trk := trackerScoped(t, database, "OTHER"); trk != nil {
+		t.Fatalf("a member's refused save created a tracker: %+v", trk)
+	}
+
+	status, body = call(t, server, bob, http.MethodPost, "/api/projects", `{"name":"Delivery","issueTracker":"jira","jiraProject":"PE","trackerUrl":"https://elsewhere.example.com"}`)
+	if status != http.StatusCreated {
+		t.Fatalf("member create on a recorded tracker: %d %s", status, body)
+	}
+	var joined models.Project
+	if err := json.Unmarshal([]byte(body), &joined); err != nil {
+		t.Fatal(err)
+	}
+	if joined.DefaultTrackerID != before.ID {
+		t.Fatalf("the member's project must join PE, its site ignored: default %q, want %q", joined.DefaultTrackerID, before.ID)
+	}
+
+	status, body = call(t, server, bob, http.MethodPost, "/api/projects", `{"name":"Notes"}`)
+	if status != http.StatusCreated {
+		t.Fatalf("member create of a local project: %d %s", status, body)
+	}
+	var notes models.Project
+	if err := json.Unmarshal([]byte(body), &notes); err != nil {
+		t.Fatal(err)
+	}
+	if local, err := database.GetTrackerByID(notes.DefaultTrackerID); err != nil || local == nil || local.Provider != "local" || local.Scope != notes.ID {
+		t.Fatalf("the member's local project must get its board: %+v (%v)", local, err)
+	}
+
+	status, body = call(t, server, alice, http.MethodPost, "/api/projects", `{"name":"Billing","issueTracker":"jira","jiraProject":"BILL"}`)
+	if status != http.StatusCreated {
+		t.Fatalf("admin create on a new Jira space: %d %s", status, body)
+	}
+	if trk := trackerScoped(t, database, "BILL"); trk == nil {
+		t.Fatal("the admin's project must create its tracker")
 	}
 }
 
@@ -350,5 +448,107 @@ func TestAProjectNamingAnUnknownTrackerIsABadRequest(t *testing.T) {
 	status, body = call(t, server, alice, http.MethodPut, "/api/projects/"+project.ID, `{"trackers":[{"trackerId":"`+other.DefaultTrackerID+`"}]}`)
 	if status != http.StatusBadRequest || !strings.Contains(body, "tableau local") {
 		t.Fatalf("update naming another project's local board: %d %s", status, body)
+	}
+}
+
+// A tracker holding tickets keeps its source: an admin moving it is told so,
+// with a conflict rather than a malformed request.
+func TestMovingATrackerHoldingTicketsIsAConflict(t *testing.T) {
+	h, database, cleanup := setupTestHandler(t)
+	defer cleanup()
+	server := trackerServer(t, h)
+	_, alice := account(t, database, "alice@example.com")
+	gode, err := database.CreateTrackerAs("admin", models.Tracker{Provider: "jira", Scope: "GODE"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := database.ImportOrUpdateTasks(gode.ID, []models.Task{{Key: "GODE-1", Title: "Imported", Source: "jira", Status: models.StatusToClarify, Labels: []string{}}}); err != nil {
+		t.Fatal(err)
+	}
+
+	status, body := call(t, server, alice, http.MethodGet, AdminTrackersPath+"/"+gode.ID, "")
+	if status != http.StatusOK || !strings.Contains(body, `"ticketCount":1`) {
+		t.Fatalf("the admin read must count the tracker's tickets: %d %s", status, body)
+	}
+	status, body = call(t, server, alice, http.MethodPut, AdminTrackersPath+"/"+gode.ID, `{"provider":"jira","scope":"OTHER","name":"GODE"}`)
+	if status != http.StatusConflict {
+		t.Fatalf("moving a tracker holding tickets: %d %s", status, body)
+	}
+	status, body = call(t, server, alice, http.MethodPut, AdminTrackersPath+"/"+gode.ID, `{"provider":"jira","scope":"GODE","name":"Renamed"}`)
+	if status != http.StatusOK || !strings.Contains(body, "Renamed") || !strings.Contains(body, `"ticketCount":1`) {
+		t.Fatalf("renaming a tracker holding tickets: %d %s", status, body)
+	}
+}
+
+// scopedStatusFake answers each tracker's statuses by its scope, so two
+// trackers of one provider answer differently.
+type scopedStatusFake struct {
+	tracker.BaseTicketingSystem
+	statuses map[string][]tracker.TrackerStatus
+}
+
+func (f *scopedStatusFake) ListStatuses(ctx context.Context, req tracker.ProjectRequest) ([]tracker.TrackerStatus, error) {
+	return f.statuses[req.Tracker.Scope], nil
+}
+
+// The statuses detected for a tracker are that tracker's: what it answers and
+// what its own tickets carry, not those of the default tracker of a project
+// selecting it (#741).
+func TestTheDetectedStatusesOfATrackerAreItsOwn(t *testing.T) {
+	h, database, cleanup := setupTestHandler(t)
+	defer cleanup()
+	database.TrackerRegistry().Register("jira", &scopedStatusFake{
+		BaseTicketingSystem: tracker.BaseTicketingSystem{TrackerName: "jira", Capabilities: []tracker.Capability{tracker.CapBoard}},
+		statuses: map[string][]tracker.TrackerStatus{
+			"PE":  {{ID: "1", Name: "Platform Remote", Category: "indeterminate"}},
+			"OPS": {{ID: "2", Name: "Ops Remote", Category: "done"}},
+		},
+	})
+	server := trackerServer(t, h)
+	_, alice := account(t, database, "alice@example.com")
+	pe, err := database.CreateTrackerAs("admin", models.Tracker{Provider: "jira", Scope: "PE"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ops, err := database.CreateTrackerAs("admin", models.Tracker{Provider: "jira", Scope: "OPS"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.CreateProject(models.CreateProjectRequest{
+		Name:             "Platform",
+		Trackers:         []models.ProjectTracker{{TrackerID: pe.ID}, {TrackerID: ops.ID}},
+		DefaultTrackerID: pe.ID,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.ImportOrUpdateTasks(pe.ID, []models.Task{{Key: "PE-1", Title: "Platform", Source: "jira", Status: "Platform Stored", Labels: []string{}}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.ImportOrUpdateTasks(ops.ID, []models.Task{{Key: "OPS-1", Title: "Ops", Source: "jira", Status: "Ops Stored", Labels: []string{}}}); err != nil {
+		t.Fatal(err)
+	}
+
+	status, body := call(t, server, alice, http.MethodGet, AdminTrackersPath+"/"+ops.ID+"/detected-statuses", "")
+	if status != http.StatusOK {
+		t.Fatalf("detected statuses: %d %s", status, body)
+	}
+	var detected []models.DetectedStatus
+	if err := json.Unmarshal([]byte(body), &detected); err != nil {
+		t.Fatal(err)
+	}
+	names := map[string]models.DetectedStatus{}
+	for _, st := range detected {
+		names[st.Name] = st
+	}
+	if remote, ok := names["Ops Remote"]; !ok || remote.Type != "completed" {
+		t.Fatalf("the tracker's own statuses are missing: %s", body)
+	}
+	if _, ok := names["Ops Stored"]; !ok {
+		t.Fatalf("the statuses of the tracker's tickets are missing: %s", body)
+	}
+	for _, foreign := range []string{"Platform Remote", "Platform Stored"} {
+		if _, ok := names[foreign]; ok {
+			t.Fatalf("%q belongs to the project's default tracker: %s", foreign, body)
+		}
 	}
 }

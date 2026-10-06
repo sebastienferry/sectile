@@ -206,7 +206,11 @@ func (h *Handler) HandleAdminTrackers(w http.ResponseWriter, r *http.Request) {
 			t.ID = trackerID
 			updated, err := h.db.UpdateTrackerAs(caller.UserID, t)
 			if err != nil {
-				writeError(w, http.StatusBadRequest, err.Error())
+				status := http.StatusBadRequest
+				if errors.Is(err, db.ErrTrackerSourceInUse) {
+					status = http.StatusConflict
+				}
+				writeError(w, status, err.Error())
 				return
 			}
 			writeJSON(w, http.StatusOK, updated)
@@ -248,15 +252,7 @@ func (h *Handler) HandleAdminTrackers(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusNotFound, "Tracker non trouvé")
 			return
 		}
-		repo := ""
-		if t.Provider == "github" {
-			repo = t.Scope
-		}
-		projectID := ""
-		if trackers := h.db.TrackerProjectIDs(t.ID); len(trackers) > 0 {
-			projectID = trackers[0]
-		}
-		result, err = h.db.DetectTrackerStatuses(ctx, projectID, t.Provider, repo)
+		result, err = h.db.DetectStatusesForTracker(ctx, t.ID)
 	default:
 		writeError(w, http.StatusNotFound, "Not found")
 		return

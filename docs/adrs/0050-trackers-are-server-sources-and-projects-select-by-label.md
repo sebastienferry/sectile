@@ -128,12 +128,22 @@ subset of its trackers' tickets that carries its label.
   exception: they stay a member's, through the sprint routes and the project
   save, because planning sprints is board work. The deployment's tracker
   settings keys of ADR 0018 (`trackerSettingsKeys`) are unchanged.
-- **A member can still point a project at a tracker by its legacy fields.** A
-  project save naming `issueTracker` and `jiraProject`, `githubRepo` or
-  `gitlabProject` finds or creates the tracker of that identity and links it,
-  without its board mirror; a tracker only that project selects is renamed in
-  place to the new source, so its tickets stay with it. Configuring the new
-  tracker's board is then an admin's.
+- **A member can only join an existing tracker through a project's legacy
+  fields.** A member's project save naming `issueTracker` and `jiraProject`,
+  `githubRepo` or `gitlabProject` links the tracker already recorded with that
+  identity, without touching its board mirror; one naming a source nobody
+  recorded is refused as an unknown tracker (400). The site fields
+  (`trackerUrl`, `githubApiUrl`, `gitlabUrl`) are dropped from a member's
+  save, since the server sends its credentials there, so a member joins by
+  these fields a tracker on the deployment's site only, and any other through
+  `trackers`. Creating a tracker, renaming one in place or setting its site
+  is an admin's (D11): an admin's save still finds or creates the tracker,
+  and renames in place the one only that project selects, so its tickets stay
+  with it. A member's local project still gets its own local board.
+- **A tracker holding tickets keeps its source.** Its provider, site and
+  scope no longer change once it holds tickets or epics (409): they were read
+  from that source. An empty tracker may change them, and like a tracker
+  renamed in place its next background pass reads the new source whole.
 - **Members lose the status-to-stage mapping editor** they had in a project's
   settings. The mapping belongs to the tracker, so only an admin edits it, in
   Administration → Trackers.

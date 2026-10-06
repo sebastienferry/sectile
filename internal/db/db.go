@@ -7180,7 +7180,7 @@ func (d *DB) CreateProjectAs(ownerUserID string, req models.CreateProjectRequest
 	}
 	// A tracker the new project joins keeps its own board mirror; it only
 	// takes the project's auto-sync when the project asks for it.
-	joined := trackerFieldsTouched{autoSync: created.AutoSyncEnabled}
+	joined := trackerFieldsTouched{autoSync: created.AutoSyncEnabled, joinOnly: req.JoinTrackerOnly}
 
 	// The previous default is cleared in the same transaction as the insert,
 	// under the default-project lock, so there is never zero or two defaults.
@@ -7653,6 +7653,12 @@ func (d *DB) remoteTrackerStatuses(ctx context.Context, projectID, trackerName s
 		log.Printf("[statuses] %s n'a pas répondu ses statuts: %v", trackerName, err)
 		return nil
 	}
+	return detectedFromTracker(statuses, trackerName)
+}
+
+// detectedFromTracker reads the statuses a tracker named as detected ones,
+// their category mapped onto the workflow's status types.
+func detectedFromTracker(statuses []tracker.TrackerStatus, source string) []models.DetectedStatus {
 	out := make([]models.DetectedStatus, 0, len(statuses))
 	for _, st := range statuses {
 		sType := "unstarted"
@@ -7664,7 +7670,7 @@ func (d *DB) remoteTrackerStatuses(ctx context.Context, projectID, trackerName s
 		case "new":
 			sType = "backlog"
 		}
-		out = append(out, models.DetectedStatus{ID: st.Name, Name: st.Name, Type: sType, Source: trackerName})
+		out = append(out, models.DetectedStatus{ID: st.Name, Name: st.Name, Type: sType, Source: source})
 	}
 	return out
 }
@@ -7682,6 +7688,57 @@ func (d *DB) DetectTrackerStatuses(ctx context.Context, projectID, trackerName, 
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 
+	// 1. If projectID provided, load project info
+	if projectID != "" && projectID != "detect-statuses" {
+		if proj, _ := d.getProjectByIDUnsafe(projectID); proj != nil {
+			if trackerName == "" {
+				trackerName = proj.IssueTracker
+			}
+			if githubRepo == "" {
+				githubRepo = proj.GithubRepo
+			}
+		}
+	}
+
+	// 3. Scan existing tasks in SQLite database for project / tracker
+	cond := "1=1"
+	var args []interface{}
+	if projectID != "" && projectID != "detect-statuses" {
+		cond, args = d.membershipScopeUnsafe([]string{projectID})
+	}
+	return d.detectStatusesUnsafe(cond, args, trackerName, remote), nil
+}
+
+// DetectStatusesForTracker lists the statuses seen on one tracker, for an
+// admin mapping its columns (#741): those the tracker itself names, those its
+// own tickets carry, GitHub's open and closed, then the presets. The tracker
+// is asked before the read lock is taken, as remoteTrackerStatuses explains.
+func (d *DB) DetectStatusesForTracker(ctx context.Context, trackerID string) ([]models.DetectedStatus, error) {
+	ts, trk, err := d.trackerReaderByID(trackerID)
+	if trk == nil {
+		return nil, err
+	}
+	var remote []models.DetectedStatus
+	if err == nil && trk.Provider != "github" && trk.Provider != "local" && ts.Supports(tracker.CapBoard) {
+		listCtx, cancel := context.WithTimeout(ctx, boardAPITimeout)
+		statuses, listErr := ts.ListStatuses(listCtx, tracker.ProjectRequest{Tracker: trk})
+		cancel()
+		if listErr != nil {
+			log.Printf("[statuses] %s n'a pas répondu ses statuts: %v", trk.Provider, listErr)
+		} else {
+			remote = detectedFromTracker(statuses, trk.Provider)
+		}
+	}
+
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return d.detectStatusesUnsafe("tracker_id = ?", []interface{}{trk.ID}, trk.Provider, remote), nil
+}
+
+// detectStatusesUnsafe assembles the detected statuses: the stored statuses
+// of the tickets cond selects, GitHub's open and closed, the tracker's own
+// read beforehand, then the presets, each name once. The caller holds d.mu.
+func (d *DB) detectStatusesUnsafe(cond string, args []interface{}, trackerName string, remote []models.DetectedStatus) []models.DetectedStatus {
 	var results []models.DetectedStatus
 	seen := make(map[string]bool)
 
@@ -7704,27 +7761,7 @@ func (d *DB) DetectTrackerStatuses(ctx context.Context, projectID, trackerName, 
 		})
 	}
 
-	// 1. If projectID provided, load project info
-	if projectID != "" && projectID != "detect-statuses" {
-		if proj, _ := d.getProjectByIDUnsafe(projectID); proj != nil {
-			if trackerName == "" {
-				trackerName = proj.IssueTracker
-			}
-			if githubRepo == "" {
-				githubRepo = proj.GithubRepo
-			}
-		}
-	}
-
-	// 3. Scan existing tasks in SQLite database for project / tracker
-	query := "SELECT DISTINCT status FROM tasks WHERE 1=1"
-	var args []interface{}
-	if projectID != "" && projectID != "detect-statuses" {
-		cond, condArgs := d.membershipScopeUnsafe([]string{projectID})
-		query += " AND " + cond
-		args = append(args, condArgs...)
-	}
-	if rows, err := d.conn.Query(query, args...); err == nil {
+	if rows, err := d.conn.Query("SELECT DISTINCT status FROM tasks WHERE "+cond, args...); err == nil {
 		for rows.Next() {
 			var st string
 			if sErr := rows.Scan(&st); sErr == nil && st != "" {
@@ -7766,5 +7803,5 @@ func (d *DB) DetectTrackerStatuses(ctx context.Context, projectID, trackerName, 
 		addStatus(def.name, def.sType, def.color, "preset")
 	}
 
-	return results, nil
+	return results
 }
