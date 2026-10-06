@@ -1,5 +1,6 @@
 const {contextBridge,ipcRenderer}=require('electron')
 contextBridge.exposeInMainWorld('localAgent',{
+ onOpenSettings:callback=>{const fn=()=>callback();ipcRenderer.on('open-settings',fn);return()=>ipcRenderer.removeListener('open-settings',fn)},
  connect:()=>ipcRenderer.invoke('connect'),
  pair:(server,code,label)=>ipcRenderer.invoke('pair',{server,code,label}),
  start:settings=>ipcRenderer.invoke('start',settings),

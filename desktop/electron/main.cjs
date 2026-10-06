@@ -586,7 +586,8 @@ ipcMain.handle('attach',(_,id)=>{
 })
 ipcMain.on('terminal-input',(_,data)=>{if(socket?.readyState===WebSocket.OPEN&&typeof data==='string')socket.send(JSON.stringify({type:'input',data}))})
 ipcMain.on('terminal-resize',(_,size)=>{if(socket?.readyState===WebSocket.OPEN&&size.cols>0&&size.rows>0)socket.send(JSON.stringify({type:'resize',...size}))})
-Menu.setApplicationMenu(process.platform==='darwin'?Menu.buildFromTemplate([{role:'appMenu'},{role:'editMenu'},{role:'windowMenu'}]):null)
+// Let macOS resolve the settings accelerator against the active keyboard layout.
+Menu.setApplicationMenu(process.platform==='darwin'?Menu.buildFromTemplate([{label:app.name,submenu:[{role:'about'},{type:'separator'},{id:'settings',label:'Settings…',accelerator:'Command+,',click:()=>{if(window&&!window.isDestroyed())window.webContents.send('open-settings')}},{type:'separator'},{role:'services'},{type:'separator'},{role:'hide'},{role:'hideOthers'},{role:'unhide'},{type:'separator'},{role:'quit'}]},{role:'editMenu'},{role:'windowMenu'}]):null)
 function openWindow(){
  if(window&&!window.isDestroyed()){window.show();return}
  // The window draws its own title bar: the app header is the title bar, and the system buttons are
