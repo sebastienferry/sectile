@@ -74,10 +74,10 @@ async function withDesktop(project,run,workstation=WORKSTATION,{others=[],discon
  }
 }
 
-const EMPTY={enabled:null,allowedDomains:[],allowWrite:[],allow:[],deny:[]}
+const EMPTY={enabled:null,allowedDomains:[],excludedCommands:[],allowWrite:[],allow:[],deny:[]}
 const WORKSTATION={claudeSandbox:EMPTY,projects:[],platformSandbox:true}
 const PROJECT={server:{projectName:'Example project',skills:[]},path:'/tmp/sandbox-worktree',configured:true,aiProvider:'claude',
- claudeSandbox:{enabled:null,allowedDomains:[],allowWrite:[],allow:[],deny:[]},platformSandbox:true,claudeSettingsPath:'/home/me/.config/sectile/claude/project-a.json'}
+ claudeSandbox:{enabled:null,allowedDomains:[],excludedCommands:[],allowWrite:[],allow:[],deny:[]},platformSandbox:true,claudeSettingsPath:'/home/me/.config/sectile/claude/project-a.json'}
 
 test('the Claude settings category edits, saves and reads back the project values',async()=>{
  await withDesktop(PROJECT,async({page,open,close,save,saved})=>{
@@ -97,6 +97,11 @@ test('the Claude settings category edits, saves and reads back the project value
   await state.getByRole('button',{name:'On',exact:true}).click()
   await addTo('Allowed network domains','registry.npmjs.org')
   await addTo('Extra writable paths','~/.cache/go-build')
+  // The commands outside the sandbox (#764) follow the domains, as typed.
+  const rows=page.locator('#project-panel-Sandbox .setting-row')
+  const titles=await rows.locator('.setting-name strong').allTextContents()
+  assert.ok(titles.indexOf('Commands outside the sandbox')===titles.indexOf('Allowed network domains')+1,titles.join(' | '))
+  await addTo('Commands outside the sandbox','glab *')
   await addTo('Allow rules','Bash(make test:*)')
   // Enter adds the entry rather than submitting the settings.
   await page.getByRole('textbox',{name:'New entry for Deny rules',exact:true}).fill('Bash(git push:*)')
@@ -120,9 +125,9 @@ test('the Claude settings category edits, saves and reads back the project value
 
   await expect(preview).toContainText("--settings='/home/me/.config/sectile/claude/project-a.json'")
   const body=await save()
-  assert.deepEqual(body.claudeSandbox,{enabled:true,allowedDomains:['registry.npmjs.org'],allowWrite:['~/.cache/go-build'],allow:['Bash(make test:*)'],deny:['Bash(git push:*)']})
+  assert.deepEqual(body.claudeSandbox,{enabled:true,allowedDomains:['registry.npmjs.org'],excludedCommands:['glab *'],allowWrite:['~/.cache/go-build'],allow:['Bash(make test:*)'],deny:['Bash(git push:*)']})
   // The base is what the dialog read, so the agent keeps a rule added meanwhile.
-  assert.deepEqual(body.claudeSandboxBase,{enabled:null,allowedDomains:[],allowWrite:[],allow:[],deny:[]})
+  assert.deepEqual(body.claudeSandboxBase,EMPTY)
 
   // Reopened, the category shows what was saved; a removed entry is gone
   // from the next save.
@@ -143,6 +148,7 @@ test('on Windows the sandbox part is disabled and the rules stay editable',async
   await expect(state.getByRole('button',{name:'On',exact:true})).toBeDisabled()
   await expect(page.locator('.setting-row').filter({has:state}).locator('.setting-text p').first()).toHaveText('Claude Code’s sandbox does not run on Windows: only the permission rules below apply.')
   await expect(page.getByRole('textbox',{name:'New entry for Allowed network domains',exact:true})).toBeDisabled()
+  await expect(page.getByRole('textbox',{name:'New entry for Commands outside the sandbox',exact:true})).toBeDisabled()
   await expect(page.getByRole('textbox',{name:'New entry for Extra writable paths',exact:true})).toBeDisabled()
   await expect(page.getByRole('textbox',{name:'New entry for Allow rules',exact:true})).toBeEnabled()
   await expect(page.getByRole('textbox',{name:'New entry for Deny rules',exact:true})).toBeEnabled()
@@ -189,8 +195,11 @@ test('on Windows the workstation sandbox part is disabled and the rules and whit
   const stateRow=panel.locator('.setting-row').filter({has:page.getByRole('group',{name:'Claude Code sandbox',exact:true})})
   await expect(stateRow.locator('.setting-text p').first()).toHaveText('Claude Code’s sandbox does not run on Windows: only the permission rules below apply.')
   await expect(panel.getByRole('textbox',{name:'New entry for Allowed network domains',exact:true})).toBeDisabled()
+  await expect(panel.getByRole('textbox',{name:'New entry for Commands outside the sandbox',exact:true})).toBeDisabled()
   await expect(panel.getByRole('textbox',{name:'New entry for Extra writable paths',exact:true})).toBeDisabled()
   await expect(panel.getByRole('textbox',{name:'New entry for Allow rules',exact:true})).toBeEnabled()
+  // A preset of commands outside the sandbox has nothing to apply here (#764).
+  await expect(panel.getByRole('button',{name:'Apply preset Outside the sandbox (git, gh, glab)',exact:true})).toBeHidden()
   await expect(panel.getByRole('textbox',{name:'New entry for Deny rules',exact:true})).toBeEnabled()
   await panel.getByRole('radio',{name:'Only these projects',exact:true}).check()
   const whitelist=panel.getByRole('group',{name:'Projects the Claude settings apply to',exact:true})
@@ -327,6 +336,23 @@ test('on Windows a preset adds its rules only',async()=>{
   await expect.poll(()=>workstationSaves.length).toBe(1)
   assert.deepEqual(workstationSaves[0].claudeSandbox,{...EMPTY,allow:go.allow})
  },{...WORKSTATION,platformSandbox:false})
+})
+
+test('the outside-the-sandbox preset fills the commands outside the sandbox (#764)',async()=>{
+ const presets=await presetsOf()
+ const outside=presets.find(p=>p.id==='outside-sandbox')
+ await withDesktop(PROJECT,async({page,openWorkstation,workstationSaves})=>{
+  await openWorkstation()
+  const panel=page.locator('#settings-panel-Sandbox')
+  const card=presetCard(panel,outside.name)
+  await expect(card.locator('.claude-preset-kinds')).toHaveText('7 commands')
+  await panel.getByRole('button',{name:'Apply preset '+outside.name,exact:true}).click()
+  const list=panel.getByRole('list',{name:'Commands outside the sandbox',exact:true})
+  await expect(list.locator('li')).toHaveCount(outside.excludedCommands.length)
+  await panel.getByRole('button',{name:'Save Claude settings',exact:true}).click()
+  await expect.poll(()=>workstationSaves.length).toBe(1)
+  assert.deepEqual(workstationSaves[0].claudeSandbox,{...EMPTY,excludedCommands:outside.excludedCommands})
+ })
 })
 
 test('a project’s Claude settings offer no presets',async()=>{
