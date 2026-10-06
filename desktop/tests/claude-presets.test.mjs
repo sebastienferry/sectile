@@ -40,6 +40,10 @@ test('the deny preset leaves out routine cleanups and the catalogue no broad hos
  for(const rule of ['Bash(terraform apply *)','Bash(sudo *)','Bash(git push --force*)','Read(~/.ssh/**)'])assert.ok(deny.includes(rule),rule)
  assert.ok(!deny.some(rule=>/rm -rf|reset --hard/.test(rule)))
  assert.ok(!PRESETS.some(p=>p.allowedDomains.includes('storage.googleapis.com')))
+ // No preset allows what another denies: applying both never raises the
+ // "In both lists" warning by itself.
+ const denied=new Set(PRESETS.flatMap(p=>p.deny))
+ assert.deepEqual(PRESETS.flatMap(p=>p.allow).filter(rule=>denied.has(rule)),[])
  // The preset's guardrail warning (US6).
  assert.match(preset('dangerous').description,/not a security boundary/)
 })

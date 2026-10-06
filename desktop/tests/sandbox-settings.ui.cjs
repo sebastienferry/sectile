@@ -310,7 +310,7 @@ test('on Windows a preset adds its rules only',async()=>{
   await openWorkstation()
   const panel=page.locator('#settings-panel-Sandbox')
   const card=presetCard(panel,'Go')
-  await card.locator('summary').click()
+  await panel.getByLabel('Entries of Go',{exact:true}).click()
   await expect(card).toContainText('do not apply on Windows')
   await panel.getByRole('button',{name:'Apply preset Go',exact:true}).click()
   await expect(panel.getByRole('button',{name:'Remove preset Go',exact:true})).toBeVisible()

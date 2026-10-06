@@ -221,7 +221,7 @@ export function sandboxSettings({settingRow,stored,platformSandbox,settingsPath,
   head.append(name,badge,toggle)
   const description=document.createElement('p');description.className='claude-preset-description';description.textContent=preset.description
   const entries=document.createElement('details');entries.className='claude-preset-entries'
-  const summary=document.createElement('summary');summary.textContent='Entries'
+  const summary=document.createElement('summary');summary.textContent='Entries';summary.setAttribute('aria-label','Entries of '+preset.name)
   entries.append(summary)
   for(const [list,label] of [['allow','Allow rules'],['deny','Deny rules'],['allowedDomains','Allowed network domains'],['allowWrite','Extra writable paths']]){
    if(!preset[list].length)continue
