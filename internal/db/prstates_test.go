@@ -56,7 +56,7 @@ func TestPullRequestStateWritePreservesOrderAndDetachment(t *testing.T) {
 	d, _, task := discoveryTestDB(t, "#implemented")
 	links := []models.TaskPullRequest{{URL: "https://forge/pull/1", Branch: "old", State: "open"}, {URL: "https://forge/pull/2", Branch: "new", State: "conflicting"}}
 	d.conn.Exec("UPDATE tasks SET pr_links = ?, pr_url = ? WHERE id = ?", encodePullRequestLinks(links), links[1].URL, task.ID)
-	if err := d.applyPullRequestStates(task.ID, map[string]string{links[0].URL: "merged", links[1].URL: "", "https://forge/pull/3": "open"}); err != nil {
+	if err := d.applyPullRequestStates(task.ID, map[string]string{links[0].URL: "merged", links[1].URL: "", "https://forge/pull/3": "open"}, nil); err != nil {
 		t.Fatal(err)
 	}
 	got, _ := d.GetTaskByID(task.ID)
@@ -64,7 +64,7 @@ func TestPullRequestStateWritePreservesOrderAndDetachment(t *testing.T) {
 		t.Fatalf("links changed: %+v", got.PrLinks)
 	}
 	d.conn.Exec("UPDATE tasks SET pr_links = '[]', pr_url = NULL WHERE id = ?", task.ID)
-	d.applyPullRequestStates(task.ID, map[string]string{links[0].URL: "merged"})
+	d.applyPullRequestStates(task.ID, map[string]string{links[0].URL: "merged"}, nil)
 	got, _ = d.GetTaskByID(task.ID)
 	if len(got.PrLinks) != 0 || got.PrURL != nil {
 		t.Fatal("refresh resurrected detached PR")
@@ -75,8 +75,8 @@ func TestPullRequestRefreshPreservesStateOnLockedCredential(t *testing.T) {
 	d, p, task := discoveryTestDB(t, "#implemented")
 	link := models.TaskPullRequest{URL: "https://github.com/a/b/pull/1", State: "merged"}
 	d.conn.Exec("UPDATE tasks SET pr_links = ?, pr_url = ? WHERE id = ?", encodePullRequestLinks([]models.TaskPullRequest{link}), link.URL, task.ID)
-	d.trackers = &trackerapi.Client{GithubURL: trackerapi.DefaultGithubURL, GithubToken: "must-not-fallback", ResolveUser: func(string, string) (string, string, string, error) {
-		return "", "", "", fmt.Errorf("locked credential")
+	d.trackers = &trackerapi.Client{GithubURL: trackerapi.DefaultGithubURL, GithubToken: "must-not-fallback", ResolveUser: func(string, string, string) (trackerapi.PersonalCredential, error) {
+		return trackerapi.PersonalCredential{}, fmt.Errorf("locked credential")
 	}}
 	warnings := d.refreshProjectPullRequestStates(tracker.WithActingUser(context.Background(), "owner"), p.ID)
 	got, _ := d.GetTaskByID(task.ID)

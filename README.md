@@ -70,13 +70,19 @@ Vite runs on port 5173 and proxies API requests to port 8090.
 
 ## Connect a workstation
 
-From the server profile, create a pairing code under **Pair a workstation**.
-Then, on the machine that has the repository and coding tools:
+On the machine that has the repository and coding tools, pair it once; `pair`
+opens the browser to sign you in, and Sectile Desktop does the same from its
+**Sign in with your browser** button:
 
 ```sh
-./bin/agent pair --url http://localhost:8090 --code '<pairing code>'
+./bin/agent pair --url http://localhost:8090
 ./bin/agent --url http://localhost:8090 --project '<project-id>' --repo /path/to/clone
 ```
+
+Without a browser on that machine, create a pairing code under **Pair a
+workstation** in the server profile and pass it with `--code '<pairing code>'`.
+Pairing again revokes the workstation's previous key; restart a running agent
+afterwards.
 
 The agent owns local Git operations and launches. Keep tracker credentials on
 the server and personal write credentials in the profile; do not put tokens in
@@ -95,7 +101,7 @@ by itself. There are two ways to install them, with the Sectile MCP server:
   the key in its secure storage. The skills run as `/sectile:clarify-issue`
   and so on.
 - **Any CLI: the direct setup.** `./bin/agent init --provider claude` (or
-  `codex`, `agy`, `gemini`, `cursor`, `vibe`), or **Initialize** in the
+  `codex`, `agy`), or **Initialize** in the
   desktop's Deployment settings, copies the skills into the CLI's user folder
   and registers the MCP server. It is the only route for CLIs other than
   Claude.
@@ -175,6 +181,15 @@ export SECTILE_SECRET_KEY='<64 hex characters>'
 ./bin/server
 ```
 
+The database must be encoded in UTF8, the PostgreSQL default. The server
+refuses to start on any other encoding, such as the SQL_ASCII that
+`initdb --locale=C` gives without `--encoding`, because the run output it caps
+in SQL would be counted in bytes. Create the database with:
+
+```sql
+CREATE DATABASE sectile ENCODING 'UTF8' TEMPLATE template0;
+```
+
 Use one server instance per database unless the deployment follows the shared
 PostgreSQL design documented in the architecture guide.
 
@@ -190,6 +205,12 @@ It includes the workstation agent and provides execution queues, an
 agent-owned console, project settings, MCP connections, and a read-only view
 of uncommitted worktree changes. For release installation and desktop-specific
 configuration, read the [Desktop guide](./desktop/README.md).
+
+The test branch also offers a Claude Code conversation view without a PTY,
+turned on by **Settings → Appearance → Claude consoles → Conversation**: Claude
+project prompts then open in it, and **Claude chat (test)** starts one in the
+selected execution's directory. See the
+[prototype notes](./docs/experiments/desktop-conversation.md) for its limits.
 
 ## Testing
 
@@ -218,6 +239,8 @@ test command. Run them from `web/` with an absolute path to Playwright's
   and server-agent contracts.
 - [UX components](./docs/UX_COMPONENTS.md): board, list, desktop, and diff
   experience.
+- [Testing guide](./docs/TESTING.md): SQLite test fixtures, tests that need a
+  real database, and how to measure test performance.
 - [Desktop guide](./desktop/README.md): installation, packaging, local
   configuration, and MCP setup.
 - [Architecture decisions](./docs/adrs): durable technical decisions.

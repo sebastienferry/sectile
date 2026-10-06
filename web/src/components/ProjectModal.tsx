@@ -49,7 +49,10 @@ import type {
 import { ACCENT_COLORS, accentBadgeStyle, normalizeAccentColor, DEFAULT_PROJECT_ACCENT } from '../lib/accents'
 import { PROJECT_TRACKERS, needsCredentialsFor } from '../lib/trackers'
 import { formatProjectKeyList, parseProjectKeyList } from '../lib/roadmapProjects'
+import { DEFAULT_EPIC_AXIS_PREFIXES, cleanEpicAxisPrefix, epicAxisPrefixProblem, type EpicAxisName } from '../lib/roadmap'
 import { declaredRepositories, droppedRepositoryPaths, duplicateRepository, repositoryIdentity } from '../lib/repositories'
+import { BRANCH_NAME_PRESETS, BRANCH_NAME_SAMPLE, checkBranchNameFormat } from '../lib/branchNameFormat'
+import { DEFAULT_FULL_CHAIN_STOP_STAGE } from '../lib/workflow'
 
 type ProjectTab = 'general' | 'tracker' | 'workflow' | 'skills'
 
@@ -100,7 +103,7 @@ const AVAILABLE_ICONS = [
 const WORKFLOW_SKILLS: { id: WorkflowSkillId; defaultName: string; code: string; icon: React.ComponentType<{ size?: number; className?: string }>; color: string }[] = [
   { id: 'clarify', defaultName: 'Clarify', code: 'clarify-issue', icon: HelpCircle, color: 'amber' },
   { id: 'specify', defaultName: 'Specify', code: 'specify-issue', icon: FileCode, color: 'blue' },
-  { id: 'implement', defaultName: 'Implement', code: 'code-issue', icon: Flame, color: 'indigo' },
+  { id: 'implement', defaultName: 'Implement', code: 'implement-issue', icon: Flame, color: 'indigo' },
   { id: 'adjust', defaultName: 'Adjust', code: 'adjust-issue', icon: ShieldCheck, color: 'purple' },
   { id: 'handoff', defaultName: 'Handoff', code: 'handoff-issue', icon: Sparkles, color: 'emerald' },
 ]
@@ -161,7 +164,8 @@ export const ProjectModal: React.FC = () => {
   const [prCreationStage, setPRCreationStage] = useState<PRCreationStage>('implemented')
   const [defaultSkillMode, setDefaultSkillMode] = useState<SkillMode>('')
   const [pushStageCommits, setPushStageCommits] = useState(false)
-  const [fullChainStopStage, setFullChainStopStage] = useState<'implemented' | 'reviewed'>('reviewed')
+  const [branchNameFormat, setBranchNameFormat] = useState('')
+  const [fullChainStopStage, setFullChainStopStage] = useState<'implemented' | 'reviewed'>(DEFAULT_FULL_CHAIN_STOP_STAGE)
   const [trackerColumns, setTrackerColumns] = useState<TrackerColumn[]>([])
   const [stageColumns, setStageColumns] = useState<Record<string, string[]>>({})
 
@@ -212,6 +216,8 @@ export const ProjectModal: React.FC = () => {
   const [gitlabProject, setGitlabProject] = useState('')
   const [jiraProject, setJiraProject] = useState('')
   const [roadmapProjects, setRoadmapProjects] = useState('')
+  const [roadmapAxisWrites, setRoadmapAxisWrites] = useState(false)
+  const [epicAxisPrefixes, setEpicAxisPrefixes] = useState<Record<EpicAxisName, string>>({ priority: '', quarter: '', readiness: '' })
   // Types de tickets importés. Vide vaut « les types par défaut » : c'est ce que
   // porte un projet qui n'a jamais eu besoin d'y toucher.
   const [issueTypes, setIssueTypes] = useState<string[]>([])
@@ -258,8 +264,9 @@ export const ProjectModal: React.FC = () => {
 
       setPRCreationStage(editingProject.prCreationStage || 'implemented')
       setDefaultSkillMode(editingProject.defaultSkillMode || '')
-      setFullChainStopStage(editingProject.fullChainStopStage || 'reviewed')
+      setFullChainStopStage(editingProject.fullChainStopStage || DEFAULT_FULL_CHAIN_STOP_STAGE)
       setPushStageCommits(editingProject.pushStageCommits === true)
+      setBranchNameFormat(editingProject.branchNameFormat || '')
       setTrackerColumns(editingProject.trackerColumns || [])
       setStageColumns(editingProject.stageColumns || {})
       setGitRemoteUrl(editingProject.gitRemoteUrl || '')
@@ -282,6 +289,12 @@ export const ProjectModal: React.FC = () => {
       // conserve celui qui est enregistré.
       setJiraProject(editingProject.jiraProject || '')
       setRoadmapProjects(formatProjectKeyList(editingProject.roadmapProjects))
+      setRoadmapAxisWrites(Boolean(editingProject.roadmapAxisWrites))
+      setEpicAxisPrefixes({
+        priority: editingProject.epicAxisPrefixes?.priority || '',
+        quarter: editingProject.epicAxisPrefixes?.quarter || '',
+        readiness: editingProject.epicAxisPrefixes?.readiness || '',
+      })
       setIssueTypes(editingProject.issueTypes || [])
       setEnabledViews(enabledOptionalViews(editingProject))
       setEpicColors(editingProject.epicColors === true)
@@ -301,6 +314,7 @@ export const ProjectModal: React.FC = () => {
     } else {
       setPRCreationStage('implemented')
       setPushStageCommits(false)
+      setBranchNameFormat('')
       setName('')
       setSlug('')
       setDescription('')
@@ -326,6 +340,8 @@ export const ProjectModal: React.FC = () => {
       setGitlabProject('')
       setJiraProject('')
       setRoadmapProjects('')
+      setRoadmapAxisWrites(false)
+      setEpicAxisPrefixes({ priority: '', quarter: '', readiness: '' })
       setSkillsStatus(null)
       setSddStatuses([])
       setSddResult(null)
@@ -382,9 +398,31 @@ export const ProjectModal: React.FC = () => {
 
   const droppedPaths = droppedRepositoryPaths(editingProject?.repositoriesMigration)
 
+  // The prefixes are checked as typed, so the refusal reads beside the field
+  // rather than in a toast after a round trip; the server checks them too.
+  const prefixProblem = issueTracker === 'jira' ? epicAxisPrefixProblem(epicAxisPrefixes) : null
+  const prefixProblemText = prefixProblem
+    ? format(
+        {
+          space: ps.tracker.epicAxisPrefixSpace,
+          empty: ps.tracker.epicAxisPrefixEmpty,
+          overlap: ps.tracker.epicAxisPrefixOverlap,
+          horizon: ps.tracker.epicAxisPrefixHorizon,
+        }[prefixProblem.kind],
+        {
+          axis: ps.tracker.epicAxisPrefixAxes[prefixProblem.axis].toLowerCase(),
+          other: prefixProblem.kind === 'overlap' ? ps.tracker.epicAxisPrefixAxes[prefixProblem.other].toLowerCase() : '',
+        }
+      )
+    : ''
+
   const handleSubmit = async (e?: React.FormEvent) => {
     e?.preventDefault()
     if (!name.trim() || isSubmitting) return
+    if (prefixProblem) {
+      setActiveTab('tracker')
+      return
+    }
 
     setIsSubmitting(true)
     try {
@@ -407,6 +445,7 @@ export const ProjectModal: React.FC = () => {
         defaultSkillMode,
         fullChainStopStage,
         pushStageCommits,
+        branchNameFormat: branchNameFormat.trim(),
         trackerColumns,
         stageColumns,
         gitRemoteUrl: gitRemoteUrl.trim(),
@@ -423,9 +462,22 @@ export const ProjectModal: React.FC = () => {
         gitlabProject: gitlabProject.trim().replace(/^\/+|\/+$/g, ''),
         jiraProject: jiraProject.trim().toUpperCase(),
         roadmapProjects: issueTracker === 'jira' ? parseProjectKeyList(roadmapProjects, jiraProject) : [],
+        // Never open without a declared project: the server closes it too.
+        roadmapAxisWrites: issueTracker === 'jira' && parseProjectKeyList(roadmapProjects, jiraProject).length > 0 && roadmapAxisWrites,
         issueTypes,
         enabledViews,
         epicColors,
+        // Only a tracker whose epics carry labels has them; elsewhere the
+        // stored prefixes are left as they are.
+        ...(issueTracker === 'jira'
+          ? {
+              epicAxisPrefixes: {
+                priority: cleanEpicAxisPrefix(epicAxisPrefixes.priority),
+                quarter: cleanEpicAxisPrefix(epicAxisPrefixes.quarter),
+                readiness: cleanEpicAxisPrefix(epicAxisPrefixes.readiness),
+              },
+            }
+          : {}),
       }
 
       const saved = editingProject
@@ -886,6 +938,67 @@ export const ProjectModal: React.FC = () => {
                 </select>
               </div>
 
+              {/* Format of the branch created for a task that has none yet (#621) */}
+              <div className="p-3.5 rounded-xl bg-[var(--bg-tertiary)]/70 border border-[var(--border-color)] space-y-2">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-xl bg-[var(--accent-light)] accent-text flex items-center justify-center shrink-0 border border-[var(--accent-color)]/30">
+                    <GitBranch size={16} />
+                  </div>
+                  <div>
+                    <label htmlFor="branchNameFormat" className="text-xs font-bold text-[var(--text-primary)] block">
+                      {ps.workflow.branchFormatTitle}
+                    </label>
+                    <span className="text-[10px] text-[var(--text-muted)] block">
+                      {ps.workflow.branchFormatHelp}
+                    </span>
+                  </div>
+                </div>
+                <input
+                  id="branchNameFormat"
+                  type="text"
+                  value={branchNameFormat}
+                  onChange={e => setBranchNameFormat(e.target.value)}
+                  placeholder={BRANCH_NAME_PRESETS[0]}
+                  spellCheck={false}
+                  className="w-full px-3 py-1.5 text-xs font-mono rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)]"
+                />
+                <div className="flex flex-wrap items-center gap-1.5 text-[10px] text-[var(--text-muted)]">
+                  <span>{ps.workflow.branchFormatPresets}</span>
+                  {BRANCH_NAME_PRESETS.map(preset => (
+                    <button
+                      key={preset}
+                      type="button"
+                      onClick={() => setBranchNameFormat(preset)}
+                      className="px-2 py-0.5 rounded-lg font-mono border border-[var(--border-color)] bg-[var(--bg-secondary)] text-[var(--text-secondary)] hover:border-[var(--accent-color)]"
+                    >
+                      {preset}
+                    </button>
+                  ))}
+                </div>
+                <ul className="text-[10px] text-[var(--text-muted)] space-y-0.5">
+                  <li><code className="font-mono">{'{key}'}</code> : {ps.workflow.branchFormatKey}</li>
+                  <li><code className="font-mono">{'{key_lower}'}</code> : {ps.workflow.branchFormatKeyLower}</li>
+                  <li><code className="font-mono">{'{title}'}</code> : {ps.workflow.branchFormatTitleSlug}</li>
+                </ul>
+                {(() => {
+                  const check = checkBranchNameFormat(branchNameFormat)
+                  if (check.ok) {
+                    return (
+                      <p className="text-[10px] text-[var(--text-secondary)]">
+                        {ps.workflow.branchFormatExample} : <code className="font-mono">{BRANCH_NAME_SAMPLE.key}</code> → <code className="font-mono">{check.branch}</code>
+                      </p>
+                    )
+                  }
+                  const problem = {
+                    brace: ps.workflow.branchFormatProblemBrace,
+                    placeholder: `${ps.workflow.branchFormatProblemPlaceholder} ${check.detail ?? ''}`,
+                    key: ps.workflow.branchFormatProblemKey,
+                    git: ps.workflow.branchFormatProblemGit,
+                  }[check.problem]
+                  return <p role="alert" className="text-[10px] text-red-500">{problem}</p>
+                })()}
+              </div>
+
               <label className="flex items-start gap-2 text-xs text-[var(--text-secondary)] cursor-pointer">
                 <input
                   type="checkbox"
@@ -1136,6 +1249,60 @@ export const ProjectModal: React.FC = () => {
                     />
                     <span className="text-[9px] text-[var(--text-muted)] mt-1 block">
                       {ps.tracker.roadmapProjectsHelp}
+                    </span>
+                    {/* Closed by default (#632): a project reading others must
+                        not start writing on their epics because a version
+                        shipped. Offered once at least one project is declared. */}
+                    {parseProjectKeyList(roadmapProjects, jiraProject).length > 0 && (
+                      <label className="flex items-start gap-2 text-xs text-[var(--text-secondary)] cursor-pointer mt-2">
+                        <input
+                          type="checkbox"
+                          checked={roadmapAxisWrites}
+                          onChange={e => setRoadmapAxisWrites(e.target.checked)}
+                          className="mt-0.5 rounded border-[var(--border-color)] accent-[var(--accent-color)]"
+                        />
+                        <span>
+                          {ps.tracker.roadmapAxisWritesLabel}
+                          <span className="block text-[11px] text-[var(--text-muted)]">{ps.tracker.roadmapAxisWritesHelp}</span>
+                        </span>
+                      </label>
+                    )}
+                  </div>
+                )}
+
+                {/* The epic axis prefixes (#635): only a tracker whose epics
+                    carry labels reads and writes them. */}
+                {issueTracker === 'jira' && (
+                  <div className="col-span-2">
+                    <span className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
+                      {ps.tracker.epicAxisPrefixesTitle}
+                    </span>
+                    <div className="grid grid-cols-3 gap-3">
+                      {(['priority', 'quarter', 'readiness'] as const).map(axis => (
+                        <div key={axis}>
+                          <label htmlFor={`project-epic-axis-${axis}`} className="block text-[10px] text-[var(--text-muted)] mb-1">
+                            {ps.tracker.epicAxisPrefixAxes[axis]}
+                          </label>
+                          <input
+                            id={`project-epic-axis-${axis}`}
+                            type="text"
+                            value={epicAxisPrefixes[axis]}
+                            onChange={e => {
+                              const value = e.target.value
+                              setEpicAxisPrefixes(prev => ({ ...prev, [axis]: value }))
+                            }}
+                            placeholder={DEFAULT_EPIC_AXIS_PREFIXES[axis]}
+                            aria-invalid={prefixProblem !== null && (prefixProblem.axis === axis || (prefixProblem.kind === 'overlap' && prefixProblem.other === axis))}
+                            className="w-full px-3 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] font-mono focus:outline-none focus:border-[var(--accent-color)] aria-[invalid=true]:border-red-500"
+                          />
+                        </div>
+                      ))}
+                    </div>
+                    {prefixProblemText && (
+                      <p role="alert" className="mt-1 text-[10px] text-red-500">{prefixProblemText}</p>
+                    )}
+                    <span className="text-[9px] text-[var(--text-muted)] mt-1 block">
+                      {ps.tracker.epicAxisPrefixesHelp}
                     </span>
                   </div>
                 )}

@@ -27,6 +27,33 @@ test('the code and the label reach the server', async () => {
  assert.strictEqual(seen.label, 'workstation')
 })
 
+test('the stored device id reaches the server so it revokes the old key', async () => {
+ let seen
+ await exchangePairingCode('http://127.0.0.1:8090', 'code-5', 'laptop', async (_, options) => {
+  seen = JSON.parse(options.body)
+  return {status: 201, ok: true, json: async () => ({token: 't'})}
+ }, 'dev_old')
+ assert.deepStrictEqual(seen, {code: 'code-5', label: 'laptop', deviceId: 'dev_old'})
+})
+
+test('no device id, no field', async () => {
+ let seen
+ await exchangePairingCode('http://127.0.0.1:8090', 'code-6', 'laptop', async (_, options) => {
+  seen = JSON.parse(options.body)
+  return {status: 201, ok: true, json: async () => ({token: 't'})}
+ })
+ assert.deepStrictEqual(seen, {code: 'code-6', label: 'laptop'})
+})
+
+test('the connect form passes the stored device id to the exchange', async () => {
+ let seen
+ await resolveConnectCredential(
+  {server: 'http://127.0.0.1:8090', code: 'code-7', token: '', deviceId: 'dev_old'},
+  async (server, code, label, fetcher, deviceId) => { seen = {fetcher, deviceId}; return {token: 'fresh-token', deviceId: 'dev_new'} },
+  'laptop')
+ assert.deepStrictEqual(seen, {fetcher: undefined, deviceId: 'dev_old'}, 'the default fetcher is kept')
+})
+
 test('a rejected code is reported as expired rather than as a server error', async () => {
  await assert.rejects(
   exchangePairingCode('http://127.0.0.1:8090', 'stale', 'laptop', responder(401, {})),
@@ -87,7 +114,18 @@ test('an empty form with no stored credential is refused before anything is spen
  await assert.rejects(
   resolveConnectCredential({server: 'http://127.0.0.1:8090', code: '  ', token: '  '},
    () => { throw Error('the network must not be reached') }),
-  /Enter a pairing code/)
+  err => /no saved key yet/.test(err.message) && err.pairingNeeded === true)
+})
+
+// Only a refusal a new code can fix asks for one: a code the user typed and the
+// server refused is reported as it is.
+test('a refused or malformed exchange is not flagged as needing a pairing', async () => {
+ await assert.rejects(
+  exchangePairingCode('http://127.0.0.1:8090', 'stale', 'laptop', responder(401, {})),
+  err => /Invalid or expired pairing code/.test(err.message) && err.pairingNeeded === undefined)
+ await assert.rejects(
+  exchangePairingCode('http://127.0.0.1:8090', 'code', 'laptop', responder(201, {deviceId: 'dev_1'})),
+  err => /no device credential/.test(err.message) && err.pairingNeeded === undefined)
 })
 
 test('a server that answers nothing is reported as unreachable, pointing at the address', async () => {

@@ -23,7 +23,7 @@ func Init(args []string) (string, error) {
 // InitContext executes the initialization with the provided context.
 func InitContext(ctx context.Context, args []string) (string, error) {
 	fs := flag.NewFlagSet("init", flag.ContinueOnError)
-	providerFlag := fs.String("provider", "", "Provider identifier to bootstrap (e.g. claude, agy, codex, cursor, gemini, vibe). Optional for Claude, which can use the sectile plugin instead")
+	providerFlag := fs.String("provider", "", "Provider identifier to bootstrap (e.g. claude, agy, codex). Optional for Claude, which can use the sectile plugin instead")
 	serverURL := fs.String("url", "", "Remote Sectile server URL (e.g. https://sectile.example.com); defaults to the paired server")
 	token := fs.String("token", "", "Workstation API key (defaults to TOKEN, then to the key stored by `sectile-agent pair`)")
 	projectID := fs.String("project", "", "Project primary key (defaults to matching local repository or the first project)")
@@ -52,7 +52,7 @@ func InitContext(ctx context.Context, args []string) (string, error) {
 		provider = strings.TrimSpace(positional[0])
 	}
 	if provider == "" {
-		return "", fmt.Errorf("--provider is required (e.g. claude, agy, codex, cursor, gemini, vibe)")
+		return "", fmt.Errorf("--provider is required (e.g. claude, agy, codex)")
 	}
 	provider = strings.ToLower(provider)
 
@@ -204,7 +204,7 @@ func (d *agentDaemon) initializeProvider(root string, config agentconfig.Config,
 		return result, fmt.Errorf("agent is running from a temporary build at %s; run a built binary so native clients keep resolving it", executable)
 	}
 
-	mcpPath, err := agentconfig.BootstrapMCP(provider, executable, d.link.serverURL, d.link.token)
+	mcpPath, err := d.registerMCP(provider, executable)
 	if err != nil {
 		result.MCP = initializationStep{Status: "failed", Message: err.Error()}
 		return result, fmt.Errorf("bootstrap MCP for provider %q: %w", provider, err)
@@ -225,5 +225,35 @@ func (d *agentDaemon) initializeProvider(root string, config agentconfig.Config,
 		result.Skills = initializationStep{Status: "skipped", Message: "Provider has no user skill directory convention"}
 		result.Message = fmt.Sprintf("Successfully initialized %s.\n- MCP registration: %s\n- Skills: provider %q has no user skill directory convention.", provider, mcpPath, provider)
 	}
+	return result, nil
+}
+
+// installProviderSkills installs the server's skills for one provider, and
+// nothing else: the MCP registration is its own step, through the MCP
+// connection settings, so either can be done without the other.
+func installProviderSkills(root string, config agentconfig.Config, provider string) (initializationResult, error) {
+	provider = strings.ToLower(strings.TrimSpace(provider))
+	result := initializationResult{Provider: provider, MCP: initializationStep{Status: "not_run", Message: "Not part of this step"}}
+	loc, err := agentconfig.ResolveLocations(provider)
+	if err != nil {
+		result.Skills = initializationStep{Status: "failed", Message: err.Error()}
+		return result, err
+	}
+	config.AIProvider = provider
+	config.SetupProviders = []string{provider}
+	if _, err := agentconfig.ScaffoldProvider(root, config, provider); err != nil {
+		result.Skills = initializationStep{Status: "failed", Message: err.Error()}
+		result.Message = fmt.Sprintf("Skills could not be installed for %s: %v", provider, err)
+		return result, err
+	}
+	result.Success = true
+	if !loc.InstallsSkills() {
+		result.Skills = initializationStep{Status: "skipped", Message: "Provider has no user skill directory convention"}
+		result.Message = fmt.Sprintf("%s has no user skill directory convention: nothing was installed.", provider)
+		return result, nil
+	}
+	where := filepath.Join(loc.Home, loc.SkillDir)
+	result.Skills = initializationStep{Status: "success", Message: fmt.Sprintf("%d installed in %s", len(config.Skills), where)}
+	result.Message = fmt.Sprintf("%d skills installed for %s in %s.", len(config.Skills), provider, where)
 	return result, nil
 }

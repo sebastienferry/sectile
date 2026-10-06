@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	"tasks/internal/agentconfig"
+	"tasks/internal/models"
 )
 
 // consoleRunKind marks a free console run, which holds no background worker capacity.
@@ -17,10 +18,8 @@ const consoleRunKind = "console"
 // consoleCommand opens a built-in provider without an initial prompt.
 func consoleCommand(provider, model string) (string, error) {
 	switch provider {
-	case "codex", "claude", "agy", "gemini", "vibe":
+	case "codex", "claude", "agy":
 		return strings.TrimRight("exec "+provider+" "+strings.Join(agentconfig.ModelArgs(provider, model), " "), " "), nil
-	case "cursor":
-		return strings.TrimSpace("exec cursor agent " + strings.Join(agentconfig.ModelArgs(provider, model), " ")), nil
 	default:
 		return "", fmt.Errorf("select a supported AI engine")
 	}
@@ -36,6 +35,9 @@ func (d *agentDaemon) desktopConsole(w http.ResponseWriter, r *http.Request) {
 		ProjectID string `json:"projectId"`
 		Provider  string `json:"provider"`
 		EngineID  string `json:"engineId"`
+		// View "conversation" asks for Claude's structured view instead of a
+		// PTY. It is a preference: an engine it cannot honour gets the PTY.
+		View string `json:"view"`
 	}
 	if json.NewDecoder(http.MaxBytesReader(w, r.Body, 8192)).Decode(&input) != nil || strings.TrimSpace(input.ProjectID) == "" {
 		http.Error(w, "Project and AI engine required", http.StatusBadRequest)
@@ -76,12 +78,34 @@ func (d *agentDaemon) desktopConsole(w http.ResponseWriter, r *http.Request) {
 	if input.EngineID != "" {
 		provider = config.AIProvider
 	}
-	command, err := consoleCommand(provider, agentconfig.ResolveModel(config, ""))
-	if input.EngineID != "" && config.AICommandTemplate != "" {
-		command, err = expandConfiguredTemplate(config.AICommandTemplate, config.AIModel, "", false, agentCommandContext{Directory: root})
+	// The console is given the project's folders at launch (#676); a
+	// conversation reads them again at each turn instead.
+	folders := buildFolderMap(r.Context(), config, overrides, root, codeIdentity(config), root, models.Task{})
+	template := ""
+	if input.EngineID != "" {
+		template = config.AICommandTemplate
 	}
+	command, err := consoleLaunch(provider, agentconfig.ResolveModel(config, ""), template, config.AIModel, root, folderMapDirs(folders))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	// A Claude engine with a launch template still converses: the template is
+	// not run, only its model is kept, and the first notice says so.
+	if input.View == "conversation" && provider == "claude" {
+		d.queue.mu.Lock()
+		run, err := d.newConversationLocked(input.ProjectID, root, conversationModel(config), conversationOrigin(config, "It runs in this project's local repository."))
+		if err != nil {
+			d.queue.mu.Unlock()
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
+		run.desktop.EngineID, run.desktop.EngineName = engine.ID, engine.Name
+		entry := run.desktop
+		d.queue.mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusAccepted)
+		_ = json.NewEncoder(w).Encode(entry)
 		return
 	}
 	d.queue.mu.Lock()
@@ -92,18 +116,54 @@ func (d *agentDaemon) desktopConsole(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	run.desktop.Kind, run.desktop.Provider = consoleRunKind, provider
+	// The engine the console opens decides whether a folder attached from it
+	// is typed in (#689); a template whose provider is Claude counts as Claude.
+	run.interactiveProvider = liveProvider(agentconfig.Config{AIProvider: provider})
 	run.desktop.EngineID, run.desktop.EngineName = engine.ID, engine.Name
 	run.desktop.Model = config.AIModel
 	entry := run.desktop
 	d.queue.mu.Unlock()
 	// The daemon owns the execution after admission, independently of the request.
-	go d.launchConsole(run, command)
+	go d.launchConsole(run, command, folders)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
 	_ = json.NewEncoder(w).Encode(entry)
 }
 
-func (d *agentDaemon) launchConsole(run *controlledRun, command string) {
+// consoleLaunch is the command line of a free console: a built-in engine
+// with its model, or the engine's own template, given the project's folders
+// through the engine's attested option, or the template's {addDirs} slot.
+func consoleLaunch(provider, model, template, templateModel, root string, dirs []string) (string, error) {
+	if template != "" {
+		return expandConfiguredTemplate(template, templateModel, "", false, agentCommandContext{Directory: root, AddDirs: dirs})
+	}
+	command, err := consoleCommand(provider, model)
+	if err != nil {
+		return "", err
+	}
+	return words(command, addDirArgs(provider, dirs)), nil
+}
+
+// consoleEnv is the environment of a free console. It carries no task, but it
+// does have a run: it is the one Sectile-launched kind that would otherwise be
+// unable to report that it is waiting for the user. It carries the project's
+// folder map, as a skill run does.
+func (d *agentDaemon) consoleEnv(run *controlledRun, folders []models.FolderMapEntry) map[string]string {
+	env := map[string]string{
+		"SECTILE_TASK_KEY": "", "SECTILE_TASK_ID": "", "SECTILE_RUN_ID": run.desktop.ID,
+		"SECTILE_TASK_BRANCH": "", "SECTILE_TASK_WORKTREE": "", "SECTILE_REMOTE_MODE": "",
+		"SECTILE_PROJECT_ID": run.desktop.ProjectID,
+		"SECTILE_AGENT_URL":  d.link.serverURL, "SECTILE_SERVER_URL": d.link.serverURL,
+		"SECTILE_AGENT_TOKEN":  d.link.token,
+		"SECTILE_LOOPBACK_URL": d.loopback.url,
+	}
+	if raw, err := json.Marshal(folders); err == nil && len(folders) > 0 {
+		env["SECTILE_REPOSITORIES"] = string(raw)
+	}
+	return env
+}
+
+func (d *agentDaemon) launchConsole(run *controlledRun, command string, folders []models.FolderMapEntry) {
 	err := d.awaitRunSlot(context.Background(), run)
 	if err == nil && d.terminal.manager == nil {
 		err = fmt.Errorf("terminal manager unavailable")
@@ -112,17 +172,7 @@ func (d *agentDaemon) launchConsole(run *controlledRun, command string) {
 		var wrapped string
 		wrapped, err = d.wrapRun("", run.desktop.ID, command)
 		if err == nil {
-			// A free console carries no task, but it does have a run: it is the
-			// one Sectile-launched kind that would otherwise be unable to report
-			// that it is waiting for the user.
-			env := map[string]string{
-				"SECTILE_TASK_KEY": "", "SECTILE_TASK_ID": "", "SECTILE_RUN_ID": run.desktop.ID,
-				"SECTILE_TASK_BRANCH": "", "SECTILE_TASK_WORKTREE": "", "SECTILE_REMOTE_MODE": "",
-				"SECTILE_PROJECT_ID": run.desktop.ProjectID,
-				"SECTILE_AGENT_URL":  d.link.serverURL, "SECTILE_SERVER_URL": d.link.serverURL,
-				"SECTILE_AGENT_TOKEN":  d.link.token,
-				"SECTILE_LOOPBACK_URL": d.loopback.url,
-			}
+			env := d.consoleEnv(run, folders)
 			_, err = d.terminal.manager.GetOrCreateSession(run.desktop.ID, run.root, env)
 			if err == nil {
 				d.queue.mu.Lock()

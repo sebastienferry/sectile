@@ -26,6 +26,10 @@ Sectile supports multiple concurrent software repositories and projects from a s
   - `skill_overrides`: Project-specific prompt template overrides.
   - `repositories`: The remotes its tickets work in, the code remote first. A ticket pinned to one of them runs in a worktree of it, an unpinned one in the code repository; the others are context the agent is told not to change (an instruction, not enforced), and a skill asks for a worktree in one before changing it, which then needs its own pull request (#456, ADR 0028, ADR 0036).
   - Attached folders: other folders a workstation attaches to the project in the desktop settings, kept on that workstation only and handed to every launch as context. An attached Git repository with a remote is changed through a worktree and its own pull request, a folder without a remote in place (#484, ADR 0036).
+  - Any repository: a per-project workstation option, off by default, that lets a ticket change a repository the project neither declares, maps nor attaches. The session passes a local checkout it found to `prepare_repository_worktree` as `path` (checked against its `origin`), or the agent clones the repository into the project's clones folder; either is remembered in the workstation mapping. With the option on and the specifications away from the code checkout, a launch creates no code worktree until the session prepares the code repository, which then needs no pull request while unchanged. A ticket may be pinned to any remote; removing a repository from a project clears the pins to it (#737, ADR 0052).
+  - Claude settings: what the project's Claude Code sessions are allowed on a workstation, set in the **Claude settings** category of the desktop project settings: Claude Code's sandbox (inherited, on or off), its allowed network domains and extra writable paths, and the allow and deny permission rules. Kept on that workstation only and handed to every built-in Claude Code launch of the project through a generated `--settings` file; "Always allow" in a conversation adds its rule to them (#700, ADR 0048).
+  - Workstation Claude settings: the same values in the **Claude settings** category of the desktop workstation settings, applied to every project or to the projects checked there, under each project's own: lists add up and a project's sandbox state overrides the workstation's. A project allow rule can be moved up with **Move to global**; the values projects held before were moved there once, at the upgrade (#730, ADR 0050).
+  - Presets: the workstation category offers fixed sets of entries, one per toolchain (allow rules, registry domains, cache paths), a Common set and a Dangerous actions set of deny rules. Applying one copies its missing entries into the lists, where they are ordinary entries; removing it takes out those no other applied preset holds. Nothing is applied unasked; on Windows only the rules are added (#745).
 
 - **Dynamic Workspace Switcher**:
   - The UI allows filtering tasks by project (`All Projects` vs individual projects).
@@ -82,7 +86,7 @@ with the work all the way through the background queue: on a tracker that
 attributes a write to the account behind the token, that is what puts the right
 name on it. Jira accepts nothing else. GitHub also supports milestone
 operations and issue transfer. Jira additionally exposes what a board is made of
-— boards, columns, sprints, statuses, issue types, epics and teams — through the
+(boards, columns, sprints, statuses, issue types, epics and teams) through the
 read side of the ticketing abstraction, and writes sprint, team and epic. Local
 tasks stay in SQLite.
 
@@ -131,7 +135,8 @@ flowchart LR
 
 ### Stage 1: Clarification (`clarify-issue` / `/clarify`)
 - **Objective**: Resolves functional gaps, edge cases, and architectural ambiguities through an iterative feedback loop between the agent and the work item owner (analogous to how `adjust-issue` iterates on code reviews).
-- **Rounds & Reports**: Clarification executes in numbered rounds (Round 1, Round N). Findings are stored in `docs/clarifications/<n>.md` on the assigned work branch (`feat/<n>`), with dated sections `## Round N - answers from the owner (<date>)` appended as feedback arrives. Each round commits incrementally with `docs(spec): clarify #<n> (round <r>)`.
+- **Rounds & Reports**: Clarification executes in numbered rounds (Round 1, Round N). Findings are stored in `docs/clarifications/<n>.md` on the assigned work branch, with dated sections `## Round N - answers from the owner (<date>)` appended as feedback arrives. Each round commits incrementally with `docs(spec): clarify #<n> (round <r>)`. On a workstation that drops the specification artefacts, the file stays uncommitted in the worktree and the rounds published on the ticket are the shared record: a worktree without the file rebuilds it from them and continues with the next round. (#487)
+- **Issue specifications folder**: When the workstation sets an Issue specifications folder other than the code checkout, the report and the specification are written in a worktree of that folder, on a branch named like the task's, given to the run as `SECTILE_SPEC_REPO` / `SECTILE_SPEC_BRANCH` / `SECTILE_SPEC_WORKTREE` or returned by the `prepare_task_spec_worktree` MCP tool to a skill typed by hand. The skill commits there and pushes that branch; its pull request is opened by the owner, and the code pull request waits for implementation. The macro skills keep the Macro specifications folder. (#736, ADR 0051)
 - **Exit Condition & Transition Guard**: Clarification ends only when the owner explicitly confirms that the clarification is satisfactory (or zero open product questions remain in unattended pickup). A task must **never** be transitioned `new → clarified` while any product question or decision remains open.
 - **Pull request**: When the project's PR creation stage is `clarified` ("Draft after clarification"), the final round pushes the task branch and opens or reuses its draft pull request, and the `clarified` transition is refused without it. Intermediate rounds open none; a workstation that drops the specification artefacts defers it to implementation. (#580)
 - **Interactive vs. Unattended Execution**:
@@ -169,7 +174,7 @@ must run the project's checks before submitting a transition.
 
 ## 2b. Spec-Driven Design Toolchains (Spec Kit / OpenSpec)
 
-Sectile does not merely reference an SDD framework — it installs it. Two are
+Sectile does not merely reference an SDD framework: it installs it. Two are
 supported, selectable per project and as a global default:
 
 | | GitHub Spec Kit | OpenSpec |
@@ -182,11 +187,11 @@ supported, selectable per project and as a global default:
 
 Endpoints:
 
-- `GET /api/spec-framework/status?projectId=…&framework=…` — reports, per
+- `GET /api/spec-framework/status?projectId=…&framework=…`: reports, per
   framework, whether the CLI is reachable in `PATH` (`cliAvailable`,
   `cliCommand`) and whether the working directory is already initialized
   (`initialized`, `markerPaths`). Omitting `framework` reports on both.
-- `POST /api/spec-framework/install` — body `{framework, repoPath, projectId,
+- `POST /api/spec-framework/install`: body `{framework, repoPath, projectId,
   aiAgent, force}`. Installs the CLI when missing, then runs the initializer.
 
 The installer tries the richest invocation first and falls back to progressively
@@ -206,8 +211,9 @@ Note: OpenSpec is a Spec-Driven Design workflow, unrelated to **OpenFeature**
 (a feature-flag standard). Earlier builds stored `openfeature` as a spec
 framework value; the database migrates that value to `openspec` on startup.
 
-### Stage 3: Implementation (`code-issue` / `/code`)
+### Stage 3: Implementation (`implement-issue`)
 - **Objective**: Implements the required code changes directly inside the task's isolated Git worktree.
+- **Former name**: `code-issue` stays installed as an alias that hands its arguments to `implement-issue`, and a workstation that only has `code-issue` still runs this stage with it until its next setup.
 - **Output**: Edits codebase, verifies build, prepares clean atomic commits, and creates or reuses a draft PR when implementation owns PR creation. The specification-time and clarification-time policies create the draft earlier.
 
 ### Stage 4: Adjust (`adjust-issue`)
@@ -217,7 +223,7 @@ framework value; the database migrates that value to `openspec` on startup.
 ### Stage 5: Handoff (`handoff-issue`)
 - **Objective**: Confirms the merge and writes the handover and acceptance checklist.
 - **Output**: Finished ticket and safe cleanup of clean, unused local worktrees. Shared batch worktrees remain until every associated ticket is handed off.
-- **Where it is offered**: the web task card and detail modal, and the desktop app when an execution is stopped on a task already at `reviewed` — the desktop then proposes closing the task rather than leaving it at that stage.
+- **Where it is offered**: the web task card and detail modal, and the desktop app when an execution is stopped on a task already at `reviewed`; the desktop then proposes closing the task rather than leaving it at that stage.
 
 ---
 
@@ -267,14 +273,13 @@ is made in either shape.
 | --- | --- |
 | `claude` | `claude -p --permission-mode bypassPermissions --output-format stream-json --verbose` |
 | `codex` | `codex exec` (approval bypass not attested here yet) |
-| `vibe` | `vibe -p --auto-approve` |
-| `agy`, `gemini`, `cursor` | None attested: an autonomous launch is refused by name |
+| `agy` | None attested: an autonomous launch is refused by name |
 
 ### Watching an autonomous run
 
 A headless run has no terminal, but it is not silent. Claude is launched with
 `--output-format stream-json --verbose`, which makes it print what it is doing as
-it does it — the prose it writes and the tools it calls, one JSON object per
+it does it: the prose it writes and the tools it calls, one JSON object per
 line. The agent reads that stream, renders it, and serves it to the desktop on
 the route a console is attached to (`/desktop/terminal?id=<runId>`), so selecting
 an autonomous run shows it working instead of the sentence explaining that it
@@ -282,7 +287,7 @@ cannot be answered.
 
 The trace is **read-only**: the agent discards anything the pane sends, because
 nobody is answering an autonomous run. It is **local to the workstation** that
-ran the skill — it is held in the agent's memory, bounded, and forgotten with the
+ran the skill: it is held in the agent's memory, bounded, and forgotten with the
 run; the web board is unchanged and shows what it always showed.
 
 What the task activity records does not change: the engine's final answer, plus
@@ -296,7 +301,7 @@ keeps showing them the notice.
 A headless run carries the provider's non-interactive approval mode because
 there is no terminal and no stdin: without it the CLI is denied every tool it
 asks for, the Sectile MCP tools included, and ends having only printed why it
-could not work. The interactive form carries no bypass — that is where a human
+could not work. The interactive form carries no bypass: that is where a human
 answers. A discussion and a bare terminal are always interactive, whatever the
 project default says: they open a live session with no prompt of their own, so
 headless they would be a CLI with no input at all.
@@ -339,8 +344,12 @@ The two surfaces differ in how long the choice lasts. In the detail view the
 selector applies to the launches made from that view. On a card the submenu is a
 selection the card keeps: one model is ticked, picking another starts nothing,
 and the card shows it in four characters at most right before its action
-buttons. Every launch started from that card then uses it, the full chain
-included, which from a card is a single `pickup` run. The selection is kept per
+buttons. That name is also a second way in: when the engine offers models,
+clicking it opens the same list, and a pick made in either place is ticked in
+both. With models offered but none configured or picked, a chip icon stands in
+for the name; an unknown engine (`?`) or a command line without a model slot
+leaves it a plain label. Every launch started from that card then uses it, the
+full chain included, which from a card is a single `pickup` run. The selection is kept per
 task and survives a reload; a model the project's engine no longer offers is
 ignored, and the card falls back to the configured one.
 
@@ -366,14 +375,18 @@ precedence decide, since a chain nobody is watching must not open a terminal.
 Two entry points exist and they do not do the same thing:
 
 - The web card's `>>` launches the `pickup` skill, which walks the workflow
-  itself. The stop stage reaches it through `get_project_context`.
+  itself. The stop stage reaches it through `get_project_context`. On a task
+  already at or past the stop stage the card offers no `>>`: the full card shows
+  a button running the next step autonomously in its place, and the condensed
+  card's menu drops its **Full chain** entry (`fullChainHasWork` in
+  `web/src/lib/workflow.ts`).
 - `POST /api/tasks/{id}/advance` with `{"auto": true}` goes through the server's
   own chain entry, which reads `fullChainStopStage` directly and refuses to start
   on a task already at or past that stage, or on a provider with no attested
   headless invocation, before enqueuing anything. Each step it enqueues carries
   the stop stage on its run; when that run closes having advanced the stage, the
   step that follows is enqueued, until the stop stage is reached. The chain stops
-  — and says so on the run that ended — when the step failed, when it completed
+  (and says so on the run that ended) when the step failed, when it completed
   without moving the task, or when no step follows the stage reached.
 
 `fullChainStopStage` is either `implemented` (before the pull request) or
@@ -401,7 +414,7 @@ provider installed a script under `~/.claude/hooks`, registered it in
 local agent whether the session was waiting for the user or working. That was
 withdrawn. It made Sectile a writer of a file it otherwise only reads, and it
 ran a process on every tool call of every Claude Code session on the
-workstation, launched by Sectile or not — too intrusive for what it answered.
+workstation, launched by Sectile or not, too intrusive for what it answered.
 A workstation that still carries the script and its registrations has both
 removed the next time a project is set up, whichever provider that project
 uses: the script is retired through the managed-file manifest, and only the
@@ -426,13 +439,13 @@ the run appears as waiting in the desktop list and raises the banner below. A ru
 someone started by hand in a free terminal is shown as waiting on the board only.
 
 **The desktop raises the banner on a run transition.** The notification comes
-from the desktop application, through Electron's notification API — a thin
+from the desktop application, through Electron's notification API, a thin
 binding over `UNUserNotificationCenter` on macOS, toast notifications on Windows
 and the freedesktop specification on Linux. The banner is therefore a real
 system notification, attributed to Sectile and carrying an icon, on the three
 platforms and with no external binary. The desktop polls `/desktop/runs` every
-two seconds; it is the *transition* that notifies — a run reaching a terminal
-status, or a run starting to wait should anything mark it so — and a repeated
+two seconds; it is the *transition* that notifies (a run reaching a terminal
+status, or a run starting to wait should anything mark it so), and a repeated
 poll of the same state raises nothing.
 
 A workstation that denies notifications is checked once and then left alone: the
@@ -469,3 +482,16 @@ the upstream on first publication and never forcing. A refused push is reported
 without blocking the stage. Ignored artifacts remain local and cause no commit or
 push. Required pull request publication still follows the project's creation stage.
 Agents receive these instructions when their installed skills are regenerated.
+
+### Task branch name format
+
+The project workflow setting `branchNameFormat` names the branch the agent
+creates for a task that has none yet. It is a template with `{key}` (the ticket
+key as the tracker shows it, without `#`), `{key_lower}` and `{title}` (the
+lower-case title slug, 30 characters at most). Empty means `feat/{key_lower}`,
+the historical names. The project settings offer the presets
+`feat/{key_lower}`, `{key}` and `feat/{key}-{title}` and show the branch a
+sample ticket gets. A format without a key placeholder, with an unknown
+placeholder, or that gives no usable Git branch is refused on save. Branches
+already assigned to tasks, macro branches and projects that run without
+worktrees are unaffected.

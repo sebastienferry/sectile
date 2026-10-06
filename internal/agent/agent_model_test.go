@@ -9,15 +9,12 @@ import (
 )
 
 // A provider that takes a model gets the flag; one that does not is launched
-// exactly as before, which is what keeps agy and vibe working.
+// exactly as before, which is what keeps agy working.
 func TestAgentCommandLineModelFlag(t *testing.T) {
 	cases := map[string]string{
 		"claude": "claude --model M 'do it'",
 		"codex":  "codex --model M 'do it'",
-		"gemini": "gemini --model M 'do it'",
-		"cursor": "cursor agent --model M 'do it'",
 		"agy":    "agy -i 'do it'",
-		"vibe":   "vibe -p 'do it'",
 	}
 	for provider, want := range cases {
 		got, err := agentCommandLine(provider, "", "M", "do it")
@@ -36,10 +33,7 @@ func TestAgentCommandLineWithoutModelIsUnchanged(t *testing.T) {
 	cases := map[string]string{
 		"claude": "claude 'do it'",
 		"codex":  "codex 'do it'",
-		"gemini": "gemini 'do it'",
-		"cursor": "cursor agent 'do it'",
 		"agy":    "agy -i 'do it'",
-		"vibe":   "vibe -p 'do it'",
 	}
 	for provider, want := range cases {
 		got, err := agentCommandLine(provider, "", "", "do it")
@@ -121,7 +115,6 @@ func TestHeadlessCommandLineCarriesTheModel(t *testing.T) {
 	for provider, want := range map[string]string{
 		"claude": "claude -p --permission-mode bypassPermissions --output-format stream-json --verbose --model M 'do it'",
 		"codex":  "codex exec --model M 'do it'",
-		"vibe":   "vibe -p --auto-approve 'do it'",
 	} {
 		got, err := modeCommandLine(provider, "", "M", "do it", models.SkillModeAutonomous)
 		if err != nil {
@@ -139,7 +132,6 @@ func TestHeadlessCommandLineUnchangedWithoutModel(t *testing.T) {
 	for provider, want := range map[string]string{
 		"claude": "claude -p --permission-mode bypassPermissions --output-format stream-json --verbose 'do it'",
 		"codex":  "codex exec 'do it'",
-		"vibe":   "vibe -p --auto-approve 'do it'",
 	} {
 		got, err := modeCommandLine(provider, "", "", "do it", models.SkillModeAutonomous)
 		if err != nil {

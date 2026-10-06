@@ -70,20 +70,7 @@ func (r *Runner) runCommand(ctx context.Context, dir string, name string, args .
 	}
 
 	// Inherit and extend PATH dynamically to include ~/.local/bin and Homebrew paths
-	env := SanitizedEnviron()
-	customPath := GetDynamicCustomPath()
-	foundPath := false
-	for i, e := range env {
-		if strings.HasPrefix(e, "PATH=") {
-			env[i] = "PATH=" + joinPath(customPath, strings.TrimPrefix(e, "PATH="))
-			foundPath = true
-			break
-		}
-	}
-	if !foundPath {
-		env = append(env, "PATH="+customPath)
-	}
-	cmd.Env = env
+	cmd.Env = PathEnviron()
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -149,15 +136,9 @@ func (r *Runner) CheckCliTools(repoPath string) []models.CliStatus {
 			case "agy":
 				status.AuthStatus = "Ready"
 				status.Details = "Antigravity CLI Agent ready"
-			case "vibe":
-				status.AuthStatus = "Ready"
-				status.Details = "Mistral Vibe CLI Agent ready"
 			case "claude":
 				status.AuthStatus = "Ready"
 				status.Details = "Claude Code CLI Agent ready"
-			case "gemini":
-				status.AuthStatus = "Ready"
-				status.Details = "Gemini CLI Agent ready"
 			case "codex":
 				status.AuthStatus = "Ready"
 				status.Details = "Codex CLI Agent ready"
@@ -166,11 +147,11 @@ func (r *Runner) CheckCliTools(repoPath string) []models.CliStatus {
 			status.AuthStatus = "Not Installed"
 			switch tool {
 			case "uv":
-				status.Details = "uv missing — curl -LsSf https://astral.sh/uv/install.sh | sh"
+				status.Details = "uv missing: curl -LsSf https://astral.sh/uv/install.sh | sh"
 			case "specify":
-				status.Details = "GitHub Spec Kit missing — install it from a project (Spec Kit / OpenSpec panel)"
+				status.Details = "GitHub Spec Kit missing: install it from a project (Spec Kit / OpenSpec panel)"
 			case "openspec":
-				status.Details = "OpenSpec missing — install it from a project (Spec Kit / OpenSpec panel)"
+				status.Details = "OpenSpec missing: install it from a project (Spec Kit / OpenSpec panel)"
 			default:
 				status.Details = fmt.Sprintf("Tool '%s' not found in PATH", tool)
 			}
@@ -188,40 +169,58 @@ func NormalizeIssueTypes(types []string) []string { return models.NormalizeIssue
 // installedSkillPath returns the SKILL.md of a workflow skill inside a checkout,
 // whichever agent directory holds it. Empty when the skill is not installed.
 func installedSkillPath(repoDir, skillID string) string {
+	path, _ := findInstalledSkill(repoDir, skillID)
+	return path
+}
+
+// findInstalledSkill is installedSkillPath with the directory it was found under,
+// which is the command to type: a checkout set up before a skill was renamed
+// only holds its former directory (#608).
+func findInstalledSkill(repoDir, skillID string) (string, string) {
 	dirName := models.SkillDirNames[skillID]
 	if dirName == "" || repoDir == "" {
-		return ""
+		return "", ""
+	}
+	dirNames := []string{dirName}
+	if legacy := models.LegacySkillDirs[dirName]; legacy != "" {
+		dirNames = append(dirNames, legacy)
 	}
 
-	// La commande slash d'abord : c'est elle qui rend « /clarify-issue »
-	// invocable. Une skill seule est choisie par le modèle, jamais appelée par
-	// son nom, et le prompt se contentait alors d'être recopié.
-	cmdPath := filepath.Join(repoDir, ".claude", "commands", dirName+".md")
-	if fi, err := os.Stat(cmdPath); err == nil && !fi.IsDir() {
-		return cmdPath
-	}
+	for _, dirName := range dirNames {
+		// The slash command first: it is what makes "/clarify-issue" invocable.
+		// A skill alone is chosen by the model, never called by its name, and
+		// the prompt was then merely copied.
+		cmdPath := filepath.Join(repoDir, ".claude", "commands", dirName+".md")
+		if fi, err := os.Stat(cmdPath); err == nil && !fi.IsDir() {
+			return cmdPath, dirName
+		}
 
-	for _, agent := range models.SkillAgentDirs {
-		var p string
-		if agent == "" {
-			p = filepath.Join(repoDir, ".skills", dirName, "SKILL.md")
-		} else {
-			p = filepath.Join(repoDir, agent, "skills", dirName, "SKILL.md")
-		}
-		if fi, err := os.Stat(p); err == nil && !fi.IsDir() {
-			return p
+		for _, agent := range models.SkillAgentDirs {
+			var p string
+			if agent == "" {
+				p = filepath.Join(repoDir, ".skills", dirName, "SKILL.md")
+			} else {
+				p = filepath.Join(repoDir, agent, "skills", dirName, "SKILL.md")
+			}
+			if fi, err := os.Stat(p); err == nil && !fi.IsDir() {
+				return p, dirName
+			}
 		}
 	}
-	return ""
+	return "", ""
 }
 
 // skillSlashPrompt is the unified invocation: the agent runs the skill installed
 // in the repository, and the ticket context follows. The instructions then live
 // in one place, the SKILL.md rendered from the in-app editor, instead of being
-// written twice: once in a file, once in a prompt here.
-func skillSlashPrompt(skillID string) string {
-	dirName := models.SkillDirNames[skillID]
-	return "/" + dirName + ` {issueKey}
+// written twice: once in a file, once in a prompt here. dirName is the
+// directory the skill was found under, empty for the skill's current one.
+func skillSlashPrompt(skillID string, dirName ...string) string {
+	command := models.SkillDirNames[skillID]
+	if len(dirName) > 0 && dirName[0] != "" {
+		command = dirName[0]
+	}
+	return "/" + command + ` {issueKey}
 
 Contexte du ticket
 Clé : {issueKey}
@@ -310,7 +309,7 @@ func (r *Runner) PrepareAI(settings *models.Settings, skillID string, task *mode
 	// La skill installée dans le dépôt fait référence quand elle est là : c'est
 	// le fichier que l'éditeur de Taskacao produit. Les prompts ci-dessous ne
 	// servent plus que de filet quand rien n'est installé.
-	installedSkill := installedSkillPath(repoDir, skillID)
+	installedSkill, installedDir := findInstalledSkill(repoDir, skillID)
 	if installedSkill != "" {
 		steps = append(steps, fmt.Sprintf("📄 Skill du dépôt utilisée : %s", installedSkill))
 	}
@@ -424,7 +423,7 @@ INSTRUCTIONS D'EXÉCUTION OBLIGATOIRES :
 	// Ordre de priorité : le prompt surchargé dans les réglages, puis la skill
 	// installée, puis le filet codé au-dessus.
 	if installedSkill != "" && !settingsPromptOverridden(settings, skillID) {
-		promptTemplate = skillSlashPrompt(skillID)
+		promptTemplate = skillSlashPrompt(skillID, installedDir)
 	}
 
 	if customPrompt != "" {
@@ -437,17 +436,13 @@ INSTRUCTIONS D'EXÉCUTION OBLIGATOIRES :
 	if skillID == "adjust" {
 		promptTemplate += "\n\n" + AdjustmentContract
 	}
-	branchName := ""
+	// A task without a branch yet gets the one the agent would create for it
+	// under the default format (#621); no project reaches this fallback.
+	branchName := task.Key
 	if task.BranchName != nil {
 		branchName = *task.BranchName
-	} else {
-		cleanTitle := strings.ToLower(task.Title)
-		cleanTitle = strings.ReplaceAll(cleanTitle, " ", "-")
-		cleanTitle = strings.ReplaceAll(cleanTitle, "'", "-")
-		if len(cleanTitle) > 30 {
-			cleanTitle = cleanTitle[:30]
-		}
-		branchName = fmt.Sprintf("%s-%s", task.Key, cleanTitle)
+	} else if rendered, err := models.TaskBranchName("", task.Key, task.Title); err == nil {
+		branchName = rendered
 	}
 
 	finalPrompt := promptTemplate
@@ -542,28 +537,10 @@ func (r *Runner) execAgentCommand(ctx context.Context, repoDir string, provider 
 		out, err := r.runCommand(ctx, repoDir, agyPath, "-p", finalPrompt, "--dangerously-skip-permissions")
 		return out, steps, err
 
-	case "vibe":
-		vibePath, _ := FindCliTool("vibe")
-		steps = append(steps, fmt.Sprintf("Exécution de : vibe -p \"...\" dans %s", filepath.Base(repoDir)))
-		out, err := r.runCommand(ctx, repoDir, vibePath, "-p", finalPrompt, "--auto-approve")
-		return out, steps, err
-
 	case "claude":
 		claudePath, _ := FindCliTool("claude")
 		steps = append(steps, fmt.Sprintf("Exécution de : claude -p \"...\" dans %s", filepath.Base(repoDir)))
 		out, err := r.runCommand(ctx, repoDir, claudePath, append(modelArgs, "-p", finalPrompt)...)
-		return out, steps, err
-
-	case "gemini":
-		geminiPath, _ := FindCliTool("gemini")
-		steps = append(steps, fmt.Sprintf("Exécution de : gemini -p \"...\" dans %s", filepath.Base(repoDir)))
-		out, err := r.runCommand(ctx, repoDir, geminiPath, append(modelArgs, "-p", finalPrompt)...)
-		return out, steps, err
-
-	case "cursor":
-		cursorPath, _ := FindCliTool("cursor")
-		steps = append(steps, fmt.Sprintf("Exécution de : cursor agent -p \"...\" dans %s", filepath.Base(repoDir)))
-		out, err := r.runCommand(ctx, repoDir, cursorPath, append([]string{"agent"}, append(modelArgs, "-p", finalPrompt)...)...)
 		return out, steps, err
 
 	default:
@@ -1126,18 +1103,9 @@ func (r *Runner) SessionCommandLine(inv *AIInvocation) (string, func(), error) {
 	case "agy":
 		bin, _ := FindCliTool("agy")
 		return fmt.Sprintf("%s -p %s --dangerously-skip-permissions", shellQuote(bin), promptRef), cleanup, nil
-	case "vibe":
-		bin, _ := FindCliTool("vibe")
-		return fmt.Sprintf("%s -p %s --auto-approve", shellQuote(bin), promptRef), cleanup, nil
 	case "claude":
 		bin, _ := FindCliTool("claude")
 		return fmt.Sprintf("%s %s-p %s --dangerously-skip-permissions", shellQuote(bin), modelFlag, promptRef), cleanup, nil
-	case "gemini":
-		bin, _ := FindCliTool("gemini")
-		return fmt.Sprintf("%s %s-p %s", shellQuote(bin), modelFlag, promptRef), cleanup, nil
-	case "cursor":
-		bin, _ := FindCliTool("cursor")
-		return fmt.Sprintf("%s agent %s-p %s", shellQuote(bin), modelFlag, promptRef), cleanup, nil
 	}
 
 	if template == "" {
@@ -1176,24 +1144,18 @@ func InteractiveAgentLaunch(settings *models.Settings) (string, error) {
 	}
 
 	switch provider {
-	case "agy", "vibe", "claude", "gemini", "codex":
+	case "agy", "claude", "codex":
 		line, err := resolveAgentBinary(provider, "")
 		if err != nil {
 			return "", err
 		}
 		return line + modelFlag, nil
-	case "cursor":
-		line, err := resolveAgentBinary("cursor", "")
-		if err != nil {
-			return "", err
-		}
-		return line + " agent" + modelFlag, nil
 	case "custom":
 		// Un moteur personnalisé n'a que son modèle de commande : son premier mot
 		// est le binaire, et c'est lui qu'on ouvre en interactif.
 		return resolveAgentBinary(firstWord(settings.AICommandTemplate), provider)
 	}
-	return "", fmt.Errorf("le moteur %q n'a pas de mode interactif connu : configure un moteur agy, claude, gemini, codex, cursor ou vibe sur le projet", provider)
+	return "", fmt.Errorf("le moteur %q n'a pas de mode interactif connu : configure un moteur agy, claude ou codex sur le projet", provider)
 }
 
 // resolveAgentBinary finds an engine binary and says where it looked when it

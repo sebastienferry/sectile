@@ -45,10 +45,26 @@ type projectSettingsInput struct {
 	// InheritSpecArtifacts removes the override.
 	SpecArtifacts        *string `json:"specArtifacts"`
 	InheritSpecArtifacts bool    `json:"inheritSpecArtifacts"`
-	// SpecPath is the specifications folder on this workstation; empty
+	// SpecPath is the Macro specifications folder on this workstation; empty
 	// clears the override, so the code checkout carries the specifications
 	// again.
 	SpecPath *string `json:"specPath"`
+	// IssueSpecPath is the Issue specifications folder (#736), cleared the
+	// same way.
+	IssueSpecPath *string `json:"issueSpecPath"`
+	// AnyRepository turns on the project's Any repository option (#737), nil
+	// keeps it.
+	AnyRepository *bool `json:"anyRepository"`
+	// ClonesPath is the folder undeclared repositories are cloned into; empty
+	// clears it, so the parent folder of the local repository is used.
+	ClonesPath *string `json:"clonesPath"`
+	// ClaudeSandbox replaces the project's sandbox values (#700); an empty
+	// object clears them, nil keeps them.
+	ClaudeSandbox *agentconfig.ClaudeSandbox `json:"claudeSandbox"`
+	// ClaudeSandboxBase is the values the dialog read when it opened. When
+	// sent, the save keeps what the store gained since, a rule an "Always
+	// allow" added meanwhile included; without it, ClaudeSandbox replaces all.
+	ClaudeSandboxBase *agentconfig.ClaudeSandbox `json:"claudeSandboxBase"`
 }
 
 // statesEngine reports an input carrying an engine field of #305.
@@ -110,6 +126,25 @@ func (in projectSettingsInput) apply(p agentconfig.ProjectSettings) agentconfig.
 		p.SkillCommands = nil
 	} else if in.SkillCommands != nil {
 		p.SkillCommands = compactStrings(in.SkillCommands)
+	}
+	if in.ClaudeSandbox != nil {
+		// Values that do not normalize are kept as sent, for ValidateProject
+		// to refuse with its reason.
+		sandbox := *in.ClaudeSandbox
+		if in.ClaudeSandboxBase != nil {
+			stored := agentconfig.ClaudeSandbox{}
+			if p.ClaudeSandbox != nil {
+				stored = *p.ClaudeSandbox
+			}
+			sandbox = agentconfig.MergeClaudeSandbox(sandbox, *in.ClaudeSandboxBase, stored)
+		}
+		if normalized, err := agentconfig.NormalizeClaudeSandbox(sandbox); err == nil {
+			sandbox = normalized
+		}
+		p.ClaudeSandbox = &sandbox
+		if sandbox.IsZero() {
+			p.ClaudeSandbox = nil
+		}
 	}
 	return p
 }
@@ -268,6 +303,10 @@ func (d *agentDaemon) desktopWorkstation(w http.ResponseWriter, r *http.Request)
 			http.Error(w, "Invalid workstation settings", 400)
 			return
 		}
+		if err := agentconfig.ValidProviderKeys(input.AIProviderModels); err != nil {
+			http.Error(w, err.Error(), 400)
+			return
+		}
 		input = normalizeDefaults(input)
 		// A desktop that predates the engine catalogue still sends the engine
 		// fields: refused with a message saying why, never silently dropped.
@@ -288,6 +327,11 @@ func (d *agentDaemon) desktopWorkstation(w http.ResponseWriter, r *http.Request)
 			if input.InitializationProvider == "" {
 				input.InitializationProvider = settings.Defaults.InitializationProvider
 			}
+			// The console view has its own endpoint: this form never carries it.
+			input.ConsoleView = settings.Defaults.ConsoleView
+			// So do the Sandbox values (#730).
+			input.ClaudeSandbox = settings.Defaults.ClaudeSandbox
+			input.ClaudeSandboxProjects = settings.Defaults.ClaudeSandboxProjects
 			settings.Defaults = input
 			return nil
 		})

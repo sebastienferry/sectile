@@ -11,9 +11,11 @@ import (
 // A sign-in that never completes must not leave a usable state behind.
 const loginFlowTTL = 15 * time.Minute
 
-// WebSessionTTL bounds how long one browser session stays valid without
-// signing in again.
-const WebSessionTTL = 12 * time.Hour
+// WebSessionTTL is the absolute lifetime of a browser session: past it, sign in again whatever the activity.
+const WebSessionTTL = 90 * 24 * time.Hour
+
+// WebSessionIdleTimeout ends a session nobody has used for that long, well before its absolute end.
+const WebSessionIdleTimeout = 7 * 24 * time.Hour
 
 // ErrLoginFlow reports a callback that matches no pending sign-in, or one that
 // has already been consumed or has expired.
@@ -132,7 +134,9 @@ func (d *DB) CreateWebSession(userID string) (string, time.Time, error) {
 }
 
 // UserForWebSession resolves a session cookie to its user, or returns an empty
-// string. Revoked and expired sessions resolve to nothing.
+// string. Revoked, expired and idle sessions resolve to nothing: idle means
+// unused for longer than WebSessionIdleTimeout, counted from the last use or,
+// for a session never used, from its creation.
 //
 // A resolved session is also marked as seen, which is what the active-user
 // count reads. The mark is written at most once per sessionTouchInterval: the
@@ -144,12 +148,20 @@ func (d *DB) UserForWebSession(token string) string {
 	}
 	hash := hashSecret(token)
 	var userID string
-	var expires time.Time
+	var created, expires time.Time
 	var seen sql.NullTime
-	err := d.conn.QueryRow(`SELECT user_id, expires_at, last_seen_at FROM web_sessions
-		WHERE token_hash = ? AND revoked_at IS NULL`, hash).Scan(&userID, &expires, &seen)
+	err := d.conn.QueryRow(`SELECT user_id, created_at, expires_at, last_seen_at FROM web_sessions
+		WHERE token_hash = ? AND revoked_at IS NULL`, hash).Scan(&userID, &created, &expires, &seen)
 	now := time.Now().UTC()
 	if err != nil || now.After(expires) {
+		return ""
+	}
+	// Checked before the touch below, so a session that went idle is never revived by the request that finds it.
+	lastActive := created
+	if seen.Valid {
+		lastActive = seen.Time
+	}
+	if now.Sub(lastActive) > WebSessionIdleTimeout {
 		return ""
 	}
 	if !seen.Valid || now.Sub(seen.Time) >= sessionTouchInterval {
@@ -194,6 +206,9 @@ func (d *DB) PurgeExpiredSessions() error {
 	if _, err := d.conn.Exec(`DELETE FROM web_sessions WHERE expires_at < ?`, now); err != nil {
 		return err
 	}
-	_, err := d.conn.Exec(`DELETE FROM login_flows WHERE expires_at < ? OR consumed_at IS NOT NULL`, now)
+	if _, err := d.conn.Exec(`DELETE FROM login_flows WHERE expires_at < ? OR consumed_at IS NOT NULL`, now); err != nil {
+		return err
+	}
+	_, err := d.conn.Exec(`DELETE FROM jira_oauth_flows WHERE expires_at < ? OR consumed_at IS NOT NULL`, now)
 	return err
 }

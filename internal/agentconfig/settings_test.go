@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"tasks/internal/testhome"
 	"testing"
@@ -85,6 +86,19 @@ func TestDisconnectionIsWorkstationOnlyAndSurvivesLegacyFallback(t *testing.T) {
 	}
 }
 
+func TestCheckoutWithoutLegacyFileReadsEmptySettings(t *testing.T) {
+	testhome.Temp(t)
+	root := t.TempDir()
+	settings, err := ReadSettings(root)
+	if err != nil || len(settings.ProjectSettings) != 0 || len(settings.DisconnectedProjects) != 0 || len(settings.Repositories) != 0 {
+		t.Fatal(settings, err)
+	}
+	overlaid, err := WithRepositoryFile(settings, root)
+	if err != nil || len(overlaid.ProjectSettings) != 0 {
+		t.Fatal(overlaid, err)
+	}
+}
+
 // Every legacy key lands in its new place, with the same meaning, and the next
 // save rewrites the file in the current layout.
 func TestLegacyLayoutIsFoldedAndRewritten(t *testing.T) {
@@ -112,7 +126,7 @@ func TestLegacyLayoutIsFoldedAndRewritten(t *testing.T) {
 			AIModel: "claude-opus-5", AISkillModels: map[string]string{"implement": "claude-sonnet-5"}, Terminal: "ghostty",
 		}},
 		ProjectSettings: map[string]ProjectSettings{"p": {
-			Path: "/repo", SpecPath: "/specs",
+			Path: "/repo", MacroSpecPath: "/specs",
 			Execution: Execution{
 				AIProvider: "codex", AICommandTemplate: "codex {prompt}", AICommandTemplateAutonomous: "codex exec {prompt}",
 				AIModel: "gpt-5", Terminal: "iterm", UseWorktrees: boolPtr(false), Parallelism: 3,
@@ -143,7 +157,7 @@ func TestLegacyLayoutIsFoldedAndRewritten(t *testing.T) {
 			t.Errorf("connection key %q lost", key)
 		}
 	}
-	if string(fields["layout"]) != "3" {
+	if string(fields["layout"]) != strconv.Itoa(SettingsLayout) {
 		t.Fatalf("layout: %s", fields["layout"])
 	}
 	again, err := ReadSettings(t.TempDir())
@@ -164,13 +178,13 @@ func TestWriteSettingsRemovesEmptiedMaps(t *testing.T) {
 	testhome.Temp(t)
 	s := Settings{
 		Defaults:        Defaults{Execution: Execution{AISkillModels: map[string]string{"implement": "m"}}, AIProviderModels: map[string][]string{"claude": {"m"}}},
-		ProjectSettings: map[string]ProjectSettings{"p": {SpecPath: "/specs", SkillCommands: map[string]string{"implement": "x"}}},
+		ProjectSettings: map[string]ProjectSettings{"p": {MacroSpecPath: "/specs", SkillCommands: map[string]string{"implement": "x"}}},
 		Repositories:    map[string]string{"r": "/r"},
 	}
 	if err := WriteSettings(s); err != nil {
 		t.Fatal(err)
 	}
-	if got, err := ReadSettings(t.TempDir()); err != nil || got.SpecPath("p") != "/specs" || got.Repositories["r"] != "/r" {
+	if got, err := ReadSettings(t.TempDir()); err != nil || got.MacroSpecPath("p") != "/specs" || got.Repositories["r"] != "/r" {
 		t.Fatalf("not stored: %+v %v", got, err)
 	}
 	if err := WriteSettings(Settings{ProjectSettings: map[string]ProjectSettings{}, Repositories: map[string]string{}}); err != nil {
@@ -279,5 +293,39 @@ func TestSkillSourceSettingsRoundTrip(t *testing.T) {
 	raw, _ := os.ReadFile(path)
 	if strings.Contains(string(raw), "customSkillsWin") || strings.Contains(string(raw), "installedSkillSource") {
 		t.Fatalf("absent settings were written: %s", raw)
+	}
+}
+
+// The workstation console view (#711) survives a save, a file written before
+// it reads as the terminal, and a legacy repository file does not erase it.
+func TestConsoleViewSettingsRoundTrip(t *testing.T) {
+	testhome.Temp(t)
+	root := t.TempDir()
+	settings, err := ReadSettings(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if settings.Defaults.ConsoleView != "" || settings.Defaults.ConsoleViewOrDefault() != ConsoleViewTerminal {
+		t.Fatalf("a fresh file must read as the terminal: %+v", settings.Defaults)
+	}
+	settings.Defaults.ConsoleView = ConsoleViewConversation
+	if err := WriteSettings(settings); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := ReadSettings(root); err != nil || got.Defaults.ConsoleViewOrDefault() != ConsoleViewConversation {
+		t.Fatalf("console view lost: %+v %v", got.Defaults, err)
+	}
+	merged := overlay(Settings{Defaults: Defaults{EditorCommand: "vim"}}, settings)
+	if merged.Defaults.ConsoleView != ConsoleViewConversation || merged.Defaults.EditorCommand != "vim" {
+		t.Fatalf("overlay = %+v", merged.Defaults)
+	}
+	settings.Defaults.ConsoleView = ""
+	if err := WriteSettings(settings); err != nil {
+		t.Fatal(err)
+	}
+	path, _ := SettingsPath()
+	raw, _ := os.ReadFile(path)
+	if strings.Contains(string(raw), "consoleView") {
+		t.Fatalf("an absent console view was written: %s", raw)
 	}
 }

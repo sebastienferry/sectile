@@ -196,7 +196,7 @@ func TestGitlabMacroIsWrittenAsLabels(t *testing.T) {
 	f := newGitlabFixture(t)
 	f.sync(t)
 	title := "Payments"
-	if _, err := f.d.saveMacroMetaFull(f.project.ID, "M-9", nil, nil, nil, nil, &title, nil, nil); err != nil {
+	if _, err := f.d.saveMacroMetaFull(f.project.ID, "M-9", nil, nil, nil, nil, &title, nil, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	var steps []string

@@ -35,7 +35,7 @@ This document is an actionable, step-by-step blueprint designed to enable anothe
    - Run `git worktree add .tasks/worktrees/<safe-name> -b <branchName> main`.
    - Install JavaScript dependencies inside the worktree (the local agent does this in `internal/agent/provision.go`, after resolving the worktree and before the session starts): for the worktree root and each direct, non-hidden subdirectory holding a `package.json` and a `package-lock.json`, run `npm ci` and write `node_modules/.install-stamp`. Reinstall only when `package.json` or `package-lock.json` is newer than the stamp. Skip the main checkout, and skip any `node_modules` that is a link rather than a plain directory. Nothing is linked from the main checkout, and `.env` / `.env.local` are neither linked nor copied. A failed or timed-out install is logged and never blocks the launch.
    - Symlink `.gemini`, `.agents`, `.agy`, `.taskflow` folders.
-   - Ensure the 5 default skill templates (`clarify-issue`, `specify-issue`, `code-issue`, `adjust-issue`, `pick-issue`) are written into `.gemini/skills/` and `.agents/skills/`.
+   - Ensure the 5 default skill templates (`clarify-issue`, `specify-issue`, `implement-issue`, `adjust-issue`, `pick-issue`) are written into `.gemini/skills/` and `.agents/skills/`.
 2. Implement `RemoveTaskWorktree(mainRepoPath, taskKey)`:
    - Run `git worktree remove --force` and `git worktree prune`.
 
@@ -51,7 +51,7 @@ This document is an actionable, step-by-step blueprint designed to enable anothe
 
 ### Step 4: Subprocess Execution Runner (`internal/runner/runner.go`)
 1. Implement `GetDynamicCustomPath()` to search `~/.local/bin`, `/opt/homebrew/bin`, `/usr/local/bin`, `/usr/bin`, `/bin`.
-2. Implement `FindCliTool(tool)` to locate `agy`, `claude`, `vibe`, etc.
+2. Implement `FindCliTool(tool)` to locate `agy`, `claude`, `codex`, etc.
 3. Execute agent skills with stdout/stderr capture and cancellation context.
 
 ### Step 5: Frontend State & Context (`web/src/context/AppContext.tsx`)

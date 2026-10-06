@@ -53,10 +53,12 @@ func isMilestoneKey(key string) bool {
 // belongsToProject tells a macro whose key carries the project's tracker prefix
 // from one that arrived attached to an epic of another project.
 //
-// Only our own epics are ever pushed. A foreign epic belongs to another team's
-// board, and writing our axis on it would classify their work from a roadmap
-// that is not theirs. It would also never leave the pending list: the read that
-// checks the result is scoped to this project and cannot see it.
+// Only our own epics are pushed, the priority and quarter of one foreign epic
+// at a time once the project opted in excepted (#632, foreignAxisWritable). A
+// foreign epic belongs to another team's board, and writing our axis on it
+// would classify their work from a roadmap that is not theirs. It would also
+// never leave the pending list: the read that checks the result is scoped to
+// this project and cannot see it.
 func belongsToProject(key string, proj *models.Project) bool {
 	prefix := strings.ToUpper(strings.TrimSpace(proj.JiraProject))
 	if prefix == "" {
@@ -84,7 +86,13 @@ func removedRoadmapLabels(target string) []string {
 // Every refusal is a sentence rather than a silence. The classification stays
 // local whether the push was impossible or merely failed, and the difference is
 // exactly what the user needs to read in the activity.
-func (d *DB) macroTracker(projectID string, macroKey string) (tracker.TicketingSystem, *models.Project, error) {
+//
+// The axis says which write is asked for. An epic of a roadmap project refuses
+// every one of them, except the priority and the quarter of a project that
+// opened RoadmapAxisWrites and still declares that epic's project (#632). The
+// check runs again when the queued activity runs, so an opt-in closed in the
+// meantime refuses rather than writes.
+func (d *DB) macroTracker(projectID string, macroKey string, axis macroAxis) (tracker.TicketingSystem, *models.Project, error) {
 	projectID = strings.TrimSpace(projectID)
 	macroKey = strings.TrimSpace(macroKey)
 	if projectID == "" || macroKey == "" {
@@ -97,7 +105,7 @@ func (d *DB) macroTracker(projectID string, macroKey string) (tracker.TicketingS
 	if isMilestoneKey(macroKey) {
 		return nil, nil, fmt.Errorf("%s est un jalon : un jalon ne porte pas de label, la classification reste locale", macroKey)
 	}
-	if !belongsToProject(macroKey, proj) {
+	if !belongsToProject(macroKey, proj) && !foreignAxisWritable(macroKey, proj, axis) {
 		return nil, nil, fmt.Errorf("%s appartient à un autre projet que %s : la classification reste locale", macroKey, proj.JiraProject)
 	}
 	ts, err := d.TrackerForProject(proj)
@@ -119,13 +127,26 @@ func (d *DB) macroTracker(projectID string, macroKey string) (tracker.TicketingS
 // wait on it, and its failure has to stay readable in the activity rather than
 // vanish behind an HTTP timeout.
 func (d *DB) PushMacroHorizonLabel(ctx context.Context, projectID string, macroKey string, horizon string) (string, error) {
-	ts, proj, err := d.macroTracker(projectID, macroKey)
-	if err != nil {
+	macroKey = strings.TrimSpace(macroKey)
+	target := RoadmapLabel(horizon)
+	if err := d.pushMacroLabels(ctx, projectID, macroKey, axisHorizon, target, removedRoadmapLabels(target)); err != nil {
 		return "", err
+	}
+	if target == "" {
+		return fmt.Sprintf("labels roadmap retirés de %s", macroKey), nil
+	}
+	return fmt.Sprintf("« %s » posé sur %s", target, macroKey), nil
+}
+
+// pushMacroLabels adds one label of an axis to the tracker's epic and removes
+// the others, the write every epic axis shares. An empty target only removes.
+func (d *DB) pushMacroLabels(ctx context.Context, projectID string, macroKey string, axis macroAxis, target string, removed []string) error {
+	ts, proj, err := d.macroTracker(projectID, macroKey, axis)
+	if err != nil {
+		return err
 	}
 	macroKey = strings.TrimSpace(macroKey)
 
-	target := RoadmapLabel(horizon)
 	var added []string
 	if target != "" {
 		added = []string{target}
@@ -136,19 +157,12 @@ func (d *DB) PushMacroHorizonLabel(ctx context.Context, projectID string, macroK
 	// Only the labels travel. No status, no title, no description: an axis write
 	// that also carried the rest would push back whatever the local copy held,
 	// which on an epic Sectile never imported is nothing at all.
-	if err := ts.UpdateIssue(ctx, tracker.UpdateIssueRequest{
+	return ts.UpdateIssue(ctx, tracker.UpdateIssueRequest{
 		Project:       proj,
 		Key:           macroKey,
 		Labels:        added,
-		RemovedLabels: removedRoadmapLabels(target),
-	}); err != nil {
-		return "", err
-	}
-
-	if target == "" {
-		return fmt.Sprintf("labels roadmap retirés de %s", macroKey), nil
-	}
-	return fmt.Sprintf("« %s » posé sur %s", target, macroKey), nil
+		RemovedLabels: removed,
+	})
 }
 
 // PushEpicHorizonLabel is the epic-named alias kept for the callers that speak
@@ -194,8 +208,8 @@ func (d *DB) remoteMacros(ctx context.Context, proj *models.Project) (map[string
 
 // ImportMacroHorizons reads the roadmap labels of a project's epics and records
 // them locally, along with what the local roadmap has no other way of learning:
-// the epic's own title and whether it is closed, since the sync imports stories
-// and never the epic itself.
+// the epic's own title, whether it is closed and its labels, since the sync
+// imports stories and never the epic itself.
 //
 // The tracker wins when an epic carries a label, that being the shared source.
 // An epic without one keeps whatever was decided locally, and that decision
@@ -209,8 +223,19 @@ func (d *DB) ImportMacroHorizons(ctx context.Context, projectID string) (string,
 	if err != nil {
 		return "", err
 	}
+	// The epics of the roadmap projects join those of the project's own key,
+	// and are recorded the same way. Only the own key's failure fails the read.
+	foreign, unread := d.roadmapProjectMacros(ctx, proj)
+	for key, epic := range foreign {
+		if _, own := found[key]; !own {
+			found[key] = epic
+		}
+	}
 
-	classified, closed := 0, 0
+	// The epics of the roadmap projects are read under this project's prefixes
+	// too: they are the only ones Sectile knows (#635).
+	prefixes := prefixesFor(proj)
+	classified, prioritized, dated, judged, closed := 0, 0, 0, 0, 0
 	for key, epic := range found {
 		horizon := HorizonFromLabels(epic.Labels)
 		var horizonPtr *string
@@ -227,11 +252,84 @@ func (d *DB) ImportMacroHorizons(ctx context.Context, projectID string) (string,
 		if isClosed {
 			closed++
 		}
-		if _, err := d.saveMacroMetaFull(proj.ID, key, horizonPtr, nil, nil, nil, &title, &status, &isClosed); err != nil {
+		// The whole list is kept, horizon label included: hiding it is the
+		// view's business, and a non-nil copy clears the labels of an epic that
+		// lost them all on the tracker.
+		labels := append([]string{}, epic.Labels...)
+		if _, err := d.saveMacroMetaFull(proj.ID, key, horizonPtr, nil, nil, nil, &title, &status, &isClosed, &labels); err != nil {
 			return "", err
 		}
+		// The priority, the quarter and the readiness follow the horizon's rule: the label wins
+		// when there is one, and an epic without keeps its local value. The read
+		// writes nothing back, so a bare "2026-Q3" stays as the team wrote it.
+		var priorityPtr, quarterPtr, readinessPtr *string
+		if priority := prefixes.PriorityFromLabels(epic.Labels); priority != "" {
+			priorityPtr = &priority
+			prioritized++
+		}
+		if quarter := prefixes.QuarterFromLabels(epic.Labels); quarter != "" {
+			quarterPtr = &quarter
+			dated++
+		}
+		if readiness := prefixes.ReadinessFromLabels(epic.Labels); readiness != "" {
+			readinessPtr = &readiness
+			judged++
+		}
+		if priorityPtr != nil || quarterPtr != nil || readinessPtr != nil {
+			if _, err := d.SaveMacroAxes(proj.ID, key, priorityPtr, quarterPtr, readinessPtr); err != nil {
+				return "", err
+			}
+		}
 	}
-	return fmt.Sprintf("%d macro(s) lue(s) (%d classée(s), %d terminée(s))", len(found), classified, closed), nil
+	summary := fmt.Sprintf("%d macro(s) lue(s) (%d classée(s), %d priorisée(s), %d datée(s), %d jugée(s), %d terminée(s))", len(found), classified, prioritized, dated, judged, closed)
+	for _, failure := range unread {
+		summary += " ; " + failure
+	}
+	return summary, nil
+}
+
+// roadmapProjectMacros reads the epics of each roadmap project the project
+// declares, keyed by epic key, and says in a sentence each key it could not
+// read (#632).
+//
+// Each key is its own request under its own timeout. A single query naming
+// them all would let one key nobody can read fail the whole read, and with it
+// the keys that answer.
+func (d *DB) roadmapProjectMacros(ctx context.Context, proj *models.Project) (map[string]models.Task, []string) {
+	out := map[string]models.Task{}
+	if proj == nil || proj.IssueTracker != "jira" || len(proj.RoadmapProjects) == 0 {
+		return out, nil
+	}
+	unread := []string{}
+	for _, key := range proj.RoadmapProjects {
+		epics, err := d.roadmapProjectEpics(ctx, proj, key)
+		if err != nil {
+			unread = append(unread, fmt.Sprintf("projet de roadmap %s non lu : %v", key, err))
+			continue
+		}
+		for _, epic := range epics {
+			if epicKey := strings.TrimSpace(epic.Key); epicKey != "" {
+				out[epicKey] = epic
+			}
+		}
+	}
+	return out, unread
+}
+
+// roadmapProjectEpics lists the epics of one roadmap project, through the
+// project's own tracker and credentials, the key alone changing.
+func (d *DB) roadmapProjectEpics(ctx context.Context, proj *models.Project, key string) ([]models.Task, error) {
+	view := roadmapProjectView(proj, key)
+	ts, err := d.TrackerForProject(view)
+	if err != nil {
+		return nil, err
+	}
+	if !ts.Supports(tracker.CapEpic) {
+		return nil, tracker.Unsupported(ts.Name(), tracker.CapEpic)
+	}
+	ctx, cancel := context.WithTimeout(ctx, macroReadTimeout)
+	defer cancel()
+	return ts.ListEpics(ctx, tracker.ProjectRequest{Project: view})
 }
 
 // ImportEpicHorizons is the epic-named alias of ImportMacroHorizons.
@@ -239,15 +337,33 @@ func (d *DB) ImportEpicHorizons(ctx context.Context, projectID string) (string, 
 	return d.ImportMacroHorizons(ctx, projectID)
 }
 
-// PendingHorizonPushes lists the macros classified locally whose epic does not
-// carry the matching roadmap label yet. That covers anything classified before
-// the mirroring existed, anything classified while the tracker was unreachable,
-// and every failed push.
+// PendingHorizonPushes lists the macros whose epic does not carry the labels
+// of what was decided locally yet: the horizon, since #627 the priority and
+// the quarter, and since #633 the readiness. That covers anything decided before the mirroring existed,
+// anything decided while the tracker was unreachable, and every failed push.
 //
-// Macros that can never be pushed — milestones, local keys, epics of another
-// project — are left out rather than listed as late: a list that only grows is
+// Macros that can never be pushed (milestones, local keys, epics of another
+// project) are left out rather than listed as late: a list that only grows is
 // one nobody acts on.
 func (d *DB) PendingHorizonPushes(ctx context.Context, projectID string) ([]models.MacroMeta, error) {
+	pending, err := d.pendingAxisPushes(ctx, projectID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]models.MacroMeta, 0, len(pending))
+	for _, p := range pending {
+		out = append(out, p.meta)
+	}
+	return out, nil
+}
+
+// pendingAxisPush is one late macro and the axes its epic disagrees on.
+type pendingAxisPush struct {
+	meta                                  models.MacroMeta
+	horizon, priority, quarter, readiness bool
+}
+
+func (d *DB) pendingAxisPushes(ctx context.Context, projectID string) ([]pendingAxisPush, error) {
 	projectID = strings.TrimSpace(projectID)
 	proj, err := d.GetProjectByID(projectID)
 	if err != nil || proj == nil {
@@ -258,18 +374,21 @@ func (d *DB) PendingHorizonPushes(ctx context.Context, projectID string) ([]mode
 		return nil, err
 	}
 
-	classified := make([]models.MacroMeta, 0, len(metas))
+	decided := make([]models.MacroMeta, 0, len(metas))
 	for _, meta := range metas {
-		if meta.Horizon == "" || isMilestoneKey(meta.Key) || !belongsToProject(meta.Key, proj) {
+		if meta.Horizon == "" && meta.Priority == "" && meta.Quarter == "" && meta.Readiness == "" {
 			continue
 		}
-		classified = append(classified, meta)
+		if isMilestoneKey(meta.Key) || !belongsToProject(meta.Key, proj) {
+			continue
+		}
+		decided = append(decided, meta)
 	}
-	// The tracker is not read at all when nothing is classified: the answer is
+	// The tracker is not read at all when nothing is decided: the answer is
 	// already known, and asking anyway would make an empty roadmap fail on a
 	// project whose credentials are not set up yet.
-	if len(classified) == 0 {
-		return []models.MacroMeta{}, nil
+	if len(decided) == 0 {
+		return []pendingAxisPush{}, nil
 	}
 
 	remote, err := d.remoteMacros(ctx, proj)
@@ -277,36 +396,74 @@ func (d *DB) PendingHorizonPushes(ctx context.Context, projectID string) ([]mode
 		return nil, err
 	}
 
-	pending := []models.MacroMeta{}
-	for _, meta := range classified {
+	// The comparison is under the current prefixes (#635): an epic whose value
+	// sits under a former prefix is late, and its push writes the new one.
+	prefixes := prefixesFor(proj)
+	pending := []pendingAxisPush{}
+	for _, meta := range decided {
 		epic, known := remote[meta.Key]
-		if !known || HorizonFromLabels(epic.Labels) != meta.Horizon {
-			pending = append(pending, meta)
+		var labels []string
+		if known {
+			labels = epic.Labels
+		}
+		p := pendingAxisPush{
+			meta:      meta,
+			horizon:   meta.Horizon != "" && (!known || HorizonFromLabels(labels) != meta.Horizon),
+			priority:  meta.Priority != "" && (!known || prefixes.PriorityFromLabels(labels) != meta.Priority),
+			quarter:   meta.Quarter != "" && (!known || prefixes.QuarterFromLabels(labels) != meta.Quarter),
+			readiness: meta.Readiness != "" && (!known || prefixes.ReadinessFromLabels(labels) != meta.Readiness),
+		}
+		if p.horizon || p.priority || p.quarter || p.readiness {
+			pending = append(pending, p)
 		}
 	}
 	return pending, nil
 }
 
-// PushPendingHorizons mirrors every locally classified macro whose label is
-// missing or stale. Explicit rather than automatic: it edits one ticket per
-// macro, which is not something a sync gets to decide on its own.
+// PushPendingHorizons mirrors every late axis of every late macro. Explicit
+// rather than automatic: it edits one ticket per macro, which is not something
+// a sync gets to decide on its own.
 //
 // One failure does not stop the others, and each is named: a run that stopped
-// at the first refusal would leave the rest silently unpushed.
+// at the first refusal would leave the rest silently unpushed. The count is of
+// macros whose every late axis went through.
 func (d *DB) PushPendingHorizons(ctx context.Context, projectID string) (int, []string, error) {
-	pending, err := d.PendingHorizonPushes(ctx, projectID)
+	pending, err := d.pendingAxisPushes(ctx, projectID)
 	if err != nil {
 		return 0, nil, err
 	}
 
 	pushed := 0
 	failures := []string{}
-	for _, meta := range pending {
-		if _, err := d.PushMacroHorizonLabel(ctx, projectID, meta.Key, meta.Horizon); err != nil {
-			failures = append(failures, fmt.Sprintf("%s : %v", meta.Key, err))
-			continue
+	for _, p := range pending {
+		failed := false
+		if p.horizon {
+			if _, err := d.PushMacroHorizonLabel(ctx, projectID, p.meta.Key, p.meta.Horizon); err != nil {
+				failures = append(failures, fmt.Sprintf("%s (horizon) : %v", p.meta.Key, err))
+				failed = true
+			}
 		}
-		pushed++
+		if p.priority {
+			if _, err := d.PushMacroPriorityLabel(ctx, projectID, p.meta.Key, p.meta.Priority); err != nil {
+				failures = append(failures, fmt.Sprintf("%s (priorité) : %v", p.meta.Key, err))
+				failed = true
+			}
+		}
+		if p.quarter {
+			if _, err := d.PushMacroQuarterLabel(ctx, projectID, p.meta.Key, p.meta.Quarter); err != nil {
+				failures = append(failures, fmt.Sprintf("%s (trimestre) : %v", p.meta.Key, err))
+				failed = true
+			}
+		}
+		if p.readiness {
+			if _, err := d.PushMacroReadinessLabel(ctx, projectID, p.meta.Key, p.meta.Readiness); err != nil {
+				failures = append(failures, fmt.Sprintf("%s (readiness) : %v", p.meta.Key, err))
+				failed = true
+			}
+		}
+		if !failed {
+			pushed++
+		}
 	}
 	return pushed, failures, nil
 }

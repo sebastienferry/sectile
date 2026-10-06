@@ -37,7 +37,11 @@ registrations on its own; a dispatch uses what it finds.**
 - The direct setup stays, but only on request: `sectile-agent init`, the
   desktop's **Initialize**, the `sync_config` operation and the MCP connection
   saved from the desktop. It is the only route for codex, agy, gemini, cursor
-  and vibe.
+  and vibe (gemini, cursor and vibe were retired as AI engines since, #614).
+  It installs the same generic skills as the plugin, with the local
+  HTTP fallback (`directContent` in `GET /api/v1/agent/config`): the folder it
+  writes is shared by every project of the workstation, and nothing rewrites
+  it per project any more (see *Amendment* below).
 - At dispatch the agent resolves each workflow skill, in this order:
   1. the project's custom skill, when the workstation setting **Custom project
      skills win** is on (the default) and the project edited the skill; it is
@@ -57,14 +61,18 @@ registrations on its own; a dispatch uses what it finds.**
   reads as not custom and the installed one runs, which is what an unedited
   project ran before.
 - The agent reads Claude's plugin state
-  (`~/.claude/plugins/installed_plugins.json`, `enabledPlugins` in
-  `~/.claude/settings.json`) and never writes it. A plugin installed for
+  (`~/.claude/plugins/installed_plugins.json`, and `enabledPlugins` in
+  `~/.claude/settings.json`, then the run folder's `.claude/settings.json` and
+  `.claude/settings.local.json`, the later stated key winning, as Claude
+  resolves it) and never writes it. A plugin installed for
   another project, or disabled, is not a source.
 - A saved desktop MCP connection is rewritten at agent start only when the
   address, the key or the executable it was written with changed. A
   fingerprint of the three, never the key, records what was written. The
   loopback port can change between starts when 8091 is taken, which is the
-  case the start-up rewrite existed for.
+  case the start-up rewrite existed for. `init`, **Initialize** and
+  `sync_config` record their Claude Code entry the same way (see *Second
+  amendment* below).
 - Using a custom skill is a passive signal: a step on the run's activity, and,
   in the desktop, a dot on the settings button with the list of the custom
   skills that ran since the agent started.
@@ -85,6 +93,48 @@ registrations on its own; a dispatch uses what it finds.**
   setup is not removed by installing the plugin. Both then declare the same
   server; `init` says so.
 
+## Amendment: the direct copy is generic
+
+The first version of this decision kept the direct setup's content per
+project: `RenderSkillContent` picks the project's specification framework
+(`steps.speckit.md` or `steps.openspec.md`) and appends its pull-request
+policy, and a project's edit replaced the built-in skill. Before #267 every
+dispatch rewrote the copy for the project it launched; with dispatches no
+longer writing, the copy of whichever project was set up last ran for all of
+them. An OpenSpec project then followed the Spec Kit steps and another
+project's pull-request policy, silently.
+
+The server therefore sends, beside each skill's `content`, a `directContent`
+and `directCommandContent`: the built-in skill rendered as the plugin renders
+it (`RenderDirectSkillContent`, each framework variant under its own heading,
+the pull-request policy for every creation stage, both read from
+`get_project_context` at run time), with the local agent's HTTP fallback. The
+direct setup installs them; `content` remains the project's own, handed to a
+run when it is custom. The skills editor marks a direct copy as diverged when
+it is neither form of the generic skill, which is also how a copy an earlier
+release rendered for one project shows.
+
+A copy written before this change is not detected at dispatch: comparing
+installed skills with the server's is the reconciliation the owner rejected.
+It is replaced by the next `sectile-agent init`, **Initialize** or
+`sync_config`, which the changelog asks users of the direct setup to run.
+
+## Second amendment (2026-10-03, #716): explicit setups record the Claude choice
+
+The fingerprint rule above covered only the connection saved from the desktop.
+The other explicit requests (`sectile-agent init`, **Initialize** and
+`sync_config`) wrote Claude Code's `sectile` entry without saving a choice, so
+the agent start never rewrote it, and a new pairing left Claude Code on the
+revoked key.
+
+These requests now record a managed Claude Code choice (`remote/http` unless
+one is already saved) with the fingerprint of what they wrote. A new pairing
+changes the key, so the next agent start rewrites the entry through the
+existing fingerprint rule. A start-up rewrite that fails for one provider no
+longer stops the others. This is still a write the user asked for once, not a
+reconciliation: an entry Sectile did not write is reported, and rewritten only
+by the **Repair** action of the MCP settings (ADR 0023, amendment of #716).
+
 ## Alternatives rejected
 
 - **Keep writing at dispatch, and skip it when the plugin is present.** Still
@@ -97,4 +147,7 @@ registrations on its own; a dispatch uses what it finds.**
 - **Install the plugin from the agent** (`claude plugin install`). It is the
   user's choice, and it would tie the agent to the Claude CLI.
 - **Version or checksum reconciliation** between installed and server skills,
-  rejected by the owner during clarification.
+  rejected by the owner during clarification. This also rules out passing over
+  a direct copy that is not the generic skill at dispatch.
+- **Keep the direct copy per project and rewrite it at dispatch**, as before
+  #267. That is the unasked rewrite this decision removes.

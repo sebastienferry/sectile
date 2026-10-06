@@ -3,6 +3,7 @@ package agentconfig
 import (
 	"errors"
 	"fmt"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"tasks/internal/models"
@@ -11,8 +12,9 @@ import (
 // SettingsLayout is the layout WriteSettings emits. A file without a layout
 // predates #305: its flat keys and per-project maps are folded on read and
 // rewritten in this layout on the next save. Layout 3 (#510) moves the engine
-// settings into the engine catalogue.
-const SettingsLayout = 3
+// settings into the engine catalogue, and layout 4 (#730) the project Sandbox
+// values into the workstation ones.
+const SettingsLayout = 4
 
 // DefaultProvider is the provider a workstation runs when neither its defaults
 // nor the project section name one.
@@ -61,6 +63,31 @@ type Defaults struct {
 	// "direct" (the direct setup's copy) or "plugin" (the Claude plugin).
 	// Empty means "direct".
 	InstalledSkillSource string `json:"installedSkillSource,omitempty"`
+	// ConsoleView is how an interactive Claude launch opens on this
+	// workstation when its launch did not say (#711): "terminal" or
+	// "conversation". Desktop hands it over from its own setting; empty means
+	// "terminal".
+	ConsoleView string `json:"consoleView,omitempty"`
+	// ClaudeSandbox is the Sandbox values every covered project applies
+	// (#730), under its own values. Nil states nothing.
+	ClaudeSandbox *ClaudeSandbox `json:"claudeSandbox,omitempty"`
+	// ClaudeSandboxProjects is the whitelist of the projects ClaudeSandbox
+	// applies to, by project ID. Empty covers every project.
+	ClaudeSandboxProjects []string `json:"claudeSandboxProjects,omitempty"`
+}
+
+// Console views, as ConsoleView names them.
+const (
+	ConsoleViewTerminal     = "terminal"
+	ConsoleViewConversation = "conversation"
+)
+
+// ConsoleViewOrDefault reads ConsoleView with its default: the terminal.
+func (d Defaults) ConsoleViewOrDefault() string {
+	if d.ConsoleView == ConsoleViewConversation {
+		return ConsoleViewConversation
+	}
+	return ConsoleViewTerminal
 }
 
 // Installed skill sources, in the order InstalledSkillSource names them.
@@ -87,9 +114,16 @@ func (d Defaults) InstalledSkillSourceOrDefault() string {
 type ProjectSettings struct {
 	// Path is the project's checkout on this workstation.
 	Path string `json:"path,omitempty"`
-	// SpecPath is the project's specifications folder, a Git checkout or a
-	// plain folder. Without one, the project uses its code checkout.
-	SpecPath string `json:"specPath,omitempty"`
+	// MacroSpecPath is the project's Macro specifications folder, a Git
+	// checkout or a plain folder, where the macro skills, the macro worktree and
+	// the slicing import read and write. Without one, the project uses its code
+	// checkout. Its key is the one of the single folder it replaced (#736), so a
+	// workstation keeps its value.
+	MacroSpecPath string `json:"specPath,omitempty"`
+	// IssueSpecPath is the project's Issue specifications folder (#736), where
+	// the issue skills write the tasks' clarification reports and
+	// specifications. Without one, the project uses its code checkout.
+	IssueSpecPath string `json:"issueSpecPath,omitempty"`
 	// Folders are the folders attached to the project on this workstation
 	// (#484): absolute, cleaned paths in the order they were added. Only the
 	// paths are kept: what each one is, and its remote, are read from the
@@ -104,6 +138,17 @@ type ProjectSettings struct {
 	// tasks' specification artefacts (#487): "keep" or "drop"; empty follows
 	// the server.
 	SpecArtifacts string `json:"specArtifacts,omitempty"`
+	// ClaudeSandbox holds what this project's Claude Code sessions are allowed
+	// (#700). It is handed to every built-in Claude line through --settings.
+	ClaudeSandbox *ClaudeSandbox `json:"claudeSandbox,omitempty"`
+	// AnyRepository lets the project's tickets change a repository the project
+	// neither declares, maps nor attaches (#737): a checkout the session names,
+	// or a clone the agent makes. A pointer, so that "off" can be stated over
+	// a layer that says "on"; nil is off.
+	AnyRepository *bool `json:"anyRepository,omitempty"`
+	// ClonesPath is where the agent clones such a repository, one folder per
+	// repository name. Empty means the parent folder of the project checkout.
+	ClonesPath string `json:"clonesPath,omitempty"`
 }
 
 // Seeded records the one-time copies of the server values (US6), so they are
@@ -135,8 +180,9 @@ func (e Execution) isZero() bool {
 
 // IsZero reports a project section that states nothing and can be dropped.
 func (p ProjectSettings) IsZero() bool {
-	return strings.TrimSpace(p.Path) == "" && strings.TrimSpace(p.SpecPath) == "" && p.Execution.isZero() && len(p.SkillCommands) == 0 &&
-		strings.TrimSpace(p.SpecArtifacts) == "" && len(p.Folders) == 0
+	return strings.TrimSpace(p.Path) == "" && strings.TrimSpace(p.MacroSpecPath) == "" && strings.TrimSpace(p.IssueSpecPath) == "" && p.Execution.isZero() && len(p.SkillCommands) == 0 &&
+		strings.TrimSpace(p.SpecArtifacts) == "" && len(p.Folders) == 0 && p.ClaudeSandbox.IsZero() &&
+		p.AnyRepository == nil && strings.TrimSpace(p.ClonesPath) == ""
 }
 
 // Project returns the project's section, empty when it has none.
@@ -159,9 +205,36 @@ func (s Settings) ProjectPath(id string) string {
 	return strings.TrimSpace(s.ProjectSettings[id].Path)
 }
 
-// SpecPath is the project's specifications folder, "" when none is set.
-func (s Settings) SpecPath(id string) string {
-	return strings.TrimSpace(s.ProjectSettings[id].SpecPath)
+// MacroSpecPath is the project's Macro specifications folder, "" when none is
+// set.
+func (s Settings) MacroSpecPath(id string) string {
+	return strings.TrimSpace(s.ProjectSettings[id].MacroSpecPath)
+}
+
+// IssueSpecPath is the project's Issue specifications folder, "" when none is
+// set.
+func (s Settings) IssueSpecPath(id string) string {
+	return strings.TrimSpace(s.ProjectSettings[id].IssueSpecPath)
+}
+
+// AnyRepository reports whether the project's tickets may change a
+// repository the project does not know (#737).
+func (s Settings) AnyRepository(id string) bool {
+	value := s.ProjectSettings[id].AnyRepository
+	return value != nil && *value
+}
+
+// ClonesPath is the folder the agent clones the project's undeclared
+// repositories into: the setting, else the parent folder of projectRoot, ""
+// when neither is known.
+func (s Settings) ClonesPath(id, projectRoot string) string {
+	if path := strings.TrimSpace(s.ProjectSettings[id].ClonesPath); path != "" {
+		return path
+	}
+	if projectRoot = strings.TrimSpace(projectRoot); projectRoot == "" {
+		return ""
+	}
+	return filepath.Dir(filepath.Clean(projectRoot))
 }
 
 // Editor is the editor this workstation opens a task or a project with.
@@ -299,8 +372,6 @@ var DefaultProviderModels = map[string][]string{
 	"claude": {"claude-fable-5-1", "claude-fable-5", "claude-fable", "claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5"},
 	"codex":  {"gpt-5-codex", "gpt-5", "o4-mini"},
 	"agy":    {"gemini-3.8-pro", "gemini-3.8-flash", "gemini-3.8", "gemini-3.0-pro", "gemini-2.5-pro", "gemini-2.5-flash"},
-	"gemini": {"gemini-3.8-pro", "gemini-3.8-flash", "gemini-3.8", "gemini-3.0-pro", "gemini-2.5-pro", "gemini-2.5-flash"},
-	"cursor": {"auto", "claude-sonnet-5", "gpt-5"},
 }
 
 // ProviderModels is what a launch may pick for provider: the configured list,
@@ -403,6 +474,11 @@ func ValidateProject(p ProjectSettings) error {
 	case "", "keep", "drop":
 	default:
 		return fmt.Errorf("specArtifacts must be keep or drop")
+	}
+	if p.ClaudeSandbox != nil {
+		if _, err := NormalizeClaudeSandbox(*p.ClaudeSandbox); err != nil {
+			return err
+		}
 	}
 	return nil
 }

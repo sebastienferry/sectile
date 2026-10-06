@@ -159,7 +159,16 @@ func (d *agentDaemon) executeOperation(ctx context.Context, op agentprotocol.Ope
 			return specArtifactsMode(config, task.Key), nil
 		}
 		if op.Action == "repository_worktree" {
-			return repositoryWorktree(ctx, config, overrides, root, task, op.Repository, d.link.deviceID)
+			worktree, err := repositoryWorktreeFor(ctx, config, overrides, root, task, repositoryRequest{
+				Repository: op.Repository, URL: op.RepositoryURL, Path: op.Path, Device: d.link.deviceID, SettingsRoot: d.localSettingsRoot(),
+			})
+			if err == nil {
+				worktree.AddedToSession = d.addDirToTaskRuns(task, worktree.Path)
+			}
+			return worktree, err
+		}
+		if op.Action == "task_spec_worktree" {
+			return taskSpecWorktreeFor(ctx, config, overrides, root, task)
 		}
 		if op.Action == "remove_workspace" && len(op.Repositories) > 0 {
 			return removeRepositoryWorktrees(ctx, config, overrides, root, task, op.Repositories), nil
@@ -179,7 +188,7 @@ func (d *agentDaemon) executeOperation(ctx context.Context, op agentprotocol.Ope
 			if !filepath.IsLocal(task.Key) || strings.ContainsAny(task.Key, "/\\") {
 				return nil, fmt.Errorf("invalid task key")
 			}
-			target, err = localTaskPath(ctx, taskRoot, task)
+			target, err = localTaskPath(ctx, taskRoot, task, config.BranchNameFormat)
 			if op.Repository != "" {
 				target, err = foreignWorkDir(target, root, err), nil
 			}
@@ -324,7 +333,7 @@ func (d *agentDaemon) executeOperation(ctx context.Context, op agentprotocol.Ope
 	case "workspace_info":
 		branch := ""
 		if config.UseWorktrees {
-			branch, _ = taskWorktreeBranch(task)
+			branch, _ = taskWorktreeBranch(task, config.BranchNameFormat)
 		} else if task.BranchName != nil {
 			branch = *task.BranchName
 		}
@@ -373,6 +382,33 @@ func (d *agentDaemon) executeOperation(ctx context.Context, op agentprotocol.Ope
 		}
 		branch, err := gitLocal(ctx, target, "branch", "--show-current")
 		return map[string]any{"sha": strings.TrimSpace(sha), "branch": strings.TrimSpace(branch), "clean": strings.TrimSpace(status) == "", "path": target, "status": strings.TrimRight(status, "\r\n")}, err
+	case "branch_changes":
+		// The server asks before requiring a pull request in another repository
+		// the task prepared (#678): any checkout of that repository answers,
+		// branch checked out or not. The echo tells the server this agent
+		// understood the question.
+		repository := strings.TrimSpace(op.Repository)
+		if repository == "" {
+			return nil, fmt.Errorf("repository is required")
+		}
+		candidates, err := d.checkoutCandidates(ctx, task, op.ProjectID)
+		if err != nil {
+			return nil, err
+		}
+		if mapped, ok := repositoryFolder(ctx, overrides, config.ProjectID, root, codeIdentity(config), models.RepositoryIdentity(repository)); ok {
+			candidates = append([]string{mapped}, candidates...)
+		}
+		checkout, found := repositoryCheckout(ctx, repository, candidates)
+		if !found {
+			return branchChangesAnswer{Repository: repository}, nil
+		}
+		defaultBranch, exists, ahead, err := branchChanges(ctx, checkout, strings.TrimSpace(op.Branch))
+		if err != nil {
+			return nil, err
+		}
+		lazyCode := models.RepositoryIdentity(repository) == codeIdentity(config) && strings.TrimSpace(task.Repository) == "" &&
+			overrides.AnyRepository(config.ProjectID) && specificationsAwayFromCode(config, overrides, root)
+		return branchChangesAnswer{Repository: repository, Found: true, DefaultBranch: defaultBranch, Exists: exists, Ahead: ahead, LazyCode: lazyCode}, nil
 	case "pr_evidence":
 		// The server verifies stage evidence on forges it cannot reach itself, with
 		// the CLI login this workstation already has. A forge that answered without

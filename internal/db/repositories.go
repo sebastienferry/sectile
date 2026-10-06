@@ -71,6 +71,26 @@ var ErrDuplicateRepository = errors.New("repository already declared")
 // the two a project can hold, naming them so an API client can correct itself.
 var ErrInvalidSpecArtifacts = errors.New("specArtifacts must be keep or drop")
 
+// ErrInvalidBranchNameFormat refuses a branch name format that cannot render
+// a usable branch (#621). The refusal a save returns matches it with
+// errors.Is, and reads as the renderer's own message, which the user sees.
+var ErrInvalidBranchNameFormat = errors.New("invalid branch name format")
+
+type branchNameFormatError struct{ reason error }
+
+func (e branchNameFormatError) Error() string        { return e.reason.Error() }
+func (e branchNameFormatError) Is(target error) bool { return target == ErrInvalidBranchNameFormat }
+
+// checkBranchNameFormat trims a received format and validates it; the empty
+// result is the default format.
+func checkBranchNameFormat(format string) (string, error) {
+	format = strings.TrimSpace(format)
+	if err := models.ValidateBranchNameFormat(format); err != nil {
+		return "", branchNameFormatError{reason: err}
+	}
+	return format, nil
+}
+
 // ErrRepositoryNotInProject refuses to pin a ticket to a repository its
 // project does not declare.
 var ErrRepositoryNotInProject = errors.New("repository is not one of the project's repositories")
@@ -106,15 +126,30 @@ func declaredRepositoryURLs(p *models.Project) []string {
 	return urls
 }
 
-// taskPin is the repository a ticket is pinned to, as far as its project is
-// concerned: nothing for a pin to a repository the project no longer declares.
-// The agent reads a pin the same way (models.ResolvePrimaryRepository).
+// declaredIdentities are the identities of every repository the project
+// lists, its code remote included.
+func declaredIdentities(p *models.Project) []string {
+	identities := make([]string, 0, len(p.Repositories))
+	for _, repository := range p.Repositories {
+		identities = append(identities, repository.Identity)
+	}
+	return identities
+}
+
+// taskPin is the repository a ticket is pinned to: one its project declares,
+// or any other remote (#737); nothing for what names no repository. The agent
+// reads a pin the same way (models.ResolvePrimaryRepository).
 func taskPin(project *models.Project, task *models.Task) string {
 	if project == nil || task == nil {
 		return ""
 	}
 	if repository, ok := models.FindProjectRepository(project.Repositories, task.Repository); ok {
 		return repository.Identity
+	}
+	// A pin to a repository the project does not declare (#737) stands: the
+	// launching workstation decides whether it can work there.
+	if identity := models.RepositoryIdentity(task.Repository); remoteIdentity(identity) {
+		return identity
 	}
 	return ""
 }
@@ -242,6 +277,7 @@ func (d *DB) ApplyRepositoryConversion(userID, projectID string, report models.R
 		_, err = tx.Exec("UPDATE tasks SET repo_path = '' WHERE project_id = ?", project.ID)
 		return err
 	})
+	d.projectURLs.clear()
 	d.mu.Unlock()
 	if err != nil {
 		return nil, err
@@ -294,7 +330,7 @@ func TaskPrimaryRepository(project *models.Project, task *models.Task) string {
 // is one of the project's, or a Git folder attached to the project on the
 // caller's workstation (#484), which only that agent knows: the server never
 // learns its path, and records its identity once the agent returned a worktree.
-func (d *DB) PrepareRepositoryWorktree(ctx context.Context, userID, taskKey, repository string) (*models.RepositoryWorktree, error) {
+func (d *DB) PrepareRepositoryWorktree(ctx context.Context, userID, taskKey, repository, path string) (*models.RepositoryWorktree, error) {
 	task, err := d.GetTaskByID(taskKey)
 	if err != nil {
 		return nil, err
@@ -322,19 +358,34 @@ func (d *DB) PrepareRepositoryWorktree(ctx context.Context, userID, taskKey, rep
 		branch = strings.TrimSpace(*task.BranchName)
 	}
 	if branch == "" {
-		return nil, fmt.Errorf("task %s has no branch yet: its primary worktree comes first", task.Key)
+		// A launch without its code worktree (#737) may come before any
+		// branch was recorded: the branch is the one the code worktree would
+		// have carried.
+		named, err := models.TaskBranchName(project.BranchNameFormat, task.Key, task.Title)
+		if err != nil {
+			return nil, fmt.Errorf("task %s has no branch yet: %w", task.Key, err)
+		}
+		branch = named
 	}
-	if target.Identity == TaskPrimaryRepository(project, task) {
+	// The repository a ticket is pinned to gets its worktree at launch. The
+	// code repository of an unpinned ticket may not have one (#737): the
+	// agent then creates it, or answers with the one it already has.
+	if pin := taskPin(project, task); pin != "" && target.Identity == pin {
 		return nil, fmt.Errorf("%s is the primary repository of %s: it already has its worktree", target.Identity, task.Key)
 	}
 	var worktree models.RepositoryWorktree
 	err = d.callAgentContext(ctx, agentprotocol.Operation{UserID: strings.TrimSpace(userID), ProjectID: project.ID, TaskID: task.ID,
-		Action: "repository_worktree", Repository: target.Identity, Branch: branch}, &worktree)
+		Action: "repository_worktree", Repository: target.Identity, RepositoryURL: target.URL, Path: strings.TrimSpace(path), Branch: branch}, &worktree)
 	if err != nil {
 		return nil, err
 	}
 	if worktree.Repository != target.Identity {
 		return nil, fmt.Errorf("local agent is too old to prepare a worktree in another repository; update it")
+	}
+	// An agent that predates #737 would answer from a known folder and
+	// silently ignore the checkout it was given.
+	if strings.TrimSpace(path) != "" && !worktree.PathChecked {
+		return nil, fmt.Errorf("local agent is too old to use a repository path; update it")
 	}
 	if err := d.AddChangedRepository(task.ID, target.Identity); err != nil {
 		return nil, err
@@ -345,6 +396,34 @@ func (d *DB) PrepareRepositoryWorktree(ctx context.Context, userID, taskKey, rep
 // remoteIdentity tells an identity derived from a remote (host/path) from what
 // a folder path or a bare name reduces to, which names no repository.
 func remoteIdentity(identity string) bool {
-	host, path, ok := strings.Cut(identity, "/")
-	return ok && host != "" && path != "" && !strings.ContainsAny(identity, `\~`) && !strings.HasPrefix(host, ".")
+	return models.IsRemoteIdentity(identity)
+}
+
+// PrepareTaskSpecWorktree asks the caller's local agent to prepare where a
+// task's clarification report and specification are written (#736): a
+// worktree of the project's Issue specifications folder on the task's branch,
+// or the task's own worktree when that folder is the code checkout. The folder
+// is a setting of the workstation, so only its agent can answer.
+func (d *DB) PrepareTaskSpecWorktree(ctx context.Context, userID, taskKey string) (*models.TaskSpecWorkspace, error) {
+	task, err := d.GetTaskByID(taskKey)
+	if err != nil {
+		return nil, err
+	}
+	if task == nil {
+		return nil, fmt.Errorf("task not found")
+	}
+	branch := ""
+	if task.BranchName != nil {
+		branch = strings.TrimSpace(*task.BranchName)
+	}
+	var workspace models.TaskSpecWorkspace
+	err = d.callAgentContext(ctx, agentprotocol.Operation{UserID: strings.TrimSpace(userID), ProjectID: task.ProjectID, TaskID: task.ID,
+		Action: "task_spec_worktree", Branch: branch}, &workspace)
+	if err != nil {
+		return nil, err
+	}
+	if workspace.Path == "" {
+		return nil, fmt.Errorf("local agent is too old to prepare a task's specifications worktree; update it")
+	}
+	return &workspace, nil
 }

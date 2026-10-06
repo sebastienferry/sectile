@@ -17,7 +17,7 @@ var genericMCPTools = []string{"get_task", "transition_stage", "add_comment", "l
 // aborts before the original configuration file is touched.
 func migrateMCPRegistration(data map[string]any, provider string, transport map[string]any) error {
 	key := "mcpServers"
-	if provider == "codex" || provider == "vibe" {
+	if provider == "codex" {
 		key = "mcp_servers"
 	}
 	for field, value := range data {
@@ -26,59 +26,24 @@ func migrateMCPRegistration(data map[string]any, provider string, transport map[
 		}
 	}
 	var legacy, canonical map[string]any
-	var others []any
-	var servers map[string]any
-	if provider == "vibe" {
-		if value, exists := data[key]; exists {
-			list, ok := value.([]any)
-			if !ok {
-				return fmt.Errorf("%s must be an array", key)
-			}
-			for _, item := range list {
-				server, ok := item.(map[string]any)
-				if !ok {
-					return fmt.Errorf("invalid MCP server entry")
-				}
-				name, ok := server["name"].(string)
-				if !ok || name == "" {
-					return fmt.Errorf("MCP server name must be a nonempty string")
-				}
-				switch name {
-				case "taskflow":
-					if legacy != nil {
-						return fmt.Errorf("duplicate taskflow registrations; reconcile manually")
-					}
-					legacy = server
-				case "sectile":
-					if canonical != nil {
-						return fmt.Errorf("duplicate sectile registrations; reconcile manually")
-					}
-					canonical = server
-				default:
-					others = append(others, item)
-				}
-			}
+	servers := map[string]any{}
+	if value, exists := data[key]; exists {
+		var ok bool
+		servers, ok = value.(map[string]any)
+		if !ok || servers == nil {
+			return fmt.Errorf("%s must be an object", key)
 		}
-	} else {
-		servers = map[string]any{}
-		if value, exists := data[key]; exists {
-			var ok bool
-			servers, ok = value.(map[string]any)
-			if !ok || servers == nil {
-				return fmt.Errorf("%s must be an object", key)
+	}
+	for _, name := range []string{"taskflow", "sectile"} {
+		if value, exists := servers[name]; exists {
+			server, ok := value.(map[string]any)
+			if !ok || server == nil {
+				return fmt.Errorf("%s registration must be an object", name)
 			}
-		}
-		for _, name := range []string{"taskflow", "sectile"} {
-			if value, exists := servers[name]; exists {
-				server, ok := value.(map[string]any)
-				if !ok || server == nil {
-					return fmt.Errorf("%s registration must be an object", name)
-				}
-				if name == "taskflow" {
-					legacy = server
-				} else {
-					canonical = server
-				}
+			if name == "taskflow" {
+				legacy = server
+			} else {
+				canonical = server
 			}
 		}
 	}
@@ -111,17 +76,9 @@ func migrateMCPRegistration(data map[string]any, provider string, transport map[
 	for field, value := range transport {
 		policy[field] = value
 	}
-	if provider == "vibe" {
-		policy["name"] = "sectile"
-		if _, ok := policy["transport"]; !ok {
-			policy["transport"] = "stdio"
-		}
-		data[key] = append(others, policy)
-	} else {
-		delete(servers, "taskflow")
-		servers["sectile"] = policy
-		data[key] = servers
-	}
+	delete(servers, "taskflow")
+	servers["sectile"] = policy
+	data[key] = servers
 	return nil
 }
 
@@ -150,7 +107,6 @@ func preservedMCPFields(server map[string]any, provider string) (map[string]any,
 			continue
 		}
 		toolList := (provider == "codex" && (field == "enabled_tools" || field == "disabled_tools")) ||
-			(provider == "gemini" && (field == "includeTools" || field == "excludeTools")) ||
 			(provider == "agy" && field == "disabledTools")
 		if toolList {
 			list, ok := value.([]any)
@@ -226,8 +182,6 @@ func checkExternalMCPPolicies(root, provider, target string) error {
 	switch provider {
 	case "claude":
 		paths = []string{filepath.Join(root, ".claude/settings.json"), filepath.Join(root, ".claude/settings.local.json")}
-	case "cursor":
-		paths = []string{filepath.Join(root, ".cursor/permissions.json")}
 	}
 	for _, path := range paths {
 		if filepath.Clean(path) == filepath.Clean(target) {

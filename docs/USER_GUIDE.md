@@ -24,13 +24,37 @@ If your account or a project is missing, ask the Sectile administrator or projec
 
 ## Set up a personal Jira token
 
-A Jira project needs your own Jira access for actions attributed to you. Set it in the **Profile → Tracker credentials** (*Profil → Identifiants Trackers*) area of the web interface:
+A Jira project needs your own Jira access for actions attributed to you. Set it in the **Profile → Tracker credentials** (*Profil → Identifiants Trackers*) area of the web interface.
+
+### Connect Jira
+
+When your administrator configured the Jira connection, the **Jira** entry offers **Connect Jira** (*Connecter Jira*):
+
+1. Select **Connect Jira**. Your browser goes to Atlassian's consent screen, which lists what Sectile asks to do.
+2. Accept, and pick every Jira site your Sectile projects use. You land back on **Profile → Tracker credentials**, which shows the Jira account Atlassian confirmed and the sites covered.
+
+Sectile renews the connection in the background: there is no token to create and no passphrase to unlock, and your queued writes and agent stage reports go out under your account while you are away. Connecting replaces an API token you had stored.
+
+If you revoke Sectile from your Atlassian account, or leave it unused for about 90 days, the entry says the connection was lost and offers **Reconnect Jira** (*Reconnecter Jira*); your Jira writes are refused until you reconnect. A write on a project whose Jira site you did not pick is refused the same way: reconnect and pick that site. **Disconnect** (*Déconnecter*) forgets the connection in Sectile; to remove it on Atlassian's side too, remove Sectile from the connected apps of your Atlassian account at id.atlassian.com.
+
+### Use an API token
+
+Without the Jira connection configured, or after selecting **Use an API token instead** (*Utiliser un jeton d'API à la place*):
 
 1. Select **Jira** and enter your Jira site URL, Atlassian account email, and API token. Create the token in your Atlassian account's API tokens section. The site and email belong to the same account as the token.
 2. Select **Verify** (*Vérifier*), then **Save** (*Enregistrer*). The form enables saving after the site accepts the credentials.
 3. Optionally select **Seal my tokens** (*Sceller mes jetons*) and set one master sealing passphrase for your personal tracker tokens. Keep it somewhere you can retrieve it. At a later sign-in, enter it on the sign-in screen or select **Unlock all tokens** (*Déverrouiller tous les jetons*) in the profile.
 
-A sealed and locked personal token cannot authorize your task writes. Sectile reports the refusal instead of silently using another account. A server credential, when configured by an administrator, is for unattended synchronization; it does not replace your personal credential for actions you cause. Never paste an API token or sealing passphrase into a ticket, coding prompt, or Desktop project setting. See [credential ownership](adrs/0029-server-tracker-credential-signs-unattended-work-only.md) for the full rule.
+A sealed and locked personal token cannot authorize your task writes. A Jira connection is never sealed. Sectile reports the refusal instead of silently using another account. The same holds when you have no personal token at all: the error notification then offers to add it, and opens this area on the tracker concerned. A server credential, when configured by an administrator, is for unattended synchronization; it does not replace your personal credential for actions you cause. Never paste an API token or sealing passphrase into a ticket, coding prompt, or Desktop project setting. See [credential ownership](adrs/0029-server-tracker-credential-signs-unattended-work-only.md) for the full rule.
+
+### Configure the Jira connection (administrators)
+
+1. On developer.atlassian.com, create an OAuth 2.0 (3LO) integration. Under **Permissions**, add the Jira API scopes `read:jira-work`, `write:jira-work` and `read:jira-user`, and the Jira Software scopes `read:board-scope:jira-software`, `read:board-scope.admin:jira-software`, `write:board-scope:jira-software`, `read:sprint:jira-software`, `write:sprint:jira-software`, `delete:sprint:jira-software` and `read:project:jira`. Sectile also asks for `offline_access`, which needs no declaration.
+2. Under **Authorization**, set the callback URL to `https://<your Sectile server>/auth/jira/callback`.
+3. Under **Distribution**, enable sharing, so people other than the app's owner can authorise it. Your Atlassian organisation must also allow its members to authorise third-party apps.
+4. In Sectile, open **Administration → Jira connection (Atlassian OAuth)** and save the client ID, the secret and the same callback URL, or set `SECTILE_JIRA_OAUTH_CLIENT_ID`, `SECTILE_JIRA_OAUTH_CLIENT_SECRET` and `SECTILE_JIRA_OAUTH_REDIRECT_URL` on the server. A configuration saved on the page wins over the environment. The secret is never shown again.
+
+Clearing the configuration brings back the API token form; existing connections stay stored but can no longer renew.
 
 ## Use an existing project
 
@@ -54,23 +78,27 @@ Keep Git remote identities consistent with the repositories on your workstation.
 
 Pairing lets your local agent act as you without putting a long-lived key in a prompt.
 
-1. In the web profile, open **Workstations & Agent** and select **Pair a workstation** (*Appairer une machine*). Copy the temporary, single-use code.
-2. Install [Sectile Desktop](../desktop/README.md#install-a-release) on the workstation, open it, enter the server URL, and paste the code on its connection screen. Desktop starts its bundled agent. **Settings → Agent connection** shows whether the agent and server are connected and offers Start, Stop, and Restart controls.
+1. Install [Sectile Desktop](../desktop/README.md#install-a-release) on the workstation, open it, enter the server URL, and select **Sign in with your browser**. Sign in to Sectile in the browser that opens, or let it return at once if you are already signed in, then close the tab. Desktop starts its bundled agent. **Settings → Agent connection** shows whether the agent and server are connected and offers Start, Stop, and Restart controls.
+2. Without a browser on that machine, pair with a code instead: in the web profile, open **Workstations & Agent** and select **Pair a workstation** (*Appairer une machine*), copy the temporary, single-use code, and paste it in the **Pairing code** field of Desktop's connection screen.
 3. To run the agent without Desktop, use the binary on that workstation:
 
    ```sh
-   sectile-agent pair --url https://sectile.example.com --code '<pairing-code>'
+   sectile-agent pair --url https://sectile.example.com
    sectile-agent --url https://sectile.example.com --project '<project-id>' --repo /path/to/clone
    ```
 
-   Replace the example URL, project ID, and path with your own values. Pairing stores the workstation credential for later starts. The [root README](../README.md#connect-a-workstation) shows the local-server form of these commands.
+   `pair` opens the browser to sign you in; `--no-browser` prints the address to open instead, in a browser on the same machine. On a remote or headless machine, pass a code from the web profile with `--code '<pairing-code>'`. Replace the example URL, project ID, and path with your own values. Pairing stores the workstation credential for later starts. The [root README](../README.md#connect-a-workstation) shows the local-server form of these commands.
+
+   Pairing the same workstation again, from Desktop or `sectile-agent pair`, revokes its previous key and points the `sectile` MCP entries Sectile manages at the new one; restart an agent that was already running so it uses the new key. Your web session lasts up to 90 days and ends after 7 days without use.
 
 4. Confirm the workstation appears in the web profile and that Desktop reports **Connected**. If the agent cannot start a task, check **Settings → Agent logs** and the project's local folder mapping.
+
+Once the workstation is paired, Desktop starts the local agent with the saved key each time it opens, so you do not paste a code again after a restart. It asks you to pair again, under **Pair again**, with **Sign in with your browser** or a new pairing code, only when the saved key is missing, can no longer be read, or is refused by the server, and it says which.
 
 ## Configure the project in Desktop
 
 1. Select **Add project** from Desktop's project sidebar, or use the project configuration view for one already shown. Choose the local Git checkout with **Choose folder…**.
-2. Open the project's **General** category to inspect its Git remote, SDD framework, and default coding engine. In **Folders**, map local repositories and, when needed, a specifications folder or attached folders. These paths stay on your workstation.
+2. Open the project's **General** category to inspect its Git remote, SDD framework, and default coding engine. In **Folders**, map local repositories and, when needed, a Macro or an Issue specifications folder (where macro skills and issue skills keep their specifications) or attached folders. These paths stay on your workstation. Every execution of the project is given these folders, ticket discussions and Claude conversations included. A folder can also be attached without leaving a Claude conversation, a running ticket discussion or a running **Project prompt** console, also once moved to the native terminal, from its **Add folder…** action: Claude Code sees it at once in a discussion or a console, and from the next message in a conversation. Turn on **Any repository** to let the project's tickets change a repository it does not list: the agent uses the checkout the session names, or clones the repository into the **Clones folder** (by default next to the local repository), and remembers it on this workstation. With this option on and the specifications kept away from the code repository (dropped, or in an Issue specifications folder of their own), a ticket gets no worktree in the code repository until it needs one, so a change made only in another repository needs no pull request in the code repository. In a ticket's details, **Repository** › **Other repository…** pins it to a repository typed by hand.
 3. In **Execution**, choose whether tasks use worktrees, how many executions can run, and the terminal behavior. Use workstation **Execution defaults** for settings shared by projects; project overrides can inherit those defaults.
 4. Select **Save local configuration**. In **Settings → Deployment**, install the project's skills and initialize its chosen SDD framework when those tools are not yet present. In **AI engines**, choose or configure the CLI you intend to run. The CLI must also be installed and signed in on the workstation.
 
@@ -80,8 +108,8 @@ The [Desktop guide](../desktop/README.md#user-configuration-and-commands) covers
 
 You can run a workflow skill in an existing Claude Code session rather than launching it from a ticket:
 
-1. Configure Claude Code's Sectile MCP connection in Desktop under **Settings → Execution defaults → MCP configuration**. Choose the transport appropriate to your setup, select **Update provider configuration**, and restart Claude Code. Desktop can also deploy the server's skills under **Settings → Deployment**. See [MCP connections](../desktop/README.md#mcp-connections).
-2. Open Claude Code in the ticket's repository on the paired workstation. Open the ticket in the web interface and use **Copy** for the next workflow skill or **Copy** for `/pickup-issue`. Paste the complete copied prompt into Claude Code. It includes the task's full ID and instructions to read Sectile MCP context and report the run.
+1. Configure Claude Code's Sectile MCP connection in Desktop under **Settings → Execution defaults → MCP configuration**. Choose the transport appropriate to your setup, select **Update provider configuration**, and restart Claude Code. If Claude Code's `sectile` entry uses a key this workstation does not use, for example one Sectile did not write or one left from an earlier pairing in a project's settings, this section flags it and offers **Repair**, which writes the current key and removes the outdated project entries. Desktop can also deploy the server's skills under **Settings → Deployment**. See [MCP connections](../desktop/README.md#mcp-connections).
+2. Open Claude Code in the ticket's repository on the paired workstation. Open the ticket in the web interface and use **Copy** for the next workflow skill or **Copy** for `/pickup-issue`; on the board, the copy button of a full card copies the next workflow skill's prompt in one click. Paste the complete copied prompt into Claude Code. It includes the task's full ID and instructions to read Sectile MCP context and report the run.
 3. Follow the conversation and task activity. Answer a clarification question if the skill asks one. For a single step, launch the next stage after Sectile records the prior stage. For the pickup prompt, the skill continues through the stages it can complete and stops before merge.
 
 A free-form Claude Code prompt is useful for discussion or exploration, but it does not by itself record a Sectile stage transition. Use the copied workflow prompt or the task's configured skill action for tracked workflow work.
@@ -95,12 +123,12 @@ For a configured project with an available workstation agent and coding engine:
 3. Follow the activity in the browser or the execution in Desktop. The chain clarifies, specifies, implements, tests, and adjusts the pull request as its stage contracts allow. It may stop for an essential owner decision or a failed check; resolve that cause and resume from the recorded stage.
 4. Open the linked pull request when the task reaches review. A person reviews and merges it; handoff follows the merge.
 
-**Advance autonomously** (*Avancer en autonome*) on a card runs only the next step. Choose **Full chain** when you want the entire pickup sequence. The available chain starts at the ticket's current stage, so a previously specified ticket does not repeat clarification.
+**Advance autonomously** (*Avancer en autonome*) on a card runs only the next step. Choose **Full chain** when you want the entire pickup sequence. The available chain starts at the ticket's current stage, so a previously specified ticket does not repeat clarification. Once the ticket has reached the stage where the project's full chain stops, the card no longer offers **Full chain**: a full card shows a robot button in its place, which runs the next step autonomously, and a condensed card's menu keeps **Advance autonomously**.
 
 ## Follow work in Desktop
 
 Desktop lists your configured projects and local executions. Use **Open tasks** on a project or **Tasks list** in the command palette to find an existing ticket; selecting it does not launch anything. Launch a task skill or full pickup from its available actions. **Quick add task** creates a tracker task first and offers a separate launch action.
 
-Select an execution to see its console, status, and recorded skill result. **Changes** shows the current local worktree diff; **Console** returns to output. A project queue shows running and waiting executions. The toolbar can stop or relaunch an execution, and **Next: Clarify**, **Next: Specify**, **Next: Implement**, or **Next: Adjust** advances one verified step. **Awaiting human merge** means the pull request is ready for its owner to review. Closing Desktop leaves the local agent and its running work active; reopen Desktop to reconnect.
+Select an execution to see its console, status, and recorded skill result. **Changes** shows the current local worktree diff, and **Rendered** shows a selected Markdown file as a formatted document; **Console** returns to output. A project queue shows running and waiting executions. The toolbar can stop or relaunch an execution, and **Next: Clarify**, **Next: Specify**, **Next: Implement**, or **Next: Adjust** advances one verified step. **Awaiting human merge** means the pull request is ready for its owner to review. Closing Desktop leaves the local agent and its running work active; reopen Desktop to reconnect.
 
 See the [Desktop guide](../desktop/README.md#use) for installation, settings, console behavior, and recovery details.

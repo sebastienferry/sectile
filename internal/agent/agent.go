@@ -86,6 +86,13 @@ type agentDaemon struct {
 	launchTerminalFn func(terminalApp, sessionID string) error
 	// openEditorFn replaces the editor launch in tests (#535).
 	openEditorFn func(editor, directory string) error
+	// openTerminalFn replaces the plain terminal a conversation opens, in tests.
+	openTerminalFn func(terminal, directory string) error
+	// probeCommandsFn replaces the Claude started to list a conversation's
+	// slash commands, in tests.
+	probeCommandsFn func(cmd *exec.Cmd) []conversationSlash
+	// checkMCPFn replaces the check of Sectile's MCP server, in tests.
+	checkMCPFn func(directory string, env map[string]string) conversationMCP
 	// capabilities serializes the engine reports sent to the server (#305).
 	capabilities capabilityReporter
 	// customSkills records the custom skills dispatches ran since the agent
@@ -94,6 +101,10 @@ type agentDaemon struct {
 	// store keeps the runs the desktop lists across a restart (#588). Nil
 	// disables it, which is what a daemon built by hand gets.
 	store *runStore
+	// conversationViews holds the task launches Desktop explicitly asked to
+	// open as a conversation, until their dispatch arrives. A dispatch without
+	// a mark falls back to the workstation console view.
+	conversationViews pendingDiscussionViews
 }
 
 // serverLink is the agent's attachment to the server: the identity it presents
@@ -342,12 +353,23 @@ func Run(args []string) {
 
 	daemon.loopback.binarySha256 = executableSha256()
 	// The engine settings of #305 become the engine catalogue once, before the
-	// first project sync and capability report (#510). A failure leaves the
-	// file alone: every read converts it in memory anyway.
-	if migrated, err := agentconfig.MigrateSettings(daemon.localSettingsRoot()); err != nil {
-		log.Printf("[Agent] Engine settings not converted to the engine catalogue: %v", err)
+	// first project sync and capability report (#510), the settings naming a
+	// retired provider are dropped (#614), and the project Sandbox values are
+	// folded into the workstation ones (#730). A failure leaves the file
+	// alone: every read converts it in memory anyway.
+	if migrated, report, err := agentconfig.MigrateSettingsReport(daemon.localSettingsRoot()); err != nil {
+		log.Printf("[Agent] Workstation settings not migrated: %v", err)
 	} else if migrated {
-		log.Printf("[Agent] Engine settings converted to the engine catalogue; the previous file is kept beside it")
+		log.Printf("[Agent] Workstation settings migrated; the previous file is kept beside it")
+		if !report.Empty() {
+			log.Printf("[Agent] Settings for retired AI providers (Gemini, Cursor, Vibe) removed: %s", report.RetiredDrop)
+		}
+		if report.SandboxFolded {
+			log.Printf("[Agent] Project Claude settings moved to the workstation Claude settings, applied to every project")
+		}
+		for _, warning := range report.SandboxWarnings {
+			log.Printf("[Agent] Claude settings entry left on its project, not valid: %s", warning)
+		}
 	}
 	// Start local agent HTTP reverse proxy gateway
 	if err := daemon.startLocalProxy(ctx); err != nil {
@@ -378,6 +400,7 @@ func Run(args []string) {
 	// Deferred after the sessions are closed, so it runs before: what the
 	// consoles show is written while they still show it.
 	defer daemon.persistRuns()
+	defer daemon.stopConversations()
 	go daemon.persistLoop(ctx)
 	daemon.connectLoop(ctx)
 }
@@ -809,7 +832,9 @@ func (d *agentDaemon) handleRunWaiting(msg agentprotocol.Message) {
 	if run == nil {
 		return
 	}
-	if payload.WaitingSince == nil || run.desktop.Headless {
+	// A conversation is headless but has an owner to wait for: a skill
+	// asking its questions in the conversation marks it as a terminal does.
+	if payload.WaitingSince == nil || run.desktop.Headless && run.conversation == nil {
 		run.desktop.WaitingSince = time.Time{}
 		run.answeredAt = time.Time{}
 		return
@@ -1089,7 +1114,7 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 		return
 	}
 	d.convertLegacyRepoPaths(ctx, queueConfig)
-	config, workDir, branch, task, err := d.prepareDispatch(ctx, taskRef, run.isolated)
+	config, workDir, branch, task, lazyCode, err := d.prepareLaunch(ctx, taskRef, true, run.isolated)
 	if err != nil {
 		launchFailure = err
 		d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", err.Error())
@@ -1100,6 +1125,26 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 		return
 	}
 	payload.ProjectID = config.ProjectID
+	// The issue skills write their clarification report and specification in
+	// the project's Issue specifications folder, prepared beside the code
+	// worktree when it is a folder of its own (#736).
+	specWorkspace, err := d.taskSpecWorkspace(ctx, config, task, workDir, branch)
+	if err != nil {
+		launchFailure = err
+		d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", err.Error())
+		return
+	}
+	if specWorkspace.Warning != "" {
+		payload.Prompt += "\nSpecifications workspace notice: " + specWorkspace.Warning + "."
+	}
+	if lazyCode {
+		// Without its code worktree, the session starts where the task's
+		// specifications are written, else in the project checkout (#737).
+		if specWorkspace.Distinct && specWorkspace.Path != "" {
+			workDir = specWorkspace.Path
+		}
+		payload.Prompt += lazyCodeNotice
+	}
 	// A branch derived from the task key exists only in this process until it is
 	// written back: the next launch would derive it again against a branch since
 	// assigned elsewhere and resolve a different tree. Recording it is a
@@ -1124,11 +1169,13 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 			d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", verifyErr.Error())
 			return
 		}
-		// A task holds several PRs over its life. The forge PR is the task's own
-		// as long as it shares a branch with a recorded link, even when that link
-		// is merged; only a PR on an unrelated branch is a substitution. This is
-		// the same rule the server applies, shared through `models`.
-		if acceptErr := models.AcceptPullRequest(task.PrLinks, pr.URL, pr.Branch); acceptErr != nil {
+		// A task holds several PRs over its life, one or more per repository it
+		// changed. The forge PR is the task's own as long as it shares a branch
+		// with a recorded link of its repository, even when that link is
+		// merged; only a PR on an unrelated branch is a substitution. This is
+		// the same rule the server applies, shared through `models`; the
+		// server also checks the repository is one of the task's.
+		if acceptErr := models.AcceptRepositoryPullRequest(task.PrLinks, pr.URL, pr.Branch, nil); acceptErr != nil {
 			d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", acceptErr.Error())
 			return
 		}
@@ -1167,7 +1214,7 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 		return
 	}
 	logIgnoredModel(config, taskRef, payload.Model)
-	folders := d.taskFolderMap(ctx, config, task, workDir)
+	folders := d.taskFolderMap(ctx, config, task, workDir, specWorkspace, lazyCode)
 	payload.Prompt += folderMapPrompt(folders)
 	// What runs for the skill is resolved here, from what is installed, and
 	// nothing is installed to make it resolve (#267).
@@ -1180,14 +1227,18 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 		d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", err.Error())
 		return
 	}
-	fullLine, err := dispatchCommand(config, taskRef, payload.SkillID, payload.Action, payload.Prompt, payload.Command, payload.Mode, payload.Model, agentCommandContext{Task: task, Branch: branch, Directory: workDir, Tracker: config.IssueTracker, Repo: config.GithubRepo, AddDirs: folderMapDirs(folders), Skill: choice})
+	claudeSettings, err := d.launchClaudeSettings(config)
 	if err != nil {
 		launchFailure = err
 		d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", err.Error())
 		return
 	}
-	d.recordCustomSkillUse(config, choice, payload.RunID)
-
+	fullLine, err := dispatchCommand(config, taskRef, payload.SkillID, payload.Action, payload.Prompt, payload.Command, payload.Mode, payload.Model, agentCommandContext{Task: task, Branch: branch, Directory: workDir, Tracker: config.IssueTracker, Repo: config.GithubRepo, AddDirs: folderMapDirs(folders), ClaudeSettings: claudeSettings, Skill: choice})
+	if err != nil {
+		launchFailure = err
+		d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", err.Error())
+		return
+	}
 	// The engine this launch really uses, reported once the line is built. A
 	// discussion or a bare terminal is not a skill run: it resolves the project
 	// model and takes no override, so it reports nothing.
@@ -1231,6 +1282,52 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 	if raw, err := json.Marshal(folders); err == nil && len(folders) > 0 {
 		envVars["SECTILE_REPOSITORIES"] = string(raw)
 	}
+	for name, value := range taskSpecEnvironment(specWorkspace) {
+		envVars[name] = value
+	}
+
+	// An interactive launch Desktop asked to see as a conversation, or any
+	// interactive launch when the workstation console view is the conversation
+	// (#711), runs Claude over pipes in the task's worktree, one turn per
+	// message, with the same environment the terminal would have carried. A
+	// discussion waits for the first message; a skill sends its command as that
+	// message at once. The run holds its slot until it is stopped. The mark is
+	// taken first, so that it is consumed whatever the workstation view says.
+	marked := d.conversationViews.take(taskRef, task.ID)
+	if opensConversation(autonomous, models.NormalizeSkillID(payload.Action), marked, d.workstationConsoleView(), config) {
+		model, first, origin := conversationModel(config), "", "It runs in this task's worktree. Stop it to end the discussion."
+		var extraDirs []string
+		if payload.SkillID != "discuss" {
+			launch := agentCommandContext{Task: task, Branch: branch, Directory: workDir, Tracker: config.IssueTracker, Repo: config.GithubRepo, AddDirs: folderMapDirs(folders), Skill: choice}
+			prompt, contexts, promptErr := dispatchPrompt(config, taskRef, payload.SkillID, models.NormalizeSkillID(payload.Action), payload.Prompt, []agentCommandContext{launch})
+			if promptErr != nil {
+				launchFailure = promptErr
+				d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", promptErr.Error())
+				return
+			}
+			first, extraDirs = prompt, extraConversationDirs(contexts[0].AddDirs, launch.AddDirs)
+			if skillModel, modelErr := LaunchModel(config, payload.SkillID, payload.Model); modelErr == nil && strings.TrimSpace(skillModel) != "" {
+				model = skillModel
+			}
+			origin = "It runs the " + payload.SkillID + " skill in this task's worktree. Stop it once the skill is done."
+		}
+		d.queue.mu.Lock()
+		run.desktop = desktopRun{CreatedAt: run.desktop.CreatedAt, Prompt: run.desktop.Prompt, ID: payload.RunID, TaskID: taskRef, TaskKey: payload.TaskKey, ProjectID: config.ProjectID, Skill: payload.SkillID, Directory: workDir, Branch: branch}
+		startConversationLocked(run, model, conversationOrigin(config, origin))
+		run.conversation.env, run.conversation.extraDirs = envVars, extraDirs
+		if first != "" {
+			run.conversation.busy = true
+			conversationWrite(run.trace, "user", first, "")
+		}
+		d.queue.mu.Unlock()
+		if first != "" {
+			go d.conversationTurn(run, first)
+		}
+		launched = true
+		d.recordCustomSkillUse(config, choice, payload.RunID)
+		d.sendStatus(conn, msg.MsgID, msg.TaskID, "completed", "Execution opened as a conversation")
+		return
+	}
 
 	// An autonomous run forks here, before any terminal exists: no PTY session,
 	// no foreground process group, no window. The desktop still lists the run and
@@ -1242,6 +1339,7 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 			return
 		}
 		launched = true
+		d.recordCustomSkillUse(config, choice, payload.RunID)
 		d.sendStatus(conn, msg.MsgID, msg.TaskID, "completed", fmt.Sprintf("Step %s launched headless", payload.Action))
 		return
 	}
@@ -1253,6 +1351,7 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 		}
 		d.queue.read(payload.RunID, func(run *controlledRun) {
 			run.desktop = desktopRun{CreatedAt: run.desktop.CreatedAt, Prompt: run.desktop.Prompt, ID: payload.RunID, TaskID: taskRef, TaskKey: payload.TaskKey, ProjectID: config.ProjectID, Skill: payload.SkillID, SessionID: sessionID, Directory: workDir, Branch: branch, Status: "running", Provider: runProvider, Model: runModel}
+			run.interactiveProvider = discussionProvider(config, payload.SkillID)
 		})
 	}
 	// The agent owns consoles independently of any attached companion.
@@ -1262,6 +1361,7 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 		return
 	}
 	launched = true
+	d.recordCustomSkillUse(config, choice, payload.RunID)
 	d.sendStatus(conn, msg.MsgID, msg.TaskID, "completed", fmt.Sprintf("Step %s launched in local PTY", payload.Action))
 }
 

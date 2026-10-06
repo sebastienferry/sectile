@@ -173,6 +173,62 @@ func TestHandleOpenEditor(t *testing.T) {
 	}
 }
 
+// TestAgentLookupsFollowTheSignedInUser pins that the CLI status and the
+// editor reach the agent of the person asking. Sent without the user, a
+// shared server looked for the implicit account's agent, never found the
+// signed-in person's and answered 409 while their agent was connected.
+func TestAgentLookupsFollowTheSignedInUser(t *testing.T) {
+	database, err := testsqlite.New(t, filepath.Join(t.TempDir(), "test.db"), db.NewDB)
+	if err != nil {
+		t.Fatalf("Failed to initialize database: %v", err)
+	}
+	defer database.Close()
+
+	user, err := database.SignInLocal("alice@example.com")
+	if err != nil {
+		t.Fatalf("Failed to sign in user: %v", err)
+	}
+	token, _, err := database.CreateWebSession(user.ID)
+	if err != nil {
+		t.Fatalf("Failed to create session: %v", err)
+	}
+	h := handlers.NewHandler(database)
+
+	var seen []agentprotocol.Operation
+	database.SetAgentOperations(func(ctx context.Context, op agentprotocol.Operation) (json.RawMessage, error) {
+		seen = append(seen, op)
+		if op.Action == "cli_status" {
+			return json.RawMessage(`[]`), nil
+		}
+		return json.RawMessage(`null`), nil
+	})
+
+	statusReq := httptest.NewRequest(http.MethodGet, "/api/cli-status?projectId=default", nil)
+	statusReq.AddCookie(&http.Cookie{Name: "sectile_session", Value: token})
+	statusRR := httptest.NewRecorder()
+	h.HandleCliStatus(statusRR, statusReq)
+	if statusRR.Code != http.StatusOK {
+		t.Fatalf("cli-status = %d: %s", statusRR.Code, statusRR.Body.String())
+	}
+
+	editorReq := httptest.NewRequest(http.MethodPost, "/api/open-editor", strings.NewReader(`{"projectId":"default"}`))
+	editorReq.AddCookie(&http.Cookie{Name: "sectile_session", Value: token})
+	editorRR := httptest.NewRecorder()
+	h.HandleOpenEditor(editorRR, editorReq)
+	if editorRR.Code != http.StatusOK {
+		t.Fatalf("open-editor = %d: %s", editorRR.Code, editorRR.Body.String())
+	}
+
+	if len(seen) != 2 {
+		t.Fatalf("agent operations = %#v, want cli_status then open_editor", seen)
+	}
+	for _, op := range seen {
+		if op.UserID != user.ID {
+			t.Errorf("%s routed to user %q, want the signed-in %q", op.Action, op.UserID, user.ID)
+		}
+	}
+}
+
 func TestHandleTaskPinAndListPins(t *testing.T) {
 	tempDir := t.TempDir()
 	dbPath := filepath.Join(tempDir, "test.db")

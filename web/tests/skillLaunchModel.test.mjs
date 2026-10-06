@@ -75,7 +75,7 @@ test('the card submenu selects a model and launches nothing', () => {
 test('every launch from the card uses the retained model', () => {
   // One handler, no per-call model: the chevrons, the chain and both modes all
   // go through it, which is what the indicator in front of them promises.
-  assert.match(card, /const handleAdvance = async \(auto: boolean, mode\?: SkillMode\) => \{/)
+  assert.match(card, /const handleAdvance = async \(auto: boolean, mode\?: SkillMode, spinner: 'step' \| 'auto' = auto \? 'auto' : 'step'\) => \{/)
   assert.match(card, /await advanceTask\(task\.id, auto, mode, effectiveLaunchModel\)/)
   // The full chain carries it too: from a card it is a single pickup run.
   assert.match(context, /model\}\)$/m)
@@ -85,11 +85,20 @@ test('every launch from the card uses the retained model', () => {
 test('the card shows the model its buttons will use', () => {
   // Four characters at most, the full name in the tooltip.
   assert.match(card, /const launchedModel = effectiveLaunchModel \|\| configuredCardModel/)
-  assert.match(card, /const modelIndicator = launchedModel \? \(/)
+  assert.match(card, /const modelIndicator = launchedModel \? indicatorControl\(/)
   // Discreet: coloured text only, no badge chrome competing with the buttons.
-  assert.doesNotMatch(card, /modelIndicator[\s\S]{0,400}rounded|modelIndicator[\s\S]{0,400}border/)
+  // Read on the indicator's own definition: the buttons placed after it on the
+  // row keep their chrome.
+  const indicator = card.slice(card.indexOf('const indicatorClass = '), card.indexOf('const indicatorMenu = '))
+  assert.ok(indicator.includes('const modelIndicator = '), 'the indicator is defined between those two')
+  assert.doesNotMatch(indicator, /rounded|border/)
   assert.match(card, /\{shortModelLabel\(launchedModel\)\}/)
-  assert.match(card, /title=\{\s*effectiveLaunchModel\s*\? format\(t\.shell\.card\.modelChosen, \{ model: launchedModel \}\)/)
+  assert.match(card, /shortModelLabel\(launchedModel\),\s*effectiveLaunchModel\s*\? format\(t\.shell\.card\.modelChosen, \{ model: launchedModel \}\)/)
+  // Where the engine offers models the indicator is also the way to choose one
+  // (#612), and with no model known yet a chip keeps that list reachable.
+  assert.match(card, /const indicatorPickable = cardModels\.length > 0/)
+  assert.match(card, /indicatorPickable \? \(\s*<button[\s\S]{0,200}aria-haspopup="menu"/)
+  assert.match(card, /: indicatorPickable \? indicatorControl\(<Cpu size=\{11\} \/>, t\.shell\.card\.chooseModel\) : null/)
 
   // One definition, rendered by both shapes: a condensed card keeps its actions
   // behind the menu, so the indicator precedes that menu there, and precedes the

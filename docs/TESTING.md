@@ -36,6 +36,12 @@ replace an existing database with a template to reopen it. PostgreSQL tests
 continue to use their disposable integration database and serialized package
 execution; never point them at a shared development database.
 
+The database `SECTILE_TEST_POSTGRES_DSN` names must be encoded in UTF8, as the
+server requires: the helpers fail at once, naming the variable, on any other
+encoding. A cluster made with `initdb --locale=C` and no `--encoding` defaults
+to SQL_ASCII, so pass `--encoding=UTF8`, or create the test database with
+`CREATE DATABASE sectile_test ENCODING 'UTF8' TEMPLATE template0`.
+
 Template checks in `internal/db/testfixture_test.go` compare complete schema
 objects with a fresh database, verify migration version and SQLite integrity,
 and exercise independent data, keys, runtime state and concurrent copies.

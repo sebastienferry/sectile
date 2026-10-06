@@ -33,9 +33,6 @@ func TestResolveLocationsCoversEverySupportedProvider(t *testing.T) {
 		{provider: "claude", skills: ".claude/skills", mcp: ".claude.json", substitutes: true},
 		{provider: "agy", skills: ".gemini/config/skills", mcp: ".gemini/config/mcp_config.json"},
 		{provider: "codex", skills: ".agents/skills", mcp: ".codex/config.toml"},
-		{provider: "gemini", mcp: ".gemini/settings.json"},
-		{provider: "cursor", mcp: ".cursor/mcp.json"},
-		{provider: "vibe", mcp: ".vibe/config.toml"},
 	} {
 		t.Run(tc.provider, func(t *testing.T) {
 			loc, err := ResolveLocations(tc.provider)
@@ -90,21 +87,26 @@ func TestScaffoldInstallsOnlyForTheSelectedProvider(t *testing.T) {
 	}
 }
 
-func TestScaffoldInstallsNothingWithoutASkillConvention(t *testing.T) {
-	root, home := t.TempDir(), t.TempDir()
-	testhome.Set(t, home)
-	c := Config{SchemaVersion: Version, AIProvider: "gemini", Skills: []Skill{{ID: "clarify", Directory: "clarify-issue", Content: "skill"}}}
-	if _, err := Scaffold(root, c); err != nil {
-		t.Fatalf("a provider without a skill convention must still prepare: %v", err)
-	}
-	entries, err := os.ReadDir(home)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, entry := range entries {
-		if entry.Name() != ".config" {
-			t.Fatalf("unexpected %s written for a provider without skills", entry.Name())
-		}
+// A retired provider (#614) is refused before anything is written.
+func TestScaffoldRejectsARetiredProvider(t *testing.T) {
+	for provider := range RetiredProviders {
+		t.Run(provider, func(t *testing.T) {
+			root, home := t.TempDir(), t.TempDir()
+			testhome.Set(t, home)
+			c := Config{SchemaVersion: Version, AIProvider: provider, Skills: []Skill{{ID: "clarify", Directory: "clarify-issue", Content: "skill"}}}
+			if _, err := Scaffold(root, c); err == nil {
+				t.Fatal("a retired provider was prepared")
+			}
+			entries, err := os.ReadDir(home)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, entry := range entries {
+				if entry.Name() != ".config" {
+					t.Fatalf("unexpected %s written for a retired provider", entry.Name())
+				}
+			}
+		})
 	}
 }
 

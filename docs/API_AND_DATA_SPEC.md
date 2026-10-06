@@ -46,6 +46,7 @@ CREATE TABLE IF NOT EXISTS projects (
     default_skill_mode TEXT NOT NULL DEFAULT '',            -- '' (interactive) | 'interactive' | 'autonomous'
     full_chain_stop_stage TEXT NOT NULL DEFAULT 'reviewed', -- 'implemented' | 'reviewed'
     push_stage_commits INTEGER NOT NULL DEFAULT 0, -- boolean pushStageCommits in project/config/context JSON
+    branch_name_format TEXT NOT NULL DEFAULT '', -- branchNameFormat in project/config/context JSON; empty = feat/{key_lower}
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
@@ -186,10 +187,64 @@ explicit unsupported-capability error.
 ### 2.2 Activities API
 
 Every write on an existing work item goes through this queue: field sync,
-assignment, epic attachment, epic split, roadmap horizon labels. A tracker call
+assignment, epic attachment, epic split, roadmap horizon, epic priority,
+epic quarter and epic readiness labels, and the free labels of an epic (`POST
+/api/projects/{id}/macros/{key}/labels` with `{add, remove}`; a label of one of
+the roadmap's axes is refused with `400`). A tracker call
 takes seconds and a batch of them far longer, so the HTTP endpoints answer `202`
 with the activity to follow, and the activity's steps carry what was attempted
 and the tracker's own refusal when it fails.
+
+An epic of one of a Jira project's roadmap projects (#632) is read with the
+project's own epics and returned by `GET /api/projects/{id}/macros` with
+`foreign: true` and its `origin` key. Nothing is queued for its horizon or its
+free labels. Its priority and quarter are queued only when the project's
+`roadmapAxisWrites` is on and the edit names one epic: a macro save carrying
+`"bulk": true`, as the title seeding sends, keeps them in Sectile. The macro's
+`axesWritable` says which applies. A slicing line whose `targetTrackerProject`
+names a roadmap project creates its story in that Jira project, and the answer's
+`task` carries no `id`: the story is not imported.
+
+`POST /api/projects/{id}/macros/{key}/slicing` produces a macro's slicing from
+`source` (`tasks`, `spec` or `stories`). For `tasks` and `spec`, the requesting
+user's local agent reads the file in the workstation's specifications folder,
+unless the body carries `content`, a file the user picked in the browser, with
+its `fileName` (#735): the server then slices that text without asking the
+agent, and the answer's `origin` reads `imported file: <fileName>`. Uploaded
+content is refused with `400` above 1 MiB, when it is not UTF-8 text or holds a
+NUL character, and with any source other than `tasks` or `spec`. An absent
+body reads `tasks` through the agent; a body that is not valid JSON is refused.
+
+The todos of a macro are copied on its tracker, one way (#663, ADR 0046): a
+comment on a Jira epic, a block at the end of a GitHub milestone description.
+Every save of the list queues that copy a few seconds after the last save, as an
+`epic_todos` activity; `POST /api/projects/{id}/macros/{key}/todos-mirror`
+queues one at once and answers `202` with the activity, or `400` with the reason
+when the macro's list stays in Sectile (GitLab, local project, local key,
+roadmap project's epic). Every macro the API returns carries `todosMirror`:
+`kind` (`jira_comment`, `github_description`, or empty with a `reason`),
+`upToDate`, the last `error` and the `credentialMissing` tracker it lacked a
+token for, `writtenAt` and the `url` of the copy.
+
+The framing of a Jira epic is copied the same way, as a second comment Sectile
+owns (#636): a macro save carrying `framingComment`, unless it carries
+`"bulk": true`, queues an `epic_framing` activity a few seconds after the last
+save; `POST /api/projects/{id}/macros/{key}/framing-mirror` queues one at once
+and answers `202`, or `400` with the reason when the framing stays in Sectile
+(GitHub milestone, GitLab, local project, local key, roadmap project's epic).
+An empty framing never creates the comment, and rewrites an existing one to say
+there is none. Every macro the API returns carries `framingMirror`, shaped as
+`todosMirror`, whose `kind` is `jira_comment` or empty.
+
+A project's `epicAxisPrefixes` (`{priority, quarter, readiness}`, #635) names
+the label prefixes its epics carry each axis under; an empty field is the
+default `priority:`, `quarter:` or `readiness:`. The import, the pushes, the
+pending labels and the free label refusal all follow them, the epics of the
+roadmap projects included; `roadmap:` and the bare `2026-Q3` stay fixed. A
+`PATCH /api/projects/{id}` or a creation stores them trimmed, lower-cased and
+without a leading `#`, and answers `400` with the reason for a prefix carrying
+a space, emptied by that cleaning, overlapping another axis's prefix or
+overlapping `roadmap:`. Changing one rewrites no label and no stored value.
 
 
 | Method | Path | Description |
@@ -223,6 +278,17 @@ and the tracker's own refusal when it fails.
 | :--- | :--- | :--- | :--- |
 | `GET` | `/api/me` | (none) | Who is signed in, the sign-in mode and the role. Public: it is what the interface asks before anyone is signed in. |
 | `PATCH` | `/api/me` | `{displayName}` | Renames the calling account and answers the same body as the `GET`. The account comes from the session, never from the payload, so no route renames another one. `401` without a session, `400` above 80 characters or on a line break. An empty name clears the choice and hands the account back to the name its sign-in supplies. |
+| `GET` | `/auth/login?redirect=` | (none) | Starts a sign-in and comes back to `redirect`, a same-site path. With an identity provider, `302` to the provider (authorization code with PKCE, ADR 0008); without one, `302` to the interface's `/signin?redirect=` page for the local sign-in. |
+| `GET` | `/auth/callback` | (query `state`, `code` or `error`) | Where the identity provider sends the browser back: opens a session, sets its cookie and redirects to the `redirect` given at the start. `400` on an unknown or expired `state`, `401` when the provider refused, `403` for a blocked account, `404` without a provider. |
+| `POST` | `/auth/local` | `{email}` | The local sign-in of a deployment without an identity provider: opens a session for that e-mail and answers the account like `GET /api/me`. `400` on an invalid address, `403` for a blocked account, `404` when a provider is configured. |
+| `GET` | `/auth/workstation?port=&state=` | (none) | The browser sign-in of a workstation (#717, ADR 0049): with a session, `302` to `http://127.0.0.1:<port>/callback?code=&state=` with a fresh pairing code the workstation redeems on `POST /api/v1/agent/pair`; without one, `302` to `/auth/login` and back. `400` on a port outside 1024-65535 or a malformed `state`, `403` for a blocked account. Only the session cookie counts, never a bearer key. See the [server/agent contract](contracts/server-agent-v1.md#workstation-api-keys-and-identity). |
+
+A web session lasts at most 90 days from sign-in and ends sooner after 7 days
+without use, counted from its last use (`web_sessions.last_seen_at`, or
+`created_at` for a session never used). The session cookie's `Max-Age` is the
+90 days; the idle rule is enforced on the server, so a session left idle keeps
+a cookie that resolves to nobody and the interface asks to sign in again.
+Signing out revokes the session at once.
 
 The chosen name lives in `users.chosen_name`, not in `users.display_name`: the
 latter is rewritten at every sign-in from the provider's claim, or from the
@@ -277,11 +343,13 @@ session, never from the payload, and no answer ever carries a token.
 
 | Method | Path | Body | Description |
 | :--- | :--- | :--- | :--- |
-| `GET` | `/api/me/tracker-credentials` | (none) | What this person stored: tracker, site, e-mail, `account`, sealed, unlocked. `account` is who the tracker confirmed the credential belongs to (a GitHub or GitLab login, a Jira display name), absent until it is confirmed. |
+| `GET` | `/api/me/tracker-credentials` | (none) | What this person stored: tracker, site, e-mail, `account`, sealed, unlocked, `kind`. `account` is who the tracker confirmed the credential belongs to (a GitHub or GitLab login, a Jira display name), absent until it is confirmed. `kind` is `api_token`, or `oauth` for a Jira grant, which also carries `disconnected` and `grantedSites` and is never sealed. The answer adds `jiraOAuth: {configured, sites}`: whether people can connect Jira, and the configured Jira sites (the deployment's and every Jira project's) a grant must cover. |
 | `PUT` | `/api/me/tracker-credentials` | `{tracker, siteUrl, email, token, passphrase}` | Stores or replaces one. A passphrase seals it. An empty `token` keeps the stored one, so the site, the e-mail and the sealing can change on their own; a sealed credential must be unlocked for that. Saving forgets the confirmed account, then asks the tracker for it again; a failed answer still saves the credential, with no account. |
 | `DELETE` | `/api/me/tracker-credentials?tracker=` | (none) | Forgets one. `404` when there is none to forget. |
 | `POST` | `/api/me/tracker-credentials/unlock` | `{tracker, passphrase}` | Supplies the sealing passphrase for this server's lifetime. `409` when the credential is not sealed. |
 | `POST` | `/api/me/tracker-credentials/lock` | `{tracker}` | Forgets the derived key. |
+| `POST` | `/api/me/tracker-credentials/jira/connect` | (none) | Starts a Jira consent (#654): `{authorizeUrl}`, Atlassian's consent screen, where the web sends the browser. Only a web session may start one, an agent key is refused `403`; `409 {code: "jira_oauth_not_configured"}` without an OAuth app. |
+| `GET` | `/auth/jira/callback` | (query `state`, `code` or `error`) | Where Atlassian sends the browser back. Public like the rest of `/auth/`, it reads the web session itself and always redirects to `/?trackerCredentials=jira&jiraOAuth=<outcome>`, the outcome being `connected`, `cancelled`, `invalid` (missing, used, expired, or another session's or person's `state`), `no_site` (the grant covers no configured Jira site) or `unreachable`. Only `connected` stores anything. |
 | `GET` | `/api/me/assignee-identities?projectId=\|viewId=` | (none) | Who My Tasks takes the caller to be: `{signedIn, fallback, trackers}`. `fallback` is the account's name and e-mail (the local profile's when signed out); `trackers` lists each non-local tracker of the tickets in scope as `{tracker, identity?, known}`. Same scope rules as `/api/tasks`, `404` on a view that is not the caller's. Answers signed-out callers too, and never reaches a tracker. |
 
 **My Tasks (#468).** A ticket is the caller's when its assignee equals, trimmed
@@ -298,6 +366,31 @@ Stored in `user_tracker_credentials`, encrypted with AES-256-GCM and bound to
 `(user_id, tracker)` as additional authenticated data. The key is the server key
 held outside the database, or one derived from the owner's passphrase with
 Argon2id. A wrong passphrase and a missing record answer the same way.
+
+**Jira grants (#654, ADR 0044).** A row of `kind = 'oauth'` holds, sealed under
+the server key with `kind` added to its additional authenticated data, the JSON
+`{refreshToken, accessToken, expiresAt, scope, sites: [{cloudId, url, name}]}`.
+`site_url` and `email` are empty and `account` is the display name
+`/rest/api/3/myself` answered through the grant. A Jira call made for its owner
+goes to `https://api.atlassian.com/ex/jira/{cloudId}` with a Bearer token, the
+`cloudId` being the one of the project's Jira site; a site the grant lacks fails
+with the missing-credential error (`tracker_credential_missing`). An access
+token within a minute of its expiry is refreshed first. The refresh is claimed
+by a compare-and-set on `version`, which also sets `refresh_claimed_at`, so one
+instance spends the rotating refresh token and the others wait for what it
+writes. `invalid_grant` sets `disconnected_at`, and every later write fails with
+the missing-credential error until the person connects again. The pending
+consents live in `jira_oauth_flows`, the state and the web session hashed,
+consumed by one statement.
+
+**Jira OAuth app (admin).** `GET`, `PUT {clientId, clientSecret?, redirectUrl}`
+and `DELETE` on `/api/admin/jira-oauth` answer
+`{configured, clientId, secretSet, redirectUrl, source, unreadable?, updatedAt?}`,
+`source` being `database`, `environment` or `none`. The secret is write-only:
+an empty one keeps the saved secret, and the first save needs it. `redirectUrl`
+must be absolute HTTPS, or HTTP on `localhost`. Stored in `tracker_oauth_apps`,
+the secret sealed under the server key with a binding of its own; a saved app
+wins over `SECTILE_JIRA_OAUTH_*` as a whole.
 
 ### 2.4 Tracker Synchronization API
 

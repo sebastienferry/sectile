@@ -19,6 +19,10 @@ type agentCommandContext struct {
 	// context repositories, its secondary worktrees and its specifications
 	// folder. Only a provider whose flag is attested receives them.
 	AddDirs []string
+	// ClaudeSettings is the settings file generated from the project's sandbox
+	// values (#700), "" when it has none. Only a built-in Claude line
+	// receives it: a configured template is the owner's own line.
+	ClaudeSettings string
 	// Skill is what the dispatch runs for its workflow skill (#267), nil when
 	// it was not resolved, which runs the configured command as before.
 	Skill *skillChoice

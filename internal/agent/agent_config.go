@@ -230,7 +230,21 @@ func worktreeForBranch(ctx context.Context, root, branch string) (string, error)
 	return "", nil
 }
 
-func ensureLocalWorktree(ctx context.Context, root string, task models.Task, useWorktrees bool) (string, string, error) {
+func ensureLocalWorktree(ctx context.Context, root string, task models.Task, useWorktrees bool, branchFormat string) (string, string, error) {
+	dir, branch, _, err := ensureTaskWorktree(ctx, root, task, useWorktrees, branchFormat, false)
+	return dir, branch, err
+}
+
+// ensureFetchedWorktree is ensureLocalWorktree for a repository other than the
+// launch's code checkout (#737): a branch that exists neither locally nor on
+// origin starts from the remote default branch, fetched first, rather than
+// from whatever the checkout has checked out. A fetch that fails is a warning,
+// and the base is then what is known locally.
+func ensureFetchedWorktree(ctx context.Context, root string, task models.Task, branchFormat string) (dir, branch, warning string, err error) {
+	return ensureTaskWorktree(ctx, root, task, true, branchFormat, true)
+}
+
+func ensureTaskWorktree(ctx context.Context, root string, task models.Task, useWorktrees bool, branchFormat string, fetch bool) (string, string, string, error) {
 	branch := ""
 	if task.BranchName != nil {
 		branch = strings.TrimSpace(*task.BranchName)
@@ -238,20 +252,20 @@ func ensureLocalWorktree(ctx context.Context, root string, task models.Task, use
 	if !useWorktrees {
 		current, err := gitLocal(ctx, root, "branch", "--show-current")
 		if branch != "" && current != branch {
-			return "", "", fmt.Errorf("checkout branch %s does not match assigned branch %s", current, branch)
+			return "", "", "", fmt.Errorf("checkout branch %s does not match assigned branch %s", current, branch)
 		}
-		return root, current, err
+		return root, current, "", err
 	}
 	name, err := safeWorktreeName(task.Key)
 	if err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
-	branch, err = taskWorktreeBranch(task)
+	branch, err = taskWorktreeBranch(task, branchFormat)
 	if err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
 	if _, err := gitLocal(ctx, root, "check-ref-format", "--branch", branch); err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
 	// The worktree is resolved by branch, not by path. git reports every linked
 	// worktree and the main checkout in one call, so the tree that carries the
@@ -260,37 +274,73 @@ func ensureLocalWorktree(ctx context.Context, root string, task models.Task, use
 	// precisely what made a launch fail while the branch was alive next door.
 	existing, err := worktreeForBranch(ctx, root, branch)
 	if err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
 	if existing != "" {
 		// git reports fully resolved paths; on macOS the main checkout comes
 		// back through /private, so the caller's own root is preferred when the
 		// two name the same directory.
 		if sameDirectory(existing, root) {
-			return root, branch, nil
+			return root, branch, "", nil
 		}
-		return existing, branch, nil
+		return existing, branch, "", nil
 	}
 
 	target, err := availableTaskWorktreePath(root, name, branch)
 	if err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
 	if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
+	warning := ""
 	args := []string{"worktree", "add", target, branch}
 	if _, err := gitLocal(ctx, root, "show-ref", "--verify", "refs/heads/"+branch); err != nil {
+		if fetch {
+			warning = fetchOrigin(ctx, root)
+		}
 		base := "HEAD"
 		if _, err := gitLocal(ctx, root, "show-ref", "--verify", "refs/remotes/origin/"+branch); err == nil {
 			base = "refs/remotes/origin/" + branch
+		} else if fetch {
+			if _, remoteBase := macroBaseBranch(ctx, root); remoteBase != "" {
+				base = remoteBase
+			} else {
+				warning = joinWarnings(warning, "no default branch found: the branch starts from the checkout's current HEAD")
+			}
 		}
 		args = []string{"worktree", "add", "-b", branch, target, base}
 	}
 	if _, err := gitLocal(ctx, root, args...); err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
-	return target, branch, nil
+	return target, branch, warning, nil
+}
+
+// fetchOrigin brings origin's branches up to date in repo, within the bound a
+// macro fetch has, and answers a warning instead of failing: a remote that
+// hangs or refuses leaves the base to what is known locally.
+func fetchOrigin(ctx context.Context, repo string) string {
+	if _, err := gitLocal(ctx, repo, "remote", "get-url", "origin"); err != nil {
+		return "no origin remote: the branch starts from what is known locally"
+	}
+	fetchCtx, cancel := context.WithTimeout(ctx, macroFetchTimeout)
+	defer cancel()
+	if _, err := gitLocal(fetchCtx, repo, "fetch", "--quiet", "origin"); err != nil {
+		return "fetch failed, the base may be stale: " + err.Error()
+	}
+	return ""
+}
+
+// joinWarnings joins the warnings that are not empty.
+func joinWarnings(warnings ...string) string {
+	kept := make([]string, 0, len(warnings))
+	for _, warning := range warnings {
+		if warning = strings.TrimSpace(warning); warning != "" {
+			kept = append(kept, warning)
+		}
+	}
+	return strings.Join(kept, "; ")
 }
 
 // prepareDispatch resolves the task's workspace, then provisions its
@@ -299,9 +349,22 @@ func ensureLocalWorktree(ctx context.Context, root string, task models.Task, use
 // the agent behind one npm ci. The launch path waits for the install, so the
 // session starts with its dependencies in place.
 func (d *agentDaemon) prepareDispatch(ctx context.Context, taskKey string, useWorktrees ...bool) (agentconfig.Config, string, string, models.Task, error) {
-	config, root, workDir, branch, task, err := d.prepareWorkspace(ctx, taskKey, useWorktrees...)
+	config, workDir, branch, task, _, err := d.prepareLaunch(ctx, taskKey, false, useWorktrees...)
+	return config, workDir, branch, task, err
+}
+
+// prepareLaunch is prepareDispatch for a launch, which may go without the
+// ticket's code worktree when allowLazy is set and the project's Any
+// repository option says so (#737): lazy reports it, and workDir is then the
+// project checkout, where nothing is provisioned.
+func (d *agentDaemon) prepareLaunch(ctx context.Context, taskKey string, allowLazy bool, useWorktrees ...bool) (agentconfig.Config, string, string, models.Task, bool, error) {
+	d.prepareMu.Lock()
+	config, root, workDir, branch, task, lazy, err := d.prepareTaskWorkspaceLocked(ctx, taskKey, allowLazy, useWorktrees...)
+	d.prepareMu.Unlock()
 	if err == nil {
-		provisionWorktree(ctx, root, workDir)
+		if !lazy {
+			provisionWorktree(ctx, root, workDir)
+		}
 		// A pinned ticket may work in another checkout than the one it
 		// was admitted against: the queue compares checkouts through this.
 		d.queue.mu.Lock()
@@ -312,7 +375,7 @@ func (d *agentDaemon) prepareDispatch(ctx context.Context, taskKey string, useWo
 		}
 		d.queue.mu.Unlock()
 	}
-	return config, workDir, branch, task, err
+	return config, workDir, branch, task, lazy, err
 }
 
 // prepareWorkspace resolves the task's workspace under prepareMu without
@@ -327,45 +390,60 @@ func (d *agentDaemon) prepareWorkspace(ctx context.Context, taskKey string, useW
 // prepareMu. It also returns the project root, so the caller can tell a linked
 // worktree from the main checkout.
 func (d *agentDaemon) prepareDispatchLocked(ctx context.Context, taskKey string, useWorktrees ...bool) (agentconfig.Config, string, string, string, models.Task, error) {
+	config, root, workDir, branch, task, _, err := d.prepareTaskWorkspaceLocked(ctx, taskKey, false, useWorktrees...)
+	return config, root, workDir, branch, task, err
+}
+
+// prepareTaskWorkspaceLocked is prepareDispatchLocked that may skip the code
+// worktree, when allowLazy is set and lazyCodeWorktree says so.
+func (d *agentDaemon) prepareTaskWorkspaceLocked(ctx context.Context, taskKey string, allowLazy bool, useWorktrees ...bool) (agentconfig.Config, string, string, string, models.Task, bool, error) {
 	var task models.Task
 	config, err := d.fetchConfig(ctx, "", taskKey)
 	if err != nil {
-		return config, "", "", "", task, err
+		return config, "", "", "", task, false, err
 	}
 	root, overrides, err := d.localProjectRoot(ctx, config)
 	if err != nil {
-		return config, "", "", "", task, err
+		return config, "", "", "", task, false, err
 	}
 	if err := d.readAPI(ctx, "/api/tasks/"+url.PathEscape(taskKey), &task); err != nil {
-		return config, "", "", "", task, err
+		return config, "", "", "", task, false, err
 	}
 	if task.ProjectID != config.ProjectID {
-		return config, "", "", "", task, fmt.Errorf("task project changed during configuration sync")
+		return config, "", "", "", task, false, fmt.Errorf("task project changed during configuration sync")
 	}
 	config = agentconfig.ResolveTask(config, overrides, task.ID)
 	if len(useWorktrees) > 0 {
 		config.UseWorktrees = useWorktrees[0]
 	}
 	if err := config.Validate(); err != nil {
-		return config, "", "", "", task, err
+		return config, "", "", "", task, false, err
 	}
 	// The worktree lives in the ticket's own repository: the one it is pinned
 	// to, else the project root (#456, #484).
 	primary, _, err := primaryRoot(ctx, config, overrides, root, task)
 	if err != nil {
-		return config, "", "", "", task, err
+		return config, "", "", "", task, false, err
 	}
 	root = primary
-	workDir, branch, err := ensureLocalWorktree(ctx, root, task, config.UseWorktrees)
+	if allowLazy {
+		if branch, lazy := lazyCodeWorktree(ctx, config, overrides, root, task); lazy {
+			if err := applySpecArtifacts(ctx, &config, root, task.Key); err != nil {
+				return config, "", "", "", task, false, err
+			}
+			return config, root, root, branch, task, true, nil
+		}
+	}
+	workDir, branch, err := ensureLocalWorktree(ctx, root, task, config.UseWorktrees, config.BranchNameFormat)
 	if err != nil {
-		return config, "", "", "", task, err
+		return config, "", "", "", task, false, err
 	}
 	if err := applySpecArtifacts(ctx, &config, root, task.Key); err != nil {
-		return config, "", "", "", task, err
+		return config, "", "", "", task, false, err
 	}
 	// Nothing is installed here (#267): the skills and the MCP registration are
 	// the user's to set up, through the Claude plugin or the agent's init.
-	return config, root, workDir, branch, task, nil
+	return config, root, workDir, branch, task, false, nil
 }
 
 // bootstrapLocalMCP registers the Sectile MCP server for every agent the project
@@ -396,22 +474,8 @@ func (d *agentDaemon) bootstrapLocalMCP(config *agentconfig.Config) error {
 	if err != nil {
 		return err
 	}
-	settings, err := agentconfig.ReadSettings(d.localSettingsRoot())
-	if err != nil {
-		return err
-	}
 	for _, provider := range providers {
-		choice, selected := settings.MCPConnections[provider]
-		var path string
-		if selected {
-			server := d.link.serverURL
-			if choice.Target == "local" {
-				server = d.loopback.url
-			}
-			path, err = agentconfig.ConfigureMCP(provider, executable, server, d.link.token, choice.Transport, choice.Target == "local")
-		} else {
-			path, err = agentconfig.BootstrapMCP(provider, executable, d.link.serverURL, d.link.token)
-		}
+		path, err := d.registerMCP(provider, executable)
 		if err != nil {
 			return fmt.Errorf("register the Sectile MCP server for provider %q: %w", provider, err)
 		}
@@ -440,8 +504,8 @@ func agentCommandLine(provider, template, model, prompt string, contexts ...agen
 }
 
 // headlessCommandLine is the autonomous form of agentCommandLine. It covers only
-// the providers whose headless invocation this repository attests: claude -p,
-// codex exec, and vibe, which is already headless today. Guessing a flag for the
+// the providers whose headless invocation this repository attests: claude -p
+// and codex exec. Guessing a flag for the
 // others is worse than refusing: an unsupported flag either fails opaquely or is
 // swallowed as prompt text. Adding a provider here is a one-line change once its
 // headless mode is verified.
@@ -452,9 +516,9 @@ func agentCommandLine(provider, template, model, prompt string, contexts ...agen
 // report the run and move the stage, so the run ends having only printed why it
 // could not work and the board never moves. Only an attested flag is passed, for
 // the same reason the provider list itself is attested.
-func headlessCommandLine(provider, model, prompt string, addDirs ...string) (string, error) {
+func headlessCommandLine(provider, model, prompt, settings string, addDirs ...string) (string, error) {
 	modelFlag := strings.Join(agentconfig.ModelArgs(provider, model), " ")
-	dirFlags := addDirArgs(provider, addDirs)
+	dirFlags := words(addDirArgs(provider, addDirs), settingsArg(provider, settings))
 	reasoning := ""
 	if engineStreamsReasoning(provider) {
 		reasoning = strings.Join(reasoningOptions, " ")
@@ -466,9 +530,6 @@ func headlessCommandLine(provider, model, prompt string, addDirs ...string) (str
 		// codex exec is non-interactive, but its approval bypass flag is not
 		// attested here: it is left to a custom template until it is verified.
 		return words("codex", "exec", reasoning, modelFlag, quoteShell(prompt), dirFlags), nil
-	case "vibe":
-		// vibe takes no model flag, so ModelArgs returns nothing for it.
-		return words("vibe", "-p", "--auto-approve", reasoning, quoteShell(prompt)), nil
 	default:
 		return "", fmt.Errorf("provider %q has no headless mode: run this skill interactively, or configure an AI command template carrying a {mode:AUTONOMOUS|INTERACTIVE} placeholder", provider)
 	}
@@ -499,6 +560,17 @@ func addDirArgs(provider string, dirs []string) string {
 		}
 	}
 	return strings.Join(args, " ")
+}
+
+// settingsArg hands Claude Code the settings file generated from the
+// project's sandbox values (#700), and nothing to any other provider or when
+// the project has no values, which keeps their line as it was. It takes the
+// "=" form for the reason addDirArgs gives.
+func settingsArg(provider, path string) string {
+	if path = strings.TrimSpace(path); path == "" || !strings.EqualFold(strings.TrimSpace(provider), "claude") {
+		return ""
+	}
+	return "--settings=" + quoteShell(path)
 }
 
 // templateProvider is the CLI a command template starts: its first word,
@@ -567,26 +639,21 @@ func modeCommandLine(provider, template, model, prompt, mode string, contexts ..
 		return expandConfiguredTemplate(template, model, prompt, autonomous, contexts...)
 	}
 	var addDirs []string
+	settings := ""
 	if len(contexts) > 0 {
-		addDirs = contexts[0].AddDirs
+		addDirs, settings = contexts[0].AddDirs, contexts[0].ClaudeSettings
 	}
 	if autonomous {
-		return headlessCommandLine(provider, model, prompt, addDirs...)
+		return headlessCommandLine(provider, model, prompt, settings, addDirs...)
 	}
 	modelFlag := strings.Join(agentconfig.ModelArgs(provider, model), " ")
 	switch provider {
 	case "agy":
 		return words("agy", "-i", quoteShell(prompt)), nil
 	case "claude":
-		return words(provider, modelFlag, quoteShell(prompt), addDirArgs(provider, addDirs)), nil
+		return words(provider, modelFlag, quoteShell(prompt), addDirArgs(provider, addDirs), settingsArg(provider, settings)), nil
 	case "codex":
 		return words(provider, modelFlag, quoteShell(prompt), addDirArgs(provider, addDirs)), nil
-	case "gemini":
-		return words(provider, modelFlag, quoteShell(prompt)), nil
-	case "vibe":
-		return words("vibe", "-p", quoteShell(prompt)), nil
-	case "cursor":
-		return words("cursor", "agent", modelFlag, quoteShell(prompt)), nil
 	default:
 		return "", fmt.Errorf("unsupported AI provider %q; configure an AI command template", provider)
 	}
@@ -705,6 +772,17 @@ func launchEngine(config agentconfig.Config, skillID, modelOverride, mode string
 	return provider, agentconfig.EffectiveModel(provider, template, model)
 }
 
+// liveProvider is the engine a discussion or a bare terminal opens, as
+// runner.InteractiveAgentLaunch reads it: a custom engine opens its own binary,
+// which receives no folder option.
+func liveProvider(config agentconfig.Config) string {
+	provider := strings.ToLower(strings.TrimSpace(config.AIProvider))
+	if provider == "" {
+		return "agy"
+	}
+	return provider
+}
+
 // dispatchCommand distinguishes opening an interactive agent from running a skill.
 // mode is the execution mode the server resolved for this launch; an empty value
 // reads as interactive, which keeps an older server working. modelOverride is the
@@ -713,12 +791,18 @@ func dispatchCommand(config agentconfig.Config, taskKey, skillID, action, prompt
 	skillID = models.NormalizeSkillID(skillID)
 	action = models.NormalizeSkillID(action)
 	// A discussion or a bare terminal has no skill, so it runs against the model
-	// the project resolves rather than a per-skill one.
+	// the project resolves rather than a per-skill one. It is given the task's
+	// other folders like a skill run (#676), by an engine whose option for them
+	// is attested.
 	live := func() (string, error) {
-		return runner.InteractiveAgentLaunch(&models.Settings{
+		line, err := runner.InteractiveAgentLaunch(&models.Settings{
 			AIProvider: config.AIProvider, AICommandTemplate: config.AICommandTemplate,
 			AIModel: agentconfig.ResolveModel(config, ""),
 		})
+		if err != nil || len(contexts) == 0 {
+			return line, err
+		}
+		return words(line, addDirArgs(liveProvider(config), contexts[0].AddDirs), settingsArg(liveProvider(config), contexts[0].ClaudeSettings)), nil
 	}
 	model, err := LaunchModel(config, skillID, modelOverride)
 	if err != nil {
@@ -737,24 +821,36 @@ func dispatchCommand(config agentconfig.Config, taskKey, skillID, action, prompt
 	if skillID == "discuss" {
 		return live()
 	}
+	promptArg, contexts, err := dispatchPrompt(config, taskKey, skillID, action, prompt, contexts)
+	if err != nil {
+		return "", err
+	}
+	return launchCommandLine(config, model, promptArg, mode, contexts...)
+}
+
+// dispatchPrompt is what a skill launch hands the engine: the skill's command
+// with the task key and the dispatch's instructions, and the launch contexts a
+// custom skill widens with its own folder. A terminal types it as the engine's
+// prompt; a conversation sends it as its first message.
+func dispatchPrompt(config agentconfig.Config, taskKey, skillID, action, prompt string, contexts []agentCommandContext) (string, []agentCommandContext, error) {
 	if skillID == "custom" {
 		if strings.TrimSpace(prompt) == "" {
-			return "", fmt.Errorf("custom instructions required")
+			return "", nil, fmt.Errorf("custom instructions required")
 		}
-		return launchCommandLine(config, model, "Sectile task: "+taskKey+"\n\n"+prompt, mode, contexts...)
+		return "Sectile task: " + taskKey + "\n\n" + prompt, contexts, nil
 	}
 	skillCmd := ""
 	for _, skill := range config.Skills {
 		if skillID == skill.ID || skillID == skill.Directory || action == skill.ID {
 			if skill.RequiresReconciliation {
-				return "", fmt.Errorf("legacy customization requires reconciliation in Skills before adjustment")
+				return "", nil, fmt.Errorf("legacy customization requires reconciliation in Skills before adjustment")
 			}
 			skillCmd = skill.Command
 			break
 		}
 	}
 	if skillCmd == "" {
-		return "", fmt.Errorf("unknown configured skill %q", skillID)
+		return "", nil, fmt.Errorf("unknown configured skill %q", skillID)
 	}
 	var choice *skillChoice
 	if len(contexts) > 0 {
@@ -783,7 +879,7 @@ func dispatchCommand(config agentconfig.Config, taskKey, skillID, action, prompt
 	if skillID == "adjust" {
 		promptArg += "\n\n" + runner.AdjustmentContract
 	}
-	return launchCommandLine(config, model, promptArg, mode, contexts...)
+	return promptArg, contexts, nil
 }
 
 func (d *agentDaemon) discoverProjects(ctx context.Context) (agentconfig.Projects, error) {

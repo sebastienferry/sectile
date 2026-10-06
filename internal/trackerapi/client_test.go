@@ -396,7 +396,7 @@ func TestAnUnreadableServerCredentialIsNotReplacedByTheEnvironment(t *testing.T)
 // nobody, would report its missing credential as somebody's.
 func TestForActingUserDoesNotMarkTheSharedClient(t *testing.T) {
 	c := &Client{HTTP: http.DefaultClient}
-	c.ResolveUser = func(string, string) (string, string, string, error) { return "", "", "", nil }
+	c.ResolveUser = legacyResolver(func(string, string) (string, string, string, error) { return "", "", "", nil })
 	c.Resolve = func(string) Credentials { return Credentials{} }
 	resolved, personal, err := c.ForActingUser("u1", "github", "p1")
 	if err != nil || personal {

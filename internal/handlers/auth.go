@@ -39,6 +39,9 @@ func safeRedirect(target string) string {
 	return target
 }
 
+// sessionCookieFor builds the session cookie. At sign-in its MaxAge is the session's absolute lifetime
+// (db.WebSessionTTL); the 7-day idle rule is enforced by UserForWebSession on the server, not by the cookie.
+// A use does not re-issue the cookie: the session is read several times per request, where no ResponseWriter is at hand.
 func (h *Handler) sessionCookieFor(r *http.Request, value string, maxAge int) *http.Cookie {
 	return &http.Cookie{
 		Name:  sessionCookie,

@@ -86,13 +86,13 @@ func TestValidModelConfigNamesTheSkill(t *testing.T) {
 }
 
 func TestModelArgsPerProvider(t *testing.T) {
-	for _, provider := range []string{"claude", "codex", "gemini", "cursor"} {
+	for _, provider := range []string{"claude", "codex"} {
 		args := ModelArgs(provider, "M")
 		if len(args) != 2 || args[0] != "--model" || args[1] != "M" {
 			t.Fatalf("%s: %v", provider, args)
 		}
 	}
-	for _, provider := range []string{"agy", "vibe", "custom", ""} {
+	for _, provider := range []string{"agy", "custom", "", "gemini", "cursor", "vibe"} {
 		if args := ModelArgs(provider, "M"); args != nil {
 			t.Fatalf("%s must take no model flag: %v", provider, args)
 		}

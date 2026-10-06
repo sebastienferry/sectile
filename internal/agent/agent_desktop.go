@@ -10,10 +10,12 @@ import (
 	"github.com/google/uuid"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"tasks/internal/agentconfig"
@@ -79,6 +81,7 @@ func fileSha256(path string) string {
 }
 
 type desktopRun struct {
+	Conversation    bool      `json:"conversation,omitempty"`
 	EngineID        string    `json:"engineId,omitempty"`
 	EngineName      string    `json:"engineName,omitempty"`
 	Branch          string    `json:"branch,omitempty"`
@@ -128,6 +131,14 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Unauthorized", 401)
 		return
 	}
+	if r.URL.Path == "/desktop/conversation" {
+		d.desktopConversation(w, r)
+		return
+	}
+	if r.URL.Path == "/desktop/conversation-terminal" {
+		d.desktopConversationTerminal(w, r)
+		return
+	}
 	// The build the companion is talking to. It is its own route rather than a
 	// field on /desktop/status because status is polled every few seconds and
 	// the version never changes while the process lives.
@@ -159,7 +170,7 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 		// contractError separates a server that is merely unreachable from one
 		// that cannot be talked to at all. Without it the desktop reports both
 		// as a disconnection and the user has no reason to look at the build.
-		capabilities := []string{"git-diff", "create-task", "remove-project", "free-console", "transition-stage", "repositories", attachedFoldersCapability, "git-init", taskEnginesCapability, openEditorCapability}
+		capabilities := []string{"git-diff", markdownDocumentsCapability, "create-task", "remove-project", "free-console", "transition-stage", "repositories", attachedFoldersCapability, "git-init", taskEnginesCapability, openEditorCapability, "claude-conversation", conversationControlsCapability, conversationQueueCapability, runFoldersCapability, runFoldersTerminalsCapability, consoleViewCapability}
 		if d.store != nil {
 			capabilities = append(capabilities, runStoreCapability)
 		}
@@ -232,6 +243,10 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 		d.desktopEngines(w, r)
 		return
 	}
+	if r.URL.Path == "/desktop/console-view" {
+		d.desktopConsoleView(w, r)
+		return
+	}
 	if r.URL.Path == "/desktop/task-engines" {
 		d.desktopTaskEngines(w, r)
 		return
@@ -240,8 +255,16 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 		d.desktopWorkstation(w, r)
 		return
 	}
+	if r.URL.Path == "/desktop/workstation/sandbox" {
+		d.desktopWorkstationSandbox(w, r)
+		return
+	}
 	if r.URL.Path == "/desktop/project" {
 		d.desktopProject(w, r)
+		return
+	}
+	if r.URL.Path == "/desktop/project/sandbox/promote" {
+		d.desktopPromoteSandboxRule(w, r)
 		return
 	}
 	if r.URL.Path == "/desktop/projects" {
@@ -250,6 +273,10 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	if r.URL.Path == "/desktop/repositories" {
 		d.desktopRepositories(w, r)
+		return
+	}
+	if r.URL.Path == "/desktop/run-folder" {
+		d.desktopRunFolder(w, r)
 		return
 	}
 	if r.URL.Path == "/desktop/folders" {
@@ -312,6 +339,25 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 	trace := run.trace
 	if r.URL.Path == "/desktop/stop" && r.Method == http.MethodPost {
 		run.canceled = true
+		if run.conversation != nil {
+			if !run.conversation.busy {
+				run.desktop.Status = conversationStoppedStatus(run)
+				run.once.Do(func() { close(run.exited) })
+				run.trace.close()
+			}
+			d.queue.mu.Unlock()
+			select {
+			case <-run.exited:
+				// A ticket discussion is a server run: stopping it ends it there too.
+				if entry.TaskID != "" {
+					_ = d.finishDesktopRun(context.Background(), entry.TaskID, id, stoppedStatus(entry.Skill), stoppedNote(entry.Skill, false))
+				}
+				w.WriteHeader(http.StatusNoContent)
+			case <-time.After(12 * time.Second):
+				http.Error(w, "Exit not confirmed", http.StatusGatewayTimeout)
+			}
+			return
+		}
 		d.queue.mu.Unlock()
 		// A supervised PTY run normally closes exited through agent-exec. If the
 		// terminal has already vanished, there is no process left that can send
@@ -536,12 +582,29 @@ func (d *agentDaemon) desktopProjects(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	specPath := ""
-	if input.SpecPath != nil {
+	specPath, issueSpecPath := "", ""
+	for _, folder := range []struct {
+		input   *string
+		output  *string
+		setting string
+	}{{input.SpecPath, &specPath, macroSpecSetting}, {input.IssueSpecPath, &issueSpecPath, issueSpecSetting}} {
+		if folder.input == nil {
+			continue
+		}
 		var err error
-		if specPath, err = normalizeSpecFolder(r.Context(), *input.SpecPath); err != nil {
+		if *folder.output, err = normalizeSpecFolder(r.Context(), *folder.input, folder.setting); err != nil {
 			http.Error(w, err.Error(), 400)
 			return
+		}
+	}
+	clonesPath := ""
+	if input.ClonesPath != nil {
+		if clonesPath = strings.TrimSpace(*input.ClonesPath); clonesPath != "" {
+			if !filepath.IsAbs(clonesPath) {
+				http.Error(w, "Clones folder must be an absolute path", 400)
+				return
+			}
+			clonesPath = filepath.Clean(clonesPath)
 		}
 	}
 	d.prepareMu.Lock()
@@ -560,7 +623,21 @@ func (d *agentDaemon) desktopProjects(w http.ResponseWriter, r *http.Request) {
 	project := input.apply(settings.Project(input.ProjectID))
 	project.Path = input.Path
 	if input.SpecPath != nil {
-		project.SpecPath = specPath
+		project.MacroSpecPath = specPath
+	}
+	if input.IssueSpecPath != nil {
+		project.IssueSpecPath = issueSpecPath
+	}
+	if input.AnyRepository != nil {
+		// Off is the default, so it is stored as nothing.
+		project.AnyRepository = nil
+		if *input.AnyRepository {
+			on := true
+			project.AnyRepository = &on
+		}
+	}
+	if input.ClonesPath != nil {
+		project.ClonesPath = clonesPath
 	}
 	if err := agentconfig.ValidateProject(project); err != nil {
 		http.Error(w, err.Error(), 400)
@@ -632,9 +709,22 @@ func (d *agentDaemon) disconnectProject(w http.ResponseWriter, r *http.Request) 
 	// from what was chosen before. Its seed marker stays, so the server values
 	// are not taken a second time.
 	delete(settings.ProjectSettings, id)
+	// It leaves the workstation Sandbox whitelist too (#730); emptied, the
+	// whitelist covers every project again.
+	var whitelist []string
+	for _, listed := range settings.Defaults.ClaudeSandboxProjects {
+		if listed != id {
+			whitelist = append(whitelist, listed)
+		}
+	}
+	settings.Defaults.ClaudeSandboxProjects = whitelist
 	if err := agentconfig.WriteSettings(settings); err != nil {
 		http.Error(w, err.Error(), 500)
 		return
+	}
+	// The settings file generated from its sandbox values goes too (#700).
+	if _, err := agentconfig.ClaudeSettingsFile(id, nil); err != nil {
+		log.Printf("[Agent] Could not remove the Claude settings of project %s: %v", id, err)
 	}
 	d.reportCapabilitiesLater()
 	w.WriteHeader(http.StatusNoContent)
@@ -672,24 +762,25 @@ func localAgentAvailable(file string) bool {
 }
 
 // normalizeSpecFolder validates a specifications folder typed or chosen in the
-// desktop settings. It must be an absolute path to an existing directory. A
-// folder inside a Git checkout names that checkout: the macro worktree is
+// desktop settings, the Macro or the Issue one, which setting names in a
+// refusal. It must be an absolute path to an existing directory. A folder
+// inside a Git checkout names that checkout: the macro or task worktree is
 // created at its root, where specs/ is looked for. A folder outside any
 // checkout is kept as it is. Empty clears the override.
-func normalizeSpecFolder(ctx context.Context, raw string) (string, error) {
+func normalizeSpecFolder(ctx context.Context, raw, setting string) (string, error) {
 	folder := strings.TrimSpace(raw)
 	if folder == "" {
 		return "", nil
 	}
 	if !filepath.IsAbs(folder) {
-		return "", fmt.Errorf("The specifications folder must be an absolute path")
+		return "", fmt.Errorf("The %s must be an absolute path", setting)
 	}
 	info, err := os.Stat(folder)
 	if err != nil {
-		return "", fmt.Errorf("The specifications folder %s does not exist", folder)
+		return "", fmt.Errorf("The %s %s does not exist", setting, folder)
 	}
 	if !info.IsDir() {
-		return "", fmt.Errorf("The specifications folder %s is not a directory", folder)
+		return "", fmt.Errorf("The %s %s is not a directory", setting, folder)
 	}
 	if top, err := gitLocal(ctx, folder, "rev-parse", "--show-toplevel"); err == nil {
 		return filepath.Clean(top), nil
@@ -743,18 +834,29 @@ func (d *agentDaemon) desktopProject(w http.ResponseWriter, r *http.Request) {
 		if mappingErr == nil {
 			specDefault = root
 		}
-		specEffective := section.SpecPath
+		specEffective := section.MacroSpecPath
 		if strings.TrimSpace(specEffective) == "" {
 			specEffective = specDefault
 		}
+		issueSpecEffective := section.IssueSpecPath
+		if strings.TrimSpace(issueSpecEffective) == "" {
+			issueSpecEffective = specDefault
+		}
 		fields := executionFields(config, overrides)
+		sandboxCovered, sandboxGlobal := projectSandboxInheritance(overrides, id)
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"server":                      withoutExecution(config),
 			"path":                        root,
-			"specPath":                    section.SpecPath,
+			"specPath":                    section.MacroSpecPath,
 			"specDefault":                 specDefault,
 			"specKind":                    specFolderKind(r.Context(), specEffective),
+			"issueSpecPath":               section.IssueSpecPath,
+			"issueSpecDefault":            specDefault,
+			"issueSpecKind":               specFolderKind(r.Context(), issueSpecEffective),
+			"anyRepository":               overrides.AnyRepository(id),
+			"clonesPath":                  section.ClonesPath,
+			"clonesDefault":               overrides.ClonesPath(id, specDefault),
 			"useWorktrees":                effective.UseWorktrees,
 			"configured":                  mappingErr == nil,
 			"aiCommandTemplate":           effective.AICommandTemplate,
@@ -769,8 +871,14 @@ func (d *agentDaemon) desktopProject(w http.ResponseWriter, r *http.Request) {
 			"aiModel":                     effective.AIModel,
 			"terminal":                    effective.ExternalTerminalCommand,
 			"terminalOverride":            section.Terminal != "",
-			"fields":                      fields,
-			"skills":                      skillNames(config),
+			"claudeSandbox":               claudeSandboxPayload(section.ClaudeSandbox),
+			"claudeSandboxGlobal":         sandboxGlobal,
+			"claudeSandboxCovered":        sandboxCovered,
+			// Claude Code's sandbox does not run on Windows: only the rules apply.
+			"platformSandbox":    runtime.GOOS != "windows",
+			"claudeSettingsPath": claudeSettingsPathOf(id),
+			"fields":             fields,
+			"skills":             skillNames(config),
 		})
 		return
 	}
@@ -795,8 +903,8 @@ func (d *agentDaemon) desktopProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	d.queue.mu.Unlock()
-	switch r.URL.Query().Get("action") {
-	case "initialize":
+	switch action := r.URL.Query().Get("action"); action {
+	case "initialize", "provider-skills":
 		provider := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("provider")))
 		if provider == "" {
 			settings, err := agentconfig.ReadSettings(d.localSettingsRoot())
@@ -814,7 +922,14 @@ func (d *agentDaemon) desktopProject(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		// Attempt failures are structured so the UI preserves partial success.
-		result, _ := d.initializeProvider(root, config, provider)
+		// provider-skills installs the skills alone, the MCP being registered
+		// from the MCP connection settings.
+		var result initializationResult
+		if action == "provider-skills" {
+			result, _ = installProviderSkills(root, config, provider)
+		} else {
+			result, _ = d.initializeProvider(root, config, provider)
+		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(result)
 	case "skills":
@@ -890,6 +1005,12 @@ func (d *agentDaemon) desktopTasks(w http.ResponseWriter, r *http.Request) {
 		// Force asks the server to skip its duplicate-launch refusal. As with
 		// Mode, the agent does not interpret it, it passes it on.
 		Force bool
+		// View "conversation" explicitly asks for an interactive launch in
+		// Claude's structured view. The server never sees it: the agent keeps
+		// it until the dispatch comes back. Without it, the dispatch follows
+		// the workstation console view (#711). An engine it cannot honour, or
+		// an autonomous launch, gets what it would have had without it.
+		View string
 	}
 	if json.NewDecoder(http.MaxBytesReader(w, r.Body, 8192)).Decode(&input) != nil || input.TaskID == "" {
 		http.Error(w, "Task and skill required", 400)
@@ -919,6 +1040,9 @@ func (d *agentDaemon) desktopTasks(w http.ResponseWriter, r *http.Request) {
 	if !models.ValidSkillMode(input.Mode) {
 		http.Error(w, "Unknown execution mode", 400)
 		return
+	}
+	if input.View == "conversation" {
+		d.conversationViews.mark(task.ID)
 	}
 	body := mustJSON(map[string]any{"skillId": input.SkillID, "prompt": input.Prompt, "mode": input.Mode, "force": input.Force})
 	req, err := http.NewRequestWithContext(r.Context(), http.MethodPost, d.link.serverURL+"/api/tasks/"+url.PathEscape(task.ID)+"/run-skill", strings.NewReader(body))
@@ -1219,6 +1343,8 @@ func (d *agentDaemon) desktopTasksTerminalExternal(w http.ResponseWriter, r *htt
 		http.Error(w, err.Error(), http.StatusConflict)
 		return
 	}
+	// The engine is the task's, as for the discussion the app opens (#690).
+	config = agentconfig.ResolveTask(config, overrides, task.ID)
 
 	root, _, err = primaryRoot(r.Context(), config, overrides, root, task)
 	if err != nil {
@@ -1231,15 +1357,31 @@ func (d *agentDaemon) desktopTasksTerminalExternal(w http.ResponseWriter, r *htt
 		branch = *task.BranchName
 	}
 	if config.UseWorktrees {
-		worktreeDir, pathErr := localTaskPath(r.Context(), root, task)
+		worktreeDir, pathErr := localTaskPath(r.Context(), root, task, config.BranchNameFormat)
 		if pathErr != nil {
 			http.Error(w, pathErr.Error(), http.StatusConflict)
 			return
 		}
-		branch, _ = taskWorktreeBranch(task)
+		branch, _ = taskWorktreeBranch(task, config.BranchNameFormat)
 		if info, err := os.Stat(worktreeDir); err == nil && info.IsDir() {
 			workDir = worktreeDir
 		}
+	}
+
+	// The same line the app's discussion runs: the task's engine, given the
+	// project's folders and its Claude settings (#690). It is built before the
+	// run is registered, so a refusal leaves nothing to release.
+	specWorkspace := d.knownTaskSpecWorkspace(r.Context(), config, task, workDir, branch)
+	folders := d.taskFolderMap(r.Context(), config, task, workDir, specWorkspace, false)
+	claudeSettings, err := d.launchClaudeSettings(config)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
+	line, err := dispatchCommand(config, task.ID, input.SkillID, "", "", "", "", "", agentCommandContext{Task: task, Branch: branch, Directory: workDir, Tracker: config.IssueTracker, Repo: config.GithubRepo, AddDirs: folderMapDirs(folders), ClaudeSettings: claudeSettings})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
 	}
 
 	runID := uuid.NewString()
@@ -1255,6 +1397,7 @@ func (d *agentDaemon) desktopTasksTerminalExternal(w http.ResponseWriter, r *htt
 
 	termChoice := d.resolveTerminalForProject(r.Context(), input.ProjectID, input.Terminal)
 
+	// Preparing until the line is typed: wrapRun only takes a run in that state.
 	run.desktop = desktopRun{
 		ID:               runID,
 		TaskID:           task.ID,
@@ -1264,12 +1407,23 @@ func (d *agentDaemon) desktopTasksTerminalExternal(w http.ResponseWriter, r *htt
 		SessionID:        runID,
 		Directory:        workDir,
 		Branch:           branch,
-		Status:           "running",
+		Status:           "preparing",
 		CreatedAt:        time.Now().UTC(),
-		StartedAt:        time.Now().UTC(),
 		ExternalTerminal: termChoice,
 	}
+	run.interactiveProvider = discussionProvider(config, input.SkillID)
 	d.queue.mu.Unlock()
+	release := func() {
+		if d.terminal.manager != nil {
+			_ = d.terminal.manager.CloseSession(runID)
+		}
+		d.queue.mu.Lock()
+		// Closed so the run store's exit watcher lets go of it.
+		run.once.Do(func() { close(run.exited) })
+		delete(d.queue.runs, runID)
+		d.queue.mu.Unlock()
+		d.store.remove(runID)
+	}
 
 	envVars := map[string]string{
 		"SECTILE_TASK_KEY":      task.Key,
@@ -1284,20 +1438,35 @@ func (d *agentDaemon) desktopTasksTerminalExternal(w http.ResponseWriter, r *htt
 		"SECTILE_LOOPBACK_URL":  d.loopback.url,
 		"SECTILE_PROJECT_ID":    input.ProjectID,
 	}
-
-	if d.terminal.manager != nil {
-		if _, err := d.terminal.manager.GetOrCreateSession(runID, workDir, envVars); err != nil {
-			d.queue.mu.Lock()
-			// Closed so the run store's exit watcher lets go of it.
-			run.once.Do(func() { close(run.exited) })
-			delete(d.queue.runs, runID)
-			d.queue.mu.Unlock()
-			d.store.remove(runID)
-			http.Error(w, fmt.Sprintf("Failed to initialize PTY session: %v", err), http.StatusInternalServerError)
-			return
-		}
-		d.tapConsole(runID)
+	if raw, err := json.Marshal(folders); err == nil && len(folders) > 0 {
+		envVars["SECTILE_REPOSITORIES"] = string(raw)
 	}
+	for name, value := range taskSpecEnvironment(specWorkspace) {
+		envVars[name] = value
+	}
+
+	if d.terminal.manager == nil {
+		release()
+		http.Error(w, "Failed to initialize PTY session: terminal manager unavailable", http.StatusInternalServerError)
+		return
+	}
+	wrapped, err := d.wrapRun(task.ID, runID, line)
+	if err != nil {
+		release()
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
+	if err := d.runInPty(runID, workDir, envVars, wrapped); err != nil {
+		release()
+		http.Error(w, fmt.Sprintf("Failed to initialize PTY session: %v", err), http.StatusInternalServerError)
+		return
+	}
+	d.queue.mu.Lock()
+	// A fast engine may have already reported its exit.
+	if run.desktop.Status == "preparing" {
+		run.desktop.Status = "running"
+	}
+	d.queue.mu.Unlock()
 
 	if err := d.launchExternalTerminal(termChoice, runID); err != nil {
 		http.Error(w, fmt.Sprintf("Failed to launch external terminal: %v", err), http.StatusInternalServerError)

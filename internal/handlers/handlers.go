@@ -125,7 +125,7 @@ func NewHandler(database *db.DB) *Handler {
 // An agent that is not connected misses it, and is sent the run's state when it
 // reconnects (resendRunWaits).
 func (h *Handler) pushRunWaiting(task *models.Task, activity *models.TaskActivity) {
-	if task == nil || activity == nil {
+	if activity == nil {
 		return
 	}
 	// Listeners run concurrently, so a mark and the clear that follows it may be
@@ -138,12 +138,19 @@ func (h *Handler) pushRunWaiting(task *models.Task, activity *models.TaskActivit
 }
 
 // sendRunWaiting sends a live agent run's waiting state, set or clear, to its
-// owner's agent. Only a run an agent dispatched can be on an agent's list.
+// owner's agent. Only a run an agent dispatched can be on an agent's list. A
+// macro run has no task and names its project itself (#648).
 func (h *Handler) sendRunWaiting(task *models.Task, activity *models.TaskActivity) {
 	if activity.SkillID != "remote_run" || activity.Action != db.RunActionAgent || activity.UserID == "" || activity.Status != "running" {
 		return
 	}
-	_ = h.agentDispatcher.Dispatch(activity.UserID, task.ProjectID, agentprotocol.RunWaitingType, task.ID,
+	projectID, taskID := activity.ProjectID, ""
+	if task != nil {
+		projectID, taskID = task.ProjectID, task.ID
+	} else if activity.TaskID != "" || projectID == "" {
+		return
+	}
+	_ = h.agentDispatcher.Dispatch(activity.UserID, projectID, agentprotocol.RunWaitingType, taskID,
 		agentprotocol.RunWaiting{RunID: activity.ID, WaitingSince: activity.WaitingSince})
 }
 
@@ -156,6 +163,10 @@ func (h *Handler) resendRunWaits(ownerID string, tasks []agentprotocol.RunningTa
 		}
 		activity, err := h.db.GetActivityByID(t.ID)
 		if err != nil || activity == nil || activity.UserID != ownerID {
+			continue
+		}
+		if activity.TaskID == "" {
+			h.sendRunWaiting(nil, activity)
 			continue
 		}
 		task, err := h.db.GetTaskByID(activity.TaskID)
@@ -276,16 +287,25 @@ func writeError(w http.ResponseWriter, status int, message string) {
 	writeJSON(w, status, map[string]string{"error": message})
 }
 
+// TrackerCredentialMissingCode marks a 403 refused for want of the caller's own
+// tracker credential, so a client can offer to add it rather than read the
+// message (#645).
+const TrackerCredentialMissingCode = trackerapi.CredentialMissingCode
+
 // writeTrackerError answers a failed request whose tracker write may have been
 // refused for want of the caller's own credential (#482). That refusal is a
 // 403 with its message: the caller has something to add, a personal credential
-// or a key tied to a user, and a 500 would say the server broke. Any other
-// error keeps the status the handler chose.
+// or a key tied to a user, and a 500 would say the server broke. The missing
+// credential also carries its code and provider (#645). Any other error keeps
+// the status the handler chose.
 func writeTrackerError(w http.ResponseWriter, status int, err error) {
-	var missing *trackerapi.MissingPersonalCredentialError
 	switch {
-	case errors.As(err, &missing):
-		writeError(w, http.StatusForbidden, err.Error())
+	case trackerapi.MissingCredentialTracker(err) != "":
+		writeJSON(w, http.StatusForbidden, map[string]string{
+			"error":   err.Error(),
+			"code":    TrackerCredentialMissingCode,
+			"tracker": trackerapi.MissingCredentialTracker(err),
+		})
 	case errors.Is(err, trackerapi.ErrNoActingUser):
 		// Over REST, a write that names nobody comes from a key tied to no
 		// user: say so, rather than name an internal invariant.
@@ -405,7 +425,9 @@ func (h *Handler) HandleHealth(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) HandleCliStatus(w http.ResponseWriter, r *http.Request) {
 	var result []models.CliStatus
-	if err := h.db.AgentOperation(agentprotocol.Operation{ProjectID: r.URL.Query().Get("projectId"), Action: "cli_status"}, &result); err != nil {
+	// Routed to the signed-in person's agent: without the user, a shared
+	// server looks for the implicit account's agent and never finds theirs.
+	if err := h.db.AgentOperation(agentprotocol.Operation{UserID: h.webSessionUser(r), ProjectID: r.URL.Query().Get("projectId"), Action: "cli_status"}, &result); err != nil {
 		writeError(w, http.StatusConflict, err.Error())
 		return
 	}
@@ -1215,7 +1237,31 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 			writeTrackerError(w, http.StatusBadRequest, err)
 			return
 		}
+		h.db.FillMacroFlags(id, meta, false)
 		writeJSON(w, http.StatusOK, map[string]interface{}{"macro": meta, "epic": meta, "storyKey": task.Key, "task": task, "notice": notice})
+		return
+	}
+
+	// Sub-action: /api/projects/{id}/macros/{key}/stories: turn several shaping
+	// todos into stories in one gesture, one outcome per line (#634)
+	if len(parts) >= 4 && (parts[1] == "macros" || parts[1] == "epics") && parts[3] == "stories" && r.Method == http.MethodPost {
+		macroKey, err := url.PathUnescape(parts[2])
+		if err != nil {
+			macroKey = parts[2]
+		}
+		var req struct {
+			TodoIDs []string `json:"todoIds"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeError(w, http.StatusBadRequest, "Invalid payload: "+err.Error())
+			return
+		}
+		batch, err := h.db.CreateStoriesFromMacroTodos(h.actingContext(r), id, macroKey, req.TodoIDs)
+		if err != nil {
+			writeTrackerError(w, http.StatusBadRequest, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, batch)
 		return
 	}
 
@@ -1288,6 +1334,97 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 		//
 		// Rien n'est écrit dans le dépôt ni sur le tracker, et aucune story
 		// n'est créée : c'est une lecture, et la découpe reste modifiable.
+		// The free labels of an epic (#626) are the tracker's: the edit is
+		// checked here, queued, and reaches the local copy only once the
+		// tracker accepted it. A refusal queues nothing.
+		if len(parts) >= 4 && parts[3] == "labels" && r.Method == http.MethodPost {
+			key := parts[2]
+			if decoded, err := url.PathUnescape(parts[2]); err == nil {
+				key = decoded
+			}
+			var req struct {
+				Add    []string `json:"add"`
+				Remove []string `json:"remove"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				writeError(w, http.StatusBadRequest, "Invalid labels payload: "+err.Error())
+				return
+			}
+			add, remove, err := h.db.ValidateMacroLabelEdit(id, key, req.Add, req.Remove)
+			if err != nil {
+				writeTrackerError(w, http.StatusBadRequest, err)
+				return
+			}
+			act, err := h.db.EnqueueTrackerOp(h.actingContext(r), db.TrackerOp{
+				Kind:          db.TrackerOpEpicLabels,
+				ProjectID:     id,
+				TaskKey:       key,
+				EpicKey:       key,
+				Labels:        add,
+				RemovedLabels: remove,
+			})
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			writeJSON(w, http.StatusAccepted, map[string]interface{}{"activity": act, "labelNote": "labels en file d'attente"})
+			return
+		}
+
+		// The tracker copy of the todos (#663) is written after each save of the
+		// list; this queues one at once, without waiting for a save, for a copy
+		// that failed or was edited by hand. A macro whose list stays in
+		// Sectile is refused with the reason, and nothing is queued.
+		if len(parts) >= 4 && parts[3] == "todos-mirror" && r.Method == http.MethodPost {
+			key := parts[2]
+			if decoded, err := url.PathUnescape(parts[2]); err == nil {
+				key = decoded
+			}
+			if refusal := h.db.TodosMirrorRefusal(id, key); refusal != "" {
+				writeError(w, http.StatusBadRequest, refusal)
+				return
+			}
+			act, err := h.db.EnqueueTrackerOp(h.actingContext(r), db.TrackerOp{
+				Kind:      db.TrackerOpEpicTodos,
+				ProjectID: id,
+				TaskKey:   key,
+				EpicKey:   key,
+				Force:     true,
+			})
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			writeJSON(w, http.StatusAccepted, map[string]interface{}{"activity": act})
+			return
+		}
+
+		// Same for the framing copy of a Jira epic (#636): a macro whose framing
+		// stays in Sectile is refused with the reason, and nothing is queued.
+		if len(parts) >= 4 && parts[3] == "framing-mirror" && r.Method == http.MethodPost {
+			key := parts[2]
+			if decoded, err := url.PathUnescape(parts[2]); err == nil {
+				key = decoded
+			}
+			if refusal := h.db.FramingMirrorRefusal(id, key); refusal != "" {
+				writeError(w, http.StatusBadRequest, refusal)
+				return
+			}
+			act, err := h.db.EnqueueTrackerOp(h.actingContext(r), db.TrackerOp{
+				Kind:      db.TrackerOpEpicFraming,
+				ProjectID: id,
+				TaskKey:   key,
+				EpicKey:   key,
+				Force:     true,
+			})
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			writeJSON(w, http.StatusAccepted, map[string]interface{}{"activity": act})
+			return
+		}
+
 		if len(parts) >= 4 && parts[3] == "slicing" && r.Method == http.MethodPost {
 			key := parts[2]
 			if decoded, err := url.PathUnescape(parts[2]); err == nil {
@@ -1295,18 +1432,46 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 			}
 			var req struct {
 				Source string `json:"source"`
+				// Content is a file the user picked in the browser: when it is
+				// present, it is sliced instead of asking the agent for the file.
+				Content  *string `json:"content"`
+				FileName string  `json:"fileName"`
 			}
 			// Un corps absent vaut la source par défaut : le geste courant ne
 			// doit pas exiger une charge utile pour être appelable.
-			_ = json.NewDecoder(r.Body).Decode(&req)
+			// The reader leaves room for JSON escaping above the file limit,
+			// which TodosFromUpload enforces on the decoded content.
+			if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 2*db.SlicingUploadLimit+64<<10)).Decode(&req); err != nil {
+				var tooLarge *http.MaxBytesError
+				if errors.As(err, &tooLarge) {
+					writeError(w, http.StatusBadRequest, db.ErrSlicingUploadTooLarge.Error())
+					return
+				}
+				// Only an absent body is the default source: a broken one may
+				// be an upload cut short, which must not pass for an import of
+				// the specifications folder.
+				if !errors.Is(err, io.EOF) {
+					writeError(w, http.StatusBadRequest, "the slicing request is not valid JSON: the slicing is left unchanged")
+					return
+				}
+			}
 			// Les stories déjà créées ne sont pas une source de fichier : elles
 			// sont routées avant la normalisation, qui ne connaît que le dépôt
 			// et ferait retomber « stories » sur tasks.md en silence.
 			var meta *models.MacroMeta
 			var origin string
 			var err error
-			if strings.EqualFold(strings.TrimSpace(req.Source), models.MacroTodoFromStories) {
-				meta, origin, err = h.db.TodosFromMacroStories(id, key)
+			if req.Content != nil {
+				// Checked before NormalizeSlicingSource, which would read any
+				// other source as tasks.md without a word.
+				source := strings.ToLower(strings.TrimSpace(req.Source))
+				if source != string(db.SlicingFromTasks) && source != string(db.SlicingFromSpec) {
+					writeError(w, http.StatusBadRequest, fmt.Sprintf("an uploaded file is sliced as tasks.md or spec.md, not as %q", req.Source))
+					return
+				}
+				meta, origin, err = h.db.TodosFromUpload(r.Context(), h.webSessionUser(r), id, key, db.SlicingSource(source), req.FileName, *req.Content)
+			} else if strings.EqualFold(strings.TrimSpace(req.Source), models.MacroTodoFromStories) {
+				meta, origin, err = h.db.TodosFromMacroStories(h.actingContext(r), id, key)
 			} else {
 				meta, origin, err = h.db.TodosFromSDD(r.Context(), h.webSessionUser(r), id, key, db.NormalizeSlicingSource(req.Source))
 				err = slicingReadError(err)
@@ -1315,6 +1480,7 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 				writeError(w, http.StatusBadRequest, err.Error())
 				return
 			}
+			h.db.FillMacroFlags(id, meta, false)
 			writeJSON(w, http.StatusOK, map[string]interface{}{
 				"macro":  meta,
 				"epic":   meta,
@@ -1341,10 +1507,36 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 				FramingComment *string             `json:"framingComment,omitempty"`
 				Todos          *[]models.MacroTodo `json:"todos,omitempty"`
 				Closed         *bool               `json:"closed,omitempty"`
+				Priority       *string             `json:"priority,omitempty"`
+				Quarter        *string             `json:"quarter,omitempty"`
+				Readiness      *string             `json:"readiness,omitempty"`
+				// Bulk marks an edit that is one of several, such as the title
+				// seeding: it never writes on an epic of a roadmap project.
+				Bulk bool `json:"bulk,omitempty"`
 			}
 			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 				writeError(w, http.StatusBadRequest, "Invalid macro payload: "+err.Error())
 				return
+			}
+			// The epic axes are checked before anything is saved: a refused quarter
+			// must not leave the rest of the edit half applied.
+			if req.Priority != nil {
+				if _, err := db.NormalizeEpicPriority(*req.Priority); err != nil {
+					writeError(w, http.StatusBadRequest, err.Error())
+					return
+				}
+			}
+			if req.Quarter != nil {
+				if _, err := db.NormalizeQuarter(*req.Quarter); err != nil {
+					writeError(w, http.StatusBadRequest, err.Error())
+					return
+				}
+			}
+			if req.Readiness != nil {
+				if _, err := db.NormalizeReadiness(*req.Readiness); err != nil {
+					writeError(w, http.StatusBadRequest, err.Error())
+					return
+				}
 			}
 			key := req.Key
 			if len(parts) >= 3 && parts[2] != "" {
@@ -1352,13 +1544,21 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 					key = decoded
 				}
 			}
-			saved, err := h.db.UpdateMacro(h.actingContext(r), id, key, req.Title, req.Horizon, req.Description, req.FramingComment, req.Todos, req.Closed)
+			editCtx := h.actingContext(r)
+			if req.Bulk {
+				editCtx = db.WithBulkMacroEdit(editCtx)
+			}
+			saved, err := h.db.UpdateMacro(editCtx, id, key, req.Title, req.Horizon, req.Description, req.FramingComment, req.Todos, req.Closed)
 			if err != nil {
 				writeTrackerError(w, http.StatusBadRequest, err)
 				return
 			}
 			labelNote := ""
-			if req.Horizon != nil {
+			if req.Horizon != nil && h.db.MacroIsForeign(id, key) {
+				// The horizon of a roadmap project's epic stays in Sectile
+				// (#632): a queued write could only fail.
+				labelNote = "conservé dans Sectile, non écrit sur le tracker"
+			} else if req.Horizon != nil {
 				labelNote = "label roadmap en file d'attente"
 				if _, err := h.db.EnqueueTrackerOp(h.actingContext(r), db.TrackerOp{
 					Kind:      db.TrackerOpEpicHorizon,
@@ -1370,6 +1570,20 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 					labelNote = "label roadmap non mis en file : " + err.Error()
 					log.Printf("[macros] label roadmap non mis en file pour %s: %v", key, err)
 				}
+			}
+			if req.Priority != nil || req.Quarter != nil || req.Readiness != nil {
+				axes, err := h.db.SaveMacroAxes(id, key, req.Priority, req.Quarter, req.Readiness)
+				if err != nil {
+					writeError(w, http.StatusBadRequest, err.Error())
+					return
+				}
+				h.db.FillMacroFlags(id, axes, req.Bulk)
+				saved = axes
+				labelNote = h.enqueueMacroAxes(r, id, key, saved, req.Priority != nil, req.Quarter != nil, req.Readiness != nil)
+			} else if saved != nil {
+				// The client replaces its copy of the macro with this one, so it
+				// carries the computed flag whatever field the request changed.
+				h.db.FillMacroFlags(id, saved, false)
 			}
 			writeJSON(w, http.StatusOK, map[string]interface{}{"macro": saved, "epic": saved, "labelNote": labelNote})
 			return
@@ -3535,8 +3749,15 @@ func (h *Handler) HandleAgentConnect(w http.ResponseWriter, r *http.Request) {
 	// Resolve the user from the API key. An expired key is refused by name so
 	// the agent log tells its owner to renew rather than to check for a typo.
 	credential, err := h.resolveAgentCredential(token)
+	// A failed check is the server's failure, not a bad token: 503, which the agent retries like any failed dial (#717).
+	if err != nil {
+		if status, message := agentAuthStatus(err); status == http.StatusServiceUnavailable {
+			writeError(w, status, message)
+			return
+		}
+	}
 	if errors.Is(err, db.ErrAPIKeyExpired) {
-		writeError(w, http.StatusUnauthorized, agentAuthMessage(err))
+		writeError(w, http.StatusUnauthorized, db.ErrAPIKeyExpired.Error())
 		return
 	}
 	if err != nil {
@@ -3929,7 +4150,7 @@ func (h *Handler) HandleOpenEditor(w http.ResponseWriter, r *http.Request) {
 		}
 		req.ProjectID = task.ProjectID
 	}
-	if err := h.db.AgentOperation(agentprotocol.Operation{ProjectID: req.ProjectID, TaskID: req.TaskID, Action: "open_editor"}, nil); err != nil {
+	if err := h.db.AgentOperation(agentprotocol.Operation{UserID: h.webSessionUser(r), ProjectID: req.ProjectID, TaskID: req.TaskID, Action: "open_editor"}, nil); err != nil {
 		writeError(w, http.StatusConflict, err.Error())
 		return
 	}
@@ -4135,9 +4356,9 @@ func (h *Handler) HandleEventsSSE(w http.ResponseWriter, r *http.Request) {
 }
 
 // repositoryErrorStatus answers 400 for a refused repository declaration or
-// pin (#456), and 500 for anything else.
+// pin (#456), or another refused project setting, and 500 for anything else.
 func repositoryErrorStatus(err error) int {
-	if errors.Is(err, db.ErrDuplicateRepository) || errors.Is(err, db.ErrRepositoryNotInProject) || errors.Is(err, db.ErrInvalidSpecArtifacts) {
+	if errors.Is(err, db.ErrDuplicateRepository) || errors.Is(err, db.ErrRepositoryNotInProject) || errors.Is(err, db.ErrInvalidSpecArtifacts) || errors.Is(err, db.ErrInvalidBranchNameFormat) || errors.Is(err, db.ErrInvalidEpicAxisPrefix) {
 		return http.StatusBadRequest
 	}
 	return http.StatusInternalServerError

@@ -1,6 +1,6 @@
 const test = require('node:test')
 const assert = require('node:assert')
-const {storeKey, storedKey} = require('../electron/credential-store.cjs')
+const {storeKey, storedKey, keyState} = require('../electron/credential-store.cjs')
 
 // A host offering a secret service, and one offering none: the two persistence
 // paths the desktop application has to survive.
@@ -54,4 +54,17 @@ test('losing the keyring drops the encrypted form rather than failing to read', 
 
 test('settings holding no credential read back empty', () => {
  assert.strictEqual(storedKey({server: 'http://127.0.0.1:8090'}, keyring), '')
+})
+
+// keyState tells the launch whether it can start the agent unasked (#716), without ever handing the key out.
+test('keyState reports whether a usable key is saved', () => {
+ const secret = Buffer.from('enc:device-token').toString('base64')
+ const broken = {...keyring, decryptString: () => { throw Error('the OS store refused') }}
+ assert.strictEqual(keyState({}, keyring), 'missing')
+ assert.strictEqual(keyState({}, bare), 'missing')
+ assert.strictEqual(keyState({apiKey: 'device-token'}, keyring), 'present')
+ assert.strictEqual(keyState({apiKey: 'device-token'}, bare), 'present')
+ assert.strictEqual(keyState({secret}, keyring), 'present')
+ assert.strictEqual(keyState({secret}, bare), 'unreadable', 'a secret with no OS store to read it')
+ assert.strictEqual(keyState({secret}, broken), 'unreadable', 'a secret the OS store cannot decrypt')
 })

@@ -22,7 +22,7 @@ ambiguous tracker keys. A task lookup resolves the actual owning project.
 | `gitRemoteUrl` | Repository identity for automatic local matching, not a path to clone automatically. |
 | `githubRepo`, `issueTracker`, `trackerUrl`, `jiraProject` | Optional effective project-over-global repository and tracker metadata for local command placeholders. Missing fields use local directory basename and task source (then `github`) fallbacks. No credentials or server paths. |
 | `specFramework` | Specification framework used by the project skills. |
-| `skills` | Array of `{id, directory, command, content, commandContent, custom}`. IDs and installation destinations must be unique and safe. `command` is the stage's standard command; a workstation replaces it with its own command name (see *Execution defaults and local overrides*), which may carry a plugin namespace (`sectile:clarify-issue`). `custom` is `true` when the project edited the skill's content, and absent otherwise (the pull-request policy every project gets does not make a skill custom): the agent then hands `content` to the run instead of running an installed skill, unless the workstation turned that off. An older server sends no `custom`, which reads as not custom (ADR 0039). |
+| `skills` | Array of `{id, directory, command, content, commandContent, directContent, directCommandContent, custom}`. IDs and installation destinations must be unique and safe. `command` is the stage's standard command; a workstation replaces it with its own command name (see *Execution defaults and local overrides*), which may carry a plugin namespace (`sectile:clarify-issue`). `custom` is `true` when the project edited the skill's content, and absent otherwise (the pull-request policy every project gets does not make a skill custom): the agent then hands `content` to the run instead of running an installed skill, unless the workstation turned that off. An older server sends no `custom`, which reads as not custom (ADR 0039). `directContent` and `directCommandContent` are the built-in skill rendered for every project at once, as in the Claude plugin, with the local HTTP fallback: the direct setup installs them, since the user-level folder is shared by all the projects of the workstation, while `content` stays the project's own and reaches its runs. An older server sends neither, and `content`/`commandContent` are installed as before. |
 | `specArtifacts` | Optional, `keep` or `drop`. `drop` keeps the tasks' clarification and specification files out of the repository: before a task's session starts, the agent writes their ignore rules in a Sectile-managed block of the primary checkout's `.git/info/exclude`, and removes the block when the effective value is `keep`. Absent (an older server) reads as `keep`. A workstation may override it (see *Execution defaults and local overrides*). |
 
 **No longer sent since #484** (ADR 0036): `monoRepo`. Every project uses its
@@ -96,7 +96,9 @@ the explicit `open_terminal` action requires an external window.
 ## Skill ownership and recovery
 
 The incoming skill list is installed in the user configuration of each agent the
-project sets up, each as a single `SKILL.md`: `~/.claude/skills` for Claude,
+project sets up, each as a single `SKILL.md` holding the skill's generic content
+(`directCommandContent` or `directContent`, falling back to the project's
+`commandContent` or `content` from an older server): `~/.claude/skills` for Claude,
 `~/.agents/skills` for Codex, `~/.gemini/config/skills` for Antigravity. An agent that
 substitutes arguments into the skill body receives the body carrying the ticket
 reference. Providers without a skill convention receive the MCP registration
@@ -241,9 +243,10 @@ Without `origin` in the task checkout, the lookup fails with
 `macro_worktree` (`payload.macroKey`, `payload.macroTitle`, no task) prepares a
 macro's specification checkout on the workstation and answers
 `{"path", "branch", "worktree", "warning"}`. The specifications folder is the
-workstation's own setting for the project (`specRepos` in the local settings,
-edited as "Specifications folder" in the desktop project dialog), else the
-project's mapped checkout (#484). The server holds no
+workstation's Macro specifications folder for the project
+(`projectSettings.<id>.specPath` in the local settings, edited as "Macro
+specifications folder" in the desktop project dialog), else the project's
+mapped checkout (#484). The server holds no
 specifications path (#443). On a Git folder the worktree is
 `.tasks/worktrees/<safe-name>` in that repository, on the existing branch named after
 the key or a new `<KEY>-<slug>` from the fetched default branch; an existing tree
@@ -253,7 +256,8 @@ nothing is created either: the answer is the folder itself, an empty `branch`,
 `worktree: false` and a `warning` saying nothing will be committed or pushed.
 The server adds `projectId`, `macroKey` and the macro's `todos` when it relays
 the answer through the `prepare_macro_worktree` MCP tool, so a skill invoked by
-hand, which holds no API token, reads its input from the same call.
+hand, which holds no API token, reads its input from the same call. `todos` is
+always present, an empty array when the macro has none (#647).
 
 `macro_spec_file` (`payload.macroKey`, `payload.framework`, `payload.specFile`,
 no task) reads one file of a macro's specification for the server's slicing
@@ -267,6 +271,25 @@ French, and shown as they are. An agent that predates the action answers
 `unknown local operation "macro_spec_file"`, which the server turns into a
 request to update the desktop app; no agent connected for the requesting user
 is likewise reported as the desktop app to connect.
+
+`task_spec_worktree` (`payload.branch`, a task) prepares where a task's
+clarification report and specification are written (#736) and answers
+`{"repository", "path", "branch", "worktree", "distinct", "warning"}`. The
+folder is the workstation's Issue specifications folder for the project
+(`projectSettings.<id>.issueSpecPath`, "Issue specifications folder" in the
+desktop project dialog), else the task's code checkout. In the code checkout,
+the answer is the task's worktree wherever its branch is checked out (else the
+checkout), with `distinct: false`, and nothing is created. In another Git
+folder it is `.tasks/worktrees/<safe-name>` there, on a branch named like the
+task's, prepared as `macro_worktree` prepares a macro's; worktrees off and a
+plain folder behave as they do there. A configured folder that no longer
+exists is refused naming the setting. The server relays it through the
+`prepare_task_spec_worktree` MCP tool. Every task launch prepares the same
+workspace and gives it to the run as `SECTILE_SPEC_REPO`,
+`SECTILE_SPEC_BRANCH` and `SECTILE_SPEC_WORKTREE`; a native terminal opened on
+a task creates nothing and names a distinct folder only once the task's
+specifications worktree exists. An agent that predates the action answers
+`unknown local operation "task_spec_worktree"`.
 
 New task and macro directory names use `issue-<number>` for canonical numeric
 GitHub keys and `key-<slug>-<sha256>` otherwise (at most 120 ASCII bytes).
@@ -335,6 +358,29 @@ project checkout:
 
 `found: false` means no verified checkout; the stage then proceeds on the
 forge's evidence and its report says the head was not verified locally.
+
+A task may prepare a worktree in a secondary repository and leave it untouched
+(#678). Before requiring the pull request of a secondary repository that has
+none given or recorded on the branch, the server sends `branch_changes` with
+`payload.repository` and `payload.branch`. The agent looks for any checkout of
+that repository, branch checked out or not, among the same candidates as
+`git_evidence`, and counts the commits the branch has ahead of
+`origin/HEAD` over every ref of it it sees: the local branch, the
+remote-tracking ref and the head `git ls-remote` reports on `origin`.
+`ahead` is the largest count, and `exists: false` says no ref was seen:
+
+```json
+{"value":{"repository":"gitlab.example/g/tools","found":true,"defaultBranch":"main","exists":true,"ahead":0}}
+{"value":{"repository":"gitlab.example/g/tools","found":false,"exists":false,"ahead":0}}
+```
+
+Only `found: true` with `ahead: 0`, echoing the repository, skips that pull
+request; the stage report then names the repository as prepared, unchanged.
+Every other answer keeps it required: no checkout, commits ahead, an unset
+`origin/HEAD`, a task branch that is the default branch, a head on `origin`
+this checkout has not fetched, any Git or
+network failure (an operation error), and an agent that predates the operation.
+`branch_changes` reaches `origin`, so it keeps the 45-second deadline.
 
 Requests normally have a 45-second deadline; purely local read-only inspections
 (Git evidence, status and branches, worktree info, SDD/skill status, skill
@@ -436,6 +482,12 @@ into. Skill and command bodies are not inlined: a caller that needs one opens
 agent uses its full configuration when it installs skills or updates the marked
 section of `AGENTS.md`; that configuration is unchanged.
 
+A task whose work changed no repository passes `noRepositoryChange: true`
+instead of `prUrl` (#584): the stage then needs no pull request, and the report
+ends with "No pull request: this task changed no repository." The statement is
+refused next to `prUrl` or `prUrls`, when the task records a pull request on its
+branch, and when it has a repository prepared with `prepare_repository_worktree`.
+
 `transition_stage` accepts `prUrl` for either a pull request or a merge
 request. A task holds an ordered set of such links, oldest first, each keeping
 the branch it was opened from; `prUrl` is its last entry, the task's current pull
@@ -493,7 +545,11 @@ liveness.
 
 A standalone skill calls `report_waiting(taskKey, runId, waiting)` with
 `waiting: true` right before it asks its user a question it cannot continue
-without. Ownership follows `finish_run`: the run's owner, an administrator, or
+without. A macro run, which has no task, is named by `projectId` and `macroKey`
+instead of `taskKey`, as for `start_run` and `finish_run` (#648); the macro's
+run list then carries `waitingSince`. A refusal says whether no run has the id,
+the run belongs to another task or macro, or it is no longer running (with its
+status). Ownership follows `finish_run`: the run's owner, an administrator, or
 anyone on a run with no recorded owner. The run keeps `running` and gains
 `waitingSince`; a repeated mark keeps the first instant. A headless run is left
 unmarked and the result says so (`applied: false`). The wait ends on the
@@ -501,6 +557,14 @@ declaring session's next tool call other than `report_waiting` (a ping does not
 count), on `waiting: false`, on any terminal status, and when the declaring
 session ends. Tool permission prompts are not reported: only a question the model
 asks deliberately is.
+
+A console the agent launched names its run on every MCP request: the stdio
+bridge sends `X-Sectile-Run-Id` with the value of `SECTILE_RUN_ID` (#498). A
+tool call other than `report_waiting` that carries it also ends that run's wait
+when a session declared it and the caller owns the run, whatever the calling
+session: after a server restart the console's client initializes a new session,
+and its next call still ends the wait. A bridge started without the variable
+sends no header.
 
 When a run an agent dispatched starts or stops waiting, the server sends the
 owner's agent a `run_waiting` message, `{"runId": "...", "waitingSince":
@@ -601,6 +665,22 @@ Stopping a run preserves repository changes and does not change workflow stages.
 Independently launched native clients are not owned by the agent and have no
 process-stop button. Supervised native execution is not supported on Windows.
 
+## Task branch name format
+
+Projects persist `branchNameFormat` (#621), empty by default. The agent
+configuration carries it as an additive field, and `get_project_context` returns
+it. When the agent prepares a worktree for a task that has no branch yet, it
+renders the format with the placeholders `{key}` (the task key without its
+leading `#`, case preserved), `{key_lower}` (the same, lower-cased) and `{title}`
+(the lower-case title slug, 30 characters at most); an empty format renders
+`feat/{key_lower}`, the names every agent created before. The rendered branch
+still goes through `git check-ref-format --branch`, and is recorded on the task
+like any prepared branch. An assigned branch is never re-rendered. An agent
+that predates the field keeps `feat/<key>`; a server that predates it sends
+nothing, which is the default. The server refuses on save a format with an
+unknown placeholder, no key placeholder, or a sample render that is not a
+usable Git branch.
+
 ## PR/MR creation timing
 
 Projects persist `prCreationStage`: `implemented` (default, existing behavior),
@@ -672,8 +752,11 @@ changing settings, then use **Start local agent**. **Stop agent** uses authentic
 `POST /desktop/shutdown` with the same confirmed-exit guard as restart.
 Desktop launch settings are saved locally; the API key is encrypted with
 Electron safeStorage when OS encryption is available, and kept in the same
-owner-only settings file otherwise, so a single-use pairing code is never lost. Existing agents launched outside the desktop do not expose their
-server credentials to this panel.
+owner-only settings file otherwise, so a single-use pairing code is never lost.
+`sectile-agent pair` writes `apiKey` and deletes any encrypted `secret`, so the
+two never coexist and Desktop starts on the newer key (ADR 0049). Existing
+agents launched outside the desktop do not expose their server credentials to
+this panel.
 
 **Clear finished consoles** removes completed, failed and canceled consoles from
 the local agent through authenticated `DELETE /desktop/history`. Only sessions
@@ -686,9 +769,20 @@ The server, local agent and desktop app are independent components. Start the
 agent without the app:
 
 ```sh
-sectile-agent pair --url http://localhost:8090 --code '<pairing code>'   # once
+sectile-agent pair --url http://localhost:8090   # once: signs in through the browser
 sectile-agent --url http://localhost:8090 --repo /path/to/repository
 ```
+
+`sectile-agent pair [--url] [--code] [--label] [--no-browser]` signs in through
+the browser when `--code` is absent: it opens the server's
+`/auth/workstation`, receives a pairing code on a loopback listener and redeems
+it (see [Workstation API keys and identity](#workstation-api-keys-and-identity)).
+`--no-browser` prints the URL instead of opening it; the callback still targets
+this machine, so a headless or remote host passes `--code` from the web
+profile. `--label` names the workstation, the hostname by default. On success
+the command also names the MCP registrations it pointed at the new key and,
+when it replaced a key, says the previous one is revoked and that a running
+agent must be restarted.
 
 The agent owns PTYs, supervision and console history. The desktop discovers it
 through `~/.taskflow/agent-connection.json` (private, mode 0600), including when
@@ -765,6 +859,17 @@ engine fields picks its entry. The conversion runs again, reusing identical
 entries and keeping the default engine, if an older agent writes engine fields
 back.
 
+An engine provider is one of `agy`, `claude`, `codex` and `custom`. The
+providers `gemini`, `cursor` and `vibe` are retired (#614): every save naming
+one is refused with a 400, and on read the agent drops what names one, as if
+the owner had removed it. A retired engine goes with the project and task
+choices pointing at it; a retired default engine gives way to the first
+remaining entry, or to the implicit engine when none remains. The
+`aiProviderModels` and `mcpConnections` keys of a retired provider and a
+retired `initializationProvider` go too. The agent persists the drop once at
+start, with the same backup as the conversion, and logs what it removed. An
+execution seed naming a retired provider creates no engine.
+
 A file written before #305 (flat `aiProvider`, `aiModel`, `terminal`... and the
 per-project maps `projects`, `specRepos`, `worktrees`, `parallelism`,
 `terminals`, `aiProviders`, `aiModels`, `commands`, `commandsAutonomous`,
@@ -822,6 +927,19 @@ repositories and was stored as its folder instead, and 400 or 409 with a
 message naming what the folder already is. The agent reports the
 `attached-folders` capability on `/desktop/status`. No request to the server
 carries these paths.
+
+`POST /desktop/run-folder` `{runId, path}` attaches a folder from a run (#676),
+through the same checks and with the same refusals, for a conversation, a
+running ticket discussion or a running free console (#689), in a Sectile
+terminal or detached to a native terminal; another run, or one that has
+ended, answers 409, an unknown one 404. It answers `{"mappedAs", "typed",
+"appliesAt"}`: `next-turn` for a conversation, which reads the project's
+folders at each turn; `now` when `/add-dir <path>` was typed into a Claude Code
+discussion or console once its output settled, detached or not, since the
+native terminal only attaches to the session the agent owns; `next-launch` for
+another engine or a path holding a control character. The agent reports the
+`run-folders` capability on `/desktop/status`, and `run-folders-terminals` once
+it serves free consoles and detached runs.
 
 Without effective worktrees, the agent enforces one execution and the UI
 disables parallelism selection. Requests are acknowledged when queued; their
@@ -937,11 +1055,28 @@ copy of the database yields no usable key.
   `PUT /api/devices?id=` with `{"ttlDays"}` moves or clears the expiry without
   changing the secret; `DELETE /api/devices?id=` revokes one.
 - `POST /api/pairing-codes` issues a single-use code valid ten minutes;
-  `POST /api/v1/agent/pair` with `{"code", "label"}` exchanges it for a key with
-  the default expiry and answers `{"token", "deviceId", "userId"}`. This is the
-  only unauthenticated agent endpoint: the code is the proof, consumed
-  atomically, so a replay returns 401. Unknown, consumed and expired codes all
-  answer `401 Invalid or expired pairing code`.
+  `POST /api/v1/agent/pair` with `{"code", "label", "deviceId"}` exchanges it for
+  a key with the default expiry and answers `{"token", "deviceId", "userId"}`.
+  This is the only unauthenticated agent endpoint: the code is the proof,
+  consumed atomically, so a replay returns 401. Unknown, consumed and expired
+  codes all answer `401 Invalid or expired pairing code`. `deviceId` is
+  optional: it names the device the workstation was paired as on that server,
+  and its key is revoked in the same transaction, provided it is the same
+  user's and still live. An unknown or foreign `deviceId` is ignored and the
+  pairing succeeds. Desktop and `sectile-agent pair` send it only when their
+  stored server is the one they pair with.
+- `GET /auth/workstation?port=&state=` is the browser sign-in of a workstation
+  (ADR 0049). The workstation listens on `127.0.0.1:<port>` and opens this URL
+  in the browser. `port` must be 1024 to 65535 and `state` must match
+  `^[A-Za-z0-9_-]{16,128}$`, else `400 Invalid workstation sign-in request`.
+  Without a session cookie the answer is `302 /auth/login?redirect=` back to
+  the same route, rebuilt from the two validated inputs; a blocked account gets
+  `403`; otherwise the server creates a pairing code and answers
+  `302 http://127.0.0.1:<port>/callback?code=&state=`. Only the session cookie
+  is read: a bearer key never mints a code. Answers carry
+  `Cache-Control: no-store` and `Referrer-Policy: no-referrer`. The workstation
+  checks `state` and redeems the code on `POST /api/v1/agent/pair`, so the key
+  never travels in a URL.
 - `GET /api/v1/agent/identity` tells a key holder `{"userId", "role", "mode",
   "deviceId", "label", "expiresAt", "sharedToken"}`; the agent calls it before
   connecting and logs a warning when fewer than ten days remain.
@@ -949,6 +1084,13 @@ copy of the database yields no usable key.
 A key past its expiry is refused on every surface with `401 {"error":"API key
 expired"}`, distinct from the generic refusal, so the owner renews it rather
 than retyping it. Revocation cuts every surface at once.
+
+When the check itself fails, for any reason other than an unknown, expired or
+blocked key (a database error, for instance), `/api/v1/agent/*`, `/mcp` and the
+`/ws/agent-connect` handshake answer `503 {"error":"Authentication temporarily
+unavailable"}`, which clients retry; it is never reported as an invalid key.
+The `401` texts are unchanged, and the WebSocket handshake keeps its
+`403 Invalid agent token` for an unknown key.
 
 The agent gateway takes the same key on `/mcp` and `/api/`, and consoles it
 launches receive it as `SECTILE_AGENT_TOKEN` with `SECTILE_AGENT_URL` set to the
@@ -1061,6 +1203,17 @@ Each file has `path`, optional `oldPath`, `status`, `kind`, nullable text counts
 kind is text/binary/symlink/submodule/unsupported. Counts sum displayed known text
 changes only. Incomplete results cannot be clean.
 
+An agent that also advertises `markdown-documents` gives each listed file of kind
+`text` whose path ends in `.md` or `.markdown` (case-insensitive) an optional
+`document`: `side` is `new`, or `old` for a deleted file read at the merge base,
+then either `content`, the whole UTF-8 file in the snapshot tree the patch compares,
+or `omittedReason`. A document over 512 KiB is never read, and documents share a
+4 MiB budget in path order, separate from the response limit, applied after the file
+list is truncated, so no file or patch is removed to make room for one. Older agents
+send no `document`, and Desktop disables its rendered view with an explanation.
+`localAgent.openLink(url)` opens only `http`, `https` without credentials and
+`mailto` links of a rendered document, through the default browser.
+
 The baseline resolves existing local refs in this order: symbolic `origin/HEAD`,
 remote main/master, local main/master. An invalid recorded default does not permit
 fallback. Exactly one merge base is required. The comparison uses a private temporary
@@ -1086,8 +1239,13 @@ Messages explain recovery without returning subprocess output or source contents
 HTTP and stdio initialize with server name `sectile`; managed native registrations
 use the same name. The catalog is exactly `get_task`, `transition_stage`,
 `add_comment`, `list_tasks`, `get_project_context`, `list_projects`, `start_run`,
-`finish_run`, `create_task`, `update_task`, `report_waiting` and `prepare_macro_worktree`. The former `sectile_` names are unsupported on both
-transports.
+`finish_run`, `create_task`, `update_task`, `report_waiting`,
+`prepare_macro_worktree`, `prepare_repository_worktree`,
+`prepare_task_spec_worktree`, `record_pull_request`, `get_macro` and
+`update_macro_todos`. The stdio bridge refuses any other catalog, so a server
+and an agent from before `prepare_task_spec_worktree` (#736) must be upgraded
+together. The
+former `sectile_` names are unsupported on both transports.
 Tool schemas, return values, run ownership and managed-run validation are unchanged.
 
 Agent launch prompts, desktop exit reporting and built-in policy text use the
@@ -1160,7 +1318,7 @@ returns 404, and clients must omit task workflow and PR controls for these runs.
 
 The authenticated desktop API exposes `GET /desktop/mcp?provider=<provider>`
 and `POST /desktop/mcp?provider=<provider>`. Supported providers are `claude`,
-`agy`, `codex`, `cursor`, `gemini` and `vibe`. POST accepts
+`agy` and `codex`. POST accepts
 `{"transport":"http|stdio","target":"remote|local"}` and updates the provider's
 user configuration plus the workstation's `mcpConnections` preference.
 Responses contain `choice`, `path`, `server` and `localURL`, never the API key.

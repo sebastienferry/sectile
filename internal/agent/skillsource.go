@@ -100,17 +100,30 @@ func chooseSkill(defaults agentconfig.Defaults, config agentconfig.Config, skill
 	if defaults.InstalledSkillSourceOrDefault() == agentconfig.SkillSourcePlugin {
 		sources = []string{agentconfig.SkillSourcePlugin, agentconfig.SkillSourceDirect}
 	}
-	for _, source := range sources {
-		switch source {
-		case agentconfig.SkillSourceDirect:
-			if fileExists(filepath.Join(loc.Home, filepath.FromSlash(loc.SkillDir), skill.Directory, "SKILL.md")) {
-				choice.Kind, choice.Command = skillKindDirect, command
-				return choice, nil
-			}
-		case agentconfig.SkillSourcePlugin:
-			if provider == "claude" && claudePluginSkill(loc.Home, skill.Directory, workDirs...) {
-				choice.Kind, choice.Command = skillKindPlugin, skills.PluginName+":"+skill.Directory
-				return choice, nil
+	// A workstation set up before a skill was renamed has only its former
+	// directory, which still holds the full skill: it runs under that name
+	// until the next setup installs the new one (#608).
+	directories := []string{skill.Directory}
+	if legacy := models.LegacySkillDirs[skill.Directory]; legacy != "" {
+		directories = append(directories, legacy)
+	}
+	for _, directory := range directories {
+		directCommand := command
+		if directory != skill.Directory {
+			directCommand = directory
+		}
+		for _, source := range sources {
+			switch source {
+			case agentconfig.SkillSourceDirect:
+				if fileExists(filepath.Join(loc.Home, filepath.FromSlash(loc.SkillDir), directory, "SKILL.md")) {
+					choice.Kind, choice.Command = skillKindDirect, directCommand
+					return choice, nil
+				}
+			case agentconfig.SkillSourcePlugin:
+				if provider == "claude" && claudePluginSkill(loc.Home, directory, workDirs...) {
+					choice.Kind, choice.Command = skillKindPlugin, skills.PluginName+":"+directory
+					return choice, nil
+				}
 			}
 		}
 	}
@@ -134,17 +147,12 @@ func claudePluginSkill(home, directory string, workDirs ...string) bool {
 	if !readClaudeJSON(filepath.Join(home, ".claude", "plugins", "installed_plugins.json"), &installed) {
 		return false
 	}
-	var settings struct {
-		EnabledPlugins map[string]bool `json:"enabledPlugins"`
-	}
-	// A missing settings file enables everything, as an absent key does.
-	_ = readClaudeJSON(filepath.Join(home, ".claude", "settings.json"), &settings)
-
+	enabled := claudeEnabledPlugins(home, workDirs...)
 	for key, entries := range installed.Plugins {
 		if !strings.HasPrefix(key, skills.PluginName+"@") {
 			continue
 		}
-		if enabled, stated := settings.EnabledPlugins[key]; stated && !enabled {
+		if on, stated := enabled[key]; stated && !on {
 			continue
 		}
 		for _, entry := range entries {
@@ -157,6 +165,32 @@ func claudePluginSkill(home, directory string, workDirs ...string) bool {
 		}
 	}
 	return false
+}
+
+// claudeEnabledPlugins merges enabledPlugins as Claude resolves it for a
+// session started in the run's folder: the user settings, then the project's
+// .claude/settings.json, then its .claude/settings.local.json, each stated key
+// overriding the one before. A missing file states nothing, and a plugin no
+// file mentions is enabled, as an absent key is.
+func claudeEnabledPlugins(home string, workDirs ...string) map[string]bool {
+	files := []string{filepath.Join(home, ".claude", "settings.json")}
+	if len(workDirs) > 0 && strings.TrimSpace(workDirs[0]) != "" {
+		project := filepath.Join(workDirs[0], ".claude")
+		files = append(files, filepath.Join(project, "settings.json"), filepath.Join(project, "settings.local.json"))
+	}
+	enabled := map[string]bool{}
+	for _, file := range files {
+		var settings struct {
+			EnabledPlugins map[string]bool `json:"enabledPlugins"`
+		}
+		if !readClaudeJSON(file, &settings) {
+			continue
+		}
+		for key, on := range settings.EnabledPlugins {
+			enabled[key] = on
+		}
+	}
+	return enabled
 }
 
 // claudeFileWarnings keeps an unreadable Claude file from being logged at
@@ -313,7 +347,7 @@ func dispatchedSkill(config agentconfig.Config, skillID, action, prompt string) 
 // run-private file, removed once done is closed. It returns nil when the
 // launch runs no configured skill, which dispatchCommand then handles as it
 // always did. The use of a custom skill is recorded by recordCustomSkillUse,
-// once the command line is built.
+// once the CLI is launched.
 func (d *agentDaemon) prepareSkill(config agentconfig.Config, skillID, action, prompt, runID string, done <-chan struct{}, workDirs ...string) (*skillChoice, error) {
 	skill := dispatchedSkill(config, skillID, action, prompt)
 	if skill == nil {
@@ -364,8 +398,8 @@ type customSkillLog struct {
 
 // recordCustomSkillUse records that a launch runs its project's custom skill:
 // on the desktop's passive signal and, for a run, on its activity. The caller
-// calls it once the command line is built, like the engine report, so a launch
-// that failed before that is not counted as a use.
+// calls it once the CLI is launched, so a launch that failed on its command
+// line, its wrapper or its terminal is not counted as a use.
 func (d *agentDaemon) recordCustomSkillUse(config agentconfig.Config, choice *skillChoice, runID string) {
 	if choice == nil || choice.Kind != skillKindCustom {
 		return

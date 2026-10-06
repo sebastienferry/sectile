@@ -38,9 +38,9 @@ test('the French editor chrome is unchanged', () => {
 
 test('command preview errors follow the catalog, the command lines never do', () => {
   // English stays the default, so existing callers read what they read before.
-  assert.match(commandPreview('gemini', '', '', true).error, /no attested headless mode/)
-  const french = commandPreview('gemini', '', '', true, '', fr.feedback)
-  assert.match(french.error, /^gemini n'a pas de mode headless attesté/)
+  assert.match(commandPreview('agy', '', '', true).error, /no attested headless mode/)
+  const french = commandPreview('agy', '', '', true, '', fr.feedback)
+  assert.match(french.error, /^agy n'a pas de mode headless attesté/)
   assert.match(french.error, /\{mode:AUTONOMOUS\|INTERACTIVE\}/)
   assert.equal(commandPreview('claude', '', '', false, '', fr.feedback).command, "claude '{prompt}'")
 })

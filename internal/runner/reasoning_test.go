@@ -3,6 +3,7 @@ package runner_test
 import (
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"tasks/internal/runner"
 )
@@ -50,6 +51,33 @@ func TestAToolCallCarriesItsNameAndWhatItDid(t *testing.T) {
 	}
 	if events[0].Detail != "/repo/internal/db/db.go" {
 		t.Errorf("the detail did not say what was read: %q", events[0].Detail)
+	}
+}
+
+// A reader that draws each tool its own way needs the call as it was made: the
+// full name, MCP server included, and the arguments.
+func TestAToolCallKeepsItsArgumentsForAReader(t *testing.T) {
+	line := `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"mcp__sectile__get_task","input":{"taskId":"#42"}}]}}`
+
+	events, _, _ := runner.ParseReasoningLine(line)
+	if len(events) != 1 || events[0].Tool != "mcp__sectile__get_task" {
+		t.Fatalf("the full tool name was not kept: %+v", events)
+	}
+	if string(events[0].Input) != `{"taskId":"#42"}` {
+		t.Errorf("the arguments were not kept: %s", events[0].Input)
+	}
+}
+
+func TestToolArgumentsPastTheLimitAreDroppedButTheDetailStays(t *testing.T) {
+	content := strings.Repeat("x", runner.ToolInputLimit)
+	line := `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Write","input":{"file_path":"/repo/big.txt","content":"` + content + `"}}]}}`
+
+	events, _, _ := runner.ParseReasoningLine(line)
+	if len(events) != 1 || events[0].Input != nil {
+		t.Fatalf("arguments past the limit were kept: %d bytes", len(events[0].Input))
+	}
+	if events[0].Detail != "/repo/big.txt" {
+		t.Errorf("the detail was lost with the arguments: %q", events[0].Detail)
 	}
 }
 
@@ -284,5 +312,42 @@ func TestASuccessfulResultMessageWithNoAnswerStaysEmpty(t *testing.T) {
 	}
 	if result != "" {
 		t.Errorf("nothing should have been invented, got %q", result)
+	}
+}
+
+func TestAToolResultIsTiedToItsCall(t *testing.T) {
+	call := `{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_1","name":"Bash","input":{"command":"ls"}}]}}`
+	if events, _, _ := runner.ParseReasoningLine(call); len(events) != 1 || events[0].ToolID != "toolu_1" {
+		t.Fatalf("the call identifier was not kept: %+v", events)
+	}
+	line := `{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_1","content":"a.go\nb.go"},{"type":"tool_result","tool_use_id":"toolu_2","is_error":true,"content":[{"type":"text","text":"No such file"},{"type":"image"}]}]}}`
+	results := runner.ParseToolResults(line)
+	if len(results) != 2 {
+		t.Fatalf("expected two results, got %+v", results)
+	}
+	if results[0].ToolID != "toolu_1" || results[0].Text != "a.go\nb.go" || results[0].IsError {
+		t.Errorf("the string result was not read: %+v", results[0])
+	}
+	if results[1].Text != "No such file\n[image]" || !results[1].IsError {
+		t.Errorf("the block result was not read: %+v", results[1])
+	}
+}
+
+func TestALongToolResultIsCutOnACharacter(t *testing.T) {
+	text := strings.Repeat("é", runner.ToolResultLimit)
+	results := runner.ParseToolResults(`{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t","content":"` + text + `"}]}}`)
+	if len(results) != 1 || !results[0].Truncated || len(results[0].Text) > runner.ToolResultLimit {
+		t.Fatalf("the result was not cut: truncated=%v len=%d", results[0].Truncated, len(results[0].Text))
+	}
+	if !utf8.ValidString(results[0].Text) {
+		t.Error("the cut split a character")
+	}
+}
+
+func TestOnlyUserToolResultsAreRead(t *testing.T) {
+	for _, line := range []string{"not json", `{"type":"assistant","message":{"content":[{"type":"tool_result","tool_use_id":"t","content":"x"}]}}`, `{"type":"user","message":{"content":[{"type":"text","text":"hi"}]}}`} {
+		if results := runner.ParseToolResults(line); len(results) != 0 {
+			t.Errorf("%q yielded %+v", line, results)
+		}
 	}
 }

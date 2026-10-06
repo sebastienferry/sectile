@@ -41,13 +41,15 @@ import {
   RefreshCw,
   Target,
   Plus,
+  Map as MapIcon,
 } from 'lucide-react'
+import { canOpenEpicInRoadmap, projectOfTask } from '../lib/roadmapFocus'
 import { useApp } from '../context/AppContext'
 import { useProjectEngine } from '../hooks/useProjectEngine'
 import { useBackdropDismiss } from '../hooks/useBackdropDismiss'
 import type { TeamMember, Status, Priority, DetailMode, SpecFramework, WorkflowStage, MacroMeta, SkillMode, PullRequestLink } from '../types'
 import { WORKFLOW_ORDER, isTaskScopedSkill, prRecoverySkill, resolveTaskStage } from '../lib/workflow'
-import { addPullRequestLink, taskPullRequestLinks } from '../lib/pullRequests'
+import { addPullRequestLink, repositoryPullRequests, taskPullRequestLinks } from '../lib/pullRequests'
 import { TaskComments } from './TaskComments'
 import { Avatar } from './Avatar'
 import { LookupField, type LookupOption } from './LookupField'
@@ -60,6 +62,9 @@ import { runEngineLabel } from '../lib/runEngine'
 import { copyText } from '../lib/clipboard'
 import { EMPTY_VALUE, format, plural, formatDate, formatDateTime, formatTime } from '../lib/i18n'
 import { localizeActivityText } from '../lib/activityText'
+
+// The repository select's entry for a repository typed by hand (#737).
+const OTHER_REPOSITORY = '\u0000other'
 
 export const TaskDetailModal: React.FC = () => {
   const {
@@ -90,6 +95,8 @@ export const TaskDetailModal: React.FC = () => {
     togglePin,
     isPinned,
     syncSingleTask,
+    openEpicInRoadmap,
+    currentProject,
     t,
   } = useApp()
   const td = t.taskDetail
@@ -161,8 +168,11 @@ export const TaskDetailModal: React.FC = () => {
   // L'ensemble ordonné des pull requests du ticket. `prUrl` en est le dernier
   // lien : le serveur le recalcule, la fiche n'édite que l'ensemble.
   const [prLinks, setPrLinks] = useState<PullRequestLink[]>([])
+  const prGroups = useMemo(() => repositoryPullRequests(prLinks), [prLinks])
   const [newPrUrl, setNewPrUrl] = useState('')
   const [repository, setRepository] = useState('')
+  // A repository typed by hand rather than picked among the project's (#737).
+  const [otherRepository, setOtherRepository] = useState(false)
   const [trackerStatus, setTrackerStatus] = useState('')
   const [sprint, setSprint] = useState('')
   const [labels, setLabels] = useState<string[]>([])
@@ -282,6 +292,7 @@ export const TaskDetailModal: React.FC = () => {
       setPrLinks(taskPullRequestLinks(selectedTask))
       setNewPrUrl('')
       setRepository(selectedTask.repository || '')
+      setOtherRepository(false)
       setTrackerStatus(selectedTask.trackerStatus || '')
       setSprint(selectedTask.sprint || '')
       setLabels(selectedTask.labels || [])
@@ -572,6 +583,20 @@ export const TaskDetailModal: React.FC = () => {
               </span>
             )}
             {renderCopyKeyButton(selectedTask.parentKey)}
+            {canOpenEpicInRoadmap(selectedTask, projectOfTask(selectedTask, projects, currentProject)) && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedTask(null)
+                  openEpicInRoadmap(selectedTask)
+                }}
+                title={`${t.compactCard.openEpic} (${selectedTask.parentKey})`}
+                aria-label={t.compactCard.openEpic}
+                className="ml-1 inline-flex items-center self-center rounded p-0.5 opacity-60 hover:opacity-100 hover:bg-[var(--bg-tertiary)] hover:text-violet-300 focus-visible:opacity-100"
+              >
+                <MapIcon size={11} />
+              </button>
+            )}
             <span className="mx-1 text-[var(--text-muted)] opacity-50">/</span>
           </>
         )}
@@ -1140,8 +1165,12 @@ export const TaskDetailModal: React.FC = () => {
                   {td.fields.repository}
                 </label>
                 <select
-                  value={repository}
-                  onChange={e => setRepository(e.target.value)}
+                  value={otherRepository ? OTHER_REPOSITORY : repository}
+                  onChange={e => {
+                    const value = e.target.value
+                    setOtherRepository(value === OTHER_REPOSITORY)
+                    setRepository(value === OTHER_REPOSITORY ? '' : value)
+                  }}
                   className="w-full px-2.5 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)] font-mono"
                   title={td.fields.repositoryTitle}
                 >
@@ -1149,10 +1178,23 @@ export const TaskDetailModal: React.FC = () => {
                   {projectRepositories.map(repo => (
                     <option key={repo.identity} value={repo.identity}>{repo.identity}</option>
                   ))}
-                  {repository && !projectRepositories.some(repo => repo.identity === repository) && (
+                  {repository && !otherRepository && !projectRepositories.some(repo => repo.identity === repository) && (
                     <option value={repository}>{format(td.fields.outsideProject, { repository })}</option>
                   )}
+                  <option value={OTHER_REPOSITORY}>{td.fields.otherRepository}</option>
                 </select>
+                {otherRepository && (
+                  <input
+                    type="text"
+                    value={repository}
+                    onChange={e => setRepository(e.target.value.trim())}
+                    placeholder={td.fields.otherRepositoryPlaceholder}
+                    title={td.fields.otherRepositoryTitle}
+                    aria-label={td.fields.otherRepository}
+                    autoFocus
+                    className="mt-1.5 w-full px-2.5 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)] font-mono"
+                  />
+                )}
               </div>
             )}
 
@@ -1380,37 +1422,51 @@ export const TaskDetailModal: React.FC = () => {
         {prLinks.length === 0 && (
           <p className="text-xs text-[var(--text-muted)]">{td.pr.none}</p>
         )}
-        {prLinks.map((link, index) => (
-          <div key={index} className="flex items-center gap-1.5">
-            <a
-              href={link.url}
-              target="_blank"
-              rel="noreferrer"
-              className="shrink-0 p-1.5 rounded-lg text-purple-400 hover:bg-purple-500/10 transition-colors"
-              title={t.skills.viewPr}
-            >
-              <PullRequestStateIcon link={link} size={13} />
-            </a>
-            <input
-              type="url"
-              value={link.url}
-              onChange={e => setPrLinks(prLinks.map((l, i) => (i === index ? { ...l, url: e.target.value } : l)))}
-              className="flex-1 min-w-0 px-2.5 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)]"
-            />
-            <span className="shrink-0 text-[10px] text-[var(--text-muted)] max-w-[10rem] truncate" title={link.branch || ''}>
-              {link.branch || EMPTY_VALUE}
-            </span>
-            {index === prLinks.length - 1 && (
-              <span className="shrink-0 text-[10px] font-semibold text-purple-400">{td.pr.current}</span>
+        {/* One group per repository the task changed, the primary one first;
+            a task with a single repository shows its links as before. */}
+        {prGroups.map(group => (
+          <div key={group.indices[0]} className="space-y-1.5">
+            {prGroups.length > 1 && (
+              <p className="text-[10px] font-semibold text-[var(--text-secondary)] truncate" title={group.repository}>
+                {group.repository || EMPTY_VALUE}
+              </p>
             )}
-            <button
-              type="button"
-              onClick={() => setPrLinks(prLinks.filter((_, i) => i !== index))}
-              className="shrink-0 p-1.5 rounded-lg text-[var(--text-muted)] hover:text-red-400 hover:bg-red-500/10 transition-colors cursor-pointer"
-              title={td.pr.detach}
-            >
-              <Trash2 size={13} />
-            </button>
+            {group.indices.map(index => {
+              const link = prLinks[index]
+              return (
+                <div key={index} className="flex items-center gap-1.5">
+                  <a
+                    href={link.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="shrink-0 p-1.5 rounded-lg text-purple-400 hover:bg-purple-500/10 transition-colors"
+                    title={t.skills.viewPr}
+                  >
+                    <PullRequestStateIcon link={link} size={13} />
+                  </a>
+                  <input
+                    type="url"
+                    value={link.url}
+                    onChange={e => setPrLinks(prLinks.map((l, i) => (i === index ? { ...l, url: e.target.value } : l)))}
+                    className="flex-1 min-w-0 px-2.5 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)]"
+                  />
+                  <span className="shrink-0 text-[10px] text-[var(--text-muted)] max-w-[10rem] truncate" title={link.branch || ''}>
+                    {link.branch || EMPTY_VALUE}
+                  </span>
+                  {index === group.indices[group.indices.length - 1] && (
+                    <span className="shrink-0 text-[10px] font-semibold text-purple-400">{td.pr.current}</span>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setPrLinks(prLinks.filter((_, i) => i !== index))}
+                    className="shrink-0 p-1.5 rounded-lg text-[var(--text-muted)] hover:text-red-400 hover:bg-red-500/10 transition-colors cursor-pointer"
+                    title={td.pr.detach}
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                </div>
+              )
+            })}
           </div>
         ))}
         <div className="flex items-center gap-1.5">

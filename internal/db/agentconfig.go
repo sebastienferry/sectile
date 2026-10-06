@@ -46,6 +46,7 @@ func (d *DB) AgentConfig(projectID, taskKey string, framework ...string) (*agent
 		TrackerURL: p.TrackerUrl, JiraProject: p.JiraProject, GitRemoteURL: p.GitRemoteUrl, GithubRepo: p.GithubRepo, IssueTracker: p.IssueTracker,
 		SpecFramework: p.SpecFramework, PRCreationStage: p.PRCreationStage, SpecArtifacts: models.NormalizeSpecArtifacts(p.SpecArtifacts),
 		DefaultSkillMode: models.NormalizeSkillMode(p.DefaultSkillMode), FullChainStopStage: models.NormalizeFullChainStopStage(p.FullChainStopStage), PushStageCommits: p.PushStageCommits,
+		BranchNameFormat: p.BranchNameFormat,
 	}
 	for _, repository := range p.Repositories {
 		c.Repositories = append(c.Repositories, repository.URL)
@@ -83,7 +84,11 @@ func (d *DB) AgentConfig(projectID, taskKey string, framework ...string) (*agent
 		// The stage's standard command: a workstation's own command name is the
 		// workstation's to set (#305).
 		content, _ := commandContentFromSkill(stage, skill.Content, c.SpecFramework)
+		// The direct setup installs the built-in skill, generic for every
+		// project: the user-level folder it writes is shared by all of them,
+		// and the project's own edit reaches its run another way.
 		c.Skills = append(c.Skills, agentconfig.Skill{RequiresReconciliation: skill.ID == "adjust" && reconcile, ID: skill.ID, Directory: stage.DirName, Command: stage.Command, Content: skill.Content, CommandContent: content,
+			DirectContent: skills.RenderDirectSkillContent(stage), DirectCommandContent: skills.RenderDirectSkillCommand(stage),
 			Custom: isCustomSkill(overrides, skill.ID, builtIn[skill.ID])})
 	}
 	if err := c.Validate(); err != nil {

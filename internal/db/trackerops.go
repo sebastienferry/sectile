@@ -11,6 +11,7 @@ import (
 
 	"tasks/internal/models"
 	"tasks/internal/tracker"
+	"tasks/internal/trackerapi"
 )
 
 // Every write on an existing work item goes through the activity queue, like the
@@ -35,9 +36,23 @@ const (
 	TrackerOpMoveToEpic TrackerOpKind = "move_to_epic"
 	// TrackerOpEpicHorizon mirrors the roadmap horizon of one epic as a label.
 	TrackerOpEpicHorizon TrackerOpKind = "epic_horizon"
+	// TrackerOpEpicLabels adds and removes free labels on one epic (#626).
+	TrackerOpEpicLabels TrackerOpKind = "epic_labels"
 	// TrackerOpPushHorizons mirrors every locally classified epic whose label is
 	// missing or stale.
 	TrackerOpPushHorizons TrackerOpKind = "push_horizons"
+	// TrackerOpEpicPriority mirrors the priority of one epic as a label (#627).
+	TrackerOpEpicPriority TrackerOpKind = "epic_priority"
+	// TrackerOpEpicQuarter mirrors the quarter of one epic as a label (#627).
+	TrackerOpEpicQuarter TrackerOpKind = "epic_quarter"
+	// TrackerOpEpicReadiness mirrors the readiness of one epic as a label (#633).
+	TrackerOpEpicReadiness TrackerOpKind = "epic_readiness"
+	// TrackerOpEpicTodos copies the todos of one macro on its tracker: a
+	// comment on a Jira epic, a block of a GitHub milestone description (#663).
+	TrackerOpEpicTodos TrackerOpKind = "epic_todos"
+	// TrackerOpEpicFraming copies the framing of one Jira epic on the comment
+	// Sectile owns for it (#636).
+	TrackerOpEpicFraming TrackerOpKind = "epic_framing"
 	// TrackerOpTransition moves a work item to a status named as the tracker
 	// spells it, which is what dropping a card in a board column does.
 	TrackerOpTransition TrackerOpKind = "transition"
@@ -71,6 +86,21 @@ type TrackerOp struct {
 	Fields       map[string]string
 	// Horizon is the roadmap horizon of an epic_horizon.
 	Horizon string
+	// Priority is the epic priority of an epic_priority, "p0" to "p3", "" to clear.
+	Priority string
+	// Quarter is the quarter of an epic_quarter, "2026-Q4", "" to clear.
+	Quarter string
+	// Readiness is the level of an epic_readiness, "idea", "shaping" or
+	// "ready", "" to clear.
+	Readiness string
+	// Force makes an epic_todos or epic_framing write even when the body is the one last
+	// written, which is what republishing asks for: the copy may have been
+	// edited by hand since.
+	Force bool
+	// Labels / RemovedLabels are the free labels an epic_labels adds and
+	// removes.
+	Labels        []string
+	RemovedLabels []string
 	// TargetStatus is the tracker status of a transition, in the tracker's own
 	// spelling ("Dev Test", "To Merge").
 	TargetStatus string
@@ -203,10 +233,51 @@ func buildTrackerOpJob(op TrackerOp) (*models.TaskActivity, SkillJob, error) {
 		action = fmt.Sprintf("Découpe d'épic : %d ticket(s) ➔ %s", len(op.TaskIDs), target)
 		summary = fmt.Sprintf("Déplacement de %d ticket(s) vers %s en file d'attente", len(op.TaskIDs), target)
 		steps = append(steps, fmt.Sprintf("Cible : %s", target), fmt.Sprintf("%d ticket(s) à déplacer", len(op.TaskIDs)))
+	case TrackerOpEpicLabels:
+		action = fmt.Sprintf("Labels de %s", op.EpicKey)
+		summary = fmt.Sprintf("Labels de %s en file d'attente", op.EpicKey)
+		for _, label := range op.Labels {
+			steps = append(steps, "+ "+label)
+		}
+		for _, label := range op.RemovedLabels {
+			steps = append(steps, "- "+label)
+		}
 	case TrackerOpEpicHorizon:
 		action = fmt.Sprintf("Horizon de %s ➔ %s", op.EpicKey, op.Horizon)
 		summary = fmt.Sprintf("Label d'horizon de %s en file d'attente", op.EpicKey)
 		steps = append(steps, fmt.Sprintf("Cible : %s ➔ %s", op.EpicKey, op.Horizon))
+	case TrackerOpEpicPriority:
+		target := strings.ToUpper(op.Priority)
+		if target == "" {
+			target = "aucune"
+		}
+		action = fmt.Sprintf("Priorité de %s ➔ %s", op.EpicKey, target)
+		summary = fmt.Sprintf("Label de priorité de %s en file d'attente", op.EpicKey)
+		steps = append(steps, fmt.Sprintf("Cible : %s ➔ %s", op.EpicKey, target))
+	case TrackerOpEpicQuarter:
+		target := op.Quarter
+		if target == "" {
+			target = "aucun"
+		}
+		action = fmt.Sprintf("Trimestre de %s ➔ %s", op.EpicKey, target)
+		summary = fmt.Sprintf("Label de trimestre de %s en file d'attente", op.EpicKey)
+		steps = append(steps, fmt.Sprintf("Cible : %s ➔ %s", op.EpicKey, target))
+	case TrackerOpEpicReadiness:
+		target := readinessDisplay[op.Readiness]
+		if target == "" {
+			target = "aucune"
+		}
+		action = fmt.Sprintf("Readiness de %s ➔ %s", op.EpicKey, target)
+		summary = fmt.Sprintf("Label de readiness de %s en file d'attente", op.EpicKey)
+		steps = append(steps, fmt.Sprintf("Cible : %s ➔ %s", op.EpicKey, target))
+	case TrackerOpEpicTodos:
+		action = fmt.Sprintf("Todos de %s ➔ tracker", op.EpicKey)
+		summary = fmt.Sprintf("Recopie des todos de %s en file d'attente", op.EpicKey)
+		steps = append(steps, fmt.Sprintf("Cible : %s", op.EpicKey))
+	case TrackerOpEpicFraming:
+		action = fmt.Sprintf("Cadrage de %s ➔ tracker", op.EpicKey)
+		summary = fmt.Sprintf("Recopie du cadrage de %s en file d'attente", op.EpicKey)
+		steps = append(steps, fmt.Sprintf("Cible : %s", op.EpicKey))
 	case TrackerOpTransition:
 		action = fmt.Sprintf("Transition de %s ➔ %s", op.TaskKey, op.TargetStatus)
 		summary = fmt.Sprintf("Transition de %s vers « %s » en file d'attente", op.TaskKey, op.TargetStatus)
@@ -330,8 +401,20 @@ func (d *DB) processTrackerOpJob(ctx context.Context, job SkillJob) {
 		output, err = d.runMoveToEpicOp(ctx, op, &steps)
 	case TrackerOpEpicHorizon:
 		output, err = d.runEpicHorizonOp(ctx, op, &steps)
+	case TrackerOpEpicLabels:
+		output, err = d.runEpicLabelsOp(ctx, op, &steps)
 	case TrackerOpPushHorizons:
 		output, err = d.runPushHorizonsOp(ctx, op, &steps)
+	case TrackerOpEpicPriority:
+		output, err = d.runEpicAxisOp(ctx, op, &steps, d.PushMacroPriorityLabel, op.Priority)
+	case TrackerOpEpicQuarter:
+		output, err = d.runEpicAxisOp(ctx, op, &steps, d.PushMacroQuarterLabel, op.Quarter)
+	case TrackerOpEpicReadiness:
+		output, err = d.runEpicAxisOp(ctx, op, &steps, d.PushMacroReadinessLabel, op.Readiness)
+	case TrackerOpEpicTodos:
+		output, err = d.runEpicTodosOp(ctx, op, &steps)
+	case TrackerOpEpicFraming:
+		output, err = d.runEpicFramingOp(ctx, op, &steps)
 	case TrackerOpTransition:
 		output, err = d.runTransitionOp(ctx, op, &steps)
 	case TrackerOpStage:
@@ -502,8 +585,14 @@ func (d *DB) runMoveToEpicOp(ctx context.Context, op TrackerOp, steps *[]string)
 
 	moved := 0
 	var failures []string
+	var refused error
+	refusals := 0
 	for _, id := range op.TaskIDs {
 		if _, err := d.applyTaskEpic(ctx, id, targetEpicKey, steps); err != nil {
+			if isTrackerWriteRefusal(err) {
+				refused = err
+				refusals++
+			}
 			failures = append(failures, fmt.Sprintf("%s: %v", id, err))
 			*steps = append(*steps, fmt.Sprintf("❌ %s : %v", id, err))
 			continue
@@ -515,7 +604,7 @@ func (d *DB) runMoveToEpicOp(ctx context.Context, op TrackerOp, steps *[]string)
 	if len(failures) > 0 {
 		output += fmt.Sprintf(", %d échec(s) : %s", len(failures), strings.Join(failures, " | "))
 		if moved == 0 {
-			return output, fmt.Errorf("aucun ticket déplacé : %s", strings.Join(failures, " | "))
+			return output, refusalOrFailures("aucun ticket déplacé", failures, refused, refusals)
 		}
 	}
 	return output, nil
@@ -595,6 +684,8 @@ func (d *DB) runSetTeamOp(ctx context.Context, op TrackerOp, steps *[]string) (s
 	// cinquante tickets en produirait cinquante.
 	done := 0
 	var failures []string
+	var refused error
+	refusals := 0
 	for _, id := range ids {
 		task, err := d.GetTaskByID(id)
 		if err != nil || task == nil {
@@ -610,6 +701,10 @@ func (d *DB) runSetTeamOp(ctx context.Context, op TrackerOp, steps *[]string) (s
 			return "", tracker.Unsupported(writer.Name(), tracker.CapTeam)
 		}
 		if err := writer.SetTeam(ctx, task.Key, op.TeamID); err != nil {
+			if isTrackerWriteRefusal(err) {
+				refused = err
+				refusals++
+			}
 			failures = append(failures, fmt.Sprintf("%s: %v", task.Key, err))
 			*steps = append(*steps, fmt.Sprintf("❌ %s : %v", task.Key, err))
 			continue
@@ -622,7 +717,7 @@ func (d *DB) runSetTeamOp(ctx context.Context, op TrackerOp, steps *[]string) (s
 	if len(failures) > 0 {
 		output += fmt.Sprintf(", %d échec(s) : %s", len(failures), strings.Join(failures, " | "))
 		if done == 0 {
-			return output, fmt.Errorf("aucun ticket modifié : %s", strings.Join(failures, " | "))
+			return output, refusalOrFailures("aucun ticket modifié", failures, refused, refusals)
 		}
 	}
 	return output, nil
@@ -698,6 +793,12 @@ func (d *DB) runTransitionOp(ctx context.Context, op TrackerOp, steps *[]string)
 					RemovedLabels: StaleWorkflowLabels(targetLabel),
 				}); err != nil {
 					*steps = append(*steps, fmt.Sprintf("⚠️ Synchro distante %s échouée pour %s: %v, statut gardé en local", ts.Name(), task.Key, err))
+					// A write refused for want of the person's own token reached
+					// nothing: the activity fails, so the person learns which token
+					// to add, as a stage change does (#482, #645).
+					if isTrackerWriteRefusal(err) {
+						return "", err
+					}
 				} else {
 					*steps = append(*steps, fmt.Sprintf("✅ Ticket %s %s mis à jour avec le label « %s » (état: %s)", ts.Name(), task.Key, targetLabel, statusVal))
 				}
@@ -822,8 +923,49 @@ func (d *DB) runStageOp(ctx context.Context, op TrackerOp, steps *[]string) (str
 	return fmt.Sprintf("%s passé à l'étape « %s » [%s]", task.Key, cleanStage, targetLabel), nil
 }
 
+func (d *DB) runEpicLabelsOp(ctx context.Context, op TrackerOp, steps *[]string) (string, error) {
+	note, err := d.PushMacroLabels(ctx, op.ProjectID, op.EpicKey, op.Labels, op.RemovedLabels)
+	if err != nil {
+		return "", err
+	}
+	*steps = append(*steps, "✅ "+note)
+	return note, nil
+}
+
 func (d *DB) runEpicHorizonOp(ctx context.Context, op TrackerOp, steps *[]string) (string, error) {
 	note, err := d.PushEpicHorizonLabel(ctx, op.ProjectID, op.EpicKey, op.Horizon)
+	if err != nil {
+		return "", err
+	}
+	*steps = append(*steps, "✅ "+note)
+	return note, nil
+}
+
+func (d *DB) runEpicTodosOp(ctx context.Context, op TrackerOp, steps *[]string) (string, error) {
+	note, err := d.PushMacroTodosMirror(ctx, op.ProjectID, op.EpicKey, op.Force)
+	if err != nil {
+		return "", err
+	}
+	*steps = append(*steps, "✅ "+note)
+	return note, nil
+}
+
+func (d *DB) runEpicFramingOp(ctx context.Context, op TrackerOp, steps *[]string) (string, error) {
+	note, err := d.PushMacroFramingMirror(ctx, op.ProjectID, op.EpicKey, op.Force)
+	if err != nil {
+		return "", err
+	}
+	*steps = append(*steps, "✅ "+note)
+	return note, nil
+}
+
+// readinessDisplay names the readiness levels in the activity texts, as the
+// roadmap shows them.
+var readinessDisplay = map[string]string{"idea": "Idée", "shaping": "En cadrage", "ready": "Prête"}
+
+// runEpicAxisOp runs the push of one epic axis, priority, quarter or readiness.
+func (d *DB) runEpicAxisOp(ctx context.Context, op TrackerOp, steps *[]string, push func(context.Context, string, string, string) (string, error), value string) (string, error) {
+	note, err := push(ctx, op.ProjectID, op.EpicKey, value)
 	if err != nil {
 		return "", err
 	}
@@ -845,6 +987,17 @@ func (d *DB) runPushHorizonsOp(ctx context.Context, op TrackerOp, steps *[]strin
 		output += fmt.Sprintf(", %d échec(s) : %s", len(failures), strings.Join(failures, " | "))
 	}
 	return output, nil
+}
+
+// refusalOrFailures is the error of a batch operation that wrote no ticket. When
+// every ticket was refused for want of a personal credential it keeps that
+// refusal in its chain, so the activity can say which token is missing (#645);
+// a batch that also failed for other reasons is not only a missing token.
+func refusalOrFailures(prefix string, failures []string, refused error, refusals int) error {
+	if refused != nil && refusals == len(failures) {
+		return fmt.Errorf("%s : %s: %w", prefix, strings.Join(failures, " | "), refused)
+	}
+	return fmt.Errorf("%s : %s", prefix, strings.Join(failures, " | "))
 }
 
 // finishTrackerOp closes the activity with what the write actually did.
@@ -874,9 +1027,9 @@ func (d *DB) finishTrackerOp(activityID string, steps []string, output string, o
 		stepsJSON, _ := json.Marshal(append(existing, steps...))
 		_, err = tx.Exec(`
 			UPDATE task_activities
-			SET status = ?, summary = ?, output = ?, steps = ?, error = ?, completed_at = ?
+			SET status = ?, summary = ?, output = ?, steps = ?, error = ?, credential_missing = ?, completed_at = ?
 			WHERE id = ? AND status != 'canceled'
-		`, status, summary, output, string(stepsJSON), errText, time.Now(), activityID)
+		`, status, summary, output, string(stepsJSON), errText, trackerapi.MissingCredentialTracker(opErr), time.Now(), activityID)
 		return err
 	})
 }

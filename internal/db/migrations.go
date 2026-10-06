@@ -492,6 +492,173 @@ var migrations = []migration{
 		name:       "projects.push_stage_commits",
 		statements: []string{"ALTER TABLE projects ADD COLUMN push_stage_commits INTEGER NOT NULL DEFAULT 0;"},
 	},
+	{
+		// The template a task branch name is rendered from (#621). Empty is the
+		// default format, the feat/<key> names every project had before.
+		version:    33,
+		name:       "projects.branch_name_format",
+		statements: []string{"ALTER TABLE projects ADD COLUMN branch_name_format TEXT NOT NULL DEFAULT '';"},
+	},
+	{
+		// An epic's own priority and quarter (#627). Empty is "none", which is
+		// what every epic had before: the roadmap used to show the highest
+		// priority among the children and knew no quarter.
+		version: 34,
+		name:    "macros.priority_quarter",
+		statements: []string{
+			"ALTER TABLE macros ADD COLUMN priority TEXT NOT NULL DEFAULT '';",
+			"ALTER TABLE macros ADD COLUMN quarter TEXT NOT NULL DEFAULT '';",
+		},
+	},
+	{
+		// The labels a tracker epic carries (#626), kept as the tracker returns
+		// them so the roadmap can show and filter them. An existing macro reads
+		// as carrying none until the next sync.
+		version:    35,
+		name:       "macros.labels",
+		statements: []string{"ALTER TABLE macros ADD COLUMN labels TEXT NOT NULL DEFAULT '[]';"},
+	},
+	{
+		// The provider a failed tracker write was refused for, because the
+		// person who asked for it has no token of their own there (#645). Empty
+		// is "not refused for that", which every earlier activity reads as.
+		version:    36,
+		name:       "task_activities.credential_missing",
+		statements: []string{"ALTER TABLE task_activities ADD COLUMN credential_missing TEXT NOT NULL DEFAULT '';"},
+	},
+	{
+		// The readiness a person decided for an epic, "idea", "shaping" or
+		// "ready" (#633). Empty is "nobody decided", which every epic reads as
+		// until then: the roadmap shows a suggestion in its place.
+		version:    37,
+		name:       "macros.readiness",
+		statements: []string{"ALTER TABLE macros ADD COLUMN readiness TEXT NOT NULL DEFAULT '';"},
+	},
+	{
+		// Whether a project writes the priority and the quarter on the epics of
+		// its roadmap projects, one epic at a time (#632). Closed on every
+		// existing project, so the read-only rule of #426 holds until someone
+		// opens it.
+		version:    38,
+		name:       "projects.roadmap_axis_writes",
+		statements: []string{"ALTER TABLE projects ADD COLUMN roadmap_axis_writes INTEGER NOT NULL DEFAULT 0;"},
+	},
+	{
+		// The label prefixes of the epic priority, quarter and readiness, as a
+		// JSON object (#635). An empty object keeps the default prefixes every
+		// existing project reads and writes under.
+		version:    39,
+		name:       "projects.epic_axis_prefixes",
+		statements: []string{"ALTER TABLE projects ADD COLUMN epic_axis_prefixes TEXT NOT NULL DEFAULT '{}';"},
+	},
+	{
+		// What a personal tracker credential is (#654, ADR 0044): an API token,
+		// which every existing row is, or an Atlassian OAuth grant. version
+		// serialises the refresh of a grant across instances, a compare-and-set
+		// on it keeping exactly one rotated refresh token, and
+		// refresh_claimed_at saying a refresh is in flight so nobody else
+		// spends the same refresh token; disconnected_at marks a grant
+		// Atlassian refused to refresh, kept so the profile can say so.
+		version: 40,
+		name:    "user_tracker_credentials.oauth",
+		statements: []string{
+			"ALTER TABLE user_tracker_credentials ADD COLUMN kind TEXT NOT NULL DEFAULT 'api_token';",
+			"ALTER TABLE user_tracker_credentials ADD COLUMN version INTEGER NOT NULL DEFAULT 0;",
+			"ALTER TABLE user_tracker_credentials ADD COLUMN disconnected_at DATETIME;",
+			"ALTER TABLE user_tracker_credentials ADD COLUMN refresh_claimed_at DATETIME;",
+		},
+	},
+	{
+		// The pending Jira consents (#654), modelled on login_flows: the state
+		// is stored hashed with the web session and the person who started
+		// it, so the callback works on any instance and a replay finds
+		// nothing.
+		version: 41,
+		name:    "jira_oauth_flows",
+		statements: []string{
+			`CREATE TABLE jira_oauth_flows (
+				state_hash TEXT PRIMARY KEY,
+				user_id TEXT NOT NULL,
+				session_hash TEXT NOT NULL,
+				created_at DATETIME NOT NULL,
+				expires_at DATETIME NOT NULL,
+				consumed_at DATETIME
+			);`,
+		},
+	},
+	{
+		// The OAuth app a tracker's grants are issued to (#654), saved from
+		// the Administration page; the client secret is sealed under the
+		// server key. Without a row, the environment configures it.
+		version: 42,
+		name:    "tracker_oauth_apps",
+		statements: []string{
+			`CREATE TABLE tracker_oauth_apps (
+				tracker TEXT PRIMARY KEY,
+				client_id TEXT NOT NULL,
+				record BLOB NOT NULL,
+				redirect_url TEXT NOT NULL,
+				updated_at DATETIME NOT NULL,
+				updated_by TEXT NOT NULL DEFAULT ''
+			);`,
+		},
+	},
+	{
+		// Where the todos of a macro are copied on its tracker, and how that
+		// copy stands (#663): the Jira comment id, the hash of the last body
+		// written, the last failure, the tracker whose personal token that
+		// failure lacked (#645) and the time of the last write. Empty is "never
+		// copied", which every existing macro reads as until its list is next
+		// saved.
+		version: 43,
+		name:    "macros.todos_mirror",
+		statements: []string{
+			"ALTER TABLE macros ADD COLUMN todos_mirror_ref TEXT NOT NULL DEFAULT '';",
+			"ALTER TABLE macros ADD COLUMN todos_mirror_hash TEXT NOT NULL DEFAULT '';",
+			"ALTER TABLE macros ADD COLUMN todos_mirror_error TEXT NOT NULL DEFAULT '';",
+			"ALTER TABLE macros ADD COLUMN todos_mirror_credential TEXT NOT NULL DEFAULT '';",
+			"ALTER TABLE macros ADD COLUMN todos_mirror_at TIMESTAMP NULL;",
+		},
+	},
+	{
+		// Every Sectile tool call looks up the waits its session declared
+		// (#475), so that lookup must not scan every activity (#497). Nearly
+		// every row holds '' and only a waiting run holds a session, so the
+		// index is partial and stays as small as the number of waiting runs.
+		version: 44,
+		name:    "task_activities.waiting_session_index",
+		statements: []string{
+			"CREATE INDEX IF NOT EXISTS idx_task_activities_waiting_session ON task_activities (waiting_session) WHERE waiting_session <> '';",
+		},
+	},
+	{
+		// Where the framing of a Jira epic is copied, and how that copy stands
+		// (#636): the same columns as the todos copy of migration 43, for the
+		// second comment Sectile owns on the epic.
+		version: 45,
+		name:    "macros.framing_mirror",
+		statements: []string{
+			"ALTER TABLE macros ADD COLUMN framing_mirror_ref TEXT NOT NULL DEFAULT '';",
+			"ALTER TABLE macros ADD COLUMN framing_mirror_hash TEXT NOT NULL DEFAULT '';",
+			"ALTER TABLE macros ADD COLUMN framing_mirror_error TEXT NOT NULL DEFAULT '';",
+			"ALTER TABLE macros ADD COLUMN framing_mirror_credential TEXT NOT NULL DEFAULT '';",
+			"ALTER TABLE macros ADD COLUMN framing_mirror_at TIMESTAMP NULL;",
+		},
+	},
+	{
+		// The remote runs deleted after they ended (#675). An agent keeps
+		// reporting a run while its console is open, and without a row to
+		// protect, its report would recreate the run as running. A record is
+		// kept for 30 days, which outlives any console left open.
+		version: 46,
+		name:    "deleted_remote_runs",
+		statements: []string{
+			`CREATE TABLE IF NOT EXISTS deleted_remote_runs (
+				id TEXT PRIMARY KEY,
+				deleted_at TIMESTAMP NOT NULL
+			);`,
+		},
+	},
 }
 
 // migrateSchema brings the database to the schema this binary expects, and is

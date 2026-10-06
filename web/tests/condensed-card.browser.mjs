@@ -33,7 +33,7 @@ await page.getByRole('button',{name:'Actions',exact:true}).click();await page.ge
 await page.waitForTimeout(600);
 await page.evaluate(()=>{ctx.activities=[{taskId:'fixture',status:'running'}];render()});assert(await page.locator('[draggable]').evaluate(e=>e.className.includes('border-indigo-500/60')));assert.equal(await page.getByText('Live',{exact:true}).count(),0);
 await page.evaluate(()=>{task.status='finished';task.labels=['finished'];render()});await page.getByRole('button',{name:'Actions',exact:true}).click();assert(await page.getByRole('button',{name:'Avancer une étape'}).isDisabled());await page.keyboard.press('Escape');
-for(const density of ['standard','comfortable']) {await page.evaluate(d=>{condensed=false;ctx.settings.density=d;render()},density);await page.getByText('Hidden description').waitFor();}
+for(const density of ['standard','comfortable']) {await page.evaluate(d=>{condensed=false;ctx.settings.density=d;render()},density);await page.locator('h4').filter({hasText:'A long title'}).waitFor();assert.equal(await page.getByText('Hidden description').count(),0);}
 await page.evaluate(()=>{condensed=true;ctx.settings.density='compact';task.externalUrl=undefined;task.source='local';task.parentKey=undefined;task.prUrl=undefined;render()});assert.equal(await page.getByRole('link',{name:'#39',exact:true}).count(),0);assert.equal(await page.getByText('Hidden description').count(),0);
 await page.evaluate(()=>{task.status='to_clarify';task.labels=['new'];ctx.settings.density='compact';render()});
 assert.deepEqual(await page.locator('[draggable]').evaluate(e=>{const d=new DataTransfer();e.dispatchEvent(new DragEvent('dragstart',{bubbles:true,dataTransfer:d}));return d.getData('text/plain')}),'fixture');
@@ -46,6 +46,9 @@ for (const zoom of [0.8,1,1.25]) {
  await page.keyboard.press('Escape');
 }
 await page.evaluate(()=>{document.documentElement.style.zoom='1';document.documentElement.style.setProperty('--ui-zoom','1');document.body.classList.remove('light');});
+// #612: the copy icon is the full card's; the condensed card keeps both copy entries of its menu.
+assert.equal(await page.locator('[aria-label^="Copier /"]').count(),0);
+await page.getByRole('button',{name:'Actions',exact:true}).click();await page.getByTitle('Copier /clarify-issue pour cette tâche').waitFor();await page.getByTitle('Copier la commande de chaîne autonome pour cette tâche').waitFor();await page.keyboard.press('Escape');
 if(process.env.CARD_SCREENSHOT) await page.screenshot({path:process.env.CARD_SCREENSHOT});
-assert.deepEqual(errors,[]);console.log('PASS: compact metadata, ellipsis, keyboard details, action isolation, pin/parent/PR, Escape focus, advance guards and arguments, finished state, activity border, detailed densities, local reference, drag payload.');
+assert.deepEqual(errors,[]);console.log('PASS: compact metadata, ellipsis, keyboard details, action isolation, pin/parent/PR, Escape focus, advance guards and arguments, finished state, activity border, detailed densities, local reference, drag payload, copy entries without the copy icon.');
 } finally {await browser?.close();await server.close();}

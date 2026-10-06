@@ -203,39 +203,52 @@ func (s Settings) hasDefaultEngine() bool {
 	return ok
 }
 
-// MigrateSettings persists the conversion of the #305 engine settings, once,
-// at agent start. The previous file is copied beside it first. A file that
-// does not exist yet, or needs no conversion, is left alone.
+// MigrateSettings persists the conversion of the #305 engine settings, the
+// drop of the retired providers and the Sandbox fold (#730), once, at agent
+// start. The previous file is
+// copied beside it first. A file that does not exist yet, or needs neither, is
+// left alone.
 func MigrateSettings(legacyRoot string) (bool, error) {
+	migrated, _, err := MigrateSettingsReport(legacyRoot)
+	return migrated, err
+}
+
+// MigrateSettingsReport is MigrateSettings, also reporting what the drop of
+// the retired providers removed and what the Sandbox fold did, so the agent
+// can log it.
+func MigrateSettingsReport(legacyRoot string) (bool, SettingsMigration, error) {
 	settingsMu.Lock()
 	defer settingsMu.Unlock()
 	path, err := SettingsPath()
 	if err != nil {
-		return false, err
+		return false, SettingsMigration{}, err
 	}
 	raw, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
-		return false, nil
+		return false, SettingsMigration{}, nil
 	}
 	if err != nil {
-		return false, err
+		return false, SettingsMigration{}, err
 	}
 	var before struct {
 		Layout int `json:"layout"`
 	}
 	if err = json.Unmarshal(raw, &before); err != nil {
-		return false, err
+		return false, SettingsMigration{}, err
 	}
-	settings, changed, err := readConverted(legacyRoot)
+	settings, changed, report, err := readConverted(legacyRoot)
 	if err != nil || (!changed && before.Layout >= SettingsLayout) {
-		return false, err
+		return false, SettingsMigration{}, err
 	}
 	backup := fmt.Sprintf("%s.bak-layout%d", path, before.Layout)
 	if _, err := os.Stat(backup); err == nil {
 		backup += "-" + time.Now().UTC().Format("20060102T150405Z")
 	}
 	if err = os.WriteFile(backup, raw, 0600); err != nil {
-		return false, err
+		return false, SettingsMigration{}, err
 	}
-	return true, WriteSettings(settings)
+	if err = WriteSettings(settings); err != nil {
+		return false, SettingsMigration{}, err
+	}
+	return true, report, nil
 }

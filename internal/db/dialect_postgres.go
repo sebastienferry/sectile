@@ -7,6 +7,7 @@ import (
 	"hash/fnv"
 	"log"
 	"math/rand"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -93,6 +94,28 @@ func (postgresDialect) LowerASCII(expr string) string { return `LOWER(` + expr +
 // case.
 func (postgresDialect) FoldSearch(expr string) string {
 	return `LOWER(unaccent(` + expr + `) COLLATE "C")`
+}
+
+// CheckEncoding reads the encoding of the database itself. The client encoding
+// says nothing about it: pgx always asks for UTF8. On a SQL_ASCII database,
+// what `initdb --locale=C` makes without `--encoding`, LENGTH and SUBSTR count
+// bytes, so the output cap keeps half the text and may store a broken
+// character; a single-byte encoding such as LATIN1 cannot store what agents
+// print at all (#693).
+func (postgresDialect) CheckEncoding(conn *sql.DB) error {
+	var encoding, database string
+	if err := conn.QueryRow("SELECT current_setting('server_encoding'), current_database()").Scan(&encoding, &database); err != nil {
+		return fmt.Errorf("reading the PostgreSQL database encoding: %w", err)
+	}
+	return requireUTF8(encoding, database)
+}
+
+// requireUTF8 accepts UTF8 only, and says how to get it otherwise.
+func requireUTF8(encoding, database string) error {
+	if strings.EqualFold(strings.TrimSpace(encoding), "UTF8") {
+		return nil
+	}
+	return fmt.Errorf("the PostgreSQL database %q is encoded in %s, and Sectile needs UTF8: create it with CREATE DATABASE %s ENCODING 'UTF8' TEMPLATE template0, or in a cluster made with initdb --encoding=UTF8", database, encoding, database)
 }
 
 func (postgresDialect) ColumnsQuery() string {

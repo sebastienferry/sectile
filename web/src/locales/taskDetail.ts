@@ -68,6 +68,9 @@ const fr = {
     repositoryTitle: "Dépôt dans lequel l'agent travaille ce ticket, les autres servant de contexte",
     notPinned: '- non épinglé -',
     outsideProject: '{repository} (hors du projet)',
+    otherRepository: 'Autre dépôt…',
+    otherRepositoryPlaceholder: 'git@hôte:groupe/depot.git ou hôte/chemin',
+    otherRepositoryTitle: "Un dépôt que le projet ne déclare pas : l'agent n'y travaille que sur un poste où l'option « Any repository » du projet est activée",
     creator: 'Créé par',
     creatorTitle: 'Créateur : {name}',
     createdBy: 'Créé par {name}',
@@ -122,7 +125,9 @@ const fr = {
       merged: 'PR fusionnée',
       closed: 'PR fermée sans fusion',
       unknown: 'État de la PR inconnu',
+      missingToken: 'État de la PR inconnu : aucun jeton {forge}',
     },
+    otherRepositories: 'Autres dépôts : {list}',
   },
   workflow: {
     completePrSetup: 'Finaliser la PR via {skill}',
@@ -228,6 +233,8 @@ const fr = {
     write: 'Écrire',
     preview: 'Aperçu',
     emptyPreview: "Rien à afficher pour l'instant.",
+    maximize: "Agrandir l'éditeur",
+    restore: 'Réduire',
     /** Each toolbar button: its title, and the text it inserts when nothing is selected. */
     snippets: {
       bold: { title: 'Gras', placeholder: 'texte' },
@@ -299,6 +306,9 @@ const en: TaskDetailStrings = {
     repositoryTitle: 'Repository the agent works in for this ticket, the others serving as context',
     notPinned: '- not pinned -',
     outsideProject: '{repository} (outside the project)',
+    otherRepository: 'Other repository…',
+    otherRepositoryPlaceholder: 'git@host:group/repo.git or host/path',
+    otherRepositoryTitle: "A repository the project does not declare: the agent works there only on a workstation where the project's Any repository option is on",
     creator: 'Created by',
     creatorTitle: 'Creator: {name}',
     createdBy: 'Created by {name}',
@@ -352,7 +362,9 @@ const en: TaskDetailStrings = {
       merged: 'PR merged',
       closed: 'PR closed without merging',
       unknown: 'PR state unknown',
+      missingToken: 'PR state unknown: no {forge} token',
     },
+    otherRepositories: 'Other repositories: {list}',
   },
   workflow: {
     completePrSetup: 'Complete PR setup through {skill}',
@@ -457,6 +469,8 @@ const en: TaskDetailStrings = {
     write: 'Write',
     preview: 'Preview',
     emptyPreview: 'Nothing to show yet.',
+    maximize: 'Expand the editor',
+    restore: 'Shrink',
     snippets: {
       bold: { title: 'Bold', placeholder: 'text' },
       italic: { title: 'Italic', placeholder: 'text' },

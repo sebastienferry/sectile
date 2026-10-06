@@ -67,10 +67,83 @@ func TestPushStageCommitsMigration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if _, err := d.conn.Exec("ALTER TABLE macros DROP COLUMN labels"); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := d.conn.Exec("ALTER TABLE projects DROP COLUMN push_stage_commits"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := d.conn.Exec("DELETE FROM schema_migrations WHERE version = 32"); err != nil {
+	// Migrations 33 and 34 come after it and are replayed too.
+	if _, err := d.conn.Exec("ALTER TABLE projects DROP COLUMN branch_name_format"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.conn.Exec("ALTER TABLE macros DROP COLUMN priority"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.conn.Exec("ALTER TABLE macros DROP COLUMN quarter"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.conn.Exec("ALTER TABLE macros DROP COLUMN readiness"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.conn.Exec("ALTER TABLE task_activities DROP COLUMN credential_missing"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.conn.Exec("ALTER TABLE projects DROP COLUMN roadmap_axis_writes"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.conn.Exec("ALTER TABLE user_tracker_credentials DROP COLUMN kind"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.conn.Exec("ALTER TABLE user_tracker_credentials DROP COLUMN version"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.conn.Exec("ALTER TABLE user_tracker_credentials DROP COLUMN disconnected_at"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.conn.Exec("ALTER TABLE user_tracker_credentials DROP COLUMN refresh_claimed_at"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.conn.Exec("DROP TABLE jira_oauth_flows"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.conn.Exec("DROP TABLE tracker_oauth_apps"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.conn.Exec("ALTER TABLE projects DROP COLUMN epic_axis_prefixes"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.conn.Exec("ALTER TABLE macros DROP COLUMN todos_mirror_ref"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.conn.Exec("ALTER TABLE macros DROP COLUMN todos_mirror_hash"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.conn.Exec("ALTER TABLE macros DROP COLUMN todos_mirror_error"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.conn.Exec("ALTER TABLE macros DROP COLUMN todos_mirror_credential"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.conn.Exec("ALTER TABLE macros DROP COLUMN todos_mirror_at"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.conn.Exec("ALTER TABLE macros DROP COLUMN framing_mirror_ref"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.conn.Exec("ALTER TABLE macros DROP COLUMN framing_mirror_hash"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.conn.Exec("ALTER TABLE macros DROP COLUMN framing_mirror_error"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.conn.Exec("ALTER TABLE macros DROP COLUMN framing_mirror_credential"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.conn.Exec("ALTER TABLE macros DROP COLUMN framing_mirror_at"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.conn.Exec("DELETE FROM schema_migrations WHERE version >= 32"); err != nil {
 		t.Fatal(err)
 	}
 	d.Close()

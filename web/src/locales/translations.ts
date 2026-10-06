@@ -22,6 +22,13 @@ export interface TranslationSchema {
   operations: OperationsStrings
   signIn: SignInStrings
   batchLaunch: string
+  /** A tracker write refused for want of the person's own token, and the offer to add it (#645). */
+  trackerRefusal: {
+    title: string
+    description: string
+    queuedDescription: string
+    offer: string
+  }
   batchMember: {
     badge: string
     tooltip: string
@@ -250,6 +257,21 @@ export interface TranslationSchema {
     followUpClarify: string
     /** Warning title when the new ticket could not be attached; {macro} is the key. */
     attachFailed: string
+    /** Submit button label while the ticket is being created. */
+    creating: string
+    /** Project field label; the asterisk marks it required. */
+    project: string
+    /** Prefix of the active project's tracker, e.g. "Tracker: GitHub (repo)". */
+    tracker: string
+    /** Shown in "Jira (…)" when the project has no Jira key. */
+    trackerNotConfigured: string
+    /** Shown in "GitLab (…)" when the project names no GitLab project. */
+    trackerDefaultProject: string
+    issueType: string
+    /** Issue type that leaves the choice to the tracker. */
+    issueTypeDefault: string
+    sprint: string
+    sprintPlaceholder: string
   }
   commandPalette: {
     searchPlaceholder: string
@@ -602,6 +624,37 @@ export interface TranslationSchema {
       default: string
       needCheck: string
     }
+    oauth: {
+      connect: string
+      connecting: string
+      connectHint: string
+      useTokenInstead: string
+      useConnectInstead: string
+      replaceTokenHint: string
+      connectedAs: string
+      connectedNoAccount: string
+      sites: string
+      disconnect: string
+      disconnectConfirm: string
+      atlassianNote: string
+      disconnectedTitle: string
+      disconnectedBody: string
+      reconnect: string
+      notConfiguredHint: string
+      stateConnected: string
+      stateDisconnected: string
+      stateNotConnected: string
+      dismiss: string
+      connectFailed: string
+      outcomeTitle: string
+      outcomes: {
+        connected: string
+        cancelled: string
+        invalid: string
+        no_site: string
+        unreachable: string
+      }
+    }
     form: {
       accountEmail: string
       accountEmailPlaceholder: string
@@ -704,6 +757,7 @@ export interface TranslationSchema {
     advanceAutonomous: string
     filterParent: string
     clearParent: string
+    openEpic: string
     openPr: string
   }
   statusBar: {
@@ -746,6 +800,29 @@ export interface TranslationSchema {
     online: string
     lastActive: string
     never: string
+    jiraOAuth: {
+      title: string
+      intro: string
+      clientId: string
+      clientSecret: string
+      secretSet: string
+      secretPlaceholder: string
+      redirectUrl: string
+      redirectHint: string
+      scopes: string
+      sourceStored: string
+      sourceEnvironment: string
+      sourceEnvironmentIncomplete: string
+      sourceNone: string
+      unreadable: string
+      save: string
+      clear: string
+      confirmClear: string
+      saved: string
+      cleared: string
+      loadFailed: string
+      saveFailed: string
+    }
     serverCredentials: {
       title: string
       intro: string
@@ -844,6 +921,12 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
     operations: operations.fr,
     signIn: signIn.fr,
     batchLaunch: 'Lot',
+    trackerRefusal: {
+      title: 'Écriture refusée par le tracker',
+      description: "Vous n'avez pas de jeton {provider} personnel : cette action n'a pas été écrite sur {provider}.",
+      queuedDescription: "{task} : l'écriture sur {provider} a été refusée, faute de jeton {provider} personnel.",
+      offer: 'Ajouter mon jeton {provider}',
+    },
     batchMember: {
       badge: 'Lot {key}',
       tooltip: 'Lot mené par {key} · ticket {position} sur {size}',
@@ -1015,7 +1098,7 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
       autoPilot: 'Auto-Pilot (/pick-issue)',
       clarify: 'Clarifier (/clarify-issue)',
       specify: 'Spécifier (/specify-issue)',
-      implement: 'Coder (/code-issue)',
+      implement: 'Coder (/implement-issue)',
       createPr: 'Adjust (/adjust-issue)',
       history: 'Historique des exécutions & Artefacts',
       noHistory: 'Aucune exécution de skill pour le moment sur cette tâche.',
@@ -1068,6 +1151,15 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
       followUpRewrite: 'Reformuler en user story',
       followUpClarify: 'Clarifier',
       attachFailed: 'Ticket créé, mais non rattaché à {macro}',
+      creating: 'Création…',
+      project: 'Projet *',
+      tracker: 'Tracker :',
+      trackerNotConfigured: 'projet non configuré',
+      trackerDefaultProject: 'projet par défaut',
+      issueType: 'Type de ticket',
+      issueTypeDefault: 'Défaut',
+      sprint: 'Sprint',
+      sprintPlaceholder: 'Affecter un sprint (optionnel)…',
     },
     commandPalette: {
       searchPlaceholder: 'Tapez une commande, skill ou tâche...',
@@ -1194,7 +1286,7 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
         promptsTitle: 'Personnalisation des Prompts par Skill',
         promptClarify: 'Prompt /clarify-issue (Cadrage & questions)',
         promptSpecify: 'Prompt /specify-issue (Spécification Spec Kit / OpenSpec)',
-        promptImplement: 'Prompt /code-issue (Implémentation & tests)',
+        promptImplement: 'Prompt /implement-issue (Implémentation & tests)',
         promptAdjust: 'Prompt /adjust-issue (Ajustement, revue & màj PR)',
         promptHandoff: 'Prompt /handoff-issue (Clôture & handoff)',
         promptCreatePr: 'Prompt legacy de création de PR (obsolète)',
@@ -1225,7 +1317,7 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
         speckitTitle: 'GitHub Spec Kit',
         speckitSubtitle: 'CLI specify',
         speckitDesc: 'Convention standard GitHub : structure modulaire dans .specify/ et specs/ (spec.md, plan.md, tasks.md).',
-        speckitCommands: 'Commandes : /specify-issue, /code-issue',
+        speckitCommands: 'Commandes : /specify-issue, /implement-issue',
         openspecTitle: 'OpenSpec',
         openspecSubtitle: 'CLI openspec',
         openspecDesc: 'Spécification formelle par deltas et exigences vérifiables. Les propositions de changements sont validées et revues avant l\'écriture de code.',
@@ -1253,7 +1345,7 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
             placeholder: 'Tu es le Product Owner pour {issueKey}. Rédige la spécification selon le framework SDD configuré...',
           },
           implement: {
-            label: 'Prompt d\'Implémentation (/code-issue)',
+            label: 'Prompt d\'Implémentation (/implement-issue)',
             hint: 'Développement & Tests',
             placeholder: 'Tu es le développeur senior pour {issueKey}. Implémente le code dans {repoPath}...',
           },
@@ -1420,6 +1512,37 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
         default: 'Renseignez les accès, puis vérifiez-les.',
         needCheck: "Vérifiez les accès : l'enregistrement se débloque une fois que l'instance les a acceptés.",
       },
+      oauth: {
+        connect: 'Connecter Jira',
+        connecting: 'Redirection vers Atlassian…',
+        connectHint: 'Un écran de consentement Atlassian, et vos écritures Jira se font sous votre propre compte. Aucun jeton à créer, à coller ni à desceller.',
+        useTokenInstead: 'Utiliser un jeton d\'API à la place',
+        useConnectInstead: 'Revenir à la connexion Jira',
+        replaceTokenHint: 'Connecter Jira remplace le jeton d\'API enregistré.',
+        connectedAs: 'Connecté à Jira en tant que {account}',
+        connectedNoAccount: 'Connecté à Jira',
+        sites: 'Sites couverts :',
+        disconnect: 'Déconnecter',
+        disconnectConfirm: 'Oublier la connexion Jira ? Vos écritures Jira seront refusées jusqu\'à une nouvelle connexion.',
+        atlassianNote: 'Pour retirer aussi l\'accès côté Atlassian, supprimez Sectile des applications connectées de votre compte Atlassian (id.atlassian.com).',
+        disconnectedTitle: 'Connexion Jira perdue',
+        disconnectedBody: 'Atlassian a refusé de renouveler votre accès : vous l\'avez révoqué, ou il est resté trop longtemps inutilisé. Vos écritures Jira sont refusées jusqu\'à ce que vous reconnectiez Jira.',
+        reconnect: 'Reconnecter Jira',
+        notConfiguredHint: 'La connexion Jira n\'est plus configurée sur ce serveur : demandez à un admin de la rétablir, ou enregistrez un jeton d\'API.',
+        stateConnected: 'Connecté via Atlassian',
+        stateDisconnected: 'Connexion perdue',
+        stateNotConnected: 'Non connecté',
+        dismiss: 'Fermer',
+        connectFailed: 'La connexion Jira n\'a pas pu démarrer',
+        outcomeTitle: 'Connexion Jira',
+        outcomes: {
+          connected: 'Jira est connecté : vos écritures se font sous votre compte.',
+          cancelled: 'Connexion annulée sur l\'écran Atlassian : rien n\'a été enregistré.',
+          invalid: 'La tentative de connexion a expiré ou n\'est pas valable : recommencez.',
+          no_site: 'L\'accès accordé ne couvre aucun site Jira de ce serveur. Reconnectez Jira et choisissez l\'un de ces sites : {sites}.',
+          unreachable: 'Atlassian n\'a pas pu être joint : rien n\'a été enregistré, réessayez.',
+        },
+      },
       form: {
         accountEmail: "E-mail du compte",
         accountEmailPlaceholder: "prenom.nom@exemple.com",
@@ -1521,6 +1644,7 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
       advanceAutonomous: 'Avancer en autonome',
       filterParent: 'Filtrer par parent',
       clearParent: 'Retirer le filtre parent',
+      openEpic: 'Ouvrir la macro dans la roadmap',
       openPr: 'Ouvrir la PR / MR',
     },
     statusBar: {
@@ -1563,6 +1687,29 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
       online: 'En ligne',
       lastActive: 'Vu',
       never: 'jamais',
+      jiraOAuth: {
+        title: 'Connexion Jira (OAuth Atlassian)',
+        intro: 'L\'application OAuth 2.0 enregistrée sur developer.atlassian.com, avec la distribution activée. Une fois configurée, chacun connecte son compte Jira depuis son profil au lieu de coller un jeton d\'API.',
+        clientId: 'Identifiant client',
+        clientSecret: 'Secret client',
+        secretSet: 'Secret enregistré : laissez vide pour le garder',
+        secretPlaceholder: 'Secret de l\'application',
+        redirectUrl: 'URL de rappel',
+        redirectHint: 'Celle déclarée sur l\'application, en HTTPS : https://<votre serveur>/auth/jira/callback',
+        scopes: 'Portées à déclarer sur l\'application',
+        sourceStored: 'Enregistrée sur cette page',
+        sourceEnvironment: 'Lue dans l\'environnement du serveur',
+        sourceEnvironmentIncomplete: 'Environnement du serveur incomplet : l\'identifiant, le secret et l\'URL de retour sont requis',
+        sourceNone: 'Non configurée : les profils proposent le jeton d\'API',
+        unreadable: 'Le secret enregistré ne s\'ouvre plus avec la clé du serveur : saisissez-le à nouveau.',
+        save: 'Enregistrer',
+        clear: 'Effacer',
+        confirmClear: 'Effacer l\'application OAuth Jira ? Les connexions existantes ne pourront plus se renouveler.',
+        saved: 'Application OAuth Jira enregistrée',
+        cleared: 'Application OAuth Jira effacée',
+        loadFailed: 'Impossible de lire l\'application OAuth Jira',
+        saveFailed: 'Application OAuth Jira non enregistrée',
+      },
       serverCredentials: {
         title: 'Accès trackers du serveur',
         intro: 'Le compte avec lequel Sectile synchronise chaque tracker. Il sert à toutes les synchronisations, même celles lancées à la main ; les écritures faites par quelqu\'un restent faites avec son propre accès.',
@@ -1659,6 +1806,12 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
     operations: operations.en,
     signIn: signIn.en,
     batchLaunch: 'Batch',
+    trackerRefusal: {
+      title: 'Tracker write refused',
+      description: 'You have no personal {provider} token: this action was not written to {provider}.',
+      queuedDescription: '{task}: the write to {provider} was refused, for want of a personal {provider} token.',
+      offer: 'Add my {provider} token',
+    },
     batchMember: {
       badge: 'Batch {key}',
       tooltip: 'Batch led by {key} · ticket {position} of {size}',
@@ -1830,7 +1983,7 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
       autoPilot: 'Auto-Pilot (/pick-issue)',
       clarify: 'Clarify (/clarify-issue)',
       specify: 'Specify (/specify-issue)',
-      implement: 'Implement (/code-issue)',
+      implement: 'Implement (/implement-issue)',
       createPr: 'Adjust (/adjust-issue)',
       history: 'Execution History & Artifacts',
       noHistory: 'No skill runs recorded yet on this task.',
@@ -1883,6 +2036,15 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
       followUpRewrite: 'Rewrite as a user story',
       followUpClarify: 'Clarify',
       attachFailed: 'Ticket created, but not attached to {macro}',
+      creating: 'Creating…',
+      project: 'Project *',
+      tracker: 'Tracker:',
+      trackerNotConfigured: 'project not configured',
+      trackerDefaultProject: 'default project',
+      issueType: 'Ticket type',
+      issueTypeDefault: 'Default',
+      sprint: 'Sprint',
+      sprintPlaceholder: 'Assign a sprint (optional)…',
     },
     commandPalette: {
       searchPlaceholder: 'Type a command, skill or task...',
@@ -2009,7 +2171,7 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
         promptsTitle: 'Custom Skill Prompts',
         promptClarify: 'Prompt /clarify-issue',
         promptSpecify: 'Prompt /specify-issue',
-        promptImplement: 'Prompt /code-issue',
+        promptImplement: 'Prompt /implement-issue',
         promptAdjust: 'Prompt /adjust-issue',
         promptHandoff: 'Prompt /handoff-issue',
         promptCreatePr: 'Legacy adjustment prompt',
@@ -2040,7 +2202,7 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
         speckitTitle: 'GitHub Spec Kit',
         speckitSubtitle: 'CLI specify',
         speckitDesc: 'Standard GitHub convention: modular structure in .specify/ and specs/ (spec.md, plan.md, tasks.md).',
-        speckitCommands: 'Commands: /specify-issue, /code-issue',
+        speckitCommands: 'Commands: /specify-issue, /implement-issue',
         openspecTitle: 'OpenSpec',
         openspecSubtitle: 'CLI openspec',
         openspecDesc: 'Formal specification with deltas and verifiable requirements. Change proposals are reviewed and verified before writing code.',
@@ -2068,7 +2230,7 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
             placeholder: 'You are the Product Owner for {issueKey}. Write the specification following the configured SDD framework...',
           },
           implement: {
-            label: 'Implementation Prompt (/code-issue)',
+            label: 'Implementation Prompt (/implement-issue)',
             hint: 'Development & tests',
             placeholder: 'You are the senior developer for {issueKey}. Implement the code in {repoPath}...',
           },
@@ -2235,6 +2397,37 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
         default: 'Enter credentials, then verify them.',
         needCheck: 'Verify credentials: saving unlocks once accepted by the instance.',
       },
+      oauth: {
+        connect: 'Connect Jira',
+        connecting: 'Redirecting to Atlassian…',
+        connectHint: 'One Atlassian consent screen, and your Jira writes are made under your own account. No token to create, paste or unseal.',
+        useTokenInstead: 'Use an API token instead',
+        useConnectInstead: 'Back to Connect Jira',
+        replaceTokenHint: 'Connecting Jira replaces the stored API token.',
+        connectedAs: 'Connected to Jira as {account}',
+        connectedNoAccount: 'Connected to Jira',
+        sites: 'Sites covered:',
+        disconnect: 'Disconnect',
+        disconnectConfirm: 'Forget the Jira connection? Your Jira writes will be refused until you connect again.',
+        atlassianNote: 'To remove the access on Atlassian\'s side too, remove Sectile from the connected apps of your Atlassian account (id.atlassian.com).',
+        disconnectedTitle: 'Jira connection lost',
+        disconnectedBody: 'Atlassian refused to renew your access: you revoked it, or it went unused for too long. Your Jira writes are refused until you reconnect Jira.',
+        reconnect: 'Reconnect Jira',
+        notConfiguredHint: 'Jira connection is no longer configured on this server: ask an admin to restore it, or save an API token.',
+        stateConnected: 'Connected through Atlassian',
+        stateDisconnected: 'Connection lost',
+        stateNotConnected: 'Not connected',
+        dismiss: 'Dismiss',
+        connectFailed: 'Jira connection could not start',
+        outcomeTitle: 'Jira connection',
+        outcomes: {
+          connected: 'Jira is connected: your writes are made under your account.',
+          cancelled: 'Connection cancelled on the Atlassian screen: nothing was stored.',
+          invalid: 'The connection attempt expired or is not valid: try again.',
+          no_site: 'The access granted covers no Jira site of this server. Reconnect Jira and pick one of these sites: {sites}.',
+          unreachable: 'Atlassian could not be reached: nothing was stored, try again.',
+        },
+      },
       form: {
         accountEmail: 'Account email',
         accountEmailPlaceholder: 'firstname.lastname@example.com',
@@ -2336,6 +2529,7 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
       advanceAutonomous: 'Advance autonomously',
       filterParent: 'Filter by parent',
       clearParent: 'Clear parent filter',
+      openEpic: 'Open the macro in the roadmap',
       openPr: 'Open PR / MR',
     },
     statusBar: {
@@ -2378,6 +2572,29 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
       online: 'Online',
       lastActive: 'Seen',
       never: 'never',
+      jiraOAuth: {
+        title: 'Jira connection (Atlassian OAuth)',
+        intro: 'The OAuth 2.0 app registered on developer.atlassian.com, with distribution enabled. Once configured, everyone connects their Jira account from their profile instead of pasting an API token.',
+        clientId: 'Client ID',
+        clientSecret: 'Client secret',
+        secretSet: 'Secret saved: leave empty to keep it',
+        secretPlaceholder: 'The app\'s secret',
+        redirectUrl: 'Callback URL',
+        redirectHint: 'The one declared on the app, over HTTPS: https://<your server>/auth/jira/callback',
+        scopes: 'Scopes to declare on the app',
+        sourceStored: 'Saved on this page',
+        sourceEnvironment: 'Read from the server environment',
+        sourceEnvironmentIncomplete: 'Server environment incomplete: the client id, secret and callback URL are all required',
+        sourceNone: 'Not configured: profiles offer the API token',
+        unreadable: 'The saved secret no longer opens with the server key: enter it again.',
+        save: 'Save',
+        clear: 'Clear',
+        confirmClear: 'Clear the Jira OAuth app? Existing connections will no longer renew.',
+        saved: 'Jira OAuth app saved',
+        cleared: 'Jira OAuth app cleared',
+        loadFailed: 'Could not read the Jira OAuth app',
+        saveFailed: 'Jira OAuth app not saved',
+      },
       serverCredentials: {
         title: 'Server tracker credentials',
         intro: 'The account Sectile synchronises each tracker with. It serves every synchronisation, those started by hand included; a write somebody makes still goes with their own credential.',

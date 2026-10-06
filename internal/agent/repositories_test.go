@@ -49,9 +49,15 @@ func TestPrimaryRootFollowsThePin(t *testing.T) {
 	if root, _, err := primaryRoot(ctx, multiRepoConfig(), agentconfig.Settings{}, projectRoot, models.Task{Key: "#1"}); err != nil || root != projectRoot {
 		t.Errorf("only the code repository mapped: %q %v", root, err)
 	}
-	// A pin to a repository the project no longer declares reads as none.
-	if root, _, err := primaryRoot(ctx, multiRepoConfig(), overrides, projectRoot, models.Task{Key: "#1", Repository: "github.com/o/gone"}); err != nil || root != projectRoot {
-		t.Errorf("stale pin: %q %v", root, err)
+	// A pin to a repository the project does not declare needs the Any
+	// repository option (#737); without it the launch fails, naming it,
+	// rather than run the ticket in another repository.
+	if _, _, err := primaryRoot(ctx, multiRepoConfig(), overrides, projectRoot, models.Task{Key: "#1", Repository: "github.com/o/gone"}); err == nil || !strings.Contains(err.Error(), "Any repository option") {
+		t.Errorf("undeclared pin without the option: %v", err)
+	}
+	// What names no repository still reads as no pin.
+	if root, _, err := primaryRoot(ctx, multiRepoConfig(), overrides, projectRoot, models.Task{Key: "#1", Repository: "gone"}); err != nil || root != projectRoot {
+		t.Errorf("a pin naming no repository: %q %v", root, err)
 	}
 }
 
@@ -63,7 +69,7 @@ func TestFolderMapDescribesEveryFolder(t *testing.T) {
 	gitTest(t, b, "branch", "feat/1")
 	secondary := filepath.Join(t.TempDir(), "b-wt")
 	gitTest(t, b, "worktree", "add", "-q", secondary, "feat/1")
-	overrides := agentconfig.Settings{Repositories: map[string]string{"github.com/o/b": b}, ProjectSettings: map[string]agentconfig.ProjectSettings{"p": {SpecPath: spec}}}
+	overrides := agentconfig.Settings{Repositories: map[string]string{"github.com/o/b": b}, ProjectSettings: map[string]agentconfig.ProjectSettings{"p": {IssueSpecPath: spec}}}
 	task := models.Task{Key: "#1", BranchName: branchOf("feat/1"), ChangedRepositories: []string{"github.com/o/b"}}
 
 	entries := buildFolderMap(ctx, multiRepoConfig(), overrides, projectRoot, "github.com/o/a", "/work/a", task)
@@ -128,7 +134,7 @@ func TestContextFoldersReachClaudeAndCodex(t *testing.T) {
 	if codexHeadless, err := modeCommandLine("codex", "", "", "go", models.SkillModeAutonomous, launch); err != nil || !strings.HasPrefix(codexHeadless, "codex exec") || !strings.HasSuffix(codexHeadless, `'go' --add-dir='/src/b' --add-dir='/src/it'\''s'`) {
 		t.Errorf("codex headless = %q, %v", codexHeadless, err)
 	}
-	for _, provider := range []string{"vibe", "gemini"} {
+	for _, provider := range []string{"agy"} {
 		for _, mode := range []string{models.SkillModeInteractive, models.SkillModeAutonomous} {
 			if line, _ := modeCommandLine(provider, "", "", "go", mode, launch); strings.Contains(line, "add-dir") || strings.Contains(line, "/src/b") {
 				t.Errorf("%s %s guessed a flag: %q", provider, mode, line)
@@ -141,8 +147,8 @@ func TestContextFoldersReachClaudeAndCodex(t *testing.T) {
 	if line, _ := modeCommandLine("codex", "codex {addDirs} '{prompt}'", "", "go", models.SkillModeInteractive, launch); !strings.HasPrefix(line, "codex --add-dir='/src/b' --add-dir=") {
 		t.Errorf("template {addDirs} for codex = %q", line)
 	}
-	if line, _ := modeCommandLine("vibe", "vibe {addDirs} '{prompt}'", "", "go", models.SkillModeInteractive, launch); strings.Contains(line, "add-dir") {
-		t.Errorf("template for vibe = %q", line)
+	if line, _ := modeCommandLine("agy", "agy {addDirs} '{prompt}'", "", "go", models.SkillModeInteractive, launch); strings.Contains(line, "add-dir") {
+		t.Errorf("template for agy = %q", line)
 	}
 	if line, _ := modeCommandLine("claude", "", "", "go", models.SkillModeAutonomous); strings.Contains(line, "add-dir") {
 		t.Errorf("no context folder, no flag: %q", line)
@@ -311,7 +317,7 @@ func TestFolderMapListsAttachedFolders(t *testing.T) {
 	spec := t.TempDir()
 	overrides := attachedTo(agentconfig.Settings{Repositories: map[string]string{"github.com/o/b": b}}, ui, lib, bAgain, notes, missing, projectRoot, spec, notes)
 	overrides.ProjectSettings["p"] = func(section agentconfig.ProjectSettings) agentconfig.ProjectSettings {
-		section.SpecPath = spec
+		section.IssueSpecPath = spec
 		return section
 	}(overrides.ProjectSettings["p"])
 	task := models.Task{Key: "#1", BranchName: branchOf("feat/1"), ChangedRepositories: []string{"github.com/o/lib"}}
@@ -574,5 +580,42 @@ func TestRepositoryWorktreeRefusalNamesTheReason(t *testing.T) {
 	got, err := repositoryWorktree(ctx, multiRepoConfig(), attachedTo(agentconfig.Settings{}, missing, broken, lib), projectRoot, task, "github.com/o/lib", "laptop")
 	if err != nil || got.Repository != "github.com/o/lib" || got.Branch != "feat/1" {
 		t.Errorf("a failing folder beside the repository's: %+v, %v", got, err)
+	}
+}
+
+// A conversation or a free console has no ticket: its folders are the
+// project's other repositories, its specifications folder and its present
+// attached folders, never its own directory nor a folder gone since (#676).
+func TestProjectFolderMapListsTheProjectFolders(t *testing.T) {
+	testhome.Temp(t)
+	ctx := context.Background()
+	root := checkoutOf(t, "git@github.com:o/a.git")
+	b := checkoutOf(t, "git@github.com:o/b.git")
+	spec := t.TempDir()
+	notes := t.TempDir()
+	missing := filepath.Join(t.TempDir(), "gone")
+	if err := agentconfig.WriteSettings(agentconfig.Settings{
+		ProjectSettings: map[string]agentconfig.ProjectSettings{"p": {Path: root, MacroSpecPath: spec, Folders: []string{notes, missing}}},
+		Repositories:    map[string]string{"github.com/o/b": b},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	d, _, _ := desktopAgent(t, root, models.Task{})
+
+	entries, err := d.projectFolderMap(ctx, multiRepoConfig(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dirs := folderMapDirs(entries)
+	if len(dirs) != 3 || !containsPath(t, dirs, b) || !containsPath(t, dirs, spec) || !containsPath(t, dirs, notes) {
+		t.Fatalf("add-dirs = %v", dirs)
+	}
+	if containsPath(t, dirs, root) || strings.Contains(strings.Join(dirs, " "), missing) {
+		t.Fatalf("the directory itself or a missing folder reached the CLI: %v", dirs)
+	}
+
+	other := agentconfig.Config{ProjectID: "elsewhere", GitRemoteURL: "git@github.com:o/z.git"}
+	if _, err := d.projectFolderMap(ctx, other, root); err == nil {
+		t.Fatal("a project without a folder here must report it")
 	}
 }

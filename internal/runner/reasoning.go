@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 )
 
 // Reading the reasoning stream of an engine.
@@ -43,7 +44,18 @@ type ReasoningEvent struct {
 	// the skill invoked. "Bash" and "Skill" on their own tell a reader that
 	// something happened and nothing about what.
 	Detail string
+	// Tool is the full name of the tool called, and Input its arguments as
+	// the engine sent them, for a reader that draws each tool its own way.
+	// Input is dropped past ToolInputLimit; Detail still says what it was.
+	Tool  string
+	Input json.RawMessage
+	// ToolID is the call's identifier, which its result names.
+	ToolID string
 }
+
+// ToolInputLimit bounds the arguments kept with a tool call. A Write carries
+// the whole file it writes, and a trace keeps thousands of events.
+const ToolInputLimit = 64 * 1024
 
 // reasoningLine is the outer shape of a stream line. Only the fields Sectile
 // reads are declared, so an engine adding one changes nothing here.
@@ -62,6 +74,7 @@ type reasoningLine struct {
 			Thinking string          `json:"thinking"`
 			Name     string          `json:"name"`
 			Input    json.RawMessage `json:"input"`
+			ID       string          `json:"id"`
 		} `json:"content"`
 	} `json:"message"`
 }
@@ -106,11 +119,17 @@ func ParseReasoningLine(line string) (events []ReasoningEvent, result string, do
 				if strings.TrimSpace(block.Name) == "" {
 					continue
 				}
-				events = append(events, ReasoningEvent{
+				event := ReasoningEvent{
 					Kind:   ReasoningTool,
 					Text:   shortToolName(block.Name),
 					Detail: toolDetail(block.Name, block.Input),
-				})
+					Tool:   block.Name,
+					ToolID: block.ID,
+				}
+				if len(block.Input) <= ToolInputLimit && json.Valid(block.Input) {
+					event.Input = block.Input
+				}
+				events = append(events, event)
 			}
 		}
 		return events, "", false
@@ -220,4 +239,87 @@ func shortToolName(name string) string {
 		return last
 	}
 	return name
+}
+
+// ToolResult is what a tool call answered, as the engine reported it back.
+type ToolResult struct {
+	// ToolID names the call this answers.
+	ToolID string
+	// Text is the answer, cut to ToolResultLimit bytes; Truncated says so.
+	Text      string
+	Truncated bool
+	IsError   bool
+}
+
+// ToolResultLimit bounds the answer kept from a tool call. A read returns the
+// whole file and a command all it printed; a reader needs the start of it.
+const ToolResultLimit = 16 * 1024
+
+// toolResultLine is the shape of the user messages that carry tool results.
+type toolResultLine struct {
+	Type    string `json:"type"`
+	Message struct {
+		Content []struct {
+			Type    string          `json:"type"`
+			ToolID  string          `json:"tool_use_id"`
+			Content json.RawMessage `json:"content"`
+			IsError bool            `json:"is_error"`
+		} `json:"content"`
+	} `json:"message"`
+}
+
+// ParseToolResults reads the tool results a stream line carries. Like
+// ParseReasoningLine, a line it cannot read yields nothing and no error.
+func ParseToolResults(line string) []ToolResult {
+	var parsed toolResultLine
+	if json.Unmarshal([]byte(strings.TrimSpace(line)), &parsed) != nil || parsed.Type != "user" {
+		return nil
+	}
+	var results []ToolResult
+	for _, block := range parsed.Message.Content {
+		if block.Type != "tool_result" || block.ToolID == "" {
+			continue
+		}
+		text, truncated := clampResult(toolResultText(block.Content))
+		results = append(results, ToolResult{ToolID: block.ToolID, Text: text, Truncated: truncated, IsError: block.IsError})
+	}
+	return results
+}
+
+// toolResultText flattens a result's content: a string, or a list of blocks
+// whose text is kept and whose images are named.
+func toolResultText(raw json.RawMessage) string {
+	var text string
+	if json.Unmarshal(raw, &text) == nil {
+		return text
+	}
+	var blocks []struct {
+		Type string `json:"type"`
+		Text string `json:"text"`
+	}
+	if json.Unmarshal(raw, &blocks) != nil {
+		return ""
+	}
+	parts := make([]string, 0, len(blocks))
+	for _, block := range blocks {
+		switch block.Type {
+		case "text":
+			parts = append(parts, block.Text)
+		case "image":
+			parts = append(parts, "[image]")
+		}
+	}
+	return strings.Join(parts, "\n")
+}
+
+// clampResult cuts text to ToolResultLimit bytes on a character boundary.
+func clampResult(text string) (string, bool) {
+	if len(text) <= ToolResultLimit {
+		return text, false
+	}
+	cut := ToolResultLimit
+	for cut > 0 && !utf8.RuneStart(text[cut]) {
+		cut--
+	}
+	return text[:cut], true
 }

@@ -1,6 +1,8 @@
 # ADR 0018: A release is a SemVer tag, and the changelog ships with it
 
-Status: Accepted
+Status: Accepted. Amended by
+[ADR 0045](0045-main-publishes-a-rolling-workstation-package.md): a merge into
+`main` also publishes the binaries, as one rolling package version `main`.
 
 ## Context
 

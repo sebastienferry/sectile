@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"tasks/internal/agentconfig"
 	"tasks/internal/agentmcp"
@@ -49,17 +50,17 @@ func TestLocalWorktreeCreationAndBranchGuard(t *testing.T) {
 	}
 	branch := "feat/test-task"
 	task := models.Task{Key: "#46", BranchName: &branch}
-	path, got, err := ensureLocalWorktree(ctx, root, task, true)
+	path, got, err := ensureLocalWorktree(ctx, root, task, true, "")
 	if err != nil || got != branch || path != filepath.Join(root, ".tasks/worktrees/issue-46") {
 		t.Fatalf("prepare %s %s %v", path, got, err)
 	}
-	if _, _, err := ensureLocalWorktree(ctx, root, task, true); err != nil {
+	if _, _, err := ensureLocalWorktree(ctx, root, task, true, ""); err != nil {
 		t.Fatal(err)
 	}
 	// A key path sitting on another branch no longer refuses the launch: the
 	// assigned branch is nowhere, so a worktree is created beside the stale one.
 	branch = "feat/other"
-	beside, got, err := ensureLocalWorktree(ctx, root, task, true)
+	beside, got, err := ensureLocalWorktree(ctx, root, task, true, "")
 	if err != nil || got != branch {
 		t.Fatalf("stale key path refused the launch: %s %s %v", beside, got, err)
 	}
@@ -70,7 +71,7 @@ func TestLocalWorktreeCreationAndBranchGuard(t *testing.T) {
 		t.Fatalf("worktree beside the stale path is on %s: %v", current, err)
 	}
 	task.Key = "../../escape"
-	if _, _, err := ensureLocalWorktree(ctx, root, task, true); err == nil {
+	if _, _, err := ensureLocalWorktree(ctx, root, task, true, ""); err == nil {
 		t.Fatal("escaped worktree path")
 	}
 	if _, err := os.Stat(filepath.Join(root, ".git")); err != nil {
@@ -91,7 +92,7 @@ func TestLocalWorktreeReusesAssignedMainCheckout(t *testing.T) {
 	if err := os.WriteFile(file, []byte("work in progress"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	workDir, got, err := ensureLocalWorktree(ctx, root, models.Task{Key: "#46", BranchName: &branch}, true)
+	workDir, got, err := ensureLocalWorktree(ctx, root, models.Task{Key: "#46", BranchName: &branch}, true, "")
 	if err != nil || workDir != root || got != branch {
 		t.Fatalf("assigned checkout not reused: %s %s %v", workDir, got, err)
 	}
@@ -115,7 +116,7 @@ func TestLocalWorktreeReusesMainCheckoutForDerivedBranch(t *testing.T) {
 		}
 	}
 	for _, task := range []models.Task{{Key: "#281"}, {Key: "#281", BranchName: new(string)}} {
-		workDir, got, err := ensureLocalWorktree(ctx, root, task, true)
+		workDir, got, err := ensureLocalWorktree(ctx, root, task, true, "")
 		if err != nil || workDir != root || got != "feat/281" {
 			t.Fatalf("derived branch not reused: %s %s %v", workDir, got, err)
 		}
@@ -245,7 +246,7 @@ func TestMCPStdioBridge(t *testing.T) {
 	defer session.Close()
 	mcptest.AssertNaming(t, ctx, session, database, task, connect)
 	list, err := session.ListTools(ctx, nil)
-	if err != nil || len(list.Tools) != 13 {
+	if err != nil || len(list.Tools) != 17 {
 		t.Fatalf("stdio discovery %v %v", list, err)
 	}
 	result, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "list_tasks", Arguments: map[string]any{"projectId": "default"}})
@@ -552,6 +553,50 @@ func TestDiscussionLaunchesTheProviderAlone(t *testing.T) {
 	}
 }
 
+// A discussion and a bare terminal open the engine with the task's other
+// folders, when its option for them is attested (#676).
+func TestDiscussionLaunchCarriesTheTaskFolders(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake engines are POSIX scripts")
+	}
+	bin := t.TempDir()
+	for _, name := range []string{"claude", "codex", "agy", "my-cli"} {
+		if err := os.WriteFile(filepath.Join(bin, name), []byte("#!/bin/sh\n"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	dirs := []string{"/repo/b", "/notes with space"}
+	for _, tt := range []struct {
+		provider, template string
+		folders            bool
+	}{
+		{"claude", "", true}, {"codex", "", true}, {"agy", "", false}, {"custom", "my-cli {prompt}", false},
+	} {
+		config := agentconfig.Config{AIProvider: tt.provider, AICommandTemplate: tt.template}
+		bare, err := dispatchCommand(config, "TASK-1", "discuss", "discuss", "", "", models.SkillModeInteractive, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, launch := range []struct{ skill, action string }{{"discuss", "discuss"}, {"", "open_terminal"}} {
+			line, err := dispatchCommand(config, "TASK-1", launch.skill, launch.action, "", "", models.SkillModeInteractive, "", agentCommandContext{AddDirs: dirs})
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := bare
+			if tt.folders {
+				want = bare + ` --add-dir='/repo/b' --add-dir='/notes with space'`
+			}
+			if line != want {
+				t.Errorf("%s %s: %q, want %q", tt.provider, launch.action, line, want)
+			}
+		}
+		if line, _ := dispatchCommand(config, "TASK-1", "discuss", "discuss", "", "", models.SkillModeInteractive, "", agentCommandContext{}); line != bare {
+			t.Errorf("%s without folders: %q, want %q", tt.provider, line, bare)
+		}
+	}
+}
+
 // The failure this ticket is about: the assigned branch lives in a worktree at
 // a path nobody would think to probe, while .tasks/worktrees/<key> is occupied
 // by an unrelated branch. The launch must land in the tree that holds the work.
@@ -573,7 +618,7 @@ func TestLocalWorktreeResolvesBranchWhereverItLives(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	workDir, got, err := ensureLocalWorktree(ctx, root, models.Task{Key: "#296", BranchName: &branch}, true)
+	workDir, got, err := ensureLocalWorktree(ctx, root, models.Task{Key: "#296", BranchName: &branch}, true, "")
 	if err != nil || got != branch {
 		t.Fatalf("branch not resolved where it lives: %s %s %v", workDir, got, err)
 	}
@@ -658,5 +703,33 @@ func TestDerivedBranchIsRecordedOnceOnTheTask(t *testing.T) {
 	d = &agentDaemon{link: serverLink{serverURL: refused.URL, token: "token"}}
 	if err := d.patchTask(context.Background(), "#308", map[string]string{"branchName": "feat/308"}); err == nil {
 		t.Fatal("a refused update reported success")
+	}
+}
+
+// sync_config registers Claude as a managed remote HTTP choice, so a new key
+// reaches ~/.claude.json at the next refresh (#716).
+func TestBootstrapLocalMCPRecordsClaudeDefault(t *testing.T) {
+	home := testhome.Temp(t)
+	d := &agentDaemon{repoRoot: t.TempDir(), link: serverLink{serverURL: "https://sectile.example.test", token: "first-key"}}
+	config := agentconfig.Config{AIProvider: "claude"}
+	if err := d.bootstrapLocalMCP(&config); err != nil {
+		t.Fatal(err)
+	}
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	settings, err := agentconfig.ReadSettings(d.localSettingsRoot())
+	want := agentconfig.MCPConnection{Target: "remote", Transport: "http", Written: mcpFingerprint(d.link.serverURL, "first-key", executable)}
+	if err != nil || settings.MCPConnections["claude"] != want {
+		t.Fatalf("choice: %+v %v", settings.MCPConnections, err)
+	}
+	d.link.token = "second-key"
+	if err := d.refreshMCPConnections(); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(filepath.Join(home, ".claude.json"))
+	if err != nil || !strings.Contains(string(raw), "Bearer second-key") || strings.Contains(string(raw), "first-key") {
+		t.Fatalf("key not refreshed: %s %v", raw, err)
 	}
 }

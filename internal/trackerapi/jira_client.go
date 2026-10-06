@@ -53,6 +53,27 @@ func jiraBaseURL(raw string) string {
 	return scheme + "://" + parsed.Host
 }
 
+// jiraEndpoint is where the REST paths hang: the gateway for a grant, the
+// site itself otherwise.
+func (c *Client) jiraEndpoint() string {
+	if c.JiraBearer != "" && c.JiraAPIBase != "" {
+		return c.JiraAPIBase
+	}
+	return c.JiraURL
+}
+
+func (c *Client) jiraAuthorization() string {
+	if c.JiraBearer != "" && c.JiraAPIBase != "" {
+		return "Bearer " + c.JiraBearer
+	}
+	return jiraBasicAuth(c.JiraEmail, c.JiraToken)
+}
+
+func isUnauthorized(err error) bool {
+	var httpErr *HTTPError
+	return errors.As(err, &httpErr) && httpErr.Status == http.StatusUnauthorized
+}
+
 func jiraBasicAuth(email, token string) string {
 	return "Basic " + base64.StdEncoding.EncodeToString([]byte(strings.TrimSpace(email)+":"+strings.TrimSpace(token)))
 }
@@ -62,6 +83,9 @@ func (c *Client) jiraConfigured() error {
 	switch {
 	case c == nil || c.JiraURL == "":
 		return fmt.Errorf("configure the Jira site URL")
+	case c.JiraBearer != "" && c.JiraAPIBase != "":
+		// A grant carries no e-mail: the access token names the account.
+		return nil
 	case c.JiraToken == "":
 		return c.missingCredential("Jira")
 	case c.JiraEmail == "" && c.actingUser == "":
@@ -81,12 +105,19 @@ func (c *Client) jira(ctx context.Context, method, path string, query url.Values
 	if err := c.jiraConfigured(); err != nil {
 		return err
 	}
-	endpoint := c.JiraURL + path
+	endpoint := c.jiraEndpoint() + path
 	if len(query) > 0 {
 		endpoint += "?" + query.Encode()
 	}
-	raw, _, err := c.request(ctx, method, endpoint, jiraBasicAuth(c.JiraEmail, c.JiraToken), payload)
+	raw, _, err := c.request(ctx, method, endpoint, c.jiraAuthorization(), payload)
 	if err != nil {
+		if c.JiraBearer != "" && isUnauthorized(err) {
+			// The grant was revoked within its access token's hour. The next
+			// refresh will find out for good; until then, the person is
+			// told what fixes it rather than to check an API token they
+			// never had.
+			return fmt.Errorf("%w : Atlassian a refusé l'accès accordé par votre connexion Jira. Reconnectez Jira dans Profil → Identifiants du tracker", err)
+		}
 		return jiraError(err)
 	}
 	if result != nil && len(raw) > 0 {
@@ -243,11 +274,29 @@ func (c *Client) CheckJira(ctx context.Context, siteURL, email, token string) (s
 	probe.JiraURL = jiraBaseURL(siteURL)
 	probe.JiraEmail = strings.TrimSpace(email)
 	probe.JiraToken = strings.TrimSpace(token)
+	probe.JiraAPIBase, probe.JiraBearer = "", ""
+	return probe.jiraMyself(ctx)
+}
+
+// CheckJiraBearer is CheckJira through an OAuth grant: apiBase is the gateway
+// of one site, accessToken the grant's.
+func (c *Client) CheckJiraBearer(ctx context.Context, siteURL, apiBase, accessToken string) (string, error) {
+	probe := *c
+	probe.JiraURL = jiraBaseURL(siteURL)
+	probe.JiraEmail, probe.JiraToken = "", ""
+	probe.JiraAPIBase, probe.JiraBearer = strings.TrimRight(apiBase, "/"), strings.TrimSpace(accessToken)
+	if probe.JiraBearer == "" || probe.JiraAPIBase == "" {
+		return "", fmt.Errorf("no Jira grant to check")
+	}
+	return probe.jiraMyself(ctx)
+}
+
+func (c *Client) jiraMyself(ctx context.Context) (string, error) {
 	var me struct {
 		AccountID   string `json:"accountId"`
 		DisplayName string `json:"displayName"`
 	}
-	if err := probe.jira(ctx, http.MethodGet, "/rest/api/3/myself", nil, nil, &me); err != nil {
+	if err := c.jira(ctx, http.MethodGet, "/rest/api/3/myself", nil, nil, &me); err != nil {
 		return "", err
 	}
 	if me.AccountID == "" {

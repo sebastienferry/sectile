@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -87,18 +88,27 @@ type Client struct {
 	GithubURL, GithubToken                string
 	GitlabURL, GitlabProject, GitlabToken string
 	JiraURL, JiraEmail, JiraToken         string
+	// JiraAPIBase and JiraBearer replace the site and the Basic pair for a
+	// person connected through an Atlassian OAuth grant (ADR 0044): the calls
+	// go to Atlassian's gateway for the site's cloudId, on the same paths,
+	// with the grant's access token. JiraURL stays the site, for the links
+	// shown to people and the caches keyed by site.
+	JiraAPIBase, JiraBearer string
 	// Resolve returns the credentials stored for one project, by project id, an
 	// empty id meaning "no project". It is injected by the store, which is the
 	// only component able to read both the settings and the project row; the
 	// values above stay as the environment-derived fallback. Without it the
 	// client behaves exactly as it did before the configuration existed.
 	Resolve func(projectID string) Credentials
-	// ResolveUser returns one person's own credentials for one tracker, empty
-	// strings when they stored none. It answers an error when they sealed the
-	// credential behind a passphrase and have not unlocked it: writing under the
-	// server account while somebody believes they act as themselves would
-	// misattribute the work, so the caller has to fail instead.
-	ResolveUser func(userID, tracker string) (siteURL string, email string, token string, err error)
+	// ResolveUser returns one person's own credential for one tracker, empty
+	// when they stored none. site is the Jira site the call is for, the
+	// project's own or the deployment's, so a grant covering several sites
+	// picks the matching one. It answers an error when they sealed the
+	// credential behind a passphrase and have not unlocked it, or when their
+	// grant cannot serve that site: writing under the server account while
+	// somebody believes they act as themselves would misattribute the work, so
+	// the caller has to fail instead.
+	ResolveUser func(userID, tracker, site string) (PersonalCredential, error)
 
 	// actingUser is set on a client resolved for somebody's request, so a
 	// missing credential is reported as theirs to add rather than the server's.
@@ -106,6 +116,14 @@ type Client struct {
 	// unreadable marks the providers whose stored server credential could not
 	// be decrypted; see Credentials.
 	unreadable struct{ github, gitlab, jira bool }
+}
+
+// PersonalCredential is one person's own credential for one tracker: an API
+// token with its site and e-mail, or, for Jira, the gateway address and the
+// access token of an OAuth grant. All empty means they stored none.
+type PersonalCredential struct {
+	SiteURL, Email, Token string
+	APIBase, Bearer       string
 }
 
 // ForActingUser is For, with the acting user's own credentials substituted
@@ -117,17 +135,32 @@ func (c *Client) ForActingUser(userID, tracker, projectID string) (*Client, bool
 	if resolved == nil || resolved.ResolveUser == nil || strings.TrimSpace(userID) == "" {
 		return resolved, false, nil
 	}
-	siteURL, email, token, err := resolved.ResolveUser(userID, tracker)
+	name := strings.ToLower(strings.TrimSpace(tracker))
+	site := ""
+	if name == "jira" {
+		site = resolved.JiraURL
+	}
+	credential, err := resolved.ResolveUser(userID, tracker, site)
 	if err != nil {
 		return nil, false, err
 	}
+	token, email, siteURL := credential.Token, credential.Email, credential.SiteURL
 	// A copy either way: For may have answered the shared client itself.
 	personal := *resolved
 	personal.actingUser = strings.TrimSpace(userID)
+	if name == "jira" && credential.Bearer != "" {
+		// A grant: the site stays the project's, which is the one the grant
+		// was resolved for, and the Basic pair of the server must not travel
+		// with it.
+		personal.JiraAPIBase = strings.TrimRight(credential.APIBase, "/")
+		personal.JiraBearer = credential.Bearer
+		personal.JiraEmail, personal.JiraToken = "", ""
+		return &personal, true, nil
+	}
 	if token == "" {
 		return &personal, false, nil
 	}
-	switch strings.ToLower(strings.TrimSpace(tracker)) {
+	switch name {
 	case "jira":
 		personal.JiraToken = token
 		if email != "" {
@@ -156,11 +189,48 @@ type MissingPersonalCredentialError struct {
 	// Tracker is the provider, as the registry names it: "jira", "github" or
 	// "gitlab".
 	Tracker string
+	// Reason is empty when the person stored nothing. A Jira grant they did
+	// store may still be unusable: it covers no site of the project
+	// (ReasonSiteNotGranted, Site naming it), or Atlassian refused to refresh
+	// it (ReasonDisconnected). Either way the write is refused the same,
+	// under the same code, and reconnecting is the way out.
+	Reason string
+	Site   string
 }
 
+// Why a stored personal credential cannot serve a write.
+const (
+	ReasonSiteNotGranted = "site-not-granted"
+	ReasonDisconnected   = "disconnected"
+)
+
 func (e *MissingPersonalCredentialError) Error() string {
+	switch e.Reason {
+	case ReasonSiteNotGranted:
+		return fmt.Sprintf("no personal %s grant covers %s for this user: reconnect %s in Profile → Tracker credentials and pick that site on the Atlassian consent screen, or the work would be attributed to the server account", providerName(e.Tracker), e.Site, providerName(e.Tracker))
+	case ReasonDisconnected:
+		return fmt.Sprintf("the %s connection of this user was revoked or has expired: reconnect %s in Profile → Tracker credentials, or the work would be attributed to the server account", providerName(e.Tracker), providerName(e.Tracker))
+	}
 	return fmt.Sprintf("no personal %s token for this user: add one in Profile → Tracker credentials, or the work would be attributed to the server account", providerName(e.Tracker))
 }
+
+// MissingCredentialTracker returns the provider a write was refused for when
+// err is a refusal for want of the acting person's own credential, and ""
+// otherwise. It reads the type, never the message, so a caller can tell the
+// person which token to add (#645).
+func MissingCredentialTracker(err error) string {
+	var missing *MissingPersonalCredentialError
+	if errors.As(err, &missing) {
+		return missing.Tracker
+	}
+	return ""
+}
+
+// CredentialMissingCode marks a write refused for want of the caller's own
+// tracker credential, so a client can offer to add it rather than read the
+// message (#645). It lives here so the store can set it on a batch line
+// without importing the handlers (#634).
+const CredentialMissingCode = "tracker_credential_missing"
 
 // ErrNoActingUser refuses a write whose context names nobody and is not marked
 // as unattended work. It is a caller that lost its author on the way, a
@@ -293,6 +363,21 @@ func (e *HTTPError) Error() string { return fmt.Sprintf("tracker returned HTTP %
 func IsRateLimited(err error) bool {
 	var httpErr *HTTPError
 	return errors.As(err, &httpErr) && httpErr.Status == http.StatusTooManyRequests
+}
+
+// IsTransient reports whether a tracker call failed for a reason that may not
+// hold a moment later: the network, a timeout, a rate limit or a server error.
+// Any other refusal is the tracker's answer and is not worth repeating.
+func IsTransient(err error) bool {
+	if err == nil {
+		return false
+	}
+	var httpErr *HTTPError
+	if errors.As(err, &httpErr) {
+		return httpErr.Status == http.StatusTooManyRequests || httpErr.Status >= 500
+	}
+	var netErr net.Error
+	return errors.As(err, &netErr) || errors.Is(err, context.DeadlineExceeded)
 }
 
 // missingCredential says what to do when no token could be resolved, which

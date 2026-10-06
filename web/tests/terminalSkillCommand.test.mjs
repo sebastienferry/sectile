@@ -9,7 +9,7 @@ for (const [provider, command, override, expected] of [
   ['codex', '/clarify-issue', '  ', 'clarify-issue'],
   ['claude', '/clarify-issue', undefined, '/clarify-issue'],
   ['claude', '/clarify-issue', 'clarify-workitem', '/clarify-workitem'],
-  ['gemini', '/clarify-issue', undefined, '/clarify-issue'],
+  ['agy', '/clarify-issue', undefined, '/clarify-issue'],
   ['', '/clarify-issue', undefined, '/clarify-issue'],
 ]) {
   test(`${provider}: ${override ?? command}`, () => {

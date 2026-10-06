@@ -139,6 +139,7 @@ type GithubMilestoneItem struct {
 	Title       string `json:"title"`
 	Description string `json:"description"`
 	State       string `json:"state"`
+	HTMLURL     string `json:"html_url"`
 }
 
 func (c *Client) CreateGithubMilestone(repo, repoPath, title, description string) (int, error) {
@@ -177,6 +178,30 @@ func (c *Client) UpdateGithubMilestone(repo, repoPath string, n int, title, desc
 	}
 	return c.github(context.Background(), "PATCH", fmt.Sprintf("repos/%s/milestones/%d", repo, n), payload, nil)
 }
+
+// GetGithubMilestone reads one milestone.
+func (c *Client) GetGithubMilestone(repo, repoPath string, n int) (*GithubMilestoneItem, error) {
+	repo, err := repository(repo)
+	if err != nil {
+		return nil, err
+	}
+	var item GithubMilestoneItem
+	if err := c.github(context.Background(), "GET", fmt.Sprintf("repos/%s/milestones/%d", repo, n), nil, &item); err != nil {
+		return nil, err
+	}
+	return &item, nil
+}
+
+// SetGithubMilestoneDescription writes a milestone's description, the empty
+// one included, which UpdateGithubMilestone cannot send.
+func (c *Client) SetGithubMilestoneDescription(repo, repoPath string, n int, description string) error {
+	repo, err := repository(repo)
+	if err != nil {
+		return err
+	}
+	return c.github(context.Background(), "PATCH", fmt.Sprintf("repos/%s/milestones/%d", repo, n), map[string]any{"description": description}, nil)
+}
+
 func (c *Client) ListGithubMilestones(repo, repoPath string) ([]GithubMilestoneItem, error) {
 	repo, err := repository(repo)
 	if err != nil {
@@ -368,7 +393,7 @@ func (c *Client) BranchPullRequest(repo, branch string) (PullRequest, error) {
 	}
 	// A branch that produced several merged pull requests is not ambiguous: the
 	// branch moved on and the latest merge is its state. Several *open* ones are
-	// ambiguous — which is current cannot be guessed without letting the caller's
+	// ambiguous: which is current cannot be guessed without letting the caller's
 	// swap guard be decided by the order the forge happened to list them in.
 	if len(open) == 0 && len(merged) > 0 {
 		latest := merged[0]
@@ -384,7 +409,7 @@ func (c *Client) BranchPullRequest(repo, branch string) (PullRequest, error) {
 
 // IssuePullRequests answers the question no branch lookup can: which pull
 // requests belong to this issue. It is what lets an instance that knows nothing
-// but the issue number — a project recreated elsewhere — find the work again.
+// but the issue number (a project recreated elsewhere) find the work again.
 //
 // The closing references are the authoritative source (OPEN-1 of the
 // specification). The issue timeline and a text search on the issue number both

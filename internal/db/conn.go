@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"database/sql"
+	"sync/atomic"
 )
 
 // sqlConn wraps the pool so every query passes through the dialect's Rebind on
@@ -18,27 +19,33 @@ import (
 type sqlConn struct {
 	db      *sql.DB
 	dialect dialect
+	// queries counts the statements sent outside a transaction, so tests can pin how many a read costs.
+	queries atomic.Int64
 }
 
 func newSQLConn(db *sql.DB, d dialect) *sqlConn { return &sqlConn{db: db, dialect: d} }
 
 func (c *sqlConn) Exec(query string, args ...any) (sql.Result, error) {
+	c.queries.Add(1)
 	// RewriteDDL is a no-op on anything that is not a schema statement, so the
 	// ordinary write path pays one prefix check.
 	return c.db.Exec(c.dialect.Rebind(c.dialect.RewriteDDL(query)), args...)
 }
 
 func (c *sqlConn) Query(query string, args ...any) (*sql.Rows, error) {
+	c.queries.Add(1)
 	return c.db.Query(c.dialect.Rebind(query), args...)
 }
 
 func (c *sqlConn) QueryRow(query string, args ...any) *sql.Row {
+	c.queries.Add(1)
 	return c.db.QueryRow(c.dialect.Rebind(query), args...)
 }
 
 // QueryRowContext is QueryRow bounded by a context, for a probe that must not
 // hang on a database that stopped answering.
 func (c *sqlConn) QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row {
+	c.queries.Add(1)
 	return c.db.QueryRowContext(ctx, c.dialect.Rebind(query), args...)
 }
 

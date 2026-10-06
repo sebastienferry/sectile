@@ -55,15 +55,41 @@ func dropRepositoryColumns(d *DB) {
 	_, _ = d.conn.Exec("ALTER TABLE tasks DROP COLUMN repository")
 	_, _ = d.conn.Exec("ALTER TABLE tasks DROP COLUMN changed_repositories")
 	_, _ = d.conn.Exec("ALTER TABLE task_activities DROP COLUMN waiting_reason")
+	// SQLite refuses to drop a column an index still names (#497).
+	_, _ = d.conn.Exec("DROP INDEX IF EXISTS idx_task_activities_waiting_session")
 	_, _ = d.conn.Exec("ALTER TABLE task_activities DROP COLUMN waiting_session")
 	dropCredentialAccountColumn(d)
 }
 
-// dropCredentialAccountColumn undoes what migrations 24 to 32 change. It runs
+// dropCredentialAccountColumn undoes what migrations 24 to 43 change. It runs
 // with dropRepositoryColumns, since every fixture that rewinds before 21 also
 // rewinds before 24.
 func dropCredentialAccountColumn(d *DB) {
+	_, _ = d.conn.Exec("ALTER TABLE macros DROP COLUMN labels")
 	_, _ = d.conn.Exec("ALTER TABLE projects DROP COLUMN push_stage_commits")
+	_, _ = d.conn.Exec("ALTER TABLE projects DROP COLUMN branch_name_format")
+	_, _ = d.conn.Exec("ALTER TABLE macros DROP COLUMN priority")
+	_, _ = d.conn.Exec("ALTER TABLE macros DROP COLUMN quarter")
+	_, _ = d.conn.Exec("ALTER TABLE macros DROP COLUMN readiness")
+	_, _ = d.conn.Exec("ALTER TABLE task_activities DROP COLUMN credential_missing")
+	_, _ = d.conn.Exec("ALTER TABLE projects DROP COLUMN roadmap_axis_writes")
+	_, _ = d.conn.Exec("ALTER TABLE user_tracker_credentials DROP COLUMN kind")
+	_, _ = d.conn.Exec("ALTER TABLE user_tracker_credentials DROP COLUMN version")
+	_, _ = d.conn.Exec("ALTER TABLE user_tracker_credentials DROP COLUMN disconnected_at")
+	_, _ = d.conn.Exec("ALTER TABLE user_tracker_credentials DROP COLUMN refresh_claimed_at")
+	_, _ = d.conn.Exec("DROP TABLE jira_oauth_flows")
+	_, _ = d.conn.Exec("DROP TABLE tracker_oauth_apps")
+	_, _ = d.conn.Exec("ALTER TABLE projects DROP COLUMN epic_axis_prefixes")
+	_, _ = d.conn.Exec("ALTER TABLE macros DROP COLUMN todos_mirror_ref")
+	_, _ = d.conn.Exec("ALTER TABLE macros DROP COLUMN todos_mirror_hash")
+	_, _ = d.conn.Exec("ALTER TABLE macros DROP COLUMN todos_mirror_error")
+	_, _ = d.conn.Exec("ALTER TABLE macros DROP COLUMN todos_mirror_credential")
+	_, _ = d.conn.Exec("ALTER TABLE macros DROP COLUMN todos_mirror_at")
+	_, _ = d.conn.Exec("ALTER TABLE macros DROP COLUMN framing_mirror_ref")
+	_, _ = d.conn.Exec("ALTER TABLE macros DROP COLUMN framing_mirror_hash")
+	_, _ = d.conn.Exec("ALTER TABLE macros DROP COLUMN framing_mirror_error")
+	_, _ = d.conn.Exec("ALTER TABLE macros DROP COLUMN framing_mirror_credential")
+	_, _ = d.conn.Exec("ALTER TABLE macros DROP COLUMN framing_mirror_at")
 	_, _ = d.conn.Exec("ALTER TABLE projects ADD COLUMN mono_repo INTEGER NOT NULL DEFAULT 1")
 	_, _ = d.conn.Exec("ALTER TABLE user_tracker_credentials DROP COLUMN account")
 	_, _ = d.conn.Exec("ALTER TABLE projects DROP COLUMN spec_artifacts")
@@ -432,7 +458,31 @@ func TestMigrationThirtyOneRemovesTheRepositoryLayout(t *testing.T) {
 		`INSERT INTO task_activities (id, task_id, skill_id, skill_name, action, status, created_at, waiting_since, waiting_reason) VALUES
 			('parked', 't1', 'remote_run', 'implement', 'run', 'completed', '2026-09-01 10:00:00', '2026-09-01 10:01:00', 'repository'),
 			('asking', 't2', 'remote_run', 'clarify', 'run', 'completed', '2026-09-01 11:00:00', '2026-09-01 11:01:00', '')`,
+		"ALTER TABLE macros DROP COLUMN labels",
 		"ALTER TABLE projects DROP COLUMN push_stage_commits",
+		"ALTER TABLE projects DROP COLUMN branch_name_format",
+		"ALTER TABLE macros DROP COLUMN priority",
+		"ALTER TABLE macros DROP COLUMN quarter",
+		"ALTER TABLE macros DROP COLUMN readiness",
+		"ALTER TABLE task_activities DROP COLUMN credential_missing",
+		"ALTER TABLE projects DROP COLUMN roadmap_axis_writes",
+		"ALTER TABLE user_tracker_credentials DROP COLUMN kind",
+		"ALTER TABLE user_tracker_credentials DROP COLUMN version",
+		"ALTER TABLE user_tracker_credentials DROP COLUMN disconnected_at",
+		"ALTER TABLE user_tracker_credentials DROP COLUMN refresh_claimed_at",
+		"DROP TABLE jira_oauth_flows",
+		"DROP TABLE tracker_oauth_apps",
+		"ALTER TABLE projects DROP COLUMN epic_axis_prefixes",
+		"ALTER TABLE macros DROP COLUMN todos_mirror_ref",
+		"ALTER TABLE macros DROP COLUMN todos_mirror_hash",
+		"ALTER TABLE macros DROP COLUMN todos_mirror_error",
+		"ALTER TABLE macros DROP COLUMN todos_mirror_credential",
+		"ALTER TABLE macros DROP COLUMN todos_mirror_at",
+		"ALTER TABLE macros DROP COLUMN framing_mirror_ref",
+		"ALTER TABLE macros DROP COLUMN framing_mirror_hash",
+		"ALTER TABLE macros DROP COLUMN framing_mirror_error",
+		"ALTER TABLE macros DROP COLUMN framing_mirror_credential",
+		"ALTER TABLE macros DROP COLUMN framing_mirror_at",
 		"DELETE FROM schema_migrations WHERE version >= 31",
 	} {
 		if _, err := d.conn.Exec(stmt); err != nil {

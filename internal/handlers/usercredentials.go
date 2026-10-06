@@ -22,6 +22,7 @@ import (
 //	POST   /api/me/tracker-credentials/unlock    supply the sealing passphrase
 //	POST   /api/me/tracker-credentials/lock      forget the derived key
 //	DELETE /api/me/tracker-credentials/orphaned  discard a leftover, admin only
+//	POST   /api/me/tracker-credentials/jira/connect  start a Jira consent (#654)
 //
 // The GET also reports the credentials stored under an identity no account
 // resolves, because that is the answer to "my tracker says to configure an
@@ -158,6 +159,9 @@ func (h *Handler) HandleUserTrackerCredentials(w http.ResponseWriter, r *http.Re
 		}
 		h.listUserCredentials(w, r, userID)
 
+	case action == "jira/connect" && r.Method == http.MethodPost:
+		h.connectJira(w, r, userID)
+
 	case action == "lock" && r.Method == http.MethodPost:
 		var req struct {
 			Tracker string `json:"tracker"`
@@ -195,6 +199,13 @@ func (h *Handler) listUserCredentials(w http.ResponseWriter, r *http.Request, us
 		return
 	}
 	body := map[string]interface{}{"credentials": credentials}
+	// Whether people can connect Jira through Atlassian's consent screen, and
+	// the sites a grant has to cover to be of use (#654).
+	sites, err := h.db.ConfiguredJiraSites()
+	if err != nil {
+		sites = []string{}
+	}
+	body["jiraOAuth"] = map[string]any{"configured": h.db.JiraOAuthConfigured(), "sites": sites}
 
 	// Everyone signed in is told a leftover exists and for which tracker: it is
 	// why their own access looks absent while the tracker behaves as if one was

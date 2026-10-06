@@ -3,7 +3,8 @@
 // The agent builds the real thing (internal/agent/agent_config.go); this mirrors
 // it so the local CLI override can show both modes before anything runs. The web
 // settings carry the same mirror in web/src/lib/commandTemplate.ts: the three
-// must say the same thing.
+// must say the same thing, except for the project's settings file (#700),
+// which only a workstation has, so the web mirror leaves it out.
 
 // The words that make claude report what it is doing while it does it, one JSON
 // object per line, so the agent can trace a headless run. Mirrors reasoningOptions
@@ -20,7 +21,7 @@ const PROMPT="'{prompt}'"
 const MODEL_PLACEHOLDER='{model}'
 
 // Providers whose model is passed as --model; the others take none.
-const MODEL_FLAG_PROVIDERS=new Set(['claude','codex','gemini','cursor'])
+const MODEL_FLAG_PROVIDERS=new Set(['claude','codex'])
 
 // A template owns the mode only by declaring the placeholder. Without it the
 // template can only run what its author wrote, which is why the agent refuses an
@@ -134,13 +135,24 @@ function usesTemplate(provider,template){
 
 function words(...parts){return parts.filter(part=>part!=='').join(' ')}
 
+// settingsArg is the settings file a project's sandbox values add to a
+// built-in claude line (#700), as the agent's settingsArg writes it. A
+// template is the owner's own line and never receives it.
+export function settingsArg(provider,path){
+ const file=String(path||'').trim()
+ if(!file||String(provider||'').trim().toLowerCase()!=='claude')return ''
+ return '--settings='+shellQuote(file)
+}
+
 // commandPreview returns {command,error}: an empty command carries the reason
 // that mode cannot run. An autonomous run also carries the provider's
 // non-interactive approval flag, because nobody is there to answer a prompt.
 //
 // autonomousTemplate is the command written for headless launches. It answers
 // for itself and needs no {mode:...} marker: its author wrote it for that mode.
-export function commandPreview(provider,template,model,autonomous,autonomousTemplate=''){
+// settingsPath is the file a project's sandbox values generate, "" when the
+// project has none.
+export function commandPreview(provider,template,model,autonomous,autonomousTemplate='',settingsPath=''){
  const cli=String(provider||'').trim().toLowerCase()
  const dedicated=String(autonomousTemplate||'').trim()
  if(autonomous&&usesTemplate(cli,dedicated)){
@@ -156,25 +168,22 @@ export function commandPreview(provider,template,model,autonomous,autonomousTemp
  const flag=modelArgs(cli,model).join(' ')
  if(autonomous){
   switch(cli){
-   case 'claude':return {command:words('claude','-p','--permission-mode','bypassPermissions',CLAUDE_REASONING_FLAGS,flag,PROMPT)}
+   case 'claude':return {command:words('claude','-p','--permission-mode','bypassPermissions',CLAUDE_REASONING_FLAGS,flag,PROMPT,settingsArg(cli,settingsPath))}
    case 'codex':return {command:words('codex','exec',flag,PROMPT)}
-   case 'vibe':return {command:'vibe -p --auto-approve '+PROMPT}
    default:return {command:'',error:(cli||'This provider')+' has no attested headless mode. Run interactively, or write a template carrying {mode:AUTONOMOUS|INTERACTIVE}.'}
   }
  }
  switch(cli){
   case 'agy':return {command:'agy -i '+PROMPT}
-  case 'claude':case 'codex':case 'gemini':return {command:words(cli,flag,PROMPT)}
-  case 'vibe':return {command:'vibe -p '+PROMPT}
-  case 'cursor':return {command:words('cursor','agent',flag,PROMPT)}
+  case 'claude':case 'codex':return {command:words(cli,flag,PROMPT,settingsArg(cli,settingsPath))}
   default:return {command:'',error:'Unsupported provider '+(cli||'(none)')+': configure an AI command template.'}
  }
 }
 
 // previewLines renders both modes as the label/text pairs the dialog shows.
-export function previewLines(provider,template,model,autonomousTemplate=''){
+export function previewLines(provider,template,model,autonomousTemplate='',settingsPath=''){
  return [['Interactive',false],['Autonomous',true]].map(([label,autonomous])=>{
-  const {command,error}=commandPreview(provider,template,model,autonomous,autonomousTemplate)
+  const {command,error}=commandPreview(provider,template,model,autonomous,autonomousTemplate,settingsPath)
   return {label,text:command||error,ok:Boolean(command)}
  })
 }

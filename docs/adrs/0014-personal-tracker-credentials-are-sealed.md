@@ -4,7 +4,9 @@ Status: Accepted. Superseded in part by
 [ADR 0028](0028-tracker-sync-uses-a-server-credential-per-provider.md) for
 unattended work. Amended by
 [ADR 0032](0032-unlocked-sealed-credentials-live-with-their-owners-presence.md)
-for the lifetime of an unlock.
+for the lifetime of an unlock, and by
+[ADR 0044](0044-personal-jira-access-is-authorised-through-oauth.md) for Jira,
+which a person connects through Atlassian OAuth instead of a pasted token.
 
 ## Context
 

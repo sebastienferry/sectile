@@ -149,6 +149,7 @@ func TestMigrationNineKeepsSurplusRunsAsConcurrent(t *testing.T) {
 		"ALTER TABLE tasks DROP COLUMN repository",
 		"ALTER TABLE tasks DROP COLUMN changed_repositories",
 		"ALTER TABLE task_activities DROP COLUMN waiting_reason",
+		"DROP INDEX idx_task_activities_waiting_session",
 		"ALTER TABLE task_activities DROP COLUMN waiting_session",
 		"DROP TABLE server_tracker_credentials",
 		"ALTER TABLE projects ADD COLUMN github_token TEXT NOT NULL DEFAULT ''",
@@ -161,7 +162,31 @@ func TestMigrationNineKeepsSurplusRunsAsConcurrent(t *testing.T) {
 		"DROP TABLE user_credential_unlocks",
 		"DROP TABLE batch_members",
 		"ALTER TABLE projects ADD COLUMN mono_repo INTEGER NOT NULL DEFAULT 1",
+		"ALTER TABLE macros DROP COLUMN labels",
 		"ALTER TABLE projects DROP COLUMN push_stage_commits",
+		"ALTER TABLE projects DROP COLUMN branch_name_format",
+		"ALTER TABLE macros DROP COLUMN priority",
+		"ALTER TABLE macros DROP COLUMN quarter",
+		"ALTER TABLE macros DROP COLUMN readiness",
+		"ALTER TABLE task_activities DROP COLUMN credential_missing",
+		"ALTER TABLE projects DROP COLUMN roadmap_axis_writes",
+		"ALTER TABLE user_tracker_credentials DROP COLUMN kind",
+		"ALTER TABLE user_tracker_credentials DROP COLUMN version",
+		"ALTER TABLE user_tracker_credentials DROP COLUMN disconnected_at",
+		"ALTER TABLE user_tracker_credentials DROP COLUMN refresh_claimed_at",
+		"DROP TABLE jira_oauth_flows",
+		"DROP TABLE tracker_oauth_apps",
+		"ALTER TABLE projects DROP COLUMN epic_axis_prefixes",
+		"ALTER TABLE macros DROP COLUMN todos_mirror_ref",
+		"ALTER TABLE macros DROP COLUMN todos_mirror_hash",
+		"ALTER TABLE macros DROP COLUMN todos_mirror_error",
+		"ALTER TABLE macros DROP COLUMN todos_mirror_credential",
+		"ALTER TABLE macros DROP COLUMN todos_mirror_at",
+		"ALTER TABLE macros DROP COLUMN framing_mirror_ref",
+		"ALTER TABLE macros DROP COLUMN framing_mirror_hash",
+		"ALTER TABLE macros DROP COLUMN framing_mirror_error",
+		"ALTER TABLE macros DROP COLUMN framing_mirror_credential",
+		"ALTER TABLE macros DROP COLUMN framing_mirror_at",
 		"DELETE FROM schema_migrations WHERE version >= 9",
 		`INSERT INTO task_activities (id, task_id, skill_id, skill_name, action, status, created_at) VALUES
 			('old-skill', 't1', 'clarify', 'clarify', 'run', 'running', '2026-09-01 10:00:00'),
@@ -220,6 +245,25 @@ func TestRunOutputIsCutOnACharacterBoundary(t *testing.T) {
 	}
 	if err := d.AppendRemoteRunOutput("t1", "missing", "x"); err == nil {
 		t.Fatal("appending to an unknown run must fail")
+	}
+}
+
+// The append no longer reads the task first, so the statement alone must keep
+// a chunk off a run that belongs to another task, or to no task at all.
+func TestRunOutputOnlyLandsOnTheRunOfItsTask(t *testing.T) {
+	d, _ := activeRunDB(t)
+	if err := addRun(d, "r1", "remote_run", "running", true); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.AppendRemoteRunOutput("t1", "r1", "kept"); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.AppendRemoteRunOutput("unknown-task", "r1", "stray"); err == nil {
+		t.Fatal("appending under a task the run does not belong to must fail")
+	}
+	run, _ := d.GetActivityByID("r1")
+	if run.Output != "kept" {
+		t.Fatalf("the run's output is %q, want only the chunk of its own task", run.Output)
 	}
 }
 

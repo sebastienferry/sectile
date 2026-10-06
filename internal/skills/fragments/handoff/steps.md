@@ -11,4 +11,9 @@
    tickets sharing this worktree. Preserve a shared batch worktree until every ticket
    is handed off. Remove only an unused, clean worktree and its confirmed merged branch.
    A task that changed several repositories has a worktree and a pull request in each:
-   confirm each is merged, and clean each repository the same way.
+   confirm each is merged, and clean each repository the same way.7. A distinct specifications workspace (see Specifications workspace) has its own worktree and
+   branch in the specifications repository. Remove that worktree and its local branch only when
+   the branch is merged into that repository's default branch (a squash merge is confirmed by
+   content, as for the code branch) and the worktree holds no uncommitted or unpushed work.
+   Otherwise keep both and say so in the handover, naming the repository and the branch. A plain
+   folder has nothing to clean.

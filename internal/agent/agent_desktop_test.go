@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -817,8 +818,18 @@ func TestDesktopTerminalDetach(t *testing.T) {
 }
 
 func TestDesktopTasksTerminalExternal(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake CLI is a POSIX script")
+	}
 	root := t.TempDir()
 	testhome.Set(t, root)
+	// The discussion now runs the project's engine (#690): a stand-in, so no
+	// real CLI starts and the test does not depend on one being installed.
+	bin := t.TempDir()
+	if err := os.WriteFile(filepath.Join(bin, "agy"), []byte("#!/bin/sh\nsleep 60\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	for _, args := range [][]string{{"init"}, {"remote", "add", "origin", "https://example.test/project.git"}} {
 		if _, err := gitLocal(context.Background(), root, args...); err != nil {
 			t.Fatal(err)
@@ -898,6 +909,7 @@ func TestDesktopTasksTerminalExternal(t *testing.T) {
 		t.Fatalf("unexpected response: %+v", res)
 	}
 	runID := res["runId"].(string)
+	defer d.terminal.manager.CloseSession(runID)
 	d.queue.mu.Lock()
 	run := d.queue.runs[runID]
 	if run == nil || !sameDirectory(run.desktop.Directory, actual) || run.desktop.Branch != branchName || run.desktop.TaskKey != "#1" {
@@ -907,6 +919,115 @@ func TestDesktopTasksTerminalExternal(t *testing.T) {
 	d.queue.mu.Unlock()
 	if launchedApp != "ghostty" || launchedSess != runID {
 		t.Fatalf("unexpected launch: app=%s sess=%s wantSess=%s", launchedApp, launchedSess, runID)
+	}
+}
+
+// "Discussion in native terminal" runs the ticket discussion in the console
+// the native terminal opens on, with the task's engine and the project's
+// folders, as the in-app discussion does (#690). It used to open a bare shell.
+func TestDesktopTasksTerminalExternalRunsTheDiscussion(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake CLI is a POSIX script")
+	}
+	testhome.Temp(t)
+	bin := t.TempDir()
+	argsFile := filepath.Join(t.TempDir(), "args.txt")
+	script := "#!/bin/sh\n{ printf '%s\\n' \"$@\"; printf 'REPOS=%s\\n' \"$SECTILE_REPOSITORIES\"; printf 'SPEC=%s %s\\n' \"$SECTILE_SPEC_REPO\" \"$SECTILE_SPEC_WORKTREE\"; } > " + quoteShell(argsFile+".tmp") + " && mv " + quoteShell(argsFile+".tmp") + " " + quoteShell(argsFile) + "\nsleep 60\n"
+	if err := os.WriteFile(filepath.Join(bin, "claude"), []byte(script), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	root := checkoutOf(t, "git@github.com:o/a.git")
+	notes := t.TempDir()
+	if err := agentconfig.WriteSettings(agentconfig.Settings{
+		ProjectSettings: map[string]agentconfig.ProjectSettings{"p": {Path: root, Folders: []string{notes}}},
+		Defaults:        agentconfig.Defaults{Execution: agentconfig.Execution{AIProvider: "claude"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasPrefix(r.URL.Path, "/api/v1/agent/config"):
+			json.NewEncoder(w).Encode(agentconfig.Config{SchemaVersion: agentconfig.Version, ProjectID: "p", GitRemoteURL: "git@github.com:o/a.git"})
+		case r.URL.Path == "/api/tasks/task-1":
+			json.NewEncoder(w).Encode(models.Task{ID: "task-1", Key: "#1", ProjectID: "p", Title: "Task 1", Status: "in_progress"})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	var launchedSess string
+	d := &agentDaemon{
+		repoRoot: root,
+		loopback: loopbackServer{desktopToken: "private"},
+		link:     serverLink{serverURL: srv.URL, projectID: "p"},
+		terminal: terminalChoice{manager: terminal.NewManager()},
+		launchTerminalFn: func(_, sessionID string) error {
+			launchedSess = sessionID
+			return nil
+		},
+	}
+	// agent-exec reports the engine's start and exit to the loopback.
+	local := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/control/") {
+			d.handleRunControl(w, r)
+		} else {
+			d.desktopHandler(w, r)
+		}
+	}))
+	defer local.Close()
+	d.loopback.url = local.URL
+
+	body, _ := json.Marshal(map[string]any{"projectId": "p", "taskId": "task-1", "skillId": "discuss", "terminal": "ghostty"})
+	req := httptest.NewRequest("POST", "/desktop/tasks/terminal-external", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer private")
+	w := httptest.NewRecorder()
+	d.desktopHandler(w, req)
+	if w.Code != 200 {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var res map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &res); err != nil {
+		t.Fatal(err)
+	}
+	runID, _ := res["runId"].(string)
+	if runID == "" || launchedSess != runID {
+		t.Fatalf("native terminal opened on %q, want the run %q", launchedSess, runID)
+	}
+	defer d.terminal.manager.CloseSession(runID)
+
+	var got []byte
+	deadline := time.Now().Add(15 * time.Second)
+	for {
+		if raw, err := os.ReadFile(argsFile); err == nil {
+			got = raw
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the engine never started in the native terminal's console")
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if !strings.Contains(string(got), "--add-dir="+notes+"\n") {
+		t.Errorf("the engine did not receive the attached folder:\n%s", got)
+	}
+	if !strings.Contains(string(got), `"path":"`+notes+`"`) {
+		t.Errorf("SECTILE_REPOSITORIES does not name the attached folder:\n%s", got)
+	}
+	// Without an Issue specifications folder, the task's checkout carries its
+	// specifications (#736).
+	if !strings.Contains(string(got), "SPEC="+root+" false\n") {
+		t.Errorf("SECTILE_SPEC_REPO does not name the task's checkout:\n%s", got)
+	}
+	d.queue.mu.Lock()
+	run := d.queue.runs[runID]
+	status, provider := "", ""
+	if run != nil {
+		status, provider = run.desktop.Status, run.interactiveProvider
+	}
+	d.queue.mu.Unlock()
+	if status != "running" || provider != "claude" {
+		t.Errorf("run status %q with engine %q, want running with claude", status, provider)
 	}
 }
 
@@ -1018,7 +1139,7 @@ func TestDesktopProjectSpecificationsFolder(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		return settings.SpecPath("p")
+		return settings.MacroSpecPath("p")
 	}
 
 	// Without an override the code checkout is inherited, and it is a Git

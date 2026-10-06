@@ -2,11 +2,15 @@ package db
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"path"
 	"strings"
+	"unicode/utf8"
 
 	"tasks/internal/agentprotocol"
 	"tasks/internal/models"
+	"tasks/internal/tracker"
 )
 
 // La découpe d'une macro, produite depuis les artefacts SDD du dépôt.
@@ -246,29 +250,121 @@ func (d *DB) TodosFromSDD(ctx context.Context, userID, projectID, macroKey strin
 	}
 	content, origin := file.Content, file.Origin
 
+	entries := slicingEntries(proj, source, content)
+	if len(entries) == 0 {
+		return nil, "", fmt.Errorf("%s ne porte aucune %s : la découpe est laissée telle quelle",
+			origin, sourceUnitName(source))
+	}
+	saved, err := d.saveSlicing(ctx, userID, projectID, macroKey, source, entries)
+	if err != nil {
+		return nil, "", err
+	}
+	return saved, origin + describeAttached(entries), nil
+}
+
+// SlicingUploadLimit is the largest file an upload import accepts, in bytes.
+const SlicingUploadLimit = 1 << 20
+
+// TodosFromUpload produces the slicing of a macro from a file the user picked
+// in the browser, and returns the updated macro plus what was read.
+//
+// It is the agent-read import without the agent: the content arrives with the
+// request, so the import works with a remote server and without Sectile
+// Desktop. The extraction, the merge and the tracker mirror are the same.
+// Nothing is remembered: the next agent-read import reads the workstation's
+// specifications folder as before.
+func (d *DB) TodosFromUpload(ctx context.Context, userID, projectID, macroKey string, source SlicingSource, fileName, content string) (*models.MacroMeta, string, error) {
+	projectID = strings.TrimSpace(projectID)
+	macroKey = strings.TrimSpace(macroKey)
+	if projectID == "" || macroKey == "" {
+		return nil, "", fmt.Errorf("projet et clé de macro obligatoires")
+	}
+	if err := checkSlicingUpload(content); err != nil {
+		return nil, "", err
+	}
+
+	proj, err := d.GetProjectByID(projectID)
+	if err != nil || proj == nil {
+		return nil, "", fmt.Errorf("projet non trouvé")
+	}
+
+	origin := "imported file: " + uploadName(fileName, source)
+	entries := slicingEntries(proj, source, content)
+	if len(entries) == 0 {
+		return nil, "", fmt.Errorf("%s has no %s: the slicing is left unchanged", origin, sourceUnitNameEnglish(source))
+	}
+	saved, err := d.saveSlicing(ctx, userID, projectID, macroKey, source, entries)
+	if err != nil {
+		return nil, "", err
+	}
+	return saved, origin + describeAttached(entries), nil
+}
+
+// ErrSlicingUploadTooLarge refuses a file over SlicingUploadLimit.
+var ErrSlicingUploadTooLarge = errors.New("the file exceeds the 1 MiB limit: the slicing is left unchanged")
+
+// checkSlicingUpload refuses what cannot be a specification file. The browser
+// checks the same before sending; this is for any other client.
+func checkSlicingUpload(content string) error {
+	switch {
+	case len(content) > SlicingUploadLimit:
+		return ErrSlicingUploadTooLarge
+	case !utf8.ValidString(content):
+		return errors.New("the file is not UTF-8 text: the slicing is left unchanged")
+	case strings.ContainsRune(content, 0):
+		return errors.New("the file contains a NUL character, so it is not a text file: the slicing is left unchanged")
+	}
+	return nil
+}
+
+// uploadName is the name an uploaded file is shown under: its base name only,
+// since a browser may send a path, and the source's usual file name when the
+// browser sent none.
+func uploadName(fileName string, source SlicingSource) string {
+	name := strings.TrimSpace(path.Base(strings.ReplaceAll(fileName, `\`, "/")))
+	if name == "" || name == "." || name == "/" {
+		return sddFileName(source)
+	}
+	if runes := []rune(name); len(runes) > 200 {
+		name = string(runes[:200])
+	}
+	return name
+}
+
+// slicingEntries reads the units a source offers in content.
+func slicingEntries(proj *models.Project, source SlicingSource, content string) []SDDEntry {
 	var titles []string
 	if source == SlicingFromSpec {
 		titles = ExtractSpecRequirements(content)
 	} else {
 		titles = ExtractTaskGroups(content)
 	}
-	entries := SDDEntriesFrom(titles, entryKeyPrefixes(proj))
-	if len(entries) == 0 {
-		return nil, "", fmt.Errorf("%s ne porte aucune %s : la découpe est laissée telle quelle",
-			origin, sourceUnitName(source))
-	}
+	return SDDEntriesFrom(titles, entryKeyPrefixes(proj))
+}
 
+// saveSlicing merges entries into the macro's slicing, saves it and schedules
+// its tracker mirror, whichever way the file was read.
+func (d *DB) saveSlicing(ctx context.Context, userID, projectID, macroKey string, source SlicingSource, entries []SDDEntry) (*models.MacroMeta, error) {
 	meta, err := d.macroMetaByKey(projectID, macroKey)
 	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
-
 	next := mergeSDDEntries(meta.Todos, entries, string(source))
 	saved, err := d.SaveMacroMeta(projectID, macroKey, nil, nil, nil, &next)
 	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
-	return saved, origin + describeAttached(entries), nil
+	d.scheduleTodosMirror(tracker.WithActingUser(ctx, strings.TrimSpace(userID)), projectID, macroKey)
+	return saved, nil
+}
+
+// sourceUnitNameEnglish names what the source looked for, in the refusals of
+// the upload import.
+func sourceUnitNameEnglish(source SlicingSource) string {
+	if source == SlicingFromSpec {
+		return "requirement or user story"
+	}
+	return "task group"
 }
 
 // sourceUnitName nomme ce que la source cherchait, pour que le refus dise ce qui
@@ -296,7 +392,9 @@ func sourceUnitName(source SlicingSource) string {
 // Une story qu'une ligne porte déjà n'en produit pas une seconde, quel que soit
 // son énoncé : c'est la clé qui identifie, pas le texte, sans quoi une ligne
 // renommée à la main verrait son ticket revenir en double à la prochaine reprise.
-func (d *DB) TodosFromMacroStories(projectID string, macroKey string) (*models.MacroMeta, string, error) {
+//
+// The copy of the list on the tracker is scheduled as the person ctx names.
+func (d *DB) TodosFromMacroStories(ctx context.Context, projectID string, macroKey string) (*models.MacroMeta, string, error) {
 	projectID = strings.TrimSpace(projectID)
 	macroKey = strings.TrimSpace(macroKey)
 	if projectID == "" || macroKey == "" {
@@ -356,6 +454,7 @@ func (d *DB) TodosFromMacroStories(projectID string, macroKey string) (*models.M
 	if err != nil {
 		return nil, "", err
 	}
+	d.scheduleTodosMirror(ctx, projectID, macroKey)
 	return saved, fmt.Sprintf("%d ligne(s) reprise(s) sur %d ticket(s)", added, len(stories)), nil
 }
 

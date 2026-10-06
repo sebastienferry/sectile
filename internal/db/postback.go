@@ -112,6 +112,9 @@ func (d *DB) PostBackTask(payload models.TaskPostBackPayload) (*models.Task, *mo
 		d.notifyPostBackListeners(nil, nil, err)
 		return nil, nil, err
 	}
+	// Read before the transaction opens: it decides which repository's pull
+	// request stays the current one.
+	project, _ := d.getProjectByIDUnsafe(existing.ProjectID)
 	// The row is locked and read again, so the merge below starts from what a
 	// writer on another server instance committed, and the running-stage rule is
 	// checked on that same state.
@@ -184,6 +187,11 @@ func (d *DB) PostBackTask(payload models.TaskPostBackPayload) (*models.Task, *mo
 		existing.PrLinks = models.AppendPullRequestLink(existing.PrLinks, *payload.PrURL, branch)
 		if len(payload.PrURLs) > 0 {
 			existing.PrLinks = pullRequestLinkLast(existing.PrLinks, *payload.PrURL)
+		} else if project != nil {
+			// A lone secondary repository's pull request must not displace
+			// the primary one as the current link (#697).
+			primary, _ := taskPullRequestScope(project, existing)
+			existing.PrLinks = models.KeepPrimaryLast(existing.PrLinks, primary)
 		}
 		existing.PrURL = pullRequestURLValue(existing.PrLinks)
 	}
@@ -306,9 +314,9 @@ func (d *DB) getActivityByIDUnsafe(activityID string) *models.TaskActivity {
 	var startedAt, completedAt, waitingSince sql.NullTime
 
 	err := d.conn.QueryRow(`
-		SELECT id, COALESCE(task_id, ''), COALESCE(project_id, ''), skill_id, skill_name, action, status, summary, output, steps, prompt, started_at, completed_at, error, created_at, waiting_since, user_id, run_provider, run_model, concurrent
+		SELECT id, COALESCE(task_id, ''), COALESCE(project_id, ''), skill_id, skill_name, action, status, summary, output, steps, prompt, started_at, completed_at, error, created_at, waiting_since, user_id, run_provider, run_model, concurrent, credential_missing
 		FROM task_activities WHERE id = ?
-	`, activityID).Scan(&a.ID, &a.TaskID, &a.ProjectID, &a.SkillID, &a.SkillName, &a.Action, &a.Status, &a.Summary, &a.Output, &stepsJSON, &prompt, &startedAt, &completedAt, &errStr, &a.CreatedAt, &waitingSince, &a.UserID, &runProvider, &runModel, &a.Concurrent)
+	`, activityID).Scan(&a.ID, &a.TaskID, &a.ProjectID, &a.SkillID, &a.SkillName, &a.Action, &a.Status, &a.Summary, &a.Output, &stepsJSON, &prompt, &startedAt, &completedAt, &errStr, &a.CreatedAt, &waitingSince, &a.UserID, &runProvider, &runModel, &a.Concurrent, &a.CredentialMissing)
 
 	if err != nil {
 		return nil

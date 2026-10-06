@@ -25,7 +25,7 @@ func TestForWriteResolvesThePersonTheServerOrNothing(t *testing.T) {
 				GithubToken: "server-github", GitlabToken: "server-gitlab",
 				JiraEmail: "service@example.com", JiraToken: "server-jira",
 			}
-			c.ResolveUser = func(userID, trackerName string) (string, string, string, error) {
+			c.ResolveUser = legacyResolver(func(userID, trackerName string) (string, string, string, error) {
 				switch userID {
 				case "u-ada":
 					return "", "ada@example.com", "ada-" + trackerName, nil
@@ -33,7 +33,7 @@ func TestForWriteResolvesThePersonTheServerOrNothing(t *testing.T) {
 					return "", "", "", locked
 				}
 				return "", "", "", nil
-			}
+			})
 			token := func(client *Client) string {
 				switch provider {
 				case "jira":
@@ -89,7 +89,7 @@ func TestAdapterWritesAreRefusedWithoutAPersonalCredential(t *testing.T) {
 
 	client := &Client{HTTP: site.Client(), GithubURL: site.URL, GithubToken: "server-token",
 		JiraURL: site.URL, JiraEmail: "service@example.com", JiraToken: "server-token"}
-	client.ResolveUser = func(string, string) (string, string, string, error) { return "", "", "", nil }
+	client.ResolveUser = legacyResolver(func(string, string) (string, string, string, error) { return "", "", "", nil })
 	github, jira := NewGithubAdapter(client), NewJiraAdapter(client)
 	ghProject := &models.Project{ID: "p1", GithubRepo: "acme/app"}
 	jiraProject := jiraProject()
@@ -171,7 +171,7 @@ func TestGithubReadsKeepTheServerTokenForAPersonWithoutOne(t *testing.T) {
 	defer site.Close()
 
 	client := &Client{HTTP: site.Client(), GithubURL: site.URL, GithubToken: "server-token"}
-	client.ResolveUser = func(string, string) (string, string, string, error) { return "", "", "", nil }
+	client.ResolveUser = legacyResolver(func(string, string) (string, string, string, error) { return "", "", "", nil })
 	adapter := NewGithubAdapter(client)
 	project := &models.Project{ID: "p1", GithubRepo: "acme/app"}
 	ctx := tracker.WithActingUser(context.Background(), "u-grace")
@@ -184,5 +184,39 @@ func TestGithubReadsKeepTheServerTokenForAPersonWithoutOne(t *testing.T) {
 	}
 	if len(seen) != 2 || seen[0] != "Bearer server-token" || seen[1] != "Bearer server-token" {
 		t.Fatalf("reads keep the server token for a person without one, got %v", seen)
+	}
+}
+
+// A refusal for want of a personal credential names its provider through the
+// chain of wrappers a queued operation adds, and nothing else does (#645).
+func TestMissingCredentialTrackerReadsTheTypeNotTheMessage(t *testing.T) {
+	refusal := &MissingPersonalCredentialError{Tracker: "github"}
+	cases := []struct {
+		name string
+		err  error
+		want string
+	}{
+		{"bare refusal", refusal, "github"},
+		{"wrapped refusal", fmt.Errorf("aucun ticket modifié : #1: %w", refusal), "github"},
+		{"no acting user", ErrNoActingUser, ""},
+		{"locked credential", errors.New("credential is sealed: its owner must unlock it"), ""},
+		{"refusal flattened to text", fmt.Errorf("échec : %v", refusal), ""},
+		{"no error", nil, ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := MissingCredentialTracker(c.err); got != c.want {
+				t.Fatalf("MissingCredentialTracker(%v) = %q, want %q", c.err, got, c.want)
+			}
+		})
+	}
+}
+
+// legacyResolver adapts a resolver written before grants existed, answering a
+// site, an e-mail and a token, to ResolveUser.
+func legacyResolver(resolve func(userID, tracker string) (string, string, string, error)) func(string, string, string) (PersonalCredential, error) {
+	return func(userID, tracker, _ string) (PersonalCredential, error) {
+		site, email, token, err := resolve(userID, tracker)
+		return PersonalCredential{SiteURL: site, Email: email, Token: token}, err
 	}
 }

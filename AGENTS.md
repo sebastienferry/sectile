@@ -12,6 +12,31 @@ written in the language that surface already speaks, which is French today.
 Translating one of those in passing changes what the product says, so it is a
 decision of its own, never a side effect of an edit.
 
+## Child processes never open a console window on Windows
+
+Sectile Desktop starts the agent detached, so on Windows the agent owns no
+console, and Windows gives every console child it starts a fresh, visible,
+focus-stealing window. Any command the agent or the server runs for itself
+(`git`, `npm`, a shell, any CLI whose output Sectile reads or ignores) is
+therefore built through `agentexec.Hidden`:
+
+```go
+cmd := agentexec.Hidden(exec.CommandContext(ctx, "git", args...))
+```
+
+This holds for every new `exec.Command` or `exec.CommandContext`, including one
+in a new package and one that runs only once, such as an install step. Prefer
+the existing wrappers that already apply it (`gitLocal`, `gitCommand`,
+`Runner.runCommand`) to a new bare call. A child the daemon supervises goes
+through `agentexec.StartDetached`, which applies it too. `Hidden` is a no-op
+outside Windows, so it never needs a platform check.
+
+The only exceptions are the windows a user asked to see: the native terminal
+launcher, an interactive run started with `agentexec.StartControlled`, and the
+editor opened by "Open in editor". A new launch of that kind says why it is
+visible in a comment. A fix that hides a command adds a Windows test asserting
+`CREATE_NO_WINDOW` on it, as `internal/agentexec/process_windows_test.go` does.
+
 ## Releases: cutting a tag
 
 A release of Sectile is a Git tag, and nothing else. The tag is what the
@@ -120,7 +145,10 @@ The tag is published twice, by two independent builds:
   changelog section as its notes.
 
 Both refuse a tag whose `desktop/package.json` does not match it, which is why
-step 4 matters. A merge into `main` publishes the image only: binaries and
-desktop archives come from tags and from nowhere else. See `.gitlab-ci.yml`,
-`docs/adrs/0018-semver-tags-and-changelog.md` and
-`docs/adrs/0034-a-release-is-published-on-both-forges.md`.
+step 4 matters. A merge into `main` is not a release: it publishes the image
+and re-uploads the same binaries and desktop archives to the rolling package
+version `main` on the GitLab mirror, stamped `<iid>-main`. Versioned packages
+and GitHub Releases come from tags and from nowhere else. See `.gitlab-ci.yml`,
+`docs/adrs/0018-semver-tags-and-changelog.md`,
+`docs/adrs/0034-a-release-is-published-on-both-forges.md` and
+`docs/adrs/0045-main-publishes-a-rolling-workstation-package.md`.

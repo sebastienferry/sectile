@@ -132,7 +132,7 @@ func TestPairingIssuesAKeyWithTheDefaultExpiry(t *testing.T) {
 	database := identityDB(t)
 	userID, _ := database.UpsertUser("okta|heidi", "", "")
 	code, _, _ := database.CreatePairingCode(userID)
-	key, credential, err := database.RedeemPairingCode(code, "desktop")
+	key, credential, err := database.RedeemPairingCode(code, "desktop", "")
 	if err != nil {
 		t.Fatalf("redeem: %v", err)
 	}
