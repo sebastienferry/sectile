@@ -1334,12 +1334,6 @@ type TaskPostBackResult struct {
 	Error    string        `json:"error,omitempty"`
 }
 
-type ProposedMacroTask struct {
-	Title       string `json:"title"`
-	IssueType   string `json:"issueType"`
-	Description string `json:"description"`
-}
-
 // NormalizeSkillID preserves legacy invocations without rewriting history.
 func NormalizeSkillID(id string) string {
 	switch strings.TrimSpace(id) {

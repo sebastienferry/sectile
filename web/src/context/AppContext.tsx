@@ -44,7 +44,6 @@ import type {
   TeamWorkload,
   TaskFacetValue,
   CreateTaskPayload,
-  RefineMacroResult,
   AutoSyncState,
   TrackerCheck,
   TrackerCredentials,
@@ -397,7 +396,6 @@ interface AppContextType {
   fetchProjectIssueTypes: (projectId: string) => Promise<string[]>
   fetchProjectMacros: (projectId: string) => Promise<MacroMeta[]>
   fetchProjectEpics: (projectId: string) => Promise<MacroMeta[]>
-  refineMacro: (key: string, projectId?: string) => Promise<RefineMacroResult | null>
   createBatchTasks: (reqs: CreateTaskPayload[]) => Promise<Task[]>
 
   saveMacroMeta: (
@@ -2862,30 +2860,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   }
   const fetchProjectEpics = fetchProjectMacros
 
-  const refineMacro = async (key: string, projectId?: string): Promise<RefineMacroResult | null> => {
-    try {
-      const targetProj = projectId || currentProject?.id || ''
-      const url = targetProj
-        ? `${API_BASE}/projects/${encodeURIComponent(targetProj)}/macros/${encodeURIComponent(key)}/refine`
-        : `${API_BASE}/macros/${encodeURIComponent(key)}/refine`
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-      })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) throw trackerError(res, data, t.operations.notifications.macros.refineRefused)
-      return {
-        key: data.key || key,
-        todos: data.todos || [],
-        proposedTasks: data.proposedTasks || [],
-        specFramework: data.specFramework || 'speckit',
-      }
-    } catch (err: any) {
-      addToast(refusalToast(err, { type: 'error', title: t.operations.notifications.macros.refineFailed, description: err.message }))
-      return null
-    }
-  }
-
   const createBatchTasks = async (reqs: CreateTaskPayload[]): Promise<Task[]> => {
     if (!reqs || reqs.length === 0) return []
     try {
@@ -4438,7 +4412,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         fetchProjectIssueTypes,
         fetchProjectMacros,
         fetchProjectEpics,
-        refineMacro,
         createBatchTasks,
 
         saveMacroMeta,

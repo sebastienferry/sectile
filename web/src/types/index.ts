@@ -191,12 +191,6 @@ export interface MacroStoryBatch {
   failed: number
 }
 
-export interface ProposedMacroTask {
-  title: string
-  issueType: string
-  description: string
-}
-
 export interface CreateTaskPayload {
   title: string
   description?: string
@@ -216,13 +210,6 @@ export interface CreateTaskPayload {
   parentKey?: string
   parentTitle?: string
   parentType?: string
-}
-
-export interface RefineMacroResult {
-  key: string
-  todos: MacroTodo[]
-  proposedTasks?: ProposedMacroTask[]
-  specFramework: string
 }
 
 export interface MacroMeta {
