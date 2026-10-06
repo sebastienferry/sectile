@@ -1,6 +1,6 @@
 # ADR 0049: Workstations sign in through the browser
 
-- Status: Accepted
+- Status: Accepted; amended by [ADR 0053](0053-desktop-keeps-its-own-settings-file.md)
 - Date: 2026-10-03
 - Issue: [#717](https://github.com/sebastienferry/sectile/issues/717)
 
@@ -74,6 +74,11 @@ hunting for a typo while the server was the one failing.
   sign-in beside the pairing code. A key refused as revoked, unknown or expired
   asks to pair again; a blocked account does not, since a new pairing would not
   open it.
+  *Amended by [ADR 0053](0053-desktop-keeps-its-own-settings-file.md): Desktop
+  keeps its key in its own `desktop.json` and no longer writes `settings.json`;
+  the newest of a Desktop pairing and a `sectile-agent pair` key is the one
+  with the later `pairedAt`, and the standalone agent no longer reuses a key
+  Desktop stored.*
 - **MCP registrations follow the key.** When the key changes, the user-level
   top-level `sectile` entry of Codex and Antigravity that addresses the same
   server with a different non-empty key is rewritten with the new key, keeping

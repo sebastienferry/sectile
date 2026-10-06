@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"tasks/internal/agentconfig"
+	"time"
 )
 
 // Only an explicit workstation preference opens MCP without a client key.
@@ -322,12 +323,29 @@ func unsavedMCPProviders(settings agentconfig.Settings) []string {
 // newerStoredKey returns the key `sectile-agent pair` or the desktop stored for this server when it differs from the
 // one the daemon started with: a daemon restarted with an older key keeps TOKEN across the self-restart, and that key
 // may be revoked (ADR 0049). A stored connection with no server is the same server, as in resolveCredential.
+//
+// A daemon Sectile Desktop started knows when its key was paired: a stored key
+// is newer only when it was paired later, so a key Desktop left in the file
+// before it kept its own is never taken for a newer one (#746).
 func (d *agentDaemon) newerStoredKey() (string, bool) {
 	stored, _ := agentconfig.ReadConnection()
 	if stored.APIKey == "" || stored.APIKey == d.link.token || (stored.Server != "" && stored.Server != strings.TrimRight(d.link.serverURL, "/")) {
 		return "", false
 	}
+	if !d.link.pairedAt.IsZero() && !stored.NewerThan(d.link.pairedAt) {
+		return "", false
+	}
 	return stored.APIKey, true
+}
+
+// desktopPairedAt reads the pairing moment Sectile Desktop passes with the
+// key; empty or unreadable is zero, the rule of an agent started by hand.
+func desktopPairedAt(value string) time.Time {
+	pairedAt, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(value))
+	if err != nil {
+		return time.Time{}
+	}
+	return pairedAt
 }
 
 // currentMCPKey is the key a registration is written with and compared to: the newer stored one when there is one,

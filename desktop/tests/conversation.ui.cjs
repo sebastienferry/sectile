@@ -62,7 +62,7 @@ test('Claude chat renders structured output safely and sends messages without a 
   await expect(views.getByRole('button',{name:'Terminal',exact:true})).toHaveAttribute('aria-pressed','true')
   await views.getByRole('button',{name:'Conversation',exact:true}).click()
   await expect(views.getByRole('button',{name:'Conversation',exact:true})).toHaveAttribute('aria-pressed','true')
-  assert.equal(JSON.parse(fs.readFileSync(path.join(root,'settings.json'),'utf8')).consoleView,'conversation')
+  assert.equal(JSON.parse(fs.readFileSync(path.join(root,'desktop.json'),'utf8')).consoleView,'conversation')
   await page.keyboard.press('Escape')
   await page.getByRole('button',{name:'Claude chat (test)',exact:true}).click()
   await expect(page.locator('.conversation')).toBeVisible()

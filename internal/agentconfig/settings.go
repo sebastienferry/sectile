@@ -47,6 +47,9 @@ type SettingsMigration struct {
 	// NewerLayout is the layout of a file a newer agent wrote, which this one
 	// leaves alone; 0 when it is not newer.
 	NewerLayout int
+	// DesktopKeysRemoved tells the file held keys only Sectile Desktop used,
+	// now removed: Desktop keeps them in its own file (#746).
+	DesktopKeysRemoved bool
 }
 
 // readConverted also reports whether the engine conversion or the drop of the
@@ -147,8 +150,24 @@ func readFolded(legacyRoot string) (Settings, error) {
 }
 
 // ownedKeys are the keys WriteSettings replaces as a whole. Any other key
-// (server, deviceId, apiKey and what the desktop stores beside them) is kept.
+// (server, deviceId, apiKey, pairedAt) is kept.
 var ownedKeys = []string{"layout", "defaults", "projectSettings", "repositories", "disconnectedProjects", "mcpConnections", "skills", "seeded", "engines"}
+
+// desktopOnlyKeys are what Sectile Desktop stored in this file before it kept
+// its own (#746). Only Desktop read them; every write of the agent removes
+// them, so the file holds nothing Desktop could want to write back.
+var desktopOnlyKeys = []string{"appearance", "consoleView", "repo", "binary", "secret"}
+
+// holdsDesktopOnlyKeys reports a settings file that still holds a key only
+// Sectile Desktop used.
+func holdsDesktopOnlyKeys(fields map[string]json.RawMessage) bool {
+	for _, key := range desktopOnlyKeys {
+		if _, ok := fields[key]; ok {
+			return true
+		}
+	}
+	return false
+}
 
 // WriteSettings preserves the connection fields while replacing the settings
 // it owns. The legacy keys are removed and the file is written in the current
@@ -203,7 +222,7 @@ func storeSettings(settings Settings, traceDowngrade bool) error {
 	if err = json.Unmarshal(raw, &updates); err != nil {
 		return err
 	}
-	for _, key := range append(append([]string{}, legacyKeys...), ownedKeys...) {
+	for _, key := range append(append(append([]string{}, legacyKeys...), ownedKeys...), desktopOnlyKeys...) {
 		delete(fields, key)
 	}
 	for key, value := range updates {

@@ -89,3 +89,11 @@ test('a failure on one file does not stop the others', () => {
  }
  assert.deepStrictEqual(carryOverDataDirectory(previous, current, io), ['agent-settings.json'])
 })
+
+test('Desktop\'s own settings file is carried over too (#746)', () => {
+ const {previous, current} = directories()
+ fs.writeFileSync(path.join(previous, 'desktop.json'), '{"appearance":"dark"}')
+
+ assert.deepStrictEqual(carryOverDataDirectory(previous, current), ['desktop.json'])
+ assert.strictEqual(fs.readFileSync(path.join(current, 'desktop.json'), 'utf8'), '{"appearance":"dark"}')
+})

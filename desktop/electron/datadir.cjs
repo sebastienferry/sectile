@@ -7,7 +7,7 @@ const fs = require('node:fs')
 
 // agent-connection.json is deliberately absent: it names a gateway port and a
 // secret belonging to an agent session that is already over.
-const CARRIED_FILES = ['settings.json', 'agent-settings.json']
+const CARRIED_FILES = ['settings.json', 'agent-settings.json', 'desktop.json']
 
 // carryOverDataDirectory copies what the previous directory holds and the
 // current one lacks. An existing file is never overwritten, so a fresh
