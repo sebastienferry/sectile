@@ -158,7 +158,11 @@ func labelsWrittenOn(t *testing.T, provider, scope, key string) {
 	d := testDB(t)
 	recorder := newLabelRecorder(provider)
 	d.TrackerRegistry().Register(provider, recorder)
-	trk, err := d.CreateTrackerAs("admin", models.Tracker{Provider: provider, Scope: scope})
+	site := ""
+	if provider == "jira" {
+		site = "https://acme.atlassian.net"
+	}
+	trk, err := d.CreateTrackerAs("admin", models.Tracker{Provider: provider, Site: site, Scope: scope})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -208,7 +212,7 @@ func TestARefusedLabelWriteTakesTheTicketBackOutOfTheProject(t *testing.T) {
 	recorder := newLabelRecorder("jira")
 	recorder.refusal = errors.New("label refused")
 	d.TrackerRegistry().Register("jira", recorder)
-	trk, err := d.CreateTrackerAs("admin", models.Tracker{Provider: "jira", Scope: "GODE"})
+	trk, err := d.CreateTrackerAs("admin", models.Tracker{Provider: "jira", Site: "https://acme.atlassian.net", Scope: "GODE"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -266,7 +270,7 @@ func labelOpTicket(t *testing.T, recorder *labelRecorder, labels []string) (*DB,
 	t.Helper()
 	d := testDB(t)
 	d.TrackerRegistry().Register("jira", recorder)
-	trk, err := d.CreateTrackerAs("admin", models.Tracker{Provider: "jira", Scope: "GODE"})
+	trk, err := d.CreateTrackerAs("admin", models.Tracker{Provider: "jira", Site: "https://acme.atlassian.net", Scope: "GODE"})
 	if err != nil {
 		t.Fatal(err)
 	}

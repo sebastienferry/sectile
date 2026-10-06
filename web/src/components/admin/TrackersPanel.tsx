@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { Database, Plus, RefreshCw, Save, Settings2, Trash2, X, Zap } from 'lucide-react'
 import { useApp } from '../../context/AppContext'
 import { format } from '../../lib/i18n'
@@ -9,8 +9,10 @@ import {
   createTracker,
   deleteTracker,
   fetchAdminTracker,
+  fetchActivity,
   fetchAdminTrackers,
   fetchTrackerIssueTypes,
+  jiraSiteRequired,
   syncTracker,
   trackerDisplayName,
   trackerDraftOf,
@@ -18,8 +20,10 @@ import {
   trackerPayload,
   trackerProjects,
   trackerSourceLocked,
+  trackerSyncOutcome,
   updateTracker,
   type TrackerDraft,
+  type TrackerSyncOutcome,
 } from '../../lib/trackers'
 import type { Tracker, TrackerColumn, TrackerProvider } from '../../types'
 import { BoardColumnsEditor } from '../BoardColumnsEditor'
@@ -31,6 +35,15 @@ const buttonClass =
 const labelClass = 'block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1'
 
 const errorText = (err: unknown) => (err instanceof Error ? err.message : String(err))
+
+/** How often a tracker row asks where its synchronisation stands, and for how long. */
+const SYNC_POLL_MS = 1500
+const SYNC_POLL_MAX = 400
+/** Consecutive unreadable answers before the row stops following. */
+const SYNC_POLL_FAILURES = 3
+
+/** What a tracker row shows of the synchronisation it queued. */
+type RowSync = TrackerSyncOutcome | { state: 'lost' }
 
 interface SourceFieldsProps {
   draft: TrackerDraft
@@ -44,9 +57,11 @@ interface SourceFieldsProps {
 
 /** The provider, name, site and scope of a tracker. */
 function SourceFields({ draft, onChange, providerLocked, sourceLocked, idPrefix }: SourceFieldsProps) {
-  const { t } = useApp()
+  const { t, settings } = useApp()
   const labels = t.admin.trackers
   const scopePlaceholder = draft.provider ? labels.scopePlaceholders[draft.provider] : ''
+  // A Jira tracker names its site when the deployment names none (#741).
+  const siteRequired = jiraSiteRequired(draft.provider, settings.jiraUrl ?? '')
   return (
     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
       <div>
@@ -88,14 +103,16 @@ function SourceFields({ draft, onChange, providerLocked, sourceLocked, idPrefix 
         />
       </div>
       <div>
-        <label htmlFor={`${idPrefix}-site`} className={labelClass}>{labels.site}</label>
+        <label htmlFor={`${idPrefix}-site`} className={labelClass}>{labels.site}{siteRequired && ' *'}</label>
         <input
           id={`${idPrefix}-site`}
           type="text"
           value={draft.site}
           disabled={sourceLocked}
+          required={siteRequired}
+          aria-required={siteRequired}
           onChange={e => onChange({ ...draft, site: e.target.value })}
-          placeholder={labels.sitePlaceholder}
+          placeholder={siteRequired ? labels.siteRequiredPlaceholder : labels.sitePlaceholder}
           className={`${fieldClass} font-mono`}
         />
       </div>
@@ -119,7 +136,7 @@ interface EditorProps {
  * project selecting the tracker reads them.
  */
 function TrackerEditor({ tracker, onSaved, onClose }: EditorProps) {
-  const { t, addToast, fetchProjects, fetchTrackers } = useApp()
+  const { t, addToast, fetchProjects, fetchTrackers, settings } = useApp()
   const labels = t.admin.trackers
   const ps = t.projectSettings.tracker
   const [current, setCurrent] = useState<Tracker>(tracker)
@@ -147,7 +164,9 @@ function TrackerEditor({ tracker, onSaved, onClose }: EditorProps) {
     return () => { cancelled = true }
   }, [tracker.id, tracker.provider])
 
-  const problem = trackerDraftProblem(draft)
+  // A tracker holding tickets cannot change its site here: the server alone
+  // judges whether it still needs one.
+  const problem = trackerDraftProblem(draft, trackerSourceLocked(current) ? undefined : settings.jiraUrl ?? '')
 
   const save = async () => {
     if (problem) {
@@ -312,7 +331,7 @@ function TrackerEditor({ tracker, onSaved, onClose }: EditorProps) {
  * them and configures their board, so this section lives on the admin page.
  */
 export const TrackersPanel: React.FC = () => {
-  const { t, addToast, projects, fetchProjects, fetchTrackers } = useApp()
+  const { t, addToast, projects, fetchProjects, fetchTrackers, settings } = useApp()
   const labels = t.admin.trackers
   const [trackers, setTrackers] = useState<Tracker[]>([])
   const [loadError, setLoadError] = useState('')
@@ -321,7 +340,17 @@ export const TrackersPanel: React.FC = () => {
   const [draft, setDraft] = useState<TrackerDraft>(EMPTY_TRACKER_DRAFT)
   const [createError, setCreateError] = useState('')
   const [rowErrors, setRowErrors] = useState<Record<string, string>>({})
+  const [rowSyncs, setRowSyncs] = useState<Record<string, RowSync>>({})
   const [busy, setBusy] = useState(false)
+  // The pending poll of each tracker row, cleared when the panel goes away.
+  const syncTimers = useRef<Record<string, number>>({})
+
+  useEffect(() => {
+    const timers = syncTimers.current
+    return () => {
+      Object.values(timers).forEach(timer => window.clearTimeout(timer))
+    }
+  }, [])
 
   const load = useCallback(async () => {
     try {
@@ -341,7 +370,7 @@ export const TrackersPanel: React.FC = () => {
   const setRowError = (id: string, text: string) => setRowErrors(errors => ({ ...errors, [id]: text }))
 
   const create = async () => {
-    const problem = trackerDraftProblem(draft)
+    const problem = trackerDraftProblem(draft, settings.jiraUrl ?? '')
     if (problem) {
       setCreateError(labels.problems[problem])
       return
@@ -380,13 +409,78 @@ export const TrackersPanel: React.FC = () => {
     }
   }
 
+  const setRowSync = (id: string, outcome: RowSync | null) =>
+    setRowSyncs(current => {
+      const next = { ...current }
+      if (outcome) next[id] = outcome
+      else delete next[id]
+      return next
+    })
+
+  // Follows the activity a synchronisation queued until it ends, so the row
+  // says what came of it: the pass runs in the background, and a failure
+  // otherwise only shows in the activity log (#741).
+  const follow = (trackerId: string, activityId: string) => {
+    let polls = 0
+    let failures = 0
+    const poll = async () => {
+      delete syncTimers.current[trackerId]
+      polls += 1
+      let outcome: RowSync | null = null
+      try {
+        const activity = await fetchActivity(activityId)
+        failures = 0
+        outcome = activity ? trackerSyncOutcome(activity) : { state: 'lost' }
+      } catch {
+        failures += 1
+        if (failures >= SYNC_POLL_FAILURES) outcome = { state: 'lost' }
+      }
+      if (outcome && outcome.state !== 'running') {
+        setRowSync(trackerId, outcome)
+        return
+      }
+      if (polls >= SYNC_POLL_MAX) {
+        setRowSync(trackerId, { state: 'lost' })
+        return
+      }
+      syncTimers.current[trackerId] = window.setTimeout(() => void poll(), SYNC_POLL_MS)
+    }
+    syncTimers.current[trackerId] = window.setTimeout(() => void poll(), SYNC_POLL_MS)
+  }
+
   const sync = async (tracker: Tracker) => {
     setRowError(tracker.id, '')
+    window.clearTimeout(syncTimers.current[tracker.id])
+    setRowSync(tracker.id, { state: 'running' })
     try {
-      await syncTracker(tracker.id)
+      const activity = await syncTracker(tracker.id)
       addToast({ type: 'success', title: format(labels.syncQueued, { name: tracker.name }) })
+      if (activity) follow(tracker.id, activity.id)
+      else setRowSync(tracker.id, null)
     } catch (err) {
+      setRowSync(tracker.id, null)
       setRowError(tracker.id, errorText(err))
+    }
+  }
+
+  const syncLine = (outcome: RowSync | undefined) => {
+    switch (outcome?.state) {
+      case 'running':
+        return (
+          <p className="flex items-center gap-1 text-[11px] text-[var(--text-muted)]" data-tracker-sync="running">
+            <RefreshCw size={11} className="animate-spin" /> {labels.syncRunning}
+          </p>
+        )
+      case 'succeeded':
+        return <p className="text-[11px] text-emerald-400" data-tracker-sync="succeeded">{format(labels.syncSucceeded, { summary: outcome.summary })}</p>
+      case 'failed':
+        return <p role="alert" className="text-[11px] text-red-400" data-tracker-sync="failed">{format(labels.syncFailed, { reason: outcome.reason })}</p>
+      case 'canceled':
+        return <p className="text-[11px] text-[var(--text-muted)]" data-tracker-sync="canceled">{labels.syncCanceled}</p>
+      case 'lost':
+        return <p className="text-[11px] text-amber-400" data-tracker-sync="lost">{labels.syncLost}</p>
+      default:
+        return null
     }
   }
 
@@ -454,7 +548,13 @@ export const TrackersPanel: React.FC = () => {
                 <span className="font-bold text-[var(--text-primary)]">{trackerDisplayName(tracker)}</span>
                 {tracker.site && <span className="text-[10px] font-mono text-[var(--text-muted)]">{tracker.site}</span>}
                 <div className="ml-auto flex items-center gap-1.5">
-                  <button type="button" onClick={() => void sync(tracker)} className={buttonClass} title={labels.sync}>
+                  <button
+                    type="button"
+                    onClick={() => void sync(tracker)}
+                    disabled={rowSyncs[tracker.id]?.state === 'running'}
+                    className={buttonClass}
+                    title={labels.sync}
+                  >
                     <Zap size={12} />
                     <span>{labels.sync}</span>
                   </button>
@@ -478,6 +578,7 @@ export const TrackersPanel: React.FC = () => {
                   ? format(labels.usedBy, { projects: linked.map(project => project.name).join(', ') })
                   : labels.unused}
               </p>
+              {syncLine(rowSyncs[tracker.id])}
               {rowErrors[tracker.id] && <p role="alert" className="text-[11px] text-red-400">{rowErrors[tracker.id]}</p>}
               {open && (
                 <TrackerEditor

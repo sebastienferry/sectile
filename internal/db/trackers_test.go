@@ -222,7 +222,7 @@ func TestATrackerStillLinkedToAProjectCannotBeDeleted(t *testing.T) {
 // source whole.
 func TestATrackerHoldingTicketsKeepsItsSource(t *testing.T) {
 	d := testDB(t)
-	used, err := d.CreateTrackerAs("admin", models.Tracker{Provider: "jira", Scope: "GODE"})
+	used, err := d.CreateTrackerAs("admin", models.Tracker{Provider: "jira", Site: "https://acme.atlassian.net", Scope: "GODE"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -249,7 +249,7 @@ func TestATrackerHoldingTicketsKeepsItsSource(t *testing.T) {
 		t.Fatalf("a tracker holding tickets is still renamed: %+v (%v)", saved, err)
 	}
 
-	empty, err := d.CreateTrackerAs("admin", models.Tracker{Provider: "jira", Scope: "BE"})
+	empty, err := d.CreateTrackerAs("admin", models.Tracker{Provider: "jira", Site: "https://acme.atlassian.net", Scope: "BE"})
 	if err != nil {
 		t.Fatal(err)
 	}

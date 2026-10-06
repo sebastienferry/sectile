@@ -4916,6 +4916,9 @@ func (d *DB) processSyncJob(ctx context.Context, job SkillJob, settings *models.
 	var outputLines []string
 	var hasError bool
 	var totalImported int
+	// errDetail is the reason a failed pass reads as, when it is more than its
+	// summary: the tracker's own refusal, which the admin panel shows (#741).
+	var errDetail string
 
 	switch {
 	case job.SkillID == "sync_all":
@@ -5034,6 +5037,7 @@ func (d *DB) processSyncJob(ctx context.Context, job SkillJob, settings *models.
 		if err != nil {
 			hasError = true
 			errMsg := fmt.Sprintf("%s synchronization failed: %v", trackerTitle, err)
+			errDetail = errMsg
 			steps = append(steps, "⚠️ "+errMsg)
 			outputLines = append(outputLines, "**Error:** "+errMsg)
 			summary = fmt.Sprintf("Error during %s sync", trackerTitle)
@@ -5087,6 +5091,9 @@ func (d *DB) processSyncJob(ctx context.Context, job SkillJob, settings *models.
 	if hasError {
 		status = string(models.ActivityStatusFailed)
 		errText = summary
+		if errDetail != "" {
+			errText = errDetail
+		}
 	}
 
 	stepsJSON, _ := json.Marshal(steps)
@@ -5910,16 +5917,33 @@ func (d *DB) resolveTaskSkillMode(projectID, skillID, modeOverride string) strin
 // each side is resolved both ways.
 //
 // A ticket's activity belongs to the projects the ticket belongs to (#741),
-// and a run's to the project it worked for, when it recorded one.
+// and a run's to the project it worked for, when it recorded one. An activity
+// of a whole tracker, such as its synchronisation, names no project and no
+// ticket: it belongs to every project selecting that tracker, even one
+// showing only the tickets carrying its label.
 func (d *DB) activityProjectFilterUnsafe(projectID string) (string, []interface{}) {
 	if projectID == "" || projectID == "all" {
 		return "", nil
 	}
 	member, memberArgs := d.membershipScopeOnUnsafe([]string{projectID}, "t.")
+	trackerClause := ""
+	var trackerArgs []interface{}
+	if p, ok := d.membershipUnsafe().project(projectID); ok && len(p.Trackers) > 0 {
+		// Only an activity attached to nothing narrower: one on a ticket or
+		// for a project is that ticket's or that project's, whatever tracker
+		// it went to.
+		trackerClause = `
+		OR (COALESCE(a.task_id, '') = '' AND COALESCE(a.project_id, '') = '' AND COALESCE(a.run_project_id, '') = ''
+			AND a.tracker_id IN (` + placeholders(len(p.Trackers)) + `))`
+		for _, id := range p.Trackers {
+			trackerArgs = append(trackerArgs, id)
+		}
+	}
 	clause := `(a.project_id = ? OR a.project_id = (SELECT id FROM projects WHERE slug = ?)
 		OR a.run_project_id = ? OR a.run_project_id = (SELECT id FROM projects WHERE slug = ?)
-		OR (COALESCE(a.run_project_id, '') = '' AND ` + member + `))`
-	return clause, append([]interface{}{projectID, projectID, projectID, projectID}, memberArgs...)
+		OR (COALESCE(a.run_project_id, '') = '' AND ` + member + `)` + trackerClause + `)`
+	args := append([]interface{}{projectID, projectID, projectID, projectID}, memberArgs...)
+	return clause, append(args, trackerArgs...)
 }
 
 func (d *DB) GetActivities(projectID, status, skillID, taskID, search string, limit int) ([]models.TaskActivity, error) {

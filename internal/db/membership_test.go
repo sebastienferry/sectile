@@ -204,7 +204,7 @@ func TestAProjectsTaskCountFollowsItsMembership(t *testing.T) {
 // jiraSpace records a Jira tracker as an admin does.
 func jiraSpace(t *testing.T, d *DB, key string) *models.Tracker {
 	t.Helper()
-	trk, err := d.CreateTrackerAs("admin", models.Tracker{Provider: "jira", Scope: key})
+	trk, err := d.CreateTrackerAs("admin", models.Tracker{Provider: "jira", Site: "https://acme.atlassian.net", Scope: key})
 	if err != nil {
 		t.Fatal(err)
 	}

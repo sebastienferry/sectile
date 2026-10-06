@@ -427,14 +427,26 @@ export function normalizeTrackerScope(provider: TrackerProvider | '', scope: str
 }
 
 /** Why a draft cannot be saved, or null when it can. The server checks again. */
-export type TrackerDraftProblem = 'provider' | 'scope' | 'githubScope'
+export type TrackerDraftProblem = 'provider' | 'scope' | 'githubScope' | 'jiraSite'
 
-export function trackerDraftProblem(draft: TrackerDraft): TrackerDraftProblem | null {
+/**
+ * deploymentJiraUrl is the deployment's own Jira site, from the settings. When
+ * it is given and empty, a Jira tracker has to name its site: its
+ * synchronisation would have no address to read from (#741). Left undefined,
+ * the site is not checked here, and the server still is.
+ */
+export function trackerDraftProblem(draft: TrackerDraft, deploymentJiraUrl?: string): TrackerDraftProblem | null {
   if (!draft.provider) return 'provider'
   const scope = normalizeTrackerScope(draft.provider, draft.scope)
   if (!scope) return 'scope'
   if (draft.provider === 'github' && !/^[^/\s]+\/[^/\s]+$/.test(scope)) return 'githubScope'
+  if (jiraSiteRequired(draft.provider, deploymentJiraUrl) && !draft.site.trim()) return 'jiraSite'
   return null
+}
+
+/** Whether a tracker of this provider must name its own site. */
+export function jiraSiteRequired(provider: TrackerProvider | '', deploymentJiraUrl?: string): boolean {
+  return provider === 'jira' && deploymentJiraUrl !== undefined && !deploymentJiraUrl.trim()
 }
 
 /**
@@ -545,6 +557,42 @@ export async function fetchTrackerDetectedStatuses(id: string): Promise<Detected
 export async function syncTracker(id: string): Promise<TaskActivity | null> {
   const body = await trackerAnswer<{ activity?: TaskActivity }>(await fetch(trackerPath(TRACKERS_PATH, id, 'sync'), { method: 'POST' }))
   return body.activity ?? null
+}
+
+/** One activity, as the activity log keeps it; null once it is gone. */
+export async function fetchActivity(id: string): Promise<TaskActivity | null> {
+  const response = await fetch(`/api/activities/${encodeURIComponent(id)}`)
+  if (response.status === 404) return null
+  return trackerAnswer<TaskActivity>(response)
+}
+
+/** Where a queued synchronisation stands, as a tracker row tells it. */
+export type TrackerSyncOutcome =
+  | { state: 'running' }
+  | { state: 'succeeded'; summary: string }
+  | { state: 'failed'; reason: string }
+  | { state: 'canceled' }
+
+/**
+ * The outcome of a synchronisation activity. A failure reads as the tracker's
+ * own refusal: the activity's error, else its last warning step, else its
+ * summary, so "configure the Jira site URL" reaches the admin who clicked.
+ */
+export function trackerSyncOutcome(activity: Pick<TaskActivity, 'status' | 'summary' | 'error' | 'steps'>): TrackerSyncOutcome {
+  switch (activity.status) {
+    case 'completed':
+      return { state: 'succeeded', summary: (activity.summary || '').trim() }
+    case 'canceled':
+      return { state: 'canceled' }
+    case 'failed': {
+      const warning = [...(activity.steps || [])].reverse().find(step => /^(⚠️|❌)/.test(step.trim()))
+      const fromStep = warning ? warning.trim().replace(/^(⚠️|❌)\s*/, '') : ''
+      const reason = (activity.error || '').trim() || fromStep || (activity.summary || '').trim()
+      return { state: 'failed', reason }
+    }
+    default:
+      return { state: 'running' }
+  }
 }
 
 /** The tracker's tickets no project shows. */

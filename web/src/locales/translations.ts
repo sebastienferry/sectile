@@ -888,7 +888,9 @@ export interface TranslationSchema {
       scope: string
       scopePlaceholders: { jira: string; github: string; gitlab: string }
       sourceLocked: string
-      problems: { provider: string; scope: string; githubScope: string }
+      problems: { provider: string; scope: string; githubScope: string; jiraSite: string }
+      /** The site placeholder of a Jira tracker when the deployment names no Jira site. */
+      siteRequiredPlaceholder: string
       create: string
       created: string
       save: string
@@ -902,6 +904,12 @@ export interface TranslationSchema {
       deleteRefused: string
       sync: string
       syncQueued: string
+      /** What a tracker row says of the synchronisation it queued, until it ends. */
+      syncRunning: string
+      syncSucceeded: string
+      syncFailed: string
+      syncCanceled: string
+      syncLost: string
       syncHelp: string
       usedBy: string
       unused: string
@@ -1837,7 +1845,9 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
           provider: 'Choisissez le fournisseur du tracker.',
           scope: "Nommez l'espace Jira, le dépôt GitHub ou le projet GitLab.",
           githubScope: 'Un dépôt GitHub se nomme owner/repo.',
+          jiraSite: "Indiquez le site Jira (https://votre-site.atlassian.net) : aucune URL Jira n'est configurée pour le déploiement.",
         },
+        siteRequiredPlaceholder: 'https://votre-site.atlassian.net (obligatoire)',
         create: 'Créer',
         created: 'Tracker {name} créé',
         save: 'Enregistrer',
@@ -1851,6 +1861,11 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
         deleteRefused: 'Suppression refusée : {error}',
         sync: 'Synchroniser',
         syncQueued: 'Synchronisation de {name} en file',
+        syncRunning: 'Synchronisation en cours…',
+        syncSucceeded: 'Synchronisation terminée : {summary}',
+        syncFailed: 'Échec de la synchronisation : {reason}',
+        syncCanceled: 'Synchronisation annulée',
+        syncLost: "Suivi de la synchronisation interrompu : consultez l'activité",
         syncHelp: "Met en file des synchronisations de ce tracker, quels que soient les projets qui le sélectionnent.",
         usedBy: 'Projets : {projects}',
         unused: 'Aucun projet ne le sélectionne',
@@ -2783,7 +2798,9 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
           provider: "Choose the tracker's provider.",
           scope: 'Name the Jira space, the GitHub repository or the GitLab project.',
           githubScope: 'A GitHub repository is named owner/repo.',
+          jiraSite: 'Enter the Jira site (https://your-site.atlassian.net): no Jira URL is configured for the deployment.',
         },
+        siteRequiredPlaceholder: 'https://your-site.atlassian.net (required)',
         create: 'Create',
         created: 'Tracker {name} created',
         save: 'Save',
@@ -2797,6 +2814,11 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
         deleteRefused: 'Deletion refused: {error}',
         sync: 'Synchronise',
         syncQueued: 'Synchronisation of {name} queued',
+        syncRunning: 'Synchronising…',
+        syncSucceeded: 'Synchronisation finished: {summary}',
+        syncFailed: 'Synchronisation failed: {reason}',
+        syncCanceled: 'Synchronisation canceled',
+        syncLost: 'Lost track of the synchronisation: see the activity',
         syncHelp: 'Queues synchronisations of this tracker, whatever projects select it.',
         usedBy: 'Projects: {projects}',
         unused: 'No project selects it',

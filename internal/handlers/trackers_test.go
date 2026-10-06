@@ -33,7 +33,7 @@ func TestOnlyAnAdminCanCreateOrEditATracker(t *testing.T) {
 	_, alice := account(t, database, "alice@example.com") // the first account is the admin
 	_, bob := account(t, database, "bob@example.com")
 
-	status, body := call(t, server, alice, http.MethodPost, AdminTrackersPath, `{"provider":"jira","scope":"gode","name":"GODE"}`)
+	status, body := call(t, server, alice, http.MethodPost, AdminTrackersPath, `{"provider":"jira","site":"https://acme.atlassian.net","scope":"gode","name":"GODE"}`)
 	if status != http.StatusCreated {
 		t.Fatalf("admin create: %d %s", status, body)
 	}
@@ -44,9 +44,9 @@ func TestOnlyAnAdminCanCreateOrEditATracker(t *testing.T) {
 
 	for _, route := range []struct{ method, path, body string }{
 		{http.MethodGet, AdminTrackersPath, ""},
-		{http.MethodPost, AdminTrackersPath, `{"provider":"jira","scope":"BE"}`},
+		{http.MethodPost, AdminTrackersPath, `{"provider":"jira","site":"https://acme.atlassian.net","scope":"BE"}`},
 		{http.MethodGet, AdminTrackersPath + "/" + created.ID, ""},
-		{http.MethodPut, AdminTrackersPath + "/" + created.ID, `{"provider":"jira","scope":"GODE","name":"Renamed"}`},
+		{http.MethodPut, AdminTrackersPath + "/" + created.ID, `{"provider":"jira","site":"https://acme.atlassian.net","scope":"GODE","name":"Renamed"}`},
 		{http.MethodDelete, AdminTrackersPath + "/" + created.ID, ""},
 		{http.MethodGet, AdminTrackersPath + "/" + created.ID + "/boards", ""},
 	} {
@@ -70,12 +70,47 @@ func TestOnlyAnAdminCanCreateOrEditATracker(t *testing.T) {
 		alice,
 		http.MethodPut,
 		AdminTrackersPath+"/"+created.ID,
-		`{"provider":"jira","scope":"GODE","name":"Renamed"}`,
+		`{"provider":"jira","site":"https://acme.atlassian.net","scope":"GODE","name":"Renamed"}`,
 	); status != http.StatusOK || !strings.Contains(body, "Renamed") {
 		t.Fatalf("admin update: %d %s", status, body)
 	}
 	if status, body := call(t, server, alice, http.MethodDelete, AdminTrackersPath+"/"+created.ID, ""); status != http.StatusOK {
 		t.Fatalf("admin delete of an unused tracker: %d %s", status, body)
+	}
+}
+
+// A Jira tracker naming no site is refused while the deployment has no Jira
+// site either: its synchronisation would have no address to read from (#741).
+func TestAJiraTrackerWithoutASiteNeedsTheDeploymentsJiraURL(t *testing.T) {
+	t.Setenv("SECTILE_JIRA_URL", "")
+	h, database, cleanup := setupTestHandler(t)
+	defer cleanup()
+	server := trackerServer(t, h)
+	_, alice := account(t, database, "alice@example.com")
+
+	status, body := call(t, server, alice, http.MethodPost, AdminTrackersPath, `{"provider":"jira","scope":"GODE"}`)
+	if status != http.StatusBadRequest || !strings.Contains(body, "site") {
+		t.Fatalf("a Jira tracker with no site and no deployment URL: %d %s", status, body)
+	}
+	status, body = call(t, server, alice, http.MethodPost, AdminTrackersPath, `{"provider":"jira","site":"https://acme.atlassian.net","scope":"GODE"}`)
+	if status != http.StatusCreated {
+		t.Fatalf("a Jira tracker naming its site: %d %s", status, body)
+	}
+	var created models.Tracker
+	if err := json.Unmarshal([]byte(body), &created); err != nil {
+		t.Fatal(err)
+	}
+	status, body = call(t, server, alice, http.MethodPut, AdminTrackersPath+"/"+created.ID, `{"provider":"jira","site":"","scope":"GODE"}`)
+	if status != http.StatusBadRequest || !strings.Contains(body, "site") {
+		t.Fatalf("a rewrite dropping the site of a Jira tracker: %d %s", status, body)
+	}
+
+	if _, err := database.SaveTrackerCredentials("jira", "https://acme.atlassian.net", ""); err != nil {
+		t.Fatal(err)
+	}
+	status, body = call(t, server, alice, http.MethodPost, AdminTrackersPath, `{"provider":"jira","scope":"BE"}`)
+	if status != http.StatusCreated {
+		t.Fatalf("a Jira tracker reading the deployment's site: %d %s", status, body)
 	}
 }
 
@@ -85,7 +120,7 @@ func TestAMemberCanListTrackersToPickFrom(t *testing.T) {
 	server := trackerServer(t, h)
 	_, _ = account(t, database, "alice@example.com")
 	_, bob := account(t, database, "bob@example.com")
-	gode, err := database.CreateTrackerAs("admin", models.Tracker{Provider: "jira", Scope: "GODE"})
+	gode, err := database.CreateTrackerAs("admin", models.Tracker{Provider: "jira", Site: "https://acme.atlassian.net", Scope: "GODE"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -119,7 +154,7 @@ func TestAMemberWithoutAProjectOnTheTrackerCannotReadItsBacklog(t *testing.T) {
 	server := trackerServer(t, h)
 	_, alice := account(t, database, "alice@example.com")
 	_, bob := account(t, database, "bob@example.com")
-	lone, err := database.CreateTrackerAs("admin", models.Tracker{Provider: "jira", Scope: "LONE"})
+	lone, err := database.CreateTrackerAs("admin", models.Tracker{Provider: "jira", Site: "https://acme.atlassian.net", Scope: "LONE"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -172,7 +207,7 @@ func TestAnAdminConfiguresTheBoardOnTheTrackerNotOnAProject(t *testing.T) {
 	}})
 	server := trackerServer(t, h)
 	_, alice := account(t, database, "alice@example.com")
-	pe, err := database.CreateTrackerAs("admin", models.Tracker{Provider: "jira", Scope: "PE"})
+	pe, err := database.CreateTrackerAs("admin", models.Tracker{Provider: "jira", Site: "https://acme.atlassian.net", Scope: "PE"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -492,7 +527,7 @@ func TestMovingATrackerHoldingTicketsIsAConflict(t *testing.T) {
 	defer cleanup()
 	server := trackerServer(t, h)
 	_, alice := account(t, database, "alice@example.com")
-	gode, err := database.CreateTrackerAs("admin", models.Tracker{Provider: "jira", Scope: "GODE"})
+	gode, err := database.CreateTrackerAs("admin", models.Tracker{Provider: "jira", Site: "https://acme.atlassian.net", Scope: "GODE"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -504,11 +539,11 @@ func TestMovingATrackerHoldingTicketsIsAConflict(t *testing.T) {
 	if status != http.StatusOK || !strings.Contains(body, `"ticketCount":1`) {
 		t.Fatalf("the admin read must count the tracker's tickets: %d %s", status, body)
 	}
-	status, body = call(t, server, alice, http.MethodPut, AdminTrackersPath+"/"+gode.ID, `{"provider":"jira","scope":"OTHER","name":"GODE"}`)
+	status, body = call(t, server, alice, http.MethodPut, AdminTrackersPath+"/"+gode.ID, `{"provider":"jira","site":"https://acme.atlassian.net","scope":"OTHER","name":"GODE"}`)
 	if status != http.StatusConflict {
 		t.Fatalf("moving a tracker holding tickets: %d %s", status, body)
 	}
-	status, body = call(t, server, alice, http.MethodPut, AdminTrackersPath+"/"+gode.ID, `{"provider":"jira","scope":"GODE","name":"Renamed"}`)
+	status, body = call(t, server, alice, http.MethodPut, AdminTrackersPath+"/"+gode.ID, `{"provider":"jira","site":"https://acme.atlassian.net","scope":"GODE","name":"Renamed"}`)
 	if status != http.StatusOK || !strings.Contains(body, "Renamed") || !strings.Contains(body, `"ticketCount":1`) {
 		t.Fatalf("renaming a tracker holding tickets: %d %s", status, body)
 	}
@@ -540,11 +575,11 @@ func TestTheDetectedStatusesOfATrackerAreItsOwn(t *testing.T) {
 	})
 	server := trackerServer(t, h)
 	_, alice := account(t, database, "alice@example.com")
-	pe, err := database.CreateTrackerAs("admin", models.Tracker{Provider: "jira", Scope: "PE"})
+	pe, err := database.CreateTrackerAs("admin", models.Tracker{Provider: "jira", Site: "https://acme.atlassian.net", Scope: "PE"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	ops, err := database.CreateTrackerAs("admin", models.Tracker{Provider: "jira", Scope: "OPS"})
+	ops, err := database.CreateTrackerAs("admin", models.Tracker{Provider: "jira", Site: "https://acme.atlassian.net", Scope: "OPS"})
 	if err != nil {
 		t.Fatal(err)
 	}

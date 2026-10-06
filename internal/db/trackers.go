@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"os"
 	"strings"
 	"time"
 
@@ -26,6 +27,11 @@ var ErrTrackerInUse = fmt.Errorf("ce tracker est encore utilisé par un projet o
 // ErrTrackerSourceInUse refuses to point a tracker holding tickets at another
 // source: its tickets, read from the first one, would be left behind.
 var ErrTrackerSourceInUse = errors.New("ce tracker a déjà des tickets : son fournisseur, son site et son périmètre ne changent plus")
+
+// ErrJiraSiteRequired refuses a Jira tracker naming no site on a deployment
+// with no Jira site of its own: its synchronisation would have no address to
+// read from, and would fail with nothing on screen saying why (#741).
+var ErrJiraSiteRequired = errors.New("un tracker Jira doit indiquer son site (https://<votre-site>.atlassian.net) : aucune URL Jira n'est configurée pour le déploiement")
 
 // ErrTrackerNotInProject refuses a tracker a project does not select, named
 // to create a ticket on it (#741).
@@ -530,12 +536,31 @@ func normalizeTracker(t *models.Tracker, settings *models.Settings) error {
 	if t.Scope == "" {
 		return fmt.Errorf("le tracker doit nommer son projet, son dépôt ou son espace")
 	}
+	if err := requireJiraSite(t, settings); err != nil {
+		return err
+	}
 	if t.Name == "" {
 		t.Name = t.Scope
 	}
 	t.AutoSyncIntervalMin = models.NormalizeAutoSyncIntervalMin(t.AutoSyncIntervalMin)
 	t.Identity = trackerIdentityFor(t, settings)
 	return nil
+}
+
+// requireJiraSite refuses a Jira tracker with no site of its own when the
+// deployment has none either, in its settings or its environment, as the
+// tracker client resolves it.
+func requireJiraSite(t *models.Tracker, settings *models.Settings) error {
+	if t.Provider != "jira" || t.Site != "" {
+		return nil
+	}
+	if settings != nil && strings.TrimSpace(settings.JiraUrl) != "" {
+		return nil
+	}
+	if strings.TrimSpace(os.Getenv(trackerapi.JiraURLVar)) != "" {
+		return nil
+	}
+	return ErrJiraSiteRequired
 }
 
 // CreateTrackerAs records a tracker. One that names a source already recorded

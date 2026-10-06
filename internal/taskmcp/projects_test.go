@@ -119,11 +119,11 @@ func TestTheMcpCreateTaskAcceptsATracker(t *testing.T) {
 	database := openDB(t)
 	creator := &issueCreator{BaseTicketingSystem: sectiletracker.BaseTicketingSystem{TrackerName: "jira", Capabilities: []sectiletracker.Capability{sectiletracker.CapCreate}}}
 	database.TrackerRegistry().Register("jira", creator)
-	gode, err := database.CreateTrackerAs("admin", models.Tracker{Provider: "jira", Scope: "GODE"})
+	gode, err := database.CreateTrackerAs("admin", models.Tracker{Provider: "jira", Site: "https://acme.atlassian.net", Scope: "GODE"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	be, err := database.CreateTrackerAs("admin", models.Tracker{Provider: "jira", Scope: "BE"})
+	be, err := database.CreateTrackerAs("admin", models.Tracker{Provider: "jira", Site: "https://acme.atlassian.net", Scope: "BE"})
 	if err != nil {
 		t.Fatal(err)
 	}

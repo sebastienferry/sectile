@@ -28,6 +28,9 @@ const (
 	JiraTokenVar   = "SECTILE_JIRA_TOKEN"
 )
 
+// JiraURLVar supplies the deployment's Jira site when the settings name none.
+const JiraURLVar = "SECTILE_JIRA_URL"
+
 // RemovedTokenVariable is an environment variable Sectile used to read as a
 // tracker credential and no longer does, with what replaces it.
 type RemovedTokenVariable struct {
@@ -289,7 +292,7 @@ func NewClient() *Client {
 		GitlabURL:     strings.TrimRight(gl, "/"),
 		GitlabProject: os.Getenv("SECTILE_GITLAB_PROJECT"),
 		GitlabToken:   os.Getenv(GitlabTokenVar),
-		JiraURL:       jiraBaseURL(os.Getenv("SECTILE_JIRA_URL")),
+		JiraURL:       jiraBaseURL(os.Getenv(JiraURLVar)),
 		JiraEmail:     strings.TrimSpace(os.Getenv(JiraEmailVar)),
 		JiraToken:     os.Getenv(JiraTokenVar),
 	}
