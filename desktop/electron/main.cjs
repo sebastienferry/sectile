@@ -551,8 +551,9 @@ ipcMain.handle('git-diff',async(_,id)=>{
  if(typeof id!=='string'||!id||id.length>512)throw Error('Select an execution to inspect changes.')
  const status=await api('/desktop/status')
  if(!status.capabilities?.includes('git-diff'))throw Error('Update and restart the local agent to inspect changes.')
- // markdownDocuments tells the renderer whether this agent sends Markdown contents (#575).
- try{return {...await api('/desktop/git-diff?id='+encodeURIComponent(id)),markdownDocuments:!!status.capabilities.includes('markdown-documents')}}
+ // markdownDocuments tells the renderer whether this agent sends Markdown contents (#575),
+ // markdownImages whether it sends the repository images they reference (#683).
+ try{return {...await api('/desktop/git-diff?id='+encodeURIComponent(id)),markdownDocuments:!!status.capabilities.includes('markdown-documents'),markdownImages:!!status.capabilities.includes('markdown-images')}}
  catch(err){
   let detail
   try{detail=JSON.parse(err.body||err.message)}catch{throw err}
