@@ -43,7 +43,7 @@ import { archiveLabel, archiveRefusal, archiveFailure } from './archive-workspac
 import changelogSource from '../../CHANGELOG.md?raw'
 import { parseChangelog, releaseNotesFor } from './changelog.mjs'
 import { APPEARANCE_CHOICES, CONSOLE_VIEW_CHOICES, CONVERSATION_MODE_CHOICES, terminalOptions } from './appearance.mjs'
-import { claudeMark } from './claude-mark.mjs'
+import { claudeMark, settingsCategoryIcon } from './claude-mark.mjs'
 const api=window.localAgent
 // Concurrent execution workers ceiling per project, aligned with agentconfig.MaxParallelism.
 // Parallelism is a workstation setting: the server neither stores nor supplies it.
@@ -1765,7 +1765,7 @@ const SETTINGS_CATEGORIES=[
  {id:'Connection',label:'Agent connection',icon:'<path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="3"/><circle cx="15" cy="17" r="3"/>'},
  {id:'AgentCli',label:'Execution defaults',icon:'<rect x="3" y="4" width="18" height="16" rx="2"/><path d="m7 9 3 3-3 3M12 15h5"/>'},
  {id:'Engines',label:'AI engines',icon:'<rect x="4" y="8" width="16" height="11" rx="3"/><path d="M12 4v4M9 13h.01M15 13h.01"/>'},
- {id:'Sandbox',label:'Claude settings',icon:'<path d="M12 3 5 6v5c0 4.4 3 8.3 7 9.5 4-1.2 7-5.1 7-9.5V6Z"/><path d="m9 12 2 2 4-4"/>'},
+ {id:'Sandbox',label:'Claude settings',mark:'claude'},
  {id:'Deployment',label:'Deployment',icon:'<path d="M12 20V7m0 0 4 4m-4-4-4 4"/><path d="M5 4h14"/>'},
  {id:'Logs',label:'Agent logs',icon:'<path d="M14 3H7a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V7Z"/><path d="M14 3v4h4"/><path d="M9 13h6M9 17h6"/>'},
  {id:'Changelog',label:'Changelog',icon:'<circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 8h.01"/>'}
@@ -1774,7 +1774,7 @@ const PROJECT_SETTINGS_CATEGORIES=[
  {id:'Remove',label:'General',saves:true,icon:'<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7h.01"/>'},
  {id:'General',label:'Folders',saves:true,icon:'<path d="M4 7a2 2 0 0 1 2-2h3l2 2.5h7a2 2 0 0 1 2 2V18a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2Z"/>'},
  {id:'Execution',label:'Execution',saves:true,icon:'<path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="2.4"/><circle cx="15" cy="17" r="2.4"/>'},
- {id:'Sandbox',label:'Claude settings',saves:true,icon:'<path d="M12 3 5 6v5c0 4.4 3 8.3 7 9.5 4-1.2 7-5.1 7-9.5V6Z"/><path d="m9 12 2 2 4-4"/>'}
+ {id:'Sandbox',label:'Claude settings',saves:true,mark:'claude'}
 ]
 function configurationNavigation(tabs,projectId){
  if(projectId)expandedConfigurationProject=projectId
@@ -1800,7 +1800,7 @@ function configurationNavigation(tabs,projectId){
    let tab=active?current.get(category.id):null
    if(!tab){
     tab=document.createElement('button');tab.type='button';tab.setAttribute('role','tab');tab.setAttribute('aria-selected','false');tab.title=category.label
-    tab.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">'+category.icon+'</svg>'
+    tab.append(settingsCategoryIcon(document,category))
     const text=document.createElement('span');text.className='settings-nav-label';text.textContent=category.label;tab.append(text)
     tab.onclick=()=>navigate(category.id)
    }
@@ -1970,7 +1970,7 @@ function openSettings(initial='Profile',project){
  const panels={}
  for(const category of SETTINGS_CATEGORIES){
   const tab=document.createElement('button');tab.type='button';tab.setAttribute('role','tab');tab.dataset.category=category.id;tab.title=category.label
-  tab.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">'+category.icon+'</svg>'
+  tab.append(settingsCategoryIcon(document,category))
   const text=document.createElement('span');text.className='settings-nav-label';text.textContent=category.label;tab.append(text)
   tab.id='settings-tab-'+category.id;tab.setAttribute('aria-controls','settings-panel-'+category.id)
   const panel=document.createElement('section');panel.id='settings-panel-'+category.id
@@ -1983,7 +1983,7 @@ function openSettings(initial='Profile',project){
   tabs.append(projectLabel)
   for(const category of PROJECT_SETTINGS_CATEGORIES){
    const tab=document.createElement('button');tab.type='button';tab.setAttribute('role','tab');tab.title=category.label
-   tab.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">'+category.icon+'</svg>'
+   tab.append(settingsCategoryIcon(document,category))
    const text=document.createElement('span');text.className='settings-nav-label';text.textContent=category.label;tab.append(text)
    tab.onclick=()=>openProject(project.id,category.id)
    tabs.append(tab)
@@ -2356,7 +2356,7 @@ async function openProject(id,initial='Remove'){
   tabs.append(generalLabel)
   for(const category of SETTINGS_CATEGORIES){
    const tab=document.createElement('button');tab.type='button';tab.setAttribute('role','tab');tab.title=category.label
-   tab.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">'+category.icon+'</svg>'
+   tab.append(settingsCategoryIcon(document,category))
    const text=document.createElement('span');text.className='settings-nav-label';text.textContent=category.label;tab.append(text)
    tab.onclick=()=>openSettings(category.id,{id,name:config.projectName})
    tabs.append(tab)
@@ -2383,7 +2383,7 @@ async function openProject(id,initial='Remove'){
   }
   for(const category of PROJECT_SETTINGS_CATEGORIES){
    const tab=document.createElement('button');tab.type='button';tab.setAttribute('role','tab');tab.dataset.category=category.id;tab.title=category.label
-   tab.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">'+category.icon+'</svg>'
+   tab.append(settingsCategoryIcon(document,category))
    const text=document.createElement('span');text.className='settings-nav-label';text.textContent=category.label;tab.append(text)
    tab.id='project-tab-'+category.id;tab.setAttribute('aria-controls','project-panel-'+category.id)
    const panel=document.createElement('section');panel.id='project-panel-'+category.id

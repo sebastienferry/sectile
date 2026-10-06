@@ -5,7 +5,7 @@ they cover.
 
 ## 1. Icon helper
 
-- [ ] T1.1 `settingsCategoryIcon(document, category)` in
+- [x] T1.1 `settingsCategoryIcon(document, category)` in
       `desktop/src/claude-mark.mjs`.
 - Tests (`desktop/tests/claude-mark.test.mjs`): a `mark: 'claude'` category
   gets the Claude mark (FR1, US1.4); another category gets the stroked outline
@@ -13,12 +13,12 @@ they cover.
 
 ## 2. Settings navigation
 
-- [ ] T2.1 `mark: 'claude'` on both `Sandbox` categories, shield removed (FR4).
-- [ ] T2.2 The five tab-building sites go through `settingsCategoryIcon` (FR2).
+- [x] T2.1 `mark: 'claude'` on both `Sandbox` categories, shield removed (FR4).
+- [x] T2.2 The five tab-building sites go through `settingsCategoryIcon` (FR2).
 
 ## 3. Colour
 
-- [ ] T3.1 `--claude-brand` and the `.claude-mark` colour rule in
+- [x] T3.1 `--claude-brand` and the `.claude-mark` colour rule in
       `desktop/src/style.css` (FR3).
 - Tests (`desktop/tests/conversation-mode.ui.cjs`): the workstation and project
   "Claude settings" tabs draw `svg.claude-mark`, orange, idle and selected
@@ -26,9 +26,9 @@ they cover.
 
 ## 4. Documentation
 
-- [ ] T4.1 `CHANGELOG.md` `Changed` line (FR5).
+- [x] T4.1 `CHANGELOG.md` `Changed` line (FR5).
 
 ## 5. Checks
 
-- [ ] T5.1 Desktop unit tests, `npx vite build`, the desktop UI suites touching
+- [x] T5.1 Desktop unit tests, `npx vite build`, the desktop UI suites touching
       settings.
