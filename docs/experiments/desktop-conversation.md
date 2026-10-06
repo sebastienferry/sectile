@@ -46,8 +46,9 @@ running….
 ## Approvals and controls
 
 The composer's permission mode is Claude Code's: **Ask before edits**,
-**Accept edits** (the default) or **Plan mode**, from the next message; there
-is no bypass. Sectile's own MCP tools, which every skill relies on, are always
+**Accept edits** (the default), **Auto mode** or **Plan mode**, from the next
+message; there is no bypass. In **Auto mode** Claude Code's classifier approves
+what the rules do not cover, and an action it refuses still waits for the owner. Sectile's own MCP tools, which every skill relies on, are always
 allowed. A tool call the owner's Claude Code rules do not allow waits in its card
 for **Allow**, **Always allow** (when Claude proposes a rule, which is then
 added to the project's Sandbox allow rules rather than to a file of the

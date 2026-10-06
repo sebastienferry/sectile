@@ -150,8 +150,10 @@ func streamPartial(c *claudeConversation, event conversationStream) {
 const conversationAllowedTools = "--allowedTools=mcp__sectile"
 
 // conversationModes are the permission modes the owner can pick, as Claude
-// Code's own mode switch offers them. bypassPermissions is not one of them.
-var conversationModes = map[string]bool{"default": true, "acceptEdits": true, "plan": true}
+// Code's own mode switch offers them. auto lets Claude Code's classifier
+// approve what the rules do not cover, and still asks for what it refuses;
+// bypassPermissions is not one of them.
+var conversationModes = map[string]bool{"default": true, "acceptEdits": true, "auto": true, "plan": true}
 
 // conversationMode is the permission mode a turn runs in.
 func conversationMode(mode string) string {
