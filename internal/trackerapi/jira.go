@@ -132,10 +132,18 @@ func (j *JiraAdapter) fieldsFor(ctx context.Context, c *Client) ([]string, jiraF
 }
 
 func (j *JiraAdapter) search(ctx context.Context, c *Client, jql string) ([]models.Task, error) {
+	return j.searchWith(ctx, c, jql, nil)
+}
+
+// searchWith is search with more fields asked: the custom fields a project
+// maps its epic axes to (#680), whose option each task found carries in
+// AxisFieldValues. No extra field asks exactly what search asks.
+func (j *JiraAdapter) searchWith(ctx context.Context, c *Client, jql string, extra []string) ([]models.Task, error) {
 	fields, ids, err := j.fieldsFor(ctx, c)
 	if err != nil {
 		return nil, err
 	}
+	fields = append(fields, extra...)
 	pages, err := c.jiraSearchPages(ctx, jql, fields)
 	if err != nil {
 		return nil, err
@@ -155,6 +163,9 @@ func (j *JiraAdapter) search(ctx context.Context, c *Client, jql string) ([]mode
 			continue
 		}
 		task := jiraTask(c.JiraURL, issue, ids, priorities)
+		if len(extra) > 0 {
+			task.AxisFieldValues = decodeEpicAxisFieldValues(raw, extra)
+		}
 		task.Position = len(tasks)
 		tasks = append(tasks, *task)
 	}
@@ -1133,7 +1144,7 @@ func (j *JiraAdapter) ListEpics(ctx context.Context, req tracker.ProjectRequest)
 	if err != nil {
 		return nil, err
 	}
-	return j.search(ctx, c, jiraJQL(key, nil, "issuetype = Epic"))
+	return j.searchWith(ctx, c, jiraJQL(key, nil, "issuetype = Epic"), epicAxisFieldIDs(req.Project))
 }
 
 func (j *JiraAdapter) SearchTeams(ctx context.Context, req tracker.TeamSearchRequest) ([]models.TrackerTeam, error) {

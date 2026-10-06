@@ -314,6 +314,28 @@ and records the repository on the task only once the agent answered. `remove_wor
 `payload.repositories` removes the task worktree in each of those repositories
 and answers `{"removed": [...], "failed": [{"repository", "error"}]}`.
 
+`archive_workspace` (`payload.taskId`, `payload.repositories`,
+`payload.deleteBranch`) cleans a task Desktop archives (#755). The agent
+removes, with a plain `git worktree remove`, the worktree of the task's branch
+in each repository named (the task's root when none is) and in a distinct Issue
+folder, and answers `{"repositories": [{"repository", "role", "path",
+"outcome", "error", "branch", "branchOutcome", "branchReason"}]}`. `role` is
+`code` or `specifications`; `outcome` is `removed`, `absent` (no worktree of
+the branch, or the branch is the checkout's own), `disabled` (worktrees off,
+nothing touched) or `failed` (Git's reason, or a repository not found here).
+Where the worktree is gone and `deleteBranch` is set, the local branch is
+deleted with `git branch -D` when it is checked out nowhere, has an upstream
+and no commit its upstream lacks; otherwise `branchOutcome` is `kept` with
+`branchReason` `no-merged-pr`, `missing`, `checked-out`, `no-upstream` or
+`unpushed`. A kept branch never fails an entry. The server sets
+`deleteBranch` only when the task records pull requests and all are merged,
+and answers a task whose branch another task of the project records (a batch)
+with `shared` entries without asking the agent. Desktop reaches it through
+`POST /desktop/tasks/archive-workspace?projectId=` (`{"taskId"}`), relayed to
+`POST /api/tasks/{id}/archive-workspace`, which answers `{"archivable",
+"repositories"}`; the agent announces it with the `archive-workspace`
+capability and names a server without the route.
+
 Each dispatch resolves the task's primary repository before anything starts:
 its pin (`task.repository`) when it names one of the project's repositories,
 else the code repository (#484). No dispatch waits for a repository choice; the
@@ -726,6 +748,21 @@ to native clients through the local gateway.
 not launched omit `startedAt`; completion preserves both timestamps. Desktop
 clients fall back to `createdAt` for legacy records without a valid start time.
 This display metadata does not change queue scheduling.
+
+An entry may carry `folders`, the folders of the run when it has more than one
+(#762): an array of `{path, name, role, attached}`, the run's `directory` first
+as `primary`, then each folder of the folder map the run was launched with,
+its worktree when it has one, else its folder. `role` is `primary`, `changed`,
+`context`, `spec` or `local`, as in `SECTILE_REPOSITORIES`; `attached` marks a
+folder attached to the project on this workstation; `name` is the last segment
+of the repository identity, `specifications`, or the folder's base name.
+Entries with no path on the workstation and missing attached folders are left
+out. A worktree prepared through `prepare_repository_worktree` joins the list
+of every run of its task that has not ended, as `changed`; a folder attached
+through `/desktop/run-folder` joins its run's; a conversation reads the
+project's folders again at each turn. The list is kept in the run store, so a
+restored run carries it. Older agents send no `folders`, and the desktop then
+shows the single `directory`.
 
 An entry marked `restored: true` was loaded from the agent's run store at start
 (ADR 0040): it has exited, carries no `sessionId` and no `waitingSince`, and

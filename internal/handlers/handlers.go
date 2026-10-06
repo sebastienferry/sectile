@@ -1634,6 +1634,19 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Sub-action: /api/projects/{id}/epic-axis-fields: the custom fields of
+	// one epic's edit screen a person may map the epic priority or quarter
+	// to (#680), with the option maps the deductions give.
+	if len(parts) >= 2 && parts[1] == "epic-axis-fields" && r.Method == http.MethodGet {
+		discovery, err := h.db.EpicAxisFieldCandidates(h.actingContext(r), id)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, discovery)
+		return
+	}
+
 	// Sub-action: /api/projects/{id}/tracker-statuses: the statuses actually
 	// seen on this project's tickets, to assign them to columns
 	if len(parts) >= 2 && parts[1] == "tracker-statuses" && r.Method == http.MethodGet {
@@ -2408,6 +2421,9 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 	case strings.HasSuffix(rawPath, "/worktree"):
 		subAction = "worktree"
 		id = strings.TrimSuffix(rawPath, "/worktree")
+	case strings.HasSuffix(rawPath, "/archive-workspace"):
+		subAction = "archive-workspace"
+		id = strings.TrimSuffix(rawPath, "/archive-workspace")
 	case strings.HasSuffix(rawPath, "/pin"):
 		subAction = "pin"
 		id = strings.TrimSuffix(rawPath, "/pin")
@@ -3250,6 +3266,23 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusOK, map[string]string{"message": "Worktree supprimé avec succès"})
 			return
 		}
+	}
+
+	// Sub-action: /api/tasks/{id}/archive-workspace: Desktop archives the task
+	// only once the caller's agent cleaned its worktrees (#755). A worktree
+	// left behind is an answer, not an error: the client names it.
+	if subAction == "archive-workspace" && r.Method == http.MethodPost {
+		archive, err := h.db.ArchiveTaskWorkspace(r.Context(), h.webSessionUser(r), id)
+		if errors.Is(err, db.ErrArchiveTaskNotFound) {
+			writeError(w, http.StatusNotFound, "Task not found")
+			return
+		}
+		if err != nil {
+			writeError(w, http.StatusBadGateway, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"archivable": archive.Archivable(), "repositories": archive.Repositories})
+		return
 	}
 
 	// Sub-action: /api/tasks/{id}/sync: perform a unit two-way sync (update tracker and rsync local state)
@@ -4329,7 +4362,7 @@ func repositoryErrorStatus(err error) int {
 	if errors.As(err, &guessed) {
 		return http.StatusUnprocessableEntity
 	}
-	if errors.Is(err, db.ErrDuplicateRepository) || errors.Is(err, db.ErrRepositoryNotInProject) || errors.Is(err, db.ErrInvalidSpecArtifacts) || errors.Is(err, db.ErrInvalidBranchNameFormat) || errors.Is(err, db.ErrInvalidEpicAxisPrefix) || errors.Is(err, db.ErrInvalidPriorityMapping) {
+	if errors.Is(err, db.ErrDuplicateRepository) || errors.Is(err, db.ErrRepositoryNotInProject) || errors.Is(err, db.ErrInvalidSpecArtifacts) || errors.Is(err, db.ErrInvalidBranchNameFormat) || errors.Is(err, db.ErrInvalidEpicAxisPrefix) || errors.Is(err, db.ErrInvalidPriorityMapping) || errors.Is(err, db.ErrInvalidEpicAxisFields) {
 		return http.StatusBadRequest
 	}
 	return http.StatusInternalServerError

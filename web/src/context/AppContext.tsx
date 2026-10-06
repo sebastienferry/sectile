@@ -47,6 +47,7 @@ import type {
   AutoSyncState,
   TrackerCheck,
   TrackerCredentials,
+  EpicAxisFieldDiscovery,
 } from '../types'
 import { translations, type TranslationSchema } from '../locales/translations'
 import { resolveAccentAttribute } from '../lib/accents'
@@ -391,6 +392,7 @@ interface AppContextType {
   importProjectBoardColumns: (projectId: string, boardId: string) => Promise<Project | null>
   /** Reads the Jira priority scheme again into the project's mapping (#679); answers the error to show inline. */
   refreshPriorityMapping: (projectId: string) => Promise<{ project?: Project; error?: string }>
+  loadEpicAxisFieldCandidates: (projectId: string) => Promise<{ discovery?: EpicAxisFieldDiscovery; error?: string }>
   fetchProjectTrackerStatuses: (projectId: string) => Promise<string[]>
   /** Types de tickets que le tracker du projet expose, pour le réglage d'import. */
   fetchProjectIssueTypes: (projectId: string) => Promise<string[]>
@@ -2818,6 +2820,20 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   }
 
+  // The custom fields of one epic's edit screen the epic priority and quarter
+  // can be mapped to (#680). Read on demand: opening the settings asks Jira
+  // nothing.
+  const loadEpicAxisFieldCandidates = async (projectId: string): Promise<{ discovery?: EpicAxisFieldDiscovery; error?: string }> => {
+    try {
+      const res = await fetch(`${API_BASE}/projects/${encodeURIComponent(projectId)}/epic-axis-fields`)
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) return { error: data?.error || res.statusText }
+      return { discovery: { ...data, candidates: data?.candidates ?? [] } }
+    } catch (err: any) {
+      return { error: err.message }
+    }
+  }
+
   const importProjectBoardColumns = async (projectId: string, boardId: string): Promise<Project | null> => {
     try {
       const res = await fetch(`${API_BASE}/projects/${encodeURIComponent(projectId)}/board-columns`, {
@@ -4408,6 +4424,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         listProjectBoards,
         importProjectBoardColumns,
         refreshPriorityMapping,
+        loadEpicAxisFieldCandidates,
         fetchProjectTrackerStatuses,
         fetchProjectIssueTypes,
         fetchProjectMacros,

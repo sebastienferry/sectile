@@ -108,6 +108,13 @@ func (d *agentDaemon) desktopRunFolder(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), status)
 		return
 	}
+	// A checkout of a project repository becomes that repository's folder,
+	// a context one; any other folder is attached to the project.
+	folder := runFolder{Path: filepath.Clean(path), Name: identityName(mappedAs), Role: models.FolderRoleContext}
+	if mappedAs == "" {
+		folder.Name, folder.Role, folder.Attached = filepath.Base(folder.Path), models.FolderRoleLocal, true
+	}
+	d.queue.read(input.RunID, func(run *controlledRun) { addRunFolder(run, folder) })
 	answer := runFolderAnswer{MappedAs: mappedAs, AppliesAt: appliesNextLaunch}
 	switch {
 	case conversation:
@@ -153,15 +160,10 @@ func (d *agentDaemon) addDirToTaskRuns(task models.Task, path string) bool {
 	var sessions []string
 	d.queue.mu.Lock()
 	for _, run := range d.queue.runs {
-		if run.taskID != task.ID && run.desktop.TaskID != task.ID && (task.Key == "" || run.desktop.TaskKey != task.Key) {
+		if !runOfTask(run, task) {
 			continue
 		}
-		ended := run.restored || run.canceled
-		select {
-		case <-run.exited:
-			ended = true
-		default:
-		}
+		ended := runEnded(run)
 		provider := run.interactiveProvider
 		if provider == "" {
 			provider = strings.ToLower(strings.TrimSpace(run.desktop.Provider))

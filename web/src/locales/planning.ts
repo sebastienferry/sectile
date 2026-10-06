@@ -149,6 +149,7 @@ const fr = {
       refused: 'Labels non modifiés',
     },
     modes: {
+      label: 'Contenu du panneau',
       framing: 'Framing',
       framingTitle: 'Mode Framing : Cadrage et Checklist TODOs',
       execution: 'Execution',
@@ -659,6 +660,7 @@ const en: PlanningStrings = {
       refused: 'Labels not changed',
     },
     modes: {
+      label: 'Panel content',
       framing: 'Framing',
       framingTitle: 'Framing mode: framing and TODO checklist',
       execution: 'Execution',

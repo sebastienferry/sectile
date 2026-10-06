@@ -293,6 +293,9 @@ type runSave struct {
 	status  string
 	console uint64
 	trace   uint64
+	// folders counts the run's folders: one added while the console is quiet
+	// is written all the same (#762).
+	folders int
 }
 
 // tapConsole gives a run its own copy of its session's output, from the first
@@ -374,7 +377,7 @@ func (d *agentDaemon) persistRun(id string, run *controlledRun) {
 	record.Run.QueueSequence = 0
 	console, consoleVersion := tap.snapshot()
 	lines, traceVersion := trace.snapshot()
-	next := runSave{status: status, console: consoleVersion, trace: traceVersion}
+	next := runSave{status: status, console: consoleVersion, trace: traceVersion, folders: len(record.Run.Folders)}
 	if next == saved {
 		return
 	}

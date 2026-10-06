@@ -101,6 +101,7 @@ func (d *agentDaemon) desktopConsole(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		run.desktop.EngineID, run.desktop.EngineName = engine.ID, engine.Name
+		run.desktop.Folders = runFolders(root, folders)
 		entry := run.desktop
 		d.queue.mu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
@@ -121,6 +122,7 @@ func (d *agentDaemon) desktopConsole(w http.ResponseWriter, r *http.Request) {
 	run.interactiveProvider = liveProvider(agentconfig.Config{AIProvider: provider})
 	run.desktop.EngineID, run.desktop.EngineName = engine.ID, engine.Name
 	run.desktop.Model = config.AIModel
+	run.desktop.Folders = runFolders(root, folders)
 	entry := run.desktop
 	d.queue.mu.Unlock()
 	// The daemon owns the execution after admission, independently of the request.

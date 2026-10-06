@@ -262,12 +262,22 @@ func (d *DB) ImportMacroHorizons(ctx context.Context, projectID string) (string,
 		// The priority, the quarter and the readiness follow the horizon's rule: the label wins
 		// when there is one, and an epic without keeps its local value. The read
 		// writes nothing back, so a bare "2026-Q3" stays as the team wrote it.
+		// A mapped field is read before the label (#680): it is what a person
+		// changes on the tracker's own screen.
 		var priorityPtr, quarterPtr, readinessPtr *string
-		if priority := prefixes.PriorityFromLabels(epic.Labels); priority != "" {
+		priority := epicAxisFieldValue(proj.EpicAxisFields.Priority, epic)
+		if priority == "" {
+			priority = prefixes.PriorityFromLabels(epic.Labels)
+		}
+		if priority != "" {
 			priorityPtr = &priority
 			prioritized++
 		}
-		if quarter := prefixes.QuarterFromLabels(epic.Labels); quarter != "" {
+		quarter := epicAxisFieldValue(proj.EpicAxisFields.Quarter, epic)
+		if quarter == "" {
+			quarter = prefixes.QuarterFromLabels(epic.Labels)
+		}
+		if quarter != "" {
 			quarterPtr = &quarter
 			dated++
 		}
@@ -409,8 +419,8 @@ func (d *DB) pendingAxisPushes(ctx context.Context, projectID string) ([]pending
 		p := pendingAxisPush{
 			meta:      meta,
 			horizon:   meta.Horizon != "" && (!known || HorizonFromLabels(labels) != meta.Horizon),
-			priority:  meta.Priority != "" && (!known || prefixes.PriorityFromLabels(labels) != meta.Priority),
-			quarter:   meta.Quarter != "" && (!known || prefixes.QuarterFromLabels(labels) != meta.Quarter),
+			priority:  meta.Priority != "" && (!known || prefixes.PriorityFromLabels(labels) != meta.Priority || epicAxisFieldLate(proj.EpicAxisFields.Priority, epic, meta.Priority)),
+			quarter:   meta.Quarter != "" && (!known || prefixes.QuarterFromLabels(labels) != meta.Quarter || epicAxisFieldLate(proj.EpicAxisFields.Quarter, epic, meta.Quarter)),
 			readiness: meta.Readiness != "" && (!known || prefixes.ReadinessFromLabels(labels) != meta.Readiness),
 		}
 		if p.horizon || p.priority || p.quarter || p.readiness {
