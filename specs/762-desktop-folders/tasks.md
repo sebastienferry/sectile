@@ -4,7 +4,7 @@ Order matters: each step leaves the tree building and green.
 
 ## 1. Agent: the list of a run (US1, US2, US3)
 
-- [x] T1.1 `desktopFolder` and `runFolders` in
+- [x] T1.1 `runFolder` and `runFolders` in
       `internal/agent/agent_run_folder_list.go`; `desktopRun.Folders` (D1).
 - [x] T1.2 Set the list at every launch that computes a folder map: ticket
       runs (conversation, interactive, headless), the Desktop discussion, the
@@ -16,7 +16,7 @@ Order matters: each step leaves the tree building and green.
 
 ## 2. Agent: additions and persistence (US4, US5)
 
-- [x] T2.1 `addFolderToRun`; `addDirToTaskRuns` records the prepared worktree
+- [x] T2.1 `addRunFolder`; `recordTaskFolder`, called beside `addDirToTaskRuns`, records the prepared worktree
       on every run of the task that has not ended (D4).
 - [x] T2.2 `desktopRunFolder` records the attached folder on its run (D4).
 - [x] T2.3 `runSave` carries the folder count (D5).

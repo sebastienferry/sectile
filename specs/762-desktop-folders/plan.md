@@ -34,7 +34,7 @@ with no format change: an older stored run reads with no list.
 ## Design decisions
 
 - **D1 - One conversion, in the agent.** `runFolders(directory string,
-  entries []models.FolderMapEntry) []desktopFolder` in a new
+  entries []models.FolderMapEntry) []runFolder` in a new
   `internal/agent/agent_run_folder_list.go` turns a folder map into the list:
   the run's directory first as `primary` (named after the primary entry when
   the map has one, else after its base name), then each entry's worktree, or
@@ -50,11 +50,11 @@ with no format change: an older stored run reads with no list.
 - **D3 - Conversations refresh per turn.** `conversationFolders` returns the
   folder map rather than its directories; `conversationTurn` derives the
   directories and stores `runFolders` of the map on the run.
-- **D4 - Additions.** `addFolderToRun(run, folder)` appends a folder unless its
-  path is listed already. `addDirToTaskRuns` becomes the place where a prepared
-  worktree is recorded: it appends a `changed` folder named after the
-  repository to every run of the task that has not ended, before choosing the
-  sessions to type into (typing stays restricted to live Claude sessions).
+- **D4 - Additions.** `addRunFolder(run, folder)` appends a folder unless its
+  path is listed already. `recordTaskFolder`, called beside `addDirToTaskRuns`
+  when a worktree is prepared, appends a `changed` folder named after the
+  repository to every run of the task that has not ended (typing stays
+  restricted to live Claude sessions).
   `desktopRunFolder` appends the attached folder to its run, as `context` when
   it became a repository's folder (`mappedAs`), else as `local`, attached.
 - **D5 - Persistence.** `runSave` gains the folder count, so a run whose list
