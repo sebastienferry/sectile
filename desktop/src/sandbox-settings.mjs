@@ -5,6 +5,7 @@
 // under its own, through --settings (internal/agentconfig/claude_sandbox.go).
 
 import { previewLines } from './command-preview.mjs'
+import { PRESETS, RECOMMENDED, applyPreset, listsEmpty, presetApplied, presetHasEntries, removePreset } from './claude-presets.mjs'
 
 // The sandbox states, in the order the segmented control shows them.
 export const SANDBOX_STATES=['Inherited','On','Off']
@@ -78,7 +79,7 @@ export function whitelistSummary(selected){
 // whitelistEditor is the list of the workstation's projects the workstation
 // values apply to (#730), one checkbox each.
 export function whitelistEditor({settingRow,projects,selected}){
- const box=document.createElement('div');box.className='sandbox-whitelist';box.setAttribute('role','group');box.setAttribute('aria-label','Projects the Sandbox values apply to')
+ const box=document.createElement('div');box.className='sandbox-whitelist';box.setAttribute('role','group');box.setAttribute('aria-label','Projects the Claude settings apply to')
  const row=settingRow('Applies to',{stacked:true},box)
  let checked=new Set(selected||[])
  function render(){
@@ -117,7 +118,7 @@ function listEditor(label,placeholder,onChange,action){
   for(const entry of inherited){
    const item=document.createElement('li');item.className='sandbox-entry sandbox-entry-inherited'
    const text=document.createElement('code');text.textContent=entry;text.title=entry
-   const tag=document.createElement('span');tag.className='sandbox-origin';tag.textContent='Global';tag.title='From the workstation Sandbox settings'
+   const tag=document.createElement('span');tag.className='sandbox-origin';tag.textContent='Global';tag.title='From the workstation Claude settings'
    item.append(text,tag);list.append(item)
   }
   const own=entries.filter(entry=>!inherited.includes(entry))
@@ -186,7 +187,7 @@ export function sandboxSettings({settingRow,stored,platformSandbox,settingsPath,
  const promote=!workstation&&onPromote?{label:'Move to global',run:async rule=>{
   const fresh=await onPromote(rule)
   if(fresh)set(fresh.claudeSandbox,fresh.claudeSandboxGlobal,fresh.claudeSandboxCovered!==false)
-  return rule+' moved to the workstation Sandbox settings.'
+  return rule+' moved to the workstation Claude settings.'
  }}:null
  const allow=listEditor('Allow rules','Bash(npm test:*)',changed,promote)
  const allowRow=settingRow('Allow rules',{stacked:true},allow.box)
@@ -197,6 +198,51 @@ export function sandboxSettings({settingRow,stored,platformSandbox,settingsPath,
  denyRow.hint.textContent='Tools Claude Code never runs, headless runs included.'
  const overlapWarning=document.createElement('p');overlapWarning.className='setting-warning sandbox-overlap'
  denyRow.hint.after(overlapWarning)
+
+ // The presets of the workstation (#745): applying one copies its entries
+ // into the lists, which the save then keeps like any other edit.
+ const presetsBox=document.createElement('div');presetsBox.className='claude-presets'
+ const recommended=document.createElement('div');recommended.className='claude-presets-recommended'
+ const recommendedText=document.createElement('span');recommendedText.textContent='Nothing is set yet. Start with Common and Dangerous actions.'
+ const recommendedButton=document.createElement('button');recommendedButton.type='button';recommendedButton.textContent='Apply recommended'
+ recommendedButton.onclick=()=>showValues(RECOMMENDED.reduce((next,id)=>applyPreset(next,PRESETS.find(preset=>preset.id===id),platformSandbox),values))
+ recommended.append(recommendedText,recommendedButton)
+ const presetItems=workstation?PRESETS.map(presetItem):[]
+ presetsBox.append(recommended,...presetItems.map(item=>item.element))
+ const presetsRow=workstation?settingRow('Presets',{stacked:true},presetsBox):null
+ if(presetsRow)presetsRow.hint.textContent='Ready-made entries for the lists below, per toolchain. Applying one adds its missing entries, each removable like any other; save to keep them.'
+ function presetItem(preset){
+  const element=document.createElement('div');element.className='claude-preset'
+  const head=document.createElement('div');head.className='claude-preset-head'
+  const name=document.createElement('strong');name.textContent=preset.name
+  const badge=document.createElement('span');badge.className='sandbox-origin';badge.textContent='Applied'
+  const toggle=document.createElement('button');toggle.type='button'
+  toggle.onclick=()=>showValues(presetApplied(values,preset,platformSandbox)?removePreset(values,preset,platformSandbox):applyPreset(values,preset,platformSandbox))
+  head.append(name,badge,toggle)
+  const description=document.createElement('p');description.className='claude-preset-description';description.textContent=preset.description
+  const entries=document.createElement('details');entries.className='claude-preset-entries'
+  const summary=document.createElement('summary');summary.textContent='Entries';summary.setAttribute('aria-label','Entries of '+preset.name)
+  entries.append(summary)
+  for(const [list,label] of [['allow','Allow rules'],['deny','Deny rules'],['allowedDomains','Allowed network domains'],['allowWrite','Extra writable paths']]){
+   if(!preset[list].length)continue
+   const group=document.createElement('p');group.append(label+': ')
+   preset[list].forEach((entry,index)=>{const code=document.createElement('code');code.textContent=entry;group.append(...(index?[', ',code]:[code]))})
+   entries.append(group)
+  }
+  if(!platformSandbox&&(preset.allowedDomains.length||preset.allowWrite.length)){
+   const note=document.createElement('p');note.textContent='Its domains and writable paths do not apply on Windows: only its rules are added.'
+   entries.append(note)
+  }
+  element.append(head,description,entries)
+  return {preset,element,badge,toggle}
+ }
+ // showValues puts values computed outside the editors back into them; the
+ // workstation inherits nothing, so no entry is marked Global.
+ function showValues(next){
+  values=next
+  domains.set(values.allowedDomains);writes.set(values.allowWrite);allow.set(values.allow);deny.set(values.deny)
+  render()
+ }
 
  // What these values do, and what they do not reach.
  const scope=document.createElement('p');scope.className='sandbox-scope'
@@ -210,16 +256,24 @@ export function sandboxSettings({settingRow,stored,platformSandbox,settingsPath,
   stateButtons.forEach(button=>{button.setAttribute('aria-pressed',String(values.state===button.textContent));button.disabled=!platformSandbox})
   stateRow.hint.textContent=!platformSandbox?'Claude Code’s sandbox does not run on Windows: only the permission rules below apply.'
    :values.state!=='Inherited'?(workstation?'Set for every covered project':'Set for this project')
-   :parent&&parent.state!=='Inherited'?'Inherited from the workstation Sandbox settings · '+parent.state
+   :parent&&parent.state!=='Inherited'?'Inherited from the workstation Claude settings · '+parent.state
    :'Inherited · Claude Code’s own settings decide'
   const resolved=resolvedValues(values,parent)
   const overlap=bothLists(resolved.allow,resolved.deny)
   overlapWarning.textContent=overlap.length?'In both lists: '+overlap.join(', ')+'. The deny rule wins, as it does in Claude Code.':''
   overlapWarning.hidden=!overlap.length
-  scope.textContent=workstation?'These values apply to every Claude Code launch of the covered projects: conversations, terminal sessions and headless runs. A project’s own Sandbox values add to them, and its sandbox state overrides this one. They add to Claude Code’s own settings and cannot remove an entry those already hold. A custom command template and other engines do not receive them.'
+  scope.textContent=workstation?'These values apply to every Claude Code launch of the covered projects: conversations, terminal sessions and headless runs. A project’s own Claude settings add to them, and its sandbox state overrides this one. They add to Claude Code’s own settings and cannot remove an entry those already hold. A custom command template and other engines do not receive them.'
    :'These values apply to every Claude Code launch of this project: conversations, terminal sessions and headless runs. They add to Claude Code’s own settings and cannot remove an entry those already hold. A custom command template and other engines do not receive them.'
-  coverage.textContent=isCovered?'The workstation Sandbox values apply to this project. Entries marked Global come from them and are changed in the workstation settings.'
-   :'The workstation Sandbox values do not apply to this project: it is not checked in the workstation Sandbox settings.'
+  coverage.textContent=isCovered?'The workstation Claude settings apply to this project. Entries marked Global come from them and are changed in the workstation settings.'
+   :'The workstation Claude settings do not apply to this project: it is not checked in the workstation Claude settings.'
+  for(const item of presetItems){
+   const applied=presetApplied(values,item.preset,platformSandbox)
+   item.badge.hidden=!applied
+   item.toggle.textContent=applied?'Remove':'Apply'
+   item.toggle.setAttribute('aria-label',(applied?'Remove preset ':'Apply preset ')+item.preset.name)
+   item.toggle.hidden=!presetHasEntries(item.preset,platformSandbox)
+  }
+  recommended.hidden=!listsEmpty(values)
   if(workstation)return
   preview.replaceChildren()
   const path=launchesGetSettings(resolved,platformSandbox)?settingsPath||'':''
@@ -241,7 +295,7 @@ export function sandboxSettings({settingRow,stored,platformSandbox,settingsPath,
  }
  set(stored)
  return {
-  sections:[...(workstation?[]:[coverageRow.section]),stateRow.section,domainsRow.section,writesRow.section,allowRow.section,denyRow.section,previewRow.section],
+  sections:[...(workstation?[presetsRow.section]:[coverageRow.section]),stateRow.section,domainsRow.section,writesRow.section,allowRow.section,denyRow.section,previewRow.section],
   payload:()=>sandboxPayload(values),
   base:()=>sandboxPayload(loaded),
   set,

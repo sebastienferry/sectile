@@ -41,7 +41,7 @@ func (d *agentDaemon) desktopWorkstationSandbox(w http.ResponseWriter, r *http.R
 	case http.MethodPut:
 		var input workstationSandboxInput
 		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&input); err != nil || input.ClaudeSandbox == nil {
-			http.Error(w, "Invalid Sandbox settings", 400)
+			http.Error(w, "Invalid Claude settings", 400)
 			return
 		}
 		d.prepareMu.Lock()
@@ -85,7 +85,7 @@ func (d *agentDaemon) desktopWorkstationSandbox(w http.ResponseWriter, r *http.R
 // reason NormalizeClaudeSandbox gives.
 type errInvalidSandbox struct{ err error }
 
-func (e errInvalidSandbox) Error() string { return "Invalid Sandbox settings: " + e.err.Error() }
+func (e errInvalidSandbox) Error() string { return "Invalid Claude settings: " + e.err.Error() }
 
 func (e errInvalidSandbox) Unwrap() error { return e.err }
 
