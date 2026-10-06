@@ -192,6 +192,9 @@ const TABS: { id: HorizonTab; label?: string; icon: React.ReactNode }[] = [
   { id: 'hidden', icon: <EyeOff size={14} /> },
 ]
 
+/** What the selected macro's panel shows; the tabs at the bottom of its header pick it. */
+type PanelMode = 'framing' | 'execution' | 'phases' | 'goals'
+
 /**
  * An on or off state of the view, kept across visits (see roadmapViewPrefs).
  * The setter takes a value or an updater, like the one of useState.
@@ -280,7 +283,13 @@ export const RoadmapView: React.FC = () => {
     setTabState(next)
     saveRoadmapTab(next)
   }, [])
-  const [displayMode, setDisplayMode] = useState<'framing' | 'execution' | 'phases' | 'goals'>('execution')
+  const [displayMode, setDisplayMode] = useState<PanelMode>('execution')
+  const modeTabs: { id: PanelMode; label: string; title: string; icon: typeof Compass }[] = [
+    { id: 'framing', label: strings.modes.framing, title: strings.modes.framingTitle, icon: Compass },
+    { id: 'execution', label: strings.modes.execution, title: strings.modes.executionTitle, icon: Target },
+    { id: 'phases', label: t.planning.macro.axes.phase.plural, title: strings.modes.phasesTitle, icon: Layers },
+    { id: 'goals', label: t.planning.macro.axes.goal.plural, title: strings.modes.goalsTitle, icon: Goal },
+  ]
   const [macroMeta, setMacroMeta] = useState<MacroMeta[]>([])
   // The selected macro is kept per project. The choice is held with its
   // project, and switching project swaps in the other project's memory during
@@ -823,14 +832,21 @@ export const RoadmapView: React.FC = () => {
   const horizonOfTab: Horizon =
     tab === 'next' ? 'next' : tab === 'later' ? 'later' : tab === 'hidden' ? 'hidden' : 'now'
 
+  /**
+   * The list checks sprint placement on the horizons that have sprints, Now
+   * and Next, whatever the panel shows: the placement badges, the "À corriger"
+   * toggle and its filter, and the sprint strip follow the tab, not the mode.
+   */
+  const sprintCheckHere = tab === 'now' || tab === 'next'
+
   const visibleRows = useMemo(() => {
     const inTab = tab === 'unclassified' ? rows.filter(r => !r.horizon) : rows.filter(r => r.horizon === tab)
     const list = sortByPriority(inTab, prioritySort)
-    if (displayMode === 'execution' && onlyIssues) {
+    if (sprintCheckHere && onlyIssues) {
       return list.filter(r => placementIssues(r, horizonOfTab).length > 0)
     }
     return list
-  }, [rows, tab, displayMode, onlyIssues, horizonOfTab, prioritySort])
+  }, [rows, tab, sprintCheckHere, onlyIssues, horizonOfTab, prioritySort])
 
   // Chercher une macro et rester devant un onglet vide n'aide personne
   useEffect(() => {
@@ -1408,7 +1424,7 @@ export const RoadmapView: React.FC = () => {
             <span key={label} className={EPIC_LABEL_BADGE}>{label}</span>
           ))}
 
-          {displayMode === 'execution' ? (
+          {sprintCheckHere ? (
             issues.length > 0 ? (
               <span className="ml-auto text-[10px] font-bold px-1.5 py-0.5 rounded inline-flex items-center gap-1"
                 style={{ color: 'var(--status-danger)', background: 'rgb(var(--status-danger-rgb) / 0.13)', border: '1px solid rgb(var(--status-danger-rgb) / 0.32)' }}>
@@ -1882,65 +1898,6 @@ export const RoadmapView: React.FC = () => {
             </div>
           )}
 
-          {/* Toggle Mode: Framing | Execution */}
-          <div className="flex items-center p-0.5 rounded-lg bg-[var(--bg-tertiary)] border border-[var(--border-color)]">
-            <button
-              type="button"
-              onClick={() => setDisplayMode('framing')}
-              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-bold transition-all cursor-pointer ${
-                displayMode === 'framing'
-                  ? 'bg-[var(--accent-color)] text-white shadow-xs'
-                  : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
-              }`}
-              title={strings.modes.framingTitle}
-            >
-              <Compass size={12} />
-              <span>{strings.modes.framing}</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setDisplayMode('execution')}
-              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-bold transition-all cursor-pointer ${
-                displayMode === 'execution'
-                  ? 'bg-[var(--accent-color)] text-white shadow-xs'
-                  : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
-              }`}
-              title={strings.modes.executionTitle}
-            >
-              <Target size={12} />
-              <span>{strings.modes.execution}</span>
-            </button>
-            {/* Les deux axes de découpe. Ils sont des modes du panneau et non
-                une vue à part : on répartit les tickets d'une macro en la
-                lisant, pas en quittant son panneau. */}
-            <button
-              type="button"
-              onClick={() => setDisplayMode('phases')}
-              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-bold transition-all cursor-pointer ${
-                displayMode === 'phases'
-                  ? 'bg-[var(--accent-color)] text-white shadow-xs'
-                  : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
-              }`}
-              title={strings.modes.phasesTitle}
-            >
-              <Layers size={12} />
-              <span>{t.planning.macro.axes.phase.plural}</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setDisplayMode('goals')}
-              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-bold transition-all cursor-pointer ${
-                displayMode === 'goals'
-                  ? 'bg-[var(--accent-color)] text-white shadow-xs'
-                  : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
-              }`}
-              title={strings.modes.goalsTitle}
-            >
-              <Goal size={12} />
-              <span>{t.planning.macro.axes.goal.plural}</span>
-            </button>
-          </div>
-
           <button
             type="button"
             disabled={busyKey === 'macro'}
@@ -1957,7 +1914,7 @@ export const RoadmapView: React.FC = () => {
             <Plus size={12} /> {strings.createMacro}
           </button>
 
-          {displayMode === 'execution' && (
+          {sprintCheckHere && (
             <button
               type="button"
               onClick={() => setOnlyIssues(v => !v)}
@@ -2023,7 +1980,7 @@ export const RoadmapView: React.FC = () => {
           )}
         </div>
 
-        {displayMode === 'execution' && (tab === 'now' || tab === 'next') && (
+        {sprintCheckHere && (
           <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] bg-[var(--bg-tertiary)] border border-[var(--border-color)] shrink-0">
             <CalendarDays size={13} style={{ color: HORIZON_META[horizonOfTab].color }} />
             <span className="text-[var(--text-muted)]">{tab === 'now' ? strings.activeSprints : strings.upcomingSprints}</span>
@@ -2060,7 +2017,7 @@ export const RoadmapView: React.FC = () => {
                     ? strings.emptyHidden
                     : tab === 'unclassified'
                     ? strings.emptyUnclassified
-                    : onlyIssues
+                    : sprintCheckHere && onlyIssues
                       ? strings.emptyNoIssue
                       : strings.emptyHorizon}
                 </p>
@@ -2443,6 +2400,51 @@ export const RoadmapView: React.FC = () => {
                     : strings.axes.keptLocal}
                 </div>
               )}
+              {/* What the body shows. Phases and Goals are modes of the panel,
+                  not a separate view: a macro's tickets are spread across them
+                  while reading it, without leaving its panel. Sitting at the
+                  bottom of the header, the tabs stay put while the body
+                  scrolls, in the expanded panel too. As in any tab strip, Tab
+                  reaches the selected tab only and the arrows, Home and End
+                  move between them. */}
+              <div
+                role="tablist"
+                aria-label={strings.modes.label}
+                className="mt-3 flex flex-wrap items-center gap-0.5 p-0.5 rounded-lg bg-[var(--bg-tertiary)] border border-[var(--border-color)]"
+                onKeyDown={e => {
+                  const at = modeTabs.findIndex(mode => mode.id === displayMode)
+                  const to =
+                    e.key === 'ArrowRight' ? (at + 1) % modeTabs.length
+                    : e.key === 'ArrowLeft' ? (at - 1 + modeTabs.length) % modeTabs.length
+                    : e.key === 'Home' ? 0
+                    : e.key === 'End' ? modeTabs.length - 1
+                    : -1
+                  if (to < 0) return
+                  e.preventDefault()
+                  setDisplayMode(modeTabs[to].id)
+                  e.currentTarget.querySelectorAll<HTMLElement>('[role="tab"]')[to]?.focus()
+                }}
+              >
+                {modeTabs.map(mode => (
+                  <button
+                    key={mode.id}
+                    type="button"
+                    role="tab"
+                    aria-selected={displayMode === mode.id}
+                    tabIndex={displayMode === mode.id ? 0 : -1}
+                    onClick={() => setDisplayMode(mode.id)}
+                    className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-bold transition-all cursor-pointer ${
+                      displayMode === mode.id
+                        ? 'bg-[var(--accent-color)] text-white shadow-xs'
+                        : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                    }`}
+                    title={mode.title}
+                  >
+                    <mode.icon size={12} />
+                    <span>{mode.label}</span>
+                  </button>
+                ))}
+              </div>
             </div>
 
             <div className="flex-1 overflow-y-auto px-4 pt-3.5 pb-7 flex flex-col gap-4">
