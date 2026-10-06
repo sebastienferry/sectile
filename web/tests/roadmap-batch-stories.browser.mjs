@@ -48,7 +48,7 @@ try {
   const batchButton=()=>panel().getByRole('button',{name:/^Créer les stories \(\d+\)$|^Création…$/});
   const summary='1 créée, 1 passée, 2 en échec';
   // The slicing lives in the Framing mode of the panel.
-  await page.getByRole('button',{name:'Framing',exact:true}).click();
+  await page.getByRole('tab',{name:'Framing',exact:true}).click();
   await panel().getByText('Ligne A').waitFor();
 
   // US5: every line carries its origin, an unknown kind as written, the entry as tooltip.
