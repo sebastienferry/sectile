@@ -37,6 +37,10 @@ func TestTrackerDateRoundTripsOutsideItsOwnZone(t *testing.T) {
 		); err != nil {
 			t.Fatal(err)
 		}
+		// The ticket belongs to the default project through its tracker (#741).
+		if err := database.adoptTrackers(); err != nil {
+			t.Fatal(err)
+		}
 
 		var got sql.NullTime
 		if err := database.conn.QueryRow(`SELECT tracker_created_at FROM tasks WHERE id = ?`, "t-1").Scan(&got); err != nil {

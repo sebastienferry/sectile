@@ -136,11 +136,13 @@ func (h *Handler) requireOwnerOrAdmin(w http.ResponseWriter, r *http.Request, ow
 // that waits on one person. What stays an admin's is the roster, who exists,
 // what role they hold, and whether their account still opens, the admin page
 // that watches over it, and the server credentials the deployment reaches its
-// trackers with (#464).
+// trackers with (#464), and the trackers themselves, which every project
+// selecting them shares (#741).
 func adminOnlyRoute(_ string, path string) bool {
 	return path == "/api/users" || strings.HasPrefix(path, "/api/users/") ||
 		path == AdminStatsPath ||
 		path == ServerTrackerCredentialsPath || strings.HasPrefix(path, ServerTrackerCredentialsPath+"/") ||
+		path == AdminTrackersPath || strings.HasPrefix(path, AdminTrackersPath+"/") ||
 		path == JiraOAuthAppPath
 }
 

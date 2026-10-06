@@ -50,8 +50,9 @@ func isMilestoneKey(key string) bool {
 	return true
 }
 
-// belongsToProject tells a macro whose key carries the project's tracker prefix
-// from one that arrived attached to an epic of another project.
+// belongsToProject tells a macro whose key carries the prefix of one of the
+// project's Jira trackers (belongsToTracker, #741) from one that arrived
+// attached to an epic of another project.
 //
 // Only our own epics are pushed, the priority and quarter of one foreign epic
 // at a time once the project opted in excepted (#632, foreignAxisWritable). A
@@ -60,11 +61,16 @@ func isMilestoneKey(key string) bool {
 // never leave the pending list: the read that checks the result is scoped to
 // this project and cannot see it.
 func belongsToProject(key string, proj *models.Project) bool {
-	prefix := strings.ToUpper(strings.TrimSpace(proj.JiraProject))
-	if prefix == "" {
+	keys := projectJiraKeys(proj)
+	if len(keys) == 0 {
 		return true
 	}
-	return strings.HasPrefix(strings.ToUpper(strings.TrimSpace(key)), prefix+"-")
+	for _, jiraKey := range keys {
+		if belongsToTracker(key, jiraKey) {
+			return true
+		}
+	}
+	return false
 }
 
 // removedRoadmapLabels lists the labels of the axis to strip for a target: all
@@ -108,7 +114,8 @@ func (d *DB) macroTracker(projectID string, macroKey string, axis macroAxis) (tr
 	if !belongsToProject(macroKey, proj) && !foreignAxisWritable(macroKey, proj, axis) {
 		return nil, nil, fmt.Errorf("%s appartient à un autre projet que %s : la classification reste locale", macroKey, proj.JiraProject)
 	}
-	ts, err := d.TrackerFor(d.trackerOfProjectUnsafe(proj))
+	// The epic's own tracker writes it (#741).
+	ts, err := d.TrackerFor(d.epicTrackerUnsafe(proj, macroKey))
 	if err != nil {
 		return nil, nil, err
 	}
@@ -159,7 +166,7 @@ func (d *DB) pushMacroLabels(ctx context.Context, projectID string, macroKey str
 	// which on an epic Sectile never imported is nothing at all.
 	// The write carries the project's tracker, in the request and in the
 	// context (#741).
-	trk := d.trackerOfProjectUnsafe(proj)
+	trk := d.epicTrackerUnsafe(proj, macroKey)
 	return ts.UpdateIssue(tracker.WithTracker(ctx, trk), tracker.UpdateIssueRequest{
 		Tracker:       trk,
 		Key:           macroKey,
@@ -184,6 +191,12 @@ func (d *DB) remoteMacros(ctx context.Context, proj *models.Project) (map[string
 		return nil, fmt.Errorf("projet non trouvé")
 	}
 	trk := d.trackerOfProjectUnsafe(proj)
+	return d.remoteMacrosOf(ctx, trk, d.epicAxisFieldsForUnsafe(proj, trk))
+}
+
+// remoteMacrosOf reads the epics of one tracker, keyed by epic key, asking
+// the axis fields a project maps besides their own (#680).
+func (d *DB) remoteMacrosOf(ctx context.Context, trk *models.Tracker, fields models.EpicAxisFields) (map[string]models.Task, error) {
 	ts, err := d.TrackerFor(trk)
 	if err != nil {
 		return nil, err
@@ -194,7 +207,7 @@ func (d *DB) remoteMacros(ctx context.Context, proj *models.Project) (map[string
 
 	ctx, cancel := context.WithTimeout(ctx, macroReadTimeout)
 	defer cancel()
-	epics, err := ts.ListEpics(ctx, tracker.ProjectRequest{Tracker: trk, EpicAxisFields: proj.EpicAxisFields})
+	epics, err := ts.ListEpics(ctx, tracker.ProjectRequest{Tracker: trk, EpicAxisFields: fields})
 	if err != nil {
 		return nil, err
 	}
@@ -223,9 +236,20 @@ func (d *DB) ImportMacroHorizons(ctx context.Context, projectID string) (string,
 	if err != nil || proj == nil {
 		return "", fmt.Errorf("projet non trouvé")
 	}
-	found, err := d.remoteMacros(ctx, proj)
-	if err != nil {
-		return "", err
+	return d.importMacroHorizons(ctx, proj, d.trackerOfProjectUnsafe(proj))
+}
+
+// importMacroHorizons is ImportMacroHorizons reading the epics of trk, one of
+// the project's trackers, which are recorded on that tracker's rows (#741);
+// nil reads only the epics of the project's roadmap projects.
+func (d *DB) importMacroHorizons(ctx context.Context, proj *models.Project, trk *models.Tracker) (string, error) {
+	found := map[string]models.Task{}
+	if trk != nil {
+		own, err := d.remoteMacrosOf(ctx, trk, d.epicAxisFieldsForUnsafe(proj, trk))
+		if err != nil {
+			return "", err
+		}
+		found = own
 	}
 	// The epics of the roadmap projects join those of the project's own key,
 	// and are recorded the same way. Only the own key's failure fails the read.

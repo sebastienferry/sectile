@@ -62,7 +62,8 @@ func (d *DB) storedMacroLabels(projectID string, key string) []string {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 	var raw string
-	if err := d.conn.QueryRow("SELECT labels FROM macros WHERE project_id = ? AND key = ?", projectID, key).Scan(&raw); err != nil {
+	rowProject, _ := d.macroRowUnsafe(projectID, key)
+	if err := d.conn.QueryRow("SELECT labels FROM macros WHERE project_id = ? AND key = ?", rowProject, key).Scan(&raw); err != nil {
 		return []string{}
 	}
 	return parseMacroLabels(raw)
@@ -153,7 +154,7 @@ func (d *DB) PushMacroLabels(ctx context.Context, projectID string, macroKey str
 	defer cancel()
 	// Only the delta travels: the other labels of the epic, those of the axes
 	// included, stay as the tracker holds them.
-	trk := d.trackerOfProjectUnsafe(proj)
+	trk := d.epicTrackerUnsafe(proj, macroKey)
 	if err := ts.UpdateIssue(tracker.WithTracker(ctx, trk), tracker.UpdateIssueRequest{
 		Tracker:       trk,
 		Key:           macroKey,
@@ -175,12 +176,13 @@ func (d *DB) PushMacroLabels(ctx context.Context, projectID string, macroKey str
 func (d *DB) applyMacroLabelEdit(projectID string, key string, add []string, remove []string) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	rowProject, rowTracker := d.macroRowUnsafe(projectID, key)
 	return d.conn.WithTx(func(tx *sqlTx) error {
-		if _, err := tx.Exec("INSERT INTO macros (project_id, key) VALUES (?, ?) ON CONFLICT (project_id, key) DO NOTHING", projectID, key); err != nil {
+		if _, err := tx.Exec("INSERT INTO macros (project_id, key, tracker_id) VALUES (?, ?, ?) ON CONFLICT (project_id, key) DO NOTHING", rowProject, key, rowTracker); err != nil {
 			return err
 		}
 		raw := "[]"
-		if err := tx.QueryRow("SELECT labels FROM macros WHERE project_id = ? AND key = ?"+d.forUpdate(), projectID, key).Scan(&raw); err != nil && err != sql.ErrNoRows {
+		if err := tx.QueryRow("SELECT labels FROM macros WHERE project_id = ? AND key = ?"+d.forUpdate(), rowProject, key).Scan(&raw); err != nil && err != sql.ErrNoRows {
 			return err
 		}
 		next := []string{}
@@ -195,7 +197,7 @@ func (d *DB) applyMacroLabelEdit(projectID string, key string, add []string, rem
 			}
 		}
 		payload, _ := json.Marshal(next)
-		_, err := tx.Exec("UPDATE macros SET labels = ?, updated_at = CURRENT_TIMESTAMP WHERE project_id = ? AND key = ?", string(payload), projectID, key)
+		_, err := tx.Exec("UPDATE macros SET labels = ?, updated_at = CURRENT_TIMESTAMP WHERE project_id = ? AND key = ?", string(payload), rowProject, key)
 		return err
 	})
 }

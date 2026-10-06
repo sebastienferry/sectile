@@ -415,8 +415,9 @@ func (d *DB) readMacroCopyState(part macroCopyPart, projectID, key string) (todo
 	defer d.mu.RUnlock()
 	var state todosMirrorState
 	var at sql.NullTime
+	rowProject, _ := d.macroRowUnsafe(projectID, key)
 	err := d.conn.QueryRow(`SELECT `+part.columns()+`
-		FROM macros WHERE project_id = ? AND key = ?`, projectID, key).Scan(&state.ref, &state.hash, &state.err, &state.credential, &at)
+		FROM macros WHERE project_id = ? AND key = ?`, rowProject, key).Scan(&state.ref, &state.hash, &state.err, &state.credential, &at)
 	if errors.Is(err, sql.ErrNoRows) {
 		return state, nil
 	}
@@ -632,7 +633,7 @@ func (d *DB) pushMacroCopy(ctx context.Context, part macroCopyPart, projectID, k
 	case models.MacroTodosMirrorJiraComment:
 		err = retryTransient(ctx, func(ctx context.Context) error {
 			id, err := scope.writer.UpsertMarkedComment(ctx, tracker.UpsertMarkedCommentRequest{
-				Tracker:   d.trackerOfProjectUnsafe(proj),
+				Tracker:   d.epicTrackerUnsafe(proj, key),
 				Key:       key,
 				CommentID: ref,
 				Marker:    part.marker,
@@ -696,7 +697,8 @@ func (d *DB) readMacroRow(projectID, key string) (*models.MacroMeta, error) {
 	defer d.mu.RUnlock()
 	meta := &models.MacroMeta{ProjectID: projectID, Key: key, Todos: []models.MacroTodo{}}
 	var todosJSON string
-	err := d.conn.QueryRow(`SELECT description, framing_comment, todos FROM macros WHERE project_id = ? AND key = ?`, projectID, key).Scan(&meta.Description, &meta.FramingComment, &todosJSON)
+	rowProject, _ := d.macroRowUnsafe(projectID, key)
+	err := d.conn.QueryRow(`SELECT description, framing_comment, todos FROM macros WHERE project_id = ? AND key = ?`, rowProject, key).Scan(&meta.Description, &meta.FramingComment, &todosJSON)
 	if errors.Is(err, sql.ErrNoRows) {
 		return meta, nil
 	}
@@ -717,8 +719,9 @@ func (d *DB) recordTodosMirrorSuccess(projectID, key, ref, hash string) {
 func (d *DB) recordMacroCopySuccess(part macroCopyPart, projectID, key, ref, hash string) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	rowProject, _ := d.macroRowUnsafe(projectID, key)
 	if _, err := d.conn.Exec(fmt.Sprintf(`UPDATE macros SET %[1]s_mirror_ref = ?, %[1]s_mirror_hash = ?, %[1]s_mirror_error = '', %[1]s_mirror_credential = '', %[1]s_mirror_at = ?
-		WHERE project_id = ? AND key = ?`, part.name), ref, hash, time.Now().UTC(), projectID, key); err != nil {
+		WHERE project_id = ? AND key = ?`, part.name), ref, hash, time.Now().UTC(), rowProject, key); err != nil {
 		log.Printf("[macros] état de la recopie (%s) de %s non enregistré : %v", part.name, key, err)
 	}
 }
@@ -728,8 +731,9 @@ func (d *DB) recordMacroCopySuccess(part macroCopyPart, projectID, key, ref, has
 func (d *DB) recordMacroCopyFailure(part macroCopyPart, projectID, key string, cause error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	rowProject, _ := d.macroRowUnsafe(projectID, key)
 	if _, err := d.conn.Exec(fmt.Sprintf(`UPDATE macros SET %[1]s_mirror_error = ?, %[1]s_mirror_credential = ? WHERE project_id = ? AND key = ?`, part.name),
-		cause.Error(), trackerapi.MissingCredentialTracker(cause), projectID, key); err != nil {
+		cause.Error(), trackerapi.MissingCredentialTracker(cause), rowProject, key); err != nil {
 		log.Printf("[macros] échec de la recopie (%s) de %s non enregistré : %v", part.name, key, err)
 	}
 }

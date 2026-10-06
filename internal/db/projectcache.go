@@ -27,6 +27,10 @@ type trackerCache struct {
 	gen uint64
 	// now is the clock, time.Now when nil. Tests move it past the TTL.
 	now func() time.Time
+	// members is every project's trackers and label (#741), which decide the
+	// projects of a ticket; membersExpire bounds it like an entry.
+	members       *membershipIndex
+	membersExpire time.Time
 }
 
 type trackerCacheEntry struct {
@@ -72,6 +76,28 @@ func (c *trackerCache) clear() {
 	defer c.mu.Unlock()
 	c.gen++
 	c.entries = nil
+	c.members = nil
+}
+
+// getMembership returns the cached membership index and, on a miss, the
+// generation the fill must hand back to putMembership.
+func (c *trackerCache) getMembership() (*membershipIndex, uint64, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.members != nil && c.clock().Before(c.membersExpire) {
+		return c.members, c.gen, true
+	}
+	c.members = nil
+	return nil, c.gen, false
+}
+
+func (c *trackerCache) putMembership(index *membershipIndex, gen uint64) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if gen != c.gen {
+		return
+	}
+	c.members, c.membersExpire = index, c.clock().Add(trackerCacheTTL)
 }
 
 // trackerByIDUnsafe reads one tracker through the cache. Nil when no tracker has that id or the read failed; neither

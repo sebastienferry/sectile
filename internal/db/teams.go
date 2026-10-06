@@ -261,8 +261,9 @@ func (d *DB) ListProjectTeams(projectID string, withMembers bool) ([]models.Trac
 		WHERE TRIM(t.team) != ''`
 	args := []interface{}{}
 	if projectID != "" && projectID != "all" {
-		query += " AND (t.project_id = ? OR t.project_id = (SELECT slug FROM projects WHERE id = ?) OR t.project_id = (SELECT id FROM projects WHERE slug = ?))"
-		args = append(args, projectID, projectID, projectID)
+		cond, condArgs := d.membershipScopeOnUnsafe([]string{projectID}, "t.")
+		query += " AND " + cond
+		args = append(args, condArgs...)
 	}
 	query += " GROUP BY t.team ORDER BY task_count DESC"
 

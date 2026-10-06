@@ -3,6 +3,7 @@ package db
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -19,6 +20,10 @@ const trackerSelect = `SELECT id, name, provider, site, scope, identity, board_i
 // ErrTrackerInUse refuses to delete a tracker a project still selects or a
 // ticket still belongs to.
 var ErrTrackerInUse = fmt.Errorf("ce tracker est encore utilisé par un projet ou par des tickets")
+
+// ErrTrackerNotInProject refuses a tracker a project does not select, named
+// to create a ticket on it (#741).
+var ErrTrackerNotInProject = errors.New("ce tracker n'est pas un tracker du projet")
 
 func scanTracker(row rowScanner) (*models.Tracker, error) {
 	var t models.Tracker
@@ -266,6 +271,39 @@ func (d *DB) projectTrackersUnsafe(projectID string) ([]*models.Tracker, error) 
 	return trackers, rows.Err()
 }
 
+// projectTrackerNamedUnsafe finds, among a project's trackers, the one named by
+// id or identity; ErrTrackerNotInProject when none is.
+func (d *DB) projectTrackerNamedUnsafe(projectID, ref string) (*models.Tracker, error) {
+	trackers, err := d.projectTrackersUnsafe(projectID)
+	if err != nil {
+		return nil, err
+	}
+	ref = strings.TrimSpace(ref)
+	for _, t := range trackers {
+		if t.ID == ref || t.Identity == ref {
+			return t, nil
+		}
+	}
+	return nil, ErrTrackerNotInProject
+}
+
+// ProjectTrackerNamed finds, among a project's trackers, the one named by id
+// or identity; ErrTrackerNotInProject when none is.
+func (d *DB) ProjectTrackerNamed(projectID, ref string) (*models.Tracker, error) {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return d.projectTrackerNamedUnsafe(projectID, ref)
+}
+
+// TrackerProjectIDs lists the ids of the projects selecting a tracker, oldest
+// first.
+func (d *DB) TrackerProjectIDs(trackerID string) []string {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	ids, _ := d.trackerLinkedProjectsUnsafe(trackerID)
+	return ids
+}
+
 // ProjectTrackers lists the trackers a project selects its tickets from, in
 // order.
 func (d *DB) ProjectTrackers(projectID string) ([]*models.Tracker, error) {
@@ -506,19 +544,22 @@ func touchedByUpdate(req models.UpdateProjectRequest) trackerFieldsTouched {
 	}
 }
 
-// ensureProjectTrackerUnsafe links a project to the tracker its own tracker
-// fields name, which is all Part A of #741 knows of a project's trackers.
+// ensureProjectTrackerUnsafe makes the project's default tracker the one its
+// own tracker fields name: the legacy single-tracker fields write through to
+// the default tracker (#741), the project's other trackers untouched.
 //
-// A project whose tracker only it selects keeps that tracker, renamed in place
-// when its fields now name another source nobody recorded yet, so its tickets
-// stay with it. Otherwise the tracker of that identity is found or created and
-// linked at position 0 instead of the previous one. The board mirror and
-// auto-sync fields the write carries then land on the tracker; a tracker the
-// project just joined keeps its own.
+// A project whose default tracker only it selects keeps that tracker, renamed
+// in place when its fields now name another source nobody recorded yet, so
+// its tickets stay with it. Otherwise the tracker of that identity is found or
+// created and takes the default's place. The board mirror and auto-sync fields
+// the write carries then land on the tracker; a tracker the project just
+// joined keeps its own.
 func (d *DB) ensureProjectTrackerUnsafe(tx *sqlTx, p *models.Project, settings *models.Settings, touched trackerFieldsTouched) error {
 	wanted := legacyTrackerOf(p, settings)
 	var currentID string
-	if err := tx.QueryRow(`SELECT tracker_id FROM project_trackers WHERE project_id = ? ORDER BY position LIMIT 1`, p.ID).Scan(&currentID); err != nil && err != sql.ErrNoRows {
+	currentPosition := 0
+	if err := tx.QueryRow(`SELECT pt.tracker_id, pt.position FROM project_trackers pt JOIN projects p ON p.id = pt.project_id
+		WHERE pt.project_id = ? ORDER BY CASE WHEN pt.tracker_id = p.default_tracker_id THEN 0 ELSE 1 END, pt.position LIMIT 1`, p.ID).Scan(&currentID, &currentPosition); err != nil && err != sql.ErrNoRows {
 		return err
 	}
 	var current *models.Tracker
@@ -553,10 +594,12 @@ func (d *DB) ensureProjectTrackerUnsafe(tx *sqlTx, p *models.Project, settings *
 		fresh = target.ID == wanted.ID
 	}
 	if current == nil || current.ID != target.ID {
-		if _, err := tx.Exec(`DELETE FROM project_trackers WHERE project_id = ?`, p.ID); err != nil {
-			return err
+		if current != nil {
+			if _, err := tx.Exec(`DELETE FROM project_trackers WHERE project_id = ? AND tracker_id IN (?, ?)`, p.ID, current.ID, target.ID); err != nil {
+				return err
+			}
 		}
-		if _, err := tx.Exec(`INSERT INTO project_trackers (project_id, tracker_id, position) VALUES (?, ?, 0)`, p.ID, target.ID); err != nil {
+		if _, err := tx.Exec(`INSERT INTO project_trackers (project_id, tracker_id, position) VALUES (?, ?, ?) ON CONFLICT (project_id, tracker_id) DO NOTHING`, p.ID, target.ID, currentPosition); err != nil {
 			return err
 		}
 	}
@@ -590,6 +633,93 @@ func (d *DB) ensureProjectTrackerUnsafe(tx *sqlTx, p *models.Project, settings *
 	}
 	target.UpdatedAt = now
 	return updateTrackerOn(tx, target)
+}
+
+// ErrUnknownTracker refuses a project naming a tracker nobody recorded.
+var ErrUnknownTracker = errors.New("tracker inconnu")
+
+// applyProjectSelectionUnsafe writes what a project selects its tickets with
+// (#741): its trackers, by id or identity, in order, when trackers is not nil;
+// its label when label is not nil; its default tracker, which must be one of
+// its trackers and falls back to the first remaining one otherwise. A local
+// tracker belongs to its own project and is never accepted from another.
+func (d *DB) applyProjectSelectionUnsafe(tx *sqlTx, p *models.Project, trackers *[]models.ProjectTracker, label *string, defaultID *string) error {
+	if label != nil {
+		p.Label = strings.TrimSpace(*label)
+		if _, err := tx.Exec(`UPDATE projects SET label = ? WHERE id = ?`, p.Label, p.ID); err != nil {
+			return err
+		}
+	}
+	if trackers != nil {
+		resolved := make([]models.ProjectTracker, 0, len(*trackers))
+		for _, entry := range *trackers {
+			var t *models.Tracker
+			var err error
+			if id := strings.TrimSpace(entry.TrackerID); id != "" {
+				t, err = trackerByIDOn(tx, id)
+			}
+			if err == nil && t == nil && strings.TrimSpace(entry.Identity) != "" {
+				t, err = trackerByIdentityOn(tx, strings.TrimSpace(entry.Identity))
+			}
+			if err != nil {
+				return err
+			}
+			if t == nil {
+				return fmt.Errorf("%w : %s%s", ErrUnknownTracker, entry.TrackerID, entry.Identity)
+			}
+			if t.Provider == "local" && t.Scope != p.ID {
+				return fmt.Errorf("le tableau local d'un autre projet ne peut pas être sélectionné")
+			}
+			resolved = append(resolved, models.ProjectTracker{TrackerID: t.ID, Identity: t.Identity})
+		}
+		resolved = models.NormalizeProjectTrackers(resolved)
+		if _, err := tx.Exec(`DELETE FROM project_trackers WHERE project_id = ?`, p.ID); err != nil {
+			return err
+		}
+		for position, entry := range resolved {
+			if _, err := tx.Exec(`INSERT INTO project_trackers (project_id, tracker_id, position) VALUES (?, ?, ?)`, p.ID, entry.TrackerID, position); err != nil {
+				return err
+			}
+		}
+	}
+	if trackers == nil && defaultID == nil {
+		return nil
+	}
+	wanted := ""
+	if defaultID != nil {
+		wanted = strings.TrimSpace(*defaultID)
+	}
+	if wanted == "" {
+		_ = tx.QueryRow(`SELECT default_tracker_id FROM projects WHERE id = ?`, p.ID).Scan(&wanted)
+	}
+	var chosen, first string
+	rows, err := tx.Query(`SELECT pt.tracker_id, t.identity FROM project_trackers pt JOIN trackers t ON t.id = pt.tracker_id WHERE pt.project_id = ? ORDER BY pt.position`, p.ID)
+	if err != nil {
+		return err
+	}
+	for rows.Next() {
+		var id, identity string
+		if err := rows.Scan(&id, &identity); err != nil {
+			rows.Close()
+			return err
+		}
+		if first == "" {
+			first = id
+		}
+		if wanted != "" && (id == wanted || identity == wanted) {
+			chosen = id
+		}
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if chosen == "" {
+		chosen = first
+	}
+	p.DefaultTrackerID = chosen
+	_, err = tx.Exec(`UPDATE projects SET default_tracker_id = ? WHERE id = ?`, chosen, p.ID)
+	return err
 }
 
 // trackerExclusiveTo says whether projectID is the only project selecting the
@@ -634,12 +764,13 @@ func (d *DB) releaseProjectTrackersUnsafe(tx *sqlTx, p *models.Project, defaultP
 	_ = tx.QueryRow(`SELECT pt.tracker_id FROM project_trackers pt JOIN trackers t ON t.id = pt.tracker_id
 		WHERE pt.project_id = ? ORDER BY CASE WHEN t.provider = 'local' THEN 0 ELSE 1 END, pt.position LIMIT 1`, defaultProjectID).Scan(&defaultTrackerID)
 	var defaultTracker any
+	movedTo := defaultProjectID
 	if defaultTrackerID != "" {
-		defaultTracker = defaultTrackerID
+		defaultTracker, movedTo = defaultTrackerID, trackerSentinel(defaultTrackerID)
 	}
 	for _, t := range trackers {
 		if t.provider == "local" {
-			if _, err := tx.Exec(`UPDATE tasks SET project_id = ?, tracker_id = ? WHERE tracker_id = ?`, defaultProjectID, defaultTracker, t.id); err != nil {
+			if _, err := tx.Exec(`UPDATE tasks SET project_id = ?, tracker_id = ? WHERE tracker_id = ?`, movedTo, defaultTracker, t.id); err != nil {
 				return err
 			}
 			if _, err := tx.Exec(`DELETE FROM trackers WHERE id = ?`, t.id); err != nil {

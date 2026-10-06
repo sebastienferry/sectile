@@ -63,7 +63,7 @@ func (d *DB) adoptTrackers() error {
 	if err != nil {
 		return err
 	}
-	return d.conn.WithTx(func(tx *sqlTx) error {
+	err = d.conn.WithTx(func(tx *sqlTx) error {
 		members, err := adoptProjectTrackers(tx, projects, settings)
 		if err != nil {
 			return err
@@ -87,6 +87,8 @@ func (d *DB) adoptTrackers() error {
 		}
 		return nil
 	})
+	d.trackerCache.clear()
+	return err
 }
 
 // trackerAdoptionDone says whether adoptTrackers has nothing left to do: every

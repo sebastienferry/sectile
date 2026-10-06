@@ -33,6 +33,104 @@ func (d *DB) trackerReaderFor(projectID string) (tracker.TicketingSystem, *model
 	return d.trackerReaderOf(trk)
 }
 
+// trackerReaderByID is the ticketing system of the tracker with that id.
+func (d *DB) trackerReaderByID(trackerID string) (tracker.TicketingSystem, *models.Tracker, error) {
+	trk, err := d.GetTrackerByID(trackerID)
+	if err != nil {
+		return nil, nil, err
+	}
+	if trk == nil {
+		return nil, nil, fmt.Errorf("tracker non trouvé")
+	}
+	return d.trackerReaderOf(trk)
+}
+
+// ListTrackerBoardsAs returns a tracker's boards, for an admin configuring it
+// (#741).
+func (d *DB) ListTrackerBoardsAs(ctx context.Context, trackerID string) ([]models.TrackerBoard, error) {
+	ts, trk, err := d.trackerReaderByID(trackerID)
+	if err != nil {
+		return nil, err
+	}
+	if !ts.Supports(tracker.CapBoard) {
+		return nil, tracker.Unsupported(ts.Name(), tracker.CapBoard)
+	}
+	ctx, cancel := context.WithTimeout(ctx, boardAPITimeout)
+	defer cancel()
+	return ts.ListBoards(ctx, tracker.BoardsRequest{Tracker: trk})
+}
+
+// ListTrackerIssueTypesAs returns the work item types a tracker exposes.
+func (d *DB) ListTrackerIssueTypesAs(ctx context.Context, trackerID string) ([]string, error) {
+	ts, trk, err := d.trackerReaderByID(trackerID)
+	if err != nil {
+		return nil, err
+	}
+	if !ts.Supports(tracker.CapBoard) {
+		return nil, tracker.Unsupported(ts.Name(), tracker.CapBoard)
+	}
+	ctx, cancel := context.WithTimeout(ctx, boardAPITimeout)
+	defer cancel()
+	return ts.ListIssueTypes(ctx, tracker.ProjectRequest{Tracker: trk})
+}
+
+// ImportTrackerBoardColumns retains a board for a tracker, then refreshes its
+// columns from it, as ImportProjectBoardColumns does for a project's default
+// tracker.
+func (d *DB) ImportTrackerBoardColumns(ctx context.Context, trackerID, boardID string) (*models.Tracker, error) {
+	trk, err := d.GetTrackerByID(trackerID)
+	if err != nil {
+		return nil, err
+	}
+	if trk == nil {
+		return nil, fmt.Errorf("tracker non trouvé")
+	}
+	if boardID = strings.TrimSpace(boardID); boardID == "" {
+		boardID = trk.BoardID
+	}
+	if boardID == "" {
+		return nil, fmt.Errorf("no board selected")
+	}
+	if boardID != trk.BoardID {
+		if _, err := d.UpdateTrackerMirror(trk.ID, func(t *models.Tracker) { t.BoardID = boardID }); err != nil {
+			return nil, err
+		}
+	}
+	if _, err := d.SyncTrackerBoardColumns(ctx, trk.ID); err != nil {
+		return nil, err
+	}
+	return d.GetTrackerByID(trk.ID)
+}
+
+// GetTrackerStatusesAs lists the statuses a tracker's workflows expose, to
+// assign them to its columns.
+func (d *DB) GetTrackerStatusesAs(ctx context.Context, trackerID string) ([]string, error) {
+	ts, trk, err := d.trackerReaderByID(trackerID)
+	if err != nil {
+		return nil, err
+	}
+	if !ts.Supports(tracker.CapBoard) {
+		return []string{}, nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, boardAPITimeout)
+	defer cancel()
+	statuses, err := ts.ListStatuses(ctx, tracker.ProjectRequest{Tracker: trk})
+	if err != nil {
+		return nil, err
+	}
+	seen := map[string]bool{}
+	out := []string{}
+	for _, st := range statuses {
+		name := strings.TrimSpace(st.Name)
+		if name == "" || seen[strings.ToLower(name)] {
+			continue
+		}
+		seen[strings.ToLower(name)] = true
+		out = append(out, name)
+	}
+	return out, nil
+}
+
 // trackerReaderOf is the ticketing system of one tracker.
 func (d *DB) trackerReaderOf(trk *models.Tracker) (tracker.TicketingSystem, *models.Tracker, error) {
 	ts, err := d.TrackerFor(trk)

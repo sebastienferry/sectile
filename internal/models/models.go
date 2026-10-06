@@ -547,6 +547,16 @@ type CreateProjectRequest struct {
 	SpecFramework       string           `json:"specFramework,omitempty"`
 	AutoSyncEnabled     *bool            `json:"autoSyncEnabled,omitempty"`
 	AutoSyncIntervalMin *int             `json:"autoSyncIntervalMin,omitempty"`
+	// Trackers are the trackers the project selects its tickets from, by id or
+	// identity, in order (#741). Empty keeps the single tracker the fields
+	// above name.
+	Trackers []ProjectTracker `json:"trackers,omitempty"`
+	// Label narrows the project to the tickets carrying it. Empty shows every
+	// ticket of its trackers.
+	Label string `json:"label,omitempty"`
+	// DefaultTrackerID is where the project's new tickets go, the first
+	// tracker when empty or not one of them.
+	DefaultTrackerID string `json:"defaultTrackerId,omitempty"`
 }
 
 type UpdateProjectRequest struct {
@@ -586,6 +596,10 @@ type UpdateProjectRequest struct {
 	SpecFramework       *string              `json:"specFramework,omitempty"`
 	AutoSyncEnabled     *bool                `json:"autoSyncEnabled,omitempty"`
 	AutoSyncIntervalMin *int                 `json:"autoSyncIntervalMin,omitempty"`
+	// Trackers, Label and DefaultTrackerID: see CreateProjectRequest (#741).
+	Trackers         *[]ProjectTracker `json:"trackers,omitempty"`
+	Label            *string           `json:"label,omitempty"`
+	DefaultTrackerID *string           `json:"defaultTrackerId,omitempty"`
 }
 
 // NormalizeAutoSyncIntervalMin clamps the project background sync interval between 1 and 30 minutes (default 5).
@@ -906,8 +920,14 @@ type WorktreeInfo struct {
 }
 
 type Task struct {
-	ID        string `json:"id"`
+	ID string `json:"id"`
+	// ProjectID is computed, never read from the tasks table (#741): the
+	// project a listing is scoped to, else the first project the ticket
+	// belongs to, empty for a ticket in no project.
 	ProjectID string `json:"projectId"`
+	// ProjectIDs are the projects the ticket belongs to: those selecting its
+	// tracker whose label it carries, or which have no label.
+	ProjectIDs []string `json:"projectIds"`
 	// TrackerID is the tracker the ticket belongs to (#741): one record per
 	// remote ticket, whatever projects show it.
 	TrackerID      string   `json:"trackerId"`
@@ -1190,6 +1210,9 @@ type CreateTaskRequest struct {
 	ParentKey             string   `json:"parentKey,omitempty"`
 	ParentTitle           string   `json:"parentTitle,omitempty"`
 	ParentType            string   `json:"parentType,omitempty"`
+	// TrackerID names the tracker of the project the ticket is created on, by
+	// id or identity (#741). Empty means the project's default tracker.
+	TrackerID string `json:"trackerId,omitempty"`
 }
 
 type CloneTaskRequest struct {
@@ -1266,6 +1289,9 @@ type RunSkillRequest struct {
 	// the task the launch is made on. Only pickup_issues takes them. Empty for
 	// any other launch.
 	BatchTaskIDs []string `json:"batchTaskIds,omitempty"`
+	// ProjectID is the project the run works for (#741), the one of the board
+	// it was started from. A ticket of several projects needs it.
+	ProjectID string `json:"projectId,omitempty"`
 }
 
 // Batch member states (#522). The lead starts processing, the others waiting;

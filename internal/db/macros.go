@@ -155,13 +155,16 @@ func (d *DB) GetProjectMacros(projectID string) ([]models.MacroMeta, error) {
 		}
 	}
 
+	// The project's own macros, and the epics of its trackers it shows (#741):
+	// one record per epic, whatever projects show it.
 	d.mu.RLock()
+	macroScope, macroArgs := d.macroScopeUnsafe([]string{projectID})
 	rows, err := d.conn.Query(`
 		SELECT project_id, key, horizon, description, framing_comment, todos, title, status, closed, priority, quarter, readiness, labels, updated_at,
 			todos_mirror_ref, todos_mirror_hash, todos_mirror_error, todos_mirror_credential, todos_mirror_at,
 			framing_mirror_ref, framing_mirror_hash, framing_mirror_error, framing_mirror_credential, framing_mirror_at
-		FROM macros WHERE project_id = ? ORDER BY key ASC
-	`, projectID)
+		FROM macros WHERE `+macroScope+` ORDER BY key ASC
+	`, macroArgs...)
 	d.mu.RUnlock()
 	if err != nil {
 		return nil, err
@@ -192,6 +195,10 @@ func (d *DB) GetProjectMacros(projectID string) ([]models.MacroMeta, error) {
 		}
 		states = append(states, state)
 		framingStates = append(framingStates, framing)
+		// A tracker's epic is shown as the project's.
+		if proj != nil {
+			e.ProjectID = proj.ID
+		}
 		e.Closed = closed == 1
 		e.Todos = parseMacroTodos(todosJSON)
 		e.ExternalURL = milestoneURLs[e.Key]
@@ -228,7 +235,7 @@ func milestoneDescription(description string) string {
 // no work item carries keeps no address rather than a guessed one.
 func (d *DB) fillMacroURLsFromTasks(projectID string, macros []models.MacroMeta) {
 	index := map[string]int{}
-	keys := []any{projectID}
+	var keys []any
 	for i, m := range macros {
 		if m.ExternalURL == "" {
 			index[m.Key] = i
@@ -241,8 +248,17 @@ func (d *DB) fillMacroURLsFromTasks(projectID string, macros []models.MacroMeta)
 
 	d.mu.RLock()
 	defer d.mu.RUnlock()
-	placeholders := strings.TrimSuffix(strings.Repeat("?, ", len(index)), ", ")
-	rows, err := d.conn.Query(`SELECT key, source, external_url FROM tasks WHERE project_id = ? AND key IN (`+placeholders+`)`, keys...)
+	// The epic's own work item is a ticket of one of the project's trackers
+	// (#741), or, written before trackers, of the project itself.
+	owner := "project_id = ?"
+	args := []any{projectID}
+	if p, ok := d.membershipUnsafe().project(projectID); ok && len(p.Trackers) > 0 {
+		owner += " OR tracker_id IN (" + placeholders(len(p.Trackers)) + ")"
+		for _, id := range p.Trackers {
+			args = append(args, id)
+		}
+	}
+	rows, err := d.conn.Query(`SELECT key, source, external_url, COALESCE(tracker_id, '') FROM tasks WHERE (`+owner+`) AND key IN (`+placeholders(len(keys))+`)`, append(args, keys...)...)
 	if err != nil {
 		return
 	}
@@ -250,12 +266,12 @@ func (d *DB) fillMacroURLsFromTasks(projectID string, macros []models.MacroMeta)
 	// and the settings, and does so with this result set closed.
 	found := []models.Task{}
 	for rows.Next() {
-		var key string
+		var key, trackerID string
 		var source, extURL sql.NullString
-		if err := rows.Scan(&key, &source, &extURL); err != nil {
+		if err := rows.Scan(&key, &source, &extURL, &trackerID); err != nil {
 			continue
 		}
-		task := models.Task{ProjectID: projectID, Key: key, Source: taskSource(source, key)}
+		task := models.Task{ProjectID: projectID, TrackerID: trackerID, Key: key, Source: taskSource(source, key)}
 		if extURL.Valid && extURL.String != "" {
 			task.ExternalURL = &extURL.String
 		}
@@ -453,6 +469,8 @@ func (d *DB) saveMacroMetaKeys(projectID string, key string, horizon *string, de
 
 	d.mu.Lock()
 	d.ensureMacrosTable()
+	// A Jira epic of the project's trackers is its tracker's record (#741).
+	rowProject, rowTracker := d.macroRowUnsafe(projectID, key)
 
 	// The row is created if missing, then locked and read: an edit of another
 	// field racing on another server instance waits, and this merge starts from
@@ -464,7 +482,7 @@ func (d *DB) saveMacroMetaKeys(projectID string, key string, horizon *string, de
 		return nil, err
 	}
 	defer func() { _ = tx.Rollback() }()
-	if _, err := tx.Exec("INSERT INTO macros (project_id, key) VALUES (?, ?) ON CONFLICT (project_id, key) DO NOTHING", projectID, key); err != nil {
+	if _, err := tx.Exec("INSERT INTO macros (project_id, key, tracker_id) VALUES (?, ?, ?) ON CONFLICT (project_id, key) DO NOTHING", rowProject, key, rowTracker); err != nil {
 		d.mu.Unlock()
 		return nil, err
 	}
@@ -473,7 +491,7 @@ func (d *DB) saveMacroMetaKeys(projectID string, key string, horizon *string, de
 	var closedInt int
 	err = tx.QueryRow(`
 		SELECT horizon, description, framing_comment, todos, title, status, closed, priority, quarter, readiness, labels FROM macros WHERE project_id = ? AND key = ?`+d.forUpdate(),
-		projectID, key).Scan(&current.Horizon, &current.Description, &current.FramingComment, &todosJSON, &current.Title, &current.Status, &closedInt, &current.Priority, &current.Quarter, &current.Readiness, &labelsJSON)
+		rowProject, key).Scan(&current.Horizon, &current.Description, &current.FramingComment, &todosJSON, &current.Title, &current.Status, &closedInt, &current.Priority, &current.Quarter, &current.Readiness, &labelsJSON)
 	if err == nil {
 		current.Todos = parseMacroTodos(todosJSON)
 		current.Closed = closedInt == 1
@@ -570,7 +588,7 @@ func (d *DB) saveMacroMetaKeys(projectID string, key string, horizon *string, de
 			closed = excluded.closed,
 			labels = excluded.labels,
 			updated_at = excluded.updated_at
-	`, projectID, key, current.Horizon, current.Description, current.FramingComment, string(payload), current.Title, current.Status, closedValue, string(labelsPayload), current.UpdatedAt)
+	`, rowProject, key, current.Horizon, current.Description, current.FramingComment, string(payload), current.Title, current.Status, closedValue, string(labelsPayload), current.UpdatedAt)
 	if execErr == nil {
 		execErr = tx.Commit()
 	}
@@ -967,7 +985,7 @@ func (d *DB) applyTaskMacro(ctx context.Context, taskIDOrKey string, macroKey st
 			if cleanMacroKey != "" {
 				var mTitle string
 				d.mu.RLock()
-				_ = d.conn.QueryRow("SELECT title FROM macros WHERE project_id = ? AND key = ?", task.ProjectID, cleanMacroKey).Scan(&mTitle)
+				mTitle = d.macroTitleUnsafe(task.ProjectID, cleanMacroKey)
 				d.mu.RUnlock()
 				if mTitle != "" {
 					milestoneTarget = mTitle
@@ -1024,7 +1042,7 @@ func (d *DB) writeGitlabMacroLabels(ctx context.Context, proj *models.Project, t
 	if macroKey != "" {
 		title := ""
 		d.mu.RLock()
-		_ = d.conn.QueryRow("SELECT title FROM macros WHERE project_id = ? AND key = ?", proj.ID, macroKey).Scan(&title)
+		title = d.macroTitleUnsafe(proj.ID, macroKey)
 		d.mu.RUnlock()
 		if strings.TrimSpace(title) == "" {
 			title = macroKey
@@ -1067,9 +1085,10 @@ func (d *DB) writeTaskParentLocally(task *models.Task, macroKey string) error {
 		_, err := d.conn.Exec("UPDATE tasks SET parent_key = '', parent_title = '', parent_type = 'macro', updated_at = ? WHERE id = ?", time.Now(), task.ID)
 		return err
 	}
+	rowProject, _ := d.macroRowUnsafe(task.ProjectID, macroKey)
 	_, err := d.conn.Exec(`UPDATE tasks SET parent_key = ?, parent_type = 'macro', updated_at = ?,
 		parent_title = COALESCE(NULLIF((SELECT title FROM macros WHERE project_id = ? AND key = ?), ''), ?)
-		WHERE id = ?`, macroKey, time.Now(), task.ProjectID, macroKey, macroKey, task.ID)
+		WHERE id = ?`, macroKey, time.Now(), rowProject, macroKey, macroKey, task.ID)
 	return err
 }
 
@@ -1092,14 +1111,28 @@ func (d *DB) CreateStoryUnderMacro(ctx context.Context, projectID string, macroK
 func (d *DB) createStoryUnder(ctx context.Context, macroProject, target *models.Project, macroKey string, title string) (*models.Task, string, error) {
 	parentTitle := ""
 	d.mu.RLock()
-	_ = d.conn.QueryRow("SELECT title FROM macros WHERE project_id = ? AND key = ?", macroProject.ID, macroKey).Scan(&parentTitle)
+	parentTitle = d.macroTitleUnsafe(macroProject.ID, macroKey)
 	d.mu.RUnlock()
 	if parentTitle == "" {
 		parentTitle = macroKey
 	}
 
+	// A story under a Jira epic goes to the epic's tracker when the target
+	// project selects it, the only tracker that can parent it there (#741).
+	trackerID := ""
+	d.mu.RLock()
+	if epicTracker := d.epicTrackerUnsafe(macroProject, macroKey); epicTracker != nil && epicTracker.Provider == "jira" && belongsToTracker(macroKey, epicTracker.Scope) {
+		for _, pt := range target.Trackers {
+			if pt.TrackerID == epicTracker.ID {
+				trackerID = epicTracker.ID
+			}
+		}
+	}
+	d.mu.RUnlock()
+
 	task, err := d.CreateTaskAs(ctx, models.CreateTaskRequest{
 		ProjectID: target.ID,
+		TrackerID: trackerID,
 		Title:     title,
 		Priority:  models.PriorityMedium,
 	})
@@ -1234,8 +1267,11 @@ func (d *DB) DeleteMacro(ctx context.Context, projectID string, key string) erro
 
 	d.mu.Lock()
 	d.ensureMacrosTable()
-	_, err := d.conn.Exec("DELETE FROM macros WHERE project_id = ? AND key = ?", projectID, key)
-	_, _ = d.conn.Exec("UPDATE tasks SET parent_key = '', parent_title = '' WHERE project_id = ? AND (parent_key = ? OR parent_title = ?)", projectID, key, key)
+	rowProject, _ := d.macroRowUnsafe(projectID, key)
+	_, err := d.conn.Exec("DELETE FROM macros WHERE project_id = ? AND key = ?", rowProject, key)
+	// The project's tickets lose the parent (#741).
+	member, memberArgs := d.membershipScopeUnsafe([]string{projectID})
+	_, _ = d.conn.Exec("UPDATE tasks SET parent_key = '', parent_title = '' WHERE (project_id = ? OR "+member+") AND (parent_key = ? OR parent_title = ?)", append(append([]any{projectID}, memberArgs...), key, key)...)
 	d.mu.Unlock()
 	if err == nil && refused != nil {
 		return fmt.Errorf("macro %s supprimée en local, milestone GitHub non supprimé : %w", key, refused)
@@ -1481,12 +1517,14 @@ func (d *DB) MigrateMacro(ctx context.Context, sourceProjectID string, macroKey 
 	// 4. Migrate tasks if requested
 	migratedTasksCount := 0
 	if migrateTasks {
+		// The source project's tickets under the macro (#741).
 		d.mu.RLock()
+		member, memberArgs := d.membershipScopeUnsafe([]string{sourceProjectID})
 		rows, err := d.conn.Query(`
 			SELECT id, key, title, source, external_url
 			FROM tasks
-			WHERE project_id = ? AND (parent_key = ? OR parent_title = ?)
-		`, sourceProjectID, macroKey, title)
+			WHERE (project_id = ? OR `+member+`) AND (parent_key = ? OR parent_title = ?)
+		`, append(append([]any{sourceProjectID}, memberArgs...), macroKey, title)...)
 		d.mu.RUnlock()
 
 		if err == nil {
@@ -1675,12 +1713,20 @@ func (d *DB) MigrateTasks(ctx context.Context, taskIDs []string, targetProjectID
 			}
 		}
 
+		// A ticket moving to another tracker carries that tracker's sentinel
+		// (#741); one staying on its tracker keeps its row as it is.
+		newProject := any(targetProjectID)
+		if id, ok := newTracker.(string); ok && id != "" {
+			newProject = trackerSentinel(id)
+		} else if task.TrackerID != "" {
+			newProject = nil
+		}
 		d.mu.Lock()
 		_, updateErr := d.conn.Exec(`
 			UPDATE tasks
-			SET id = ?, key = ?, project_id = ?, tracker_id = COALESCE(?, tracker_id), parent_key = ?, parent_title = ?, external_url = ?, updated_at = CURRENT_TIMESTAMP
+			SET id = ?, key = ?, project_id = COALESCE(?, project_id), tracker_id = COALESCE(?, tracker_id), parent_key = ?, parent_title = ?, external_url = ?, updated_at = CURRENT_TIMESTAMP
 			WHERE id = ?
-		`, newID, newKey, targetProjectID, newTracker, newParentKey, newParentTitle, newExternalUrl, task.ID)
+		`, newID, newKey, newProject, newTracker, newParentKey, newParentTitle, newExternalUrl, task.ID)
 		d.mu.Unlock()
 
 		if updateErr == nil {

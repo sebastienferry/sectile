@@ -74,6 +74,25 @@ type Config struct {
 	EngineID                string `json:"-"`
 	EngineName              string `json:"-"`
 	OffProjectDefaultEngine bool   `json:"-"`
+	// Trackers, Label and Tracker are additive (#741): the trackers the
+	// project selects its tickets from, the label it selects them by, and,
+	// for a configuration read for a task, that task's tracker. The tracker
+	// fields above then describe that tracker. An older agent ignores them.
+	Trackers []TrackerRef `json:"trackers,omitempty"`
+	Label    string       `json:"label,omitempty"`
+	Tracker  *TrackerRef  `json:"tracker,omitempty"`
+}
+
+// TrackerRef names one tracker of a project: its provider, its site when it
+// overrides the deployment's, and its scope (a Jira key, a GitHub owner/repo,
+// a GitLab path).
+type TrackerRef struct {
+	ID       string `json:"id"`
+	Name     string `json:"name,omitempty"`
+	Provider string `json:"provider"`
+	Site     string `json:"site,omitempty"`
+	Scope    string `json:"scope"`
+	Identity string `json:"identity"`
 }
 
 // DropsSpecArtifacts reads SpecArtifacts with its default: keep.

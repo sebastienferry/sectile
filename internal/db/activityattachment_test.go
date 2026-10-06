@@ -208,6 +208,10 @@ func TestTheProjectFilterMatchesTheAttachmentOnly(t *testing.T) {
 			t.Fatalf("seeding (%s): %v", stmt, err)
 		}
 	}
+	// The ticket belongs to p1 through its tracker (#741).
+	if err := d.adoptTrackers(); err != nil {
+		t.Fatal(err)
+	}
 
 	now := time.Now()
 	for _, act := range []models.TaskActivity{

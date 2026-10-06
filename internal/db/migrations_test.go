@@ -113,6 +113,7 @@ func undoTrackerMigration(d *DB) {
 		"DROP TABLE IF EXISTS task_aliases",
 		"DROP TABLE IF EXISTS auto_sync_trackers",
 		"DROP INDEX IF EXISTS ux_tasks_tracker_key",
+		"DROP INDEX IF EXISTS ux_macros_tracker_key",
 		"DROP INDEX IF EXISTS idx_tasks_tracker",
 		"ALTER TABLE tasks DROP COLUMN tracker_id",
 		"ALTER TABLE projects DROP COLUMN label",

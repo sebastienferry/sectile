@@ -204,6 +204,22 @@ type EpicAxisFieldCandidate struct {
 	Deduced map[string]map[string]string `json:"deduced"`
 }
 
+// epicAxisFieldsForUnsafe are the axis fields an epic read on trk for proj
+// asks (#680). The fields stay on the project (#741) and were discovered on
+// its default tracker, so the epics of another of its trackers, perhaps on
+// another site, are read without them, as before #680.
+func (d *DB) epicAxisFieldsForUnsafe(proj *models.Project, trk *models.Tracker) models.EpicAxisFields {
+	if proj == nil {
+		return models.EpicAxisFields{}
+	}
+	if trk != nil {
+		if def := d.trackerOfProjectUnsafe(proj); def == nil || def.ID != trk.ID {
+			return models.EpicAxisFields{}
+		}
+	}
+	return proj.EpicAxisFields
+}
+
 // EpicAxisFieldCandidates reads the closed-list custom fields of one epic of
 // the project. Field ids are site-wide, but which fields an epic carries is
 // a property of its project's screens, so the epic is one of the project's

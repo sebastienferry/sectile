@@ -506,6 +506,25 @@ func (r *SessionRegistry) Adopt(sessionID, runID, taskKey, skill string) {
 	}
 }
 
+// AdoptedRuns lists the runs a session started and still owns: what its calls
+// work for when they name no project (#741).
+func (r *SessionRegistry) AdoptedRuns(sessionID string) []string {
+	if r == nil || sessionID == "" {
+		return nil
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	entry := r.live[sessionID]
+	if entry == nil {
+		return nil
+	}
+	runs := make([]string, 0, len(entry.runs))
+	for id := range entry.runs {
+		runs = append(runs, id)
+	}
+	return runs
+}
+
 // Release drops a run its client finished itself. An explicit report stays the
 // precise way to end a run; it simply stops being the only one.
 func (r *SessionRegistry) Release(sessionID, runID string) {

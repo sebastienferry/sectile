@@ -125,6 +125,9 @@ func TestPostgresTaskListAndPin(t *testing.T) {
 	d := openPostgres(t)
 	seedProjectAndUser(t, d)
 	seedTask(t, d)
+	// The ticket belongs to p1 through the tracker the adoption gives it
+	// (#741).
+	adopt(t, d)
 
 	tasks, err := d.GetTasks("", "", "", "", "p1", "", "", "", "", nil, nil, false)
 	if err != nil {

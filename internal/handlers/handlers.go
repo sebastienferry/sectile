@@ -342,11 +342,33 @@ func describeActiveRun(a *models.TaskActivity) string {
 	return fmt.Sprintf("A run of %s started at %s is still active on this task.", name, started)
 }
 
+// writeRunProjectRefusal answers a launch whose project could not be chosen
+// (#741), and says whether it did. A ticket of several projects launched
+// interactively without one is a 409 listing the candidates, so the web and
+// Desktop ask which one and retry; launched unattended, it is refused with the
+// same list. A ticket in no project, or a project it is not in, is a 400.
+func writeRunProjectRefusal(w http.ResponseWriter, err error) bool {
+	var ambiguous *db.ErrRunProjectAmbiguous
+	switch {
+	case errors.As(err, &ambiguous):
+		status := http.StatusConflict
+		if ambiguous.Unattended {
+			status = http.StatusBadRequest
+		}
+		writeJSON(w, status, map[string]any{"error": ambiguous.Error(), "candidates": ambiguous.Candidates, "unattended": ambiguous.Unattended})
+		return true
+	case errors.Is(err, db.ErrTaskInNoProject), errors.Is(err, db.ErrRunProjectNotMember):
+		writeError(w, http.StatusBadRequest, err.Error())
+		return true
+	}
+	return false
+}
+
 // batchLaunchMembers checks the tickets of a batch launch and returns their ids
 // in launch order, or why the launch is invalid. A batch is pickup_issues on at
 // least two distinct tickets of one project, the first being task. "Launch
 // anyway" does not apply: it would put a busy ticket in the batch.
-func (h *Handler) batchLaunchMembers(task *models.Task, req models.RunSkillRequest) ([]string, string) {
+func (h *Handler) batchLaunchMembers(task *models.Task, req models.RunSkillRequest, projectID string) ([]string, string) {
 	if req.SkillID != "pickup_issues" {
 		return nil, "Only pickup_issues launches a batch."
 	}
@@ -366,7 +388,13 @@ func (h *Handler) batchLaunchMembers(task *models.Task, req models.RunSkillReque
 		if i == 0 && member.ID != task.ID {
 			return nil, "A batch must start with the ticket it is launched on."
 		}
-		if member.ProjectID != task.ProjectID {
+		// Every ticket of the batch belongs to the project the batch runs for
+		// (#741).
+		inProject := false
+		for _, id := range member.ProjectIDs {
+			inProject = inProject || id == projectID
+		}
+		if !inProject {
 			return nil, fmt.Sprintf("%s belongs to another project than %s.", member.Key, task.Key)
 		}
 		if seen[member.ID] {
@@ -2104,6 +2132,10 @@ func (h *Handler) HandleTasks(w http.ResponseWriter, r *http.Request) {
 		// it to their own account, and refuses it when they stored no
 		// credential of their own (#482).
 		task, err := h.db.CreateTaskAs(h.actingContext(r), req)
+		if errors.Is(err, db.ErrTrackerNotInProject) {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
 		if err != nil {
 			writeTrackerError(w, http.StatusInternalServerError, err)
 			return
@@ -2536,9 +2568,19 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		task, err := h.db.GetTaskByID(id)
+		task, err := h.db.GetTaskByIDIn(req.ProjectID, id)
 		if err != nil || task == nil {
 			writeError(w, http.StatusNotFound, "Task not found")
+			return
+		}
+
+		// The run works for one project (#741): the board's, else the
+		// ticket's only one. A ticket of several projects launched without
+		// one is asked about when the launch is interactive, refused when it is
+		// unattended (autonomous, a batch). Nothing is recorded before.
+		unattended := models.NormalizeSkillMode(req.Mode) == models.SkillModeAutonomous || len(req.BatchTaskIDs) > 0
+		projectID, err := h.db.ResolveRunProject(task, req.ProjectID, unattended)
+		if writeRunProjectRefusal(w, err) {
 			return
 		}
 
@@ -2547,7 +2589,7 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 		var batchIDs []string
 		if len(req.BatchTaskIDs) > 0 {
 			var reason string
-			if batchIDs, reason = h.batchLaunchMembers(task, req); reason != "" {
+			if batchIDs, reason = h.batchLaunchMembers(task, req, projectID); reason != "" {
 				writeError(w, http.StatusBadRequest, reason)
 				return
 			}
@@ -2601,10 +2643,6 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		projectID := "default"
-		if task.ProjectID != "" {
-			projectID = task.ProjectID
-		}
 		userID := h.webSessionUser(r)
 		ac := h.agentDispatcher.waitForRoute(r.Context(), userID, projectID, defaultAgentReconnectGrace)
 
@@ -2625,7 +2663,7 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 			// "Launch anyway" records a concurrent run, which the database lets
 			// sit next to the active one; with nothing active it is an ordinary
 			// launch.
-			remoteRun, runErr := h.db.StartAgentRun(task.ID, req.SkillID, db.RunLaunch{Mode: mode, Provider: provider, Model: model, UserID: userID, Force: req.Force && active != nil})
+			remoteRun, runErr := h.db.StartAgentRun(task.ID, req.SkillID, db.RunLaunch{Mode: mode, Provider: provider, Model: model, UserID: userID, Force: req.Force && active != nil, ProjectID: projectID})
 			if writeTaskBusy(w, runErr) {
 				return
 			}
@@ -3029,6 +3067,8 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 			// Model is the one-off model picked for this launch, empty when the
 			// user kept the configured one.
 			Model string `json:"model"`
+			// ProjectID is the project the step works for (#741), the board's.
+			ProjectID string `json:"projectId"`
 		}
 		_ = json.NewDecoder(r.Body).Decode(&req)
 		if !models.ValidSkillMode(req.Mode) {
@@ -3047,8 +3087,8 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if req.Auto {
-			_, act, err := h.db.EnqueueFullChainRun(task.ID)
-			if writeTaskBusy(w, err) {
+			_, act, err := h.db.EnqueueFullChainRunFor(task.ID, req.ProjectID)
+			if writeTaskBusy(w, err) || writeRunProjectRefusal(w, err) {
 				return
 			}
 			if err != nil {
@@ -3065,8 +3105,8 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, fmt.Sprintf("aucun pas suivant depuis l'étape %s", stage))
 			return
 		}
-		_, act, err := h.db.EnqueueSkillOnTaskWithOverrides(task.ID, step.SkillID, "", req.Mode, req.Model)
-		if writeTaskBusy(w, err) {
+		_, act, err := h.db.EnqueueSkillOnTaskFor(task.ID, req.ProjectID, step.SkillID, "", req.Mode, req.Model)
+		if writeTaskBusy(w, err) || writeRunProjectRefusal(w, err) {
 			return
 		}
 		if err != nil {

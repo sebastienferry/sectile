@@ -236,6 +236,12 @@ func buildTrackerOpJob(op TrackerOp) (*models.TaskActivity, SkillJob, error) {
 		action = fmt.Sprintf("Découpe d'épic : %d ticket(s) ➔ %s", len(op.TaskIDs), target)
 		summary = fmt.Sprintf("Déplacement de %d ticket(s) vers %s en file d'attente", len(op.TaskIDs), target)
 		steps = append(steps, fmt.Sprintf("Cible : %s", target), fmt.Sprintf("%d ticket(s) à déplacer", len(op.TaskIDs)))
+	case TrackerOpTaskLabels:
+		action = fmt.Sprintf("Labels de %s", op.TaskKey)
+		summary = fmt.Sprintf("Labels de %s en file d'attente", op.TaskKey)
+		for _, label := range op.Labels {
+			steps = append(steps, "+ "+label)
+		}
 	case TrackerOpEpicLabels:
 		action = fmt.Sprintf("Labels de %s", op.EpicKey)
 		summary = fmt.Sprintf("Labels de %s en file d'attente", op.EpicKey)
@@ -404,6 +410,8 @@ func (d *DB) processTrackerOpJob(ctx context.Context, job SkillJob) {
 		output, err = d.runMoveToEpicOp(ctx, op, &steps)
 	case TrackerOpEpicHorizon:
 		output, err = d.runEpicHorizonOp(ctx, op, &steps)
+	case TrackerOpTaskLabels:
+		output, err = d.runTaskLabelsOp(ctx, op, &steps)
 	case TrackerOpEpicLabels:
 		output, err = d.runEpicLabelsOp(ctx, op, &steps)
 	case TrackerOpPushHorizons:

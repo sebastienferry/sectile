@@ -105,9 +105,13 @@ func (d *agentDaemon) readAPI(ctx context.Context, path string, result any) erro
 func (d *agentDaemon) fetchConfig(ctx context.Context, projectID, taskKey string, framework ...string) (agentconfig.Config, error) {
 	var c agentconfig.Config
 	q := url.Values{}
+	// A ticket may belong to several projects (#741): the project is sent
+	// with the task, and the server answers for it when the ticket is one of
+	// its own.
 	if taskKey != "" {
 		q.Set("taskKey", taskKey)
-	} else {
+	}
+	if projectID != "" || taskKey == "" {
 		q.Set("projectId", projectID)
 	}
 	if len(framework) > 0 && framework[0] != "" {

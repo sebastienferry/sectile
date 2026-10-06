@@ -25,6 +25,33 @@ const (
 	maxSprintWeeks = 4
 )
 
+// sprintProject reads a project for its sprint management: on the tracker
+// the context names when it is one of the project's (#741), whose board and
+// sprints it then carries, else on its default tracker. The handler refuses a
+// tracker the project does not select before it gets here.
+func (d *DB) sprintProject(ctx context.Context, projectID string) (*models.Project, error) {
+	proj, err := d.GetProjectByID(projectID)
+	if err != nil || proj == nil {
+		return nil, fmt.Errorf("projet non trouvé")
+	}
+	named := tracker.Tracker(ctx)
+	if named == nil || named.ID == "" || named.ID == proj.DefaultTrackerID {
+		return proj, nil
+	}
+	for _, pt := range proj.Trackers {
+		if pt.TrackerID != named.ID {
+			continue
+		}
+		trk, err := d.GetTrackerByID(named.ID)
+		if err != nil || trk == nil {
+			return nil, fmt.Errorf("tracker non trouvé")
+		}
+		proj.DefaultTrackerID, proj.BoardID, proj.Sprints = trk.ID, trk.BoardID, trk.Sprints
+		return proj, nil
+	}
+	return proj, nil
+}
+
 // sprintManagerOf resolves the project's tracker and checks it manages its own
 // sprints, with the refusal the interface shows when it does not.
 func (d *DB) sprintManagerOf(proj *models.Project) (tracker.TicketingSystem, tracker.SprintManager, error) {
@@ -71,7 +98,7 @@ func (d *DB) CreateProjectSprints(ctx context.Context, projectID, pattern string
 	if weeks < minSprintWeeks || weeks > maxSprintWeeks {
 		return nil, fmt.Errorf("un sprint dure de %d à %d semaines, pas %d", minSprintWeeks, maxSprintWeeks, weeks)
 	}
-	proj, err := d.GetProjectByID(projectID)
+	proj, err := d.sprintProject(ctx, projectID)
 	if err != nil || proj == nil {
 		return nil, fmt.Errorf("projet non trouvé")
 	}
@@ -119,7 +146,7 @@ func (d *DB) CreateProjectSprints(ctx context.Context, projectID, pattern string
 		cursor = next
 	}
 	if len(created) > 0 {
-		if err := d.mirrorSprints(proj.ID, func(list []models.TrackerSprint) []models.TrackerSprint {
+		if err := d.mirrorSprints(proj, func(list []models.TrackerSprint) []models.TrackerSprint {
 			for _, sp := range created {
 				list = replaceSprint(list, sp)
 			}
@@ -135,7 +162,7 @@ func (d *DB) CreateProjectSprints(ctx context.Context, projectID, pattern string
 // Closing with MoveOpenTo moves the sprint's unfinished work items first, to the
 // next sprint or to the backlog, so that nothing is left behind in a closed one.
 func (d *DB) UpdateProjectSprint(ctx context.Context, projectID, sprintID string, patch models.SprintPatch) (*models.TrackerSprint, error) {
-	proj, err := d.GetProjectByID(projectID)
+	proj, err := d.sprintProject(ctx, projectID)
 	if err != nil || proj == nil {
 		return nil, fmt.Errorf("projet non trouvé")
 	}
@@ -171,15 +198,26 @@ func (d *DB) UpdateProjectSprint(ctx context.Context, projectID, sprintID string
 	// The name the tasks carry follows a rename, since they refer to it.
 	if updated.Name != "" && updated.Name != current.Name {
 		d.mu.Lock()
-		_, _ = d.conn.Exec("UPDATE tasks SET sprint = ?, updated_at = ? WHERE project_id = ? AND sprint = ?", updated.Name, time.Now(), proj.ID, current.Name)
+		scope, scopeArgs := d.sprintTasksScopeUnsafe(proj)
+		_, _ = d.conn.Exec("UPDATE tasks SET sprint = ?, updated_at = ? WHERE "+scope+" AND sprint = ?", append(append([]any{updated.Name, time.Now()}, scopeArgs...), current.Name)...)
 		d.mu.Unlock()
 	}
-	if err := d.mirrorSprints(proj.ID, func(list []models.TrackerSprint) []models.TrackerSprint {
+	if err := d.mirrorSprints(proj, func(list []models.TrackerSprint) []models.TrackerSprint {
 		return replaceSprint(list, updated)
 	}); err != nil {
 		return nil, err
 	}
 	return &updated, nil
+}
+
+// sprintTasksScopeUnsafe selects the tickets a project's sprint holds: those
+// of the tracker its sprints belong to, the project's default one (#741), or,
+// for a project no tracker was adopted for, the rows naming it.
+func (d *DB) sprintTasksScopeUnsafe(proj *models.Project) (string, []any) {
+	if trk := d.trackerOfProjectUnsafe(proj); trk != nil && trk.ID != "" {
+		return "tracker_id = ?", []any{trk.ID}
+	}
+	return "project_id = ?", []any{proj.ID}
 }
 
 // moveOpenWork moves the unfinished work items of a sprint on the tracker,
@@ -198,8 +236,9 @@ func (d *DB) moveOpenWork(ctx context.Context, proj *models.Project, ts tracker.
 		return fmt.Errorf("destination invalide %q : next ou backlog", destination)
 	}
 	d.mu.RLock()
-	rows, err := d.conn.Query("SELECT id, key, source FROM tasks WHERE project_id = ? AND sprint = ? AND status NOT IN (?, ?)",
-		proj.ID, sprint.Name, string(models.StatusFinished), string(models.StatusDone))
+	scope, scopeArgs := d.sprintTasksScopeUnsafe(proj)
+	rows, err := d.conn.Query("SELECT id, key, source FROM tasks WHERE "+scope+" AND sprint = ? AND status NOT IN (?, ?)",
+		append(scopeArgs, sprint.Name, string(models.StatusFinished), string(models.StatusDone))...)
 	if err != nil {
 		d.mu.RUnlock()
 		return err
@@ -237,7 +276,7 @@ func (d *DB) moveOpenWork(ctx context.Context, proj *models.Project, ts tracker.
 
 // DeleteProjectSprint deletes a sprint on the tracker, then from the mirror.
 func (d *DB) DeleteProjectSprint(ctx context.Context, projectID, sprintID string) error {
-	proj, err := d.GetProjectByID(projectID)
+	proj, err := d.sprintProject(ctx, projectID)
 	if err != nil || proj == nil {
 		return fmt.Errorf("projet non trouvé")
 	}
@@ -257,9 +296,10 @@ func (d *DB) DeleteProjectSprint(ctx context.Context, projectID, sprintID string
 	// The tracker sends the sprint's work items to the backlog; the board says
 	// the same rather than naming a sprint that no longer exists.
 	d.mu.Lock()
-	_, _ = d.conn.Exec("UPDATE tasks SET sprint = '', updated_at = ? WHERE project_id = ? AND sprint = ?", time.Now(), proj.ID, sprint.Name)
+	scope, scopeArgs := d.sprintTasksScopeUnsafe(proj)
+	_, _ = d.conn.Exec("UPDATE tasks SET sprint = '', updated_at = ? WHERE "+scope+" AND sprint = ?", append(append([]any{time.Now()}, scopeArgs...), sprint.Name)...)
 	d.mu.Unlock()
-	return d.mirrorSprints(proj.ID, func(list []models.TrackerSprint) []models.TrackerSprint {
+	return d.mirrorSprints(proj, func(list []models.TrackerSprint) []models.TrackerSprint {
 		kept := list[:0]
 		for _, sp := range list {
 			if sp.ID != sprintID {
@@ -270,18 +310,14 @@ func (d *DB) DeleteProjectSprint(ctx context.Context, projectID, sprintID string
 	})
 }
 
-// mirrorSprints rewrites the sprint list of the project's tracker from its
-// current value (#741).
-func (d *DB) mirrorSprints(projectID string, change func([]models.TrackerSprint) []models.TrackerSprint) error {
-	proj, err := d.GetProjectByID(projectID)
-	if err != nil || proj == nil {
-		return fmt.Errorf("projet non trouvé")
-	}
+// mirrorSprints rewrites the sprint list of the tracker whose sprints the
+// project manages from its current value (#741).
+func (d *DB) mirrorSprints(proj *models.Project, change func([]models.TrackerSprint) []models.TrackerSprint) error {
 	trk := d.trackerOfProjectUnsafe(proj)
 	if trk == nil || trk.ID == "" {
 		return fmt.Errorf("projet sans tracker")
 	}
-	_, err = d.UpdateTrackerMirror(trk.ID, func(t *models.Tracker) {
+	_, err := d.UpdateTrackerMirror(trk.ID, func(t *models.Tracker) {
 		t.Sprints = change(append([]models.TrackerSprint{}, t.Sprints...))
 	})
 	return err

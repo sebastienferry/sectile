@@ -4,6 +4,7 @@ package taskmcp
 import (
 	"context"
 	"crypto/rand"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -50,7 +51,9 @@ type contextInput struct {
 // source, external URL) are deliberately absent: a task created here enters the
 // workflow where every other new task enters it.
 type createTaskInput struct {
-	ProjectID   string   `json:"projectId"`
+	ProjectID string `json:"projectId"`
+	// Tracker names one of the project's trackers, by id or identity (#741).
+	Tracker     string   `json:"tracker,omitempty"`
 	Title       string   `json:"title"`
 	Description string   `json:"description,omitempty"`
 	IssueType   string   `json:"issueType,omitempty"`
@@ -72,8 +75,9 @@ type startRunInput struct {
 	TaskKey string `json:"taskKey,omitempty" jsonschema:"task key or ID; omit for a macro run"`
 	Skill   string `json:"skill"`
 	RunID   string `json:"runId,omitempty"`
-	// ProjectID and MacroKey name a macro skill run instead of a task run.
-	ProjectID string `json:"projectId,omitempty" jsonschema:"project primary key of a macro run"`
+	// ProjectID and MacroKey name a macro skill run instead of a task run. With
+	// a taskKey, ProjectID names the project the task run works for (#741).
+	ProjectID string `json:"projectId,omitempty" jsonschema:"project primary key of a macro run, or of the project a task run works for when the task belongs to several"`
 	MacroKey  string `json:"macroKey,omitempty" jsonschema:"macro key of a macro run, with projectId instead of taskKey"`
 }
 type finishRunInput struct {
@@ -192,14 +196,75 @@ func sessionContext(config *agentconfig.Config) map[string]any {
 	for _, skill := range config.Skills {
 		skills = append(skills, skillReference{ID: skill.ID, Directory: skill.Directory, Command: skill.Command, RequiresReconciliation: skill.RequiresReconciliation})
 	}
-	return map[string]any{
+	trackers := config.Trackers
+	if trackers == nil {
+		trackers = []agentconfig.TrackerRef{}
+	}
+	result := map[string]any{
 		"schemaVersion": config.SchemaVersion, "projectId": config.ProjectID, "projectName": config.ProjectName,
 		"description": config.Description, "gitRemoteUrl": config.GitRemoteURL, "issueTracker": config.IssueTracker,
 		"trackerUrl": config.TrackerURL, "githubRepo": config.GithubRepo,
 		"jiraProject": config.JiraProject, "specFramework": config.SpecFramework, "prCreationStage": config.PRCreationStage,
 		"defaultSkillMode": config.DefaultSkillMode, "fullChainStopStage": config.FullChainStopStage, "pushStageCommits": config.PushStageCommits, "branchNameFormat": config.BranchNameFormat,
 		"skills": skills, "skillDirectories": []string{".agents/skills", ".claude/skills", ".gemini/skills", ".agy/skills", ".skills"},
+		// The trackers the project selects its tickets from and its label
+		// (#741), and the tracker of the task the context was read for.
+		"trackers": trackers, "label": config.Label,
 	}
+	if config.Tracker != nil {
+		result["tracker"] = config.Tracker
+	}
+	return result
+}
+
+// englishError renders, in English, the store refusals this surface speaks
+// about (#741): the store writes them in French for the web.
+func englishError(err error) error {
+	var ambiguous *db.ErrRunProjectAmbiguous
+	switch {
+	case err == nil:
+		return nil
+	case errors.As(err, &ambiguous):
+		names := make([]string, 0, len(ambiguous.Candidates))
+		for _, c := range ambiguous.Candidates {
+			names = append(names, fmt.Sprintf("%s (projectId %s)", c.Name, c.ID))
+		}
+		if ambiguous.Unattended {
+			return fmt.Errorf("unattended run refused: the task belongs to several projects: %s; launch it from one project", strings.Join(names, ", "))
+		}
+		return fmt.Errorf("the task belongs to several projects: %s; ask the user which one and pass its projectId", strings.Join(names, ", "))
+	case errors.Is(err, db.ErrTaskKeyAmbiguous):
+		return fmt.Errorf("this key names tasks of several trackers: give the task ID, or the projectId the task belongs to")
+	case errors.Is(err, db.ErrTaskInNoProject):
+		return fmt.Errorf("the task belongs to no project: give it a project's label before running it")
+	case errors.Is(err, db.ErrRunProjectNotMember):
+		return fmt.Errorf("the task does not belong to that project")
+	case errors.Is(err, db.ErrTrackerNotInProject):
+		return fmt.Errorf("unknown tracker: name one of the project's trackers by id or identity")
+	}
+	return err
+}
+
+// callProject is the project a tool call works in when it names none (#741):
+// the project of the run the launched console names in its header, else of a
+// run the session started. Empty when none recorded one.
+func callProject(database *db.DB, sessions *SessionRegistry, req *mcp.CallToolRequest) string {
+	if database == nil || req == nil {
+		return ""
+	}
+	var runs []string
+	if req.Extra != nil {
+		if runID := strings.TrimSpace(req.Extra.Header.Get(agentprotocol.RunIDHeader)); runID != "" {
+			runs = append(runs, runID)
+		}
+	}
+	runs = append(runs, sessions.AdoptedRuns(sessionID(req.Session))...)
+	for _, runID := range runs {
+		if run, err := database.GetActivityByID(runID); err == nil && run != nil && run.RunProjectID != "" {
+			return run.RunProjectID
+		}
+	}
+	return ""
 }
 
 // Caller is the user behind an MCP call, resolved by the host from the bearer
@@ -290,15 +355,50 @@ func NewServerWithCallers(database *db.DB, sessions *SessionRegistry, resolve Ca
 					}
 				}
 			}
-			return next(ctx, method, req)
+			result, err := next(ctx, method, req)
+			// The store's refusals reach a session in English (#741).
+			if call, ok := result.(*mcp.CallToolResult); ok && call != nil && call.IsError {
+				if original := call.GetError(); original != nil {
+					if rendered := englishError(original); rendered != original {
+						call.Content = []mcp.Content{&mcp.TextContent{Text: rendered.Error()}}
+						call.SetError(rendered)
+					}
+				}
+			}
+			return result, englishError(err)
 		}
 	})
+	// taskRef resolves a task key within the project the call works in (#741),
+	// to the task's id, so the store reads the one ticket the caller means: a
+	// key two projects each carry names the one of the call's project. A key
+	// nobody carries is returned as it is, for the store's own refusal.
+	taskRef := func(req *mcp.CallToolRequest, projectID, key string) (string, error) {
+		key = strings.TrimSpace(key)
+		if key == "" {
+			return key, nil
+		}
+		if strings.TrimSpace(projectID) == "" {
+			projectID = callProject(database, sessions, req)
+		}
+		task, err := database.GetTaskByIDIn(projectID, key)
+		if err != nil {
+			return "", err
+		}
+		if task == nil {
+			return key, nil
+		}
+		return task.ID, nil
+	}
 	mcp.AddTool(s, &mcp.Tool{Name: "get_task", Description: "Read task details, workflow labels, branch metadata and live comments. Comments come from the tracker; when they cannot be retrieved the task is still returned and the failure is reported in commentsError."},
 		func(ctx context.Context, req *mcp.CallToolRequest, in taskInput) (*mcp.CallToolResult, any, error) {
 			if strings.TrimSpace(in.TaskKey) == "" {
 				return nil, nil, fmt.Errorf("taskKey is required")
 			}
-			task, err := database.GetTaskByID(in.TaskKey)
+			ref, err := taskRef(req, "", in.TaskKey)
+			if err != nil {
+				return nil, nil, err
+			}
+			task, err := database.GetTaskByIDIn(callProject(database, sessions, req), ref)
 			if err != nil {
 				return nil, nil, err
 			}
@@ -338,7 +438,11 @@ func NewServerWithCallers(database *db.DB, sessions *SessionRegistry, resolve Ca
 		}
 		var task *models.Task
 		var activity *models.TaskActivity
-		var err error
+		ref, err := taskRef(req, "", in.TaskKey)
+		if err != nil {
+			return nil, nil, err
+		}
+		in.TaskKey = ref
 		if in.NoRepositoryChange {
 			if strings.TrimSpace(in.PRURL) != "" || len(in.PRURLs) > 0 {
 				return nil, nil, fmt.Errorf("noRepositoryChange states there is no pull request: give either prUrl/prUrls or noRepositoryChange, not both")
@@ -361,17 +465,25 @@ func NewServerWithCallers(database *db.DB, sessions *SessionRegistry, resolve Ca
 			if err := requireCaller(caller); err != nil {
 				return nil, nil, err
 			}
-			comments, err := database.PostTaskCommentBy(db.Actor{ID: caller.UserID, Name: caller.Name}, in.TaskKey, in.Body)
+			ref, err := taskRef(req, "", in.TaskKey)
+			if err != nil {
+				return nil, nil, err
+			}
+			comments, err := database.PostTaskCommentBy(db.Actor{ID: caller.UserID, Name: caller.Name}, ref, in.Body)
 			return nil, map[string]any{"comments": comments}, err
 		})
-	mcp.AddTool(s, &mcp.Tool{Name: "list_tasks", Description: "List board tasks, optionally filtered by project, status and sprint."},
+	mcp.AddTool(s, &mcp.Tool{Name: "list_tasks", Description: "List board tasks, optionally filtered by project, status and sprint. A project lists the tickets it selects: those of its trackers carrying its label, every ticket of its trackers when it has none."},
 		func(ctx context.Context, req *mcp.CallToolRequest, in listInput) (*mcp.CallToolResult, any, error) {
 			tasks, err := database.GetTasks("", in.Status, "", "", in.ProjectID, in.Sprint, "", "", "", nil, nil, false)
 			return nil, map[string]any{"tasks": tasks}, err
 		})
 	mcp.AddTool(s, &mcp.Tool{Name: "get_project_context", Description: "Read project description, repository identity, execution settings, specification framework, pull-request creation stage, default skill execution mode, full chain stop stage and skill references. Supply projectId or taskKey. Skill bodies are not inlined: open <skillDirectory>/<skill directory>/SKILL.md in the checkout, and read repository AGENTS.md for additional conventions."},
 		func(ctx context.Context, req *mcp.CallToolRequest, in contextInput) (*mcp.CallToolResult, any, error) {
-			config, err := database.AgentConfig(in.ProjectID, in.TaskKey)
+			projectID := in.ProjectID
+			if strings.TrimSpace(projectID) == "" && strings.TrimSpace(in.TaskKey) != "" {
+				projectID = callProject(database, sessions, req)
+			}
+			config, err := database.AgentConfig(projectID, in.TaskKey)
 			if err != nil {
 				return nil, nil, err
 			}
@@ -392,7 +504,13 @@ func NewServerWithCallers(database *db.DB, sessions *SessionRegistry, resolve Ca
 			if macro {
 				activity, err = database.StartMacroRunBy(callerOf(resolve, req).UserID, in.ProjectID, in.MacroKey, in.Skill, in.RunID)
 			} else {
-				activity, err = database.StartRemoteRunBy(callerOf(resolve, req).UserID, in.TaskKey, in.Skill, in.RunID)
+				// A task run works for one project (#741): the one named,
+				// else the task's only one; a task of several is refused with
+				// the candidates, so the agent asks its user.
+				var ref string
+				if ref, err = taskRef(req, in.ProjectID, in.TaskKey); err == nil {
+					activity, err = database.StartRemoteRunFor(callerOf(resolve, req).UserID, ref, in.Skill, in.RunID, in.ProjectID)
+				}
 			}
 			if err != nil {
 				return nil, nil, err
@@ -418,7 +536,10 @@ func NewServerWithCallers(database *db.DB, sessions *SessionRegistry, resolve Ca
 			if macro {
 				activity, err = database.FinishMacroRunAs(actor, caller.Role == db.RoleAdmin, in.ProjectID, in.MacroKey, in.RunID, in.Status, in.Note)
 			} else {
-				activity, err = database.FinishRemoteRunAs(actor, caller.Role == db.RoleAdmin, in.TaskKey, in.RunID, in.Status, in.Note)
+				var ref string
+				if ref, err = taskRef(req, "", in.TaskKey); err == nil {
+					activity, err = database.FinishRemoteRunAs(actor, caller.Role == db.RoleAdmin, ref, in.RunID, in.Status, in.Note)
+				}
 			}
 			if err != nil {
 				return nil, nil, err
@@ -441,7 +562,10 @@ func NewServerWithCallers(database *db.DB, sessions *SessionRegistry, resolve Ca
 			if macro {
 				activity, applied, err = database.ReportSessionMacroRunWaitingAs(actor, admin, session, in.ProjectID, in.MacroKey, in.RunID, in.Waiting)
 			} else {
-				activity, applied, err = database.ReportSessionRunWaitingAs(actor, admin, session, in.TaskKey, in.RunID, in.Waiting)
+				var ref string
+				if ref, err = taskRef(req, "", in.TaskKey); err == nil {
+					activity, applied, err = database.ReportSessionRunWaitingAs(actor, admin, session, ref, in.RunID, in.Waiting)
+				}
 			}
 			if err != nil {
 				return nil, nil, err
@@ -487,7 +611,11 @@ func NewServerWithCallers(database *db.DB, sessions *SessionRegistry, resolve Ca
 		})
 	mcp.AddTool(s, &mcp.Tool{Name: "prepare_repository_worktree", Description: "Prepare the task's worktree in another repository than its primary one, on the caller's local agent, on the task's branch: reused wherever that branch is already checked out, else created from the remote branch when it exists, else from the checkout's current HEAD. The repository is one of the project's repositories, or a Git folder attached to the project on the caller's workstation, given by its remote URL or host/path; it must have a folder on that workstation. Call it before changing a context folder (SECTILE_REPOSITORIES role \"context\"): context folders are read-only. A local folder (role \"local\", no remote) is changed in place without it, with no worktree and no pull request. The repository then needs its own pull request, given in transition_stage prUrls. The workstation's project settings are read at each call, so a folder attached after the session started is accepted; SECTILE_REPOSITORIES lists the folders known when the run was launched and is not refreshed. When the workstation has the project's Any repository option on, a repository no folder holds is accepted too: give path, the top level of a local checkout whose origin is that repository, or omit it and the agent clones the repository into the project's clones folder; either is then remembered on that workstation. A branch that exists neither locally nor on origin starts from the remote default branch, fetched first. Returns repository, path, branch, source (mapping, project, attached, path or clone), whether the checkout was remembered, whether the worktree was added to the running session (when false, run /add-dir with the path before writing there), and any warning."},
 		func(ctx context.Context, req *mcp.CallToolRequest, in repositoryWorktreeInput) (*mcp.CallToolResult, any, error) {
-			worktree, err := database.PrepareRepositoryWorktree(ctx, callerOf(resolve, req).UserID, in.TaskKey, in.Repository, in.Path)
+			ref, err := taskRef(req, "", in.TaskKey)
+			if err != nil {
+				return nil, nil, err
+			}
+			worktree, err := database.PrepareRepositoryWorktree(ctx, callerOf(resolve, req).UserID, ref, in.Repository, in.Path)
 			if err != nil {
 				return nil, nil, err
 			}
@@ -510,7 +638,11 @@ func NewServerWithCallers(database *db.DB, sessions *SessionRegistry, resolve Ca
 			if err := requireCaller(caller); err != nil {
 				return nil, nil, err
 			}
-			task, err := database.RecordPullRequest(ctx, caller.UserID, in.TaskKey, in.URL)
+			ref, err := taskRef(req, "", in.TaskKey)
+			if err != nil {
+				return nil, nil, err
+			}
+			task, err := database.RecordPullRequest(ctx, caller.UserID, ref, in.URL)
 			if err != nil {
 				return nil, nil, err
 			}
@@ -520,6 +652,7 @@ func NewServerWithCallers(database *db.DB, sessions *SessionRegistry, resolve Ca
 		"type": "object", "additionalProperties": false, "required": []string{"projectId", "title"},
 		"properties": map[string]any{
 			"projectId":   map[string]any{"type": "string", "minLength": 1, "description": "Project primary key from list_projects. Required and never inferred: a bare task key can name another project's ticket."},
+			"tracker":     map[string]any{"type": "string", "description": "One of the project's trackers, by id or identity, from get_project_context trackers. Omit for the project's default tracker."},
 			"title":       map[string]any{"type": "string", "minLength": 1},
 			"description": map[string]any{"type": "string"},
 			"issueType":   map[string]any{"type": "string", "description": "Project issue type, for example Task or Story."},
@@ -549,6 +682,14 @@ func NewServerWithCallers(database *db.DB, sessions *SessionRegistry, resolve Ca
 		if project == nil {
 			return nil, nil, fmt.Errorf("project not found: %s", projectID)
 		}
+		trackerID := ""
+		if named := strings.TrimSpace(in.Tracker); named != "" {
+			trk, err := database.ProjectTrackerNamed(project.ID, named)
+			if err != nil {
+				return nil, nil, fmt.Errorf("unknown tracker %s for project %s: name one of its trackers by id or identity", named, project.ID)
+			}
+			trackerID = trk.ID
+		}
 		// The issue is created as the caller, exactly as from the web: under
 		// their own tracker credential, never the server's.
 		task, err := database.CreateTaskAs(tracker.WithActingUser(ctx, caller.UserID), models.CreateTaskRequest{
@@ -556,6 +697,7 @@ func NewServerWithCallers(database *db.DB, sessions *SessionRegistry, resolve Ca
 			// has to exist where a human will see it.
 			RequireRemoteCreation: true,
 			ProjectID:             project.ID,
+			TrackerID:             trackerID,
 			Title:                 strings.TrimSpace(in.Title),
 			Description:           in.Description,
 			Priority:              models.Priority(strings.TrimSpace(in.Priority)),
@@ -593,7 +735,7 @@ func NewServerWithCallers(database *db.DB, sessions *SessionRegistry, resolve Ca
 		if in.Title != nil && strings.TrimSpace(*in.Title) == "" {
 			return nil, nil, fmt.Errorf("title cannot be empty")
 		}
-		existing, err := database.GetTaskByID(taskKey)
+		existing, err := database.GetTaskByIDIn(callProject(database, sessions, req), taskKey)
 		if err != nil {
 			return nil, nil, err
 		}
