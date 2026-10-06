@@ -286,3 +286,54 @@ type WorktreeRemovalFailed struct {
 	Repository string `json:"repository"`
 	Error      string `json:"error"`
 }
+
+// Outcomes of one worktree in an archive_workspace answer (#755).
+const (
+	ArchiveRemoved  = "removed"
+	ArchiveAbsent   = "absent"
+	ArchiveShared   = "shared"
+	ArchiveDisabled = "disabled"
+	ArchiveFailed   = "failed"
+)
+
+// Outcomes of the task's local branch in an archive_workspace answer.
+const (
+	ArchiveBranchDeleted = "deleted"
+	ArchiveBranchKept    = "kept"
+)
+
+// WorkspaceArchive answers an archive_workspace operation: what became of
+// each worktree of the task, and of its local branch there.
+type WorkspaceArchive struct {
+	Repositories []WorkspaceArchiveEntry `json:"repositories"`
+}
+
+// WorkspaceArchiveEntry is one worktree of the task. Repository is empty for
+// the checkout of a project that names no repository; Role is "code" or
+// "specifications". A kept branch carries the reason it was kept and never
+// fails the entry.
+type WorkspaceArchiveEntry struct {
+	Repository    string `json:"repository"`
+	Role          string `json:"role"`
+	Path          string `json:"path,omitempty"`
+	Outcome       string `json:"outcome"`
+	Error         string `json:"error,omitempty"`
+	Branch        string `json:"branch,omitempty"`
+	BranchOutcome string `json:"branchOutcome,omitempty"`
+	BranchReason  string `json:"branchReason,omitempty"`
+}
+
+// Archivable says the task may be archived: no worktree of it was left
+// behind. An answer with no entry comes from an agent that did not run the
+// operation, and is not archivable.
+func (a WorkspaceArchive) Archivable() bool {
+	if len(a.Repositories) == 0 {
+		return false
+	}
+	for _, entry := range a.Repositories {
+		if entry.Outcome == ArchiveFailed {
+			return false
+		}
+	}
+	return true
+}

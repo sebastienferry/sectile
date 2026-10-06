@@ -40,10 +40,13 @@ type Operation struct {
 	// worktree in, for a remove_workspace operation that must clean them all.
 	// Empty keeps the operation on the project checkout.
 	Repositories []string `json:"repositories,omitempty"`
-	Create       bool     `json:"create,omitempty"`
-	DeleteRemote bool     `json:"deleteRemote,omitempty"`
-	Editor       string   `json:"editor,omitempty"`
-	Prompt       string   `json:"prompt,omitempty"`
+	// DeleteBranch lets an archive_workspace operation delete the task's local
+	// branch: the server found every pull request of the task merged (#755).
+	DeleteBranch bool   `json:"deleteBranch,omitempty"`
+	Create       bool   `json:"create,omitempty"`
+	DeleteRemote bool   `json:"deleteRemote,omitempty"`
+	Editor       string `json:"editor,omitempty"`
+	Prompt       string `json:"prompt,omitempty"`
 	// Mode is the execution mode the server resolved for this launch:
 	// "interactive" or "autonomous". Empty is read as interactive by the agent,
 	// which keeps an older server working.
@@ -81,7 +84,7 @@ type SkillFile struct {
 var Operations = []string{
 	"macro_worktree", "macro_spec_file",
 	"git_status", "git_branches", "git_checkout", "git_clean", "git_delete",
-	"open_editor", "cli_status", "prepare_workspace", "remove_workspace",
+	"open_editor", "cli_status", "prepare_workspace", "remove_workspace", "archive_workspace",
 	"repository_worktree", "task_spec_worktree", "workspace_info", "git_diff", "git_evidence", "branch_changes",
 	"pr_evidence", "run_prompt", "skills_status", "skill_files", "sync_config",
 	"read_skill", "spec_status", "spec_install", "init_git", "spec_artifacts",

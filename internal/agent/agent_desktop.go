@@ -103,7 +103,12 @@ type desktopRun struct {
 	Skill     string `json:"skill"`
 	SessionID string `json:"sessionId"`
 	Directory string `json:"directory"`
-	Status    string `json:"status"`
+	// Folders are every folder of the run, Directory first, when it has more
+	// than one (#762): the desktop offers to copy each. A folder prepared or
+	// attached while the run goes is added to it. Absent for a run launched
+	// without a folder map, and from an older agent.
+	Folders []runFolder `json:"folders,omitempty"`
+	Status  string      `json:"status"`
 	// ExternalTerminal marks the terminal emulator currently attached to or running this session.
 	ExternalTerminal string `json:"externalTerminal,omitempty"`
 	// Headless marks a run that has no PTY on purpose. The desktop shows its
@@ -174,7 +179,7 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 		// contractError separates a server that is merely unreachable from one
 		// that cannot be talked to at all. Without it the desktop reports both
 		// as a disconnection and the user has no reason to look at the build.
-		capabilities := []string{"git-diff", markdownDocumentsCapability, markdownImagesCapability, "create-task", "remove-project", "free-console", "transition-stage", "repositories", attachedFoldersCapability, "git-init", taskEnginesCapability, openEditorCapability, "claude-conversation", conversationControlsCapability, conversationQueueCapability, runFoldersCapability, runFoldersTerminalsCapability, consoleViewCapability, projectTerminalCapability}
+		capabilities := []string{"git-diff", markdownDocumentsCapability, markdownImagesCapability, "create-task", "remove-project", "free-console", "transition-stage", "repositories", attachedFoldersCapability, "git-init", taskEnginesCapability, openEditorCapability, "claude-conversation", conversationControlsCapability, conversationQueueCapability, runFoldersCapability, runFoldersTerminalsCapability, consoleViewCapability, projectTerminalCapability, archiveWorkspaceCapability}
 		if d.store != nil {
 			capabilities = append(capabilities, runStoreCapability)
 		}
@@ -225,6 +230,10 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	if r.URL.Path == "/desktop/tasks/transition" {
 		d.desktopTaskTransition(w, r)
+		return
+	}
+	if r.URL.Path == "/desktop/tasks/archive-workspace" {
+		d.desktopArchiveWorkspace(w, r)
 		return
 	}
 	if r.URL.Path == "/desktop/tasks/terminal-external" {
@@ -1476,6 +1485,7 @@ func (d *agentDaemon) desktopTasksTerminalExternal(w http.ResponseWriter, r *htt
 		Skill:            input.SkillID,
 		SessionID:        runID,
 		Directory:        workDir,
+		Folders:          runFolders(workDir, folders),
 		Branch:           branch,
 		Status:           "preparing",
 		CreatedAt:        time.Now().UTC(),

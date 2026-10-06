@@ -18,6 +18,48 @@ export interface PriorityMapping {
   preferred?: Partial<Record<Priority, string>>
 }
 
+/**
+ * A Jira custom field an epic axis is mapped to (#680): a single select or a
+ * two-level cascading select, picked from an epic's edit screen.
+ */
+export interface EpicAxisField {
+  id: string
+  name: string
+  kind: 'select' | 'cascade'
+  /** Axis value ("p1", "2026-Q4") to option path ("id", or "parentId/childId"). */
+  options?: Record<string, string>
+  /** Axis values a person set, changed or cleared by hand. */
+  manual?: string[]
+}
+
+export interface EpicAxisFields {
+  priority?: EpicAxisField
+  quarter?: EpicAxisField
+}
+
+/** One option of a candidate field; a cascade's parents carry children. */
+export interface EpicFieldOption {
+  id: string
+  value: string
+  children?: EpicFieldOption[]
+}
+
+/** A closed-list custom field of an epic's edit screen, with deduced maps. */
+export interface EpicFieldCandidate {
+  id: string
+  name: string
+  kind: 'select' | 'cascade'
+  options: EpicFieldOption[]
+  deduced?: { priority?: Record<string, string>; quarter?: Record<string, string> }
+}
+
+/** What the settings read to map an axis to a field. */
+export interface EpicAxisFieldDiscovery {
+  epicKey?: string
+  noEpic?: boolean
+  candidates: EpicFieldCandidate[]
+}
+
 export type Status = 
   | 'to_clarify'    // A clarifier (Label: #new)
   | 'clarified'     // Cadré (Label: #clarified)
@@ -191,12 +233,6 @@ export interface MacroStoryBatch {
   failed: number
 }
 
-export interface ProposedMacroTask {
-  title: string
-  issueType: string
-  description: string
-}
-
 export interface CreateTaskPayload {
   title: string
   description?: string
@@ -216,13 +252,6 @@ export interface CreateTaskPayload {
   parentKey?: string
   parentTitle?: string
   parentType?: string
-}
-
-export interface RefineMacroResult {
-  key: string
-  todos: MacroTodo[]
-  proposedTasks?: ProposedMacroTask[]
-  specFramework: string
 }
 
 export interface MacroMeta {
@@ -349,6 +378,11 @@ export interface Project {
    * the first discovery, and absent on other trackers.
    */
   priorityMapping?: PriorityMapping
+  /**
+   * The Jira custom fields the epic priority and quarter are mapped to
+   * (#680). Absent or empty maps none: both axes stay labels only.
+   */
+  epicAxisFields?: EpicAxisFields
   /** Stage at which the workflow opens the pull request. */
   prCreationStage?: PRCreationStage
   /**

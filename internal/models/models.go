@@ -146,6 +146,9 @@ type Project struct {
 	// PriorityMapping is how the tracker's ticket priorities map to Sectile's
 	// levels (#679). Jira only; empty until the first discovery.
 	PriorityMapping PriorityMapping `json:"priorityMapping"`
+	// EpicAxisFields maps the epic priority and quarter to custom fields of
+	// the tracker's epics (#680). Jira only; empty maps none.
+	EpicAxisFields EpicAxisFields `json:"epicAxisFields"`
 	// UseWorktrees decides whether each task gets its own isolated Git worktree
 	// under .tasks/worktrees, or whether the agent simply runs in the clone. A
 	// solo project rarely needs that isolation and pays the setup cost for
@@ -540,6 +543,7 @@ type UpdateProjectRequest struct {
 	RoadmapAxisWrites   *bool                `json:"roadmapAxisWrites,omitempty"`
 	EpicAxisPrefixes    *EpicAxisPrefixes    `json:"epicAxisPrefixes,omitempty"`
 	PriorityMapping     *PriorityMapping     `json:"priorityMapping,omitempty"`
+	EpicAxisFields      *EpicAxisFields      `json:"epicAxisFields,omitempty"`
 	PRCreationStage     *string              `json:"prCreationStage,omitempty"`
 	SpecArtifacts       *string              `json:"specArtifacts,omitempty"`
 	BranchNameFormat    *string              `json:"branchNameFormat,omitempty"`
@@ -960,9 +964,13 @@ type Task struct {
 	Pinned bool       `json:"pinned,omitempty"`
 	// PriorityNotice says why a creation reached the tracker without the
 	// priority it asked for (#679). Answered once, never stored.
-	PriorityNotice string    `json:"priorityNotice,omitempty"`
-	CreatedAt      time.Time `json:"createdAt"`
-	UpdatedAt      time.Time `json:"updatedAt"`
+	PriorityNotice string `json:"priorityNotice,omitempty"`
+	// AxisFieldValues holds, for an epic read with the project's mapped axis
+	// fields (#680), the option path each of them carries, keyed by field id.
+	// Read only, never stored nor answered.
+	AxisFieldValues map[string]string `json:"-"`
+	CreatedAt       time.Time         `json:"createdAt"`
+	UpdatedAt       time.Time         `json:"updatedAt"`
 }
 
 type Settings struct {
@@ -1332,12 +1340,6 @@ type TaskPostBackResult struct {
 	Task     *Task         `json:"task,omitempty"`
 	Activity *TaskActivity `json:"activity,omitempty"`
 	Error    string        `json:"error,omitempty"`
-}
-
-type ProposedMacroTask struct {
-	Title       string `json:"title"`
-	IssueType   string `json:"issueType"`
-	Description string `json:"description"`
 }
 
 // NormalizeSkillID preserves legacy invocations without rewriting history.

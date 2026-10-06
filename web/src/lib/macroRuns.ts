@@ -24,6 +24,19 @@ export interface AgentPresence {
   projectId: string
 }
 
+/**
+ * The catalog ID a run's skill name stands for. A run launched from the panel
+ * records the catalog ID; one started by hand through MCP records whatever the
+ * client named it, such as `refine-macro` or `sectile:realign-macro`. The
+ * aliases are those of internal/skills/catalog.go.
+ */
+export function macroSkillId(name: string): string {
+  const id = name.trim().toLowerCase().replace(/^sectile:/, '').replace(/-/g, '_')
+  if (id === 'refine') return 'refine_macro'
+  if (id === 'realign') return 'realign_macro'
+  return id
+}
+
 /** The run that makes the macro busy, if any: the most recent running one. */
 export function activeMacroRun(runs: MacroRun[]): MacroRun | null {
   return runs.find(run => run.status === 'running' || run.status === 'queued') || null
@@ -44,12 +57,15 @@ export function macroRunLabel(run: MacroRun, strings: MacroRunLabelStrings): str
 export interface MacroLaunchBlockerStrings {
   noAgent: string
   alreadyRunning: string
+  /** The reason given when the active run is another skill's. */
+  otherRunning?: string
 }
 
 /**
  * Whether the launch button is offered, and the reason when it is not.
  * An agent registered without a project serves every project, as the server's
- * routing does; only the signed-in user's agents count.
+ * routing does; only the signed-in user's agents count. With a skillId, an
+ * active run of another skill gives its own reason; the server refuses either.
  */
 export function macroLaunchBlocker(
   agents: AgentPresence[],
@@ -57,6 +73,7 @@ export function macroLaunchBlocker(
   runs: MacroRun[],
   strings: MacroLaunchBlockerStrings,
   userId = '',
+  skillId = '',
 ): string | null {
   // The server routes a launch to the caller's own agent: another person's
   // agent on a shared server does not make the button usable.
@@ -64,7 +81,9 @@ export function macroLaunchBlocker(
   if (!mine.some(agent => !agent.projectId || agent.projectId === projectId)) {
     return strings.noAgent
   }
-  if (activeMacroRun(runs)) {
+  const active = activeMacroRun(runs)
+  if (active) {
+    if (skillId && strings.otherRunning && macroSkillId(active.skillName) !== skillId) return strings.otherRunning
     return strings.alreadyRunning
   }
   return null

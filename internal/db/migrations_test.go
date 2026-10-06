@@ -91,6 +91,7 @@ func dropCredentialAccountColumn(d *DB) {
 	_, _ = d.conn.Exec("ALTER TABLE macros DROP COLUMN framing_mirror_credential")
 	_, _ = d.conn.Exec("ALTER TABLE macros DROP COLUMN framing_mirror_at")
 	_, _ = d.conn.Exec("ALTER TABLE projects DROP COLUMN priority_mapping")
+	_, _ = d.conn.Exec("ALTER TABLE projects DROP COLUMN epic_axis_fields")
 	_, _ = d.conn.Exec("ALTER TABLE projects ADD COLUMN mono_repo INTEGER NOT NULL DEFAULT 1")
 	_, _ = d.conn.Exec("ALTER TABLE user_tracker_credentials DROP COLUMN account")
 	_, _ = d.conn.Exec("ALTER TABLE projects DROP COLUMN spec_artifacts")
@@ -485,6 +486,7 @@ func TestMigrationThirtyOneRemovesTheRepositoryLayout(t *testing.T) {
 		"ALTER TABLE macros DROP COLUMN framing_mirror_credential",
 		"ALTER TABLE macros DROP COLUMN framing_mirror_at",
 		"ALTER TABLE projects DROP COLUMN priority_mapping",
+		"ALTER TABLE projects DROP COLUMN epic_axis_fields",
 		"DELETE FROM schema_migrations WHERE version >= 31",
 	} {
 		if _, err := d.conn.Exec(stmt); err != nil {

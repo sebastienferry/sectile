@@ -535,10 +535,25 @@ func (d *DB) PushMacroPriorityLabel(ctx context.Context, projectID string, macro
 	if err := d.pushMacroLabels(ctx, projectID, macroKey, axisPriority, target, removed); err != nil {
 		return "", fmt.Errorf("priorité posée dans Sectile mais pas sur %s : %w", strings.TrimSpace(macroKey), err)
 	}
+	output := fmt.Sprintf("« %s » posé sur %s", target, strings.TrimSpace(macroKey))
 	if target == "" {
-		return fmt.Sprintf("labels de priorité retirés de %s", strings.TrimSpace(macroKey)), nil
+		output = fmt.Sprintf("labels de priorité retirés de %s", strings.TrimSpace(macroKey))
 	}
-	return fmt.Sprintf("« %s » posé sur %s", target, strings.TrimSpace(macroKey)), nil
+	return d.withEpicAxisField(ctx, projectID, macroKey, models.EpicAxisPriority, axisPriority, priority, output)
+}
+
+// withEpicAxisField writes the axis's mapped field once its label went
+// through (#680), and appends what it did to the label's sentence. A field
+// failure fails the push: the epic then stays in the pending pushes.
+func (d *DB) withEpicAxisField(ctx context.Context, projectID, macroKey, axis string, mAxis macroAxis, value, output string) (string, error) {
+	note, err := d.pushEpicAxisField(ctx, projectID, macroKey, axis, mAxis, value)
+	if err != nil {
+		return "", err
+	}
+	if note != "" {
+		output += " ; " + note
+	}
+	return output, nil
 }
 
 // PushMacroReadinessLabel mirrors the readiness onto the tracker's epic: it
@@ -600,8 +615,9 @@ func (d *DB) PushMacroQuarterLabel(ctx context.Context, projectID string, macroK
 	if err := d.pushMacroLabels(ctx, projectID, key, axisQuarter, target, removed); err != nil {
 		return fail(err)
 	}
+	output := fmt.Sprintf("« %s » posé sur %s", target, key)
 	if target == "" {
-		return fmt.Sprintf("labels de trimestre retirés de %s", key), nil
+		output = fmt.Sprintf("labels de trimestre retirés de %s", key)
 	}
-	return fmt.Sprintf("« %s » posé sur %s", target, key), nil
+	return d.withEpicAxisField(ctx, projectID, key, models.EpicAxisQuarter, axisQuarter, quarter, output)
 }

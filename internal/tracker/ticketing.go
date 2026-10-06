@@ -86,6 +86,19 @@ type MarkedCommentWriter interface {
 	UpsertMarkedComment(ctx context.Context, req UpsertMarkedCommentRequest) (string, error)
 }
 
+// EpicAxisFieldManager is implemented by an adapter whose epics can carry
+// the epic priority and quarter in custom fields (#680), which is Jira. A
+// tracker without one keeps both axes as labels only.
+type EpicAxisFieldManager interface {
+	// EpicAxisFieldCandidates lists the closed-list custom fields of one
+	// epic's edit screen, single and cascading selects, with their options.
+	EpicAxisFieldCandidates(ctx context.Context, project *models.Project, epicKey string) ([]models.EpicFieldCandidate, error)
+	// SetEpicAxisField writes one option of a mapped field on an epic: an
+	// option id for a select, "parentId/childId" for a cascade. An empty
+	// path clears the field.
+	SetEpicAxisField(ctx context.Context, project *models.Project, epicKey string, field models.EpicAxisField, optionPath string) error
+}
+
 // PrioritySchemeReader is implemented by an adapter whose tracker has a
 // configurable ticket priority scheme (#679), which is Jira. Like the other
 // optional interfaces, every call site type-asserts it: a tracker without one

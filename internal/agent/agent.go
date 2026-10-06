@@ -1332,7 +1332,7 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 			origin = "It runs the " + payload.SkillID + " skill in this task's worktree. Stop it once the skill is done."
 		}
 		d.queue.mu.Lock()
-		run.desktop = desktopRun{CreatedAt: run.desktop.CreatedAt, Prompt: run.desktop.Prompt, ID: payload.RunID, TaskID: taskRef, TaskKey: payload.TaskKey, ProjectID: config.ProjectID, Skill: payload.SkillID, Directory: workDir, Branch: branch}
+		run.desktop = desktopRun{CreatedAt: run.desktop.CreatedAt, Prompt: run.desktop.Prompt, ID: payload.RunID, TaskID: taskRef, TaskKey: payload.TaskKey, ProjectID: config.ProjectID, Skill: payload.SkillID, Directory: workDir, Folders: runFolders(workDir, folders), Branch: branch}
 		startConversationLocked(run, model, conversationOrigin(config, origin))
 		run.conversation.env, run.conversation.extraDirs = envVars, extraDirs
 		if first != "" {
@@ -1354,6 +1354,8 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 	// shows what the CLI printed, but read-only: the output is captured from the
 	// process pipes and posted onto the run activity.
 	if autonomous {
+		// Registering the run keeps the folders it was queued with.
+		d.queue.read(payload.RunID, func(run *controlledRun) { run.desktop.Folders = runFolders(workDir, folders) })
 		if err := d.startHeadlessRun(taskRef, payload, config, workDir, branch, envVars, fullLine, runProvider, runModel); err != nil {
 			d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", err.Error())
 			return
@@ -1370,7 +1372,7 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 			return
 		}
 		d.queue.read(payload.RunID, func(run *controlledRun) {
-			run.desktop = desktopRun{CreatedAt: run.desktop.CreatedAt, Prompt: run.desktop.Prompt, ID: payload.RunID, TaskID: taskRef, TaskKey: payload.TaskKey, ProjectID: config.ProjectID, Skill: payload.SkillID, SessionID: sessionID, Directory: workDir, Branch: branch, Status: "running", Provider: runProvider, Model: runModel}
+			run.desktop = desktopRun{CreatedAt: run.desktop.CreatedAt, Prompt: run.desktop.Prompt, ID: payload.RunID, TaskID: taskRef, TaskKey: payload.TaskKey, ProjectID: config.ProjectID, Skill: payload.SkillID, SessionID: sessionID, Directory: workDir, Folders: runFolders(workDir, folders), Branch: branch, Status: "running", Provider: runProvider, Model: runModel}
 			run.interactiveProvider = discussionProvider(config, payload.SkillID)
 		})
 	}

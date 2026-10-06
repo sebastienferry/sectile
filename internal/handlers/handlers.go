@@ -1308,26 +1308,6 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// Refinement: /api/projects/{id}/macros/{key}/refine
-		if len(parts) >= 4 && parts[3] == "refine" && r.Method == http.MethodPost {
-			key := parts[2]
-			if decoded, err := url.PathUnescape(parts[2]); err == nil {
-				key = decoded
-			}
-			todos, proposed, framework, err := h.db.RefineMacro(id, key)
-			if err != nil {
-				writeError(w, http.StatusBadRequest, err.Error())
-				return
-			}
-			writeJSON(w, http.StatusOK, map[string]interface{}{
-				"key":           key,
-				"todos":         todos,
-				"proposedTasks": proposed,
-				"specFramework": framework,
-			})
-			return
-		}
-
 		// Slicing: /api/projects/{id}/macros/{key}/slicing produces the macro's
 		// todo lines from the SDD artefacts, read by the requesting user's local
 		// agent in the specifications folder of their workstation.
@@ -1651,6 +1631,19 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeJSON(w, http.StatusOK, proj)
+		return
+	}
+
+	// Sub-action: /api/projects/{id}/epic-axis-fields: the custom fields of
+	// one epic's edit screen a person may map the epic priority or quarter
+	// to (#680), with the option maps the deductions give.
+	if len(parts) >= 2 && parts[1] == "epic-axis-fields" && r.Method == http.MethodGet {
+		discovery, err := h.db.EpicAxisFieldCandidates(h.actingContext(r), id)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, discovery)
 		return
 	}
 
@@ -2428,6 +2421,9 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 	case strings.HasSuffix(rawPath, "/worktree"):
 		subAction = "worktree"
 		id = strings.TrimSuffix(rawPath, "/worktree")
+	case strings.HasSuffix(rawPath, "/archive-workspace"):
+		subAction = "archive-workspace"
+		id = strings.TrimSuffix(rawPath, "/archive-workspace")
 	case strings.HasSuffix(rawPath, "/pin"):
 		subAction = "pin"
 		id = strings.TrimSuffix(rawPath, "/pin")
@@ -3270,6 +3266,23 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusOK, map[string]string{"message": "Worktree supprimé avec succès"})
 			return
 		}
+	}
+
+	// Sub-action: /api/tasks/{id}/archive-workspace: Desktop archives the task
+	// only once the caller's agent cleaned its worktrees (#755). A worktree
+	// left behind is an answer, not an error: the client names it.
+	if subAction == "archive-workspace" && r.Method == http.MethodPost {
+		archive, err := h.db.ArchiveTaskWorkspace(r.Context(), h.webSessionUser(r), id)
+		if errors.Is(err, db.ErrArchiveTaskNotFound) {
+			writeError(w, http.StatusNotFound, "Task not found")
+			return
+		}
+		if err != nil {
+			writeError(w, http.StatusBadGateway, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"archivable": archive.Archivable(), "repositories": archive.Repositories})
+		return
 	}
 
 	// Sub-action: /api/tasks/{id}/sync: perform a unit two-way sync (update tracker and rsync local state)
@@ -4255,39 +4268,6 @@ func (h *Handler) HandleTaskPins(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, tasks)
 }
 
-// HandleMacroRoute handles direct macro API requests like POST /api/macros/{key}/refine.
-func (h *Handler) HandleMacroRoute(w http.ResponseWriter, r *http.Request) {
-	path := strings.TrimPrefix(r.URL.Path, "/api/macros/")
-	path = strings.TrimPrefix(path, "/")
-	parts := strings.Split(path, "/")
-	if len(parts) == 0 || parts[0] == "" {
-		writeError(w, http.StatusBadRequest, "Clé de macro obligatoire")
-		return
-	}
-	key, err := url.PathUnescape(parts[0])
-	if err != nil || key == "" {
-		key = parts[0]
-	}
-
-	if len(parts) >= 2 && parts[1] == "refine" && r.Method == http.MethodPost {
-		projectID := r.URL.Query().Get("projectId")
-		todos, proposed, framework, err := h.db.RefineMacro(projectID, key)
-		if err != nil {
-			writeError(w, http.StatusBadRequest, err.Error())
-			return
-		}
-		writeJSON(w, http.StatusOK, map[string]interface{}{
-			"key":           key,
-			"todos":         todos,
-			"proposedTasks": proposed,
-			"specFramework": framework,
-		})
-		return
-	}
-
-	writeError(w, http.StatusNotFound, "Route non trouvée")
-}
-
 // HandleTaskPostBack receives post-back task updates resulting from local actions or external tracker operations.
 // POST /api/tasks/postback
 // POST /api/tasks/{id}/postback
@@ -4382,7 +4362,7 @@ func repositoryErrorStatus(err error) int {
 	if errors.As(err, &guessed) {
 		return http.StatusUnprocessableEntity
 	}
-	if errors.Is(err, db.ErrDuplicateRepository) || errors.Is(err, db.ErrRepositoryNotInProject) || errors.Is(err, db.ErrInvalidSpecArtifacts) || errors.Is(err, db.ErrInvalidBranchNameFormat) || errors.Is(err, db.ErrInvalidEpicAxisPrefix) || errors.Is(err, db.ErrInvalidPriorityMapping) {
+	if errors.Is(err, db.ErrDuplicateRepository) || errors.Is(err, db.ErrRepositoryNotInProject) || errors.Is(err, db.ErrInvalidSpecArtifacts) || errors.Is(err, db.ErrInvalidBranchNameFormat) || errors.Is(err, db.ErrInvalidEpicAxisPrefix) || errors.Is(err, db.ErrInvalidPriorityMapping) || errors.Is(err, db.ErrInvalidEpicAxisFields) {
 		return http.StatusBadRequest
 	}
 	return http.StatusInternalServerError

@@ -489,6 +489,12 @@ ipcMain.handle('transition-stage',async(_,{projectId,taskId,stage,note})=>{
  }
  return api('/desktop/tasks/transition?projectId='+encodeURIComponent(projectId),'POST',{taskId,stage,note})
 })
+ipcMain.handle('archive-workspace',async(_,{projectId,taskId}={})=>{
+ if(!projectId||!taskId)throw Error('Project and task required')
+ const status=await api('/desktop/status')
+ if(!status.capabilities?.includes('archive-workspace'))throw Error('The running local agent cannot remove a task\'s worktree. Update and restart the agent before archiving.')
+ return api('/desktop/tasks/archive-workspace?projectId='+encodeURIComponent(projectId),'POST',{taskId})
+})
 ipcMain.handle('project',(_,id)=>api('/desktop/project?id='+encodeURIComponent(id)))
 ipcMain.handle('deploy-project',(_,id,action,provider)=>api('/desktop/project?id='+encodeURIComponent(id)+'&action='+encodeURIComponent(action)+(provider?'&provider='+encodeURIComponent(provider):''),'POST'))
 ipcMain.handle('projects',()=>api('/desktop/projects'))

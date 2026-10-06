@@ -208,8 +208,6 @@ const fr = {
       statusesTitle: 'Statuts du tracker',
     },
     macros: {
-      refineRefused: 'Erreur lors du raffinage de la macro',
-      refineFailed: 'Raffinage de macro échoué',
       batchRefused: 'Erreur lors de la création groupée de cartes',
       batchCreated: 'Tickets créés',
       batchCreatedDescription: '{count} ticket(s) créé(s) avec succès.',
@@ -620,8 +618,6 @@ const en: OperationsStrings = {
       statusesTitle: 'Tracker statuses',
     },
     macros: {
-      refineRefused: 'Error while refining the macro',
-      refineFailed: 'Macro refinement failed',
       batchRefused: 'Error while creating the cards in bulk',
       batchCreated: 'Tickets created',
       batchCreatedDescription: '{count} ticket(s) created.',

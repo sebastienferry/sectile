@@ -6,7 +6,7 @@ const {WebSocketServer}=require('ws')
 
 test('desktop console reconnects, accepts input and stops the owned run',async()=>{
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'sectile-desktop-test-'))
- let runStatus='running',stopped=false,input='',submitted=false,launches=[],available=true,extraRun=false,createdInput=null,withoutConsole=false,attachments=0
+ let runStatus='running',archives=[],archiveRefused=true,stopped=false,input='',submitted=false,launches=[],available=true,extraRun=false,createdInput=null,withoutConsole=false,attachments=0
  const server=http.createServer((req,res)=>{
   if(req.headers.authorization!=='Bearer test-secret'){res.writeHead(401).end();return}
   res.setHeader('Content-Type','application/json')
@@ -24,11 +24,21 @@ test('desktop console reconnects, accepts input and stops the owned run',async()
   if(req.url==='/desktop/create-task'){
    let raw='';req.on('data',chunk=>raw+=chunk);req.on('end',()=>{createdInput=JSON.parse(raw);res.writeHead(201);res.end(JSON.stringify({id:'created',key:'#49',projectId:createdInput.projectID,title:createdInput.title}))});return
   }
-  if(req.url==='/desktop/status'){res.end(JSON.stringify({connected:true,server:'http://example.test',capabilities:['create-task','task-engines']}));return}
+  if(req.url==='/desktop/status'){res.end(JSON.stringify({connected:true,server:'http://example.test',capabilities:['create-task','task-engines','archive-workspace']}));return}
   if(req.url==='/desktop/engines'){res.end(JSON.stringify({catalogue:[{id:'e-opus',name:'Claude Opus',provider:'claude',model:'claude-opus-5'},{id:'e-codex',name:'Codex',provider:'codex'}],default:'e-opus',projects:{},taskCounts:{}}));return}
   if(req.url==='/desktop/runs'&&!available){res.writeHead(503).end();return}
   if(req.url==='/desktop/runs'){res.end(JSON.stringify([{id:'run-1',taskId:'task-1',taskKey:'#48',projectId:'project-a',skill:'specify',prompt:'Previous instructions',directory:'/tmp/spec-worktree',sessionId:withoutConsole?'':'run-1',status:withoutConsole?'failed':stopped?'canceled':runStatus},...(extraRun?[{id:'run-0',taskId:'task-1',taskKey:'#48',projectId:'project-a',skill:'clarify',status:'completed',sessionId:'run-0'}]:[])]));return}
   if(req.url==='/desktop/stop?id=run-1'){stopped=true;res.writeHead(204).end();return}
+  // The first archive finds an untracked file in the worktree (#755).
+  if(req.url==='/desktop/tasks/archive-workspace?projectId=project-a'&&req.method==='POST'){
+   let raw='';req.on('data',chunk=>raw+=chunk);req.on('end',()=>{
+    archives.push(JSON.parse(raw).taskId)
+    res.end(JSON.stringify(archiveRefused
+     ?{archivable:false,repositories:[{repository:'github.com/example/repo',role:'code',outcome:'failed',error:"'/tmp/spec-worktree' contains modified or untracked files"}]}
+     :{archivable:true,repositories:[{repository:'github.com/example/repo',role:'code',outcome:'removed'}]}))
+    archiveRefused=false
+   });return
+  }
   res.writeHead(404).end()
  })
  const ws=new WebSocketServer({noServer:true})
@@ -274,10 +284,15 @@ test('desktop console reconnects, accepts input and stops the owned run',async()
   await page.locator('.run[data-status=running]').waitFor()
   await expect(page.locator('#toolbar').getByRole('button',{name:'Detach to native terminal',exact:true})).toBeVisible()
   await page.locator('.local-task').hover()
-  await page.getByRole('button',{name:'Stop and archive Local review',exact:true}).click()
+  await page.getByRole('button',{name:'Stop, archive Local review and remove its worktree',exact:true}).click()
+  await page.getByRole('button',{name:'Stop and archive',exact:true}).click()
+  // A worktree that cannot be removed keeps the task: the runs stay stopped and the dialog says why.
+  await page.getByRole('alert').getByText('github.com/example/repo: \'/tmp/spec-worktree\' contains modified or untracked files',{exact:true}).waitFor()
+  assert.equal(stopped,true)
+  assert.equal(await page.locator('.local-task').count(),1)
   await page.getByRole('button',{name:'Stop and archive',exact:true}).click()
   await page.waitForFunction(()=>!document.querySelector('#project-dialog').open)
-  assert.equal(stopped,true)
+  assert.deepEqual(archives,['task-1','task-1'])
   assert.equal(await page.locator('.local-task').count(),0)
   available=false
   await page.getByText('Local agent is stopped',{exact:true}).waitFor()

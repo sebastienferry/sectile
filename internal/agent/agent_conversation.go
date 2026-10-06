@@ -12,6 +12,7 @@ import (
 	"strings"
 	"tasks/internal/agentconfig"
 	"tasks/internal/agentexec"
+	"tasks/internal/models"
 	"tasks/internal/runner"
 	"time"
 
@@ -497,7 +498,7 @@ func (o *conversationOutput) Write(data []byte) (int, error) {
 // folder attached since the previous turn, from the conversation or from the
 // project settings, is given to this one (#676). env carries the same folder
 // map as a skill run of the project.
-func (d *agentDaemon) conversationFolders(projectID, directory string) ([]string, map[string]string, error) {
+func (d *agentDaemon) conversationFolders(projectID, directory string) ([]models.FolderMapEntry, map[string]string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), conversationFoldersTimeout)
 	defer cancel()
 	env := map[string]string{"SECTILE_PROJECT_ID": projectID}
@@ -512,7 +513,7 @@ func (d *agentDaemon) conversationFolders(projectID, directory string) ([]string
 	if raw, err := json.Marshal(folders); err == nil && len(folders) > 0 {
 		env["SECTILE_REPOSITORIES"] = string(raw)
 	}
-	return folderMapDirs(folders), env, nil
+	return folders, env, nil
 }
 
 // conversationFoldersTimeout bounds the folder read of a turn: a server that
@@ -529,15 +530,19 @@ func (d *agentDaemon) conversationTurn(run *controlledRun, prompt string) {
 	d.queue.mu.Unlock()
 	// A turn without the project's folders still runs: the folders widen what
 	// Claude may read, they never decide whether it answers.
-	dirs, env, err := d.conversationFolders(projectID, directory)
+	folders, env, err := d.conversationFolders(projectID, directory)
 	if err != nil {
 		conversationWrite(run.trace, "notice", "Attached folders could not be read for this message", err.Error())
 	}
+	dirs := folderMapDirs(folders)
 	// Each turn is a new Claude: it reads the project's values as they are
 	// now, rules an "Always allow" added during this conversation included.
 	settings, settingsErr := d.projectClaudeSettings(projectID)
 	d.queue.mu.Lock()
 	dirs = append(dirs, run.conversation.extraDirs...)
+	if err == nil {
+		refreshConversationFolders(run, folders)
+	}
 	// The folder map read for this turn wins over the one recorded at launch.
 	for key, value := range run.conversation.env {
 		if _, fresh := env[key]; !fresh {

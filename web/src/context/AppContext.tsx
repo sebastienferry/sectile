@@ -44,10 +44,10 @@ import type {
   TeamWorkload,
   TaskFacetValue,
   CreateTaskPayload,
-  RefineMacroResult,
   AutoSyncState,
   TrackerCheck,
   TrackerCredentials,
+  EpicAxisFieldDiscovery,
 } from '../types'
 import { translations, type TranslationSchema } from '../locales/translations'
 import { resolveAccentAttribute } from '../lib/accents'
@@ -392,12 +392,12 @@ interface AppContextType {
   importProjectBoardColumns: (projectId: string, boardId: string) => Promise<Project | null>
   /** Reads the Jira priority scheme again into the project's mapping (#679); answers the error to show inline. */
   refreshPriorityMapping: (projectId: string) => Promise<{ project?: Project; error?: string }>
+  loadEpicAxisFieldCandidates: (projectId: string) => Promise<{ discovery?: EpicAxisFieldDiscovery; error?: string }>
   fetchProjectTrackerStatuses: (projectId: string) => Promise<string[]>
   /** Types de tickets que le tracker du projet expose, pour le réglage d'import. */
   fetchProjectIssueTypes: (projectId: string) => Promise<string[]>
   fetchProjectMacros: (projectId: string) => Promise<MacroMeta[]>
   fetchProjectEpics: (projectId: string) => Promise<MacroMeta[]>
-  refineMacro: (key: string, projectId?: string) => Promise<RefineMacroResult | null>
   createBatchTasks: (reqs: CreateTaskPayload[]) => Promise<Task[]>
 
   saveMacroMeta: (
@@ -2820,6 +2820,20 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   }
 
+  // The custom fields of one epic's edit screen the epic priority and quarter
+  // can be mapped to (#680). Read on demand: opening the settings asks Jira
+  // nothing.
+  const loadEpicAxisFieldCandidates = async (projectId: string): Promise<{ discovery?: EpicAxisFieldDiscovery; error?: string }> => {
+    try {
+      const res = await fetch(`${API_BASE}/projects/${encodeURIComponent(projectId)}/epic-axis-fields`)
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) return { error: data?.error || res.statusText }
+      return { discovery: { ...data, candidates: data?.candidates ?? [] } }
+    } catch (err: any) {
+      return { error: err.message }
+    }
+  }
+
   const importProjectBoardColumns = async (projectId: string, boardId: string): Promise<Project | null> => {
     try {
       const res = await fetch(`${API_BASE}/projects/${encodeURIComponent(projectId)}/board-columns`, {
@@ -2861,30 +2875,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   }
   const fetchProjectEpics = fetchProjectMacros
-
-  const refineMacro = async (key: string, projectId?: string): Promise<RefineMacroResult | null> => {
-    try {
-      const targetProj = projectId || currentProject?.id || ''
-      const url = targetProj
-        ? `${API_BASE}/projects/${encodeURIComponent(targetProj)}/macros/${encodeURIComponent(key)}/refine`
-        : `${API_BASE}/macros/${encodeURIComponent(key)}/refine`
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-      })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) throw trackerError(res, data, t.operations.notifications.macros.refineRefused)
-      return {
-        key: data.key || key,
-        todos: data.todos || [],
-        proposedTasks: data.proposedTasks || [],
-        specFramework: data.specFramework || 'speckit',
-      }
-    } catch (err: any) {
-      addToast(refusalToast(err, { type: 'error', title: t.operations.notifications.macros.refineFailed, description: err.message }))
-      return null
-    }
-  }
 
   const createBatchTasks = async (reqs: CreateTaskPayload[]): Promise<Task[]> => {
     if (!reqs || reqs.length === 0) return []
@@ -4434,11 +4424,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         listProjectBoards,
         importProjectBoardColumns,
         refreshPriorityMapping,
+        loadEpicAxisFieldCandidates,
         fetchProjectTrackerStatuses,
         fetchProjectIssueTypes,
         fetchProjectMacros,
         fetchProjectEpics,
-        refineMacro,
         createBatchTasks,
 
         saveMacroMeta,

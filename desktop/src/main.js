@@ -28,12 +28,14 @@ import { consoleNotice, needsConsoleNotice, readOnlyConsole } from './run-consol
 import { previewLines } from './command-preview.mjs'
 import { sandboxSettings, whitelistEditor } from './sandbox-settings.mjs'
 import { EDITORS, editorChoice, editorLabel } from './editors.mjs'
+import { folderRoleLabel, menuFolders } from './folder-menu.mjs'
 import { PROVIDERS, DEFAULT_PROVIDER, SETUP_PROVIDERS, projectFields, ownEntries, compact, parseModelList, sourceHint, describe, ipcMessage, agentUnreachable, validSkillCommand, workstationPayload } from './execution-fields.mjs'
 import { runEngine } from './run-engine.mjs'
 import { nextEngine, taskEngine, engineMark, engineTooltip, moveEngine, removalImpact, removalMessage } from './engines.mjs'
 import { pollAction, startEnabled } from './agent-poll.mjs'
 import { runFolderOutcome, offersRunFolder } from './run-folders.mjs'
 import { offerFor, initializedNotice } from './git-init.mjs'
+import { archiveLabel, archiveRefusal, archiveFailure } from './archive-workspace.mjs'
 // The repository changelog, inlined by Vite at build time. The app reads it
 // with no network at all: the renderer's content security policy forbids any
 // outgoing connection, and the release notes have to stay readable with the
@@ -54,7 +56,7 @@ document.querySelector('#app').innerHTML=`
 <form id="start"><label>Sectile server<input name="server" type="url" value="http://localhost:8090" required></label>
 <details id="pair-again"><summary>Pair again</summary><button id="browser-sign-in" type="button">Sign in with your browser</button><label>Pairing code<input name="code" type="text" autocomplete="off" spellcheck="false" placeholder="Paste the code from the web interface"></label></details>
 <p class="start-reason" role="alert" hidden></p><button type="submit">Connect</button></form></section>
-<main id="workspace" hidden><aside><div class="sidebar-scroll"><div class="section">PROJECTS <button id="add-project" title="Add a remote project">+</button></div><div id="runs"></div><button id="clear-history" class="icon-button" type="button" aria-label="Clear finished consoles" title="Clear finished consoles" disabled></button></div><footer class="sidebar-footer"><span id="connection" data-state="off">Connecting…</span><nav aria-label="Local agent controls"><button id="shutdown" class="icon-button" aria-label="Stop agent" title="Stop agent" hidden></button><button id="restart" class="icon-button" aria-label="Restart agent" title="Restart agent" hidden></button></nav><button id="settings" class="icon-button" type="button" aria-label="Settings" title="Settings"></button></footer></aside><div id="sidebar-resizer" role="separator" aria-label="Resize sidebar" aria-orientation="vertical" tabindex="0"></div><article><div id="toolbar"><div class="toolbar-row toolbar-primary"><div class="terminal-title-line"><strong id="title">Select an execution</strong><span id="native-terminal-badge" class="native-terminal-badge" hidden></span></div><div class="toolbar-meta"><select id="execution-history" aria-label="Execution history" hidden></select><span id="next-step-label" class="step-badge" aria-hidden="true" hidden></span></div></div><div class="toolbar-row toolbar-secondary"><div class="worktree-line"><button id="worktree" class="worktree" type="button" title="Copy this path" hidden><svg class="worktree-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2z"/></svg><span id="directory"></span></button><button id="open-editor" class="icon-button" type="button" hidden></button><span id="worktree-copied" class="worktree-copied" role="status"></span></div><div class="toolbar-actions"><div class="execution-views" role="group" aria-label="Execution view"><button id="view-console" class="icon-button" type="button" aria-label="Console" title="Console" aria-pressed="true" disabled></button><button id="view-changes" class="icon-button" type="button" aria-label="Changes" title="Changes" aria-pressed="false" disabled></button></div><button id="selected-pr" class="icon-button" type="button" hidden></button><span id="selected-pr-others" hidden></span><button id="detach-terminal" class="icon-button" type="button" aria-label="Detach to native terminal" title="Detach to native terminal" hidden></button><button id="rerun" class="icon-button" type="button" aria-label="Relaunch" title="Relaunch" hidden></button><button id="save-log" class="icon-button" type="button" aria-label="Export log" title="Export log"></button><button id="stop" class="icon-button" type="button" aria-label="Stop execution" title="Stop execution" disabled></button><button id="next-step" class="icon-button" type="button" hidden disabled></button><button id="pickup-chain" class="icon-button" type="button" aria-label="Pickup (full chain)" title="Pickup (full chain)" hidden disabled></button><button id="mark-reviewed" type="button" class="secondary" title="The pull request needs no more changes: skip Adjust, move the task to reviewed, and hand off once it is merged" hidden>Skip to Handoff</button><button id="retry-next-step" type="button" title="Retry reading the task workflow" hidden>Retry</button><button id="force-next-step" type="button" class="secondary" title="Launch although a run is already active on this task" hidden>Launch anyway</button></div></div></div><div id="execution-content"><div id="terminal"></div><div id="execution-divider" role="separator" aria-label="Resize execution views" aria-orientation="vertical" aria-valuemin="25" aria-valuemax="75" aria-valuenow="50" tabindex="0" hidden></div><section id="changes" aria-label="Worktree changes" hidden></section></div><footer id="task-status"><div class="execution-status"><span id="run-state" class="run-state selected-run-state" hidden></span><span id="skill-result" role="status" hidden></span></div><span id="next-step-status" role="status" aria-live="polite">Select a task to see its next step</span></footer></article><section id="tickets-pane" aria-label="Tickets" hidden></section></main>
+<main id="workspace" hidden><aside><div class="sidebar-scroll"><div class="section">PROJECTS <button id="add-project" title="Add a remote project">+</button></div><div id="runs"></div><button id="clear-history" class="icon-button" type="button" aria-label="Clear finished consoles" title="Clear finished consoles" disabled></button></div><footer class="sidebar-footer"><span id="connection" data-state="off">Connecting…</span><nav aria-label="Local agent controls"><button id="shutdown" class="icon-button" aria-label="Stop agent" title="Stop agent" hidden></button><button id="restart" class="icon-button" aria-label="Restart agent" title="Restart agent" hidden></button></nav><button id="settings" class="icon-button" type="button" aria-label="Settings" title="Settings"></button></footer></aside><div id="sidebar-resizer" role="separator" aria-label="Resize sidebar" aria-orientation="vertical" tabindex="0"></div><article><div id="toolbar"><div class="toolbar-row toolbar-primary"><div class="terminal-title-line"><strong id="title">Select an execution</strong><span id="native-terminal-badge" class="native-terminal-badge" hidden></span></div><div class="toolbar-meta"><select id="execution-history" aria-label="Execution history" hidden></select><span id="next-step-label" class="step-badge" aria-hidden="true" hidden></span></div></div><div class="toolbar-row toolbar-secondary"><div class="worktree-line"><button id="worktree" class="worktree" type="button" title="Copy this path" hidden><svg class="worktree-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2z"/></svg><span id="directory"></span></button><button id="worktree-folders" class="icon-button worktree-folders" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="worktree-folders-menu" aria-label="Folders of this execution" title="Folders of this execution" hidden><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button><button id="open-editor" class="icon-button" type="button" hidden></button><span id="worktree-copied" class="worktree-copied" role="status"></span><div id="worktree-folders-menu" class="folder-menu" role="menu" aria-label="Folders of this execution" hidden></div></div><div class="toolbar-actions"><div class="execution-views" role="group" aria-label="Execution view"><button id="view-console" class="icon-button" type="button" aria-label="Console" title="Console" aria-pressed="true" disabled></button><button id="view-changes" class="icon-button" type="button" aria-label="Changes" title="Changes" aria-pressed="false" disabled></button></div><button id="selected-pr" class="icon-button" type="button" hidden></button><span id="selected-pr-others" hidden></span><button id="detach-terminal" class="icon-button" type="button" aria-label="Detach to native terminal" title="Detach to native terminal" hidden></button><button id="rerun" class="icon-button" type="button" aria-label="Relaunch" title="Relaunch" hidden></button><button id="save-log" class="icon-button" type="button" aria-label="Export log" title="Export log"></button><button id="stop" class="icon-button" type="button" aria-label="Stop execution" title="Stop execution" disabled></button><button id="next-step" class="icon-button" type="button" hidden disabled></button><button id="pickup-chain" class="icon-button" type="button" aria-label="Pickup (full chain)" title="Pickup (full chain)" hidden disabled></button><button id="mark-reviewed" type="button" class="secondary" title="The pull request needs no more changes: skip Adjust, move the task to reviewed, and hand off once it is merged" hidden>Skip to Handoff</button><button id="retry-next-step" type="button" title="Retry reading the task workflow" hidden>Retry</button><button id="force-next-step" type="button" class="secondary" title="Launch although a run is already active on this task" hidden>Launch anyway</button></div></div></div><div id="execution-content"><div id="terminal"></div><div id="execution-divider" role="separator" aria-label="Resize execution views" aria-orientation="vertical" aria-valuemin="25" aria-valuemax="75" aria-valuenow="50" tabindex="0" hidden></div><section id="changes" aria-label="Worktree changes" hidden></section></div><footer id="task-status"><div class="execution-status"><span id="run-state" class="run-state selected-run-state" hidden></span><span id="skill-result" role="status" hidden></span></div><span id="next-step-status" role="status" aria-live="polite">Select a task to see its next step</span></footer></article><section id="tickets-pane" aria-label="Tickets" hidden></section></main>
 <dialog id="project-dialog"><button id="close-dialog" class="icon-button" type="button" aria-label="Close" title="Close"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button><div id="dialog-body"></div><div class="dialog-footer" hidden></div></dialog><div id="error" role="alert"></div>`
 installTooltips()
 // The console shows a prompt the user configured elsewhere - oh-my-posh, starship, powerlevel10k -
@@ -103,6 +105,10 @@ const freeConsole=run=>run?.kind==='console'
 const runLabel=run=>run.conversation&&run.taskId?run.skill+' · Conversation (test)':run.conversation?'Claude Code · Conversation (test)':freeConsole(run)?(run.engineName||run.provider||'AI')+' · Project prompt':(runEngine(run)?run.skill+' · '+runEngine(run):run.skill)
 // A macro skill run has no task: its executions group under the macro.
 const macroRun=run=>!!run?.macroKey
+// Archiving a ticket task removes its worktrees first (#755); a free console or a macro run has none.
+const archivesWorktree=run=>!freeConsole(run)&&!macroRun(run)&&!!run?.taskId
+// The tasks whose archive is under way, so their button cannot start a second one.
+const archiving=new Set()
 const taskKey=run=>JSON.stringify([run.projectId,freeConsole(run)?run.id:macroRun(run)?'macro:'+run.macroKey:run.taskId])
 const activeRun=run=>['running','queued','preparing'].includes(run.status)
 const taskState=run=>localTasks[taskKey(run)]||{}
@@ -445,6 +451,7 @@ function showDirectory(value){
  button.hidden=!path
  button.title=path?'Copy this path':''
  renderOpenEditor()
+ renderFolders()
 }
 // The editor button (#535) exists once an editor is chosen in Settings and the
 // agent can open one; it opens the path shown, which the agent resolves from
@@ -495,8 +502,7 @@ function clearCopiedNotice(){
  clearTimeout(copiedNotice)
  document.querySelector('#worktree-copied').textContent=''
 }
-document.querySelector('#worktree').onclick=async()=>{
- const path=document.querySelector('#directory').textContent
+async function copyPath(path){
  if(!path)return
  try{
   await api.copyText(path)
@@ -504,6 +510,62 @@ document.querySelector('#worktree').onclick=async()=>{
   document.querySelector('#worktree-copied').textContent='Copied'
   copiedNotice=setTimeout(clearCopiedNotice,2000)
  }catch(err){clearCopiedNotice();error(err)}
+}
+document.querySelector('#worktree').onclick=()=>copyPath(document.querySelector('#directory').textContent)
+// An execution may work in several folders: other repositories' worktrees,
+// read-only context checkouts, attached folders, its specifications worktree
+// (#762). A chevron after the path lists them, each item copying its own path.
+// The menu is built when it opens, so a folder added during the run shows at
+// the next opening and never moves under the pointer.
+const foldersButton=document.querySelector('#worktree-folders'),foldersMenu=document.querySelector('#worktree-folders-menu')
+let foldersRun=null,foldersDismiss=null
+function closeFoldersMenu(focusOpener=false){
+ if(foldersMenu.hidden)return
+ foldersMenu.hidden=true;foldersButton.setAttribute('aria-expanded','false')
+ if(foldersDismiss){document.removeEventListener('pointerdown',foldersDismiss,true);window.removeEventListener('blur',foldersDismiss);foldersDismiss=null}
+ if(focusOpener)foldersButton.focus()
+}
+function renderFolders(){
+ const run=document.querySelector('#directory').textContent?runs.find(item=>item.id===selected):null
+ const folders=menuFolders(run)
+ // A menu left open belongs to the execution it was opened for.
+ if(!folders.length||run.id!==foldersRun)closeFoldersMenu()
+ foldersButton.hidden=!folders.length
+}
+function openFoldersMenu(){
+ const run=runs.find(item=>item.id===selected),folders=menuFolders(run)
+ if(!folders.length)return
+ foldersRun=run.id
+ foldersMenu.replaceChildren(...folders.map(folder=>{
+  const item=document.createElement('button');item.type='button';item.setAttribute('role','menuitem')
+  const name=document.createElement('span');name.className='folder-name';name.textContent=folder.name||folder.path
+  const role=document.createElement('span');role.className='folder-role';role.textContent=folderRoleLabel(folder)
+  const path=document.createElement('span');path.className='folder-path';path.textContent=folder.path
+  item.append(name,role,path);item.title='Copy '+folder.path
+  item.setAttribute('aria-label',(folder.name||folder.path)+', '+folderRoleLabel(folder)+', '+folder.path)
+  item.onclick=()=>{closeFoldersMenu(true);copyPath(folder.path)}
+  return item
+ }))
+ foldersMenu.hidden=false;foldersButton.setAttribute('aria-expanded','true')
+ // Fixed to the viewport and kept inside it, below the chevron.
+ const box=foldersButton.getBoundingClientRect(),{width,height}=foldersMenu.getBoundingClientRect()
+ foldersMenu.style.left=Math.max(4,Math.min(box.left,innerWidth-width-4))+'px'
+ foldersMenu.style.top=Math.max(4,Math.min(box.bottom+2,innerHeight-height-4))+'px'
+ foldersDismiss=event=>{if(event.type==='blur'||!foldersMenu.contains(event.target)&&!foldersButton.contains(event.target))closeFoldersMenu()}
+ document.addEventListener('pointerdown',foldersDismiss,true);window.addEventListener('blur',foldersDismiss)
+ foldersMenu.querySelector('[role=menuitem]')?.focus()
+}
+foldersButton.onclick=()=>{foldersMenu.hidden?openFoldersMenu():closeFoldersMenu()}
+foldersButton.onkeydown=foldersMenu.onkeydown=event=>{
+ if(event.key==='Escape'&&!foldersMenu.hidden){event.preventDefault();event.stopPropagation();closeFoldersMenu(true);return}
+ if(event.target===foldersButton&&event.key==='ArrowDown'&&foldersMenu.hidden){event.preventDefault();openFoldersMenu();return}
+ if(foldersMenu.hidden)return
+ if(event.key==='Tab'){closeFoldersMenu();return}
+ const items=[...foldersMenu.querySelectorAll('[role=menuitem]')],at=items.indexOf(document.activeElement)
+ const next={ArrowDown:at+1,ArrowUp:at-1,Home:0,End:items.length-1}[event.key]
+ if(next===undefined)return
+ event.preventDefault()
+ items[(next+items.length)%items.length]?.focus()
 }
 // The state before the title is the one the sidebar row and the notification
 // already show, drawn from the shared definition, with its label spelled out:
@@ -603,6 +665,7 @@ function projectMenu(project,waitingCount=0){
 }
 function renderHeader(){
  const run=runs.find(item=>item.id===selected)
+ renderFolders()
  let text='Select an execution'
  if(run){
   const identity=run.taskKey||run.taskId
@@ -678,15 +741,16 @@ function render(options){
     if(!freeConsole(run))keySlot.append(context)
     const archive=document.createElement('button');archive.className='task-archive'
     archive.innerHTML='<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M4 8h16v12H4zM3 4h18v4H3zM9 12h6"/></svg>'
-    archive.onclick=()=>requestArchive(run)
+    archive.disabled=archiving.has(key)
+    archive.onclick=()=>{archive.disabled=true;requestArchive(run)}
     const pencil=document.createElement('button');pencil.className='task-rename-button'
     pencil.innerHTML='<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m13.5 6.5 4 4"/></svg>'
     // Labels read the current name, so an edition ended in place relabels its row.
     const label=()=>{
      title.textContent=displayedName(run)
      button.title=title.textContent+' · '+runLabel(run)+' · '+stateLabel+' · '+executions.length+' execution(s)'
-     const archiveLabel=(executions.some(activeRun)?'Stop and archive ':'Archive ')+(taskState(run).name||run.taskKey||run.taskId||runLabel(run))
-     archive.title=archiveLabel;archive.setAttribute('aria-label',archiveLabel)
+     const archiveTitle=archiveLabel(taskState(run).name||run.taskKey||run.taskId||runLabel(run),{active:executions.some(activeRun),ticket:archivesWorktree(run)})
+     archive.title=archiveTitle;archive.setAttribute('aria-label',archiveTitle)
      pencil.title='Rename '+title.textContent;pencil.setAttribute('aria-label',pencil.title)
     }
     label()
@@ -3164,19 +3228,47 @@ async function refreshPRs(executions){
  }finally{linksLoading=false}
 }
 
+// archiveDialog archives the task, after stopping its active executions when
+// stop says the user asked for it. A refusal keeps the dialog open with its
+// reason, one line per paragraph, and the button tries again: executions
+// already stopped stay stopped.
+function archiveDialog(run,title,intro,label,stop){
+ showDialog(title)
+ if(intro)paragraph(intro)
+ const message=document.createElement('div');message.className='archive-refusal';message.setAttribute('role','alert')
+ const confirm=document.createElement('button');confirm.textContent=label;dialogBody.append(message,confirm)
+ const refuse=err=>message.replaceChildren(...startFailure(err).split('\n').map(line=>{const p=document.createElement('p');p.textContent=line;return p}))
+ confirm.onclick=async()=>{
+  confirm.disabled=true;message.replaceChildren()
+  try{
+   if(stop)await Promise.all(runs.filter(item=>taskKey(item)===taskKey(run)&&activeRun(item)).map(item=>api.stop(item.id)))
+   await archiveTask(run)
+  }catch(err){refuse(err);confirm.disabled=false}
+ }
+ return refuse
+}
 function requestArchive(run){
- const active=runs.filter(item=>taskKey(item)===taskKey(run)&&activeRun(item))
- if(active.length){
-  showDialog('Stop and archive task?')
-  paragraph('This task has active executions. They must stop before it can be archived locally.')
-  const confirm=document.createElement('button');confirm.textContent='Stop and archive';dialogBody.append(confirm)
-  confirm.onclick=async()=>{confirm.disabled=true;try{await Promise.all(active.map(item=>api.stop(item.id)));await archiveTask(run)}catch(err){paragraph(err.message);confirm.disabled=false}}
- }else archiveTask(run).catch(error)
+ const key=taskKey(run)
+ if(runs.some(item=>taskKey(item)===key&&activeRun(item))){
+  archiveDialog(run,'Stop and archive task?','This task has active executions. They must stop before it can be archived'+(archivesWorktree(run)?' and its worktree removed.':' locally.'),'Stop and archive',true)
+  render()
+  return
+ }
+ if(archiving.has(key))return
+ archiving.add(key)
+ archiveTask(run).catch(err=>archiveDialog(run,'Task not archived','','Archive again',false)(err)).finally(()=>{archiving.delete(key);render()})
 }
 async function archiveTask(run){
  const latest=await api.runs()
  const related=latest.filter(item=>taskKey(item)===taskKey(run))
  if(related.some(activeRun))throw Error('An execution is still active. Stop it before archiving.')
+ // The worktrees go before the runs are hidden: a task whose worktree stays is not archived (#755).
+ if(archivesWorktree(run)){
+  let result
+  try{result=await api.archiveWorkspace(run.projectId,run.taskId)}catch(err){throw Error(archiveFailure(err))}
+  const refusal=archiveRefusal(result)
+  if(refusal)throw Error(refusal)
+ }
  localTasks[taskKey(run)]={...taskState(run),archivedRuns:related.map(item=>item.id)}
  saveLocalTasks()
  const current=runs.find(item=>item.id===selected)
