@@ -250,6 +250,24 @@ func TestPushLearnsAMissingQuarterAndStoresIt(t *testing.T) {
 	}
 }
 
+func TestPushLeavesAQuarterClearedByHand(t *testing.T) {
+	database, proj, fake := fieldProject(t, nil)
+	fields := proj.EpicAxisFields
+	quarter := *fields.Quarter
+	quarter.Options = map[string]string{}
+	fields.Quarter = &quarter
+	if _, err := database.UpdateProject(proj.ID, models.UpdateProjectRequest{EpicAxisFields: &fields}); err != nil {
+		t.Fatal(err)
+	}
+	out, err := database.PushMacroQuarterLabel(t.Context(), proj.ID, "PE-1", "2026-Q3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fake.candidateReads != 0 || len(fake.fieldWrites) != 0 || !strings.Contains(out, "2026-Q3 has no option") {
+		t.Fatalf("a cleared line was looked up or written: %d reads, %+v, %q", fake.candidateReads, fake.fieldWrites, out)
+	}
+}
+
 func TestPushSaysTheFieldIsAbsentFromTheEpic(t *testing.T) {
 	database, proj, fake := fieldProject(t, nil)
 	fake.candidates = []models.EpicFieldCandidate{priorityCandidate()}

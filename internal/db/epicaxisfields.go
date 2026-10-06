@@ -308,7 +308,9 @@ func (d *DB) pushEpicAxisField(ctx context.Context, projectID string, macroKey s
 		name = field.ID
 	}
 	path := field.OptionFor(value)
-	if value != "" && path == "" && axis == models.EpicAxisQuarter {
+	// A line a person cleared by hand stays cleared: no deduction refills it,
+	// so the screen is not read for it.
+	if value != "" && path == "" && axis == models.EpicAxisQuarter && !field.IsManual(value) {
 		learned, present, err := d.learnEpicAxisOption(ctx, manager, proj, key, axis, *field, value)
 		if err != nil {
 			return "", fmt.Errorf("label written but field %q not read on %s: %w", name, key, err)
@@ -350,9 +352,6 @@ func (d *DB) learnEpicAxisOption(ctx context.Context, manager tracker.EpicAxisFi
 		deduced := models.DeduceEpicAxisOptions(axis, c)
 		if err := d.storeLearnedEpicAxisOptions(proj.ID, axis, field.ID, deduced); err != nil {
 			return "", true, err
-		}
-		if field.IsManual(value) {
-			return "", true, nil
 		}
 		return deduced[value], true, nil
 	}
