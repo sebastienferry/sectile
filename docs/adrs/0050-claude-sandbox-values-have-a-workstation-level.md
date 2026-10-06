@@ -34,6 +34,12 @@ each project still able to add its own.
   project stating one agrees; diverging states stay on their projects. The
   agent persists it at start with the usual `.bak-layout<n>` backup, and the
   layout stamp keeps it from running again.
+  Amended by #744: the fold runs in the start-up migration only, never in an
+  ordinary read, and never on a file whose `maxLayout` shows a layout 4 agent
+  already wrote it. An older agent that rewrote the file at layout 3 had
+  dropped the workstation values; folding again silently moved the rules
+  projects gained since into the emptied level. Such a rewrite is now backed
+  up and logged, and an agent refuses to save over a newer file.
 - **Their own endpoint.** `/desktop/workstation/sandbox` reads and saves the
   workstation values with the base-and-merge save of ADR 0048; the workstation
   defaults form keeps them untouched, since it replaces the defaults whole.

@@ -2,8 +2,12 @@ package agentconfig
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
+	"log"
 	"os"
 	"path/filepath"
+	"strconv"
 	"sync"
 )
 
@@ -21,24 +25,32 @@ func SettingsPath() (string, error) {
 // #305 is folded into the current one with the same meaning, and the engine
 // settings of #305 are converted into the engine catalogue (#510), and the
 // settings naming a retired provider are dropped (#614); the next
-// WriteSettings rewrites it.
+// WriteSettings rewrites it. The project Sandbox values are left where they
+// are: only the start-up migration moves them (#744).
 func ReadSettings(legacyRoot string) (Settings, error) {
 	settings, _, _, err := readConverted(legacyRoot)
 	return settings, err
 }
 
-// SettingsMigration is what the conversions of a read changed, for the agent
-// to log at start: what the drop of the retired providers removed (#614), and
+// SettingsMigration is what the start-up migration changed or found, for the
+// agent to log: what the drop of the retired providers removed (#614),
 // whether the project Sandbox values were folded into the workstation ones
-// (#730), with the entries left on their project.
+// (#730), with the entries left on their project, and the layouts that tell
+// an older or a newer agent wrote the file (#744).
 type SettingsMigration struct {
 	RetiredDrop
 	SandboxFolded   bool
 	SandboxWarnings []string
+	// Downgraded is the layout the file had reached before an older agent
+	// rewrote it at a lower one; 0 when it was not.
+	Downgraded int
+	// NewerLayout is the layout of a file a newer agent wrote, which this one
+	// leaves alone; 0 when it is not newer.
+	NewerLayout int
 }
 
-// readConverted also reports whether the engine conversion, the drop of the
-// retired providers or the Sandbox fold changed anything, and what.
+// readConverted also reports whether the engine conversion or the drop of the
+// retired providers changed anything, and what.
 func readConverted(legacyRoot string) (Settings, bool, SettingsMigration, error) {
 	settings, err := readFolded(legacyRoot)
 	if err != nil {
@@ -46,8 +58,34 @@ func readConverted(legacyRoot string) (Settings, bool, SettingsMigration, error)
 	}
 	changed := convertEngines(&settings)
 	report := SettingsMigration{RetiredDrop: dropRetiredProviders(&settings)}
-	report.SandboxFolded, report.SandboxWarnings = foldProjectSandboxes(&settings)
-	return settings, changed || !report.Empty() || report.SandboxFolded, report, nil
+	return settings, changed || !report.Empty(), report, nil
+}
+
+// maxLayoutKey names the highest layout ever written to the file (#744). It
+// is outside ownedKeys, so an older agent, which replaces only the keys it
+// owns, keeps it when it saves: a file whose layout is below it was rewritten
+// by an older agent.
+const maxLayoutKey = "maxLayout"
+
+// fileLayout is the layout stamps of a settings file as written.
+type fileLayout struct {
+	Layout    int `json:"layout"`
+	MaxLayout int `json:"maxLayout"`
+}
+
+// highest is the highest layout the file is known to have had. A file written
+// before #744 has no maxLayout and is known by its layout only.
+func (f fileLayout) highest() int { return max(f.Layout, f.MaxLayout) }
+
+// downgraded reports a file an older agent rewrote after a newer one.
+func (f fileLayout) downgraded() bool { return f.MaxLayout > f.Layout }
+
+// ErrSettingsNewer refuses a save over settings a newer agent wrote: this
+// agent would drop what it does not know of them (#744).
+var ErrSettingsNewer = errors.New("the workstation settings were written by a newer Sectile agent")
+
+func newerSettingsError(layout int) error {
+	return fmt.Errorf("%w (layout %d, this agent writes layout %d): update this Sectile agent", ErrSettingsNewer, layout, SettingsLayout)
 }
 
 // layoutWorkstation is the layout #305 introduced, from which the file no
@@ -116,20 +154,40 @@ var ownedKeys = []string{"layout", "defaults", "projectSettings", "repositories"
 // it owns. The legacy keys are removed and the file is written in the current
 // layout. A map emptied by the caller is omitted from the JSON, and since the
 // owned keys are replaced as a whole, it disappears from the file instead of
-// keeping its previous content.
-func WriteSettings(settings Settings) error {
+// keeping its previous content. A file a newer agent wrote is refused with
+// ErrSettingsNewer and left unchanged; a file an older agent rewrote is
+// copied beside it first, and the copy logged (#744).
+func WriteSettings(settings Settings) error { return storeSettings(settings, true) }
+
+// storeSettings is WriteSettings; traceDowngrade false skips the copy of a
+// downgraded file, for the start-up migration that has already made it.
+func storeSettings(settings Settings, traceDowngrade bool) error {
 	path, err := SettingsPath()
 	if err != nil {
 		return err
 	}
 	fields := map[string]json.RawMessage{}
+	var stamp fileLayout
 	raw, err := os.ReadFile(path)
 	if err == nil {
 		if err = json.Unmarshal(raw, &fields); err != nil {
 			return err
 		}
+		if err = json.Unmarshal(raw, &stamp); err != nil {
+			return err
+		}
 	} else if !os.IsNotExist(err) {
 		return err
+	}
+	if newest := stamp.highest(); newest > SettingsLayout {
+		return newerSettingsError(newest)
+	}
+	if traceDowngrade && stamp.downgraded() {
+		backup, err := backupSettingsFile(path, raw, stamp.Layout)
+		if err != nil {
+			return err
+		}
+		log.Printf("[Agent] Workstation settings were rewritten by an older Sectile agent (layout %d after layout %d); that file is kept as %s", stamp.Layout, stamp.MaxLayout, backup)
 	}
 	settings.Layout = SettingsLayout
 	if len(settings.Engines.Catalogue) == 0 {
@@ -151,6 +209,7 @@ func WriteSettings(settings Settings) error {
 	for key, value := range updates {
 		fields[key] = value
 	}
+	fields[maxLayoutKey] = json.RawMessage(strconv.Itoa(SettingsLayout))
 	raw, err = json.MarshalIndent(fields, "", "  ")
 	if err != nil {
 		return err
