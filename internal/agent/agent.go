@@ -365,7 +365,7 @@ func Run(args []string) {
 	} else if migrated {
 		log.Printf("[Agent] Workstation settings migrated; the previous file is kept beside it")
 		if report.Downgraded > 0 {
-			log.Printf("[Agent] Workstation settings were rewritten by an older Sectile agent after layout %d; the project Sandbox values stay on their projects", report.Downgraded)
+			log.Printf("[Agent] Workstation settings were rewritten by an older Sectile agent after layout %d; the project Claude settings stay on their projects", report.Downgraded)
 		}
 		if !report.Empty() {
 			log.Printf("[Agent] Settings for retired AI providers (Gemini, Cursor, Vibe) removed: %s", report.RetiredDrop)
