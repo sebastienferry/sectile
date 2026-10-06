@@ -207,6 +207,24 @@ func upstreamAgentKey(t *testing.T, database *db.DB) string {
 	return key
 }
 
+// stdioBridgeBudget bounds the stdio bridge test. The test starts eighteen
+// bridge processes, one per legacy name plus the main session, each a fresh
+// copy of the test binary. That takes about two seconds on a workstation under
+// -race, but the whole test took 38 seconds on a loaded CI runner, where a
+// fixed fifteen seconds failed while the calls were still progressing. Two
+// minutes still turns a real hang into a failure naming the stuck call, well
+// before the package timeout, which is honoured when it is closer.
+func stdioBridgeBudget(t *testing.T) time.Duration {
+	budget := 2 * time.Minute
+	if deadline, ok := t.Deadline(); ok {
+		// Leave room to report the failure before the test binary is killed.
+		if left := time.Until(deadline) - 10*time.Second; left < budget {
+			budget = max(left, time.Second)
+		}
+	}
+	return budget
+}
+
 func TestMCPStdioBridge(t *testing.T) {
 	database, err := db.NewDB(filepath.Join(t.TempDir(), "tasks.db"))
 	if err != nil {
@@ -216,7 +234,7 @@ func TestMCPStdioBridge(t *testing.T) {
 	h := handlers.NewHandler(database)
 	upstream := httptest.NewServer(h.MCPHandler())
 	defer upstream.Close()
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), stdioBridgeBudget(t))
 	defer cancel()
 	d := &agentDaemon{link: serverLink{serverURL: upstream.URL, token: upstreamAgentKey(t, database)}}
 	if err := d.startLocalProxy(ctx); err != nil {

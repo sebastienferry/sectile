@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"runtime"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"tasks/internal/agentprotocol"
@@ -16,7 +18,13 @@ import (
 // configurationTask is SFE-367 of #584: a task at specified on a project that
 // opens its pull request at implemented and whose checkout has no origin
 // remote, so every pull request lookup fails with the explicit #392 error.
-func configurationTask(t *testing.T) (*DB, *models.Task, *int) {
+//
+// The counter holds the lookups the transitions make themselves. Every accepted
+// transition also queues a stage operation whose post-back validates the
+// evidence again, through the same hook, on a worker goroutine and possibly
+// two at once: those calls are left out of the count, and the counter is
+// atomic because the hook is reached from several goroutines.
+func configurationTask(t *testing.T) (*DB, *models.Task, *atomic.Int64) {
 	t.Helper()
 	d := testDB(t)
 	p, err := d.CreateProject(models.CreateProjectRequest{Name: "Coordination", IssueTracker: "local", PRCreationStage: "implemented"})
@@ -34,9 +42,11 @@ func configurationTask(t *testing.T) (*DB, *models.Task, *int) {
 	d.SetAgentOperations(func(ctx context.Context, op agentprotocol.Operation) (json.RawMessage, error) {
 		return nil, fmt.Errorf("unexpected local operation %q", op.Action)
 	})
-	lookups := new(int)
+	lookups := new(atomic.Int64)
 	d.prEvidenceLookup = func(string, string, string) (trackerapi.PullRequest, error) {
-		*lookups++
+		if !calledFromPostBack() {
+			lookups.Add(1)
+		}
 		return trackerapi.PullRequest{}, fmt.Errorf("pull request lookup failed on the local agent: local agent: %w", runner.ErrNoOriginRemote)
 	}
 	task, err = d.GetTaskByID(task.ID)
@@ -44,6 +54,22 @@ func configurationTask(t *testing.T) (*DB, *models.Task, *int) {
 		t.Fatal(err)
 	}
 	return d, task, lookups
+}
+
+// calledFromPostBack reports whether the current call runs under PostBackTask,
+// the queued re-validation of a stage operation.
+func calledFromPostBack() bool {
+	pcs := make([]uintptr, 64)
+	frames := runtime.CallersFrames(pcs[:runtime.Callers(2, pcs)])
+	for {
+		frame, more := frames.Next()
+		if strings.HasSuffix(frame.Function, ".(*DB).PostBackTask") {
+			return true
+		}
+		if !more {
+			return false
+		}
+	}
 }
 
 // A task that changed no repository reaches implemented, then reviewed, on
@@ -65,8 +91,8 @@ func TestNoRepositoryChangeStandsInForThePullRequest(t *testing.T) {
 			t.Fatalf("%s: stage %q, links %v; want the stage and no pull request", stage, d.StageOfTask(got), got.PrLinks)
 		}
 	}
-	if *lookups != 1 {
-		t.Errorf("pull request lookups = %d, want only the one of the call without the statement", *lookups)
+	if n := lookups.Load(); n != 1 {
+		t.Errorf("pull request lookups = %d, want only the one of the call without the statement", n)
 	}
 	set, err := d.noRepositoryChangeEvidence(task, "implement", "feat/sfe-367")
 	if err != nil || set.notice != noRepositoryChangeNotice || len(set.urls) != 0 {
