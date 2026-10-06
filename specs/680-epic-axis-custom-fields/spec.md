@@ -28,7 +28,7 @@ option maps are project data stored in the database.
 
 In scope: the project setting and its storage, field discovery from an epic's
 `editmeta`, the option deductions, the priority and quarter pushes, the epic
-import, the pending pushes, the Roadmap tab of the project settings, the
+import, the pending pushes, the Tracker tab of the project settings, the
 French and English strings of the web app, and the changelog.
 
 Out of scope:
@@ -60,7 +60,7 @@ Out of scope:
 ### US1 (P1) - A project maps an axis to a custom field
 
 1. Given a Jira project with at least one epic, when the person opens the
-   Roadmap tab of the project settings and asks for the fields, then for the
+   Tracker tab of the project settings and asks for the fields, then for the
    priority and for the quarter they can pick a field among the single select
    and cascading select custom fields of one epic's edit screen.
 2. Given a project with no epic yet, then the pickers stay empty and a message
@@ -171,7 +171,7 @@ Out of scope:
 - **FR-7** The pending pushes include an epic whose mapped field differs from
   the option of the decided value, when that value has an option.
 - **FR-8** The settings are project settings stored on the server, edited in
-  the Roadmap tab, under the axis prefixes, and shown only for Jira.
+  the Tracker tab, under the axis prefixes, and shown only for Jira.
 - **FR-9** No real instance identifier appears in the repository.
 
 ## Edge cases

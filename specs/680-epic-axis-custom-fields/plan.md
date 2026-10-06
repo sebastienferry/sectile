@@ -10,7 +10,7 @@ the part C plan of `specs/635-epic-axes-tracker-fields/plan.md`, corrected by
   (storage, pushes, import, pending pushes), `internal/tracker` (optional
   interface), `internal/trackerapi` (Jira adapter), `internal/handlers`
   (HTTP).
-- Web: React and TypeScript, `web/src/components/ProjectModal.tsx` (Roadmap
+- Web: React and TypeScript, `web/src/components/ProjectModal.tsx` (Tracker
   tab), `web/src/types/index.ts`, `web/src/context/AppContext.tsx`,
   `web/src/locales/projectSettings.ts`, a pure helper in `web/src/lib`.
 - Migration 48, `projects.epic_axis_fields`, `TEXT NOT NULL DEFAULT '{}'`, in
@@ -179,7 +179,7 @@ request when the project has no epic of its own.
   `pickField(candidate, axis, deduced)` (a fresh entry with the deduced map),
   `setOption(field, value, path)`. Tested with `node --test`.
 - `AppContext.tsx`: `loadEpicAxisFieldCandidates(projectId)`.
-- `ProjectModal.tsx`, Roadmap tab, Jira only, under the axis prefixes: a
+- `ProjectModal.tsx`, Tracker tab, Jira only, under the axis prefixes: a
   "Champs Jira des axes" block with a "Lire les champs d'une épic" button;
   per axis a field select (none, the candidates, the stored field when not
   among them), then the map: four rows for the priority, the mapped quarters
@@ -187,6 +187,16 @@ request when the project has no epic of its own.
   Without loaded candidates the stored map is shown read-only. Saved with the
   project.
 - `web/src/locales/projectSettings.ts`: French and English strings.
+
+### Implementation notes
+
+- The #680 clarification placed the settings in a "Roadmap tab"; the project
+  modal has none (Roadmap is an optional view card), and the axis prefixes
+  live in the Tracker tab under a "Roadmap:" title. The fields block sits
+  right below them, which is what the #635 specification asked.
+- The modal sends `epicAxisFields` only once the person edited it: a save of
+  any other setting carrying a stale copy would read every option learned at
+  write time meanwhile as cleared by hand.
 
 ## Target files
 
