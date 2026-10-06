@@ -15,6 +15,7 @@ test fixtures or internal plumbing.
 
 ### Added
 
+- **Open a terminal on a project from the Desktop sidebar.** A project's **…** menu now offers **Open terminal**, right after **Project prompt**: it opens a native terminal window on the project's local repository, running your own shell, in the terminal application set for the project. It is unavailable for a project with no local folder on this workstation. Upgrade the agent along with the desktop. (#761)
 - **Run Claude shell commands automatically inside the sandbox.** Desktop Claude settings offer an autonomy profile, controls for automatic approval and unsandboxed retries, and persistent project folder approvals. Existing configurations keep their inherited behavior.
 
 - **See and correct how a Jira project's priorities map to Sectile's.** A Jira project's **Tracker** settings now show its priority mapping: each priority of the project's Jira scheme with the Sectile level it reads as, the lines Sectile only guessed from their rank marked **guessed**, a **Confirm** button and a level picker on each line, and, when several Jira priorities share a level, which one a change sends. The mapping is read at each full synchronisation and with **Read the scheme again**; a later read adds new priorities and drops removed ones, never changing a line you set. (#679)

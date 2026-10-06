@@ -565,6 +565,12 @@ ipcMain.handle('conversation-interrupt',(_,id)=>api('/desktop/conversation?id='+
 ipcMain.handle('conversation-approval',(_,{id,approvalId,decision,answers})=>api('/desktop/conversation?id='+encodeURIComponent(id),'POST',{approval:Object.assign({id:approvalId,decision},answers&&typeof answers==='object'?{answers}:null)}))
 ipcMain.handle('conversation-check-mcp',(_,id)=>api('/desktop/conversation?id='+encodeURIComponent(id),'POST',{checkMcp:true}))
 ipcMain.handle('conversation-terminal',(_,runId)=>api('/desktop/conversation-terminal','POST',{runId}))
+// Open terminal in a project's menu (#761) names the project, never a path:
+// the agent opens the folder Project prompt opens in.
+ipcMain.handle('project-terminal',(_,projectId)=>{
+ if(typeof projectId!=='string'||!projectId)throw Error('Project ID required')
+ return api('/desktop/project-terminal','POST',{projectId})
+})
 ipcMain.handle('conversation-message',(_,{id,message,effort,model,mode})=>api('/desktop/conversation?id='+encodeURIComponent(id),'POST',{message,effort:typeof effort==='string'?effort:'',model:typeof model==='string'?model:'',mode:typeof mode==='string'?mode:''}))
 // The agent forgets a run once its history is cleared or it restarts, and
 // answers 404 by contract. Report "no result" instead of rejecting the IPC

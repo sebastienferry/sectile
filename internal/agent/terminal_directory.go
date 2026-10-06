@@ -65,7 +65,7 @@ func BuildDirectoryTerminal(goos, terminalApp, directory string) (TerminalLaunch
 
 // openDirectoryTerminal opens a plain terminal on directory. The window is
 // visible on purpose: the user asked for it, from the conversation's Terminal
-// button.
+// button or from Open terminal in a project's menu.
 func (d *agentDaemon) openDirectoryTerminal(goos, terminalApp, directory string) error {
 	if d.openTerminalFn != nil {
 		return d.openTerminalFn(terminalApp, directory)
