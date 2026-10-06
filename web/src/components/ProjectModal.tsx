@@ -49,6 +49,7 @@ import {
   addTracker,
   effectiveDefaultTracker,
   moveTracker,
+  missingTrackerReason,
   projectSelectionPayload,
   removeTracker,
   selectedTrackerIds,
@@ -371,6 +372,11 @@ export const ProjectModal: React.FC = () => {
   // The Jira settings of the project (roadmap projects, epic axes) apply when
   // one of its trackers is a Jira space; the first one is its own key.
   const selectsJira = selectedChoices.some(option => option.provider === 'jira')
+  // A new project is created on a tracker an admin recorded (#741): the
+  // server refuses one naming none, and never creates a tracker for it.
+  const missingTracker = missingTrackerReason(!editingProject, selectedTrackers, trackerChoices)
+  const missingTrackerText =
+    missingTracker === 'noneRecorded' ? ps.tracker.noRecordedTracker : missingTracker === 'pick' ? ps.tracker.noTracker : ''
   const jiraKey = selectedChoices.find(option => option.provider === 'jira')?.scope || ''
 
   // The prefixes are checked as typed, so the refusal reads beside the field
@@ -394,6 +400,10 @@ export const ProjectModal: React.FC = () => {
   const handleSubmit = async (e?: React.FormEvent) => {
     e?.preventDefault()
     if (!name.trim() || isSubmitting) return
+    if (missingTracker) {
+      setActiveTab('tracker')
+      return
+    }
     if (prefixProblem) {
       setActiveTab('tracker')
       return
@@ -1042,7 +1052,13 @@ export const ProjectModal: React.FC = () => {
                 </span>
                 <p className="text-[10px] text-[var(--text-muted)] mb-2">{ps.tracker.trackersHelp}</p>
                 {selectedTrackers.length === 0 ? (
-                  <p className="text-[11px] text-[var(--text-secondary)] mb-2">{ps.tracker.noTracker}</p>
+                  <p
+                    className={`text-[11px] mb-2 ${missingTracker ? 'text-amber-500' : 'text-[var(--text-secondary)]'}`}
+                    role={missingTracker ? 'alert' : undefined}
+                    data-project-tracker-missing={missingTracker || undefined}
+                  >
+                    {missingTrackerText || ps.tracker.noTracker}
+                  </p>
                 ) : (
                   <ul className="space-y-1.5 mb-2">
                     {selectedTrackers.map((id, index) => {
@@ -1443,6 +1459,11 @@ export const ProjectModal: React.FC = () => {
         {/* Modal Footer */}
         <div className="flex items-center justify-between px-6 py-4 border-t border-[var(--border-color)] bg-[var(--bg-tertiary)]/40 shrink-0">
           <div>
+            {missingTracker && (
+              <p className="text-[11px] text-amber-500 max-w-md" data-project-tracker-missing-footer>
+                {missingTrackerText}
+              </p>
+            )}
             {editingProject && !editingProject.isDefault && (
               <button
                 type="button"
@@ -1471,7 +1492,8 @@ export const ProjectModal: React.FC = () => {
             <button
               type="button"
               onClick={handleSubmit}
-              disabled={isSubmitting || !name.trim()}
+              disabled={isSubmitting || !name.trim() || Boolean(missingTracker)}
+              title={missingTrackerText || undefined}
               className="px-5 py-2 rounded-xl text-xs font-bold text-white accent-bg shadow-md hover:opacity-90 active:scale-95 flex items-center gap-1.5 transition-all disabled:opacity-50 cursor-pointer"
             >
               <Save size={14} />

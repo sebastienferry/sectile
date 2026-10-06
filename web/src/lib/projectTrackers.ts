@@ -93,8 +93,9 @@ export interface ProjectSelection {
 /**
  * The part of the project payload that names its trackers, its default and its
  * label. The label is always sent, trimmed: an empty one shows every ticket of
- * the trackers. The trackers are sent when they changed; a new project that
- * picks none gets its own local board from the server.
+ * the trackers. The trackers are sent when they changed. A new project must
+ * pick at least one (see missingTrackerReason): the server refuses a creation
+ * naming none, and never creates a tracker, not even a local board.
  */
 export function projectSelectionPayload(
   selected: string[],
@@ -114,6 +115,17 @@ export function projectSelectionPayload(
   }
   payload.defaultTrackerId = effectiveDefaultTracker(selected, defaultTrackerId)
   return payload
+}
+
+/**
+ * Why the project cannot be saved for want of a tracker (#741), or null when
+ * it can: a new project must select one an admin recorded ("pick"), and when
+ * none is recorded at all there is nothing to pick ("noneRecorded"). A saved
+ * project keeps the trackers it has, its own local board included.
+ */
+export function missingTrackerReason(isNew: boolean, selected: string[], options: TrackerOption[]): 'pick' | 'noneRecorded' | null {
+  if (!isNew || selected.length > 0) return null
+  return options.some(option => !option.local) ? 'pick' : 'noneRecorded'
 }
 
 /**

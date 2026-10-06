@@ -4,6 +4,7 @@ import {
   addTracker,
   effectiveDefaultTracker,
   isLocalIdentity,
+  missingTrackerReason,
   moveTracker,
   projectSelectionPayload,
   removeTracker,
@@ -56,13 +57,26 @@ test('the payload names the trackers in order with their identity, the default a
   assert.equal(projectSelectionPayload(['be', 'gode'], 'app', '', options).defaultTrackerId, 'be')
 })
 
-test('an unchanged selection is not resent, and a new project without trackers gets its local board', () => {
+test('an unchanged selection is not resent', () => {
   const options = trackerOptions(summaries)
   const original = [{ trackerId: 'gode', identity: 'jira|acme.atlassian.net|GODE' }]
   const unchanged = projectSelectionPayload(['gode'], 'gode', 'da', options, original)
   assert.equal(unchanged.trackers, undefined)
   assert.equal(unchanged.defaultTrackerId, 'gode')
-  assert.deepEqual(projectSelectionPayload([], '', 'da', options), { label: 'da' })
+})
+
+test('a new project cannot be saved without a recorded tracker', () => {
+  const options = trackerOptions(summaries)
+  // A new project must pick one: the server never creates a tracker for it.
+  assert.equal(missingTrackerReason(true, [], options), 'pick')
+  assert.equal(missingTrackerReason(true, ['gode'], options), null)
+  // With no tracker recorded at all, there is nothing to pick: an admin must add one.
+  assert.equal(missingTrackerReason(true, [], trackerOptions([])), 'noneRecorded')
+  assert.equal(missingTrackerReason(true, [], trackerOptions([{ id: 'loc', name: '', provider: 'local', site: '', scope: 'p1', identity: 'local||p1' }])), 'noneRecorded')
+  // A saved project keeps the trackers it has, its own local board included.
+  const own = [{ trackerId: 'loc', identity: 'local||p1' }]
+  assert.equal(missingTrackerReason(false, ['loc'], trackerOptions([], own)), null)
+  assert.equal(missingTrackerReason(false, [], options), null)
 })
 
 test("the project's own local board stays offered and selected", () => {

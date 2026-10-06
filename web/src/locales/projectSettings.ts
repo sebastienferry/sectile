@@ -66,7 +66,9 @@ const fr = {
     trackersTitle: 'Trackers',
     trackersHelp:
       "Les trackers dont le projet montre les tickets, dans l'ordre. Un admin les enregistre dans l'Administration.",
-    noTracker: 'Aucun tracker : le projet garde son tableau local Sectile.',
+    noTracker: "Choisissez au moins un tracker : le projet montre les tickets des trackers qu'il sélectionne.",
+    noRecordedTracker:
+      "Aucun tracker n'est enregistré : un admin doit en ajouter un dans Administration → Trackers avant qu'un projet puisse être créé.",
     addTracker: 'Ajouter un tracker…',
     localBoard: 'Tableau local Sectile',
     defaultBadge: 'par défaut',
@@ -385,7 +387,8 @@ const en: ProjectSettingsStrings = {
   tracker: {
     trackersTitle: 'Trackers',
     trackersHelp: 'The trackers whose tickets the project shows, in order. An admin records them in the Administration page.',
-    noTracker: 'No tracker: the project keeps its local Sectile board.',
+    noTracker: 'Pick at least one tracker: the project shows the tickets of the trackers it selects.',
+    noRecordedTracker: 'No tracker is recorded: an admin must add one in Administration → Trackers before a project can be created.',
     addTracker: 'Add a tracker…',
     localBoard: 'Local Sectile board',
     defaultBadge: 'default',

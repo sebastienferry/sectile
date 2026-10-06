@@ -712,11 +712,14 @@ func (d *DB) UpdateTrackerMirror(trackerID string, change func(t *models.Tracker
 }
 
 // trackerFieldsTouched says which tracker fields a project write carries, so
-// that only those are written through to its tracker, and whether the write
-// may only join a tracker already recorded (a member's, ADR 0054, D11).
+// that only those are written through to its tracker, whether the write may
+// only join a tracker already recorded (a write from the API, ADR 0054, D11),
+// and whether it names a source at all: a provider or a scope. A write naming
+// none keeps the project's default tracker, whatever its stored fields say.
 type trackerFieldsTouched struct {
 	boardID, columns, stages, sprints, issueTypes, autoSync bool
 	joinOnly                                                bool
+	source                                                  bool
 }
 
 func touchedByUpdate(req models.UpdateProjectRequest) trackerFieldsTouched {
@@ -728,6 +731,7 @@ func touchedByUpdate(req models.UpdateProjectRequest) trackerFieldsTouched {
 		issueTypes: req.IssueTypes != nil,
 		autoSync:   req.AutoSyncEnabled != nil || req.AutoSyncIntervalMin != nil,
 		joinOnly:   req.JoinTrackerOnly,
+		source:     req.IssueTracker != nil || req.JiraProject != nil || req.GithubRepo != nil || req.GitlabProject != nil,
 	}
 }
 
@@ -746,10 +750,14 @@ func touchedByUpdate(req models.UpdateProjectRequest) trackerFieldsTouched {
 // the write carries then land on the tracker; a tracker the project just
 // joined keeps its own.
 //
-// A write that may only join (touched.joinOnly, a member's) never renames nor
-// creates a tracker but its project's local board: naming a source nobody
-// recorded is ErrUnknownTracker. Its project keeps its default tracker when
-// its fields still name it, whatever the deployment's site became since.
+// A write that may only join (touched.joinOnly, every write from the API)
+// never renames nor creates a tracker, not even the project's local board:
+// naming a source nobody recorded is ErrUnknownTracker. Its project keeps its
+// default tracker when the write names no source (touched.source), or when its
+// fields still name that tracker, whatever the deployment's site became since.
+// A project's stored fields may name a source its trackers never were, such as
+// a GitHub repository once derived from a GitLab remote: a save that does not
+// name a source leaves its trackers alone rather than refusing it.
 func (d *DB) ensureProjectTrackerUnsafe(tx *sqlTx, p *models.Project, settings *models.Settings, touched trackerFieldsTouched) error {
 	wanted := legacyTrackerOf(p, settings)
 	var currentID string
@@ -784,10 +792,15 @@ func (d *DB) ensureProjectTrackerUnsafe(tx *sqlTx, p *models.Project, settings *
 	now := time.Now().UTC()
 	fresh := false
 	switch {
+	case touched.joinOnly && !touched.source && current != nil:
+		target = current
+	case touched.joinOnly && !touched.source:
+		// Nothing to keep and nothing named: the project selects no tracker.
+		return nil
 	case target != nil:
 	case touched.joinOnly && current != nil && legacyFieldsMatchTracker(p, current):
 		target = current
-	case touched.joinOnly && wanted.Provider != "local":
+	case touched.joinOnly:
 		return fmt.Errorf("%w : %s", ErrUnknownTracker, wanted.Identity)
 	case renamable:
 		current.Provider, current.Site, current.Scope, current.Identity, current.UpdatedAt = wanted.Provider, wanted.Site, wanted.Scope, wanted.Identity, now

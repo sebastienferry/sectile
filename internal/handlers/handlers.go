@@ -816,12 +816,21 @@ func (h *Handler) HandleProjects(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		// A project is created on trackers an admin recorded (#741): one it
+		// selects, or one its legacy tracker fields name. Creating a project
+		// never creates a tracker, not even a local board.
+		if !createNamesTracker(req) {
+			writeError(w, http.StatusBadRequest, "Choisissez au moins un tracker pour le projet : un admin les enregistre dans Administration → Trackers")
+			return
+		}
+
 		// The creator owns the project: the background synchronisation has no
 		// acting user of its own and reads under that account.
 		userID := h.webSessionUser(r)
 		if !h.principalFor(userID).IsAdmin() {
 			memberProjectCreate(&req)
 		}
+		req.JoinTrackerOnly = true
 		project, err := h.db.CreateProjectAs(userID, req)
 		if err != nil {
 			writeError(w, repositoryErrorStatus(err), err.Error())
@@ -1721,6 +1730,9 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 		if !h.principalFor(userID).IsAdmin() {
 			memberProjectUpdate(&req)
 		}
+		// Saving a project never creates nor renames a tracker (#741), an
+		// admin's save included: trackers are recorded in Administration.
+		req.JoinTrackerOnly = true
 		project, err := h.db.UpdateProjectAs(userID, id, req)
 		if err != nil {
 			writeError(w, repositoryErrorStatus(err), err.Error())

@@ -840,3 +840,77 @@ func TestAProjectWithASpacedLabelCannotMoveOntoJiraThroughItsTrackerFields(t *te
 		t.Fatalf("an edit leaving the trackers alone: %v", err)
 	}
 }
+
+// A save from the API that names no source keeps the project's trackers, even
+// when its stored fields name one it never selected (#741): a GitHub
+// repository derived from a GitLab remote, before the derivation went, made
+// every save of a local project record a GitHub tracker for it. The board
+// mirror the save carries still reaches the kept tracker.
+func TestAnAPISaveNamingNoSourceKeepsTheProjectsTrackers(t *testing.T) {
+	d := testDB(t)
+	p, err := d.CreateProject(models.CreateProjectRequest{Name: "Notes"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	board := defaultTrackerID(t, d, p.ID)
+	if _, err := d.conn.Exec("UPDATE projects SET github_repo = ?, git_remote_url = ? WHERE id = ?", "git@gitlab.com:acme/app", "git@gitlab.com:acme/app.git", p.ID); err != nil {
+		t.Fatal(err)
+	}
+	before, err := d.GetTrackers()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	description, boardID := "saved", "7"
+	saved, err := d.UpdateProjectAs("", p.ID, models.UpdateProjectRequest{Description: &description, BoardID: &boardID, JoinTrackerOnly: true})
+	if err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	if len(saved.Trackers) != 1 || saved.Trackers[0].TrackerID != board || saved.DefaultTrackerID != board {
+		t.Fatalf("the save changed the project's trackers: %+v (default %q, want %q)", saved.Trackers, saved.DefaultTrackerID, board)
+	}
+	after, err := d.GetTrackers()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(after) != len(before) {
+		t.Fatalf("the save recorded a tracker: %d, want %d", len(after), len(before))
+	}
+	local, err := d.GetTrackerByID(board)
+	if err != nil || local == nil || local.Provider != "local" || local.Scope != p.ID || local.BoardID != "7" {
+		t.Fatalf("the board must stay the project's, with the mirror the save carried: %+v (%v)", local, err)
+	}
+
+	// Naming a source nobody recorded is refused, and records nothing either.
+	repo := "acme/elsewhere"
+	if _, err := d.UpdateProjectAs("", p.ID, models.UpdateProjectRequest{GithubRepo: &repo, JoinTrackerOnly: true}); !errors.Is(err, ErrUnknownTracker) {
+		t.Fatalf("a save naming an unknown repository: %v, want ErrUnknownTracker", err)
+	}
+	if again, _ := d.GetTrackers(); len(again) != len(before) {
+		t.Fatalf("the refused save recorded a tracker: %d, want %d", len(again), len(before))
+	}
+}
+
+// A creation from the API names a recorded tracker through its fields and
+// joins it; naming its own local board records nothing (#741).
+func TestAnAPICreationOnlyJoinsARecordedTracker(t *testing.T) {
+	d := testDB(t)
+	pe, err := d.CreateTrackerAs("", models.Tracker{Provider: "jira", Site: "https://acme.atlassian.net", Scope: "PE"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined, err := d.CreateProject(models.CreateProjectRequest{Name: "Delivery", IssueTracker: "jira", JiraProject: "PE", TrackerUrl: "https://acme.atlassian.net", JoinTrackerOnly: true})
+	if err != nil || joined.DefaultTrackerID != pe.ID {
+		t.Fatalf("creation on PE: %+v (%v)", joined, err)
+	}
+	before, err := d.GetTrackers()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.CreateProject(models.CreateProjectRequest{Name: "Notes", IssueTracker: "local", JoinTrackerOnly: true}); !errors.Is(err, ErrUnknownTracker) {
+		t.Fatalf("a creation naming its local board: %v, want ErrUnknownTracker", err)
+	}
+	if after, _ := d.GetTrackers(); len(after) != len(before) {
+		t.Fatalf("the refused creation recorded a tracker: %d, want %d", len(after), len(before))
+	}
+}

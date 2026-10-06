@@ -157,9 +157,10 @@ func adminOnlyRoute(_ string, path string) bool {
 // still sends them with the rest of the project: they are ignored rather than
 // refused, so its save keeps working. The site a tracker reaches is dropped
 // too: the server sends its credentials there. The tracker the project names
-// may only be one already recorded (JoinTrackerOnly): creating a tracker or
-// renaming one is an admin's. Its label, its default tracker and its sprints
-// stay a member's.
+// may only be one already recorded (JoinTrackerOnly, set on every project
+// write from the API, an admin's included): trackers are recorded in
+// Administration. Its label, its default tracker and its sprints stay a
+// member's.
 func memberProjectCreate(req *models.CreateProjectRequest) {
 	req.BoardID, req.IssueTypes = "", nil
 	req.AutoSyncEnabled, req.AutoSyncIntervalMin = nil, nil
@@ -172,6 +173,22 @@ func memberProjectUpdate(req *models.UpdateProjectRequest) {
 	req.AutoSyncEnabled, req.AutoSyncIntervalMin = nil, nil
 	req.TrackerUrl, req.GithubApiUrl, req.GitlabUrl = nil, nil, nil
 	req.JoinTrackerOnly = true
+}
+
+// createNamesTracker says whether a project creation names a tracker (#741):
+// one it selects, or a remote source its legacy tracker fields name, by the
+// rule the store reads them with (an explicit provider, else GitHub when a
+// repository is named). The local board is not one: it would be created with
+// the project, and a creation never creates a tracker.
+func createNamesTracker(req models.CreateProjectRequest) bool {
+	if len(req.Trackers) > 0 {
+		return true
+	}
+	kind := strings.ToLower(strings.TrimSpace(req.IssueTracker))
+	if kind == "" || kind == "local" {
+		return strings.TrimSpace(req.GithubRepo) != ""
+	}
+	return true
 }
 
 // personalSettingsKeys is the routing table between the two settings stores

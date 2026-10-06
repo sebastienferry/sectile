@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -341,8 +342,8 @@ func trackerScoped(t *testing.T, database *db.DB, scope string) *models.Tracker 
 
 // A member's project may join a recorded tracker by its legacy fields, never
 // create one, rename one or set the site the server sends its credentials to
-// (#741, ADR 0054, D11). A local board is the project's own, and still made
-// for a member's local project.
+// (#741, ADR 0054, D11). Nor may an admin's: a project creation names a
+// recorded tracker, and never makes one, not even a local board.
 func TestAMemberOnlyJoinsARecordedTrackerThroughAProject(t *testing.T) {
 	h, database, cleanup := setupTestHandler(t)
 	defer cleanup()
@@ -397,24 +398,137 @@ func TestAMemberOnlyJoinsARecordedTrackerThroughAProject(t *testing.T) {
 		t.Fatalf("the member's project must join PE, its site ignored: default %q, want %q", joined.DefaultTrackerID, before.ID)
 	}
 
-	status, body = call(t, server, bob, http.MethodPost, "/api/projects", `{"name":"Notes"}`)
-	if status != http.StatusCreated {
-		t.Fatalf("member create of a local project: %d %s", status, body)
+	status, body = call(t, server, alice, http.MethodPost, "/api/projects", `{"name":"Billing","issueTracker":"jira","jiraProject":"BILL"}`)
+	if status != http.StatusBadRequest || !strings.Contains(body, "tracker inconnu") {
+		t.Fatalf("admin create on an unknown Jira space: %d %s", status, body)
 	}
-	var notes models.Project
-	if err := json.Unmarshal([]byte(body), &notes); err != nil {
+	if trk := trackerScoped(t, database, "BILL"); trk != nil {
+		t.Fatalf("an admin's refused project created a tracker: %+v", trk)
+	}
+}
+
+// A project creation that names no tracker is refused, a member's or an
+// admin's (#741): it used to get a local board of its own, which no screen
+// could then change.
+func TestAProjectCreationNamingNoTrackerIsABadRequest(t *testing.T) {
+	h, database, cleanup := setupTestHandler(t)
+	defer cleanup()
+	server := projectServer(t, h)
+	_, alice := account(t, database, "alice@example.com") // the first account is the admin
+	_, bob := account(t, database, "bob@example.com")
+	before, err := database.GetTrackers()
+	if err != nil {
 		t.Fatal(err)
 	}
-	if local, err := database.GetTrackerByID(notes.DefaultTrackerID); err != nil || local == nil || local.Provider != "local" || local.Scope != notes.ID {
-		t.Fatalf("the member's local project must get its board: %+v (%v)", local, err)
+
+	for _, caller := range []struct {
+		who    string
+		cookie *http.Cookie
+	}{{"member", bob}, {"admin", alice}} {
+		for _, payload := range []string{`{"name":"Notes"}`, `{"name":"Notes","issueTracker":"local"}`, `{"name":"Notes","trackers":[]}`} {
+			status, body := call(t, server, caller.cookie, http.MethodPost, "/api/projects", payload)
+			if status != http.StatusBadRequest || !strings.Contains(body, "Choisissez au moins un tracker") {
+				t.Fatalf("%s create of %s: %d %s", caller.who, payload, status, body)
+			}
+		}
+	}
+	after, err := database.GetTrackers()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(after) != len(before) {
+		t.Fatalf("a refused creation recorded a tracker: %d trackers, want %d", len(after), len(before))
+	}
+}
+
+// A project created on a recorded tracker with a code remote keeps the remote
+// as its code, and nothing more (#741): no GitHub repository is derived from
+// it, so no tracker is recorded for it.
+func TestAProjectCreatedWithARemoteRecordsNoTrackerForIt(t *testing.T) {
+	h, database, cleanup := setupTestHandler(t)
+	defer cleanup()
+	server := projectServer(t, h)
+	_, alice := account(t, database, "alice@example.com")
+	pe, err := database.CreateTrackerAs("admin", models.Tracker{Provider: "jira", Site: "https://acme.atlassian.net", Scope: "PE"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, err := database.GetTrackers()
+	if err != nil {
+		t.Fatal(err)
 	}
 
-	status, body = call(t, server, alice, http.MethodPost, "/api/projects", `{"name":"Billing","issueTracker":"jira","jiraProject":"BILL"}`)
-	if status != http.StatusCreated {
-		t.Fatalf("admin create on a new Jira space: %d %s", status, body)
+	for i, remote := range []string{"https://github.com/acme/app.git", "git@gitlab.com:acme/app.git"} {
+		status, body := call(t, server, alice, http.MethodPost, "/api/projects",
+			fmt.Sprintf(`{"name":"App %d","gitRemoteUrl":%q,"trackers":[{"trackerId":%q}]}`, i, remote, pe.ID))
+		if status != http.StatusCreated {
+			t.Fatalf("create with %s: %d %s", remote, status, body)
+		}
+		var created models.Project
+		if err := json.Unmarshal([]byte(body), &created); err != nil {
+			t.Fatal(err)
+		}
+		if created.GithubRepo != "" || created.GitRemoteUrl != remote {
+			t.Fatalf("the remote %s must stay the code remote only: githubRepo %q, gitRemoteUrl %q", remote, created.GithubRepo, created.GitRemoteUrl)
+		}
+		if len(created.Trackers) != 1 || created.Trackers[0].TrackerID != pe.ID || created.DefaultTrackerID != pe.ID {
+			t.Fatalf("the project must select PE only: %+v (default %q)", created.Trackers, created.DefaultTrackerID)
+		}
 	}
-	if trk := trackerScoped(t, database, "BILL"); trk == nil {
-		t.Fatal("the admin's project must create its tracker")
+	after, err := database.GetTrackers()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(after) != len(before) {
+		t.Fatalf("creating projects with a remote recorded trackers: %d, want %d", len(after), len(before))
+	}
+}
+
+// Saving a project without its trackers keeps them (#741): an admin's save
+// neither renames nor records a tracker, a code remote on GitHub or GitLab
+// included.
+func TestSavingAProjectWithoutTrackersKeepsThem(t *testing.T) {
+	h, database, cleanup := setupTestHandler(t)
+	defer cleanup()
+	server := projectServer(t, h)
+	_, alice := account(t, database, "alice@example.com")
+	project, err := database.CreateProject(models.CreateProjectRequest{Name: "Notes"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	board := project.DefaultTrackerID
+	before, err := database.GetTrackers()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, payload := range []string{
+		`{"description":"saved"}`,
+		`{"description":"saved","gitRemoteUrl":"git@gitlab.com:acme/app.git","githubApiUrl":"","gitlabUrl":""}`,
+		`{"description":"saved","gitRemoteUrl":"https://github.com/acme/app.git","githubApiUrl":"https://github.example.com/api/v3"}`,
+	} {
+		status, body := call(t, server, alice, http.MethodPut, "/api/projects/"+project.ID, payload)
+		if status != http.StatusOK {
+			t.Fatalf("admin save %s: %d %s", payload, status, body)
+		}
+		var saved models.Project
+		if err := json.Unmarshal([]byte(body), &saved); err != nil {
+			t.Fatal(err)
+		}
+		if len(saved.Trackers) != 1 || saved.Trackers[0].TrackerID != board || saved.DefaultTrackerID != board {
+			t.Fatalf("the save changed the project's trackers: %+v (default %q, want %q)", saved.Trackers, saved.DefaultTrackerID, board)
+		}
+	}
+	after, err := database.GetTrackers()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(after) != len(before) {
+		t.Fatalf("a save recorded a tracker: %d, want %d", len(after), len(before))
+	}
+	local, err := database.GetTrackerByID(board)
+	if err != nil || local == nil || local.Provider != "local" || local.Scope != project.ID {
+		t.Fatalf("the save renamed the project's board: %+v (%v)", local, err)
 	}
 }
 
@@ -442,17 +556,10 @@ func TestAnAdminStillConfiguresTheTrackerThroughAProject(t *testing.T) {
 		t.Fatalf("the admin's configuration must reach the tracker: %+v", after)
 	}
 
+	// A creation no longer records a tracker to carry the configuration (#741).
 	status, body = call(t, server, alice, http.MethodPost, "/api/projects", `{"name":"Billing","issueTracker":"jira","jiraProject":"BILL",`+trackerConfiguration+`}`)
-	if status != http.StatusCreated {
-		t.Fatalf("admin create: %d %s", status, body)
-	}
-	var created models.Project
-	if err := json.Unmarshal([]byte(body), &created); err != nil {
-		t.Fatal(err)
-	}
-	fresh, err := database.GetTrackerByID(created.DefaultTrackerID)
-	if err != nil || fresh == nil || fresh.BoardID != "9" || len(fresh.IssueTypes) != 1 || !fresh.AutoSyncEnabled {
-		t.Fatalf("the admin's new tracker must carry the configuration: %+v (%v)", fresh, err)
+	if status != http.StatusBadRequest || !strings.Contains(body, "tracker inconnu") {
+		t.Fatalf("admin create on an unknown Jira space: %d %s", status, body)
 	}
 }
 

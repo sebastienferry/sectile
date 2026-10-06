@@ -373,6 +373,11 @@ func (d *DB) SaveTrackerCredentials(tracker, apiURL, project string) (*models.Se
 // environment; an empty URL, the deployment's instance. Unlike CheckTrackerCredentials it never falls back to the
 // caller's personal token: an admin checking the server's access must not be
 // told "connected as" themselves.
+//
+// A deployment naming no Jira site checks the Jira credential on the site of a
+// recorded Jira tracker (#741): each one carries its own site then, and one
+// Atlassian API token is valid on every site of the account, as
+// applyTrackerSite relies on.
 func (d *DB) CheckServerTrackerCredentials(ctx context.Context, trackerName, apiURL, email, token string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, credentialCheckTimeout)
 	defer cancel()
@@ -404,8 +409,28 @@ func (d *DB) checkServerTrackerCredentials(ctx context.Context, trackerName, api
 		if token == "" {
 			email, token = client.JiraEmail, client.JiraToken
 		}
-		return client.CheckJira(ctx, firstNonEmpty(apiURL, client.JiraURL), email, token)
+		site := firstNonEmpty(apiURL, client.JiraURL, d.recordedJiraSite())
+		if site == "" {
+			return "", ErrNoJiraSiteToCheck
+		}
+		return client.CheckJira(ctx, site, email, token)
 	}
+}
+
+// ErrNoJiraSiteToCheck refuses a Jira credential check with no site to send it
+// to: the deployment names none and no Jira tracker is recorded with its own.
+var ErrNoJiraSiteToCheck = errors.New("aucun site Jira où vérifier l'accès : enregistrez d'abord un tracker Jira avec son site dans Administration → Trackers, ou configurez l'URL Jira du déploiement")
+
+// recordedJiraSite is the site of the oldest Jira tracker recorded with one,
+// "" when there is none.
+func (d *DB) recordedJiraSite() string {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	var site string
+	if err := d.conn.QueryRow(`SELECT site FROM trackers WHERE provider = 'jira' AND site <> '' ORDER BY created_at, id LIMIT 1`).Scan(&site); err != nil {
+		return ""
+	}
+	return strings.TrimSpace(site)
 }
 
 func firstNonEmpty(values ...string) string {

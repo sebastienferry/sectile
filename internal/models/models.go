@@ -548,8 +548,8 @@ type CreateProjectRequest struct {
 	AutoSyncEnabled     *bool            `json:"autoSyncEnabled,omitempty"`
 	AutoSyncIntervalMin *int             `json:"autoSyncIntervalMin,omitempty"`
 	// Trackers are the trackers the project selects its tickets from, by id or
-	// identity, in order (#741). Empty keeps the single tracker the fields
-	// above name.
+	// identity, in order (#741). Empty selects the single tracker the fields
+	// above name, which the API requires to be recorded already.
 	Trackers []ProjectTracker `json:"trackers,omitempty"`
 	// Label narrows the project to the tickets carrying it. Empty shows every
 	// ticket of its trackers.
@@ -557,9 +557,10 @@ type CreateProjectRequest struct {
 	// DefaultTrackerID is where the project's new tickets go, the first
 	// tracker when empty or not one of them.
 	DefaultTrackerID string `json:"defaultTrackerId,omitempty"`
-	// JoinTrackerOnly is set by the server, never read from a payload, on a
-	// member's write (ADR 0054, D11): the project's tracker fields may then only
-	// join a tracker already recorded, never create or rename one.
+	// JoinTrackerOnly is set by the server, never read from a payload, on every
+	// project write from the API (ADR 0054, D11): the project's tracker fields
+	// may then only join a tracker already recorded, never create (not even a
+	// local board) or rename one.
 	JoinTrackerOnly bool `json:"-"`
 }
 

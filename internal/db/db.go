@@ -6579,24 +6579,6 @@ func jiraProjectKeyFor(p *models.Project) string {
 	return strings.ToUpper(strings.ReplaceAll(strings.TrimSpace(p.Slug), "-", ""))
 }
 
-func ParseGitRepoFromURL(rawURL string) string {
-	raw := strings.TrimSpace(rawURL)
-	raw = strings.TrimSuffix(raw, ".git")
-	if strings.HasPrefix(raw, "git@github.com:") {
-		return strings.TrimPrefix(raw, "git@github.com:")
-	}
-	if strings.HasPrefix(raw, "https://github.com/") {
-		return strings.TrimPrefix(raw, "https://github.com/")
-	}
-	if strings.HasPrefix(raw, "http://github.com/") {
-		return strings.TrimPrefix(raw, "http://github.com/")
-	}
-	if strings.HasPrefix(raw, "ssh://git@github.com/") {
-		return strings.TrimPrefix(raw, "ssh://git@github.com/")
-	}
-	return raw
-}
-
 // parseRepoPaths decodes the project's known working directories, tolerating an
 // empty column on projects created before the field existed.
 func parseRepoPaths(raw string) []string {
@@ -7155,11 +7137,10 @@ func (d *DB) CreateProjectAs(ownerUserID string, req models.CreateProjectRequest
 		issueTracker = "local"
 	}
 
+	// The code remote names no tracker (#741): a project reads its tickets from
+	// the trackers it selects, so a GitHub repository is never derived from it.
 	gitRemote := strings.TrimSpace(req.GitRemoteUrl)
 	githubRepo := strings.TrimSpace(req.GithubRepo)
-	if githubRepo == "" && gitRemote != "" {
-		githubRepo = ParseGitRepoFromURL(gitRemote)
-	}
 
 	// A Jira project key is always uppercase (PE, ENG, OPS…). Fall back to the
 	// project slug so an existing Jira-tracked project keeps working.
@@ -7247,8 +7228,9 @@ func (d *DB) CreateProjectAs(ownerUserID string, req models.CreateProjectRequest
 		BoardID: req.BoardID, IssueTypes: issueTypes, AutoSyncEnabled: autoSyncEnabledInt == 1, AutoSyncIntervalMin: autoSyncIntervalMin,
 	}
 	// A tracker the new project joins keeps its own board mirror; it only
-	// takes the project's auto-sync when the project asks for it.
-	joined := trackerFieldsTouched{autoSync: created.AutoSyncEnabled, joinOnly: req.JoinTrackerOnly}
+	// takes the project's auto-sync when the project asks for it. A creation
+	// naming no tracker names its source through its tracker fields.
+	joined := trackerFieldsTouched{autoSync: created.AutoSyncEnabled, joinOnly: req.JoinTrackerOnly, source: true}
 
 	// The previous default is cleared in the same transaction as the insert,
 	// under the default-project lock, so there is never zero or two defaults.
@@ -7383,9 +7365,6 @@ func (d *DB) UpdateProjectAs(actingUserID string, id string, req models.UpdatePr
 	}
 	if req.GitRemoteUrl != nil {
 		p.GitRemoteUrl = strings.TrimSpace(*req.GitRemoteUrl)
-		if p.GithubRepo == "" && p.GitRemoteUrl != "" {
-			p.GithubRepo = ParseGitRepoFromURL(p.GitRemoteUrl)
-		}
 	}
 	if req.GithubRepo != nil {
 		p.GithubRepo = *req.GithubRepo

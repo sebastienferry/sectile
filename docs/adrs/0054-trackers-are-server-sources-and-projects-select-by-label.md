@@ -138,9 +138,24 @@ subset of its trackers' tickets that carries its label.
   save, since the server sends its credentials there, so a member joins by
   these fields a tracker on the deployment's site only, and any other through
   `trackers`. Creating a tracker, renaming one in place or setting its site
-  is an admin's (D11): an admin's save still finds or creates the tracker,
-  and renames in place the one only that project selects, so its tickets stay
-  with it. A member's local project still gets its own local board.
+  is an admin's (D11), from Administration → Trackers only.
+- **A project is created on a recorded tracker, and no project write creates
+  one.** A tester found that a project created without a tracker got a local
+  board, or a GitHub tracker named after its GitLab remote, that no screen
+  could then change. A creation from the API must name a recorded tracker, in
+  `trackers` or through the legacy fields above, which only find one by
+  identity; one naming neither, or only its own local board, is refused (400).
+  The same join-only rule now holds for an admin's project create and save:
+  neither finds-or-creates a tracker nor renames one in place any more. A save
+  that names no provider nor scope keeps the project's trackers, whatever the
+  project's stored fields say, and only writes the board mirror it carries
+  through to the default tracker. The code remote no longer fills
+  `githubRepo`: it named a GitHub repository for any remote, a GitLab one
+  included. Projects created before keep their local board, and the default
+  project and the upgrade still give one; Sectile's internal callers (the
+  default project, the adoption at upgrade) keep the store's find-or-create.
+  A deployment whose only tickets are local boards can therefore create no new
+  project until an admin records a tracker.
 - **The deployment's tracker sites are an admin's.** `jiraUrl`,
   `githubApiUrl` and `gitlabUrl` on the settings row are where the server
   sends a provider's server credential for any tracker recorded without a

@@ -364,10 +364,18 @@ trackers), and `defaultTrackerId`, where its new tickets go. The creation and
 the update accept the three: a tracker is named by id or identity (`400` for
 one nobody recorded), duplicates are dropped, the list order is kept, and a
 default that is not one of the trackers falls back to the first. The local
-board of another project is refused with `400`. A creation that names no tracker gets the
-one its legacy tracker fields (`issueTracker`, `jiraProject`, `githubRepo`,
-`gitlabProject`, …) name, found by identity or recorded, or its own local
-board.
+board of another project is refused with `400`. A creation must name a
+recorded tracker: in `trackers`, or through its legacy tracker fields
+(`issueTracker`, `jiraProject`, `githubRepo`, `gitlabProject`, …), which only
+find a tracker by identity (`400` "tracker inconnu" when none matches). A
+creation naming neither, or only the local board, is refused with `400`: no
+project write from the API creates a tracker, not even a local board. An update
+without `trackers` keeps the project's trackers; one whose legacy fields name a
+provider or a scope joins the recorded tracker of that identity, and is refused
+with `400` when there is none. The site fields alone (`trackerUrl`,
+`githubApiUrl`, `gitlabUrl`) never move a project to another tracker, and the
+code remote (`gitRemoteUrl`) names no tracker: no GitHub repository is derived
+from it.
 
 The tracker fields a project still returns (`issueTracker`, `boardId`,
 `trackerColumns`, `stageColumns`, `sprints`, `issueTypes`, `autoSync*`, …) are
