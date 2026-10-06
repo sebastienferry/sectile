@@ -2437,6 +2437,10 @@ func (d *DB) getNextTaskKey(q interface {
 			}
 		}
 	}
+	if err := rows.Err(); err != nil {
+		// A key read past would be handed out again.
+		return "", fmt.Errorf("reading the keys of prefix %s: %w", prefix, err)
+	}
 
 	return fmt.Sprintf("%s-%d", prefix, maxNum+1), nil
 }
@@ -4960,11 +4964,20 @@ func (d *DB) processSyncJob(ctx context.Context, job SkillJob, settings *models.
 		// The tracker the job names, else, for a job filed without one, its
 		// project's or the settings' (#741). A job whose tracker was deleted
 		// since it was queued fails: falling back would read the deployment's
-		// default source and import its tickets under no tracker.
+		// default source and import its tickets under no tracker. A tracker
+		// that cannot be read fails the job with the reason, not as deleted.
 		var trk *models.Tracker
 		var projects []*models.Project
 		if job.TrackerID != "" {
-			trk, _ = trackerByIDOn(d.conn, job.TrackerID)
+			var readErr error
+			trk, readErr = trackerByIDOn(d.conn, job.TrackerID)
+			if readErr != nil {
+				hasError = true
+				summary = fmt.Sprintf("Synchronisation impossible : lecture du tracker %s échouée : %v", job.TrackerID, readErr)
+				steps = append(steps, "⚠️ "+summary)
+				outputLines = append(outputLines, summary)
+				break
+			}
 			if trk == nil {
 				hasError = true
 				summary = "Synchronisation impossible : son tracker a été supprimé"
@@ -6191,13 +6204,22 @@ func (d *DB) GetActivityStats(projectID string) (*models.ActivityStats, error) {
 	return &stats, nil
 }
 
-func (d *DB) RetryActivity(activityID string) (*models.TaskActivity, error) {
+// RetryActivity enqueues the activity's skill again on its ticket, for the
+// project it ran for. projectID, when given, names that project instead: an
+// activity recorded before #741 names none, and on a ticket of several
+// projects its retry is refused with the candidates until one is named. A
+// project the ticket is not shown in is refused as a launch's is.
+func (d *DB) RetryActivity(activityID, projectID string) (*models.TaskActivity, error) {
 	act, err := d.GetActivityByID(activityID)
 	if err != nil || act == nil {
 		return nil, fmt.Errorf("activity not found")
 	}
 
-	_, newAct, err := d.enqueueSkillOnTask(act.TaskID, act.RunProjectID, act.SkillID, act.Prompt, false, models.SkillModeUnset, "")
+	runProject := act.RunProjectID
+	if strings.TrimSpace(projectID) != "" {
+		runProject = strings.TrimSpace(projectID)
+	}
+	_, newAct, err := d.enqueueSkillOnTask(act.TaskID, runProject, act.SkillID, act.Prompt, false, models.SkillModeUnset, "")
 	return newAct, err
 }
 

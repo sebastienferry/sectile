@@ -458,12 +458,18 @@ func (d *DB) macroTicketScopeUnsafe(proj *models.Project, projectID, key string)
 	if githubMilestoneMacros(proj) {
 		return "(project_id = ? OR " + member + ")", append([]any{projectID}, args...)
 	}
-	self := projectID
+	// A macro row may name its project by id or by slug: both are the
+	// project's own, never another project's.
+	self := []any{projectID}
 	if p, ok := d.membershipUnsafe().project(projectID); ok {
-		self = p.ID
+		self = []any{p.ID}
+		if slug := strings.TrimSpace(p.Slug); slug != "" && slug != p.ID {
+			self = append(self, slug)
+		}
 	}
 	var others []string
-	rows, err := d.conn.Query(`SELECT project_id FROM macros WHERE key = ? AND project_id <> ? AND (tracker_id IS NULL OR tracker_id = '')`, key, self)
+	rows, err := d.conn.Query(`SELECT project_id FROM macros WHERE key = ? AND project_id NOT IN (`+placeholders(len(self))+`) AND (tracker_id IS NULL OR tracker_id = '')`,
+		append([]any{key}, self...)...)
 	if err == nil {
 		for rows.Next() {
 			var id string

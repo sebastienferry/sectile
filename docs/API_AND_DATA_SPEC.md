@@ -335,7 +335,7 @@ nothing; a creation goes out without that priority and its answer carries a
 | :--- | :--- | :--- |
 | `GET` | `/api/activities` | Lists recent activities (supports `?taskId=...&status=...`). |
 | `GET` | `/api/activities/stats` | Returns aggregate counts (`total`, `queued`, `running`, `completed`, `failed`). |
-| `POST` | `/api/activities/{id}/retry` | Re-enqueues a failed activity. |
+| `POST` | `/api/activities/{id}/retry` | Re-enqueues a failed activity, for the project it ran for. Optional body `{projectId?}` names that project instead, with the same rules and refusals as `run-skill`: an activity that names no project, on a ticket of several, answers `409 {error, candidates, unattended: false}` until it is retried with one of them. |
 | `POST` | `/api/activities/{id}/cancel` | Cancels a running or queued activity. |
 | `DELETE` | `/api/activities/{id}` | Deletes an activity entry. |
 | `DELETE` | `/api/activities` | Clears all completed and canceled activities. |

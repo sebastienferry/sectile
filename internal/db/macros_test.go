@@ -444,3 +444,40 @@ func TestRenamingALocalMacroLeavesTheTicketsAnotherProjectsMacroOfThatKeyMayHold
 		}
 	}
 }
+
+// A macro row stored under its project's slug is the project's own (#741):
+// renaming it still renames the parent of the tickets the project shows,
+// rather than leaving them out as if another project held a macro of that key.
+func TestRenamingAMacroStoredUnderItsProjectSlugRenamesTheParentOfItsTickets(t *testing.T) {
+	d := testDB(t)
+	alpha, err := d.CreateProject(models.CreateProjectRequest{Name: "Alpha", Slug: "alpha", IssueTracker: "jira", JiraProject: "GODE"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if alpha.Slug == "" || alpha.Slug == alpha.ID {
+		t.Fatalf("the project needs a slug apart from its id: %+v", alpha)
+	}
+	if err := d.ImportOrUpdateTasks(alpha.DefaultTrackerID, []models.Task{{Key: "GODE-1", Title: "GODE-1", Status: models.StatusToClarify, Priority: models.PriorityMedium,
+		Source: "jira", ParentKey: "M-5", ParentTitle: "Old", CreatedAt: time.Now(), UpdatedAt: time.Now()}}); err != nil {
+		t.Fatal(err)
+	}
+	horizon := "now"
+	if _, err := d.SaveMacroMeta(alpha.ID, "M-5", &horizon, nil, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.conn.Exec(`UPDATE macros SET project_id = ? WHERE project_id = ? AND key = 'M-5'`, alpha.Slug, alpha.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	renamed := "New"
+	if _, err := d.UpdateMacro(context.Background(), alpha.ID, "M-5", &renamed, nil, nil, nil, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	var parentTitle string
+	if err := d.conn.QueryRow(`SELECT parent_title FROM tasks WHERE key = 'GODE-1'`).Scan(&parentTitle); err != nil {
+		t.Fatal(err)
+	}
+	if parentTitle != "New" {
+		t.Fatalf("GODE-1 has parent title %q after renaming its project's M-5, want %q", parentTitle, "New")
+	}
+}

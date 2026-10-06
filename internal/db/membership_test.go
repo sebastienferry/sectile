@@ -349,3 +349,30 @@ func TestASyncOfADeletedTrackerFailsAndImportsNothing(t *testing.T) {
 		t.Fatalf("the job's activity = %+v (%v), want failed, saying the tracker was deleted", act, err)
 	}
 }
+
+// A synchronisation whose tracker cannot be read fails with that reason: it is
+// not reported as deleted, and it never falls back to another source either.
+func TestASyncWhoseTrackerCannotBeReadFailsWithTheReason(t *testing.T) {
+	fake := newFakeTracker()
+	fake.tasks = []models.Task{{Key: "PE-1", Title: "One", Status: models.StatusToClarify, Source: "jira", CreatedAt: time.Now(), UpdatedAt: time.Now()}}
+	d, p := jiraTestDB(t, fake)
+	trackerID := p.DefaultTrackerID
+	// A value the tracker's integer column cannot be scanned from.
+	if _, err := d.conn.Exec("UPDATE trackers SET auto_sync_enabled = 'unreadable' WHERE id = ?", trackerID); err != nil {
+		t.Fatal(err)
+	}
+	activity := models.TaskActivity{ID: "sync-unreadable", TrackerID: trackerID, SkillID: "sync_jira", Status: "running", CreatedAt: time.Now()}
+	if err := d.AddTaskActivity(activity); err != nil {
+		t.Fatal(err)
+	}
+	settings, _ := d.GetSettings()
+	d.processSyncJob(context.Background(), SkillJob{SkillID: "sync_jira", ActivityID: activity.ID, TrackerID: trackerID}, settings)
+
+	if fake.called("sync") {
+		t.Fatal("the job of an unreadable tracker read a source")
+	}
+	act, err := d.GetActivityByID(activity.ID)
+	if err != nil || act == nil || act.Status != string(models.ActivityStatusFailed) || strings.Contains(act.Summary, "supprimé") || !strings.Contains(act.Summary, trackerID) {
+		t.Fatalf("the job's activity = %+v (%v), want failed with the read error, not as deleted", act, err)
+	}
+}

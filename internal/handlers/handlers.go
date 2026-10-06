@@ -381,6 +381,9 @@ func (h *Handler) batchLaunchMembers(task *models.Task, req models.RunSkillReque
 	seen := map[string]bool{}
 	for i, ref := range req.BatchTaskIDs {
 		member, err := h.db.GetTaskByID(strings.TrimSpace(ref))
+		if errors.Is(err, db.ErrTaskKeyAmbiguous) {
+			return nil, fmt.Sprintf("Batch ticket %s: %v", ref, err)
+		}
 		if err != nil || member == nil {
 			return nil, fmt.Sprintf("Batch ticket %s not found.", ref)
 		}
@@ -2729,7 +2732,11 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "skillId manquant")
 			return
 		}
-		if task, err := h.db.GetTaskByID(id); err == nil && task != nil {
+		task, err := h.db.GetTaskByID(id)
+		if writeTaskKeyAmbiguous(w, err) {
+			return
+		}
+		if err == nil && task != nil {
 			userID := h.webSessionUser(r)
 			if ac := h.agentDispatcher.Route(userID, task.ProjectID); ac != nil {
 				err := h.agentDispatcher.Dispatch(userID, task.ProjectID, "dispatch_step", task.ID, map[string]string{
@@ -3459,9 +3466,20 @@ func (h *Handler) HandleActivityDetail(w http.ResponseWriter, r *http.Request) {
 
 	// Sub-action: /api/activities/{id}/retry
 	if len(parts) >= 2 && parts[1] == "retry" && r.Method == http.MethodPost {
-		act, err := h.db.RetryActivity(id)
 		// An activity recorded before #741 names no project: on a ticket of
-		// several, its retry asks which one, as a launch does.
+		// several, its retry is refused with the candidates, as a launch is,
+		// and the retry naming one of them in the body's optional projectId
+		// (the run endpoint's field) goes through.
+		var req struct {
+			ProjectID string `json:"projectId"`
+		}
+		if r.Body != nil {
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
+				writeError(w, http.StatusBadRequest, "Body must be {\"projectId\": string} or empty")
+				return
+			}
+		}
+		act, err := h.db.RetryActivity(id, req.ProjectID)
 		if writeTaskBusy(w, err) || writeRunProjectRefusal(w, err) {
 			return
 		}
@@ -4080,6 +4098,9 @@ func (h *Handler) LaunchTaskExternalTerminal(taskID, command, skillID string) (m
 
 func (h *Handler) launchTaskExternalTerminal(ctx context.Context, userID, taskID, command, skillID string) (map[string]interface{}, error) {
 	task, err := h.db.GetTaskByID(taskID)
+	if errors.Is(err, db.ErrTaskKeyAmbiguous) {
+		return nil, err
+	}
 	if err != nil || task == nil {
 		return nil, fmt.Errorf("task not found: %s", taskID)
 	}

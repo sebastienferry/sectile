@@ -337,6 +337,47 @@ func TestAProjectWhoseTrackerHoldsTicketsMovesToANewTrackerInsteadOfRenamingIt(t
 	}
 }
 
+// A local project holding local tickets that an admin moves onto Jira keeps
+// its local board selected, after the new Jira tracker: nothing but that
+// project shows the board's tickets, so unlinking it would hide them all.
+func TestALocalProjectSwitchedToJiraKeepsItsLocalBoardAfterTheNewTracker(t *testing.T) {
+	checkALocalProjectSwitchedToJiraKeepsItsLocalBoardAfterTheNewTracker(t, testDB(t))
+}
+
+func checkALocalProjectSwitchedToJiraKeepsItsLocalBoardAfterTheNewTracker(t *testing.T, d *DB) {
+	t.Helper()
+	p, err := d.CreateProject(models.CreateProjectRequest{Name: "Notes"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	board := defaultTrackerID(t, d, p.ID)
+	note, err := d.CreateTask(models.CreateTaskRequest{ProjectID: p.ID, Title: "A local note"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	jira, space := "jira", "GODE"
+	switched, err := d.UpdateProject(p.ID, models.UpdateProjectRequest{IssueTracker: &jira, JiraProject: &space})
+	if err != nil {
+		t.Fatalf("an admin's project save failed: %v", err)
+	}
+	fresh, _ := d.GetTrackerByID(switched.DefaultTrackerID)
+	if fresh == nil || fresh.Provider != "jira" || fresh.Scope != "GODE" {
+		t.Fatalf("the project's new default tracker = %+v, want the GODE space", fresh)
+	}
+	links, _ := d.ProjectTrackers(p.ID)
+	if len(links) != 2 || links[0].ID != fresh.ID || links[1].ID != board {
+		t.Fatalf("the project selects its new Jira tracker then its local board %s: %+v", board, links)
+	}
+	tasks, err := d.GetTasksInScope(TaskScope{ProjectID: p.ID}, "", "", "", "", "", "", "", "", nil, nil, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if keys := taskKeys(tasks); len(keys) != 1 || keys[note.Key] != 1 {
+		t.Fatalf("the switched project lists %v, want its local ticket %s", keys, note.Key)
+	}
+}
+
 // Deleting a project moves its local tickets onto the default project's local
 // board; one whose key the board already holds takes the board's next key
 // rather than failing the deletion.
@@ -398,7 +439,9 @@ func TestDeletingAProjectGivesADefaultProjectOnATrackerALocalBoard(t *testing.T)
 
 func checkDeletingAProjectGivesADefaultProjectOnATrackerALocalBoard(t *testing.T, d *DB) {
 	t.Helper()
-	delivery, err := d.CreateProject(models.CreateProjectRequest{Name: "Delivery", IssueTracker: "jira", JiraProject: "GODE", IsDefault: true})
+	// The default project's label also scopes its local board: a moved ticket
+	// that did not carry it would not be shown.
+	delivery, err := d.CreateProject(models.CreateProjectRequest{Name: "Delivery", IssueTracker: "jira", JiraProject: "GODE", IsDefault: true, Label: "delivery"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -432,6 +475,13 @@ func checkDeletingAProjectGivesADefaultProjectOnATrackerALocalBoard(t *testing.T
 	}
 	if moved.ProjectID != delivery.ID {
 		t.Fatalf("the default project shows the moved ticket: %+v", moved)
+	}
+	tasks, err := d.GetTasksInScope(TaskScope{ProjectID: delivery.ID}, "", "", "", "", "", "", "", "", nil, nil, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if keys := taskKeys(tasks); keys[note.Key] != 1 {
+		t.Fatalf("the default project lists %v, want the moved ticket %s", keys, note.Key)
 	}
 }
 

@@ -128,4 +128,62 @@ func TestRetryingAnActivityOfNoProjectOnATwoProjectTicketAsksWhichProject(t *tes
 	if answer.Candidates[0].ID != delivery.ID || answer.Candidates[1].ID != bidder.ID {
 		t.Fatalf("candidates = %+v", answer.Candidates)
 	}
+
+	// The retry naming one of the candidates goes through, for that project.
+	status, body = call(t, server, alice, http.MethodPost, "/api/activities/old-run/retry", `{"projectId":"`+bidder.ID+`"}`)
+	var retried models.TaskActivity
+	if err := json.Unmarshal([]byte(body), &retried); err != nil || status != http.StatusOK || retried.ID == "" || retried.ID == old.ID {
+		t.Fatalf("retrying for Bidder: %d %s", status, body)
+	}
+	if stored, err := database.GetActivityByID(retried.ID); err != nil || stored == nil || stored.RunProjectID != bidder.ID {
+		t.Fatalf("the retried activity = %+v (%v), want it run for Bidder %s", stored, err, bidder.ID)
+	}
+
+	// A project the ticket is not shown in is refused as a launch's is.
+	notes, err := database.CreateProject(models.CreateProjectRequest{Name: "Notes"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status, body := call(t, server, alice, http.MethodPost, "/api/activities/old-run/retry", `{"projectId":"`+notes.ID+`"}`); status != http.StatusBadRequest {
+		t.Fatalf("retrying for a project the ticket is not in: %d %s", status, body)
+	}
+}
+
+// The other lookups of a ticket by a key two trackers carry say so too (#741),
+// rather than answering that the ticket does not exist: typing a skill into the
+// ticket's terminal, and a batch member named by that key.
+func TestTheTerminalSkillAndABatchMemberByAKeyTwoTrackersCarryAreRefusedAsAmbiguous(t *testing.T) {
+	h, database, cleanup := setupTestHandler(t)
+	defer cleanup()
+	server := runSkillServer(t, h)
+	_, alice := account(t, database, "alice@example.com")
+	var alpha *models.Project
+	for _, name := range []string{"Alpha", "Beta"} {
+		p, err := database.CreateProject(models.CreateProjectRequest{Name: name})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if alpha == nil {
+			alpha = p
+		}
+		tickets := []models.Task{{ID: strings.ToLower(name) + "-1", Key: "TASK-1", Title: name, Status: models.StatusToClarify,
+			Priority: models.PriorityMedium, Source: "local", CreatedAt: time.Now(), UpdatedAt: time.Now()}}
+		if name == "Alpha" {
+			tickets = append(tickets, models.Task{ID: "alpha-2", Key: "TASK-2", Title: "Alpha 2", Status: models.StatusToClarify,
+				Priority: models.PriorityMedium, Source: "local", CreatedAt: time.Now(), UpdatedAt: time.Now()})
+		}
+		if err := database.ImportOrUpdateTasks(p.DefaultTrackerID, tickets); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ambiguity := "plusieurs trackers"
+
+	if status, body := call(t, server, alice, http.MethodPost, "/api/tasks/TASK-1/tty-skill", `{"skillId":"clarify"}`); status != http.StatusConflict || !strings.Contains(body, ambiguity) {
+		t.Fatalf("a terminal skill by an ambiguous key: %d %s", status, body)
+	}
+	status, body := call(t, server, alice, http.MethodPost, "/api/tasks/alpha-2/run-skill",
+		`{"skillId":"pickup_issues","projectId":"`+alpha.ID+`","batchTaskIds":["alpha-2","TASK-1"]}`)
+	if status != http.StatusBadRequest || !strings.Contains(body, ambiguity) {
+		t.Fatalf("a batch member by an ambiguous key: %d %s", status, body)
+	}
 }

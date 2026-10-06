@@ -139,6 +139,13 @@ func (d *DB) trackerAdoptionDone() (bool, error) {
 	return unlinked == 0 && untagged == 0 && epics == 0 && indexed, nil
 }
 
+// firstTrackerOrder orders a project's project_trackers rows so that the
+// first one is its first tracker. The adoption tags a project's epics with it
+// and its done check looks for it: both must pick the same tracker of two at
+// one position, or the check would see an epic the pass never tags and rerun
+// the adoption at every start.
+const firstTrackerOrder = "position, tracker_id"
+
 // untaggedJiraEpics counts the epic rows naming no tracker that
 // tagJiraEpicsWithTrackers would tag: under a project, by id or slug, whose
 // first tracker is a Jira one, and not a milestone. A rollback may write one
@@ -148,7 +155,7 @@ func (d *DB) untaggedJiraEpics() (int, error) {
 	rows, err := d.conn.Query(`SELECT m.key FROM macros m WHERE m.tracker_id IS NULL AND EXISTS (
 		SELECT 1 FROM projects p JOIN project_trackers pt ON pt.project_id = p.id JOIN trackers t ON t.id = pt.tracker_id
 		WHERE (p.id = m.project_id OR (p.slug <> '' AND p.slug = m.project_id)) AND t.provider = 'jira'
-		AND pt.position = (SELECT MIN(lowest.position) FROM project_trackers lowest WHERE lowest.project_id = p.id))`)
+		AND pt.tracker_id = (SELECT lowest.tracker_id FROM project_trackers lowest WHERE lowest.project_id = p.id ORDER BY ` + firstTrackerOrder + ` LIMIT 1))`)
 	if err != nil {
 		return 0, fmt.Errorf("counting the epics without a tracker: %w", err)
 	}
@@ -207,7 +214,7 @@ func adoptProjectTrackers(tx *sqlTx, projects []models.Project, settings *models
 	now := time.Now().UTC()
 	for _, p := range projects {
 		var linked string
-		err := tx.QueryRow(`SELECT tracker_id FROM project_trackers WHERE project_id = ? ORDER BY position LIMIT 1`, p.ID).Scan(&linked)
+		err := tx.QueryRow(`SELECT tracker_id FROM project_trackers WHERE project_id = ? ORDER BY `+firstTrackerOrder+` LIMIT 1`, p.ID).Scan(&linked)
 		if err != nil && err != sql.ErrNoRows {
 			return nil, fmt.Errorf("reading the tracker of %s: %w", p.ID, err)
 		}

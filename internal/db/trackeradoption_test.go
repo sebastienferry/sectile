@@ -721,3 +721,39 @@ func assertRerunMergedTheUntaggedEpic(t *testing.T, d *DB) {
 		t.Fatalf("after the rerun the adoption is done, the milestone and the local macro untagged: %v %v", done, err)
 	}
 }
+
+// A project selecting a local and a Jira tracker at one position names its
+// first tracker by the same order in the adoption and in its done check: the
+// pass leaves the epic of a project whose first tracker is local untagged, and
+// the check must not then count it, or the adoption reruns at every start.
+func TestAdoptionPicksOneFirstTrackerOfTwoAtOnePosition(t *testing.T) {
+	d := testDB(t)
+	p := legacyProject(t, d, time.Now().Add(-time.Hour).UTC(), models.CreateProjectRequest{Name: "Delivery", IssueTracker: "jira", JiraProject: "PE", TrackerUrl: "https://acme.atlassian.net"})
+	forgetTrackers(t, d)
+	now := time.Now().UTC()
+	local := models.Tracker{ID: "a-local", Name: "Delivery", Provider: "local", Scope: p.ID, CreatedAt: now, UpdatedAt: now}
+	local.Identity = trackerIdentityFor(&local, nil)
+	jira := models.Tracker{ID: "b-jira", Name: "Delivery", Provider: "jira", Site: "https://acme.atlassian.net", Scope: "PE", CreatedAt: now, UpdatedAt: now}
+	jira.Identity = trackerIdentityFor(&jira, nil)
+	if err := d.conn.WithTx(func(tx *sqlTx) error {
+		for _, trk := range []*models.Tracker{&local, &jira} {
+			if err := insertTrackerOn(tx, trk); err != nil {
+				return err
+			}
+			if _, err := tx.Exec(`INSERT INTO project_trackers (project_id, tracker_id, position) VALUES (?, ?, 0)`, p.ID, trk.ID); err != nil {
+				return err
+			}
+		}
+		_, err := tx.Exec(`UPDATE projects SET default_tracker_id = ? WHERE id = ?`, jira.ID, p.ID)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	d.trackerCache.clear()
+	legacyEpic(t, d, p.ID, "PE-5", "[]", now)
+
+	adopt(t, d)
+	if done, err := d.trackerAdoptionDone(); err != nil || !done {
+		t.Fatalf("after one pass the adoption is done: %v %v", done, err)
+	}
+}

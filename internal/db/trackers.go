@@ -714,7 +714,10 @@ func touchedByUpdate(req models.UpdateProjectRequest) trackerFieldsTouched {
 // epic yet keeps that tracker, renamed in place when its fields now name
 // another source nobody recorded yet. Otherwise the tracker of that identity
 // is found or created and takes the default's place, the old tracker keeping
-// its tickets and leaving the project, as when it joins an existing tracker. The board mirror and auto-sync fields
+// its tickets and leaving the project, as when it joins an existing tracker.
+// The project's own local board holding tickets stays selected instead, after
+// the project's other trackers: nothing but that project shows its tickets, so
+// unlinking it would hide them all. The board mirror and auto-sync fields
 // the write carries then land on the tracker; a tracker the project just
 // joined keeps its own.
 //
@@ -782,9 +785,22 @@ func (d *DB) ensureProjectTrackerUnsafe(tx *sqlTx, p *models.Project, settings *
 		fresh = target.ID == wanted.ID
 	}
 	if current == nil || current.ID != target.ID {
-		if current != nil {
-			if _, err := tx.Exec(`DELETE FROM project_trackers WHERE project_id = ? AND tracker_id IN (?, ?)`, p.ID, current.ID, target.ID); err != nil {
+		keepBoard := false
+		if current != nil && current.Provider == "local" && current.Scope == p.ID {
+			used, err := trackerUsageOn(tx, current.ID)
+			if err != nil {
 				return err
+			}
+			keepBoard = used > 0
+		}
+		if current != nil {
+			if _, err := tx.Exec(`DELETE FROM project_trackers WHERE project_id = ? AND tracker_id = ?`, p.ID, target.ID); err != nil {
+				return err
+			}
+			if !keepBoard {
+				if _, err := tx.Exec(`DELETE FROM project_trackers WHERE project_id = ? AND tracker_id = ?`, p.ID, current.ID); err != nil {
+					return err
+				}
 			}
 		}
 		if _, err := tx.Exec(
@@ -794,6 +810,17 @@ func (d *DB) ensureProjectTrackerUnsafe(tx *sqlTx, p *models.Project, settings *
 			currentPosition,
 		); err != nil {
 			return err
+		}
+		if keepBoard {
+			if _, err := tx.Exec(
+				`UPDATE project_trackers SET position = (SELECT COALESCE(MAX(others.position), -1) + 1 FROM project_trackers others WHERE others.project_id = ?)
+				WHERE project_id = ? AND tracker_id = ?`,
+				p.ID,
+				p.ID,
+				current.ID,
+			); err != nil {
+				return err
+			}
 		}
 	}
 	if _, err := tx.Exec(`UPDATE projects SET default_tracker_id = ? WHERE id = ?`, target.ID, p.ID); err != nil {
@@ -1036,24 +1063,33 @@ func (d *DB) releaseProjectTrackersUnsafe(tx *sqlTx, p *models.Project, defaultP
 // it does not hold. A ticket whose key the board already holds, as two
 // projects' TASK-1 or two slugs of one prefix give, takes the board's next key
 // of its prefix (freeLocalKeyOn) rather than failing the deletion on the
-// unique key of the tracker.
+// unique key of the tracker. A ticket moved to a default project with a label
+// takes that label, as one created there does: the project shows only the
+// tickets of its trackers carrying it, its local board's included.
 func (d *DB) moveLocalTicketsToDefaultUnsafe(tx *sqlTx, fromTrackerID, defaultProjectID string) error {
 	board, err := d.localBoardOfUnsafe(tx, defaultProjectID)
 	if err != nil {
 		return err
 	}
-	rows, err := tx.Query(`SELECT id, key FROM tasks WHERE tracker_id = ? ORDER BY created_at, id`, fromTrackerID)
+	var label string
+	if err := tx.QueryRow(`SELECT label FROM projects WHERE id = ?`, defaultProjectID).Scan(&label); err != nil && err != sql.ErrNoRows {
+		return err
+	}
+	label = strings.TrimSpace(label)
+	rows, err := tx.Query(`SELECT id, key, labels FROM tasks WHERE tracker_id = ? ORDER BY created_at, id`, fromTrackerID)
 	if err != nil {
 		return err
 	}
-	type moving struct{ id, key string }
+	type moving struct{ id, key, labels string }
 	var tickets []moving
 	for rows.Next() {
 		var m moving
-		if err := rows.Scan(&m.id, &m.key); err != nil {
+		var labels sql.NullString
+		if err := rows.Scan(&m.id, &m.key, &labels); err != nil {
 			rows.Close()
 			return err
 		}
+		m.labels = labels.String
 		tickets = append(tickets, m)
 	}
 	rows.Close()
@@ -1061,6 +1097,16 @@ func (d *DB) moveLocalTicketsToDefaultUnsafe(tx *sqlTx, fromTrackerID, defaultPr
 		return err
 	}
 	for _, ticket := range tickets {
+		if label != "" {
+			var labels []string
+			_ = json.Unmarshal([]byte(ticket.labels), &labels)
+			if !labelCarried(labels, label) {
+				encoded, _ := json.Marshal(append(labels, label))
+				if _, err := tx.Exec(`UPDATE tasks SET labels = ? WHERE id = ?`, string(encoded), ticket.id); err != nil {
+					return err
+				}
+			}
+		}
 		key := ticket.key
 		var held int
 		if err := tx.QueryRow(`SELECT COUNT(*) FROM tasks WHERE tracker_id = ? AND key = ?`, board, key).Scan(&held); err != nil {

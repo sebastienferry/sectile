@@ -78,3 +78,9 @@ func TestPostgresDeletingAProjectGivesADefaultProjectOnATrackerALocalBoard(t *te
 func TestPostgresDeletingAProjectRekeysTheLocalTicketsTheDefaultBoardAlreadyHolds(t *testing.T) {
 	checkDeletingAProjectRekeysTheLocalTicketsTheDefaultBoardAlreadyHolds(t, openPostgres(t))
 }
+
+// The local board kept after a switch to Jira moves after the new tracker by
+// an UPDATE whose subquery reads the same table, which PostgreSQL types too.
+func TestPostgresALocalProjectSwitchedToJiraKeepsItsLocalBoardAfterTheNewTracker(t *testing.T) {
+	checkALocalProjectSwitchedToJiraKeepsItsLocalBoardAfterTheNewTracker(t, openPostgres(t))
+}
