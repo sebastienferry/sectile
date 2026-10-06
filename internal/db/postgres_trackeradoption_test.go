@@ -37,3 +37,19 @@ func TestPostgresAdoptionMergesDuplicateTickets(t *testing.T) {
 	}
 	adopt(t, d)
 }
+
+// The rerun after a rollback drops and creates both unique indexes inside the
+// adoption's transaction: on PostgreSQL, the restart opens a second connection
+// pool on the same database, as a restarted server would, rather than truncate
+// it as openPostgres does.
+func TestPostgresAdoptionRerunsAfterARollbackWroteAnUntaggedCopy(t *testing.T) {
+	d := openPostgres(t)
+	adoptedID := plantAnUntaggedCopyAfterARollback(t, d)
+
+	restarted, err := Open(Config{Driver: DriverPostgres, DSN: postgresDSN(t)})
+	if err != nil {
+		t.Fatalf("the server does not start again: %v", err)
+	}
+	t.Cleanup(func() { restarted.Close() })
+	assertRerunMergedTheUntaggedCopies(t, restarted, adoptedID)
+}

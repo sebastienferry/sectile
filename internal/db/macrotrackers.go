@@ -158,7 +158,8 @@ func (d *DB) macroScopeOfUnsafe(projectID, userID string) (string, []interface{}
 // of a tracker (#741): the most recently updated row wins, takes the todos of
 // another when it has none, and a clash of two todo lists is logged. The
 // unique index that keeps one row per epic is then created. Idempotent, under
-// the migration lock, like adoptTrackers.
+// the migration lock, like adoptTrackers, which runs the same merge on its own
+// passes.
 func (d *DB) adoptTrackerEpics() error {
 	unlock, err := d.dialect.LockForMigration(d.conn)
 	if err != nil {
@@ -169,34 +170,39 @@ func (d *DB) adoptTrackerEpics() error {
 	if err != nil || indexed {
 		return err
 	}
-	err = d.conn.WithTx(func(tx *sqlTx) error {
-		rows, err := tx.Query(`SELECT tracker_id, key FROM macros WHERE tracker_id IS NOT NULL GROUP BY tracker_id, key HAVING COUNT(*) > 1`)
-		if err != nil {
-			return err
-		}
-		type epic struct{ tracker, key string }
-		var duplicates []epic
-		for rows.Next() {
-			var e epic
-			if err := rows.Scan(&e.tracker, &e.key); err != nil {
-				rows.Close()
-				return err
-			}
-			duplicates = append(duplicates, e)
-		}
-		rows.Close()
-		if err := rows.Err(); err != nil {
-			return err
-		}
-		for _, e := range duplicates {
-			if err := mergeDuplicateEpic(tx, e.tracker, e.key); err != nil {
-				return err
-			}
-		}
-		_, err = tx.Exec("CREATE UNIQUE INDEX IF NOT EXISTS " + macrosTrackerKeyIndex + " ON macros (tracker_id, key) WHERE tracker_id IS NOT NULL")
-		return err
-	})
+	err = d.conn.WithTx(mergeTrackerEpicsOn)
 	d.trackerCache.clear()
+	return err
+}
+
+// mergeTrackerEpicsOn is the body of adoptTrackerEpics, run on a transaction
+// the caller holds: it merges every epic held twice by one tracker, then
+// creates the unique index.
+func mergeTrackerEpicsOn(tx *sqlTx) error {
+	rows, err := tx.Query(`SELECT tracker_id, key FROM macros WHERE tracker_id IS NOT NULL GROUP BY tracker_id, key HAVING COUNT(*) > 1`)
+	if err != nil {
+		return err
+	}
+	type epic struct{ tracker, key string }
+	var duplicates []epic
+	for rows.Next() {
+		var e epic
+		if err := rows.Scan(&e.tracker, &e.key); err != nil {
+			rows.Close()
+			return err
+		}
+		duplicates = append(duplicates, e)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for _, e := range duplicates {
+		if err := mergeDuplicateEpic(tx, e.tracker, e.key); err != nil {
+			return err
+		}
+	}
+	_, err = tx.Exec("CREATE UNIQUE INDEX IF NOT EXISTS " + macrosTrackerKeyIndex + " ON macros (tracker_id, key) WHERE tracker_id IS NOT NULL")
 	return err
 }
 

@@ -17,7 +17,10 @@ import (
 
 // tasksTrackerKeyIndex makes one record per remote ticket a constraint (#741).
 // It is created by the adoption, after the duplicates are merged, never by a
-// numbered migration: before the merge, the rows it would refuse exist.
+// numbered migration: before the merge, the rows it would refuse exist. Every
+// pass of the adoption drops it before tagging and creates it again last, so a
+// pass that meets a copy an older binary wrote after a rollback merges it
+// rather than failing on the index.
 const tasksTrackerKeyIndex = "ux_tasks_tracker_key"
 
 // adoptTrackers moves a database whose projects each held their own tracker to
@@ -37,7 +40,16 @@ const tasksTrackerKeyIndex = "ux_tasks_tracker_key"
 // projects imported from one tracker into one record (the most advanced stage
 // wins, the pull requests, labels and changed repositories are united, the
 // activities, comments, pins and batch places follow the survivor, and the
-// loser's id becomes an alias), and creates the unique index that keeps it so.
+// loser's id becomes an alias), gives a local ticket that only shares its key
+// with another one a key of its own, merges the epic rows the same way
+// adoptTrackerEpics does, and creates the unique indexes that keep it so.
+//
+// The pass runs again whenever a ticket names no tracker, which is what an
+// older binary writes after a rollback. Both unique indexes are therefore
+// dropped inside the transaction before anything is tagged and created again
+// before it commits: tagging such a copy would otherwise collide with the
+// record already adopted, and the copy goes through the same merge as on the
+// first pass.
 //
 // It is idempotent and holds the migration lock, like
 // adoptLegacyServerTrackerTokens: two replicas may start together, and once
@@ -59,11 +71,14 @@ func (d *DB) adoptTrackers() error {
 	}
 	sort.SliceStable(projects, func(i, j int) bool { return projects[i].CreatedAt.Before(projects[j].CreatedAt) })
 	settings, _ := d.getSettingsUnsafe()
-	indexed, err := d.indexExists(tasksTrackerKeyIndex)
-	if err != nil {
-		return err
-	}
 	err = d.conn.WithTx(func(tx *sqlTx) error {
+		// DROP and CREATE INDEX are transactional on both engines: a pass that
+		// fails leaves the indexes as they were.
+		for _, index := range []string{tasksTrackerKeyIndex, macrosTrackerKeyIndex} {
+			if _, err := tx.Exec("DROP INDEX IF EXISTS " + index); err != nil {
+				return fmt.Errorf("dropping %s: %w", index, err)
+			}
+		}
 		members, err := adoptProjectTrackers(tx, projects, settings)
 		if err != nil {
 			return err
@@ -71,19 +86,20 @@ func (d *DB) adoptTrackers() error {
 		if err := tagTasksWithTrackers(tx, members); err != nil {
 			return err
 		}
-		if err := mergeDuplicateTasks(tx); err != nil {
+		if err := d.mergeDuplicateTasks(tx); err != nil {
 			return err
 		}
 		if err := tagJiraEpicsWithTrackers(tx, members); err != nil {
 			return err
 		}
+		if err := mergeTrackerEpicsOn(tx); err != nil {
+			return err
+		}
 		if err := copyAutoSyncBookkeeping(tx, members); err != nil {
 			return err
 		}
-		if !indexed {
-			if _, err := tx.Exec("CREATE UNIQUE INDEX IF NOT EXISTS " + tasksTrackerKeyIndex + " ON tasks (tracker_id, key)"); err != nil {
-				return fmt.Errorf("creating %s: %w", tasksTrackerKeyIndex, err)
-			}
+		if _, err := tx.Exec("CREATE UNIQUE INDEX IF NOT EXISTS " + tasksTrackerKeyIndex + " ON tasks (tracker_id, key)"); err != nil {
+			return fmt.Errorf("creating %s: %w", tasksTrackerKeyIndex, err)
 		}
 		return nil
 	})
@@ -252,13 +268,14 @@ func tagTasksWithTrackers(tx *sqlTx, members *trackerMembers) error {
 // adoptedTask is what a duplicate merge reads of one ticket.
 type adoptedTask struct {
 	id, status, labels, prLinks, changed string
+	source, branch, repoPath, repository string
 	prURL                                sql.NullString
-	pinned                               int
-	updatedAt                            time.Time
+	pinned, prLinksDetached              int
+	createdAt, updatedAt                 time.Time
 }
 
 // mergeDuplicateTasks keeps one record per (tracker, key).
-func mergeDuplicateTasks(tx *sqlTx) error {
+func (d *DB) mergeDuplicateTasks(tx *sqlTx) error {
 	rows, err := tx.Query(`SELECT tracker_id, key FROM tasks WHERE tracker_id IS NOT NULL GROUP BY tracker_id, key HAVING COUNT(*) > 1`)
 	if err != nil {
 		return fmt.Errorf("finding the duplicate tickets: %w", err)
@@ -278,22 +295,47 @@ func mergeDuplicateTasks(tx *sqlTx) error {
 		return err
 	}
 	for _, dup := range duplicates {
-		if err := mergeDuplicate(tx, dup.tracker, dup.key); err != nil {
+		if err := d.mergeDuplicate(tx, dup.tracker, dup.key); err != nil {
 			return fmt.Errorf("merging %s on tracker %s: %w", dup.key, dup.tracker, err)
 		}
 	}
 	return nil
 }
 
-func mergeDuplicate(tx *sqlTx, trackerID, key string) error {
-	rows, err := tx.Query(`SELECT id, status, labels, pr_links, pr_url, COALESCE(changed_repositories, '[]'), pinned, updated_at FROM tasks WHERE tracker_id = ? AND key = ?`, trackerID, key)
+// mergeDuplicate settles the tickets of one tracker that carry one key. Only
+// the copies of a remote ticket are one ticket: a local ticket was numbered
+// within its own project before #741, with the Jira key or the start of the
+// slug as prefix, so it may share its key with a remote ticket or with the
+// local ticket of another project and still be a ticket of its own. Each local
+// copy is given the next free key of the tracker rather than merged, except,
+// when every copy is local, the oldest, which keeps the key. The remote copies
+// are merged into one record.
+func (d *DB) mergeDuplicate(tx *sqlTx, trackerID, key string) error {
+	rows, err := tx.Query(`SELECT id, status, labels, pr_links, pr_url, COALESCE(changed_repositories, '[]'), pinned, created_at, updated_at,
+		source, COALESCE(branch_name, ''), repo_path, repository, pr_links_detached
+		FROM tasks WHERE tracker_id = ? AND key = ?`, trackerID, key)
 	if err != nil {
 		return err
 	}
 	var copies []adoptedTask
 	for rows.Next() {
 		var t adoptedTask
-		if err := rows.Scan(&t.id, &t.status, &t.labels, &t.prLinks, &t.prURL, &t.changed, &t.pinned, &t.updatedAt); err != nil {
+		if err := rows.Scan(
+			&t.id,
+			&t.status,
+			&t.labels,
+			&t.prLinks,
+			&t.prURL,
+			&t.changed,
+			&t.pinned,
+			&t.createdAt,
+			&t.updatedAt,
+			&t.source,
+			&t.branch,
+			&t.repoPath,
+			&t.repository,
+			&t.prLinksDetached,
+		); err != nil {
 			rows.Close()
 			return err
 		}
@@ -306,6 +348,61 @@ func mergeDuplicate(tx *sqlTx, trackerID, key string) error {
 	if len(copies) < 2 {
 		return nil
 	}
+
+	var remotes, locals []adoptedTask
+	for _, c := range copies {
+		if c.source == "local" {
+			locals = append(locals, c)
+		} else {
+			remotes = append(remotes, c)
+		}
+	}
+	// The oldest first, then the id, so that the local ticket that keeps the
+	// key never depends on the order rows come back in.
+	sort.SliceStable(locals, func(i, j int) bool {
+		if !locals[i].createdAt.Equal(locals[j].createdAt) {
+			return locals[i].createdAt.Before(locals[j].createdAt)
+		}
+		return locals[i].id < locals[j].id
+	})
+	if len(remotes) == 0 {
+		locals = locals[1:]
+	}
+	for _, local := range locals {
+		if err := d.rekeyLocalTask(tx, trackerID, key, local.id); err != nil {
+			return err
+		}
+	}
+	if len(remotes) < 2 {
+		return nil
+	}
+	return mergeRemoteCopies(tx, key, remotes)
+}
+
+// rekeyLocalTask gives a local ticket the next free key of its tracker, with
+// the prefix of the key it shared. Its id does not change, so everything that
+// names it by id still does. No alias is written for the old key: aliases are
+// read before keys, so one would send every reference to that key to this
+// ticket instead of the one that keeps it.
+func (d *DB) rekeyLocalTask(tx *sqlTx, trackerID, key, id string) error {
+	prefix := ""
+	if i := strings.LastIndex(key, "-"); i > 0 {
+		prefix = key[:i]
+	}
+	next, err := d.getNextTaskKey(tx, trackerID, "", prefix)
+	if err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`UPDATE tasks SET key = ? WHERE id = ?`, next, id); err != nil {
+		return err
+	}
+	log.Printf("[Trackers] adoption : le ticket local %s partageait la clé %s avec un autre ticket du tracker %s, il devient %s", id, key, trackerID, next)
+	return nil
+}
+
+// mergeRemoteCopies merges the copies of one remote ticket into the most
+// advanced one.
+func mergeRemoteCopies(tx *sqlTx, key string, copies []adoptedTask) error {
 	// The most advanced stage first, then the most recently updated, then the
 	// id so that the outcome never depends on the order rows come back in.
 	sort.SliceStable(copies, func(i, j int) bool {
@@ -326,6 +423,8 @@ func mergeDuplicate(tx *sqlTx, trackerID, key string) error {
 	labels, changed := decodeStrings(survivor.labels), decodeStrings(survivor.changed)
 	pinned := survivor.pinned
 	prURL := strings.TrimSpace(survivor.prURL.String)
+	branch, repoPath, repository := survivor.branch, survivor.repoPath, survivor.repository
+	detached := survivor.prLinksDetached
 	for _, loser := range losers {
 		var theirs []models.TaskPullRequest
 		_ = json.Unmarshal([]byte(loser.prLinks), &theirs)
@@ -337,9 +436,24 @@ func mergeDuplicate(tx *sqlTx, trackerID, key string) error {
 		labels = unionStrings(labels, decodeStrings(loser.labels))
 		changed = unionStrings(changed, decodeStrings(loser.changed))
 		pinned = max(pinned, loser.pinned)
+		// The survivor's own value, else the first a loser has, in the order
+		// above.
+		branch = firstNonBlank(branch, loser.branch)
+		repoPath = firstNonBlank(repoPath, loser.repoPath)
+		repository = firstNonBlank(repository, loser.repository)
+		detached = max(detached, loser.prLinksDetached)
 	}
 	if prURL == "" {
 		prURL = models.CurrentPullRequest(links)
+	}
+	// The flag records that a person detached every link, which rediscovery
+	// would otherwise undo. Rediscovery searches by the one remote ticket all
+	// copies name, so it would bring back to the merged record the very links
+	// that person removed: a gesture on any copy holds while the merged record
+	// has no link, and a link kept from any copy clears it, as attaching one
+	// does everywhere else.
+	if len(links) > 0 {
+		detached = 0
 	}
 	if links == nil {
 		links = []models.TaskPullRequest{}
@@ -347,12 +461,26 @@ func mergeDuplicate(tx *sqlTx, trackerID, key string) error {
 	linksJSON, _ := json.Marshal(links)
 	labelsJSON, _ := json.Marshal(labels)
 	changedJSON, _ := json.Marshal(changed)
-	var prValue any
+	var prValue, branchValue any
 	if prURL != "" {
 		prValue = prURL
 	}
-	if _, err := tx.Exec(`UPDATE tasks SET pr_links = ?, pr_url = ?, labels = ?, changed_repositories = ?, pinned = ? WHERE id = ?`,
-		string(linksJSON), prValue, string(labelsJSON), string(changedJSON), pinned, survivor.id); err != nil {
+	if branch != "" {
+		branchValue = branch
+	}
+	if _, err := tx.Exec(
+		`UPDATE tasks SET pr_links = ?, pr_url = ?, labels = ?, changed_repositories = ?, pinned = ?, branch_name = ?, repo_path = ?, repository = ?, pr_links_detached = ? WHERE id = ?`,
+		string(linksJSON),
+		prValue,
+		string(labelsJSON),
+		string(changedJSON),
+		pinned,
+		branchValue,
+		repoPath,
+		repository,
+		detached,
+		survivor.id,
+	); err != nil {
 		return err
 	}
 	for _, loser := range losers {
@@ -362,6 +490,13 @@ func mergeDuplicate(tx *sqlTx, trackerID, key string) error {
 		log.Printf("[Trackers] adoption : doublon %s fusionné, %s conservé, %s supprimé (alias)", key, survivor.id, loser.id)
 	}
 	return nil
+}
+
+func firstNonBlank(value, fallback string) string {
+	if strings.TrimSpace(value) != "" {
+		return value
+	}
+	return fallback
 }
 
 // repointTask moves everything that names loser to survivor, records loser as

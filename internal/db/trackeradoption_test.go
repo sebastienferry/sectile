@@ -3,12 +3,14 @@ package db
 import (
 	"bytes"
 	"log"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 	"time"
 
 	"tasks/internal/models"
+	"tasks/internal/testsqlite"
 )
 
 // forgetTrackers puts a database back where every project still held its own
@@ -50,8 +52,18 @@ func legacyProject(t *testing.T, d *DB, created time.Time, req models.CreateProj
 // legacyTask writes a ticket the way a per-project synchronisation stored it.
 func legacyTask(t *testing.T, d *DB, id, projectID, key, status string, updated time.Time, labels, prLinks string) {
 	t.Helper()
-	if _, err := d.conn.Exec(`INSERT INTO tasks (id, project_id, key, title, status, labels, pr_links, source, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'jira', ?, ?)`,
-		id, projectID, key, "Ticket "+key, status, labels, prLinks, updated, updated); err != nil {
+	legacySourcedTask(t, d, id, projectID, key, status, "jira", updated)
+	if _, err := d.conn.Exec(`UPDATE tasks SET labels = ?, pr_links = ? WHERE id = ?`, labels, prLinks, id); err != nil {
+		t.Fatalf("labelling %s: %v", id, err)
+	}
+}
+
+// legacySourcedTask writes a ticket of the given source the way the binary
+// before #741 stored it, created and updated at the given time, with no tracker.
+func legacySourcedTask(t *testing.T, d *DB, id, projectID, key, status, source string, at time.Time) {
+	t.Helper()
+	if _, err := d.conn.Exec(`INSERT INTO tasks (id, project_id, key, title, status, labels, pr_links, source, created_at, updated_at) VALUES (?, ?, ?, ?, ?, '[]', '[]', ?, ?, ?)`,
+		id, projectID, key, "Ticket "+key, status, source, at, at); err != nil {
 		t.Fatalf("inserting %s: %v", id, err)
 	}
 }
@@ -154,6 +166,13 @@ func TestAdoptionMergesDuplicateTicketsKeepingTheMostAdvancedStage(t *testing.T)
 	legacyTask(t, d, "jira-a-PE-1", first.ID, "PE-1", "clarified", now, `[]`, `[]`)
 	legacyTask(t, d, "jira-b-PE-1", second.ID, "PE-1", "implemented", now.Add(-time.Hour), `[]`, `[]`)
 	legacyTask(t, d, "jira-a-PE-2", first.ID, "PE-2", "new", now, `[]`, `[]`)
+	// Only the loser knows where the work happens, and a person detached its
+	// links.
+	if _, err := d.conn.Exec(
+		`UPDATE tasks SET branch_name = 'feat/PE-1', repo_path = '/work/delivery', repository = 'delivery', pr_links_detached = 1 WHERE id = 'jira-a-PE-1'`,
+	); err != nil {
+		t.Fatal(err)
+	}
 	adopt(t, d)
 
 	var ids []string
@@ -176,6 +195,19 @@ func TestAdoptionMergesDuplicateTicketsKeepingTheMostAdvancedStage(t *testing.T)
 	}
 	if status != "implemented" || trackerID != linkedTracker(t, d, first.ID) {
 		t.Fatalf("survivor status %q tracker %q", status, trackerID)
+	}
+	var branch, repoPath, repository string
+	var detached int
+	if err := d.conn.QueryRow("SELECT COALESCE(branch_name, ''), repo_path, repository, pr_links_detached FROM tasks WHERE id = 'jira-b-PE-1'").Scan(
+		&branch,
+		&repoPath,
+		&repository,
+		&detached,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if branch != "feat/PE-1" || repoPath != "/work/delivery" || repository != "delivery" || detached != 1 {
+		t.Fatalf("survivor branch %q, repo path %q, repository %q, detached %d; want the loser's, still detached", branch, repoPath, repository, detached)
 	}
 	var untouched int
 	_ = d.conn.QueryRow("SELECT COUNT(*) FROM tasks WHERE key = 'PE-2'").Scan(&untouched)
@@ -372,4 +404,181 @@ func TestMigratedProjectsHaveNoLabelAndTheirTrackerAsDefault(t *testing.T) {
 			t.Errorf("%s: default %q, trackers %+v, linked %q", id, p.DefaultTrackerID, p.Trackers, linked)
 		}
 	}
+}
+
+// keysOfTasks reads the key of each ticket named.
+func keysOfTasks(t *testing.T, d *DB, ids ...string) map[string]string {
+	t.Helper()
+	keys := map[string]string{}
+	for _, id := range ids {
+		var key string
+		if err := d.conn.QueryRow("SELECT key FROM tasks WHERE id = ?", id).Scan(&key); err != nil {
+			t.Fatalf("the key of %s: %v", id, err)
+		}
+		keys[id] = key
+	}
+	return keys
+}
+
+func TestAdoptionGivesALocalTicketThatSharesARemoteKeyAKeyOfItsOwn(t *testing.T) {
+	d := testDB(t)
+	first, second := twoProjectsOnPE(t, d)
+	now := time.Now().UTC()
+	// Delivery numbered its local tickets with the Jira key as prefix, so its
+	// PE-1 is not Bidder's PE-1 imported from Jira.
+	legacySourcedTask(t, d, "local-a", first.ID, "PE-1", "specified", "local", now.Add(-time.Hour))
+	legacySourcedTask(t, d, "jira-b-PE-1", second.ID, "PE-1", "new", "jira", now)
+	legacySourcedTask(t, d, "jira-b-PE-7", second.ID, "PE-7", "new", "jira", now)
+	for _, statement := range []string{
+		`INSERT INTO task_activities (id, task_id, skill_id, skill_name, action, status, created_at) VALUES ('local-run', 'local-a', 'clarify', 'clarify', 'run', 'completed', '2026-09-01 10:00:00')`,
+		`INSERT INTO task_activities (id, task_id, skill_id, skill_name, action, status, created_at) VALUES ('remote-run', 'jira-b-PE-1', 'clarify', 'clarify', 'run', 'completed', '2026-09-01 10:00:00')`,
+	} {
+		if _, err := d.conn.Exec(statement); err != nil {
+			t.Fatalf("%s: %v", statement, err)
+		}
+	}
+	adopt(t, d)
+
+	if got, want := keysOfTasks(t, d, "local-a", "jira-b-PE-1"), map[string]string{"local-a": "PE-8", "jira-b-PE-1": "PE-1"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("keys = %v, want %v", got, want)
+	}
+	for query, want := range map[string]int{
+		"SELECT COUNT(*) FROM task_activities WHERE id = 'local-run' AND task_id = 'local-a'":      1,
+		"SELECT COUNT(*) FROM task_activities WHERE id = 'remote-run' AND task_id = 'jira-b-PE-1'": 1,
+		"SELECT COUNT(*) FROM task_aliases":                                          0,
+		"SELECT COUNT(*) FROM tasks WHERE id = 'local-a' AND tracker_id IS NOT NULL": 1,
+	} {
+		var got int
+		if err := d.conn.QueryRow(query).Scan(&got); err != nil {
+			t.Fatalf("%s: %v", query, err)
+		}
+		if got != want {
+			t.Errorf("%s = %d, want %d", query, got, want)
+		}
+	}
+}
+
+func TestAdoptionKeepsTheOldestOfTwoLocalTicketsOnTheirSharedKey(t *testing.T) {
+	d := testDB(t)
+	first, second := twoProjectsOnPE(t, d)
+	now := time.Now().UTC()
+	legacySourcedTask(t, d, "local-b", second.ID, "PE-1", "new", "local", now)
+	legacySourcedTask(t, d, "local-a", first.ID, "PE-1", "new", "local", now.Add(-time.Hour))
+	if _, err := d.conn.Exec(
+		`INSERT INTO task_comments (id, task_id, author, body) VALUES ('comment', 'local-b', 'me', 'hello')`,
+	); err != nil {
+		t.Fatal(err)
+	}
+	adopt(t, d)
+
+	if got, want := keysOfTasks(t, d, "local-a", "local-b"), map[string]string{"local-a": "PE-1", "local-b": "PE-2"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("keys = %v, want %v", got, want)
+	}
+	var comments int
+	_ = d.conn.QueryRow("SELECT COUNT(*) FROM task_comments WHERE id = 'comment' AND task_id = 'local-b'").Scan(&comments)
+	if comments != 1 {
+		t.Fatal("the comment left the re-keyed ticket")
+	}
+}
+
+// plantAnUntaggedCopyAfterARollback adopts two projects' copies of PE-1 and of
+// the epic PE-5, then writes what an older binary leaves after a rollback:
+// Bidder's copies of PE-1 and of PE-5 again, naming no tracker, next to the
+// adopted records. It returns the adopted ticket's id.
+func plantAnUntaggedCopyAfterARollback(t *testing.T, d *DB) string {
+	t.Helper()
+	first, second := twoProjectsOnPE(t, d)
+	now := time.Now().UTC()
+	legacyTask(t, d, "jira-a-PE-1", first.ID, "PE-1", "implemented", now, `[]`, `[]`)
+	legacyTask(t, d, "jira-b-PE-1", second.ID, "PE-1", "new", now, `[]`, `[]`)
+	legacyEpic(t, d, first.ID, "PE-5", `[{"id":"t1","text":"Keep me","done":false}]`, now)
+	adopt(t, d)
+	if err := d.adoptTrackerEpics(); err != nil {
+		t.Fatalf("adoptTrackerEpics: %v", err)
+	}
+
+	legacyTask(t, d, "jira-b-PE-1-again", second.ID, "PE-1", "new", now.Add(time.Minute), `[]`, `[]`)
+	legacyEpic(t, d, second.ID, "PE-5", "[]", now.Add(-time.Hour))
+	for _, statement := range []string{
+		`INSERT INTO task_activities (id, task_id, skill_id, skill_name, action, status, created_at) VALUES ('adopted-run', 'jira-a-PE-1', 'clarify', 'clarify', 'run', 'completed', '2026-09-01 10:00:00')`,
+		`INSERT INTO task_activities (id, task_id, skill_id, skill_name, action, status, created_at) VALUES ('rollback-run', 'jira-b-PE-1-again', 'clarify', 'clarify', 'run', 'completed', '2026-09-02 10:00:00')`,
+		`INSERT INTO task_comments (id, task_id, author, body) VALUES ('rollback-comment', 'jira-b-PE-1-again', 'me', 'hello')`,
+	} {
+		if _, err := d.conn.Exec(statement); err != nil {
+			t.Fatalf("%s: %v", statement, err)
+		}
+	}
+	return "jira-a-PE-1"
+}
+
+// legacyEpic writes a Jira epic row the way the binary before #741 kept it:
+// under its project, naming no tracker.
+func legacyEpic(t *testing.T, d *DB, projectID, key, todos string, updated time.Time) {
+	t.Helper()
+	if _, err := d.conn.Exec("INSERT INTO macros (project_id, key, title, todos, updated_at) VALUES (?, ?, 'Epic', ?, ?)", projectID, key, todos, updated); err != nil {
+		t.Fatalf("inserting the epic %s of %s: %v", key, projectID, err)
+	}
+}
+
+// assertRerunMergedTheUntaggedCopies checks, after a restart, that the copies
+// an older binary wrote were merged into the adopted records.
+func assertRerunMergedTheUntaggedCopies(t *testing.T, d *DB, adoptedID string) {
+	t.Helper()
+	var rows int
+	var survivor string
+	if err := d.conn.QueryRow("SELECT COUNT(*), MIN(id) FROM tasks WHERE key = 'PE-1'").Scan(&rows, &survivor); err != nil {
+		t.Fatal(err)
+	}
+	if rows != 1 || survivor != adoptedID {
+		t.Fatalf("PE-1 rows = %d, survivor %q; want %s alone", rows, survivor, adoptedID)
+	}
+	for query, want := range map[string]int{
+		"SELECT COUNT(*) FROM tasks WHERE id = ? AND tracker_id IS NOT NULL":                               1,
+		"SELECT COUNT(*) FROM task_activities WHERE id IN ('adopted-run', 'rollback-run') AND task_id = ?": 2,
+		"SELECT COUNT(*) FROM task_comments WHERE id = 'rollback-comment' AND task_id = ?":                 1,
+		"SELECT COUNT(*) FROM task_aliases WHERE old_id = 'jira-b-PE-1-again' AND task_id = ?":             1,
+	} {
+		var got int
+		if err := d.conn.QueryRow(query, adoptedID).Scan(&got); err != nil {
+			t.Fatalf("%s: %v", query, err)
+		}
+		if got != want {
+			t.Errorf("%s = %d, want %d", query, got, want)
+		}
+	}
+	var epics, tagged int
+	var todos string
+	if err := d.conn.QueryRow("SELECT COUNT(*), COUNT(tracker_id), MIN(todos) FROM macros WHERE key = 'PE-5'").Scan(&epics, &tagged, &todos); err != nil {
+		t.Fatal(err)
+	}
+	if epics != 1 || tagged != 1 || len(parseMacroTodos(todos)) != 1 {
+		t.Fatalf("PE-5 rows = %d, %d naming a tracker, todos %s; want the adopted epic alone, with its todos", epics, tagged, todos)
+	}
+	for _, index := range []string{tasksTrackerKeyIndex, macrosTrackerKeyIndex} {
+		if indexed, err := d.indexExists(index); err != nil || !indexed {
+			t.Fatalf("%s is missing after the rerun: %v", index, err)
+		}
+	}
+}
+
+// A rollback to a binary before #741 writes tickets and epics that name no
+// tracker next to the adopted ones. The next start reruns the adoption, which
+// must merge them rather than fail on the unique indexes and refuse to start.
+func TestAdoptionRerunsAfterARollbackWroteAnUntaggedCopy(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "tasks.db")
+	d, err := testsqlite.New(t, path, NewDB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	adoptedID := plantAnUntaggedCopyAfterARollback(t, d)
+	if err := d.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	restarted, err := NewDB(path)
+	if err != nil {
+		t.Fatalf("the server does not start again: %v", err)
+	}
+	t.Cleanup(func() { restarted.Close() })
+	assertRerunMergedTheUntaggedCopies(t, restarted, adoptedID)
 }
