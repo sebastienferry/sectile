@@ -407,8 +407,8 @@ network failure (an operation error), and an agent that predates the operation.
 Requests normally have a 45-second deadline; purely local read-only inspections
 (Git evidence, status and branches, worktree info, SDD/skill status, skill
 reading, editor opening) allow 15 seconds and CLI probing 30, so an unreachable
-agent fails quickly instead of stalling the caller; free-form prompt runs
-(`run_prompt`) allow 12 minutes and SDD installation allows seven minutes.
+agent fails quickly instead of stalling the caller; SDD installation allows
+seven minutes.
 Cancellation sends `workspace_cancel` with the same `msgId`. Disconnects and
 unconfirmed results fail visibly and never trigger local server execution or an
 automatic retry of a possibly completed mutation. Some local tool installers

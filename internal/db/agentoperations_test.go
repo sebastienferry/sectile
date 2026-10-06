@@ -12,7 +12,6 @@ func TestOperationTimeout(t *testing.T) {
 		why    string
 	}{
 		{"spec_install", 7 * time.Minute, "installs a spec toolchain"},
-		{"run_prompt", 12 * time.Minute, "runs a full agent prompt"},
 		{"git_evidence", 15 * time.Second, "three local git plumbing calls"},
 		{"git_status", 15 * time.Second, "local porcelain read"},
 		{"cli_status", 30 * time.Second, "probes several CLI binaries"},

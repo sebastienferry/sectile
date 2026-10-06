@@ -10,7 +10,7 @@ import (
 // `gpt-5-codex`, `gemini-2.5-pro`, `anthropic/claude-sonnet-5`) and nothing that
 // could change the meaning of a command line. This is a security boundary, not a
 // convenience check: the value is interpolated into a line run through `sh -c`
-// when a command template is in play, the same reason escapeForDoubleQuotes exists.
+// when a command template is in play.
 var model = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:@/-]*$`)
 
 // ModelConfig is one level of model configuration: a default and the skills that
