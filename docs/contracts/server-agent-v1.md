@@ -878,6 +878,19 @@ read with the same meaning and rewritten in the current layout on the next
 save. An emptied map or list leaves the file rather than keeping its previous
 content.
 
+Every write also stamps a top-level `maxLayout` key, the highest layout ever
+written to the file (#744). It sits outside the keys an agent replaces, so an
+older agent keeps it when it saves. A file whose `layout` is below its
+`maxLayout` was rewritten by an older agent: the next save of a running agent,
+or the start-up migration, copies it beside the settings as
+`settings.json.bak-layout<N>` (with a timestamp suffix when that name is
+taken) and logs it. An agent refuses to save a file whose `layout` or
+`maxLayout` is above its own, leaving it unchanged; the Desktop save shows the
+refusal. The project Sandbox values of a file below layout 4 move to the
+workstation level only in the start-up migration, and only when `maxLayout`
+is below 4 too: an ordinary read never moves them, and a file an older agent
+rewrote keeps its project values on their projects.
+
 The desktop edits both levels through the agent: `GET`/`PUT /desktop/workstation`
 for the defaults, `POST /desktop/projects` for a project section (each field
 with an `inherit…` flag), and `GET /desktop/project` answers, per execution
