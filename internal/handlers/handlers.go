@@ -1164,6 +1164,51 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Sub-action: /api/projects/{id}/macros/framing-mirror: republish the
+	// framing copy of every Jira epic whose copy is late (#691). GET lists
+	// them; POST queues one activity writing them in turn, signed by the
+	// person asking. Three segments only: four are the republish of one macro.
+	if len(parts) == 3 && isMacroSegment(parts[1]) && parts[2] == "framing-mirror" {
+		switch r.Method {
+		case http.MethodGet:
+			pending, _, err := h.db.PendingFramingCopies(id)
+			if err != nil {
+				writeError(w, http.StatusBadRequest, err.Error())
+				return
+			}
+			writeJSON(w, http.StatusOK, pending)
+			return
+		case http.MethodPost:
+			pending, skipped, err := h.db.PendingFramingCopies(id)
+			if err != nil {
+				writeError(w, http.StatusBadRequest, err.Error())
+				return
+			}
+			if len(pending) == 0 {
+				writeJSON(w, http.StatusOK, map[string]interface{}{"queued": 0, "skipped": skipped, "activity": nil})
+				return
+			}
+			keys := make([]string, 0, len(pending))
+			for _, m := range pending {
+				keys = append(keys, m.Key)
+			}
+			activity, err := h.db.EnqueueTrackerOp(h.actingContext(r), db.TrackerOp{
+				Kind:      db.TrackerOpEpicFramingBulk,
+				ProjectID: id,
+				EpicKeys:  keys,
+			})
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			writeJSON(w, http.StatusAccepted, map[string]interface{}{"queued": len(keys), "skipped": skipped, "activity": activity})
+			return
+		default:
+			writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
+			return
+		}
+	}
+
 	// Sub-action: /api/projects/{id}/macros/import-horizons: read the roadmap
 	// labels back from the tracker, so a classification made there wins over
 	// ours instead of being overwritten by the next push.

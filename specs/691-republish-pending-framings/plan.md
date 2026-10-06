@@ -104,5 +104,6 @@ TrackerOp{Kind: TrackerOpEpicFramingBulk, ProjectID: id, EpicKeys: []string{"PE-
   no longer describe the activity. The keys are frozen at POST time and each
   write still rechecks eligibility and the hash.
 - Reusing `GetProjectMacros` for the listing: it may read GitHub milestones
-  and fills fields the listing does not need; a direct query is enough on a
-  Jira project, where every epic has a row.
+  and fills fields the listing does not need. A direct query is enough: every
+  framed or copied epic has a row, since that is where its framing and copy
+  state live.

@@ -39,7 +39,10 @@ Out of scope:
   its framing is non-empty and was never copied, or the hash of its current
   rendering differs from the one last written.
 - **Skipped epic**: a copied epic whose framing is empty and that has no
-  framing comment yet. Nothing is written for it.
+  framing comment yet. Nothing is written for it. Only the epics Sectile
+  holds a `macros` row for are counted: an epic nobody ever classified,
+  framed or copied has no row, and reading the tracker's epics to count it
+  would put a Jira read on a gesture that needs none.
 
 ## User stories
 

@@ -115,3 +115,74 @@ func TestMacroSaveCarriesTheFramingStatusAndABulkEditQueuesNoCopy(t *testing.T) 
 		t.Fatalf("a bulk edit queues no framing copy, got %d", n)
 	}
 }
+
+func TestBulkFramingRepublishListsAndQueuesThePendingEpics(t *testing.T) {
+	database, project, h := framingHandler(t)
+	cookie := defaultSession(t, database)
+	for key, text := range map[string]string{"PE-1": "One", "PE-2": "Two", "M-3": "Local", "DS-4": "Foreign", "PE-5": ""} {
+		if _, err := database.SaveMacroMeta(project.ID, key, nil, nil, &text, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	call := func(method, segment string) *httptest.ResponseRecorder {
+		rr := httptest.NewRecorder()
+		req := httptest.NewRequest(method, "/api/projects/"+project.ID+"/"+segment+"/framing-mirror", nil)
+		req.AddCookie(cookie)
+		h.HandleProjectDetail(rr, req)
+		return rr
+	}
+
+	for _, segment := range []string{"macros", "epics"} {
+		rr := call(http.MethodGet, segment)
+		var listed []models.MacroMeta
+		if err := json.Unmarshal(rr.Body.Bytes(), &listed); rr.Code != http.StatusOK || err != nil || len(listed) != 2 || listed[0].Key != "PE-1" || listed[1].Key != "PE-2" {
+			t.Fatalf("GET %s: %d %s", segment, rr.Code, rr.Body.String())
+		}
+	}
+
+	rr := call(http.MethodPost, "macros")
+	if rr.Code != http.StatusAccepted {
+		t.Fatalf("POST: %d %s, want 202", rr.Code, rr.Body.String())
+	}
+	var out struct {
+		Queued   int                  `json:"queued"`
+		Skipped  int                  `json:"skipped"`
+		Activity *models.TaskActivity `json:"activity"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &out); err != nil || out.Queued != 2 || out.Skipped != 1 || out.Activity == nil {
+		t.Fatalf("answer %s %v", rr.Body.String(), err)
+	}
+	if out.Activity.Action != "Cadrages de roadmap ➔ tracker" || out.Activity.UserID != db.ImplicitUserID {
+		t.Fatalf("the activity is signed by the person asking: %+v", out.Activity)
+	}
+
+	// Once written, nothing is pending: POST queues nothing and says so.
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		pending, _, err := database.PendingFramingCopies(project.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(pending) == 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the batch left %d epics pending", len(pending))
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	rr = call(http.MethodPost, "epics")
+	if err := json.Unmarshal(rr.Body.Bytes(), &out); rr.Code != http.StatusOK || err != nil || out.Queued != 0 || out.Skipped != 1 || out.Activity != nil {
+		t.Fatalf("POST with nothing pending: %d %s", rr.Code, rr.Body.String())
+	}
+
+	if rr := call(http.MethodDelete, "macros"); rr.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("DELETE: %d, want 405", rr.Code)
+	}
+	// The republish of one macro keeps its own route.
+	single := httptest.NewRecorder()
+	h.HandleProjectDetail(single, httptest.NewRequest(http.MethodPost, "/api/projects/"+project.ID+"/macros/PE-1/framing-mirror", nil))
+	if single.Code != http.StatusAccepted || !strings.Contains(single.Body.String(), "Cadrage de PE-1") {
+		t.Fatalf("single republish: %d %s", single.Code, single.Body.String())
+	}
+}
