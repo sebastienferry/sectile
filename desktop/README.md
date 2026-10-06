@@ -445,7 +445,9 @@ sidebar. Add projects by discovering the server catalog and mapping a local Git
 directory. Each task key in the sidebar is tinted after the task's workflow
 stage, named in its tooltip; **Group by stage** in a project's `…` menu lists
 that project's tasks from new to finished, a choice kept per project on this
-workstation. **Hide from sidebar** in the same menu takes a project out of the
+workstation. **Open terminal** in the same menu opens a native terminal window
+on the project's local repository, in the terminal set for the project.
+**Hide from sidebar** in the same menu takes a project out of the
 sidebar without touching its configuration or its executions; the project stays
 in Settings, marked hidden, where **General → Show in sidebar** brings it back,
 as does choosing it again in **Add project**. Settings list only the projects

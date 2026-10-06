@@ -931,6 +931,17 @@ run ID, 404 for an unknown run, 409 when the run has no folder or no editor is
 set (it never falls back to `code`), 410 when the folder no longer exists, and
 500 with the launch error.
 
+`GET /desktop/status` advertises `project-terminal` when the agent opens a
+terminal on a project's local repository (#761). `POST
+/desktop/project-terminal` with `{projectId}` takes the folder from the
+project's workstation mapping, the one `/desktop/consoles` opens in, never from
+the request, and opens a plain, visible terminal window there in the terminal
+`/desktop/conversation-terminal` would pick for the project. It answers
+`{opened, terminal, directory}`; 405 to another method, 400 without a project
+ID, 502 when the project's configuration cannot be read from the server, 409
+when the project has no local folder on this workstation or is disconnected,
+and 500 with the launch error.
+
 `repositories` maps each repository a project declares, by its `host/path`
 identity, to the folder holding its checkout on this workstation (#456). It is
 keyed by repository rather than by project, so one checkout serves every

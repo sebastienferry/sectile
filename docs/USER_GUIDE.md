@@ -126,9 +126,13 @@ When you run a workflow skill in the Claude desktop app, the skill keeps the ses
 
 The emoji changes at the same moment Sectile records the run's state, so the title and the board agree.
 
+![The Claude desktop sidebar showing a DEMO-APP group with three sessions: "✅ #1 - Fix the typo in the README" with a pull request icon, "❌ #3 - Upgrade the build tool", and "❓ #2 - Add a dark mode toggle" marked as waiting.](images/user-guide/session-sidebar.png)
+
 Right after the rename, the conversation shows a `Ticket:` line linking the ticket in its tracker (`Macro:` for a macro), unless it has no external link. Once the skill creates or finds a pull request or merge request, a `PR:` line links it. A GitHub pull request is also bound to the session, so it appears in the app's pull request bar; on GitLab, the `PR:` line is the only link.
 
 The skill also files the session under a sidebar group named after the Sectile project, reusing the group when it exists. It marks chapters: one per stage under a pickup, such as `Specify #47`, and one when a single skill starts in a session that already holds earlier work. When implement, adjust or a pickup changed code, it opens the session's diff pane, or names the worktree when the pane does not cover it. On ✅ the reply ends with the next step, ready to copy, using the command name the skills run under: `/handoff-issue <task ID>`, for example, or `/sectile:handoff-issue <task ID>` with the [Claude plugin](../README.md#install-sectile-in-your-coding-cli). On ❓ or ❌ it says instead what you have to answer or fix. On ❓, ✅ or ❌ the skill sends one desktop notification, and none for routine progress.
+
+![The end of a completed pickup in a Claude desktop session: a status update listing the specified, implemented and reviewed stages with a link to pull request sebastienferry/demo-app#5, followed by the next step "/handoff-issue" with the task ID in a block ready to copy.](images/user-guide/session-next-step.png)
 
 A stage skill nested in a pickup leaves all of this to the pickup, so the session keeps one title and one set of links. When Sectile Desktop launches the run, the skill skips the links, the next step and the notification, since Desktop shows them itself; see the [Desktop guide](../desktop/README.md#skill-result-indicator) for Desktop's own indicators. With another coding CLI, the same skills use only what that host exposes. A missing capability, or an action the app refuses or leaves unapproved, such as a rename, is skipped and the run continues. A host that cannot rename the session still shows the run's state on the board.
 

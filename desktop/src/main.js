@@ -303,7 +303,7 @@ function agentUnavailable(){
  document.querySelector('#workspace').hidden=!configurationActive()
  connectionStatus({text:'Local agent stopped'})
  projectsLoaded=false
- openEditorAvailable=false;renderOpenEditor()
+ openEditorAvailable=false;projectTerminalAvailable=false;renderOpenEditor()
  api.detach().catch(()=>{})
 }
 function ready(){
@@ -460,7 +460,7 @@ function showDirectory(value){
 // The editor button (#535) exists once an editor is chosen in Settings and the
 // agent can open one; it opens the path shown, which the agent resolves from
 // the run, never from what the renderer sends.
-let configuredEditor='',openEditorAvailable=false,openingEditor=false
+let configuredEditor='',openEditorAvailable=false,openingEditor=false,projectTerminalAvailable=false
 function renderOpenEditor(){
  const button=document.querySelector('#open-editor')
  const label=configuredEditor&&'Open in '+editorLabel(configuredEditor)
@@ -473,6 +473,7 @@ async function loadEditorSetting(){
   // What the agent offers does not depend on reading the workstation settings.
   const [status,view]=await Promise.all([api.status(),api.workstationSettings().catch(()=>null)])
   openEditorAvailable=!!status.capabilities?.includes('open-editor')
+  projectTerminalAvailable=!!status.capabilities?.includes('project-terminal')
   runFoldersAvailable=!!status.capabilities?.includes('run-folders')
   runFoldersTerminalsAvailable=!!status.capabilities?.includes('run-folders-terminals')
   conversationControlsAvailable=!!status.capabilities?.includes('conversation-controls')
@@ -480,7 +481,7 @@ async function loadEditorSetting(){
   configuredEditor=String(view?.defaults?.editorCommand||'').trim()
   if(view)claudeModels=Array.isArray(view.defaults?.aiProviderModels?.claude)?view.defaults.aiProviderModels.claude:[]
   if(view)renderCustomSkillSignal(view.customSkillsUsed)
- }catch{openEditorAvailable=false;runFoldersAvailable=false;runFoldersTerminalsAvailable=false;conversationControlsAvailable=false;conversationQueueAvailable=false;configuredEditor=''}
+ }catch{openEditorAvailable=false;projectTerminalAvailable=false;runFoldersAvailable=false;runFoldersTerminalsAvailable=false;conversationControlsAvailable=false;conversationQueueAvailable=false;configuredEditor=''}
  renderOpenEditor();render({deferrable:true})
 }
 // A project's custom skill ran instead of the installed one (#267): a passive
@@ -583,6 +584,8 @@ function projectMenu(project,waitingCount=0){
   {label:'Group by stage',checked:stageGroupedProjects.has(project.id),run:()=>toggleStageGrouping(project.id)},
   {label:'New task…',run:()=>newProjectTask(project.id)},
   {label:'Project prompt',disabled:!project.path,run:()=>openAgentConsole(project.id)},
+  // An older agent cannot open it, so the item is left out rather than refused.
+  ...(projectTerminalAvailable?[{label:'Open terminal',disabled:!project.path,run:()=>openProjectTerminal(project.id)}]:[]),
   null,
   {label:'Hide from sidebar',run:()=>setSidebarHidden(project.id,true)},
   {label:'Project settings…',run:()=>openProject(project.id)},
@@ -3504,6 +3507,12 @@ document.querySelector('#mark-reviewed').onclick=()=>{
  }
 }
 
+// Open terminal (#761): a native window on the project's local repository, in
+// the terminal the project is set to use. The agent resolves the folder.
+async function openProjectTerminal(projectID){
+ try{await api.projectTerminal(projectID);document.querySelector('#error').textContent=''}
+ catch(err){error(Error(ipcMessage(err).trim()))}
+}
 async function openAgentConsole(projectID,previousProvider){
  showDialog('Project prompt')
  paragraph('Start an interactive agent in this project’s local repository. Enter your instructions directly in its console.')
