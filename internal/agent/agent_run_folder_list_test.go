@@ -80,11 +80,13 @@ func TestAPreparedWorktreeJoinsTheTaskRuns(t *testing.T) {
 	close(ended.exited)
 	restored := &controlledRun{exited: make(chan struct{}), restored: true, desktop: desktopRun{TaskID: "t1", Directory: "/src/app/wt"}}
 	other := &controlledRun{exited: make(chan struct{}), taskID: "t2", desktop: desktopRun{TaskID: "t2", Directory: "/src/x"}}
-	d.queue.runs = map[string]*controlledRun{"listed": listed, "bare": bare, "ended": ended, "restored": restored, "other": other}
+	// The same key in another project is another ticket.
+	homonym := &controlledRun{exited: make(chan struct{}), desktop: desktopRun{TaskKey: "#1", ProjectID: "p2", Directory: "/src/y"}}
+	d.queue.runs = map[string]*controlledRun{"listed": listed, "bare": bare, "ended": ended, "restored": restored, "other": other, "homonym": homonym}
 	copied := append([]runFolder(nil), listed.desktop.Folders...)
 
-	d.recordTaskFolder(models.Task{ID: "t1", Key: "#1"}, "github.com/o/lib", "/src/lib/wt")
-	d.recordTaskFolder(models.Task{ID: "t1", Key: "#1"}, "github.com/o/lib", "/src/lib/wt/")
+	d.recordTaskFolder(models.Task{ID: "t1", Key: "#1", ProjectID: "p1"}, "github.com/o/lib", "/src/lib/wt")
+	d.recordTaskFolder(models.Task{ID: "t1", Key: "#1", ProjectID: "p1"}, "github.com/o/lib", "/src/lib/wt/")
 
 	lib := runFolder{Path: "/src/lib/wt", Name: "lib", Role: "changed"}
 	if want := append(copied, lib); !reflect.DeepEqual(listed.desktop.Folders, want) {
@@ -93,7 +95,7 @@ func TestAPreparedWorktreeJoinsTheTaskRuns(t *testing.T) {
 	if want := []runFolder{{Path: "/src/app/wt", Name: "wt", Role: "primary"}, lib}; !reflect.DeepEqual(bare.desktop.Folders, want) {
 		t.Errorf("a run with no list yet: %+v", bare.desktop.Folders)
 	}
-	for name, run := range map[string]*controlledRun{"ended": ended, "restored": restored, "other task": other} {
+	for name, run := range map[string]*controlledRun{"ended": ended, "restored": restored, "other task": other, "same key, other project": homonym} {
 		if run.desktop.Folders != nil {
 			t.Errorf("%s run was given %+v", name, run.desktop.Folders)
 		}

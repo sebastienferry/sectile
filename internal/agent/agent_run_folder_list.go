@@ -115,6 +115,19 @@ func runEnded(run *controlledRun) bool {
 	}
 }
 
+// runOfTask says whether run works on task. A key alone names a ticket only
+// within its project: "#1" of one GitHub project is not "#1" of another.
+// The caller holds the queue lock.
+func runOfTask(run *controlledRun, task models.Task) bool {
+	if run.taskID == task.ID || run.desktop.TaskID == task.ID {
+		return true
+	}
+	if task.Key == "" || run.desktop.TaskKey != task.Key {
+		return false
+	}
+	return task.ProjectID == "" || run.desktop.ProjectID == "" || run.desktop.ProjectID == task.ProjectID
+}
+
 // recordTaskFolder adds a worktree prepared for a task during its runs
 // (prepare_repository_worktree) to the folders of every run of that task that
 // has not ended, as a changed repository's.
@@ -129,10 +142,7 @@ func (d *agentDaemon) recordTaskFolder(task models.Task, identity, path string) 
 	d.queue.mu.Lock()
 	defer d.queue.mu.Unlock()
 	for _, run := range d.queue.runs {
-		if run.taskID != task.ID && run.desktop.TaskID != task.ID && (task.Key == "" || run.desktop.TaskKey != task.Key) {
-			continue
-		}
-		if !runEnded(run) {
+		if runOfTask(run, task) && !runEnded(run) {
 			addRunFolder(run, folder)
 		}
 	}

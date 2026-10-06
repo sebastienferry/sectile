@@ -160,15 +160,10 @@ func (d *agentDaemon) addDirToTaskRuns(task models.Task, path string) bool {
 	var sessions []string
 	d.queue.mu.Lock()
 	for _, run := range d.queue.runs {
-		if run.taskID != task.ID && run.desktop.TaskID != task.ID && (task.Key == "" || run.desktop.TaskKey != task.Key) {
+		if !runOfTask(run, task) {
 			continue
 		}
-		ended := run.restored || run.canceled
-		select {
-		case <-run.exited:
-			ended = true
-		default:
-		}
+		ended := runEnded(run)
 		provider := run.interactiveProvider
 		if provider == "" {
 			provider = strings.ToLower(strings.TrimSpace(run.desktop.Provider))
