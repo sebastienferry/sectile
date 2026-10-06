@@ -738,3 +738,38 @@ func TestWorktreeDiffMarkdownImageSubmodule(t *testing.T) {
 		t.Fatalf("submodule refs: %+v", got)
 	}
 }
+
+func TestWorktreeDiffMarkdownImagePaths(t *testing.T) {
+	dir := diffFixture(t)
+	for _, d := range []string{"old", "new"} {
+		if e := os.MkdirAll(filepath.Join(dir, d), 0755); e != nil {
+			t.Fatal(e)
+		}
+	}
+	writeDiffTest(t, dir, "old/guide.md", "# Guide\n\nA long enough body for rename detection.\n\n![Moved](shot.png)\n")
+	writeDiffTest(t, dir, "old/shot.png", pngTest+"old")
+	writeDiffTest(t, dir, "new/shot.png", pngTest+"new")
+	writeDiffTest(t, dir, "a*.png", pngTest+"glob")
+	writeDiffTest(t, dir, "ab.png", pngTest+"ab")
+	writeDiffTest(t, dir, ".gitignore", "ignored.png\n")
+	diffGitTest(t, dir, "add", ".")
+	diffGitTest(t, dir, "commit", "-m", "base")
+	diffGitTest(t, dir, "branch", "-f", "main", "HEAD")
+	diffGitTest(t, dir, "mv", "old/guide.md", "new/guide.md")
+	writeDiffTest(t, dir, "ignored.png", pngTest+"ignored")
+	// Glob characters are literal: a*.png never matches ab.png.
+	writeDiffTest(t, dir, "glob.md", "![Glob](a*.png) ![Ignored](ignored.png)\n")
+	r, files := diffImagesTest(t, dir)
+	if f := files["new/guide.md"]; f.OldPath != "old/guide.md" || !reflect.DeepEqual(f.Document.Images, []DiffImageRef{{Path: "new/shot.png", Image: "new:new/shot.png"}}) {
+		t.Fatalf("a renamed document resolves from its new path: %+v %+v", f, f.Document)
+	}
+	if got, want := files["glob.md"].Document.Images, []DiffImageRef{
+		{Path: "a*.png", Image: "new:a*.png"},
+		{Path: "ignored.png", OmittedReason: "Image not found in the inspected state."},
+	}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("glob.md refs: %+v", got)
+	}
+	if string(r.Images["new:a*.png"].Data) != pngTest+"glob" || string(r.Images["new:new/shot.png"].Data) != pngTest+"new" {
+		t.Fatalf("images: %+v", r.Images)
+	}
+}
