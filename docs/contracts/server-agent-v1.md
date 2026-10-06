@@ -1214,6 +1214,24 @@ send no `document`, and Desktop disables its rendered view with an explanation.
 `localAgent.openLink(url)` opens only `http`, `https` without credentials and
 `mailto` links of a rendered document, through the default browser.
 
+An agent that also advertises `markdown-images` gives each document with a
+`content` an optional `images` list and the result an optional `images` map
+(ADR 0053). The list holds, in reference order and once each, the repository
+paths the document's Markdown images resolve to: the target is percent-decoded
+without its query and fragment, then resolved against the document's directory,
+or the repository root for a leading `/`; a target with a scheme, or one that
+leaves the repository, is not listed. Each entry is `{path, image}` or
+`{path, omittedReason}`. `image` is a key `<side>:<path>` into the result's
+`images` map, whose values are `{mimeType, data}`: the file read from the tree of
+the document's side (the inspected tree for `new`, the merge base for `old`), its
+type sniffed from the content (`image/png`, `image/jpeg`, `image/gif`,
+`image/webp`, `image/svg+xml`) and `data` its bytes in Base64. Only a regular file
+is read; an image over 2 MiB is never read, and images share an 8 MiB budget
+counted before encoding, in file order then reference order, separate from the
+patch and document bounds. An image problem is the entry's `omittedReason`, never
+a failure of the inspection. Older agents send neither, and Desktop shows every
+image as its alt text.
+
 The baseline resolves existing local refs in this order: symbolic `origin/HEAD`,
 remote main/master, local main/master. An invalid recorded default does not permit
 fallback. Exactly one merge base is required. The comparison uses a private temporary

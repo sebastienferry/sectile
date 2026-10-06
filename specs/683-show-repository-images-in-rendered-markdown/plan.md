@@ -225,7 +225,7 @@ Scoped to `.diff-rendered`: the conversation view never creates one.
 - `CHANGELOG.md`, `## [Unreleased]` / `Added`: "The rendered view of a Markdown
   file in the Desktop Changes panel shows the images the document references
   from the repository (PNG, JPEG, GIF, WebP, SVG). (#683)"
-- ADR `docs/adrs/0049-desktop-shows-repository-images-as-data-urls.md`: the
+- ADR `docs/adrs/0053-desktop-shows-repository-images-as-data-urls.md`: the
   CSP gains `img-src 'self' data:`, images travel with the inspection rather
   than on demand, and goldmark is added to find references. Rejected:
   `<canvas>` with an unchanged CSP (no SVG, frozen GIFs), a kept-alive

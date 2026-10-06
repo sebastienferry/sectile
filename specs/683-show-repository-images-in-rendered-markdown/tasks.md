@@ -5,7 +5,7 @@ they cover. Behaviour in `spec.md`, choices in `plan.md`.
 
 ## 1. Shared resolver table
 
-- [ ] T1.1 Write `internal/runner/testdata/markdown_image_targets.json`:
+- [x] T1.1 Write `internal/runner/testdata/markdown_image_targets.json`:
       relative, `./`, `../` inside the repository, `../` leaving it, leading
       `/`, query, fragment, percent-encoded, angle-bracket form as markdown-it
       reports it (`my%20shot.png`), empty, `http:`, `https:`, `data:`,
@@ -14,18 +14,18 @@ they cover. Behaviour in `spec.md`, choices in `plan.md`.
 
 ## 2. Agent: references and resolution
 
-- [ ] T2.1 Add `github.com/yuin/goldmark` to `go.mod` (`go get`, `go mod
+- [x] T2.1 Add `github.com/yuin/goldmark` to `go.mod` (`go get`, `go mod
       tidy`).
-- [ ] T2.2 `markdownImageTargets` in `internal/runner/markdown_images.go`
+- [x] T2.2 `markdownImageTargets` in `internal/runner/markdown_images.go`
       (goldmark, table and strikethrough extensions, `*ast.Image` walk).
-- [ ] T2.3 `resolveImageTarget(documentPath, target)`.
+- [x] T2.3 `resolveImageTarget(documentPath, target)`.
 - Tests (`markdown_images_test.go`): inline, reference style, image in a
   table cell, in a list, in a link; inside a code span and a fenced block (not
   found); raw HTML `<img>` (not found); document order kept; the shared table.
 
 ## 3. Agent: sniffing
 
-- [ ] T3.1 `sniffImage` for PNG, JPEG, GIF87a/89a, WebP and SVG.
+- [x] T3.1 `sniffImage` for PNG, JPEG, GIF87a/89a, WebP and SVG.
 - Tests: each signature; a PNG named `.svg`; an SVG with BOM, XML
   declaration, comment and doctype; an HTML file; a Git LFS pointer; an XML
   document whose root is not `svg`; truncated headers; an SVG declaring an
@@ -33,15 +33,15 @@ they cover. Behaviour in `spec.md`, choices in `plan.md`.
 
 ## 4. Agent: reading from the snapshot
 
-- [ ] T4.1 Contract: `diffImageLimit`, `diffImageBudget`,
+- [x] T4.1 Contract: `diffImageLimit`, `diffImageBudget`,
       `WorktreeDiff.Images`, `DiffDocument.Images`, `DiffImageRef`,
       `DiffImage` in `worktree_diff.go`.
-- [ ] T4.2 `attachDiffImages`: collection in file then reference order, keys
+- [x] T4.2 `attachDiffImages`: collection in file then reference order, keys
       `side:path`, `omitted` on the `new` side, `ls-tree` modes, size check,
       budget reservation, one `cat-file --batch`, sniffing, reasons.
-- [ ] T4.3 Call it from `inspectWorktree` right after
+- [x] T4.3 Call it from `inspectWorktree` right after
       `attachDiffDocuments`, before the state re-checks.
-- [ ] T4.4 Make the two bounds overridable in tests (package variables or a
+- [x] T4.4 Make the two bounds overridable in tests (package variables or a
       parameter) without changing their production values.
 - Tests (`worktree_diff_test.go`, real Git repositories as the existing tests
   build them):
@@ -62,27 +62,27 @@ they cover. Behaviour in `spec.md`, choices in `plan.md`.
 
 ## 5. Agent: capability
 
-- [ ] T5.1 `markdownImagesCapability` in `internal/agent/agent_diff.go`,
+- [x] T5.1 `markdownImagesCapability` in `internal/agent/agent_diff.go`,
       announced in `agent_desktop.go`.
-- [ ] T5.2 Add it to the capability test in `agent_desktop_editor_test.go`.
-- [ ] T5.3 Agent handler test: `/desktop/git-diff` returns `images` with
+- [x] T5.2 Add it to the capability test in `agent_desktop_editor_test.go`.
+- [x] T5.3 Agent handler test: `/desktop/git-diff` returns `images` with
       Base64 data and the refs on the document.
 
 ## 6. Desktop: IPC and CSP
 
-- [ ] T6.1 `markdownImages` flag in the `git-diff` handler of
+- [x] T6.1 `markdownImages` flag in the `git-diff` handler of
       `desktop/electron/main.cjs`.
-- [ ] T6.2 Add `img-src 'self' data:` to the CSP of `desktop/index.html`,
+- [x] T6.2 Add `img-src 'self' data:` to the CSP of `desktop/index.html`,
       nothing else; check the built `desktop/dist/index.html` keeps it.
 
 ## 7. Desktop: renderer
 
-- [ ] T7.1 Image leaf carries `title`.
-- [ ] T7.2 `resolveImageTarget` export, same steps as Go.
-- [ ] T7.3 `image` option of `renderMarkdown`: `<img class="md-picture">`
+- [x] T7.1 Image leaf carries `title`.
+- [x] T7.2 `resolveImageTarget` export, same steps as Go.
+- [x] T7.3 `image` option of `renderMarkdown`: `<img class="md-picture">`
       from `{mimeType,data}` with MIME re-check, fallback with `title=reason`,
       `onerror` fallback "This image could not be displayed."
-- [ ] T7.4 Update the header comment of `markdownView.mjs`.
+- [x] T7.4 Update the header comment of `markdownView.mjs`.
 - Tests (`desktop/tests/markdown-view.test.mjs`): the shared JSON table
   through `resolveImageTarget`; model carries `title`; without the `image`
   option the output is unchanged (conversation view, US5.2); a refused MIME
@@ -90,8 +90,8 @@ they cover. Behaviour in `spec.md`, choices in `plan.md`.
 
 ## 8. Desktop: Changes panel and style
 
-- [ ] T8.1 `gitDiff.js`: pass the `image` lookup when `result.markdownImages`.
-- [ ] T8.2 `.diff-rendered .md-picture{max-width:100%;height:auto}`.
+- [x] T8.1 `gitDiff.js`: pass the `image` lookup when `result.markdownImages`.
+- [x] T8.2 `.diff-rendered .md-picture{max-width:100%;height:auto}`.
 - UI tests (`desktop/tests/git-diff.ui.cjs`, after `npx vite build`, run
   unsandboxed):
   - an image is shown with its alt and title (US1.1, US1.9);
@@ -110,17 +110,32 @@ they cover. Behaviour in `spec.md`, choices in `plan.md`.
 
 ## 9. Documentation
 
-- [ ] T9.1 `CHANGELOG.md`: the `Added` line of `plan.md` under
+- [x] T9.1 `CHANGELOG.md`: the `Added` line of `plan.md` under
       `## [Unreleased]`.
-- [ ] T9.2 ADR `docs/adrs/0049-desktop-shows-repository-images-as-data-urls.md`.
-- [ ] T9.3 `README.md` and `docs/`: update a description of the Changes
+- [x] T9.2 ADR `docs/adrs/0053-desktop-shows-repository-images-as-data-urls.md`.
+- [x] T9.3 `README.md` and `docs/`: update a description of the Changes
       panel's Rendered view if one exists.
 
 ## 10. Checks
 
-- [ ] `go build ./...`, `go vet ./...`, `go test ./internal/runner/...
+- [x] `go build ./...`, `go vet ./...`, `go test ./internal/runner/...
       ./internal/agent/...` (unsandboxed for `httptest`).
-- [ ] `node --test desktop/tests/markdown-view.test.mjs`.
-- [ ] `cd desktop && npx vite build`, then the two UI suites, serially.
+- [x] `node --test desktop/tests/markdown-view.test.mjs`.
+- [x] `cd desktop && npx vite build`, then the two UI suites, serially.
 - [ ] A manual check in Desktop on a real execution whose document references
       a PNG, an SVG and a remote image.
+
+## Implementation notes
+
+- The ADR is number 0053: 0049 to 0052 were taken on `main` meanwhile.
+- A target whose resolved path holds a newline or NUL is refused by both
+  resolvers with "This path cannot be rendered."; Desktop shows it itself and
+  the agent does not list it, like a path leaving the repository.
+- goldmark runs without its HTML block and raw HTML parsers, mirroring
+  markdown-it's `html:false`, so an image written between HTML tags is an image
+  to both. The reference document is shared too
+  (`internal/runner/testdata/markdown_image_document.md`).
+- The Desktop UI cases live in a new suite, `desktop/tests/markdown-images.ui.cjs`;
+  the conversation view's fallback was already asserted by
+  `desktop/tests/conversation.ui.cjs`.
+- Left for the owner: the manual check in Desktop on a real execution.
