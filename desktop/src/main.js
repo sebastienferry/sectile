@@ -103,7 +103,7 @@ let localTasks={}
 try{localTasks=JSON.parse(localStorage.getItem('localTasks')||'{}')}catch{}
 const freeConsole=run=>run?.kind==='console'
 // Task runs show the skill and engine; project prompts show their engine name.
-const runLabel=run=>run.conversation&&run.taskId?run.skill+' · Conversation (test)':run.conversation?'Claude Code · Conversation (test)':freeConsole(run)?(run.engineName||run.provider||'AI')+' · Project prompt':(runEngine(run)?run.skill+' · '+runEngine(run):run.skill)
+const runLabel=run=>run.conversation&&run.taskId?run.skill+' · Conversation (test)':run.conversation?(run.provider==='codex'?'Codex':'Claude Code')+' · Conversation (test)':freeConsole(run)?(run.engineName||run.provider||'AI')+' · Project prompt':(runEngine(run)?run.skill+' · '+runEngine(run):run.skill)
 // A macro skill run has no task: its executions group under the macro.
 const macroRun=run=>!!run?.macroKey
 // Archiving a ticket task removes its worktrees first (#755); a free console or a macro run has none.
@@ -172,11 +172,22 @@ let updateSettingsConnection=null
 let opened=false,selected=null,runs=[],last='',stopping=false,restarting=false,projects=[],projectsLoaded=false
 // Whether the local agent attaches a folder from a run (#676), read with the
 // editor setting from its status.
-let runFoldersAvailable=false,runFoldersTerminalsAvailable=false,conversationControlsAvailable=false,conversationQueueAvailable=false,claudeModels=[]
-const conversation=createConversationView({api,container:document.querySelector('#terminal'),onError:error,canAddFolder:()=>runFoldersAvailable,canControl:()=>conversationControlsAvailable,canQueue:()=>conversationQueueAvailable,models:()=>claudeModels})
+let runFoldersAvailable=false,runFoldersTerminalsAvailable=false,conversationControlsAvailable=false,conversationQueueAvailable=false,providerModels={}
+const conversation=createConversationView({api,container:document.querySelector('#terminal'),onError:error,canAddFolder:()=>runFoldersAvailable,canControl:()=>conversationControlsAvailable,canQueue:()=>conversationQueueAvailable,models:provider=>providerModels[provider]||[]})
+const conversationButton=document.createElement('button')
+conversationButton.type='button';conversationButton.textContent='Claude chat (test)';conversationButton.hidden=true
 // The conversation view is opt-in from Appearance; the terminal stays the default.
 let consoleView='terminal'
 api.consoleView().then(value=>{consoleView=value;render()}).catch(()=>{})
+conversationButton.title='Start an independent conversation in this execution’s directory'
+document.querySelector('#save-log').before(conversationButton)
+conversationButton.onclick=async()=>{
+ conversationButton.disabled=true
+ try{
+  const run=await api.createConversation(selected)
+  runs.push(run);select(run)
+ }catch(err){error(err)}finally{conversationButton.disabled=false}
+}
 // "Add folder…" on a running ticket discussion or free console, in Sectile or
 // detached to the native terminal (#676, #689): the folder joins the project,
 // and the agent types /add-dir into a Claude Code session.
@@ -476,7 +487,7 @@ async function loadEditorSetting(){
   conversationControlsAvailable=!!status.capabilities?.includes('conversation-controls')
   conversationQueueAvailable=!!status.capabilities?.includes('conversation-queue')
   configuredEditor=String(view?.defaults?.editorCommand||'').trim()
-  if(view)claudeModels=Array.isArray(view.defaults?.aiProviderModels?.claude)?view.defaults.aiProviderModels.claude:[]
+  if(view)providerModels=view.defaults?.aiProviderModels||{}
   if(view)renderCustomSkillSignal(view.customSkillsUsed)
  }catch{openEditorAvailable=false;projectTerminalAvailable=false;runFoldersAvailable=false;runFoldersTerminalsAvailable=false;conversationControlsAvailable=false;conversationQueueAvailable=false;configuredEditor=''}
  renderOpenEditor();render({deferrable:true})
@@ -803,6 +814,8 @@ function render(options){
  renderTaskSkillStatuses()
  document.querySelector('#clear-history').disabled=!runs.some(run=>['completed','failed','canceled'].includes(run.status))
  const current=runs.find(run=>run.id===selected)
+ conversationButton.textContent=current?.provider==='codex'?'Codex chat (test)':'Claude chat (test)'
+ conversationButton.hidden=consoleView!=='conversation'||!current?.directory||!!current.conversation||!agentConnected
  addFolderButton.hidden=!agentConnected||!!current?.conversation||!offersRunFolder(current,runFoldersAvailable,runFoldersTerminalsAvailable)
  // The outcome belongs to the run it was given for.
  if(addFolderRun!==selected){addFolderRun=null;addFolderStatus.textContent=''}
@@ -2022,15 +2035,15 @@ function openSettings(initial='Profile',project){
  appearance.hint.textContent='System follows the appearance of this computer. The web interface keeps its own theme.'
  panels.Appearance.append(appearance.section)
  const viewGroup=document.createElement('div');viewGroup.className='segmented'
- viewGroup.setAttribute('role','group');viewGroup.setAttribute('aria-label','Claude consoles')
+ viewGroup.setAttribute('role','group');viewGroup.setAttribute('aria-label','AI consoles')
  const markView=value=>{for(const button of viewGroup.children)button.setAttribute('aria-pressed',String(button.dataset.value===value))}
  for(const choice of CONSOLE_VIEW_CHOICES){
   const button=document.createElement('button');button.type='button';button.textContent=choice.label;button.dataset.value=choice.value
   button.onclick=()=>api.setConsoleView(choice.value).then(value=>{consoleView=value;markView(value);showConversationMode();render()}).catch(error)
   viewGroup.append(button)
  }
- const view=settingRow('Claude consoles',null,viewGroup)
- view.hint.textContent='Conversation opens Claude project prompts in a structured view instead of a terminal (experimental). Other engines and custom launch commands keep the terminal.'
+ const view=settingRow('AI consoles',null,viewGroup)
+ view.hint.textContent='Conversation opens Claude and Codex interactive launches in a structured view (experimental). Other engines keep the terminal.'
  panels.Appearance.append(view.section)
  // The permission mode new conversations start in sits under the view that
  // opens them: it only means something in the conversation view, and only to
@@ -3150,7 +3163,7 @@ async function submitTicketLaunch(view,entry,skillId,prompt,mode){
  view.submitting.add(entry.task.id);updateTicketRow(view,entry)
  view.status.textContent='Submitting execution for '+key+'…'
  try{
-  // An interactive launch follows the Claude consoles preference; the agent
+  // An interactive launch follows the AI consoles preference; the agent
   // falls back to the terminal for an engine that cannot hold a conversation.
   await api.launchServerTask(view.projectID,entry.task.id,skillId,prompt,mode,false,consoleView)
   view.status.textContent='Execution submitted for '+key

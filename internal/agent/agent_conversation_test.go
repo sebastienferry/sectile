@@ -948,7 +948,7 @@ func TestAConversationWaitIsAnsweredByTheNextMessage(t *testing.T) {
 
 // A wait the session declared outlives the end of an approval wait.
 func TestAnApprovalWaitLeavesTheSessionsWait(t *testing.T) {
-	run := &controlledRun{conversation: &claudeConversation{}}
+	run := &controlledRun{conversation: &providerConversation{}}
 	since := time.Now().Add(-time.Minute).UTC()
 	run.desktop.WaitingSince = since
 	run.conversation.approvals = []conversationApproval{{ID: "a"}}

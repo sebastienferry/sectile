@@ -208,9 +208,11 @@ agent-owned console, project settings, MCP connections, and a read-only view
 of uncommitted worktree changes. For release installation and desktop-specific
 configuration, read the [Desktop guide](./desktop/README.md).
 
-The test branch also offers a Claude Code conversation view without a PTY,
-turned on by **Settings → Appearance → Claude consoles → Conversation**: Claude
-project prompts and interactive task launches then open in it. See the
+Desktop also offers an experimental conversation view for Claude Code and
+Codex, turned on by **Settings → Appearance → AI consoles → Conversation**.
+Interactive ticket launches and project prompts open there; **Claude chat (test)**
+or **Codex chat (test)** starts an independent session in the selected execution's
+directory. Codex uses its installed CLI and existing sign-in. See the
 [prototype notes](./docs/experiments/desktop-conversation.md) for its limits.
 
 ## Testing

@@ -1,19 +1,20 @@
 # Sectile Desktop
 
-Local task execution consoles, with an experimental Claude Code conversation view.
+Local task execution consoles, with an experimental Claude Code and Codex conversation view.
 
-## Experimental Claude conversation
+## Experimental conversations
 
-Turn it on with **Settings → Appearance → Claude consoles → Conversation**.
-A **Project prompt** with Claude then opens in this view instead of a terminal.
+Turn it on with **Settings → Appearance → AI consoles → Conversation**.
+A **Project prompt** with Claude or Codex then opens in this view instead of a terminal,
+and **Claude chat (test)** or **Codex chat (test)** appears for an execution with a local directory.
 A task's interactive launches open there too, a skill such as clarify starting
 on its own command and **Discussion (no skill)** waiting for your first message,
 in the task's worktree and with the task's environment, when the project's
-engine is a Claude one. The setting is handed to the local agent, so a launch
+engine is Claude or Codex. The setting is handed to the local agent, so a launch
 started from the web app, or a chain the server continues, opens there as well,
 even with Desktop closed. An autonomous launch keeps its read-only trace; a
 launch template is not run there, only its model is kept, and the conversation
-says so. Another engine keeps the terminal. While Claude answers, a message you
+says so. Another engine keeps the terminal. While the assistant answers, a message you
 send joins the answer in progress, as in Claude Code; one sent as the answer
 ends starts the next. **Stop answer**, or Esc in the message box, stops that
 answer and keeps the conversation open; the next message resumes the session. **Terminal** opens
@@ -69,6 +70,39 @@ the conversation, the conversation is marked waiting in the sidebar and Desktop
 notifies you, as it does for a terminal; your answer, or your next message,
 ends the wait. **Stop**
 closes the conversation. Stored history is read-only after an agent restart.
+### Codex conversations
+
+Codex must already be installed and signed in. The app-server integration was
+verified with Codex CLI 0.157.1. Opening the view initializes a dedicated
+`codex app-server` process and discovers its models, reasoning efforts, skills
+and MCP servers without invoking a model. The same process and thread serve
+successive messages. A failed startup or incompatible protocol is reported in
+the transcript; the terminal control remains available.
+
+The composer offers **Read only**, **Workspace edits** (the default), and
+**Plan mode**. Workspace edits permits writes in the conversation directory and
+the project's attached folders; read-only and plan use a read-only sandbox.
+Network access requires approval. Model and effort options come from Codex's
+catalog; catalog membership does not guarantee account access. Type `$` to
+complete an installed skill. A skill launch sends its explicit native skill
+input with the path Codex discovered. Custom skill prompts keep their supplied
+file and instructions.
+
+Commands, file changes and permission requests ask in their cards. **Allow for
+this conversation** grants session access, without writing Claude permission
+rules or permanently changing Codex policy. Questions use Codex's question ids
+when answered. `/mcp` reads the running app-server's MCP status, and `!` shell
+commands work as in the Claude view. Claude-specific commands such as `/usage`
+and `/context` are not emulated for Codex.
+
+A message sent while Codex answers steers the active turn. If Codex rejects it
+because that turn has ended, it starts the next one. An ambiguous transport
+failure is reported without automatically replaying the message. Stopping an
+answer retains the thread; stopping the execution terminates the process.
+After a process crash, the next message resumes the thread. After an agent
+restart, stored history remains read-only, as with Claude. Unsupported
+app-server requests receive an explicit error and a transcript notice.
+
 See [prototype notes](../docs/experiments/desktop-conversation.md).
 
 ## Install a release

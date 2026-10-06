@@ -9,7 +9,7 @@ import (
 
 // consoleViewCapability tells Desktop this agent keeps a workstation console
 // view (#711), so an interactive launch the web app started follows Desktop's
-// Claude consoles setting too.
+// AI consoles setting too.
 const consoleViewCapability = "console-view-default"
 
 // desktopConsoleView reads and replaces the workstation console view. Desktop
@@ -69,7 +69,7 @@ func (d *agentDaemon) workstationConsoleView() string {
 	return settings.Defaults.ConsoleViewOrDefault()
 }
 
-// opensConversation decides whether an interactive dispatch runs in Claude's
+// opensConversation decides whether an interactive dispatch runs in the
 // conversation view: Desktop marked the launch for it, or nothing marked it and
 // the workstation console view is the conversation. An autonomous launch, an
 // open_terminal and an engine the conversation cannot honour keep what they had.

@@ -119,7 +119,7 @@ func TestAttachingAFolderFromARun(t *testing.T) {
 	skill := discussion("skill", "claude", "running")
 	skill.desktop.Skill = "implement"
 	d.queue.runs = map[string]*controlledRun{
-		"chat":       {exited: make(chan struct{}), conversation: &claudeConversation{}, desktop: desktopRun{ID: "chat", ProjectID: "p", Conversation: true, Headless: true, Status: "running"}},
+		"chat":       {exited: make(chan struct{}), conversation: &providerConversation{}, desktop: desktopRun{ID: "chat", ProjectID: "p", Conversation: true, Headless: true, Status: "running"}},
 		"claude-run": discussion("claude-run", "claude", "running"),
 		"codex-run":  discussion("codex-run", "codex", "running"),
 		"finished":   finished,

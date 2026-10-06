@@ -8,7 +8,7 @@ const http=require('node:http'),fs=require('node:fs'),os=require('node:os'),path
 // announces it, on connection and on each change; the setting is disabled in
 // the terminal view and for an agent that predates it. A new conversation's
 // composer starts on the mode the agent reports.
-test('the conversation permission mode is chosen under Claude consoles and handed to the agent',async()=>{
+test('the conversation permission mode is chosen under AI consoles and handed to the agent',async()=>{
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'sectile-conversation-mode-ui-'))
  fs.writeFileSync(path.join(root,'desktop.json'),JSON.stringify({consoleView:'conversation',conversationMode:'auto'}))
  const chat={id:'chat',projectId:'project',kind:'console',provider:'claude',conversation:true,headless:true,status:'running',directory:'/tmp/project'}
@@ -54,8 +54,8 @@ test('the conversation permission mode is chosen under Claude consoles and hande
   await openAppearance()
   const select=page.getByRole('combobox',{name:'Conversation permission mode'})
   const row=page.locator('.setting-row').filter({has:select})
-  // It sits right under Claude consoles, carries the Claude mark, and offers the composer's modes.
-  await expect(page.locator('.setting-row').filter({has:page.getByRole('group',{name:'Claude consoles'})}).locator('xpath=following-sibling::section[1]')).toContainText('Conversation permission mode')
+  // It sits right under AI consoles, carries the Claude mark, and offers the composer's modes.
+  await expect(page.locator('.setting-row').filter({has:page.getByRole('group',{name:'AI consoles'})}).locator('xpath=following-sibling::section[1]')).toContainText('Conversation permission mode')
   await expect(row.locator('svg.claude-mark path')).toHaveCount(1)
   await expect(select).toHaveValue('auto')
   await expect(select).toBeEnabled()
@@ -73,7 +73,7 @@ test('the conversation permission mode is chosen under Claude consoles and hande
   await expect(page.locator('[data-tone="error"]')).toHaveCount(0)
   refuse=false
   // The terminal view opens no conversation: the setting is disabled and says why.
-  const views=page.getByRole('group',{name:'Claude consoles'})
+  const views=page.getByRole('group',{name:'AI consoles'})
   await views.getByRole('button',{name:'Terminal',exact:true}).click()
   await expect(select).toBeDisabled()
   await expect(row).toContainText('choose Conversation above')
