@@ -669,6 +669,15 @@ var migrations = []migration{
 			"ALTER TABLE projects ADD COLUMN priority_mapping TEXT NOT NULL DEFAULT '{}';",
 		},
 	},
+	{
+		// The Jira custom fields a project maps its epic priority and quarter to
+		// (#680). '{}' maps none, which keeps both axes as labels only.
+		version: 48,
+		name:    "projects.epic_axis_fields",
+		statements: []string{
+			"ALTER TABLE projects ADD COLUMN epic_axis_fields TEXT NOT NULL DEFAULT '{}';",
+		},
+	},
 }
 
 // migrateSchema brings the database to the schema this binary expects, and is
