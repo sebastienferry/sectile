@@ -92,6 +92,7 @@ func claudeSandboxPayload(sandbox *agentconfig.ClaudeSandbox) map[string]any {
 		"allowUnsandboxedCommands": value.AllowUnsandboxedCommands,
 		"additionalDirectories":    list(value.AdditionalDirectories),
 		"allowedDomains":           list(value.AllowedDomains),
+		"excludedCommands":         list(value.ExcludedCommands),
 		"allowWrite":               list(value.AllowWrite),
 		"allow":                    list(value.Allow),
 		"deny":                     list(value.Deny),

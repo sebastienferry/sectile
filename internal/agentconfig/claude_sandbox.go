@@ -23,14 +23,18 @@ type ClaudeSandbox struct {
 	AdditionalDirectories    []string `json:"additionalDirectories,omitempty"`
 	Enabled                  *bool    `json:"enabled,omitempty"`
 	AllowedDomains           []string `json:"allowedDomains,omitempty"`
-	AllowWrite               []string `json:"allowWrite,omitempty"`
-	Allow                    []string `json:"allow,omitempty"`
-	Deny                     []string `json:"deny,omitempty"`
+	// ExcludedCommands are the commands Claude Code runs outside its sandbox
+	// (#764), written as the inside of a Bash(...) rule: "glab *" matches
+	// glab with or without arguments, "glab" only the bare command.
+	ExcludedCommands []string `json:"excludedCommands,omitempty"`
+	AllowWrite       []string `json:"allowWrite,omitempty"`
+	Allow            []string `json:"allow,omitempty"`
+	Deny             []string `json:"deny,omitempty"`
 }
 
 // IsZero reports values that state nothing, a nil pointer included.
 func (c *ClaudeSandbox) IsZero() bool {
-	return c == nil || (c.Enabled == nil && c.AutoAllowBashIfSandboxed == nil && c.AllowUnsandboxedCommands == nil && len(c.AdditionalDirectories) == 0 && len(c.AllowedDomains) == 0 && len(c.AllowWrite) == 0 &&
+	return c == nil || (c.Enabled == nil && c.AutoAllowBashIfSandboxed == nil && c.AllowUnsandboxedCommands == nil && len(c.AdditionalDirectories) == 0 && len(c.AllowedDomains) == 0 && len(c.ExcludedCommands) == 0 && len(c.AllowWrite) == 0 &&
 		len(c.Allow) == 0 && len(c.Deny) == 0)
 }
 
@@ -49,6 +53,7 @@ func NormalizeClaudeSandbox(c ClaudeSandbox) (ClaudeSandbox, error) {
 	}{
 		{"additionalDirectories", c.AdditionalDirectories, &out.AdditionalDirectories},
 		{"allowedDomains", c.AllowedDomains, &out.AllowedDomains},
+		{"excludedCommands", c.ExcludedCommands, &out.ExcludedCommands},
 		{"allowWrite", c.AllowWrite, &out.AllowWrite},
 		{"allow", c.Allow, &out.Allow},
 		{"deny", c.Deny, &out.Deny},
@@ -134,6 +139,7 @@ func MergeClaudeSandbox(sent, base, stored ClaudeSandbox) ClaudeSandbox {
 		AllowUnsandboxedCommands: sent.AllowUnsandboxedCommands,
 		AdditionalDirectories:    merge(sent.AdditionalDirectories, base.AdditionalDirectories, stored.AdditionalDirectories),
 		AllowedDomains:           merge(sent.AllowedDomains, base.AllowedDomains, stored.AllowedDomains),
+		ExcludedCommands:         merge(sent.ExcludedCommands, base.ExcludedCommands, stored.ExcludedCommands),
 		AllowWrite:               merge(sent.AllowWrite, base.AllowWrite, stored.AllowWrite),
 		Allow:                    merge(sent.Allow, base.Allow, stored.Allow),
 		Deny:                     merge(sent.Deny, base.Deny, stored.Deny),
@@ -158,6 +164,9 @@ func claudeSettingsDocument(c ClaudeSandbox, goos string) map[string]any {
 		}
 		if len(c.AllowedDomains) > 0 {
 			sandbox["network"] = map[string]any{"allowedDomains": c.AllowedDomains}
+		}
+		if len(c.ExcludedCommands) > 0 {
+			sandbox["excludedCommands"] = c.ExcludedCommands
 		}
 		if len(c.AllowWrite) > 0 {
 			sandbox["filesystem"] = map[string]any{"allowWrite": c.AllowWrite}
@@ -305,6 +314,7 @@ func (s Settings) ResolvedClaudeSandbox(projectID string) *ClaudeSandbox {
 		AllowUnsandboxedCommands: global.AllowUnsandboxedCommands,
 		AdditionalDirectories:    unionEntries(global.AdditionalDirectories, project.AdditionalDirectories),
 		AllowedDomains:           unionEntries(global.AllowedDomains, project.AllowedDomains),
+		ExcludedCommands:         unionEntries(global.ExcludedCommands, project.ExcludedCommands),
 		AllowWrite:               unionEntries(global.AllowWrite, project.AllowWrite),
 		Allow:                    unionEntries(global.Allow, project.Allow),
 		Deny:                     unionEntries(global.Deny, project.Deny),

@@ -308,18 +308,20 @@ func TestDesktopProjectSandboxSettings(t *testing.T) {
 	if initial["platformSandbox"] != (runtime.GOOS != "windows") {
 		t.Fatalf("platformSandbox = %v", initial["platformSandbox"])
 	}
-	if sandbox, _ := initial["claudeSandbox"].(map[string]any); sandbox["enabled"] != nil || len(sandbox["allow"].([]any)) != 0 {
+	if sandbox, _ := initial["claudeSandbox"].(map[string]any); sandbox["enabled"] != nil || len(sandbox["allow"].([]any)) != 0 || len(sandbox["excludedCommands"].([]any)) != 0 {
 		t.Fatalf("a project without values reads %v", initial["claudeSandbox"])
 	}
 	save := map[string]any{"projectId": "p", "path": root, "claudeSandbox": map[string]any{
 		"enabled": true, "allowedDomains": []string{" registry.npmjs.org ", "registry.npmjs.org"}, "allowWrite": []string{"~/.cache/go-build"},
-		"allow": []string{"Bash(make test:*)"}, "deny": []string{"Bash(git push:*)"},
+		"excludedCommands": []string{" glab * ", "glab *"},
+		"allow":            []string{"Bash(make test:*)"}, "deny": []string{"Bash(git push:*)"},
 	}}
 	if w := doReq("POST", "/desktop/projects", save); w.Code != 204 {
 		t.Fatalf("save: %d %s", w.Code, w.Body.String())
 	}
 	sandbox := read()["claudeSandbox"].(map[string]any)
-	if sandbox["enabled"] != true || !reflect.DeepEqual(sandbox["allowedDomains"], []any{"registry.npmjs.org"}) || !reflect.DeepEqual(sandbox["deny"], []any{"Bash(git push:*)"}) {
+	if sandbox["enabled"] != true || !reflect.DeepEqual(sandbox["allowedDomains"], []any{"registry.npmjs.org"}) || !reflect.DeepEqual(sandbox["deny"], []any{"Bash(git push:*)"}) ||
+		!reflect.DeepEqual(sandbox["excludedCommands"], []any{"glab *"}) {
 		t.Fatalf("saved values read back as %v", sandbox)
 	}
 	if w := doReq("POST", "/desktop/projects", map[string]any{"projectId": "p", "path": root, "claudeSandbox": map[string]any{"allow": []string{"  "}}}); w.Code != 400 {
