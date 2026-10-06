@@ -5,12 +5,12 @@ they cover.
 
 ## 1. Agent: pairing date and Desktop-only keys
 
-- [ ] T1.1 `Connection.PairedAt`; `WriteConnection` stamps it, holds
+- [x] T1.1 `Connection.PairedAt`; `WriteConnection` stamps it, holds
       `settingsMu`, drops `desktopOnlyKeys`.
-- [ ] T1.2 `desktopOnlyKeys` dropped by `storeSettings`; `MigrateSettingsReport`
+- [x] T1.2 `desktopOnlyKeys` dropped by `storeSettings`; `MigrateSettingsReport`
       rewrites a current-layout file that still holds one, without a layout
       backup.
-- [ ] T1.3 `RecordDesktopConnection`.
+- [x] T1.3 `RecordDesktopConnection`.
 - Tests: `WriteConnection` writes `pairedAt` and removes the Desktop-only keys
   while keeping the owned sections; `WriteSettings` and the start-up migration
   remove them and keep `server`, `deviceId`, `apiKey`; `RecordDesktopConnection`
@@ -19,19 +19,19 @@ they cover.
 
 ## 2. Agent: start and key rotation
 
-- [ ] T2.1 `agent.go` reads `SECTILE_PAIRED_AT` and `SECTILE_PAIRED_DEVICE_ID`
+- [x] T2.1 `agent.go` reads `SECTILE_PAIRED_AT` and `SECTILE_PAIRED_DEVICE_ID`
       and records the connection at start.
-- [ ] T2.2 `newerStoredKey` applies the pairing-date rule when the start date
+- [x] T2.2 `newerStoredKey` applies the pairing-date rule when the start date
       is known.
 - Tests: a stored key dated after the start date is newer; dated before, or
   undated, is not; without a start date the rule is today's.
 
 ## 3. Desktop: its own file
 
-- [ ] T3.1 `settings-file.cjs`: path, `readSharedSettings`,
+- [x] T3.1 `settings-file.cjs`: path, `readSharedSettings`,
       `readDesktopSettings` with the one-time migration,
       `updateDesktopSettings`, `effectiveCredential`, `sameServer`.
-- [ ] T3.2 `datadir.cjs`: `desktop.json` in `CARRIED_FILES`.
+- [x] T3.2 `datadir.cjs`: `desktop.json` in `CARRIED_FILES`.
 - Tests (`node --test`): migration from a shared file with `secret`, with
   `apiKey`, from the legacy `agent-settings.json`, never twice, never writing
   the shared file; `effectiveCredential` for a later-dated shared key, an
@@ -39,14 +39,14 @@ they cover.
 
 ## 4. Desktop: every writer moves
 
-- [ ] T4.1 `saveCredential`, `storedDeviceId`, `settings`, `credential-state`,
+- [x] T4.1 `saveCredential`, `storedDeviceId`, `settings`, `credential-state`,
       `save-settings`, appearance and console view handlers, `syncConsoleView`,
       `lifecycle`, the identity check and `openWindow` read and write
       Desktop's record.
-- [ ] T4.2 `startAgent`: effective credential, Desktop's `repo`, no write of
+- [x] T4.2 `startAgent`: effective credential, Desktop's `repo`, no write of
       the shared file, no merge of `.taskflow/agent.json`, spawn env
       `SECTILE_PAIRED_AT` and `SECTILE_PAIRED_DEVICE_ID`.
-- [ ] T4.3 UI tests that seed or read Desktop keys in `settings.json` move to
+- [x] T4.3 UI tests that seed or read Desktop keys in `settings.json` move to
       `desktop.json` where they test Desktop's own storage, and keep
       `settings.json` where they test a key `pair` stored:
       `appearance.ui.cjs`, `console-view-sync.ui.cjs`, `pairing.ui.cjs`,
@@ -60,19 +60,19 @@ they cover.
 
 ## 5. Documentation
 
-- [ ] T5.1 ADR 0053: Desktop keeps its own settings file; `settings.json` is
+- [x] T5.1 ADR 0053: Desktop keeps its own settings file; `settings.json` is
       written by the agent side only; the pairing date decides the newest key.
-- [ ] T5.2 ADR 0049: amend the key-storage paragraph (pairing date replaces
+- [x] T5.2 ADR 0049: amend the key-storage paragraph (pairing date replaces
       "`pair` deletes `secret`" as the precedence rule; the standalone agent
       no longer reads Desktop's key).
-- [ ] T5.3 `docs/contracts/server-agent-v1.md`: the Desktop launch settings
+- [x] T5.3 `docs/contracts/server-agent-v1.md`: the Desktop launch settings
       paragraph, the companion paragraph and the settings example (`pairedAt`,
       no Desktop keys).
-- [ ] T5.4 `CHANGELOG.md` `[Unreleased]`: `Fixed` and `Changed` lines (#746).
+- [x] T5.4 `CHANGELOG.md` `[Unreleased]`: `Fixed` and `Changed` lines (#746).
 
 ## 6. Verification
 
-- [ ] `go test ./internal/agentconfig/... ./internal/agent/...`
-- [ ] `node --test desktop/tests/*.test.cjs`
+- [x] `go test ./internal/agentconfig/... ./internal/agent/...`
+- [x] `node --test desktop/tests/*.test.cjs`
 - [ ] Desktop UI suites, serially, after `npx vite build`.
-- [ ] `grep -n "settingsPath()+'.tmp'" desktop/electron/main.cjs` prints nothing.
+- [x] `grep -n "settingsPath()+'.tmp'" desktop/electron/main.cjs` prints nothing.

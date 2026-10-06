@@ -750,11 +750,17 @@ console output on start; an older one clears its in-memory console history.
 The **Local agent** panel exposes launch configuration. Stop the daemon before
 changing settings, then use **Start local agent**. **Stop agent** uses authenticated
 `POST /desktop/shutdown` with the same confirmed-exit guard as restart.
-Desktop launch settings are saved locally; the API key is encrypted with
-Electron safeStorage when OS encryption is available, and kept in the same
-owner-only settings file otherwise, so a single-use pairing code is never lost.
-`sectile-agent pair` writes `apiKey` and deletes any encrypted `secret`, so the
-two never coexist and Desktop starts on the newer key (ADR 0049). Existing
+Desktop launch settings are saved in Desktop's own owner-only `desktop.json`
+in its data directory, never in `settings.json`, which the agent and
+`sectile-agent pair` write alone (ADR 0053). The API key is encrypted there
+with Electron safeStorage when OS encryption is available, and kept in clear
+otherwise, so a single-use pairing code is never lost. Each pairing records
+`pairedAt`; Desktop starts on the key `sectile-agent pair` stored in
+`settings.json` only when it was paired later for the same server. Desktop
+starts the agent with `TOKEN`, `SECTILE_PAIRED_AT` and
+`SECTILE_PAIRED_DEVICE_ID`; the agent records that server and device in
+`settings.json`, never the key, and takes a stored key as newer only when it
+was paired later. The standalone agent does not reuse a key Desktop stored. Existing
 agents launched outside the desktop do not expose their server credentials to
 this panel.
 
@@ -800,6 +806,7 @@ The workstation settings file is written in layout 3:
 ```json
 {
   "server": "https://sectile.example", "deviceId": "laptop", "apiKey": "...",
+  "pairedAt": "2026-10-06T07:00:00Z",
   "layout": 3,
   "defaults": {
     "aiProviderModels": {"claude": ["claude-opus-5", "claude-sonnet-5"]},
@@ -967,8 +974,10 @@ console history are held in memory for the agent lifetime.
 ### User configuration and commands
 
 Agent settings and project mappings live in
-`~/.config/sectile/settings.json`, shared by the CLI agent and companion.
-Writes preserve connection fields, use atomic replacement and mode 0600.
+`~/.config/sectile/settings.json`, written by the agent and
+`sectile-agent pair` only; the desktop companion reads it and keeps its own
+settings in `desktop.json` (ADR 0053). Writes preserve connection fields, drop
+the keys only the desktop used before, use atomic replacement and mode 0600.
 Legacy repository mappings and the pre-#305 layout remain readable and are
 migrated on the next save.
 
