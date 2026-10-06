@@ -55,6 +55,9 @@ type WorktreeDiff struct {
 	Deletions     int                `json:"deletions"`
 	Warnings      []DiffWarning      `json:"warnings"`
 	Files         []WorktreeDiffFile `json:"files"`
+	// Images holds the repository images the documents reference, keyed by
+	// "<side>:<path>" so that one image is carried once (#683).
+	Images map[string]DiffImage `json:"images,omitempty"`
 }
 type DiffWarning struct {
 	Code    string `json:"code"`
@@ -81,6 +84,9 @@ type DiffDocument struct {
 	Side          string `json:"side"`
 	Content       string `json:"content,omitempty"`
 	OmittedReason string `json:"omittedReason,omitempty"`
+	// Images lists, in reference order and without duplicates, the
+	// repository paths the document's images resolve to (#683).
+	Images []DiffImageRef `json:"images,omitempty"`
 }
 type DiffError struct {
 	Code    string `json:"code"`
@@ -748,8 +754,12 @@ func inspectWorktree(g diffGit, branch, repository string) (*WorktreeDiff, error
 	result.FilesChanged = len(result.Files)
 	result.IsClean = result.Complete && len(result.Files) == 0
 	// The snapshot objects disappear with the temporary directory: read the
-	// documents from the trees the patch compares, before returning.
+	// documents, then the images they reference, from the trees the patch
+	// compares, before returning.
 	if e = attachDiffDocuments(snapshot, result.Files, omitted, ancestor, tree); e != nil {
+		return nil, e
+	}
+	if e = attachImages(snapshot, result, omitted, ancestor, tree); e != nil {
 		return nil, e
 	}
 	after, e := g.state()

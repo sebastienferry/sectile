@@ -12,6 +12,11 @@ import (
 // connected to an agent without it explains why it cannot render them.
 const markdownDocumentsCapability = "markdown-documents"
 
+// markdownImagesCapability is announced once the git-diff result carries the
+// repository images its Markdown documents reference (#683). A desktop
+// connected to an agent without it shows every image as its alt text.
+const markdownImagesCapability = "markdown-images"
+
 func (d *agentDaemon) desktopGitDiff(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")

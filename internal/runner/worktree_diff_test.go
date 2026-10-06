@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -475,7 +476,7 @@ func TestWorktreeDiffMarkdownDocuments(t *testing.T) {
 	}
 	for p, document := range want {
 		f, ok := files[p]
-		if !ok || f.Document == nil || *f.Document != document {
+		if !ok || f.Document == nil || !reflect.DeepEqual(*f.Document, document) {
 			t.Fatalf("%s: got %+v, want %+v", p, f.Document, document)
 		}
 		if f.Patch == "" && p != "empty.md" {
@@ -547,5 +548,193 @@ func TestWorktreeDiffMarkdownDocumentBudget(t *testing.T) {
 	last := files["zz.md"]
 	if last.Document.OmittedReason != "Rendering skipped: the 4 MiB rendering budget was reached." || last.OmittedReason != "Patch omitted because the aggregate display limit was reached." {
 		t.Fatalf("zz.md: %+v %+v", last, last.Document)
+	}
+}
+
+const pngTest = "\x89PNG\r\n\x1a\n"
+
+func diffImagesTest(t *testing.T, dir string) (*WorktreeDiff, map[string]WorktreeDiffFile) {
+	t.Helper()
+	r := inspectDiffTest(t, dir)
+	files := map[string]WorktreeDiffFile{}
+	for _, f := range r.Files {
+		files[f.Path] = f
+	}
+	return r, files
+}
+
+func TestWorktreeDiffMarkdownImages(t *testing.T) {
+	dir := diffFixture(t)
+	for _, d := range []string{"docs/images", "docs/dir", "web"} {
+		if e := os.MkdirAll(filepath.Join(dir, d), 0755); e != nil {
+			t.Fatal(e)
+		}
+	}
+	writeDiffTest(t, dir, "docs/guide.md", "# Guide\n")
+	writeDiffTest(t, dir, "docs/images/flow.png", pngTest+"flow")
+	writeDiffTest(t, dir, "docs/changed.png", pngTest+"before")
+	writeDiffTest(t, dir, "docs/shot.png", pngTest+"baseline shot")
+	writeDiffTest(t, dir, "docs/old.md", "![Shot](shot.png) ![Added](added.png)\n")
+	writeDiffTest(t, dir, "docs/dir/child.txt", "child\n")
+	writeDiffTest(t, dir, "docs/lfs.png", "version https://git-lfs.github.com/spec/v1\noid sha256:4d7a214614ab2935c943f9e0ff69d22eadbb8f32b1258daaa5e2ca24d17e2393\nsize 12345\n")
+	writeDiffTest(t, dir, "docs/text.png", "not an image\n")
+	writeDiffTest(t, dir, "docs/real.svg", "\x89PNG\r\n\x1a\nnamed svg")
+	writeDiffTest(t, dir, "web/logo.svg", `<?xml version="1.0"?><svg xmlns="http://www.w3.org/2000/svg"/>`)
+	if e := os.Symlink("images/flow.png", filepath.Join(dir, "docs/link.png")); e != nil {
+		t.Fatal(e)
+	}
+	diffGitTest(t, dir, "add", ".")
+	diffGitTest(t, dir, "commit", "-m", "documents")
+	diffGitTest(t, dir, "checkout", "main")
+	diffGitTest(t, dir, "merge", "--ff-only", "feat/test")
+	diffGitTest(t, dir, "checkout", "feat/test")
+
+	writeDiffTest(t, dir, "docs/guide.md", strings.Join([]string{
+		"![Flow](images/flow.png \"Request flow\")",
+		"![Changed](changed.png) ![New](<new image.png>) ![Logo](/web/logo.svg#dark)",
+		"![Missing](missing.png) ![Dir](dir) ![Link](link.png) ![LFS](lfs.png) ![Text](text.png?raw=1)",
+		"![Named](real.svg) ![Huge](huge.png) ![Out](../../outside.png) ![Remote](https://example.com/a.png)",
+		"![Again](./images/flow.png)",
+		"",
+	}, "\n"))
+	writeDiffTest(t, dir, "docs/second.md", "![Flow](images/flow.png) ![Changed](changed.png)\n")
+	writeDiffTest(t, dir, "docs/changed.png", pngTest+"after")
+	writeDiffTest(t, dir, "docs/new image.png", "GIF89a new")
+	writeDiffTest(t, dir, "docs/added.png", pngTest+"added")
+	writeDiffTest(t, dir, "docs/shot.png", pngTest+"modified shot")
+	writeDiffTest(t, dir, "docs/huge.png", pngTest+strings.Repeat("x", diffMetadataLimit))
+	diffGitTest(t, dir, "rm", "-q", "docs/old.md")
+
+	r, files := diffImagesTest(t, dir)
+	refs := func(p string) []DiffImageRef { return files[p].Document.Images }
+	if got, want := refs("docs/guide.md"), []DiffImageRef{
+		{Path: "docs/images/flow.png", Image: "new:docs/images/flow.png"},
+		{Path: "docs/changed.png", Image: "new:docs/changed.png"},
+		{Path: "docs/new image.png", Image: "new:docs/new image.png"},
+		{Path: "web/logo.svg", Image: "new:web/logo.svg"},
+		{Path: "docs/missing.png", OmittedReason: "Image not found in the inspected state."},
+		{Path: "docs/dir", OmittedReason: "Image not found in the inspected state."},
+		{Path: "docs/link.png", OmittedReason: "Symbolic links are not followed."},
+		{Path: "docs/lfs.png", OmittedReason: "This file is not a supported image."},
+		{Path: "docs/text.png", OmittedReason: "This file is not a supported image."},
+		{Path: "docs/real.svg", Image: "new:docs/real.svg"},
+		{Path: "docs/huge.png", OmittedReason: "File exceeds the 8 MiB inspection limit."},
+	}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("guide.md refs:\n got %+v\nwant %+v", got, want)
+	}
+	if got, want := refs("docs/second.md"), []DiffImageRef{
+		{Path: "docs/images/flow.png", Image: "new:docs/images/flow.png"},
+		{Path: "docs/changed.png", Image: "new:docs/changed.png"},
+	}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("second.md refs: %+v", got)
+	}
+	// A deleted document reads its images from the merge-base.
+	if got, want := refs("docs/old.md"), []DiffImageRef{
+		{Path: "docs/shot.png", Image: "old:docs/shot.png"},
+		{Path: "docs/added.png", OmittedReason: "Image not found in the inspected state."},
+	}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("old.md refs: %+v", got)
+	}
+	want := map[string]DiffImage{
+		"new:docs/images/flow.png": {"image/png", []byte(pngTest + "flow")},
+		"new:docs/changed.png":     {"image/png", []byte(pngTest + "after")},
+		"new:docs/new image.png":   {"image/gif", []byte("GIF89a new")},
+		"new:web/logo.svg":         {"image/svg+xml", []byte(`<?xml version="1.0"?><svg xmlns="http://www.w3.org/2000/svg"/>`)},
+		"new:docs/real.svg":        {"image/png", []byte(pngTest + "named svg")},
+		"old:docs/shot.png":        {"image/png", []byte(pngTest + "baseline shot")},
+	}
+	if !reflect.DeepEqual(r.Images, want) {
+		t.Fatalf("images: got %d %+v", len(r.Images), r.Images)
+	}
+	encoded, _ := json.Marshal(r)
+	if !strings.Contains(string(encoded), `"new:docs/changed.png":{"mimeType":"image/png","data":"iVBORw0KGgphZnRlcg=="}`) {
+		t.Fatalf("image not Base64 in JSON: %s", encoded)
+	}
+}
+
+func TestWorktreeDiffMarkdownImageBudget(t *testing.T) {
+	limit, budget := diffImageLimit, diffImageBudget
+	diffImageLimit, diffImageBudget = 100, 250
+	t.Cleanup(func() { diffImageLimit, diffImageBudget = limit, budget })
+	dir := diffFixture(t)
+	image := func(tag string, size int) string {
+		return pngTest + tag + strings.Repeat("x", size-len(pngTest)-len(tag))
+	}
+	writeDiffTest(t, dir, "x1.png", image("1", 80))
+	writeDiffTest(t, dir, "big.png", image("big", 101))
+	writeDiffTest(t, dir, "x2.png", image("2", 80))
+	writeDiffTest(t, dir, "text.png", strings.Repeat("t", 80))
+	writeDiffTest(t, dir, "x3.png", image("3", 80))
+	writeDiffTest(t, dir, "x4.png", image("4", 10))
+	// File order is path order: a.md, then b.md, whatever the references.
+	writeDiffTest(t, dir, "b.md", "![one](x1.png) ![three](x3.png) ![four](x4.png)\n")
+	writeDiffTest(t, dir, "a.md", "![one](x1.png) ![big](big.png) ![two](x2.png) ![text](text.png)\n")
+	r, files := diffImagesTest(t, dir)
+	skipped := "Image skipped: the 8 MiB image budget was reached."
+	if got, want := files["a.md"].Document.Images, []DiffImageRef{
+		{Path: "x1.png", Image: "new:x1.png"},
+		{Path: "big.png", OmittedReason: "Image exceeds the 2 MiB display limit."},
+		{Path: "x2.png", Image: "new:x2.png"},
+		// A refused format still spent its reservation.
+		{Path: "text.png", OmittedReason: "This file is not a supported image."},
+	}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("a.md refs: %+v", got)
+	}
+	// x1 is shared and counted once; x3 overflows, and x4 follows it even
+	// though it would fit.
+	if got, want := files["b.md"].Document.Images, []DiffImageRef{
+		{Path: "x1.png", Image: "new:x1.png"},
+		{Path: "x3.png", OmittedReason: skipped},
+		{Path: "x4.png", OmittedReason: skipped},
+	}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("b.md refs: %+v", got)
+	}
+	if len(r.Images) != 2 {
+		t.Fatalf("images carried: %d", len(r.Images))
+	}
+}
+
+func TestWorktreeDiffMarkdownImagesLeaveTheRestUnchanged(t *testing.T) {
+	dir := diffFixture(t)
+	writeDiffTest(t, dir, "shot.png", pngTest+"shot")
+	writeDiffTest(t, dir, "guide.md", "# Guide\n\n![Shot](shot.png)\n")
+	writeDiffTest(t, dir, "oversized.md", "![Shot](shot.png)\n"+strings.Repeat("a long Markdown line\n", 30000))
+	with, files := diffImagesTest(t, dir)
+	if document := files["oversized.md"].Document; document.OmittedReason == "" || document.Images != nil {
+		t.Fatalf("an omitted document carries no image: %+v", document)
+	}
+	if len(with.Images) != 1 || files["guide.md"].Document.Images == nil {
+		t.Fatalf("guide.md image missing: %+v", with.Images)
+	}
+	attach := attachImages
+	attachImages = func(diffGit, *WorktreeDiff, map[string]WorktreeDiffFile, string, string) error { return nil }
+	t.Cleanup(func() { attachImages = attach })
+	without := inspectDiffTest(t, dir)
+	with.Images = nil
+	for i := range with.Files {
+		if with.Files[i].Document != nil {
+			with.Files[i].Document.Images = nil
+		}
+	}
+	with.GeneratedAt, without.GeneratedAt = "", ""
+	if !reflect.DeepEqual(with, without) {
+		t.Fatal("images changed the files, patches or documents")
+	}
+}
+
+func TestWorktreeDiffMarkdownImageSubmodule(t *testing.T) {
+	dir := diffFixture(t)
+	head := diffGitTest(t, dir, "rev-parse", "HEAD")
+	diffGitTest(t, dir, "update-index", "--add", "--cacheinfo", "160000,"+head+",vendor")
+	diffGitTest(t, dir, "commit", "-m", "submodule")
+	diffGitTest(t, dir, "branch", "-f", "main", "HEAD")
+	writeDiffTest(t, dir, "guide.md", "![Sub](vendor) ![Inside](vendor/logo.png)\n")
+	_, files := diffImagesTest(t, dir)
+	notFound := "Image not found in the inspected state."
+	if got, want := files["guide.md"].Document.Images, []DiffImageRef{
+		{Path: "vendor", OmittedReason: notFound},
+		{Path: "vendor/logo.png", OmittedReason: notFound},
+	}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("submodule refs: %+v", got)
 	}
 }
