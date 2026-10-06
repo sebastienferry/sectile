@@ -61,7 +61,7 @@ try {
   const status=()=>panel().locator('[data-testid="todos-mirror"]');
 
   await row('Epic one').click();
-  await page.getByRole('button',{name:'Framing',exact:true}).click();
+  await page.getByRole('tab',{name:'Framing',exact:true}).click();
   await panel().getByText('Ligne A').waitFor();
   assert.deepEqual(await texts(),['Ligne A','Ligne B','Ligne C']);
 

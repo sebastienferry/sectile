@@ -57,7 +57,7 @@ try {
 
   // US4.1, US4.5: a copy waiting to be written offers to publish it again, and only the framing is queued.
   await row('Epic one').click();
-  await page.getByRole('button',{name:'Framing',exact:true}).click();
+  await page.getByRole('tab',{name:'Framing',exact:true}).click();
   await status().waitFor();
   assert.equal(await status().getAttribute('data-state'),'pending');
   await status().getByText('Publication en attente').waitFor();

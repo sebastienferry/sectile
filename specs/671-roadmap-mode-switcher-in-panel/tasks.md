@@ -4,26 +4,26 @@ Order matters: each step leaves the tree building and green.
 
 ## 1. The list follows the horizon tab (US2)
 
-- [ ] T1.1 `RoadmapView.tsx`: add `sprintCheckHere` and use it in
+- [x] T1.1 `RoadmapView.tsx`: add `sprintCheckHere` and use it in
       `visibleRows`, the unfolded row badge, the "À corriger" toggle, the
       sprint strip and the empty-list text (plan D1).
 
 ## 2. The switcher moves into the panel (US1, US3)
 
-- [ ] T2.1 Add `modes.label` to both locales in `web/src/locales/planning.ts`
+- [x] T2.1 Add `modes.label` to both locales in `web/src/locales/planning.ts`
       (plan D3).
-- [ ] T2.2 Remove the toolbar switcher and render the `tablist` at the bottom
+- [x] T2.2 Remove the toolbar switcher and render the `tablist` at the bottom
       of the panel header (plan D2).
 
 ## 3. Tests
 
-- [ ] T3.1 Switch the four existing tests to `getByRole('tab', …)`.
-- [ ] T3.2 Add `web/tests/roadmap-mode-tabs.browser.mjs` (plan, test
+- [x] T3.1 Switch the four existing tests to `getByRole('tab', …)`.
+- [x] T3.2 Add `web/tests/roadmap-mode-tabs.browser.mjs` (plan, test
       strategy), covering acceptance criteria 1 to 5.
 
 ## 4. Documentation
 
-- [ ] T4.1 `CHANGELOG.md`: one `Changed` line under `[Unreleased]`.
+- [x] T4.1 `CHANGELOG.md`: one `Changed` line under `[Unreleased]`.
 
 ## Test plan
 

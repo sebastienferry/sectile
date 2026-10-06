@@ -45,7 +45,7 @@ try {
   const released=async()=>{await page.waitForFunction(()=>window.release!==null);await page.evaluate(()=>window.release());};
 
   await page.locator('div.cursor-pointer').filter({hasText:'Epic one'}).first().click();
-  await page.getByRole('button',{name:'Framing',exact:true}).click();
+  await page.getByRole('tab',{name:'Framing',exact:true}).click();
 
   // US1.1, US2.1, FR-1: one upload per file source, none for the stories.
   await uploadTasks().waitFor();
