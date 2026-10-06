@@ -872,3 +872,11 @@ next steps retain their **Next: <skill>** badge.
 The desktop rechecks state before submission; if the next step changed, review
 the updated button and click again. Metadata failures offer **Retry**.
 Reviewed tasks show **Awaiting human merge**; finished tasks have no next action.
+
+### Claude sandbox autonomy
+
+In a project’s or workstation’s **Claude settings**, select **Autonomy in sandbox** to enable sandboxing, automatically approve sandboxed shell commands and block unsandboxed retries. The individual **Sandboxed commands** and **Unsandboxed retries** controls can inherit Claude’s configuration or override it explicitly. Existing configurations remain inherited until changed. The profile is unavailable on native Windows, where Claude’s Bash sandbox does not run.
+
+Apply the toolchain presets for required cache paths and network domains, then save. The next conversation message or launch reads the updated settings. An incompatible command fails instead of asking to escape the sandbox. File, web and MCP tools use their own permission rules.
+
+**Always allow** keeps tool rules and approved additional folders in this project’s workstation settings, across conversation turns and worktrees. Review the proposed access in the approval card before accepting; the card also shows Claude’s decision reason when provided. Remove folder access in **Approved folders**. Project overrides take precedence over workstation scalar values; directory lists combine.

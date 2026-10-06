@@ -65,3 +65,17 @@ test('the whitelist says when it covers every project',()=>{
  assert.match(whitelistSummary(['p']),/only to the checked projects/)
  assert.match(whitelistSummary([],true),/still apply to every project/)
 })
+
+test('autonomy policy inherits, overrides false, and preserves folder access on save',()=>{
+ const global=fromStored({enabled:true,autoAllowBashIfSandboxed:true,allowUnsandboxedCommands:false,additionalDirectories:['/shared']})
+ const own=fromStored({autoAllowBashIfSandboxed:false,additionalDirectories:['/shared','/other']})
+ const resolved=resolvedValues(own,global)
+ assert.equal(resolved.autoAllowBashIfSandboxed,false)
+ assert.equal(resolved.allowUnsandboxedCommands,false)
+ assert.deepEqual(resolved.additionalDirectories,['/shared','/other'])
+ assert.equal(sandboxPayload(global).allowUnsandboxedCommands,false)
+ assert.equal(launchesGetSettings(fromStored({autoAllowBashIfSandboxed:false}),true),true)
+ assert.equal(launchesGetSettings(fromStored({autoAllowBashIfSandboxed:false}),false),false)
+ assert.equal(launchesGetSettings(fromStored({additionalDirectories:['/shared']}),false),true)
+ assert.deepEqual(sandboxPayload({...own,additionalDirectories:[]}).additionalDirectories,[])
+})

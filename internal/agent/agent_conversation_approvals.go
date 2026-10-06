@@ -73,6 +73,7 @@ type conversationApproval struct {
 	// are handed back for the running conversation only, and their allow
 	// rules are added to the project's (#700).
 	Suggestions json.RawMessage `json:"suggestions,omitempty"`
+	Reason      string          `json:"reason,omitempty"`
 }
 
 // conversationControlRequest is the part of Claude's control requests the
@@ -84,6 +85,7 @@ type conversationControlRequest struct {
 		ToolName    string          `json:"tool_name"`
 		Input       json.RawMessage `json:"input"`
 		Suggestions json.RawMessage `json:"permission_suggestions"`
+		Reason      string          `json:"decision_reason"`
 		ToolUseID   string          `json:"tool_use_id"`
 		Description string          `json:"description"`
 	} `json:"request"`
@@ -229,6 +231,14 @@ func (d *agentDaemon) decideApprovalLocked(run *controlledRun, id, decision stri
 		}
 		conversationWriteEvent(run.trace, event)
 		d.keepAllowRulesLocked(run, rules, unread)
+		if decision == "always" {
+			directories := approvedDirectories(approval.Suggestions)
+			if err := d.addProjectDirectories(run.desktop.ProjectID, directories); err != nil {
+				conversationWrite(run.trace, "error", "The folders could not be kept in the project’s Claude settings: "+err.Error(), "")
+			} else if len(directories) > 0 {
+				conversationWrite(run.trace, "notice", "Folders added to the project’s Claude settings", strings.Join(directories, "\n"))
+			}
+		}
 		return nil
 	}
 	return fmt.Errorf("no tool call is waiting for that decision")
@@ -354,4 +364,22 @@ func initializeCommands(line, id string) ([]conversationSlash, bool) {
 func conversationInitialize() (map[string]any, string) {
 	request := conversationControl("initialize")
 	return request, request["request_id"].(string)
+}
+
+// approvedDirectories extracts only directory additions explicitly approved by the owner.
+func approvedDirectories(raw json.RawMessage) []string {
+	var updates []struct {
+		Type        string   `json:"type"`
+		Directories []string `json:"directories"`
+	}
+	if json.Unmarshal(raw, &updates) != nil {
+		return nil
+	}
+	var directories []string
+	for _, update := range updates {
+		if update.Type == "addDirectories" {
+			directories = append(directories, update.Directories...)
+		}
+	}
+	return directories
 }

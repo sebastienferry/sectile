@@ -591,7 +591,7 @@ func (d *agentDaemon) conversationTurn(run *controlledRun, prompt string) {
 					return
 				}
 				d.queue.mu.Lock()
-				run.conversation.approvals = append(run.conversation.approvals, conversationApproval{ID: control.RequestID, ToolUseID: control.Request.ToolUseID, Tool: control.Request.ToolName, Description: control.Request.Description, Input: control.Request.Input, Suggestions: control.Request.Suggestions})
+				run.conversation.approvals = append(run.conversation.approvals, conversationApproval{ID: control.RequestID, ToolUseID: control.Request.ToolUseID, Tool: control.Request.ToolName, Description: control.Request.Description, Reason: control.Request.Reason, Input: control.Request.Input, Suggestions: control.Request.Suggestions})
 				markApprovalWaitLocked(run)
 				d.queue.mu.Unlock()
 				return

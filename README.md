@@ -195,6 +195,8 @@ PostgreSQL design documented in the architecture guide.
 
 ## Desktop application
 
+Desktop’s **Claude settings** offer **Autonomy in sandbox**: automatically run sandboxed shell commands and block unsandboxed retries. Configure the required toolchain domains and cache paths, then save; the next message or launch applies the policy. Folder access approved with **Always allow** persists for the project on this workstation.
+
 Build and start the local companion with:
 
 ```sh

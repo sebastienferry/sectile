@@ -178,7 +178,7 @@ test('Claude chat renders structured output safely and sends messages without a 
   await page.getByRole('button',{name:'Open a terminal',exact:true}).click()
   await expect.poll(()=>terminals).toEqual(['chat'])
   // A tool call Claude may not make waits in its card for the owner.
-  approvals=[{id:'req-1',toolUseId:'t-bash',tool:'Bash',description:'Run the tests',input:{command:'go test ./...'},suggestions:[{type:'addRules'}]},{id:'req-2',tool:'mcp__tracker__close_issue',input:{key:'<b>#1</b>'}}]
+  approvals=[{id:'req-1',toolUseId:'t-bash',tool:'Bash',description:'Run the tests',reason:'This command requires approval',input:{command:'go test ./...'},suggestions:[{type:'addRules',behavior:'allow',rules:[{toolName:'Bash',ruleContent:'go test *'}]}]},{id:'req-2',tool:'mcp__tracker__close_issue',input:{key:'<b>#1</b>'}}]
   const asking=page.locator('.tool-card-asking')
   await expect(asking).toHaveCount(2)
   await expect(page.locator('.conversation-status')).toHaveText('Waiting for your approval')
@@ -188,6 +188,9 @@ test('Claude chat renders structured output safely and sends messages without a 
   await expect(status).toHaveCSS('color',waiting)
   assert.equal(await indicator(status,'animationName'),'none')
   assert.equal(await indicator(status,'backgroundColor'),waiting)
+  await expect(card('Bash').getByText('This command requires approval',{exact:true})).toBeVisible()
+  await card('Bash').getByText('Always allow: proposed access for this project',{exact:true}).click()
+  await expect(card('Bash').locator('.tool-approval pre')).toContainText('project (this workstation)')
   await expect(card('Bash').getByRole('button',{name:'Always allow',exact:true})).toBeVisible()
   await expect(card('close_issue').getByRole('button',{name:'Always allow',exact:true})).toHaveCount(0)
   await expect(card('close_issue').locator('.tool-approval-question')).toHaveText('Allow mcp__tracker__close_issue?')

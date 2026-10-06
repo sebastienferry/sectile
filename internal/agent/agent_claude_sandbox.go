@@ -87,11 +87,14 @@ func claudeSandboxPayload(sandbox *agentconfig.ClaudeSandbox) map[string]any {
 		return entries
 	}
 	return map[string]any{
-		"enabled":        value.Enabled,
-		"allowedDomains": list(value.AllowedDomains),
-		"allowWrite":     list(value.AllowWrite),
-		"allow":          list(value.Allow),
-		"deny":           list(value.Deny),
+		"enabled":                  value.Enabled,
+		"autoAllowBashIfSandboxed": value.AutoAllowBashIfSandboxed,
+		"allowUnsandboxedCommands": value.AllowUnsandboxedCommands,
+		"additionalDirectories":    list(value.AdditionalDirectories),
+		"allowedDomains":           list(value.AllowedDomains),
+		"allowWrite":               list(value.AllowWrite),
+		"allow":                    list(value.Allow),
+		"deny":                     list(value.Deny),
 	}
 }
 
@@ -100,4 +103,27 @@ func claudeSandboxPayload(sandbox *agentconfig.ClaudeSandbox) map[string]any {
 func claudeSettingsPathOf(projectID string) string {
 	path, _ := agentconfig.ClaudeSettingsPath(projectID)
 	return path
+}
+
+// addProjectDirectories keeps approved access across turns and worktrees.
+func (d *agentDaemon) addProjectDirectories(projectID string, directories []string) error {
+	if projectID == "" || len(directories) == 0 {
+		return nil
+	}
+	_, err := agentconfig.UpdateSettings(d.localSettingsRoot(), func(settings *agentconfig.Settings) error {
+		project := settings.Project(projectID)
+		sandbox := agentconfig.ClaudeSandbox{}
+		if project.ClaudeSandbox != nil {
+			sandbox = *project.ClaudeSandbox
+		}
+		sandbox.AdditionalDirectories = append(append([]string{}, sandbox.AdditionalDirectories...), directories...)
+		normalized, err := agentconfig.NormalizeClaudeSandbox(sandbox)
+		if err != nil {
+			return err
+		}
+		project.ClaudeSandbox = &normalized
+		settings.SetProject(projectID, project)
+		return nil
+	})
+	return err
 }
