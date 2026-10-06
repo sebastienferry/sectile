@@ -22,3 +22,16 @@ test('the light window is painted light, with dark window controls', () => {
  assert.strictEqual(background, '#f5f6f8')
  assert.strictEqual(symbol, '#111315')
 })
+
+const {CONVERSATION_MODES, normalizeConversationMode} = require('../electron/appearance.cjs')
+
+test('a stored conversation mode is kept when the composer offers it', () => {
+ assert.deepStrictEqual(CONVERSATION_MODES, ['default', 'acceptEdits', 'auto', 'plan'])
+ for (const value of CONVERSATION_MODES) assert.strictEqual(normalizeConversationMode(value), value)
+})
+
+test('a missing or unknown conversation mode, bypassPermissions included, is acceptEdits', () => {
+ for (const value of [undefined, null, '', 'bypassPermissions', 'dontAsk', 'Auto', 1, {}]) {
+  assert.strictEqual(normalizeConversationMode(value), 'acceptEdits', String(value))
+ }
+})

@@ -68,6 +68,12 @@ type Defaults struct {
 	// "conversation". Desktop hands it over from its own setting; empty means
 	// "terminal".
 	ConsoleView string `json:"consoleView,omitempty"`
+	// ConversationMode is the permission mode the first turn of every new
+	// Claude conversation runs in on this workstation: "default",
+	// "acceptEdits", "auto" or "plan". Desktop hands it over from its own
+	// setting; the agent validates it, and empty, or anything it does not
+	// accept, means "acceptEdits".
+	ConversationMode string `json:"conversationMode,omitempty"`
 	// ClaudeSandbox is the Sandbox values every covered project applies
 	// (#730), under its own values. Nil states nothing.
 	ClaudeSandbox *ClaudeSandbox `json:"claudeSandbox,omitempty"`

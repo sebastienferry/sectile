@@ -28,7 +28,8 @@ type claudeConversation struct {
 	// effort is the level the last turn ran with; empty leaves the CLI default.
 	effort string
 	// mode is the permission mode turns run in, one of conversationModes;
-	// empty means acceptEdits.
+	// empty means acceptEdits. A new conversation starts in the workstation
+	// default; a message that names a mode replaces it from that turn on.
 	mode string
 	// contextUsed is the size of the latest main-thread request, and
 	// contextWindow the limit Claude reported for its model; zero when unknown.
@@ -210,6 +211,12 @@ func (d *agentDaemon) desktopConversation(w http.ResponseWriter, r *http.Request
 		return
 	}
 	id := r.URL.Query().Get("id")
+	// A conversation created here starts in the workstation default mode,
+	// read before the queue lock is taken.
+	defaultMode := ""
+	if id == "" && r.Method == http.MethodPost {
+		defaultMode = d.workstationConversationMode()
+	}
 	var input struct {
 		SourceRunID string `json:"sourceRunId"`
 		Message     string `json:"message"`
@@ -246,7 +253,7 @@ func (d *agentDaemon) desktopConversation(w http.ResponseWriter, r *http.Request
 		if source.desktop.Provider == "claude" {
 			model = source.desktop.Model
 		}
-		run, err := d.newConversationLocked(source.desktop.ProjectID, source.desktop.Directory, model, "This conversation is independent of the selected execution and uses the same directory.")
+		run, err := d.newConversationLocked(source.desktop.ProjectID, source.desktop.Directory, model, defaultMode, "This conversation is independent of the selected execution and uses the same directory.")
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusConflict)
 			return
@@ -409,27 +416,30 @@ func (d *agentDaemon) desktopConversation(w http.ResponseWriter, r *http.Request
 }
 
 // newConversationLocked admits a conversation in directory. It needs no run
-// slot: no process exists until a message arrives. The queue lock is held.
-func (d *agentDaemon) newConversationLocked(projectID, directory, model, origin string) (*controlledRun, error) {
+// slot: no process exists until a message arrives. mode is the permission mode
+// its first turn runs in. The queue lock is held.
+func (d *agentDaemon) newConversationLocked(projectID, directory, model, mode, origin string) (*controlledRun, error) {
 	run, err := d.enqueueRunLocked("", agentconfig.Dispatch{RunID: uuid.NewString()}, projectID, directory, 1, false)
 	if err != nil {
 		return nil, err
 	}
 	run.desktop.Kind = consoleRunKind
-	startConversationLocked(run, model, origin)
+	startConversationLocked(run, model, mode, origin)
 	return run, nil
 }
 
 // startConversationLocked turns an admitted run into a conversation waiting
-// for its first message. The queue lock is held.
-func startConversationLocked(run *controlledRun, model, origin string) {
+// for its first message. mode is the permission mode that message runs in,
+// the workstation default; anything conversationModes
+// does not hold becomes acceptEdits. The queue lock is held.
+func startConversationLocked(run *controlledRun, model, mode, origin string) {
 	run.desktop.Provider = "claude"
 	run.desktop.Model = model
 	run.desktop.Conversation, run.desktop.Headless = true, true
 	run.desktop.Status = "running"
 	run.desktop.StartedAt = time.Now().UTC()
 	run.trace = newRunTrace()
-	run.conversation = &claudeConversation{}
+	run.conversation = &claudeConversation{mode: conversationMode(mode)}
 	conversationWrite(run.trace, "notice", "Claude Code conversation · experimental", "Sectile's tools are accepted; what your rules and the chosen mode do not allow asks for your approval. "+origin)
 }
 
