@@ -46,6 +46,7 @@ import type {
   OptionalViewMode,
   PRCreationStage,
   PriorityMapping,
+  EpicAxisFields,
 } from '../types'
 import { ACCENT_COLORS, accentBadgeStyle, normalizeAccentColor, DEFAULT_PROJECT_ACCENT } from '../lib/accents'
 import { PROJECT_TRACKERS, needsCredentialsFor } from '../lib/trackers'
@@ -55,6 +56,7 @@ import { declaredRepositories, droppedRepositoryPaths, duplicateRepository, repo
 import { BRANCH_NAME_PRESETS, BRANCH_NAME_SAMPLE, checkBranchNameFormat } from '../lib/branchNameFormat'
 import { DEFAULT_FULL_CHAIN_STOP_STAGE } from '../lib/workflow'
 import PriorityMappingTable from './PriorityMappingTable'
+import EpicAxisFieldsEditor from './EpicAxisFieldsEditor'
 
 type ProjectTab = 'general' | 'tracker' | 'workflow' | 'skills'
 
@@ -222,6 +224,10 @@ export const ProjectModal: React.FC = () => {
   const [epicAxisPrefixes, setEpicAxisPrefixes] = useState<Record<EpicAxisName, string>>({ priority: '', quarter: '', readiness: '' })
   // The Jira priority mapping (#679), edited here and saved with the project.
   const [priorityMapping, setPriorityMapping] = useState<PriorityMapping>({})
+  // The Jira fields of the epic axes (#680). Sent only once edited: a save
+  // carrying a stale copy would undo the options a write learned meanwhile.
+  const [epicAxisFields, setEpicAxisFields] = useState<EpicAxisFields>({})
+  const [epicAxisFieldsEdited, setEpicAxisFieldsEdited] = useState(false)
   // Types de tickets importés. Vide vaut « les types par défaut » : c'est ce que
   // porte un projet qui n'a jamais eu besoin d'y toucher.
   const [issueTypes, setIssueTypes] = useState<string[]>([])
@@ -300,6 +306,8 @@ export const ProjectModal: React.FC = () => {
         readiness: editingProject.epicAxisPrefixes?.readiness || '',
       })
       setPriorityMapping(editingProject.priorityMapping ?? {})
+      setEpicAxisFields(editingProject.epicAxisFields ?? {})
+      setEpicAxisFieldsEdited(false)
       setIssueTypes(editingProject.issueTypes || [])
       setEnabledViews(enabledOptionalViews(editingProject))
       setEpicColors(editingProject.epicColors === true)
@@ -348,6 +356,8 @@ export const ProjectModal: React.FC = () => {
       setRoadmapAxisWrites(false)
       setEpicAxisPrefixes({ priority: '', quarter: '', readiness: '' })
       setPriorityMapping({})
+      setEpicAxisFields({})
+      setEpicAxisFieldsEdited(false)
       setSkillsStatus(null)
       setSddStatuses([])
       setSddResult(null)
@@ -487,6 +497,7 @@ export const ProjectModal: React.FC = () => {
         // Only the levels and preferred options travel: the server keeps the
         // options themselves as the tracker lists them.
         ...(issueTracker === 'jira' && editingProject && priorityMapping.options?.length ? { priorityMapping } : {}),
+        ...(issueTracker === 'jira' && editingProject && epicAxisFieldsEdited ? { epicAxisFields } : {}),
       }
 
       const saved = editingProject
@@ -1314,6 +1325,19 @@ export const ProjectModal: React.FC = () => {
                       {ps.tracker.epicAxisPrefixesHelp}
                     </span>
                   </div>
+                )}
+
+                {/* The epic axis fields (#680) are read from an epic of a
+                    saved project. */}
+                {issueTracker === 'jira' && editingProject && (
+                  <EpicAxisFieldsEditor
+                    projectId={editingProject.id}
+                    fields={epicAxisFields}
+                    onChange={next => {
+                      setEpicAxisFields(next)
+                      setEpicAxisFieldsEdited(true)
+                    }}
+                  />
                 )}
 
                 {/* The priority mapping (#679) belongs to a saved project:

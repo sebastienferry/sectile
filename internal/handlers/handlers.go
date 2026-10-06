@@ -1654,6 +1654,19 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Sub-action: /api/projects/{id}/epic-axis-fields: the custom fields of
+	// one epic's edit screen a person may map the epic priority or quarter
+	// to (#680), with the option maps the deductions give.
+	if len(parts) >= 2 && parts[1] == "epic-axis-fields" && r.Method == http.MethodGet {
+		discovery, err := h.db.EpicAxisFieldCandidates(h.actingContext(r), id)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, discovery)
+		return
+	}
+
 	// Sub-action: /api/projects/{id}/tracker-statuses: the statuses actually
 	// seen on this project's tickets, to assign them to columns
 	if len(parts) >= 2 && parts[1] == "tracker-statuses" && r.Method == http.MethodGet {
@@ -4382,7 +4395,7 @@ func repositoryErrorStatus(err error) int {
 	if errors.As(err, &guessed) {
 		return http.StatusUnprocessableEntity
 	}
-	if errors.Is(err, db.ErrDuplicateRepository) || errors.Is(err, db.ErrRepositoryNotInProject) || errors.Is(err, db.ErrInvalidSpecArtifacts) || errors.Is(err, db.ErrInvalidBranchNameFormat) || errors.Is(err, db.ErrInvalidEpicAxisPrefix) || errors.Is(err, db.ErrInvalidPriorityMapping) {
+	if errors.Is(err, db.ErrDuplicateRepository) || errors.Is(err, db.ErrRepositoryNotInProject) || errors.Is(err, db.ErrInvalidSpecArtifacts) || errors.Is(err, db.ErrInvalidBranchNameFormat) || errors.Is(err, db.ErrInvalidEpicAxisPrefix) || errors.Is(err, db.ErrInvalidPriorityMapping) || errors.Is(err, db.ErrInvalidEpicAxisFields) {
 		return http.StatusBadRequest
 	}
 	return http.StatusInternalServerError
