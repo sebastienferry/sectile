@@ -48,7 +48,18 @@ running….
 The composer's permission mode is Claude Code's: **Ask before edits**,
 **Accept edits** (the default), **Auto mode** or **Plan mode**, from the next
 message; there is no bypass. In **Auto mode** Claude Code's classifier approves
-what the rules do not cover, and an action it refuses still waits for the owner. Sectile's own MCP tools, which every skill relies on, are always
+what the rules do not cover, and an action it refuses still waits for the owner.
+A new conversation starts in the workstation's **Settings → Appearance →
+Conversation permission mode**, right under **Claude consoles** and enabled only
+in the conversation view (Accept edits when unset). It is the mode of the first
+turn, which matters most for a skill or a project prompt launched in the
+conversation view: its command is that turn and runs at once, before the owner
+could pick a mode. Desktop keeps the value in its own file as
+`conversationMode` and hands it to the agent (`PUT /desktop/conversation-mode`,
+announced by the `conversation-mode-default` capability), which stores it as
+`defaults.conversationMode` in its `settings.json`, accepts only the four modes
+above and reads anything else as Accept edits. The conversation reports the mode
+it starts in, and the composer adopts it. Sectile's own MCP tools, which every skill relies on, are always
 allowed. A tool call the owner's Claude Code rules do not allow waits in its card
 for **Allow**, **Always allow** (when Claude proposes a rule, which is then
 added to the project's Sandbox allow rules rather than to a file of the

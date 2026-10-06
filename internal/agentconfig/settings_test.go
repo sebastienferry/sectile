@@ -333,3 +333,37 @@ func TestConsoleViewSettingsRoundTrip(t *testing.T) {
 		t.Fatalf("an absent console view was written: %s", raw)
 	}
 }
+
+// The workstation conversation permission mode survives a save, a legacy
+// repository file does not erase it, and an absent mode is not written.
+func TestConversationModeSettingsRoundTrip(t *testing.T) {
+	testhome.Temp(t)
+	root := t.TempDir()
+	settings, err := ReadSettings(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if settings.Defaults.ConversationMode != "" {
+		t.Fatalf("a fresh file must state no mode: %+v", settings.Defaults)
+	}
+	settings.Defaults.ConversationMode = "auto"
+	if err := WriteSettings(settings); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := ReadSettings(root); err != nil || got.Defaults.ConversationMode != "auto" {
+		t.Fatalf("conversation mode lost: %+v %v", got.Defaults, err)
+	}
+	merged := overlay(Settings{Defaults: Defaults{EditorCommand: "vim"}}, settings)
+	if merged.Defaults.ConversationMode != "auto" || merged.Defaults.EditorCommand != "vim" {
+		t.Fatalf("overlay = %+v", merged.Defaults)
+	}
+	settings.Defaults.ConversationMode = ""
+	if err := WriteSettings(settings); err != nil {
+		t.Fatal(err)
+	}
+	path, _ := SettingsPath()
+	raw, _ := os.ReadFile(path)
+	if strings.Contains(string(raw), "conversationMode") {
+		t.Fatalf("an absent conversation mode was written: %s", raw)
+	}
+}

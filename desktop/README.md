@@ -49,6 +49,15 @@ The composer picks the model (the conversation's own, then the Claude models of
 Settings), the permission mode (**Ask before edits**, **Accept edits**, the
 default, **Auto mode** or **Plan mode**, as Claude Code's mode switch) and the effort; each
 applies from the next message.
+The mode a new conversation starts in is set right under the view choice, in
+**Settings → Appearance → Conversation permission mode** (Accept edits unless
+you change it). It applies to the first message of every new conversation: the
+command of a skill or a project prompt launched in the conversation view, which
+runs before you could pick anything, and the first message of a Claude chat.
+The composer starts on it and still changes the mode from the next message. The
+setting is enabled only while **Claude consoles** is **Conversation**, and is
+handed to the local agent, which keeps it for launches the web app starts; an
+agent that predates it leaves it disabled until it is upgraded.
 Claude Code must already be installed and authenticated on this workstation.
 Edits and Sectile's own tools are accepted; a tool call your Claude Code rules
 do not allow waits in its card for **Allow**, **Always allow** (when Claude

@@ -157,11 +157,22 @@ func TestEarlierPRRecoveryPreservesImplemented(t *testing.T) {
 			if _, _, err = d.TransitionTaskStage(task.ID, "reviewed", "draft cannot complete", pr.URL, "ticket"); err == nil {
 				t.Fatal("draft accepted")
 			}
+			// Each accepted transition queues a stage operation whose post-back
+			// validates the evidence again, through the same lookup, on a worker
+			// goroutine. The forge answer is changed only once that work is done.
+			settle := func() {
+				t.Helper()
+				if !d.jobs.drain(10 * time.Second) {
+					t.Fatal("the queue did not settle")
+				}
+			}
+			settle()
 			pr.Draft = false
 			got, _, err = d.TransitionTaskStage(task.ID, "reviewed", "checks and adjustment complete", pr.URL, "ticket")
 			if err != nil || d.StageOfTask(got) != "reviewed" {
 				t.Fatalf("%+v %v", got, err)
 			}
+			settle()
 			d.prEvidenceLookup = func(string, string, string) (trackerapi.PullRequest, error) {
 				return pr, fmt.Errorf("forge unavailable")
 			}

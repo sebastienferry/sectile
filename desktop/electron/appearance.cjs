@@ -28,4 +28,13 @@ function normalizeConsoleView(value) {
  return CONSOLE_VIEWS.includes(value) ? value : 'terminal'
 }
 
-module.exports = {APPEARANCES, normalizeAppearance, windowColors, CONSOLE_VIEWS, normalizeConsoleView}
+// The permission mode the first turn of a new Claude conversation runs in:
+// the composer's own modes, never bypassPermissions. Anything else is
+// acceptEdits, the mode conversations always started in.
+const CONVERSATION_MODES = ['default', 'acceptEdits', 'auto', 'plan']
+
+function normalizeConversationMode(value) {
+ return CONVERSATION_MODES.includes(value) ? value : 'acceptEdits'
+}
+
+module.exports = {APPEARANCES, normalizeAppearance, windowColors, CONSOLE_VIEWS, normalizeConsoleView, CONVERSATION_MODES, normalizeConversationMode}

@@ -42,7 +42,8 @@ import { archiveLabel, archiveRefusal, archiveFailure } from './archive-workspac
 // agent stopped.
 import changelogSource from '../../CHANGELOG.md?raw'
 import { parseChangelog, releaseNotesFor } from './changelog.mjs'
-import { APPEARANCE_CHOICES, CONSOLE_VIEW_CHOICES, terminalOptions } from './appearance.mjs'
+import { APPEARANCE_CHOICES, CONSOLE_VIEW_CHOICES, CONVERSATION_MODE_CHOICES, terminalOptions } from './appearance.mjs'
+import { claudeMark } from './claude-mark.mjs'
 const api=window.localAgent
 // Concurrent execution workers ceiling per project, aligned with agentconfig.MaxParallelism.
 // Parallelism is a workstation setting: the server neither stores nor supplies it.
@@ -304,7 +305,7 @@ function agentUnavailable(){
 function ready(){
  agentConnected=true
  document.querySelector('#agent-offline').hidden=true
- if(!projectsLoaded){projectsLoaded=true;loadProjects().catch(()=>{projectsLoaded=false});loadEditorSetting();api.syncConsoleView().catch(()=>{})}
+ if(!projectsLoaded){projectsLoaded=true;loadProjects().catch(()=>{projectsLoaded=false});loadEditorSetting();api.syncConsoleView().catch(()=>{});api.syncConversationMode().catch(()=>{})}
  updateStartControl();document.querySelector('#restart').hidden=false;document.querySelector('#shutdown').hidden=false
  document.querySelector('#setup').hidden=true;document.querySelector('#workspace').hidden=false
  if(!document.querySelector('#connection a'))connectionStatus({text:'Local agent connected'})
@@ -2025,12 +2026,35 @@ function openSettings(initial='Profile',project){
  const markView=value=>{for(const button of viewGroup.children)button.setAttribute('aria-pressed',String(button.dataset.value===value))}
  for(const choice of CONSOLE_VIEW_CHOICES){
   const button=document.createElement('button');button.type='button';button.textContent=choice.label;button.dataset.value=choice.value
-  button.onclick=()=>api.setConsoleView(choice.value).then(value=>{consoleView=value;markView(value);render()}).catch(error)
+  button.onclick=()=>api.setConsoleView(choice.value).then(value=>{consoleView=value;markView(value);showConversationMode();render()}).catch(error)
   viewGroup.append(button)
  }
  const view=settingRow('Claude consoles',null,viewGroup)
  view.hint.textContent='Conversation opens Claude project prompts in a structured view instead of a terminal (experimental). Other engines and custom launch commands keep the terminal.'
  panels.Appearance.append(view.section)
+ // The permission mode new conversations start in sits under the view that
+ // opens them: it only means something in the conversation view, and only to
+ // an agent that applies it, so it is disabled otherwise and says why.
+ const modeSelect=document.createElement('select');modeSelect.setAttribute('aria-label','Conversation permission mode')
+ for(const choice of CONVERSATION_MODE_CHOICES){const option=document.createElement('option');option.value=choice.value;option.textContent=choice.label;modeSelect.append(option)}
+ modeSelect.value='acceptEdits'
+ const conversationMode=settingRow('Conversation permission mode',null,modeSelect)
+ conversationMode.section.querySelector('.setting-name strong').prepend(claudeMark(document))
+ let conversationModeSupported=false
+ const showConversationMode=()=>{
+  modeSelect.disabled=!conversationModeSupported||consoleView!=='conversation'
+  conversationMode.hint.textContent=!conversationModeSupported?'Update and restart the local agent to choose the mode new conversations start in.'
+   :consoleView!=='conversation'?'Applies to Claude conversations: choose Conversation above to use it.'
+   :'What Claude may do without asking in the first message of every new conversation, including the skills and prompts you launch in it. The composer changes it from the next message.'
+ }
+ modeSelect.onchange=()=>api.setConversationMode(modeSelect.value).then(value=>{modeSelect.value=value}).catch(error)
+ panels.Appearance.append(conversationMode.section)
+ showConversationMode()
+ api.conversationMode().then(value=>{if(configurationActive()&&generation===configurationGeneration)modeSelect.value=value}).catch(()=>{})
+ api.status().then(status=>{
+  if(!configurationActive()||generation!==configurationGeneration)return
+  conversationModeSupported=!!status.capabilities?.includes('conversation-mode-default');showConversationMode()
+ }).catch(()=>{})
  markView(consoleView)
  markAppearance('system')
  api.appearance().then(value=>{if(configurationActive()&&generation===configurationGeneration)markAppearance(value)}).catch(()=>{})
