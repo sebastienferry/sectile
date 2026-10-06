@@ -2,6 +2,24 @@ import {taskStage} from './workflow.mjs'
 const stages=['new','clarified','specified','implemented','reviewed','finished']
 const expected={clarify:'clarified',specify:'specified',implement:'implemented',adjust:'reviewed',review:'reviewed',handoff:'finished'}
 const ended=run=>['completed','failed','canceled'].includes(run.status)
+// The workflow skill a recorded skill name stands for: a skill started by hand
+// in a console reports the name it was invoked under (`specify-issue`,
+// `sectile:specify-issue`), a launched one its workflow id. '' when the name is
+// no workflow skill.
+export function workflowSkill(name){
+ const skill=String(name||'').replace(/^[^:]*:/,'').replace(/-issue$/,'')
+ return Object.hasOwn(expected,skill)?skill:''
+}
+// The verdict of an ended skill, its stage check included; null before it ends.
+function verdict(state,skill,task){
+ if(state==='completed'){
+  const target=expected[skill]
+  if(target&&stages.indexOf(taskStage(task||{}))<stages.indexOf(target))return {kind:'pending',icon:'◷',label:'Awaiting stage validation'}
+  return {kind:'completed',icon:'✓',label:'Skill completed'}
+ }
+ if(state==='failed'||state==='canceled')return {kind:state,icon:state==='failed'?'!':'⊘',label:state==='failed'?'Skill failed':'Skill canceled'}
+ return null
+}
 // A stop that has been asked for and has not taken effect yet is the one process
 // transient the shared run state has no word for, so it is the one this badge
 // still reports about the process itself.
@@ -23,12 +41,19 @@ export function skillResult(run,result){
  const activity=result?.activity
  const matched=activity?.id===run.id&&activity.taskId===run.taskId&&activity.skillId===run.skill
  const state=matched?activity.status:null
- if(state==='completed'){
-  const target=expected[run.skill]
-  if(target&&stages.indexOf(taskStage(result.task||{}))<stages.indexOf(target))return {kind:'pending',icon:'◷',label:'Awaiting stage validation'}
-  return {kind:'completed',icon:'✓',label:'Skill completed'}
+ // A console left open after its skill ended may have gone on to run another
+ // one (#586): the badge then speaks for that skill, never for the one before.
+ const successor=matched&&result.successor
+ if(successor){
+  const next=verdict(successor.status,workflowSkill(successor.skillId),result.task)
+  if(next)return next
+  const pending=stopping(run,'Stopping execution')
+  if(pending)return pending
+  if(run.status==='running'&&successor.waitingSince)return {kind:'waiting',icon:'?',label:'Waiting for your answer'}
+  return null
  }
- if(state==='failed'||state==='canceled')return {kind:state,icon:state==='failed'?'!':'⊘',label:state==='failed'?'Skill failed':'Skill canceled'}
+ const own=verdict(state,run.skill,result?.task)
+ if(own)return own
  const pending=stopping(run,'Stopping execution')
  if(pending)return pending
  // Only a live process can be asking: a mark left on a queued run is stale.

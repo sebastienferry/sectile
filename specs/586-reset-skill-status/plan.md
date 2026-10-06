@@ -64,8 +64,9 @@ follow it (FR7).
 ## Desktop: reading a successor in time (FR6)
 
 `desktop/src/skill-result-refresh.mjs`: `skillResultStamp(run, now, last,
-ended)` records `ended`, whether the result read showed its skill ended (own
-activity or successor). `skillResultDue` returns true at every poll for a live
+ended)` records `ended`, whether the result read showed the run's own activity
+ended: the successor's changes, its wait included, leave the run itself
+untouched, so nothing else would trigger a read. `skillResultDue` returns true at every poll for a live
 run whose last stamp says `ended`. `refreshSkillResult` passes it from the
 result it just read.
 

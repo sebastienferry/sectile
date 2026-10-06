@@ -18,16 +18,31 @@ const LIVE = new Set(['queued', 'preparing', 'running'])
 // last is what was recorded when the result was last read: the run's status,
 // its wait mark, when it was read and when the run last changed. A change of
 // either is what a result follows.
+//
+// A console still open after its skill ended is the exception: the next skill
+// started in it changes nothing on the run itself, so its result is read at
+// every poll for the badge to drop the ended skill's verdict at once (#586).
 export function skillResultDue(run, last, now) {
   if (!last) return true
   if (last.status !== run.status || last.waitingSince !== (run.waitingSince || '')) return true
   if (now - last.changedAt < SETTLE_MS) return true
+  if (last.ended && LIVE.has(run.status)) return true
   return now - last.at >= (LIVE.has(run.status) ? LIVE_REFRESH_MS : ENDED_REFRESH_MS)
 }
 
 // The stamp of a read. The run's change keeps its time while the run stays as
-// it was, so the settling window starts at the change, not at each read.
-export function skillResultStamp(run, now, last) {
+// it was, so the settling window starts at the change, not at each read. ended
+// says the result read showed the run's own skill ended.
+export function skillResultStamp(run, now, last, ended = false) {
   const same = last && last.status === run.status && last.waitingSince === (run.waitingSince || '')
-  return { status: run.status, waitingSince: run.waitingSince || '', at: now, changedAt: same ? last.changedAt : now }
+  return { status: run.status, waitingSince: run.waitingSince || '', at: now, changedAt: same ? last.changedAt : now, ended }
+}
+
+const ENDED = new Set(['completed', 'failed', 'canceled'])
+
+// Whether a result read from the agent shows the run's own skill ended. From
+// then on, whatever its console goes on to run, waits included, changes
+// nothing on the run itself.
+export function skillEnded(result) {
+  return ENDED.has(result?.activity?.status)
 }

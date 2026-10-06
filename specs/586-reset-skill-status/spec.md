@@ -117,10 +117,10 @@ work that has not started.
   selects on click are unchanged.
 - **FR5** The header's badge keeps describing the selected execution (its own
   activity, or its successor per FR2).
-- **FR6** A live execution whose last result showed its skill ended (own
-  activity or successor `completed`, `failed` or `canceled`) is read again at
-  every poll, so that a successor appears within one poll. Every other read
-  keeps the cadence of `skill-result-refresh.mjs`.
+- **FR6** A live execution whose last result showed its own activity ended
+  (`completed`, `failed` or `canceled`) is read again at every poll, so that a
+  successor, and every change of it, its wait included, appears within one
+  poll. Every other read keeps the cadence of `skill-result-refresh.mjs`.
 - **FR7** No result cached for one execution is ever shown for another: the
   row badge reads the cache of the execution it describes.
 
