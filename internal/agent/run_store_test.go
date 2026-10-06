@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"testing"
@@ -47,6 +48,7 @@ func TestAStoredRunIsReadBackAsItWasWrittenAndStaysPrivate(t *testing.T) {
 	finished := created.Add(time.Minute)
 	record := storedRun{
 		Run: desktopRun{ID: "run-1", TaskID: "task-1", TaskKey: "#1", ProjectID: "project", Skill: "discuss", Directory: "/work",
+			Folders: []runFolder{{Path: "/work", Name: "work", Role: "primary"}, {Path: "/notes", Name: "notes", Role: "local", Attached: true}},
 			Branch: "feat/1", Status: "completed", Provider: "claude", Model: "opus", Prompt: "hello", CreatedAt: created, StartedAt: created},
 		Console:    []byte("\x1b[1mprompt\x1b[0m $ echo hi\r\nhi\r\n"),
 		FinishedAt: finished,
@@ -70,7 +72,7 @@ func TestAStoredRunIsReadBackAsItWasWrittenAndStaysPrivate(t *testing.T) {
 		t.Fatalf("loaded %d runs, want 1", len(loaded))
 	}
 	got := loaded[0]
-	if got.Run != record.Run || string(got.Console) != string(record.Console) || !got.FinishedAt.Equal(finished) {
+	if !reflect.DeepEqual(got.Run, record.Run) || string(got.Console) != string(record.Console) || !got.FinishedAt.Equal(finished) {
 		t.Fatalf("the run came back as %+v", got)
 	}
 }

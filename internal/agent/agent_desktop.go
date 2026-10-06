@@ -103,7 +103,12 @@ type desktopRun struct {
 	Skill     string `json:"skill"`
 	SessionID string `json:"sessionId"`
 	Directory string `json:"directory"`
-	Status    string `json:"status"`
+	// Folders are every folder of the run, Directory first, when it has more
+	// than one (#762): the desktop offers to copy each. A folder prepared or
+	// attached while the run goes is added to it. Absent for a run launched
+	// without a folder map, and from an older agent.
+	Folders []runFolder `json:"folders,omitempty"`
+	Status  string      `json:"status"`
 	// ExternalTerminal marks the terminal emulator currently attached to or running this session.
 	ExternalTerminal string `json:"externalTerminal,omitempty"`
 	// Headless marks a run that has no PTY on purpose. The desktop shows its
@@ -1476,6 +1481,7 @@ func (d *agentDaemon) desktopTasksTerminalExternal(w http.ResponseWriter, r *htt
 		Skill:            input.SkillID,
 		SessionID:        runID,
 		Directory:        workDir,
+		Folders:          runFolders(workDir, folders),
 		Branch:           branch,
 		Status:           "preparing",
 		CreatedAt:        time.Now().UTC(),

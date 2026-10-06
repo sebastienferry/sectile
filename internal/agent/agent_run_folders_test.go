@@ -3,6 +3,7 @@ package agent
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"testing"
@@ -187,6 +188,16 @@ func TestAttachingAFolderFromARun(t *testing.T) {
 		t.Fatalf("tabbed: %d %s", code, body)
 	}
 	before := typed(claudeTyped)
+	// Each folder joins the list of the run it was attached from (#762).
+	d.queue.mu.Lock()
+	listed, chatListed := d.queue.runs["claude-run"].desktop.Folders, d.queue.runs["chat"].desktop.Folders
+	d.queue.mu.Unlock()
+	if want := []runFolder{{Path: spaced, Name: "my notes", Role: "local", Attached: true}, {Path: c, Name: "c", Role: "context", Attached: true}, {Path: tabbed, Name: "tab\there", Role: "local", Attached: true}}; !reflect.DeepEqual(listed, want) {
+		t.Fatalf("folders of the discussion: %+v", listed)
+	}
+	if len(chatListed) != 1 || chatListed[0].Path != chat {
+		t.Fatalf("folders of the conversation: %+v", chatListed)
+	}
 
 	for _, tt := range []struct {
 		run, path string

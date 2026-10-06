@@ -108,6 +108,11 @@ func (d *agentDaemon) desktopRunFolder(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), status)
 		return
 	}
+	folder := runFolder{Path: filepath.Clean(path), Name: identityName(mappedAs), Role: models.FolderRoleContext, Attached: true}
+	if mappedAs == "" {
+		folder.Name, folder.Role = filepath.Base(folder.Path), models.FolderRoleLocal
+	}
+	d.queue.read(input.RunID, func(run *controlledRun) { addRunFolder(run, folder) })
 	answer := runFolderAnswer{MappedAs: mappedAs, AppliesAt: appliesNextLaunch}
 	switch {
 	case conversation:

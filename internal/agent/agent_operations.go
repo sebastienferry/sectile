@@ -163,6 +163,7 @@ func (d *agentDaemon) executeOperation(ctx context.Context, op agentprotocol.Ope
 				Repository: op.Repository, URL: op.RepositoryURL, Path: op.Path, Device: d.link.deviceID, SettingsRoot: d.localSettingsRoot(),
 			})
 			if err == nil {
+				d.recordTaskFolder(task, worktree.Repository, worktree.Path)
 				worktree.AddedToSession = d.addDirToTaskRuns(task, worktree.Path)
 			}
 			return worktree, err
