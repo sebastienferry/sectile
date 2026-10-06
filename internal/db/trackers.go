@@ -884,13 +884,9 @@ func (d *DB) applyProjectSelectionUnsafe(tx *sqlTx, p *models.Project, trackers 
 			}
 		}
 	}
-	if (label != nil || trackers != nil) && labelHasSpace(p.Label) {
-		var jira int
-		if err := tx.QueryRow(`SELECT COUNT(*) FROM project_trackers pt JOIN trackers t ON t.id = pt.tracker_id WHERE pt.project_id = ? AND t.provider = 'jira'`, p.ID).Scan(&jira); err != nil {
+	if label != nil || trackers != nil {
+		if err := refuseSpacedJiraLabelOn(tx, p); err != nil {
 			return err
-		}
-		if jira > 0 {
-			return fmt.Errorf("%w : « %s »", ErrInvalidProjectLabel, p.Label)
 		}
 	}
 	if trackers == nil && defaultID == nil {
@@ -931,6 +927,44 @@ func (d *DB) applyProjectSelectionUnsafe(tx *sqlTx, p *models.Project, trackers 
 	p.DefaultTrackerID = chosen
 	_, err = tx.Exec(`UPDATE projects SET default_tracker_id = ? WHERE id = ?`, chosen, p.ID)
 	return err
+}
+
+// refuseSpacedJiraLabelOn refuses the project's label when it has a space and
+// one of the project's trackers is Jira. It is checked when the label or the
+// trackers change, never on an edit leaving both alone: a label saved before
+// the check existed does not lock its project out of every other edit.
+func refuseSpacedJiraLabelOn(tx *sqlTx, p *models.Project) error {
+	if !labelHasSpace(p.Label) {
+		return nil
+	}
+	var jira int
+	if err := tx.QueryRow(`SELECT COUNT(*) FROM project_trackers pt JOIN trackers t ON t.id = pt.tracker_id WHERE pt.project_id = ? AND t.provider = 'jira'`, p.ID).Scan(&jira); err != nil {
+		return err
+	}
+	if jira > 0 {
+		return fmt.Errorf("%w : « %s »", ErrInvalidProjectLabel, p.Label)
+	}
+	return nil
+}
+
+// projectTrackerSetOn describes the project's trackers, each by id and
+// provider, so a change of them, a renamed tracker's provider included, is
+// seen by comparing two descriptions.
+func projectTrackerSetOn(tx *sqlTx, projectID string) (string, error) {
+	rows, err := tx.Query(`SELECT t.id, t.provider FROM project_trackers pt JOIN trackers t ON t.id = pt.tracker_id WHERE pt.project_id = ? ORDER BY t.id`, projectID)
+	if err != nil {
+		return "", err
+	}
+	defer rows.Close()
+	var set []string
+	for rows.Next() {
+		var id, provider string
+		if err := rows.Scan(&id, &provider); err != nil {
+			return "", err
+		}
+		set = append(set, id+"|"+provider)
+	}
+	return strings.Join(set, ","), rows.Err()
 }
 
 // trackerExclusiveTo says whether projectID is the only project selecting the

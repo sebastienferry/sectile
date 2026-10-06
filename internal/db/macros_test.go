@@ -380,3 +380,67 @@ func TestRenamingAMacroRenamesTheParentOfItsTrackerTickets(t *testing.T) {
 		}
 	}
 }
+
+// Two projects showing every ticket of one Jira space each define a local M-3
+// (#741). A ticket of the space under M-3 names no one of the two macros for
+// sure: renaming Alpha's M-3 leaves its parent title alone, while Alpha's own
+// local ticket under M-3 follows, and so does a shared ticket under a key only
+// Alpha defines.
+func TestRenamingALocalMacroLeavesTheTicketsAnotherProjectsMacroOfThatKeyMayHold(t *testing.T) {
+	d := testDB(t)
+	alpha := spaceProject(t, d, "Alpha", "")
+	beta := spaceProject(t, d, "Beta", "")
+	if alpha.DefaultTrackerID != beta.DefaultTrackerID {
+		t.Fatalf("the two projects select trackers %s and %s, want GODE's alone", alpha.DefaultTrackerID, beta.DefaultTrackerID)
+	}
+	ticket := func(key, parent, title string) models.Task {
+		return models.Task{Key: key, Title: key, Status: models.StatusToClarify, Priority: models.PriorityMedium, Source: "jira",
+			ParentKey: parent, ParentTitle: title, CreatedAt: time.Now(), UpdatedAt: time.Now()}
+	}
+	if err := d.ImportOrUpdateTasks(alpha.DefaultTrackerID, []models.Task{ticket("GODE-1", "M-3", "Beta's M-3"), ticket("GODE-2", "M-4", "Alpha's M-4")}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.conn.Exec(`INSERT INTO tasks (id, project_id, key, title, status, priority, labels, source, parent_key, parent_title, created_at, updated_at)
+		VALUES ('alpha-local', ?, 'L-1', 'Local', 'to_clarify', 'medium', '[]', 'local', 'M-3', 'Alpha''s M-3', ?, ?)`, alpha.ID, time.Now(), time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	horizon := "now"
+	for _, p := range []*models.Project{alpha, beta} {
+		if _, err := d.SaveMacroMeta(p.ID, "M-3", &horizon, nil, nil, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := d.SaveMacroMeta(alpha.ID, "M-4", &horizon, nil, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, key := range []string{"M-3", "M-4"} {
+		renamed := "Alpha's renamed " + key
+		if _, err := d.UpdateMacro(context.Background(), alpha.ID, key, &renamed, nil, nil, nil, nil, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for key, want := range map[string]string{"GODE-1": "Beta's M-3", "L-1": "Alpha's renamed M-3", "GODE-2": "Alpha's renamed M-4"} {
+		var parentTitle string
+		if err := d.conn.QueryRow(`SELECT parent_title FROM tasks WHERE key = ?`, key).Scan(&parentTitle); err != nil {
+			t.Fatal(err)
+		}
+		if parentTitle != want {
+			t.Errorf("%s has parent title %q after renaming Alpha's macros, want %q", key, parentTitle, want)
+		}
+	}
+
+	// Deleting Alpha's M-3 detaches the tickets the rename reached, alone.
+	if err := d.DeleteMacro(context.Background(), alpha.ID, "M-3"); err != nil {
+		t.Fatal(err)
+	}
+	for key, want := range map[string]string{"GODE-1": "M-3", "L-1": ""} {
+		var parentKey string
+		if err := d.conn.QueryRow(`SELECT parent_key FROM tasks WHERE key = ?`, key).Scan(&parentKey); err != nil {
+			t.Fatal(err)
+		}
+		if parentKey != want {
+			t.Errorf("%s has parent %q after deleting Alpha's M-3, want %q", key, parentKey, want)
+		}
+	}
+}

@@ -23,6 +23,9 @@ type labelRecorder struct {
 	on, as string
 	// refusal, when set, is what the tracker answers every label write with.
 	refusal error
+	// remote, when set, are the labels the tracker answers a read of the
+	// ticket with; the recorder then reads tickets.
+	remote []string
 }
 
 func newLabelRecorder(provider string) *labelRecorder {
@@ -42,6 +45,15 @@ func (l *labelRecorder) UpdateLabels(ctx context.Context, key string, add []stri
 		l.on = trk.ID
 	}
 	return l.refusal
+}
+
+func (l *labelRecorder) GetIssue(ctx context.Context, req tracker.GetIssueRequest) (*models.Task, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.remote == nil {
+		return l.BaseTicketingSystem.GetIssue(ctx, req)
+	}
+	return &models.Task{Key: req.Key, Labels: append([]string{}, l.remote...)}, nil
 }
 
 // written waits for the queued label write and returns what it recorded.
@@ -243,5 +255,86 @@ func TestARefusedLabelWriteTakesTheTicketBackOutOfTheProject(t *testing.T) {
 	again, activity, err := d.AddTaskToProjectAs(tracker.WithActingUser(context.Background(), "u-ada"), trk.Provider+"-"+trk.ID+"-GODE-6", project.ID)
 	if err != nil || activity != nil || again == nil || strings.Join(again.Labels, ",") != "Delivery-Admin" {
 		t.Fatalf("a ticket already carrying the label queues no write: task %+v, activity %v, %v", again, activity, err)
+	}
+}
+
+// labelOpTicket opens a Jira space GODE that the project Delivery selects with
+// its label, a recorder standing in for Jira, and the ticket GODE-5 carrying
+// labels locally, with a failed or completed task_labels activity to report
+// on. It returns the ticket's id and the operation adding Delivery's label.
+func labelOpTicket(t *testing.T, recorder *labelRecorder, labels []string) (*DB, *models.Tracker, string, SkillJob) {
+	t.Helper()
+	d := testDB(t)
+	d.TrackerRegistry().Register("jira", recorder)
+	trk, err := d.CreateTrackerAs("admin", models.Tracker{Provider: "jira", Scope: "GODE"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.CreateProject(models.CreateProjectRequest{Name: "Delivery", Label: "delivery-admin", Trackers: []models.ProjectTracker{{TrackerID: trk.ID}}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.ImportOrUpdateTasks(trk.ID, []models.Task{{ID: "5", Key: "GODE-5", Title: "Backlog", Labels: labels, Status: models.StatusToClarify,
+		Priority: models.PriorityMedium, Source: "jira", CreatedAt: time.Now(), UpdatedAt: time.Now()}}); err != nil {
+		t.Fatal(err)
+	}
+	task, err := d.GetTaskByID("GODE-5")
+	if err != nil || task == nil {
+		t.Fatalf("GODE-5: %v", err)
+	}
+	activity := models.TaskActivity{ID: "labels-op", TaskID: task.ID, TaskKey: task.Key, SkillID: "tracker_op", Status: string(models.ActivityStatusQueued), CreatedAt: time.Now()}
+	if err := d.AddTaskActivity(activity); err != nil {
+		t.Fatal(err)
+	}
+	op := TrackerOp{Kind: TrackerOpTaskLabels, TaskID: task.ID, TaskKey: task.Key, TrackerID: trk.ID, Labels: []string{"delivery-admin"}, UserID: "u-ada"}
+	return d, trk, task.ID, SkillJob{ActivityID: activity.ID, TaskID: task.ID, SkillID: "tracker_op", Op: &op}
+}
+
+// A refused label write does not take back a label the tracker carries: a sync
+// may have brought it in the meantime, or the write landed before its answer
+// was lost. The tracker is read before the label is withdrawn.
+func TestARefusedLabelWriteKeepsALabelTheTrackerCarries(t *testing.T) {
+	recorder := newLabelRecorder("jira")
+	recorder.Capabilities = append(recorder.Capabilities, tracker.CapGet)
+	recorder.refusal = errors.New("label refused")
+	recorder.remote = []string{"ops", "delivery-admin"}
+	d, trk, taskID, job := labelOpTicket(t, recorder, []string{"ops", "delivery-admin"})
+
+	d.processTrackerOpJob(context.Background(), job)
+
+	task, err := d.GetTaskByID(taskID)
+	if err != nil || task == nil || strings.Join(task.Labels, ",") != "ops,delivery-admin" {
+		t.Fatalf("after a refused write of a label Jira carries, the ticket holds %+v (%v), want ops,delivery-admin", task, err)
+	}
+	if got := backlogKeys(t, d, trk.ID); len(got) != 0 {
+		t.Fatalf("the ticket fell back into the backlog: %v", got)
+	}
+
+	recorder.remote = []string{"ops"}
+	d.processTrackerOpJob(context.Background(), job)
+	if task, _ = d.GetTaskByID(taskID); task == nil || strings.Join(task.Labels, ",") != "ops" {
+		t.Fatalf("after a refused write of a label Jira lacks, the ticket holds %+v, want ops alone", task)
+	}
+}
+
+// A label write that succeeds puts the label on the local ticket too, whatever
+// took it away since it was queued, a revert of an earlier refusal or a sync
+// that read the tracker before the write: the ticket joins its project at once
+// rather than at the next sync.
+func TestASuccessfulLabelWriteShowsTheLabelLocally(t *testing.T) {
+	recorder := newLabelRecorder("jira")
+	d, trk, taskID, job := labelOpTicket(t, recorder, []string{"ops"})
+
+	d.processTrackerOpJob(context.Background(), job)
+
+	task, err := d.GetTaskByID(taskID)
+	if err != nil || task == nil || strings.Join(task.Labels, ",") != "ops,delivery-admin" {
+		t.Fatalf("after the label was written on Jira, the ticket holds %+v (%v), want ops,delivery-admin", task, err)
+	}
+	if got := backlogKeys(t, d, trk.ID); len(got) != 0 {
+		t.Fatalf("the ticket stays in the backlog: %v", got)
+	}
+	act, _ := d.GetActivityByID(job.ActivityID)
+	if act == nil || act.Status != string(models.ActivityStatusCompleted) {
+		t.Fatalf("the write's activity = %+v, want completed", act)
 	}
 }

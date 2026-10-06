@@ -443,7 +443,7 @@ func (d *DB) processTrackerOpJob(ctx context.Context, job SkillJob) {
 		// The labels were written locally ahead of the tracker: a refused
 		// write takes them back, before the post-back below re-reads the
 		// ticket and tells the boards.
-		d.revertFailedTaskLabelsOp(job.ActivityID, op)
+		d.revertFailedTaskLabelsOp(ctx, job.ActivityID, op)
 	}
 
 	// Wire worker execution results to trigger local post-back handler

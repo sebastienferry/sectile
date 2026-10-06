@@ -139,16 +139,101 @@ func (d *DB) runTaskLabelsOp(ctx context.Context, op TrackerOp, steps *[]string)
 	}
 	note := fmt.Sprintf("Labels de %s mis à jour sur %s : +%s", task.Key, trackerDisplayName(ts.Name()), strings.Join(op.Labels, ", +"))
 	*steps = append(*steps, "✅ "+note)
+	// The tracker now holds the labels: the local ticket follows at once,
+	// whatever took them away since the operation was queued, the revert of an
+	// earlier refusal or a sync that read the tracker before the write.
+	d.mu.Lock()
+	err = d.applyTaskLabelsUnsafe(op)
+	d.mu.Unlock()
+	if err != nil {
+		*steps = append(*steps, fmt.Sprintf("⚠️ Labels locaux de %s non mis à jour : %v", task.Key, err))
+	}
 	return note, nil
+}
+
+// applyTaskLabelsUnsafe writes on the local ticket what a task_labels
+// operation wrote on the tracker: the labels it added are carried, those it
+// removed are not. The caller holds d.mu.
+func (d *DB) applyTaskLabelsUnsafe(op TrackerOp) error {
+	return d.conn.WithTx(func(tx *sqlTx) error {
+		task, err := d.lockTaskUnsafe(tx, op.TaskID)
+		if err != nil || task == nil {
+			return err
+		}
+		labels := []string{}
+		changed := false
+		for _, l := range task.Labels {
+			if namesOneOf(l, op.RemovedLabels) {
+				changed = true
+				continue
+			}
+			labels = append(labels, l)
+		}
+		for _, l := range op.Labels {
+			if l = strings.TrimSpace(l); l != "" && !labelCarried(labels, l) {
+				labels = append(labels, l)
+				changed = true
+			}
+		}
+		if !changed {
+			return nil
+		}
+		labelsJSON, _ := json.Marshal(labels)
+		_, err = tx.Exec(`UPDATE tasks SET labels = ?, updated_at = ? WHERE id = ?`, string(labelsJSON), time.Now(), task.ID)
+		return err
+	})
+}
+
+// namesOneOf says whether the ticket label l is one of labels, A-Z folded as
+// membership compares them: l as stored, each of labels trimmed.
+func namesOneOf(l string, labels []string) bool {
+	for _, label := range labels {
+		if strings.TrimSpace(label) != "" && labelCarried([]string{l}, label) {
+			return true
+		}
+	}
+	return false
+}
+
+// remoteLabelsTimeout bounds the read of a ticket's labels on its tracker
+// before a refused write is reverted.
+const remoteLabelsTimeout = 10 * time.Second
+
+// remoteTaskLabels reads the labels the operation's ticket carries on its
+// tracker, as whoever the context names, within remoteLabelsTimeout. known is
+// false when the tracker cannot read a ticket or the read fails.
+func (d *DB) remoteTaskLabels(ctx context.Context, op TrackerOp) (labels []string, known bool) {
+	task, err := d.GetTaskByID(op.TaskID)
+	if err != nil || task == nil {
+		return nil, false
+	}
+	ts, err := d.TrackerForTask(task)
+	if err != nil || ts == nil || !ts.Supports(tracker.CapGet) {
+		return nil, false
+	}
+	d.mu.RLock()
+	trk := d.trackerOfOp(op)
+	d.mu.RUnlock()
+	readCtx, cancel := context.WithTimeout(ctx, remoteLabelsTimeout)
+	defer cancel()
+	remote, err := ts.GetIssue(readCtx, tracker.GetIssueRequest{Tracker: trk, Key: task.Key})
+	if err != nil || remote == nil {
+		return nil, false
+	}
+	return remote.Labels, true
 }
 
 // revertTaskLabelsUnsafe undoes on the local ticket what a failed task_labels
 // operation wrote ahead of the tracker: the labels it added are withdrawn,
 // A-Z folded as membership compares them, and those it removed come back.
 // Otherwise the next sync would rewrite the labels from the tracker and the
-// ticket would leave its project with nothing saying why. It returns the
-// labels actually withdrawn and restored. The caller holds d.mu.
-func (d *DB) revertTaskLabelsUnsafe(op TrackerOp) (withdrawn, restored []string, err error) {
+// ticket would leave its project with nothing saying why. When the tracker's
+// own labels are known (remoteKnown), what they show is kept: an added label
+// the tracker carries stays, a removed one it lacks stays away, since a sync
+// may have brought that state meanwhile, or the write landed before its answer
+// was lost. It returns the labels actually withdrawn and restored. The caller
+// holds d.mu.
+func (d *DB) revertTaskLabelsUnsafe(op TrackerOp, remote []string, remoteKnown bool) (withdrawn, restored []string, err error) {
 	err = d.conn.WithTx(func(tx *sqlTx) error {
 		task, err := d.lockTaskUnsafe(tx, op.TaskID)
 		if err != nil || task == nil {
@@ -156,13 +241,16 @@ func (d *DB) revertTaskLabelsUnsafe(op TrackerOp) (withdrawn, restored []string,
 		}
 		labels := []string{}
 		for _, l := range task.Labels {
-			if labelCarried(op.Labels, l) {
+			if namesOneOf(l, op.Labels) && !(remoteKnown && namesOneOf(l, remote)) {
 				withdrawn = append(withdrawn, l)
 				continue
 			}
 			labels = append(labels, l)
 		}
 		for _, l := range op.RemovedLabels {
+			if remoteKnown && !labelCarried(remote, l) {
+				continue
+			}
 			if l = strings.TrimSpace(l); l != "" && !labelCarried(labels, l) {
 				labels = append(labels, l)
 				restored = append(restored, l)
@@ -182,10 +270,13 @@ func (d *DB) revertTaskLabelsUnsafe(op TrackerOp) (withdrawn, restored []string,
 }
 
 // revertFailedTaskLabelsOp reverts the local labels of a failed task_labels
-// operation and says so in a step of its activity.
-func (d *DB) revertFailedTaskLabelsOp(activityID string, op TrackerOp) {
+// operation and says so in a step of its activity. The ticket is read on its
+// tracker first, outside the lock, so a label the tracker carries is not
+// withdrawn; a tracker that cannot answer leaves the revert whole.
+func (d *DB) revertFailedTaskLabelsOp(ctx context.Context, activityID string, op TrackerOp) {
+	remote, known := d.remoteTaskLabels(ctx, op)
 	d.mu.Lock()
-	withdrawn, restored, err := d.revertTaskLabelsUnsafe(op)
+	withdrawn, restored, err := d.revertTaskLabelsUnsafe(op, remote, known)
 	d.mu.Unlock()
 	switch {
 	case err != nil:

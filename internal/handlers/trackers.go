@@ -105,6 +105,9 @@ func (h *Handler) HandleTrackers(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		task, err := h.db.GetTaskByID(parts[2])
+		if writeTaskKeyAmbiguous(w, err) {
+			return
+		}
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return

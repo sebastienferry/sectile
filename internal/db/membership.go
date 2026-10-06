@@ -51,11 +51,13 @@ func (m *membershipIndex) project(ref string) (memberProject, bool) {
 }
 
 // labelCarried says whether labels hold label as a whole token, A-Z folded,
-// the Go form of viewLabelScope.
+// the Go form of viewLabelScope. Only label, a project's, is trimmed, as its
+// save trims it: a ticket label is compared as stored, as the SQL matches its
+// JSON token, so " backend" does not carry "backend".
 func labelCarried(labels []string, label string) bool {
 	wanted := asciiLower(strings.TrimSpace(label))
 	for _, l := range labels {
-		if asciiLower(strings.TrimSpace(l)) == wanted {
+		if asciiLower(l) == wanted {
 			return true
 		}
 	}

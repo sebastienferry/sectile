@@ -767,3 +767,26 @@ func TestAProjectSwitchingToAnExistingTrackerJoinsItInsteadOfRenamingItsOwn(t *t
 		t.Fatalf("the old tracker still holds its ticket and cannot be deleted: %v", err)
 	}
 }
+
+// A project whose label has a space cannot move onto Jira, which refuses such
+// a label, through the legacy tracker fields either: the check runs whenever
+// the project's trackers change, not only when its trackers or label are sent.
+// An edit that leaves both alone is not refused for a label saved before.
+func TestAProjectWithASpacedLabelCannotMoveOntoJiraThroughItsTrackerFields(t *testing.T) {
+	d := testDB(t)
+	p, err := d.CreateProject(models.CreateProjectRequest{Name: "Delivery", IssueTracker: "github", GithubRepo: "acme/api", Label: "delivery admin"})
+	if err != nil {
+		t.Fatalf("a spaced label on GitHub: %v", err)
+	}
+	jira, space := "jira", "GODE"
+	if _, err := d.UpdateProject(p.ID, models.UpdateProjectRequest{IssueTracker: &jira, JiraProject: &space}); !errors.Is(err, ErrInvalidProjectLabel) {
+		t.Fatalf("moving onto Jira with a spaced label: %v, want ErrInvalidProjectLabel", err)
+	}
+	if trk := d.ProjectDefaultTracker(p.ID); trk == nil || trk.Provider != "github" {
+		t.Fatalf("the refused move left the project on %+v, want GitHub", trk)
+	}
+	renamed := "Delivery 2"
+	if _, err := d.UpdateProject(p.ID, models.UpdateProjectRequest{Name: &renamed}); err != nil {
+		t.Fatalf("an edit leaving the trackers alone: %v", err)
+	}
+}

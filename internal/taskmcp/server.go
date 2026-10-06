@@ -246,8 +246,8 @@ func englishError(err error) error {
 }
 
 // callProject is the project a tool call works in when it names none (#741):
-// the project of the run the launched console names in its header, else of a
-// run the session started. Empty when none recorded one.
+// the project of the run the launched console names in its header, else of the
+// latest run the session started that recorded one. Empty when none did.
 func callProject(database *db.DB, sessions *SessionRegistry, req *mcp.CallToolRequest) string {
 	if database == nil || req == nil {
 		return ""
@@ -627,7 +627,11 @@ func NewServerWithCallers(database *db.DB, sessions *SessionRegistry, resolve Ca
 		})
 	mcp.AddTool(s, &mcp.Tool{Name: "prepare_task_spec_worktree", Description: "Prepare where a task's clarification report and specification are written, on the caller's local agent, in the project's Issue specifications folder (the desktop \"Issue specifications folder\" setting, else the code checkout). When that folder is the code checkout, returns the task's own worktree and branch, with distinct false: write there as before. Otherwise, on a Git folder, the task's own worktree of it on a branch named like the task's branch, created from the up-to-date default branch (or the remote branch when it exists) or reused as is; on a plain folder, the folder itself with an empty branch, where nothing is committed or pushed. Returns repository (the Issue folder), path, branch, whether it is a dedicated worktree, distinct, and any warning. An issue skill calls it when SECTILE_SPEC_REPO is not set; it reuses the worktree a launch already prepared."},
 		func(ctx context.Context, req *mcp.CallToolRequest, in taskInput) (*mcp.CallToolResult, any, error) {
-			workspace, err := database.PrepareTaskSpecWorktree(ctx, callerOf(resolve, req).UserID, in.TaskKey)
+			ref, err := taskRef(req, "", in.TaskKey)
+			if err != nil {
+				return nil, nil, err
+			}
+			workspace, err := database.PrepareTaskSpecWorktree(ctx, callerOf(resolve, req).UserID, ref)
 			if err != nil {
 				return nil, nil, err
 			}

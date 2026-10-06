@@ -88,10 +88,12 @@ type RunWaiter interface {
 
 // adoptedRun remembers what a session would leave behind. The task key is kept
 // because closing a run requires it, and the skill name because a disconnection
-// is worth reporting in terms an operator recognizes.
+// is worth reporting in terms an operator recognizes. The sequence orders the
+// adoptions, so the latest run is found the same way at every call (#741).
 type adoptedRun struct {
 	taskKey string
 	skill   string
+	seq     uint64
 }
 
 type liveSession struct {
@@ -172,6 +174,8 @@ type SessionRegistry struct {
 	stopOnce sync.Once
 	// keepaliveOnce starts the keepalive loop at most once.
 	keepaliveOnce sync.Once
+	// adoptions numbers the adoptions, under mu, latest highest.
+	adoptions uint64
 }
 
 // NewSessionRegistry builds a registry that observes silences but has nothing to
@@ -502,12 +506,15 @@ func (r *SessionRegistry) Adopt(sessionID, runID, taskKey, skill string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if entry := r.live[sessionID]; entry != nil {
-		entry.runs[runID] = adoptedRun{taskKey: taskKey, skill: skill}
+		r.adoptions++
+		entry.runs[runID] = adoptedRun{taskKey: taskKey, skill: skill, seq: r.adoptions}
 	}
 }
 
-// AdoptedRuns lists the runs a session started and still owns: what its calls
-// work for when they name no project (#741).
+// AdoptedRuns lists the runs a session started and still owns, latest adopted
+// first: what its calls work for when they name no project (#741). The order
+// is the adoptions', never the map's, so a call resolves the same project each
+// time.
 func (r *SessionRegistry) AdoptedRuns(sessionID string) []string {
 	if r == nil || sessionID == "" {
 		return nil
@@ -522,6 +529,7 @@ func (r *SessionRegistry) AdoptedRuns(sessionID string) []string {
 	for id := range entry.runs {
 		runs = append(runs, id)
 	}
+	sort.Slice(runs, func(i, j int) bool { return entry.runs[runs[i]].seq > entry.runs[runs[j]].seq })
 	return runs
 }
 

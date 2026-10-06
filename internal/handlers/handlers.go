@@ -430,6 +430,17 @@ func busyBody(message string, active *models.TaskActivity, batch *models.TaskBat
 	return body
 }
 
+// writeTaskKeyAmbiguous answers a ticket lookup refused for a key two trackers
+// carry (#741) with a 409: the caller names the ticket by its id instead, which
+// a 404 or a 500 would not tell it. Any other error is left to the handler.
+func writeTaskKeyAmbiguous(w http.ResponseWriter, err error) bool {
+	if !errors.Is(err, db.ErrTaskKeyAmbiguous) {
+		return false
+	}
+	writeError(w, http.StatusConflict, err.Error())
+	return true
+}
+
 // writeTaskBusy answers a launch the database refused because the task already
 // carries an active run, with the body the busy check answers, and reports
 // whether it did. Any other error is left to the caller.
@@ -2376,6 +2387,9 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 		}
 
 		task, err := h.db.GetTaskByIDIn(req.ProjectID, id)
+		if writeTaskKeyAmbiguous(w, err) {
+			return
+		}
 		if err != nil || task == nil {
 			writeError(w, http.StatusNotFound, "Task not found")
 			return
@@ -2644,6 +2658,9 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 	// Sub-action: /api/tasks/{id}/checkout-branch
 	if subAction == "checkout-branch" && (r.Method == http.MethodPost || r.Method == http.MethodPut) {
 		task, err := h.db.GetTaskByID(id)
+		if writeTaskKeyAmbiguous(w, err) {
+			return
+		}
 		if err != nil || task == nil {
 			writeError(w, http.StatusNotFound, "Tâche non trouvée")
 			return
@@ -2789,6 +2806,9 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 				targetID = r.URL.Query().Get("key")
 			}
 			task, err := h.db.GetTaskByID(targetID)
+			if writeTaskKeyAmbiguous(w, err) {
+				return
+			}
 			if err != nil || task == nil {
 				writeError(w, http.StatusNotFound, "Tâche non trouvée")
 				return
@@ -2895,6 +2915,9 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 		}
 
 		task, err := h.db.GetTaskByID(id)
+		if writeTaskKeyAmbiguous(w, err) {
+			return
+		}
 		if err != nil || task == nil {
 			writeError(w, http.StatusNotFound, "Tâche non trouvée")
 			return
@@ -3079,6 +3102,9 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 			return
 		} else if r.Method == http.MethodDelete {
 			task, err := h.db.GetTaskByID(id)
+			if writeTaskKeyAmbiguous(w, err) {
+				return
+			}
 			if err != nil || task == nil {
 				writeError(w, http.StatusNotFound, "Tâche non trouvée")
 				return
@@ -3169,6 +3195,9 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
 		task, err := h.db.GetTaskByID(id)
+		if writeTaskKeyAmbiguous(w, err) {
+			return
+		}
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -3431,7 +3460,9 @@ func (h *Handler) HandleActivityDetail(w http.ResponseWriter, r *http.Request) {
 	// Sub-action: /api/activities/{id}/retry
 	if len(parts) >= 2 && parts[1] == "retry" && r.Method == http.MethodPost {
 		act, err := h.db.RetryActivity(id)
-		if writeTaskBusy(w, err) {
+		// An activity recorded before #741 names no project: on a ticket of
+		// several, its retry asks which one, as a launch does.
+		if writeTaskBusy(w, err) || writeRunProjectRefusal(w, err) {
 			return
 		}
 		if err != nil {
@@ -3999,6 +4030,9 @@ func (h *Handler) HandleOpenEditor(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.TaskID != "" {
 		task, err := h.db.GetTaskByID(req.TaskID)
+		if writeTaskKeyAmbiguous(w, err) {
+			return
+		}
 		if err != nil || task == nil {
 			writeError(w, http.StatusNotFound, "Task not found")
 			return
@@ -4193,6 +4227,9 @@ func repositoryErrorStatus(err error) int {
 	}
 	if errors.Is(err, db.ErrUnknownTracker) || errors.Is(err, db.ErrForeignLocalTracker) || errors.Is(err, db.ErrInvalidProjectLabel) {
 		return http.StatusBadRequest
+	}
+	if errors.Is(err, db.ErrTaskKeyAmbiguous) {
+		return http.StatusConflict
 	}
 	return http.StatusInternalServerError
 }

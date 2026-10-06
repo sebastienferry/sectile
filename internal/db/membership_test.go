@@ -145,10 +145,13 @@ func TestTheGoMembershipAgreesWithTheSqlMembership(t *testing.T) {
 		"GODE-6": {"50%_off"},
 		"GODE-7": {"50x-off"},
 		"GODE-8": {},
+		// A ticket label is matched as it is stored, spaces included: only the
+		// project label is trimmed, on save.
+		"GODE-9": {" delivery-admin"},
 	})
 	all, err := d.GetTasks("", "", "", "", "", "", "", "", "", nil, nil, false)
-	if err != nil || len(all) != 8 {
-		t.Fatalf("%d tickets (%v), want 8", len(all), err)
+	if err != nil || len(all) != 9 {
+		t.Fatalf("%d tickets (%v), want 9", len(all), err)
 	}
 	for _, p := range projects {
 		sql := map[string]bool{}
@@ -316,5 +319,33 @@ func TestAnUnlinkedTrackerIsSynchronisedInFull(t *testing.T) {
 	var rows int
 	if err := d.conn.QueryRow("SELECT COUNT(*) FROM tasks WHERE tracker_id = ? AND project_id = ?", lone.ID, trackerSentinel(lone.ID)).Scan(&rows); err != nil || rows != 2 {
 		t.Fatalf("%d tickets of the unlinked tracker (%v), want both", rows, err)
+	}
+}
+
+// A synchronisation filed for a tracker deleted since it was queued fails: it
+// never falls back to the deployment's default source, which would import that
+// source's tickets under no tracker.
+func TestASyncOfADeletedTrackerFailsAndImportsNothing(t *testing.T) {
+	fake := newFakeTracker()
+	fake.tasks = []models.Task{{Key: "PE-1", Title: "One", Status: models.StatusToClarify, Source: "jira", CreatedAt: time.Now(), UpdatedAt: time.Now()}}
+	d, _ := jiraTestDB(t, fake)
+	activity := models.TaskActivity{ID: "sync-gone", TrackerID: "gone", SkillID: "sync_jira", Status: "running", CreatedAt: time.Now()}
+	if err := d.AddTaskActivity(activity); err != nil {
+		t.Fatal(err)
+	}
+	settings, _ := d.GetSettings()
+	settings.JiraProject = "PE"
+	d.processSyncJob(context.Background(), SkillJob{SkillID: "sync_jira", ActivityID: activity.ID, TrackerID: "gone"}, settings)
+
+	var rows int
+	if err := d.conn.QueryRow("SELECT COUNT(*) FROM tasks").Scan(&rows); err != nil || rows != 0 {
+		t.Fatalf("%d tickets imported (%v), want none", rows, err)
+	}
+	if fake.called("sync") {
+		t.Fatal("the deleted tracker's job read a source")
+	}
+	act, err := d.GetActivityByID(activity.ID)
+	if err != nil || act == nil || act.Status != string(models.ActivityStatusFailed) || !strings.Contains(act.Summary, "supprimé") {
+		t.Fatalf("the job's activity = %+v (%v), want failed, saying the tracker was deleted", act, err)
 	}
 }

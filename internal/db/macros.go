@@ -370,23 +370,24 @@ func (d *DB) UpdateMacro(ctx context.Context, projectID string, key string, titl
 		return nil, fmt.Errorf("projet et clé de macro obligatoires")
 	}
 
+	proj, _ := d.GetProjectByID(projectID)
 	// If title changed, update any task parent_title in tasks table as well.
 	// The tickets are found as DeleteMacro finds them (#741): a Jira epic of one
 	// of the project's trackers is shared by every project selecting that
 	// tracker, so all its tickets follow; any other macro renames the parent of
-	// the project's own tickets.
+	// the project's own tickets (macroTicketScopeUnsafe).
 	if title != nil && strings.TrimSpace(*title) != "" {
 		newTitle := strings.TrimSpace(*title)
 		d.mu.Lock()
-		scope, scopeArgs := d.membershipScopeUnsafe([]string{projectID})
+		scope, scopeArgs := d.macroTicketScopeUnsafe(proj, projectID, key)
 		if _, trk := d.macroRowUnsafe(projectID, key); trk != nil {
 			if trackerID, ok := trk.(string); ok && trackerID != "" {
-				scope, scopeArgs = "tracker_id = ?", []any{trackerID}
+				scope, scopeArgs = "(project_id = ? OR tracker_id = ?)", []any{projectID, trackerID}
 			}
 		}
 		_, _ = d.conn.Exec(
-			"UPDATE tasks SET parent_title = ? WHERE (project_id = ? OR "+scope+") AND (parent_key = ? OR parent_title = ?)",
-			append(append([]any{newTitle, projectID}, scopeArgs...), key, key)...,
+			"UPDATE tasks SET parent_title = ? WHERE "+scope+" AND (parent_key = ? OR parent_title = ?)",
+			append(append([]any{newTitle}, scopeArgs...), key, key)...,
 		)
 		d.mu.Unlock()
 	}
@@ -397,7 +398,6 @@ func (d *DB) UpdateMacro(ctx context.Context, projectID string, key string, titl
 	}
 
 	var refused error
-	proj, _ := d.GetProjectByID(projectID)
 	// Only what the milestone carries travels: the horizon, the framing and the
 	// slicing are Sectile's own. It is written after the local save, so the
 	// description goes out with the todo block of the list just saved.
@@ -442,6 +442,44 @@ func (d *DB) UpdateMacro(ctx context.Context, projectID string, key string, titl
 		return saved, fmt.Errorf("milestone GitHub de %s non mis à jour, modification gardée en local : %w", key, refused)
 	}
 	return saved, nil
+}
+
+// macroTicketScopeUnsafe selects the tickets a project's own macro, one that is
+// no tracker's record, may be the parent of (#741): the rows still naming the
+// project, and the tickets the project shows. A local M-<n> is the project's
+// alone, yet a tracker two projects select without a label shows each of its
+// tickets in both, and nothing on a ticket says which project's M-<n> its
+// parent key names: a ticket another project showing it holds a local macro of
+// that key for is left out, never given the wrong macro's title. A GitHub
+// milestone is the repository's, the same for every project on it, so its
+// tickets are all in. The caller holds d.mu.
+func (d *DB) macroTicketScopeUnsafe(proj *models.Project, projectID, key string) (string, []any) {
+	member, args := d.membershipScopeUnsafe([]string{projectID})
+	if githubMilestoneMacros(proj) {
+		return "(project_id = ? OR " + member + ")", append([]any{projectID}, args...)
+	}
+	self := projectID
+	if p, ok := d.membershipUnsafe().project(projectID); ok {
+		self = p.ID
+	}
+	var others []string
+	rows, err := d.conn.Query(`SELECT project_id FROM macros WHERE key = ? AND project_id <> ? AND (tracker_id IS NULL OR tracker_id = '')`, key, self)
+	if err == nil {
+		for rows.Next() {
+			var id string
+			if rows.Scan(&id) == nil {
+				others = append(others, id)
+			}
+		}
+		rows.Close()
+	}
+	if len(others) > 0 {
+		if other, otherArgs := d.membershipScopeUnsafe(others); other != "1 = 0" {
+			member = "(" + member + " AND NOT " + other + ")"
+			args = append(args, otherArgs...)
+		}
+	}
+	return "(project_id = ? OR " + member + ")", append([]any{projectID}, args...)
 }
 
 // bulkMacroEditKey marks the context of an edit that is one of several.
@@ -1294,11 +1332,12 @@ func (d *DB) DeleteMacro(ctx context.Context, projectID string, key string) erro
 	d.ensureMacrosTable()
 	rowProject, _ := d.macroRowUnsafe(projectID, key)
 	_, err := d.conn.Exec("DELETE FROM macros WHERE project_id = ? AND key = ?", rowProject, key)
-	// The project's tickets lose the parent (#741).
-	member, memberArgs := d.membershipScopeUnsafe([]string{projectID})
+	// The project's tickets lose the parent (#741), those another project's
+	// local macro of that key may hold excepted (macroTicketScopeUnsafe).
+	scope, scopeArgs := d.macroTicketScopeUnsafe(proj, projectID, key)
 	_, _ = d.conn.Exec(
-		"UPDATE tasks SET parent_key = '', parent_title = '' WHERE (project_id = ? OR "+member+") AND (parent_key = ? OR parent_title = ?)",
-		append(append([]any{projectID}, memberArgs...), key, key)...,
+		"UPDATE tasks SET parent_key = '', parent_title = '' WHERE "+scope+" AND (parent_key = ? OR parent_title = ?)",
+		append(scopeArgs, key, key)...,
 	)
 	d.mu.Unlock()
 	if err == nil && refused != nil {
