@@ -10,8 +10,8 @@ const token=(page,name)=>page.evaluate(name=>{const probe=document.createElement
 test('Claude chat renders structured output safely and sends messages without a PTY',async()=>{
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'sectile-conversation-ui-'))
  const source={id:'source',taskId:'source',taskKey:'#1',projectId:'project',skill:'implement',status:'completed',directory:'/tmp/project',sessionId:'source'}
- const chat={id:'chat',taskId:'',projectId:'project',kind:'console',provider:'claude',conversation:true,headless:true,status:'running',directory:'/tmp/project'}
- const runs=[source],events=[{kind:'notice',text:'Claude Code conversation · experimental',detail:'Edits accepted; approvals unavailable.'}]
+ const chat={id:'chat',taskId:'chat-task',projectId:'project',kind:'task',provider:'claude',conversation:true,headless:true,status:'running',directory:'/tmp/project'}
+ const runs=[source,chat],events=[{kind:'notice',text:'Claude Code conversation · experimental',detail:'Edits accepted; approvals unavailable.'}]
  let pollsWithSince=0,sentMode='',mcpState={status:'needs-auth',detail:'! Needs authentication'},mcpChecks=0,busy=false,partial='',interrupts=0,joined=[],terminals=[],approvals=[],decisions=[],readOnly=false,foreign=false,attachments=0,message='',effort='',context
  const server=http.createServer((req,res)=>{
   res.setHeader('Content-Type','application/json')
@@ -20,9 +20,6 @@ test('Claude chat renders structured output safely and sends messages without a 
   if(req.url.startsWith('/desktop/project?')){res.end(JSON.stringify({configured:true,server:{skills:[]}}));return}
   if(req.url.startsWith('/desktop/tasks?')){res.end(JSON.stringify([{id:'source',key:'#1',title:'Source execution',labels:['#specified']}]));return}
   if(req.url==='/desktop/runs'){res.end(JSON.stringify(runs));return}
-  if(req.url==='/desktop/conversation'&&req.method==='POST'){
-   let body='';req.on('data',chunk=>body+=chunk);req.on('end',()=>{assert.equal(JSON.parse(body).sourceRunId,'source');runs.push(chat);res.writeHead(201).end(JSON.stringify(chat))});return
-  }
   if(req.url==='/desktop/conversation-terminal'){let body='';req.on('data',chunk=>body+=chunk);req.on('end',()=>{terminals.push(JSON.parse(body).runId);res.end(JSON.stringify({opened:true}))});return}
   if(req.url.startsWith('/desktop/conversation?id=chat')){
    // Like the agent, an unchanged history is not sent to a poll that shows it.
@@ -55,7 +52,7 @@ test('Claude chat renders structured output safely and sends messages without a 
   await expect.poll(()=>attachments).toBeGreaterThan(0)
   const before=attachments
   // The conversation view is opt-in: the terminal is the default.
-  await expect(page.getByRole('button',{name:'Claude chat (test)',exact:true})).toBeHidden()
+  await expect(page.getByRole('button',{name:'Claude chat (test)',exact:true})).toHaveCount(0)
   await page.locator('#settings').click()
   await page.getByRole('tab',{name:'Appearance',exact:true}).click()
   const views=page.getByRole('group',{name:'Claude consoles'})
@@ -64,8 +61,12 @@ test('Claude chat renders structured output safely and sends messages without a 
   await expect(views.getByRole('button',{name:'Conversation',exact:true})).toHaveAttribute('aria-pressed','true')
   assert.equal(JSON.parse(fs.readFileSync(path.join(root,'desktop.json'),'utf8')).consoleView,'conversation')
   await page.keyboard.press('Escape')
-  await page.getByRole('button',{name:'Claude chat (test)',exact:true}).click()
+  await page.locator('.run[data-run-id=chat]').click()
   await expect(page.locator('.conversation')).toBeVisible()
+  await page.locator('#rerun').click()
+  await expect(page.getByRole('combobox',{name:'Relaunch skill'})).toBeVisible()
+  await page.getByRole('combobox',{name:'Relaunch skill'}).selectOption('discuss')
+  await page.keyboard.press('Escape')
   await expect(page.locator('.xterm')).toBeHidden()
   await expect(page.getByRole('button',{name:'Detach to native terminal',exact:true})).toBeHidden()
   const input=page.getByLabel('Message Claude Code')

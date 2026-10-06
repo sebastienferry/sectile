@@ -8,6 +8,7 @@ const {WebSocketServer}=require('ws')
 // answer(input) decides the reply to each attach: {status, body}.
 async function fakeAgent({runs,capabilities,answer}){
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'sectile-run-folders-')),posted=[]
+ if(capabilities.includes('claude-conversation'))runs.push({id:'chat',taskId:'',projectId:'project',kind:'console',provider:'claude',conversation:true,headless:true,status:'running',directory:'/tmp/project'})
  const state={busy:false,readOnly:false}
  const titles=runs.filter(run=>run.taskId).map(run=>({id:run.taskId,key:run.taskKey,title:run.title,labels:['#specified']}))
  const server=http.createServer((req,res)=>{
@@ -18,10 +19,6 @@ async function fakeAgent({runs,capabilities,answer}){
   if(url.pathname==='/desktop/project'){res.end(JSON.stringify({configured:true,server:{skills:[]}}));return}
   if(url.pathname==='/desktop/tasks'){res.end(JSON.stringify(titles));return}
   if(url.pathname==='/desktop/runs'){res.end(JSON.stringify(runs));return}
-  if(url.pathname==='/desktop/conversation'&&req.method==='POST'&&!url.searchParams.get('id')){
-   const chat={id:'chat',taskId:'',projectId:'project',kind:'console',provider:'claude',conversation:true,headless:true,status:'running',directory:'/tmp/project'}
-   runs.push(chat);res.writeHead(201).end(JSON.stringify(chat));return
-  }
   if(url.pathname==='/desktop/conversation'){
    res.end(JSON.stringify({id:'chat',events:[],version:1,busy:state.busy,readOnly:state.readOnly}));return
   }
@@ -56,7 +53,7 @@ test('a conversation attaches a folder from its composer',async()=>{
  const {page,choose,posted,state}=agent
  try{
   await page.locator('.run').filter({hasText:'Source execution'}).click()
-  await page.getByRole('button',{name:'Claude chat (test)',exact:true}).click()
+  await page.locator('.run[data-run-id=chat]').click()
   const add=page.locator('.conversation').getByRole('button',{name:'Add folder…',exact:true})
   const status=page.locator('.conversation-status')
   await expect(add).toBeEnabled()
@@ -102,7 +99,7 @@ test('an agent without the capability shows no add-folder action',async()=>{
   await expect(page.locator('#title')).toContainText('#2')
   await expect(page.locator('#add-run-folder')).toBeHidden()
   await page.locator('.run').filter({hasText:'Source execution'}).click()
-  await page.getByRole('button',{name:'Claude chat (test)',exact:true}).click()
+  await page.locator('.run[data-run-id=chat]').click()
   await expect(page.locator('.conversation-status')).toHaveText('Ready')
   await expect(page.locator('.conversation-add-folder')).toBeHidden()
  }finally{await agent.close()}

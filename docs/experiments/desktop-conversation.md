@@ -16,9 +16,7 @@ In Conversation mode:
   runs with the skill's model; a discussion waits for the first message. Both
   run in the task's worktree with the `SECTILE_TASK_*` environment the
   terminal would have had;
-- a **Project prompt**, in the project's local repository;
-- **Claude chat (test)** in the execution toolbar, an independent conversation
-  in the selected execution's directory.
+- a **Project prompt**, in the project's local repository.
 
 The engine must be a Claude one. A Claude engine with a launch template
 converses with the template's model and leaves the template's other options

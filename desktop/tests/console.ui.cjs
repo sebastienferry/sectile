@@ -6,7 +6,7 @@ const {WebSocketServer}=require('ws')
 
 test('desktop console reconnects, accepts input and stops the owned run',async()=>{
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'sectile-desktop-test-'))
- let archives=[],archiveRefused=true,stopped=false,input='',submitted=false,launches=[],available=true,extraRun=false,createdInput=null,withoutConsole=false,attachments=0
+ let runStatus='running',archives=[],archiveRefused=true,stopped=false,input='',submitted=false,launches=[],available=true,extraRun=false,createdInput=null,withoutConsole=false,attachments=0
  const server=http.createServer((req,res)=>{
   if(req.headers.authorization!=='Bearer test-secret'){res.writeHead(401).end();return}
   res.setHeader('Content-Type','application/json')
@@ -27,7 +27,7 @@ test('desktop console reconnects, accepts input and stops the owned run',async()
   if(req.url==='/desktop/status'){res.end(JSON.stringify({connected:true,server:'http://example.test',capabilities:['create-task','task-engines','archive-workspace']}));return}
   if(req.url==='/desktop/engines'){res.end(JSON.stringify({catalogue:[{id:'e-opus',name:'Claude Opus',provider:'claude',model:'claude-opus-5'},{id:'e-codex',name:'Codex',provider:'codex'}],default:'e-opus',projects:{},taskCounts:{}}));return}
   if(req.url==='/desktop/runs'&&!available){res.writeHead(503).end();return}
-  if(req.url==='/desktop/runs'){res.end(JSON.stringify([{id:'run-1',taskId:'task-1',taskKey:'#48',projectId:'project-a',skill:'specify',prompt:'Previous instructions',directory:'/tmp/spec-worktree',sessionId:withoutConsole?'':'run-1',status:withoutConsole?'failed':stopped?'canceled':'running'},...(extraRun?[{id:'run-0',taskId:'task-1',taskKey:'#48',projectId:'project-a',skill:'clarify',status:'completed',sessionId:'run-0'}]:[])]));return}
+  if(req.url==='/desktop/runs'){res.end(JSON.stringify([{id:'run-1',taskId:'task-1',taskKey:'#48',projectId:'project-a',skill:'specify',prompt:'Previous instructions',directory:'/tmp/spec-worktree',sessionId:withoutConsole?'':'run-1',status:withoutConsole?'failed':stopped?'canceled':runStatus},...(extraRun?[{id:'run-0',taskId:'task-1',taskKey:'#48',projectId:'project-a',skill:'clarify',status:'completed',sessionId:'run-0'}]:[])]));return}
   if(req.url==='/desktop/stop?id=run-1'){stopped=true;res.writeHead(204).end();return}
   // The first archive finds an untracked file in the worktree (#755).
   if(req.url==='/desktop/tasks/archive-workspace?projectId=project-a'&&req.method==='POST'){
@@ -60,6 +60,15 @@ test('desktop console reconnects, accepts input and stops the owned run',async()
   let page=await application.firstWindow()
   await page.getByText('#48 · Server specification task · specify',{exact:true}).waitFor()
   await page.locator('.xterm-screen').waitFor()
+  await expect(page.getByRole('button',{name:'Claude chat (test)',exact:true})).toHaveCount(0)
+  for(const status of ['queued','preparing','running']){
+   runStatus=status
+   await page.locator('.run[data-status='+status+']').waitFor()
+   await page.locator('#rerun').click()
+   await expect(page.getByRole('combobox',{name:'Relaunch skill'})).toHaveValue('specify')
+   await page.getByRole('combobox',{name:'Relaunch skill'}).selectOption('custom')
+   await page.keyboard.press('Escape')
+  }
   withoutConsole=true
   await page.locator('.run[data-status=failed]').waitFor()
   const attachmentCount=attachments
