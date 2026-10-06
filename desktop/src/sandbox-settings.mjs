@@ -39,7 +39,7 @@ export function sandboxPayload(values){
   ...(values.autoAllowBashIfSandboxed!==undefined?{autoAllowBashIfSandboxed:values.autoAllowBashIfSandboxed}:{}),
   ...(values.allowUnsandboxedCommands!==undefined?{allowUnsandboxedCommands:values.allowUnsandboxedCommands}:{}),
   ...(values.additionalDirectories!==undefined?{additionalDirectories:[...values.additionalDirectories]}:{}),
-  allowedDomains:[...values.allowedDomains],allowWrite:[...values.allowWrite],
+  allowedDomains:[...values.allowedDomains],excludedCommands:[...values.excludedCommands],allowWrite:[...values.allowWrite],
   allow:[...values.allow],deny:[...values.deny],
  }
 }
@@ -49,13 +49,13 @@ export function sandboxPayload(values){
 // applies, and Windows applies only the rules.
 export function launchesGetSettings(values,platformSandbox){
  if(values.allow.length||values.deny.length||values.additionalDirectories?.length)return true
- return !!platformSandbox&&(values.autoAllowBashIfSandboxed!=null||values.allowUnsandboxedCommands!=null||values.state!=='Inherited'||values.allowedDomains.length>0||values.allowWrite.length>0)
+ return !!platformSandbox&&(values.autoAllowBashIfSandboxed!=null||values.allowUnsandboxedCommands!=null||values.state!=='Inherited'||values.allowedDomains.length>0||values.excludedCommands.length>0||values.allowWrite.length>0)
 }
 
 // fromStored turns the agent's payload into the panel's values.
 export function fromStored(stored){
  const list=value=>Array.isArray(value)?[...value]:[]
- return {...(stored?.autoAllowBashIfSandboxed!=null?{autoAllowBashIfSandboxed:stored.autoAllowBashIfSandboxed}:{}),...(stored?.allowUnsandboxedCommands!=null?{allowUnsandboxedCommands:stored.allowUnsandboxedCommands}:{}),...(stored?.additionalDirectories?.length?{additionalDirectories:list(stored.additionalDirectories)}:{}),state:sandboxState(stored?.enabled),allowedDomains:list(stored?.allowedDomains),allowWrite:list(stored?.allowWrite),allow:list(stored?.allow),deny:list(stored?.deny)}
+ return {...(stored?.autoAllowBashIfSandboxed!=null?{autoAllowBashIfSandboxed:stored.autoAllowBashIfSandboxed}:{}),...(stored?.allowUnsandboxedCommands!=null?{allowUnsandboxedCommands:stored.allowUnsandboxedCommands}:{}),...(stored?.additionalDirectories?.length?{additionalDirectories:list(stored.additionalDirectories)}:{}),state:sandboxState(stored?.enabled),allowedDomains:list(stored?.allowedDomains),excludedCommands:list(stored?.excludedCommands),allowWrite:list(stored?.allowWrite),allow:list(stored?.allow),deny:list(stored?.deny)}
 }
 
 // resolvedValues is what a launch of a project applies (#730): each list the
@@ -69,7 +69,7 @@ export function resolvedValues(own,inherited){
   ...Object.fromEntries(['autoAllowBashIfSandboxed','allowUnsandboxedCommands'].filter(key=>own[key]!=null||inherited[key]!=null).map(key=>[key,own[key]??inherited[key]])),
   ...((own.additionalDirectories?.length||inherited.additionalDirectories?.length)?{additionalDirectories:union(inherited.additionalDirectories||[],own.additionalDirectories||[])}:{}),
   state:own.state==='Inherited'?inherited.state:own.state,
-  allowedDomains:union(inherited.allowedDomains,own.allowedDomains),allowWrite:union(inherited.allowWrite,own.allowWrite),
+  allowedDomains:union(inherited.allowedDomains,own.allowedDomains),excludedCommands:union(inherited.excludedCommands,own.excludedCommands),allowWrite:union(inherited.allowWrite,own.allowWrite),
   allow:union(inherited.allow,own.allow),deny:union(inherited.deny,own.deny),
  }
 }
@@ -187,7 +187,7 @@ export function sandboxSettings({settingRow,stored,platformSandbox,settingsPath,
  // loaded is what the agent last sent: the save sends it back as the base, so
  // a rule "Always allow" added meanwhile is kept rather than overwritten.
  let values=fromStored(stored),loaded=values,parent=inherited?fromStored(inherited):null,isCovered=covered
- const changed=()=>{values={...values,allowedDomains:domains.get(),allowWrite:writes.get(),allow:allow.get(),deny:deny.get()};render()}
+ const changed=()=>{values={...values,allowedDomains:domains.get(),excludedCommands:excluded.get(),allowWrite:writes.get(),allow:allow.get(),deny:deny.get()};render()}
 
  const stateGroup=document.createElement('div');stateGroup.className='segmented'
  stateGroup.setAttribute('role','group');stateGroup.setAttribute('aria-label','Claude Code sandbox')
@@ -219,6 +219,10 @@ export function sandboxSettings({settingRow,stored,platformSandbox,settingsPath,
  const domains=listEditor('Allowed network domains','registry.npmjs.org',changed)
  const domainsRow=settingRow('Allowed network domains',{stacked:true},domains.box)
  domainsRow.hint.textContent='Hosts a sandboxed command may reach.'
+ // The commands Claude Code runs outside its sandbox (#764).
+ const excluded=listEditor('Commands outside the sandbox','glab *',changed)
+ const excludedRow=settingRow('Commands outside the sandbox',{stacked:true},excluded.box)
+ excludedRow.hint.textContent='Commands Claude Code runs outside the sandbox, for the ones it breaks, such as git over SSH. A pattern ending in “ *” matches the command with arguments; a bare name matches it alone. They run with full access and still follow the allow and deny rules.'
  const writes=listEditor('Extra writable paths','~/.cache/go-build',changed)
  const writesRow=settingRow('Extra writable paths',{stacked:true},writes.box)
  writesRow.hint.textContent='Folders a sandboxed command may write besides the task’s own. A path with ~ is kept as typed; Claude Code expands it.'
@@ -263,7 +267,7 @@ export function sandboxSettings({settingRow,stored,platformSandbox,settingsPath,
    const tag=document.createElement('span');tag.className='claude-preset-kind claude-preset-kind-'+kind;tag.textContent=verb+preset[list].length
    kinds.append(tag)
   }
-  const reach=platformSandbox?[[preset.allowedDomains.length,'domain'],[preset.allowWrite.length,'path']].filter(([count])=>count).map(([count,noun])=>count+' '+noun+(count>1?'s':'')):[]
+  const reach=platformSandbox?[[preset.allowedDomains.length,'domain'],[preset.allowWrite.length,'path'],[preset.excludedCommands.length,'command']].filter(([count])=>count).map(([count,noun])=>count+' '+noun+(count>1?'s':'')):[]
   if(reach.length){const tag=document.createElement('span');tag.className='claude-preset-kind';tag.textContent=reach.join(' · ');kinds.append(tag)}
   const badge=document.createElement('span');badge.className='sandbox-origin';badge.textContent='Applied'
   const toggle=document.createElement('button');toggle.type='button'
@@ -276,7 +280,7 @@ export function sandboxSettings({settingRow,stored,platformSandbox,settingsPath,
   head.append(expand,name,kinds,badge,toggle)
   const description=document.createElement('p');description.className='claude-preset-description';description.textContent=preset.description
   entries.append(description)
-  for(const [list,label,kind] of [['allow','Allow rules','allow'],['deny','Deny rules','deny'],['allowedDomains','Allowed network domains','net'],['allowWrite','Extra writable paths','write']]){
+  for(const [list,label,kind] of [['allow','Allow rules','allow'],['deny','Deny rules','deny'],['allowedDomains','Allowed network domains','net'],['excludedCommands','Commands outside the sandbox','excluded'],['allowWrite','Extra writable paths','write']]){
    if(!preset[list].length)continue
    const group=document.createElement('div');group.className='claude-preset-group'
    const title=document.createElement('span');title.className='claude-preset-group-label';title.textContent=label
@@ -284,8 +288,8 @@ export function sandboxSettings({settingRow,stored,platformSandbox,settingsPath,
    for(const entry of preset[list]){const code=document.createElement('code');code.textContent=entry;chips.append(code)}
    group.append(title,chips);entries.append(group)
   }
-  if(!platformSandbox&&(preset.allowedDomains.length||preset.allowWrite.length)){
-   const note=document.createElement('p');note.textContent='Its domains and writable paths do not apply on Windows: only its rules are added.'
+  if(!platformSandbox&&(preset.allowedDomains.length||preset.allowWrite.length||preset.excludedCommands.length)){
+   const note=document.createElement('p');note.textContent='Its domains, writable paths and commands outside the sandbox do not apply on Windows: only its rules are added.'
    entries.append(note)
   }
   element.append(head,entries)
@@ -295,7 +299,7 @@ export function sandboxSettings({settingRow,stored,platformSandbox,settingsPath,
  // workstation inherits nothing, so no entry is marked Global.
  function showValues(next){
   values=next
-  domains.set(values.allowedDomains);writes.set(values.allowWrite);allow.set(values.allow);deny.set(values.deny)
+  domains.set(values.allowedDomains);excluded.set(values.excludedCommands);writes.set(values.allowWrite);allow.set(values.allow);deny.set(values.deny)
   render()
  }
 
@@ -347,14 +351,14 @@ export function sandboxSettings({settingRow,stored,platformSandbox,settingsPath,
   inherited=nextInherited;parent=inherited?fromStored(inherited):null;isCovered=nextCovered
   const from=key=>parent?parent[key]:[]
   folders.set(values.additionalDirectories||[],parent?.additionalDirectories||[])
-  domains.set(values.allowedDomains,from('allowedDomains'));writes.set(values.allowWrite,from('allowWrite'))
+  domains.set(values.allowedDomains,from('allowedDomains'));excluded.set(values.excludedCommands,from('excludedCommands'));writes.set(values.allowWrite,from('allowWrite'))
   allow.set(values.allow,from('allow'));deny.set(values.deny,from('deny'))
-  domains.disable(!platformSandbox);writes.disable(!platformSandbox)
+  domains.disable(!platformSandbox);excluded.disable(!platformSandbox);writes.disable(!platformSandbox)
   render()
  }
  set(stored)
  return {
-  sections:[...(workstation?[presetsRow.section]:[coverageRow.section]),stateRow.section,policyRow.section,foldersRow.section,domainsRow.section,writesRow.section,allowRow.section,denyRow.section,previewRow.section],
+  sections:[...(workstation?[presetsRow.section]:[coverageRow.section]),stateRow.section,policyRow.section,foldersRow.section,domainsRow.section,excludedRow.section,writesRow.section,allowRow.section,denyRow.section,previewRow.section],
   payload:()=>sandboxPayload(values),
   base:()=>sandboxPayload(loaded),
   set,
