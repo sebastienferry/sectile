@@ -22,7 +22,7 @@ func TestUserSettingsPreserveConnectionAndMigrate(t *testing.T) {
 	}
 	path, _ := SettingsPath()
 	os.MkdirAll(filepath.Dir(path), 0700)
-	os.WriteFile(path, []byte("{\"server\":\"https://example.test\",\"secret\":\"encrypted\"}"), 0600)
+	os.WriteFile(path, []byte("{\"server\":\"https://example.test\",\"apiKey\":\"key\",\"secret\":\"encrypted\"}"), 0600)
 	settings, err = ReadSettings(root)
 	if err != nil || settings.Project("p").Parallelism != 3 {
 		t.Fatal(settings, err)
@@ -36,8 +36,12 @@ func TestUserSettingsPreserveConnectionAndMigrate(t *testing.T) {
 	raw, _ := os.ReadFile(path)
 	var fields map[string]any
 	json.Unmarshal(raw, &fields)
-	if fields["secret"] != "encrypted" {
-		t.Fatal("connection secret lost")
+	if fields["server"] != "https://example.test" || fields["apiKey"] != "key" {
+		t.Fatal("connection lost")
+	}
+	// Desktop keeps its encrypted key in its own file (#746).
+	if _, kept := fields["secret"]; kept {
+		t.Fatal("Desktop's secret kept")
 	}
 	settings, err = ReadSettings(root)
 	if err != nil || settings.Project("p").Parallelism != 0 {
@@ -60,7 +64,7 @@ func TestDisconnectionIsWorkstationOnlyAndSurvivesLegacyFallback(t *testing.T) {
 	}
 	path, _ := SettingsPath()
 	os.MkdirAll(filepath.Dir(path), 0700)
-	os.WriteFile(path, []byte(`{"server":"https://example.test","secret":"preserved","custom":42}`), 0600)
+	os.WriteFile(path, []byte(`{"server":"https://example.test","apiKey":"preserved","custom":42}`), 0600)
 	settings.ProjectSettings = nil
 	settings.DisconnectedProjects = map[string]bool{"p": true}
 	if err := WriteSettings(settings); err != nil {
@@ -73,7 +77,7 @@ func TestDisconnectionIsWorkstationOnlyAndSurvivesLegacyFallback(t *testing.T) {
 	raw, _ := os.ReadFile(path)
 	var fields map[string]any
 	json.Unmarshal(raw, &fields)
-	if fields["secret"] != "preserved" || fields["custom"] != float64(42) {
+	if fields["apiKey"] != "preserved" || fields["custom"] != float64(42) {
 		t.Fatal("unrelated settings lost")
 	}
 	delete(settings.DisconnectedProjects, "p")

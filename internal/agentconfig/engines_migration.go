@@ -205,9 +205,10 @@ func (s Settings) hasDefaultEngine() bool {
 
 // MigrateSettings persists the conversion of the #305 engine settings, the
 // drop of the retired providers and the Sandbox fold (#730), once, at agent
-// start. The previous file is copied beside it first. A file that does not
-// exist yet, needs none of them, or was written by a newer agent is left
-// alone.
+// start. The previous file is copied beside it first. It also removes the
+// keys only Sectile Desktop used (#746), which needs no copy. A file that
+// does not exist yet, needs none of them, or was written by a newer agent is
+// left alone.
 func MigrateSettings(legacyRoot string) (bool, error) {
 	migrated, _, err := MigrateSettingsReport(legacyRoot)
 	return migrated, err
@@ -250,16 +251,26 @@ func MigrateSettingsReport(legacyRoot string) (bool, SettingsMigration, error) {
 	if before.downgraded() {
 		report.Downgraded = before.MaxLayout
 	}
-	if !changed && !report.SandboxFolded && before.Layout >= SettingsLayout {
+	fields := map[string]json.RawMessage{}
+	if err = json.Unmarshal(raw, &fields); err != nil {
+		return false, SettingsMigration{}, err
+	}
+	report.DesktopKeysRemoved = holdsDesktopOnlyKeys(fields)
+	converted := changed || report.SandboxFolded || before.Layout < SettingsLayout
+	if !converted && !report.DesktopKeysRemoved {
 		return false, SettingsMigration{}, nil
 	}
-	if _, err = backupSettingsFile(path, raw, before.Layout); err != nil {
-		return false, SettingsMigration{}, err
+	// Removing what Desktop left behind (#746) converts nothing: the file
+	// needs no copy for that alone.
+	if converted {
+		if _, err = backupSettingsFile(path, raw, before.Layout); err != nil {
+			return false, SettingsMigration{}, err
+		}
 	}
 	if err = storeSettings(settings, false); err != nil {
 		return false, SettingsMigration{}, err
 	}
-	return true, report, nil
+	return converted, report, nil
 }
 
 // backupSettingsFile copies the settings file as it was read beside it, as

@@ -150,3 +150,73 @@ func TestNewerSettingsAreNeverOverwritten(t *testing.T) {
 		}
 	}
 }
+
+// What only Sectile Desktop used leaves the file at the first agent save and
+// at start, without a layout backup, while the connection stays (#746).
+func TestAgentWritesDropTheDesktopOnlyKeys(t *testing.T) {
+	for _, name := range []string{"migration", "save"} {
+		t.Run(name, func(t *testing.T) {
+			path := currentSettingsFileWith(t, `{"server":"https://sectile.example.test","deviceId":"dev_1","apiKey":"cli","pairedAt":"2026-10-06T07:00:00Z","appearance":"dark","consoleView":"terminal","repo":"/r","binary":"/b","secret":"enc"}`)
+			if name == "migration" {
+				migrated, report, err := MigrateSettingsReport(t.TempDir())
+				if err != nil {
+					t.Fatal(err)
+				}
+				if migrated || !report.DesktopKeysRemoved {
+					t.Fatalf("migrated = %v, report = %+v", migrated, report)
+				}
+				if backups, _ := filepath.Glob(path + ".bak-layout*"); len(backups) > 0 {
+					t.Fatalf("backup written: %v", backups)
+				}
+			} else if _, err := UpdateSettings(t.TempDir(), func(*Settings) error { return nil }); err != nil {
+				t.Fatal(err)
+			}
+			fields := readFields(t, path)
+			for _, key := range desktopOnlyKeys {
+				if _, kept := fields[key]; kept {
+					t.Fatalf("%s kept: %v", key, fields)
+				}
+			}
+			for _, key := range []string{"server", "deviceId", "apiKey", "pairedAt"} {
+				if _, kept := fields[key]; !kept {
+					t.Fatalf("%s lost: %v", key, fields)
+				}
+			}
+		})
+	}
+}
+
+func TestMigrationLeavesAFileWithoutDesktopKeysAlone(t *testing.T) {
+	path := currentSettingsFileWith(t, `{"server":"https://sectile.example.test"}`)
+	before, _ := os.ReadFile(path)
+	if migrated, report, err := MigrateSettingsReport(t.TempDir()); err != nil || migrated || report.DesktopKeysRemoved {
+		t.Fatalf("migrated = %v, report = %+v, err = %v", migrated, report, err)
+	}
+	if after, _ := os.ReadFile(path); string(after) != string(before) {
+		t.Fatalf("file rewritten: %s", after)
+	}
+}
+
+// currentSettingsFileWith writes a settings file as this agent saves it, with
+// extra top-level fields merged in, so that the start-up migration has no
+// layout conversion to make.
+func currentSettingsFileWith(t *testing.T, extra string) string {
+	t.Helper()
+	path := writeSettingsFile(t, `{}`)
+	if _, err := UpdateSettings(t.TempDir(), func(*Settings) error { return nil }); err != nil {
+		t.Fatal(err)
+	}
+	fields := map[string]json.RawMessage{}
+	raw, _ := os.ReadFile(path)
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal([]byte(extra), &fields); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ = json.Marshal(fields)
+	if err := os.WriteFile(path, raw, 0600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}

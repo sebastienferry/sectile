@@ -13,6 +13,7 @@ import (
 	"tasks/internal/agentconfig"
 	"tasks/internal/testhome"
 	"testing"
+	"time"
 )
 
 func TestDesktopMCPChoiceSurvivesBootstrapAndRestart(t *testing.T) {
@@ -474,5 +475,54 @@ func TestDesktopMCPRepairRejectsOtherProviders(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(home, ".codex", "config.toml")); !os.IsNotExist(err) {
 		t.Fatalf("refused repair wrote the configuration: %v", err)
+	}
+}
+
+// A daemon Sectile Desktop started knows when its key was paired: a stored key
+// replaces it only when paired later, so a key Desktop left in the shared file
+// before it kept its own is never taken for a newer one (#746).
+func TestNewerStoredKeyFollowsThePairingDates(t *testing.T) {
+	start := time.Date(2026, 10, 6, 7, 0, 0, 0, time.UTC)
+	cases := []struct {
+		name     string
+		stored   string
+		pairedAt time.Time
+		newer    bool
+	}{
+		{"paired after the daemon's key", `"pairedAt":"2026-10-06T08:00:00Z"`, start, true},
+		{"paired before the daemon's key", `"pairedAt":"2026-10-06T06:00:00Z"`, start, false},
+		{"undated, daemon started by Desktop", ``, start, false},
+		{"undated, daemon started by hand", ``, time.Time{}, true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			testhome.Temp(t)
+			path, _ := agentconfig.SettingsPath()
+			if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+				t.Fatal(err)
+			}
+			fields := `"server":"https://sectile.example.test","apiKey":"stored-key"`
+			if c.stored != "" {
+				fields += "," + c.stored
+			}
+			if err := os.WriteFile(path, []byte("{"+fields+"}"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			d := &agentDaemon{link: serverLink{serverURL: "https://sectile.example.test", token: "daemon-key", pairedAt: c.pairedAt}}
+			if key, newer := d.newerStoredKey(); newer != c.newer || (newer && key != "stored-key") {
+				t.Fatalf("newerStoredKey = %q, %v; want newer %v", key, newer, c.newer)
+			}
+		})
+	}
+}
+
+func TestDesktopPairedAtReadsRFC3339(t *testing.T) {
+	if got := desktopPairedAt("2026-10-06T07:00:00.123Z"); !got.Equal(time.Date(2026, 10, 6, 7, 0, 0, 123e6, time.UTC)) {
+		t.Fatalf("desktopPairedAt = %v", got)
+	}
+	for _, value := range []string{"", "yesterday"} {
+		if got := desktopPairedAt(value); !got.IsZero() {
+			t.Fatalf("desktopPairedAt(%q) = %v, want zero", value, got)
+		}
 	}
 }

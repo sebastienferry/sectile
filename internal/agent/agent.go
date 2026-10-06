@@ -114,6 +114,9 @@ type agentDaemon struct {
 type serverLink struct {
 	serverURL string
 	token     string
+	// pairedAt is when the key Sectile Desktop started the agent with was
+	// paired (SECTILE_PAIRED_AT); zero for an agent started by hand (#746).
+	pairedAt  time.Time
 	projectID string
 	deviceID  string
 	mu        sync.Mutex
@@ -263,6 +266,7 @@ func Run(args []string) {
 		link: serverLink{
 			serverURL: strings.TrimRight(*serverURL, "/"),
 			token:     *token,
+			pairedAt:  desktopPairedAt(os.Getenv("SECTILE_PAIRED_AT")),
 			projectID: *projectID,
 			deviceID:  *deviceID,
 		},
@@ -357,8 +361,10 @@ func Run(args []string) {
 	// retired provider are dropped (#614), and the project Sandbox values are
 	// folded into the workstation ones (#730). A failure leaves the file
 	// alone: every read converts the engines in memory anyway. A file an
-	// older or a newer agent wrote is reported (#744).
-	if migrated, report, err := agentconfig.MigrateSettingsReport(daemon.localSettingsRoot()); err != nil {
+	// older or a newer agent wrote is reported (#744). What only Sectile
+	// Desktop used is removed: it keeps its own file (#746).
+	migrated, report, err := agentconfig.MigrateSettingsReport(daemon.localSettingsRoot())
+	if err != nil {
 		log.Printf("[Agent] Workstation settings not migrated: %v", err)
 	} else if report.NewerLayout > 0 {
 		log.Printf("[Agent] Workstation settings were written by a newer Sectile agent (layout %d); this agent does not change them: update it", report.NewerLayout)
@@ -376,6 +382,14 @@ func Run(args []string) {
 		for _, warning := range report.SandboxWarnings {
 			log.Printf("[Agent] Claude settings entry left on its project, not valid: %s", warning)
 		}
+	}
+	if report.DesktopKeysRemoved {
+		log.Printf("[Agent] Sectile Desktop settings removed from the workstation settings; Desktop keeps them in its own file")
+	}
+	// The server and device of the pairing Desktop started this agent with,
+	// never its key, so that `sectile-agent pair` replaces that device (#746).
+	if err := agentconfig.RecordDesktopConnection(daemon.link.serverURL, os.Getenv("SECTILE_PAIRED_DEVICE_ID")); err != nil {
+		log.Printf("[Agent] Paired device not recorded in the workstation settings: %v", err)
 	}
 	// Start local agent HTTP reverse proxy gateway
 	if err := daemon.startLocalProxy(ctx); err != nil {
