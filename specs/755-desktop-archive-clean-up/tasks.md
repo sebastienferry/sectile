@@ -5,44 +5,44 @@ building and its tests green.
 
 ## Protocol and model
 
-- [ ] T1 Add `archive_workspace` to `agentprotocol.Operations` and the
+- [x] T1 Add `archive_workspace` to `agentprotocol.Operations` and the
       `DeleteBranch` field to `Operation`.
-- [ ] T2 Add `models.WorkspaceArchive`, `WorkspaceArchiveEntry` and
+- [x] T2 Add `models.WorkspaceArchive`, `WorkspaceArchiveEntry` and
       `Archivable()`.
 
 ## Agent
 
-- [ ] T3 `internal/agent/archive_workspace.go`: code worktrees (single and
+- [x] T3 `internal/agent/archive_workspace.go`: code worktrees (single and
       multi repository), specifications worktree, outcomes removed / absent /
       disabled / failed.
-- [ ] T4 Branch clean-up guarded by `DeleteBranch`, existence, checkout,
+- [x] T4 Branch clean-up guarded by `DeleteBranch`, existence, checkout,
       upstream and unpushed commits; `git branch -D`.
-- [ ] T5 Dispatch `archive_workspace` in `executeOperation`.
-- [ ] T6 Tests for T3-T5 on real Git repositories.
-- [ ] T7 `POST /desktop/tasks/archive-workspace` relay and the
+- [x] T5 Dispatch `archive_workspace` in `executeOperation`.
+- [x] T6 Tests for T3-T5 on real Git repositories.
+- [x] T7 `POST /desktop/tasks/archive-workspace` relay and the
       `archive-workspace` capability, with a test.
 
 ## Server
 
-- [ ] T8 `db.ArchiveTaskWorkspace`: shared branch, `DeleteBranch` from pull
+- [x] T8 `db.ArchiveTaskWorkspace`: shared branch, `DeleteBranch` from pull
       request states, repositories, caller's agent, empty answer.
-- [ ] T9 `POST /api/tasks/{id}/archive-workspace` in the handlers.
-- [ ] T10 Tests for T8-T9.
+- [x] T9 `POST /api/tasks/{id}/archive-workspace` in the handlers.
+- [x] T10 Tests for T8-T9.
 
 ## Desktop
 
-- [ ] T11 `desktop/src/archive-workspace.mjs` (`archiveRefusal`) and its
+- [x] T11 `desktop/src/archive-workspace.mjs` (`archiveRefusal`) and its
       `node --test` file.
-- [ ] T12 Preload `archiveWorkspace` and the IPC handler with the capability
+- [x] T12 Preload `archiveWorkspace` and the IPC handler with the capability
       check.
-- [ ] T13 `main.js`: call before hiding runs for ticket tasks, refusal dialog,
+- [x] T13 `main.js`: call before hiding runs for ticket tasks, refusal dialog,
       button disabled while running, tooltips and dialog text.
-- [ ] T14 UI tests: fakes answer the route and capability; one refusal case.
+- [x] T14 UI tests: fakes answer the route and capability; one refusal case.
 
 ## Wrap-up
 
-- [ ] T15 `CHANGELOG.md` line under `## [Unreleased]` / `Changed`.
-- [ ] T16 `go build ./...`, `go vet ./...`, `go test` on the touched packages,
+- [x] T15 `CHANGELOG.md` line under `## [Unreleased]` / `Changed`.
+- [x] T16 `go build ./...`, `go vet ./...`, `go test` on the touched packages,
       Desktop unit and UI tests; quote the output.
 
 ## Test plan (reviewer)

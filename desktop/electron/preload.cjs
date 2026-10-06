@@ -67,6 +67,7 @@ contextBridge.exposeInMainWorld('localAgent',{
  conversationApproval:(id,approvalId,decision,answers)=>ipcRenderer.invoke('conversation-approval',{id,approvalId,decision,answers}),
  runResult:id=>ipcRenderer.invoke('run-result',id),
  stop:id=>ipcRenderer.invoke('stop',id),
+ archiveWorkspace:(projectId,taskId)=>ipcRenderer.invoke('archive-workspace',{projectId,taskId}),
  launchNativeDiscussion:(projectId,taskId,terminal)=>ipcRenderer.invoke('launch-native-discussion',{projectId,taskId,terminal}),
  detachToNativeTerminal:(runId,terminal)=>ipcRenderer.invoke('detach-to-native-terminal',{runId,terminal}),
  openEditor:runId=>ipcRenderer.invoke('open-editor',runId),

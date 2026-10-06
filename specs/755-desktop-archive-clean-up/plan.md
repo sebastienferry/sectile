@@ -74,8 +74,9 @@ New file `archive_workspace.go`, dispatched from `executeOperation` next to
    `repositoryFolder` (not found: `failed`, "not found on this workstation");
    without repositories, the task root via `primaryRoot`. Then
    `worktreeForBranch(root, branch)`: none, or the main checkout itself:
-   `absent`; else `git worktree remove <path>` through `gitLocal`: `removed`
-   or `failed` with Git's message.
+   `absent`; a worktree whose folder was deleted by hand is pruned
+   (`git worktree prune`) and `absent`; else `git worktree remove <path>`
+   through `gitLocal`: `removed` or `failed` with Git's message.
 4. Specifications worktree: when `overrides.IssueSpecPath(projectID)` names a
    distinct Issue folder (`localIssueSpecRepo`), the same lookup and removal
    there, role `specifications`.
