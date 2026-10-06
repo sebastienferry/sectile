@@ -21,6 +21,7 @@ import { macroLookup, sprintLookup } from '../lib/lookups'
 import { matchesSearch } from '../lib/searchFold'
 import { format, plural } from '../lib/i18n'
 import type { MacroMeta, Task } from '../types'
+import { isTrackerTicket } from '../lib/projectTrackers'
 
 type Dimension = 'sprint' | 'macro' | 'team' | 'assignee'
 
@@ -148,6 +149,9 @@ export const TriageView: React.FC = () => {
   }, [pool, dimensions, filterSprint, filterMacro, searchQuery])
 
   const selectedIds = useMemo(() => filteredRows.filter(t => checked[t.id]).map(t => t.id), [filteredRows, checked])
+  // A tracker ticket's projects follow from its labels (#741): only the local
+  // ones of the selection move to another project.
+  const movableIds = useMemo(() => filteredRows.filter(t => checked[t.id] && !isTrackerTicket(t)).map(t => t.id), [filteredRows, checked])
 
   const toggleDimension = (dimension: Dimension) => {
     setDimensions(prev =>
@@ -432,7 +436,7 @@ export const TriageView: React.FC = () => {
           </div>
 
           {/* Quick Project Migration */}
-          {projects.length > 1 && (
+          {projects.length > 1 && movableIds.length > 0 && (
             <div className="flex items-center gap-1">
               <select
                 value={batchProjectId}
@@ -453,7 +457,7 @@ export const TriageView: React.FC = () => {
                 disabled={!batchProjectId || batchBusy === 'project'}
                 onClick={() =>
                   runBatch('project', async () => {
-                    const res = await migrateTasks(selectedIds, batchProjectId)
+                    const res = await migrateTasks(movableIds, batchProjectId)
                     if (res.success) setChecked({})
                     return res.success
                   })

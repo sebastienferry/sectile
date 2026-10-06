@@ -31,7 +31,6 @@ import type {
   TaskSource,
   Project,
   ProjectSavePayload,
-  TrackerBoard,
   TaskComment,
   MacroMeta,
   MacroHorizon,
@@ -48,11 +47,13 @@ import type {
   TrackerCheck,
   TrackerCredentials,
   EpicAxisFieldDiscovery,
+  TrackerSummary,
 } from '../types'
 import { translations, type TranslationSchema } from '../locales/translations'
 import { resolveAccentAttribute } from '../lib/accents'
 import type { StoredUserCredential, OrphanedCredentialReport, TrackerKind } from '../lib/trackers'
-import { NO_ORPHANED_CREDENTIALS, getTrackers, orphanedCredentialsFrom } from '../lib/trackers'
+import { NO_ORPHANED_CREDENTIALS, fetchTrackerSummaries, getTrackers, orphanedCredentialsFrom } from '../lib/trackers'
+import { boardRunProject, runProjectCandidates, type RunProjectCandidate } from '../lib/runProject'
 import {
   NO_JIRA_OAUTH,
   jiraOAuthFrom,
@@ -137,6 +138,12 @@ interface AppContextType {
   deleteProject: (id: string) => Promise<boolean>
   toggleProjectBookmark: (projectId: string) => Promise<boolean>
   fetchProjects: () => Promise<void>
+  /**
+   * The trackers a member can pick for a project (#741), read once and on
+   * demand: the project settings, quick-add and the backlog entries share it.
+   */
+  trackers: TrackerSummary[]
+  fetchTrackers: () => Promise<void>
   // Saved board views (#387): personal selections of projects and labels.
   boardViews: BoardView[]
   selectedViewId: string | null
@@ -371,7 +378,7 @@ interface AppContextType {
   toasts: ToastMessage[]
   addToast: (toast: Omit<ToastMessage, 'id'>) => void
   removeToast: (id: string) => void
-  createTask: (task: { title: string; description?: string; status?: Status; priority?: Priority; labels?: string[]; assignee?: string; dueDate?: string | null; sprint?: string; source?: TaskSource; externalUrl?: string; projectId?: string; issueType?: string; macroKey?: string }) => Promise<Task | null>
+  createTask: (task: { title: string; description?: string; status?: Status; priority?: Priority; labels?: string[]; assignee?: string; dueDate?: string | null; sprint?: string; source?: TaskSource; externalUrl?: string; projectId?: string; trackerId?: string; issueType?: string; macroKey?: string }) => Promise<Task | null>
   cloneTask: (taskId: string, req?: CloneTaskRequest, openAfterClone?: boolean) => Promise<Task | null>
   isCloneModalOpen: boolean
   setIsCloneModalOpen: (open: boolean) => void
@@ -388,14 +395,9 @@ interface AppContextType {
 
 
   postTaskComment: (id: string, body: string) => Promise<TaskComment[] | null>
-  listProjectBoards: (projectId: string) => Promise<TrackerBoard[]>
-  importProjectBoardColumns: (projectId: string, boardId: string) => Promise<Project | null>
   /** Reads the Jira priority scheme again into the project's mapping (#679); answers the error to show inline. */
   refreshPriorityMapping: (projectId: string) => Promise<{ project?: Project; error?: string }>
   loadEpicAxisFieldCandidates: (projectId: string) => Promise<{ discovery?: EpicAxisFieldDiscovery; error?: string }>
-  fetchProjectTrackerStatuses: (projectId: string) => Promise<string[]>
-  /** Types de tickets que le tracker du projet expose, pour le réglage d'import. */
-  fetchProjectIssueTypes: (projectId: string) => Promise<string[]>
   fetchProjectMacros: (projectId: string) => Promise<MacroMeta[]>
   fetchProjectEpics: (projectId: string) => Promise<MacroMeta[]>
   createBatchTasks: (reqs: CreateTaskPayload[]) => Promise<Task[]>
@@ -491,7 +493,17 @@ interface AppContextType {
   moveTask: (id: string, newStatus: Status, newPosition: number) => Promise<void>
   moveTaskWorkflowStage: (taskId: string, targetStage: WorkflowStage) => Promise<Task | null>
   deleteTask: (id: string) => Promise<boolean>
-  runSkill: (taskId: string, skillId: string, prompt?: string, opts?: { withComments?: boolean; mode?: SkillMode; model?: string }) => Promise<TaskActivity | null>
+  runSkill: (taskId: string, skillId: string, prompt?: string, opts?: { withComments?: boolean; mode?: SkillMode; model?: string; projectId?: string }) => Promise<TaskActivity | null>
+  /**
+   * A launch on a ticket of several projects waiting for the person to pick
+   * the project the run works for (#741); null when none is.
+   */
+  runProjectChoice: { taskKey: string; candidates: RunProjectCandidate[] } | null
+  /** Answers the pending choice: a candidate's id, or null to give up the launch. */
+  chooseRunProject: (projectId: string | null) => void
+  /** The tracker whose tickets in no project the backlog view lists (#741). */
+  backlogTrackerId: string | null
+  openTrackerBacklog: (trackerId: string) => void
   syncAll: () => Promise<void>
   syncGithub: (repo?: string) => Promise<void>
   syncJira: (projectKey?: string) => Promise<void>
@@ -583,6 +595,22 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [skills, setSkills] = useState<Skill[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [isSkillRunning, setIsSkillRunning] = useState(false)
+  // A launch the server could not attribute to one project waits here for
+  // the person's choice (#741); the promise of the launch resolves with it.
+  const [runProjectChoice, setRunProjectChoice] = useState<{ taskKey: string; candidates: RunProjectCandidate[] } | null>(null)
+  const runProjectResolver = useRef<((projectId: string | null) => void) | null>(null)
+  const askRunProject = useCallback((taskKey: string, candidates: RunProjectCandidate[]) => new Promise<string | null>(resolve => {
+    runProjectResolver.current?.(null)
+    runProjectResolver.current = resolve
+    setRunProjectChoice({ taskKey, candidates })
+  }), [])
+  const chooseRunProject = useCallback((projectId: string | null) => {
+    const resolve = runProjectResolver.current
+    runProjectResolver.current = null
+    setRunProjectChoice(null)
+    resolve?.(projectId)
+  }, [])
+  const [backlogTrackerId, setBacklogTrackerId] = useState<string | null>(null)
   const [isSyncing, setIsSyncing] = useState(false)
   const [runningSkillId, setRunningSkillId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -644,6 +672,14 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     } catch {
       // stockage indisponible : la vue vaut pour cette session
     }
+  }, [])
+
+  // The backlog of one tracker is a view of its own (#741). It is not
+  // remembered across reloads: it names a tracker, not a place in the app.
+  const openTrackerBacklog = useCallback((trackerId: string) => {
+    setBacklogTrackerId(trackerId)
+    setActiveViewState('tracker-backlog')
+    defaultViewPending.current = false
   }, [])
 
   const [boardGrouping, setBoardGroupingState] = useState<BoardGroupingMode>(() => {
@@ -829,6 +865,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   // Projects State
   const [projects, setProjects] = useState<Project[]>([])
+  const [trackers, setTrackers] = useState<TrackerSummary[]>([])
 
   // The open saved view, if any. The address names it first, so a bookmarked
   // link opens the view; the last one opened comes back on a plain reload. An
@@ -1314,6 +1351,16 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       }
     } catch (err) {
       console.warn('Failed to load skills from server', err)
+    }
+  }, [])
+
+  // A failed read keeps the list it had: the trackers change rarely, and an
+  // empty picker would read as "no tracker" rather than as a failed read.
+  const fetchTrackers = useCallback(async () => {
+    try {
+      setTrackers(await fetchTrackerSummaries())
+    } catch (err) {
+      console.warn('Failed to load trackers from server', err)
     }
   }, [])
 
@@ -2014,8 +2061,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     fetchSettings()
     fetchSkills()
     fetchProjects()
+    fetchTrackers()
     fetchBoardViews()
-  }, [fetchSettings, fetchSkills, fetchProjects, fetchBoardViews])
+  }, [fetchSettings, fetchSkills, fetchProjects, fetchTrackers, fetchBoardViews])
 
   // Data reload on filter / project change
   useEffect(() => {
@@ -2489,6 +2537,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     source?: TaskSource
     externalUrl?: string
     projectId?: string
+    /** One of the project's trackers; empty, the project's default (#741). */
+    trackerId?: string
     issueType?: string
     /** Macro to attach the new ticket to, on the tracker as well (#445). */
     macroKey?: string
@@ -2793,20 +2843,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   }
 
-  const listProjectBoards = async (projectId: string): Promise<TrackerBoard[]> => {
-    try {
-      const res = await fetch(`${API_BASE}/projects/${encodeURIComponent(projectId)}/boards`)
-      if (!res.ok) {
-        const errData = await res.json().catch(() => ({}))
-        throw trackerError(res, errData, t.operations.notifications.boards.unavailable)
-      }
-      return (await res.json()) || []
-    } catch (err: any) {
-      addToast(refusalToast(err, { type: 'error', title: t.operations.notifications.boards.title, description: err.message }))
-      return []
-    }
-  }
-
   const refreshPriorityMapping = async (projectId: string): Promise<{ project?: Project; error?: string }> => {
     try {
       const res = await fetch(`${API_BASE}/projects/${encodeURIComponent(projectId)}/priority-mapping/refresh`, { method: 'POST' })
@@ -2831,31 +2867,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       return { discovery: { ...data, candidates: data?.candidates ?? [] } }
     } catch (err: any) {
       return { error: err.message }
-    }
-  }
-
-  const importProjectBoardColumns = async (projectId: string, boardId: string): Promise<Project | null> => {
-    try {
-      const res = await fetch(`${API_BASE}/projects/${encodeURIComponent(projectId)}/board-columns`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ boardId }),
-      })
-      if (!res.ok) {
-        const errData = await res.json().catch(() => ({}))
-        throw trackerError(res, errData, t.operations.notifications.boards.importRefused)
-      }
-      const proj: Project = await res.json()
-      setProjects(prev => prev.map(p => (p.id === proj.id ? proj : p)))
-      addToast({
-        type: 'success',
-        title: t.operations.notifications.boards.imported,
-        description: format(t.operations.notifications.boards.importedDescription, { count: proj.trackerColumns?.length || 0 }),
-      })
-      return proj
-    } catch (err: any) {
-      addToast(refusalToast(err, { type: 'error', title: t.operations.notifications.boards.importFailed, description: err.message }))
-      return null
     }
   }
 
@@ -3713,32 +3724,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   }
 
-  const fetchProjectIssueTypes = async (projectId: string): Promise<string[]> => {
-    try {
-      const res = await fetch(`${API_BASE}/projects/${encodeURIComponent(projectId)}/issue-types`)
-      if (!res.ok) return []
-      return (await res.json()) || []
-    } catch {
-      return []
-    }
-  }
-
-  const fetchProjectTrackerStatuses = async (projectId: string): Promise<string[]> => {
-    // Une palette vide et un tracker injoignable ne se lisent pas pareil : la
-    // liste reste vide, mais l'échec est dit plutôt qu'avalé.
-    try {
-      const res = await fetch(`${API_BASE}/projects/${encodeURIComponent(projectId)}/tracker-statuses`)
-      if (!res.ok) {
-        const errData = await res.json().catch(() => ({}))
-        throw trackerError(res, errData, t.operations.notifications.boards.statusesUnavailable)
-      }
-      return (await res.json()) || []
-    } catch (err: any) {
-      addToast(refusalToast(err, { type: 'error', title: t.operations.notifications.boards.statusesTitle, description: err.message }))
-      return []
-    }
-  }
-
   const convertTask = async (id: string, target: 'github'): Promise<Task | null> => {
     try {
       const res = await fetch(`${API_BASE}/tasks/${encodeURIComponent(id)}/convert`, {
@@ -3864,8 +3849,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     taskId: string,
     skillId: string,
     prompt?: string,
-    opts?: { withComments?: boolean; mode?: SkillMode; model?: string; batchTaskIds?: string[] }
+    opts?: { withComments?: boolean; mode?: SkillMode; model?: string; batchTaskIds?: string[]; projectId?: string }
   ): Promise<TaskActivity | null> => {
+    // The run works for the project of the board it is launched from (#741);
+    // elsewhere the server takes the ticket's only project, or asks.
+    const launched = tasks.find(task => task.id === taskId)
+    const runProjectId = opts?.projectId || boardRunProject(launched, selectedProjectId, projects)
     setIsSkillRunning(true)
     setRunningSkillId(skillId)
     addToast({
@@ -3890,10 +3879,20 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           // The tickets of a batch, in order: the server records them on the
           // batch run so each one shows it (#522).
           batchTaskIds: opts?.batchTaskIds?.length ? opts.batchTaskIds : undefined,
+          projectId: runProjectId || undefined,
         }),
       })
       if (!res.ok) {
-        const errorData = await res.json()
+        const errorData = await res.json().catch(() => ({}))
+        // A ticket of several projects launched without one: the person picks
+        // the project and the launch is made again for it. A busy ticket is a
+        // 409 too, and carries no candidates.
+        const candidates = opts?.projectId ? null : runProjectCandidates(errorData)
+        if (candidates) {
+          const chosen = await askRunProject(launched?.key || taskId, candidates)
+          if (!chosen) return null
+          return await runSkill(taskId, skillId, prompt, { ...opts, projectId: chosen })
+        }
         throw new Error(errorData.error || t.operations.notifications.skillFailedFallback)
       }
 
@@ -4283,6 +4282,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         deleteProject,
         toggleProjectBookmark,
         fetchProjects,
+        trackers,
+        fetchTrackers,
         boardViews,
         selectedViewId,
         currentBoardView,
@@ -4421,12 +4422,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
 
         postTaskComment,
-        listProjectBoards,
-        importProjectBoardColumns,
         refreshPriorityMapping,
         loadEpicAxisFieldCandidates,
-        fetchProjectTrackerStatuses,
-        fetchProjectIssueTypes,
         fetchProjectMacros,
         fetchProjectEpics,
         createBatchTasks,
@@ -4479,6 +4476,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         moveTask,
         deleteTask,
         runSkill,
+        runProjectChoice,
+        chooseRunProject,
+        backlogTrackerId,
+        openTrackerBacklog,
         syncAll,
         syncGithub,
         syncJira,

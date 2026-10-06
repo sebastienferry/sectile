@@ -25,6 +25,7 @@ import '@xterm/xterm/css/xterm.css'
 import './style.css'
 import { STAGES, taskStage, nextTaskStep, skillLabel } from './workflow.mjs'
 import { launchModeOverride, modeSelect } from './skill-mode.mjs'
+import { launchModeFor, runProjectRefusal, runProjectRefusalText } from './run-project.mjs'
 import { orderedTasks, nextSort, DEFAULT_SORT, SORTABLE_FIELDS } from './task-list-order.mjs'
 import { consoleNotice, needsConsoleNotice, readOnlyConsole } from './run-console.mjs'
 import { previewLines } from './command-preview.mjs'
@@ -94,6 +95,21 @@ function refusedActiveRun(message){
   const body=JSON.parse(String(message).slice(start,String(message).lastIndexOf('}')+1))
   return body&&body.activeRunId?body:null
  }catch{return null}
+}
+// A launch names the project it is made from, which the run works for (#741).
+// Should the server still answer that the ticket belongs to several projects,
+// an interactive launch asks which one and is made again from it; an
+// unattended one, a pickup, says it was refused and lists the projects.
+async function launchForProject(id,taskID,skillID,prompt,mode,force,view,label){
+ try{return await api.launchServerTask(id,taskID,skillID,prompt,mode,force,view)}
+ catch(err){
+  const refusal=runProjectRefusal(err.message)
+  if(!refusal)throw err
+  if(refusal.unattended||!api.chooseRunProject)throw Error(runProjectRefusalText(refusal))
+  const chosen=await api.chooseRunProject(refusal.candidates,label)
+  if(!chosen)throw Error('Launch canceled: no project chosen.')
+  return api.launchServerTask(chosen,taskID,skillID,prompt,mode,force,view)
+ }
 }
 const taskTitles=new Map()
 // The workflow stage of each listed task, read with its title; absent when unknown.
@@ -3049,7 +3065,7 @@ function ticketRow(view,task){
    entry.declareReviewed=button
    button.onclick=()=>{closeMenu();confirmDeclareReviewed(view.projectID,task)}
   }else{
-   button.onclick=()=>{closeMenu();if(item.dialog)openTicketLaunchDialog(view,task);else if(item.compose)openCompose(view,entry);else if(item.nativeTerminal)submitNativeDiscussion(view,entry).catch(()=>{});else submitTicketLaunch(view,entry,item.skillId,'',item.skillId==='pickup'?'autonomous':'').catch(()=>{})}
+   button.onclick=()=>{closeMenu();if(item.dialog)openTicketLaunchDialog(view,task);else if(item.compose)openCompose(view,entry);else if(item.nativeTerminal)submitNativeDiscussion(view,entry).catch(()=>{});else submitTicketLaunch(view,entry,item.skillId,'',launchModeFor(item.skillId==='pickup'?'pickup':'','')).catch(()=>{})}
   }
   menu.append(button)
  }
@@ -3196,7 +3212,7 @@ async function submitTicketLaunch(view,entry,skillId,prompt,mode){
  try{
   // An interactive launch follows the AI consoles preference; the agent
   // falls back to the terminal for an engine that cannot hold a conversation.
-  await api.launchServerTask(view.projectID,entry.task.id,skillId,prompt,mode,false,consoleView)
+  await launchForProject(view.projectID,entry.task.id,skillId,prompt,mode,false,consoleView,key)
   view.status.textContent='Execution submitted for '+key
   await refresh()
  }catch(err){view.status.textContent='Could not launch '+key+': '+err.message;throw err}
@@ -3282,7 +3298,7 @@ async function openLaunchDialog({projectID,taskId,taskKey,skill:initialSkill,pro
     }catch(err){notice.textContent='Could not switch the engine: '+ipcMessage(err);submit.disabled=false;return}
    }
    try{
-    await api.launchServerTask(projectID,taskId,skill.value,prompt.value,launchModeOverride(mode.value),false,consoleView)
+    await launchForProject(projectID,taskId,skill.value,prompt.value,launchModeOverride(mode.value),false,consoleView,taskKey||taskId)
     dialog.close();await refresh()
    }catch(err){notice.textContent=err.message;submit.disabled=false}
   }
@@ -3565,7 +3581,7 @@ async function quickAdd(projectID){
   const clarify=document.createElement('button');clarify.type='button';clarify.textContent='Clarify now';clarify.dataset.defaultAction=''
   clarify.onclick=async()=>{
    clarify.disabled=true;status.textContent='Launching clarify…'
-   try{await api.launchServerTask(projectId,task.id,'clarify','','',false,consoleView);dialog.close();await refresh()}
+   try{await launchForProject(projectId,task.id,'clarify','','',false,consoleView,task.key||task.title);dialog.close();await refresh()}
    catch(err){status.textContent=err.message;clarify.disabled=false}
   }
   const launch=document.createElement('button');launch.type='button';launch.className='secondary';launch.textContent='Launch task'
@@ -3666,7 +3682,7 @@ async function launchTaskWork(kind,force){
   if(abandoned){await refresh();return}
   const launchSkill=kind==='pickup'?'pickup':fresh.step.skillId
   submittingSteps.set(key,launchSkill)
-  await api.launchServerTask(run.projectId,run.taskId,launchSkill,'',kind==='pickup'?'autonomous':undefined,force,consoleView)
+  await launchForProject(run.projectId,run.taskId,launchSkill,'',launchModeFor(kind,undefined),force,consoleView,run.taskKey||run.taskId)
   submittedSteps.set(key,{skillId:launchSkill,kind,runIds:latestRuns.filter(item=>taskKey(item)===key).map(item=>item.id)})
   await refresh()
   if(taskKey(currentTaskRun()||{})===key){

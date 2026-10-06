@@ -424,11 +424,11 @@ func TestProjectStructureRoutesThroughTheResolvedTracker(t *testing.T) {
 	fake.boards = []models.TrackerBoard{{ID: "5", Name: "PE board", Type: "scrum"}}
 	database, project := jiraTestDB(t, fake)
 
-	boards, err := database.ListProjectTrackerBoards(project.ID)
+	boards, err := database.ListTrackerBoardsAs(context.Background(), project.DefaultTrackerID)
 	if err != nil || len(boards) != 1 || boards[0].ID != "5" {
 		t.Fatalf("boards: %v %+v", err, boards)
 	}
-	types, err := database.ListProjectIssueTypes(project.ID)
+	types, err := database.ListTrackerIssueTypesAs(context.Background(), project.DefaultTrackerID)
 	if err != nil || len(types) != 2 {
 		t.Fatalf("issue types: %v %v", err, types)
 	}
@@ -450,8 +450,14 @@ func TestATrackerWithoutBoardsAnswersAnUnsupportedCapability(t *testing.T) {
 		t.Fatal(err)
 	}
 	for name, call := range map[string]func() error{
-		"boards": func() error { _, err := database.ListProjectTrackerBoards(project.ID); return err },
-		"types":  func() error { _, err := database.ListProjectIssueTypes(project.ID); return err },
+		"boards": func() error {
+			_, err := database.ListTrackerBoardsAs(context.Background(), project.DefaultTrackerID)
+			return err
+		},
+		"types": func() error {
+			_, err := database.ListTrackerIssueTypesAs(context.Background(), project.DefaultTrackerID)
+			return err
+		},
 		"teams":  func() error { _, err := database.SearchTrackerTeams(project.ID, "x"); return err },
 		"members": func() error {
 			_, err := database.RefreshTeamMembersNow(project.ID, "team-1")
@@ -478,16 +484,16 @@ func TestADirectReadCarriesTheActingUser(t *testing.T) {
 	fake.boards = []models.TrackerBoard{{ID: "5", Name: "PE board", Type: "scrum"}}
 	database, project := jiraTestDB(t, fake)
 
-	if _, err := database.ListProjectTrackerBoardsAs(tracker.WithActingUser(context.Background(), "u-ada"), project.ID); err != nil {
+	if _, err := database.ListTrackerBoardsAs(tracker.WithActingUser(context.Background(), "u-ada"), project.DefaultTrackerID); err != nil {
 		t.Fatal(err)
 	}
 	if fake.readAs != "u-ada" {
 		t.Fatalf("the read must run as the person who asked, got %q", fake.readAs)
 	}
 
-	// The plain name stays available for callers with nobody to name.
+	// A caller with nobody to name reads as nobody.
 	fake.readAs = "sentinel"
-	if _, err := database.ListProjectTrackerBoards(project.ID); err != nil {
+	if _, err := database.ListTrackerBoardsAs(context.Background(), project.DefaultTrackerID); err != nil {
 		t.Fatal(err)
 	}
 	if fake.readAs != "" {

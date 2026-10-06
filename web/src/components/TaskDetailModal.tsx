@@ -62,6 +62,7 @@ import { runEngineLabel } from '../lib/runEngine'
 import { copyText } from '../lib/clipboard'
 import { EMPTY_VALUE, format, plural, formatDate, formatDateTime, formatTime } from '../lib/i18n'
 import { localizeActivityText } from '../lib/activityText'
+import { isTrackerTicket } from '../lib/projectTrackers'
 
 // The repository select's entry for a repository typed by hand (#737).
 const OTHER_REPOSITORY = '\u0000other'
@@ -1096,7 +1097,24 @@ export const TaskDetailModal: React.FC = () => {
               />
             </div>
 
-            {/* Project */}
+            {/* Project. A tracker ticket's projects follow from its labels
+                (#741): they are shown, not moved. */}
+            {selectedTask && isTrackerTicket(selectedTask) ? (
+            <div data-task-projects title={td.fields.projectFromLabels}>
+              <span className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
+                {td.fields.project}
+              </span>
+              <div className="flex flex-wrap gap-1">
+                {(selectedTask.projectIds ?? []).length === 0 ? (
+                  <span className="text-xs text-[var(--text-muted)]">{td.fields.noProject}</span>
+                ) : (selectedTask.projectIds ?? []).map(id => (
+                  <span key={id} className="px-2 py-0.5 rounded-lg text-[11px] font-semibold bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)]">
+                    {projects.find(p => p.id === id)?.name || id}
+                  </span>
+                ))}
+              </div>
+            </div>
+            ) : (
             <div>
               <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
                 {td.fields.project}
@@ -1157,6 +1175,7 @@ export const TaskDetailModal: React.FC = () => {
                 })()}
               </select>
             </div>
+            )}
 
             {/* Repository the ticket works in, among the project's repositories */}
             {canPinRepository && (

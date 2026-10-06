@@ -8,7 +8,7 @@
  * from a view starts with.
  */
 
-import type { BoardView } from '../types'
+import type { BoardView, Project, Task } from '../types'
 
 /** The address parameter that names the open view. */
 export const VIEW_PARAM = 'view'
@@ -90,4 +90,29 @@ export const boardViewFormError = (
   if (others.some(v => v.id !== editingId && v.name.trim().toLowerCase() === key)) return 'duplicate'
   if (projectIds.length === 0) return 'projects'
   return null
+}
+
+/**
+ * The projects a card names when the board spans several projects (#741):
+ * every project the ticket belongs to on "All projects", those of the open
+ * view inside a saved view, and none on a single project's board, where the
+ * project is the board's. A ticket with no membership names the project it was
+ * listed for, the slug included as tasks.project_id once held it.
+ */
+export const cardProjects = <P extends Pick<Project, 'id' | 'slug'>>(
+  task: Pick<Task, 'projectId' | 'projectIds'>,
+  projects: P[],
+  selectedProjectId: string,
+  view: Pick<BoardView, 'projectIds'> | null | undefined,
+): P[] => {
+  if (!view && selectedProjectId !== 'all') return []
+  const ids = task.projectIds && task.projectIds.length > 0 ? task.projectIds : task.projectId ? [task.projectId] : []
+  const found: P[] = []
+  for (const id of ids) {
+    const project = projects.find(p => p.id === id) || projects.find(p => p.slug === id)
+    if (!project || found.includes(project)) continue
+    if (view && !view.projectIds.includes(project.id)) continue
+    found.push(project)
+  }
+  return found
 }

@@ -2,19 +2,22 @@ import React, { useEffect, useMemo, useState } from 'react'
 import { Plus, X, ArrowUp, ArrowDown, RefreshCw, Kanban, Tag, GitPullRequest, Eye, EyeOff } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { format, plural } from '../lib/i18n'
-import type { Project, TrackerBoard, TrackerColumn, WorkflowStage } from '../types'
+import type { Tracker, TrackerBoard, TrackerColumn, WorkflowStage } from '../types'
 import {
-  mergeDetectedColumns,
   pruneStageColumns,
   recordedBoardId,
   shouldImportBoard,
   suggestedBoardId,
-  type DetectedColumn,
 } from '../lib/boardColumns'
+import { fetchTrackerBoards, fetchTrackerDetectedStatuses, fetchTrackerStatuses, importTrackerBoard } from '../lib/trackers'
 
 /**
  * Éditeur des colonnes du board : des colonnes, les statuts du tracker qu'on y dépose,
  * et les étapes du workflow agentique déposées de la même façon.
+ *
+ * It edits a tracker's board mirror (#741): the columns and their mapping onto
+ * the stages are the tracker's, shared by every project selecting it, and only
+ * an admin sets them.
  */
 
 const WORKFLOW_STAGES: { id: WorkflowStage; label: string }[] = [
@@ -30,13 +33,14 @@ const DRAG_STATUS = 'application/x-sectile-status'
 const DRAG_STAGE = 'application/x-sectile-stage'
 
 interface Props {
-  project: Project | null
+  /** The tracker whose board mirror is edited. */
+  tracker: Tracker
   columns: TrackerColumn[]
   onColumnsChange: (columns: TrackerColumn[]) => void
   stageColumns: Record<string, string[]>
   onStageColumnsChange: (mapping: Record<string, string[]>) => void
-  issueTracker?: string
-  githubRepo?: string
+  /** A board import rewrote the tracker on the server. */
+  onTrackerChange?: (tracker: Tracker) => void
 }
 
 type DragPayload =
@@ -45,16 +49,16 @@ type DragPayload =
   | null
 
 export const BoardColumnsEditor: React.FC<Props> = ({
-  project,
+  tracker,
   columns,
   onColumnsChange,
   stageColumns,
   onStageColumnsChange,
-  issueTracker,
-  githubRepo,
+  onTrackerChange,
 }) => {
-  const { fetchProjectTrackerStatuses, listProjectBoards, importProjectBoardColumns, addToast, t, settings } = useApp()
+  const { addToast, t, settings } = useApp()
   const cs = t.projectSettings.columns
+  const trackerId = tracker.id
 
   const [statuses, setStatuses] = useState<string[]>([])
   const [newColumnName, setNewColumnName] = useState('')
@@ -62,56 +66,70 @@ export const BoardColumnsEditor: React.FC<Props> = ({
   const [dropTarget, setDropTarget] = useState<string | null>(null)
   const [boards, setBoards] = useState<TrackerBoard[]>([])
   const [boardId, setBoardId] = useState('')
-  // The board the server holds for the project: the modal's project is a snapshot
-  // that an import does not refresh, so the editor follows it on its own.
+  // The board the server holds for the tracker: the tracker passed in is a
+  // snapshot that an import does not refresh, so the editor follows it on its own.
   const [recordedBoard, setRecordedBoard] = useState('')
   const [isImporting, setIsImporting] = useState(false)
 
-  useEffect(() => {
-    if (project?.id) {
-      fetchProjectTrackerStatuses(project.id).then(setStatuses)
-    } else {
-      handleDetect()
+  const loadStatuses = async (id: string) => {
+    try {
+      setStatuses(await fetchTrackerStatuses(id))
+    } catch {
+      setStatuses([])
     }
-  }, [project?.id])
+  }
+
+  useEffect(() => {
+    void loadStatuses(trackerId)
+  }, [trackerId])
 
   // Les boards du tracker : un tracker sans la notion répond une erreur, la
   // liste reste vide et le sélecteur ne s'affiche pas.
   useEffect(() => {
-    if (!project?.id) {
-      setBoards([])
-      return
-    }
     let cancelled = false
-    listProjectBoards(project.id).then(found => {
+    fetchTrackerBoards(trackerId).then(found => {
       if (cancelled) return
-      const recorded = recordedBoardId(found, project.boardId)
+      const recorded = recordedBoardId(found, tracker.boardId)
       setBoards(found)
       setRecordedBoard(recorded)
       setBoardId(recorded)
+    }).catch(() => {
+      if (!cancelled) setBoards([])
     })
     return () => { cancelled = true }
-  }, [project?.id])
+  }, [trackerId])
 
-  // Choosing a board records it on the project and brings its columns back: the
-  // server runs the same import as "Détecter". The suggested board counts as a
-  // choice while no board is recorded.
+  // Importing a board records it on the tracker and brings its columns back,
+  // merged on the server with the statuses assigned by hand: the board picker,
+  // "Détecter" and the sync give the same result.
+  const importBoard = async (nextBoardId: string) => {
+    const updated = await importTrackerBoard(trackerId, nextBoardId)
+    const recorded = updated.boardId || nextBoardId
+    setRecordedBoard(recorded)
+    setBoardId(recorded)
+    const merged = updated.trackerColumns || []
+    onColumnsChange(merged)
+    onStageColumnsChange(updated.stageColumns || {})
+    onTrackerChange?.(updated)
+    await loadStatuses(trackerId)
+    addToast({
+      type: 'success',
+      title: cs.toasts.columnsImported,
+      description: plural(settings.language, merged.length, cs.toasts.columnsImportedDescription),
+    })
+  }
+
+  // Choosing a board records it on the tracker. The suggested board counts as
+  // a choice while no board is recorded.
   const handleBoardChange = async (nextBoardId: string) => {
-    if (!project?.id || !shouldImportBoard(nextBoardId, recordedBoard)) return
+    if (!shouldImportBoard(nextBoardId, recordedBoard)) return
     setBoardId(nextBoardId)
     setIsImporting(true)
     try {
-      const updated = await importProjectBoardColumns(project.id, nextBoardId)
-      if (!updated) {
-        setBoardId(recordedBoard)
-        return
-      }
-      const recorded = updated.boardId || nextBoardId
-      setRecordedBoard(recorded)
-      setBoardId(recorded)
-      onColumnsChange(updated.trackerColumns || [])
-      onStageColumnsChange(updated.stageColumns || {})
-      setStatuses(await fetchProjectTrackerStatuses(project.id))
+      await importBoard(nextBoardId)
+    } catch (err: any) {
+      setBoardId(recordedBoard)
+      addToast({ type: 'error', title: cs.toasts.detectionFailed, description: err?.message || '' })
     } finally {
       setIsImporting(false)
     }
@@ -130,64 +148,15 @@ export const BoardColumnsEditor: React.FC<Props> = ({
   const handleDetect = async () => {
     setIsDetecting(true)
     try {
-      const params = new URLSearchParams()
-      if (project?.id) params.append('projectId', project.id)
-      if (issueTracker) params.append('tracker', issueTracker)
-      if (githubRepo) params.append('repo', githubRepo)
-
-      let detectedList: string[] = []
-      let detectedColumns: DetectedColumn[] = []
-      let detectionError = ''
-      const res = await fetch(`/api/projects/detected-statuses?${params.toString()}`)
-      if (res.ok) {
-        const data: {
-          statuses: { name: string }[]
-          columns?: DetectedColumn[]
-          error?: string
-        } = await res.json()
-        if (data.statuses) {
-          detectedList = data.statuses.map(s => s.name)
-        }
-        detectedColumns = data.columns || []
-        detectionError = data.error || ''
-      } else {
-        const errData = await res.json().catch(() => ({}))
-        detectionError = errData.error || format(cs.toasts.detectionRefused, { status: res.status })
-      }
-
       // Un tracker à board décrit ses colonnes : on les reprend telles quelles,
       // dans son ordre, plutôt que d'inventer une colonne par statut.
-      if (detectedColumns.length > 0) {
-        setStatuses(detectedList)
-        // Les colonnes sont arrivées, la palette pas forcément : l'échec partiel
-        // se dit, il explique un statut manquant à la main.
-        if (detectionError) {
-          addToast({
-            type: 'error',
-            title: cs.toasts.incompleteStatuses,
-            description: detectionError,
-          })
-        }
-        const merged = mergeDetectedColumns(columns, detectedColumns)
-        onColumnsChange(merged)
-        onStageColumnsChange(pruneStageColumns(stageColumns, merged))
-        addToast({
-          type: 'success',
-          title: cs.toasts.columnsImported,
-          description: plural(settings.language, merged.length, cs.toasts.columnsImportedDescription),
-        })
+      const board = recordedBoard || suggestedBoard
+      if (board) {
+        await importBoard(board)
         return
       }
 
-      if (detectionError) {
-        addToast({
-          type: 'error',
-          title: cs.toasts.detectionFailed,
-          description: detectionError,
-        })
-        return
-      }
-
+      const detectedList = (await fetchTrackerDetectedStatuses(trackerId)).map(s => s.name).filter(Boolean)
       if (detectedList.length > 0) {
         setStatuses(detectedList)
 
@@ -207,6 +176,7 @@ export const BoardColumnsEditor: React.FC<Props> = ({
         }
 
         onColumnsChange(newCols)
+        onStageColumnsChange(pruneStageColumns(stageColumns, newCols))
 
         addToast({
           type: 'success',

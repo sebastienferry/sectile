@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
   boardViewFormError,
+  cardProjects,
   filterScopeKey,
   foldViewLabel,
   initialLabelsForView,
@@ -56,4 +57,18 @@ test('the form says what prevents saving', () => {
   assert.equal(boardViewFormError('PLATFORM', ['a'], others, 'v1'), null)
   assert.equal(boardViewFormError('Other', [], others, null), 'projects')
   assert.equal(boardViewFormError('Other', ['a'], others, null), null)
+})
+
+test('a card names every project of its ticket on All projects, none on one project', () => {
+  // One record per remote ticket (#741): a ticket of two projects is one card,
+  // and its chips are what tell the projects apart.
+  const projects = [{ id: 'da', slug: 'delivery' }, { id: 'ba', slug: 'bidder' }, { id: 'x', slug: 'other' }]
+  const shared = { projectId: 'da', projectIds: ['da', 'ba'] }
+  assert.deepEqual(cardProjects(shared, projects, 'all', null).map(p => p.id), ['da', 'ba'])
+  assert.deepEqual(cardProjects(shared, projects, 'da', null), [])
+  // Inside a view, only the view's projects are named.
+  assert.deepEqual(cardProjects(shared, projects, 'all', { projectIds: ['ba', 'x'] }).map(p => p.id), ['ba'])
+  // A row listed before memberships names the project it was listed for, by id or slug.
+  assert.deepEqual(cardProjects({ projectId: 'bidder' }, projects, 'all', { projectIds: ['ba'] }).map(p => p.id), ['ba'])
+  assert.deepEqual(cardProjects({ projectIds: [] }, projects, 'all', null), [])
 })

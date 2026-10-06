@@ -1,12 +1,10 @@
-import React, { useState } from 'react'
+import React, { useCallback, useEffect, useState } from 'react'
 import {
   RefreshCw,
   FolderGit2,
   CheckCircle2,
   Clock,
   ExternalLink,
-  Save,
-  Check,
   Zap,
   Terminal,
   Activity as ActivityIcon,
@@ -16,15 +14,14 @@ import {
   Folder,
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
-import type { IssueTracker, TaskActivity } from '../types'
-import { PROJECT_TRACKERS } from '../lib/trackers'
+import type { AutoSyncState, IssueTracker, TaskActivity, TrackerAutoSyncState } from '../types'
+import { TRACKER_PROVIDER_NAMES, syncTracker } from '../lib/trackers'
 import { format, formatDateTime, isLocale, plural } from '../lib/i18n'
 import { localizeActivityText } from '../lib/activityText'
 
 export const SyncView: React.FC = () => {
   const {
     currentProject,
-    updateProject,
     setIsProjectModalOpen,
     setEditingProject,
     tasks,
@@ -32,7 +29,7 @@ export const SyncView: React.FC = () => {
     setSelectedActivity,
     setActiveView,
     settings,
-    updateSettings,
+    addToast,
     syncCurrentProject,
     isSyncing,
     activeJobCount,
@@ -44,49 +41,51 @@ export const SyncView: React.FC = () => {
   // Active project issue tracker
   const activeTracker: IssueTracker = currentProject?.issueTracker || 'local'
 
-  // Local form state initialized from active project or fallback to global settings
-  const [githubRepo, setGithubRepo] = useState(currentProject?.githubRepo || settings.githubRepo || '')
-  const [jiraKey, setJiraKey] = useState(currentProject?.jiraProject || settings.jiraProject || '')
-  const [issueTracker, setIssueTracker] = useState<IssueTracker>(activeTracker)
-  const [isSaved, setIsSaved] = useState(false)
+  // The pacing of the project's trackers (#741), read for this project: the
+  // loop runs per tracker, whatever projects select it.
+  const [trackerStates, setTrackerStates] = useState<TrackerAutoSyncState[]>([])
+  const [syncingTrackers, setSyncingTrackers] = useState<string[]>([])
+  const projectId = currentProject?.id || ''
 
-  // Custom parameters for manual triggers on the active project
-  const [customGithubRepo, setCustomGithubRepo] = useState(currentProject?.githubRepo || settings.githubRepo || '')
-  const [customJiraKey, setCustomJiraKey] = useState(currentProject?.jiraProject || settings.jiraProject || '')
-
-  // Keep form updated when currentProject changes
-  React.useEffect(() => {
-    if (currentProject) {
-      setGithubRepo(currentProject.githubRepo || '')
-      setJiraKey(currentProject.jiraProject || '')
-      setIssueTracker(currentProject.issueTracker || 'local')
-      setCustomGithubRepo(currentProject.githubRepo || '')
-      setCustomJiraKey(currentProject.jiraProject || '')
+  const loadTrackerStates = useCallback(async () => {
+    if (!projectId) {
+      setTrackerStates([])
+      return
     }
-  }, [currentProject])
-
-  const handleSaveOptions = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (currentProject) {
-      await updateProject(currentProject.id, {
-        githubRepo: githubRepo.trim(),
-        jiraProject: jiraKey.trim().toUpperCase(),
-        issueTracker,
-      })
+    try {
+      const res = await fetch(`/api/sync/auto?projectId=${encodeURIComponent(projectId)}`)
+      if (!res.ok) return
+      const state: AutoSyncState = await res.json()
+      setTrackerStates(state.trackers || [])
+    } catch {
+      // Unreachable server: the list keeps what it showed.
     }
-    await updateSettings({
-      githubRepo: githubRepo.trim(),
-      jiraProject: jiraKey.trim().toUpperCase(),
-      issueTracker,
-    })
-    setIsSaved(true)
-    setTimeout(() => setIsSaved(false), 3000)
+  }, [projectId])
+
+  useEffect(() => {
+    void loadTrackerStates()
+  }, [loadTrackerStates])
+
+  const remoteTrackers = trackerStates.filter(state => state.provider !== 'local')
+
+  const handleSyncTracker = async (trackerId: string, name: string) => {
+    setSyncingTrackers(list => [...list, trackerId])
+    try {
+      await syncTracker(trackerId)
+      addToast({ type: 'success', title: format(op.trackerSyncQueued, { name }) })
+      await loadTrackerStates()
+    } catch (err) {
+      addToast({ type: 'error', title: format(op.trackerSyncFailed, { name }), description: err instanceof Error ? err.message : String(err) })
+    } finally {
+      setSyncingTrackers(list => list.filter(id => id !== trackerId))
+    }
   }
 
   // Filter activities that are sync related for this project
   const syncActivities = activities.filter(
     a => (a.skillId === 'sync_github' || a.skillId === 'sync_jira' || a.skillId === 'sync_all' || a.skillId.startsWith('sync')) &&
-         (!currentProject || !a.projectId || a.projectId === currentProject.id)
+         (!currentProject || (!a.projectId && !a.trackerId) || a.projectId === currentProject.id ||
+          (a.trackerId !== undefined && (currentProject.trackers || []).some(ref => ref.trackerId === a.trackerId)))
   )
 
   const githubCount = tasks.filter(t => t.source === 'github').length
@@ -258,7 +257,7 @@ export const SyncView: React.FC = () => {
                   </h2>
                   <span className="text-xs text-emerald-400 flex items-center gap-1.5 font-medium">
                     <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-                    {format(op.githubConnected, { repo: customGithubRepo || currentProject?.githubRepo || op.notConfigured })}
+                    {format(op.githubConnected, { repo: currentProject?.githubRepo || op.notConfigured })}
                   </span>
                 </div>
               </div>
@@ -286,7 +285,7 @@ export const SyncView: React.FC = () => {
                   </h2>
                   <span className="text-xs text-emerald-400 flex items-center gap-1.5 font-medium">
                     <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-                    {format(op.jiraConnected, { key: customJiraKey || currentProject?.jiraProject || op.notDefined })}
+                    {format(op.jiraConnected, { key: currentProject?.jiraProject || op.notDefined })}
                   </span>
                 </div>
               </div>
@@ -357,104 +356,64 @@ export const SyncView: React.FC = () => {
           </div>
         )}
 
-        {/* Sync Options Form Section for the Active Project */}
-        <div className="rounded-xl border border-[var(--border-color)] bg-[var(--bg-secondary)] p-6 shadow-xs">
-          <div className="flex items-center justify-between pb-4 border-b border-[var(--border-color)] mb-5">
+        {/* The project's trackers (#741): each is synchronised in full, on
+            its own pace, whatever projects select it. */}
+        <div className="rounded-xl border border-[var(--border-color)] bg-[var(--bg-secondary)] p-6 shadow-xs" data-sync-trackers>
+          <div className="flex items-center justify-between pb-4 border-b border-[var(--border-color)] mb-4">
             <div className="flex items-center gap-2.5">
               <div className="p-2 rounded-lg bg-[var(--bg-tertiary)] text-[var(--text-secondary)]">
                 <Sliders size={18} />
               </div>
               <div>
                 <h3 className="text-sm font-bold text-[var(--text-primary)]">
-                  {op.configTitle}
+                  {op.trackersTitle}
                 </h3>
                 <p className="text-xs text-[var(--text-muted)]">
-                  {format(op.configSubtitle, { name: currentProject?.name || op.thisProject })}
+                  {op.trackersSubtitle}
                 </p>
               </div>
             </div>
-
-            {isSaved && (
-              <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 animate-fade-in">
-                <Check size={13} /> {op.savedForProject}
-              </span>
-            )}
           </div>
 
-          <form onSubmit={handleSaveOptions} className="space-y-4">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {/* Issue Tracker Selector */}
-              <div>
-                <label className="block text-xs font-semibold text-[var(--text-secondary)] mb-1.5">
-                  {op.trackerLabel}
-                </label>
-                <select
-                  value={issueTracker}
-                  onChange={e => setIssueTracker(e.target.value as IssueTracker)}
-                  className="w-full px-3 py-2 text-xs rounded-lg bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)]"
-                >
-                  {PROJECT_TRACKERS.map(t => (
-                    <option key={t.id} value={t.id}>
-                      {t.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Conditional Tracker Parameter */}
-              {issueTracker === 'github' && (
-                <div>
-                  <label className="block text-xs font-semibold text-[var(--text-secondary)] mb-1.5">
-                    {op.githubRepoLabel}
-                  </label>
-                  <input
-                    type="text"
-                    value={githubRepo}
-                    onChange={e => {
-                      setGithubRepo(e.target.value)
-                      setCustomGithubRepo(e.target.value)
-                    }}
-                    placeholder={op.githubRepoPlaceholder}
-                    className="w-full px-3 py-2 text-xs font-mono rounded-lg bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)]"
-                  />
-                </div>
-              )}
-
-              {issueTracker === 'jira' && (
-                <div>
-                  <label className="block text-xs font-semibold text-[var(--text-secondary)] mb-1.5">
-                    {op.jiraKeyLabel}
-                  </label>
-                  <input
-                    type="text"
-                    value={jiraKey}
-                    onChange={e => {
-                      setJiraKey(e.target.value)
-                      setCustomJiraKey(e.target.value)
-                    }}
-                    placeholder={op.jiraKeyPlaceholder}
-                    className="w-full px-3 py-2 text-xs font-mono rounded-lg bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)] uppercase"
-                  />
-                </div>
-              )}
-
-              {issueTracker === 'local' && (
-                <div className="flex items-center p-2.5 rounded-lg bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-xs text-[var(--text-muted)]">
-                  <span>{op.localHint}</span>
-                </div>
-              )}
-            </div>
-
-            <div className="pt-3 flex justify-end">
-              <button
-                type="submit"
-                className="flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold text-white shadow-xs accent-bg hover:opacity-90 transition-all cursor-pointer"
-              >
-                <Save size={14} />
-                <span>{op.saveForProject}</span>
-              </button>
-            </div>
-          </form>
+          {remoteTrackers.length === 0 ? (
+            <p className="text-xs text-[var(--text-muted)]">{op.trackersEmpty}</p>
+          ) : (
+            <ul className="divide-y divide-[var(--border-color)]">
+              {remoteTrackers.map(state => {
+                const when = (iso?: string) => (iso ? formatDateTime(locale, iso, { hour: '2-digit', minute: '2-digit', day: '2-digit', month: 'short' }) : op.never)
+                return (
+                  <li key={state.trackerId} className="py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3" data-sync-tracker={state.trackerId}>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-secondary)]">
+                          {TRACKER_PROVIDER_NAMES[state.provider as keyof typeof TRACKER_PROVIDER_NAMES] || state.provider}
+                        </span>
+                        <span className="text-xs font-bold text-[var(--text-primary)] truncate">{state.name}</span>
+                        <span className="text-[10px] text-[var(--text-muted)]">
+                          {state.enabled ? format(op.autoSyncEvery, { minutes: state.intervalMin }) : op.autoSyncOff}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-[var(--text-muted)] mt-0.5">
+                        {format(op.lastPass, { when: when(state.lastPassAt) })}
+                        {' · '}
+                        {format(op.lastFullSync, { when: when(state.lastFullSyncAt) })}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => void handleSyncTracker(state.trackerId, state.name)}
+                      disabled={syncingTrackers.includes(state.trackerId)}
+                      title={format(op.syncTrackerTitle, { name: state.name })}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-[var(--bg-tertiary)] hover:bg-[var(--bg-primary)] text-[var(--text-primary)] border border-[var(--border-color)] transition-all cursor-pointer disabled:opacity-50 shrink-0"
+                    >
+                      <Zap size={13} className={syncingTrackers.includes(state.trackerId) ? 'animate-spin' : ''} />
+                      <span>{op.syncTracker}</span>
+                    </button>
+                  </li>
+                )
+              })}
+            </ul>
+          )}
         </div>
 
         {/* Recent Sync Activities History for the active project */}

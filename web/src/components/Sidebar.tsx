@@ -34,6 +34,7 @@ import { useCurrentUser } from '../hooks/useCurrentUser'
 import { accentBadgeStyle } from '../lib/accents'
 import { enabledOptionalViews } from '../lib/optionalViews'
 import { myTasksTooltip } from '../lib/myTasks'
+import { trackerDisplayName, trackerProjects } from '../lib/trackers'
 import type { Status, TaskSource } from '../types'
 import { SectileLogo } from './SectileLogo'
 import { ProjectPicker } from './ProjectPicker'
@@ -137,10 +138,17 @@ export const Sidebar: React.FC = () => {
     selectedViewId,
     openBoardView,
     openBoardViewModal,
+    trackers = [],
+    backlogTrackerId,
+    openTrackerBacklog,
     t,
   } = useApp()
 
   const { user: currentUser } = useCurrentUser()
+
+  // One "Hors projet" entry per tracker a visible project selects (#741):
+  // its tickets that no project shows wait there to be labelled into one.
+  const backlogTrackers = trackers.filter(tracker => trackerProjects(tracker.id, projects).length > 0)
 
   const mac = isMacPlatform(navigator)
   const shortcutLabel = sidebarShortcutLabel(mac)
@@ -740,6 +748,40 @@ export const Sidebar: React.FC = () => {
             })}
           </div>
         </div>
+
+        {backlogTrackers.length > 0 && openTrackerBacklog && (
+          <div data-sidebar-backlogs>
+            {!sidebarCollapsed && (
+              <div className="px-2 pb-1 text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
+                {t.trackerBacklog.navTitle}
+              </div>
+            )}
+            <div className="space-y-0.5">
+              {backlogTrackers.map(tracker => {
+                const isActive = activeView === 'tracker-backlog' && backlogTrackerId === tracker.id
+                const name = trackerDisplayName(tracker)
+                return (
+                  <button
+                    key={tracker.id}
+                    type="button"
+                    onClick={() => openTrackerBacklog(tracker.id)}
+                    aria-current={isActive ? 'page' : undefined}
+                    data-backlog-entry={tracker.id}
+                    className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer ${
+                      isActive
+                        ? 'bg-[var(--accent-light)] accent-text font-bold shadow-xs'
+                        : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'
+                    }`}
+                    title={format(t.trackerBacklog.navHint, { tracker: name })}
+                  >
+                    <Inbox size={14} className="shrink-0" />
+                    {!sidebarCollapsed && <span className="truncate">{name}</span>}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        )}
 
       </div>
 

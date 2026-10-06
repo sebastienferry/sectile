@@ -14,15 +14,14 @@ import {
   Save,
   Trash2,
   Check,
-  CheckCircle2,
   FileCode,
   ShieldCheck,
   HelpCircle,
   GitBranch,
   Sliders,
-  Globe,
-  Key,
   Info,
+  ArrowUp,
+  ArrowDown,
   Inbox,
   Map,
   Clock,
@@ -32,13 +31,9 @@ import { useBackdropDismiss } from '../hooks/useBackdropDismiss'
 import { format } from '../lib/i18n'
 import type { ProjectSettingsStrings } from '../locales/projectSettings'
 import { OPTIONAL_VIEWS, enabledOptionalViews } from '../lib/optionalViews'
-import { BoardColumnsEditor } from './BoardColumnsEditor'
 import type {
   AccentColor,
-  IssueTracker,
   ProjectSkillsStatus,
-  DetectedStatus,
-  TrackerColumn,
   SpecFramework,
   SpecFrameworkStatus,
   SpecFrameworkInstallResult,
@@ -49,7 +44,17 @@ import type {
   EpicAxisFields,
 } from '../types'
 import { ACCENT_COLORS, accentBadgeStyle, normalizeAccentColor, DEFAULT_PROJECT_ACCENT } from '../lib/accents'
-import { PROJECT_TRACKERS, needsCredentialsFor } from '../lib/trackers'
+import { TRACKER_PROVIDER_NAMES, needsCredentialsFor, trackerDisplayName } from '../lib/trackers'
+import {
+  addTracker,
+  effectiveDefaultTracker,
+  moveTracker,
+  projectSelectionPayload,
+  removeTracker,
+  selectedTrackerIds,
+  trackerOptions,
+  type TrackerOption,
+} from '../lib/projectTrackers'
 import { formatProjectKeyList, parseProjectKeyList } from '../lib/roadmapProjects'
 import { DEFAULT_EPIC_AXIS_PREFIXES, cleanEpicAxisPrefix, epicAxisPrefixProblem, type EpicAxisName } from '../lib/roadmap'
 import { declaredRepositories, droppedRepositoryPaths, duplicateRepository, repositoryIdentity } from '../lib/repositories'
@@ -127,15 +132,6 @@ const richText = (template: string, parts: Record<string, React.ReactNode>): Rea
       : chunk
   })
 
-const extractGithubRepoFromGitUrl = (url: string): string => {
-  const clean = url.trim().replace(/\.git$/, '')
-  if (clean.startsWith('git@github.com:')) return clean.replace('git@github.com:', '')
-  if (clean.startsWith('https://github.com/')) return clean.replace('https://github.com/', '')
-  if (clean.startsWith('http://github.com/')) return clean.replace('http://github.com/', '')
-  if (clean.startsWith('ssh://git@github.com/')) return clean.replace('ssh://git@github.com/', '')
-  return clean
-}
-
 export const ProjectModal: React.FC = () => {
   const {
     isProjectModalOpen,
@@ -145,11 +141,12 @@ export const ProjectModal: React.FC = () => {
     createProject,
     updateProject,
     deleteProject,
-    fetchProjectIssueTypes,
     setIsTrackerSetupOpen,
     userCredentials,
     refreshUserCredentials,
     settings,
+    trackers: trackerSummaries = [],
+    fetchTrackers,
     t,
   } = useApp()
   const ps = t.projectSettings
@@ -170,8 +167,6 @@ export const ProjectModal: React.FC = () => {
   const [pushStageCommits, setPushStageCommits] = useState(false)
   const [branchNameFormat, setBranchNameFormat] = useState('')
   const [fullChainStopStage, setFullChainStopStage] = useState<'implemented' | 'reviewed'>(DEFAULT_FULL_CHAIN_STOP_STAGE)
-  const [trackerColumns, setTrackerColumns] = useState<TrackerColumn[]>([])
-  const [stageColumns, setStageColumns] = useState<Record<string, string[]>>({})
 
   const [gitRemoteUrl, setGitRemoteUrl] = useState('')
   // Remotes declared besides the code remote, which the server always lists
@@ -184,8 +179,6 @@ export const ProjectModal: React.FC = () => {
   // Whether the tasks commit their specification artefacts (#487), a method
   // setting the server keeps.
   const [dropSpecArtifacts, setDropSpecArtifacts] = useState(false)
-  const [autoSyncEnabled, setAutoSyncEnabled] = useState(false)
-  const [autoSyncIntervalMin, setAutoSyncIntervalMin] = useState(5)
 
   // Section 4: Compétences IA & Framework SDD
   const [specFramework, setSpecFramework] = useState<SpecFramework>('speckit')
@@ -200,25 +193,27 @@ export const ProjectModal: React.FC = () => {
 
   const [, setSddResult] = useState<SpecFrameworkInstallResult | null>(null)
 
-  // Section 5: Tracker (Type, URL, Clef, Mapping)
-  const [issueTracker, setIssueTracker] = useState<IssueTracker>('local')
-  const [trackerUrl, setTrackerUrl] = useState('')
+  // Section 5: Trackers & label (#741). The project selects trackers an admin
+  // recorded, in order, and optionally a label; the board mirror, the issue
+  // types and the background sync belong to each tracker (D11).
+  const [selectedTrackers, setSelectedTrackers] = useState<string[]>([])
+  const [defaultTrackerId, setDefaultTrackerId] = useState('')
+  const [label, setLabel] = useState('')
 
-  // L'instance d'un projet Jira part de celle de la personne : il faut donc
-  // connaître ses accès avant qu'elle ne choisisse le tracker.
+  // A project on a remote tracker without access imports nothing: the
+  // person's credentials are read to say so once the project is saved.
   useEffect(() => {
     void refreshUserCredentials()
   }, [refreshUserCredentials])
-  const [githubRepo, setGithubRepo] = useState('')
-  // The project's own instance URL. Empty, the user configuration applies. A
-  // project carries no token: the server credential of its provider serves
-  // every project (#464).
+  // The trackers an admin recorded since the page loaded are offered too.
+  useEffect(() => {
+    if (isProjectModalOpen) void fetchTrackers?.()
+  }, [isProjectModalOpen, fetchTrackers])
+  // The forge instance of the project's repositories. Empty, the user
+  // configuration applies. A project carries no token: the server credential
+  // of its provider serves every project (#464).
   const [githubApiUrl, setGithubApiUrl] = useState('')
-  // A GitLab project is named by its path (group/sub/project) on one instance.
-  // Both empty mean "those of the user configuration", like githubApiUrl.
   const [gitlabUrl, setGitlabUrl] = useState('')
-  const [gitlabProject, setGitlabProject] = useState('')
-  const [jiraProject, setJiraProject] = useState('')
   const [roadmapProjects, setRoadmapProjects] = useState('')
   const [roadmapAxisWrites, setRoadmapAxisWrites] = useState(false)
   const [epicAxisPrefixes, setEpicAxisPrefixes] = useState<Record<EpicAxisName, string>>({ priority: '', quarter: '', readiness: '' })
@@ -228,40 +223,15 @@ export const ProjectModal: React.FC = () => {
   // carrying a stale copy would undo the options a write learned meanwhile.
   const [epicAxisFields, setEpicAxisFields] = useState<EpicAxisFields>({})
   const [epicAxisFieldsEdited, setEpicAxisFieldsEdited] = useState(false)
-  // Types de tickets importés. Vide vaut « les types par défaut » : c'est ce que
-  // porte un projet qui n'a jamais eu besoin d'y toucher.
-  const [issueTypes, setIssueTypes] = useState<string[]>([])
   // Vues optionnelles affichées par le projet. Vide vaut « aucune », ce que
   // porte un projet qui n'a jamais demandé Triage, Roadmap ou Timeline.
   const [enabledViews, setEnabledViews] = useState<OptionalViewMode[]>([])
   // Couleur par épic sur les cartes. Désactivée tant que le projet ne la demande pas.
   const [epicColors, setEpicColors] = useState(false)
-  const [availableIssueTypes, setAvailableIssueTypes] = useState<string[]>([])
-  const [isLoadingIssueTypes, setIsLoadingIssueTypes] = useState(false)
-  const [detectedStatuses, setDetectedStatuses] = useState<DetectedStatus[]>([])
 
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
 
-
-  const fetchDetectedStatuses = async (tracker?: IssueTracker, ghRepo?: string) => {
-    try {
-      const targetTracker = tracker !== undefined ? tracker : issueTracker
-      const targetRepo = ghRepo !== undefined ? ghRepo : (githubRepo || extractGithubRepoFromGitUrl(gitRemoteUrl))
-      const params = new URLSearchParams()
-      if (targetTracker) params.append('tracker', targetTracker)
-      if (targetRepo) params.append('repo', targetRepo)
-      if (editingProject) params.append('projectId', editingProject.id)
-
-      const res = await fetch(`/api/projects/detected-statuses?${params.toString()}`)
-      if (res.ok) {
-        const data: { statuses: DetectedStatus[] } = await res.json()
-        setDetectedStatuses(data.statuses || [])
-      }
-    } catch {
-      // ignore
-    }
-  }
 
   useEffect(() => {
     if (editingProject) {
@@ -277,8 +247,6 @@ export const ProjectModal: React.FC = () => {
       setFullChainStopStage(editingProject.fullChainStopStage || DEFAULT_FULL_CHAIN_STOP_STAGE)
       setPushStageCommits(editingProject.pushStageCommits === true)
       setBranchNameFormat(editingProject.branchNameFormat || '')
-      setTrackerColumns(editingProject.trackerColumns || [])
-      setStageColumns(editingProject.stageColumns || {})
       setGitRemoteUrl(editingProject.gitRemoteUrl || '')
       setRepositories(declaredRepositories(editingProject))
       setNewRepository('')
@@ -286,18 +254,12 @@ export const ProjectModal: React.FC = () => {
 
       setSpecFramework(editingProject.specFramework || settings.specFramework || 'speckit')
       setDropSpecArtifacts(editingProject.specArtifacts === 'drop')
-      setAutoSyncEnabled(Boolean(editingProject.autoSyncEnabled))
-      setAutoSyncIntervalMin(editingProject.autoSyncIntervalMin || 5)
 
-      setIssueTracker(editingProject.issueTracker || 'local')
-      setTrackerUrl(editingProject.trackerUrl || '')
-      setGithubRepo(editingProject.githubRepo || '')
+      setSelectedTrackers(selectedTrackerIds(editingProject.trackers))
+      setDefaultTrackerId(editingProject.defaultTrackerId || '')
+      setLabel(editingProject.label || '')
       setGithubApiUrl(editingProject.githubApiUrl || '')
       setGitlabUrl(editingProject.gitlabUrl || '')
-      setGitlabProject(editingProject.gitlabProject || '')
-      // Le jeton n'est jamais renvoyé : le champ reste vide et le laisser vide
-      // conserve celui qui est enregistré.
-      setJiraProject(editingProject.jiraProject || '')
       setRoadmapProjects(formatProjectKeyList(editingProject.roadmapProjects))
       setRoadmapAxisWrites(Boolean(editingProject.roadmapAxisWrites))
       setEpicAxisPrefixes({
@@ -308,22 +270,8 @@ export const ProjectModal: React.FC = () => {
       setPriorityMapping(editingProject.priorityMapping ?? {})
       setEpicAxisFields(editingProject.epicAxisFields ?? {})
       setEpicAxisFieldsEdited(false)
-      setIssueTypes(editingProject.issueTypes || [])
       setEnabledViews(enabledOptionalViews(editingProject))
       setEpicColors(editingProject.epicColors === true)
-
-
-      fetchDetectedStatuses(editingProject.issueTracker, editingProject.githubRepo)
-      // Types réellement exposés par le projet Jira : sans eux, le réglage se
-      // ferait à l'aveugle, et c'est justement là que se cache un projet qui ne
-      // ramène rien.
-      if (editingProject.issueTracker === 'jira') {
-        setIsLoadingIssueTypes(true)
-        fetchProjectIssueTypes(editingProject.id).then((list: string[]) => {
-          setAvailableIssueTypes(list)
-          setIsLoadingIssueTypes(false)
-        })
-      }
     } else {
       setPRCreationStage('implemented')
       setPushStageCommits(false)
@@ -343,15 +291,12 @@ export const ProjectModal: React.FC = () => {
       setSpecFramework(settings.specFramework || 'speckit')
       setDropSpecArtifacts(false)
       setEpicColors(false)
-      setAutoSyncEnabled(false)
-      setAutoSyncIntervalMin(5)
 
-      setIssueTracker('local')
-      setTrackerUrl('')
-      setGithubRepo('')
+      setSelectedTrackers([])
+      setDefaultTrackerId('')
+      setLabel('')
+      setGithubApiUrl('')
       setGitlabUrl('')
-      setGitlabProject('')
-      setJiraProject('')
       setRoadmapProjects('')
       setRoadmapAxisWrites(false)
       setEpicAxisPrefixes({ priority: '', quarter: '', readiness: '' })
@@ -361,7 +306,6 @@ export const ProjectModal: React.FC = () => {
       setSkillsStatus(null)
       setSddStatuses([])
       setSddResult(null)
-      fetchDetectedStatuses('local', '')
     }
     setActiveTab('general')
   }, [editingProject, isProjectModalOpen, settings.specFramework])
@@ -414,9 +358,24 @@ export const ProjectModal: React.FC = () => {
 
   const droppedPaths = droppedRepositoryPaths(editingProject?.repositoriesMigration)
 
+  // The trackers offered: those recorded, plus the project's own local board.
+  const trackerChoices: TrackerOption[] = trackerOptions(trackerSummaries, editingProject?.trackers)
+  const addableTrackers = trackerChoices.filter(option => !option.local && !selectedTrackers.includes(option.id))
+  const effectiveDefault = effectiveDefaultTracker(selectedTrackers, defaultTrackerId)
+  const selectedChoices = selectedTrackers
+    .map(id => trackerChoices.find(option => option.id === id))
+    .filter((option): option is TrackerOption => Boolean(option))
+  const trackerProviderName = (provider: string) =>
+    TRACKER_PROVIDER_NAMES[provider as keyof typeof TRACKER_PROVIDER_NAMES] || provider
+  const trackerChoiceLabel = (option: TrackerOption) => (option.local ? ps.tracker.localBoard : trackerDisplayName(option))
+  // The Jira settings of the project (roadmap projects, epic axes) apply when
+  // one of its trackers is a Jira space; the first one is its own key.
+  const selectsJira = selectedChoices.some(option => option.provider === 'jira')
+  const jiraKey = selectedChoices.find(option => option.provider === 'jira')?.scope || ''
+
   // The prefixes are checked as typed, so the refusal reads beside the field
   // rather than in a toast after a round trip; the server checks them too.
-  const prefixProblem = issueTracker === 'jira' ? epicAxisPrefixProblem(epicAxisPrefixes) : null
+  const prefixProblem = selectsJira ? epicAxisPrefixProblem(epicAxisPrefixes) : null
   const prefixProblemText = prefixProblem
     ? format(
         {
@@ -449,7 +408,12 @@ export const ProjectModal: React.FC = () => {
         return
       }
       const savedRepositories = pending ? [...repositories, pending] : repositories
-      const computedGithubRepo = githubRepo.trim() || extractGithubRepoFromGitUrl(gitRemoteUrl)
+      const selection = projectSelectionPayload(selectedTrackers, defaultTrackerId, label, trackerChoices, editingProject?.trackers)
+      // The priority mapping (#679) and the epic axis fields (#680) stay on
+      // the project, read from its default tracker's Jira space, so only a
+      // saved Jira project sends them.
+      const sendsPriorityMapping = editingProject?.issueTracker === 'jira' && Boolean(priorityMapping.options?.length)
+      const sendsEpicAxisFields = editingProject?.issueTracker === 'jira' && epicAxisFieldsEdited
       const payload = {
         name: name.trim(),
         slug: slug.trim() || name.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
@@ -462,30 +426,24 @@ export const ProjectModal: React.FC = () => {
         fullChainStopStage,
         pushStageCommits,
         branchNameFormat: branchNameFormat.trim(),
-        trackerColumns,
-        stageColumns,
         gitRemoteUrl: gitRemoteUrl.trim(),
         repositories: savedRepositories,
         specFramework,
         specArtifacts: dropSpecArtifacts ? 'drop' as const : 'keep' as const,
-        autoSyncEnabled,
-        autoSyncIntervalMin,
-        issueTracker,
-        trackerUrl: trackerUrl.trim(),
-        githubRepo: computedGithubRepo,
+        // The trackers, the default and the label (#741). The tracker's own
+        // fields (board, columns, mapping, issue types, auto-sync) are an
+        // admin's, on the tracker, and are no longer sent (D11).
+        ...selection,
         githubApiUrl: githubApiUrl.trim(),
         gitlabUrl: gitlabUrl.trim(),
-        gitlabProject: gitlabProject.trim().replace(/^\/+|\/+$/g, ''),
-        jiraProject: jiraProject.trim().toUpperCase(),
-        roadmapProjects: issueTracker === 'jira' ? parseProjectKeyList(roadmapProjects, jiraProject) : [],
+        roadmapProjects: selectsJira ? parseProjectKeyList(roadmapProjects, jiraKey) : [],
         // Never open without a declared project: the server closes it too.
-        roadmapAxisWrites: issueTracker === 'jira' && parseProjectKeyList(roadmapProjects, jiraProject).length > 0 && roadmapAxisWrites,
-        issueTypes,
+        roadmapAxisWrites: selectsJira && parseProjectKeyList(roadmapProjects, jiraKey).length > 0 && roadmapAxisWrites,
         enabledViews,
         epicColors,
         // Only a tracker whose epics carry labels has them; elsewhere the
         // stored prefixes are left as they are.
-        ...(issueTracker === 'jira'
+        ...(selectsJira
           ? {
               epicAxisPrefixes: {
                 priority: cleanEpicAxisPrefix(epicAxisPrefixes.priority),
@@ -496,8 +454,8 @@ export const ProjectModal: React.FC = () => {
           : {}),
         // Only the levels and preferred options travel: the server keeps the
         // options themselves as the tracker lists them.
-        ...(issueTracker === 'jira' && editingProject && priorityMapping.options?.length ? { priorityMapping } : {}),
-        ...(issueTracker === 'jira' && editingProject && epicAxisFieldsEdited ? { epicAxisFields } : {}),
+        ...(sendsPriorityMapping ? { priorityMapping } : {}),
+        ...(sendsEpicAxisFields ? { epicAxisFields } : {}),
       }
 
       const saved = editingProject
@@ -513,7 +471,7 @@ export const ProjectModal: React.FC = () => {
       // rien : autant le dire maintenant, plutôt qu'après une synchronisation
       // vide. L'écran se ferme sans rien remplir, la configuration pouvant venir
       // plus tard depuis les réglages.
-      if (needsCredentialsFor(issueTracker, settings, userCredentials)) {
+      if (selectedChoices.some(option => needsCredentialsFor(option.provider, settings, userCredentials))) {
         setIsTrackerSetupOpen(true)
       }
     } finally {
@@ -534,13 +492,6 @@ export const ProjectModal: React.FC = () => {
       }
     }
   }
-
-  // Tracker product names stay as they are; what Sectile says about them
-  // follows the UI language.
-  const providerKey: keyof ProjectSettingsStrings['providers']['capabilities'] =
-    issueTracker === 'github' || issueTracker === 'jira' || issueTracker === 'gitlab' ? issueTracker : 'local'
-  const providerDescription = ps.providers.descriptions[providerKey]
-  const providerCapabilities = ps.providers.capabilities[providerKey]
 
   return (
     <div
@@ -625,9 +576,9 @@ export const ProjectModal: React.FC = () => {
                         {(skillsStatus.skills || []).filter(s => s.installed).length}/5
                       </span>
                     )}
-                    {tab.id === 'tracker' && detectedStatuses.length > 0 && (
+                    {tab.id === 'tracker' && selectedTrackers.length > 0 && (
                       <span className="text-[9.5px] font-mono px-1.5 py-0.5 rounded-full bg-[var(--accent-light)] accent-text font-bold shrink-0">
-                        {detectedStatuses.length}
+                        {selectedTrackers.length}
                       </span>
                     )}
                   </button>
@@ -1080,181 +1031,167 @@ export const ProjectModal: React.FC = () => {
           )}
 
           {/* ========================================================= */}
-          {/* SECTION 4: TRACKER (Sectile local, GitHub, Jira)          */}
+          {/* SECTION 4: TRACKERS & LABEL (#741)                         */}
           {/* ========================================================= */}
           {activeTab === 'tracker' && (
-            <div className="space-y-3.5 animate-in fade-in duration-150">
-              {/* Tracker Type Radio Pills */}
+            <div className="space-y-4 animate-in fade-in duration-150" data-project-trackers>
+              {/* Trackers, in order: the first is the default unless another is named (#741). */}
               <div>
-                <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1.5">
-                  {ps.tracker.typeLabel}
-                </label>
-                <select
-                  value={issueTracker}
-                  onChange={e => {
-                    const newTrk = e.target.value as IssueTracker
-                    setIssueTracker(newTrk)
-                    fetchDetectedStatuses(newTrk)
-                    // Le projet part de l'instance de la personne, celle que
-                    // porte son accès personnel, et retombe sur celle du
-                    // serveur. Une valeur déjà saisie ici n'est pas écrasée.
-                    if (newTrk === 'jira' && !trackerUrl.trim()) {
-                      const mine = userCredentials.find(c => c.tracker === 'jira')?.siteUrl?.trim()
-                      const inherited = mine || settings.jiraUrl?.trim()
-                      if (inherited) setTrackerUrl(inherited)
-                    }
-                    // The project path starts from the default of the
-                    // settings; the instance stays empty, which follows them.
-                    if (newTrk === 'gitlab' && !gitlabProject.trim() && settings.gitlabProject?.trim()) {
-                      setGitlabProject(settings.gitlabProject.trim())
-                    }
-                  }}
-                  className="w-full px-3 py-2 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)] font-medium cursor-pointer"
-                >
-                  {PROJECT_TRACKERS.map(tracker => (
-                    <option key={tracker.id} value={tracker.id}>
-                      {tracker.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Panneau d'information & fonctionnalités supportées par le tracker */}
-              <div className="p-3 rounded-xl bg-[var(--bg-tertiary)]/50 border border-[var(--border-color)] space-y-2.5 text-xs">
-                <div className="flex items-center gap-1.5 font-semibold text-[var(--text-primary)]">
-                  <Info size={13} className="text-[var(--accent-color)]" />
-                  <span>
-                    {issueTracker === 'local' && ps.providers.localName}
-                    {issueTracker === 'github' && 'GitHub Issues'}
-                    {issueTracker === 'jira' && 'Jira'}
-                    {issueTracker === 'gitlab' && 'GitLab'}
-                  </span>
-                </div>
-
-                <p className="text-[11px] text-[var(--text-muted)] leading-relaxed">
-                  {providerDescription}
-                </p>
-
-                {/* Capabilities the selected tracker supports */}
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5 pt-2 border-t border-[var(--border-color)]/50">
-                  {providerCapabilities.map(capability => (
-                    <div key={capability} className="flex items-center gap-1 text-[10.5px] text-emerald-400 font-medium">
-                      <CheckCircle2 size={11} className="shrink-0" />
-                      <span>{capability}</span>
-                    </div>
-                  ))}
-                  {issueTracker === 'github' && (
-                    <div className="flex items-center gap-1 text-[10.5px] text-amber-400 font-medium" title={ps.providers.githubStatusNoteTitle}>
-                      <Info size={11} className="shrink-0" />
-                      <span>{ps.providers.githubStatusNote}</span>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Team Key & Github Repo inputs */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {issueTracker === 'github' && (
-                  <div>
-                    <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
-                      {ps.tracker.githubRepoLabel}
-                    </label>
-                    <div className="relative">
-                      <input
-                        type="text"
-                        value={githubRepo}
-                        onChange={e => {
-                          setGithubRepo(e.target.value)
-                          fetchDetectedStatuses('github', e.target.value)
-                        }}
-                        placeholder={ps.tracker.githubRepoPlaceholder}
-                        className="w-full pl-8 pr-3 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] font-mono focus:outline-none focus:border-[var(--accent-color)]"
-                      />
-                      <Globe size={14} className="absolute left-2.5 top-2.5 text-[var(--accent-color)]" />
-                    </div>
-                  </div>
+                <span className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
+                  {ps.tracker.trackersTitle}
+                </span>
+                <p className="text-[10px] text-[var(--text-muted)] mb-2">{ps.tracker.trackersHelp}</p>
+                {selectedTrackers.length === 0 ? (
+                  <p className="text-[11px] text-[var(--text-secondary)] mb-2">{ps.tracker.noTracker}</p>
+                ) : (
+                  <ul className="space-y-1.5 mb-2">
+                    {selectedTrackers.map((id, index) => {
+                      const option = trackerChoices.find(item => item.id === id)
+                      const isDefaultTracker = id === effectiveDefault
+                      return (
+                        <li
+                          key={id}
+                          className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)]"
+                          data-project-tracker={id}
+                        >
+                          <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-[var(--bg-primary)] border border-[var(--border-color)] text-[var(--text-secondary)]">
+                            {option ? trackerProviderName(option.provider) : '?'}
+                          </span>
+                          <span className="font-medium text-[var(--text-primary)] truncate">{option ? trackerChoiceLabel(option) : id}</span>
+                          {isDefaultTracker && (
+                            <span className="text-[9.5px] font-bold px-1.5 py-0.5 rounded-full bg-[var(--accent-light)] accent-text">
+                              {ps.tracker.defaultBadge}
+                            </span>
+                          )}
+                          <div className="ml-auto flex items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() => setSelectedTrackers(list => moveTracker(list, index, -1))}
+                              disabled={index === 0}
+                              title={ps.columns.moveUp}
+                              aria-label={ps.columns.moveUp}
+                              className="p-1 rounded-lg text-[var(--text-muted)] hover:text-[var(--text-primary)] disabled:opacity-30 cursor-pointer disabled:cursor-not-allowed"
+                            >
+                              <ArrowUp size={12} />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setSelectedTrackers(list => moveTracker(list, index, 1))}
+                              disabled={index === selectedTrackers.length - 1}
+                              title={ps.columns.moveDown}
+                              aria-label={ps.columns.moveDown}
+                              className="p-1 rounded-lg text-[var(--text-muted)] hover:text-[var(--text-primary)] disabled:opacity-30 cursor-pointer disabled:cursor-not-allowed"
+                            >
+                              <ArrowDown size={12} />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setSelectedTrackers(list => removeTracker(list, id))}
+                              disabled={Boolean(editingProject) && selectedTrackers.length === 1}
+                              title={ps.columns.remove}
+                              aria-label={ps.columns.remove}
+                              className="p-1 rounded-lg text-[var(--text-muted)] hover:text-red-400 disabled:opacity-30 cursor-pointer disabled:cursor-not-allowed"
+                            >
+                              <X size={12} />
+                            </button>
+                          </div>
+                        </li>
+                      )
+                    })}
+                  </ul>
                 )}
+                {addableTrackers.length > 0 && (
+                  <select
+                    value=""
+                    aria-label={ps.tracker.addTracker}
+                    onChange={e => setSelectedTrackers(list => addTracker(list, e.target.value))}
+                    className="w-full px-3 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)] cursor-pointer"
+                  >
+                    <option value="">{ps.tracker.addTracker}</option>
+                    {addableTrackers.map(option => (
+                      <option key={option.id} value={option.id}>
+                        {trackerProviderName(option.provider)} · {trackerChoiceLabel(option)}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
 
-                {issueTracker === 'github' && (
+              {selectedTrackers.length > 1 && (
+                <div>
+                  <label htmlFor="project-default-tracker" className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
+                    {ps.tracker.defaultTrackerLabel}
+                  </label>
+                  <select
+                    id="project-default-tracker"
+                    value={effectiveDefault}
+                    onChange={e => setDefaultTrackerId(e.target.value)}
+                    className="w-full px-3 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)] cursor-pointer"
+                  >
+                    {selectedTrackers.map(id => {
+                      const option = trackerChoices.find(item => item.id === id)
+                      return <option key={id} value={id}>{option ? trackerChoiceLabel(option) : id}</option>
+                    })}
+                  </select>
+                  <span className="text-[9px] text-[var(--text-muted)] mt-1 block">{ps.tracker.defaultTrackerHelp}</span>
+                </div>
+              )}
+
+              <div>
+                <label htmlFor="project-label" className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
+                  {ps.tracker.labelLabel}
+                  <span className="ml-1 font-normal normal-case text-[9px] text-[var(--text-muted)]">({ps.tracker.labelHint})</span>
+                </label>
+                <input
+                  id="project-label"
+                  type="text"
+                  value={label}
+                  onChange={e => setLabel(e.target.value)}
+                  placeholder={ps.tracker.labelPlaceholder}
+                  className="w-full px-3 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] font-mono focus:outline-none focus:border-[var(--accent-color)]"
+                />
+                <span className="text-[9px] text-[var(--text-muted)] mt-1 block">{ps.tracker.labelHelp}</span>
+              </div>
+
+              {/* The forges of the project's repositories stay the project's own
+                  (a Jira project whose code is on GitHub Enterprise). */}
+              <div>
+                <span className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
+                  {ps.tracker.forgesTitle}
+                </span>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
+                    <label htmlFor="project-github-instance" className="block text-[10px] text-[var(--text-muted)] mb-1">
                       {ps.tracker.githubInstanceLabel}
                     </label>
-                    <div className="relative">
-                      <input
-                        type="text"
-                        value={githubApiUrl}
-                        onChange={e => setGithubApiUrl(e.target.value)}
-                        placeholder={ps.tracker.instancePlaceholder}
-                        className="w-full pl-8 pr-3 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] font-mono focus:outline-none focus:border-[var(--accent-color)]"
-                      />
-                      <Globe size={14} className="absolute left-2.5 top-2.5 text-[var(--accent-color)]" />
-                    </div>
+                    <input
+                      id="project-github-instance"
+                      type="text"
+                      value={githubApiUrl}
+                      onChange={e => setGithubApiUrl(e.target.value)}
+                      placeholder={ps.tracker.instancePlaceholder}
+                      className="w-full px-3 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] font-mono focus:outline-none focus:border-[var(--accent-color)]"
+                    />
                   </div>
-                )}
-
-                {issueTracker === 'gitlab' && (
                   <div>
-                    <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
-                      {ps.tracker.gitlabProjectLabel}
-                    </label>
-                    <div className="relative">
-                      <input
-                        type="text"
-                        value={gitlabProject}
-                        onChange={e => setGitlabProject(e.target.value)}
-                        placeholder={settings.gitlabProject?.trim() || ps.tracker.gitlabProjectPlaceholder}
-                        className="w-full pl-8 pr-3 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] font-mono focus:outline-none focus:border-[var(--accent-color)]"
-                      />
-                      <Globe size={14} className="absolute left-2.5 top-2.5 text-[var(--accent-color)]" />
-                    </div>
-                  </div>
-                )}
-
-                {issueTracker === 'gitlab' && (
-                  <div>
-                    <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
+                    <label htmlFor="project-gitlab-instance" className="block text-[10px] text-[var(--text-muted)] mb-1">
                       {ps.tracker.gitlabInstanceLabel}
                     </label>
-                    <div className="relative">
-                      <input
-                        type="text"
-                        value={gitlabUrl}
-                        onChange={e => setGitlabUrl(e.target.value)}
-                        placeholder={settings.gitlabUrl?.trim() || 'https://gitlab.com/api/v4'}
-                        className="w-full pl-8 pr-3 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] font-mono focus:outline-none focus:border-[var(--accent-color)]"
-                      />
-                      <Globe size={14} className="absolute left-2.5 top-2.5 text-[var(--accent-color)]" />
-                    </div>
+                    <input
+                      id="project-gitlab-instance"
+                      type="text"
+                      value={gitlabUrl}
+                      onChange={e => setGitlabUrl(e.target.value)}
+                      placeholder={settings.gitlabUrl?.trim() || 'https://gitlab.com/api/v4'}
+                      className="w-full px-3 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] font-mono focus:outline-none focus:border-[var(--accent-color)]"
+                    />
                   </div>
-                )}
+                </div>
+                <span className="text-[9px] text-[var(--text-muted)] mt-1 block">{ps.tracker.forgesHelp}</span>
+              </div>
 
-                {issueTracker === 'jira' && (
-                  <div>
-                    <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
-                      {ps.tracker.jiraProjectLabel}
-                    </label>
-                    <div className="relative">
-                      <input
-                        type="text"
-                        value={jiraProject}
-                        onChange={e => {
-                          const val = e.target.value.toUpperCase()
-                          setJiraProject(val)
-                          fetchDetectedStatuses('jira')
-                        }}
-                        placeholder={ps.tracker.jiraProjectPlaceholder}
-                        className="w-full pl-8 pr-3 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] font-mono uppercase focus:outline-none focus:border-[var(--accent-color)]"
-                      />
-                      <Key size={14} className="absolute left-2.5 top-2.5 text-[var(--accent-color)]" />
-                    </div>
-                    <span className="text-[9px] text-[var(--text-muted)] mt-1 block">
-                      {richText(ps.tracker.jiraProjectHelp, { link: <em>{t.trackerCredentials.setup.title}</em> })}
-                    </span>
-                  </div>
-                )}
-
-                {issueTracker === 'jira' && (
+              {selectsJira && (
+                <div className="grid grid-cols-1 gap-3">
                   <div>
                     <label htmlFor="project-roadmap-projects" className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
                       {ps.tracker.roadmapProjectsLabel}
@@ -1273,7 +1210,7 @@ export const ProjectModal: React.FC = () => {
                     {/* Closed by default (#632): a project reading others must
                         not start writing on their epics because a version
                         shipped. Offered once at least one project is declared. */}
-                    {parseProjectKeyList(roadmapProjects, jiraProject).length > 0 && (
+                    {parseProjectKeyList(roadmapProjects, jiraKey).length > 0 && (
                       <label className="flex items-start gap-2 text-xs text-[var(--text-secondary)] cursor-pointer mt-2">
                         <input
                           type="checkbox"
@@ -1288,12 +1225,10 @@ export const ProjectModal: React.FC = () => {
                       </label>
                     )}
                   </div>
-                )}
 
-                {/* The epic axis prefixes (#635): only a tracker whose epics
-                    carry labels reads and writes them. */}
-                {issueTracker === 'jira' && (
-                  <div className="col-span-2">
+                  {/* The epic axis prefixes (#635): only a tracker whose epics
+                      carry labels reads and writes them. */}
+                  <div>
                     <span className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
                       {ps.tracker.epicAxisPrefixesTitle}
                     </span>
@@ -1325,170 +1260,33 @@ export const ProjectModal: React.FC = () => {
                       {ps.tracker.epicAxisPrefixesHelp}
                     </span>
                   </div>
-                )}
-
-                {/* The epic axis fields (#680) are read from an epic of a
-                    saved project. */}
-                {issueTracker === 'jira' && editingProject && (
-                  <EpicAxisFieldsEditor
-                    projectId={editingProject.id}
-                    fields={epicAxisFields}
-                    onChange={next => {
-                      setEpicAxisFields(next)
-                      setEpicAxisFieldsEdited(true)
-                    }}
-                  />
-                )}
-
-                {/* The priority mapping (#679) belongs to a saved project:
-                    its scheme is read through the project's Jira key. */}
-                {issueTracker === 'jira' && editingProject && (
-                  <PriorityMappingTable projectId={editingProject.id} mapping={priorityMapping} onChange={setPriorityMapping} />
-                )}
-
-                {issueTracker === 'jira' && (
-                  <div className="col-span-2">
-                    <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
-                      {ps.tracker.issueTypesLabel}
-                    </label>
-                    {isLoadingIssueTypes ? (
-                      <span className="text-[10px] text-[var(--text-muted)]">{ps.tracker.issueTypesLoading}</span>
-                    ) : availableIssueTypes.length === 0 ? (
-                      <span className="text-[10px] text-[var(--text-muted)]">
-                        {ps.tracker.issueTypesUnavailable}
-                      </span>
-                    ) : (
-                      <div className="flex flex-wrap gap-1.5">
-                        {availableIssueTypes.map(type => {
-                          const isDefault = type === 'Task' || type === 'Story'
-                          const isActive = issueTypes.length === 0 ? isDefault : issueTypes.includes(type)
-                          return (
-                            <button
-                              key={type}
-                              type="button"
-                              onClick={() => {
-                                // Le premier clic fige la sélection courante : sans
-                                // cela, décocher « Task » sur un projet resté aux
-                                // valeurs par défaut ne changerait rien.
-                                const current = issueTypes.length === 0
-                                  ? availableIssueTypes.filter(t2 => t2 === 'Task' || t2 === 'Story')
-                                  : issueTypes
-                                setIssueTypes(
-                                  current.includes(type)
-                                    ? current.filter(t2 => t2 !== type)
-                                    : [...current, type]
-                                )
-                              }}
-                              className="px-2 py-1 rounded-lg text-[10.5px] font-semibold border cursor-pointer transition-colors"
-                              style={{
-                                color: isActive ? 'var(--accent-color)' : 'var(--text-secondary)',
-                                background: isActive ? 'var(--accent-light)' : 'var(--bg-tertiary)',
-                                borderColor: isActive ? 'rgb(var(--accent-rgb) / 0.4)' : 'var(--border-color)',
-                              }}
-                            >
-                              {type}
-                            </button>
-                          )
-                        })}
-                      </div>
-                    )}
-                    <span className="text-[9px] text-[var(--text-muted)] mt-1 block">
-                      {ps.tracker.issueTypesHelp}
-                    </span>
-                  </div>
-                )}
-
-                <div className={issueTracker === 'local' ? 'col-span-2' : ''}>
-                  <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
-                    {issueTracker === 'jira' ? ps.tracker.jiraUrlLabel : ps.tracker.trackerUrlLabel}
-                    {issueTracker === 'jira' && trackerUrl.trim() && trackerUrl.trim() === userCredentials.find(c => c.tracker === 'jira')?.siteUrl?.trim() ? (
-                      <span className="ml-1 font-normal normal-case text-[9px] text-[var(--text-muted)]">
-                        {ps.tracker.inheritedFromAccess}
-                      </span>
-                    ) : null}
-                  </label>
-                  <div className="relative">
-                    <input
-                      type="text"
-                      value={trackerUrl}
-                      onChange={e => setTrackerUrl(e.target.value)}
-                      placeholder={issueTracker === 'jira' ? ps.tracker.jiraUrlPlaceholder : issueTracker === 'gitlab' ? ps.tracker.gitlabUrlPlaceholder : 'https://github.com/owner/repository'}
-                      className="w-full pl-8 pr-3 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)]"
-                    />
-                    <Globe size={14} className="absolute left-2.5 top-2.5 text-[var(--accent-color)]" />
-                  </div>
-                  {issueTracker === 'jira' && (
-                    <span className="text-[9px] text-[var(--text-muted)] mt-1 block">
-                      {richText(ps.tracker.browseHelp, { path: <code className="text-cyan-400">/browse/&lt;KEY&gt;</code> })}
-                    </span>
-                  )}
                 </div>
-              </div>
+              )}
 
-              {/* Section Synchronisation en arrière-plan */}
-              <div className="p-3.5 rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] space-y-3">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <label className="text-xs font-bold text-[var(--text-primary)] block">
-                      {ps.tracker.syncTitle}
-                    </label>
-                    <span className="text-[10px] text-[var(--text-secondary)] block mt-0.5">
-                      {ps.tracker.syncHelp}
-                    </span>
-                  </div>
-                  <button
-                    type="button"
-                    role="switch"
-                    aria-checked={autoSyncEnabled}
-                    onClick={() => setAutoSyncEnabled(v => !v)}
-                    className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out ${
-                      autoSyncEnabled ? 'bg-[var(--accent-color)]' : 'bg-[var(--border-color)]'
-                    }`}
-                  >
-                    <span
-                      className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-lg ring-0 transition duration-200 ease-in-out ${
-                        autoSyncEnabled ? 'translate-x-4' : 'translate-x-0'
-                      }`}
-                    />
-                  </button>
-                </div>
-
-                {autoSyncEnabled && (
-                  <div className="pt-2 border-t border-[var(--border-color)] space-y-1.5">
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="text-[var(--text-secondary)] font-medium">{ps.tracker.syncPeriod}</span>
-                      <span className="font-mono font-bold text-[var(--accent-color)]">{format(ps.tracker.minutes, { count: autoSyncIntervalMin })}</span>
-                    </div>
-                    <input
-                      type="range"
-                      min={1}
-                      max={30}
-                      value={autoSyncIntervalMin}
-                      onChange={e => setAutoSyncIntervalMin(parseInt(e.target.value, 10) || 5)}
-                      className="w-full h-1.5 bg-[var(--bg-primary)] rounded-lg appearance-none cursor-pointer accent-[var(--accent-color)]"
-                    />
-                    <div className="flex justify-between text-[9px] text-[var(--text-muted)] font-mono">
-                      <span>{format(ps.tracker.minutes, { count: 1 })}</span>
-                      <span>{format(ps.tracker.minutes, { count: 15 })}</span>
-                      <span>{format(ps.tracker.minutes, { count: 30 })}</span>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* Colonnes du board */}
-              <div className="pt-3 border-t border-[var(--border-color)]">
-                <BoardColumnsEditor
-                  project={editingProject}
-                  columns={trackerColumns}
-                  onColumnsChange={newCols => {
-                    setTrackerColumns(newCols)
+              {/* The epic axis fields (#680) stay on the project for now: they are
+                  read from an epic of the saved project's default tracker. */}
+              {editingProject?.issueTracker === 'jira' && (
+                <EpicAxisFieldsEditor
+                  projectId={editingProject.id}
+                  fields={epicAxisFields}
+                  onChange={next => {
+                    setEpicAxisFields(next)
+                    setEpicAxisFieldsEdited(true)
                   }}
-                  stageColumns={stageColumns}
-                  onStageColumnsChange={setStageColumns}
-                  issueTracker={issueTracker}
-                  githubRepo={githubRepo}
                 />
+              )}
+
+              {/* The priority mapping (#679) stays on the project for now: its
+                  scheme is read through the Jira space of the saved project's
+                  default tracker. */}
+              {editingProject?.issueTracker === 'jira' && (
+                <PriorityMappingTable projectId={editingProject.id} mapping={priorityMapping} onChange={setPriorityMapping} />
+              )}
+
+              {/* D11: the mapping editor belongs to the tracker now. */}
+              <div className="p-3 rounded-xl bg-[var(--bg-tertiary)]/50 border border-[var(--border-color)] flex items-start gap-2 text-[11px] text-[var(--text-muted)] leading-relaxed">
+                <Info size={13} className="text-[var(--accent-color)] shrink-0 mt-0.5" />
+                <span>{ps.tracker.adminOnlyMapping}</span>
               </div>
             </div>
           )}

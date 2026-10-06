@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -8,6 +9,7 @@ import (
 	"testing"
 
 	"tasks/internal/models"
+	"tasks/internal/tracker"
 )
 
 // trackerServer serves the tracker routes behind the guard main.go installs.
@@ -126,5 +128,88 @@ func TestAMemberWithoutAProjectOnTheTrackerCannotReadItsBacklog(t *testing.T) {
 	}
 	if status, body := call(t, server, bob, http.MethodGet, backlog, ""); status != http.StatusOK {
 		t.Fatalf("member once a project selects the tracker: %d %s", status, body)
+	}
+}
+
+// boardFake stands in for a tracker that has boards, for the configuration
+// routes an admin uses on a tracker.
+type boardFake struct {
+	tracker.BaseTicketingSystem
+}
+
+func (b *boardFake) ListBoards(ctx context.Context, req tracker.BoardsRequest) ([]models.TrackerBoard, error) {
+	return []models.TrackerBoard{{ID: "5", Name: "PE", Type: "scrum"}}, nil
+}
+
+func (b *boardFake) ListBoardColumns(ctx context.Context, req tracker.BoardRequest) ([]models.TrackerColumn, error) {
+	return []models.TrackerColumn{
+		{Name: "To Do", Statuses: []string{"To Do", "Backlog"}},
+		{Name: "Done", Statuses: []string{"Done"}},
+	}, nil
+}
+
+func (b *boardFake) ListStatuses(ctx context.Context, req tracker.ProjectRequest) ([]tracker.TrackerStatus, error) {
+	return []tracker.TrackerStatus{{ID: "1", Name: "To Do"}, {ID: "2", Name: "In Review"}}, nil
+}
+
+// The board, its columns and the status palette are configured on the
+// tracker, by an admin (#741, D11): the routes that did it through a project
+// are gone, and the tracker's own answer what they answered.
+func TestAnAdminConfiguresTheBoardOnTheTrackerNotOnAProject(t *testing.T) {
+	h, database, cleanup := setupTestHandler(t)
+	defer cleanup()
+	database.TrackerRegistry().Register("jira", &boardFake{tracker.BaseTicketingSystem{
+		TrackerName:  "jira",
+		Capabilities: []tracker.Capability{tracker.CapBoard},
+	}})
+	server := trackerServer(t, h)
+	_, alice := account(t, database, "alice@example.com")
+	pe, err := database.CreateTrackerAs("admin", models.Tracker{Provider: "jira", Scope: "PE"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	project, err := database.CreateProject(models.CreateProjectRequest{Name: "Platform", Trackers: []models.ProjectTracker{{TrackerID: pe.ID}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	status, body := call(t, server, alice, http.MethodGet, AdminTrackersPath+"/"+pe.ID+"/boards", "")
+	if status != http.StatusOK || !strings.Contains(body, `"id":"5"`) {
+		t.Fatalf("boards: %d %s", status, body)
+	}
+	status, body = call(t, server, alice, http.MethodPost, AdminTrackersPath+"/"+pe.ID+"/board-columns", `{"boardId":"5"}`)
+	if status != http.StatusOK {
+		t.Fatalf("board import: %d %s", status, body)
+	}
+	var imported models.Tracker
+	if err := json.Unmarshal([]byte(body), &imported); err != nil {
+		t.Fatal(err)
+	}
+	if imported.BoardID != "5" || len(imported.TrackerColumns) != 2 || len(imported.TrackerColumns[0].Statuses) != 2 {
+		t.Fatalf("the board columns must land on the tracker: %+v", imported)
+	}
+	status, body = call(t, server, alice, http.MethodGet, AdminTrackersPath+"/"+pe.ID+"/tracker-statuses", "")
+	if status != http.StatusOK || !strings.Contains(body, "In Review") {
+		t.Fatalf("statuses: %d %s", status, body)
+	}
+
+	// The project reads the mirror through from its tracker.
+	read, err := database.GetProjectByID(project.ID)
+	if err != nil || read == nil || len(read.TrackerColumns) != 2 {
+		t.Fatalf("the project must read the tracker's columns: %+v (%v)", read, err)
+	}
+
+	// The project-level aliases no longer configure anything.
+	for _, path := range []string{"/api/projects/" + project.ID + "/boards", "/api/projects/" + project.ID + "/tracker-statuses", "/api/projects/" + project.ID + "/issue-types"} {
+		rr := httptest.NewRecorder()
+		h.HandleProjectDetail(rr, httptest.NewRequest(http.MethodGet, path, nil))
+		if strings.Contains(rr.Body.String(), "In Review") || strings.Contains(rr.Body.String(), `"name":"PE"`) {
+			t.Fatalf("%s still answers the tracker configuration: %s", path, rr.Body.String())
+		}
+	}
+	rr := httptest.NewRecorder()
+	h.HandleProjectDetail(rr, httptest.NewRequest(http.MethodGet, "/api/projects/detected-statuses?projectId="+project.ID, nil))
+	if strings.Contains(rr.Body.String(), `"columns"`) {
+		t.Fatalf("the project detection route still answers: %s", rr.Body.String())
 	}
 }

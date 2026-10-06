@@ -83,6 +83,10 @@ export interface TaskActivity {
   id: string
   taskId: string
   projectId?: string
+  /** The tracker a synchronisation read (#741). */
+  trackerId?: string
+  /** The project a task run works for (#741). */
+  runProjectId?: string
   taskKey?: string
   taskTitle?: string
   skillId: string
@@ -472,8 +476,54 @@ export interface Project {
    * client : le propriétaire décide du jeton emprunté (ADR 0018).
    */
   ownerUserId?: string
+  /**
+   * The trackers the project selects its tickets from, in order (#741). The
+   * first is the default unless defaultTrackerId names another.
+   */
+  trackers?: ProjectTrackerRef[]
+  /** The label a ticket carries to belong to the project. Empty: every ticket of its trackers. */
+  label?: string
+  /** Where the project's new tickets go (#741). */
+  defaultTrackerId?: string
   createdAt: string
   updatedAt: string
+}
+
+/** One tracker a project selects, by id and identity (#741). */
+export interface ProjectTrackerRef {
+  trackerId: string
+  identity: string
+}
+
+/** The providers a tracker can be recorded on (#741); local boards are each project's own. */
+export type TrackerProvider = 'jira' | 'github' | 'gitlab'
+
+/** What a member sees of a tracker, to pick it for a project (GET /api/trackers). */
+export interface TrackerSummary {
+  id: string
+  name: string
+  provider: TrackerProvider | 'local'
+  /** The tracker's own address, empty when it uses the deployment's. */
+  site: string
+  /** A Jira key, a GitHub owner/repo or a GitLab project path. */
+  scope: string
+  identity: string
+}
+
+/**
+ * A tracker as an admin configures it (GET /api/admin/trackers): its source and
+ * the board mirror projects used to hold, now one per tracker (#741).
+ */
+export interface Tracker extends TrackerSummary {
+  boardId?: string
+  trackerColumns?: TrackerColumn[]
+  stageColumns?: Record<string, string[]>
+  sprints?: TrackerSprint[]
+  issueTypes?: string[]
+  autoSyncEnabled: boolean
+  autoSyncIntervalMin: number
+  createdAt?: string
+  updatedAt?: string
 }
 
 /**
@@ -579,7 +629,15 @@ export interface TaskBatch {
 
 export interface Task {
   id: string
+  /**
+   * The project the ticket is shown for: the scoped one when a project is
+   * listed, else its first project (#741). Computed by the server.
+   */
   projectId?: string
+  /** Every project the ticket belongs to: those selecting its tracker and its label (#741). */
+  projectIds?: string[]
+  /** The tracker the ticket belongs to (#741). Empty for a row written before trackers. */
+  trackerId?: string
   key: string
   title: string
   description: string
@@ -737,6 +795,8 @@ export type Language = 'fr' | 'en'
 export type Density = 'compact' | 'standard' | 'comfortable'
 
 export type ViewMode = 'board' | 'list' | 'triage' | 'roadmap' | 'timeline' | 'activities' | 'sync' | 'skills' | 'team' | 'admin'
+  /** A tracker's tickets in no project (#741). */
+  | 'tracker-backlog'
 
 /**
  * Vues de planification qu'un projet active à la demande. Elles répondent à un
@@ -923,6 +983,19 @@ export interface AutoSyncState {
   passes: number
   imported: number
   backoffUntil?: string
+  /** The pacing of each tracker the loop reads, or of one project's trackers (#741). */
+  trackers?: TrackerAutoSyncState[]
+}
+
+/** One tracker's background synchronisation (#741). */
+export interface TrackerAutoSyncState {
+  trackerId: string
+  name: string
+  provider: string
+  enabled: boolean
+  intervalMin: number
+  lastPassAt?: string
+  lastFullSyncAt?: string
 }
 
 // A link a toast offers to the thing it announces: opened in the app, and on

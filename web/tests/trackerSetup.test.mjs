@@ -3,7 +3,7 @@ import { test } from 'node:test'
 import { translations } from '../src/locales/translations.ts'
 import {
   PERSONAL_TRACKERS,
-  PROJECT_TRACKERS,
+  TRACKER_PROVIDERS,
   trackerHas,
   prefillFromCredential,
   TRACKERS,
@@ -96,13 +96,12 @@ test('a tracker that attributes its writes is personal only', () => {
   assert.equal(trackerFields('github').siteIsPersonal, undefined)
 })
 
-test('every tracker with a server adapter can be set on a project', () => {
-  // The two selectors (project card, sync view) share this list because they
-  // drifted once: Jira left the project card and stayed in the sync view, so no
-  // project could be put on the tracker the server knew how to drive.
+test('every tracker with a server adapter can be recorded by an admin', () => {
+  // A project no longer names its tracker: it selects trackers an admin
+  // recorded (#741). The admin form offers every provider the server has an
+  // adapter for; a local board is each project's own and is never recorded.
   // GitLab joined them once its adapter was registered (#398).
-  assert.deepEqual(PROJECT_TRACKERS.map(t => t.id), ['local', 'github', 'jira', 'gitlab'])
-  assert.equal(PROJECT_TRACKERS.every(t => t.label.trim().length > 0), true)
+  assert.deepEqual(TRACKER_PROVIDERS, ['jira', 'github', 'gitlab'])
 })
 
 test('the screen says what sealing asks of you, not how it works', () => {
@@ -141,10 +140,9 @@ test('only a tracker the server can drive offers a personal credential', () => {
   // A personal GitLab token was once storable while no adapter could use it;
   // GitLab has one now (#398), so its personal credential is offered again.
   assert.deepEqual(PERSONAL_TRACKERS.map(t => t.id), ['jira', 'github', 'gitlab'])
-  // And every tracker a project can be put on can hold a personal credential.
-  for (const t of PROJECT_TRACKERS) {
-    if (t.id === 'local') continue
-    assert.equal(PERSONAL_TRACKERS.some(p => p.id === t.id), true, `${t.id} has an adapter but no personal credential`)
+  // And every tracker an admin can record can hold a personal credential.
+  for (const provider of TRACKER_PROVIDERS) {
+    assert.equal(PERSONAL_TRACKERS.some(p => p.id === provider), true, `${provider} has an adapter but no personal credential`)
   }
 })
 

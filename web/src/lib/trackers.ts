@@ -1,4 +1,15 @@
-import type { IssueTracker, TrackerCredentials, UserSettings } from '../types'
+import type {
+  DetectedStatus,
+  IssueTracker,
+  Task,
+  TaskActivity,
+  Tracker,
+  TrackerBoard,
+  TrackerCredentials,
+  TrackerProvider,
+  TrackerSummary,
+  UserSettings,
+} from '../types'
 import { translations, type TranslationSchema } from '../locales/translations.ts'
 
 /**
@@ -88,22 +99,6 @@ export const TRACKERS: TrackerFields[] = getTrackers(translations.fr)
  * drive. Every tracker of the list has an adapter since GitLab got one (#398).
  */
 export const PERSONAL_TRACKERS: TrackerFields[] = personalTrackers(translations.fr)
-
-/**
- * The trackers a project can actually use: the ones with an adapter registered
- * on the server (`trackerapi.NewDefaultRegistry`).
- *
- * Cette liste est partagée par la fiche projet et la vue de synchronisation.
- * Les deux avaient leur propre énumération, et elles ont divergé : Jira a
- * disparu de la fiche projet sans disparaître de la synchronisation, donc aucun
- * projet ne pouvait plus être posé dessus.
- */
-export const PROJECT_TRACKERS: { id: IssueTracker; label: string }[] = [
-  { id: 'local', label: 'Sectile (Local)' },
-  { id: 'github', label: 'GitHub Issues' },
-  { id: 'jira', label: 'Jira' },
-  { id: 'gitlab', label: 'GitLab' },
-]
 
 /**
  * What the ticket panel and the triage table can write on a task's tracker: a
@@ -367,4 +362,199 @@ export function prefillFromCredential(
     siteUrl: current.siteUrl?.trim() ? current.siteUrl : credential?.siteUrl || '',
     email: current.email?.trim() ? current.email : credential?.email || '',
   }
+}
+
+// ---------------------------------------------------------------------------
+// Tracker sources (#741)
+//
+// A tracker is one Jira space, one GitHub repository or one GitLab project,
+// recorded once by an admin and synchronised in full whatever projects exist.
+// A project selects one or several of them, and a label. Everything above this
+// line is about the credentials a person reaches the trackers with; what
+// follows is about the trackers themselves.
+// ---------------------------------------------------------------------------
+
+/** Where a member picks trackers, reads a backlog and labels from it. */
+export const TRACKERS_PATH = '/api/trackers'
+/** Where an admin records and configures the trackers (D11). */
+export const ADMIN_TRACKERS_PATH = '/api/admin/trackers'
+
+/** The providers a tracker can be recorded on, in the order the form offers them. */
+export const TRACKER_PROVIDERS: TrackerProvider[] = ['jira', 'github', 'gitlab']
+
+export const TRACKER_PROVIDER_NAMES: Record<TrackerProvider | 'local', string> = {
+  jira: 'Jira',
+  github: 'GitHub',
+  gitlab: 'GitLab',
+  local: 'Sectile',
+}
+
+/** What the admin form edits of a tracker's source. */
+export interface TrackerDraft {
+  provider: TrackerProvider | ''
+  name: string
+  site: string
+  scope: string
+}
+
+export const EMPTY_TRACKER_DRAFT: TrackerDraft = { provider: '', name: '', site: '', scope: '' }
+
+export function trackerDraftOf(tracker: Pick<Tracker, 'provider' | 'name' | 'site' | 'scope'>): TrackerDraft {
+  return {
+    provider: tracker.provider === 'local' ? '' : tracker.provider,
+    name: tracker.name || '',
+    site: tracker.site || '',
+    scope: tracker.scope || '',
+  }
+}
+
+/** The scope as the server stores it, so the form shows what will be saved. */
+export function normalizeTrackerScope(provider: TrackerProvider | '', scope: string): string {
+  const raw = scope.trim()
+  switch (provider) {
+    case 'jira':
+      return raw.toUpperCase()
+    case 'github':
+      return raw
+        .replace(/\.git$/, '')
+        .replace(/^(?:https?:\/\/github\.com\/|git@github\.com:|ssh:\/\/git@github\.com\/)/, '')
+        .replace(/^\/+|\/+$/g, '')
+    case 'gitlab':
+      return raw.replace(/^\/+|\/+$/g, '')
+    default:
+      return raw
+  }
+}
+
+/** Why a draft cannot be saved, or null when it can. The server checks again. */
+export type TrackerDraftProblem = 'provider' | 'scope' | 'githubScope'
+
+export function trackerDraftProblem(draft: TrackerDraft): TrackerDraftProblem | null {
+  if (!draft.provider) return 'provider'
+  const scope = normalizeTrackerScope(draft.provider, draft.scope)
+  if (!scope) return 'scope'
+  if (draft.provider === 'github' && !/^[^/\s]+\/[^/\s]+$/.test(scope)) return 'githubScope'
+  return null
+}
+
+/**
+ * The body of a tracker creation or rewrite. A rewrite replaces the whole
+ * tracker on the server, so the board mirror and the auto-sync settings of the
+ * tracker being edited travel with the source fields.
+ */
+export function trackerPayload(draft: TrackerDraft, current?: Partial<Tracker>): Partial<Tracker> {
+  const provider = draft.provider as TrackerProvider
+  return {
+    ...(current ?? {}),
+    provider,
+    name: draft.name.trim(),
+    site: draft.site.trim(),
+    scope: normalizeTrackerScope(provider, draft.scope),
+    autoSyncEnabled: current?.autoSyncEnabled ?? false,
+    autoSyncIntervalMin: current?.autoSyncIntervalMin || 5,
+  }
+}
+
+/** The projects selecting a tracker, in the order they are listed. */
+export function trackerProjects<P extends { trackers?: { trackerId: string }[] }>(trackerId: string, projects: P[]): P[] {
+  return projects.filter(project => (project.trackers ?? []).some(ref => ref.trackerId === trackerId))
+}
+
+/** How a tracker reads in a list: its name, then its scope when they differ. */
+export function trackerDisplayName(tracker: Pick<TrackerSummary, 'name' | 'scope'>): string {
+  const name = (tracker.name || '').trim()
+  const scope = (tracker.scope || '').trim()
+  if (!name) return scope
+  return scope && scope !== name ? `${name} (${scope})` : name
+}
+
+async function trackerAnswer<T>(response: Response): Promise<T> {
+  const body = await response.json().catch(() => ({}))
+  if (!response.ok) {
+    throw new Error((body as { error?: string }).error || `HTTP ${response.status}`)
+  }
+  return body as T
+}
+
+const JSON_HEADERS = { 'Content-Type': 'application/json' }
+const trackerPath = (base: string, id: string, ...rest: string[]) =>
+  [base, encodeURIComponent(id), ...rest.map(part => encodeURIComponent(part))].join('/')
+
+/** The trackers a member can pick from; local boards are not listed. */
+export async function fetchTrackerSummaries(): Promise<TrackerSummary[]> {
+  return trackerAnswer<TrackerSummary[]>(await fetch(TRACKERS_PATH))
+}
+
+export async function fetchAdminTrackers(): Promise<Tracker[]> {
+  return trackerAnswer<Tracker[]>(await fetch(ADMIN_TRACKERS_PATH))
+}
+
+export async function fetchAdminTracker(id: string): Promise<Tracker> {
+  return trackerAnswer<Tracker>(await fetch(trackerPath(ADMIN_TRACKERS_PATH, id)))
+}
+
+export async function createTracker(payload: Partial<Tracker>): Promise<Tracker> {
+  return trackerAnswer<Tracker>(await fetch(ADMIN_TRACKERS_PATH, { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify(payload) }))
+}
+
+export async function updateTracker(id: string, payload: Partial<Tracker>): Promise<Tracker> {
+  return trackerAnswer<Tracker>(await fetch(trackerPath(ADMIN_TRACKERS_PATH, id), { method: 'PUT', headers: JSON_HEADERS, body: JSON.stringify(payload) }))
+}
+
+/** Deletes a tracker; the server refuses one a project selects or a ticket belongs to. */
+export async function deleteTracker(id: string): Promise<void> {
+  await trackerAnswer<unknown>(await fetch(trackerPath(ADMIN_TRACKERS_PATH, id), { method: 'DELETE' }))
+}
+
+export async function fetchTrackerBoards(id: string): Promise<TrackerBoard[]> {
+  return trackerAnswer<TrackerBoard[]>(await fetch(trackerPath(ADMIN_TRACKERS_PATH, id, 'boards')))
+}
+
+/** Records a board on the tracker and brings its columns back, merged with the hand assignments. */
+export async function importTrackerBoard(id: string, boardId: string): Promise<Tracker> {
+  return trackerAnswer<Tracker>(await fetch(trackerPath(ADMIN_TRACKERS_PATH, id, 'board-columns'), {
+    method: 'POST', headers: JSON_HEADERS, body: JSON.stringify({ boardId }),
+  }))
+}
+
+/** The statuses the tracker's workflows expose (GitHub: its ProjectsV2 options). */
+export async function fetchTrackerStatuses(id: string): Promise<string[]> {
+  return trackerAnswer<string[]>(await fetch(trackerPath(ADMIN_TRACKERS_PATH, id, 'tracker-statuses')))
+}
+
+export async function fetchTrackerIssueTypes(id: string): Promise<string[]> {
+  return trackerAnswer<string[]>(await fetch(trackerPath(ADMIN_TRACKERS_PATH, id, 'issue-types')))
+}
+
+/** The statuses seen on the tracker's tickets, plus what the tracker names. */
+export async function fetchTrackerDetectedStatuses(id: string): Promise<DetectedStatus[]> {
+  return trackerAnswer<DetectedStatus[]>(await fetch(trackerPath(ADMIN_TRACKERS_PATH, id, 'detected-statuses')))
+}
+
+/** Queues a synchronisation of the whole tracker. */
+export async function syncTracker(id: string): Promise<TaskActivity | null> {
+  const body = await trackerAnswer<{ activity?: TaskActivity }>(await fetch(trackerPath(TRACKERS_PATH, id, 'sync'), { method: 'POST' }))
+  return body.activity ?? null
+}
+
+/** The tracker's tickets no project shows. */
+export async function fetchTrackerBacklog(id: string): Promise<Task[]> {
+  return trackerAnswer<Task[]>(await fetch(trackerPath(TRACKERS_PATH, id, 'backlog')))
+}
+
+/** Gives a backlog ticket the label of a project selecting its tracker. */
+export async function addBacklogTaskToProject(trackerId: string, taskId: string, projectId: string): Promise<Task | null> {
+  const body = await trackerAnswer<{ task?: Task }>(await fetch(trackerPath(TRACKERS_PATH, trackerId, 'backlog', taskId, 'project'), {
+    method: 'POST', headers: JSON_HEADERS, body: JSON.stringify({ projectId }),
+  }))
+  return body.task ?? null
+}
+
+/**
+ * The projects a backlog ticket of a tracker can be labelled into: those
+ * selecting the tracker that carry a label. An unlabelled project already
+ * shows every ticket of its trackers, so the server refuses it.
+ */
+export function labellingProjects<P extends { label?: string; trackers?: { trackerId: string }[] }>(trackerId: string, projects: P[]): P[] {
+  return trackerProjects(trackerId, projects).filter(project => (project.label ?? '').trim() !== '')
 }

@@ -130,14 +130,16 @@ func (h *Handler) requireOwnerOrAdmin(w http.ResponseWriter, r *http.Request, ow
 // table the guard enforces and the test reads; a mutation that needs the
 // request body to decide, settings and dispatch, is checked in its handler.
 //
-// Only the accounts themselves are on it. The board is a shared workspace: a
-// member creates, renames and deletes a project and configures the tracker it
-// reads from, because a board where only an admin can open a project is a board
-// that waits on one person. What stays an admin's is the roster, who exists,
-// what role they hold, and whether their account still opens, the admin page
-// that watches over it, and the server credentials the deployment reaches its
-// trackers with (#464), and the trackers themselves, which every project
-// selecting them shares (#741).
+// The board is a shared workspace: a member creates, renames and deletes a
+// project and chooses which trackers it selects its tickets from and with
+// which label, because a board where only an admin can open a project is a
+// board that waits on one person. What stays an admin's is the roster, who
+// exists, what role they hold, and whether their account still opens, the
+// admin page that watches over it, the server credentials the deployment
+// reaches its trackers with (#464), and the trackers themselves (#741): their
+// source, board, columns, status-to-stage mapping, issue types and background
+// sync are shared by every project selecting them, so a member no longer
+// configures them from a project (ADR 0050, D11).
 func adminOnlyRoute(_ string, path string) bool {
 	return path == "/api/users" || strings.HasPrefix(path, "/api/users/") ||
 		path == AdminStatsPath ||

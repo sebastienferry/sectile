@@ -16,7 +16,6 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
-	"tasks/internal/tracker"
 	"tasks/internal/trackerapi"
 	"time"
 
@@ -848,154 +847,6 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 		id = parts[0]
 	}
 
-	// Sub-action: /api/projects/detected-statuses: live status detection for draft project
-	if id == "detected-statuses" && r.Method == http.MethodGet {
-		trackerName := r.URL.Query().Get("tracker")
-		repo := r.URL.Query().Get("repo")
-		repoPath := r.URL.Query().Get("repoPath")
-		projID := r.URL.Query().Get("projectId")
-
-		var statuses []string
-		// columns is filled only for a saved project on a tracker with boards:
-		// there, detection mirrors the board instead of inventing one column per
-		// status. detectErr travels with the payload so a failed read is shown
-		// rather than read as "no column".
-		var columns []models.TrackerColumn
-		detectErr := ""
-		if projID != "" {
-			var statusErr error
-			statuses, statusErr = h.db.GetProjectTrackerStatuses(h.actingContext(r), projID)
-			if statusErr != nil {
-				detectErr = statusErr.Error()
-			}
-			cols, err := h.db.DetectProjectBoardColumns(h.actingContext(r), projID)
-			switch {
-			case tracker.IsUnsupported(err):
-				// A tracker without boards keeps the historical payload.
-			case err != nil:
-				if detectErr == "" {
-					detectErr = err.Error()
-				}
-			default:
-				columns = cols
-				// The palette must hold everything the board groups, even a
-				// status the project status list did not return.
-				seen := map[string]bool{}
-				for _, st := range statuses {
-					seen[strings.ToLower(st)] = true
-				}
-				for _, col := range cols {
-					for _, st := range col.Statuses {
-						if key := strings.ToLower(strings.TrimSpace(st)); key != "" && !seen[key] {
-							seen[key] = true
-							statuses = append(statuses, st)
-						}
-					}
-				}
-			}
-		} else {
-			dummyProj := &models.Project{
-				IssueTracker: trackerName,
-				GithubRepo:   repo,
-				RepoPath:     repoPath,
-			}
-			// Temporary DB query for draft project
-			_ = dummyProj
-			// Query tracker HTTP metadata for a draft project
-			seen := map[string]bool{}
-			if trackerName == "github" {
-				rRepo := models.CleanGithubRepo(repo)
-				if rRepo != "" {
-
-					parts := strings.Split(rRepo, "/")
-					if len(parts) == 2 {
-						gqlQuery, _ := trackerapi.GithubStatusQuery(rRepo)
-
-						if output, err := h.db.TrackerGraphQL(h.actingContext(r), gqlQuery); err == nil {
-							var gqlRes struct {
-								Data struct {
-									Repository struct {
-										ProjectsV2 struct {
-											Nodes []struct {
-												Fields struct {
-													Nodes []struct {
-														Name    string `json:"name"`
-														Options []struct {
-															Name string `json:"name"`
-														} `json:"options"`
-													} `json:"nodes"`
-												} `json:"fields"`
-											} `json:"nodes"`
-										} `json:"projectsV2"`
-									} `json:"repository"`
-									User struct {
-										ProjectsV2 struct {
-											Nodes []struct {
-												Fields struct {
-													Nodes []struct {
-														Name    string `json:"name"`
-														Options []struct {
-															Name string `json:"name"`
-														} `json:"options"`
-													} `json:"nodes"`
-												} `json:"fields"`
-											} `json:"nodes"`
-										} `json:"projectsV2"`
-									} `json:"user"`
-								} `json:"data"`
-							}
-							if json.Unmarshal(output, &gqlRes) == nil {
-								allProjects := append(gqlRes.Data.Repository.ProjectsV2.Nodes, gqlRes.Data.User.ProjectsV2.Nodes...)
-								for _, pNode := range allProjects {
-									for _, fNode := range pNode.Fields.Nodes {
-										if strings.EqualFold(fNode.Name, "Status") || strings.EqualFold(fNode.Name, "Statut") || len(fNode.Options) > 0 {
-											for _, opt := range fNode.Options {
-												name := strings.TrimSpace(opt.Name)
-												if name != "" && !seen[strings.ToLower(name)] {
-													seen[strings.ToLower(name)] = true
-													statuses = append(statuses, name)
-												}
-											}
-										}
-									}
-								}
-							}
-						}
-					}
-				}
-				if len(statuses) == 0 {
-					for _, s := range []string{"open", "closed"} {
-						if !seen[s] {
-							seen[s] = true
-							statuses = append(statuses, s)
-						}
-					}
-				}
-			}
-		}
-
-		type StatusItem struct {
-			ID   string `json:"id"`
-			Name string `json:"name"`
-		}
-		var result []StatusItem
-		for idx, s := range statuses {
-			result = append(result, StatusItem{
-				ID:   fmt.Sprintf("st-%d", idx),
-				Name: s,
-			})
-		}
-		payload := map[string]interface{}{"statuses": result}
-		if columns != nil {
-			payload["columns"] = columns
-		}
-		if detectErr != "" {
-			payload["error"] = detectErr
-		}
-		writeJSON(w, http.StatusOK, payload)
-		return
-	}
-
 	// Sub-action: /api/projects/{id}/epics/create: create an epic, the container
 	// a split needs as a target
 	if len(parts) >= 3 && isMacroSegment(parts[1]) && parts[2] == "create" && r.Method == http.MethodPost {
@@ -1091,18 +942,6 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 	// a report left by a workstation that went away is not what would run.
 	if len(parts) >= 2 && parts[1] == "engine" && r.Method == http.MethodGet {
 		writeJSON(w, http.StatusOK, h.projectEngine(h.webSessionUser(r), id))
-		return
-	}
-
-	// Sub-action: /api/projects/{id}/issue-types: the work item types the
-	// project's tracker exposes, for the picker in the project settings.
-	if len(parts) >= 2 && parts[1] == "issue-types" && r.Method == http.MethodGet {
-		types, err := h.db.ListProjectIssueTypesAs(h.actingContext(r), id)
-		if err != nil {
-			writeError(w, http.StatusBadRequest, err.Error())
-			return
-		}
-		writeJSON(w, http.StatusOK, types)
 		return
 	}
 
@@ -1588,33 +1427,6 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Sub-action: /api/projects/{id}/boards: the tracker's boards, for the picker
-	if len(parts) >= 2 && parts[1] == "boards" && r.Method == http.MethodGet {
-		boards, err := h.db.ListProjectTrackerBoardsAs(h.actingContext(r), id)
-		if err != nil {
-			writeError(w, http.StatusBadRequest, err.Error())
-			return
-		}
-		writeJSON(w, http.StatusOK, boards)
-		return
-	}
-
-	// Sub-action: /api/projects/{id}/board-columns: import the columns of a
-	// tracker board as a starting point for the project's own columns
-	if len(parts) >= 2 && parts[1] == "board-columns" && r.Method == http.MethodPost {
-		var req struct {
-			BoardID string `json:"boardId"`
-		}
-		_ = json.NewDecoder(r.Body).Decode(&req)
-		proj, err := h.db.ImportProjectBoardColumns(h.actingContext(r), id, req.BoardID)
-		if err != nil {
-			writeError(w, http.StatusBadRequest, err.Error())
-			return
-		}
-		writeJSON(w, http.StatusOK, proj)
-		return
-	}
-
 	// Sub-action: /api/projects/{id}/priority-mapping/refresh: read the
 	// tracker's priority scheme again and fold it into the project's mapping
 	// (#679), for a person who just changed it.
@@ -1642,18 +1454,6 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeJSON(w, http.StatusOK, discovery)
-		return
-	}
-
-	// Sub-action: /api/projects/{id}/tracker-statuses: the statuses actually
-	// seen on this project's tickets, to assign them to columns
-	if len(parts) >= 2 && parts[1] == "tracker-statuses" && r.Method == http.MethodGet {
-		statuses, err := h.db.GetProjectTrackerStatuses(h.actingContext(r), id)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-		writeJSON(w, http.StatusOK, statuses)
 		return
 	}
 

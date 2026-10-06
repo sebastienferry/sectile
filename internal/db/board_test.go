@@ -2,20 +2,26 @@ package db
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"tasks/internal/models"
 	"tasks/internal/testsqlite"
 	"tasks/internal/tracker"
+	"tasks/internal/trackerapi"
 )
 
-// The palette, the detection and the automatic sync all go through the tracker
-// the project resolves to, never through its name. These tests pin that
-// routing, and the merge the sync applies once the board answered.
+// The palette and the automatic sync go through the tracker, never through its
+// name. These tests pin that routing, and the merge the sync applies once the
+// board answered. The palette is read on the tracker since its board is
+// configured there (#741).
 
-func TestProjectStatusesComeFromABoardCapableTracker(t *testing.T) {
+func TestTrackerStatusesComeFromABoardCapableTracker(t *testing.T) {
 	fake := newFakeTracker()
 	fake.statuses = []tracker.TrackerStatus{
 		{ID: "1", Name: "To Do"},
@@ -25,7 +31,7 @@ func TestProjectStatusesComeFromABoardCapableTracker(t *testing.T) {
 	}
 
 	database, project := jiraTestDB(t, fake)
-	statuses, err := database.GetProjectTrackerStatuses(context.Background(), project.ID)
+	statuses, err := database.GetTrackerStatusesAs(context.Background(), project.DefaultTrackerID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -35,85 +41,27 @@ func TestProjectStatusesComeFromABoardCapableTracker(t *testing.T) {
 	}
 }
 
-func TestProjectStatusesSurfaceTheTrackerFailure(t *testing.T) {
+func TestTrackerStatusesSurfaceTheTrackerFailure(t *testing.T) {
 	fake := newFakeTracker()
 	fake.statusErr = fmt.Errorf("gateway unavailable")
 
 	database, project := jiraTestDB(t, fake)
-	if _, err := database.GetProjectTrackerStatuses(context.Background(), project.ID); err == nil {
+	if _, err := database.GetTrackerStatusesAs(context.Background(), project.DefaultTrackerID); err == nil {
 		t.Fatal("an unreadable status list must not be served as an empty palette")
 	}
 }
 
-func TestProjectStatusesAreEmptyWithoutBoards(t *testing.T) {
+func TestTrackerStatusesAreEmptyWithoutBoards(t *testing.T) {
 	fake := newFakeTracker()
 	fake.Capabilities = []tracker.Capability{tracker.CapSync, tracker.CapGet}
 
 	database, project := jiraTestDB(t, fake)
-	statuses, err := database.GetProjectTrackerStatuses(context.Background(), project.ID)
+	statuses, err := database.GetTrackerStatusesAs(context.Background(), project.DefaultTrackerID)
 	if err != nil {
 		t.Fatalf("a tracker without boards names a limit, it does not fail: %v", err)
 	}
 	if len(statuses) != 0 {
 		t.Fatalf("expected no status, got %#v", statuses)
-	}
-}
-
-// GitHub keeps the path it had, fallback included: nothing of its observable
-// behaviour changes with the capability dispatch.
-func TestGithubProjectStatusesKeepTheirFallback(t *testing.T) {
-	database, err := testsqlite.New(t, filepath.Join(t.TempDir(), "tasks.db"), NewDB)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { database.Close() })
-
-	project, err := database.CreateProject(models.CreateProjectRequest{Name: "Sectile", IssueTracker: "github", GithubRepo: ""})
-	if err != nil {
-		t.Fatal(err)
-	}
-	statuses, err := database.GetProjectTrackerStatuses(context.Background(), project.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(statuses) != 2 || statuses[0] != "open" || statuses[1] != "closed" {
-		t.Fatalf("the GitHub fallback must be untouched: %#v", statuses)
-	}
-}
-
-func TestDetectBoardColumnsMirrorsTheBoard(t *testing.T) {
-	fake := newFakeTracker()
-	fake.boards = []models.TrackerBoard{{ID: "7", Name: "PE kanban", Type: "kanban"}, {ID: "5", Name: "PE scrum", Type: "scrum"}}
-	fake.columns = []models.TrackerColumn{
-		{Name: "To Do", Statuses: []string{"To Do", "Backlog"}},
-		{Name: "Done", Statuses: []string{"Done"}},
-	}
-
-	database, project := jiraTestDB(t, fake)
-	columns, err := database.DetectProjectBoardColumns(context.Background(), project.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(columns) != 2 || columns[0].Name != "To Do" || len(columns[0].Statuses) != 2 {
-		t.Fatalf("detection must return the board columns with their statuses: %+v", columns)
-	}
-	// Reading columns writes nothing: the board is only retained on a sync.
-	refreshed, _ := database.GetProjectByID(project.ID)
-	if refreshed.BoardID != "" {
-		t.Fatalf("detection must not persist a board, got %q", refreshed.BoardID)
-	}
-}
-
-// A board that groups no column is reported: the editor must keep the columns
-// the user already has rather than fall back to one column per status.
-func TestDetectBoardColumnsReportsAnEmptyBoard(t *testing.T) {
-	fake := newFakeTracker()
-	fake.boards = []models.TrackerBoard{{ID: "5", Name: "PE scrum", Type: "scrum"}}
-	fake.columns = nil
-
-	database, project := jiraTestDB(t, fake)
-	if _, err := database.DetectProjectBoardColumns(context.Background(), project.ID); err == nil {
-		t.Fatal("a board without column must be reported, not served as an empty mirror")
 	}
 }
 
@@ -185,5 +133,72 @@ func TestSyncBoardColumnsMergeKeepsTheUsersWork(t *testing.T) {
 	// The stage mapped to the vanished column goes with it, the other stays.
 	if len(refreshed.StageColumns["specified"]) != 1 || len(refreshed.StageColumns["reviewed"]) != 0 {
 		t.Fatalf("stage mappings not pruned as expected: %+v", refreshed.StageColumns)
+	}
+}
+
+// A GitHub tracker configured on the admin screen offers the single-select
+// options of its repository's ProjectsV2 boards, as a GitHub project did
+// before its tracker settings moved to the tracker (#741).
+func TestAGithubTrackerStatusListReadsItsProjectsV2Options(t *testing.T) {
+	database, err := testsqlite.New(t, filepath.Join(t.TempDir(), "tasks.db"), NewDB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { database.Close() })
+	var asked string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/graphql" {
+			t.Errorf("unexpected call: %s", r.URL)
+		}
+		var req struct{ Query string }
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		asked = req.Query
+		fmt.Fprint(w, `{"data":{"repository":{"projectsV2":{"nodes":[{"fields":{"nodes":[{"name":"Status","options":[{"name":"Todo"},{"name":"In Progress"},{"name":"Done"}]}]}}]}},"user":{"projectsV2":{"nodes":[{"fields":{"nodes":[{"name":"Status","options":[{"name":"todo"},{"name":"Blocked"}]}]}}]}}}}`)
+	}))
+	defer server.Close()
+	database.trackers = &trackerapi.Client{GithubURL: server.URL, GithubToken: "test", HTTP: server.Client()}
+
+	trk, err := database.CreateTrackerAs("admin", models.Tracker{Provider: "github", Scope: "acme/app"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	statuses, err := database.GetTrackerStatusesAs(context.Background(), trk.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(asked, "acme") || !strings.Contains(asked, "app") {
+		t.Fatalf("the lookup must name the tracker's repository: %s", asked)
+	}
+	// Repository then user boards, duplicates folded case-insensitively.
+	want := []string{"Todo", "In Progress", "Done", "Blocked"}
+	if strings.Join(statuses, "|") != strings.Join(want, "|") {
+		t.Fatalf("the palette must hold the ProjectsV2 options: %#v", statuses)
+	}
+}
+
+// Without any ProjectsV2 option, a GitHub tracker keeps the two states an
+// issue always has.
+func TestAGithubTrackerStatusListFallsBackToOpenAndClosed(t *testing.T) {
+	database, err := testsqlite.New(t, filepath.Join(t.TempDir(), "tasks.db"), NewDB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { database.Close() })
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `{"data":{"repository":{"projectsV2":{"nodes":[]}},"user":{"projectsV2":{"nodes":[]}}}}`)
+	}))
+	defer server.Close()
+	database.trackers = &trackerapi.Client{GithubURL: server.URL, GithubToken: "test", HTTP: server.Client()}
+
+	trk, err := database.CreateTrackerAs("admin", models.Tracker{Provider: "github", Scope: "acme/app"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	statuses, err := database.GetTrackerStatusesAs(context.Background(), trk.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(statuses, "|") != "open|closed" {
+		t.Fatalf("the GitHub fallback must be kept: %#v", statuses)
 	}
 }
