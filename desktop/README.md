@@ -5,8 +5,7 @@ Local task execution consoles, with an experimental Claude Code conversation vie
 ## Experimental Claude conversation
 
 Turn it on with **Settings → Appearance → Claude consoles → Conversation**.
-A **Project prompt** with Claude then opens in this view instead of a terminal,
-and **Claude chat (test)** appears for an execution with a local directory.
+A **Project prompt** with Claude then opens in this view instead of a terminal.
 A task's interactive launches open there too, a skill such as clarify starting
 on its own command and **Discussion (no skill)** waiting for your first message,
 in the task's worktree and with the task's environment, when the project's
@@ -765,7 +764,8 @@ settings in the open dialog. Local values and unsaved local edits remain
 intact. Refresh does not
 deploy tooling or modify running executions.
 
-Select a completed, failed or canceled execution and choose **Relaunch**.
+Select a task execution at any stage and choose **Relaunch**, including while
+it is queued, preparing or running, or in the conversation view.
 The dialog restores its skill and original instructions, allows editing both,
 and submits a new execution using current project settings. The previous run
 and console remain in history. Instructions are retained in agent memory;

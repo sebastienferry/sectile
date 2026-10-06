@@ -210,8 +210,7 @@ configuration, read the [Desktop guide](./desktop/README.md).
 
 The test branch also offers a Claude Code conversation view without a PTY,
 turned on by **Settings → Appearance → Claude consoles → Conversation**: Claude
-project prompts then open in it, and **Claude chat (test)** starts one in the
-selected execution's directory. See the
+project prompts and interactive task launches then open in it. See the
 [prototype notes](./docs/experiments/desktop-conversation.md) for its limits.
 
 ## Testing

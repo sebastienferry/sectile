@@ -72,6 +72,8 @@ test fixtures or internal plumbing.
 
 ### Changed
 
+- Desktop Relaunch and its skill selector are available at every task execution stage, including active executions and conversations. The experimental Claude chat (test) toolbar button has been removed.
+
 - **The standalone agent pairs on its own.** `sectile-agent` run by hand no longer picks up the key Sectile Desktop paired with; pair it once with `sectile-agent pair`, or pass `TOKEN`. This was already the case wherever Desktop encrypts its key (macOS, Windows, Linux with a keyring). Desktop now keeps its own settings in `desktop.json` in its data directory, copied once from `~/.config/sectile/settings.json` at the first start; a Desktop downgraded below this version asks to pair again. Upgrade the agent along with the desktop. (#746)
 - **A Jira priority Sectile can only guess is no longer written.** Once a Jira project's priority mapping is read, changing a ticket to a level only guessed lines carry is refused before anything changes, from the card, the priority chips, the list's bulk action (which still writes the other tickets) and MCP `update_task`, with the levels the project accepts; a ticket created with such a level is created without a priority, and says so. A project whose scheme Sectile names (Atlassian's default, the Jira Server scheme, their French translations) sees no change. (#679)
 - **Desktop's "Specifications folder" is now the "Macro specifications folder".** It keeps its value and still serves the macro skills, the macro worktree and the slicing import, beside the new Issue specifications folder; a configured folder that no longer exists is now refused naming the setting. (#736)

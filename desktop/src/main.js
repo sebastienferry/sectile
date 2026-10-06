@@ -167,13 +167,9 @@ let opened=false,selected=null,runs=[],last='',stopping=false,restarting=false,p
 // editor setting from its status.
 let runFoldersAvailable=false,runFoldersTerminalsAvailable=false,conversationControlsAvailable=false,conversationQueueAvailable=false,claudeModels=[]
 const conversation=createConversationView({api,container:document.querySelector('#terminal'),onError:error,canAddFolder:()=>runFoldersAvailable,canControl:()=>conversationControlsAvailable,canQueue:()=>conversationQueueAvailable,models:()=>claudeModels})
-const conversationButton=document.createElement('button')
-conversationButton.type='button';conversationButton.textContent='Claude chat (test)';conversationButton.hidden=true
 // The conversation view is opt-in from Appearance; the terminal stays the default.
 let consoleView='terminal'
 api.consoleView().then(value=>{consoleView=value;render()}).catch(()=>{})
-conversationButton.title='Start an independent Claude Code conversation in this execution’s directory'
-document.querySelector('#save-log').before(conversationButton)
 // "Add folder…" on a running ticket discussion or free console, in Sectile or
 // detached to the native terminal (#676, #689): the folder joins the project,
 // and the agent types /add-dir into a Claude Code session.
@@ -196,13 +192,6 @@ addFolderButton.onclick=async()=>{
   if(addFolderRun===id)addFolderStatus.textContent=runFolderOutcome(path,answer,where)
  }catch(err){if(addFolderRun===id)addFolderStatus.textContent=ipcMessage(err)}
  finally{addFolderButton.disabled=false}
-}
-conversationButton.onclick=async()=>{
- conversationButton.disabled=true
- try{
-  const run=await api.createConversation(selected)
-  runs.push(run);select(run)
- }catch(err){error(err)}finally{conversationButton.disabled=false}
 }
 const changes=createGitDiff({api,container:document.querySelector('#changes'),terminal:document.querySelector('#terminal'),panel:document.querySelector('#execution-content'),divider:document.querySelector('#execution-divider'),consoleButton:document.querySelector('#view-console'),changesButton:document.querySelector('#view-changes'),onConsole:focus=>{resize();if(focus&&opened&&!conversation.active)terminal.focus()}})
 api.onOutput(data=>terminal.write(new Uint8Array(data)))
@@ -749,7 +738,6 @@ function render(options){
  renderTaskSkillStatuses()
  document.querySelector('#clear-history').disabled=!runs.some(run=>['completed','failed','canceled'].includes(run.status))
  const current=runs.find(run=>run.id===selected)
- conversationButton.hidden=consoleView!=='conversation'||!current?.directory||!!current.conversation||!agentConnected
  addFolderButton.hidden=!agentConnected||!!current?.conversation||!offersRunFolder(current,runFoldersAvailable,runFoldersTerminalsAvailable)
  // The outcome belongs to the run it was given for.
  if(addFolderRun!==selected){addFolderRun=null;addFolderStatus.textContent=''}
@@ -781,7 +769,7 @@ function render(options){
  }))
  selectedOthers.hidden=!others.length
  // A macro run is relaunched from the macro panel: it has no task to relaunch here.
- document.querySelector('#rerun').hidden=!current||current.conversation||macroRun(current)||!['completed','failed','canceled'].includes(current.status)
+ document.querySelector('#rerun').hidden=!current||macroRun(current)
  document.querySelector('#stop').disabled=stopping||!current||!activeRun(current)
  const detachBtn=document.querySelector('#detach-terminal')
  if(detachBtn){
@@ -3096,7 +3084,7 @@ async function submitNativeDiscussion(view,entry){
 
 document.querySelector('#rerun').onclick=async()=>{
  const run=runs.find(item=>item.id===selected)
- if(!run||!['completed','failed','canceled'].includes(run.status))return
+ if(!run||macroRun(run))return
  if(freeConsole(run)){openAgentConsole(run.projectId,run.engineId||run.provider);return}
  showDialog('Relaunch '+(run.taskKey||run.taskId))
  try{
