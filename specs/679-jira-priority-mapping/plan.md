@@ -42,7 +42,8 @@ type PriorityOption struct {
 - Migration `projects.priority_mapping`, `TEXT NOT NULL DEFAULT '{}'`, in
   `internal/db/migrations.go` only, never in the frozen baseline. Its number
   is the next free one on `main` when the branch is brought up to date for
-  review: 47 today, 48 if `feat/732` (which also claims 47) merges first.
+  review: 47 as implemented, to renumber 48 if `feat/732` (which also claims
+  47) merges first.
 - The column is read and written by the project SELECT, INSERT and UPDATE
   statements of `internal/db/db.go`, as `epic_axis_prefixes` is (JSON text).
 - Every rewind helper that drops `epic_axis_prefixes`
@@ -83,16 +84,21 @@ without an import cycle:
   // configurable ticket priority scheme (Jira).
   type PrioritySchemeReader interface {
       PriorityScheme(ctx context.Context, project *models.Project, fresh bool) ([]models.PriorityOption, error)
+      ClassifyPriority(name string, rank, n int) (models.Priority, bool)
   }
   ```
+
+  Implemented: the classifier is a method of the interface rather than an
+  exported `trackerapi` function, so the db layer and its test fakes need no
+  Jira import.
 
 - `JiraAdapter` implements it: the project's create screen for its first
   configured issue type (`jiraCreatePriorities`), else the site list
   (`readJiraPriorities`, which already reads `/rest/api/3/priority` for an
   OAuth client lacking the admin scope of `/priority/search`). `fresh` skips
   the 10-minute caches of `jira_priority.go`.
-- `trackerapi.ClassifyJiraPriority(name string, rank, n int) (models.Priority, bool)`
-  wraps `jiraPriorityOf` (sure) and `priorityAt` (guessed) for the db layer.
+- `JiraAdapter.ClassifyPriority` wraps `jiraPriorityOf` (sure) and
+  `priorityAt` (guessed).
 - `priorityFieldFor` (`jira_priority.go:370`) gains the project's mapping.
   With an empty mapping its path is unchanged (FR-10). Otherwise it picks
   `mapping.OptionFor(level, screen option ids)`, and with no sure option
