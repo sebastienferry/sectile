@@ -2404,11 +2404,26 @@ export const RoadmapView: React.FC = () => {
                   not a separate view: a macro's tickets are spread across them
                   while reading it, without leaving its panel. Sitting at the
                   bottom of the header, the tabs stay put while the body
-                  scrolls, in the expanded panel too. */}
+                  scrolls, in the expanded panel too. As in any tab strip, Tab
+                  reaches the selected tab only and the arrows, Home and End
+                  move between them. */}
               <div
                 role="tablist"
                 aria-label={strings.modes.label}
                 className="mt-3 flex flex-wrap items-center gap-0.5 p-0.5 rounded-lg bg-[var(--bg-tertiary)] border border-[var(--border-color)]"
+                onKeyDown={e => {
+                  const at = modeTabs.findIndex(mode => mode.id === displayMode)
+                  const to =
+                    e.key === 'ArrowRight' ? (at + 1) % modeTabs.length
+                    : e.key === 'ArrowLeft' ? (at - 1 + modeTabs.length) % modeTabs.length
+                    : e.key === 'Home' ? 0
+                    : e.key === 'End' ? modeTabs.length - 1
+                    : -1
+                  if (to < 0) return
+                  e.preventDefault()
+                  setDisplayMode(modeTabs[to].id)
+                  e.currentTarget.querySelectorAll<HTMLElement>('[role="tab"]')[to]?.focus()
+                }}
               >
                 {modeTabs.map(mode => (
                   <button
@@ -2416,6 +2431,7 @@ export const RoadmapView: React.FC = () => {
                     type="button"
                     role="tab"
                     aria-selected={displayMode === mode.id}
+                    tabIndex={displayMode === mode.id ? 0 : -1}
                     onClick={() => setDisplayMode(mode.id)}
                     className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-bold transition-all cursor-pointer ${
                       displayMode === mode.id

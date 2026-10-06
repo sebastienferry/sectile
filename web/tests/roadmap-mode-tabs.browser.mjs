@@ -83,6 +83,19 @@ try {
   await expectMode('Objectifs');
   assert.equal(await row('Macro deux').count(),0,'the filter still applies in Goals mode');
 
+  // The keyboard moves between the tabs, wrapping around; only the selected one is in the Tab order.
+  assert.deepEqual(await modeTabs().evaluateAll(tabs=>tabs.map(t=>t.tabIndex)),[-1,-1,-1,0],'only the selected tab is reachable with Tab');
+  await modeTab('Objectifs').focus();
+  await page.keyboard.press('ArrowRight');
+  await expectMode('Framing','ArrowRight wraps to the first tab');
+  assert.equal(await page.evaluate(()=>document.activeElement?.textContent),'Framing','the focus follows the selection');
+  await page.keyboard.press('ArrowLeft');
+  await expectMode('Objectifs','ArrowLeft wraps to the last tab');
+  await page.keyboard.press('Home');
+  await expectMode('Framing');
+  await page.keyboard.press('End');
+  await expectMode('Objectifs');
+
   // Selecting another macro keeps the mode.
   await onlyIssues().click();
   await row('Macro deux').click();
