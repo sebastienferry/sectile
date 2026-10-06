@@ -390,6 +390,8 @@ interface AppContextType {
   postTaskComment: (id: string, body: string) => Promise<TaskComment[] | null>
   listProjectBoards: (projectId: string) => Promise<TrackerBoard[]>
   importProjectBoardColumns: (projectId: string, boardId: string) => Promise<Project | null>
+  /** Reads the Jira priority scheme again into the project's mapping (#679); answers the error to show inline. */
+  refreshPriorityMapping: (projectId: string) => Promise<{ project?: Project; error?: string }>
   fetchProjectTrackerStatuses: (projectId: string) => Promise<string[]>
   /** Types de tickets que le tracker du projet expose, pour le réglage d'import. */
   fetchProjectIssueTypes: (projectId: string) => Promise<string[]>
@@ -2540,6 +2542,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         description: `${created.key}: ${created.title} (${(created.source || 'local').toUpperCase()})`,
         link: createdTaskLink(created),
       })
+      // The ticket exists, without the priority the project's mapping only
+      // guessed (#679): the server's sentence says which levels it accepts.
+      if (created.priorityNotice) {
+        addToast({ type: 'warning', title: t.toasts.priorityNotWritten, description: created.priorityNotice })
+      }
       if (macroKey && attachError) {
         addToast({
           type: 'warning',
@@ -2797,6 +2804,19 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     } catch (err: any) {
       addToast(refusalToast(err, { type: 'error', title: t.operations.notifications.boards.title, description: err.message }))
       return []
+    }
+  }
+
+  const refreshPriorityMapping = async (projectId: string): Promise<{ project?: Project; error?: string }> => {
+    try {
+      const res = await fetch(`${API_BASE}/projects/${encodeURIComponent(projectId)}/priority-mapping/refresh`, { method: 'POST' })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) return { error: data?.error || res.statusText }
+      const proj: Project = data
+      setProjects(prev => prev.map(p => (p.id === proj.id ? proj : p)))
+      return { project: proj }
+    } catch (err: any) {
+      return { error: err.message }
     }
   }
 
@@ -4413,6 +4433,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         postTaskComment,
         listProjectBoards,
         importProjectBoardColumns,
+        refreshPriorityMapping,
         fetchProjectTrackerStatuses,
         fetchProjectIssueTypes,
         fetchProjectMacros,

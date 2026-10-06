@@ -43,6 +43,9 @@ request is a follow-up the task appends. Spec: `spec.md`; design: `plan.md`.
 
 ## Part B - Ticket priority mapping (PR 2)
 
+Carried by #679, whose specification `specs/679-jira-priority-mapping/`
+supersedes this part; the boxes below stay as they were written.
+
 - [ ] B1 Add `PriorityMapping` and `PriorityMappingOption` to `models`; new
   `internal/models/prioritymapping.go` with `Writable`, `WritableLevels`,
   `OptionFor`, `MergePriorityMapping`; table tests first (FR-B2, FR-B3, FR-B5).

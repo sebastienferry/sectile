@@ -891,6 +891,8 @@ export interface TranslationSchema {
   }
   toasts: {
     taskCreated: string
+    /** A creation that reached the tracker without its priority (#679). */
+    priorityNotWritten: string
     openCreated: string
     openInTracker: string
     taskUpdated: string
@@ -1778,6 +1780,7 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
     },
     toasts: {
       taskCreated: 'Tâche créée avec succès !',
+      priorityNotWritten: 'Priorité non écrite sur Jira',
       openCreated: 'Ouvrir',
       openInTracker: 'Ouvrir dans le tracker',
       taskUpdated: 'Tâche mise à jour !',
@@ -2663,6 +2666,7 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
     },
     toasts: {
       taskCreated: 'Task created successfully!',
+      priorityNotWritten: 'Priority not written to Jira',
       openCreated: 'Open',
       openInTracker: 'Open in the tracker',
       taskUpdated: 'Task updated successfully!',

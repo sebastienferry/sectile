@@ -367,18 +367,96 @@ func resetJiraCreatePriorityCache() { jiraCreatePriorityCache = sync.Map{} }
 // creation goes out without it rather than being refused outright over a field
 // the site was never going to accept. A screen that does carry the field names
 // the options a write may use, and the site's own list is the last resort.
-func (c *Client) priorityFieldFor(ctx context.Context, screen jiraScreenPriorities, readable bool, p models.Priority, what string) (map[string]string, bool) {
+//
+// A project whose mapping was discovered (#679) writes only what its mapping
+// is sure of: the option it names for the level, among those the screen
+// offers. A level with no sure option answers a *models.GuessedPriorityError
+// rather than a guess; an empty mapping keeps the guessing below.
+func (c *Client) priorityFieldFor(ctx context.Context, screen jiraScreenPriorities, readable bool, mapping models.PriorityMapping, p models.Priority, what string) (map[string]string, bool, error) {
 	if readable && !screen.offered {
 		log.Printf("[jira] %s does not offer the priority field; %q left to the site", what, p)
-		return nil, false
+		return nil, false, nil
+	}
+	if !mapping.Empty() {
+		var offered []string
+		if len(screen.scheme) > 0 {
+			offered = make([]string, len(screen.scheme))
+			for i, option := range screen.scheme {
+				offered[i] = option.ID
+			}
+		}
+		if id, ok := mapping.OptionFor(p, offered); ok {
+			return map[string]string{"id": id}, true, nil
+		}
+		return nil, false, &models.GuessedPriorityError{Level: p, Writable: mapping.WritableLevels()}
 	}
 	if option, ok := screen.scheme.option(p); ok {
-		return map[string]string{"id": option.ID}, true
+		return map[string]string{"id": option.ID}, true, nil
 	}
 	// Either the screen could not be read, or it carries the field without
 	// enumerating its options. The site's list is a better guess than the
 	// default names, and the default names are better than nothing.
-	return c.jiraPriorityValue(ctx, p), true
+	return c.jiraPriorityValue(ctx, p), true, nil
+}
+
+// priorityMappingOf is the mapping a write on the project goes through, empty
+// for a project that has none yet.
+func priorityMappingOf(p *models.Project) models.PriorityMapping {
+	if p == nil {
+		return models.PriorityMapping{}
+	}
+	return p.PriorityMapping
+}
+
+// PriorityScheme lists the project's priority options for its mapping (#679):
+// the creation screen of its first imported work item type, which carries the
+// project's own scheme, else the site's list. fresh reads both again rather
+// than from the caches a write uses.
+func (j *JiraAdapter) PriorityScheme(ctx context.Context, project *models.Project, fresh bool) ([]models.PriorityOption, error) {
+	projectKey, err := j.projectKey(project)
+	if err != nil {
+		return nil, err
+	}
+	c, err := j.forProject(ctx, project)
+	if err != nil {
+		return nil, err
+	}
+	issueType := "Task"
+	if types := models.NormalizeIssueTypes(project.IssueTypes); len(types) > 0 {
+		issueType = types[0]
+	}
+	var scheme jiraPriorityScheme
+	var screen jiraScreenPriorities
+	readable := false
+	if fresh {
+		screen, err = c.readJiraCreatePriorities(ctx, projectKey, issueType)
+		readable = err == nil
+	} else {
+		screen, readable = c.jiraCreatePriorities(ctx, projectKey, issueType)
+	}
+	if readable && len(screen.scheme) > 0 {
+		scheme = screen.scheme
+	} else if fresh {
+		if scheme, err = c.readJiraPriorities(ctx); err != nil {
+			return nil, err
+		}
+	} else if scheme = c.jiraPriorities(ctx); scheme == nil {
+		return nil, fmt.Errorf("the site did not say which priorities it has")
+	}
+	out := make([]models.PriorityOption, len(scheme))
+	for i, option := range scheme {
+		out[i] = models.PriorityOption{ID: option.ID, Name: option.Name}
+	}
+	return out, nil
+}
+
+// ClassifyPriority reads an option as a write without a mapping would: by its
+// name when the aliases know it, else by its rank among n options.
+func (j *JiraAdapter) ClassifyPriority(name string, rank, n int) (models.Priority, bool) {
+	if p, ok := jiraPriorityOf(name); ok {
+		return p, true
+	}
+	return make(jiraPriorityScheme, n).priorityAt(rank), false
 }
 
 // jiraCreatePriorities reads the priority options of one project's creation

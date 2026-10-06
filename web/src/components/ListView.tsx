@@ -43,6 +43,7 @@ import { Avatar } from "./Avatar"
 import { EpicBar, useEpicColors } from "./EpicMarker"
 import { shortElapsed, isElapsedStale } from "../lib/elapsed"
 import { format, formatDate, plural } from "../lib/i18n"
+import { partitionBulkOutcomes, type BulkOutcome } from "../lib/priorityMapping"
 import { resolveTaskStage } from "../lib/workflow"
 import { isSelectableStage } from "../lib/boardSelection"
 import {
@@ -332,21 +333,34 @@ export const ListView: React.FC = () => {
   // -------------------------------------------------------------
   // Bulk Execution Handlers
   // -------------------------------------------------------------
+  // A ticket refused on its own (a Jira priority the project's mapping only
+  // guessed, #679) does not stop the others: each is tried, its refusal is
+  // toasted with the server's reason, and the summary names the refused ones
+  // instead of counting them as written.
   const handleBulkPriority = async (priority: Priority) => {
     if (selectedTasks.length === 0) return
     setIsBulkProcessing(true)
     try {
+      const outcomes: BulkOutcome[] = []
       for (const task of selectedTasks) {
-        await updateTask(task.id, { priority })
+        const updated = await updateTask(task.id, { priority })
+        outcomes.push({ key: task.key, written: updated !== null })
       }
-      addToast({
-        type: "success",
-        title: L.toasts.priorityUpdated,
-        description: plural(lang, selectedTasks.length, L.toasts.priorityUpdatedCount, { priority }),
-      })
+      const { written, refused } = partitionBulkOutcomes(outcomes)
+      if (refused.length === 0) {
+        addToast({
+          type: "success",
+          title: L.toasts.priorityUpdated,
+          description: plural(lang, written, L.toasts.priorityUpdatedCount, { priority }),
+        })
+      } else {
+        addToast({
+          type: "error",
+          title: L.toasts.priorityRefused,
+          description: format(L.toasts.priorityRefusedDescription, { written, refused: refused.join(", ") }),
+        })
+      }
       setActiveBulkDropdown(null)
-    } catch (err: any) {
-      addToast({ type: "error", title: L.toasts.error, description: err.message })
     } finally {
       setIsBulkProcessing(false)
     }
