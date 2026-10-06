@@ -727,6 +727,21 @@ not launched omit `startedAt`; completion preserves both timestamps. Desktop
 clients fall back to `createdAt` for legacy records without a valid start time.
 This display metadata does not change queue scheduling.
 
+An entry may carry `folders`, the folders of the run when it has more than one
+(#762): an array of `{path, name, role, attached}`, the run's `directory` first
+as `primary`, then each folder of the folder map the run was launched with,
+its worktree when it has one, else its folder. `role` is `primary`, `changed`,
+`context`, `spec` or `local`, as in `SECTILE_REPOSITORIES`; `attached` marks a
+folder attached to the project on this workstation; `name` is the last segment
+of the repository identity, `specifications`, or the folder's base name.
+Entries with no path on the workstation and missing attached folders are left
+out. A worktree prepared through `prepare_repository_worktree` joins the list
+of every run of its task that has not ended, as `changed`; a folder attached
+through `/desktop/run-folder` joins its run's; a conversation reads the
+project's folders again at each turn. The list is kept in the run store, so a
+restored run carries it. Older agents send no `folders`, and the desktop then
+shows the single `directory`.
+
 An entry marked `restored: true` was loaded from the agent's run store at start
 (ADR 0040): it has exited, carries no `sessionId` and no `waitingSince`, and
 `/desktop/terminal` replays its stored console output or trace read-only, then

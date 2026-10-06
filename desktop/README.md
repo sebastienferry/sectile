@@ -809,6 +809,16 @@ click it to copy the path to the clipboard, confirmed by a short **Copied**; the
 text also stays selectable
 for a manual copy.
 
+An execution that works in several folders shows a chevron after its path. It
+opens the list of those folders: the primary worktree first, then the worktrees
+of the other repositories it changes, the read-only context repositories, the
+attached folders and the specifications worktree, each with its role and path.
+Choosing one copies its path, confirmed by the same **Copied**. The list is the
+one the local agent gave the engine at launch, plus the worktrees prepared and
+the folders attached while the execution runs; a folder with no path on this
+workstation is not listed. An execution with a single folder, and every
+execution of an agent that does not send the list, shows the path alone.
+
 When an editor is chosen in **Settings → Execution defaults**, a code icon
 follows the path: **Open in <editor>** opens the execution's checkout in that
 editor. The desktop only names the execution; the local agent looks up its

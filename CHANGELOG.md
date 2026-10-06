@@ -15,6 +15,7 @@ test fixtures or internal plumbing.
 
 ### Added
 
+- **Copy the path of any folder of a Desktop execution.** When an execution works in several folders, a chevron now follows its path below the title: it lists the primary worktree, the worktrees of the other repositories it changes, the read-only context repositories, the attached folders and the specifications worktree, each with its role, and choosing one copies its path. Folders prepared or attached while the execution runs join the list, and a restored execution keeps it. Clicking the path still copies the path itself. Upgrade the agent along with the desktop. (#762)
 - **Open a terminal on a project from the Desktop sidebar.** A project's **…** menu now offers **Open terminal**, right after **Project prompt**: it opens a native terminal window on the project's local repository, running your own shell, in the terminal application set for the project. It is unavailable for a project with no local folder on this workstation. Upgrade the agent along with the desktop. (#761)
 - **Run Claude shell commands automatically inside the sandbox.** Desktop Claude settings offer an autonomy profile, controls for automatic approval and unsandboxed retries, and persistent project folder approvals. Existing configurations keep their inherited behavior.
 

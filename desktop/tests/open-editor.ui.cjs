@@ -49,7 +49,8 @@ test('the worktree opens in the configured editor from the toolbar',async()=>{
   await expect(open).toBeVisible()
   await expect(open).toHaveAttribute('aria-label','Open in Cursor')
   await expect(open).toHaveAttribute('title','Open in Cursor')
-  assert.ok(await page.evaluate(()=>document.querySelector('#worktree').nextElementSibling===document.querySelector('#open-editor')),'The button follows the path')
+  // The folder chevron (#762), hidden here, sits between the path and the button.
+  assert.ok(await page.evaluate(()=>document.querySelector('#worktree-folders').previousElementSibling===document.querySelector('#worktree')&&document.querySelector('#worktree-folders').nextElementSibling===document.querySelector('#open-editor')),'The button follows the path')
   await expect(page.locator('#worktree')).toHaveAttribute('title','Copy this path')
 
   // A click names the selected run; the agent resolves the folder.

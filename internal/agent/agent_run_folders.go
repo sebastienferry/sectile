@@ -108,9 +108,11 @@ func (d *agentDaemon) desktopRunFolder(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), status)
 		return
 	}
-	folder := runFolder{Path: filepath.Clean(path), Name: identityName(mappedAs), Role: models.FolderRoleContext, Attached: true}
+	// A checkout of a project repository becomes that repository's folder,
+	// a context one; any other folder is attached to the project.
+	folder := runFolder{Path: filepath.Clean(path), Name: identityName(mappedAs), Role: models.FolderRoleContext}
 	if mappedAs == "" {
-		folder.Name, folder.Role = filepath.Base(folder.Path), models.FolderRoleLocal
+		folder.Name, folder.Role, folder.Attached = filepath.Base(folder.Path), models.FolderRoleLocal, true
 	}
 	d.queue.read(input.RunID, func(run *controlledRun) { addRunFolder(run, folder) })
 	answer := runFolderAnswer{MappedAs: mappedAs, AppliesAt: appliesNextLaunch}

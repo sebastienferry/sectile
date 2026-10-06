@@ -192,7 +192,7 @@ func TestAttachingAFolderFromARun(t *testing.T) {
 	d.queue.mu.Lock()
 	listed, chatListed := d.queue.runs["claude-run"].desktop.Folders, d.queue.runs["chat"].desktop.Folders
 	d.queue.mu.Unlock()
-	if want := []runFolder{{Path: spaced, Name: "my notes", Role: "local", Attached: true}, {Path: c, Name: "c", Role: "context", Attached: true}, {Path: tabbed, Name: "tab\there", Role: "local", Attached: true}}; !reflect.DeepEqual(listed, want) {
+	if want := []runFolder{{Path: spaced, Name: "my notes", Role: "local", Attached: true}, {Path: c, Name: "c", Role: "context"}, {Path: tabbed, Name: "tab\there", Role: "local", Attached: true}}; !reflect.DeepEqual(listed, want) {
 		t.Fatalf("folders of the discussion: %+v", listed)
 	}
 	if len(chatListed) != 1 || chatListed[0].Path != chat {
