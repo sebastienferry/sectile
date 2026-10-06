@@ -1,12 +1,14 @@
 const {app,BrowserWindow,Menu,ipcMain,dialog,nativeTheme,safeStorage,shell,clipboard}=require('electron')
-const path=require('node:path'),fs=require('node:fs'),crypto=require('node:crypto')
+const path=require('node:path'),fs=require('node:fs'),crypto=require('node:crypto'),os=require('node:os')
 const {spawn}=require('node:child_process')
 const WebSocket=require('ws')
 const {checkServer}=require('./server-check.cjs')
-const {exchangePairingCode,resolveConnectCredential}=require('./pairing.cjs')
+const {exchangePairingCode,resolveConnectCredential,pairingNeeded}=require('./pairing.cjs')
+const {browserSignIn}=require('./browser-sign-in.cjs')
 const credentials=require('./credential-store.cjs')
 const storeKey=(saved,token)=>credentials.storeKey(saved,token,safeStorage)
 const storedKey=saved=>credentials.storedKey(saved,safeStorage)
+const keyState=saved=>credentials.keyState(saved,safeStorage)
 const {carryOverDataDirectory}=require('./datadir.cjs')
 const {readAgentLog}=require('./agent-log.cjs')
 const {fileSha256,agentOutdated}=require('./agent-identity.cjs')
@@ -90,8 +92,8 @@ async function checkAgentIdentity(){
  promptedFor=identity
  await lifecycle('restart',{reason:'outdated'})
 }
-ipcMain.handle('pair',async(_,{server,code,label})=>{
- const credential=await exchangePairingCode(server,code,label)
+// saveCredential keeps the device and the key a pairing returned, for the next launch and the standalone agent.
+function saveCredential(server,credential){
  let previous={}
  try{previous=readSettings()}catch{}
  const saved={...previous,server,deviceId:credential.deviceId}
@@ -100,6 +102,19 @@ ipcMain.handle('pair',async(_,{server,code,label})=>{
  fs.mkdirSync(path.dirname(settingsPath()),{recursive:true,mode:0o700})
  fs.writeFileSync(settingsPath()+'.tmp',JSON.stringify(saved),{mode:0o600})
  fs.renameSync(settingsPath()+'.tmp',settingsPath())
+}
+// storedDeviceId is the device this workstation was paired as on that server, so a new pairing replaces its key.
+function storedDeviceId(server){
+ try{const saved=readSettings();return sameServer(saved.server,server)&&saved.deviceId||''}catch{return ''}
+}
+// sameServer compares two server addresses as the agent stores them: trimmed, without a trailing slash.
+function sameServer(a,b){
+ const canonical=value=>String(value||'').trim().replace(/\/+$/,'')
+ return Boolean(canonical(a))&&canonical(a)===canonical(b)
+}
+ipcMain.handle('pair',async(_,{server,code,label})=>{
+ const credential=await exchangePairingCode(server,code,label)
+ saveCredential(server,credential)
  return {deviceId:credential.deviceId,token:credential.token}
 })
 const settingsPath=()=>process.env.SECTILE_DESKTOP_DATA_DIR
@@ -120,6 +135,8 @@ ipcMain.handle('settings',()=>{
   return connectionView(saved,storedKey(saved))
  }catch{return {}}
 })
+// Whether this workstation holds a usable key, and for which server: the key itself never crosses to the renderer here.
+ipcMain.handle('credential-state',()=>{try{const saved=readSettings();return {state:keyState(saved),server:saved.server||''}}catch{return {state:'unreadable',server:''}}})
 // Only connection keys are written; any execution key is dropped, since the
 // agent is the only writer of the execution sections (#305). What the agent
 // wrote in the file is kept as it was.
@@ -162,8 +179,24 @@ ipcMain.handle('set-console-view',(_,value)=>{
  fs.mkdirSync(path.dirname(settingsPath()),{recursive:true,mode:0o700})
  fs.writeFileSync(settingsPath()+'.tmp',JSON.stringify({...previous,consoleView},null,2),{mode:0o600})
  fs.renameSync(settingsPath()+'.tmp',settingsPath())
+ // Saving never waits for the agent, nor fails on it: the next connection
+ // hands the setting over again.
+ syncConsoleView()
  return consoleView
 })
+// The agent keeps its own copy of the setting (#711), so that a launch the web
+// app started opens as this workstation shows Claude, even with Desktop closed.
+// An agent that predates it is left alone; every failure is swallowed.
+async function syncConsoleView(){
+ try{
+  let view
+  try{view=normalizeConsoleView(readSettings().consoleView)}catch{view=normalizeConsoleView()}
+  const status=await api('/desktop/status')
+  if(!status.capabilities?.includes('console-view-default'))return
+  await api('/desktop/console-view','PUT',{view})
+ }catch{}
+}
+ipcMain.handle('sync-console-view',()=>syncConsoleView())
 // A change of the setting, or of the OS appearance while it follows the
 // system, repaints what the stylesheet cannot reach. macOS draws its own
 // traffic lights and has no overlay colours to set.
@@ -184,13 +217,22 @@ ipcMain.handle('version',async()=>{
  try{agent=(await api('/desktop/version')).version||null}catch{}
  return {desktop:app.getVersion(),agent,outdated:Boolean(agent)&&outdated}
 })
+// The browser sign-in waiting for its callback, if any.
+let signInAbort=null
 ipcMain.handle('start',async(_,settings)=>{
+ // A pasted pairing code supersedes a browser sign-in still waiting for its callback.
+ signInAbort?.abort()
  if(starting)throw Error('Agent is starting')
  starting=true
  let started=false
  try{
   started=await startAgent(settings)
   return started
+ }catch(err){
+  // Electron passes only the message across invoke, so a refusal only a new
+  // pairing fixes resolves with the reason instead of throwing (#716).
+  if(err.pairingNeeded)return {started:false,needsPairing:err.message+(/pair again/i.test(err.message)?'':' Pair again to get a new key.')}
+  throw err
  }finally{
   starting=false
   if(started)scheduleIdentityCheck()
@@ -206,10 +248,14 @@ async function startAgent(settings){
  // burning a single-use code on a malformed URL would cost the user a new one.
  // With no code, the credential an earlier pairing left behind restarts the
  // agent: the form asks for a code, never for a key to paste back in.
- let kept=''
- try{kept=storedKey(readSettings())}catch{}
- const credential=await resolveConnectCredential({...settings,token:kept})
+ let stored={};try{stored=readSettings()}catch{}
+ const state=keyState(stored),kept=state==='present'?storedKey(stored):''
+ if(state==='unreadable'&&!settings.code)throw pairingNeeded('The key saved on this workstation can no longer be read. Pair again to replace it.')
+ // A new pairing names the device this workstation was paired as, so the server replaces its key (#717).
+ const credential=await resolveConnectCredential({...settings,token:kept,deviceId:storedDeviceId(settings.server)})
  const token=credential.token
+ // The exchange has already revoked the old key: the new one is saved before anything else can fail.
+ if(credential.paired)saveCredential(settings.server,credential)
  await checkServer(url,token)
  // Preserve existing mappings when upgrading; new installations use private app data.
  let previous={}
@@ -231,9 +277,12 @@ async function startAgent(settings){
  const output=fs.openSync(path.join(app.getPath('userData'),'agent.log'),'a',0o600)
  const info=infoPath()
  if(fs.existsSync(info))fs.unlinkSync(info)
- const child=spawn(binary,['--desktop-info',info,'--url',settings.server,'--repo',repo],{
+ // The UI tests stand a Node script in for the agent: a script cannot be spawned as is on every platform, so Electron
+ // runs it as Node.
+ const script=!app.isPackaged&&process.env.SECTILE_DESKTOP_TEST==='1'&&/\.c?js$/.test(binary)
+ const child=spawn(script?process.execPath:binary,[...(script?[binary]:[]),'--desktop-info',info,'--url',settings.server,'--repo',repo],{
   detached:true,stdio:['ignore',output,output],
-  env:{...process.env,TOKEN:token,SECTILE_DESKTOP_TOKEN:crypto.randomBytes(32).toString('hex')}
+  env:{...process.env,...(script?{ELECTRON_RUN_AS_NODE:'1'}:{}),TOKEN:token,SECTILE_DESKTOP_TOKEN:crypto.randomBytes(32).toString('hex')}
  })
  let spawnError
  child.on('error',error=>{spawnError=error})
@@ -248,6 +297,30 @@ async function startAgent(settings){
  }
  throw Error('Agent did not become ready. Check agent.log in the application data directory.')
 }
+// Signing in through the browser ends with a pairing code redeemed for a key, then the agent starts on it (ADR 0049).
+ipcMain.handle('sign-in',async(_,{server})=>{
+ if(starting)throw Error('Agent is starting')
+ signInAbort?.abort();const abort=signInAbort=new AbortController()
+ let held=false,started=false
+ try{
+  const open=href=>{const url=new URL(href);if(!['http:','https:'].includes(url.protocol)||url.username||url.password)throw Error('Invalid sign-in URL');return shell.openExternal(url.href)}
+  const code=await browserSignIn(server,{signal:abort.signal,open})
+  // The wait may have outlasted a start from the form, or an agent started elsewhere: the code is then left unspent,
+  // since redeeming it with the stored device would revoke the key that agent runs on.
+  if(starting)throw Error('Agent is starting')
+  // The guard is taken before the connection check, so no start can slip in between the two.
+  starting=held=true
+  if(await connectAgent())throw Error('The local agent is already connected')
+  saveCredential(server,await exchangePairingCode(server,code,os.hostname(),fetch,storedDeviceId(server)))
+  started=await startAgent({server})
+  return started
+ }finally{
+  // Only the guard this sign-in took is released: a start that took it meanwhile keeps it.
+  if(held)starting=false
+  if(signInAbort===abort)signInAbort=null
+  if(started)scheduleIdentityCheck()
+ }
+})
 async function lifecycle(action,{reason}={}){
  if(starting)throw Error('Agent lifecycle operation already in progress')
  starting=true
@@ -333,6 +406,16 @@ ipcMain.handle('workstation-settings',()=>api('/desktop/workstation'))
 ipcMain.handle('save-workstation-settings',(_,defaults)=>{
  if(!defaults||typeof defaults!=='object'||Array.isArray(defaults))throw Error('Invalid workstation settings')
  return api('/desktop/workstation','PUT',defaults)
+})
+// The workstation Sandbox values and their project whitelist (#730).
+ipcMain.handle('workstation-sandbox',()=>api('/desktop/workstation/sandbox'))
+ipcMain.handle('save-workstation-sandbox',(_,values)=>{
+ if(!values||typeof values!=='object'||Array.isArray(values))throw Error('Invalid Sandbox settings')
+ return api('/desktop/workstation/sandbox','PUT',values)
+})
+ipcMain.handle('promote-sandbox-rule',(_,projectId,rule)=>{
+ if(typeof projectId!=='string'||typeof rule!=='string')throw Error('Invalid rule')
+ return api('/desktop/project/sandbox/promote','POST',{projectId,rule})
 })
 // The engine catalogue and the per-task engine (#510). An agent that predates
 // them answers nothing useful, so a write names the update it needs.

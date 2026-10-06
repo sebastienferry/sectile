@@ -205,6 +205,16 @@ free labels. Its priority and quarter are queued only when the project's
 names a roadmap project creates its story in that Jira project, and the answer's
 `task` carries no `id`: the story is not imported.
 
+`POST /api/projects/{id}/macros/{key}/slicing` produces a macro's slicing from
+`source` (`tasks`, `spec` or `stories`). For `tasks` and `spec`, the requesting
+user's local agent reads the file in the workstation's specifications folder,
+unless the body carries `content`, a file the user picked in the browser, with
+its `fileName` (#735): the server then slices that text without asking the
+agent, and the answer's `origin` reads `imported file: <fileName>`. Uploaded
+content is refused with `400` above 1 MiB, when it is not UTF-8 text or holds a
+NUL character, and with any source other than `tasks` or `spec`. An absent
+body reads `tasks` through the agent; a body that is not valid JSON is refused.
+
 The todos of a macro are copied on its tracker, one way (#663, ADR 0046): a
 comment on a Jira epic, a block at the end of a GitHub milestone description.
 Every save of the list queues that copy a few seconds after the last save, as an
@@ -268,6 +278,17 @@ overlapping `roadmap:`. Changing one rewrites no label and no stored value.
 | :--- | :--- | :--- | :--- |
 | `GET` | `/api/me` | (none) | Who is signed in, the sign-in mode and the role. Public: it is what the interface asks before anyone is signed in. |
 | `PATCH` | `/api/me` | `{displayName}` | Renames the calling account and answers the same body as the `GET`. The account comes from the session, never from the payload, so no route renames another one. `401` without a session, `400` above 80 characters or on a line break. An empty name clears the choice and hands the account back to the name its sign-in supplies. |
+| `GET` | `/auth/login?redirect=` | (none) | Starts a sign-in and comes back to `redirect`, a same-site path. With an identity provider, `302` to the provider (authorization code with PKCE, ADR 0008); without one, `302` to the interface's `/signin?redirect=` page for the local sign-in. |
+| `GET` | `/auth/callback` | (query `state`, `code` or `error`) | Where the identity provider sends the browser back: opens a session, sets its cookie and redirects to the `redirect` given at the start. `400` on an unknown or expired `state`, `401` when the provider refused, `403` for a blocked account, `404` without a provider. |
+| `POST` | `/auth/local` | `{email}` | The local sign-in of a deployment without an identity provider: opens a session for that e-mail and answers the account like `GET /api/me`. `400` on an invalid address, `403` for a blocked account, `404` when a provider is configured. |
+| `GET` | `/auth/workstation?port=&state=` | (none) | The browser sign-in of a workstation (#717, ADR 0049): with a session, `302` to `http://127.0.0.1:<port>/callback?code=&state=` with a fresh pairing code the workstation redeems on `POST /api/v1/agent/pair`; without one, `302` to `/auth/login` and back. `400` on a port outside 1024-65535 or a malformed `state`, `403` for a blocked account. Only the session cookie counts, never a bearer key. See the [server/agent contract](contracts/server-agent-v1.md#workstation-api-keys-and-identity). |
+
+A web session lasts at most 90 days from sign-in and ends sooner after 7 days
+without use, counted from its last use (`web_sessions.last_seen_at`, or
+`created_at` for a session never used). The session cookie's `Max-Age` is the
+90 days; the idle rule is enforced on the server, so a session left idle keeps
+a cookie that resolves to nobody and the interface asks to sign in again.
+Signing out revokes the session at once.
 
 The chosen name lives in `users.chosen_name`, not in `users.display_name`: the
 latter is rewritten at every sign-in from the provider's claim, or from the

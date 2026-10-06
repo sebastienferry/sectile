@@ -26,12 +26,12 @@ import { launchModeOverride, modeSelect } from './skill-mode.mjs'
 import { orderedTasks, nextSort, DEFAULT_SORT, SORTABLE_FIELDS } from './task-list-order.mjs'
 import { consoleNotice, needsConsoleNotice, readOnlyConsole } from './run-console.mjs'
 import { previewLines } from './command-preview.mjs'
-import { sandboxSettings } from './sandbox-settings.mjs'
+import { sandboxSettings, whitelistEditor } from './sandbox-settings.mjs'
 import { EDITORS, editorChoice, editorLabel } from './editors.mjs'
 import { PROVIDERS, DEFAULT_PROVIDER, SETUP_PROVIDERS, projectFields, ownEntries, compact, parseModelList, sourceHint, describe, ipcMessage, agentUnreachable, validSkillCommand, workstationPayload } from './execution-fields.mjs'
 import { runEngine } from './run-engine.mjs'
 import { nextEngine, taskEngine, engineMark, engineTooltip, moveEngine, removalImpact, removalMessage } from './engines.mjs'
-import { pollAction } from './agent-poll.mjs'
+import { pollAction, startEnabled } from './agent-poll.mjs'
 import { runFolderOutcome, offersRunFolder } from './run-folders.mjs'
 import { offerFor, initializedNotice } from './git-init.mjs'
 // The repository changelog, inlined by Vite at build time. The app reads it
@@ -40,7 +40,7 @@ import { offerFor, initializedNotice } from './git-init.mjs'
 // agent stopped.
 import changelogSource from '../../CHANGELOG.md?raw'
 import { parseChangelog, releaseNotesFor } from './changelog.mjs'
-import { APPEARANCE_CHOICES, CONSOLE_VIEW_CHOICES, terminalTheme } from './appearance.mjs'
+import { APPEARANCE_CHOICES, CONSOLE_VIEW_CHOICES, terminalOptions } from './appearance.mjs'
 const api=window.localAgent
 // Concurrent execution workers ceiling per project, aligned with agentconfig.MaxParallelism.
 // Parallelism is a workstation setting: the server neither stores nor supplies it.
@@ -50,8 +50,10 @@ const MAX_PARALLELISM=10
 const DEFAULT_PARALLELISM=5
 document.querySelector('#app').innerHTML=`
 <header><div><button id="toggle-sidebar" aria-expanded="true"></button><strong id="app-title">Sectile Desktop</strong><small>Execution consoles</small></div><button id="command-palette" title="Commands (⌘K / Ctrl+K)">⌘K</button></header>
-<section id="setup" hidden><div class="setup-toolbar"><button id="setup-logs" type="button" title="View local-agent diagnostics">Agent logs</button></div><div id="agent-offline" role="status" hidden><strong>Local agent is stopped</strong><p>Start the agent to run tasks and access your local consoles.</p></div><h1>Connect to Sectile</h1><p>In the Sectile web interface, under your profile, choose <strong>Pair a workstation</strong> and paste the code here. A code is single use and expires within ten minutes; this machine keeps the credential it receives, so the code is never needed again.</p>
-<form id="start"><label>Sectile server<input name="server" type="url" value="http://localhost:8090" required></label><label>Pairing code<input name="code" type="text" autocomplete="off" spellcheck="false" placeholder="Paste the code from the web interface"></label><button>Connect</button></form></section>
+<section id="setup" hidden><div class="setup-toolbar"><button id="setup-logs" type="button" title="View local-agent diagnostics">Agent logs</button></div><div id="agent-offline" role="status" hidden><strong>Local agent is stopped</strong><p>Start the agent to run tasks and access your local consoles.</p></div><h1>Connect to Sectile</h1><p id="setup-intro">In the Sectile web interface, under your profile, choose <strong>Pair a workstation</strong> and paste the code here. A code is single use and expires within ten minutes; this machine keeps the credential it receives, so the code is never needed again.</p>
+<form id="start"><label>Sectile server<input name="server" type="url" value="http://localhost:8090" required></label>
+<details id="pair-again"><summary>Pair again</summary><button id="browser-sign-in" type="button">Sign in with your browser</button><label>Pairing code<input name="code" type="text" autocomplete="off" spellcheck="false" placeholder="Paste the code from the web interface"></label></details>
+<p class="start-reason" role="alert" hidden></p><button type="submit">Connect</button></form></section>
 <main id="workspace" hidden><aside><div class="sidebar-scroll"><div class="section">PROJECTS <button id="add-project" title="Add a remote project">+</button></div><div id="runs"></div><button id="clear-history" class="icon-button" type="button" aria-label="Clear finished consoles" title="Clear finished consoles" disabled></button></div><footer class="sidebar-footer"><span id="connection" data-state="off">Connecting…</span><nav aria-label="Local agent controls"><button id="shutdown" class="icon-button" aria-label="Stop agent" title="Stop agent" hidden></button><button id="restart" class="icon-button" aria-label="Restart agent" title="Restart agent" hidden></button></nav><button id="settings" class="icon-button" type="button" aria-label="Settings" title="Settings"></button></footer></aside><div id="sidebar-resizer" role="separator" aria-label="Resize sidebar" aria-orientation="vertical" tabindex="0"></div><article><div id="toolbar"><div class="toolbar-row toolbar-primary"><div class="terminal-title-line"><strong id="title">Select an execution</strong><span id="native-terminal-badge" class="native-terminal-badge" hidden></span></div><div class="toolbar-meta"><select id="execution-history" aria-label="Execution history" hidden></select><span id="next-step-label" class="step-badge" aria-hidden="true" hidden></span></div></div><div class="toolbar-row toolbar-secondary"><div class="worktree-line"><button id="worktree" class="worktree" type="button" title="Copy this path" hidden><svg class="worktree-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2z"/></svg><span id="directory"></span></button><button id="open-editor" class="icon-button" type="button" hidden></button><span id="worktree-copied" class="worktree-copied" role="status"></span></div><div class="toolbar-actions"><div class="execution-views" role="group" aria-label="Execution view"><button id="view-console" class="icon-button" type="button" aria-label="Console" title="Console" aria-pressed="true" disabled></button><button id="view-changes" class="icon-button" type="button" aria-label="Changes" title="Changes" aria-pressed="false" disabled></button></div><button id="selected-pr" class="icon-button" type="button" hidden></button><span id="selected-pr-others" hidden></span><button id="detach-terminal" class="icon-button" type="button" aria-label="Detach to native terminal" title="Detach to native terminal" hidden></button><button id="rerun" class="icon-button" type="button" aria-label="Relaunch" title="Relaunch" hidden></button><button id="save-log" class="icon-button" type="button" aria-label="Export log" title="Export log"></button><button id="stop" class="icon-button" type="button" aria-label="Stop execution" title="Stop execution" disabled></button><button id="next-step" class="icon-button" type="button" hidden disabled></button><button id="pickup-chain" class="icon-button" type="button" aria-label="Pickup (full chain)" title="Pickup (full chain)" hidden disabled></button><button id="mark-reviewed" type="button" class="secondary" title="The pull request needs no more changes: skip Adjust, move the task to reviewed, and hand off once it is merged" hidden>Skip to Handoff</button><button id="retry-next-step" type="button" title="Retry reading the task workflow" hidden>Retry</button><button id="force-next-step" type="button" class="secondary" title="Launch although a run is already active on this task" hidden>Launch anyway</button></div></div></div><div id="execution-content"><div id="terminal"></div><div id="execution-divider" role="separator" aria-label="Resize execution views" aria-orientation="vertical" aria-valuemin="25" aria-valuemax="75" aria-valuenow="50" tabindex="0" hidden></div><section id="changes" aria-label="Worktree changes" hidden></section></div><footer id="task-status"><div class="execution-status"><span id="run-state" class="run-state selected-run-state" hidden></span><span id="skill-result" role="status" hidden></span></div><span id="next-step-status" role="status" aria-live="polite">Select a task to see its next step</span></footer></article><section id="tickets-pane" aria-label="Tickets" hidden></section></main>
 <dialog id="project-dialog"><button id="close-dialog" class="icon-button" type="button" aria-label="Close" title="Close"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button><div id="dialog-body"></div><div class="dialog-footer" hidden></div></dialog><div id="error" role="alert"></div>`
 installTooltips()
@@ -64,8 +66,8 @@ const TERMINAL_FONT='"FiraCode Nerd Font Mono", "JetBrainsMono Nerd Font Mono", 
 // The main process sets the appearance through nativeTheme, which is what this
 // query answers: the terminal follows it like the stylesheet does, live.
 const darkScheme=window.matchMedia('(prefers-color-scheme: dark)')
-const terminal=new Terminal({cursorBlink:true,fontSize:13,fontFamily:TERMINAL_FONT,scrollback:20000,theme:terminalTheme(darkScheme.matches)})
-darkScheme.addEventListener('change',event=>{terminal.options.theme=terminalTheme(event.matches)})
+const terminal=new Terminal({cursorBlink:true,fontSize:13,fontFamily:TERMINAL_FONT,scrollback:20000,...terminalOptions(darkScheme.matches)})
+darkScheme.addEventListener('change',event=>{terminal.options=terminalOptions(event.matches)})
 const fit=new FitAddon();terminal.loadAddon(fit)
 let nextStepData=null,nextStepGeneration=0,nextStepUpdated=0
 const submittingSteps=new Map()
@@ -224,7 +226,9 @@ function fitTitlebar(){
 navigator.windowControlsOverlay?.addEventListener('geometrychange',fitTitlebar)
 window.addEventListener('resize',fitTitlebar)
 fitTitlebar()
-function error(err){document.querySelector('#error').textContent=err?.message||String(err)}
+function error(err){document.querySelector('#error').textContent=startFailure(err)}
+// Electron prefixes an error thrown across invoke with the channel it crossed; the user needs the reason only.
+function startFailure(err){return (err?.message||String(err)).replace(/^Error invoking remote method '[^']*': (?:Error: )?/,'')}
 // The status is a dot and a word beside the controls it describes: a colour
 // carries the state, the label names it, and the server address rides in the
 // tooltip rather than filling the row.
@@ -268,11 +272,29 @@ function connectionStatus(status){
  container.title=board?'Open '+status.server+' in the default browser':status.server
  connectionLabelled(container,'Connected',board)
 }
+const connectForm=document.querySelector('#start')
+let startPending=false,agentActionPending=false,autoStartTried=false,credential={state:'missing',server:''},pairingReason='',startReason='',renderSettingsAgent=()=>{},claudeChecked=false
+// Every start control obeys one rule: clickable whenever no agent runs and nothing is in progress (#716).
+function updateStartControl(){
+ const button=connectForm.querySelector('button[type=submit]'),stored=credential.state==='present'&&!pairingReason
+ button.disabled=!startEnabled({agentConnected,restarting,pending:agentActionPending,starting:startPending})
+ // Signing in through the browser starts the agent too, so it follows the same rule as the start button (#717).
+ connectForm.querySelector('#browser-sign-in').disabled=button.disabled
+ button.textContent=startPending?'Starting…':stored?'Start local agent':'Connect'
+ renderStartForm(stored);renderSettingsAgent()
+}
+let lastStored
+function renderStartForm(stored){
+ const pair=connectForm.querySelector('#pair-again');pair.querySelector('summary').hidden=!stored;if(stored!==lastStored){pair.open=!stored;lastStored=stored}
+ document.querySelector('#setup-intro').textContent=stored?'This workstation is paired. Start the local agent to run tasks and reconnect your AI engines.':'Sign in with your browser, or, in the Sectile web interface, under your profile, choose Pair a workstation and paste the code here. A code is single use and expires within ten minutes.'
+ // A refusal stays said while a sign-in after it waits or fails: the two are shown together, the refusal first (#717).
+ setStartReason([pairingReason,startReason].filter(Boolean).join(' '))
+}
+function setStartReason(text){const p=connectForm.querySelector('.start-reason');p.textContent=text;p.hidden=!text}
 function agentUnavailable(){
  agentConnected=false
  changes.disconnect()
- document.querySelector('#start button').disabled=false
- document.querySelector('#start button').textContent='Start local agent'
+ updateStartControl()
  document.querySelector('#shutdown').hidden=true
  document.querySelector('#restart').hidden=true
  document.querySelector('#agent-offline').hidden=false
@@ -287,11 +309,13 @@ function agentUnavailable(){
 function ready(){
  agentConnected=true
  document.querySelector('#agent-offline').hidden=true
- if(!projectsLoaded){projectsLoaded=true;loadProjects().catch(()=>{projectsLoaded=false});loadEditorSetting()}
- document.querySelector('#start button').disabled=true;document.querySelector('#restart').hidden=false;document.querySelector('#shutdown').hidden=false
+ if(!projectsLoaded){projectsLoaded=true;loadProjects().catch(()=>{projectsLoaded=false});loadEditorSetting();api.syncConsoleView().catch(()=>{})}
+ updateStartControl();document.querySelector('#restart').hidden=false;document.querySelector('#shutdown').hidden=false
  document.querySelector('#setup').hidden=true;document.querySelector('#workspace').hidden=false
  if(!document.querySelector('#connection a'))connectionStatus({text:'Local agent connected'})
  if(!opened){terminal.open(document.querySelector('#terminal'));opened=true;resize()}
+ // A Claude Code entry with a key this workstation does not use is reported once per launch (#716).
+ if(!claudeChecked){claudeChecked=true;api.mcpConfig('claude').then(info=>{if(info?.needsRepair)error("Claude Code's sectile MCP entry uses a key this workstation does not use. Open Settings → Execution defaults → MCP configuration to repair it.")}).catch(()=>{claudeChecked=false})}
 }
 function select(run,background=false,options){
  if(hiddenProject(run.projectId))return
@@ -818,11 +842,35 @@ async function refresh(){
  finally{refreshing=false}
 }
 async function startLocalAgent(form){
- const button=form.querySelector('button');button.disabled=true
- try{await api.start(Object.fromEntries(new FormData(form)));form.elements.code.value='';document.querySelector('#error').textContent='';ready();await refresh()}
- catch(err){error(err)}finally{button.disabled=!document.querySelector('#shutdown').hidden}
+ if(startPending)return
+ startPending=true;startReason=credential.state==='present'&&!form.querySelector('#pair-again').open?'Starting the local agent with the saved key…':'';updateStartControl()
+ try{
+  // A closed disclosure still contributes its inputs to FormData: its code is dropped explicitly.
+  const values=Object.fromEntries(new FormData(form));if(!form.querySelector('#pair-again').open)values.code=''
+  const result=await api.start(values)
+  if(result?.needsPairing){pairingReason=result.needsPairing;startReason='';return}
+  form.elements.code.value='';pairingReason='';startReason='';credential=await api.credentialState();document.querySelector('#error').textContent='';ready();await refresh()
+ }catch(err){pairingReason='';startReason=startFailure(err)}
+ finally{startPending=false;updateStartControl()}
 }
 document.querySelector('#start').onsubmit=event=>{event.preventDefault();return startLocalAgent(event.target)}
+// A browser sign-in holds the start controls like a start does: it ends by starting the agent on the key it pairs (#717).
+document.querySelector('#browser-sign-in').onclick=async()=>{
+ if(startPending)return
+ // A refusal is kept until the sign-in succeeds: the pairing form stays open, never offering the refused key again.
+ startPending=true;startReason='Waiting for the sign-in in your browser…';updateStartControl()
+ const before=credential.state
+ try{
+  await api.signIn(connectForm.elements.server.value)
+  pairingReason='';startReason='';credential=await api.credentialState();document.querySelector('#error').textContent='';ready();await refresh()
+ }catch(err){
+  startReason=startFailure(err)
+  try{credential=await api.credentialState()}catch{}
+  // A key the sign-in saved before failing replaces a missing or unreadable one: that reason no longer holds.
+  if(before!=='present'&&credential.state==='present')pairingReason=''
+ }
+ finally{startPending=false;updateStartControl()}
+}
 document.querySelector('#stop').onclick=async()=>{
  if(!selected)return
  stopping=true;render()
@@ -877,9 +925,21 @@ function flushSidebar(){if(pendingRender&&!sidebarBusy())render()}
 const scheduleFlush=()=>setTimeout(flushSidebar,0)
 sidebarList().addEventListener('pointerout',scheduleFlush)
 sidebarList().addEventListener('focusout',scheduleFlush)
-api.connect().then(connected=>{if(connected){ready();refresh()}else{agentUnavailable()}}).catch(error)
+// After a reboot the agent is not running: with a usable saved key the desktop starts it once, unasked (#716).
+async function launch(){
+ if(await api.connect()){ready();refresh();api.credentialState().then(state=>{credential=state;updateStartControl()}).catch(()=>{});return}
+ // The saved key is read before the setup screen is drawn, so a start on it never shows the pairing code on the way (#717).
+ credential=await api.credentialState().catch(()=>({state:'unreadable',server:''}))
+ agentUnavailable()
+ if(credential.server)connectForm.elements.server.value=credential.server
+ if(credential.state!=='present'){pairingReason=credentialReason(credential.state);updateStartControl();return}
+ if(autoStartTried)return
+ autoStartTried=true;updateStartControl();await startLocalAgent(connectForm)
+}
+const credentialReason=state=>state==='unreadable'?'The key saved on this workstation can no longer be read. Pair again to replace it.':'This workstation has no saved key yet. Paste a pairing code from your profile in the web interface.'
+launch().catch(error)
 setInterval(async()=>{
- const action=pollAction({restarting,agentConnected,shutdownVisible:!document.querySelector('#shutdown').hidden})
+ const action=pollAction({restarting,starting:startPending,agentConnected,shutdownVisible:!document.querySelector('#shutdown').hidden})
  if(action==='refresh')refresh()
  else if(action==='connect'){
   try{if(await api.connect()){ready();refresh()}}catch{}
@@ -902,7 +962,7 @@ async function restartLocalAgent(){
    showDirectory('')
    document.querySelector('#error').textContent=''
   }
- }catch(err){error(err)}finally{restarting=false;button.disabled=false;await refresh()}
+ }catch(err){error(err)}finally{restarting=false;button.disabled=false;updateStartControl();await refresh()}
 }
 
 document.querySelector('#restart').onclick=restartLocalAgent
@@ -920,11 +980,11 @@ async function stopLocalAgent(){
    conversation.select(null);selected=null;runs=[];last='';terminal.reset();render()
    document.querySelector('#setup').hidden=false;document.querySelector('#workspace').hidden=true
    document.querySelector('#restart').hidden=true;button.hidden=true
-   document.querySelector('#start button').disabled=false
+   document.querySelector('#start button[type=submit]').disabled=false
    agentUnavailable()
    document.querySelector('#error').textContent=''
   }
- }catch(err){error(err)}finally{restarting=false;button.disabled=false}
+ }catch(err){error(err)}finally{restarting=false;button.disabled=false;updateStartControl()}
 }
 
 document.querySelector('#shutdown').onclick=stopLocalAgent
@@ -949,7 +1009,6 @@ document.querySelector('#clear-history').onclick=async()=>{
 
 const dialog=document.querySelector('#project-dialog'),dialogBody=document.querySelector('#dialog-body')
 const dialogFooter=document.querySelector('.dialog-footer')
-const connectForm=document.querySelector('#start')
 let configurationPage=null,configurationGeneration=0,configurationHidden=null,expandedConfigurationProject=null
 function returnConnectForm(){if(connectForm.parentElement!==document.querySelector('#setup'))document.querySelector('#setup').append(connectForm)}
 document.querySelector('#close-dialog').onclick=()=>dialog.close()
@@ -1649,6 +1708,7 @@ const SETTINGS_CATEGORIES=[
  {id:'Connection',label:'Agent connection',icon:'<path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="3"/><circle cx="15" cy="17" r="3"/>'},
  {id:'AgentCli',label:'Execution defaults',icon:'<rect x="3" y="4" width="18" height="16" rx="2"/><path d="m7 9 3 3-3 3M12 15h5"/>'},
  {id:'Engines',label:'AI engines',icon:'<rect x="4" y="8" width="16" height="11" rx="3"/><path d="M12 4v4M9 13h.01M15 13h.01"/>'},
+ {id:'Sandbox',label:'Claude settings',icon:'<path d="M12 3 5 6v5c0 4.4 3 8.3 7 9.5 4-1.2 7-5.1 7-9.5V6Z"/><path d="m9 12 2 2 4-4"/>'},
  {id:'Deployment',label:'Deployment',icon:'<path d="M12 20V7m0 0 4 4m-4-4-4 4"/><path d="M5 4h14"/>'},
  {id:'Logs',label:'Agent logs',icon:'<path d="M14 3H7a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V7Z"/><path d="M14 3v4h4"/><path d="M9 13h6M9 17h6"/>'},
  {id:'Changelog',label:'Changelog',icon:'<circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 8h.01"/>'}
@@ -1657,7 +1717,7 @@ const PROJECT_SETTINGS_CATEGORIES=[
  {id:'Remove',label:'General',saves:true,icon:'<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7h.01"/>'},
  {id:'General',label:'Folders',saves:true,icon:'<path d="M4 7a2 2 0 0 1 2-2h3l2 2.5h7a2 2 0 0 1 2 2V18a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2Z"/>'},
  {id:'Execution',label:'Execution',saves:true,icon:'<path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="2.4"/><circle cx="15" cy="17" r="2.4"/>'},
- {id:'Sandbox',label:'Sandbox',saves:true,icon:'<path d="M12 3 5 6v5c0 4.4 3 8.3 7 9.5 4-1.2 7-5.1 7-9.5V6Z"/><path d="m9 12 2 2 4-4"/>'}
+ {id:'Sandbox',label:'Claude settings',saves:true,icon:'<path d="M12 3 5 6v5c0 4.4 3 8.3 7 9.5 4-1.2 7-5.1 7-9.5V6Z"/><path d="m9 12 2 2 4-4"/>'}
 ]
 function configurationNavigation(tabs,projectId){
  if(projectId)expandedConfigurationProject=projectId
@@ -1696,6 +1756,59 @@ function configurationNavigation(tabs,projectId){
  // are reached from Add project.
  for(const project of projects)if(addedProject(project)||project.id===projectId)group(project.name+(sidebarHiddenProjects.has(project.id)?' (hidden)':''),PROJECT_SETTINGS_CATEGORIES,project.id===projectId,name=>openProject(project.id,name),project.id)
  updateProjectGroups()
+}
+// The workstation Sandbox category (#730): the Sandbox values every covered
+// project applies under its own, and the projects they cover. It has its own
+// save: the execution defaults form replaces the defaults whole and does not
+// carry them.
+function workstationSandboxPanel(panel){
+ const unavailable=document.createElement('p');unavailable.className='execution-unavailable';unavailable.setAttribute('role','status');unavailable.hidden=true
+ const body=document.createElement('div');body.className='workstation-sandbox';body.hidden=true
+ const notice=document.createElement('p');notice.setAttribute('role','status');notice.className='workstation-notice'
+ const save=document.createElement('button');save.type='button';save.className='dialog-action primary';save.textContent='Save Claude settings'
+ const actions=document.createElement('div');actions.className='deployment-actions';actions.style.marginTop='16px'
+ actions.append(save,notice)
+ panel.append(unavailable,body)
+ let sandbox=null,whitelist=null
+ const STOPPED_NOTICE='Claude settings are unavailable while the local agent is stopped. Start the agent to edit them.'
+ function showUnavailable(text){unavailable.textContent=text;unavailable.hidden=false;body.hidden=true}
+ function fill(view){
+  // A disconnected project that keeps its local settings is still covered, so
+  // it is listed too, marked hidden: left out, its checkbox would be dropped by
+  // the next save. A project hidden from the sidebar only is an added project.
+  const added=projects.filter(project=>addedProject(project)||(hiddenProject(project.id)&&(project.configured||!!project.path)))
+   .map(project=>({id:project.id,name:project.name+(hiddenProject(project.id)?' (hidden)':'')}))
+  sandbox=sandboxSettings({settingRow,stored:view.claudeSandbox,platformSandbox:view.platformSandbox!==false,workstation:true})
+  whitelist=whitelistEditor({settingRow,projects:added,selected:view.projects||[]})
+  body.replaceChildren(whitelist.section,...sandbox.sections,actions)
+  body.hidden=false
+ }
+ save.onclick=async()=>{
+  if(!sandbox)return
+  save.disabled=true;notice.textContent='Saving…';notice.dataset.tone=''
+  try{
+   const fresh=await api.saveWorkstationSandbox({claudeSandbox:sandbox.payload(),claudeSandboxBase:sandbox.base(),projects:whitelist.get()})
+   sandbox.set(fresh.claudeSandbox);whitelist.set(fresh.projects||[])
+   notice.textContent='Claude settings saved'
+  }catch(err){
+   if(agentUnreachable(err))showUnavailable(STOPPED_NOTICE)
+   else{notice.textContent='Not saved: '+ipcMessage(err);notice.dataset.tone='error'}
+  }finally{save.disabled=false}
+ }
+ async function load(){
+  if(!agentConnected){showUnavailable(STOPPED_NOTICE);return}
+  unavailable.hidden=true
+  let view
+  try{view=await api.workstationSandbox()}
+  catch(err){
+   if(!body.isConnected)return
+   const text=ipcMessage(err)
+   showUnavailable(agentUnreachable(err)?STOPPED_NOTICE:/404|not found/i.test(text)?'Update and restart the local agent to edit the workstation Claude settings here.':'Unable to read the Claude settings: '+text)
+   return
+  }
+  if(body.isConnected)fill(view)
+ }
+ return {load}
 }
 function deploymentPanel(panel){
  const globalTitle=document.createElement('h3');globalTitle.textContent='Global AI engine setup'
@@ -1873,6 +1986,8 @@ function openSettings(initial='Profile',project){
  engines.section.querySelector('h3').remove()
  panels.Engines.append(engines.section)
  engines.load().catch(()=>{})
+ const workstationSandbox=workstationSandboxPanel(panels.Sandbox)
+ workstationSandbox.load().catch(()=>{})
  const mcpPanel=mcpSettings(api,execution.providerSelect)
  mcpPanel.section.insertBefore(settingRow('Provider',null,execution.providerSelect).section,mcpPanel.section.children[1])
  panels.AgentCli.append(mcpPanel.section)
@@ -1881,10 +1996,9 @@ function openSettings(initial='Profile',project){
  const agentState=readOnlyRow('Local agent','The agent process this desktop talks to.')
  const agentActions=document.createElement('span');agentActions.className='settings-agent-actions'
  const agentButtons=[]
- let agentActionPending=false
  const renderAgentActions=()=>{
   agentState.value.textContent=agentConnected?'Running':'Stopped'
-  for(const [button,needsRunning] of agentButtons)button.disabled=agentActionPending||restarting||agentConnected!==needsRunning
+  for(const [button,needsRunning] of agentButtons)button.disabled=needsRunning?agentActionPending||restarting||!agentConnected:!startEnabled({agentConnected,restarting,pending:agentActionPending,starting:startPending})
  }
  for(const [label,needsRunning,action] of [
   ['Start agent',false,()=>startLocalAgent(connectForm)],
@@ -1894,13 +2008,14 @@ function openSettings(initial='Profile',project){
   const button=document.createElement('button');button.type='button';button.textContent=label
   button.onclick=async()=>{
    if(agentActionPending||restarting)return
-   agentActionPending=true;renderAgentActions()
-   try{await action()}finally{agentActionPending=false;if(agentActions.isConnected){await fill();renderAgentActions()}}
+   agentActionPending=true;updateStartControl()
+   try{await action()}finally{agentActionPending=false;if(agentActions.isConnected)await fill();updateStartControl()}
   }
   agentButtons.push([button,needsRunning]);agentActions.append(button)
  }
  agentState.control.append(agentActions)
  renderAgentActions()
+ renderSettingsAgent=()=>{if(agentActions.isConnected)renderAgentActions()}
  const link=readOnlyRow('Server link','Whether the local agent reaches the Sectile server.')
  const linkDot=document.createElement('span');linkDot.className='connection-dot';linkDot.setAttribute('aria-hidden','true')
  link.control.classList.add('settings-connection-status');link.control.dataset.state='off'
@@ -1953,11 +2068,12 @@ function openSettings(initial='Profile',project){
   link.value.textContent=agentConnected?'Connecting…':'Unreachable'
   pairing.hint.textContent=stored.token
    ?'This workstation is paired. Pasting a new code re-pairs it.'
-   :'In the web interface, under your profile, choose Pair a workstation and paste the code here.'
+   :'Sign in with your browser, or, in the web interface, under your profile, choose Pair a workstation and paste the code here.'
   pairingNote.textContent=agentConnected?'Stop the local agent before connecting it to another server.':''
   // The agent answers for the execution defaults; a start or a stop from the
   // connection panel reloads them, so the panel follows the agent's state.
   if(execution.providerSelect.isConnected)execution.load().catch(()=>{}).finally(()=>{if(execution.providerSelect.isConnected)mcpPanel.load()})
+  if(panels.Sandbox.isConnected)workstationSandbox.load().catch(()=>{})
   if(!agentConnected)return
   try{
    const status=await api.status()
@@ -2207,51 +2323,63 @@ async function openProject(id,initial='Remove'){
   const picker=document.createElement('div');picker.className='repository-picker';picker.append(path,browse)
   const repository=settingRow('Local repository',{stacked:true},picker)
   const pathOffer=attachGitOffer(path,repository,'Local repository')
-  // Macro operations read and write specifications here. Only an override is
-  // stored: every project inherits its local repository otherwise (#484).
-  const specPath=document.createElement('input');specPath.value=info.specPath||'';specPath.setAttribute('aria-label','Specifications folder')
-  const specBrowse=document.createElement('button');specBrowse.type='button';specBrowse.textContent='Choose folder…';specBrowse.setAttribute('aria-label','Choose specifications folder…')
-  specBrowse.onclick=async()=>{try{const selected=await api.chooseRepository();if(selected){specPath.value=selected;renderSpec({...specData,specPath:selected});specOffer.examine()}}catch(err){error(err)}}
-  const specPicker=document.createElement('div');specPicker.className='repository-picker';specPicker.append(specPath,specBrowse)
-  // The specifications either share the code checkout or live in a folder of
-  // their own. Unticking reveals the folder; ticking drops the override so the
-  // folder follows the local repository again.
-  const sameRepo=document.createElement('input');sameRepo.type='checkbox';sameRepo.id='spec-same-repository'
-  const sameRepoLabel=document.createElement('label');sameRepoLabel.className='spec-same-repository';sameRepoLabel.htmlFor=sameRepo.id
-  sameRepoLabel.append(sameRepo,document.createTextNode(' Specifications live in the code repository'))
-  sameRepo.onchange=()=>{
-   if(sameRepo.checked)specPath.value=''
-   renderSpec({...specData,specPath:specPath.value},{separate:!sameRepo.checked})
-   if(!sameRepo.checked)specPath.focus()
+  // Two specifications folders (#736): the macro skills read and write the
+  // Macro one, the issue skills write the tasks' clarifications and
+  // specifications in the Issue one. Only an override is stored: each follows
+  // the local repository otherwise (#484).
+  function specFolderRow(kind,field,skills){
+   const name=kind+' specifications folder'
+   const input=document.createElement('input');input.value=info[field]||'';input.setAttribute('aria-label',name)
+   const browse=document.createElement('button');browse.type='button';browse.textContent='Choose folder…';browse.setAttribute('aria-label','Choose '+name+'…')
+   browse.onclick=async()=>{try{const selected=await api.chooseRepository();if(selected){input.value=selected;render({...data,[field]:selected});offer.examine()}}catch(err){error(err)}}
+   const picker=document.createElement('div');picker.className='repository-picker';picker.append(input,browse)
+   // The specifications either share the code checkout or live in a folder of
+   // their own. Unticking reveals the folder; ticking drops the override so the
+   // folder follows the local repository again.
+   const sameRepo=document.createElement('input');sameRepo.type='checkbox';sameRepo.id='spec-same-repository-'+kind.toLowerCase()
+   const sameRepoLabel=document.createElement('label');sameRepoLabel.className='spec-same-repository';sameRepoLabel.htmlFor=sameRepo.id
+   sameRepoLabel.append(sameRepo,document.createTextNode(' '+kind+' specifications live in the code repository'))
+   sameRepo.onchange=()=>{
+    if(sameRepo.checked)input.value=''
+    render({...data,[field]:input.value},{separate:!sameRepo.checked})
+    if(!sameRepo.checked)input.focus()
+   }
+   input.oninput=()=>render({...data,[field]:input.value},{separate:true})
+   const kindStatus=document.createElement('span');kindStatus.className='spec-kind';kindStatus.setAttribute('role','status');kindStatus.setAttribute('aria-label',name+' kind')
+   const row=settingRow(name,{stacked:true},sameRepoLabel,picker,kindStatus)
+   const offer=attachGitOffer(input,row,name,folder=>render({...data,[field]:folder},{separate:true}))
+   const defaultKey=field.replace(/Path$/,'Default'),kindKey=field.replace(/Path$/,'Kind')
+   let data=info
+   function render(next,options){
+    data=next
+    const override=!!(next[field]||'').trim()
+    const separate=override||!!options?.separate
+    sameRepo.checked=!separate
+    // Following the local repository, the folder has no offer of its own.
+    if(picker.hidden!==!separate)offer.show(separate)
+    picker.hidden=!separate
+    input.placeholder='Folder holding the specifications'
+    row.hint.textContent=!separate?skills+' in the local repository.'
+     :'A folder of its own · Tick the box to use the local repository again.'
+    // The kind is detected on the folder the agent resolves, which is not
+    // always the one typed: name it, so the verdict says what it is about.
+    // A value typed but not saved yet has not been examined.
+    const stored=(next[field]||'').trim()===(info[field]||'').trim()
+    const examined=(stored?(next[field]||'').trim():'')||(!override?next[defaultKey]:'')||''
+    const verdict={git:'Git repository',folder:'Folder, not a Git repository',missing:'Folder not found'}[stored?next[kindKey]:'']||''
+    kindStatus.textContent=verdict&&examined?verdict+' · '+examined:''
+    kindStatus.title=kindStatus.textContent
+    kindStatus.dataset.kind=stored?next[kindKey]||'':''
+   }
+   render(info)
+   return {input,row,render,field,showOffer:()=>offer.show(!picker.hidden)}
   }
-  specPath.oninput=()=>renderSpec({...specData,specPath:specPath.value},{separate:true})
-  const specKind=document.createElement('span');specKind.className='spec-kind';specKind.setAttribute('role','status');specKind.setAttribute('aria-label','Specifications folder kind')
-  const specRepository=settingRow('Specifications folder',{stacked:true},sameRepoLabel,specPicker,specKind)
-  const specOffer=attachGitOffer(specPath,specRepository,'Specifications folder',folder=>renderSpec({...specData,specPath:folder},{separate:true}))
-  let specData=info
-  function renderSpec(data,options){
-   specData=data
-   const override=!!(data.specPath||'').trim()
-   const separate=override||!!options?.separate
-   sameRepo.checked=!separate
-   // Following the local repository, the folder has no offer of its own.
-   if(specPicker.hidden!==!separate)specOffer.show(separate)
-   specPicker.hidden=!separate
-   specPath.placeholder='Folder holding the specifications'
-   specRepository.hint.textContent=!separate?'Macro skills read and write specifications in the local repository.'
-    :'A folder of its own · Tick the box to use the local repository again.'
-   // The kind is detected on the folder the agent resolves, which is not
-   // always the one typed: name it, so the verdict says what it is about.
-   // A value typed but not saved yet has not been examined.
-   const stored=(data.specPath||'').trim()===(info.specPath||'').trim()
-   const examined=(stored?(data.specPath||'').trim():'')||(!override?data.specDefault:'')||''
-   const verdict={git:'Git repository',folder:'Folder, not a Git repository',missing:'Folder not found'}[stored?data.specKind:'']||''
-   specKind.textContent=verdict&&examined?verdict+' · '+examined:''
-   specKind.title=specKind.textContent
-   specKind.dataset.kind=stored?data.specKind||'':''
-  }
-  renderSpec(info)
-  pathOffer.examine();specOffer.show(!specPicker.hidden)
+  const macroSpec=specFolderRow('Macro','specPath','Macro skills read and write specifications')
+  const issueSpec=specFolderRow('Issue','issueSpecPath','Issue skills write clarifications and specifications')
+  const specRows=[macroSpec,issueSpec]
+  // Each row re-renders from fresh agent data with its own typed value.
+  const renderSpecs=(fresh,typed)=>{for(const spec of specRows)spec.render(typed?{...fresh,[spec.field]:spec.input.value}:fresh)}
+  pathOffer.examine();for(const spec of specRows)spec.showOffer()
   // The other repositories the project declares, each in a folder of this
   // workstation (#456), on every project (#484). The project's own repository
   // is the local repository above; the list itself is a project setting of
@@ -2319,6 +2447,25 @@ async function openProject(id,initial='Remove'){
    }catch(err){folderStatus.textContent=ipcMessage(err)}finally{addFolder.disabled=false}
   }
   loadFolders()
+  // Any repository (#737): tickets may change a repository the project does
+  // not list, at a checkout the session names or in a clone the agent makes in
+  // the clones folder. Off by default.
+  const anyRepository=document.createElement('input');anyRepository.type='checkbox';anyRepository.id='any-repository';anyRepository.checked=!!info.anyRepository
+  const anyRepositoryLabel=document.createElement('label');anyRepositoryLabel.htmlFor=anyRepository.id
+  anyRepositoryLabel.append(anyRepository,document.createTextNode(' Let tasks change any repository'))
+  const clonesPath=document.createElement('input');clonesPath.value=info.clonesPath||'';clonesPath.setAttribute('aria-label','Clones folder')
+  clonesPath.placeholder=info.clonesDefault||'Folder the agent clones repositories into'
+  const chooseClones=document.createElement('button');chooseClones.type='button';chooseClones.textContent='Choose folder…';chooseClones.setAttribute('aria-label','Choose the clones folder…')
+  chooseClones.onclick=async()=>{try{const selected=await api.chooseRepository();if(selected)clonesPath.value=selected}catch(err){error(err)}}
+  const clonesPicker=document.createElement('div');clonesPicker.className='repository-picker';clonesPicker.append(clonesPath,chooseClones)
+  const anyRepositoryRow=settingRow('Any repository',{stacked:true},anyRepositoryLabel,clonesPicker)
+  const renderAnyRepository=()=>{
+   clonesPicker.hidden=!anyRepository.checked
+   anyRepositoryRow.hint.textContent=anyRepository.checked
+    ?'A repository no folder here holds is used at the checkout the session finds, or cloned into '+(clonesPath.value.trim()||info.clonesDefault||'the clones folder')+'. Either is remembered on this workstation.'
+    :'Tasks change only the repositories listed above and the attached folders.'
+  }
+  anyRepository.onchange=renderAnyRepository;clonesPath.oninput=renderAnyRepository;renderAnyRepository()
   // Every execution field reads {value, inherited, source} from the agent: set
   // for the project, or inherited from the workstation defaults, else the
   // provider default. The server never supplies one (#305).
@@ -2475,11 +2622,15 @@ async function openProject(id,initial='Remove'){
   }
 
   const notice=document.createElement('p');notice.setAttribute('role','status')
-  panels.General.append(repository.section,specRepository.section,repositoriesRow.section,foldersRow.section)
+  panels.General.append(repository.section,macroSpec.row.section,issueSpec.row.section,repositoriesRow.section,foldersRow.section,anyRepositoryRow.section)
   panels.Execution.append(controls.worktrees.section,controls.specArtifacts.section,controls.parallel.section,terminalRow.section,setupRow.section)
   // What the project's Claude Code sessions are allowed (#700). An agent that
   // predates it sends no values, and the save sends none back.
-  const sandbox=sandboxSettings({settingRow,stored:info.claudeSandbox,platformSandbox:info.platformSandbox!==false,settingsPath:info.claudeSettingsPath,project:info})
+  // The workstation values it inherits come with it (#730); an agent that
+  // predates them sends none, and the project then shows only its own.
+  const sandbox=sandboxSettings({settingRow,stored:info.claudeSandbox,platformSandbox:info.platformSandbox!==false,settingsPath:info.claudeSettingsPath,project:info,
+   inherited:info.claudeSandboxGlobal||null,covered:info.claudeSandboxCovered!==false,
+   onPromote:'claudeSandboxCovered' in info?rule=>api.promoteSandboxRule(id,rule):null})
   panels.Sandbox.append(...sandbox.sections)
   panels.Remove.append(engineRow.section)
   const remove=document.createElement('button');remove.type='button';remove.textContent='Remove from desktop';remove.className='remove-project'
@@ -2499,7 +2650,8 @@ async function openProject(id,initial='Remove'){
    event.preventDefault()
    save.disabled=true
    try{
-    await api.mapProject({projectId:id,path:path.value,specPath:specPath.value.trim(),
+    await api.mapProject({projectId:id,path:path.value,specPath:macroSpec.input.value.trim(),issueSpecPath:issueSpec.input.value.trim(),
+     anyRepository:anyRepository.checked,clonesPath:clonesPath.value.trim(),
      useWorktrees,inheritWorktrees,specArtifacts,inheritSpecArtifacts,parallelism,inheritParallelism,
      ...(engineView?{defaultEngine,inheritDefaultEngine}:{}),
      terminal:terminal.get(),inheritTerminal,
@@ -2519,7 +2671,7 @@ async function openProject(id,initial='Remove'){
     notice.textContent=refused.length?'Local configuration saved, except the folder of '+refused.join('; '):'Local configuration saved'
     // The agent normalised the folder and detected its kind: show what it
     // stored, not what was typed.
-    try{const fresh=await api.project(id);info.specPath=fresh.specPath||'';specPath.value=info.specPath;renderSpec(fresh);applyFields(fresh);if(fresh.claudeSandbox)sandbox.set(fresh.claudeSandbox)}catch(err){error(err)}
+    try{const fresh=await api.project(id);for(const spec of specRows){info[spec.field]=fresh[spec.field]||'';spec.input.value=info[spec.field]};renderSpecs(fresh);applyFields(fresh);if(fresh.claudeSandbox)sandbox.set(fresh.claudeSandbox,fresh.claudeSandboxGlobal||null,fresh.claudeSandboxCovered!==false)}catch(err){error(err)}
     await loadProjects()
    }catch(err){notice.textContent=err.message}finally{save.disabled=false}
   }
@@ -2542,7 +2694,7 @@ async function openProject(id,initial='Remove'){
     config=fresh.server
     if(!configurationActive()||generation!==configurationGeneration)return
     if(inheritSpecArtifacts)specArtifacts=config.specArtifacts==='drop'?'drop':'keep'
-    applyFields(fresh,true);renderServer();renderSpec({...fresh,specPath:specPath.value})
+    applyFields(fresh,true);renderServer();renderSpecs(fresh,true)
     notice.textContent='Server settings refreshed. Local overrides preserved.'
    }catch(err){notice.textContent=err.message}finally{reload.disabled=false}
   }

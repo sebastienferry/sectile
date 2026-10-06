@@ -314,6 +314,8 @@ func main() {
 	// Local sign-in exists only without a provider: an e-mail, no password, the
 	// temporary mode of a team that has not connected its identity provider yet.
 	mux.HandleFunc("/auth/local", h.HandleLocalSignIn)
+	// Desktop and `sectile-agent pair` sign in through the browser: a session hands a pairing code to a loopback port (#717).
+	mux.HandleFunc("/auth/workstation", h.HandleWorkstationSignIn)
 	mux.HandleFunc("/api/me", h.HandleCurrentUser)
 	mux.HandleFunc("/api/me/tracker-credentials", h.HandleUserTrackerCredentials)
 	mux.HandleFunc("/api/me/tracker-credentials/", h.HandleUserTrackerCredentials)

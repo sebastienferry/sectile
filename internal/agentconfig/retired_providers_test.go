@@ -88,8 +88,8 @@ func TestRetiredProviderKeysAreDropped(t *testing.T) {
 		"mcpConnections":{"gemini":{"transport":"http","target":"remote"},"cursor":{"transport":"http","target":"remote"},
 			"vibe":{"transport":"stdio","target":"local"},"claude":{"transport":"http","target":"remote"}}}`)
 	s, drop, err := func() (Settings, RetiredDrop, error) {
-		s, _, drop, err := readConverted(t.TempDir())
-		return s, drop, err
+		s, _, report, err := readConverted(t.TempDir())
+		return s, report.RetiredDrop, err
 	}()
 	if err != nil {
 		t.Fatal(err)

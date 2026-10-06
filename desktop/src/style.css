@@ -136,7 +136,7 @@
   --warn:#b45309;
   --warn-text:#a35f00;
   --outdated:#a35f00;
-  --waiting:#b45309;
+  --waiting:#a14a08;
   --required-border:#c77c2e;
   --canceled:#6b6570;
   --priority-urgent:#d92d20;
@@ -274,14 +274,10 @@ aside{flex-shrink:0}.sidebar-hidden #sidebar-resizer{display:none}#sidebar-resiz
 .diff-context{font-size:11px;overflow-wrap:anywhere;color:var(--diff-context)}
 .diff-summary,.diff-file-info{overflow-wrap:anywhere}
 .diff-error{color:var(--diff-error)}
-.diff-body{display:grid;grid-template-columns:minmax(150px,25%) minmax(0,1fr);gap:12px;min-height:0}
-.split .diff-body{display:block}
-.split .diff-files{max-height:150px}
-.split .diff-detail{width:100%}
 .split .changes-toolbar{flex-wrap:wrap}
-.diff-files{display:flex;flex-direction:column;align-items:stretch;gap:4px;min-width:0;max-height:65vh;overflow:auto}
-.diff-files button{white-space:pre-wrap;overflow-wrap:anywhere;text-align:left;flex-shrink:0}
-.diff-files [aria-pressed="true"]{background:var(--view-pressed-bg)}
+/* One drop-down picks the file, so the diff keeps the panel's whole width (#710). */
+.diff-files{display:block;width:100%;max-width:100%;margin:0 0 8px;text-overflow:ellipsis;white-space:nowrap;overflow:hidden}
+.diff-files[hidden]{display:none}
 .diff-detail{min-width:0}.diff-patch{overflow:auto;max-height:65vh;background:var(--bg);padding:10px;tab-size:4;font:12px/1.6 Menlo,monospace}
 .diff-patch span{display:block;white-space:pre;min-width:max-content}.diff-add{color:var(--diff-add-text);background:var(--diff-add-bg)}.diff-delete{color:var(--diff-delete-text);background:var(--diff-delete-bg)}.diff-hunk{color:var(--diff-hunk)}
 .diff-render-toggle{float:right;margin-left:8px}.diff-render-toggle[aria-pressed="true"]{background:var(--view-pressed-bg);color:var(--view-pressed-text)}
@@ -296,8 +292,7 @@ aside{flex-shrink:0}.sidebar-hidden #sidebar-resizer{display:none}#sidebar-resiz
 :is(.diff-rendered,.conversation-markdown) .md-link{color:var(--link);text-decoration:underline;cursor:pointer}
 :is(.diff-rendered,.conversation-markdown) .md-link-inert{text-decoration:underline dotted;cursor:help}:is(.diff-rendered,.conversation-markdown) .md-link-target,:is(.diff-rendered,.conversation-markdown) .md-image{color:var(--text-muted)}
 :is(.diff-rendered,.conversation-markdown) .md-image{font-style:italic}
-#changes button:focus-visible,#changes pre:focus-visible,.execution-views button:focus-visible{outline:2px solid var(--info);outline-offset:2px}
-@media(max-width:750px){.diff-body{grid-template-columns:minmax(0,1fr)}.diff-files{max-height:150px}}
+#changes button:focus-visible,#changes select:focus-visible,#changes pre:focus-visible,.execution-views button:focus-visible{outline:2px solid var(--info);outline-offset:2px}
 
 .terminal-title-line{display:flex;align-items:center;flex-wrap:wrap;gap:8px;min-width:0}.terminal-title-line #title{min-width:0}
 .selected-run-state{gap:5px;font-size:11px;white-space:nowrap;color:var(--text-secondary)}
@@ -403,6 +398,7 @@ aside{display:flex;flex-direction:column;padding:0;overflow:hidden}
 .setup-toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:18px}
 .setup-toolbar button{font-size:12.5px;padding:6px 12px}
 .setup-toolbar #setup-logs{margin-left:auto}
+#browser-sign-in{color:var(--on-accent);background:var(--accent);border:0;border-radius:6px;padding:12px 20px;font-weight:700;margin:4px 0 14px}
 .setting-value{color:var(--text-soft);font-size:13px;overflow-wrap:anywhere;text-align:right}
 /* The log reader is the one panel that wants every pixel the dialog can spare,
    so it stretches instead of scrolling the panel around a fixed block. A
@@ -427,6 +423,7 @@ aside{display:flex;flex-direction:column;padding:0;overflow:hidden}
 .settings-content #start label{margin:0 0 10px;color:var(--text-faint);font-size:11.5px}
 .settings-content #start input{margin-top:5px;padding:7px 9px;font-size:13px;color:var(--text)}
 .settings-content #start button{margin-top:2px;padding:8px 16px;font-size:12.5px}
+.settings-content #browser-sign-in{margin-bottom:10px;padding:8px 16px;font-size:12.5px}
 .settings-content #start+p{margin:8px 0 0;color:var(--text-faint);font-size:11.5px}
 /* The state is the dot; the label names it for anyone who cannot read colour. */
 #connection{display:flex;align-items:center;min-width:0;margin-right:auto;padding-left:4px;color:var(--text-muted);font-size:11.5px}
@@ -502,7 +499,7 @@ dialog.workstation-settings{width:min(1100px,94vw);max-height:90vh}
 .engine-editor{border:1px solid var(--border-strong);border-radius:8px;margin-bottom:10px;padding:10px 12px}
 .cli-presets-bar{flex-wrap:wrap;gap:6px;margin-top:8px;display:flex}.cli-presets-bar button{padding:4px 8px;font-size:11.5px}
 .attached-folders{list-style:none;margin:0 0 8px;padding:0;display:flex;flex-direction:column;gap:6px}.attached-folder{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:7px 10px;background:var(--button-bg);border:1px solid var(--border-strong);border-radius:8px}.attached-folder>div{display:flex;flex-direction:column;min-width:0}.attached-folder-path{font-size:12.5px;color:var(--text);overflow-wrap:anywhere}.attached-folder-kind{font-size:11.5px;color:var(--text-faint);overflow-wrap:anywhere}.attached-folder[data-kind=git] .attached-folder-kind{color:var(--accent-text)}.attached-folder[data-kind=missing] .attached-folder-kind,.attached-folder[data-kind=duplicate] .attached-folder-kind{color:var(--warn-text)}.attached-folder button{flex-shrink:0}.attached-folder-empty{font-size:12px;color:var(--text-faint)}.setting-row .attached-folder-status{margin:6px 0 0;font-size:11.5px;color:var(--text-secondary);overflow-wrap:anywhere}.attached-folder-status:empty{display:none}
-.sandbox-entries{list-style:none;margin:0 0 8px;padding:0;display:flex;flex-direction:column;gap:6px}.sandbox-entry{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:6px 10px;background:var(--button-bg);border:1px solid var(--border-strong);border-radius:8px}.sandbox-entry code{font:12px Menlo,monospace;color:var(--text);overflow-wrap:anywhere;min-width:0}.sandbox-entry button{flex-shrink:0}.sandbox-empty{font-size:12px;color:var(--text-faint)}.setting-row p.sandbox-status{margin:6px 0 0}.setting-row p.sandbox-scope{margin:0 0 6px;color:var(--text-secondary)}
+.sandbox-entries{list-style:none;margin:0 0 8px;padding:0;display:flex;flex-direction:column;gap:6px}.sandbox-entry{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:6px 10px;background:var(--button-bg);border:1px solid var(--border-strong);border-radius:8px}.sandbox-entry code{font:12px Menlo,monospace;color:var(--text);overflow-wrap:anywhere;min-width:0}.sandbox-entry button{flex-shrink:0}.sandbox-empty{font-size:12px;color:var(--text-faint)}.setting-row p.sandbox-status{margin:6px 0 0}.setting-row p.sandbox-scope{margin:0 0 6px;color:var(--text-secondary)}.sandbox-entry-inherited{background:transparent;border-style:dashed}.sandbox-origin{flex-shrink:0;font-size:11px;color:var(--text-faint);text-transform:uppercase;letter-spacing:.04em}.sandbox-entry-actions{display:flex;gap:6px;flex-shrink:0}.sandbox-whitelist{display:flex;flex-direction:column;align-items:flex-start;gap:8px;width:100%}.sandbox-whitelist .sandbox-whitelist-entry{margin:0;justify-content:flex-start;gap:8px;font-size:13px;color:var(--text);cursor:pointer}.sandbox-whitelist-entry input{width:auto;margin:0;padding:0;flex:none}
 /* A project's custom skill ran instead of the installed one (#267). */
 #settings.custom-skills-used{position:relative}
 #settings.custom-skills-used::after{content:'';position:absolute;top:3px;right:3px;width:7px;height:7px;border-radius:50%;background:var(--warn-text)}
@@ -666,3 +663,6 @@ dialog.quick-add-dialog{width:min(640px,92vw)}
 /* What an engine setup step reported, under its row. */
 .setup-result{margin:2px 0 10px;font-size:12px;color:var(--text-secondary);overflow-wrap:anywhere}
 .setup-result:empty{display:none}
+/* The reason a start failed or needs a pairing, shown inside the start form (#716). */
+.start-reason{color:var(--danger-text)}
+.claude-presets{display:flex;flex-direction:column;gap:8px;width:100%}.claude-presets-recommended{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 10px;border:1px dashed var(--border-strong);border-radius:8px;font-size:13px;color:var(--text-secondary)}.claude-presets-recommended[hidden]{display:none}.claude-preset{padding:8px 10px;background:var(--button-bg);border:1px solid var(--border-strong);border-radius:8px}.claude-preset-head{display:flex;align-items:center;gap:10px}.claude-preset-head strong{font-size:13px;color:var(--text)}.claude-preset-head button{margin-left:auto;flex-shrink:0}.claude-preset-head .sandbox-origin[hidden],.claude-preset-head button[hidden]{display:none}.setting-row p.claude-preset-description{margin:4px 0;color:var(--text-secondary);font-size:12px}.claude-preset-entries summary{cursor:pointer;font-size:12px;color:var(--text-faint)}.setting-row .claude-preset-entries p{margin:4px 0 0;font-size:12px;color:var(--text-secondary);overflow-wrap:anywhere}.claude-preset-entries code{font:11px Menlo,monospace;color:var(--text)}

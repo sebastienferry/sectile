@@ -49,9 +49,15 @@ func TestPrimaryRootFollowsThePin(t *testing.T) {
 	if root, _, err := primaryRoot(ctx, multiRepoConfig(), agentconfig.Settings{}, projectRoot, models.Task{Key: "#1"}); err != nil || root != projectRoot {
 		t.Errorf("only the code repository mapped: %q %v", root, err)
 	}
-	// A pin to a repository the project no longer declares reads as none.
-	if root, _, err := primaryRoot(ctx, multiRepoConfig(), overrides, projectRoot, models.Task{Key: "#1", Repository: "github.com/o/gone"}); err != nil || root != projectRoot {
-		t.Errorf("stale pin: %q %v", root, err)
+	// A pin to a repository the project does not declare needs the Any
+	// repository option (#737); without it the launch fails, naming it,
+	// rather than run the ticket in another repository.
+	if _, _, err := primaryRoot(ctx, multiRepoConfig(), overrides, projectRoot, models.Task{Key: "#1", Repository: "github.com/o/gone"}); err == nil || !strings.Contains(err.Error(), "Any repository option") {
+		t.Errorf("undeclared pin without the option: %v", err)
+	}
+	// What names no repository still reads as no pin.
+	if root, _, err := primaryRoot(ctx, multiRepoConfig(), overrides, projectRoot, models.Task{Key: "#1", Repository: "gone"}); err != nil || root != projectRoot {
+		t.Errorf("a pin naming no repository: %q %v", root, err)
 	}
 }
 
@@ -63,7 +69,7 @@ func TestFolderMapDescribesEveryFolder(t *testing.T) {
 	gitTest(t, b, "branch", "feat/1")
 	secondary := filepath.Join(t.TempDir(), "b-wt")
 	gitTest(t, b, "worktree", "add", "-q", secondary, "feat/1")
-	overrides := agentconfig.Settings{Repositories: map[string]string{"github.com/o/b": b}, ProjectSettings: map[string]agentconfig.ProjectSettings{"p": {SpecPath: spec}}}
+	overrides := agentconfig.Settings{Repositories: map[string]string{"github.com/o/b": b}, ProjectSettings: map[string]agentconfig.ProjectSettings{"p": {IssueSpecPath: spec}}}
 	task := models.Task{Key: "#1", BranchName: branchOf("feat/1"), ChangedRepositories: []string{"github.com/o/b"}}
 
 	entries := buildFolderMap(ctx, multiRepoConfig(), overrides, projectRoot, "github.com/o/a", "/work/a", task)
@@ -311,7 +317,7 @@ func TestFolderMapListsAttachedFolders(t *testing.T) {
 	spec := t.TempDir()
 	overrides := attachedTo(agentconfig.Settings{Repositories: map[string]string{"github.com/o/b": b}}, ui, lib, bAgain, notes, missing, projectRoot, spec, notes)
 	overrides.ProjectSettings["p"] = func(section agentconfig.ProjectSettings) agentconfig.ProjectSettings {
-		section.SpecPath = spec
+		section.IssueSpecPath = spec
 		return section
 	}(overrides.ProjectSettings["p"])
 	task := models.Task{Key: "#1", BranchName: branchOf("feat/1"), ChangedRepositories: []string{"github.com/o/lib"}}
@@ -589,7 +595,7 @@ func TestProjectFolderMapListsTheProjectFolders(t *testing.T) {
 	notes := t.TempDir()
 	missing := filepath.Join(t.TempDir(), "gone")
 	if err := agentconfig.WriteSettings(agentconfig.Settings{
-		ProjectSettings: map[string]agentconfig.ProjectSettings{"p": {Path: root, SpecPath: spec, Folders: []string{notes, missing}}},
+		ProjectSettings: map[string]agentconfig.ProjectSettings{"p": {Path: root, MacroSpecPath: spec, Folders: []string{notes, missing}}},
 		Repositories:    map[string]string{"github.com/o/b": b},
 	}); err != nil {
 		t.Fatal(err)

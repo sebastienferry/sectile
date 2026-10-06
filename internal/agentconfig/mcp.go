@@ -28,7 +28,7 @@ func UsesHTTPMCP(provider string) bool {
 // The workstation API key travels in it: the file is user-level and owner-only,
 // and the key is revocable and expires, which is the trade-off ADR 0011 makes.
 func mcpEntry(provider, executable, server, apiKey string) map[string]any {
-	endpoint := server + "/mcp"
+	endpoint := MCPURL(server)
 	headers := map[string]any{"Authorization": "Bearer " + apiKey}
 	switch provider {
 	case "claude":
@@ -75,7 +75,7 @@ func ConfigureMCP(provider, executable, server, apiKey, transport string, local 
 	}
 	server = strings.TrimRight(server, "/")
 	provider = strings.ToLower(strings.TrimSpace(provider))
-	loc, err := ResolveLocations(provider)
+	data, loc, err := readMCPConfig(provider)
 	if err != nil {
 		return "", err
 	}
@@ -85,52 +85,161 @@ func ConfigureMCP(provider, executable, server, apiKey, transport string, local 
 		return "", err
 	}
 	defer fs.Close()
-	data := map[string]any{}
-	raw, err := fs.ReadFile(path)
-	if err != nil && !os.IsNotExist(err) {
-		return "", err
-	}
 	isTOML := strings.HasSuffix(path, ".toml")
-	if len(raw) > 0 {
-		if isTOML {
-			err = toml.Unmarshal(raw, &data)
-		} else {
-			err = json.Unmarshal(raw, &data)
-		}
-		if err != nil {
-			return "", fmt.Errorf("read existing MCP configuration %s: %w", path, err)
-		}
-	}
-	if data == nil {
-		return "", fmt.Errorf("MCP configuration %s must be an object", path)
-	}
 	if err := migrateMCPRegistration(data, provider, selectedMCPEntry(provider, executable, server, apiKey, transport, local)); err != nil {
 		return "", fmt.Errorf("migrate MCP configuration %s: %w", path, err)
 	}
 	if err := checkExternalMCPPolicies(loc.Home, provider, filepath.Join(loc.Home, path)); err != nil {
 		return "", err
 	}
+	if err := writeMCPFile(fs, path, isTOML, data); err != nil {
+		return "", err
+	}
+	return filepath.Join(root, path), nil
+}
+
+// MCPURL is the MCP endpoint of a Sectile server. Writers and readers share it,
+// so a registered URL is compared by the same rule it was written with.
+func MCPURL(server string) string { return strings.TrimRight(server, "/") + "/mcp" }
+
+// writeMCPFile replaces path under fs atomically, owner-only: the file carries the workstation key.
+func writeMCPFile(fs *os.Root, path string, isTOML bool, data map[string]any) error {
+	var raw []byte
+	var err error
 	if isTOML {
 		raw, err = toml.Marshal(data)
 	} else {
 		raw, err = json.MarshalIndent(data, "", "  ")
 	}
 	if err != nil {
-		return "", err
+		return err
 	}
 	if err = fs.MkdirAll(filepath.Dir(path), 0755); err != nil {
-		return "", err
+		return err
 	}
 	temp := filepath.Join(filepath.Dir(path), ".sectile-mcp-"+uuid.NewString()+".tmp")
 	defer fs.Remove(temp)
 	// Owner-only: the file now carries the workstation API key.
 	if err = fs.WriteFile(temp, raw, 0600); err != nil {
-		return "", err
+		return err
 	}
-	if err = fs.Rename(temp, path); err != nil {
-		return "", err
+	return fs.Rename(temp, path)
+}
+
+// readMCPConfig decodes the provider's user-level MCP configuration. A
+// missing or empty file is an empty object.
+func readMCPConfig(provider string) (map[string]any, Locations, error) {
+	loc, err := ResolveLocations(provider)
+	if err != nil {
+		return nil, Locations{}, err
 	}
-	return filepath.Join(root, path), nil
+	path := loc.MCPFile
+	fs, err := os.OpenRoot(loc.Home)
+	if err != nil {
+		return nil, Locations{}, err
+	}
+	defer fs.Close()
+	data := map[string]any{}
+	raw, err := fs.ReadFile(path)
+	if err != nil && !os.IsNotExist(err) {
+		return nil, Locations{}, err
+	}
+	if len(raw) > 0 {
+		if strings.HasSuffix(path, ".toml") {
+			err = toml.Unmarshal(raw, &data)
+		} else {
+			err = json.Unmarshal(raw, &data)
+		}
+		if err != nil {
+			return nil, Locations{}, fmt.Errorf("read existing MCP configuration %s: %w", path, err)
+		}
+	}
+	if data == nil {
+		return nil, Locations{}, fmt.Errorf("MCP configuration %s must be an object", path)
+	}
+	return data, loc, nil
+}
+
+// MCPProviders are the CLIs whose user-level MCP registration Sectile writes.
+var MCPProviders = []string{"claude", "codex", "agy"}
+
+// RegisteredMCP is the user-level `sectile` entry a provider already holds.
+type RegisteredMCP struct {
+	Server, APIKey, Transport, Command string
+}
+
+// RegisteredMCPEntry reads the top-level `sectile` entry: found is false when
+// the file or the entry is missing. An entry in neither the HTTP nor the stdio
+// shape is found but empty.
+func RegisteredMCPEntry(provider string) (RegisteredMCP, bool, error) {
+	provider = strings.ToLower(strings.TrimSpace(provider))
+	data, _, err := readMCPConfig(provider)
+	if err != nil {
+		return RegisteredMCP{}, false, err
+	}
+	key := "mcpServers"
+	if provider == "codex" {
+		key = "mcp_servers"
+	}
+	servers, _ := data[key].(map[string]any)
+	value, found := servers["sectile"]
+	if !found {
+		return RegisteredMCP{}, false, nil
+	}
+	entry, _ := value.(map[string]any)
+	if endpoint := firstString(entry, "url", "serverUrl"); endpoint != "" {
+		registered := RegisteredMCP{Server: strings.TrimSuffix(strings.TrimRight(endpoint, "/"), "/mcp"), Transport: "http"}
+		for _, field := range []string{"headers", "http_headers"} {
+			headers, _ := entry[field].(map[string]any)
+			if authorization, ok := headers["Authorization"].(string); ok {
+				registered.APIKey = strings.TrimSpace(strings.TrimPrefix(authorization, "Bearer "))
+				break
+			}
+		}
+		return registered, true, nil
+	}
+	if command, ok := entry["command"].(string); ok && command != "" {
+		registered := RegisteredMCP{Command: command, Transport: "stdio"}
+		args, _ := entry["args"].([]any)
+		for i := 0; i+1 < len(args); i++ {
+			if args[i] == "--url" {
+				registered.Server, _ = args[i+1].(string)
+				break
+			}
+		}
+		env, _ := entry["env"].(map[string]any)
+		registered.APIKey, _ = env["SECTILE_AGENT_TOKEN"].(string)
+		return registered, true, nil
+	}
+	return RegisteredMCP{}, true, nil
+}
+
+func firstString(entry map[string]any, fields ...string) string {
+	for _, field := range fields {
+		if value, ok := entry[field].(string); ok && value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+// RefreshRegisteredMCPKey rewrites an existing registration that addresses
+// server with another key, keeping its transport (and, over stdio, its
+// command). It never creates one, and leaves a local or foreign entry alone.
+// It reports whether it wrote.
+func RefreshRegisteredMCPKey(provider, executable, server, apiKey string) (bool, error) {
+	entry, found, err := RegisteredMCPEntry(provider)
+	server = strings.TrimRight(server, "/")
+	// Compared by the rule the entry was written with, so a URL written by ConfigureMCP always matches.
+	if err != nil || !found || entry.APIKey == "" || strings.TrimSpace(apiKey) == "" || entry.APIKey == apiKey || MCPURL(entry.Server) != MCPURL(server) {
+		return false, err
+	}
+	if entry.Transport == "stdio" && filepath.IsAbs(entry.Command) {
+		executable = entry.Command
+	}
+	// ConfigureMCP writes through writeMCPFile: atomically, owner-only.
+	_, err = ConfigureMCP(provider, executable, server, apiKey, entry.Transport, false)
+	return err == nil, err
 }
 
 func selectedMCPEntry(provider, executable, server, apiKey, transport string, local bool) map[string]any {
@@ -144,7 +253,7 @@ func selectedMCPEntry(provider, executable, server, apiKey, transport string, lo
 		entry := map[string]any{"command": executable, "args": []string{"mcp", "--url", server}, "env": map[string]any{"SECTILE_AGENT_TOKEN": apiKey}}
 		return entry
 	}
-	entry := map[string]any{"url": server + "/mcp"}
+	entry := map[string]any{"url": MCPURL(server)}
 	headerField := "headers"
 	switch provider {
 	case "claude":
@@ -153,7 +262,7 @@ func selectedMCPEntry(provider, executable, server, apiKey, transport string, lo
 		headerField = "http_headers"
 	case "agy":
 		delete(entry, "url")
-		entry["serverUrl"] = server + "/mcp"
+		entry["serverUrl"] = MCPURL(server)
 	}
 	if !local {
 		entry[headerField] = map[string]any{"Authorization": "Bearer " + apiKey}

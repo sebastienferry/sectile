@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"tasks/internal/testhome"
 	"testing"
@@ -195,5 +196,147 @@ func TestBootstrapMCPVisibleToAgy(t *testing.T) {
 	}
 	if !strings.Contains(string(output), "sectile") || !strings.Contains(string(output), "/usr/bin/true") {
 		t.Fatalf("agy did not discover Sectile: %s", output)
+	}
+}
+
+// writeProviderMCPFile writes a provider's MCP configuration file under home.
+func writeProviderMCPFile(t *testing.T, home, provider, content string) string {
+	t.Helper()
+	loc, err := ResolveLocations(provider)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(home, loc.MCPFile)
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+// staleMCPFixtures are registrations written with an earlier key, in the
+// shape each provider holds them, beside an unrelated server and setting.
+func staleMCPFixtures(command string) map[string]string {
+	return map[string]string{
+		"claude": `{"keep":"yes","mcpServers":{"other":{"command":"other-server","env":{"TOKEN":"other-key"}},` +
+			`"sectile":{"type":"http","url":"` + testServer + `/mcp","headers":{"Authorization":"Bearer sectile_old"}}}}`,
+		"codex": "keep = \"yes\"\n\n[mcp_servers.other]\ncommand = \"other-server\"\nenv = { TOKEN = \"other-key\" }\n\n" +
+			"[mcp_servers.sectile]\nurl = \"" + testServer + "/mcp\"\nhttp_headers = { Authorization = \"Bearer sectile_old\" }\n",
+		"agy": `{"keep":"yes","mcpServers":{"other":{"command":"other-server","env":{"TOKEN":"other-key"}},` +
+			`"sectile":{"command":` + strconv.Quote(command) + `,"args":["mcp","--url","` + testServer + `"],"env":{"SECTILE_AGENT_TOKEN":"sectile_old"}}}}`,
+	}
+}
+
+// A registration written with an earlier key follows the new one, keeping
+// its transport, and nothing else in the file changes (#717).
+func TestRefreshRegisteredMCPKeyRewritesAStaleKey(t *testing.T) {
+	transports := map[string]string{"claude": "http", "codex": "http", "agy": "stdio"}
+	for provider, transport := range transports {
+		t.Run(provider, func(t *testing.T) {
+			home := testhome.Temp(t)
+			command := filepath.Join(home, "bin", "sectile-agent")
+			path := writeProviderMCPFile(t, home, provider, staleMCPFixtures(command)[provider])
+
+			entry, found, err := RegisteredMCPEntry(provider)
+			if err != nil || !found || entry.APIKey != "sectile_old" || entry.Server != testServer || entry.Transport != transport {
+				t.Fatalf("registered entry = %+v, %v, %v", entry, found, err)
+			}
+			wrote, err := RefreshRegisteredMCPKey(provider, command, testServer+"/", "sectile_new")
+			if err != nil || !wrote {
+				t.Fatalf("refresh = %v, %v", wrote, err)
+			}
+			entry, found, err = RegisteredMCPEntry(provider)
+			if err != nil || !found || entry.APIKey != "sectile_new" || entry.Server != testServer || entry.Transport != transport {
+				t.Fatalf("refreshed entry = %+v, %v, %v", entry, found, err)
+			}
+			data := readRegistration(t, path)
+			if data["keep"] != "yes" {
+				t.Fatalf("unrelated setting lost: %v", data)
+			}
+			raw, _ := json.Marshal(data)
+			for _, want := range []string{"other-server", "other-key"} {
+				if !strings.Contains(string(raw), want) {
+					t.Fatalf("missing %q in %s", want, raw)
+				}
+			}
+			if strings.Contains(string(raw), "sectile_old") {
+				t.Fatalf("stale key left behind: %s", raw)
+			}
+			// The same key again is not a change: nothing is written.
+			if wrote, err := RefreshRegisteredMCPKey(provider, command, testServer, "sectile_new"); err != nil || wrote {
+				t.Fatalf("refresh with the current key = %v, %v", wrote, err)
+			}
+		})
+	}
+}
+
+// Refreshing only follows a registration the user already has: it never
+// registers Sectile with a provider that does not list it.
+func TestRefreshRegisteredMCPKeyCreatesNothing(t *testing.T) {
+	for _, provider := range MCPProviders {
+		t.Run(provider, func(t *testing.T) {
+			home := testhome.Temp(t)
+			loc, err := ResolveLocations(provider)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if wrote, err := RefreshRegisteredMCPKey(provider, filepath.Join(home, "sectile-agent"), testServer, "sectile_new"); err != nil || wrote {
+				t.Fatalf("refresh without a file = %v, %v", wrote, err)
+			}
+			if _, err := os.Stat(filepath.Join(home, loc.MCPFile)); !os.IsNotExist(err) {
+				t.Fatalf("a configuration file was created: %v", err)
+			}
+			content := `{"mcpServers":{"other":{"command":"other-server"}}}`
+			if provider == "codex" {
+				content = "[mcp_servers.other]\ncommand = \"other-server\"\n"
+			}
+			path := writeProviderMCPFile(t, home, provider, content)
+			if wrote, err := RefreshRegisteredMCPKey(provider, filepath.Join(home, "sectile-agent"), testServer, "sectile_new"); err != nil || wrote {
+				t.Fatalf("refresh without an entry = %v, %v", wrote, err)
+			}
+			if raw, _ := os.ReadFile(path); string(raw) != content {
+				t.Fatalf("file changed: %s", raw)
+			}
+		})
+	}
+}
+
+// A local registration carries no key and addresses the loopback; one for
+// another server holds that server's key. Neither is this key's to rewrite.
+func TestRefreshRegisteredMCPKeyLeavesAnotherServerAndLocalEntriesAlone(t *testing.T) {
+	fixtures := map[string]string{
+		"local":   `{"mcpServers":{"sectile":{"type":"http","url":"http://127.0.0.1:8091/mcp"}}}`,
+		"foreign": `{"mcpServers":{"sectile":{"type":"http","url":"https://other.example.test/mcp","headers":{"Authorization":"Bearer sectile_other"}}}}`,
+	}
+	for name, content := range fixtures {
+		t.Run(name, func(t *testing.T) {
+			home := testhome.Temp(t)
+			path := writeProviderMCPFile(t, home, "claude", content)
+			if wrote, err := RefreshRegisteredMCPKey("claude", filepath.Join(home, "sectile-agent"), testServer, "sectile_new"); err != nil || wrote {
+				t.Fatalf("refresh = %v, %v", wrote, err)
+			}
+			if raw, _ := os.ReadFile(path); string(raw) != content {
+				t.Fatalf("file changed: %s", raw)
+			}
+		})
+	}
+}
+
+// Over stdio the entry keeps the command it was written with, so a
+// registration pointing at an installed agent is not moved to whichever
+// binary happened to refresh it.
+func TestRefreshRegisteredMCPKeyKeepsTheStdioCommand(t *testing.T) {
+	home := testhome.Temp(t)
+	installed := filepath.Join(home, "installed", "sectile-agent")
+	writeProviderMCPFile(t, home, "agy", staleMCPFixtures(installed)["agy"])
+
+	if wrote, err := RefreshRegisteredMCPKey("agy", filepath.Join(home, "elsewhere", "sectile-agent"), testServer, "sectile_new"); err != nil || !wrote {
+		t.Fatalf("refresh = %v, %v", wrote, err)
+	}
+	entry, found, err := RegisteredMCPEntry("agy")
+	if err != nil || !found || entry.Command != installed || entry.APIKey != "sectile_new" || entry.Transport != "stdio" {
+		t.Fatalf("entry = %+v, %v, %v", entry, found, err)
 	}
 }

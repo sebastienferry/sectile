@@ -73,6 +73,8 @@ test('desktop console reconnects, accepts input and stops the owned run',async()
   await expect(page.locator('.settings-connection-status')).toHaveText('Connected')
   await expect(page.locator('.settings-connection-status .connection-dot')).toHaveCSS('background-color','rgb(98, 211, 190)')
   await expect(page.locator('.configuration-page #start')).toBeVisible()
+  // Signing in with the browser is offered beside the code, as on the setup screen.
+  await expect(page.locator('.configuration-page #browser-sign-in')).toBeVisible()
   assert.equal(await page.locator('#start input').count(),2)
   assert.equal(await page.getByLabel('API key',{exact:true}).count(),0)
   await page.getByLabel('Pairing code',{exact:true}).waitFor()
@@ -82,6 +84,7 @@ test('desktop console reconnects, accepts input and stops the owned run',async()
   await page.getByRole('button',{name:'Back',exact:true}).click()
   // The form goes back to the connection screen it was borrowed from.
   await expect(page.locator('#setup #start')).toHaveCount(1)
+  await expect(page.locator('#setup #browser-sign-in')).toHaveCount(1)
   await expect(page.locator('#workspace')).toBeVisible()
   await page.locator('#add-project').click()
   assert.equal(await page.getByRole('button',{name:'Example project · Already added',exact:true}).isDisabled(),true)
@@ -270,8 +273,9 @@ test('desktop console reconnects, accepts input and stops the owned run',async()
   available=false
   await page.getByText('Local agent is stopped',{exact:true}).waitFor()
   // Starting is the connection screen's own button: the sidebar that would
-  // carry a start control is hidden precisely while the agent is stopped.
-  assert.equal(await page.getByRole('button',{name:'Start local agent',exact:true}).isEnabled(),true)
+  // carry a start control is hidden precisely while the agent is stopped. With
+  // no saved key it reads Connect (#716).
+  assert.equal(await page.locator('#start button[type=submit]').isEnabled(),true)
   console.log('Screenshot:',path.join(root,'console.png'))
  }finally{
   if(application)await application.close()

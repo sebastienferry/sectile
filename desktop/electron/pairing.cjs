@@ -2,7 +2,9 @@
 // server without a credential: the code is the proof, and it is spent here.
 const os = require('node:os')
 
-async function exchangePairingCode(server, code, label = os.hostname(), fetcher = fetch) {
+// The device this workstation was paired as, when one is stored, lets the server
+// revoke the key it held before: a workstation keeps one live key (#717).
+async function exchangePairingCode(server, code, label = os.hostname(), fetcher = fetch, deviceId = '') {
  if (!String(code || '').trim()) throw Error('A pairing code is required')
  const url = new URL(server)
  if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) {
@@ -13,7 +15,7 @@ async function exchangePairingCode(server, code, label = os.hostname(), fetcher 
   response = await fetcher(new URL('/api/v1/agent/pair', server), {
    method: 'POST',
    headers: {'Content-Type': 'application/json'},
-   body: JSON.stringify({code: String(code).trim(), label}),
+   body: JSON.stringify({code: String(code).trim(), label, ...(deviceId ? {deviceId} : {})}),
    signal: AbortSignal.timeout(5000),
    redirect: 'error'
   })
@@ -30,6 +32,10 @@ async function exchangePairingCode(server, code, label = os.hostname(), fetcher 
  return {token: body.token, deviceId: body.deviceId, userId: body.userId}
 }
 
+// pairingNeeded marks a refusal only a new pairing code can fix, so the start
+// screen can ask for one instead of reporting a failure.
+function pairingNeeded(message) { const e = Error(message); e.pairingNeeded = true; return e }
+
 // Pairing is the only way in: the form asks for a code, which is spent once for
 // a device credential. `token` is not something a user types any more, it is the
 // credential an earlier pairing stored; the code wins when both are present,
@@ -38,11 +44,11 @@ async function resolveConnectCredential(settings, exchange = exchangePairingCode
  const code = String(settings.code || '').trim()
  if (!code) {
   const token = String(settings.token || '').trim()
-  if (!token) throw Error('Enter a pairing code from your profile in the web interface')
+  if (!token) throw pairingNeeded('This workstation has no saved key yet. Paste a pairing code from your profile in the web interface.')
   return {token, paired: false}
  }
- const credential = await exchange(settings.server, code, label)
+ const credential = await exchange(settings.server, code, label, undefined, settings.deviceId)
  return {token: credential.token, deviceId: credential.deviceId, paired: true}
 }
 
-module.exports = {exchangePairingCode, resolveConnectCredential}
+module.exports = {exchangePairingCode, resolveConnectCredential, pairingNeeded}

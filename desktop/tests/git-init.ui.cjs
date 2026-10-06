@@ -4,7 +4,7 @@ const {_electron:electron,expect}=require('@playwright/test')
 const http=require('node:http'),fs=require('node:fs'),os=require('node:os'),path=require('node:path')
 
 // A project folder that is not a Git repository yet is offered one, with an
-// empty first commit, under the Local repository and the Specifications
+// empty first commit, under the Local repository and the Macro specifications
 // folder; declining, a Git failure and an agent too old to initialize all
 // leave the settings as they were (#481).
 test('desktop offers to initialize a project folder as a Git repository',async()=>{
@@ -56,11 +56,11 @@ test('desktop offers to initialize a project folder as a Git repository',async()
    const offer=name=>page.getByRole('group',{name:name+' Git initialization',exact:true})
    return {
     local:page.getByRole('textbox',{name:'Local repository',exact:true}),
-    spec:page.getByRole('textbox',{name:'Specifications folder',exact:true}),
+    spec:page.getByRole('textbox',{name:'Macro specifications folder',exact:true}),
     localOffer:offer('Local repository'),
-    specOffer:offer('Specifications folder'),
+    specOffer:offer('Macro specifications folder'),
     localStatus:page.getByRole('status',{name:'Local repository Git initialization status',exact:true}),
-    specStatus:page.getByRole('status',{name:'Specifications folder Git initialization status',exact:true})
+    specStatus:page.getByRole('status',{name:'Macro specifications folder Git initialization status',exact:true})
    }
   }
   const save=()=>page.getByRole('button',{name:'Save local configuration',exact:true}).click()
@@ -113,7 +113,7 @@ test('desktop offers to initialize a project folder as a Git repository',async()
   await expect(f.specOffer).toContainText('This Git repository has no commit yet.')
   assert.equal(saves.length,2)
   // Following the local repository, the folder offers nothing of its own.
-  await page.getByRole('checkbox',{name:'Specifications live in the code repository',exact:true}).check()
+  await page.getByRole('checkbox',{name:'Macro specifications live in the code repository',exact:true}).check()
   await expect(f.specOffer).toBeHidden()
   await close()
 

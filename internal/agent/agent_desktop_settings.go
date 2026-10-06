@@ -45,10 +45,19 @@ type projectSettingsInput struct {
 	// InheritSpecArtifacts removes the override.
 	SpecArtifacts        *string `json:"specArtifacts"`
 	InheritSpecArtifacts bool    `json:"inheritSpecArtifacts"`
-	// SpecPath is the specifications folder on this workstation; empty
+	// SpecPath is the Macro specifications folder on this workstation; empty
 	// clears the override, so the code checkout carries the specifications
 	// again.
 	SpecPath *string `json:"specPath"`
+	// IssueSpecPath is the Issue specifications folder (#736), cleared the
+	// same way.
+	IssueSpecPath *string `json:"issueSpecPath"`
+	// AnyRepository turns on the project's Any repository option (#737), nil
+	// keeps it.
+	AnyRepository *bool `json:"anyRepository"`
+	// ClonesPath is the folder undeclared repositories are cloned into; empty
+	// clears it, so the parent folder of the local repository is used.
+	ClonesPath *string `json:"clonesPath"`
 	// ClaudeSandbox replaces the project's sandbox values (#700); an empty
 	// object clears them, nil keeps them.
 	ClaudeSandbox *agentconfig.ClaudeSandbox `json:"claudeSandbox"`
@@ -318,6 +327,11 @@ func (d *agentDaemon) desktopWorkstation(w http.ResponseWriter, r *http.Request)
 			if input.InitializationProvider == "" {
 				input.InitializationProvider = settings.Defaults.InitializationProvider
 			}
+			// The console view has its own endpoint: this form never carries it.
+			input.ConsoleView = settings.Defaults.ConsoleView
+			// So do the Sandbox values (#730).
+			input.ClaudeSandbox = settings.Defaults.ClaudeSandbox
+			input.ClaudeSandboxProjects = settings.Defaults.ClaudeSandboxProjects
 			settings.Defaults = input
 			return nil
 		})

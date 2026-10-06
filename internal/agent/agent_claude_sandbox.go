@@ -9,9 +9,10 @@ import (
 )
 
 // projectClaudeSettings writes the settings file a Claude launch of the
-// project is handed (#700), from its sandbox values as they are now, and
-// returns its path: "" when the project has none. A failure fails the launch
-// rather than starting Claude without the owner's deny rules.
+// project is handed (#700), from its resolved Sandbox values as they are now
+// (the workstation ones under the project's own, #730), and returns its path:
+// "" when they state nothing. A failure fails the launch rather than starting
+// Claude without the owner's deny rules.
 func (d *agentDaemon) projectClaudeSettings(projectID string) (string, error) {
 	if strings.TrimSpace(projectID) == "" {
 		return "", nil
@@ -19,11 +20,11 @@ func (d *agentDaemon) projectClaudeSettings(projectID string) (string, error) {
 	settings, err := agentconfig.ReadSettings(d.localSettingsRoot())
 	if err == nil {
 		var path string
-		if path, err = agentconfig.ClaudeSettingsFile(projectID, settings.Project(projectID).ClaudeSandbox); err == nil {
+		if path, err = agentconfig.ClaudeSettingsFile(projectID, settings.ResolvedClaudeSandbox(projectID)); err == nil {
 			return path, nil
 		}
 	}
-	return "", fmt.Errorf("the project's Sandbox settings could not be written: %w", err)
+	return "", fmt.Errorf("the project's Claude settings could not be written: %w", err)
 }
 
 // launchClaudeSettings is projectClaudeSettings for a launch of config: an

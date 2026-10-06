@@ -56,6 +56,14 @@ Wherever the skill runs, end every reply addressed to a person with this block, 
 
 When the skill runs nested in pickup-issue or pickup-issues, do not write the block: the outer skill writes one for the whole run.
 
+## Specifications workspace
+The task's clarification report (`docs/clarifications/<n>.md`) and specification (`specs/<KEY>-<slug>/` or `openspec/changes/<KEY>-<slug>/`) are its issue artefacts. They live in the specifications workspace, which may be another repository than the code: the project's Issue specifications folder on this workstation.
+- **Where**: `SECTILE_SPEC_REPO` is its path, `SECTILE_SPEC_BRANCH` its branch and `SECTILE_SPEC_WORKTREE` whether it is a dedicated worktree, when Sectile launched the session. Otherwise call the `prepare_task_spec_worktree` MCP tool with the task key: it answers `path`, `branch`, `worktree`, `distinct` and `warning`, and reuses what a launch prepared. When neither is available, the task worktree is the specifications workspace.
+- Read and write the issue artefacts under that path, never relative to the session directory, and repeat any warning in your report. Do not create, switch or check out a branch there: when it is not a dedicated worktree, check that the path is on its branch, and stop and say so if it is not.
+- **Distinct workspace** (`distinct` true, or `SECTILE_SPEC_REPO` is not the task worktree): the issue artefacts are committed there, never in the code branch. Stage only the task's files (`git -C "<path>" add <files>`, never `git add -A`), commit with the stage's message, and push with `git -C "<path>" push -u origin <branch>` the first time and a plain push afterwards. Never force, never push the default branch; a refused push is reported and does not block the stage. Opening a pull request in that repository is the human's gesture: say the branch is pushed. The dropped artefacts check (`git check-ignore -q`) runs in that path.
+- With a distinct workspace the code branch carries no artefact: open no pull request at the clarified or specified stage, even when the project creates it there, say so in the report, and create the draft after implementation. The code pull request description names the specifications repository and branch.
+- **Plain folder** (empty branch): write in place and run no `git` command there; nothing is committed or pushed. Say so in the report.
+
 ## Goal
 Leave two things behind: a handover a colleague can act on without asking you,
 and a local workspace with nothing stale in it.
@@ -78,7 +86,13 @@ and a local workspace with nothing stale in it.
    tickets sharing this worktree. Preserve a shared batch worktree until every ticket
    is handed off. Remove only an unused, clean worktree and its confirmed merged branch.
    A task that changed several repositories has a worktree and a pull request in each:
-   confirm each is merged, and clean each repository the same way.
+   confirm each is merged, and clean each repository the same way.7. A distinct specifications workspace (see Specifications workspace) has its own worktree and
+   branch in the specifications repository. Remove that worktree and its local branch only when
+   the branch is merged into that repository's default branch (a squash merge is confirmed by
+   content, as for the code branch) and the worktree holds no uncommitted or unpushed work.
+   Otherwise keep both and say so in the handover, naming the repository and the branch. A plain
+   folder has nothing to clean.
+
 
 ## Do not
 - Do not delete anything remote: no remote branch, no tag, no release.

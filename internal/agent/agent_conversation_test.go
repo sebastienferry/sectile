@@ -392,6 +392,91 @@ printf '%s\n' '{"type":"result","is_error":false,"result":"Hello **world**","ses
 	}
 }
 
+// conversationTurnTrace sends one message, waits for the turn to end and
+// returns the trace it left.
+func conversationTurnTrace(t *testing.T, script string) (*agentDaemon, *controlledRun, string) {
+	t.Helper()
+	testhome.Temp(t)
+	bin := t.TempDir()
+	if err := os.WriteFile(filepath.Join(bin, "claude"), []byte(script), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	d, id := conversationFixture(t)
+	run := d.queue.runs[id]
+	if w := conversationRequest(d, "POST", "/desktop/conversation?id="+id, `{"message":"hi"}`, "private"); w.Code != 202 {
+		t.Fatalf("send: %d %s", w.Code, w.Body.String())
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		d.queue.mu.Lock()
+		busy := run.conversation.busy
+		d.queue.mu.Unlock()
+		if !busy {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("Claude turn did not finish")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	lines, _ := run.trace.snapshot()
+	return d, run, strings.Join(lines, "\n")
+}
+
+// A JSON frame Sectile does not read, or reads under another shape, never
+// reaches the chat as a raw error, and the fields Sectile does read survive it.
+func TestConversationKeepsUnexpectedFramesOutOfTheChat(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake CLI is a POSIX script")
+	}
+	d, run, text := conversationTurnTrace(t, `#!/bin/sh
+read -r init
+read -r message
+printf '%s\n' '{"type":"system","subtype":"ui_invalidate","event":"ui.render","uuid":"b1c51aa9-74b3-4db0-9710-8496455ac164","session_id":"209887cc-9814-45f6-a711-c66f1dde5d22"}'
+printf '%s\n' '{"type":"system","subtype":"init","event":"ui.render","model":"claude-main","session_id":"209887cc-9814-45f6-a711-c66f1dde5d22"}'
+printf '%s\n' '{"type":"stream_event","parent_tool_use_id":null,"event":"ui.render"}'
+printf '%s\n' '{"foo":1}'
+printf '%s\n' '[]'
+printf '%s\n' '{"type":"assistant","parent_tool_use_id":null,"message":{"content":[{"type":"text","text":"Hello"}]}}'
+printf '%s\n' '{"type":"result","is_error":false,"result":"Hello","session_id":"11111111-1111-4111-8111-111111111111","modelUsage":{"claude-main":{"contextWindow":200000},"claude-subagent":{"contextWindow":1000000}}}'
+`)
+	if strings.Contains(text, `"kind":"error"`) || strings.Count(text, `"kind":"assistant"`) != 1 {
+		t.Fatalf("unexpected transcript: %s", text)
+	}
+	d.queue.mu.Lock()
+	session, window, partial := run.conversation.session, run.conversation.contextWindow, run.conversation.partial
+	d.queue.mu.Unlock()
+	if session != "11111111-1111-4111-8111-111111111111" {
+		t.Fatalf("session = %q, want the result's", session)
+	}
+	// The main model's window only wins when the init frame's model was read
+	// despite its string event.
+	if window != 200000 {
+		t.Fatalf("context window = %d, want the main model's 200000", window)
+	}
+	if partial != "" {
+		t.Fatalf("draft = %q, want none", partial)
+	}
+}
+
+// A stdout line that is not JSON at all is still shown as an error.
+func TestConversationShowsNonJSONLinesAsErrors(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake CLI is a POSIX script")
+	}
+	_, _, text := conversationTurnTrace(t, `#!/bin/sh
+read -r init
+read -r message
+printf '%s\n' 'plain diagnostic line'
+printf '%s\n' '   '
+printf '%s\n' '{"type":"result","is_error":false,"result":"Hello","session_id":"11111111-1111-4111-8111-111111111111"}'
+`)
+	if strings.Count(text, `"kind":"error"`) != 1 || !strings.Contains(text, "plain diagnostic line") {
+		t.Fatalf("unexpected transcript: %s", text)
+	}
+}
+
 // Interrupting stops the answer in progress and keeps the conversation open.
 func TestConversationInterruptKeepsTheConversation(t *testing.T) {
 	if runtime.GOOS == "windows" {

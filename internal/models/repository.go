@@ -169,14 +169,18 @@ const (
 	// PrimaryUnmapped means the task's repository is known but has no folder
 	// on this workstation.
 	PrimaryUnmapped
+	// PrimaryUndeclared means the task is pinned to a repository its project
+	// does not declare (#737), which only the Any repository option resolves.
+	PrimaryUndeclared
 )
 
 // ResolvePrimaryRepository decides which repository a task runs in, before
 // anything is launched. pinned is the task's repository identity, "" when not
 // pinned; mapped tells whether a repository has a folder on this workstation.
 // A pin to a listed repository names it, resolved when it has a folder here
-// and unmapped otherwise; anything else is the code repository (#484). The
-// returned repository is set for PrimaryResolved and PrimaryUnmapped.
+// and unmapped otherwise; a pin to another repository is undeclared (#737);
+// anything else is the code repository (#484). The returned repository is set
+// for every outcome but PrimaryDefault.
 func ResolvePrimaryRepository(pinned string, repositories []ProjectRepository, mapped func(identity string) bool) (ProjectRepository, PrimaryResolution) {
 	if pinned = strings.TrimSpace(pinned); pinned != "" {
 		if found, ok := FindProjectRepository(repositories, pinned); ok {
@@ -185,10 +189,20 @@ func ResolvePrimaryRepository(pinned string, repositories []ProjectRepository, m
 			}
 			return found, PrimaryUnmapped
 		}
-		// A pin outside the list cannot be stored (the server refuses it); an
-		// old one is treated as absent rather than trusted.
+		// A pin outside the list names a repository the project does not
+		// declare (#737); what names no repository is treated as absent.
+		if identity := RepositoryIdentity(pinned); IsRemoteIdentity(identity) {
+			return ProjectRepository{URL: pinned, Identity: identity}, PrimaryUndeclared
+		}
 	}
 	return ProjectRepository{}, PrimaryDefault
+}
+
+// IsRemoteIdentity reports an identity that names a repository on a host,
+// host/path, as opposed to a folder, a bare name or a home path.
+func IsRemoteIdentity(identity string) bool {
+	host, path, ok := strings.Cut(identity, "/")
+	return ok && host != "" && path != "" && !strings.ContainsAny(identity, `\~`) && !strings.HasPrefix(host, ".")
 }
 
 // LegacyRepoPath is one working directory typed before repositories existed:
@@ -235,7 +249,30 @@ type RepositoryWorktree struct {
 	Repository string `json:"repository"`
 	Path       string `json:"path"`
 	Branch     string `json:"branch"`
+	// Source says where the repository's checkout was found (#737): its
+	// mapping, the project checkout, an attached folder, the path the caller
+	// gave, or a clone the agent made.
+	Source string `json:"source,omitempty"`
+	// PathChecked echoes a path the caller gave, so the server can tell an
+	// agent that checked it from one that ignored it.
+	PathChecked bool `json:"pathChecked,omitempty"`
+	// Remembered says the checkout was written to the workstation mapping.
+	Remembered bool `json:"remembered,omitempty"`
+	// AddedToSession says the worktree was added to the ticket's running
+	// Claude Code sessions.
+	AddedToSession bool `json:"addedToSession,omitempty"`
+	// Warning is what the caller should know, a failed fetch for instance.
+	Warning string `json:"warning,omitempty"`
 }
+
+// Where a repository_worktree found the repository's checkout (#737).
+const (
+	RepositorySourceMapping  = "mapping"
+	RepositorySourceProject  = "project"
+	RepositorySourceAttached = "attached"
+	RepositorySourcePath     = "path"
+	RepositorySourceClone    = "clone"
+)
 
 // WorktreeRemoval answers a remove_workspace operation over several
 // repositories.

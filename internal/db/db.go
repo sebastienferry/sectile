@@ -187,6 +187,9 @@ type DB struct {
 	// copied part: the tracker copy of its todos (#663) or of its framing
 	// (#636) waiting for the saves to settle.
 	todosMirrorTimers sync.Map
+	// projectURLs caches the project fields the tracker links are built from (#486). Per DB, never a package global:
+	// tests open several DBs on one file as separate instances. See internal/db/projectcache.go.
+	projectURLs projectURLCache
 }
 
 // NewDB opens a SQLite database at dbPath. It is the path-shaped entry point the
@@ -1115,7 +1118,31 @@ func (d *DB) ImportOrUpdateTasks(syncedTasks []models.Task) error {
 	return nil
 }
 
+// externalURLResolver computes the tracker links of one read. It loads the settings at most once, and only when a row
+// needs them. They are never kept past the read, because they carry the tracker tokens.
+type externalURLResolver struct {
+	d              *DB
+	settings       *models.Settings
+	settingsLoaded bool
+}
+
+func (d *DB) newExternalURLResolver() *externalURLResolver { return &externalURLResolver{d: d} }
+
+// settingsOnce memoises by flag, not by value: a failed read must not be retried for every row.
+func (r *externalURLResolver) settingsOnce() *models.Settings {
+	if !r.settingsLoaded {
+		r.settings, _ = r.d.getSettingsUnsafe()
+		r.settingsLoaded = true
+	}
+	return r.settings
+}
+
+// computeExternalURLUnsafe resolves a single task; a loop over many builds one externalURLResolver instead.
 func (d *DB) computeExternalURLUnsafe(t *models.Task) *string {
+	return d.newExternalURLResolver().resolve(t)
+}
+
+func (r *externalURLResolver) resolve(t *models.Task) *string {
 	if t.ExternalURL != nil && *t.ExternalURL != "" {
 		urlStr := *t.ExternalURL
 		if strings.HasPrefix(urlStr, "https://api.github.com/repos/") {
@@ -1126,20 +1153,19 @@ func (d *DB) computeExternalURLUnsafe(t *models.Task) *string {
 		}
 		return t.ExternalURL
 	}
-	var proj *models.Project
-	if t.ProjectID != "" {
-		proj, _ = d.getProjectByIDUnsafe(t.ProjectID)
-	}
 	source := t.Source
-	if source == "" && proj != nil {
+	// Only these trackers build a link from the project: a local task never reads it.
+	var proj projectURLFields
+	if t.ProjectID != "" && (source == "" || source == "github" || source == "jira" || source == "gitlab") {
+		proj, _ = r.d.projectURLFieldsUnsafe(t.ProjectID)
+	}
+	if source == "" {
 		source = proj.IssueTracker
 	}
 	switch source {
 	case "github":
-		var repo string
-		if proj != nil && proj.GithubRepo != "" {
-			repo = proj.GithubRepo
-		} else if proj != nil && proj.GitRemoteUrl != "" {
+		repo := proj.GithubRepo
+		if repo == "" && proj.GitRemoteUrl != "" {
 			repo = trackerapi.CleanGithubRepo(proj.GitRemoteUrl)
 		}
 		cleanNum := strings.TrimPrefix(strings.TrimPrefix(strings.TrimPrefix(t.Key, "GH-#"), "gh-"), "#")
@@ -1148,11 +1174,11 @@ func (d *DB) computeExternalURLUnsafe(t *models.Task) *string {
 			return &u
 		}
 	case "jira":
-		base := ""
-		if proj != nil && proj.TrackerUrl != "" {
-			base = proj.TrackerUrl
-		} else if s, _ := d.getSettingsUnsafe(); s != nil && s.JiraUrl != "" {
-			base = s.JiraUrl
+		base := proj.TrackerUrl
+		if base == "" {
+			if s := r.settingsOnce(); s != nil && s.JiraUrl != "" {
+				base = s.JiraUrl
+			}
 		}
 		if base != "" {
 			u := fmt.Sprintf("%s/browse/%s", strings.TrimSuffix(base, "/"), t.Key)
@@ -1161,11 +1187,8 @@ func (d *DB) computeExternalURLUnsafe(t *models.Task) *string {
 	case "gitlab":
 		// The adapter records the issue's web_url; this only answers for a task
 		// imported without one.
-		apiURL, projectPath := "", ""
-		if proj != nil {
-			apiURL, projectPath = proj.GitlabUrl, proj.GitlabProject
-		}
-		if s, _ := d.getSettingsUnsafe(); s != nil {
+		apiURL, projectPath := proj.GitlabUrl, proj.GitlabProject
+		if s := r.settingsOnce(); s != nil {
 			apiURL, projectPath = firstNonEmpty(apiURL, s.GitlabUrl), firstNonEmpty(projectPath, s.GitlabProject)
 		}
 		apiURL = firstNonEmpty(apiURL, trackerapi.DefaultGitlabURL)
@@ -1850,6 +1873,7 @@ func (d *DB) GetTasksInScope(scope TaskScope, query, status, priority, label, sp
 	}
 	defer rows.Close()
 
+	urls := d.newExternalURLResolver()
 	var tasks []models.Task
 	for rows.Next() {
 		var t models.Task
@@ -1946,7 +1970,7 @@ func (d *DB) GetTasksInScope(scope TaskScope, query, status, priority, label, sp
 		if extURL.Valid && extURL.String != "" {
 			t.ExternalURL = &extURL.String
 		} else {
-			t.ExternalURL = d.computeExternalURLUnsafe(&t)
+			t.ExternalURL = urls.resolve(&t)
 		}
 
 		t.IssueType = issueType.String
@@ -3035,7 +3059,13 @@ func (d *DB) updateTaskBy(actor Actor, id string, req models.UpdateTaskRequest) 
 				repository, ok = models.FindProjectRepository(project.Repositories, *req.Repository)
 			}
 			if !ok {
-				return nil, fmt.Errorf("%w: %s", ErrRepositoryNotInProject, strings.TrimSpace(*req.Repository))
+				// Any remote may be pinned (#737): whether a workstation can
+				// work there is its Any repository option's to say.
+				undeclared := models.RepositoryIdentity(*req.Repository)
+				if !remoteIdentity(undeclared) {
+					return nil, fmt.Errorf("%w: %s", ErrRepositoryNotInProject, strings.TrimSpace(*req.Repository))
+				}
+				repository.Identity = undeclared
 			}
 			identity = repository.Identity
 		}
@@ -6475,6 +6505,7 @@ func (d *DB) CreateProjectAs(ownerUserID string, req models.CreateProjectRequest
 	`, id, name, slug, req.Description, icon, color, repositoriesJSON, models.NormalizeSkillMode(req.DefaultSkillMode), models.NormalizeFullChainStopStage(req.FullChainStopStage), boolInt(req.PushStageCommits), prCreationStage, models.NormalizeSpecArtifacts(req.SpecArtifacts), branchNameFormat, req.BoardID, "[]", "{}", "[]", string(issueTypesBytes), string(enabledViewsBytes), epicColorsInt, string(roadmapProjectsBytes), boolInt(roadmapAxisWrites), string(epicAxisPrefixesBytes), gitRemote, githubRepo, strings.TrimSpace(req.GithubApiUrl), strings.TrimSpace(req.GitlabUrl), strings.TrimSpace(req.GitlabProject), jiraProject, issueTracker, req.TrackerUrl, isDefInt, specFramework, autoSyncEnabledInt, autoSyncIntervalMin, strings.TrimSpace(ownerUserID), now, now)
 		return err
 	})
+	d.projectURLs.clear()
 	if err != nil {
 		d.mu.Unlock()
 		return nil, err
@@ -6548,6 +6579,7 @@ func (d *DB) UpdateProjectAs(actingUserID string, id string, req models.UpdatePr
 	// The declared repositories, read before the code remote may change: the
 	// old code remote is not one of them, and must not become one.
 	repositoryURLs := declaredRepositoryURLs(p)
+	previousRepositories := declaredIdentities(p)
 
 	if req.Name != nil && strings.TrimSpace(*req.Name) != "" {
 		p.Name = strings.TrimSpace(*req.Name)
@@ -6725,10 +6757,22 @@ func (d *DB) UpdateProjectAs(actingUserID string, id string, req models.UpdatePr
 		SET name = ?, slug = ?, description = ?, icon = ?, color = ?, repositories = ?, default_skill_mode = ?, full_chain_stop_stage = ?, push_stage_commits = ?, pr_creation_stage = ?, spec_artifacts = ?, branch_name_format = ?, board_id = ?, tracker_columns = ?, stage_columns = ?, sprints = ?, issue_types = ?, enabled_views = ?, epic_colors = ?, roadmap_projects = ?, roadmap_axis_writes = ?, epic_axis_prefixes = ?, git_remote_url = ?, github_repo = ?, github_api_url = ?, gitlab_url = ?, gitlab_project = ?, jira_project = ?, issue_tracker = ?, tracker_url = ?, is_default = ?, spec_framework = ?, auto_sync_enabled = ?, auto_sync_interval_min = ?, owner_user_id = ?, updated_at = ?
 		WHERE id = ?
 	`, p.Name, p.Slug, p.Description, p.Icon, p.Color, encodeRepositoryURLs(projectCodeRemote(p), repositoryURLs), p.DefaultSkillMode, p.FullChainStopStage, boolInt(p.PushStageCommits), p.PRCreationStage, models.NormalizeSpecArtifacts(p.SpecArtifacts), p.BranchNameFormat, p.BoardID, string(trackerColumnsBytes), string(stageColumnsBytes), string(sprintsBytes), string(issueTypesBytes), string(enabledViewsBytes), epicColorsInt, string(roadmapProjectsBytes), boolInt(p.RoadmapAxisWrites), string(epicAxisPrefixesBytes), p.GitRemoteUrl, p.GithubRepo, p.GithubApiUrl, p.GitlabUrl, p.GitlabProject, p.JiraProject, p.IssueTracker, p.TrackerUrl, isDefInt, p.SpecFramework, autoSyncEnabledInt, p.AutoSyncIntervalMin, strings.TrimSpace(p.OwnerUserID), p.UpdatedAt, p.ID)
+	// A repository the project stops declaring no longer decides where its
+	// tickets run: their pins to it go. Since any remote may be pinned
+	// (#737), a pin left behind would otherwise read as a deliberate pin to an
+	// undeclared repository.
+	current := declaredIdentities(p)
+	for _, identity := range previousRepositories {
+		if err != nil || slices.Contains(current, identity) {
+			continue
+		}
+		_, err = tx.Exec("UPDATE tasks SET repository = '' WHERE project_id = ? AND repository = ?", p.ID, identity)
+	}
 	if err == nil {
 		err = tx.Commit()
 		committed = err == nil
 	}
+	d.projectURLs.clear()
 	if err != nil {
 		d.mu.Unlock()
 		return nil, err
@@ -6794,6 +6838,7 @@ func (d *DB) DeleteProject(id string) error {
 		_, err := tx.Exec("DELETE FROM projects WHERE id = ?", p.ID)
 		return err
 	})
+	d.projectURLs.clear()
 	if err != nil {
 		return err
 	}

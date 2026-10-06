@@ -234,10 +234,11 @@ func applySpecArtifacts(ctx context.Context, config *agentconfig.Config, checkou
 }
 
 // clearSpecExclusions removes the project's block from every checkout this
-// workstation maps for it: the project root and each mapped repository. It is
-// what saving the desktop settings with an effective keep does, so the rules
-// go at once rather than at the next launch. Failures are logged: the
-// settings are saved already, and the next launch retries.
+// workstation maps for it: the project root, each mapped repository and the
+// Issue specifications folder. It is what saving the desktop settings with an
+// effective keep does, so the rules go at once rather than at the next launch.
+// Failures are logged: the settings are saved already, and the next launch
+// retries.
 func clearSpecExclusions(ctx context.Context, config agentconfig.Config, overrides agentconfig.Settings, projectRoot string) {
 	code := codeIdentity(config)
 	seen := map[string]bool{}
@@ -245,6 +246,13 @@ func clearSpecExclusions(ctx context.Context, config agentconfig.Config, overrid
 	for _, repository := range projectRepositories(config) {
 		if root, ok := repositoryRoot(overrides, projectRoot, code, repository.Identity); ok {
 			checkouts = append(checkouts, root)
+		}
+	}
+	// A distinct Issue specifications folder holds the tasks' artefacts, and
+	// so its own block (#736).
+	if overrides.IssueSpecPath(config.ProjectID) != "" {
+		if issue, err := localIssueSpecRepo(overrides, config.ProjectID, projectRoot); err == nil {
+			checkouts = append(checkouts, issue)
 		}
 	}
 	for _, checkout := range checkouts {

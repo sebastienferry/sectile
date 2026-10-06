@@ -101,8 +101,9 @@ type agentDaemon struct {
 	// store keeps the runs the desktop lists across a restart (#588). Nil
 	// disables it, which is what a daemon built by hand gets.
 	store *runStore
-	// conversationViews holds the task launches Desktop asked to open as a
-	// conversation, until their dispatch arrives.
+	// conversationViews holds the task launches Desktop explicitly asked to
+	// open as a conversation, until their dispatch arrives. A dispatch without
+	// a mark falls back to the workstation console view.
 	conversationViews pendingDiscussionViews
 }
 
@@ -352,15 +353,22 @@ func Run(args []string) {
 
 	daemon.loopback.binarySha256 = executableSha256()
 	// The engine settings of #305 become the engine catalogue once, before the
-	// first project sync and capability report (#510), and the settings naming
-	// a retired provider are dropped (#614). A failure leaves the file alone:
-	// every read converts it in memory anyway.
-	if migrated, drop, err := agentconfig.MigrateSettingsReport(daemon.localSettingsRoot()); err != nil {
-		log.Printf("[Agent] Engine settings not converted to the engine catalogue: %v", err)
+	// first project sync and capability report (#510), the settings naming a
+	// retired provider are dropped (#614), and the project Sandbox values are
+	// folded into the workstation ones (#730). A failure leaves the file
+	// alone: every read converts it in memory anyway.
+	if migrated, report, err := agentconfig.MigrateSettingsReport(daemon.localSettingsRoot()); err != nil {
+		log.Printf("[Agent] Workstation settings not migrated: %v", err)
 	} else if migrated {
-		log.Printf("[Agent] Engine settings converted to the engine catalogue; the previous file is kept beside it")
-		if !drop.Empty() {
-			log.Printf("[Agent] Settings for retired AI providers (Gemini, Cursor, Vibe) removed: %s", drop)
+		log.Printf("[Agent] Workstation settings migrated; the previous file is kept beside it")
+		if !report.Empty() {
+			log.Printf("[Agent] Settings for retired AI providers (Gemini, Cursor, Vibe) removed: %s", report.RetiredDrop)
+		}
+		if report.SandboxFolded {
+			log.Printf("[Agent] Project Claude settings moved to the workstation Claude settings, applied to every project")
+		}
+		for _, warning := range report.SandboxWarnings {
+			log.Printf("[Agent] Claude settings entry left on its project, not valid: %s", warning)
 		}
 	}
 	// Start local agent HTTP reverse proxy gateway
@@ -1106,7 +1114,7 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 		return
 	}
 	d.convertLegacyRepoPaths(ctx, queueConfig)
-	config, workDir, branch, task, err := d.prepareDispatch(ctx, taskRef, run.isolated)
+	config, workDir, branch, task, lazyCode, err := d.prepareLaunch(ctx, taskRef, true, run.isolated)
 	if err != nil {
 		launchFailure = err
 		d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", err.Error())
@@ -1117,6 +1125,26 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 		return
 	}
 	payload.ProjectID = config.ProjectID
+	// The issue skills write their clarification report and specification in
+	// the project's Issue specifications folder, prepared beside the code
+	// worktree when it is a folder of its own (#736).
+	specWorkspace, err := d.taskSpecWorkspace(ctx, config, task, workDir, branch)
+	if err != nil {
+		launchFailure = err
+		d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", err.Error())
+		return
+	}
+	if specWorkspace.Warning != "" {
+		payload.Prompt += "\nSpecifications workspace notice: " + specWorkspace.Warning + "."
+	}
+	if lazyCode {
+		// Without its code worktree, the session starts where the task's
+		// specifications are written, else in the project checkout (#737).
+		if specWorkspace.Distinct && specWorkspace.Path != "" {
+			workDir = specWorkspace.Path
+		}
+		payload.Prompt += lazyCodeNotice
+	}
 	// A branch derived from the task key exists only in this process until it is
 	// written back: the next launch would derive it again against a branch since
 	// assigned elsewhere and resolve a different tree. Recording it is a
@@ -1186,7 +1214,7 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 		return
 	}
 	logIgnoredModel(config, taskRef, payload.Model)
-	folders := d.taskFolderMap(ctx, config, task, workDir)
+	folders := d.taskFolderMap(ctx, config, task, workDir, specWorkspace, lazyCode)
 	payload.Prompt += folderMapPrompt(folders)
 	// What runs for the skill is resolved here, from what is installed, and
 	// nothing is installed to make it resolve (#267).
@@ -1254,13 +1282,19 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 	if raw, err := json.Marshal(folders); err == nil && len(folders) > 0 {
 		envVars["SECTILE_REPOSITORIES"] = string(raw)
 	}
+	for name, value := range taskSpecEnvironment(specWorkspace) {
+		envVars[name] = value
+	}
 
-	// An interactive launch Desktop asked to see as a conversation runs Claude
-	// over pipes in the task's worktree, one turn per message, with the same
-	// environment the terminal would have carried. A discussion waits for the
-	// first message; a skill sends its command as that message at once. The
-	// run holds its slot until it is stopped.
-	if !autonomous && models.NormalizeSkillID(payload.Action) != "open_terminal" && d.conversationViews.take(taskRef, task.ID) && conversationDiscussionEngine(config) {
+	// An interactive launch Desktop asked to see as a conversation, or any
+	// interactive launch when the workstation console view is the conversation
+	// (#711), runs Claude over pipes in the task's worktree, one turn per
+	// message, with the same environment the terminal would have carried. A
+	// discussion waits for the first message; a skill sends its command as that
+	// message at once. The run holds its slot until it is stopped. The mark is
+	// taken first, so that it is consumed whatever the workstation view says.
+	marked := d.conversationViews.take(taskRef, task.ID)
+	if opensConversation(autonomous, models.NormalizeSkillID(payload.Action), marked, d.workstationConsoleView(), config) {
 		model, first, origin := conversationModel(config), "", "It runs in this task's worktree. Stop it to end the discussion."
 		var extraDirs []string
 		if payload.SkillID != "discuss" {

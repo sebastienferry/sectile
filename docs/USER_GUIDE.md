@@ -78,23 +78,27 @@ Keep Git remote identities consistent with the repositories on your workstation.
 
 Pairing lets your local agent act as you without putting a long-lived key in a prompt.
 
-1. In the web profile, open **Workstations & Agent** and select **Pair a workstation** (*Appairer une machine*). Copy the temporary, single-use code.
-2. Install [Sectile Desktop](../desktop/README.md#install-a-release) on the workstation, open it, enter the server URL, and paste the code on its connection screen. Desktop starts its bundled agent. **Settings → Agent connection** shows whether the agent and server are connected and offers Start, Stop, and Restart controls.
+1. Install [Sectile Desktop](../desktop/README.md#install-a-release) on the workstation, open it, enter the server URL, and select **Sign in with your browser**. Sign in to Sectile in the browser that opens, or let it return at once if you are already signed in, then close the tab. Desktop starts its bundled agent. **Settings → Agent connection** shows whether the agent and server are connected and offers Start, Stop, and Restart controls.
+2. Without a browser on that machine, pair with a code instead: in the web profile, open **Workstations & Agent** and select **Pair a workstation** (*Appairer une machine*), copy the temporary, single-use code, and paste it in the **Pairing code** field of Desktop's connection screen.
 3. To run the agent without Desktop, use the binary on that workstation:
 
    ```sh
-   sectile-agent pair --url https://sectile.example.com --code '<pairing-code>'
+   sectile-agent pair --url https://sectile.example.com
    sectile-agent --url https://sectile.example.com --project '<project-id>' --repo /path/to/clone
    ```
 
-   Replace the example URL, project ID, and path with your own values. Pairing stores the workstation credential for later starts. The [root README](../README.md#connect-a-workstation) shows the local-server form of these commands.
+   `pair` opens the browser to sign you in; `--no-browser` prints the address to open instead, in a browser on the same machine. On a remote or headless machine, pass a code from the web profile with `--code '<pairing-code>'`. Replace the example URL, project ID, and path with your own values. Pairing stores the workstation credential for later starts. The [root README](../README.md#connect-a-workstation) shows the local-server form of these commands.
+
+   Pairing the same workstation again, from Desktop or `sectile-agent pair`, revokes its previous key and points the `sectile` MCP entries Sectile manages at the new one; restart an agent that was already running so it uses the new key. Your web session lasts up to 90 days and ends after 7 days without use.
 
 4. Confirm the workstation appears in the web profile and that Desktop reports **Connected**. If the agent cannot start a task, check **Settings → Agent logs** and the project's local folder mapping.
+
+Once the workstation is paired, Desktop starts the local agent with the saved key each time it opens, so you do not paste a code again after a restart. It asks you to pair again, under **Pair again**, with **Sign in with your browser** or a new pairing code, only when the saved key is missing, can no longer be read, or is refused by the server, and it says which.
 
 ## Configure the project in Desktop
 
 1. Select **Add project** from Desktop's project sidebar, or use the project configuration view for one already shown. Choose the local Git checkout with **Choose folder…**.
-2. Open the project's **General** category to inspect its Git remote, SDD framework, and default coding engine. In **Folders**, map local repositories and, when needed, a specifications folder or attached folders. These paths stay on your workstation. Every execution of the project is given these folders, ticket discussions and Claude conversations included. A folder can also be attached without leaving a Claude conversation, a running ticket discussion or a running **Project prompt** console, also once moved to the native terminal, from its **Add folder…** action: Claude Code sees it at once in a discussion or a console, and from the next message in a conversation.
+2. Open the project's **General** category to inspect its Git remote, SDD framework, and default coding engine. In **Folders**, map local repositories and, when needed, a Macro or an Issue specifications folder (where macro skills and issue skills keep their specifications) or attached folders. These paths stay on your workstation. Every execution of the project is given these folders, ticket discussions and Claude conversations included. A folder can also be attached without leaving a Claude conversation, a running ticket discussion or a running **Project prompt** console, also once moved to the native terminal, from its **Add folder…** action: Claude Code sees it at once in a discussion or a console, and from the next message in a conversation. Turn on **Any repository** to let the project's tickets change a repository it does not list: the agent uses the checkout the session names, or clones the repository into the **Clones folder** (by default next to the local repository), and remembers it on this workstation. With this option on and the specifications kept away from the code repository (dropped, or in an Issue specifications folder of their own), a ticket gets no worktree in the code repository until it needs one, so a change made only in another repository needs no pull request in the code repository. In a ticket's details, **Repository** › **Other repository…** pins it to a repository typed by hand.
 3. In **Execution**, choose whether tasks use worktrees, how many executions can run, and the terminal behavior. Use workstation **Execution defaults** for settings shared by projects; project overrides can inherit those defaults.
 4. Select **Save local configuration**. In **Settings → Deployment**, install the project's skills and initialize its chosen SDD framework when those tools are not yet present. In **AI engines**, choose or configure the CLI you intend to run. The CLI must also be installed and signed in on the workstation.
 
@@ -104,7 +108,7 @@ The [Desktop guide](../desktop/README.md#user-configuration-and-commands) covers
 
 You can run a workflow skill in an existing Claude Code session rather than launching it from a ticket:
 
-1. Configure Claude Code's Sectile MCP connection in Desktop under **Settings → Execution defaults → MCP configuration**. Choose the transport appropriate to your setup, select **Update provider configuration**, and restart Claude Code. Desktop can also deploy the server's skills under **Settings → Deployment**. See [MCP connections](../desktop/README.md#mcp-connections).
+1. Configure Claude Code's Sectile MCP connection in Desktop under **Settings → Execution defaults → MCP configuration**. Choose the transport appropriate to your setup, select **Update provider configuration**, and restart Claude Code. If Claude Code's `sectile` entry uses a key this workstation does not use, for example one Sectile did not write or one left from an earlier pairing in a project's settings, this section flags it and offers **Repair**, which writes the current key and removes the outdated project entries. Desktop can also deploy the server's skills under **Settings → Deployment**. See [MCP connections](../desktop/README.md#mcp-connections).
 2. Open Claude Code in the ticket's repository on the paired workstation. Open the ticket in the web interface and use **Copy** for the next workflow skill or **Copy** for `/pickup-issue`; on the board, the copy button of a full card copies the next workflow skill's prompt in one click. Paste the complete copied prompt into Claude Code. It includes the task's full ID and instructions to read Sectile MCP context and report the run.
 3. Follow the conversation and task activity. Answer a clarification question if the skill asks one. For a single step, launch the next stage after Sectile records the prior stage. For the pickup prompt, the skill continues through the stages it can complete and stops before merge.
 

@@ -58,6 +58,14 @@ Wherever the skill runs, end every reply addressed to a person with this block, 
 
 When the skill runs nested in pickup-issue or pickup-issues, do not write the block: the outer skill writes one for the whole run.
 
+## Specifications workspace
+The task's clarification report (`docs/clarifications/<n>.md`) and specification (`specs/<KEY>-<slug>/` or `openspec/changes/<KEY>-<slug>/`) are its issue artefacts. They live in the specifications workspace, which may be another repository than the code: the project's Issue specifications folder on this workstation.
+- **Where**: `SECTILE_SPEC_REPO` is its path, `SECTILE_SPEC_BRANCH` its branch and `SECTILE_SPEC_WORKTREE` whether it is a dedicated worktree, when Sectile launched the session. Otherwise call the `prepare_task_spec_worktree` MCP tool with the task key: it answers `path`, `branch`, `worktree`, `distinct` and `warning`, and reuses what a launch prepared. When neither is available, the task worktree is the specifications workspace.
+- Read and write the issue artefacts under that path, never relative to the session directory, and repeat any warning in your report. Do not create, switch or check out a branch there: when it is not a dedicated worktree, check that the path is on its branch, and stop and say so if it is not.
+- **Distinct workspace** (`distinct` true, or `SECTILE_SPEC_REPO` is not the task worktree): the issue artefacts are committed there, never in the code branch. Stage only the task's files (`git -C "<path>" add <files>`, never `git add -A`), commit with the stage's message, and push with `git -C "<path>" push -u origin <branch>` the first time and a plain push afterwards. Never force, never push the default branch; a refused push is reported and does not block the stage. Opening a pull request in that repository is the human's gesture: say the branch is pushed. The dropped artefacts check (`git check-ignore -q`) runs in that path.
+- With a distinct workspace the code branch carries no artefact: open no pull request at the clarified or specified stage, even when the project creates it there, say so in the report, and create the draft after implementation. The code pull request description names the specifications repository and branch.
+- **Plain folder** (empty branch): write in place and run no `git` command there; nothing is committed or pushed. Say so in the report.
+
 ## Goal
 Autonomously take a ticket from its current stage through clarification, specification,
 implementation, and testing, all the way to opening a clean Pull Request, updating each stage via Sectile.
@@ -232,6 +240,12 @@ Report and persist before continuing:
    primary worktree; the other repositories are read-only context. To change one, call
    `prepare_repository_worktree` for it first and work in the worktree it returns: each
    changed repository then needs its own pull request, given to `transition_stage` in `prUrls`.
+   A repository the task needs but no folder holds is refused unless the workstation has the
+   project's Any repository option on: then pass the top level of a local checkout of it as
+   `path`, or omit `path` to let the agent clone it. When the launch says no worktree was
+   created in the code repository, prepare it the same way before changing it; left
+   unchanged, it needs no pull request. When the answer says the worktree was not added to
+   the session, ask the user to run `/add-dir` with its path before writing there.
 3. Work through the checklist in small steps, each one leaving the tree buildable. When the
    specification artefacts are ignored by Git, commit the code only and never force-add them.
 4. Add the tests that cover the new behaviour and its edge cases, not just the

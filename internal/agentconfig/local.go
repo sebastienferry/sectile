@@ -85,7 +85,7 @@ func (l legacySettings) fold() Settings {
 		edit(id, func(p *ProjectSettings) { p.Path = path })
 	}
 	for id, path := range l.SpecRepos {
-		edit(id, func(p *ProjectSettings) { p.SpecPath = path })
+		edit(id, func(p *ProjectSettings) { p.MacroSpecPath = path })
 	}
 	for id, value := range l.Worktrees {
 		value := value
@@ -128,6 +128,10 @@ func overlay(base, top Settings) Settings {
 		// No legacy layout knows the skill settings: the current file states them.
 		CustomSkillsWin:      top.Defaults.CustomSkillsWin,
 		InstalledSkillSource: top.Defaults.InstalledSkillSource,
+		ConsoleView:          firstSet(top.Defaults.ConsoleView, base.Defaults.ConsoleView),
+		// No legacy layout knows the Sandbox values (#700, #730) either.
+		ClaudeSandbox:         firstSandbox(top.Defaults.ClaudeSandbox, base.Defaults.ClaudeSandbox),
+		ClaudeSandboxProjects: firstList(top.Defaults.ClaudeSandboxProjects, base.Defaults.ClaudeSandboxProjects),
 	}
 	if out.Defaults.SkillCommands == nil {
 		out.Defaults.SkillCommands = base.Defaults.SkillCommands
@@ -143,12 +147,15 @@ func overlay(base, top Settings) Settings {
 		b := out.Project(id)
 		out.SetProject(id, ProjectSettings{
 			Path:          firstSet(p.Path, b.Path),
-			SpecPath:      firstSet(p.SpecPath, b.SpecPath),
+			MacroSpecPath: firstSet(p.MacroSpecPath, b.MacroSpecPath),
+			IssueSpecPath: firstSet(p.IssueSpecPath, b.IssueSpecPath),
 			Folders:       firstList(p.Folders, b.Folders),
 			Execution:     overlayExecution(b.Execution, p.Execution),
 			SkillCommands: mergeStrings(b.SkillCommands, p.SkillCommands),
 			SpecArtifacts: firstSet(p.SpecArtifacts, b.SpecArtifacts),
 			ClaudeSandbox: firstSandbox(p.ClaudeSandbox, b.ClaudeSandbox),
+			AnyRepository: firstBool(p.AnyRepository, b.AnyRepository),
+			ClonesPath:    firstSet(p.ClonesPath, b.ClonesPath),
 		})
 	}
 	out.Repositories = mergeStrings(base.Repositories, top.Repositories)
@@ -178,6 +185,16 @@ func overlayExecution(base, top Execution) Execution {
 		out.SetupProviders = base.SetupProviders
 	}
 	return out
+}
+
+// firstBool is the first value that is stated.
+func firstBool(values ...*bool) *bool {
+	for _, value := range values {
+		if value != nil {
+			return value
+		}
+	}
+	return nil
 }
 
 func firstSet(values ...string) string {

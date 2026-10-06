@@ -29,6 +29,13 @@ type Operation struct {
 	// host/path identity, for evidence of a pull request that lives there.
 	// Empty keeps the operation on the project checkout.
 	Repository string `json:"repository,omitempty"`
+	// RepositoryURL is the repository of a repository_worktree operation as
+	// the caller typed it, which the agent clones from when the project's Any
+	// repository option is on and no folder holds it (#737).
+	RepositoryURL string `json:"repositoryUrl,omitempty"`
+	// Path is a local checkout of that repository the caller found, which the
+	// agent checks before using it.
+	Path string `json:"path,omitempty"`
 	// Repositories names, as identities, every repository a task has a
 	// worktree in, for a remove_workspace operation that must clean them all.
 	// Empty keeps the operation on the project checkout.
@@ -75,7 +82,7 @@ var Operations = []string{
 	"macro_worktree", "macro_spec_file",
 	"git_status", "git_branches", "git_checkout", "git_clean", "git_delete",
 	"open_editor", "cli_status", "prepare_workspace", "remove_workspace",
-	"repository_worktree", "workspace_info", "git_diff", "git_evidence", "branch_changes",
+	"repository_worktree", "task_spec_worktree", "workspace_info", "git_diff", "git_evidence", "branch_changes",
 	"pr_evidence", "run_prompt", "skills_status", "skill_files", "sync_config",
 	"read_skill", "spec_status", "spec_install", "init_git", "spec_artifacts",
 }

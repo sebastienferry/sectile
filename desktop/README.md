@@ -10,7 +10,9 @@ and **Claude chat (test)** appears for an execution with a local directory.
 A task's interactive launches open there too, a skill such as clarify starting
 on its own command and **Discussion (no skill)** waiting for your first message,
 in the task's worktree and with the task's environment, when the project's
-engine is a Claude one. An autonomous launch keeps its read-only trace; a
+engine is a Claude one. The setting is handed to the local agent, so a launch
+started from the web app, or a chain the server continues, opens there as well,
+even with Desktop closed. An autonomous launch keeps its read-only trace; a
 launch template is not run there, only its model is kept, and the conversation
 says so. Another engine keeps the terminal. While Claude answers, a message you
 send joins the answer in progress, as in Claude Code; one sent as the answer
@@ -127,8 +129,12 @@ cd desktop
 npm start
 ```
 
-The first window asks only for the server URL and authentication token. Account
-sign-in is not implemented yet. Repository directories are configured per project
+The first window asks for the server URL, then offers **Sign in with your browser**:
+the browser signs you in to Sectile and the workstation gets its key without a code to
+copy. Without a browser on that machine, paste a pairing code from **Pair a
+workstation** under your profile in the web interface. Once a key is stored, Desktop
+starts the agent with it each time it opens, and asks to pair again only when that
+key is missing, unreadable or refused. Repository directories are configured per project
 after connecting. New installations keep mappings in private application data. The bundled binary is
 selected automatically. Local servers without SECTILE_SERVER_TOKEN accept any
 non-empty agent token.
@@ -389,9 +395,11 @@ The **Local agent** panel exposes launch configuration. Stop the daemon before
 changing settings, then use **Start local agent**. **Stop agent** uses authenticated
 `POST /desktop/shutdown` with the same confirmed-exit guard as restart.
 Desktop launch settings are saved locally; the server token is encrypted using
-Electron safeStorage when OS encryption is available, otherwise it must be
-entered again. Existing agents launched outside the desktop do not expose their
-server credentials to this panel.
+Electron safeStorage when OS encryption is available, otherwise it is kept in
+clear in the same owner-only settings file. `sectile-agent pair` stores its key
+in clear and drops the encrypted one, so Desktop then starts on the newer key.
+Existing agents launched outside the desktop do not expose their server
+credentials to this panel.
 
 **Clear finished consoles** removes completed, failed and canceled consoles from
 the local agent through authenticated `DELETE /desktop/history`, and deletes
@@ -527,21 +535,39 @@ held in memory for the agent lifetime; finished executions and their consoles
 are also kept on disk and restored after a restart (see
 [Restarting the agent](#restarting-the-agent)).
 
-### Specifications folder
+### Specifications folders
 
-**General → Specifications folder** is where macro operations read and write a
-project's specifications: the slicing imported from the web, the macro worktree
-and `realign-macro`. It is set on the workstation only; the server stores no
-such path. Only a folder you choose is saved, under `specRepos` in the
-workstation settings. Without one, the project inherits its local repository,
-behind the ticked *Specifications live in the code repository* box, and keeps
-following it. Clearing the field removes the override.
+A project has two specifications folders on the workstation, one per
+skill-set (#736). Both are set on the workstation only; the server stores no
+such path.
 
-The folder must be an absolute path to an existing directory. A folder inside a
-Git repository is saved as that repository's top level; any other folder is
-saved as typed. Next to the field, the settings show what the folder in effect
+- **General → Macro specifications folder** is where macro operations read and
+  write a project's specifications: the slicing imported from the web, the
+  macro worktree, `refine-macro` and `realign-macro`. It is the former
+  *Specifications folder*, and keeps its value.
+- **General → Issue specifications folder** is where the issue skills
+  (`clarify-issue`, `specify-issue`, `implement-issue`, `adjust-issue`,
+  `handoff-issue`, `pickup-issue` and `pickup-issues`) write and read a task's
+  clarification report and specification. When it is another folder than the
+  local repository, each task gets a worktree of it under `.tasks/worktrees/`,
+  on a branch named like the task's own, started from the folder's
+  up-to-date default branch; the skills commit the task's files there and push
+  that branch, and opening its pull request is yours to do. `handoff-issue`
+  removes that worktree and its local branch once the branch is merged.
+
+Only a folder you choose is saved, under `projectSettings.<id>.specPath` (Macro)
+and `projectSettings.<id>.issueSpecPath` (Issue) in the workstation settings.
+Without one, a folder inherits the local repository, behind its ticked
+*Macro specifications live in the code repository* or *Issue specifications
+live in the code repository* box, and keeps following it. Clearing the field
+removes the override. A configured folder that no longer exists refuses the
+launches that need it, naming the setting.
+
+Each folder must be an absolute path to an existing directory. A folder inside
+a Git repository is saved as that repository's top level; any other folder is
+saved as typed. Next to each field, the settings show what the folder in effect
 is: *Git repository*, *Folder (not a Git repository)*, or *Not found* when it
-was deleted since. In a plain folder, macro skills write in place, with no
+was deleted since. In a plain folder, the skills write in place, with no
 worktree, branch, commit or push.
 A plain folder can also be made a Git repository from the settings; see
 below.
@@ -557,8 +583,8 @@ with its remote, *Git repository, no remote*, *Folder, not a Git repository*,
 *Duplicate* when its remote became one of the project's repositories that this
 workstation maps elsewhere.
 
-A folder that is already the project's local repository, its specifications
-folder, the folder of one of its repositories or an attached folder is
+A folder that is already the project's local repository, one of its
+specifications folders, the folder of one of its repositories or an attached folder is
 refused, saying which one it is. A checkout of one of the project's
 repositories is not attached: it becomes that repository's folder under
 *Other repositories*.
@@ -571,7 +597,7 @@ without a remote is changed in place.
 
 ### Initializing a Git repository for a project folder
 
-When **General → Local repository**, or a Specifications folder of its own,
+When **General → Local repository**, or a specifications folder of its own,
 names a folder that is not a Git repository, the settings offer to initialize
 one: *Initialize a Git repository* creates it in that folder, on `main`, with
 an empty first commit, and *Not now* leaves the folder as it is. The offer is
@@ -590,7 +616,7 @@ home directory are never initialized.
 
 Initializing does not save the settings. Declining keeps today's behaviour: the
 Local repository still refuses a folder outside any Git checkout, and a
-Specifications folder is saved and written in place as a plain folder. The
+specifications folder is saved and written in place as a plain folder. The
 offer needs a local agent that supports it; an older agent shows none.
 
 ### User configuration and commands
@@ -621,10 +647,14 @@ use the same side navigation: **User profile**, **Agent connection**, **Executio
 **Changelog**, with **User profile** first. **Agent connection** reports the local
 agent with Start, Stop, and Restart controls, the server link (green when connected, orange otherwise), and the connect form itself: the same form the
 connection screen shows, borrowed while the category is open and returned when
-the panel closes. Pairing is the only credential the desktop asks for: paste a
-code from **Pair a workstation** in the web interface. There is no API key field;
-the credential a pairing leaves behind is what restarts a stopped agent, with no
-code to type again. A running agent owns the link, so **Connect** stays disabled
+the panel closes. **Sign in with your browser** pairs the workstation through
+the web sign-in, with no code to copy; without a browser on that machine, paste
+a code from **Pair a workstation** in the web interface instead. There is no API
+key field. The key a pairing leaves behind is what restarts a stopped agent:
+each time it opens, the desktop starts the agent with it, and when it cannot,
+the connection screen says why and opens **Pair again**, which offers the
+browser sign-in and the pairing code. Pairing again revokes the workstation's
+previous key. A running agent owns the link, so **Connect** stays disabled
 until the agent is stopped, and the panel says so.
 
 Project names in the configuration sidebar toggle collapsible sections. Only

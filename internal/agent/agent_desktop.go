@@ -170,7 +170,7 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 		// contractError separates a server that is merely unreachable from one
 		// that cannot be talked to at all. Without it the desktop reports both
 		// as a disconnection and the user has no reason to look at the build.
-		capabilities := []string{"git-diff", markdownDocumentsCapability, "create-task", "remove-project", "free-console", "transition-stage", "repositories", attachedFoldersCapability, "git-init", taskEnginesCapability, openEditorCapability, "claude-conversation", conversationControlsCapability, conversationQueueCapability, runFoldersCapability, runFoldersTerminalsCapability}
+		capabilities := []string{"git-diff", markdownDocumentsCapability, "create-task", "remove-project", "free-console", "transition-stage", "repositories", attachedFoldersCapability, "git-init", taskEnginesCapability, openEditorCapability, "claude-conversation", conversationControlsCapability, conversationQueueCapability, runFoldersCapability, runFoldersTerminalsCapability, consoleViewCapability}
 		if d.store != nil {
 			capabilities = append(capabilities, runStoreCapability)
 		}
@@ -243,6 +243,10 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 		d.desktopEngines(w, r)
 		return
 	}
+	if r.URL.Path == "/desktop/console-view" {
+		d.desktopConsoleView(w, r)
+		return
+	}
 	if r.URL.Path == "/desktop/task-engines" {
 		d.desktopTaskEngines(w, r)
 		return
@@ -251,8 +255,16 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 		d.desktopWorkstation(w, r)
 		return
 	}
+	if r.URL.Path == "/desktop/workstation/sandbox" {
+		d.desktopWorkstationSandbox(w, r)
+		return
+	}
 	if r.URL.Path == "/desktop/project" {
 		d.desktopProject(w, r)
+		return
+	}
+	if r.URL.Path == "/desktop/project/sandbox/promote" {
+		d.desktopPromoteSandboxRule(w, r)
 		return
 	}
 	if r.URL.Path == "/desktop/projects" {
@@ -570,12 +582,29 @@ func (d *agentDaemon) desktopProjects(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	specPath := ""
-	if input.SpecPath != nil {
+	specPath, issueSpecPath := "", ""
+	for _, folder := range []struct {
+		input   *string
+		output  *string
+		setting string
+	}{{input.SpecPath, &specPath, macroSpecSetting}, {input.IssueSpecPath, &issueSpecPath, issueSpecSetting}} {
+		if folder.input == nil {
+			continue
+		}
 		var err error
-		if specPath, err = normalizeSpecFolder(r.Context(), *input.SpecPath); err != nil {
+		if *folder.output, err = normalizeSpecFolder(r.Context(), *folder.input, folder.setting); err != nil {
 			http.Error(w, err.Error(), 400)
 			return
+		}
+	}
+	clonesPath := ""
+	if input.ClonesPath != nil {
+		if clonesPath = strings.TrimSpace(*input.ClonesPath); clonesPath != "" {
+			if !filepath.IsAbs(clonesPath) {
+				http.Error(w, "Clones folder must be an absolute path", 400)
+				return
+			}
+			clonesPath = filepath.Clean(clonesPath)
 		}
 	}
 	d.prepareMu.Lock()
@@ -594,7 +623,21 @@ func (d *agentDaemon) desktopProjects(w http.ResponseWriter, r *http.Request) {
 	project := input.apply(settings.Project(input.ProjectID))
 	project.Path = input.Path
 	if input.SpecPath != nil {
-		project.SpecPath = specPath
+		project.MacroSpecPath = specPath
+	}
+	if input.IssueSpecPath != nil {
+		project.IssueSpecPath = issueSpecPath
+	}
+	if input.AnyRepository != nil {
+		// Off is the default, so it is stored as nothing.
+		project.AnyRepository = nil
+		if *input.AnyRepository {
+			on := true
+			project.AnyRepository = &on
+		}
+	}
+	if input.ClonesPath != nil {
+		project.ClonesPath = clonesPath
 	}
 	if err := agentconfig.ValidateProject(project); err != nil {
 		http.Error(w, err.Error(), 400)
@@ -666,6 +709,15 @@ func (d *agentDaemon) disconnectProject(w http.ResponseWriter, r *http.Request) 
 	// from what was chosen before. Its seed marker stays, so the server values
 	// are not taken a second time.
 	delete(settings.ProjectSettings, id)
+	// It leaves the workstation Sandbox whitelist too (#730); emptied, the
+	// whitelist covers every project again.
+	var whitelist []string
+	for _, listed := range settings.Defaults.ClaudeSandboxProjects {
+		if listed != id {
+			whitelist = append(whitelist, listed)
+		}
+	}
+	settings.Defaults.ClaudeSandboxProjects = whitelist
 	if err := agentconfig.WriteSettings(settings); err != nil {
 		http.Error(w, err.Error(), 500)
 		return
@@ -710,24 +762,25 @@ func localAgentAvailable(file string) bool {
 }
 
 // normalizeSpecFolder validates a specifications folder typed or chosen in the
-// desktop settings. It must be an absolute path to an existing directory. A
-// folder inside a Git checkout names that checkout: the macro worktree is
+// desktop settings, the Macro or the Issue one, which setting names in a
+// refusal. It must be an absolute path to an existing directory. A folder
+// inside a Git checkout names that checkout: the macro or task worktree is
 // created at its root, where specs/ is looked for. A folder outside any
 // checkout is kept as it is. Empty clears the override.
-func normalizeSpecFolder(ctx context.Context, raw string) (string, error) {
+func normalizeSpecFolder(ctx context.Context, raw, setting string) (string, error) {
 	folder := strings.TrimSpace(raw)
 	if folder == "" {
 		return "", nil
 	}
 	if !filepath.IsAbs(folder) {
-		return "", fmt.Errorf("The specifications folder must be an absolute path")
+		return "", fmt.Errorf("The %s must be an absolute path", setting)
 	}
 	info, err := os.Stat(folder)
 	if err != nil {
-		return "", fmt.Errorf("The specifications folder %s does not exist", folder)
+		return "", fmt.Errorf("The %s %s does not exist", setting, folder)
 	}
 	if !info.IsDir() {
-		return "", fmt.Errorf("The specifications folder %s is not a directory", folder)
+		return "", fmt.Errorf("The %s %s is not a directory", setting, folder)
 	}
 	if top, err := gitLocal(ctx, folder, "rev-parse", "--show-toplevel"); err == nil {
 		return filepath.Clean(top), nil
@@ -781,18 +834,29 @@ func (d *agentDaemon) desktopProject(w http.ResponseWriter, r *http.Request) {
 		if mappingErr == nil {
 			specDefault = root
 		}
-		specEffective := section.SpecPath
+		specEffective := section.MacroSpecPath
 		if strings.TrimSpace(specEffective) == "" {
 			specEffective = specDefault
 		}
+		issueSpecEffective := section.IssueSpecPath
+		if strings.TrimSpace(issueSpecEffective) == "" {
+			issueSpecEffective = specDefault
+		}
 		fields := executionFields(config, overrides)
+		sandboxCovered, sandboxGlobal := projectSandboxInheritance(overrides, id)
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"server":                      withoutExecution(config),
 			"path":                        root,
-			"specPath":                    section.SpecPath,
+			"specPath":                    section.MacroSpecPath,
 			"specDefault":                 specDefault,
 			"specKind":                    specFolderKind(r.Context(), specEffective),
+			"issueSpecPath":               section.IssueSpecPath,
+			"issueSpecDefault":            specDefault,
+			"issueSpecKind":               specFolderKind(r.Context(), issueSpecEffective),
+			"anyRepository":               overrides.AnyRepository(id),
+			"clonesPath":                  section.ClonesPath,
+			"clonesDefault":               overrides.ClonesPath(id, specDefault),
 			"useWorktrees":                effective.UseWorktrees,
 			"configured":                  mappingErr == nil,
 			"aiCommandTemplate":           effective.AICommandTemplate,
@@ -808,6 +872,8 @@ func (d *agentDaemon) desktopProject(w http.ResponseWriter, r *http.Request) {
 			"terminal":                    effective.ExternalTerminalCommand,
 			"terminalOverride":            section.Terminal != "",
 			"claudeSandbox":               claudeSandboxPayload(section.ClaudeSandbox),
+			"claudeSandboxGlobal":         sandboxGlobal,
+			"claudeSandboxCovered":        sandboxCovered,
 			// Claude Code's sandbox does not run on Windows: only the rules apply.
 			"platformSandbox":    runtime.GOOS != "windows",
 			"claudeSettingsPath": claudeSettingsPathOf(id),
@@ -939,10 +1005,11 @@ func (d *agentDaemon) desktopTasks(w http.ResponseWriter, r *http.Request) {
 		// Force asks the server to skip its duplicate-launch refusal. As with
 		// Mode, the agent does not interpret it, it passes it on.
 		Force bool
-		// View "conversation" asks for an interactive launch in Claude's
-		// structured view. The server never sees it: the agent keeps it until
-		// the dispatch comes back. An engine it cannot honour, or an
-		// autonomous launch, gets what it would have had without it.
+		// View "conversation" explicitly asks for an interactive launch in
+		// Claude's structured view. The server never sees it: the agent keeps
+		// it until the dispatch comes back. Without it, the dispatch follows
+		// the workstation console view (#711). An engine it cannot honour, or
+		// an autonomous launch, gets what it would have had without it.
 		View string
 	}
 	if json.NewDecoder(http.MaxBytesReader(w, r.Body, 8192)).Decode(&input) != nil || input.TaskID == "" {
@@ -1304,7 +1371,8 @@ func (d *agentDaemon) desktopTasksTerminalExternal(w http.ResponseWriter, r *htt
 	// The same line the app's discussion runs: the task's engine, given the
 	// project's folders and its Claude settings (#690). It is built before the
 	// run is registered, so a refusal leaves nothing to release.
-	folders := d.taskFolderMap(r.Context(), config, task, workDir)
+	specWorkspace := d.knownTaskSpecWorkspace(r.Context(), config, task, workDir, branch)
+	folders := d.taskFolderMap(r.Context(), config, task, workDir, specWorkspace, false)
 	claudeSettings, err := d.launchClaudeSettings(config)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusConflict)
@@ -1372,6 +1440,9 @@ func (d *agentDaemon) desktopTasksTerminalExternal(w http.ResponseWriter, r *htt
 	}
 	if raw, err := json.Marshal(folders); err == nil && len(folders) > 0 {
 		envVars["SECTILE_REPOSITORIES"] = string(raw)
+	}
+	for name, value := range taskSpecEnvironment(specWorkspace) {
+		envVars[name] = value
 	}
 
 	if d.terminal.manager == nil {

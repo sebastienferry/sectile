@@ -27,16 +27,27 @@ func ReadSettings(legacyRoot string) (Settings, error) {
 	return settings, err
 }
 
-// readConverted also reports whether the engine conversion or the drop of the
-// retired providers changed anything, and what the drop removed.
-func readConverted(legacyRoot string) (Settings, bool, RetiredDrop, error) {
+// SettingsMigration is what the conversions of a read changed, for the agent
+// to log at start: what the drop of the retired providers removed (#614), and
+// whether the project Sandbox values were folded into the workstation ones
+// (#730), with the entries left on their project.
+type SettingsMigration struct {
+	RetiredDrop
+	SandboxFolded   bool
+	SandboxWarnings []string
+}
+
+// readConverted also reports whether the engine conversion, the drop of the
+// retired providers or the Sandbox fold changed anything, and what.
+func readConverted(legacyRoot string) (Settings, bool, SettingsMigration, error) {
 	settings, err := readFolded(legacyRoot)
 	if err != nil {
-		return settings, false, RetiredDrop{}, err
+		return settings, false, SettingsMigration{}, err
 	}
 	changed := convertEngines(&settings)
-	drop := dropRetiredProviders(&settings)
-	return settings, changed || !drop.Empty(), drop, nil
+	report := SettingsMigration{RetiredDrop: dropRetiredProviders(&settings)}
+	report.SandboxFolded, report.SandboxWarnings = foldProjectSandboxes(&settings)
+	return settings, changed || !report.Empty() || report.SandboxFolded, report, nil
 }
 
 // layoutWorkstation is the layout #305 introduced, from which the file no
