@@ -1211,6 +1211,7 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 		payload.Prompt += "\nPreserve accepted artifacts and code on retry. If this is PR recovery, retain the attained task stage and complete the configured creation owner checks without advancing to reviewed."
 	}
 	payload.Prompt += specArtifactsNotice(config, payload.SkillID)
+	payload.Prompt += d.sandboxNotice(config)
 
 	if payload.RunID != "" {
 		payload.Prompt += fmt.Sprintf("\nRemote execution runId: %s. Reuse this ID with start_run and finish it using finish_run when the entire skill ends.", payload.RunID)

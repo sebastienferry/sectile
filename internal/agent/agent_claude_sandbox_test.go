@@ -188,6 +188,43 @@ func TestALaunchAppliesTheWorkstationSandbox(t *testing.T) {
 	}
 }
 
+// A Claude launch is told to run the excluded commands alone, since a chained
+// call does not match its entry and runs sandboxed; a launch with the sandbox
+// off, nothing excluded or another engine is told nothing.
+func TestALaunchIsToldToRunExcludedCommandsAlone(t *testing.T) {
+	testhome.Temp(t)
+	d := &agentDaemon{repoRoot: t.TempDir()}
+	off := false
+	settings := agentconfig.Settings{
+		Defaults: agentconfig.Defaults{ClaudeSandbox: &agentconfig.ClaudeSandbox{ExcludedCommands: []string{"git fetch *"}}},
+		ProjectSettings: map[string]agentconfig.ProjectSettings{
+			"project":   {Path: "/checkout", ClaudeSandbox: &agentconfig.ClaudeSandbox{ExcludedCommands: []string{"glab *"}}},
+			"unboxed":   {Path: "/unboxed", ClaudeSandbox: &agentconfig.ClaudeSandbox{Enabled: &off}},
+			"uncovered": {Path: "/uncovered"},
+		},
+	}
+	settings.Defaults.ClaudeSandboxProjects = []string{"project", "unboxed"}
+	if err := agentconfig.WriteSettings(settings); err != nil {
+		t.Fatal(err)
+	}
+	notice := d.sandboxNotice(agentconfig.Config{ProjectID: "project", AIProvider: "claude"})
+	for _, want := range []string{"\nSandbox: ", "`git fetch *`, `glab *`", "no `cd … &&`, no pipe"} {
+		if !strings.Contains(notice, want) {
+			t.Fatalf("notice lacks %q: %q", want, notice)
+		}
+	}
+	for _, config := range []agentconfig.Config{
+		{ProjectID: "unboxed", AIProvider: "claude"},
+		{ProjectID: "uncovered", AIProvider: "claude"},
+		{ProjectID: "project", AIProvider: "codex"},
+		{AIProvider: "claude"},
+	} {
+		if got := d.sandboxNotice(config); got != "" {
+			t.Fatalf("%+v got a notice: %q", config, got)
+		}
+	}
+}
+
 func TestAProjectWithoutValuesGetsNoSettings(t *testing.T) {
 	testhome.Temp(t)
 	d := &agentDaemon{repoRoot: t.TempDir()}

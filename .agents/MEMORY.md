@@ -216,3 +216,9 @@
 - **Rule**: a placeholder value placed on a command line run through `sh -c` is quoted by `expandAgentTemplate`, which tracks the quoting context it lands in. Do not reintroduce a second substitution path with its own escaping.
 - **Contract**: removing `run_prompt` drops an operation no server produces; an agent of this build no longer announces it. `docs/contracts/server-agent-v1.md` no longer lists its deadline.
 
+
+### 18. Excluded Commands Only Leave the Sandbox When Called Alone (2026-10-06)
+- **Symptom**: autonomous runs failed with `glab … x509: OSStatus -26276` and `git fetch` "Please make sure you have the correct access rights", although `glab *` and `git fetch *` were in `excludedCommands` and `gitlab.com` in `allowedDomains`.
+- **Cause**: every failing call was chained (`cd <worktree> && glab …`, `git fetch origin 2>&1 | tail -3; echo …`, `timeout 30 git fetch`). Claude Code lets a call out only when each joined command is listed, so these ran sandboxed: Go's TLS verifier cannot reach `com.apple.trustd.agent`, and SSH cannot authenticate.
+- **Fix**: `sandboxNotice` (`internal/agent/agent_claude_sandbox.go`) appends the resolved excluded commands and the "call each alone" rule to task and macro run prompts. Do not widen `allowedDomains` for this symptom: the domain was never the problem.
+- **Workstation-side complement**: `sandbox.enableWeakerNetworkIsolation: true` in `~/.claude/settings.json` lets Go tools verify TLS inside the sandbox. Sectile's `ClaudeSandbox` does not carry that key.
