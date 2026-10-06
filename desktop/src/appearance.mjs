@@ -12,6 +12,15 @@ export const CONSOLE_VIEW_CHOICES=[
  {value:'conversation',label:'Conversation'}
 ]
 
+// The permission mode a new Claude conversation starts in, with the labels of
+// the composer's own Permission mode select (see electron/appearance.cjs).
+export const CONVERSATION_MODE_CHOICES=[
+ {value:'default',label:'Ask before edits'},
+ {value:'acceptEdits',label:'Accept edits'},
+ {value:'auto',label:'Auto mode'},
+ {value:'plan',label:'Plan mode'}
+]
+
 // The console shows CLI output that picks its own ANSI colours, so each mode
 // carries a full palette rather than a background alone: a light background
 // with xterm's default ANSI white and yellow would leave text unreadable. Every

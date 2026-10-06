@@ -10,7 +10,7 @@ const storeKey=(saved,token)=>credentials.storeKey(saved,token,safeStorage)
 const {carryOverDataDirectory}=require('./datadir.cjs')
 const {readAgentLog}=require('./agent-log.cjs')
 const {fileSha256,agentOutdated}=require('./agent-identity.cjs')
-const {normalizeAppearance,windowColors,normalizeConsoleView}=require('./appearance.cjs')
+const {normalizeAppearance,windowColors,normalizeConsoleView,normalizeConversationMode}=require('./appearance.cjs')
 const {connectionUpdates,connectionView}=require('./connection-settings.cjs')
 const {settingsFiles,effectiveCredential,pairedDeviceId}=require('./settings-file.cjs')
 if(process.env.SECTILE_DESKTOP_DATA_DIR)app.setPath('userData',process.env.SECTILE_DESKTOP_DATA_DIR)
@@ -188,6 +188,27 @@ async function syncConsoleView(){
  }catch{}
 }
 ipcMain.handle('sync-console-view',()=>syncConsoleView())
+// The permission mode new Claude conversations start in. Like the console view,
+// Desktop keeps it in its own file and hands it to the agent, which applies it
+// to the first turn of every new conversation, whoever launched it.
+ipcMain.handle('conversation-mode',()=>normalizeConversationMode(readDesktopSettings().conversationMode))
+ipcMain.handle('set-conversation-mode',(_,value)=>{
+ const conversationMode=normalizeConversationMode(value)
+ settingsStore.updateDesktop(saved=>{saved.conversationMode=conversationMode})
+ // Saving never waits for the agent, nor fails on it.
+ syncConversationMode()
+ return conversationMode
+})
+// An agent that predates the setting is left alone; every failure is swallowed.
+async function syncConversationMode(){
+ try{
+  const mode=normalizeConversationMode(readDesktopSettings().conversationMode)
+  const status=await api('/desktop/status')
+  if(!status.capabilities?.includes('conversation-mode-default'))return
+  await api('/desktop/conversation-mode','PUT',{mode})
+ }catch{}
+}
+ipcMain.handle('sync-conversation-mode',()=>syncConversationMode())
 // A change of the setting, or of the OS appearance while it follows the
 // system, repaints what the stylesheet cannot reach. macOS draws its own
 // traffic lights and has no overlay colours to set.

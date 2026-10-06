@@ -1312,8 +1312,9 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 	// (#711), runs Claude over pipes in the task's worktree, one turn per
 	// message, with the same environment the terminal would have carried. A
 	// discussion waits for the first message; a skill sends its command as that
-	// message at once. The run holds its slot until it is stopped. The mark is
-	// taken first, so that it is consumed whatever the workstation view says.
+	// message at once, in the workstation default permission mode. The run
+	// holds its slot until it is stopped. The mark is taken first, so that it
+	// is consumed whatever the workstation view says.
 	marked := d.conversationViews.take(taskRef, task.ID)
 	if opensConversation(autonomous, models.NormalizeSkillID(payload.Action), marked, d.workstationConsoleView(), config) {
 		model, first, origin := conversationModel(config), "", "It runs in this task's worktree. Stop it to end the discussion."
@@ -1332,18 +1333,7 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 			}
 			origin = "It runs the " + payload.SkillID + " skill in this task's worktree. Stop it once the skill is done."
 		}
-		d.queue.mu.Lock()
-		run.desktop = desktopRun{CreatedAt: run.desktop.CreatedAt, Prompt: run.desktop.Prompt, ID: payload.RunID, TaskID: taskRef, TaskKey: payload.TaskKey, ProjectID: config.ProjectID, Skill: payload.SkillID, Directory: workDir, Folders: runFolders(workDir, folders), Branch: branch}
-		startConversationLocked(run, model, conversationOrigin(config, origin))
-		run.conversation.env, run.conversation.extraDirs = envVars, extraDirs
-		if first != "" {
-			run.conversation.busy = true
-			conversationWrite(run.trace, "user", first, "")
-		}
-		d.queue.mu.Unlock()
-		if first != "" {
-			go d.conversationTurn(run, first)
-		}
+		d.startLaunchConversation(run, desktopRun{ID: payload.RunID, TaskID: taskRef, TaskKey: payload.TaskKey, ProjectID: config.ProjectID, Skill: payload.SkillID, Directory: workDir, Folders: runFolders(workDir, folders), Branch: branch}, model, conversationOrigin(config, origin), first, envVars, extraDirs)
 		launched = true
 		d.recordCustomSkillUse(config, choice, payload.RunID)
 		d.sendStatus(conn, msg.MsgID, msg.TaskID, "completed", "Execution opened as a conversation")
@@ -1389,6 +1379,28 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 }
 
 // runInPty starts or reuses an embedded PTY session and injects the command line.
+// startLaunchConversation opens a dispatched interactive launch as a
+// conversation: entry describes the run, keeping the creation time and the
+// prompt it was queued with. A skill's command, first, is sent at once as the
+// first message; a discussion ("" first) waits for the owner's. Either way the
+// first turn runs in the workstation default permission mode.
+func (d *agentDaemon) startLaunchConversation(run *controlledRun, entry desktopRun, model, origin, first string, env map[string]string, extraDirs []string) {
+	mode := d.workstationConversationMode()
+	d.queue.mu.Lock()
+	entry.CreatedAt, entry.Prompt = run.desktop.CreatedAt, run.desktop.Prompt
+	run.desktop = entry
+	startConversationLocked(run, model, mode, origin)
+	run.conversation.env, run.conversation.extraDirs = env, extraDirs
+	if first != "" {
+		run.conversation.busy = true
+		conversationWrite(run.trace, "user", first, "")
+	}
+	d.queue.mu.Unlock()
+	if first != "" {
+		go d.conversationTurn(run, first)
+	}
+}
+
 func (d *agentDaemon) runInPty(sessionID, workDir string, envVars map[string]string, fullLine string) error {
 	sess, err := d.terminal.manager.GetOrCreateSession(sessionID, workDir, envVars)
 	if err != nil {
