@@ -24,7 +24,25 @@ window.fake = {
     { id: 'gode', name: 'GODE', provider: 'jira', site: '', scope: 'GODE', identity: 'jira|acme.atlassian.net|GODE', autoSyncEnabled: false, autoSyncIntervalMin: 5 },
   ],
   projects: [
-    { id: 'da', name: 'Delivery admin', slug: 'da', color: 'indigo', icon: 'Folder', issueTracker: 'jira', githubRepo: '', isDefault: true, description: '', enabledViews: [], bookmarked: true, taskCount: 0, label: 'delivery-admin', trackers: [{ trackerId: 'gode', identity: 'jira|acme.atlassian.net|GODE' }], defaultTrackerId: 'gode', createdAt: stamp, updatedAt: stamp },
+    {
+      id: 'da',
+      name: 'Delivery admin',
+      slug: 'da',
+      color: 'indigo',
+      icon: 'Folder',
+      issueTracker: 'jira',
+      githubRepo: '',
+      isDefault: true,
+      description: '',
+      enabledViews: [],
+      bookmarked: true,
+      taskCount: 0,
+      label: 'delivery-admin',
+      trackers: [{ trackerId: 'gode', identity: 'jira|acme.atlassian.net|GODE' }],
+      defaultTrackerId: 'gode',
+      createdAt: stamp,
+      updatedAt: stamp,
+    },
   ],
 };
 window.fetch = async (input, init = {}) => {

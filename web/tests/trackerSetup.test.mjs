@@ -97,7 +97,7 @@ test('a tracker that attributes its writes is personal only', () => {
 })
 
 test('every tracker with a server adapter can be recorded by an admin', () => {
-  // A project no longer names its tracker: it selects trackers an admin
+  // A project does not name its tracker: it selects trackers an admin
   // recorded (#741). The admin form offers every provider the server has an
   // adapter for; a local board is each project's own and is never recorded.
   // GitLab joined them once its adapter was registered (#398).

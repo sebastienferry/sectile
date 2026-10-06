@@ -234,9 +234,40 @@ func (d *DB) PostBackTask(payload models.TaskPostBackPayload) (*models.Task, *mo
 
 	_, updateErr := tx.Exec(`
 		UPDATE tasks
-		SET project_id = CASE WHEN tracker_id IS NULL THEN ? ELSE project_id END, title = ?, description = ?, status = ?, priority = ?, labels = ?, pinned = ?, assignee = ?, assignee_avatar = ?, position = ?, due_date = ?, branch_name = ?, pr_url = ?, pr_links = ?, repo_path = ?, tracker_status = ?, source = CASE WHEN source = 'converting' THEN source ELSE ? END, external_url = ?, issue_type = ?, sprint = ?, team = ?, team_id = ?, parent_key = ?, parent_title = ?, parent_type = ?, tracker_updated_at = ?, updated_at = ?
+		SET project_id = CASE WHEN tracker_id IS NULL THEN ? ELSE project_id END, title = ?, description = ?, status = ?, priority = ?, labels = ?, pinned = ?, assignee = ?, assignee_avatar = ?,
+			position = ?, due_date = ?, branch_name = ?, pr_url = ?, pr_links = ?, repo_path = ?, tracker_status = ?, source = CASE WHEN source = 'converting' THEN source ELSE ? END, external_url = ?,
+			issue_type = ?, sprint = ?, team = ?, team_id = ?, parent_key = ?, parent_title = ?, parent_type = ?, tracker_updated_at = ?, updated_at = ?
 		WHERE id = ?
-	`, existing.ProjectID, existing.Title, existing.Description, string(existing.Status), string(existing.Priority), string(labelsJSON), pinnedVal, existing.Assignee, existing.AssigneeAvatar, existing.Position, existing.DueDate, existing.BranchName, existing.PrURL, encodePullRequestLinks(existing.PrLinks), repoPathValue(existing.RepoPath), existing.TrackerStatus, existing.Source, existing.ExternalURL, existing.IssueType, existing.Sprint, existing.Team, existing.TeamID, existing.ParentKey, existing.ParentTitle, existing.ParentType, existing.TrackerUpdatedAt, existing.UpdatedAt, existing.ID)
+	`,
+		existing.ProjectID,
+		existing.Title,
+		existing.Description,
+		string(existing.Status),
+		string(existing.Priority),
+		string(labelsJSON),
+		pinnedVal,
+		existing.Assignee,
+		existing.AssigneeAvatar,
+		existing.Position,
+		existing.DueDate,
+		existing.BranchName,
+		existing.PrURL,
+		encodePullRequestLinks(existing.PrLinks),
+		repoPathValue(existing.RepoPath),
+		existing.TrackerStatus,
+		existing.Source,
+		existing.ExternalURL,
+		existing.IssueType,
+		existing.Sprint,
+		existing.Team,
+		existing.TeamID,
+		existing.ParentKey,
+		existing.ParentTitle,
+		existing.ParentType,
+		existing.TrackerUpdatedAt,
+		existing.UpdatedAt,
+		existing.ID,
+	)
 
 	if updateErr == nil {
 		updateErr = tx.Commit()

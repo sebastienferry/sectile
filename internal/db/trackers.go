@@ -15,7 +15,8 @@ import (
 )
 
 // trackerSelect lists the columns scanTracker reads, in its order.
-const trackerSelect = `SELECT id, name, provider, site, scope, identity, board_id, tracker_columns, stage_columns, sprints, issue_types, auto_sync_enabled, auto_sync_interval_min, created_at, updated_at FROM trackers`
+const trackerSelect = `SELECT id, name, provider, site, scope, identity, board_id, tracker_columns, stage_columns, sprints, issue_types, auto_sync_enabled, auto_sync_interval_min, created_at,
+	updated_at FROM trackers`
 
 // ErrTrackerInUse refuses to delete a tracker a project still selects or a
 // ticket still belongs to.
@@ -29,7 +30,23 @@ func scanTracker(row rowScanner) (*models.Tracker, error) {
 	var t models.Tracker
 	var columnsJSON, stagesJSON, sprintsJSON, typesJSON string
 	var autoSync int
-	if err := row.Scan(&t.ID, &t.Name, &t.Provider, &t.Site, &t.Scope, &t.Identity, &t.BoardID, &columnsJSON, &stagesJSON, &sprintsJSON, &typesJSON, &autoSync, &t.AutoSyncIntervalMin, &t.CreatedAt, &t.UpdatedAt); err != nil {
+	if err := row.Scan(
+		&t.ID,
+		&t.Name,
+		&t.Provider,
+		&t.Site,
+		&t.Scope,
+		&t.Identity,
+		&t.BoardID,
+		&columnsJSON,
+		&stagesJSON,
+		&sprintsJSON,
+		&typesJSON,
+		&autoSync,
+		&t.AutoSyncIntervalMin,
+		&t.CreatedAt,
+		&t.UpdatedAt,
+	); err != nil {
 		return nil, err
 	}
 	t.TrackerColumns = parseTrackerColumns(columnsJSON)
@@ -82,10 +99,26 @@ func trackerMirrorJSON(t *models.Tracker) (columns, stages, sprints, types strin
 // insertTrackerOn inserts a tracker, or nothing when its identity exists.
 func insertTrackerOn(tx *sqlTx, t *models.Tracker) error {
 	columns, stages, sprints, types := trackerMirrorJSON(t)
-	_, err := tx.Exec(`INSERT INTO trackers (id, name, provider, site, scope, identity, board_id, tracker_columns, stage_columns, sprints, issue_types, auto_sync_enabled, auto_sync_interval_min, created_at, updated_at)
+	_, err := tx.Exec(`INSERT INTO trackers (id, name, provider, site, scope, identity, board_id, tracker_columns, stage_columns, sprints, issue_types, auto_sync_enabled, auto_sync_interval_min,
+		created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (identity) DO NOTHING`,
-		t.ID, t.Name, t.Provider, t.Site, t.Scope, t.Identity, t.BoardID, columns, stages, sprints, types, boolInt(t.AutoSyncEnabled), models.NormalizeAutoSyncIntervalMin(t.AutoSyncIntervalMin), t.CreatedAt, t.UpdatedAt)
+		t.ID,
+		t.Name,
+		t.Provider,
+		t.Site,
+		t.Scope,
+		t.Identity,
+		t.BoardID,
+		columns,
+		stages,
+		sprints,
+		types,
+		boolInt(t.AutoSyncEnabled),
+		models.NormalizeAutoSyncIntervalMin(t.AutoSyncIntervalMin),
+		t.CreatedAt,
+		t.UpdatedAt,
+	)
 	if err != nil {
 		return fmt.Errorf("inserting the tracker %s: %w", t.Identity, err)
 	}
@@ -96,9 +129,24 @@ func insertTrackerOn(tx *sqlTx, t *models.Tracker) error {
 // date.
 func updateTrackerOn(tx *sqlTx, t *models.Tracker) error {
 	columns, stages, sprints, types := trackerMirrorJSON(t)
-	_, err := tx.Exec(`UPDATE trackers SET name = ?, provider = ?, site = ?, scope = ?, identity = ?, board_id = ?, tracker_columns = ?, stage_columns = ?, sprints = ?, issue_types = ?, auto_sync_enabled = ?, auto_sync_interval_min = ?, updated_at = ?
+	_, err := tx.Exec(`UPDATE trackers SET name = ?, provider = ?, site = ?, scope = ?, identity = ?, board_id = ?, tracker_columns = ?, stage_columns = ?, sprints = ?, issue_types = ?,
+		auto_sync_enabled = ?, auto_sync_interval_min = ?, updated_at = ?
 		WHERE id = ?`,
-		t.Name, t.Provider, t.Site, t.Scope, t.Identity, t.BoardID, columns, stages, sprints, types, boolInt(t.AutoSyncEnabled), models.NormalizeAutoSyncIntervalMin(t.AutoSyncIntervalMin), t.UpdatedAt, t.ID)
+		t.Name,
+		t.Provider,
+		t.Site,
+		t.Scope,
+		t.Identity,
+		t.BoardID,
+		columns,
+		stages,
+		sprints,
+		types,
+		boolInt(t.AutoSyncEnabled),
+		models.NormalizeAutoSyncIntervalMin(t.AutoSyncIntervalMin),
+		t.UpdatedAt,
+		t.ID,
+	)
 	return err
 }
 
@@ -252,7 +300,8 @@ func defaultTrackerAmong(trackers []*models.Tracker, id string) *models.Tracker 
 // projectTrackersUnsafe lists the trackers a project selects from, by
 // position. The project may be named by id or slug.
 func (d *DB) projectTrackersUnsafe(projectID string) ([]*models.Tracker, error) {
-	rows, err := d.conn.Query(`SELECT t.id, t.name, t.provider, t.site, t.scope, t.identity, t.board_id, t.tracker_columns, t.stage_columns, t.sprints, t.issue_types, t.auto_sync_enabled, t.auto_sync_interval_min, t.created_at, t.updated_at
+	rows, err := d.conn.Query(`SELECT t.id, t.name, t.provider, t.site, t.scope, t.identity, t.board_id, t.tracker_columns, t.stage_columns, t.sprints, t.issue_types, t.auto_sync_enabled,
+		t.auto_sync_interval_min, t.created_at, t.updated_at
 		FROM project_trackers pt JOIN trackers t ON t.id = pt.tracker_id
 		WHERE pt.project_id = ? OR pt.project_id IN (SELECT id FROM projects WHERE slug = ?)
 		ORDER BY pt.position, t.created_at`, projectID, projectID)
@@ -559,7 +608,8 @@ func (d *DB) ensureProjectTrackerUnsafe(tx *sqlTx, p *models.Project, settings *
 	var currentID string
 	currentPosition := 0
 	if err := tx.QueryRow(`SELECT pt.tracker_id, pt.position FROM project_trackers pt JOIN projects p ON p.id = pt.project_id
-		WHERE pt.project_id = ? ORDER BY CASE WHEN pt.tracker_id = p.default_tracker_id THEN 0 ELSE 1 END, pt.position LIMIT 1`, p.ID).Scan(&currentID, &currentPosition); err != nil && err != sql.ErrNoRows {
+		WHERE pt.project_id = ?
+		ORDER BY CASE WHEN pt.tracker_id = p.default_tracker_id THEN 0 ELSE 1 END, pt.position LIMIT 1`, p.ID).Scan(&currentID, &currentPosition); err != nil && err != sql.ErrNoRows {
 		return err
 	}
 	var current *models.Tracker
@@ -599,7 +649,12 @@ func (d *DB) ensureProjectTrackerUnsafe(tx *sqlTx, p *models.Project, settings *
 				return err
 			}
 		}
-		if _, err := tx.Exec(`INSERT INTO project_trackers (project_id, tracker_id, position) VALUES (?, ?, ?) ON CONFLICT (project_id, tracker_id) DO NOTHING`, p.ID, target.ID, currentPosition); err != nil {
+		if _, err := tx.Exec(
+			`INSERT INTO project_trackers (project_id, tracker_id, position) VALUES (?, ?, ?) ON CONFLICT (project_id, tracker_id) DO NOTHING`,
+			p.ID,
+			target.ID,
+			currentPosition,
+		); err != nil {
 			return err
 		}
 	}

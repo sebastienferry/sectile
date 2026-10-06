@@ -168,7 +168,13 @@ func TestEpicAdoptionKeepsTheTodosOfTheMergedRow(t *testing.T) {
 		{first.ID, "[]", newer},
 		{second.ID, `[{"id":"t1","text":"Keep me","done":false}]`, older},
 	} {
-		if _, err := d.conn.Exec("INSERT INTO macros (project_id, key, tracker_id, title, todos, updated_at) VALUES (?, 'GODE-7', ?, 'Epic', ?, ?)", row.project, trackerID, row.todos, row.at); err != nil {
+		if _, err := d.conn.Exec(
+			"INSERT INTO macros (project_id, key, tracker_id, title, todos, updated_at) VALUES (?, 'GODE-7', ?, 'Epic', ?, ?)",
+			row.project,
+			trackerID,
+			row.todos,
+			row.at,
+		); err != nil {
 			t.Fatal(err)
 		}
 	}

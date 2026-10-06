@@ -491,7 +491,19 @@ func (d *DB) saveMacroMetaKeys(projectID string, key string, horizon *string, de
 	var closedInt int
 	err = tx.QueryRow(`
 		SELECT horizon, description, framing_comment, todos, title, status, closed, priority, quarter, readiness, labels FROM macros WHERE project_id = ? AND key = ?`+d.forUpdate(),
-		rowProject, key).Scan(&current.Horizon, &current.Description, &current.FramingComment, &todosJSON, &current.Title, &current.Status, &closedInt, &current.Priority, &current.Quarter, &current.Readiness, &labelsJSON)
+		rowProject, key).Scan(
+		&current.Horizon,
+		&current.Description,
+		&current.FramingComment,
+		&todosJSON,
+		&current.Title,
+		&current.Status,
+		&closedInt,
+		&current.Priority,
+		&current.Quarter,
+		&current.Readiness,
+		&labelsJSON,
+	)
 	if err == nil {
 		current.Todos = parseMacroTodos(todosJSON)
 		current.Closed = closedInt == 1
@@ -1271,7 +1283,10 @@ func (d *DB) DeleteMacro(ctx context.Context, projectID string, key string) erro
 	_, err := d.conn.Exec("DELETE FROM macros WHERE project_id = ? AND key = ?", rowProject, key)
 	// The project's tickets lose the parent (#741).
 	member, memberArgs := d.membershipScopeUnsafe([]string{projectID})
-	_, _ = d.conn.Exec("UPDATE tasks SET parent_key = '', parent_title = '' WHERE (project_id = ? OR "+member+") AND (parent_key = ? OR parent_title = ?)", append(append([]any{projectID}, memberArgs...), key, key)...)
+	_, _ = d.conn.Exec(
+		"UPDATE tasks SET parent_key = '', parent_title = '' WHERE (project_id = ? OR "+member+") AND (parent_key = ? OR parent_title = ?)",
+		append(append([]any{projectID}, memberArgs...), key, key)...,
+	)
 	d.mu.Unlock()
 	if err == nil && refused != nil {
 		return fmt.Errorf("macro %s supprimée en local, milestone GitHub non supprimé : %w", key, refused)

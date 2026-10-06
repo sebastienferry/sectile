@@ -18,8 +18,42 @@ const { root, preserveSymlinks } = browserRoot(import.meta.url);
 const harness = `
 const json = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 const stamp = '2026-10-06T00:00:00Z';
-const project = (id, name, label) => ({ id, name, slug: id, color: 'indigo', icon: 'Folder', issueTracker: 'jira', jiraProject: 'GODE', githubRepo: '', isDefault: id === 'a', description: '', enabledViews: [], bookmarked: true, taskCount: 2, label, trackers: [{ trackerId: 'gode', identity: 'jira|acme.atlassian.net|GODE' }], defaultTrackerId: 'gode', createdAt: stamp, updatedAt: stamp });
-const task = (id, key, title, projectIds) => ({ id, key, title, projectId: projectIds[0], projectIds, trackerId: 'gode', labels: ['#new', ...projectIds.map(p => p === 'a' ? 'alpha' : 'beta')], description: '', status: 'to_clarify', priority: 'medium', source: 'jira', position: 0, createdAt: stamp, updatedAt: stamp });
+const project = (id, name, label) => ({
+  id,
+  name,
+  slug: id,
+  color: 'indigo',
+  icon: 'Folder',
+  issueTracker: 'jira',
+  jiraProject: 'GODE',
+  githubRepo: '',
+  isDefault: id === 'a',
+  description: '',
+  enabledViews: [],
+  bookmarked: true,
+  taskCount: 2,
+  label,
+  trackers: [{ trackerId: 'gode', identity: 'jira|acme.atlassian.net|GODE' }],
+  defaultTrackerId: 'gode',
+  createdAt: stamp,
+  updatedAt: stamp,
+});
+const task = (id, key, title, projectIds) => ({
+  id,
+  key,
+  title,
+  projectId: projectIds[0],
+  projectIds,
+  trackerId: 'gode',
+  labels: ['#new', ...projectIds.map(p => p === 'a' ? 'alpha' : 'beta')],
+  description: '',
+  status: 'to_clarify',
+  priority: 'medium',
+  source: 'jira',
+  position: 0,
+  createdAt: stamp,
+  updatedAt: stamp,
+});
 window.fake = {
   runs: [],
   projects: [project('a', 'Alpha', 'alpha'), project('b', 'Beta', 'beta')],
@@ -40,9 +74,35 @@ window.fetch = async (input, init = {}) => {
       return json({ error: 'ce ticket appartient à plusieurs projets', candidates: [{ id: 'a', name: 'Alpha' }, { id: 'b', name: 'Beta' }], unattended: false }, 409);
     }
     const t = fake.tasks.find(item => item.id === id);
-    return json({ task: t, activity: { id: 'act-' + fake.runs.length, taskId: id, skillId: body.skillId, skillName: body.skillId, action: 'run', status: 'queued', summary: '', output: '', steps: [], createdAt: stamp, runProjectId: body.projectId } });
+    return json({
+      task: t,
+      activity: {
+        id: 'act-' + fake.runs.length,
+        taskId: id,
+        skillId: body.skillId,
+        skillName: body.skillId,
+        action: 'run',
+        status: 'queued',
+        summary: '',
+        output: '',
+        steps: [],
+        createdAt: stamp,
+        runProjectId: body.projectId,
+      },
+    });
   }
-  if (url.pathname === '/api/tasks/facets') return json({ sprints: [], teams: [], macros: [], assignees: [], trackerStatuses: [], statuses: [], sources: [], issueTypes: [], labels: [], total: fake.tasks.length });
+  if (url.pathname === '/api/tasks/facets') return json({
+    sprints: [],
+    teams: [],
+    macros: [],
+    assignees: [],
+    trackerStatuses: [],
+    statuses: [],
+    sources: [],
+    issueTypes: [],
+    labels: [],
+    total: fake.tasks.length,
+  });
   if (url.pathname === '/api/tasks') return json(fake.tasks);
   if (url.pathname === '/api/trackers') return json([{ id: 'gode', name: 'GODE', provider: 'jira', site: '', scope: 'GODE', identity: 'jira|acme.atlassian.net|GODE' }]);
   if (url.pathname === '/api/settings') return json({ userName: 'Alice', language: 'fr', aiProvider: 'claude' });

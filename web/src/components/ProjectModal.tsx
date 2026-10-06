@@ -432,7 +432,7 @@ export const ProjectModal: React.FC = () => {
         specArtifacts: dropSpecArtifacts ? 'drop' as const : 'keep' as const,
         // The trackers, the default and the label (#741). The tracker's own
         // fields (board, columns, mapping, issue types, auto-sync) are an
-        // admin's, on the tracker, and are no longer sent (D11).
+        // admin's, on the tracker, so the project's save does not send them (D11).
         ...selection,
         githubApiUrl: githubApiUrl.trim(),
         gitlabUrl: gitlabUrl.trim(),

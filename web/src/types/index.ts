@@ -512,7 +512,7 @@ export interface TrackerSummary {
 
 /**
  * A tracker as an admin configures it (GET /api/admin/trackers): its source and
- * the board mirror projects used to hold, now one per tracker (#741).
+ * its board mirror, one per tracker (#741).
  */
 export interface Tracker extends TrackerSummary {
   boardId?: string

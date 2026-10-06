@@ -15,9 +15,25 @@ func importLinklessTickets(t *testing.T, d *DB, jiraProjectID, gitlabProjectID s
 	t.Helper()
 	var batch []models.Task
 	for i := from + 1; i <= from+n; i++ {
-		batch = append(batch, models.Task{ID: fmt.Sprintf("jira-%d", i), ProjectID: jiraProjectID, Key: fmt.Sprintf("PE-%d", i), Title: "Jira", Source: "jira", Status: models.StatusBacklog, Labels: []string{}})
+		batch = append(batch, models.Task{
+			ID:        fmt.Sprintf("jira-%d", i),
+			ProjectID: jiraProjectID,
+			Key:       fmt.Sprintf("PE-%d", i),
+			Title:     "Jira",
+			Source:    "jira",
+			Status:    models.StatusBacklog,
+			Labels:    []string{},
+		})
 		if gitlabProjectID != "" {
-			batch = append(batch, models.Task{ID: fmt.Sprintf("gitlab-%d", i), ProjectID: gitlabProjectID, Key: fmt.Sprintf("#%d", i), Title: "GitLab", Source: "gitlab", Status: models.StatusBacklog, Labels: []string{}})
+			batch = append(batch, models.Task{
+				ID:        fmt.Sprintf("gitlab-%d", i),
+				ProjectID: gitlabProjectID,
+				Key:       fmt.Sprintf("#%d", i),
+				Title:     "GitLab",
+				Source:    "gitlab",
+				Status:    models.StatusBacklog,
+				Labels:    []string{},
+			})
 		}
 	}
 	if err := d.ImportOrUpdateTasks("", batch); err != nil {

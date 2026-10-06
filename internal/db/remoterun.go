@@ -465,7 +465,8 @@ func (d *DB) SyncRemoteRunStatusFor(ownerID, activityID, taskID, projectID, task
 		if projectID = strings.TrimSpace(projectID); projectID != "" {
 			runProject = projectID
 		}
-		_, err = d.conn.Exec(`INSERT INTO task_activities (id, task_id, run_project_id, skill_id, skill_name, action, status, summary, output, steps, prompt, started_at, completed_at, error, created_at, user_id, concurrent)
+		_, err = d.conn.Exec(`INSERT INTO task_activities (id, task_id, run_project_id, skill_id, skill_name, action, status, summary, output, steps, prompt, started_at, completed_at, error,
+			created_at, user_id, concurrent)
 			VALUES (?, ?, ?, 'remote_run', ?, ?, ?, ?, '', '[]', '', ?, NULL, '', ?, ?, 1)
 			ON CONFLICT (id) DO NOTHING`,
 			activityID, realTaskID, runProject, skillName, action, status, summary, sAt, now, ownerID)

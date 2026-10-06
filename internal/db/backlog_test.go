@@ -151,7 +151,16 @@ func labelsWrittenOn(t *testing.T, provider, scope, key string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := d.ImportOrUpdateTasks(trk.ID, []models.Task{{ID: "5", Key: key, Title: "Backlog", Status: models.StatusToClarify, Priority: models.PriorityMedium, Source: provider, CreatedAt: time.Now(), UpdatedAt: time.Now()}}); err != nil {
+	if err := d.ImportOrUpdateTasks(trk.ID, []models.Task{{
+		ID:        "5",
+		Key:       key,
+		Title:     "Backlog",
+		Status:    models.StatusToClarify,
+		Priority:  models.PriorityMedium,
+		Source:    provider,
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}}); err != nil {
 		t.Fatal(err)
 	}
 	backlog, err := d.GetTrackerBacklog(trk.ID)

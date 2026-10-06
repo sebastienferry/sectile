@@ -27,7 +27,16 @@ func importTickets(t *testing.T, d *DB, trackerID string, labels map[string][]st
 	t.Helper()
 	var tickets []models.Task
 	for key, l := range labels {
-		tickets = append(tickets, models.Task{Key: key, Title: key, Status: models.StatusToClarify, Priority: models.PriorityMedium, Labels: l, Source: "jira", CreatedAt: time.Now(), UpdatedAt: time.Now()})
+		tickets = append(tickets, models.Task{
+			Key:       key,
+			Title:     key,
+			Status:    models.StatusToClarify,
+			Priority:  models.PriorityMedium,
+			Labels:    l,
+			Source:    "jira",
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now(),
+		})
 	}
 	if err := d.ImportOrUpdateTasks(trackerID, tickets); err != nil {
 		t.Fatal(err)
@@ -267,7 +276,16 @@ func TestTwoGithubTrackersWithTheSameIssueNumberImportTwoRecords(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, trk := range []*models.Tracker{api, web} {
-		if err := d.ImportOrUpdateTasks(trk.ID, []models.Task{{ID: "12", Key: "#12", Title: trk.Scope, Status: models.StatusToClarify, Priority: models.PriorityMedium, Source: "github", CreatedAt: time.Now(), UpdatedAt: time.Now()}}); err != nil {
+		if err := d.ImportOrUpdateTasks(trk.ID, []models.Task{{
+			ID:        "12",
+			Key:       "#12",
+			Title:     trk.Scope,
+			Status:    models.StatusToClarify,
+			Priority:  models.PriorityMedium,
+			Source:    "github",
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now(),
+		}}); err != nil {
 			t.Fatal(err)
 		}
 	}

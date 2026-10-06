@@ -18,8 +18,42 @@ const harness = `
 const json = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 const stamp = '2026-10-06T00:00:00Z';
 const ref = id => ({ trackerId: id, identity: 'jira|acme.atlassian.net|' + id.toUpperCase() });
-const project = (id, name, label, trackers) => ({ id, name, slug: id, color: 'indigo', icon: 'Folder', issueTracker: 'jira', jiraProject: trackers[0].toUpperCase(), githubRepo: '', isDefault: id === 'da', description: '', enabledViews: [], bookmarked: true, taskCount: 0, label, trackers: trackers.map(ref), defaultTrackerId: trackers[0], createdAt: stamp, updatedAt: stamp });
-const ticket = (id, key, title, labels) => ({ id, key, title, projectId: '', projectIds: [], trackerId: 'gode', labels, description: '', status: 'to_clarify', priority: 'medium', source: 'jira', position: 0, createdAt: stamp, updatedAt: stamp });
+const project = (id, name, label, trackers) => ({
+  id,
+  name,
+  slug: id,
+  color: 'indigo',
+  icon: 'Folder',
+  issueTracker: 'jira',
+  jiraProject: trackers[0].toUpperCase(),
+  githubRepo: '',
+  isDefault: id === 'da',
+  description: '',
+  enabledViews: [],
+  bookmarked: true,
+  taskCount: 0,
+  label,
+  trackers: trackers.map(ref),
+  defaultTrackerId: trackers[0],
+  createdAt: stamp,
+  updatedAt: stamp,
+});
+const ticket = (id, key, title, labels) => ({
+  id,
+  key,
+  title,
+  projectId: '',
+  projectIds: [],
+  trackerId: 'gode',
+  labels,
+  description: '',
+  status: 'to_clarify',
+  priority: 'medium',
+  source: 'jira',
+  position: 0,
+  createdAt: stamp,
+  updatedAt: stamp,
+});
 window.fake = {
   labelled: [],
   backlogReads: [],

@@ -78,7 +78,10 @@ func (d *DB) macroRowUnsafe(projectID, key string) (string, any) {
 		args = append(args, id)
 	}
 	var rowProject, trackerID string
-	err := d.conn.QueryRow(`SELECT project_id, tracker_id FROM macros WHERE key = ? AND tracker_id IN (`+placeholders(len(p.Trackers))+`) ORDER BY updated_at DESC LIMIT 1`, args...).Scan(&rowProject, &trackerID)
+	err := d.conn.QueryRow(
+		`SELECT project_id, tracker_id FROM macros WHERE key = ? AND tracker_id IN (`+placeholders(len(p.Trackers))+`) ORDER BY updated_at DESC LIMIT 1`,
+		args...,
+	).Scan(&rowProject, &trackerID)
 	if err == nil {
 		return rowProject, trackerID
 	}

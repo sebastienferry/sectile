@@ -1109,7 +1109,13 @@ func (d *agentDaemon) desktopCreateTask(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, err.Error(), 400)
 		return
 	}
-	body := mustJSON(models.CreateTaskRequest{ProjectID: input.ProjectID, TrackerID: strings.TrimSpace(input.TrackerID), Title: strings.TrimSpace(input.Title), Description: input.Description, RequireRemoteCreation: true})
+	body := mustJSON(models.CreateTaskRequest{
+		ProjectID:             input.ProjectID,
+		TrackerID:             strings.TrimSpace(input.TrackerID),
+		Title:                 strings.TrimSpace(input.Title),
+		Description:           input.Description,
+		RequireRemoteCreation: true,
+	})
 	req, err := http.NewRequestWithContext(r.Context(), http.MethodPost, d.link.serverURL+"/api/tasks", strings.NewReader(body))
 	if err != nil {
 		http.Error(w, err.Error(), 500)

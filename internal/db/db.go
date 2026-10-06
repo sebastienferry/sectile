@@ -1188,9 +1188,43 @@ func (d *DB) ImportOrUpdateTasks(trackerID string, syncedTasks []models.Task) er
 				`, newID, t.UpdatedAt.Format(time.RFC3339))
 			}
 			if _, insErr := d.conn.Exec(`
-				INSERT INTO tasks (id, project_id, tracker_id, key, title, description, status, priority, labels, pinned, assignee, assignee_avatar, creator, creator_avatar, position, due_date, source, external_url, issue_type, parent_key, parent_title, parent_type, sprint, team, team_id, tracker_status, tracker_created_at, tracker_updated_at, status_changed_at, created_at, updated_at)
+				INSERT INTO tasks (id, project_id, tracker_id, key, title, description, status, priority, labels, pinned, assignee, assignee_avatar, creator, creator_avatar, position, due_date,
+					source, external_url, issue_type, parent_key, parent_title, parent_type, sprint, team, team_id, tracker_status, tracker_created_at, tracker_updated_at, status_changed_at,
+					created_at, updated_at)
 				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-			`, newID, rowProjectID, trackerValue, t.Key, t.Title, t.Description, string(t.Status), string(t.Priority), string(labelsJSON), pinnedVal, t.Assignee, t.AssigneeAvatar, t.Creator, t.CreatorAvatar, t.Position, t.DueDate, src, t.ExternalURL, t.IssueType, t.ParentKey, t.ParentTitle, t.ParentType, t.Sprint, t.Team, t.TeamID, t.TrackerStatus, t.TrackerCreatedAt, t.TrackerUpdatedAt, t.StatusChangedAt, t.CreatedAt, now); insErr != nil {
+			`,
+				newID,
+				rowProjectID,
+				trackerValue,
+				t.Key,
+				t.Title,
+				t.Description,
+				string(t.Status),
+				string(t.Priority),
+				string(labelsJSON),
+				pinnedVal,
+				t.Assignee,
+				t.AssigneeAvatar,
+				t.Creator,
+				t.CreatorAvatar,
+				t.Position,
+				t.DueDate,
+				src,
+				t.ExternalURL,
+				t.IssueType,
+				t.ParentKey,
+				t.ParentTitle,
+				t.ParentType,
+				t.Sprint,
+				t.Team,
+				t.TeamID,
+				t.TrackerStatus,
+				t.TrackerCreatedAt,
+				t.TrackerUpdatedAt,
+				t.StatusChangedAt,
+				t.CreatedAt,
+				now,
+			); insErr != nil {
 				// Never swallow this: a silent failure here makes a sync report
 				// "N tickets imported" while the board stays empty.
 				log.Printf("[DB.ImportOrUpdateTasks] insert of %s failed: %v", t.Key, insErr)
@@ -2013,7 +2047,9 @@ func (d *DB) GetTasksInScope(scope TaskScope, query, status, priority, label, sp
 		args = append(args, mineArgs...)
 	}
 
-	sqlQuery := "SELECT id, project_id, COALESCE(tracker_id, ''), key, title, description, status, priority, labels, assignee, assignee_avatar, creator, creator_avatar, position, due_date, branch_name, pr_url, pr_links, repo_path, repository, changed_repositories, sprint, team, team_id, tracker_status, source, external_url, issue_type, parent_key, parent_title, parent_type, tracker_created_at, tracker_updated_at, status_changed_at, created_at, updated_at FROM tasks"
+	sqlQuery := `SELECT id, project_id, COALESCE(tracker_id, ''), key, title, description, status, priority, labels, assignee, assignee_avatar, creator, creator_avatar, position, due_date,
+		branch_name, pr_url, pr_links, repo_path, repository, changed_repositories, sprint, team, team_id, tracker_status, source, external_url, issue_type, parent_key, parent_title, parent_type,
+		tracker_created_at, tracker_updated_at, status_changed_at, created_at, updated_at FROM tasks`
 	if len(conditions) > 0 {
 		sqlQuery += " WHERE " + strings.Join(conditions, " AND ")
 	}
@@ -2772,9 +2808,36 @@ func (d *DB) CreateTaskAs(ctx context.Context, req models.CreateTaskRequest) (*m
 			}
 		}
 		_, err := tx.Exec(`
-			INSERT INTO tasks (id, project_id, tracker_id, key, title, description, status, priority, labels, pinned, assignee, assignee_avatar, creator, creator_avatar, position, due_date, source, external_url, issue_type, parent_key, parent_title, parent_type, sprint, created_at, updated_at)
+			INSERT INTO tasks (id, project_id, tracker_id, key, title, description, status, priority, labels, pinned, assignee, assignee_avatar, creator, creator_avatar, position, due_date, source,
+				external_url, issue_type, parent_key, parent_title, parent_type, sprint, created_at, updated_at)
 			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-		`, id, rowProjectID, trackerValue, key, req.Title, req.Description, string(req.Status), string(req.Priority), string(labelsJSON), boolToInt(isPinned), req.Assignee, req.AssigneeAvatar, req.Creator, req.CreatorAvatar, newPos, req.DueDate, req.Source, extURL, issueType, parentKey, parentTitle, parentType, strings.TrimSpace(req.Sprint), now, now)
+		`,
+			id,
+			rowProjectID,
+			trackerValue,
+			key,
+			req.Title,
+			req.Description,
+			string(req.Status),
+			string(req.Priority),
+			string(labelsJSON),
+			boolToInt(isPinned),
+			req.Assignee,
+			req.AssigneeAvatar,
+			req.Creator,
+			req.CreatorAvatar,
+			newPos,
+			req.DueDate,
+			req.Source,
+			extURL,
+			issueType,
+			parentKey,
+			parentTitle,
+			parentType,
+			strings.TrimSpace(req.Sprint),
+			now,
+			now,
+		)
 		return err
 	})
 	if err != nil {
@@ -3211,9 +3274,35 @@ func (d *DB) updateTaskBy(actor Actor, id string, req models.UpdateTaskRequest) 
 
 	_, err = tx.Exec(`
 		UPDATE tasks
-		SET project_id = CASE WHEN tracker_id IS NULL THEN ? ELSE project_id END, title = ?, description = ?, status = ?, priority = ?, labels = ?, pinned = ?, assignee = ?, assignee_avatar = ?, position = ?, due_date = ?, branch_name = ?, pr_url = ?, pr_links = ?, repo_path = ?, repository = ?, tracker_status = ?, source = CASE WHEN source = 'converting' THEN source ELSE ? END, external_url = ?, issue_type = ?, sprint = ?, updated_at = ?
+		SET project_id = CASE WHEN tracker_id IS NULL THEN ? ELSE project_id END, title = ?, description = ?, status = ?, priority = ?, labels = ?, pinned = ?, assignee = ?, assignee_avatar = ?,
+			position = ?, due_date = ?, branch_name = ?, pr_url = ?, pr_links = ?, repo_path = ?, repository = ?, tracker_status = ?, source = CASE WHEN source = 'converting' THEN source ELSE ? END,
+			external_url = ?, issue_type = ?, sprint = ?, updated_at = ?
 		WHERE id = ?
-	`, existing.ProjectID, existing.Title, existing.Description, string(existing.Status), string(existing.Priority), string(labelsJSON), pinnedVal, existing.Assignee, existing.AssigneeAvatar, existing.Position, existing.DueDate, existing.BranchName, existing.PrURL, encodePullRequestLinks(existing.PrLinks), repoPathValue(existing.RepoPath), existing.Repository, existing.TrackerStatus, existing.Source, existing.ExternalURL, existing.IssueType, existing.Sprint, existing.UpdatedAt, existing.ID)
+	`,
+		existing.ProjectID,
+		existing.Title,
+		existing.Description,
+		string(existing.Status),
+		string(existing.Priority),
+		string(labelsJSON),
+		pinnedVal,
+		existing.Assignee,
+		existing.AssigneeAvatar,
+		existing.Position,
+		existing.DueDate,
+		existing.BranchName,
+		existing.PrURL,
+		encodePullRequestLinks(existing.PrLinks),
+		repoPathValue(existing.RepoPath),
+		existing.Repository,
+		existing.TrackerStatus,
+		existing.Source,
+		existing.ExternalURL,
+		existing.IssueType,
+		existing.Sprint,
+		existing.UpdatedAt,
+		existing.ID,
+	)
 
 	if err != nil {
 		return nil, err
@@ -3532,7 +3621,9 @@ type rowQuerier interface {
 }
 
 // taskColumns are the columns scanTaskRow reads, in its order.
-const taskColumns = `id, project_id, tracker_id, key, title, description, status, priority, labels, assignee, assignee_avatar, creator, creator_avatar, position, due_date, branch_name, pr_url, pr_links, repo_path, repository, changed_repositories, sprint, team, team_id, tracker_status, source, external_url, issue_type, parent_key, parent_title, parent_type, tracker_created_at, tracker_updated_at, status_changed_at, created_at, updated_at`
+const taskColumns = `id, project_id, tracker_id, key, title, description, status, priority, labels, assignee, assignee_avatar, creator, creator_avatar, position, due_date, branch_name, pr_url,
+	pr_links, repo_path, repository, changed_repositories, sprint, team, team_id, tracker_status, source, external_url, issue_type, parent_key, parent_title, parent_type, tracker_created_at,
+	tracker_updated_at, status_changed_at, created_at, updated_at`
 
 // ErrTaskKeyAmbiguous refuses a ticket named by a key that two trackers carry
 // (#741): reading the first of them would act on the wrong ticket.
@@ -3730,9 +3821,34 @@ func insertTaskActivity(conn activityExecutor, instanceID string, act models.Tas
 		stepsJSON = []byte("[]")
 	}
 	_, err := conn.Exec(`
-		INSERT INTO task_activities (id, task_id, project_id, run_project_id, tracker_id, skill_id, skill_name, action, status, summary, output, steps, prompt, started_at, completed_at, error, created_at, waiting_since, user_id, run_provider, run_model, instance_id, concurrent)
+		INSERT INTO task_activities (id, task_id, project_id, run_project_id, tracker_id, skill_id, skill_name, action, status, summary, output, steps, prompt, started_at, completed_at, error,
+			created_at, waiting_since, user_id, run_provider, run_model, instance_id, concurrent)
 		VALUES (?, NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, act.ID, act.TaskID, act.ProjectID, act.RunProjectID, act.TrackerID, act.SkillID, act.SkillName, act.Action, act.Status, act.Summary, act.Output, string(stepsJSON), act.Prompt, act.StartedAt, act.CompletedAt, act.Error, act.CreatedAt, act.WaitingSince, act.UserID, act.Provider, act.Model, instanceID, boolToInt(act.Concurrent))
+	`,
+		act.ID,
+		act.TaskID,
+		act.ProjectID,
+		act.RunProjectID,
+		act.TrackerID,
+		act.SkillID,
+		act.SkillName,
+		act.Action,
+		act.Status,
+		act.Summary,
+		act.Output,
+		string(stepsJSON),
+		act.Prompt,
+		act.StartedAt,
+		act.CompletedAt,
+		act.Error,
+		act.CreatedAt,
+		act.WaitingSince,
+		act.UserID,
+		act.Provider,
+		act.Model,
+		instanceID,
+		boolToInt(act.Concurrent),
+	)
 	return err
 }
 
@@ -3788,7 +3904,34 @@ func (d *DB) activitiesAttachedTo(column, id string) ([]models.TaskActivity, err
 		var startedAt, completedAt, waitingSince sql.NullTime
 		var ownerName, ownerEmail string
 
-		err := rows.Scan(&a.ID, &a.TaskID, &a.ProjectID, &a.SkillID, &a.SkillName, &a.Action, &a.Status, &a.Summary, &a.Output, &stepsJSON, &prompt, &startedAt, &completedAt, &errStr, &a.CreatedAt, &waitingSince, &a.WaitingReason, &a.UserID, &ownerName, &ownerEmail, &runProvider, &runModel, &a.Concurrent, &a.CredentialMissing, &a.RunProjectID, &a.TrackerID)
+		err := rows.Scan(
+			&a.ID,
+			&a.TaskID,
+			&a.ProjectID,
+			&a.SkillID,
+			&a.SkillName,
+			&a.Action,
+			&a.Status,
+			&a.Summary,
+			&a.Output,
+			&stepsJSON,
+			&prompt,
+			&startedAt,
+			&completedAt,
+			&errStr,
+			&a.CreatedAt,
+			&waitingSince,
+			&a.WaitingReason,
+			&a.UserID,
+			&ownerName,
+			&ownerEmail,
+			&runProvider,
+			&runModel,
+			&a.Concurrent,
+			&a.CredentialMissing,
+			&a.RunProjectID,
+			&a.TrackerID,
+		)
 		if err != nil {
 			continue
 		}
@@ -4497,7 +4640,11 @@ func (d *DB) processSkillJob(job SkillJob) {
 		provider, model := d.ResolveTaskEngine(runProject, job.ActingUser, device, job.SkillID, job.Model)
 		run, err = d.StartAgentRun(task.ID, job.SkillID, RunLaunch{Mode: job.Mode, Model: model, Provider: provider, ChainStop: job.ChainStopStage, ProjectID: runProject})
 		if err == nil {
-			err = d.callAgentContext(ctx, agentprotocol.Operation{ProjectID: runProject, TaskID: task.ID, Action: "execute_skill", SkillID: job.SkillID, Prompt: job.Prompt, RunID: run.ID, Mode: job.Mode, Model: job.Model}, nil)
+			err = d.callAgentContext(
+				ctx,
+				agentprotocol.Operation{ProjectID: runProject, TaskID: task.ID, Action: "execute_skill", SkillID: job.SkillID, Prompt: job.Prompt, RunID: run.ID, Mode: job.Mode, Model: job.Model},
+				nil,
+			)
 			if err != nil {
 				_, _ = d.FinishRemoteRun(task.ID, run.ID, "failed", err.Error())
 			}
@@ -5568,7 +5715,16 @@ func (d *DB) FullChainStopStage(projectID string) string {
 // for, which ResolveRunProject chooses when projectID is empty (#741), and
 // records it on the run. chainStopStage is variadic so the ordinary launches,
 // which chain nothing, keep their call.
-func (d *DB) enqueueSkillOnTask(taskID string, projectID string, skillID string, prompt string, autoChain bool, modeOverride string, modelOverride string, chainStopStage ...string) (*models.Task, *models.TaskActivity, error) {
+func (d *DB) enqueueSkillOnTask(
+	taskID string,
+	projectID string,
+	skillID string,
+	prompt string,
+	autoChain bool,
+	modeOverride string,
+	modelOverride string,
+	chainStopStage ...string,
+) (*models.Task, *models.TaskActivity, error) {
 	skillID = models.NormalizeSkillID(skillID)
 	d.mu.RLock()
 	task, err := d.getTaskByIDUnsafe(taskID)
@@ -6546,7 +6702,12 @@ func (d *DB) getProjectsUnsafe() ([]models.Project, error) {
 // derives the trackers from.
 func (d *DB) scanProjectsUnsafe(readThrough bool) ([]models.Project, error) {
 	rows, err := d.conn.Query(`
-		SELECT p.id, p.name, p.slug, p.description, p.icon, p.color, p.repo_path, p.repo_paths, p.repositories, p.repositories_migration, p.use_worktrees, p.default_skill_mode, p.full_chain_stop_stage, p.push_stage_commits, p.pr_creation_stage, p.spec_artifacts, p.branch_name_format, p.board_id, p.tracker_columns, p.stage_columns, p.sprints, p.issue_types, p.enabled_views, p.epic_colors, p.roadmap_projects, p.roadmap_axis_writes, p.epic_axis_prefixes, p.priority_mapping, p.epic_axis_fields, p.git_remote_url, p.github_repo, p.github_api_url, p.gitlab_url, p.gitlab_project, p.jira_project, p.issue_tracker, p.tracker_url, p.is_default, p.skill_overrides, p.setup_providers, p.ai_provider, p.ai_command_template, p.ai_command_template_autonomous, p.ai_model, p.ai_skill_models, p.spec_framework, p.external_terminal_command, p.auto_sync_enabled, p.auto_sync_interval_min, p.owner_user_id, p.label, p.default_tracker_id, p.created_at, p.updated_at,
+		SELECT p.id, p.name, p.slug, p.description, p.icon, p.color, p.repo_path, p.repo_paths, p.repositories, p.repositories_migration, p.use_worktrees, p.default_skill_mode,
+			p.full_chain_stop_stage, p.push_stage_commits, p.pr_creation_stage, p.spec_artifacts, p.branch_name_format, p.board_id, p.tracker_columns, p.stage_columns, p.sprints, p.issue_types,
+			p.enabled_views, p.epic_colors, p.roadmap_projects, p.roadmap_axis_writes, p.epic_axis_prefixes, p.priority_mapping, p.epic_axis_fields, p.git_remote_url, p.github_repo, p.github_api_url, p.gitlab_url, p.gitlab_project,
+			p.jira_project, p.issue_tracker, p.tracker_url, p.is_default, p.skill_overrides, p.setup_providers, p.ai_provider, p.ai_command_template, p.ai_command_template_autonomous, p.ai_model,
+			p.ai_skill_models, p.spec_framework, p.external_terminal_command, p.auto_sync_enabled, p.auto_sync_interval_min, p.owner_user_id, p.label, p.default_tracker_id, p.created_at,
+			p.updated_at,
 		       0 as task_count
 		FROM projects p
 		ORDER BY p.is_default DESC, p.name ASC
@@ -6574,7 +6735,61 @@ func (d *DB) scanProjectsUnsafe(readThrough bool) ([]models.Project, error) {
 		var ghURL, glURL, glProj sql.NullString
 		var ownerUserID sql.NullString
 		err := rows.Scan(
-			&p.ID, &p.Name, &p.Slug, &p.Description, &p.Icon, &p.Color, &p.RepoPath, &repoPathsJSON, &repositoriesJSON, &p.RepositoriesMigration, &useWorktrees, &defaultSkillMode, &fullChainStopStage, &pushStageCommits, &p.PRCreationStage, &p.SpecArtifacts, &p.BranchNameFormat, &p.BoardID, &trackerColumnsJSON, &stageColumnsJSON, &sprintsJSON, &issueTypesJSON, &enabledViewsJSON, &epicColors, &roadmapProjectsJSON, &roadmapAxisWrites, &epicAxisPrefixesJSON, &priorityMappingJSON, &epicAxisFieldsJSON, &p.GitRemoteUrl, &p.GithubRepo, &ghURL, &glURL, &glProj, &jiraProj, &p.IssueTracker, &p.TrackerUrl, &isDefault, &skillOverridesJSON, &setupProvidersJSON, &aiProv, &aiCmd, &aiCmdAuto, &projModel, &projSkillModelsJSON, &specFw, &extTerm, &autoSyncEnabledInt, &autoSyncIntervalMin, &ownerUserID, &p.Label, &p.DefaultTrackerID, &p.CreatedAt, &p.UpdatedAt, &p.TaskCount,
+			&p.ID,
+			&p.Name,
+			&p.Slug,
+			&p.Description,
+			&p.Icon,
+			&p.Color,
+			&p.RepoPath,
+			&repoPathsJSON,
+			&repositoriesJSON,
+			&p.RepositoriesMigration,
+			&useWorktrees,
+			&defaultSkillMode,
+			&fullChainStopStage,
+			&pushStageCommits,
+			&p.PRCreationStage,
+			&p.SpecArtifacts,
+			&p.BranchNameFormat,
+			&p.BoardID,
+			&trackerColumnsJSON,
+			&stageColumnsJSON,
+			&sprintsJSON,
+			&issueTypesJSON,
+			&enabledViewsJSON,
+			&epicColors,
+			&roadmapProjectsJSON,
+			&roadmapAxisWrites,
+			&epicAxisPrefixesJSON,
+			&priorityMappingJSON,
+			&epicAxisFieldsJSON,
+			&p.GitRemoteUrl,
+			&p.GithubRepo,
+			&ghURL,
+			&glURL,
+			&glProj,
+			&jiraProj,
+			&p.IssueTracker,
+			&p.TrackerUrl,
+			&isDefault,
+			&skillOverridesJSON,
+			&setupProvidersJSON,
+			&aiProv,
+			&aiCmd,
+			&aiCmdAuto,
+			&projModel,
+			&projSkillModelsJSON,
+			&specFw,
+			&extTerm,
+			&autoSyncEnabledInt,
+			&autoSyncIntervalMin,
+			&ownerUserID,
+			&p.Label,
+			&p.DefaultTrackerID,
+			&p.CreatedAt,
+			&p.UpdatedAt,
+			&p.TaskCount,
 		)
 		if err != nil {
 			return nil, err
@@ -6705,12 +6920,71 @@ func (d *DB) getProjectByIDUnsafe(id string) (*models.Project, error) {
 	var ghURL, glURL, glProj sql.NullString
 	var ownerUserID sql.NullString
 	err := d.conn.QueryRow(`
-		SELECT p.id, p.name, p.slug, p.description, p.icon, p.color, p.repo_path, p.repo_paths, p.repositories, p.repositories_migration, p.use_worktrees, p.default_skill_mode, p.full_chain_stop_stage, p.push_stage_commits, p.pr_creation_stage, p.spec_artifacts, p.branch_name_format, p.board_id, p.tracker_columns, p.stage_columns, p.sprints, p.issue_types, p.enabled_views, p.epic_colors, p.roadmap_projects, p.roadmap_axis_writes, p.epic_axis_prefixes, p.priority_mapping, p.epic_axis_fields, p.git_remote_url, p.github_repo, p.github_api_url, p.gitlab_url, p.gitlab_project, p.jira_project, p.issue_tracker, p.tracker_url, p.is_default, p.skill_overrides, p.setup_providers, p.ai_provider, p.ai_command_template, p.ai_command_template_autonomous, p.ai_model, p.ai_skill_models, p.spec_framework, p.external_terminal_command, p.auto_sync_enabled, p.auto_sync_interval_min, p.owner_user_id, p.label, p.default_tracker_id, p.created_at, p.updated_at,
+		SELECT p.id, p.name, p.slug, p.description, p.icon, p.color, p.repo_path, p.repo_paths, p.repositories, p.repositories_migration, p.use_worktrees, p.default_skill_mode,
+			p.full_chain_stop_stage, p.push_stage_commits, p.pr_creation_stage, p.spec_artifacts, p.branch_name_format, p.board_id, p.tracker_columns, p.stage_columns, p.sprints, p.issue_types,
+			p.enabled_views, p.epic_colors, p.roadmap_projects, p.roadmap_axis_writes, p.epic_axis_prefixes, p.priority_mapping, p.epic_axis_fields, p.git_remote_url, p.github_repo, p.github_api_url, p.gitlab_url, p.gitlab_project,
+			p.jira_project, p.issue_tracker, p.tracker_url, p.is_default, p.skill_overrides, p.setup_providers, p.ai_provider, p.ai_command_template, p.ai_command_template_autonomous, p.ai_model,
+			p.ai_skill_models, p.spec_framework, p.external_terminal_command, p.auto_sync_enabled, p.auto_sync_interval_min, p.owner_user_id, p.label, p.default_tracker_id, p.created_at,
+			p.updated_at,
 		       0 as task_count
 		FROM projects p
 		WHERE p.id = ? OR p.slug = ?
 	`, id, id).Scan(
-		&p.ID, &p.Name, &p.Slug, &p.Description, &p.Icon, &p.Color, &p.RepoPath, &repoPathsJSON, &repositoriesJSON, &p.RepositoriesMigration, &useWorktrees, &defaultSkillMode, &fullChainStopStage, &pushStageCommits, &p.PRCreationStage, &p.SpecArtifacts, &p.BranchNameFormat, &p.BoardID, &trackerColumnsJSON, &stageColumnsJSON, &sprintsJSON, &issueTypesJSON, &enabledViewsJSON, &epicColors, &roadmapProjectsJSON, &roadmapAxisWrites, &epicAxisPrefixesJSON, &priorityMappingJSON, &epicAxisFieldsJSON, &p.GitRemoteUrl, &p.GithubRepo, &ghURL, &glURL, &glProj, &jiraProj, &p.IssueTracker, &p.TrackerUrl, &isDefault, &skillOverridesJSON, &setupProvidersJSON, &aiProv, &aiCmd, &aiCmdAuto, &projModel, &projSkillModelsJSON, &specFw, &extTerm, &autoSyncEnabledInt, &autoSyncIntervalMin, &ownerUserID, &p.Label, &p.DefaultTrackerID, &p.CreatedAt, &p.UpdatedAt, &p.TaskCount,
+		&p.ID,
+		&p.Name,
+		&p.Slug,
+		&p.Description,
+		&p.Icon,
+		&p.Color,
+		&p.RepoPath,
+		&repoPathsJSON,
+		&repositoriesJSON,
+		&p.RepositoriesMigration,
+		&useWorktrees,
+		&defaultSkillMode,
+		&fullChainStopStage,
+		&pushStageCommits,
+		&p.PRCreationStage,
+		&p.SpecArtifacts,
+		&p.BranchNameFormat,
+		&p.BoardID,
+		&trackerColumnsJSON,
+		&stageColumnsJSON,
+		&sprintsJSON,
+		&issueTypesJSON,
+		&enabledViewsJSON,
+		&epicColors,
+		&roadmapProjectsJSON,
+		&roadmapAxisWrites,
+		&epicAxisPrefixesJSON,
+		&priorityMappingJSON,
+		&epicAxisFieldsJSON,
+		&p.GitRemoteUrl,
+		&p.GithubRepo,
+		&ghURL,
+		&glURL,
+		&glProj,
+		&jiraProj,
+		&p.IssueTracker,
+		&p.TrackerUrl,
+		&isDefault,
+		&skillOverridesJSON,
+		&setupProvidersJSON,
+		&aiProv,
+		&aiCmd,
+		&aiCmdAuto,
+		&projModel,
+		&projSkillModelsJSON,
+		&specFw,
+		&extTerm,
+		&autoSyncEnabledInt,
+		&autoSyncIntervalMin,
+		&ownerUserID,
+		&p.Label,
+		&p.DefaultTrackerID,
+		&p.CreatedAt,
+		&p.UpdatedAt,
+		&p.TaskCount,
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {

@@ -135,7 +135,12 @@ func TestTheMcpCreateTaskAcceptsATracker(t *testing.T) {
 	if task == nil || task["trackerId"] != be.ID || creator.on != be.ID || task["key"] != "BE-7" {
 		t.Fatalf("created %v on %q, want BE", task, creator.on)
 	}
-	if _, err := call(t, database, "create_task", map[string]any{"projectId": project.ID, "title": "Nowhere", "tracker": "jira|elsewhere|OPS"}); err == nil || !strings.Contains(err.Error(), "unknown tracker") {
+	if _, err := call(
+		t,
+		database,
+		"create_task",
+		map[string]any{"projectId": project.ID, "title": "Nowhere", "tracker": "jira|elsewhere|OPS"},
+	); err == nil || !strings.Contains(err.Error(), "unknown tracker") {
 		t.Fatalf("an unknown tracker: %v", err)
 	}
 }

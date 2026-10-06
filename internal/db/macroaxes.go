@@ -490,7 +490,19 @@ func (d *DB) SaveMacroAxes(projectID string, key string, priority *string, quart
 	// labels until the next reload.
 	if err := tx.QueryRow(`
 		SELECT horizon, description, framing_comment, todos, title, status, closed, priority, quarter, readiness, labels FROM macros WHERE project_id = ? AND key = ?`+d.forUpdate(),
-		rowProject, key).Scan(&current.Horizon, &current.Description, &current.FramingComment, &todosJSON, &current.Title, &current.Status, &closedInt, &current.Priority, &current.Quarter, &current.Readiness, &labelsJSON); err != nil {
+		rowProject, key).Scan(
+		&current.Horizon,
+		&current.Description,
+		&current.FramingComment,
+		&todosJSON,
+		&current.Title,
+		&current.Status,
+		&closedInt,
+		&current.Priority,
+		&current.Quarter,
+		&current.Readiness,
+		&labelsJSON,
+	); err != nil {
 		d.mu.Unlock()
 		return nil, err
 	}

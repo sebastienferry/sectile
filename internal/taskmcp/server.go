@@ -472,7 +472,11 @@ func NewServerWithCallers(database *db.DB, sessions *SessionRegistry, resolve Ca
 			comments, err := database.PostTaskCommentBy(db.Actor{ID: caller.UserID, Name: caller.Name}, ref, in.Body)
 			return nil, map[string]any{"comments": comments}, err
 		})
-	mcp.AddTool(s, &mcp.Tool{Name: "list_tasks", Description: "List board tasks, optionally filtered by project, status and sprint. A project lists the tickets it selects: those of its trackers carrying its label, every ticket of its trackers when it has none."},
+	mcp.AddTool(s, &mcp.Tool{
+		Name: "list_tasks",
+		Description: "List board tasks, optionally filtered by project, status and sprint. " +
+			"A project lists the tickets it selects: those of its trackers carrying its label, every ticket of its trackers when it has none.",
+	},
 		func(ctx context.Context, req *mcp.CallToolRequest, in listInput) (*mcp.CallToolResult, any, error) {
 			tasks, err := database.GetTasks("", in.Status, "", "", in.ProjectID, in.Sprint, "", "", "", nil, nil, false)
 			return nil, map[string]any{"tasks": tasks}, err
@@ -651,8 +655,15 @@ func NewServerWithCallers(database *db.DB, sessions *SessionRegistry, resolve Ca
 	mcp.AddTool(s, &mcp.Tool{Name: "create_task", Description: "Create a task on an explicitly named project and return it with its key and external URL. Creation is remote whenever the project's tracker supports it, and fails rather than leaving a ticket that exists only on the local board. The new task enters the workflow at its first stage; it cannot be created at a later one.", InputSchema: map[string]any{
 		"type": "object", "additionalProperties": false, "required": []string{"projectId", "title"},
 		"properties": map[string]any{
-			"projectId":   map[string]any{"type": "string", "minLength": 1, "description": "Project primary key from list_projects. Required and never inferred: a bare task key can name another project's ticket."},
-			"tracker":     map[string]any{"type": "string", "description": "One of the project's trackers, by id or identity, from get_project_context trackers. Omit for the project's default tracker."},
+			"projectId": map[string]any{
+				"type":        "string",
+				"minLength":   1,
+				"description": "Project primary key from list_projects. Required and never inferred: a bare task key can name another project's ticket.",
+			},
+			"tracker": map[string]any{
+				"type":        "string",
+				"description": "One of the project's trackers, by id or identity, from get_project_context trackers. Omit for the project's default tracker.",
+			},
 			"title":       map[string]any{"type": "string", "minLength": 1},
 			"description": map[string]any{"type": "string"},
 			"issueType":   map[string]any{"type": "string", "description": "Project issue type, for example Task or Story."},

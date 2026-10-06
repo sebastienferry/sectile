@@ -189,7 +189,17 @@ func TestAdoptionUnitesPullRequestLinksAndLabelsOfMergedTickets(t *testing.T) {
 	first, second := twoProjectsOnPE(t, d)
 	now := time.Now().UTC()
 	legacyTask(t, d, "jira-a-PE-1", first.ID, "PE-1", "reviewed", now, `["backend","#reviewed"]`, `[{"url":"https://github.com/o/a/pull/1","branch":"PE-1"}]`)
-	legacyTask(t, d, "jira-b-PE-1", second.ID, "PE-1", "new", now, `["frontend","backend"]`, `[{"url":"https://github.com/o/b/pull/2","branch":"PE-1"},{"url":"https://github.com/o/a/pull/1","branch":"PE-1"}]`)
+	legacyTask(
+		t,
+		d,
+		"jira-b-PE-1",
+		second.ID,
+		"PE-1",
+		"new",
+		now,
+		`["frontend","backend"]`,
+		`[{"url":"https://github.com/o/b/pull/2","branch":"PE-1"},{"url":"https://github.com/o/a/pull/1","branch":"PE-1"}]`,
+	)
 	adopt(t, d)
 
 	task, err := d.GetTaskByID("jira-a-PE-1")
@@ -279,7 +289,10 @@ func TestAdoptionTakesTheFirstProjectsBoardMirrorAndLogsTheConflict(t *testing.T
 		AutoSyncEnabled: &enabled, AutoSyncIntervalMin: &ten})
 	forgetTrackers(t, d)
 	// Each project's columns, as its own board import left them.
-	if _, err := d.conn.Exec(`UPDATE projects SET board_id = '2', tracker_columns = '[{"name":"Doing","statuses":["In Progress"]}]', auto_sync_enabled = 1, auto_sync_interval_min = 10 WHERE id = ?`, second.ID); err != nil {
+	if _, err := d.conn.Exec(
+		`UPDATE projects SET board_id = '2', tracker_columns = '[{"name":"Doing","statuses":["In Progress"]}]', auto_sync_enabled = 1, auto_sync_interval_min = 10 WHERE id = ?`,
+		second.ID,
+	); err != nil {
 		t.Fatal(err)
 	}
 	var logs bytes.Buffer

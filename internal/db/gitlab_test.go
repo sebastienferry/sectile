@@ -184,7 +184,15 @@ func TestGitlabTeamWriteIsAcceptedAndGithubRefused(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := f.d.ImportOrUpdateTasks("", []models.Task{{ID: "gh-" + defaultTrackerID(t, f.d, github.ID) + "-5", ProjectID: github.ID, Key: "#5", Title: "Hub", Source: "github", Status: models.StatusToClarify, Priority: models.PriorityMedium}}); err != nil {
+	if err := f.d.ImportOrUpdateTasks("", []models.Task{{
+		ID:        "gh-" + defaultTrackerID(t, f.d, github.ID) + "-5",
+		ProjectID: github.ID,
+		Key:       "#5",
+		Title:     "Hub",
+		Source:    "github",
+		Status:    models.StatusToClarify,
+		Priority:  models.PriorityMedium,
+	}}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := f.d.SetTasksTeam(f.ada, github.ID, []string{"gh-" + defaultTrackerID(t, f.d, github.ID) + "-5"}, "data", "data"); err == nil {

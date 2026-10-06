@@ -3065,7 +3065,13 @@ function ticketRow(view,task){
    entry.declareReviewed=button
    button.onclick=()=>{closeMenu();confirmDeclareReviewed(view.projectID,task)}
   }else{
-   button.onclick=()=>{closeMenu();if(item.dialog)openTicketLaunchDialog(view,task);else if(item.compose)openCompose(view,entry);else if(item.nativeTerminal)submitNativeDiscussion(view,entry).catch(()=>{});else submitTicketLaunch(view,entry,item.skillId,'',launchModeFor(item.skillId==='pickup'?'pickup':'','')).catch(()=>{})}
+   button.onclick=()=>{
+    closeMenu()
+    if(item.dialog)openTicketLaunchDialog(view,task)
+    else if(item.compose)openCompose(view,entry)
+    else if(item.nativeTerminal)submitNativeDiscussion(view,entry).catch(()=>{})
+    else submitTicketLaunch(view,entry,item.skillId,'',launchModeFor(item.skillId==='pickup'?'pickup':'','')).catch(()=>{})
+   }
   }
   menu.append(button)
  }

@@ -101,10 +101,12 @@ func (d *DB) trackerAdoptionDone() (bool, error) {
 	if err := d.conn.QueryRow(`SELECT COUNT(*) FROM projects p WHERE NOT EXISTS (SELECT 1 FROM project_trackers pt WHERE pt.project_id = p.id)`).Scan(&unlinked); err != nil {
 		return false, fmt.Errorf("counting the projects without a tracker: %w", err)
 	}
-	if err := d.conn.QueryRow(`SELECT COUNT(*) FROM tasks t WHERE t.tracker_id IS NULL AND EXISTS (SELECT 1 FROM projects p WHERE p.id = t.project_id OR p.slug = t.project_id)`).Scan(&untagged); err != nil {
+	if err := d.conn.QueryRow(`SELECT COUNT(*) FROM tasks t WHERE t.tracker_id IS NULL
+		AND EXISTS (SELECT 1 FROM projects p WHERE p.id = t.project_id OR p.slug = t.project_id)`).Scan(&untagged); err != nil {
 		return false, fmt.Errorf("counting the tickets without a tracker: %w", err)
 	}
-	if err := d.conn.QueryRow(`SELECT COUNT(*) FROM tasks t WHERE t.tracker_id IS NULL AND NOT EXISTS (SELECT 1 FROM projects p WHERE p.id = t.project_id OR p.slug = t.project_id)`).Scan(&orphans); err != nil {
+	if err := d.conn.QueryRow(`SELECT COUNT(*) FROM tasks t WHERE t.tracker_id IS NULL
+		AND NOT EXISTS (SELECT 1 FROM projects p WHERE p.id = t.project_id OR p.slug = t.project_id)`).Scan(&orphans); err != nil {
 		return false, fmt.Errorf("counting the orphan tickets: %w", err)
 	}
 	if orphans > 0 {
@@ -384,7 +386,8 @@ func repointTask(tx *sqlTx, loser, survivor string) error {
 	if _, err := tx.Exec(`INSERT INTO pinned_tasks (task_id, pinned_at) SELECT CAST(? AS TEXT), pinned_at FROM pinned_tasks WHERE task_id = ? ON CONFLICT DO NOTHING`, survivor, loser); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(`INSERT INTO batch_members (run_id, task_id, position, state) SELECT run_id, CAST(? AS TEXT), position, state FROM batch_members WHERE task_id = ? ON CONFLICT DO NOTHING`, survivor, loser); err != nil {
+	if _, err := tx.Exec(`INSERT INTO batch_members (run_id, task_id, position, state)
+		SELECT run_id, CAST(? AS TEXT), position, state FROM batch_members WHERE task_id = ? ON CONFLICT DO NOTHING`, survivor, loser); err != nil {
 		return err
 	}
 	for _, statement := range []string{

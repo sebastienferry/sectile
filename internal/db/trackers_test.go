@@ -316,7 +316,15 @@ func TestAMergedAwayTicketIdStillResolvesThroughItsAlias(t *testing.T) {
 	if err != nil || task == nil || task.ID != "jira-a-PE-1" {
 		t.Fatalf("the merged-away id resolves to %+v (%v), want the survivor", task, err)
 	}
-	if err := d.ImportOrUpdateTasks("", []models.Task{{ID: "jira-b-PE-1", ProjectID: second.ID, Key: "PE-1", Title: "Renamed", Source: "jira", Status: models.StatusToClarify, Labels: []string{}}}); err != nil {
+	if err := d.ImportOrUpdateTasks("", []models.Task{{
+		ID:        "jira-b-PE-1",
+		ProjectID: second.ID,
+		Key:       "PE-1",
+		Title:     "Renamed",
+		Source:    "jira",
+		Status:    models.StatusToClarify,
+		Labels:    []string{},
+	}}); err != nil {
 		t.Fatal(err)
 	}
 	var rows int

@@ -326,7 +326,16 @@ func TestPrepareRepositoryWorktreeUsesTheRunsProject(t *testing.T) {
 // localTicket writes a ticket with a given key on a project's local tracker.
 func localTicket(t *testing.T, d *DB, p *models.Project, id, key string) {
 	t.Helper()
-	if err := d.ImportOrUpdateTasks(p.DefaultTrackerID, []models.Task{{ID: id, Key: key, Title: key, Status: models.StatusToClarify, Priority: models.PriorityMedium, Source: "local", CreatedAt: time.Now(), UpdatedAt: time.Now()}}); err != nil {
+	if err := d.ImportOrUpdateTasks(p.DefaultTrackerID, []models.Task{{
+		ID:        id,
+		Key:       key,
+		Title:     key,
+		Status:    models.StatusToClarify,
+		Priority:  models.PriorityMedium,
+		Source:    "local",
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}}); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -377,7 +386,16 @@ func TestAKeyTwoTrackersOfOneProjectCarryIsAmbiguous(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, trk := range []*models.Tracker{api, web} {
-		if err := d.ImportOrUpdateTasks(trk.ID, []models.Task{{ID: "12", Key: "#12", Title: trk.Scope, Status: models.StatusToClarify, Priority: models.PriorityMedium, Source: "github", CreatedAt: time.Now(), UpdatedAt: time.Now()}}); err != nil {
+		if err := d.ImportOrUpdateTasks(trk.ID, []models.Task{{
+			ID:        "12",
+			Key:       "#12",
+			Title:     trk.Scope,
+			Status:    models.StatusToClarify,
+			Priority:  models.PriorityMedium,
+			Source:    "github",
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now(),
+		}}); err != nil {
 			t.Fatal(err)
 		}
 	}

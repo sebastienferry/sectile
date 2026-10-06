@@ -33,8 +33,20 @@ test('no save carries an execution setting', () => {
 
 // The project selects trackers and a label (#741); the tracker's own settings
 // (board, columns, mapping, issue types, background sync) are an admin's, on
-// the tracker (D11), so no save of the project carries them any more.
-const LEGACY_TRACKER_KEYS = ['issueTracker', 'trackerUrl', 'githubRepo', 'gitlabProject', 'jiraProject', 'boardId', 'trackerColumns', 'stageColumns', 'issueTypes', 'autoSyncEnabled', 'autoSyncIntervalMin']
+// the tracker (D11), so no save of the project carries them.
+const LEGACY_TRACKER_KEYS = [
+  'issueTracker',
+  'trackerUrl',
+  'githubRepo',
+  'gitlabProject',
+  'jiraProject',
+  'boardId',
+  'trackerColumns',
+  'stageColumns',
+  'issueTypes',
+  'autoSyncEnabled',
+  'autoSyncIntervalMin',
+]
 
 test('the project payload carries its trackers and label, never the tracker settings', () => {
   const payload = modal.match(/const payload = \{[\s\S]*?\n {6}\}/)

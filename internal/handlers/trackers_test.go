@@ -63,7 +63,14 @@ func TestOnlyAnAdminCanCreateOrEditATracker(t *testing.T) {
 		t.Fatal("a member must be able to list the trackers")
 	}
 
-	if status, body := call(t, server, alice, http.MethodPut, AdminTrackersPath+"/"+created.ID, `{"provider":"jira","scope":"GODE","name":"Renamed"}`); status != http.StatusOK || !strings.Contains(body, "Renamed") {
+	if status, body := call(
+		t,
+		server,
+		alice,
+		http.MethodPut,
+		AdminTrackersPath+"/"+created.ID,
+		`{"provider":"jira","scope":"GODE","name":"Renamed"}`,
+	); status != http.StatusOK || !strings.Contains(body, "Renamed") {
 		t.Fatalf("admin update: %d %s", status, body)
 	}
 	if status, body := call(t, server, alice, http.MethodDelete, AdminTrackersPath+"/"+created.ID, ""); status != http.StatusOK {
@@ -199,7 +206,7 @@ func TestAnAdminConfiguresTheBoardOnTheTrackerNotOnAProject(t *testing.T) {
 		t.Fatalf("the project must read the tracker's columns: %+v (%v)", read, err)
 	}
 
-	// The project-level aliases no longer configure anything.
+	// The project-level aliases answer no tracker configuration.
 	for _, path := range []string{"/api/projects/" + project.ID + "/boards", "/api/projects/" + project.ID + "/tracker-statuses", "/api/projects/" + project.ID + "/issue-types"} {
 		rr := httptest.NewRecorder()
 		h.HandleProjectDetail(rr, httptest.NewRequest(http.MethodGet, path, nil))
