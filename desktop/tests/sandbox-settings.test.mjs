@@ -61,6 +61,7 @@ test('a rule allowed by the workstation and denied by the project is named',()=>
 })
 
 test('the whitelist says when it covers every project',()=>{
- assert.match(whitelistSummary([]),/every project/)
+ assert.match(whitelistSummary([]),/every project/i)
  assert.match(whitelistSummary(['p']),/only to the checked projects/)
+ assert.match(whitelistSummary([],true),/still apply to every project/)
 })

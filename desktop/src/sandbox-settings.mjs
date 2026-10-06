@@ -69,41 +69,55 @@ export function resolvedValues(own,inherited){
  }
 }
 
-// whitelistSummary says which projects the workstation values apply to: all
-// of them while none is checked, a project added later included.
-export function whitelistSummary(selected){
+// whitelistSummary says which projects the workstation values apply to. An
+// empty list is stored for "every project", a project added later included,
+// so "only these" with nothing checked still covers every project.
+export function whitelistSummary(selected,only=selected.length>0){
+ if(!only)return 'Every project, including the ones you add later.'
  return selected.length?'Applies only to the checked projects. A project added later is not covered until you check it.'
-  :'Applies to every project, including the ones you add later. Check projects to limit it to them.'
+  :'Check at least one project: with none checked, the settings still apply to every project.'
 }
 
-// whitelistEditor is the list of the workstation's projects the workstation
-// values apply to (#730), one checkbox each.
+// whitelistEditor picks the projects the workstation values apply to (#730):
+// every project, or only the checked ones, whose checkboxes show in that mode.
 export function whitelistEditor({settingRow,projects,selected}){
- const box=document.createElement('div');box.className='sandbox-whitelist';box.setAttribute('role','group');box.setAttribute('aria-label','Projects the Claude settings apply to')
+ const box=document.createElement('div');box.className='sandbox-whitelist'
+ const modes=document.createElement('div');modes.className='sandbox-whitelist-modes';modes.setAttribute('role','radiogroup');modes.setAttribute('aria-label','Projects the Claude settings cover')
+ const radio=text=>{
+  const label=document.createElement('label');label.className='checkbox-label sandbox-whitelist-entry'
+  const input=document.createElement('input');input.type='radio';input.name='claude-settings-coverage'
+  input.onchange=()=>{only=input===onlyInput;render()}
+  label.append(input,document.createTextNode(text));modes.append(label);return input
+ }
+ const allInput=radio('All projects'),onlyInput=radio('Only these projects')
+ const list=document.createElement('div');list.className='sandbox-whitelist-projects';list.setAttribute('role','group');list.setAttribute('aria-label','Projects the Claude settings apply to')
+ box.append(modes,list)
  const row=settingRow('Applies to',{stacked:true},box)
- let checked=new Set(selected||[])
+ let checked=new Set(selected||[]),only=checked.size>0
  function render(){
-  box.replaceChildren()
-  if(!projects.length){const empty=document.createElement('p');empty.className='sandbox-empty';empty.textContent='No project is added to this workstation yet.';box.append(empty)}
+  allInput.checked=!only;onlyInput.checked=only;list.hidden=!only
+  list.replaceChildren()
+  if(!projects.length){const empty=document.createElement('p');empty.className='sandbox-empty';empty.textContent='No project is added to this workstation yet.';list.append(empty)}
   for(const project of projects){
    const label=document.createElement('label');label.className='checkbox-label sandbox-whitelist-entry'
    const input=document.createElement('input');input.type='checkbox';input.checked=checked.has(project.id)
-   input.onchange=()=>{input.checked?checked.add(project.id):checked.delete(project.id);row.hint.textContent=whitelistSummary(get())}
-   label.append(input,document.createTextNode(project.name||project.id));box.append(label)
+   input.onchange=()=>{input.checked?checked.add(project.id):checked.delete(project.id);row.hint.textContent=whitelistSummary(get(),only)}
+   label.append(input,document.createTextNode(project.name||project.id));list.append(label)
   }
-  row.hint.textContent=whitelistSummary(get())
+  row.hint.textContent=whitelistSummary(get(),only)
  }
- // The order of the workstation's projects, and only the ones it still has.
- const get=()=>projects.map(project=>project.id).filter(id=>checked.has(id))
+ // The order of the workstation's projects, and only the ones it still has;
+ // nothing in "All projects" mode, the checks kept for a switch back.
+ const get=()=>only?projects.map(project=>project.id).filter(id=>checked.has(id)):[]
  render()
- return {section:row.section,get,set(next){checked=new Set(next||[]);render()}}
+ return {section:row.section,get,set(next){checked=new Set(next||[]);only=checked.size>0;render()}}
 }
 
 // listEditor is one list of the panel: its entries, each removable, and a
 // field to add one. Enter adds the field's value rather than submitting the
 // settings form.
-function listEditor(label,placeholder,onChange,action){
- const box=document.createElement('div');box.className='sandbox-list'
+function listEditor(label,placeholder,onChange,action,kind=''){
+ const box=document.createElement('div');box.className='sandbox-list'+(kind?' sandbox-list-'+kind:'')
  const list=document.createElement('ul');list.className='sandbox-entries';list.setAttribute('aria-label',label)
  const input=document.createElement('input');input.type='text';input.placeholder=placeholder;input.setAttribute('aria-label','New entry for '+label)
  const add=document.createElement('button');add.type='button';add.textContent='Add';add.setAttribute('aria-label','Add to '+label)
@@ -118,7 +132,7 @@ function listEditor(label,placeholder,onChange,action){
   for(const entry of inherited){
    const item=document.createElement('li');item.className='sandbox-entry sandbox-entry-inherited'
    const text=document.createElement('code');text.textContent=entry;text.title=entry
-   const tag=document.createElement('span');tag.className='sandbox-origin';tag.textContent='Global';tag.title='From the workstation Claude settings'
+   const tag=document.createElement('span');tag.className='sandbox-origin';tag.textContent='Global';tag.title='From the workstation Claude settings';item.title=entry+' · from the workstation Claude settings'
    item.append(text,tag);list.append(item)
   }
   const own=entries.filter(entry=>!inherited.includes(entry))
@@ -127,12 +141,13 @@ function listEditor(label,placeholder,onChange,action){
    if(inherited.includes(entry))continue
    const item=document.createElement('li');item.className='sandbox-entry'
    const text=document.createElement('code');text.textContent=entry;text.title=entry
-   const remove=document.createElement('button');remove.type='button';remove.textContent='Remove';remove.setAttribute('aria-label','Remove '+entry+' from '+label)
+   // Each entry is a chip: the list stays a few lines high however long it is.
+   const remove=document.createElement('button');remove.type='button';remove.className='sandbox-chip-button';remove.textContent='×';remove.title='Remove';remove.setAttribute('aria-label','Remove '+entry+' from '+label)
    remove.disabled=disabled
    remove.onclick=()=>{entries=entries.filter(other=>other!==entry);status.textContent='';render();onChange()}
    const buttons=document.createElement('span');buttons.className='sandbox-entry-actions'
    if(action){
-    const extra=document.createElement('button');extra.type='button';extra.textContent=action.label;extra.setAttribute('aria-label',action.label+': '+entry)
+    const extra=document.createElement('button');extra.type='button';extra.className='sandbox-chip-button';extra.textContent=action.icon;extra.title=action.label;extra.setAttribute('aria-label',action.label+': '+entry)
     extra.disabled=disabled
     extra.onclick=async()=>{extra.disabled=true;try{status.textContent=await action.run(entry)||''}catch(err){status.textContent=err.message}finally{extra.disabled=false}}
     buttons.append(extra)
@@ -184,16 +199,16 @@ export function sandboxSettings({settingRow,stored,platformSandbox,settingsPath,
  const writesRow=settingRow('Extra writable paths',{stacked:true},writes.box)
  writesRow.hint.textContent='Folders a sandboxed command may write besides the task’s own. A path with ~ is kept as typed; Claude Code expands it.'
  // A project allow rule can move up to the workstation (#730).
- const promote=!workstation&&onPromote?{label:'Move to global',run:async rule=>{
+ const promote=!workstation&&onPromote?{label:'Move to global',icon:'↑',run:async rule=>{
   const fresh=await onPromote(rule)
   if(fresh)set(fresh.claudeSandbox,fresh.claudeSandboxGlobal,fresh.claudeSandboxCovered!==false)
   return rule+' moved to the workstation Claude settings.'
  }}:null
- const allow=listEditor('Allow rules','Bash(npm test:*)',changed,promote)
+ const allow=listEditor('Allow rules','Bash(npm test:*)',changed,promote,'allow')
  const allowRow=settingRow('Allow rules',{stacked:true},allow.box)
  allowRow.hint.textContent=workstation?'Tools Claude Code runs without asking, in every covered project. A headless run already approves every tool, so these change nothing for it.'
   :'Tools Claude Code runs without asking, written as Claude Code writes them. “Always allow” in a conversation adds its rule here. A headless run already approves every tool, so these change nothing for it.'
- const deny=listEditor('Deny rules','Bash(git push:*)',changed)
+ const deny=listEditor('Deny rules','Bash(git push:*)',changed,null,'deny')
  const denyRow=settingRow('Deny rules',{stacked:true},deny.box)
  denyRow.hint.textContent='Tools Claude Code never runs, headless runs included.'
  const overlapWarning=document.createElement('p');overlapWarning.className='setting-warning sandbox-overlap'
@@ -211,29 +226,45 @@ export function sandboxSettings({settingRow,stored,platformSandbox,settingsPath,
  presetsBox.append(recommended,...presetItems.map(item=>item.element))
  const presetsRow=workstation?settingRow('Presets',{stacked:true},presetsBox):null
  if(presetsRow)presetsRow.hint.textContent='Ready-made entries for the lists below, per toolchain. Applying one adds its missing entries, each removable like any other; save to keep them.'
+ // presetItem is one preset on a single line: its name, what it allows and
+ // what it denies at a glance, and its button. The description and the
+ // entries open on demand.
  function presetItem(preset){
   const element=document.createElement('div');element.className='claude-preset'
   const head=document.createElement('div');head.className='claude-preset-head'
-  const name=document.createElement('strong');name.textContent=preset.name
+  const name=document.createElement('strong');name.textContent=preset.name;name.title=preset.description
+  const kinds=document.createElement('span');kinds.className='claude-preset-kinds'
+  for(const [list,kind,verb] of [['allow','allow','Allows '],['deny','deny','Denies ']]){
+   if(!preset[list].length)continue
+   const tag=document.createElement('span');tag.className='claude-preset-kind claude-preset-kind-'+kind;tag.textContent=verb+preset[list].length
+   kinds.append(tag)
+  }
+  const reach=platformSandbox?[[preset.allowedDomains.length,'domain'],[preset.allowWrite.length,'path']].filter(([count])=>count).map(([count,noun])=>count+' '+noun+(count>1?'s':'')):[]
+  if(reach.length){const tag=document.createElement('span');tag.className='claude-preset-kind';tag.textContent=reach.join(' · ');kinds.append(tag)}
   const badge=document.createElement('span');badge.className='sandbox-origin';badge.textContent='Applied'
   const toggle=document.createElement('button');toggle.type='button'
   toggle.onclick=()=>showValues(presetApplied(values,preset,platformSandbox)?removePreset(values,preset,platformSandbox):applyPreset(values,preset,platformSandbox))
-  head.append(name,badge,toggle)
+  // The disclosure sits on the preset's own line rather than below it.
+  const entries=document.createElement('div');entries.className='claude-preset-entries';entries.hidden=true
+  const expand=document.createElement('button');expand.type='button';expand.className='claude-preset-expand';expand.textContent='▸'
+  expand.setAttribute('aria-label','Entries of '+preset.name);expand.setAttribute('aria-expanded','false')
+  expand.onclick=()=>{entries.hidden=!entries.hidden;expand.setAttribute('aria-expanded',String(!entries.hidden));expand.textContent=entries.hidden?'▸':'▾';element.classList.toggle('claude-preset-open',!entries.hidden)}
+  head.append(expand,name,kinds,badge,toggle)
   const description=document.createElement('p');description.className='claude-preset-description';description.textContent=preset.description
-  const entries=document.createElement('details');entries.className='claude-preset-entries'
-  const summary=document.createElement('summary');summary.textContent='Entries';summary.setAttribute('aria-label','Entries of '+preset.name)
-  entries.append(summary)
-  for(const [list,label] of [['allow','Allow rules'],['deny','Deny rules'],['allowedDomains','Allowed network domains'],['allowWrite','Extra writable paths']]){
+  entries.append(description)
+  for(const [list,label,kind] of [['allow','Allow rules','allow'],['deny','Deny rules','deny'],['allowedDomains','Allowed network domains','net'],['allowWrite','Extra writable paths','write']]){
    if(!preset[list].length)continue
-   const group=document.createElement('p');group.append(label+': ')
-   preset[list].forEach((entry,index)=>{const code=document.createElement('code');code.textContent=entry;group.append(...(index?[', ',code]:[code]))})
-   entries.append(group)
+   const group=document.createElement('div');group.className='claude-preset-group'
+   const title=document.createElement('span');title.className='claude-preset-group-label';title.textContent=label
+   const chips=document.createElement('span');chips.className='claude-preset-chips claude-preset-chips-'+kind
+   for(const entry of preset[list]){const code=document.createElement('code');code.textContent=entry;chips.append(code)}
+   group.append(title,chips);entries.append(group)
   }
   if(!platformSandbox&&(preset.allowedDomains.length||preset.allowWrite.length)){
    const note=document.createElement('p');note.textContent='Its domains and writable paths do not apply on Windows: only its rules are added.'
    entries.append(note)
   }
-  element.append(head,description,entries)
+  element.append(head,entries)
   return {preset,element,badge,toggle}
  }
  // showValues puts values computed outside the editors back into them; the
@@ -270,6 +301,7 @@ export function sandboxSettings({settingRow,stored,platformSandbox,settingsPath,
    const applied=presetApplied(values,item.preset,platformSandbox)
    item.badge.hidden=!applied
    item.toggle.textContent=applied?'Remove':'Apply'
+   item.element.classList.toggle('claude-preset-applied',applied)
    item.toggle.setAttribute('aria-label',(applied?'Remove preset ':'Apply preset ')+item.preset.name)
    item.toggle.hidden=!presetHasEntries(item.preset,platformSandbox)
   }
