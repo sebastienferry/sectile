@@ -356,11 +356,17 @@ func Run(args []string) {
 	// first project sync and capability report (#510), the settings naming a
 	// retired provider are dropped (#614), and the project Sandbox values are
 	// folded into the workstation ones (#730). A failure leaves the file
-	// alone: every read converts it in memory anyway.
+	// alone: every read converts the engines in memory anyway. A file an
+	// older or a newer agent wrote is reported (#744).
 	if migrated, report, err := agentconfig.MigrateSettingsReport(daemon.localSettingsRoot()); err != nil {
 		log.Printf("[Agent] Workstation settings not migrated: %v", err)
+	} else if report.NewerLayout > 0 {
+		log.Printf("[Agent] Workstation settings were written by a newer Sectile agent (layout %d); this agent does not change them: update it", report.NewerLayout)
 	} else if migrated {
 		log.Printf("[Agent] Workstation settings migrated; the previous file is kept beside it")
+		if report.Downgraded > 0 {
+			log.Printf("[Agent] Workstation settings were rewritten by an older Sectile agent after layout %d; the project Claude settings stay on their projects", report.Downgraded)
+		}
 		if !report.Empty() {
 			log.Printf("[Agent] Settings for retired AI providers (Gemini, Cursor, Vibe) removed: %s", report.RetiredDrop)
 		}
