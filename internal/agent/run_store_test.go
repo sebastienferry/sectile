@@ -49,7 +49,7 @@ func TestAStoredRunIsReadBackAsItWasWrittenAndStaysPrivate(t *testing.T) {
 	record := storedRun{
 		Run: desktopRun{ID: "run-1", TaskID: "task-1", TaskKey: "#1", ProjectID: "project", Skill: "discuss", Directory: "/work",
 			Folders: []runFolder{{Path: "/work", Name: "work", Role: "primary"}, {Path: "/notes", Name: "notes", Role: "local", Attached: true}},
-			Branch: "feat/1", Status: "completed", Provider: "claude", Model: "opus", Prompt: "hello", CreatedAt: created, StartedAt: created},
+			Branch:  "feat/1", Status: "completed", Provider: "claude", Model: "opus", Prompt: "hello", CreatedAt: created, StartedAt: created},
 		Console:    []byte("\x1b[1mprompt\x1b[0m $ echo hi\r\nhi\r\n"),
 		FinishedAt: finished,
 	}
