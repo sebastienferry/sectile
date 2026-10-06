@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import {
   RefreshCw,
   FolderGit2,
@@ -43,20 +43,25 @@ export const SyncView: React.FC = () => {
 
   // The pacing of the project's trackers (#741), read for this project: the
   // loop runs per tracker, whatever projects select it.
-  const [trackerStates, setTrackerStates] = useState<TrackerAutoSyncState[]>([])
   const [syncingTrackers, setSyncingTrackers] = useState<string[]>([])
   const projectId = currentProject?.id || ''
+  // The list is kept with the project it was read for: another project's
+  // trackers are never shown under this one, even while its own are loading.
+  const [loadedStates, setLoadedStates] = useState<{ projectId: string; trackers: TrackerAutoSyncState[] }>({ projectId: '', trackers: [] })
+  const trackerStates = loadedStates.projectId === projectId ? loadedStates.trackers : []
+  // Each read is numbered: only the latest one may fill the list, so a slow
+  // answer for the project left behind never lands under the one shown.
+  const loadGeneration = useRef(0)
 
   const loadTrackerStates = useCallback(async () => {
-    if (!projectId) {
-      setTrackerStates([])
-      return
-    }
+    const generation = ++loadGeneration.current
+    if (!projectId) return
     try {
       const res = await fetch(`/api/sync/auto?projectId=${encodeURIComponent(projectId)}`)
-      if (!res.ok) return
+      if (!res.ok || generation !== loadGeneration.current) return
       const state: AutoSyncState = await res.json()
-      setTrackerStates(state.trackers || [])
+      if (generation !== loadGeneration.current) return
+      setLoadedStates({ projectId, trackers: state.trackers || [] })
     } catch {
       // Unreachable server: the list keeps what it showed.
     }
@@ -64,6 +69,9 @@ export const SyncView: React.FC = () => {
 
   useEffect(() => {
     void loadTrackerStates()
+    return () => {
+      loadGeneration.current += 1
+    }
   }, [loadTrackerStates])
 
   const remoteTrackers = trackerStates.filter(state => state.provider !== 'local')
@@ -375,7 +383,11 @@ export const SyncView: React.FC = () => {
             </div>
           </div>
 
-          {remoteTrackers.length === 0 ? (
+          {!projectId ? (
+            // "All projects" selects no tracker of its own: the list is a
+            // project's, so it asks for one rather than saying it is empty.
+            <p className="text-xs text-[var(--text-muted)]" data-sync-trackers-all-projects>{op.trackersAllProjects}</p>
+          ) : remoteTrackers.length === 0 ? (
             <p className="text-xs text-[var(--text-muted)]">{op.trackersEmpty}</p>
           ) : (
             <ul className="divide-y divide-[var(--border-color)]">

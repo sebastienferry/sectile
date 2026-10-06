@@ -20,13 +20,23 @@ test('a launch from a project board names that project when the ticket is in it'
 })
 
 test('only a refusal listing candidates asks which project', () => {
-  assert.deepEqual(runProjectCandidates({ error: 'x', candidates: [{ id: 'a', name: 'Alpha' }, { id: 'b' }] }), [
+  assert.deepEqual(runProjectCandidates(409, { error: 'x', candidates: [{ id: 'a', name: 'Alpha' }, { id: 'b' }], unattended: false }), [
     { id: 'a', name: 'Alpha' },
     { id: 'b', name: 'b' },
   ])
   // A busy ticket is a 409 too, without candidates.
-  assert.equal(runProjectCandidates({ error: 'busy', active: { id: 'r1' } }), null)
-  assert.equal(runProjectCandidates({ candidates: [] }), null)
-  assert.equal(runProjectCandidates(null), null)
-  assert.equal(runProjectCandidates('nope'), null)
+  assert.equal(runProjectCandidates(409, { error: 'busy', active: { id: 'r1' } }), null)
+  assert.equal(runProjectCandidates(409, { candidates: [] }), null)
+  assert.equal(runProjectCandidates(409, null), null)
+  assert.equal(runProjectCandidates(409, 'nope'), null)
+})
+
+test('an unattended refusal is shown, never answered with the picker', () => {
+  const candidates = [{ id: 'a', name: 'Alpha' }, { id: 'b', name: 'Beta' }]
+  // An autonomous run or a batch is refused with a 400 that lists the
+  // candidates: retrying it for one of them would override the refusal.
+  assert.equal(runProjectCandidates(400, { error: 'refused', candidates, unattended: true }), null)
+  // The flag alone refuses, whatever the status; the status alone too.
+  assert.equal(runProjectCandidates(409, { error: 'refused', candidates, unattended: true }), null)
+  assert.equal(runProjectCandidates(400, { error: 'refused', candidates }), null)
 })

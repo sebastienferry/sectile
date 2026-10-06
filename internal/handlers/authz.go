@@ -200,19 +200,25 @@ var executionSettingsKeys = []string{
 // would only make the board unusable in a different place. They stay in the
 // shared row: there is one tracker per deployment, not one per person.
 //
-// The credential is not among them. The server credential of a provider is an
+// The sites are not among them (#741, ADR 0054): jiraUrl, githubApiUrl
+// and gitlabUrl are where the server sends a provider's server credential for
+// any tracker recorded without a site of its own, so changing them is an
+// admin's. A member's whole-row post that leaves them as stored still passes;
+// one that changes them is refused by name, like any other admin-only key.
+//
+// The credential is not among them either. The server credential of a provider is an
 // admin's, set from Administration (#464), and a personal one is another
 // mechanism (ADR 0014); UpdateSettings writes neither, whoever sends them. The
 // Set / FromEnv flags are projections the API answers rather than values
 // anyone writes, and are listed so a whole-row post carrying them is not read
 // as an offence.
 var trackerSettingsKeys = map[string]bool{
-	"issueTracker": true,
-	"githubRepo":   true, "githubApiUrl": true,
+	"issueTracker":   true,
+	"githubRepo":     true,
 	"githubTokenSet": true, "githubTokenFromEnv": true,
-	"gitlabUrl": true, "gitlabProject": true,
+	"gitlabProject":  true,
 	"gitlabTokenSet": true, "gitlabTokenFromEnv": true,
-	"jiraUrl": true, "jiraProject": true,
+	"jiraProject":     true,
 	"jiraApiTokenSet": true, "jiraApiTokenFromEnv": true,
 }
 

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { Inbox, RefreshCw } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { format } from '../lib/i18n'
@@ -17,25 +17,46 @@ export const TrackerBacklogView: React.FC = () => {
   const tracker = trackers.find(item => item.id === backlogTrackerId)
   const trackerName = tracker ? trackerDisplayName(tracker) : strings.unknownTracker
   const targets = backlogTrackerId ? labellingProjects(backlogTrackerId, projects) : []
-  const [tasks, setTasks] = useState<Task[]>([])
+  // The list and its failure are kept with the tracker they were read for:
+  // switching trackers shows nothing of the previous one, even while the new
+  // one is loading.
+  const [backlog, setBacklog] = useState<{ trackerId: string; tasks: Task[]; error: string }>({ trackerId: '', tasks: [], error: '' })
+  const tasks = backlog.trackerId === backlogTrackerId ? backlog.tasks : []
+  const error = backlog.trackerId === backlogTrackerId ? backlog.error : ''
   const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
   const [busy, setBusy] = useState<string | null>(null)
+  // Each read is numbered: only the latest one may fill the list, so a slow
+  // answer for the tracker left behind never lands under the one shown, where
+  // "Add to project" would post its ticket to the wrong tracker.
+  const loadGeneration = useRef(0)
 
   const load = useCallback(async () => {
-    if (!backlogTrackerId) return
+    const generation = ++loadGeneration.current
+    if (!backlogTrackerId) {
+      setLoading(false)
+      return
+    }
     setLoading(true)
     try {
-      setTasks(await fetchTrackerBacklog(backlogTrackerId))
-      setError('')
+      const list = await fetchTrackerBacklog(backlogTrackerId)
+      if (generation !== loadGeneration.current) return
+      setBacklog({ trackerId: backlogTrackerId, tasks: list, error: '' })
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      if (generation !== loadGeneration.current) return
+      const message = err instanceof Error ? err.message : String(err)
+      // A failed refresh keeps the list it had for this tracker.
+      setBacklog(current => ({ trackerId: backlogTrackerId, tasks: current.trackerId === backlogTrackerId ? current.tasks : [], error: message }))
     } finally {
-      setLoading(false)
+      if (generation === loadGeneration.current) setLoading(false)
     }
   }, [backlogTrackerId])
 
-  useEffect(() => { void load() }, [load])
+  useEffect(() => {
+    void load()
+    return () => {
+      loadGeneration.current += 1
+    }
+  }, [load])
 
   const addToProject = async (task: Task, projectId: string) => {
     if (!backlogTrackerId || !projectId) return
@@ -44,7 +65,7 @@ export const TrackerBacklogView: React.FC = () => {
     try {
       await addBacklogTaskToProject(backlogTrackerId, task.id, projectId)
       // The ticket carries the project's label now: it left the backlog.
-      setTasks(list => list.filter(item => item.id !== task.id))
+      setBacklog(current => ({ ...current, tasks: current.tasks.filter(item => item.id !== task.id) }))
       addToast({ type: 'success', title: format(strings.added, { key: task.key, project: project?.name || projectId }) })
     } catch (err) {
       addToast({

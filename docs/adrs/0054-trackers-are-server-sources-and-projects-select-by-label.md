@@ -127,7 +127,8 @@ subset of its trackers' tickets that carries its label.
   them through to the project's default tracker. The sprints are the
   exception: they stay a member's, through the sprint routes and the project
   save, because planning sprints is board work. The deployment's tracker
-  settings keys of ADR 0018 (`trackerSettingsKeys`) are unchanged.
+  settings keys of ADR 0018 (`trackerSettingsKeys`) lose their sites, as the
+  next bullet but one says.
 - **A member can only join an existing tracker through a project's legacy
   fields.** A member's project save naming `issueTracker` and `jiraProject`,
   `githubRepo` or `gitlabProject` links the tracker already recorded with that
@@ -140,6 +141,16 @@ subset of its trackers' tickets that carries its label.
   is an admin's (D11): an admin's save still finds or creates the tracker,
   and renames in place the one only that project selects, so its tickets stay
   with it. A member's local project still gets its own local board.
+- **The deployment's tracker sites are an admin's.** `jiraUrl`,
+  `githubApiUrl` and `gitlabUrl` on the settings row are where the server
+  sends a provider's server credential for any tracker recorded without a
+  site of its own, so they leave ADR 0018's `trackerSettingsKeys`. A
+  member's `/api/settings` save that changes one is refused with the
+  admin-only 403 naming it, like any other deployment key; one that leaves
+  them as stored still passes, since the interface posts the whole row. The
+  rest of those keys (`issueTracker`, `jiraProject`, `githubRepo`,
+  `gitlabProject`) stay a member's. No web screen lets a member edit the
+  three sites, so nothing is hidden.
 - **A tracker holding tickets keeps its source.** Its provider, site and
   scope no longer change once it holds tickets or epics (409): they were read
   from that source. An empty tracker may change them, and like a tracker
@@ -155,7 +166,9 @@ subset of its trackers' tickets that carries its label.
   read through from its default tracker.
 - **A run on a ticket of several projects needs a project.** An interactive
   launch without one answers `409 {error, candidates, unattended: false}`, and
-  the web and Desktop ask which project and retry with it. An unattended launch
+  the web asks which project and retries with it. Desktop never meets it: every
+  Desktop launch is made from a project, whose local checkout it runs in, and
+  the agent forwards that project. An unattended launch
   is refused with `400 {error, candidates, unattended: true}`. A launch is
   unattended when it explicitly asks for `mode: "autonomous"`, launches a batch
   (`batchTaskIds`), or runs the full chain (`advance` with `auto`); a project

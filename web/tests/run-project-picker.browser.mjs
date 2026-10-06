@@ -7,8 +7,10 @@
 // with both projects' chips; launching it without a project gets the server's
 // 409 with the candidates, which opens the picker, and the launch is made
 // again for the project picked; closing the picker gives the launch up; a busy
-// refusal, a 409 without candidates, opens no picker. From a project's board,
-// the launch names that project and nobody is asked.
+// refusal, a 409 without candidates, opens no picker, and neither does the 400
+// refusing an unattended launch, which lists the candidates but is shown as the
+// refusal it is (L10). The queued toast is said once, by the accepted launch.
+// From a project's board, the launch names that project and nobody is asked.
 import { createServer } from 'vite';
 import { browserRoot } from './browserRoot.mjs';
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
@@ -57,7 +59,11 @@ const task = (id, key, title, projectIds) => ({
 window.fake = {
   runs: [],
   projects: [project('a', 'Alpha', 'alpha'), project('b', 'Beta', 'beta')],
-  tasks: [task('t1', 'GODE-1', 'Shared story', ['a', 'b']), task('t2', 'GODE-2', 'Busy story', ['a', 'b'])],
+  tasks: [
+    task('t1', 'GODE-1', 'Shared story', ['a', 'b']),
+    task('t2', 'GODE-2', 'Busy story', ['a', 'b']),
+    task('t3', 'GODE-3', 'Unattended story', ['a', 'b']),
+  ],
 };
 window.fetch = async (input, init = {}) => {
   const url = new URL(typeof input === 'string' ? input : input.url, location.origin);
@@ -70,6 +76,11 @@ window.fetch = async (input, init = {}) => {
     const id = decodeURIComponent(run[1]);
     fake.runs.push({ task: id, ...body });
     if (id === 't2') return json({ error: 'A run of clarify is still active on this task.', active: { id: 'busy' } }, 409);
+    // The server's answer to an unattended launch (autonomous, a batch):
+    // refused, the candidates listed, never to be retried for one of them.
+    if (id === 't3' && !body.projectId) {
+      return json({ error: 'lancement automatique refusé', candidates: [{ id: 'a', name: 'Alpha' }, { id: 'b', name: 'Beta' }], unattended: true }, 400);
+    }
     if (!body.projectId) {
       return json({ error: 'ce ticket appartient à plusieurs projets', candidates: [{ id: 'a', name: 'Alpha' }, { id: 'b', name: 'Beta' }], unattended: false }, 409);
     }
@@ -180,6 +191,7 @@ try {
   assert.equal(seen[0].projectId, undefined, 'All projects names no project');
   assert.equal(seen[1].projectId, 'b', 'the launch is made again for the project picked');
   assert.equal(seen[1].skillId, 'clarify');
+  assert.equal(await page.getByText("Skill ajoutée à la file d'exécution !").count(), 1, 'the queued toast is said once, after the accepted launch');
 
   // Closing the picker gives the launch up.
   await launch('Shared story');
@@ -194,6 +206,14 @@ try {
   await page.waitForFunction(() => window.fake.runs.length === 4);
   await page.waitForTimeout(300);
   assert.equal(await picker.count(), 0, 'a busy refusal opens no picker');
+
+  // An unattended refusal lists the candidates too, but is shown, not asked.
+  await launch('Unattended story');
+  await page.waitForFunction(() => window.fake.runs.length === 5);
+  await page.getByText('lancement automatique refusé').first().waitFor();
+  await page.waitForTimeout(300);
+  assert.equal(await picker.count(), 0, 'an unattended refusal opens no picker');
+  assert.equal((await runs()).length, 5, 'an unattended refusal is not retried for a project');
   await all.close();
 
   // ---------- A project's board names its project, nobody is asked ----------

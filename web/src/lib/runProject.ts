@@ -15,12 +15,15 @@ export interface RunProjectCandidate {
 }
 
 /**
- * The candidates of a refusal to choose the project of a run, or null when the
- * refusal is something else: a busy ticket is a 409 too, and carries no
- * candidates.
+ * The candidates of a refusal that asks which project a run works for, or null
+ * when the refusal is something else. Only the interactive 409 asks: a busy
+ * ticket is a 409 too, and carries no candidates; an unattended launch
+ * (autonomous, a batch) is refused with a 400 that lists the candidates but
+ * must not be retried for one of them, so it is shown as the refusal it is.
  */
-export function runProjectCandidates(body: unknown): RunProjectCandidate[] | null {
-  if (!body || typeof body !== 'object') return null
+export function runProjectCandidates(status: number, body: unknown): RunProjectCandidate[] | null {
+  if (status !== 409 || !body || typeof body !== 'object') return null
+  if ((body as { unattended?: unknown }).unattended === true) return null
   const candidates = (body as { candidates?: unknown }).candidates
   if (!Array.isArray(candidates) || candidates.length === 0) return null
   const list = candidates

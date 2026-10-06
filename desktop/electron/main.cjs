@@ -12,7 +12,7 @@ const {readAgentLog}=require('./agent-log.cjs')
 const {fileSha256,agentOutdated}=require('./agent-identity.cjs')
 const {normalizeAppearance,windowColors,normalizeConsoleView,normalizeConversationMode}=require('./appearance.cjs')
 const {connectionUpdates,connectionView}=require('./connection-settings.cjs')
-const {launchRequest,runProjectDialog,chosenRunProject}=require('./run-project.cjs')
+const {launchRequest}=require('./run-project.cjs')
 const {settingsFiles,effectiveCredential,pairedDeviceId}=require('./settings-file.cjs')
 if(process.env.SECTILE_DESKTOP_DATA_DIR)app.setPath('userData',process.env.SECTILE_DESKTOP_DATA_DIR)
 // The app kept its data under the previous package name; carry it over once.
@@ -464,12 +464,6 @@ ipcMain.handle('launch-console',(_,projectId,provider,engineId,view)=>api('/desk
 ipcMain.handle('launch-server-task',(_,id,taskID,skillID,prompt,mode,force,view)=>{
  const request=launchRequest(id,taskID,skillID,prompt,mode,force,view)
  return api(request.route,'POST',request.body)
-})
-// A ticket of several projects launched without one (#741): the person picks
-// the project the run works for. Null when they cancel.
-ipcMain.handle('choose-run-project',async(_,candidates,taskLabel)=>{
- const result=await dialog.showMessageBox(window,runProjectDialog(candidates,taskLabel))
- return chosenRunProject(candidates,result.response)
 })
 ipcMain.handle('launch-native-discussion',async(_,{projectId,taskId,terminal}={})=>api('/desktop/tasks/terminal-external','POST',{projectId,taskId,skillId:'discuss',terminal}))
 ipcMain.handle('detach-to-native-terminal',async(_,{runId,terminal}={})=>api('/desktop/terminal/detach','POST',{runId,terminal}))

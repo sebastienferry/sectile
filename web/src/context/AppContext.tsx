@@ -3872,11 +3872,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     const runProjectId = opts?.projectId || boardRunProject(launched, selectedProjectId, projects)
     setIsSkillRunning(true)
     setRunningSkillId(skillId)
-    addToast({
-      type: 'info',
-      title: t.toasts.skillQueued,
-      description: format(t.operations.notifications.skillQueued, { skill: skillId }),
-    })
 
     try {
       const res = await fetch(`${API_BASE}/tasks/${encodeURIComponent(taskId)}/run-skill`, {
@@ -3899,10 +3894,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       })
       if (!res.ok) {
         const errorData = await res.json().catch(() => ({}))
-        // A ticket of several projects launched without one: the person picks
-        // the project and the launch is made again for it. A busy ticket is a
-        // 409 too, and carries no candidates.
-        const candidates = opts?.projectId ? null : runProjectCandidates(errorData)
+        // A ticket of several projects launched interactively without one: the
+        // person picks the project and the launch is made again for it. A busy
+        // ticket is a 409 too, and carries no candidates; an unattended launch
+        // is refused outright, and shown like any other refusal.
+        const candidates = opts?.projectId ? null : runProjectCandidates(res.status, errorData)
         if (candidates) {
           const chosen = await askRunProject(launched?.key || taskId, candidates)
           if (!chosen) return null
@@ -3910,6 +3906,14 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         }
         throw new Error(errorData.error || t.operations.notifications.skillFailedFallback)
       }
+
+      // Said once, when the server took the launch: a launch that asks which
+      // project first is said by its retry.
+      addToast({
+        type: 'info',
+        title: t.toasts.skillQueued,
+        description: format(t.operations.notifications.skillQueued, { skill: skillId }),
+      })
 
       const data = await res.json()
       const updatedTask: Task = data.task

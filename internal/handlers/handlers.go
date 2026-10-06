@@ -343,8 +343,8 @@ func describeActiveRun(a *models.TaskActivity) string {
 
 // writeRunProjectRefusal answers a launch whose project could not be chosen
 // (#741), and says whether it did. A ticket of several projects launched
-// interactively without one is a 409 listing the candidates, so the web and
-// Desktop ask which one and retry; launched unattended, it is refused with the
+// interactively without one is a 409 listing the candidates, so the web asks
+// which one and retries (Desktop always names one); launched unattended, it is refused with the
 // same list. A ticket in no project, or a project it is not in, is a 400.
 func writeRunProjectRefusal(w http.ResponseWriter, err error) bool {
 	var ambiguous *db.ErrRunProjectAmbiguous
