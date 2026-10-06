@@ -8,12 +8,12 @@ const {browserSignIn}=require('./browser-sign-in.cjs')
 const credentials=require('./credential-store.cjs')
 const storeKey=(saved,token)=>credentials.storeKey(saved,token,safeStorage)
 const storedKey=saved=>credentials.storedKey(saved,safeStorage)
-const keyState=saved=>credentials.keyState(saved,safeStorage)
 const {carryOverDataDirectory}=require('./datadir.cjs')
 const {readAgentLog}=require('./agent-log.cjs')
 const {fileSha256,agentOutdated}=require('./agent-identity.cjs')
 const {normalizeAppearance,windowColors,normalizeConsoleView}=require('./appearance.cjs')
 const {connectionUpdates,connectionView}=require('./connection-settings.cjs')
+const {settingsFiles,effectiveCredential,pairedDeviceId}=require('./settings-file.cjs')
 if(process.env.SECTILE_DESKTOP_DATA_DIR)app.setPath('userData',process.env.SECTILE_DESKTOP_DATA_DIR)
 // The app kept its data under the previous package name; carry it over once.
 if(!process.env.SECTILE_DESKTOP_DATA_DIR){
@@ -92,61 +92,65 @@ async function checkAgentIdentity(){
  promptedFor=identity
  await lifecycle('restart',{reason:'outdated'})
 }
-// saveCredential keeps the device and the key a pairing returned, for the next launch and the standalone agent.
+// saveCredential keeps the device and the key a pairing returned, with the
+// moment it was made, for the next launch (#746).
 function saveCredential(server,credential){
- let previous={}
- try{previous=readSettings()}catch{}
- const saved={...previous,server,deviceId:credential.deviceId}
- delete saved.binary
- storeKey(saved,credential.token)
- fs.mkdirSync(path.dirname(settingsPath()),{recursive:true,mode:0o700})
- fs.writeFileSync(settingsPath()+'.tmp',JSON.stringify(saved),{mode:0o600})
- fs.renameSync(settingsPath()+'.tmp',settingsPath())
+ settingsStore.updateDesktop(saved=>{
+  Object.assign(saved,{server,deviceId:credential.deviceId,pairedAt:new Date().toISOString()})
+  delete saved.binary
+  storeKey(saved,credential.token)
+ })
 }
 // storedDeviceId is the device this workstation was paired as on that server, so a new pairing replaces its key.
 function storedDeviceId(server){
- try{const saved=readSettings();return sameServer(saved.server,server)&&saved.deviceId||''}catch{return ''}
-}
-// sameServer compares two server addresses as the agent stores them: trimmed, without a trailing slash.
-function sameServer(a,b){
- const canonical=value=>String(value||'').trim().replace(/\/+$/,'')
- return Boolean(canonical(a))&&canonical(a)===canonical(b)
+ let desktop={},shared={}
+ try{desktop=settingsStore.readDesktop()}catch{}
+ try{shared=settingsStore.readShared()}catch{}
+ return pairedDeviceId(desktop,shared,server)
 }
 ipcMain.handle('pair',async(_,{server,code,label})=>{
  const credential=await exchangePairingCode(server,code,label)
  saveCredential(server,credential)
  return {deviceId:credential.deviceId,token:credential.token}
 })
+// settings.json belongs to the agent: Desktop reads it and keeps what it
+// stores itself in desktop.json (#746).
 const settingsPath=()=>process.env.SECTILE_DESKTOP_DATA_DIR
  ? path.join(app.getPath('userData'),'settings.json')
  : path.join(app.getPath('home'),'.config','sectile','settings.json')
-function readSettings(){
- try{return JSON.parse(fs.readFileSync(settingsPath(),'utf8'))}
- catch(error){
-  if(error.code!=='ENOENT')throw error
-  try{return JSON.parse(fs.readFileSync(path.join(app.getPath('userData'),'agent-settings.json'),'utf8'))}catch{return {}}
- }
+const settingsStore=settingsFiles({
+ desktopPath:path.join(app.getPath('userData'),'desktop.json'),
+ sharedPath:settingsPath(),
+ legacyPath:path.join(app.getPath('userData'),'agent-settings.json'),
+})
+function readDesktopSettings(){
+ try{return settingsStore.readDesktop()}catch{return {}}
+}
+// savedServer is the server the agent is started on, '' when none is saved.
+function savedServer(){
+ try{return currentCredential().record.server||''}catch{return ''}
+}
+// currentCredential is the pairing the agent is started on: Desktop's own, or a newer one `sectile-agent pair` stored.
+function currentCredential(){
+ let shared={}
+ try{shared=settingsStore.readShared()}catch{}
+ return effectiveCredential(settingsStore.readDesktop(),shared,safeStorage)
 }
 // The renderer reads the connection facts only: the execution sections of the
 // same file belong to the agent and are read through /desktop/workstation.
 ipcMain.handle('settings',()=>{
  try{
-  const saved=readSettings()
-  return connectionView(saved,storedKey(saved))
+  const current=currentCredential()
+  return connectionView({...settingsStore.readDesktop(),server:current.record.server,deviceId:current.record.deviceId},current.token())
  }catch{return {}}
 })
 // Whether this workstation holds a usable key, and for which server: the key itself never crosses to the renderer here.
-ipcMain.handle('credential-state',()=>{try{const saved=readSettings();return {state:keyState(saved),server:saved.server||''}}catch{return {state:'unreadable',server:''}}})
-// Only connection keys are written; any execution key is dropped, since the
-// agent is the only writer of the execution sections (#305). What the agent
-// wrote in the file is kept as it was.
+ipcMain.handle('credential-state',()=>{try{const current=currentCredential();return {state:current.state,server:current.record.server||''}}catch{return {state:'unreadable',server:''}}})
+// Only connection keys are written, to Desktop's own file; any execution key
+// is dropped, since the agent is the only writer of the execution sections
+// (#305) and of settings.json (#746).
 ipcMain.handle('save-settings',async(_,updates)=>{
- let previous={}
- try{previous=readSettings()}catch{}
- const saved={...previous,...connectionUpdates(updates)}
- fs.mkdirSync(path.dirname(settingsPath()),{recursive:true,mode:0o700})
- fs.writeFileSync(settingsPath()+'.tmp',JSON.stringify(saved,null,2),{mode:0o600})
- fs.renameSync(settingsPath()+'.tmp',settingsPath())
+ const saved=settingsStore.updateDesktop(current=>Object.assign(current,connectionUpdates(updates)))
  return connectionView(saved,storedKey(saved))
 })
 // The appearance is applied here rather than in the renderer: themeSource
@@ -155,30 +159,17 @@ ipcMain.handle('save-settings',async(_,updates)=>{
 function applyAppearance(value){nativeTheme.themeSource=normalizeAppearance(value)}
 // The appearance is read on its own: the settings view the renderer gets is
 // limited to the connection facts.
-ipcMain.handle('appearance',()=>{
- try{return normalizeAppearance(readSettings().appearance)}catch{return normalizeAppearance()}
-})
+ipcMain.handle('appearance',()=>normalizeAppearance(readDesktopSettings().appearance))
 ipcMain.handle('set-appearance',(_,value)=>{
- let previous={}
- try{previous=readSettings()}catch{}
  const appearance=normalizeAppearance(value)
- const saved={...previous,appearance}
- fs.mkdirSync(path.dirname(settingsPath()),{recursive:true,mode:0o700})
- fs.writeFileSync(settingsPath()+'.tmp',JSON.stringify(saved,null,2),{mode:0o600})
- fs.renameSync(settingsPath()+'.tmp',settingsPath())
+ settingsStore.updateDesktop(saved=>{saved.appearance=appearance})
  applyAppearance(appearance)
  return appearance
 })
-ipcMain.handle('console-view',()=>{
- try{return normalizeConsoleView(readSettings().consoleView)}catch{return normalizeConsoleView()}
-})
+ipcMain.handle('console-view',()=>normalizeConsoleView(readDesktopSettings().consoleView))
 ipcMain.handle('set-console-view',(_,value)=>{
- let previous={}
- try{previous=readSettings()}catch{}
  const consoleView=normalizeConsoleView(value)
- fs.mkdirSync(path.dirname(settingsPath()),{recursive:true,mode:0o700})
- fs.writeFileSync(settingsPath()+'.tmp',JSON.stringify({...previous,consoleView},null,2),{mode:0o600})
- fs.renameSync(settingsPath()+'.tmp',settingsPath())
+ settingsStore.updateDesktop(saved=>{saved.consoleView=consoleView})
  // Saving never waits for the agent, nor fails on it: the next connection
  // hands the setting over again.
  syncConsoleView()
@@ -189,8 +180,7 @@ ipcMain.handle('set-console-view',(_,value)=>{
 // An agent that predates it is left alone; every failure is swallowed.
 async function syncConsoleView(){
  try{
-  let view
-  try{view=normalizeConsoleView(readSettings().consoleView)}catch{view=normalizeConsoleView()}
+  const view=normalizeConsoleView(readDesktopSettings().consoleView)
   const status=await api('/desktop/status')
   if(!status.capabilities?.includes('console-view-default'))return
   await api('/desktop/console-view','PUT',{view})
@@ -248,8 +238,8 @@ async function startAgent(settings){
  // burning a single-use code on a malformed URL would cost the user a new one.
  // With no code, the credential an earlier pairing left behind restarts the
  // agent: the form asks for a code, never for a key to paste back in.
- let stored={};try{stored=readSettings()}catch{}
- const state=keyState(stored),kept=state==='present'?storedKey(stored):''
+ let stored=null;try{stored=currentCredential()}catch{}
+ const state=stored?stored.state:'missing',kept=state==='present'?stored.token():''
  if(state==='unreadable'&&!settings.code)throw pairingNeeded('The key saved on this workstation can no longer be read. Pair again to replace it.')
  // A new pairing names the device this workstation was paired as, so the server replaces its key (#717).
  const credential=await resolveConnectCredential({...settings,token:kept,deviceId:storedDeviceId(settings.server)})
@@ -258,22 +248,25 @@ async function startAgent(settings){
  if(credential.paired)saveCredential(settings.server,credential)
  await checkServer(url,token)
  // Preserve existing mappings when upgrading; new installations use private app data.
- let previous={}
- try{previous=readSettings()}catch{}
+ const previous=readDesktopSettings()
  const repo=previous.repo||path.dirname(settingsPath())
  fs.mkdirSync(repo,{recursive:true,mode:0o700})
  const binary=bundledAgentBinary()
  if(connection){try{await api('/desktop/runs');return true}catch{connection=null}}
  fs.mkdirSync(app.getPath('userData'),{recursive:true})
- let legacy={}
- try{legacy=JSON.parse(fs.readFileSync(path.join(repo,'.taskflow','agent.json'),'utf8'))}catch{}
- const saved={...legacy,...previous,server:settings.server,repo}
- if(credential.deviceId)saved.deviceId=credential.deviceId
- delete saved.binary
- fs.mkdirSync(path.dirname(settingsPath()),{recursive:true,mode:0o700})
- storeKey(saved,token)
- fs.writeFileSync(settingsPath()+'.tmp',JSON.stringify(saved),{mode:0o600})
- fs.renameSync(settingsPath()+'.tmp',settingsPath())
+ // Only Desktop's own file is written: settings.json is the agent's, which
+ // reads the legacy repository file itself (#746).
+ settingsStore.updateDesktop(saved=>{
+  Object.assign(saved,{server:settings.server,repo})
+  if(credential.deviceId)saved.deviceId=credential.deviceId
+  delete saved.binary
+ })
+ // The agent compares a key `sectile-agent pair` stores later with when this
+ // one was paired, and records the device so `pair` replaces the same one.
+ let launched={}
+ try{launched=currentCredential().record}catch{}
+ const pairedAt=launched.pairedAt||''
+ const pairedDevice=credential.deviceId||storedDeviceId(settings.server)
  const output=fs.openSync(path.join(app.getPath('userData'),'agent.log'),'a',0o600)
  const info=infoPath()
  if(fs.existsSync(info))fs.unlinkSync(info)
@@ -282,7 +275,7 @@ async function startAgent(settings){
  const script=!app.isPackaged&&process.env.SECTILE_DESKTOP_TEST==='1'&&/\.c?js$/.test(binary)
  const child=spawn(script?process.execPath:binary,[...(script?[binary]:[]),'--desktop-info',info,'--url',settings.server,'--repo',repo],{
   detached:true,stdio:['ignore',output,output],
-  env:{...process.env,...(script?{ELECTRON_RUN_AS_NODE:'1'}:{}),TOKEN:token,SECTILE_DESKTOP_TOKEN:crypto.randomBytes(32).toString('hex')}
+  env:{...process.env,...(script?{ELECTRON_RUN_AS_NODE:'1'}:{}),TOKEN:token,SECTILE_PAIRED_AT:pairedAt,SECTILE_PAIRED_DEVICE_ID:pairedDevice,SECTILE_DESKTOP_TOKEN:crypto.randomBytes(32).toString('hex')}
  })
  let spawnError
  child.on('error',error=>{spawnError=error})
@@ -347,8 +340,7 @@ async function lifecycle(action,{reason}={}){
   // /desktop/restart would run again: it is stopped, and the bundled binary
   // started in its place. Without a saved server there is nothing to start it
   // with, and the agent's own restart is the only one available.
-  let server
-  try{server=readSettings().server}catch{}
+  const server=savedServer()
   const replace=action==='restart'&&reason==='outdated'&&Boolean(server)
   await api('/desktop/'+(action==='restart'&&!replace?'restart':'shutdown'),'POST')
   if(action==='stop'||replace){
@@ -466,7 +458,7 @@ ipcMain.handle('open-board',async()=>{
 ipcMain.handle('open-task',async(_,id)=>{
  if(typeof id!=='string'||!id.trim())throw Error('Invalid task ID')
  const status=await api('/desktop/status')
- const url=new URL(status.server||readSettings().server)
+ const url=new URL(status.server||savedServer())
  if(!['http:','https:'].includes(url.protocol)||url.username||url.password)throw Error('Invalid server URL')
  url.searchParams.set('task',id)
  url.hash=''
@@ -600,9 +592,7 @@ function openWindow(){
  // painted over it in the app's colours. macOS keeps its traffic lights, positioned to sit centred
  // in that 68px header. The renderer asks the overlay itself where the buttons ended up, so the
  // header can keep their strip clear whatever the platform draws.
- let stored={}
- try{stored=readSettings()}catch{}
- applyAppearance(stored.appearance)
+ applyAppearance(readDesktopSettings().appearance)
  const colors=windowColors(nativeTheme.shouldUseDarkColors)
  window=new BrowserWindow({show:process.env.SECTILE_DESKTOP_TEST!=='1',width:1240,height:820,minWidth:800,minHeight:500,backgroundColor:colors.background,title:'Sectile Desktop',titleBarStyle:'hidden',titleBarOverlay:{color:colors.background,symbolColor:colors.symbol,height:68},trafficLightPosition:{x:18,y:25},icon:path.join(__dirname,'../assets/icon.png'),webPreferences:{preload:path.join(__dirname,'preload.cjs'),nodeIntegration:false,contextIsolation:true,sandbox:true}})
  window.webContents.setWindowOpenHandler(()=>({action:'deny'}))

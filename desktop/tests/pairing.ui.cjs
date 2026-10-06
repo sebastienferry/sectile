@@ -251,8 +251,11 @@ test('browser sign-in end to end',async()=>{
   for(let attempt=0;attempt<100&&!presented.includes('Bearer device-token');attempt++)await new Promise(resolve=>setTimeout(resolve,100))
   assert.deepEqual(paired,{code:'code-from-the-browser',label:os.hostname(),deviceId:'dev_old'})
   assert.ok(presented.includes('Bearer device-token'),'the redeemed key is what reaches the server')
-  const saved=JSON.parse(fs.readFileSync(path.join(root,'settings.json'),'utf8'))
+  // The pairing lands in Desktop's own file, dated; the agent's settings.json is left as it was (#746).
+  const saved=JSON.parse(fs.readFileSync(path.join(root,'desktop.json'),'utf8'))
   assert.equal(saved.deviceId,'dev_new')
+  assert.ok(!Number.isNaN(Date.parse(saved.pairedAt)),'the pairing is dated')
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(root,'settings.json'),'utf8')),{server:address,deviceId:'dev_old'})
   // Stored as every pairing stores it: encrypted when the OS store can, in clear otherwise (#716).
   if(await application.evaluate(({safeStorage})=>safeStorage.isEncryptionAvailable())){
    assert.equal(typeof saved.secret,'string')

@@ -30,7 +30,7 @@ test('Claude consoles is handed over to an agent that keeps it',async()=>{
  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve))
  fs.writeFileSync(path.join(root,'agent-connection.json'),JSON.stringify({url:'http://127.0.0.1:'+server.address().port,token:'test'}))
  const env={...process.env,SECTILE_DESKTOP_DATA_DIR:root,SECTILE_DESKTOP_TEST:'1'};delete env.ELECTRON_RUN_AS_NODE
- const saved=()=>JSON.parse(fs.readFileSync(path.join(root,'settings.json'),'utf8')).consoleView
+ const saved=()=>JSON.parse(fs.readFileSync(path.join(root,'desktop.json'),'utf8')).consoleView
  let app
  try{
   app=await electron.launch({args:[path.resolve(__dirname,'..')],env})
@@ -61,5 +61,7 @@ test('Claude consoles is handed over to an agent that keeps it',async()=>{
   assert.equal(saved(),'terminal')
   await page.waitForTimeout(300)
   assert.deepEqual(sent.slice(count),[])
+  // Every save went to Desktop's own file: the agent's settings.json is left as it was (#746).
+  assert.equal(fs.readFileSync(path.join(root,'settings.json'),'utf8'),JSON.stringify({consoleView:'conversation'}))
  }finally{if(app)await app.close();await new Promise(resolve=>server.close(resolve))}
 })

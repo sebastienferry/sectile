@@ -32,7 +32,8 @@ const bodyBackground=page=>page.evaluate(()=>getComputedStyle(document.body).bac
 // xterm paints its theme background on the scrollable element it wraps the screen in.
 const terminalBackground=page=>page.evaluate(()=>{const element=document.querySelector('#terminal .xterm-scrollable-element');return element?getComputedStyle(element).backgroundColor:null})
 const windowState=app=>app.evaluate(({BrowserWindow,nativeTheme})=>({source:nativeTheme.themeSource,background:BrowserWindow.getAllWindows()[0].getBackgroundColor().toLowerCase()}))
-const storedAppearance=root=>JSON.parse(fs.readFileSync(path.join(root,'settings.json'),'utf8')).appearance
+// Desktop keeps the appearance in its own file, never in the agent's settings.json (#746).
+const storedAppearance=root=>JSON.parse(fs.readFileSync(path.join(root,'desktop.json'),'utf8')).appearance
 // Bytes for the console as the agent would send them, and the colour a marker is drawn in: computed, since a palette
 // colour that already passes comes from a class rule, not an inline style.
 const write=(app,text)=>app.evaluate(({BrowserWindow},bytes)=>BrowserWindow.getAllWindows()[0].webContents.send('terminal-output',bytes),[...Buffer.from(text)])
@@ -90,7 +91,7 @@ test('the appearance setting switches the whole window live and is kept',async()
   await app.close();app=null
 
   // A stored Light choice paints the window light before the page loads.
-  fs.writeFileSync(path.join(root,'settings.json'),JSON.stringify({...JSON.parse(fs.readFileSync(path.join(root,'settings.json'),'utf8')),appearance:'light'}))
+  fs.writeFileSync(path.join(root,'desktop.json'),JSON.stringify({...JSON.parse(fs.readFileSync(path.join(root,'desktop.json'),'utf8')),appearance:'light'}))
   ;({app,page}=await launch(root))
   assert.deepEqual(await windowState(app),{source:'light',background:'#f5f6f8'})
   await expect.poll(()=>bodyBackground(page)).toBe(LIGHT_BG)
