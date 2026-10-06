@@ -77,10 +77,16 @@ func TestResolvedClaudeSandboxDoesNotTouchTheStoredLists(t *testing.T) {
 	}
 }
 
+// foldOf runs the start-up migration on raw, the only place the fold runs
+// (#744), and reads the result back.
 func foldOf(t *testing.T, raw string) (Settings, SettingsMigration) {
 	t.Helper()
 	writeSettingsFile(t, raw)
-	s, _, report, err := readConverted(t.TempDir())
+	_, report, err := MigrateSettingsReport(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, err := ReadSettings(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
