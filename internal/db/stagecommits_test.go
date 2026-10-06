@@ -143,6 +143,9 @@ func TestPushStageCommitsMigration(t *testing.T) {
 	if _, err := d.conn.Exec("ALTER TABLE macros DROP COLUMN framing_mirror_at"); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := d.conn.Exec("ALTER TABLE projects DROP COLUMN priority_mapping"); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := d.conn.Exec("DELETE FROM schema_migrations WHERE version >= 32"); err != nil {
 		t.Fatal(err)
 	}

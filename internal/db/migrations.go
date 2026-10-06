@@ -659,6 +659,16 @@ var migrations = []migration{
 			);`,
 		},
 	},
+	{
+		// How a Jira project's ticket priorities map to Sectile's levels
+		// (#679). '{}' is "not discovered yet", which every existing project
+		// reads as, and which keeps its priority writes as they were.
+		version: 47,
+		name:    "projects.priority_mapping",
+		statements: []string{
+			"ALTER TABLE projects ADD COLUMN priority_mapping TEXT NOT NULL DEFAULT '{}';",
+		},
+	},
 }
 
 // migrateSchema brings the database to the schema this binary expects, and is

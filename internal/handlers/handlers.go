@@ -1637,6 +1637,23 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Sub-action: /api/projects/{id}/priority-mapping/refresh: read the
+	// tracker's priority scheme again and fold it into the project's mapping
+	// (#679), for a person who just changed it.
+	if len(parts) >= 3 && parts[1] == "priority-mapping" && parts[2] == "refresh" && r.Method == http.MethodPost {
+		if _, err := h.db.RefreshPriorityMapping(h.actingContext(r), id, true); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		proj, err := h.db.GetProjectByID(id)
+		if err != nil || proj == nil {
+			writeError(w, http.StatusNotFound, "Project not found")
+			return
+		}
+		writeJSON(w, http.StatusOK, proj)
+		return
+	}
+
 	// Sub-action: /api/projects/{id}/tracker-statuses: the statuses actually
 	// seen on this project's tickets, to assign them to columns
 	if len(parts) >= 2 && parts[1] == "tracker-statuses" && r.Method == http.MethodGet {
@@ -4356,9 +4373,16 @@ func (h *Handler) HandleEventsSSE(w http.ResponseWriter, r *http.Request) {
 }
 
 // repositoryErrorStatus answers 400 for a refused repository declaration or
-// pin (#456), or another refused project setting, and 500 for anything else.
+// pin (#456), or another refused project setting, 422 for a refused priority,
+// and 500 for anything else.
 func repositoryErrorStatus(err error) int {
-	if errors.Is(err, db.ErrDuplicateRepository) || errors.Is(err, db.ErrRepositoryNotInProject) || errors.Is(err, db.ErrInvalidSpecArtifacts) || errors.Is(err, db.ErrInvalidBranchNameFormat) || errors.Is(err, db.ErrInvalidEpicAxisPrefix) {
+	// A priority the project's mapping only guessed (#679) is a refusal the
+	// person can act on in the Tracker tab, not a malformed request.
+	var guessed *models.GuessedPriorityError
+	if errors.As(err, &guessed) {
+		return http.StatusUnprocessableEntity
+	}
+	if errors.Is(err, db.ErrDuplicateRepository) || errors.Is(err, db.ErrRepositoryNotInProject) || errors.Is(err, db.ErrInvalidSpecArtifacts) || errors.Is(err, db.ErrInvalidBranchNameFormat) || errors.Is(err, db.ErrInvalidEpicAxisPrefix) || errors.Is(err, db.ErrInvalidPriorityMapping) {
 		return http.StatusBadRequest
 	}
 	return http.StatusInternalServerError

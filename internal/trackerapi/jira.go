@@ -275,12 +275,19 @@ func (j *JiraAdapter) CreateIssue(ctx context.Context, req tracker.CreateIssueRe
 	// and whether it carries the field at all. A project whose screen has no
 	// priority is created without one rather than refused over it, and the
 	// level is put on afterwards.
-	priorityCarried := false
+	//
+	// A level the project's mapping is not sure of is not sent at all (#679):
+	// the work item is created without it, and the answer says why.
+	priorityCarried, priorityNotice := false, ""
 	if req.Priority != "" {
 		screen, readable := c.jiraCreatePriorities(ctx, projectKey, issueType)
-		if value, ok := c.priorityFieldFor(ctx, screen, readable, req.Priority, projectKey+"/"+issueType); ok {
+		value, ok, guessed := c.priorityFieldFor(ctx, screen, readable, priorityMappingOf(req.Project), req.Priority, projectKey+"/"+issueType)
+		if ok {
 			fields["priority"] = value
 			priorityCarried = true
+		}
+		if guessed != nil {
+			priorityNotice = createdWithoutPriority(guessed)
 		}
 	}
 	var created struct {
@@ -306,8 +313,8 @@ func (j *JiraAdapter) CreateIssue(ctx context.Context, req tracker.CreateIssueRe
 			return nil, err
 		}
 	}
-	if req.Priority != "" && !priorityCarried {
-		j.setPriorityAfterCreate(ctx, c, created.Key, req.Priority)
+	if req.Priority != "" && !priorityCarried && priorityNotice == "" {
+		priorityNotice = j.setPriorityAfterCreate(ctx, c, req.Project, created.Key, req.Priority)
 	}
 	task, err := j.GetIssue(ctx, tracker.GetIssueRequest{Project: req.Project, Key: created.Key})
 	if err != nil {
@@ -315,9 +322,16 @@ func (j *JiraAdapter) CreateIssue(ctx context.Context, req tracker.CreateIssueRe
 		// a creation the site confirmed.
 		key := strings.ToUpper(created.Key)
 		u := jiraBrowseURL(c.JiraURL, key)
-		return &models.Task{ID: "jira-" + key, Key: key, Title: title, Description: req.Description, Status: models.StatusToClarify, Priority: models.PriorityMedium, Labels: cleanLabels(req.Labels), Source: "jira", IssueType: issueType, ExternalURL: &u}, nil
+		return &models.Task{ID: "jira-" + key, Key: key, Title: title, Description: req.Description, Status: models.StatusToClarify, Priority: models.PriorityMedium, Labels: cleanLabels(req.Labels), Source: "jira", IssueType: issueType, ExternalURL: &u, PriorityNotice: priorityNotice}, nil
 	}
+	task.PriorityNotice = priorityNotice
 	return task, nil
+}
+
+// createdWithoutPriority is the notice of a creation whose priority the
+// project's mapping only guessed.
+func createdWithoutPriority(err error) string {
+	return "The ticket was created without a priority. " + err.Error()
 }
 
 // setPriorityAfterCreate puts the level on a work item whose creation screen
@@ -329,16 +343,23 @@ func (j *JiraAdapter) CreateIssue(ctx context.Context, req tracker.CreateIssueRe
 // its creation over a field the site would not take on the way in is exactly
 // what this whole path avoids. The read that follows answers with the priority
 // the site actually holds, so nothing claims a level that did not stick.
-func (j *JiraAdapter) setPriorityAfterCreate(ctx context.Context, c *Client, key string, p models.Priority) {
+//
+// It answers the creation notice when the project's mapping only guessed the
+// level (#679), and "" otherwise.
+func (j *JiraAdapter) setPriorityAfterCreate(ctx context.Context, c *Client, project *models.Project, key string, p models.Priority) string {
 	screen, readable := c.jiraEditPriorities(ctx, key)
-	value, ok := c.priorityFieldFor(ctx, screen, readable, p, key)
+	value, ok, guessed := c.priorityFieldFor(ctx, screen, readable, priorityMappingOf(project), p, key)
+	if guessed != nil {
+		return createdWithoutPriority(guessed)
+	}
 	if !ok {
-		return
+		return ""
 	}
 	payload := map[string]any{"fields": map[string]any{"priority": value}}
 	if err := c.jira(ctx, http.MethodPut, "/rest/api/3/issue/"+url.PathEscape(key), nil, payload, nil); err != nil {
 		log.Printf("[jira] %s was created, but its priority could not be set: %v", key, err)
 	}
+	return ""
 }
 
 func cleanLabels(labels []string) []string {
@@ -379,7 +400,13 @@ func (j *JiraAdapter) UpdateIssue(ctx context.Context, req tracker.UpdateIssueRe
 	}
 	if req.Priority != nil && *req.Priority != "" {
 		screen, readable := c.jiraEditPriorities(ctx, key)
-		if value, ok := c.priorityFieldFor(ctx, screen, readable, *req.Priority, key); ok {
+		value, ok, err := c.priorityFieldFor(ctx, screen, readable, priorityMappingOf(req.Project), *req.Priority, key)
+		if err != nil {
+			// The mapping changed since the local write was accepted (#679):
+			// sending a guess is what it exists to prevent.
+			return err
+		}
+		if ok {
 			fields["priority"] = value
 		}
 	}
