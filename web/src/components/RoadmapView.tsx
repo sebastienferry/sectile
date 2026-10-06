@@ -370,7 +370,6 @@ export const RoadmapView: React.FC = () => {
   const [isPushing, setIsPushing] = useState(false)
   const [isImporting, setIsImporting] = useState(false)
 
-
   const [showMigrateModal, setShowMigrateModal] = useState(false)
   const [migrateTargetProjectId, setMigrateTargetProjectId] = useState('')
   const [migrateIncludeTasks, setMigrateIncludeTasks] = useState(true)
@@ -406,7 +405,6 @@ export const RoadmapView: React.FC = () => {
   const seedBackdrop = useBackdropDismiss(closeSeed)
   useEscapeKey(seedLines !== null, closeSeed)
   const seedValueCount = Object.values(seedKept).filter(Boolean).length
-
 
   // Copy the macro's own link, or its reference when the tracker gives no
   // page. Writing to the clipboard needs a secure context and the API can be
