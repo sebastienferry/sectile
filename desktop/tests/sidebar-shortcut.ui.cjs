@@ -112,6 +112,16 @@ test('desktop shortcuts control the sidebar and open configuration without leaki
   await page.keyboard.press('Meta+,')
   await expect(page.locator('#settings-tab-Profile')).toHaveAttribute('aria-selected','true')
   await page.keyboard.press('Escape')
+  // The physical US comma key must not turn Cmd+; into a settings shortcut.
+  await focusTerminal()
+  await page.evaluate(()=>document.activeElement.dispatchEvent(new KeyboardEvent('keydown',{key:';',code:'Comma',metaKey:true,bubbles:true,cancelable:true})))
+  await expect(page.locator('.configuration-page')).toHaveCount(0)
+  assert.deepEqual(await inputs(),['\x02','\x02'])
+  if(process.platform==='darwin'){
+   await app.evaluate(({Menu})=>{const item=Menu.getApplicationMenu().getMenuItemById('settings');if(item.accelerator!=='Command+,')throw Error('Settings must use Command+,');item.click()})
+   await expect(page.locator('#settings-tab-Profile')).toHaveAttribute('aria-selected','true')
+   await page.keyboard.press('Escape')
+  }
   await page.keyboard.press('Meta+k')
   await expect(page.locator('#project-dialog')).toHaveJSProperty('open',true)
   await page.keyboard.press('Meta+,')

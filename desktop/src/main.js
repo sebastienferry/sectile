@@ -2095,6 +2095,7 @@ function openSettings(initial='Profile',project){
 }
 const settingsButton=document.querySelector('#settings')
 settingsButton.onclick=()=>openSettings('Profile')
+api.onOpenSettings(()=>{if(!dialog.open&&!configurationActive())openSettings('Profile')})
 const settingsMac=isMacPlatform(navigator)
 settingsButton.title='Settings ('+configShortcutLabel(settingsMac)+')'
 settingsButton.setAttribute('aria-keyshortcuts',configShortcutAria(settingsMac))

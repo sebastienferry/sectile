@@ -27,3 +27,12 @@ test('configuration control describes the platform chord', () => {
  assert.equal(configShortcutLabel(false), 'Ctrl+,')
  assert.equal(configShortcutAria(false), 'Control+Comma')
 })
+
+test('configuration shortcut recognizes comma across keyboard layouts', () => {
+ assert.equal(configShortcutAction(event({ key: ';', code: 'Comma' })), 'ignore')
+ assert.equal(configShortcutAction(event({ key: ',', code: 'KeyM' })), 'open')
+ assert.equal(configShortcutAction(event({ key: ';', code: 'KeyM' })), 'ignore')
+ for (const overrides of [{ shiftKey: true }, { altKey: true }, { modalOpen: true }, { repeat: true }]) {
+  assert.equal(configShortcutAction(event({ key: ';', code: 'Comma', ...overrides })), 'ignore')
+ }
+})
