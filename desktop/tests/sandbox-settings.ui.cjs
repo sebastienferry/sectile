@@ -338,3 +338,20 @@ test('a project’s Claude settings offer no presets',async()=>{
   await expect(panel.getByRole('button',{name:'Apply recommended',exact:true})).toHaveCount(0)
  })
 })
+
+test('sandbox autonomy saves explicit policy and keeps existing rules and folders',async()=>{
+ await withDesktop({...PROJECT,claudeSandbox:{...EMPTY,deny:['Bash(git push *)'],additionalDirectories:['/shared']}},async({page,open,save,close})=>{
+  await open()
+  await page.getByRole('button',{name:'Autonomy in sandbox',exact:true}).click()
+  await expect(page.getByRole('combobox',{name:'Sandboxed commands',exact:true})).toHaveValue('true')
+  await expect(page.getByRole('combobox',{name:'Unsandboxed retries',exact:true})).toHaveValue('false')
+  const saved=await save()
+  assert.equal(saved.claudeSandbox.enabled,true)
+  assert.equal(saved.claudeSandbox.autoAllowBashIfSandboxed,true)
+  assert.equal(saved.claudeSandbox.allowUnsandboxedCommands,false)
+  assert.deepEqual(saved.claudeSandbox.deny,['Bash(git push *)'])
+  assert.deepEqual(saved.claudeSandbox.additionalDirectories,['/shared'])
+  await close();await open()
+  await expect(page.getByRole('combobox',{name:'Unsandboxed retries',exact:true})).toHaveValue('false')
+ })
+})

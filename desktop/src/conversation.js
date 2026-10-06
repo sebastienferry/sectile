@@ -241,6 +241,13 @@ export function createConversationView({api,container,onError,canAddFolder=()=>f
    bar.setAttribute('role','group');bar.setAttribute('aria-label','Allow '+name+'?')
    const question=document.createElement('span');question.className='tool-approval-question';question.textContent='Allow '+name+(item.description?': '+item.description:'')+'?'
    bar.append(question)
+   if(item.reason){const reason=document.createElement('p');reason.textContent=item.reason;bar.append(reason)}
+   if(Array.isArray(item.suggestions)&&item.suggestions.length){
+    const details=document.createElement('details'),summary=document.createElement('summary'),proposal=document.createElement('pre')
+    summary.textContent='Always allow: proposed access for this project'
+    proposal.textContent=JSON.stringify(item.suggestions.map(update=>({...update,destination:(update?.type==='addRules'&&update.behavior==='allow')||update?.type==='addDirectories'?'project (this workstation)':'session'})),null,2)
+    details.append(summary,proposal);bar.append(details)
+   }
    const choices=[['allow','Allow'],...(Array.isArray(item.suggestions)&&item.suggestions.length?[['always','Always allow']]:[]),['deny','Deny']]
    for(const [decision,label] of choices){
     const button=document.createElement('button');button.type='button';button.textContent=label;button.className='tool-approval-'+decision

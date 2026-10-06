@@ -17,17 +17,20 @@ import (
 // A list adds to what those settings already hold: Claude Code merges the
 // arrays of every settings source, so nothing here can remove an entry.
 type ClaudeSandbox struct {
-	// Enabled is a pointer because "off" is a statement: nil inherits.
-	Enabled        *bool    `json:"enabled,omitempty"`
-	AllowedDomains []string `json:"allowedDomains,omitempty"`
-	AllowWrite     []string `json:"allowWrite,omitempty"`
-	Allow          []string `json:"allow,omitempty"`
-	Deny           []string `json:"deny,omitempty"`
+	// Optional booleans preserve explicit false values; nil inherits.
+	AutoAllowBashIfSandboxed *bool    `json:"autoAllowBashIfSandboxed,omitempty"`
+	AllowUnsandboxedCommands *bool    `json:"allowUnsandboxedCommands,omitempty"`
+	AdditionalDirectories    []string `json:"additionalDirectories,omitempty"`
+	Enabled                  *bool    `json:"enabled,omitempty"`
+	AllowedDomains           []string `json:"allowedDomains,omitempty"`
+	AllowWrite               []string `json:"allowWrite,omitempty"`
+	Allow                    []string `json:"allow,omitempty"`
+	Deny                     []string `json:"deny,omitempty"`
 }
 
 // IsZero reports values that state nothing, a nil pointer included.
 func (c *ClaudeSandbox) IsZero() bool {
-	return c == nil || (c.Enabled == nil && len(c.AllowedDomains) == 0 && len(c.AllowWrite) == 0 &&
+	return c == nil || (c.Enabled == nil && c.AutoAllowBashIfSandboxed == nil && c.AllowUnsandboxedCommands == nil && len(c.AdditionalDirectories) == 0 && len(c.AllowedDomains) == 0 && len(c.AllowWrite) == 0 &&
 		len(c.Allow) == 0 && len(c.Deny) == 0)
 }
 
@@ -38,12 +41,13 @@ var ErrEmptyEntry = errors.New("an entry is empty")
 // list, keeping the order of entry. An empty entry is refused rather than
 // dropped, so a mistake is reported instead of silently saved.
 func NormalizeClaudeSandbox(c ClaudeSandbox) (ClaudeSandbox, error) {
-	out := ClaudeSandbox{Enabled: c.Enabled}
+	out := ClaudeSandbox{Enabled: c.Enabled, AutoAllowBashIfSandboxed: c.AutoAllowBashIfSandboxed, AllowUnsandboxedCommands: c.AllowUnsandboxedCommands}
 	for _, list := range []struct {
 		name string
 		in   []string
 		out  *[]string
 	}{
+		{"additionalDirectories", c.AdditionalDirectories, &out.AdditionalDirectories},
 		{"allowedDomains", c.AllowedDomains, &out.AllowedDomains},
 		{"allowWrite", c.AllowWrite, &out.AllowWrite},
 		{"allow", c.Allow, &out.Allow},
@@ -125,11 +129,14 @@ func MergeClaudeSandbox(sent, base, stored ClaudeSandbox) ClaudeSandbox {
 		return out
 	}
 	return ClaudeSandbox{
-		Enabled:        sent.Enabled,
-		AllowedDomains: merge(sent.AllowedDomains, base.AllowedDomains, stored.AllowedDomains),
-		AllowWrite:     merge(sent.AllowWrite, base.AllowWrite, stored.AllowWrite),
-		Allow:          merge(sent.Allow, base.Allow, stored.Allow),
-		Deny:           merge(sent.Deny, base.Deny, stored.Deny),
+		Enabled:                  sent.Enabled,
+		AutoAllowBashIfSandboxed: sent.AutoAllowBashIfSandboxed,
+		AllowUnsandboxedCommands: sent.AllowUnsandboxedCommands,
+		AdditionalDirectories:    merge(sent.AdditionalDirectories, base.AdditionalDirectories, stored.AdditionalDirectories),
+		AllowedDomains:           merge(sent.AllowedDomains, base.AllowedDomains, stored.AllowedDomains),
+		AllowWrite:               merge(sent.AllowWrite, base.AllowWrite, stored.AllowWrite),
+		Allow:                    merge(sent.Allow, base.Allow, stored.Allow),
+		Deny:                     merge(sent.Deny, base.Deny, stored.Deny),
 	}
 }
 
@@ -140,6 +147,12 @@ func claudeSettingsDocument(c ClaudeSandbox, goos string) map[string]any {
 	document := map[string]any{}
 	if goos != "windows" {
 		sandbox := map[string]any{}
+		if c.AutoAllowBashIfSandboxed != nil {
+			sandbox["autoAllowBashIfSandboxed"] = *c.AutoAllowBashIfSandboxed
+		}
+		if c.AllowUnsandboxedCommands != nil {
+			sandbox["allowUnsandboxedCommands"] = *c.AllowUnsandboxedCommands
+		}
 		if c.Enabled != nil {
 			sandbox["enabled"] = *c.Enabled
 		}
@@ -154,6 +167,9 @@ func claudeSettingsDocument(c ClaudeSandbox, goos string) map[string]any {
 		}
 	}
 	permissions := map[string]any{}
+	if len(c.AdditionalDirectories) > 0 {
+		permissions["additionalDirectories"] = c.AdditionalDirectories
+	}
 	if len(c.Allow) > 0 {
 		permissions["allow"] = c.Allow
 	}
@@ -284,11 +300,20 @@ func (s Settings) ResolvedClaudeSandbox(projectID string) *ClaudeSandbox {
 		return global
 	}
 	out := ClaudeSandbox{
-		Enabled:        global.Enabled,
-		AllowedDomains: unionEntries(global.AllowedDomains, project.AllowedDomains),
-		AllowWrite:     unionEntries(global.AllowWrite, project.AllowWrite),
-		Allow:          unionEntries(global.Allow, project.Allow),
-		Deny:           unionEntries(global.Deny, project.Deny),
+		Enabled:                  global.Enabled,
+		AutoAllowBashIfSandboxed: global.AutoAllowBashIfSandboxed,
+		AllowUnsandboxedCommands: global.AllowUnsandboxedCommands,
+		AdditionalDirectories:    unionEntries(global.AdditionalDirectories, project.AdditionalDirectories),
+		AllowedDomains:           unionEntries(global.AllowedDomains, project.AllowedDomains),
+		AllowWrite:               unionEntries(global.AllowWrite, project.AllowWrite),
+		Allow:                    unionEntries(global.Allow, project.Allow),
+		Deny:                     unionEntries(global.Deny, project.Deny),
+	}
+	if project.AutoAllowBashIfSandboxed != nil {
+		out.AutoAllowBashIfSandboxed = project.AutoAllowBashIfSandboxed
+	}
+	if project.AllowUnsandboxedCommands != nil {
+		out.AllowUnsandboxedCommands = project.AllowUnsandboxedCommands
 	}
 	if project.Enabled != nil {
 		out.Enabled = project.Enabled

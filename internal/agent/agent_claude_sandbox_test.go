@@ -388,3 +388,23 @@ func TestDesktopSaveKeepsARuleAddedWhileTheDialogWasOpen(t *testing.T) {
 		t.Fatalf("the save lost a concurrent rule or kept a removed one: %+v", got)
 	}
 }
+
+func TestAlwaysAllowDirectorySuggestionsPersistProjectAccess(t *testing.T) {
+	testhome.Set(t, t.TempDir())
+	d := &agentDaemon{}
+	raw := json.RawMessage(`[{"type":"addDirectories","directories":["/shared"," /shared "],"destination":"localSettings"},{"type":"removeDirectories","directories":["/removed"]}]`)
+	directories := approvedDirectories(raw)
+	if err := d.addProjectDirectories("p", directories); err != nil {
+		t.Fatal(err)
+	}
+	settings, err := agentconfig.ReadSettings(d.localSettingsRoot())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := settings.Project("p").ClaudeSandbox.AdditionalDirectories; !reflect.DeepEqual(got, []string{"/shared"}) {
+		t.Fatalf("directories = %v", got)
+	}
+	if got := approvedDirectories(json.RawMessage(`{"type":"addDirectories"}`)); got != nil {
+		t.Fatalf("malformed update persisted: %v", got)
+	}
+}

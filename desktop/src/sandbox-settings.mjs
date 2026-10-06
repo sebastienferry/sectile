@@ -36,6 +36,9 @@ export function bothLists(allow,deny){
 export function sandboxPayload(values){
  return {
   enabled:values.state==='On'?true:values.state==='Off'?false:null,
+  ...(values.autoAllowBashIfSandboxed!==undefined?{autoAllowBashIfSandboxed:values.autoAllowBashIfSandboxed}:{}),
+  ...(values.allowUnsandboxedCommands!==undefined?{allowUnsandboxedCommands:values.allowUnsandboxedCommands}:{}),
+  ...(values.additionalDirectories!==undefined?{additionalDirectories:[...values.additionalDirectories]}:{}),
   allowedDomains:[...values.allowedDomains],allowWrite:[...values.allowWrite],
   allow:[...values.allow],deny:[...values.deny],
  }
@@ -45,14 +48,14 @@ export function sandboxPayload(values){
 // file: the agent writes none for values that state nothing this platform
 // applies, and Windows applies only the rules.
 export function launchesGetSettings(values,platformSandbox){
- if(values.allow.length||values.deny.length)return true
- return !!platformSandbox&&(values.state!=='Inherited'||values.allowedDomains.length>0||values.allowWrite.length>0)
+ if(values.allow.length||values.deny.length||values.additionalDirectories?.length)return true
+ return !!platformSandbox&&(values.autoAllowBashIfSandboxed!=null||values.allowUnsandboxedCommands!=null||values.state!=='Inherited'||values.allowedDomains.length>0||values.allowWrite.length>0)
 }
 
 // fromStored turns the agent's payload into the panel's values.
 export function fromStored(stored){
  const list=value=>Array.isArray(value)?[...value]:[]
- return {state:sandboxState(stored?.enabled),allowedDomains:list(stored?.allowedDomains),allowWrite:list(stored?.allowWrite),allow:list(stored?.allow),deny:list(stored?.deny)}
+ return {...(stored?.autoAllowBashIfSandboxed!=null?{autoAllowBashIfSandboxed:stored.autoAllowBashIfSandboxed}:{}),...(stored?.allowUnsandboxedCommands!=null?{allowUnsandboxedCommands:stored.allowUnsandboxedCommands}:{}),...(stored?.additionalDirectories?.length?{additionalDirectories:list(stored.additionalDirectories)}:{}),state:sandboxState(stored?.enabled),allowedDomains:list(stored?.allowedDomains),allowWrite:list(stored?.allowWrite),allow:list(stored?.allow),deny:list(stored?.deny)}
 }
 
 // resolvedValues is what a launch of a project applies (#730): each list the
@@ -63,6 +66,8 @@ export function resolvedValues(own,inherited){
  if(!inherited)return own
  const union=(first,second)=>[...new Set([...first,...second])]
  return {
+  ...Object.fromEntries(['autoAllowBashIfSandboxed','allowUnsandboxedCommands'].filter(key=>own[key]!=null||inherited[key]!=null).map(key=>[key,own[key]??inherited[key]])),
+  ...((own.additionalDirectories?.length||inherited.additionalDirectories?.length)?{additionalDirectories:union(inherited.additionalDirectories||[],own.additionalDirectories||[])}:{}),
   state:own.state==='Inherited'?inherited.state:own.state,
   allowedDomains:union(inherited.allowedDomains,own.allowedDomains),allowWrite:union(inherited.allowWrite,own.allowWrite),
   allow:union(inherited.allow,own.allow),deny:union(inherited.deny,own.deny),
@@ -192,6 +197,25 @@ export function sandboxSettings({settingRow,stored,platformSandbox,settingsPath,
   stateGroup.append(button);return button
  })
  const stateRow=settingRow('Claude Code sandbox',null,stateGroup)
+ // Policy fields stay inherited until the owner explicitly changes them.
+ const policyBox=document.createElement('div')
+ const autonomy=document.createElement('button');autonomy.type='button';autonomy.textContent='Autonomy in sandbox'
+ autonomy.onclick=()=>{values={...values,state:'On',autoAllowBashIfSandboxed:true,allowUnsandboxedCommands:false};render()}
+ const policyControls=['autoAllowBashIfSandboxed','allowUnsandboxedCommands'].map((key,index)=>{
+  const label=document.createElement('label');label.textContent=index===0?'Sandboxed commands':'Unsandboxed retries'
+  const select=document.createElement('select');select.setAttribute('aria-label',label.textContent)
+  for(const [value,text] of [['','Inherited'],['true',index===0?'Run automatically':'Allow'],['false',index===0?'Use permission rules':'Block']]){
+   const option=document.createElement('option');option.value=value;option.textContent=text;select.append(option)
+  }
+  select.onchange=()=>{values={...values,[key]:select.value===''?null:select.value==='true'};render()}
+  label.append(select);policyBox.append(label);return {key,select}
+ })
+ policyBox.prepend(autonomy)
+ const policyRow=settingRow('Execution policy',{stacked:true},policyBox)
+ policyRow.hint.textContent='Autonomy runs shell commands inside the sandbox and blocks unsandboxed retries. Configure toolchain caches and network domains below. File and MCP tools follow their own permissions. Save and start the next message to apply.'
+ const folders=listEditor('Approved folders','/path/to/shared-project',()=>{values={...values,additionalDirectories:folders.get()};render()})
+ const foldersRow=settingRow('Approved folders',{stacked:true},folders.box)
+ foldersRow.hint.textContent='Additional folders Claude may access. “Always allow” directory approvals are kept here for this project.'
  const domains=listEditor('Allowed network domains','registry.npmjs.org',changed)
  const domainsRow=settingRow('Allowed network domains',{stacked:true},domains.box)
  domainsRow.hint.textContent='Hosts a sandboxed command may reach.'
@@ -284,6 +308,8 @@ export function sandboxSettings({settingRow,stored,platformSandbox,settingsPath,
  const coverageRow=settingRow('Workstation values',{stacked:true},coverage)
 
  function render(){
+  autonomy.disabled=!platformSandbox
+  policyControls.forEach(({key,select})=>{select.value=values[key]==null?'':String(values[key]);select.disabled=!platformSandbox;select.title=parent?.[key]==null?'Claude Code settings decide':'Inherited value: '+parent[key]})
   stateButtons.forEach(button=>{button.setAttribute('aria-pressed',String(values.state===button.textContent));button.disabled=!platformSandbox})
   stateRow.hint.textContent=!platformSandbox?'Claude Code’s sandbox does not run on Windows: only the permission rules below apply.'
    :values.state!=='Inherited'?(workstation?'Set for every covered project':'Set for this project')
@@ -320,6 +346,7 @@ export function sandboxSettings({settingRow,stored,platformSandbox,settingsPath,
   values=fromStored(next);loaded=values
   inherited=nextInherited;parent=inherited?fromStored(inherited):null;isCovered=nextCovered
   const from=key=>parent?parent[key]:[]
+  folders.set(values.additionalDirectories||[],parent?.additionalDirectories||[])
   domains.set(values.allowedDomains,from('allowedDomains'));writes.set(values.allowWrite,from('allowWrite'))
   allow.set(values.allow,from('allow'));deny.set(values.deny,from('deny'))
   domains.disable(!platformSandbox);writes.disable(!platformSandbox)
@@ -327,7 +354,7 @@ export function sandboxSettings({settingRow,stored,platformSandbox,settingsPath,
  }
  set(stored)
  return {
-  sections:[...(workstation?[presetsRow.section]:[coverageRow.section]),stateRow.section,domainsRow.section,writesRow.section,allowRow.section,denyRow.section,previewRow.section],
+  sections:[...(workstation?[presetsRow.section]:[coverageRow.section]),stateRow.section,policyRow.section,foldersRow.section,domainsRow.section,writesRow.section,allowRow.section,denyRow.section,previewRow.section],
   payload:()=>sandboxPayload(values),
   base:()=>sandboxPayload(loaded),
   set,

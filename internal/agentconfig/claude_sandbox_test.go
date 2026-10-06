@@ -234,3 +234,38 @@ func TestMergeClaudeSandboxKeepsWhatTheStoreGained(t *testing.T) {
 		t.Fatalf("clearing every entry kept %+v", cleared)
 	}
 }
+
+func TestSandboxAutonomyPolicySurvivesSaveAndProjectResolution(t *testing.T) {
+	enabled, blocked := true, false
+	global := ClaudeSandbox{Enabled: &enabled, AutoAllowBashIfSandboxed: &enabled, AllowUnsandboxedCommands: &blocked, AdditionalDirectories: []string{" /shared ", "/shared"}, Deny: []string{"Bash(git push *)"}}
+	normalized, err := NormalizeClaudeSandbox(global)
+	if err != nil {
+		t.Fatal(err)
+	}
+	merged := MergeClaudeSandbox(normalized, ClaudeSandbox{}, ClaudeSandbox{AdditionalDirectories: []string{"/approved-meanwhile"}})
+	if !reflect.DeepEqual(merged.AdditionalDirectories, []string{"/shared", "/approved-meanwhile"}) {
+		t.Fatalf("folders = %v", merged.AdditionalDirectories)
+	}
+	settings := Settings{}
+	settings.Defaults.ClaudeSandbox = &merged
+	project := settings.Project("p")
+	project.ClaudeSandbox = &ClaudeSandbox{AutoAllowBashIfSandboxed: &blocked}
+	settings.SetProject("p", project)
+	resolved := settings.ResolvedClaudeSandbox("p")
+	document := claudeSettingsDocument(*resolved, "darwin")
+	sandbox := document["sandbox"].(map[string]any)
+	if sandbox["enabled"] != true || sandbox["autoAllowBashIfSandboxed"] != false || sandbox["allowUnsandboxedCommands"] != false {
+		t.Fatalf("policy = %v", sandbox)
+	}
+	permissions := document["permissions"].(map[string]any)
+	if !reflect.DeepEqual(permissions["additionalDirectories"], merged.AdditionalDirectories) || !reflect.DeepEqual(permissions["deny"], global.Deny) {
+		t.Fatalf("permissions = %v", permissions)
+	}
+	windows := claudeSettingsDocument(*resolved, "windows")
+	if windows["sandbox"] != nil || windows["permissions"] == nil {
+		t.Fatalf("Windows settings = %v", windows)
+	}
+	if (&ClaudeSandbox{AutoAllowBashIfSandboxed: &blocked}).IsZero() {
+		t.Fatal("an explicit false policy was discarded")
+	}
+}
