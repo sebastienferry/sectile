@@ -47,7 +47,7 @@ an older agent sends the summary line alone. The chat uses the same directory bu
 own Claude session and does not change the original execution's workflow state.
 The composer picks the model (the conversation's own, then the Claude models of
 Settings), the permission mode (**Ask before edits**, **Accept edits**, the
-default, or **Plan mode**, as Claude Code's mode switch) and the effort; each
+default, **Auto mode** or **Plan mode**, as Claude Code's mode switch) and the effort; each
 applies from the next message.
 Claude Code must already be installed and authenticated on this workstation.
 Edits and Sectile's own tools are accepted; a tool call your Claude Code rules

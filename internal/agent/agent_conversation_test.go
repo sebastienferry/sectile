@@ -800,6 +800,13 @@ printf '%s\n' '{"type":"result","is_error":false,"result":"ok","session_id":"111
 	if body := w.Body.String(); !strings.Contains(body, `"model":"opus"`) || !strings.Contains(body, `"mode":"plan"`) {
 		t.Fatalf("the conversation does not report its model and mode: %s", body)
 	}
+	if w := conversationRequest(d, "POST", "/desktop/conversation?id="+id, `{"message":"go on","mode":"auto"}`, "private"); w.Code != 202 {
+		t.Fatalf("auto mode was refused: %d %s", w.Code, w.Body.String())
+	}
+	waitConversationIdle(t, d, run)
+	if args, _ := os.ReadFile(filepath.Join(run.root, "args.txt")); !strings.Contains(string(args), "--permission-mode\nauto") {
+		t.Fatalf("auto mode did not reach Claude: %s", args)
+	}
 }
 
 func TestAQuestionIsAnsweredWithItsInputAndTheAnswers(t *testing.T) {

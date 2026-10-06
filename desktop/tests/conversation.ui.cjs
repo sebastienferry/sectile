@@ -101,6 +101,7 @@ test('Claude chat renders structured output safely and sends messages without a 
   await input.fill('');await expect(page.locator('.conversation-composer')).not.toHaveClass(/conversation-shell-mode/)
   await page.getByLabel('Effort',{exact:true}).selectOption('high')
   await expect(page.getByLabel('Permission mode',{exact:true})).toHaveValue('acceptEdits')
+  await expect(page.getByLabel('Permission mode',{exact:true}).locator('option[value="auto"]')).toHaveText('Auto mode')
   await page.getByLabel('Permission mode',{exact:true}).selectOption('plan')
   await expect(page.locator('.conversation-effort rect.lit')).toHaveCount(3)
   await input.fill('Review the project <script>window.hostile=true</script>')
