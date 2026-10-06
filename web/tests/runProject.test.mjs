@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { boardRunProject, runProjectCandidates } from '../src/lib/runProject.ts'
+import { boardRunProject, runProjectCandidates, runRefusal } from '../src/lib/runProject.ts'
 
 // The project a run works for (#741).
 
@@ -39,4 +39,20 @@ test('an unattended refusal is shown, never answered with the picker', () => {
   // The flag alone refuses, whatever the status; the status alone too.
   assert.equal(runProjectCandidates(409, { error: 'refused', candidates, unattended: true }), null)
   assert.equal(runProjectCandidates(400, { error: 'refused', candidates }), null)
+})
+
+test('a refused launch or retry asks once, and shows any other refusal', () => {
+  const ambiguous = { error: 'several projects', candidates: [{ id: 'a', name: 'Alpha' }, { id: 'b', name: 'Beta' }], unattended: false }
+  assert.deepEqual(runRefusal(409, ambiguous, false, 'Retry failed'), {
+    candidates: [{ id: 'a', name: 'Alpha' }, { id: 'b', name: 'Beta' }],
+  })
+  // A request that already named its project is not asked again.
+  assert.deepEqual(runRefusal(409, ambiguous, true, 'Retry failed'), { error: 'several projects' })
+  // An unattended refusal and a busy ticket show the server's reason.
+  assert.deepEqual(runRefusal(400, { ...ambiguous, error: 'refused', unattended: true }, false, 'Retry failed'), { error: 'refused' })
+  assert.deepEqual(runRefusal(409, { error: 'busy', active: { id: 'r1' } }, false, 'Retry failed'), { error: 'busy' })
+  // A refusal without a reason falls back to the caller's text.
+  assert.deepEqual(runRefusal(500, {}, false, 'Retry failed'), { error: 'Retry failed' })
+  assert.deepEqual(runRefusal(500, { error: '' }, false, 'Retry failed'), { error: 'Retry failed' })
+  assert.deepEqual(runRefusal(502, null, false, 'Retry failed'), { error: 'Retry failed' })
 })

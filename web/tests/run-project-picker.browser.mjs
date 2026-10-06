@@ -11,6 +11,9 @@
 // refusing an unattended launch, which lists the candidates but is shown as the
 // refusal it is (L10). The queued toast is said once, by the accepted launch.
 // From a project's board, the launch names that project and nobody is asked.
+// Retrying a run recorded without a project, on a ticket of two, gets the same
+// 409 and the same picker, and the retry is made again for the project picked;
+// closing the picker gives the retry up (L4).
 import { createServer } from 'vite';
 import { browserRoot } from './browserRoot.mjs';
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
@@ -58,6 +61,9 @@ const task = (id, key, title, projectIds) => ({
 });
 window.fake = {
   runs: [],
+  retries: [],
+  // A failed run recorded before #741, without the project it ran for.
+  activities: [{ id: 'old', taskId: 't1', taskKey: 'GODE-1', taskTitle: 'Shared story', skillId: 'clarify', skillName: 'clarify', action: 'run', status: 'failed', summary: '', output: '', steps: [], createdAt: stamp }],
   projects: [project('a', 'Alpha', 'alpha'), project('b', 'Beta', 'beta')],
   tasks: [
     task('t1', 'GODE-1', 'Shared story', ['a', 'b']),
@@ -102,6 +108,15 @@ window.fetch = async (input, init = {}) => {
       },
     });
   }
+  const retry = /^\\/api\\/activities\\/([^/]+)\\/retry$/.exec(url.pathname);
+  if (retry && method === 'POST') {
+    fake.retries.push({ id: decodeURIComponent(retry[1]), projectId: body?.projectId });
+    if (!body?.projectId) {
+      return json({ error: 'ce ticket appartient à plusieurs projets', candidates: [{ id: 'a', name: 'Alpha' }, { id: 'b', name: 'Beta' }], unattended: false }, 409);
+    }
+    return json({ ...fake.activities[0], id: 'retried', status: 'queued', runProjectId: body.projectId });
+  }
+  if (url.pathname === '/api/activities') return json(fake.activities);
   if (url.pathname === '/api/tasks/facets') return json({
     sprints: [],
     teams: [],
@@ -235,6 +250,40 @@ try {
   seen = await board.evaluate(() => window.fake.runs);
   assert.equal(seen[0].projectId, 'a', 'the launch names the project of the board');
   assert.equal(await board.locator('[data-run-project-picker]').count(), 0);
+  await alpha.close();
+
+  // ---------- A retry without a project asks, like a launch ----------
+  const history = await browser.newContext({ viewport: { width: 1400, height: 900 } });
+  await history.addInitScript(() => {
+    localStorage.setItem('sectile_selected_project_id', 'all');
+    localStorage.setItem('sectile_active_view', 'activities');
+  });
+  const activities = await history.newPage();
+  activities.setDefaultTimeout(15000);
+  activities.on('pageerror', e => errors.push(e.message));
+  await activities.goto(`${base}/board`);
+  const retryButton = activities.getByTitle('Relancer cette skill', { exact: true }).first();
+  await retryButton.waitFor();
+  const retries = () => activities.evaluate(() => window.fake.retries);
+  await retryButton.click();
+  const retryPicker = activities.locator('[data-run-project-picker]');
+  await retryPicker.waitFor();
+  await retryPicker.getByText('GODE-1 appartient à plusieurs projets').waitFor();
+  await retryPicker.getByRole('button', { name: 'Beta' }).click();
+  await retryPicker.waitFor({ state: 'detached' });
+  await activities.waitForFunction(() => window.fake.retries.length === 2);
+  const retried = await retries();
+  assert.equal(retried[0].projectId, undefined, 'the first retry names no project');
+  assert.deepEqual(retried[1], { id: 'old', projectId: 'b' }, 'the retry is made again for the project picked');
+
+  // Closing the picker gives the retry up.
+  await retryButton.click();
+  await retryPicker.waitFor();
+  await activities.keyboard.press('Escape');
+  await retryPicker.waitFor({ state: 'detached' });
+  await activities.waitForTimeout(300);
+  assert.equal((await retries()).length, 3, 'a closed picker retries nothing more');
+  await history.close();
 
   assert.deepEqual(errors, []);
   console.log('run-project-picker: OK');

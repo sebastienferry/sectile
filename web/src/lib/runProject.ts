@@ -34,6 +34,24 @@ export function runProjectCandidates(status: number, body: unknown): RunProjectC
 }
 
 /**
+ * What a refused launch or retry of a run leads to: the picker, with the
+ * candidates to choose from, or the refusal to show. A request that already
+ * named its project is never asked again; a refusal that says nothing is shown
+ * with the caller's fallback text.
+ */
+export function runRefusal(
+  status: number,
+  body: unknown,
+  namedProject: boolean,
+  fallback: string,
+): { candidates: RunProjectCandidate[] } | { error: string } {
+  const candidates = namedProject ? null : runProjectCandidates(status, body)
+  if (candidates) return { candidates }
+  const error = body && typeof body === 'object' ? (body as { error?: unknown }).error : undefined
+  return { error: typeof error === 'string' && error ? error : fallback }
+}
+
+/**
  * The project a run launched from the board works for: the selected project
  * when the ticket belongs to it. "All projects", a saved view, or a ticket the
  * selected project does not show leave the choice to the server.

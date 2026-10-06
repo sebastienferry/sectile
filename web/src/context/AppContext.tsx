@@ -53,7 +53,7 @@ import { translations, type TranslationSchema } from '../locales/translations'
 import { resolveAccentAttribute } from '../lib/accents'
 import type { StoredUserCredential, OrphanedCredentialReport, TrackerKind } from '../lib/trackers'
 import { NO_ORPHANED_CREDENTIALS, fetchTrackerSummaries, getTrackers, orphanedCredentialsFrom } from '../lib/trackers'
-import { boardRunProject, runProjectCandidates, type RunProjectCandidate } from '../lib/runProject'
+import { boardRunProject, runRefusal, type RunProjectCandidate } from '../lib/runProject'
 import {
   NO_JIRA_OAUTH,
   jiraOAuthFrom,
@@ -3898,13 +3898,13 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         // person picks the project and the launch is made again for it. A busy
         // ticket is a 409 too, and carries no candidates; an unattended launch
         // is refused outright, and shown like any other refusal.
-        const candidates = opts?.projectId ? null : runProjectCandidates(res.status, errorData)
-        if (candidates) {
-          const chosen = await askRunProject(launched?.key || taskId, candidates)
+        const refusal = runRefusal(res.status, errorData, Boolean(opts?.projectId), t.operations.notifications.skillFailedFallback)
+        if ('candidates' in refusal) {
+          const chosen = await askRunProject(launched?.key || taskId, refusal.candidates)
           if (!chosen) return null
           return await runSkill(taskId, skillId, prompt, { ...opts, projectId: chosen })
         }
-        throw new Error(errorData.error || t.operations.notifications.skillFailedFallback)
+        throw new Error(refusal.error)
       }
 
       // Said once, when the server took the launch: a launch that asks which
@@ -3940,10 +3940,25 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   }
 
-  const retryActivity = async (id: string) => {
+  const retryActivity = async (id: string, projectId?: string): Promise<void> => {
     try {
-      const res = await fetch(`${API_BASE}/activities/${id}/retry`, { method: 'POST' })
-      if (!res.ok) throw new Error(t.operations.notifications.retryFailed)
+      // A run recorded without its project, on a ticket of several, is
+      // refused like a launch is (#741): the person picks the project and the
+      // retry is made again for it.
+      const res = await fetch(`${API_BASE}/activities/${id}/retry`, projectId
+        ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ projectId }) }
+        : { method: 'POST' })
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}))
+        const refusal = runRefusal(res.status, errorData, Boolean(projectId), t.operations.notifications.retryFailed)
+        if ('candidates' in refusal) {
+          const retried = activities.find(act => act.id === id)
+          const chosen = await askRunProject(retried?.taskKey || retried?.taskId || id, refusal.candidates)
+          if (!chosen) return
+          return await retryActivity(id, chosen)
+        }
+        throw new Error(refusal.error)
+      }
       addToast({
         type: 'info',
         title: t.toasts.activityRetried,
