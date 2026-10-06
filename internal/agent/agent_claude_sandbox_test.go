@@ -244,8 +244,8 @@ func TestAHeadlessRunNamesWhatClaudeRefused(t *testing.T) {
 	}
 	got := record(`{"type":"result","is_error":false,"result":"Done.","permission_denials":[{"tool_name":"Bash","tool_use_id":"t1","tool_input":{"command":"git push origin main"}},{"tool_name":"WebFetch","tool_use_id":"t2","tool_input":{"url":"https://blocked.example/x"}}]}`)
 	want := "Done.\n" +
-		"Refusé par Claude Code : Bash(git push origin main) · autorisez-le dans les réglages Sandbox du projet\n" +
-		"Refusé par Claude Code : WebFetch(https://blocked.example/x) · autorisez-le dans les réglages Sandbox du projet\n"
+		"Refusé par Claude Code : Bash(git push origin main) · autorisez-le dans les réglages Claude du projet\n" +
+		"Refusé par Claude Code : WebFetch(https://blocked.example/x) · autorisez-le dans les réglages Claude du projet\n"
 	if got != want {
 		t.Fatalf("activity = %q", got)
 	}

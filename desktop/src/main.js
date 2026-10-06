@@ -1708,7 +1708,7 @@ const SETTINGS_CATEGORIES=[
  {id:'Connection',label:'Agent connection',icon:'<path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="3"/><circle cx="15" cy="17" r="3"/>'},
  {id:'AgentCli',label:'Execution defaults',icon:'<rect x="3" y="4" width="18" height="16" rx="2"/><path d="m7 9 3 3-3 3M12 15h5"/>'},
  {id:'Engines',label:'AI engines',icon:'<rect x="4" y="8" width="16" height="11" rx="3"/><path d="M12 4v4M9 13h.01M15 13h.01"/>'},
- {id:'Sandbox',label:'Sandbox',icon:'<path d="M12 3 5 6v5c0 4.4 3 8.3 7 9.5 4-1.2 7-5.1 7-9.5V6Z"/><path d="m9 12 2 2 4-4"/>'},
+ {id:'Sandbox',label:'Claude settings',icon:'<path d="M12 3 5 6v5c0 4.4 3 8.3 7 9.5 4-1.2 7-5.1 7-9.5V6Z"/><path d="m9 12 2 2 4-4"/>'},
  {id:'Deployment',label:'Deployment',icon:'<path d="M12 20V7m0 0 4 4m-4-4-4 4"/><path d="M5 4h14"/>'},
  {id:'Logs',label:'Agent logs',icon:'<path d="M14 3H7a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V7Z"/><path d="M14 3v4h4"/><path d="M9 13h6M9 17h6"/>'},
  {id:'Changelog',label:'Changelog',icon:'<circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 8h.01"/>'}
@@ -1717,7 +1717,7 @@ const PROJECT_SETTINGS_CATEGORIES=[
  {id:'Remove',label:'General',saves:true,icon:'<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7h.01"/>'},
  {id:'General',label:'Folders',saves:true,icon:'<path d="M4 7a2 2 0 0 1 2-2h3l2 2.5h7a2 2 0 0 1 2 2V18a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2Z"/>'},
  {id:'Execution',label:'Execution',saves:true,icon:'<path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="2.4"/><circle cx="15" cy="17" r="2.4"/>'},
- {id:'Sandbox',label:'Sandbox',saves:true,icon:'<path d="M12 3 5 6v5c0 4.4 3 8.3 7 9.5 4-1.2 7-5.1 7-9.5V6Z"/><path d="m9 12 2 2 4-4"/>'}
+ {id:'Sandbox',label:'Claude settings',saves:true,icon:'<path d="M12 3 5 6v5c0 4.4 3 8.3 7 9.5 4-1.2 7-5.1 7-9.5V6Z"/><path d="m9 12 2 2 4-4"/>'}
 ]
 function configurationNavigation(tabs,projectId){
  if(projectId)expandedConfigurationProject=projectId
@@ -1765,12 +1765,12 @@ function workstationSandboxPanel(panel){
  const unavailable=document.createElement('p');unavailable.className='execution-unavailable';unavailable.setAttribute('role','status');unavailable.hidden=true
  const body=document.createElement('div');body.className='workstation-sandbox';body.hidden=true
  const notice=document.createElement('p');notice.setAttribute('role','status');notice.className='workstation-notice'
- const save=document.createElement('button');save.type='button';save.className='dialog-action primary';save.textContent='Save Sandbox settings'
+ const save=document.createElement('button');save.type='button';save.className='dialog-action primary';save.textContent='Save Claude settings'
  const actions=document.createElement('div');actions.className='deployment-actions';actions.style.marginTop='16px'
  actions.append(save,notice)
  panel.append(unavailable,body)
  let sandbox=null,whitelist=null
- const STOPPED_NOTICE='Sandbox settings are unavailable while the local agent is stopped. Start the agent to edit them.'
+ const STOPPED_NOTICE='Claude settings are unavailable while the local agent is stopped. Start the agent to edit them.'
  function showUnavailable(text){unavailable.textContent=text;unavailable.hidden=false;body.hidden=true}
  function fill(view){
   // A disconnected project that keeps its local settings is still covered, so
@@ -1789,7 +1789,7 @@ function workstationSandboxPanel(panel){
   try{
    const fresh=await api.saveWorkstationSandbox({claudeSandbox:sandbox.payload(),claudeSandboxBase:sandbox.base(),projects:whitelist.get()})
    sandbox.set(fresh.claudeSandbox);whitelist.set(fresh.projects||[])
-   notice.textContent='Sandbox settings saved'
+   notice.textContent='Claude settings saved'
   }catch(err){
    if(agentUnreachable(err))showUnavailable(STOPPED_NOTICE)
    else{notice.textContent='Not saved: '+ipcMessage(err);notice.dataset.tone='error'}
@@ -1803,7 +1803,7 @@ function workstationSandboxPanel(panel){
   catch(err){
    if(!body.isConnected)return
    const text=ipcMessage(err)
-   showUnavailable(agentUnreachable(err)?STOPPED_NOTICE:/404|not found/i.test(text)?'Update and restart the local agent to edit the workstation Sandbox settings here.':'Unable to read the Sandbox settings: '+text)
+   showUnavailable(agentUnreachable(err)?STOPPED_NOTICE:/404|not found/i.test(text)?'Update and restart the local agent to edit the workstation Claude settings here.':'Unable to read the Claude settings: '+text)
    return
   }
   if(body.isConnected)fill(view)

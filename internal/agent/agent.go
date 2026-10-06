@@ -371,10 +371,10 @@ func Run(args []string) {
 			log.Printf("[Agent] Settings for retired AI providers (Gemini, Cursor, Vibe) removed: %s", report.RetiredDrop)
 		}
 		if report.SandboxFolded {
-			log.Printf("[Agent] Project Sandbox values moved to the workstation Sandbox settings, applied to every project")
+			log.Printf("[Agent] Project Claude settings moved to the workstation Claude settings, applied to every project")
 		}
 		for _, warning := range report.SandboxWarnings {
-			log.Printf("[Agent] Sandbox entry left on its project, not valid: %s", warning)
+			log.Printf("[Agent] Claude settings entry left on its project, not valid: %s", warning)
 		}
 	}
 	// Start local agent HTTP reverse proxy gateway

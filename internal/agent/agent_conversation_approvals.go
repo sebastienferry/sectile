@@ -241,18 +241,18 @@ func (d *agentDaemon) decideApprovalLocked(run *controlledRun, id, decision stri
 func (d *agentDaemon) keepAllowRulesLocked(run *controlledRun, rules, unread []string) {
 	for _, update := range unread {
 		log.Printf("[Agent] \"Always allow\" update kept for this turn only, not understood: %s", update)
-		conversationWrite(run.trace, "notice", "Allowed for this turn only", "Sectile could not read this rule to keep it in the project's Sandbox settings: "+update)
+		conversationWrite(run.trace, "notice", "Allowed for this turn only", "Sectile could not read this rule to keep it in the project's Claude settings: "+update)
 	}
 	if len(rules) == 0 {
 		return
 	}
 	added, err := d.addProjectAllowRules(run.desktop.ProjectID, rules)
 	if err != nil {
-		conversationWrite(run.trace, "error", "The rule could not be kept in the project's Sandbox settings: "+err.Error(), "")
+		conversationWrite(run.trace, "error", "The rule could not be kept in the project's Claude settings: "+err.Error(), "")
 		return
 	}
 	for _, rule := range added {
-		conversationWrite(run.trace, "notice", "Rule added to the project's Sandbox settings", rule)
+		conversationWrite(run.trace, "notice", "Rule added to the project's Claude settings", rule)
 	}
 }
 
