@@ -3222,7 +3222,7 @@ async function submitNativeDiscussion(view,entry){
   await api.launchNativeDiscussion(view.projectID,entry.task.id)
   view.status.textContent='Native terminal launched for '+key
   await refresh()
- }catch(err){view.status.textContent='Could not launch native terminal for '+key+': '+err.message;throw err}
+ }catch(err){view.status.textContent='Could not launch native terminal for '+key+': '+launchErrorText(err);throw err}
  finally{view.submitting.delete(entry.task.id);if(view.rows.get(entry.task.id)===entry)updateTicketRow(view,entry)}
 }
 
