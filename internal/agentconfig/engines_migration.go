@@ -205,9 +205,9 @@ func (s Settings) hasDefaultEngine() bool {
 
 // MigrateSettings persists the conversion of the #305 engine settings, the
 // drop of the retired providers and the Sandbox fold (#730), once, at agent
-// start. The previous file is
-// copied beside it first. A file that does not exist yet, or needs neither, is
-// left alone.
+// start. The previous file is copied beside it first. A file that does not
+// exist yet, needs none of them, or was written by a newer agent is left
+// alone.
 func MigrateSettings(legacyRoot string) (bool, error) {
 	migrated, _, err := MigrateSettingsReport(legacyRoot)
 	return migrated, err
@@ -230,25 +230,45 @@ func MigrateSettingsReport(legacyRoot string) (bool, SettingsMigration, error) {
 	if err != nil {
 		return false, SettingsMigration{}, err
 	}
-	var before struct {
-		Layout int `json:"layout"`
-	}
+	var before fileLayout
 	if err = json.Unmarshal(raw, &before); err != nil {
 		return false, SettingsMigration{}, err
 	}
+	if newest := before.highest(); newest > SettingsLayout {
+		return false, SettingsMigration{NewerLayout: newest}, nil
+	}
 	settings, changed, report, err := readConverted(legacyRoot)
-	if err != nil || (!changed && before.Layout >= SettingsLayout) {
+	if err != nil {
 		return false, SettingsMigration{}, err
 	}
-	backup := fmt.Sprintf("%s.bak-layout%d", path, before.Layout)
-	if _, err := os.Stat(backup); err == nil {
-		backup += "-" + time.Now().UTC().Format("20060102T150405Z")
+	// The fold moves the project values once, from a file no agent of the
+	// workstation level ever wrote: on a file an older agent rewrote, the
+	// project values were added per project on purpose (#744).
+	if before.highest() < layoutSandboxWorkstation {
+		report.SandboxFolded, report.SandboxWarnings = foldProjectSandboxes(&settings)
 	}
-	if err = os.WriteFile(backup, raw, 0600); err != nil {
+	if before.downgraded() {
+		report.Downgraded = before.MaxLayout
+	}
+	if !changed && !report.SandboxFolded && before.Layout >= SettingsLayout {
+		return false, SettingsMigration{}, nil
+	}
+	if _, err = backupSettingsFile(path, raw, before.Layout); err != nil {
 		return false, SettingsMigration{}, err
 	}
-	if err = WriteSettings(settings); err != nil {
+	if err = storeSettings(settings, false); err != nil {
 		return false, SettingsMigration{}, err
 	}
 	return true, report, nil
+}
+
+// backupSettingsFile copies the settings file as it was read beside it, as
+// settings.json.bak-layout<N>, or with a timestamp suffix when an earlier copy
+// holds that name, and returns the copy's path.
+func backupSettingsFile(path string, raw []byte, layout int) (string, error) {
+	backup := fmt.Sprintf("%s.bak-layout%d", path, layout)
+	if _, err := os.Stat(backup); err == nil {
+		backup += "-" + time.Now().UTC().Format("20060102T150405Z")
+	}
+	return backup, os.WriteFile(backup, raw, 0600)
 }

@@ -319,7 +319,8 @@ const layoutSandboxWorkstation = 4
 // foldProjectSandboxes moves the Sandbox values the projects hold into the
 // workstation values, once (#730): only a file written before the workstation
 // level has them to move, and the next save stamps the current layout, so a
-// value a project gains later stays with it. The four lists of every project,
+// value a project gains later stays with it. Only the start-up migration calls
+// it, never an ordinary read (#744). The four lists of every project,
 // in project ID order (the order of the settings file), join the workstation
 // lists and leave the projects; a sandbox state goes up only when every
 // project stating one states the same. The whitelist is left empty, so every
