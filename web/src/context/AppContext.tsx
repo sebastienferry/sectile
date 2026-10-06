@@ -441,6 +441,10 @@ interface AppContextType {
   pendingHorizonPushes: (projectId: string) => Promise<MacroMeta[]>
   /** Met la poussée des labels d'horizon en file d'activités. Retourne true si la file a accepté. */
   pushPendingHorizons: (projectId: string) => Promise<boolean>
+  /** Lists the Jira epics whose framing comment copy is missing or late (#691). */
+  pendingFramingCopies: (projectId: string) => Promise<MacroMeta[]>
+  /** Queues the republication of every pending framing copy. Returns true when the queue accepted it or nothing was pending. */
+  publishPendingFramings: (projectId: string) => Promise<boolean>
   /** Reads the tracker's `roadmap:` labels back and derives the local horizon. */
   importMacroHorizons: (projectId: string) => Promise<boolean>
   /**
@@ -3688,6 +3692,42 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   }
 
+  const pendingFramingCopies = async (projectId: string): Promise<MacroMeta[]> => {
+    try {
+      const res = await fetch(`${API_BASE}/projects/${encodeURIComponent(projectId)}/macros/framing-mirror`)
+      if (!res.ok) return []
+      return (await res.json()) || []
+    } catch {
+      return []
+    }
+  }
+
+  const publishPendingFramings = async (projectId: string): Promise<boolean> => {
+    const copy = t.operations.notifications.macros
+    try {
+      const res = await fetch(`${API_BASE}/projects/${encodeURIComponent(projectId)}/macros/framing-mirror`, { method: 'POST' })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw trackerError(res, data, copy.framingsPublishRefused)
+      const queued = Number(data.queued) || 0
+      const skipped = Number(data.skipped) || 0
+      const skippedText = skipped > 0 ? plural(locale, skipped, copy.framingsPublishSkipped) : ''
+      if (queued === 0) {
+        addToast({ type: 'info', title: copy.framingsPublishNothing, description: skippedText || undefined })
+        return true
+      }
+      addToast({
+        type: 'success',
+        title: plural(locale, queued, copy.framingsPublishQueued),
+        description: [skippedText, t.operations.notifications.trackedInActivities].filter(Boolean).join(' '),
+      })
+      fetchActivities()
+      return true
+    } catch (err: any) {
+      addToast(refusalToast(err, { type: 'error', title: copy.framingsPublishFailed, description: err.message }))
+      return false
+    }
+  }
+
   /**
    * Reads back the `roadmap:` labels carried by the tracker's epics.
    *
@@ -4442,6 +4482,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         createStoryFromEpicTodo,
         pendingHorizonPushes,
         pushPendingHorizons,
+        pendingFramingCopies,
+        publishPendingFramings,
         importMacroHorizons,
         setTaskMacro,
         setTaskEpic,

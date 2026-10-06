@@ -76,7 +76,9 @@ copy's.
 - A hand edit on the tracker survives until the next change of the list or a
   republish, which writes whatever the hash says.
 - Existing macros with todos read as not yet published until their list is
-  saved again or published from the panel.
+  saved again or published from the panel. The framings of a Jira project's
+  epics can also be published all at once from the roadmap, in one activity
+  signed by the person who asks (#691).
 - Rejected: a two-way sync parsing the comment back (it would make the tracker
   a second source of truth), an HTML comment marker on Jira (ADF drops it), a
   GitLab carrier issue or group epic (nothing ties it to a label macro), a

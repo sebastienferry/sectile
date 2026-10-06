@@ -47,7 +47,7 @@ TrackerOp{Kind: TrackerOpEpicFramingBulk, ProjectID: id, EpicKeys: []string{"PE-
   and was never copied (`hash == "" && ref == ""`). Keys sorted as the query
   returns them (`ORDER BY key`).
 - `PendingFramingCopies(projectID)` exposes the framing variant.
-- `PushPendingFramingCopies(ctx, projectID, keys, steps)`: writes each key in
+- `PushFramingCopies(ctx, projectID, keys, steps)`: writes each key in
   turn through `pushMacroCopy(ctx, framingCopy, projectID, key, false)`,
   returning the written count, the failures and the refusal tracking that
   `refusalOrFailures` needs. `pushMacroCopy` already stores each failure on
@@ -79,7 +79,7 @@ TrackerOp{Kind: TrackerOpEpicFramingBulk, ProjectID: id, EpicKeys: []string{"PE-
 
 - `web/src/context/AppContext.tsx`: `pendingFramingCopies(projectId)` and
   `publishPendingFramings(projectId)`, shaped like `pendingHorizonPushes` and
-  `pushPendingHorizons` (macros route first, epics fallback, toast, refresh
+  `pushPendingHorizons` (on the macros spelling of the route, toast, refresh
   of the activities).
 - `web/src/components/RoadmapView.tsx`: a `pendingFramings` count read on the
   same triggers as `pendingPushes` (project, `activeJobCount`), through a ref;
