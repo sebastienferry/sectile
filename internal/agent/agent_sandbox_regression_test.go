@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -60,7 +61,7 @@ func foldedSettings(t *testing.T, root string) {
 		t.Fatal(err)
 	}
 	raw := `{"layout":3,"projectSettings":{` +
-		`"p":{"path":` + strconvQuote(root) + `,"claudeSandbox":{"allow":["Read","Bash(go test:*)"]}},` +
+		`"p":{"path":` + strconv.Quote(root) + `,"claudeSandbox":{"allow":["Read","Bash(go test:*)"]}},` +
 		`"q":{"path":"/q","claudeSandbox":{"allow":["Grep"],"deny":["Bash(rm:*)"]}}}}`
 	if err := os.WriteFile(path, []byte(raw), 0600); err != nil {
 		t.Fatal(err)
@@ -69,8 +70,6 @@ func foldedSettings(t *testing.T, root string) {
 		t.Fatalf("fold: %v %+v %v", migrated, report, err)
 	}
 }
-
-func strconvQuote(s string) string { raw, _ := json.Marshal(s); return string(raw) }
 
 // The rules the #730 upgrade folded into the workstation survive every save
 // Desktop makes, with the payload each dialog sends (#744).
