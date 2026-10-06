@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"tasks/internal/models"
+	"tasks/internal/tracker"
 )
 
 // schemeTracker is a Jira fake that also lists a priority scheme, the way
@@ -309,5 +310,29 @@ func TestUpdateTaskWithoutMappingWritesAsBefore(t *testing.T) {
 	high := models.PriorityHigh
 	if _, err := database.UpdateTaskBy(Actor{}, task.ID, models.UpdateTaskRequest{Priority: &high}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// noticeTracker answers a creation the way the Jira adapter does when the
+// project's mapping only guessed the level (#679).
+type noticeTracker struct {
+	*schemeTracker
+}
+
+func (c *noticeTracker) CreateIssue(ctx context.Context, req tracker.CreateIssueRequest) (*models.Task, error) {
+	return &models.Task{Key: "PE-9", Priority: req.Priority, PriorityNotice: "The ticket was created without a priority."}, nil
+}
+
+// US4.1: the adapter's notice reaches whoever created the ticket.
+func TestCreateTaskCarriesThePriorityNotice(t *testing.T) {
+	database, fake, project := priorityMappingDB(t, numberedScheme)
+	fake.Capabilities = append(fake.Capabilities, tracker.CapCreate)
+	database.TrackerRegistry().Register("jira", &noticeTracker{fake})
+	task, err := database.CreateTaskAs(context.Background(), models.CreateTaskRequest{ProjectID: project.ID, Title: "New", Priority: models.PriorityHigh})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task.Key != "PE-9" || task.PriorityNotice != "The ticket was created without a priority." {
+		t.Fatalf("created task = %+v", task)
 	}
 }
