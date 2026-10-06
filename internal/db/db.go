@@ -2415,7 +2415,9 @@ func (d *DB) getNextTaskKey(q interface {
 
 	rows, err := q.Query(query, args...)
 	if err != nil {
-		return fmt.Sprintf("%s-1", prefix), nil
+		// A guessed "<prefix>-1" would collide with the ticket already holding
+		// it: the caller fails instead.
+		return "", fmt.Errorf("reading the keys of prefix %s: %w", prefix, err)
 	}
 	defer rows.Close()
 
@@ -2796,7 +2798,11 @@ func (d *DB) CreateTaskAs(ctx context.Context, req models.CreateTaskRequest) (*m
 					return err
 				}
 			}
-			key, _ = d.getNextTaskKey(tx, trackerID, projID, prefix)
+			next, err := d.getNextTaskKey(tx, trackerID, projID, prefix)
+			if err != nil {
+				return err
+			}
+			key = next
 			if req.Source == "jira" && jiraUrl != "" && extURL == nil && (req.ExternalURL == nil || *req.ExternalURL == "") {
 				url := fmt.Sprintf("%s/browse/%s", strings.TrimSuffix(jiraUrl, "/"), key)
 				extURL = &url

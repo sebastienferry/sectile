@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"reflect"
 	"testing"
 	"time"
 
@@ -294,6 +295,143 @@ func TestATrackerRenamedInPlaceReadsItsNewSourceWhole(t *testing.T) {
 	}
 	if lastFull.Valid {
 		t.Fatalf("the renamed tracker kept its last full read %v", lastFull.Time)
+	}
+}
+
+// A project's own tracker holding tickets keeps its source when the project's
+// fields name another one: the project moves to a new tracker, and the old one
+// keeps its tickets rather than carrying them to the other source.
+func TestAProjectWhoseTrackerHoldsTicketsMovesToANewTrackerInsteadOfRenamingIt(t *testing.T) {
+	d := testDB(t)
+	p, err := d.CreateProject(models.CreateProjectRequest{Name: "Delivery", IssueTracker: "jira", JiraProject: "PE"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	pe := defaultTrackerID(t, d, p.ID)
+	before, _ := d.GetTrackerByID(pe)
+	if err := d.ImportOrUpdateTasks(pe, []models.Task{{Key: "PE-1", Title: "Imported", Source: "jira", Status: models.StatusToClarify, Labels: []string{}}}); err != nil {
+		t.Fatal(err)
+	}
+	other := "OTHER"
+	moved, err := d.UpdateProject(p.ID, models.UpdateProjectRequest{JiraProject: &other})
+	if err != nil {
+		t.Fatalf("an admin's project save failed: %v", err)
+	}
+	old, _ := d.GetTrackerByID(pe)
+	if old == nil || old.Scope != "PE" || old.Identity != before.Identity {
+		t.Fatalf("the tracker holding PE-1 must keep its source: %+v", old)
+	}
+	ticket, err := d.GetTaskByID("jira-" + pe + "-PE-1")
+	if err != nil || ticket == nil || ticket.TrackerID != pe || ticket.Key != "PE-1" {
+		t.Fatalf("PE-1 stays on its tracker: %+v %v", ticket, err)
+	}
+	if moved.DefaultTrackerID == pe || len(moved.Trackers) != 1 || moved.Trackers[0].TrackerID != moved.DefaultTrackerID {
+		t.Fatalf("the project must select one new tracker: default %q, trackers %+v", moved.DefaultTrackerID, moved.Trackers)
+	}
+	fresh, _ := d.GetTrackerByID(moved.DefaultTrackerID)
+	if fresh == nil || fresh.Provider != "jira" || fresh.Scope != "OTHER" {
+		t.Fatalf("the project's new tracker = %+v, want the OTHER space", fresh)
+	}
+	if err := d.DeleteTrackerAs("admin", pe); !errors.Is(err, ErrTrackerInUse) {
+		t.Fatalf("the old tracker still holds its ticket and cannot be deleted: %v", err)
+	}
+}
+
+// Deleting a project moves its local tickets onto the default project's local
+// board; one whose key the board already holds takes the board's next key
+// rather than failing the deletion.
+func TestDeletingAProjectRekeysTheLocalTicketsTheDefaultBoardAlreadyHolds(t *testing.T) {
+	checkDeletingAProjectRekeysTheLocalTicketsTheDefaultBoardAlreadyHolds(t, testDB(t))
+}
+
+func checkDeletingAProjectRekeysTheLocalTicketsTheDefaultBoardAlreadyHolds(t *testing.T, d *DB) {
+	t.Helper()
+	// Both slugs start with "backen": the two boards number BACKEN-<n>.
+	tools, err := d.CreateProject(models.CreateProjectRequest{Name: "Backend Tools", IsDefault: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	notes, err := d.CreateProject(models.CreateProjectRequest{Name: "Backend Notes"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	kept, err := d.CreateTask(models.CreateTaskRequest{ProjectID: tools.ID, Title: "Tools one"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ids []string
+	for i, title := range []string{"Notes one", "Notes two"} {
+		task, err := d.CreateTask(models.CreateTaskRequest{ProjectID: notes.ID, Title: title})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := d.conn.Exec("UPDATE tasks SET created_at = ? WHERE id = ?", time.Now().Add(time.Duration(i-10)*time.Minute).UTC(), task.ID); err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, task.ID)
+	}
+	if got := keysOfTasks(t, d, kept.ID, ids[0], ids[1]); got[kept.ID] != "BACKEN-1" || got[ids[0]] != "BACKEN-1" || got[ids[1]] != "BACKEN-2" {
+		t.Fatalf("keys before the deletion = %v", got)
+	}
+	board := defaultTrackerID(t, d, tools.ID)
+
+	if err := d.DeleteProject(notes.ID); err != nil {
+		t.Fatalf("deleting a project whose local keys the default board holds: %v", err)
+	}
+	if got, want := keysOfTasks(t, d, kept.ID, ids[0], ids[1]), map[string]string{kept.ID: "BACKEN-1", ids[0]: "BACKEN-2", ids[1]: "BACKEN-3"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("keys = %v, want %v", got, want)
+	}
+	for _, id := range ids {
+		moved, err := d.GetTaskByID(id)
+		if err != nil || moved == nil || moved.TrackerID != board || moved.ProjectID != tools.ID {
+			t.Fatalf("the local ticket moves to the default project's board %s: %+v %v", board, moved, err)
+		}
+	}
+}
+
+// A default project with no local board gets one for the local tickets of a
+// deleted project, rather than lending them its remote tracker, which would be
+// written back keys it does not hold.
+func TestDeletingAProjectGivesADefaultProjectOnATrackerALocalBoard(t *testing.T) {
+	checkDeletingAProjectGivesADefaultProjectOnATrackerALocalBoard(t, testDB(t))
+}
+
+func checkDeletingAProjectGivesADefaultProjectOnATrackerALocalBoard(t *testing.T, d *DB) {
+	t.Helper()
+	delivery, err := d.CreateProject(models.CreateProjectRequest{Name: "Delivery", IssueTracker: "jira", JiraProject: "GODE", IsDefault: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	gode := defaultTrackerID(t, d, delivery.ID)
+	notes, err := d.CreateProject(models.CreateProjectRequest{Name: "Notes"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	note, err := d.CreateTask(models.CreateTaskRequest{ProjectID: notes.ID, Title: "A local note"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := d.DeleteProject(notes.ID); err != nil {
+		t.Fatal(err)
+	}
+	moved, err := d.GetTaskByID(note.ID)
+	if err != nil || moved == nil {
+		t.Fatalf("the local ticket is gone: %v", err)
+	}
+	board, _ := d.GetTrackerByID(moved.TrackerID)
+	if board == nil || board.Provider != "local" || board.Scope != delivery.ID || moved.Key != note.Key {
+		t.Fatalf("the local ticket must land on the default project's local board, its key kept: ticket %+v, tracker %+v", moved, board)
+	}
+	links, _ := d.ProjectTrackers(delivery.ID)
+	if len(links) != 2 || links[0].ID != gode || links[1].ID != board.ID {
+		t.Fatalf("the default project selects its tracker then its new local board: %+v", links)
+	}
+	if p, _ := d.GetProjectByID(delivery.ID); p == nil || p.DefaultTrackerID != gode {
+		t.Fatalf("the default project's new tickets still go to its tracker: %+v", p)
+	}
+	if moved.ProjectID != delivery.ID {
+		t.Fatalf("the default project shows the moved ticket: %+v", moved)
 	}
 }
 

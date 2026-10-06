@@ -5,6 +5,7 @@ import (
 	"log"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -213,6 +214,42 @@ func TestAdoptionMergesDuplicateTicketsKeepingTheMostAdvancedStage(t *testing.T)
 	_ = d.conn.QueryRow("SELECT COUNT(*) FROM tasks WHERE key = 'PE-2'").Scan(&untouched)
 	if untouched != 1 {
 		t.Fatalf("a ticket held once must stay: %d rows", untouched)
+	}
+}
+
+// The branch, the repository path and the repository name come from one copy:
+// a merged record never pairs a branch of one checkout with the repository of
+// another.
+func TestAdoptionTakesTheWorkspaceOfAMergedTicketFromOneCopy(t *testing.T) {
+	d := testDB(t)
+	first, second := twoProjectsOnPE(t, d)
+	third := legacyProject(t, d, time.Now().Add(-time.Hour).Add(2*time.Minute).UTC(), models.CreateProjectRequest{
+		Name:         "Tracking",
+		IssueTracker: "jira",
+		JiraProject:  "PE",
+		TrackerUrl:   "https://acme.atlassian.net",
+	})
+	forgetTrackers(t, d)
+	now := time.Now().UTC()
+	legacyTask(t, d, "jira-a-PE-1", first.ID, "PE-1", "implemented", now, `[]`, `[]`)
+	legacyTask(t, d, "jira-b-PE-1", second.ID, "PE-1", "specified", now, `[]`, `[]`)
+	legacyTask(t, d, "jira-c-PE-1", third.ID, "PE-1", "new", now, `[]`, `[]`)
+	for _, statement := range []string{
+		`UPDATE tasks SET branch_name = 'feat/PE-1', repo_path = '/work/bidder' WHERE id = 'jira-b-PE-1'`,
+		`UPDATE tasks SET repository = 'tracking' WHERE id = 'jira-c-PE-1'`,
+	} {
+		if _, err := d.conn.Exec(statement); err != nil {
+			t.Fatalf("%s: %v", statement, err)
+		}
+	}
+	adopt(t, d)
+
+	var branch, repoPath, repository string
+	if err := d.conn.QueryRow("SELECT COALESCE(branch_name, ''), repo_path, repository FROM tasks WHERE id = 'jira-a-PE-1'").Scan(&branch, &repoPath, &repository); err != nil {
+		t.Fatal(err)
+	}
+	if branch != "feat/PE-1" || repoPath != "/work/bidder" || repository != "" {
+		t.Fatalf("survivor branch %q, repo path %q, repository %q; want the first loser's three, not a repository of another copy", branch, repoPath, repository)
 	}
 }
 
@@ -439,9 +476,12 @@ func TestAdoptionGivesALocalTicketThatSharesARemoteKeyAKeyOfItsOwn(t *testing.T)
 	}
 	adopt(t, d)
 
-	if got, want := keysOfTasks(t, d, "local-a", "jira-b-PE-1"), map[string]string{"local-a": "PE-8", "jira-b-PE-1": "PE-1"}; !reflect.DeepEqual(got, want) {
+	// PE-8 is the key Jira issues next: the next synchronisation would import
+	// it over the local ticket.
+	if got, want := keysOfTasks(t, d, "local-a", "jira-b-PE-1"), map[string]string{"local-a": "PE.L-1", "jira-b-PE-1": "PE-1"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("keys = %v, want %v", got, want)
 	}
+	assertNoRemoteTrackerIssues(t, keysOfTasks(t, d, "local-a")["local-a"])
 	for query, want := range map[string]int{
 		"SELECT COUNT(*) FROM task_activities WHERE id = 'local-run' AND task_id = 'local-a'":      1,
 		"SELECT COUNT(*) FROM task_activities WHERE id = 'remote-run' AND task_id = 'jira-b-PE-1'": 1,
@@ -458,7 +498,23 @@ func TestAdoptionGivesALocalTicketThatSharesARemoteKeyAKeyOfItsOwn(t *testing.T)
 	}
 }
 
-func TestAdoptionKeepsTheOldestOfTwoLocalTicketsOnTheirSharedKey(t *testing.T) {
+// remoteIssuedKey is every key a remote tracker issues: a Jira key, as
+// trackerapi's jiraKeyPattern reads one, or a GitHub or GitLab #<n>.
+var remoteIssuedKey = regexp.MustCompile(`^(?:[A-Z][A-Z0-9_]*-[0-9]+|#[0-9]+)$`)
+
+// assertNoRemoteTrackerIssues checks that a re-keyed local ticket holds a key
+// no remote tracker can issue, and that no ticket key is read inside it.
+func assertNoRemoteTrackerIssues(t *testing.T, key string) {
+	t.Helper()
+	if remoteIssuedKey.MatchString(strings.ToUpper(key)) {
+		t.Fatalf("the local key %q is one a remote tracker issues", key)
+	}
+	if found := entryKeyPattern.FindString(key); found != "" {
+		t.Fatalf("the local key %q reads as the ticket key %q", key, found)
+	}
+}
+
+func TestAdoptionRekeysEveryLocalTicketSharingAKeyOnARemoteTracker(t *testing.T) {
 	d := testDB(t)
 	first, second := twoProjectsOnPE(t, d)
 	now := time.Now().UTC()
@@ -471,13 +527,36 @@ func TestAdoptionKeepsTheOldestOfTwoLocalTicketsOnTheirSharedKey(t *testing.T) {
 	}
 	adopt(t, d)
 
-	if got, want := keysOfTasks(t, d, "local-a", "local-b"), map[string]string{"local-a": "PE-1", "local-b": "PE-2"}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("keys = %v, want %v", got, want)
+	// PE-1 is a key Jira issues: neither local copy keeps it, and they are
+	// numbered oldest first.
+	keys := keysOfTasks(t, d, "local-a", "local-b")
+	if want := map[string]string{"local-a": "PE.L-1", "local-b": "PE.L-2"}; !reflect.DeepEqual(keys, want) {
+		t.Fatalf("keys = %v, want %v", keys, want)
+	}
+	for _, key := range keys {
+		assertNoRemoteTrackerIssues(t, key)
 	}
 	var comments int
 	_ = d.conn.QueryRow("SELECT COUNT(*) FROM task_comments WHERE id = 'comment' AND task_id = 'local-b'").Scan(&comments)
 	if comments != 1 {
 		t.Fatal("the comment left the re-keyed ticket")
+	}
+}
+
+// On a local board, the oldest of two local tickets sharing a key keeps it:
+// the board issues no key of its own. A project's tickets stored under its id
+// and under its slug share its board.
+func TestAdoptionKeepsTheOldestOfTwoLocalTicketsOnTheirSharedKeyOnALocalBoard(t *testing.T) {
+	d := testDB(t)
+	now := time.Now().UTC()
+	notes := legacyProject(t, d, now.Add(-time.Hour), models.CreateProjectRequest{Name: "Notes"})
+	forgetTrackers(t, d)
+	legacySourcedTask(t, d, "local-b", notes.Slug, "NOTES-1", "new", "local", now)
+	legacySourcedTask(t, d, "local-a", notes.ID, "NOTES-1", "new", "local", now.Add(-time.Hour))
+	adopt(t, d)
+
+	if got, want := keysOfTasks(t, d, "local-a", "local-b"), map[string]string{"local-a": "NOTES-1", "local-b": "NOTES-2"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("keys = %v, want %v", got, want)
 	}
 }
 
@@ -581,4 +660,64 @@ func TestAdoptionRerunsAfterARollbackWroteAnUntaggedCopy(t *testing.T) {
 	}
 	t.Cleanup(func() { restarted.Close() })
 	assertRerunMergedTheUntaggedCopies(t, restarted, adoptedID)
+}
+
+// A rollback may write an epic row alone, with no ticket naming no tracker: the
+// next start reruns the adoption for it too.
+func TestAdoptionRerunsAfterARollbackWroteAnUntaggedEpicAlone(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "tasks.db")
+	d, err := testsqlite.New(t, path, NewDB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plantAnUntaggedEpicAlone(t, d)
+	if err := d.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	restarted, err := NewDB(path)
+	if err != nil {
+		t.Fatalf("the server does not start again: %v", err)
+	}
+	t.Cleanup(func() { restarted.Close() })
+	assertRerunMergedTheUntaggedEpic(t, restarted)
+}
+
+// plantAnUntaggedEpicAlone adopts the epic PE-5 of two projects on PE, then
+// writes what an older binary leaves after a rollback: Bidder's copy of PE-5
+// naming no tracker, with no ticket, next to a milestone and a local project's
+// macro, which the adoption never tags.
+func plantAnUntaggedEpicAlone(t *testing.T, d *DB) {
+	t.Helper()
+	first, second := twoProjectsOnPE(t, d)
+	now := time.Now().UTC()
+	legacyEpic(t, d, first.ID, "PE-5", `[{"id":"t1","text":"Keep me","done":false}]`, now)
+	adopt(t, d)
+	if err := d.adoptTrackerEpics(); err != nil {
+		t.Fatalf("adoptTrackerEpics: %v", err)
+	}
+	legacyEpic(t, d, second.ID, "PE-5", "[]", now.Add(-time.Hour))
+	legacyEpic(t, d, second.ID, "M-1", "[]", now)
+	legacyEpic(t, d, "default", "TASK-9", "[]", now)
+	if done, err := d.trackerAdoptionDone(); err != nil || done {
+		t.Fatalf("an untagged Jira epic left the adoption done: %v %v", done, err)
+	}
+}
+
+// assertRerunMergedTheUntaggedEpic checks, after a restart, that the epic row
+// an older binary wrote was merged into the adopted one, and that the
+// milestone and the local macro left untagged do not keep the adoption going.
+func assertRerunMergedTheUntaggedEpic(t *testing.T, d *DB) {
+	t.Helper()
+	var epics, tagged int
+	var todos string
+	if err := d.conn.QueryRow("SELECT COUNT(*), COUNT(tracker_id), MIN(todos) FROM macros WHERE key = 'PE-5'").Scan(&epics, &tagged, &todos); err != nil {
+		t.Fatal(err)
+	}
+	if epics != 1 || tagged != 1 || len(parseMacroTodos(todos)) != 1 {
+		t.Fatalf("PE-5 rows = %d, %d naming a tracker, todos %s; want the adopted epic alone, with its todos", epics, tagged, todos)
+	}
+	if done, err := d.trackerAdoptionDone(); err != nil || !done {
+		t.Fatalf("after the rerun the adoption is done, the milestone and the local macro untagged: %v %v", done, err)
+	}
 }

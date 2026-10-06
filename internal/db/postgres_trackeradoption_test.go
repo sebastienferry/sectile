@@ -53,3 +53,28 @@ func TestPostgresAdoptionRerunsAfterARollbackWroteAnUntaggedCopy(t *testing.T) {
 	t.Cleanup(func() { restarted.Close() })
 	assertRerunMergedTheUntaggedCopies(t, restarted, adoptedID)
 }
+
+// An epic row a rollback wrote alone reruns the adoption on PostgreSQL too: the
+// count of the untagged Jira epics joins the projects, their first tracker and
+// the macros.
+func TestPostgresAdoptionRerunsAfterARollbackWroteAnUntaggedEpicAlone(t *testing.T) {
+	d := openPostgres(t)
+	plantAnUntaggedEpicAlone(t, d)
+
+	restarted, err := Open(Config{Driver: DriverPostgres, DSN: postgresDSN(t)})
+	if err != nil {
+		t.Fatalf("the server does not start again: %v", err)
+	}
+	t.Cleanup(func() { restarted.Close() })
+	assertRerunMergedTheUntaggedEpic(t, restarted)
+}
+
+// A deleted project's local tickets reach the default project's local board,
+// created and linked by an INSERT … SELECT whose parameters PostgreSQL types.
+func TestPostgresDeletingAProjectGivesADefaultProjectOnATrackerALocalBoard(t *testing.T) {
+	checkDeletingAProjectGivesADefaultProjectOnATrackerALocalBoard(t, openPostgres(t))
+}
+
+func TestPostgresDeletingAProjectRekeysTheLocalTicketsTheDefaultBoardAlreadyHolds(t *testing.T) {
+	checkDeletingAProjectRekeysTheLocalTicketsTheDefaultBoardAlreadyHolds(t, openPostgres(t))
+}

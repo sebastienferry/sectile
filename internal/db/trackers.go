@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -709,10 +710,11 @@ func touchedByUpdate(req models.UpdateProjectRequest) trackerFieldsTouched {
 // own tracker fields name: the legacy single-tracker fields write through to
 // the default tracker (#741), the project's other trackers untouched.
 //
-// A project whose default tracker only it selects keeps that tracker, renamed
-// in place when its fields now name another source nobody recorded yet, so
-// its tickets stay with it. Otherwise the tracker of that identity is found or
-// created and takes the default's place. The board mirror and auto-sync fields
+// A project whose default tracker only it selects and that holds no ticket nor
+// epic yet keeps that tracker, renamed in place when its fields now name
+// another source nobody recorded yet. Otherwise the tracker of that identity
+// is found or created and takes the default's place, the old tracker keeping
+// its tickets and leaving the project, as when it joins an existing tracker. The board mirror and auto-sync fields
 // the write carries then land on the tracker; a tracker the project just
 // joined keeps its own.
 //
@@ -740,6 +742,17 @@ func (d *DB) ensureProjectTrackerUnsafe(tx *sqlTx, p *models.Project, settings *
 	if err != nil {
 		return err
 	}
+	// Only a tracker holding nothing yet may be renamed in place: its tickets
+	// and epics were read from its source, and renaming it would move them all
+	// to another one.
+	renamable := false
+	if target == nil && !touched.joinOnly && current != nil && current.Identity != wanted.Identity && d.trackerExclusiveTo(tx, current.ID, p.ID) {
+		used, err := trackerUsageOn(tx, current.ID)
+		if err != nil {
+			return err
+		}
+		renamable = used == 0
+	}
 	now := time.Now().UTC()
 	fresh := false
 	switch {
@@ -748,7 +761,7 @@ func (d *DB) ensureProjectTrackerUnsafe(tx *sqlTx, p *models.Project, settings *
 		target = current
 	case touched.joinOnly && wanted.Provider != "local":
 		return fmt.Errorf("%w : %s", ErrUnknownTracker, wanted.Identity)
-	case !touched.joinOnly && current != nil && current.Identity != wanted.Identity && d.trackerExclusiveTo(tx, current.ID, p.ID):
+	case renamable:
 		current.Provider, current.Site, current.Scope, current.Identity, current.UpdatedAt = wanted.Provider, wanted.Site, wanted.Scope, wanted.Identity, now
 		if err := updateTrackerOn(tx, current); err != nil {
 			return err
@@ -931,8 +944,8 @@ func (d *DB) trackerExclusiveTo(tx *sqlTx, trackerID, projectID string) bool {
 }
 
 // releaseProjectTrackersUnsafe unlinks a project about to be deleted from its
-// trackers. The tickets of its local tracker move to the default project and
-// its tracker, then the local tracker goes; the tickets of a tracker other
+// trackers. The tickets of its local tracker move to the default project's
+// local board (moveLocalTicketsToDefaultUnsafe), then the local tracker goes; the tickets of a tracker other
 // projects select take the first of them as their project (the D1 shim of
 // #741), and the others stay where they are.
 func (d *DB) releaseProjectTrackersUnsafe(tx *sqlTx, p *models.Project, defaultProjectID string) error {
@@ -958,17 +971,9 @@ func (d *DB) releaseProjectTrackersUnsafe(tx *sqlTx, p *models.Project, defaultP
 	if _, err := tx.Exec(`DELETE FROM project_trackers WHERE project_id = ?`, p.ID); err != nil {
 		return err
 	}
-	var defaultTrackerID string
-	_ = tx.QueryRow(`SELECT pt.tracker_id FROM project_trackers pt JOIN trackers t ON t.id = pt.tracker_id
-		WHERE pt.project_id = ? ORDER BY CASE WHEN t.provider = 'local' THEN 0 ELSE 1 END, pt.position LIMIT 1`, defaultProjectID).Scan(&defaultTrackerID)
-	var defaultTracker any
-	movedTo := defaultProjectID
-	if defaultTrackerID != "" {
-		defaultTracker, movedTo = defaultTrackerID, trackerSentinel(defaultTrackerID)
-	}
 	for _, t := range trackers {
 		if t.provider == "local" {
-			if _, err := tx.Exec(`UPDATE tasks SET project_id = ?, tracker_id = ? WHERE tracker_id = ?`, movedTo, defaultTracker, t.id); err != nil {
+			if err := d.moveLocalTicketsToDefaultUnsafe(tx, t.id, defaultProjectID); err != nil {
 				return err
 			}
 			if _, err := tx.Exec(`DELETE FROM trackers WHERE id = ?`, t.id); err != nil {
@@ -989,4 +994,96 @@ func (d *DB) releaseProjectTrackersUnsafe(tx *sqlTx, p *models.Project, defaultP
 	// did before trackers existed.
 	_, err = tx.Exec(`UPDATE tasks SET project_id = ? WHERE tracker_id IS NULL AND project_id IN (?, ?)`, append([]any{defaultProjectID}, refs...)...)
 	return err
+}
+
+// moveLocalTicketsToDefaultUnsafe moves the tickets of a deleted project's
+// local tracker to the default project's local board, created and selected by
+// that project when it has none: a remote tracker would be written back keys
+// it does not hold. A ticket whose key the board already holds, as two
+// projects' TASK-1 or two slugs of one prefix give, takes the board's next key
+// of its prefix (freeLocalKeyOn) rather than failing the deletion on the
+// unique key of the tracker.
+func (d *DB) moveLocalTicketsToDefaultUnsafe(tx *sqlTx, fromTrackerID, defaultProjectID string) error {
+	board, err := d.localBoardOfUnsafe(tx, defaultProjectID)
+	if err != nil {
+		return err
+	}
+	rows, err := tx.Query(`SELECT id, key FROM tasks WHERE tracker_id = ? ORDER BY created_at, id`, fromTrackerID)
+	if err != nil {
+		return err
+	}
+	type moving struct{ id, key string }
+	var tickets []moving
+	for rows.Next() {
+		var m moving
+		if err := rows.Scan(&m.id, &m.key); err != nil {
+			rows.Close()
+			return err
+		}
+		tickets = append(tickets, m)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for _, ticket := range tickets {
+		key := ticket.key
+		var held int
+		if err := tx.QueryRow(`SELECT COUNT(*) FROM tasks WHERE tracker_id = ? AND key = ?`, board, key).Scan(&held); err != nil {
+			return err
+		}
+		if held > 0 {
+			if key, err = d.freeLocalKeyOn(tx, board, ticket.key); err != nil {
+				return err
+			}
+			log.Printf("[Trackers] suppression de projet : le ticket local %s rejoint le tableau local du projet par défaut sous la clé %s, %s y étant déjà prise", ticket.id, key, ticket.key)
+		}
+		if _, err := tx.Exec(`UPDATE tasks SET project_id = ?, tracker_id = ?, key = ? WHERE id = ?`, trackerSentinel(board), board, key, ticket.id); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// localBoardOfUnsafe returns the id of the project's local board: the local
+// tracker it selects, else the one of its identity, created if need be, which
+// the project then selects after its other trackers. Its default tracker does
+// not change.
+func (d *DB) localBoardOfUnsafe(tx *sqlTx, projectID string) (string, error) {
+	var id string
+	err := tx.QueryRow(`SELECT pt.tracker_id FROM project_trackers pt JOIN trackers t ON t.id = pt.tracker_id
+		WHERE pt.project_id = ? AND t.provider = 'local' ORDER BY pt.position LIMIT 1`, projectID).Scan(&id)
+	if err == nil {
+		return id, nil
+	}
+	if err != sql.ErrNoRows {
+		return "", err
+	}
+	var name string
+	if err := tx.QueryRow(`SELECT name FROM projects WHERE id = ?`, projectID).Scan(&name); err != nil && err != sql.ErrNoRows {
+		return "", err
+	}
+	board := models.Tracker{Name: name, Provider: "local", Scope: projectID}
+	board.Identity = trackerIdentityFor(&board, nil)
+	existing, err := trackerByIdentityOn(tx, board.Identity)
+	if err != nil {
+		return "", err
+	}
+	if existing == nil {
+		now := time.Now().UTC()
+		board.ID, board.CreatedAt, board.UpdatedAt = uuid.New().String(), now, now
+		board.AutoSyncIntervalMin = models.NormalizeAutoSyncIntervalMin(0)
+		if err := insertTrackerOn(tx, &board); err != nil {
+			return "", err
+		}
+		if existing, err = trackerByIdentityOn(tx, board.Identity); err != nil || existing == nil {
+			return "", fmt.Errorf("reading back the tracker %s: %v", board.Identity, err)
+		}
+	}
+	if _, err := tx.Exec(`INSERT INTO project_trackers (project_id, tracker_id, position)
+		SELECT CAST(? AS TEXT), CAST(? AS TEXT), COALESCE(MAX(position), -1) + 1 FROM project_trackers WHERE project_id = ?
+		ON CONFLICT (project_id, tracker_id) DO NOTHING`, projectID, existing.ID, projectID); err != nil {
+		return "", err
+	}
+	return existing.ID, nil
 }

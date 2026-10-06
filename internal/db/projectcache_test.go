@@ -98,6 +98,16 @@ func TestTaskListQueryCountIsTheSameForOneAndTwentyTicketsWithoutAStoredLink(t *
 	}
 }
 
+// emptyTrackerOf deletes the tickets of the project's default tracker. A tracker holding tickets keeps its source, so
+// a save naming another site would move the project to another tracker: emptied, the tracker is renamed in place and
+// keeps its id, which is what the cache is keyed by.
+func emptyTrackerOf(t *testing.T, d *DB, projectID string) {
+	t.Helper()
+	if _, err := d.conn.Exec("DELETE FROM tasks WHERE tracker_id = ?", defaultTrackerID(t, d, projectID)); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // A project saved on this instance changes its tickets' links on the very next read: the write clears the cache, it
 // does not wait for the entry to expire.
 func TestAProjectSavedOnThisInstanceChangesItsTicketLinksOnTheNextRead(t *testing.T) {
@@ -110,10 +120,12 @@ func TestAProjectSavedOnThisInstanceChangesItsTicketLinksOnTheNextRead(t *testin
 	if got, want := jiraLinkOf(t, d, project.ID), "https://old.atlassian.net/browse/PE-1"; got != want {
 		t.Fatalf("link before the save %s, want %s", got, want)
 	}
+	emptyTrackerOf(t, d, project.ID)
 	newURL := "https://new.atlassian.net"
 	if _, err := d.UpdateProject(project.ID, models.UpdateProjectRequest{TrackerUrl: &newURL}); err != nil {
 		t.Fatal(err)
 	}
+	importLinklessTickets(t, d, project.ID, "", 0, 1)
 	if got, want := jiraLinkOf(t, d, project.ID), "https://new.atlassian.net/browse/PE-1"; got != want {
 		t.Fatalf("link right after the save %s, want %s", got, want)
 	}
@@ -144,10 +156,12 @@ func TestAProjectChangedByAnotherInstanceShowsInItsLinksOnceTheCacheEntryExpires
 	if got := jiraLinkOf(t, reader, project.ID); got != oldLink {
 		t.Fatalf("link before the change %s, want %s", got, oldLink)
 	}
+	emptyTrackerOf(t, writer, project.ID)
 	newURL := "https://new.atlassian.net"
 	if _, err := writer.UpdateProject(project.ID, models.UpdateProjectRequest{TrackerUrl: &newURL}); err != nil {
 		t.Fatal(err)
 	}
+	importLinklessTickets(t, writer, project.ID, "", 0, 1)
 	now = now.Add(trackerCacheTTL - time.Second)
 	if got := jiraLinkOf(t, reader, project.ID); got != oldLink {
 		t.Fatalf("the reader serves its cached fields until they expire: link %s, want %s", got, oldLink)

@@ -108,8 +108,8 @@ func (d *DB) adoptTrackers() error {
 }
 
 // trackerAdoptionDone says whether adoptTrackers has nothing left to do: every
-// project links a tracker, every ticket of an existing project names its
-// tracker, and the unique index exists. A ticket whose project is gone cannot
+// project links a tracker, every ticket of an existing project and every Jira
+// epic row of one names its tracker, and the unique index exists. A ticket whose project is gone cannot
 // be adopted and does not keep the step running at every start: it is only
 // reported.
 func (d *DB) trackerAdoptionDone() (bool, error) {
@@ -128,11 +128,42 @@ func (d *DB) trackerAdoptionDone() (bool, error) {
 	if orphans > 0 {
 		log.Printf("[Trackers] %d ticket(s) sans projet existant ne peuvent être rattachés à aucun tracker", orphans)
 	}
+	epics, err := d.untaggedJiraEpics()
+	if err != nil {
+		return false, err
+	}
 	indexed, err := d.indexExists(tasksTrackerKeyIndex)
 	if err != nil {
 		return false, err
 	}
-	return unlinked == 0 && untagged == 0 && indexed, nil
+	return unlinked == 0 && untagged == 0 && epics == 0 && indexed, nil
+}
+
+// untaggedJiraEpics counts the epic rows naming no tracker that
+// tagJiraEpicsWithTrackers would tag: under a project, by id or slug, whose
+// first tracker is a Jira one, and not a milestone. A rollback may write one
+// alone, with no ticket. A local or non-Jira macro, which the step never tags,
+// does not keep it running at every start.
+func (d *DB) untaggedJiraEpics() (int, error) {
+	rows, err := d.conn.Query(`SELECT m.key FROM macros m WHERE m.tracker_id IS NULL AND EXISTS (
+		SELECT 1 FROM projects p JOIN project_trackers pt ON pt.project_id = p.id JOIN trackers t ON t.id = pt.tracker_id
+		WHERE (p.id = m.project_id OR (p.slug <> '' AND p.slug = m.project_id)) AND t.provider = 'jira'
+		AND pt.position = (SELECT MIN(lowest.position) FROM project_trackers lowest WHERE lowest.project_id = p.id))`)
+	if err != nil {
+		return 0, fmt.Errorf("counting the epics without a tracker: %w", err)
+	}
+	defer rows.Close()
+	count := 0
+	for rows.Next() {
+		var key string
+		if err := rows.Scan(&key); err != nil {
+			return 0, err
+		}
+		if !isMilestoneKey(key) {
+			count++
+		}
+	}
+	return count, rows.Err()
 }
 
 // indexExists asks the engine's catalog whether an index of that name exists.
@@ -307,9 +338,10 @@ func (d *DB) mergeDuplicateTasks(tx *sqlTx) error {
 // within its own project before #741, with the Jira key or the start of the
 // slug as prefix, so it may share its key with a remote ticket or with the
 // local ticket of another project and still be a ticket of its own. Each local
-// copy is given the next free key of the tracker rather than merged, except,
-// when every copy is local, the oldest, which keeps the key. The remote copies
-// are merged into one record.
+// copy is given a free key of the tracker rather than merged (rekeyLocalTask),
+// except, when every copy is local on a local board, the oldest, which keeps
+// the key: on a remote tracker the key is one the tracker issues. The remote
+// copies are merged into one record.
 func (d *DB) mergeDuplicate(tx *sqlTx, trackerID, key string) error {
 	rows, err := tx.Query(`SELECT id, status, labels, pr_links, pr_url, COALESCE(changed_repositories, '[]'), pinned, created_at, updated_at,
 		source, COALESCE(branch_name, ''), repo_path, repository, pr_links_detached
@@ -358,14 +390,21 @@ func (d *DB) mergeDuplicate(tx *sqlTx, trackerID, key string) error {
 		}
 	}
 	// The oldest first, then the id, so that the local ticket that keeps the
-	// key never depends on the order rows come back in.
+	// key, and the order the others are numbered in, never depend on the order
+	// rows come back in.
 	sort.SliceStable(locals, func(i, j int) bool {
 		if !locals[i].createdAt.Equal(locals[j].createdAt) {
 			return locals[i].createdAt.Before(locals[j].createdAt)
 		}
 		return locals[i].id < locals[j].id
 	})
-	if len(remotes) == 0 {
+	// On a remote tracker the shared key is one the tracker issues, so no local
+	// copy keeps it; on a local board the oldest does.
+	var provider string
+	if err := tx.QueryRow(`SELECT provider FROM trackers WHERE id = ?`, trackerID).Scan(&provider); err != nil {
+		return fmt.Errorf("reading the tracker %s: %w", trackerID, err)
+	}
+	if len(remotes) == 0 && provider == "local" {
 		locals = locals[1:]
 	}
 	for _, local := range locals {
@@ -379,17 +418,49 @@ func (d *DB) mergeDuplicate(tx *sqlTx, trackerID, key string) error {
 	return mergeRemoteCopies(tx, key, remotes)
 }
 
-// rekeyLocalTask gives a local ticket the next free key of its tracker, with
-// the prefix of the key it shared. Its id does not change, so everything that
-// names it by id still does. No alias is written for the old key: aliases are
-// read before keys, so one would send every reference to that key to this
-// ticket instead of the one that keeps it.
-func (d *DB) rekeyLocalTask(tx *sqlTx, trackerID, key, id string) error {
+// localKeyMarker ends the prefix of a local ticket's key on a remote tracker:
+// PE-5 becomes PE.L-<n>. A remote tracker never issues a key with a dot: Jira
+// issues <project key>-<n>, the project key being [A-Z][A-Z0-9_]*, and GitHub
+// and GitLab #<n>. The key therefore never meets one a later synchronisation
+// imports, which ImportOrUpdateTasks would match by key and write over the
+// local ticket. The marker is upper case, so getNextTaskKey's upper-casing
+// keeps it; it holds no LIKE wildcard; the letter before the last dash stands
+// alone, so a reader of "PE-2021"-shaped keys finds no key in it; and a branch
+// name made from it is valid, its dot becoming a dash.
+const localKeyMarker = ".L"
+
+// freeLocalKeyOn returns a key no ticket of the tracker holds, for a local
+// ticket that cannot keep key there. On a local board it is the next key of
+// key's prefix, numbered the way CreateTask numbers one. On a remote tracker
+// it is the next key of that prefix followed by localKeyMarker, since the next
+// number of the prefix itself is the key the tracker issues next.
+func (d *DB) freeLocalKeyOn(tx *sqlTx, trackerID, key string) (string, error) {
+	var provider string
+	if err := tx.QueryRow(`SELECT provider FROM trackers WHERE id = ?`, trackerID).Scan(&provider); err != nil {
+		return "", fmt.Errorf("reading the tracker %s: %w", trackerID, err)
+	}
 	prefix := ""
 	if i := strings.LastIndex(key, "-"); i > 0 {
 		prefix = key[:i]
 	}
-	next, err := d.getNextTaskKey(tx, trackerID, "", prefix)
+	if provider != "local" {
+		if strings.TrimSpace(prefix) == "" {
+			prefix = "TASK"
+		}
+		if !strings.HasSuffix(strings.ToUpper(prefix), localKeyMarker) {
+			prefix += localKeyMarker
+		}
+	}
+	return d.getNextTaskKey(tx, trackerID, "", prefix)
+}
+
+// rekeyLocalTask gives a local ticket a free key of its tracker, from the
+// prefix of the key it shared (freeLocalKeyOn). Its id does not change, so
+// everything that names it by id still does. No alias is written for the old
+// key: aliases are read before keys, so one would send every reference to that
+// key to this ticket instead of the one that keeps it.
+func (d *DB) rekeyLocalTask(tx *sqlTx, trackerID, key, id string) error {
+	next, err := d.freeLocalKeyOn(tx, trackerID, key)
 	if err != nil {
 		return err
 	}
@@ -423,7 +494,16 @@ func mergeRemoteCopies(tx *sqlTx, key string, copies []adoptedTask) error {
 	labels, changed := decodeStrings(survivor.labels), decodeStrings(survivor.changed)
 	pinned := survivor.pinned
 	prURL := strings.TrimSpace(survivor.prURL.String)
-	branch, repoPath, repository := survivor.branch, survivor.repoPath, survivor.repository
+	// The branch, the repository path and the repository name say together
+	// where the work happens: they come from one copy, the survivor if it has
+	// any of them, else the first loser in the order above that has one.
+	branch, repoPath, repository := "", "", ""
+	for _, c := range copies {
+		if strings.TrimSpace(c.branch) != "" || strings.TrimSpace(c.repoPath) != "" || strings.TrimSpace(c.repository) != "" {
+			branch, repoPath, repository = c.branch, c.repoPath, c.repository
+			break
+		}
+	}
 	detached := survivor.prLinksDetached
 	for _, loser := range losers {
 		var theirs []models.TaskPullRequest
@@ -436,11 +516,6 @@ func mergeRemoteCopies(tx *sqlTx, key string, copies []adoptedTask) error {
 		labels = unionStrings(labels, decodeStrings(loser.labels))
 		changed = unionStrings(changed, decodeStrings(loser.changed))
 		pinned = max(pinned, loser.pinned)
-		// The survivor's own value, else the first a loser has, in the order
-		// above.
-		branch = firstNonBlank(branch, loser.branch)
-		repoPath = firstNonBlank(repoPath, loser.repoPath)
-		repository = firstNonBlank(repository, loser.repository)
 		detached = max(detached, loser.prLinksDetached)
 	}
 	if prURL == "" {
@@ -490,13 +565,6 @@ func mergeRemoteCopies(tx *sqlTx, key string, copies []adoptedTask) error {
 		log.Printf("[Trackers] adoption : doublon %s fusionné, %s conservé, %s supprimé (alias)", key, survivor.id, loser.id)
 	}
 	return nil
-}
-
-func firstNonBlank(value, fallback string) string {
-	if strings.TrimSpace(value) != "" {
-		return value
-	}
-	return fallback
 }
 
 // repointTask moves everything that names loser to survivor, records loser as
