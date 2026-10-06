@@ -15,7 +15,7 @@ import (
 	"github.com/google/uuid"
 )
 
-// tasksTrackerKeyIndex makes one record per remote ticket a constraint (#741).
+// tasksTrackerKeyIndex makes one issue per remote ticket a constraint (#741).
 // It is created by the adoption, after the duplicates are merged, never by a
 // numbered migration: before the merge, the rows it would refuse exist. Every
 // pass of the adoption drops it before tagging and creates it again last, so a

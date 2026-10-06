@@ -306,7 +306,7 @@ func trackerScoped(t *testing.T, database *db.DB, scope string) *models.Tracker 
 
 // A member's project may join a recorded tracker by its legacy fields, never
 // create one, rename one or set the site the server sends its credentials to
-// (#741, ADR 0050, D11). A local board is the project's own, and still made
+// (#741, ADR 0054, D11). A local board is the project's own, and still made
 // for a member's local project.
 func TestAMemberOnlyJoinsARecordedTrackerThroughAProject(t *testing.T) {
 	h, database, cleanup := setupTestHandler(t)

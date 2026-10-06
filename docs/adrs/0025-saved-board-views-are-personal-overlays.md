@@ -1,8 +1,8 @@
 # ADR 0025: Saved board views are personal overlays on the all-projects board
 
 Status: Accepted. Amended by
-[ADR 0050](0050-trackers-are-server-sources-and-projects-select-by-label.md):
-a ticket shared by two projects is one record, and a view selects over project
+[ADR 0054](0054-trackers-are-server-sources-and-projects-select-by-label.md):
+a ticket shared by two projects is one issue, and a view selects over project
 membership.
 
 ## Context
@@ -66,8 +66,8 @@ of labels, in one table, `board_views`, owned by the account that created it.
   every card in a view names its project. Collapsing records would require
   choosing which project owns actions and activities, and would hide the
   duplication rather than resolve it.
-  *Amended by [ADR 0050](0050-trackers-are-server-sources-and-projects-select-by-label.md):
-  there are no duplicates left to show. A remote ticket is one record owned by
+  *Amended by [ADR 0054](0054-trackers-are-server-sources-and-projects-select-by-label.md):
+  there are no duplicates left to show. There is one local issue per remote ticket, owned by
   its tracker, and a card names every project it belongs to (`projectIds`).
   "Sits in one of its projects" now means membership: the project selects the
   ticket's tracker and has no label, or the ticket carries it. A view's scope
@@ -94,7 +94,7 @@ Someone who wants `équipe` and `Équipe` in one view adds both labels to it.
 A remote story synchronised by two projects of a view shows twice. That is the
 honest picture of the board; a fix belongs to how projects share a tracker
 scope, not to the view.
-*Amended by [ADR 0050](0050-trackers-are-server-sources-and-projects-select-by-label.md):
+*Amended by [ADR 0054](0054-trackers-are-server-sources-and-projects-select-by-label.md):
 that fix is made. Projects share a tracker instead of each importing it, so the
 story shows once, in every view whose projects it belongs to.*
 

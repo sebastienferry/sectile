@@ -3,7 +3,7 @@
 - Status: Accepted
 - Date: 2026-09-30
 - Issue: [#632](https://github.com/sebastienferry/sectile/issues/632)
-- Amended by [ADR 0050](0050-trackers-are-server-sources-and-projects-select-by-label.md):
+- Amended by [ADR 0054](0054-trackers-are-server-sources-and-projects-select-by-label.md):
   see the amendment below.
 
 ## Context
@@ -60,7 +60,7 @@ project nobody can read does not stop the others.
 
 ## Amendment (2026-10-05, #741)
 
-[ADR 0050](0050-trackers-are-server-sources-and-projects-select-by-label.md)
+[ADR 0054](0054-trackers-are-server-sources-and-projects-select-by-label.md)
 lets a project select its tickets from several trackers, two Jira spaces among
 them. That overlaps with what a declared roadmap project offers: both bring a
 second Jira project into one Sectile project. They stay separate mechanisms.

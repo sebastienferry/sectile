@@ -47,7 +47,7 @@ CREATE TABLE IF NOT EXISTS projects (
     full_chain_stop_stage TEXT NOT NULL DEFAULT 'reviewed', -- 'implemented' | 'reviewed'
     push_stage_commits INTEGER NOT NULL DEFAULT 0, -- boolean pushStageCommits in project/config/context JSON
     branch_name_format TEXT NOT NULL DEFAULT '', -- branchNameFormat in project/config/context JSON; empty = feat/{key_lower}
-    -- Since #741 (migration 47, ADR 0050) the tracker columns above (issue_tracker,
+    -- Since #741 (migration 49, ADR 0054) the tracker columns above (issue_tracker,
     -- jira_project, github_repo, gitlab_project, board_id, tracker_columns,
     -- stage_columns, sprints, issue_types, auto_sync_*) are no longer the source:
     -- a project is read with its default tracker's values, and the columns are
@@ -62,7 +62,7 @@ CREATE TABLE IF NOT EXISTS projects (
 CREATE TABLE IF NOT EXISTS tasks (
     id TEXT PRIMARY KEY,
     project_id TEXT NOT NULL DEFAULT 'default',  -- unread since #741: rows written since carry the sentinel 'tracker:<tracker id>'
-    tracker_id TEXT NULL,                       -- the tracker the ticket belongs to (migration 47); unique with key (ux_tasks_tracker_key)
+    tracker_id TEXT NULL,                       -- the tracker the ticket belongs to (migration 49); unique with key (ux_tasks_tracker_key)
     key TEXT NOT NULL UNIQUE,
     title TEXT NOT NULL,
     description TEXT DEFAULT '',
@@ -157,7 +157,7 @@ CREATE TABLE IF NOT EXISTS board_views (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_board_views_user_name ON board_views (user_id, name_key);
 
--- Trackers (migration 47, #741, ADR 0050): one server-side source of tickets,
+-- Trackers (migration 49, #741, ADR 0054): one server-side source of tickets,
 -- a Jira space, a GitHub repository, a GitLab project, or the local board of
 -- one project. It holds the board mirror and the background sync settings.
 CREATE TABLE IF NOT EXISTS trackers (
@@ -229,8 +229,8 @@ CREATE TABLE IF NOT EXISTS auto_sync_trackers (
 | `POST` | `/api/tasks/{id}/epic` | Queues the attachment to an epic (`202`, returns the activity to follow). |
 | `GET` | `/api/tasks/{id}/diff` | Computes and returns the Git diff of the task branch vs `main`. |
 
-**Tickets belong to trackers, and to projects by membership (#741, ADR 0050).**
-A remote ticket is one record owned by its tracker, whatever projects show it.
+**Tickets belong to trackers, and to projects by membership (#741, ADR 0054).**
+There is one local issue per remote ticket, owned by its tracker, whatever projects show it.
 A task carries `trackerId`, and `projectIds`, the projects it belongs to: those
 selecting its tracker that have no label, or whose label it carries, compared
 whole and regardless of ASCII case. `projectId` is computed: the project a
@@ -357,7 +357,7 @@ nothing; a creation goes out without that priority and its answer carries a
 | `GET` | `/api/projects/{id}/spec-framework-status` | Per-framework SDD status for this project (see 2.5). |
 | `POST` | `/api/projects/{id}/install-spec-framework` | Installs a SDD toolchain for this project (see 2.5). |
 
-**What a project selects (#741, ADR 0050).** A project carries `trackers`, the
+**What a project selects (#741, ADR 0054).** A project carries `trackers`, the
 ordered list of `{trackerId, identity}` it selects its tickets from, `label`,
 which narrows it to the tickets carrying it (empty shows every ticket of its
 trackers), and `defaultTrackerId`, where its new tickets go. The creation and
@@ -449,7 +449,7 @@ and the view's own labels narrow it further.
 
 ### 2.3.0.3 Trackers API
 
-A tracker is one server-side source of tickets (#741, ADR 0050): a Jira space,
+A tracker is one server-side source of tickets (#741, ADR 0054): a Jira space,
 a GitHub repository, a GitLab project, or the local board of one project. It is
 synchronised in full whatever projects exist, holds the board mirror (board,
 columns, status-to-stage mapping, sprints, issue types) and the background sync
@@ -561,7 +561,7 @@ wins over `SECTILE_JIRA_OAUTH_*` as a whole.
 The `POST /api/sync/*` routes return `{message, activity}`; the work runs on the
 background job queue and its progress is readable through the Activities API.
 
-**Synchronisation is per tracker (#741, ADR 0050).** A tracker is read in full,
+**Synchronisation is per tracker (#741, ADR 0054).** A tracker is read in full,
 whatever projects select it, and each ticket is written once, on its tracker.
 A pass asked for a project (`projectId` on `github`, `jira` or `gitlab`) queues
 one pass per tracker of the project and answers the first; the activity of each

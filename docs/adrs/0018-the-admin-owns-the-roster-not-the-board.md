@@ -1,7 +1,7 @@
 # ADR 0018: An admin owns the roster, not the board
 
 Status: Accepted. Amended by
-[ADR 0050](0050-trackers-are-server-sources-and-projects-select-by-label.md):
+[ADR 0054](0054-trackers-are-server-sources-and-projects-select-by-label.md):
 configuring a tracker is an admin's.
 
 Amends [ADR 0013](0013-roles-owned-executions-and-local-sign-in.md) and
@@ -35,7 +35,7 @@ session, a working workstation key and no way to end either.
 **The admin-only table is the accounts, and nothing else.** `adminOnlyRoute`
 names `/api/users` and `/api/users/{id}`. Creating, renaming, reconfiguring and
 deleting a project, and configuring the tracker it reads from, are a member's.
-*Amended by [ADR 0050](0050-trackers-are-server-sources-and-projects-select-by-label.md):
+*Amended by [ADR 0054](0054-trackers-are-server-sources-and-projects-select-by-label.md):
 a tracker is now shared by every project selecting it, so its configuration
 (source, board, columns, status-to-stage mapping, issue types, background
 sync) is an admin's, under `/api/admin/trackers`. A member still creates and

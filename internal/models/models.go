@@ -558,7 +558,7 @@ type CreateProjectRequest struct {
 	// tracker when empty or not one of them.
 	DefaultTrackerID string `json:"defaultTrackerId,omitempty"`
 	// JoinTrackerOnly is set by the server, never read from a payload, on a
-	// member's write (ADR 0050, D11): the project's tracker fields may then only
+	// member's write (ADR 0054, D11): the project's tracker fields may then only
 	// join a tracker already recorded, never create or rename one.
 	JoinTrackerOnly bool `json:"-"`
 }
@@ -934,7 +934,7 @@ type Task struct {
 	// ProjectIDs are the projects the ticket belongs to: those selecting its
 	// tracker whose label it carries, or which have no label.
 	ProjectIDs []string `json:"projectIds"`
-	// TrackerID is the tracker the ticket belongs to (#741): one record per
+	// TrackerID is the tracker the ticket belongs to (#741): one issue per
 	// remote ticket, whatever projects show it.
 	TrackerID      string   `json:"trackerId"`
 	Key            string   `json:"key"`

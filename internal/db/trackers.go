@@ -687,7 +687,7 @@ func (d *DB) UpdateTrackerMirror(trackerID string, change func(t *models.Tracker
 
 // trackerFieldsTouched says which tracker fields a project write carries, so
 // that only those are written through to its tracker, and whether the write
-// may only join a tracker already recorded (a member's, ADR 0050, D11).
+// may only join a tracker already recorded (a member's, ADR 0054, D11).
 type trackerFieldsTouched struct {
 	boardID, columns, stages, sprints, issueTypes, autoSync bool
 	joinOnly                                                bool

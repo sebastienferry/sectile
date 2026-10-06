@@ -60,7 +60,7 @@ test('the form says what prevents saving', () => {
 })
 
 test('a card names every project of its ticket on All projects, none on one project', () => {
-  // One record per remote ticket (#741): a ticket of two projects is one card,
+  // One issue per remote ticket (#741): a ticket of two projects is one card,
   // and its chips are what tell the projects apart.
   const projects = [{ id: 'da', slug: 'delivery' }, { id: 'ba', slug: 'bidder' }, { id: 'x', slug: 'other' }]
   const shared = { projectId: 'da', projectIds: ['da', 'ba'] }

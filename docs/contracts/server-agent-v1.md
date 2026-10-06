@@ -15,7 +15,7 @@ agent bearer token. An optional `framework` parameter generates installation
 templates for a supported SDD framework without changing project settings. Use exact project IDs, not names. Prefer full task IDs over
 ambiguous tracker keys.
 
-A ticket may belong to several projects since #741 (ADR 0050), so a task
+A ticket may belong to several projects since #741 (ADR 0054), so a task
 lookup no longer resolves one owning project. With `taskKey` and `projectId`,
 the configuration is that project's, and the ticket must belong to it (`400`
 otherwise). With `taskKey` alone, it is the ticket's only project, else the

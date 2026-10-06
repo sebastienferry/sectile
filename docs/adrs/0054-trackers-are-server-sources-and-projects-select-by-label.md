@@ -1,4 +1,4 @@
-# ADR 0050: Trackers are server sources and projects select their tickets by label
+# ADR 0054: Trackers are server sources and projects select their tickets by label
 
 - Status: Accepted
 - Date: 2026-10-05
@@ -28,7 +28,7 @@ application's from GODE alone.
 
 ## Decision
 
-**A project is an application, and a tracker is a server-side source.** A
+**A project is a board, and a tracker is a server-side source.** A
 project keeps its repositories, rules and skills. A tracker is one Jira space,
 one GitHub repository, one GitLab project, or the local board of one project.
 It is synchronised in full, whatever projects exist, and a project shows the
@@ -49,7 +49,7 @@ subset of its trackers' tickets that carries its label.
   tickets go: the first tracker unless it names another, and the first
   remaining one when its default is unlinked. A local tracker belongs to its
   own project and is never accepted from another.
-- **One record per remote ticket, owned by its tracker.** A ticket carries
+- **One local issue per remote ticket, owned by its tracker.** A ticket carries
   `tracker_id`, and `(tracker_id, key)` is unique. A ticket carrying two
   project labels shows in both projects with one stage, one set of pull
   requests and one activity history.
@@ -97,7 +97,7 @@ subset of its trackers' tickets that carries its label.
   merges two copies of a ticket, the merged-away id is kept in `task_aliases`,
   so a link or an agent holding it still resolves. A key that two
   trackers carry is an error rather than the first match.
-- **Adoption is an idempotent step at start.** Migration 47 only adds the
+- **Adoption is an idempotent step at start.** Migration 49 only adds the
   tables and columns. `adoptTrackers()` then runs under the migration lock: it
   creates one tracker per identity the projects name (the first project of an
   identity giving its board mirror, auto-sync on if any project had it, with
@@ -164,6 +164,25 @@ subset of its trackers' tickets that carries its label.
   same cases in English with the candidate projects, so the calling agent asks
   its user. The agent sends the dispatched project with its configuration
   request, so the agent should be upgraded with the server.
+- **The Jira priority mapping of #679 stays on the project.** It is a
+  tracker-shaped setting, but it moves with nothing in this change: it is
+  stored in `projects.priority_mapping`, edited from the project's **Trackers
+  & label** tab by its members, and read from the Jira space of the project's
+  default tracker. A write carries it beside the tracker
+  (`CreateIssueRequest` / `UpdateIssueRequest.PriorityMapping`) only when the
+  ticket's tracker is that default tracker; a ticket of another of the
+  project's trackers writes its priority as before #679. Two projects sharing
+  one Jira tracker each keep their own mapping, and a ticket of both is
+  checked against the project its computed `projectId` names. A tracker sync that describes the tracker
+  refreshes the mapping of every linked project whose default tracker it is.
+  Moving the mapping to the tracker, an admin's like its board, is a
+  follow-up.
+- **The epic axis fields of #680 stay on the project too.** They are stored
+  in `projects.epic_axis_fields` and discovered on an epic of the project's
+  default tracker. An epic read asks them beside the tracker
+  (`ProjectRequest.EpicAxisFields`) only when it reads that default tracker,
+  and a field write goes to it; the epics of another of the project's
+  trackers keep their axes as labels only, as before #680.
 - **ADR 0043 roadmap projects overlap with multi-tracker projects.** A Jira
   project's declared roadmap projects stay a read-only source of epics, as
   ADR 0043 describes, beside the trackers the project now selects its tickets
@@ -173,7 +192,7 @@ subset of its trackers' tickets that carries its label.
   matches a part of a label, as the board always did; only membership and saved
   views compare whole labels.
 - **The upgrade needs a stop-then-start deploy, not a rolling one.** Migration
-  47 and the adoption steps run at server start, under the migration lock.
+  49 and the adoption steps run at server start, under the migration lock.
   During a rolling deploy on PostgreSQL, an old replica keeps synchronising per
   project, writes tickets without a tracker and can re-create a duplicate the
   new replica merged; the adoption only runs at start, so those rows would wait

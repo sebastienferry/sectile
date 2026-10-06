@@ -140,7 +140,7 @@ func (h *Handler) requireOwnerOrAdmin(w http.ResponseWriter, r *http.Request, ow
 // reaches its trackers with (#464), and the trackers themselves (#741): their
 // source, board, columns, status-to-stage mapping, issue types and background
 // sync are shared by every project selecting them, so a member no longer
-// configures them from a project (ADR 0050, D11).
+// configures them from a project (ADR 0054, D11).
 func adminOnlyRoute(_ string, path string) bool {
 	return path == "/api/users" || strings.HasPrefix(path, "/api/users/") ||
 		path == AdminStatsPath ||
@@ -150,7 +150,7 @@ func adminOnlyRoute(_ string, path string) bool {
 }
 
 // memberProjectCreate and memberProjectUpdate drop the tracker configuration a
-// member's project write still carries (#741, ADR 0050, D11). Since #741 the
+// member's project write still carries (#741, ADR 0054, D11). Since #741 the
 // project's board, columns, status-to-stage mapping, issue types and
 // background sync are its default tracker's, shared by every project selecting
 // it, so they are an admin's to change, from Administration. An older client
