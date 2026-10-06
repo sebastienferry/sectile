@@ -4171,8 +4171,9 @@ func (h *Handler) HandleEventsSSE(w http.ResponseWriter, r *http.Request) {
 }
 
 // repositoryErrorStatus answers 400 for a refused repository declaration or
-// pin (#456), or another refused project setting, 422 for a refused priority,
-// and 500 for anything else.
+// pin (#456), another refused project setting, or a tracker selection naming
+// an unknown tracker or another project's local board (#741), 422 for a
+// refused priority (#679), and 500 for anything else.
 func repositoryErrorStatus(err error) int {
 	// A priority the project's mapping only guessed (#679) is a refusal the
 	// person can act on in the Tracker tab, not a malformed request.
@@ -4181,6 +4182,9 @@ func repositoryErrorStatus(err error) int {
 		return http.StatusUnprocessableEntity
 	}
 	if errors.Is(err, db.ErrDuplicateRepository) || errors.Is(err, db.ErrRepositoryNotInProject) || errors.Is(err, db.ErrInvalidSpecArtifacts) || errors.Is(err, db.ErrInvalidBranchNameFormat) || errors.Is(err, db.ErrInvalidEpicAxisPrefix) || errors.Is(err, db.ErrInvalidPriorityMapping) || errors.Is(err, db.ErrInvalidEpicAxisFields) {
+		return http.StatusBadRequest
+	}
+	if errors.Is(err, db.ErrUnknownTracker) || errors.Is(err, db.ErrForeignLocalTracker) {
 		return http.StatusBadRequest
 	}
 	return http.StatusInternalServerError

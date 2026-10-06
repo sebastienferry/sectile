@@ -638,6 +638,10 @@ func (d *DB) ensureProjectTrackerUnsafe(tx *sqlTx, p *models.Project, settings *
 // ErrUnknownTracker refuses a project naming a tracker nobody recorded.
 var ErrUnknownTracker = errors.New("tracker inconnu")
 
+// ErrForeignLocalTracker refuses a project selecting another project's local
+// board.
+var ErrForeignLocalTracker = errors.New("le tableau local d'un autre projet ne peut pas être sélectionné")
+
 // applyProjectSelectionUnsafe writes what a project selects its tickets with
 // (#741): its trackers, by id or identity, in order, when trackers is not nil;
 // its label when label is not nil; its default tracker, which must be one of
@@ -668,7 +672,7 @@ func (d *DB) applyProjectSelectionUnsafe(tx *sqlTx, p *models.Project, trackers 
 				return fmt.Errorf("%w : %s%s", ErrUnknownTracker, entry.TrackerID, entry.Identity)
 			}
 			if t.Provider == "local" && t.Scope != p.ID {
-				return fmt.Errorf("le tableau local d'un autre projet ne peut pas être sélectionné")
+				return ErrForeignLocalTracker
 			}
 			resolved = append(resolved, models.ProjectTracker{TrackerID: t.ID, Identity: t.Identity})
 		}

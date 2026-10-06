@@ -315,3 +315,33 @@ func TestAnAdminStillConfiguresTheTrackerThroughAProject(t *testing.T) {
 		t.Fatalf("the admin's new tracker must carry the configuration: %+v (%v)", fresh, err)
 	}
 }
+
+// A project naming a tracker nobody recorded, or another project's local
+// board, is a refused setting: 400 with the store's reason, not a 500.
+func TestAProjectNamingAnUnknownTrackerIsABadRequest(t *testing.T) {
+	h, database, cleanup := setupTestHandler(t)
+	defer cleanup()
+	server := projectServer(t, h)
+	_, alice := account(t, database, "alice@example.com")
+	project, err := database.CreateProject(models.CreateProjectRequest{Name: "Platform", IssueTracker: "jira", JiraProject: "PE"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := database.CreateProject(models.CreateProjectRequest{Name: "Notes"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	status, body := call(t, server, alice, http.MethodPut, "/api/projects/"+project.ID, `{"trackers":[{"trackerId":"missing"}]}`)
+	if status != http.StatusBadRequest || !strings.Contains(body, "tracker inconnu") {
+		t.Fatalf("update naming an unknown tracker: %d %s", status, body)
+	}
+	status, body = call(t, server, alice, http.MethodPost, "/api/projects", `{"name":"Billing","trackers":[{"identity":"jira|nowhere|NONE"}]}`)
+	if status != http.StatusBadRequest || !strings.Contains(body, "tracker inconnu") {
+		t.Fatalf("creation naming an unknown tracker: %d %s", status, body)
+	}
+	status, body = call(t, server, alice, http.MethodPut, "/api/projects/"+project.ID, `{"trackers":[{"trackerId":"`+other.DefaultTrackerID+`"}]}`)
+	if status != http.StatusBadRequest || !strings.Contains(body, "tableau local") {
+		t.Fatalf("update naming another project's local board: %d %s", status, body)
+	}
+}

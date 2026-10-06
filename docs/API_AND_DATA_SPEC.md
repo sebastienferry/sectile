@@ -361,10 +361,10 @@ nothing; a creation goes out without that priority and its answer carries a
 ordered list of `{trackerId, identity}` it selects its tickets from, `label`,
 which narrows it to the tickets carrying it (empty shows every ticket of its
 trackers), and `defaultTrackerId`, where its new tickets go. The creation and
-the update accept the three: a tracker is named by id or identity (one nobody
-recorded is refused), duplicates are dropped, the list order is kept, and a
+the update accept the three: a tracker is named by id or identity (`400` for
+one nobody recorded), duplicates are dropped, the list order is kept, and a
 default that is not one of the trackers falls back to the first. The local
-board of another project is refused. A creation that names no tracker gets the
+board of another project is refused with `400`. A creation that names no tracker gets the
 one its legacy tracker fields (`issueTracker`, `jiraProject`, `githubRepo`,
 `gitlabProject`, …) name, found by identity or recorded, or its own local
 board.
