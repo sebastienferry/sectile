@@ -2441,6 +2441,9 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 	case strings.HasSuffix(rawPath, "/worktree"):
 		subAction = "worktree"
 		id = strings.TrimSuffix(rawPath, "/worktree")
+	case strings.HasSuffix(rawPath, "/archive-workspace"):
+		subAction = "archive-workspace"
+		id = strings.TrimSuffix(rawPath, "/archive-workspace")
 	case strings.HasSuffix(rawPath, "/pin"):
 		subAction = "pin"
 		id = strings.TrimSuffix(rawPath, "/pin")
@@ -3283,6 +3286,23 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusOK, map[string]string{"message": "Worktree supprimé avec succès"})
 			return
 		}
+	}
+
+	// Sub-action: /api/tasks/{id}/archive-workspace: Desktop archives the task
+	// only once the caller's agent cleaned its worktrees (#755). A worktree
+	// left behind is an answer, not an error: the client names it.
+	if subAction == "archive-workspace" && r.Method == http.MethodPost {
+		archive, err := h.db.ArchiveTaskWorkspace(r.Context(), h.webSessionUser(r), id)
+		if errors.Is(err, db.ErrArchiveTaskNotFound) {
+			writeError(w, http.StatusNotFound, "Task not found")
+			return
+		}
+		if err != nil {
+			writeError(w, http.StatusBadGateway, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"archivable": archive.Archivable(), "repositories": archive.Repositories})
+		return
 	}
 
 	// Sub-action: /api/tasks/{id}/sync: perform a unit two-way sync (update tracker and rsync local state)

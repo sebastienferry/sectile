@@ -314,6 +314,28 @@ and records the repository on the task only once the agent answered. `remove_wor
 `payload.repositories` removes the task worktree in each of those repositories
 and answers `{"removed": [...], "failed": [{"repository", "error"}]}`.
 
+`archive_workspace` (`payload.taskId`, `payload.repositories`,
+`payload.deleteBranch`) cleans a task Desktop archives (#755). The agent
+removes, with a plain `git worktree remove`, the worktree of the task's branch
+in each repository named (the task's root when none is) and in a distinct Issue
+folder, and answers `{"repositories": [{"repository", "role", "path",
+"outcome", "error", "branch", "branchOutcome", "branchReason"}]}`. `role` is
+`code` or `specifications`; `outcome` is `removed`, `absent` (no worktree of
+the branch, or the branch is the checkout's own), `disabled` (worktrees off,
+nothing touched) or `failed` (Git's reason, or a repository not found here).
+Where the worktree is gone and `deleteBranch` is set, the local branch is
+deleted with `git branch -D` when it is checked out nowhere, has an upstream
+and no commit its upstream lacks; otherwise `branchOutcome` is `kept` with
+`branchReason` `no-merged-pr`, `missing`, `checked-out`, `no-upstream` or
+`unpushed`. A kept branch never fails an entry. The server sets
+`deleteBranch` only when the task records pull requests and all are merged,
+and answers a task whose branch another task of the project records (a batch)
+with `shared` entries without asking the agent. Desktop reaches it through
+`POST /desktop/tasks/archive-workspace?projectId=` (`{"taskId"}`), relayed to
+`POST /api/tasks/{id}/archive-workspace`, which answers `{"archivable",
+"repositories"}`; the agent announces it with the `archive-workspace`
+capability and names a server without the route.
+
 Each dispatch resolves the task's primary repository before anything starts:
 its pin (`task.repository`) when it names one of the project's repositories,
 else the code repository (#484). No dispatch waits for a repository choice; the

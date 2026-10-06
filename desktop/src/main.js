@@ -35,6 +35,7 @@ import { nextEngine, taskEngine, engineMark, engineTooltip, moveEngine, removalI
 import { pollAction, startEnabled } from './agent-poll.mjs'
 import { runFolderOutcome, offersRunFolder } from './run-folders.mjs'
 import { offerFor, initializedNotice } from './git-init.mjs'
+import { archiveLabel, archiveRefusal, archiveFailure } from './archive-workspace.mjs'
 // The repository changelog, inlined by Vite at build time. The app reads it
 // with no network at all: the renderer's content security policy forbids any
 // outgoing connection, and the release notes have to stay readable with the
@@ -104,6 +105,10 @@ const freeConsole=run=>run?.kind==='console'
 const runLabel=run=>run.conversation&&run.taskId?run.skill+' · Conversation (test)':run.conversation?'Claude Code · Conversation (test)':freeConsole(run)?(run.engineName||run.provider||'AI')+' · Project prompt':(runEngine(run)?run.skill+' · '+runEngine(run):run.skill)
 // A macro skill run has no task: its executions group under the macro.
 const macroRun=run=>!!run?.macroKey
+// Archiving a ticket task removes its worktrees first (#755); a free console or a macro run has none.
+const archivesWorktree=run=>!freeConsole(run)&&!macroRun(run)&&!!run?.taskId
+// The tasks whose archive is under way, so their button cannot start a second one.
+const archiving=new Set()
 const taskKey=run=>JSON.stringify([run.projectId,freeConsole(run)?run.id:macroRun(run)?'macro:'+run.macroKey:run.taskId])
 const activeRun=run=>['running','queued','preparing'].includes(run.status)
 const taskState=run=>localTasks[taskKey(run)]||{}
@@ -747,15 +752,16 @@ function render(options){
     if(!freeConsole(run))keySlot.append(context)
     const archive=document.createElement('button');archive.className='task-archive'
     archive.innerHTML='<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M4 8h16v12H4zM3 4h18v4H3zM9 12h6"/></svg>'
-    archive.onclick=()=>requestArchive(run)
+    archive.disabled=archiving.has(key)
+    archive.onclick=()=>{archive.disabled=true;requestArchive(run)}
     const pencil=document.createElement('button');pencil.className='task-rename-button'
     pencil.innerHTML='<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m13.5 6.5 4 4"/></svg>'
     // Labels read the current name, so an edition ended in place relabels its row.
     const label=()=>{
      title.textContent=displayedName(run)
      button.title=title.textContent+' · '+runLabel(run)+' · '+stateLabel+' · '+executions.length+' execution(s)'
-     const archiveLabel=(executions.some(activeRun)?'Stop and archive ':'Archive ')+(taskState(run).name||run.taskKey||run.taskId||runLabel(run))
-     archive.title=archiveLabel;archive.setAttribute('aria-label',archiveLabel)
+     const archiveTitle=archiveLabel(taskState(run).name||run.taskKey||run.taskId||runLabel(run),{active:executions.some(activeRun),ticket:archivesWorktree(run)})
+     archive.title=archiveTitle;archive.setAttribute('aria-label',archiveTitle)
      pencil.title='Rename '+title.textContent;pencil.setAttribute('aria-label',pencil.title)
     }
     label()
@@ -3234,19 +3240,47 @@ async function refreshPRs(executions){
  }finally{linksLoading=false}
 }
 
+// archiveDialog archives the task, after stopping its active executions when
+// stop says the user asked for it. A refusal keeps the dialog open with its
+// reason, one line per paragraph, and the button tries again: executions
+// already stopped stay stopped.
+function archiveDialog(run,title,intro,label,stop){
+ showDialog(title)
+ if(intro)paragraph(intro)
+ const message=document.createElement('div');message.className='archive-refusal';message.setAttribute('role','alert')
+ const confirm=document.createElement('button');confirm.textContent=label;dialogBody.append(message,confirm)
+ const refuse=err=>message.replaceChildren(...startFailure(err).split('\n').map(line=>{const p=document.createElement('p');p.textContent=line;return p}))
+ confirm.onclick=async()=>{
+  confirm.disabled=true;message.replaceChildren()
+  try{
+   if(stop)await Promise.all(runs.filter(item=>taskKey(item)===taskKey(run)&&activeRun(item)).map(item=>api.stop(item.id)))
+   await archiveTask(run)
+  }catch(err){refuse(err);confirm.disabled=false}
+ }
+ return refuse
+}
 function requestArchive(run){
- const active=runs.filter(item=>taskKey(item)===taskKey(run)&&activeRun(item))
- if(active.length){
-  showDialog('Stop and archive task?')
-  paragraph('This task has active executions. They must stop before it can be archived locally.')
-  const confirm=document.createElement('button');confirm.textContent='Stop and archive';dialogBody.append(confirm)
-  confirm.onclick=async()=>{confirm.disabled=true;try{await Promise.all(active.map(item=>api.stop(item.id)));await archiveTask(run)}catch(err){paragraph(err.message);confirm.disabled=false}}
- }else archiveTask(run).catch(error)
+ const key=taskKey(run)
+ if(runs.some(item=>taskKey(item)===key&&activeRun(item))){
+  archiveDialog(run,'Stop and archive task?','This task has active executions. They must stop before it can be archived'+(archivesWorktree(run)?' and its worktree removed.':' locally.'),'Stop and archive',true)
+  render()
+  return
+ }
+ if(archiving.has(key))return
+ archiving.add(key)
+ archiveTask(run).catch(err=>archiveDialog(run,'Task not archived','','Archive again',false)(err)).finally(()=>{archiving.delete(key);render()})
 }
 async function archiveTask(run){
  const latest=await api.runs()
  const related=latest.filter(item=>taskKey(item)===taskKey(run))
  if(related.some(activeRun))throw Error('An execution is still active. Stop it before archiving.')
+ // The worktrees go before the runs are hidden: a task whose worktree stays is not archived (#755).
+ if(archivesWorktree(run)){
+  let result
+  try{result=await api.archiveWorkspace(run.projectId,run.taskId)}catch(err){throw Error(archiveFailure(err))}
+  const refusal=archiveRefusal(result)
+  if(refusal)throw Error(refusal)
+ }
  localTasks[taskKey(run)]={...taskState(run),archivedRuns:related.map(item=>item.id)}
  saveLocalTasks()
  const current=runs.find(item=>item.id===selected)

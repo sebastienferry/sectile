@@ -171,6 +171,9 @@ func (d *agentDaemon) executeOperation(ctx context.Context, op agentprotocol.Ope
 		if op.Action == "task_spec_worktree" {
 			return taskSpecWorktreeFor(ctx, config, overrides, root, task)
 		}
+		if op.Action == "archive_workspace" {
+			return archiveWorkspace(ctx, config, overrides, root, task, op), nil
+		}
 		if op.Action == "remove_workspace" && len(op.Repositories) > 0 {
 			return removeRepositoryWorktrees(ctx, config, overrides, root, task, op.Repositories), nil
 		}
@@ -340,6 +343,9 @@ func (d *agentDaemon) executeOperation(ctx context.Context, op agentprotocol.Ope
 		}
 		fi, err := os.Stat(target)
 		return models.WorktreeInfo{TaskKey: task.Key, Branch: branch, WorktreePath: target, MainRepoPath: root, Exists: config.UseWorktrees && err == nil && fi.IsDir()}, nil
+	case "archive_workspace":
+		// A task's operation answered above; this one names no task.
+		return nil, fmt.Errorf("task is required")
 	case "remove_workspace":
 		if op.TaskID == "" || !config.UseWorktrees || filepath.Clean(target) == filepath.Clean(root) {
 			return nil, fmt.Errorf("task has no isolated worktree")
