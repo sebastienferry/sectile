@@ -8,7 +8,15 @@ export function createGitDiff({api,container,terminal,panel,divider,consoleButto
  let runID=null,generation=0,active=false,consoleVisible=true,result=null,selection=null
  // A Markdown file opens rendered; the raw diff is chosen per execution and
  // forgotten when another execution is selected.
- let rendered=true
+ let rendered=true,stacked=false
+ const observeLayout=new ResizeObserver(()=>{
+  const next=panel.clientWidth<680
+  if(next===stacked)return
+  stacked=next;panel.classList.toggle('stacked',stacked)
+  divider.setAttribute('aria-orientation',stacked?'horizontal':'vertical')
+  if(consoleVisible)requestAnimationFrame(()=>onConsole(false))
+ })
+ observeLayout.observe(panel)
  container.innerHTML='<div class="changes-toolbar"><button type="button" class="diff-refresh">Refresh</button><span class="diff-status" role="status" aria-live="polite"></span></div><p class="diff-error" role="alert" hidden></p><p class="diff-context"></p><p class="diff-summary"></p><select class="diff-files" aria-label="Changed file" hidden></select><div class="diff-body"><div class="diff-detail"><button type="button" class="diff-render-toggle" aria-pressed="false" hidden>Rendered</button><p class="diff-file-info"></p><p class="diff-render-note" hidden></p><pre class="diff-patch" tabindex="0" aria-label="Selected file diff"></pre><div class="diff-rendered" tabindex="0" aria-label="Rendered Markdown" hidden></div></div></div>'
  const find=s=>container.querySelector(s)
  function clearDocument(){
@@ -81,7 +89,7 @@ export function createGitDiff({api,container,terminal,panel,divider,consoleButto
  }
  function setSplit(percent){
   const value=Math.max(25,Math.min(75,Math.round(percent)))
-  terminal.style.width=value+'%'
+  terminal.style.flexBasis=value+'%'
   divider.setAttribute('aria-valuenow',String(value))
   requestAnimationFrame(()=>onConsole(false))
  }
@@ -95,10 +103,10 @@ export function createGitDiff({api,container,terminal,panel,divider,consoleButto
  find('.diff-files').onchange=event=>{selection=event.target.value;showFile()}
  find('.diff-render-toggle').onclick=()=>{rendered=!rendered;showFile()}
  divider.onpointerdown=event=>{divider.setPointerCapture(event.pointerId);document.body.classList.add('resizing-execution')}
- divider.onpointermove=event=>{if(divider.hasPointerCapture(event.pointerId)){const rect=panel.getBoundingClientRect();setSplit((event.clientX-rect.left)/rect.width*100)}}
+ divider.onpointermove=event=>{if(divider.hasPointerCapture(event.pointerId)){const rect=panel.getBoundingClientRect();setSplit(stacked?(event.clientY-rect.top)/rect.height*100:(event.clientX-rect.left)/rect.width*100)}}
  divider.onpointerup=event=>{divider.releasePointerCapture(event.pointerId)}
  divider.onlostpointercapture=()=>document.body.classList.remove('resizing-execution')
- divider.onkeydown=event=>{if(event.key==='ArrowLeft'||event.key==='ArrowRight'){event.preventDefault();setSplit(Number(divider.getAttribute('aria-valuenow'))+(event.key==='ArrowRight'?5:-5))}}
+ divider.onkeydown=event=>{const decrease=stacked?'ArrowUp':'ArrowLeft',increase=stacked?'ArrowDown':'ArrowRight';if(event.key===decrease||event.key===increase){event.preventDefault();setSplit(Number(divider.getAttribute('aria-valuenow'))+(event.key===increase?5:-5))}}
  return {
   get active(){return active},
   get consoleVisible(){return consoleVisible},

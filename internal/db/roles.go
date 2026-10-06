@@ -167,29 +167,62 @@ func (d *DB) ListUsers() ([]User, error) {
 // The last admin cannot be demoted: the board would have nobody left to undo
 // it.
 func (d *DB) SetUserRole(id, role string) (*User, error) {
+	role = strings.TrimSpace(role)
 	if !ValidRole(role) {
 		return nil, fmt.Errorf("role must be %s or %s", RoleAdmin, RoleMember)
 	}
-	user, err := d.GetUser(id)
+	tx, user, err := d.beginUserAdministration(id)
 	if err != nil {
 		return nil, err
 	}
-	if user == nil {
-		return nil, sql.ErrNoRows
-	}
-	if user.Role == RoleAdmin && role == RoleMember {
-		admins, err := d.AdminCount()
-		if err != nil {
+	defer tx.Rollback()
+	if role == RoleMember {
+		if err := protectLastAdmin(tx, user); err != nil {
 			return nil, err
 		}
-		if admins <= 1 {
-			return nil, ErrLastAdmin
-		}
 	}
-	if err := d.setUserRole(id, role); err != nil {
+	if _, err := tx.Exec(`UPDATE users SET role = ? WHERE id = ?`, role, id); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
 	return d.GetUser(id)
+}
+
+// beginUserAdministration serializes roster changes across server instances.
+// The existing singleton lock covers the count and mutation together, including
+// changes to different users; locking just the target user would not suffice.
+func (d *DB) beginUserAdministration(id string) (*sqlTx, *User, error) {
+	tx, err := d.conn.Begin()
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := d.lockSettingsUnsafe(tx); err != nil {
+		_ = tx.Rollback()
+		return nil, nil, err
+	}
+	user, err := scanUser(tx.QueryRow(`SELECT `+userColumns+` FROM users WHERE id = ?`, id))
+	if err != nil {
+		_ = tx.Rollback()
+		return nil, nil, err
+	}
+	return tx, user, nil
+}
+
+func protectLastAdmin(tx *sqlTx, user *User) error {
+	// Removing an already blocked admin cannot reduce the active-admin count.
+	if user.Role != RoleAdmin || user.Blocked {
+		return nil
+	}
+	var count int
+	if err := tx.QueryRow(`SELECT COUNT(*) FROM users WHERE role = ? AND blocked_at IS NULL`, RoleAdmin).Scan(&count); err != nil {
+		return err
+	}
+	if count <= 1 {
+		return ErrLastAdmin
+	}
+	return nil
 }
 
 // SetUserBlocked closes an account or opens it again. A blocked account keeps
@@ -200,41 +233,34 @@ func (d *DB) SetUserRole(id, role string) (*User, error) {
 // The last admin cannot be blocked, for the reason a demotion cannot: the board
 // would be left with nobody able to undo it.
 func (d *DB) SetUserBlocked(id string, blocked bool) (*User, error) {
-	user, err := d.GetUser(id)
-	if err != nil {
-		return nil, err
-	}
-	if user == nil {
-		return nil, sql.ErrNoRows
-	}
 	if blocked && id == ImplicitUserID {
 		return nil, ErrImplicitUser
 	}
-	if blocked && user.Role == RoleAdmin {
-		admins, err := d.AdminCount()
-		if err != nil {
-			return nil, err
-		}
-		if admins <= 1 {
-			return nil, ErrLastAdmin
-		}
+	tx, user, err := d.beginUserAdministration(id)
+	if err != nil {
+		return nil, err
 	}
+	defer tx.Rollback()
 	if blocked {
-		if _, err := d.conn.Exec(`UPDATE users SET blocked_at = ? WHERE id = ?`, time.Now().UTC(), id); err != nil {
+		if err := protectLastAdmin(tx, user); err != nil {
 			return nil, err
 		}
-		// The block has to reach the sessions already open, otherwise it only
-		// takes effect whenever the person next signs in, which is exactly when
-		// they would not.
-		if err := d.RevokeUserSessions(id); err != nil {
+		now := time.Now().UTC()
+		if _, err := tx.Exec(`UPDATE users SET blocked_at = ? WHERE id = ?`, now, id); err != nil {
 			return nil, err
 		}
-		// And to the unlocks of their sealed credentials, which an agent of
-		// theirs would otherwise keep alive.
-		if err := d.ForgetUserUnlocks(id); err != nil {
+		// Blocking and revoking access commit together, so an error cannot leave
+		// an account blocked with usable session or credential-unlock records.
+		if _, err := tx.Exec(`UPDATE web_sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL`, now, id); err != nil {
 			return nil, err
 		}
-	} else if _, err := d.conn.Exec(`UPDATE users SET blocked_at = NULL WHERE id = ?`, id); err != nil {
+		if _, err := tx.Exec(`DELETE FROM user_credential_unlocks WHERE user_id = ?`, id); err != nil {
+			return nil, err
+		}
+	} else if _, err := tx.Exec(`UPDATE users SET blocked_at = NULL WHERE id = ?`, id); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
 	return d.GetUser(id)
@@ -256,27 +282,14 @@ func (d *DB) DeleteUser(id string) error {
 	if id == ImplicitUserID {
 		return ErrImplicitUser
 	}
-	user, err := d.GetUser(id)
+	tx, user, err := d.beginUserAdministration(id)
 	if err != nil {
 		return err
 	}
-	if user == nil {
-		return sql.ErrNoRows
-	}
-	if user.Role == RoleAdmin {
-		admins, err := d.AdminCount()
-		if err != nil {
-			return err
-		}
-		if admins <= 1 {
-			return ErrLastAdmin
-		}
-	}
-	tx, err := d.conn.Begin()
-	if err != nil {
+	defer tx.Rollback()
+	if err := protectLastAdmin(tx, user); err != nil {
 		return err
 	}
-	defer func() { _ = tx.Rollback() }()
 	for _, statement := range []string{
 		`DELETE FROM web_sessions WHERE user_id = ?`,
 		`DELETE FROM pairing_codes WHERE user_id = ?`,
@@ -329,9 +342,20 @@ func (d *DB) setUserRole(id, role string) error {
 // the same instant on an empty board would otherwise both read "no admin" and
 // both take the role.
 func (d *DB) ensureFirstAdmin(userID string) error {
-	_, err := d.conn.Exec(`UPDATE users SET role = ? WHERE id = ?
+	tx, err := d.conn.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if err := d.lockSettingsUnsafe(tx); err != nil {
+		return err
+	}
+	_, err = tx.Exec(`UPDATE users SET role = ? WHERE id = ?
 		AND NOT EXISTS (SELECT 1 FROM users WHERE role = ? AND blocked_at IS NULL)`, RoleAdmin, userID, RoleAdmin)
-	return err
+	if err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // EnsureUser makes sure a row exists for a user id that no sign-in created: the

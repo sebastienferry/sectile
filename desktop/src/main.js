@@ -102,7 +102,7 @@ let localTasks={}
 try{localTasks=JSON.parse(localStorage.getItem('localTasks')||'{}')}catch{}
 const freeConsole=run=>run?.kind==='console'
 // Task runs show the skill and engine; project prompts show their engine name.
-const runLabel=run=>run.conversation&&run.taskId?run.skill+' · Conversation (test)':run.conversation?'Claude Code · Conversation (test)':freeConsole(run)?(run.engineName||run.provider||'AI')+' · Project prompt':(runEngine(run)?run.skill+' · '+runEngine(run):run.skill)
+const runLabel=run=>run.conversation&&run.taskId?(run.skill||'Claude Code')+' · Conversation (test)':run.conversation?'Claude Code · Conversation (test)':freeConsole(run)?(run.engineName||run.provider||'AI')+' · Project prompt':(runEngine(run)?run.skill+' · '+runEngine(run):run.skill)
 // A macro skill run has no task: its executions group under the macro.
 const macroRun=run=>!!run?.macroKey
 // Archiving a ticket task removes its worktrees first (#755); a free console or a macro run has none.
@@ -670,7 +670,7 @@ function renderHeader(){
  if(run){
   const identity=run.taskKey||run.taskId
   const name=taskState(run).name?.trim()||taskTitles.get(run.taskId)?.trim()
-  text=freeConsole(run)?(taskState(run).name||runLabel(run)):[identity,...(name&&name!==identity?[name]:[]),run.skill].join(' · ')
+  text=freeConsole(run)?(taskState(run).name||runLabel(run)):[identity,...(name&&name!==identity?[name]:[]),run.skill].filter(Boolean).join(' · ')
  }
  const title=document.querySelector('#title')
  title.textContent=text;title.title=text

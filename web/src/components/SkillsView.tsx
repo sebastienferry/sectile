@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Bot,
   FileCode2,
@@ -24,15 +24,13 @@ const skillModeOptions = (modes: SkillsEditorStrings['modes']): { value: SkillMo
   { value: 'autonomous', label: modes.autonomous, title: modes.autonomousHelp },
 ]
 
-/**
- * Éditeur des skills du workflow agentique.
- *
- * Les cinq pas du workflow ont une skill et une seule, et c'est le même contenu
- * qui est rendu dans chaque répertoire d'agent du dépôt. Éditer ici régénère les
- * fichiers ; un SKILL.md retouché à la main dans le dépôt n'est pas écrasé en
- * silence, il est signalé comme divergent et peut être réimporté.
- */
+/** Project changes must never expose another project's editable skill content. */
 export const SkillsView: React.FC = () => {
+  const { currentProject } = useApp()
+  return <ProjectSkillsView key={currentProject?.id || 'no-project'} />
+}
+
+const ProjectSkillsView: React.FC = () => {
   const { t, settings, currentProject, fetchSkillEditor, saveSkillContent, resetSkillContent, saveSkillMode } = useApp()
   const { modes, list, indicators, editor } = t.skillsEditor
 
@@ -41,43 +39,53 @@ export const SkillsView: React.FC = () => {
   const [selectedId, setSelectedId] = useState<string>('')
   const [draft, setDraft] = useState('')
   const [busy, setBusy] = useState<string | null>(null)
-
-  const load = async () => {
-    setIsLoading(true)
-    const list = await fetchSkillEditor()
-    setEntries(list)
-    setIsLoading(false)
-    if (list.length && !list.some(e => e.id === selectedId)) {
-      setSelectedId(list[0].id)
-      setDraft(list[0].content)
-    }
-  }
+  const drafts = useRef<Record<string, string>>({})
 
   useEffect(() => {
-    load()
-    // Reloaded when the project changes: skills belong to the project.
-  }, [currentProject?.id])
+    if (!currentProject) return
+    let active = true
+    setIsLoading(true)
+    fetchSkillEditor().then(list => {
+      if (!active) return
+      setEntries(list)
+      setIsLoading(false)
+      if (list.length) {
+        setSelectedId(list[0].id)
+        setDraft(list[0].content)
+      }
+    })
+    return () => { active = false }
+    // This component is remounted for each project, not for provider rerenders.
+  }, [])
 
   const selected = useMemo(() => entries.find(e => e.id === selectedId) || null, [entries, selectedId])
 
   const select = (entry: SkillEditorEntry) => {
+    if (busy) return
+    if (selectedId) drafts.current[selectedId] = draft
     setSelectedId(entry.id)
-    setDraft(entry.content)
+    setDraft(drafts.current[entry.id] ?? entry.content)
   }
 
   const isDirty = Boolean(selected && (draft !== selected.content || selected.requiresReconciliation))
 
-  const applyEntry = (entry: SkillEditorEntry | null) => {
+  const applyEntry = (entry: SkillEditorEntry | null, action: string) => {
     if (!entry) return
     setEntries(prev => prev.map(e => (e.id === entry.id ? entry : e)))
-    setDraft(entry.content)
+    if (action !== 'mode') {
+      delete drafts.current[entry.id]
+      setDraft(entry.content)
+    }
   }
 
   const run = async (action: string, fn: () => Promise<SkillEditorEntry | null>) => {
     if (busy) return
     setBusy(action)
-    applyEntry(await fn())
-    setBusy(null)
+    try {
+      applyEntry(await fn(), action)
+    } finally {
+      setBusy(null)
+    }
   }
 
   if (!currentProject) {
@@ -113,6 +121,7 @@ export const SkillsView: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => select(entry)}
+                  disabled={busy !== null}
                   className={`w-full text-left px-2.5 py-2 rounded-xl border transition-colors cursor-pointer ${
                     entry.id === selectedId
                       ? 'bg-[var(--accent-light)] border-[var(--accent-color)]/40'
@@ -249,6 +258,7 @@ export const SkillsView: React.FC = () => {
 
             {Object.entries(selected.legacyContents || {}).map(([id, content]) => <details key={id} className="px-4 text-xs"><summary>{format(editor.preservedCustomization, { id })}</summary><pre className="whitespace-pre-wrap">{content}</pre></details>)}
             <textarea
+              disabled={busy !== null}
               value={draft}
               onChange={e => setDraft(e.target.value)}
               spellCheck={false}

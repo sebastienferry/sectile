@@ -63,6 +63,8 @@ test('Claude chat renders structured output safely and sends messages without a 
   await page.keyboard.press('Escape')
   await page.locator('.run[data-run-id=chat]').click()
   await expect(page.locator('.conversation')).toBeVisible()
+  await expect(page.locator('.run[data-run-id=chat]')).not.toContainText('undefined')
+  await expect(page.locator('#title')).not.toHaveText(/·\s*$/)
   await page.locator('#rerun').click()
   await expect(page.getByRole('combobox',{name:'Relaunch skill'})).toBeVisible()
   await page.getByRole('combobox',{name:'Relaunch skill'}).selectOption('discuss')

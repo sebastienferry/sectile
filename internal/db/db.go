@@ -157,7 +157,15 @@ type DB struct {
 	cfg      Config
 	mu       sync.RWMutex
 	jobQueue chan SkillJob
-	limiter  *ProjectLimiter
+	// Admission and sender registration share one lock: Close can then stop
+	// admission before waiting for senders and closing their channel.
+	queueMu         sync.Mutex
+	queueClosed     bool
+	queueSenders    sync.WaitGroup
+	queueWorkerDone chan struct{}
+	closeOnce       sync.Once
+	closeErr        error
+	limiter         *ProjectLimiter
 	// auto porte l'état de la boucle de synchronisation de fond.
 	auto              *autoSync
 	cancelMap         map[string]context.CancelFunc
@@ -254,6 +262,7 @@ func openWith(cfg Config, d dialect) (*DB, error) {
 		trackers:        trackerClient,
 		trackerRegistry: trackerapi.NewDefaultRegistry(trackerClient),
 		jobQueue:        make(chan SkillJob, 100),
+		queueWorkerDone: make(chan struct{}),
 		limiter:         newProjectLimiter(),
 		cancelMap:       make(map[string]context.CancelFunc),
 		instanceID:      uuid.NewString(),
@@ -305,8 +314,8 @@ func openWith(cfg Config, d dialect) (*DB, error) {
 // goroutine, which races Close's Wait every time the counter sits at zero, and
 // the race detector fails the whole package on it. An atomic counter has no
 // such rule, and counting from the moment a job is queued rather than from the
-// moment it starts closes the window where a job admitted to the queue just as
-// the drain observed zero would run against a connection already closed.
+// moment it starts includes work still waiting for admission to a worker.
+// Close separately stops admission before draining this counter.
 type inFlightJobs struct{ running atomic.Int64 }
 
 func (f *inFlightJobs) begin() { f.running.Add(1) }
@@ -329,11 +338,22 @@ func (f *inFlightJobs) drain(bound time.Duration) bool {
 // shutdown waits for work that is queued and not yet started. A full queue is
 // handed to a goroutine rather than blocking the HTTP request that caused it.
 func (d *DB) enqueueJob(job SkillJob) {
+	d.queueMu.Lock()
+	if d.queueClosed {
+		d.queueMu.Unlock()
+		return
+	}
 	d.jobs.begin()
+	d.queueSenders.Add(1)
+	d.queueMu.Unlock()
 	select {
 	case d.jobQueue <- job:
+		d.queueSenders.Done()
 	default:
-		go func() { d.jobQueue <- job }()
+		go func() {
+			defer d.queueSenders.Done()
+			d.jobQueue <- job
+		}()
 	}
 }
 
@@ -343,9 +363,20 @@ func (d *DB) enqueueJob(job SkillJob) {
 // cleanup, which then fails on a directory that is not empty. The wait is
 // bounded so one stuck job cannot hold a shutdown open.
 func (d *DB) Close() error {
-	d.stopTodosMirrorTimers()
-	d.jobs.drain(5 * time.Second)
-	return d.conn.Close()
+	d.closeOnce.Do(func() {
+		d.queueMu.Lock()
+		d.queueClosed = true
+		d.queueMu.Unlock()
+		d.stopTodosMirrorTimers()
+		// Every admitted sender must finish before the channel is closed,
+		// including a sender waiting for space in the buffered queue.
+		d.queueSenders.Wait()
+		close(d.jobQueue)
+		<-d.queueWorkerDone
+		d.jobs.drain(5 * time.Second)
+		d.closeErr = d.conn.Close()
+	})
+	return d.closeErr
 }
 
 func (d *DB) TrackerRegistry() *tracker.Registry {
@@ -4213,6 +4244,7 @@ func (d *DB) GetAvailableSkills() []models.Skill {
 }
 
 func (d *DB) startQueueWorker() {
+	defer close(d.queueWorkerDone)
 	for job := range d.jobQueue {
 		go func(j SkillJob) {
 			// Counted in from enqueueJob, counted out here whatever happens.

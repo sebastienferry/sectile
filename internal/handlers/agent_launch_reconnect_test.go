@@ -129,3 +129,64 @@ func TestCanceledSkillLaunchWaitRecordsNothing(t *testing.T) {
 		t.Fatalf("canceled launch recorded %d activities", count)
 	}
 }
+
+func TestDeliveredSkillLaunchSurvivesLostAcknowledgement(t *testing.T) {
+	h, database, cleanup := setupTestHandler(t)
+	defer cleanup()
+	server := batchLaunchServer(t, h)
+	userID, cookie := account(t, database, "lost-ack@example.com")
+	key, _, err := database.CreateAPIKey(userID, "laptop", db.DefaultAPIKeyTTL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	task := guardTask(t, database, "Delivered launch")
+	conn := connectAgentAs(t, server, key, "default")
+	responses := make(chan int, 1)
+	go func() {
+		status, _ := call(t, server, cookie, http.MethodPost, "/api/tasks/"+task.ID+"/run-skill", `{"skillId":"clarify"}`)
+		responses <- status
+	}()
+	_ = conn.SetReadDeadline(time.Now().Add(3 * time.Second))
+	var dispatch AgentMessage
+	if err := conn.ReadJSON(&dispatch); err != nil {
+		t.Fatal(err)
+	}
+	var payload struct {
+		RunID string `json:"runId"`
+	}
+	if err := json.Unmarshal(dispatch.Payload, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.RunID == "" {
+		t.Fatal("launch did not name its tracked run")
+	}
+	_ = conn.Close()
+	select {
+	case status := <-responses:
+		if status != http.StatusBadGateway {
+			t.Fatalf("unconfirmed launch status: %d", status)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("launch did not report the disconnection")
+	}
+	activities, err := database.GetTaskActivities(task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, activity := range activities {
+		if activity.ID == payload.RunID {
+			found = true
+			if activity.Status != "running" || activity.CompletedAt != nil {
+				t.Fatalf("socket loss finished a delivered run: %+v", activity)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("delivered run disappeared")
+	}
+	// The owner can still report the outcome once its connection recovers.
+	if _, err := database.FinishRemoteRun(task.ID, payload.RunID, "completed", "Finished after reconnecting"); err != nil {
+		t.Fatal(err)
+	}
+}

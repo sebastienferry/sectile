@@ -384,7 +384,7 @@ interface AppContextType {
    */
   updateTask: (id: string, updates: Partial<Task> & { assigneeAccountId?: string }) => Promise<Task | null>
   moveTaskToTrackerStatus: (id: string, status: string) => Promise<Task | null>
-  getTaskComments: (id: string) => Promise<TaskComment[]>
+  getTaskComments: (id: string) => Promise<TaskComment[] | null>
 
 
   postTaskComment: (id: string, body: string) => Promise<TaskComment[] | null>
@@ -2759,7 +2759,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   // encore et permet d'y revenir.
 
 
-  const getTaskComments = async (id: string): Promise<TaskComment[]> => {
+  const getTaskComments = async (id: string): Promise<TaskComment[] | null> => {
     try {
       const res = await fetch(`${API_BASE}/tasks/${encodeURIComponent(id)}/comments`)
       if (!res.ok) {
@@ -2769,7 +2769,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       return (await res.json()) || []
     } catch (err: any) {
       addToast(refusalToast(err, { type: 'error', title: t.operations.notifications.comments.title, description: err.message }))
-      return []
+      return null
     }
   }
 
