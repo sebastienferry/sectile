@@ -36,6 +36,34 @@ func (d *agentDaemon) launchClaudeSettings(config agentconfig.Config) (string, e
 	return d.projectClaudeSettings(config.ProjectID)
 }
 
+// sandboxNotice tells a Claude Code launch of config how to call the commands
+// its resolved Sandbox values exclude from the sandbox (#764). Claude Code lets
+// a Bash call out only when every command it joins is listed, so a chained form
+// (cd … &&, a pipe into tail, a timeout prefix) runs sandboxed, where SSH and
+// the macOS TLS verification of Go tools such as glab fail. "" when the sandbox is off,
+// excludes nothing, or the settings cannot be read (the launch then fails on
+// launchClaudeSettings).
+func (d *agentDaemon) sandboxNotice(config agentconfig.Config) string {
+	if liveProvider(config) != "claude" || strings.TrimSpace(config.ProjectID) == "" {
+		return ""
+	}
+	settings, err := agentconfig.ReadSettings(d.localSettingsRoot())
+	if err != nil {
+		return ""
+	}
+	sandbox := settings.ResolvedClaudeSandbox(config.ProjectID)
+	if sandbox == nil || (sandbox.Enabled != nil && !*sandbox.Enabled) || len(sandbox.ExcludedCommands) == 0 {
+		return ""
+	}
+	commands := make([]string, len(sandbox.ExcludedCommands))
+	for i, command := range sandbox.ExcludedCommands {
+		commands[i] = "`" + strings.TrimSpace(command) + "`"
+	}
+	return "\nSandbox: a Bash call runs outside the sandbox only when every command it joins matches one of " + strings.Join(commands, ", ") +
+		". Run each such command as a Bash call of its own, written as the entry is: no `cd … &&`, no pipe, no `;`, no `timeout` or variable prefix, no option before the subcommand such as `git -C`." +
+		" Change directory in an earlier call and read the output in a later one. A chained form runs sandboxed, where SSH and TLS verification fail."
+}
+
 // addProjectAllowRules adds the rules an "Always allow" answer approved to the
 // project's allow rules, so they outlive the task's worktree (#700). It
 // reports the rules that were new.

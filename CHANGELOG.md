@@ -133,6 +133,8 @@ test fixtures or internal plumbing.
 
 ### Fixed
 
+- **Claude runs no longer fail to reach GitLab or GitHub when they chain git or glab with other commands.** A command listed in **Commands outside the sandbox** only leaves the sandbox when it runs alone, and runs used to write `cd … && glab mr view …` or `git fetch … | tail`, which stayed sandboxed and failed on SSH or certificates. A Claude run with listed commands is now told to call each of them on its own. Upgrade the agent.
+
 - **Open Desktop settings with Cmd+, across keyboard layouts.** macOS resolves the shortcut through the native application menu, which also offers Settings.
 
 - **A save in Sectile Desktop no longer reverts an agent setting.** Changing the appearance, the Claude consoles view or the connection, pairing, or starting the agent could silently put back a workstation setting the agent had saved at the same moment, such as a project's settings, the Claude settings, an engine or a repository. Desktop and the agent no longer write the same file. (#746)

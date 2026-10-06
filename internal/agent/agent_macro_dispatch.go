@@ -79,6 +79,7 @@ func (d *agentDaemon) handleMacroDispatch(ctx context.Context, conn *websocket.C
 	if workspace.Warning != "" {
 		prompt += "\nMacro workspace notice: " + workspace.Warning + "."
 	}
+	prompt += d.sandboxNotice(config)
 	prompt += fmt.Sprintf("\nRemote execution runId: %s. Reuse this ID with start_run and finish it using finish_run (projectId %s, macroKey %s) when the entire skill ends.", payload.RunID, config.ProjectID, macroKey)
 	choice, err := d.prepareSkill(config, payload.SkillID, payload.Action, strings.TrimSpace(prompt), payload.RunID, run.exited, root, workspace.Path)
 	if err != nil {
