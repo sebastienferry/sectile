@@ -1,5 +1,23 @@
 export type Priority = 'urgent' | 'high' | 'medium' | 'low'
 
+/** One option of a Jira priority scheme and the level it maps to (#679). */
+export interface PriorityMappingOption {
+  id: string
+  name: string
+  level: Priority
+  /** Matched by rank only: a write never sends it. */
+  guessed?: boolean
+  /** Set by a person: discovery never changes it. */
+  manual?: boolean
+}
+
+/** A project's priority mapping, its options in the scheme's order. */
+export interface PriorityMapping {
+  options?: PriorityMappingOption[]
+  /** Per level, the option a write sends when several sure ones share it. */
+  preferred?: Partial<Record<Priority, string>>
+}
+
 export type Status = 
   | 'to_clarify'    // A clarifier (Label: #new)
   | 'clarified'     // Cadré (Label: #clarified)
@@ -326,6 +344,11 @@ export interface Project {
    * empty or missing field is the default prefix of that axis.
    */
   epicAxisPrefixes?: { priority?: string; quarter?: string; readiness?: string }
+  /**
+   * How the Jira priority scheme maps to Sectile's levels (#679). Empty until
+   * the first discovery, and absent on other trackers.
+   */
+  priorityMapping?: PriorityMapping
   /** Stage at which the workflow opens the pull request. */
   prCreationStage?: PRCreationStage
   /**
@@ -528,6 +551,8 @@ export interface Task {
   description: string
   status: Status
   priority: Priority
+  /** Why a creation reached the tracker without its priority (#679). */
+  priorityNotice?: string
   labels: string[]
   assignee: string
   assigneeAvatar?: string

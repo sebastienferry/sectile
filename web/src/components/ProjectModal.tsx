@@ -45,6 +45,7 @@ import type {
   SkillMode,
   OptionalViewMode,
   PRCreationStage,
+  PriorityMapping,
 } from '../types'
 import { ACCENT_COLORS, accentBadgeStyle, normalizeAccentColor, DEFAULT_PROJECT_ACCENT } from '../lib/accents'
 import { PROJECT_TRACKERS, needsCredentialsFor } from '../lib/trackers'
@@ -53,6 +54,7 @@ import { DEFAULT_EPIC_AXIS_PREFIXES, cleanEpicAxisPrefix, epicAxisPrefixProblem,
 import { declaredRepositories, droppedRepositoryPaths, duplicateRepository, repositoryIdentity } from '../lib/repositories'
 import { BRANCH_NAME_PRESETS, BRANCH_NAME_SAMPLE, checkBranchNameFormat } from '../lib/branchNameFormat'
 import { DEFAULT_FULL_CHAIN_STOP_STAGE } from '../lib/workflow'
+import PriorityMappingTable from './PriorityMappingTable'
 
 type ProjectTab = 'general' | 'tracker' | 'workflow' | 'skills'
 
@@ -218,6 +220,8 @@ export const ProjectModal: React.FC = () => {
   const [roadmapProjects, setRoadmapProjects] = useState('')
   const [roadmapAxisWrites, setRoadmapAxisWrites] = useState(false)
   const [epicAxisPrefixes, setEpicAxisPrefixes] = useState<Record<EpicAxisName, string>>({ priority: '', quarter: '', readiness: '' })
+  // The Jira priority mapping (#679), edited here and saved with the project.
+  const [priorityMapping, setPriorityMapping] = useState<PriorityMapping>({})
   // Types de tickets importés. Vide vaut « les types par défaut » : c'est ce que
   // porte un projet qui n'a jamais eu besoin d'y toucher.
   const [issueTypes, setIssueTypes] = useState<string[]>([])
@@ -295,6 +299,7 @@ export const ProjectModal: React.FC = () => {
         quarter: editingProject.epicAxisPrefixes?.quarter || '',
         readiness: editingProject.epicAxisPrefixes?.readiness || '',
       })
+      setPriorityMapping(editingProject.priorityMapping ?? {})
       setIssueTypes(editingProject.issueTypes || [])
       setEnabledViews(enabledOptionalViews(editingProject))
       setEpicColors(editingProject.epicColors === true)
@@ -342,6 +347,7 @@ export const ProjectModal: React.FC = () => {
       setRoadmapProjects('')
       setRoadmapAxisWrites(false)
       setEpicAxisPrefixes({ priority: '', quarter: '', readiness: '' })
+      setPriorityMapping({})
       setSkillsStatus(null)
       setSddStatuses([])
       setSddResult(null)
@@ -478,6 +484,9 @@ export const ProjectModal: React.FC = () => {
               },
             }
           : {}),
+        // Only the levels and preferred options travel: the server keeps the
+        // options themselves as the tracker lists them.
+        ...(issueTracker === 'jira' && editingProject && priorityMapping.options?.length ? { priorityMapping } : {}),
       }
 
       const saved = editingProject
@@ -1305,6 +1314,12 @@ export const ProjectModal: React.FC = () => {
                       {ps.tracker.epicAxisPrefixesHelp}
                     </span>
                   </div>
+                )}
+
+                {/* The priority mapping (#679) belongs to a saved project:
+                    its scheme is read through the project's Jira key. */}
+                {issueTracker === 'jira' && editingProject && (
+                  <PriorityMappingTable projectId={editingProject.id} mapping={priorityMapping} onChange={setPriorityMapping} />
                 )}
 
                 {issueTracker === 'jira' && (

@@ -86,6 +86,20 @@ type MarkedCommentWriter interface {
 	UpsertMarkedComment(ctx context.Context, req UpsertMarkedCommentRequest) (string, error)
 }
 
+// PrioritySchemeReader is implemented by an adapter whose tracker has a
+// configurable ticket priority scheme (#679), which is Jira. Like the other
+// optional interfaces, every call site type-asserts it: a tracker without one
+// has no mapping to discover.
+type PrioritySchemeReader interface {
+	// PriorityScheme lists the project's priority options, most urgent first.
+	// fresh skips any cache, for a person who just changed the scheme.
+	PriorityScheme(ctx context.Context, project *models.Project, fresh bool) ([]models.PriorityOption, error)
+	// ClassifyPriority reads an option the way a write without a mapping
+	// would: its level, and whether its name alone says so (false is a guess
+	// from its rank among n options).
+	ClassifyPriority(name string, rank, n int) (models.Priority, bool)
+}
+
 // UpsertMarkedCommentRequest names the comment Sectile owns on one issue.
 type UpsertMarkedCommentRequest struct {
 	Project *models.Project

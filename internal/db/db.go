@@ -2603,6 +2603,9 @@ func (d *DB) CreateTaskAs(ctx context.Context, req models.CreateTaskRequest) (*m
 
 	// Remote creation requires confirmation from the server HTTP adapter.
 	local := true
+	// priorityNotice is the adapter's word on a priority it could not send
+	// (#679), handed back to whoever created the ticket.
+	priorityNotice := ""
 	if tsErr == nil && ts != nil && req.Source != "local" && ts.Name() != "local" && ts.Supports(tracker.CapCreate) {
 		created, err := ts.CreateIssue(ctx, tracker.CreateIssueRequest{
 			Project:     proj,
@@ -2621,6 +2624,7 @@ func (d *DB) CreateTaskAs(ctx context.Context, req models.CreateTaskRequest) (*m
 			key = created.Key
 			local = false
 			extURL = created.ExternalURL
+			priorityNotice = created.PriorityNotice
 		} else {
 			return nil, fmt.Errorf("%s issue creation failed: empty response", trackerDisplayName(ts.Name()))
 		}
@@ -2715,6 +2719,7 @@ func (d *DB) CreateTaskAs(ctx context.Context, req models.CreateTaskRequest) (*m
 		ParentKey:      parentKey,
 		ParentTitle:    parentTitle,
 		ParentType:     parentType,
+		PriorityNotice: priorityNotice,
 		CreatedAt:      now,
 		UpdatedAt:      now,
 	}
@@ -2864,6 +2869,22 @@ func (d *DB) updateTaskBy(actor Actor, id string, req models.UpdateTaskRequest) 
 	}
 	if existing == nil {
 		return nil, fmt.Errorf("task not found")
+	}
+	// A priority the project's mapping only guessed is refused before
+	// anything is written (#679), so the whole update is: a partial write
+	// would leave the card half-changed with nothing on the tracker.
+	if req.Priority != nil && *req.Priority != existing.Priority {
+		target := existing.ProjectID
+		if req.ProjectID != nil && *req.ProjectID != "" {
+			target = *req.ProjectID
+		}
+		proj, err := d.getProjectByIDUnsafe(target)
+		if err != nil {
+			return nil, err
+		}
+		if err := CheckPriorityWritable(proj, *req.Priority); err != nil {
+			return nil, err
+		}
 	}
 
 	oldLabels := existing.Labels
@@ -4491,6 +4512,17 @@ func (d *DB) afterTrackerSync(ctx context.Context, proj *models.Project, ts trac
 			steps = append(steps, fmt.Sprintf("⚠️ Roadmap : horizons non importés : %v", err))
 		} else {
 			steps = append(steps, "6. Roadmap : "+note)
+		}
+	}
+	// The priority mapping follows the scheme like the board follows its
+	// columns (#679): on a sync that describes the project, never on the
+	// incremental polls. A scheme that cannot be read leaves the stored
+	// mapping as it is.
+	if _, ok := ts.(tracker.PrioritySchemeReader); describesProject && ok {
+		if note, err := d.RefreshPriorityMapping(ctx, proj.ID, false); err != nil {
+			steps = append(steps, fmt.Sprintf("⚠️ Priorities: %v", err))
+		} else if note != "" {
+			steps = append(steps, "7. Priorities: "+note)
 		}
 	}
 	// Pull-request rediscovery runs here rather than in the import: the import
@@ -6153,7 +6185,7 @@ func parseStageColumns(raw string) map[string][]string {
 
 func (d *DB) getProjectsUnsafe() ([]models.Project, error) {
 	rows, err := d.conn.Query(`
-		SELECT p.id, p.name, p.slug, p.description, p.icon, p.color, p.repo_path, p.repo_paths, p.repositories, p.repositories_migration, p.use_worktrees, p.default_skill_mode, p.full_chain_stop_stage, p.push_stage_commits, p.pr_creation_stage, p.spec_artifacts, p.branch_name_format, p.board_id, p.tracker_columns, p.stage_columns, p.sprints, p.issue_types, p.enabled_views, p.epic_colors, p.roadmap_projects, p.roadmap_axis_writes, p.epic_axis_prefixes, p.git_remote_url, p.github_repo, p.github_api_url, p.gitlab_url, p.gitlab_project, p.jira_project, p.issue_tracker, p.tracker_url, p.is_default, p.skill_overrides, p.setup_providers, p.ai_provider, p.ai_command_template, p.ai_command_template_autonomous, p.ai_model, p.ai_skill_models, p.spec_framework, p.external_terminal_command, p.auto_sync_enabled, p.auto_sync_interval_min, p.owner_user_id, p.created_at, p.updated_at,
+		SELECT p.id, p.name, p.slug, p.description, p.icon, p.color, p.repo_path, p.repo_paths, p.repositories, p.repositories_migration, p.use_worktrees, p.default_skill_mode, p.full_chain_stop_stage, p.push_stage_commits, p.pr_creation_stage, p.spec_artifacts, p.branch_name_format, p.board_id, p.tracker_columns, p.stage_columns, p.sprints, p.issue_types, p.enabled_views, p.epic_colors, p.roadmap_projects, p.roadmap_axis_writes, p.epic_axis_prefixes, p.priority_mapping, p.git_remote_url, p.github_repo, p.github_api_url, p.gitlab_url, p.gitlab_project, p.jira_project, p.issue_tracker, p.tracker_url, p.is_default, p.skill_overrides, p.setup_providers, p.ai_provider, p.ai_command_template, p.ai_command_template_autonomous, p.ai_model, p.ai_skill_models, p.spec_framework, p.external_terminal_command, p.auto_sync_enabled, p.auto_sync_interval_min, p.owner_user_id, p.created_at, p.updated_at,
 		       COUNT(t.id) as task_count
 		FROM projects p
 		LEFT JOIN tasks t ON t.project_id = p.id
@@ -6174,7 +6206,7 @@ func (d *DB) getProjectsUnsafe() ([]models.Project, error) {
 		var useWorktrees int
 		var pushStageCommits int
 		var roadmapAxisWrites int
-		var epicAxisPrefixesJSON string
+		var epicAxisPrefixesJSON, priorityMappingJSON string
 		var defaultSkillMode, fullChainStopStage sql.NullString
 		var trackerColumnsJSON, stageColumnsJSON, sprintsJSON, issueTypesJSON, enabledViewsJSON, roadmapProjectsJSON string
 		var epicColors int
@@ -6183,7 +6215,7 @@ func (d *DB) getProjectsUnsafe() ([]models.Project, error) {
 		var ghURL, glURL, glProj sql.NullString
 		var ownerUserID sql.NullString
 		err := rows.Scan(
-			&p.ID, &p.Name, &p.Slug, &p.Description, &p.Icon, &p.Color, &p.RepoPath, &repoPathsJSON, &repositoriesJSON, &p.RepositoriesMigration, &useWorktrees, &defaultSkillMode, &fullChainStopStage, &pushStageCommits, &p.PRCreationStage, &p.SpecArtifacts, &p.BranchNameFormat, &p.BoardID, &trackerColumnsJSON, &stageColumnsJSON, &sprintsJSON, &issueTypesJSON, &enabledViewsJSON, &epicColors, &roadmapProjectsJSON, &roadmapAxisWrites, &epicAxisPrefixesJSON, &p.GitRemoteUrl, &p.GithubRepo, &ghURL, &glURL, &glProj, &jiraProj, &p.IssueTracker, &p.TrackerUrl, &isDefault, &skillOverridesJSON, &setupProvidersJSON, &aiProv, &aiCmd, &aiCmdAuto, &projModel, &projSkillModelsJSON, &specFw, &extTerm, &autoSyncEnabledInt, &autoSyncIntervalMin, &ownerUserID, &p.CreatedAt, &p.UpdatedAt, &p.TaskCount,
+			&p.ID, &p.Name, &p.Slug, &p.Description, &p.Icon, &p.Color, &p.RepoPath, &repoPathsJSON, &repositoriesJSON, &p.RepositoriesMigration, &useWorktrees, &defaultSkillMode, &fullChainStopStage, &pushStageCommits, &p.PRCreationStage, &p.SpecArtifacts, &p.BranchNameFormat, &p.BoardID, &trackerColumnsJSON, &stageColumnsJSON, &sprintsJSON, &issueTypesJSON, &enabledViewsJSON, &epicColors, &roadmapProjectsJSON, &roadmapAxisWrites, &epicAxisPrefixesJSON, &priorityMappingJSON, &p.GitRemoteUrl, &p.GithubRepo, &ghURL, &glURL, &glProj, &jiraProj, &p.IssueTracker, &p.TrackerUrl, &isDefault, &skillOverridesJSON, &setupProvidersJSON, &aiProv, &aiCmd, &aiCmdAuto, &projModel, &projSkillModelsJSON, &specFw, &extTerm, &autoSyncEnabledInt, &autoSyncIntervalMin, &ownerUserID, &p.CreatedAt, &p.UpdatedAt, &p.TaskCount,
 		)
 		if err != nil {
 			return nil, err
@@ -6206,6 +6238,7 @@ func (d *DB) getProjectsUnsafe() ([]models.Project, error) {
 		p.PushStageCommits = pushStageCommits == 1
 		p.RoadmapAxisWrites = roadmapAxisWrites == 1
 		p.EpicAxisPrefixes = parseEpicAxisPrefixes(epicAxisPrefixesJSON)
+		p.PriorityMapping = parsePriorityMapping(priorityMappingJSON)
 		p.FullChainStopStage = models.NormalizeFullChainStopStage(fullChainStopStage.String)
 		p.TrackerColumns = parseTrackerColumns(trackerColumnsJSON)
 		p.StageColumns = parseStageColumns(stageColumnsJSON)
@@ -6289,7 +6322,7 @@ func (d *DB) getProjectByIDUnsafe(id string) (*models.Project, error) {
 	var useWorktrees int
 	var pushStageCommits int
 	var roadmapAxisWrites int
-	var epicAxisPrefixesJSON string
+	var epicAxisPrefixesJSON, priorityMappingJSON string
 	var defaultSkillMode, fullChainStopStage sql.NullString
 	var trackerColumnsJSON, stageColumnsJSON, sprintsJSON, issueTypesJSON, enabledViewsJSON, roadmapProjectsJSON string
 	var epicColors int
@@ -6298,12 +6331,12 @@ func (d *DB) getProjectByIDUnsafe(id string) (*models.Project, error) {
 	var ghURL, glURL, glProj sql.NullString
 	var ownerUserID sql.NullString
 	err := d.conn.QueryRow(`
-		SELECT p.id, p.name, p.slug, p.description, p.icon, p.color, p.repo_path, p.repo_paths, p.repositories, p.repositories_migration, p.use_worktrees, p.default_skill_mode, p.full_chain_stop_stage, p.push_stage_commits, p.pr_creation_stage, p.spec_artifacts, p.branch_name_format, p.board_id, p.tracker_columns, p.stage_columns, p.sprints, p.issue_types, p.enabled_views, p.epic_colors, p.roadmap_projects, p.roadmap_axis_writes, p.epic_axis_prefixes, p.git_remote_url, p.github_repo, p.github_api_url, p.gitlab_url, p.gitlab_project, p.jira_project, p.issue_tracker, p.tracker_url, p.is_default, p.skill_overrides, p.setup_providers, p.ai_provider, p.ai_command_template, p.ai_command_template_autonomous, p.ai_model, p.ai_skill_models, p.spec_framework, p.external_terminal_command, p.auto_sync_enabled, p.auto_sync_interval_min, p.owner_user_id, p.created_at, p.updated_at,
+		SELECT p.id, p.name, p.slug, p.description, p.icon, p.color, p.repo_path, p.repo_paths, p.repositories, p.repositories_migration, p.use_worktrees, p.default_skill_mode, p.full_chain_stop_stage, p.push_stage_commits, p.pr_creation_stage, p.spec_artifacts, p.branch_name_format, p.board_id, p.tracker_columns, p.stage_columns, p.sprints, p.issue_types, p.enabled_views, p.epic_colors, p.roadmap_projects, p.roadmap_axis_writes, p.epic_axis_prefixes, p.priority_mapping, p.git_remote_url, p.github_repo, p.github_api_url, p.gitlab_url, p.gitlab_project, p.jira_project, p.issue_tracker, p.tracker_url, p.is_default, p.skill_overrides, p.setup_providers, p.ai_provider, p.ai_command_template, p.ai_command_template_autonomous, p.ai_model, p.ai_skill_models, p.spec_framework, p.external_terminal_command, p.auto_sync_enabled, p.auto_sync_interval_min, p.owner_user_id, p.created_at, p.updated_at,
 		       (SELECT COUNT(*) FROM tasks WHERE project_id = p.id) as task_count
 		FROM projects p
 		WHERE p.id = ? OR p.slug = ?
 	`, id, id).Scan(
-		&p.ID, &p.Name, &p.Slug, &p.Description, &p.Icon, &p.Color, &p.RepoPath, &repoPathsJSON, &repositoriesJSON, &p.RepositoriesMigration, &useWorktrees, &defaultSkillMode, &fullChainStopStage, &pushStageCommits, &p.PRCreationStage, &p.SpecArtifacts, &p.BranchNameFormat, &p.BoardID, &trackerColumnsJSON, &stageColumnsJSON, &sprintsJSON, &issueTypesJSON, &enabledViewsJSON, &epicColors, &roadmapProjectsJSON, &roadmapAxisWrites, &epicAxisPrefixesJSON, &p.GitRemoteUrl, &p.GithubRepo, &ghURL, &glURL, &glProj, &jiraProj, &p.IssueTracker, &p.TrackerUrl, &isDefault, &skillOverridesJSON, &setupProvidersJSON, &aiProv, &aiCmd, &aiCmdAuto, &projModel, &projSkillModelsJSON, &specFw, &extTerm, &autoSyncEnabledInt, &autoSyncIntervalMin, &ownerUserID, &p.CreatedAt, &p.UpdatedAt, &p.TaskCount,
+		&p.ID, &p.Name, &p.Slug, &p.Description, &p.Icon, &p.Color, &p.RepoPath, &repoPathsJSON, &repositoriesJSON, &p.RepositoriesMigration, &useWorktrees, &defaultSkillMode, &fullChainStopStage, &pushStageCommits, &p.PRCreationStage, &p.SpecArtifacts, &p.BranchNameFormat, &p.BoardID, &trackerColumnsJSON, &stageColumnsJSON, &sprintsJSON, &issueTypesJSON, &enabledViewsJSON, &epicColors, &roadmapProjectsJSON, &roadmapAxisWrites, &epicAxisPrefixesJSON, &priorityMappingJSON, &p.GitRemoteUrl, &p.GithubRepo, &ghURL, &glURL, &glProj, &jiraProj, &p.IssueTracker, &p.TrackerUrl, &isDefault, &skillOverridesJSON, &setupProvidersJSON, &aiProv, &aiCmd, &aiCmdAuto, &projModel, &projSkillModelsJSON, &specFw, &extTerm, &autoSyncEnabledInt, &autoSyncIntervalMin, &ownerUserID, &p.CreatedAt, &p.UpdatedAt, &p.TaskCount,
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -6329,6 +6362,7 @@ func (d *DB) getProjectByIDUnsafe(id string) (*models.Project, error) {
 	p.PushStageCommits = pushStageCommits == 1
 	p.RoadmapAxisWrites = roadmapAxisWrites == 1
 	p.EpicAxisPrefixes = parseEpicAxisPrefixes(epicAxisPrefixesJSON)
+	p.PriorityMapping = parsePriorityMapping(priorityMappingJSON)
 	p.FullChainStopStage = models.NormalizeFullChainStopStage(fullChainStopStage.String)
 	p.TrackerColumns = parseTrackerColumns(trackerColumnsJSON)
 	p.StageColumns = parseStageColumns(stageColumnsJSON)
@@ -6688,6 +6722,14 @@ func (d *DB) UpdateProjectAs(actingUserID string, id string, req models.UpdatePr
 		}
 		p.EpicAxisPrefixes = prefixes
 	}
+	if req.PriorityMapping != nil {
+		mapping, err := editPriorityMapping(p.PriorityMapping, *req.PriorityMapping)
+		if err != nil {
+			d.mu.Unlock()
+			return nil, err
+		}
+		p.PriorityMapping = mapping
+	}
 	if req.GithubApiUrl != nil {
 		p.GithubApiUrl = strings.TrimSpace(*req.GithubApiUrl)
 	}
@@ -6741,6 +6783,7 @@ func (d *DB) UpdateProjectAs(actingUserID string, id string, req models.UpdatePr
 	p.RoadmapAxisWrites = roadmapAxisWritesAllowed(p.RoadmapAxisWrites, p.IssueTracker, p.RoadmapProjects)
 	roadmapProjectsBytes, _ := json.Marshal(p.RoadmapProjects)
 	epicAxisPrefixesBytes, _ := json.Marshal(p.EpicAxisPrefixes)
+	priorityMappingBytes, _ := json.Marshal(p.PriorityMapping)
 	epicColorsInt := 0
 	if p.EpicColors {
 		epicColorsInt = 1
@@ -6754,9 +6797,9 @@ func (d *DB) UpdateProjectAs(actingUserID string, id string, req models.UpdatePr
 	// those settings, and the stored values stay as they are for the seed.
 	_, err = tx.Exec(`
 		UPDATE projects
-		SET name = ?, slug = ?, description = ?, icon = ?, color = ?, repositories = ?, default_skill_mode = ?, full_chain_stop_stage = ?, push_stage_commits = ?, pr_creation_stage = ?, spec_artifacts = ?, branch_name_format = ?, board_id = ?, tracker_columns = ?, stage_columns = ?, sprints = ?, issue_types = ?, enabled_views = ?, epic_colors = ?, roadmap_projects = ?, roadmap_axis_writes = ?, epic_axis_prefixes = ?, git_remote_url = ?, github_repo = ?, github_api_url = ?, gitlab_url = ?, gitlab_project = ?, jira_project = ?, issue_tracker = ?, tracker_url = ?, is_default = ?, spec_framework = ?, auto_sync_enabled = ?, auto_sync_interval_min = ?, owner_user_id = ?, updated_at = ?
+		SET name = ?, slug = ?, description = ?, icon = ?, color = ?, repositories = ?, default_skill_mode = ?, full_chain_stop_stage = ?, push_stage_commits = ?, pr_creation_stage = ?, spec_artifacts = ?, branch_name_format = ?, board_id = ?, tracker_columns = ?, stage_columns = ?, sprints = ?, issue_types = ?, enabled_views = ?, epic_colors = ?, roadmap_projects = ?, roadmap_axis_writes = ?, epic_axis_prefixes = ?, priority_mapping = ?, git_remote_url = ?, github_repo = ?, github_api_url = ?, gitlab_url = ?, gitlab_project = ?, jira_project = ?, issue_tracker = ?, tracker_url = ?, is_default = ?, spec_framework = ?, auto_sync_enabled = ?, auto_sync_interval_min = ?, owner_user_id = ?, updated_at = ?
 		WHERE id = ?
-	`, p.Name, p.Slug, p.Description, p.Icon, p.Color, encodeRepositoryURLs(projectCodeRemote(p), repositoryURLs), p.DefaultSkillMode, p.FullChainStopStage, boolInt(p.PushStageCommits), p.PRCreationStage, models.NormalizeSpecArtifacts(p.SpecArtifacts), p.BranchNameFormat, p.BoardID, string(trackerColumnsBytes), string(stageColumnsBytes), string(sprintsBytes), string(issueTypesBytes), string(enabledViewsBytes), epicColorsInt, string(roadmapProjectsBytes), boolInt(p.RoadmapAxisWrites), string(epicAxisPrefixesBytes), p.GitRemoteUrl, p.GithubRepo, p.GithubApiUrl, p.GitlabUrl, p.GitlabProject, p.JiraProject, p.IssueTracker, p.TrackerUrl, isDefInt, p.SpecFramework, autoSyncEnabledInt, p.AutoSyncIntervalMin, strings.TrimSpace(p.OwnerUserID), p.UpdatedAt, p.ID)
+	`, p.Name, p.Slug, p.Description, p.Icon, p.Color, encodeRepositoryURLs(projectCodeRemote(p), repositoryURLs), p.DefaultSkillMode, p.FullChainStopStage, boolInt(p.PushStageCommits), p.PRCreationStage, models.NormalizeSpecArtifacts(p.SpecArtifacts), p.BranchNameFormat, p.BoardID, string(trackerColumnsBytes), string(stageColumnsBytes), string(sprintsBytes), string(issueTypesBytes), string(enabledViewsBytes), epicColorsInt, string(roadmapProjectsBytes), boolInt(p.RoadmapAxisWrites), string(epicAxisPrefixesBytes), string(priorityMappingBytes), p.GitRemoteUrl, p.GithubRepo, p.GithubApiUrl, p.GitlabUrl, p.GitlabProject, p.JiraProject, p.IssueTracker, p.TrackerUrl, isDefInt, p.SpecFramework, autoSyncEnabledInt, p.AutoSyncIntervalMin, strings.TrimSpace(p.OwnerUserID), p.UpdatedAt, p.ID)
 	// A repository the project stops declaring no longer decides where its
 	// tickets run: their pins to it go. Since any remote may be pinned
 	// (#737), a pin left behind would otherwise read as a deliberate pin to an

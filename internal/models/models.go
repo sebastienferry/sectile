@@ -143,6 +143,9 @@ type Project struct {
 	// EpicAxisPrefixes names the label prefixes of the epic's own axes (#635).
 	// An empty field keeps the default prefix of its axis.
 	EpicAxisPrefixes EpicAxisPrefixes `json:"epicAxisPrefixes"`
+	// PriorityMapping is how the tracker's ticket priorities map to Sectile's
+	// levels (#679). Jira only; empty until the first discovery.
+	PriorityMapping PriorityMapping `json:"priorityMapping"`
 	// UseWorktrees decides whether each task gets its own isolated Git worktree
 	// under .tasks/worktrees, or whether the agent simply runs in the clone. A
 	// solo project rarely needs that isolation and pays the setup cost for
@@ -536,6 +539,7 @@ type UpdateProjectRequest struct {
 	RoadmapProjects     *[]string            `json:"roadmapProjects,omitempty"`
 	RoadmapAxisWrites   *bool                `json:"roadmapAxisWrites,omitempty"`
 	EpicAxisPrefixes    *EpicAxisPrefixes    `json:"epicAxisPrefixes,omitempty"`
+	PriorityMapping     *PriorityMapping     `json:"priorityMapping,omitempty"`
 	PRCreationStage     *string              `json:"prCreationStage,omitempty"`
 	SpecArtifacts       *string              `json:"specArtifacts,omitempty"`
 	BranchNameFormat    *string              `json:"branchNameFormat,omitempty"`
@@ -952,10 +956,13 @@ type Task struct {
 	StatusChangedAt *time.Time `json:"statusChangedAt,omitempty"`
 	// Batch is the task's place in a running batch, nil when it is in none.
 	// An ended batch fills nothing.
-	Batch     *TaskBatch `json:"batch,omitempty"`
-	Pinned    bool       `json:"pinned,omitempty"`
-	CreatedAt time.Time  `json:"createdAt"`
-	UpdatedAt time.Time  `json:"updatedAt"`
+	Batch  *TaskBatch `json:"batch,omitempty"`
+	Pinned bool       `json:"pinned,omitempty"`
+	// PriorityNotice says why a creation reached the tracker without the
+	// priority it asked for (#679). Answered once, never stored.
+	PriorityNotice string    `json:"priorityNotice,omitempty"`
+	CreatedAt      time.Time `json:"createdAt"`
+	UpdatedAt      time.Time `json:"updatedAt"`
 }
 
 type Settings struct {

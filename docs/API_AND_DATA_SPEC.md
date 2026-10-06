@@ -246,6 +246,21 @@ without a leading `#`, and answers `400` with the reason for a prefix carrying
 a space, emptied by that cleaning, overlapping another axis's prefix or
 overlapping `roadmap:`. Changing one rewrites no label and no stored value.
 
+A Jira project's `priorityMapping` (#679) holds how its ticket priority scheme
+maps to Sectile's levels: `options`, in the scheme's order, each with its `id`,
+`name`, `level`, and `guessed` (matched by rank only) or `manual` (set by a
+person), and `preferred`, the option a level sends when several sure ones carry
+it. It is empty until the first discovery, which runs on a full synchronisation
+and on `POST /api/projects/{id}/priority-mapping/refresh` (a fresh read; answers
+the project). A discovery adds new options and drops gone ones, never changing
+a stored line. A `PATCH /api/projects/{id}` carrying `priorityMapping` changes
+levels and preferred options only, makes each changed or confirmed line sure
+and manual, and answers `400` for an option or a level the mapping does not
+carry. Once a mapping exists, `PUT /api/tasks/{id}` changing the priority to a
+level no sure line carries answers `422` with the accepted levels, writing
+nothing; a creation goes out without that priority and its answer carries a
+`priorityNotice`. MCP `update_task` and `create_task` behave alike.
+
 
 | Method | Path | Description |
 | :--- | :--- | :--- |

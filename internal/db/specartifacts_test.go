@@ -147,6 +147,7 @@ func TestMigrationTwentyFiveKeepsExistingProjectsArtefacts(t *testing.T) {
 		"ALTER TABLE macros DROP COLUMN framing_mirror_error",
 		"ALTER TABLE macros DROP COLUMN framing_mirror_credential",
 		"ALTER TABLE macros DROP COLUMN framing_mirror_at",
+		"ALTER TABLE projects DROP COLUMN priority_mapping",
 		"DELETE FROM schema_migrations WHERE version >= 25",
 	} {
 		if _, err := d.conn.Exec(stmt); err != nil {
