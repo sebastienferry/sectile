@@ -805,6 +805,9 @@ func (h *Handler) HandleProjects(w http.ResponseWriter, r *http.Request) {
 		// The creator owns the project: the background synchronisation has no
 		// acting user of its own and reads under that account.
 		userID := h.webSessionUser(r)
+		if !h.principalFor(userID).IsAdmin() {
+			memberProjectCreate(&req)
+		}
 		project, err := h.db.CreateProjectAs(userID, req)
 		if err != nil {
 			writeError(w, repositoryErrorStatus(err), err.Error())
@@ -1700,7 +1703,11 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 		}
 		// Saving an ownerless project adopts the person saving it, so its
 		// background synchronisation stops running as the server.
-		project, err := h.db.UpdateProjectAs(h.webSessionUser(r), id, req)
+		userID := h.webSessionUser(r)
+		if !h.principalFor(userID).IsAdmin() {
+			memberProjectUpdate(&req)
+		}
+		project, err := h.db.UpdateProjectAs(userID, id, req)
 		if err != nil {
 			writeError(w, repositoryErrorStatus(err), err.Error())
 			return

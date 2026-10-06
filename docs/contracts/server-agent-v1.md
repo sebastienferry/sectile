@@ -13,14 +13,24 @@ database. Shared DTOs live in `internal/agentconfig` and do not depend on DB cod
 `GET /api/v1/agent/config?projectId=<ID>` or `?taskKey=<task-ID>` requires the
 agent bearer token. An optional `framework` parameter generates installation
 templates for a supported SDD framework without changing project settings. Use exact project IDs, not names. Prefer full task IDs over
-ambiguous tracker keys. A task lookup resolves the actual owning project.
+ambiguous tracker keys.
+
+A ticket may belong to several projects since #741 (ADR 0050), so a task
+lookup no longer resolves one owning project. With `taskKey` and `projectId`,
+the configuration is that project's, and the ticket must belong to it (`400`
+otherwise). With `taskKey` alone, it is the ticket's only project, else the
+project of its open run, else the request is refused with `400`, naming the
+candidate projects. A ticket in no project is refused. The agent sends the
+dispatched `projectId` with the `taskKey`; an older agent sends the `taskKey`
+alone and works for a ticket of one project.
 
 | Field | Meaning |
 | --- | --- |
 | `schemaVersion` | Must be `1`. Unsupported versions stop preparation. |
 | `projectId`, `projectName`, `description` | Identity and project context. The ID must match an explicit project request. |
 | `gitRemoteUrl` | Repository identity for automatic local matching, not a path to clone automatically. |
-| `githubRepo`, `issueTracker`, `trackerUrl`, `jiraProject` | Optional effective project-over-global repository and tracker metadata for local command placeholders. Missing fields use local directory basename and task source (then `github`) fallbacks. No credentials or server paths. |
+| `githubRepo`, `issueTracker`, `trackerUrl`, `jiraProject` | Optional effective project-over-global repository and tracker metadata for local command placeholders. For a task, they describe the task's own tracker. Missing fields use local directory basename and task source (then `github`) fallbacks. No credentials or server paths. |
+| `trackers`, `label`, `tracker` | Additive (#741). `trackers` lists the trackers the project selects its tickets from, in order, each `{id, name?, provider, site?, scope, identity}`; `label` is the project label, empty when the project shows every ticket of its trackers; `tracker`, set for a task only, is the task's tracker in the same shape. No credentials or board configuration. |
 | `specFramework` | Specification framework used by the project skills. |
 | `skills` | Array of `{id, directory, command, content, commandContent, directContent, directCommandContent, custom}`. IDs and installation destinations must be unique and safe. `command` is the stage's standard command; a workstation replaces it with its own command name (see *Execution defaults and local overrides*), which may carry a plugin namespace (`sectile:clarify-issue`). `custom` is `true` when the project edited the skill's content, and absent otherwise (the pull-request policy every project gets does not make a skill custom): the agent then hands `content` to the run instead of running an installed skill, unless the workstation turned that off. An older server sends no `custom`, which reads as not custom (ADR 0039). `directContent` and `directCommandContent` are the built-in skill rendered for every project at once, as in the Claude plugin, with the local HTTP fallback: the direct setup installs them, since the user-level folder is shared by all the projects of the workstation, while `content` stays the project's own and reaches its runs. An older server sends neither, and `content`/`commandContent` are installed as before. |
 | `specArtifacts` | Optional, `keep` or `drop`. `drop` keeps the tasks' clarification and specification files out of the repository: before a task's session starts, the agent writes their ignore rules in a Sectile-managed block of the primary checkout's `.git/info/exclude`, and removes the block when the effective value is `keep`. Absent (an older server) reads as `keep`. A workstation may override it (see *Execution defaults and local overrides*). |
@@ -452,9 +462,19 @@ multi-project launch is prepared.
 `projectId` and `taskId` already mean server primary keys; `taskKey` is
 the human-readable tracker reference. New dispatches carry all three. Native skill
 invocation uses the full task reference, also exposed as `SECTILE_TASK_ID`;
-`SECTILE_PROJECT_ID` identifies its project and `SECTILE_TASK_KEY` remains
+`SECTILE_PROJECT_ID` identifies its project, the project the run works for
+(#741: the one recorded on the run when the ticket belongs to several), and `SECTILE_TASK_KEY` remains
 available for display. MCP's historical `taskKey` argument accepts the full task
 primary key, which should be preferred for transitions across projects.
+
+A dispatch's `projectId` is the run's project (#741). The agent fetches the
+configuration for that project and the task, which the server refuses when the
+ticket does not belong to the project, and still fails the dispatch when the
+configuration's project is not the dispatched one. The Desktop routes check
+that a ticket is one of the launching project's tickets (its `projectIds`)
+rather than comparing a single owning project; a launch from a project sends
+its `projectId` to `run-skill`, and `/desktop/create-task` forwards an optional
+`trackerId`, one of the project's trackers, to the task creation.
 
 Terminal settings continue to come from the server. `--terminal` is optional
 and serves only as an explicit local override.
@@ -482,7 +502,11 @@ an empty one. Only an unknown task key is an error.
 its allocated key and external URL. The project identifier is required and is never
 inferred: the HTTP creation path falls back to the first project when an identifier
 does not resolve, so the tool rejects an unknown one rather than filing on another
-board. Creation is remote whenever the project's tracker supports it, and a tracker
+board. An optional `tracker` names one of the project's trackers, by id or
+identity as `get_project_context` lists them (#741); without it the ticket goes
+to the project's default tracker, and an unknown one is refused with "unknown
+tracker … name one of its trackers by id or identity". The project label, when
+the project has one, is added to the ticket. Creation is remote whenever the project's tracker supports it, and a tracker
 that cannot create remotely fails the call instead of leaving a ticket that exists
 only locally. The new task enters the workflow at its first stage; no argument
 places it at a later one.
@@ -499,7 +523,10 @@ tracker synchronization under that caller's identity.
 `get_project_context` returns project identity, execution settings, specification
 framework, pull-request creation stage and skill references (`id`, `directory`,
 `command`), plus `skillDirectories`, the directories the agent writes skill files
-into. Skill and command bodies are not inlined: a caller that needs one opens
+into, and, since #741, `trackers`, `label` and, for a task, `tracker`, as in the
+configuration download. Asked for a task without `projectId`, it answers for
+the project of the run the session works in, else the ticket's only project; a
+ticket of several projects is refused with the candidate projects. Skill and command bodies are not inlined: a caller that needs one opens
 `<skill directory>/SKILL.md` under one of those directories in its checkout. The
 agent uses its full configuration when it installs skills or updates the marked
 section of `AGENTS.md`; that configuration is unchanged.
@@ -534,8 +561,15 @@ A delegated skill creates a `remote_run` activity before dispatch. Its ID travel
 as `runId` and `SECTILE_RUN_ID`. Launch failure closes the run as failed;
 successful process launch leaves it running.
 
-Standalone skills call `start_run(taskKey, skill, runId?)`, retaining
-the returned activity ID. A supplied launcher run ID reuses the existing run.
+Standalone skills call `start_run(taskKey, skill, runId?, projectId?)`, retaining
+the returned activity ID. `projectId` names the project a task run works for
+(#741), recorded on the run; it must be one of the ticket's projects. Without
+it, a ticket of one project needs no choice, and a ticket of several is
+refused with "the task belongs to several projects: <name> (projectId <id>),
+…; ask the user which one and pass its projectId", so the calling agent asks
+its user and calls again. A ticket in no project is refused until it carries a
+project's label. The MCP surface gives these refusals, and a key that tickets
+of two trackers carry, in English. A supplied launcher run ID reuses the existing run.
 The invocation owner calls `finish_run(taskKey, runId, status, note)`
 with completed, failed or canceled when it ends, including a stop for user input.
 A macro skill run names `projectId` and `macroKey` instead of `taskKey`, in both

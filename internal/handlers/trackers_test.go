@@ -213,3 +213,105 @@ func TestAnAdminConfiguresTheBoardOnTheTrackerNotOnAProject(t *testing.T) {
 		t.Fatalf("the project detection route still answers: %s", rr.Body.String())
 	}
 }
+
+// projectServer serves the project routes behind the guard main.go installs.
+func projectServer(t *testing.T, h *Handler) *httptest.Server {
+	t.Helper()
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/projects", h.HandleProjects)
+	mux.HandleFunc("/api/projects/", h.HandleProjectDetail)
+	server := httptest.NewServer(h.EnableCORS(h.RequireSession(mux)))
+	t.Cleanup(server.Close)
+	return server
+}
+
+// trackerConfiguration is a project payload carrying every tracker setting an
+// older client still sends with the project.
+const trackerConfiguration = `"boardId":"9","trackerColumns":[{"name":"Doing","statuses":["In Progress"]}],` +
+	`"stageColumns":{"implemented":["Doing"]},"issueTypes":["Bug"],"autoSyncEnabled":true,"autoSyncIntervalMin":2`
+
+// A tracker is configured by an admin (#741, D11): a member's project save
+// that still carries the board, the mapping or the background sync leaves the
+// tracker as it was, and the rest of the save goes through.
+func TestAMemberCannotConfigureATrackerThroughAProject(t *testing.T) {
+	h, database, cleanup := setupTestHandler(t)
+	defer cleanup()
+	server := projectServer(t, h)
+	_, _ = account(t, database, "alice@example.com") // the first account is the admin
+	_, bob := account(t, database, "bob@example.com")
+	project, err := database.CreateProject(models.CreateProjectRequest{Name: "Platform", IssueTracker: "jira", JiraProject: "PE"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, err := database.GetTrackerByID(project.DefaultTrackerID)
+	if err != nil || before == nil {
+		t.Fatalf("tracker: %+v (%v)", before, err)
+	}
+
+	status, body := call(t, server, bob, http.MethodPut, "/api/projects/"+project.ID, `{"description":"Renamed by a member",`+trackerConfiguration+`}`)
+	if status != http.StatusOK || !strings.Contains(body, "Renamed by a member") {
+		t.Fatalf("member save: %d %s", status, body)
+	}
+	after, err := database.GetTrackerByID(project.DefaultTrackerID)
+	if err != nil || after == nil {
+		t.Fatalf("tracker: %+v (%v)", after, err)
+	}
+	if after.BoardID != before.BoardID || len(after.TrackerColumns) != len(before.TrackerColumns) || len(after.StageColumns) != len(before.StageColumns) ||
+		len(after.IssueTypes) != len(before.IssueTypes) || after.AutoSyncEnabled != before.AutoSyncEnabled || after.AutoSyncIntervalMin != before.AutoSyncIntervalMin {
+		t.Fatalf("a member configured the tracker through a project:\nbefore %+v\nafter  %+v", before, after)
+	}
+
+	status, body = call(t, server, bob, http.MethodPost, "/api/projects", `{"name":"Billing","issueTracker":"jira","jiraProject":"BILL",`+trackerConfiguration+`}`)
+	if status != http.StatusCreated {
+		t.Fatalf("member create: %d %s", status, body)
+	}
+	var created models.Project
+	if err := json.Unmarshal([]byte(body), &created); err != nil {
+		t.Fatal(err)
+	}
+	fresh, err := database.GetTrackerByID(created.DefaultTrackerID)
+	if err != nil || fresh == nil || fresh.Scope != "BILL" {
+		t.Fatalf("the member's project must still get its tracker: %+v (%v)", fresh, err)
+	}
+	if fresh.BoardID != "" || len(fresh.TrackerColumns) != 0 || len(fresh.StageColumns) != 0 || len(fresh.IssueTypes) != 0 || fresh.AutoSyncEnabled {
+		t.Fatalf("a member configured a new tracker through a project: %+v", fresh)
+	}
+}
+
+// An admin's project save still writes the tracker configuration through to
+// the project's default tracker, for the clients that send it.
+func TestAnAdminStillConfiguresTheTrackerThroughAProject(t *testing.T) {
+	h, database, cleanup := setupTestHandler(t)
+	defer cleanup()
+	server := projectServer(t, h)
+	_, alice := account(t, database, "alice@example.com")
+	project, err := database.CreateProject(models.CreateProjectRequest{Name: "Platform", IssueTracker: "jira", JiraProject: "PE"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	status, body := call(t, server, alice, http.MethodPut, "/api/projects/"+project.ID, `{`+trackerConfiguration+`}`)
+	if status != http.StatusOK {
+		t.Fatalf("admin save: %d %s", status, body)
+	}
+	after, err := database.GetTrackerByID(project.DefaultTrackerID)
+	if err != nil || after == nil {
+		t.Fatalf("tracker: %+v (%v)", after, err)
+	}
+	if after.BoardID != "9" || len(after.TrackerColumns) != 1 || len(after.StageColumns["implemented"]) != 1 || !after.AutoSyncEnabled || after.AutoSyncIntervalMin != 2 {
+		t.Fatalf("the admin's configuration must reach the tracker: %+v", after)
+	}
+
+	status, body = call(t, server, alice, http.MethodPost, "/api/projects", `{"name":"Billing","issueTracker":"jira","jiraProject":"BILL",`+trackerConfiguration+`}`)
+	if status != http.StatusCreated {
+		t.Fatalf("admin create: %d %s", status, body)
+	}
+	var created models.Project
+	if err := json.Unmarshal([]byte(body), &created); err != nil {
+		t.Fatal(err)
+	}
+	fresh, err := database.GetTrackerByID(created.DefaultTrackerID)
+	if err != nil || fresh == nil || fresh.BoardID != "9" || len(fresh.IssueTypes) != 1 || !fresh.AutoSyncEnabled {
+		t.Fatalf("the admin's new tracker must carry the configuration: %+v (%v)", fresh, err)
+	}
+}
