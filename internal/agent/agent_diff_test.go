@@ -84,3 +84,55 @@ func TestDesktopGitDiffBoundary(t *testing.T) {
 		t.Fatal("missing checkout accepted")
 	}
 }
+
+func TestDesktopGitDiffCarriesMarkdownImages(t *testing.T) {
+	root := t.TempDir()
+	git := func(args ...string) {
+		t.Helper()
+		b, e := exec.Command("git", append([]string{"-C", root}, args...)...).CombinedOutput()
+		if e != nil {
+			t.Fatalf("%v: %s", e, b)
+		}
+	}
+	write := func(p, content string) {
+		t.Helper()
+		if e := os.WriteFile(filepath.Join(root, p), []byte(content), 0644); e != nil {
+			t.Fatal(e)
+		}
+	}
+	git("init", "-b", "main")
+	git("config", "user.name", "Test")
+	git("config", "user.email", "test@example.test")
+	write("flow.png", "\x89PNG\r\n\x1a\nflow")
+	git("add", ".")
+	git("commit", "-m", "base")
+	git("checkout", "-b", "feat/test")
+	write("guide.md", "![Flow](flow.png) ![Missing](missing.png)\n")
+	d := &agentDaemon{queue: runQueue{runs: map[string]*controlledRun{"run": {root: root, desktop: desktopRun{Directory: root, Branch: "feat/test", TaskID: "task", ProjectID: "project", Status: "running"}}}}, loopback: loopbackServer{desktopToken: "private"}}
+	req := httptest.NewRequest("GET", "/desktop/git-diff?id=run", nil)
+	req.Header.Set("Authorization", "Bearer private")
+	w := httptest.NewRecorder()
+	d.desktopHandler(w, req)
+	if w.Code != 200 {
+		t.Fatalf("%d: %s", w.Code, w.Body)
+	}
+	var diff struct {
+		Files []struct {
+			Path     string `json:"path"`
+			Document struct {
+				Images []map[string]string `json:"images"`
+			} `json:"document"`
+		} `json:"files"`
+		Images map[string]map[string]string `json:"images"`
+	}
+	if e := json.Unmarshal(w.Body.Bytes(), &diff); e != nil {
+		t.Fatal(e)
+	}
+	if image := diff.Images["new:flow.png"]; image["mimeType"] != "image/png" || image["data"] != "iVBORw0KGgpmbG93" {
+		t.Fatalf("image payload: %+v", diff.Images)
+	}
+	refs := diff.Files[0].Document.Images
+	if len(refs) != 2 || refs[0]["image"] != "new:flow.png" || refs[1]["omittedReason"] != "Image not found in the inspected state." {
+		t.Fatalf("document refs: %+v", refs)
+	}
+}
