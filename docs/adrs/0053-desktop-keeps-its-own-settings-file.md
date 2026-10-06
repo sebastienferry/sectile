@@ -53,8 +53,9 @@ while both lived in one file.
 **The agent learns its key's date and device.** Desktop starts the agent with
 `SECTILE_PAIRED_AT` and `SECTILE_PAIRED_DEVICE_ID`. The agent takes a key
 stored in `settings.json` as newer than its own only when it was paired later,
-and records the server and device of Desktop's pairing in `settings.json`,
-never the key, so `sectile-agent pair` replaces the same device. An agent
+and, when `settings.json` holds no key, records there the server and device of
+the pairing it was started on, never the key, so `sectile-agent pair` replaces
+the same device. A stored key keeps the device it was paired as. An agent
 started by hand keeps the rule of ADR 0049.
 
 **The standalone agent pairs on its own.** It no longer reuses a key Desktop

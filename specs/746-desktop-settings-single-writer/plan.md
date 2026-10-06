@@ -95,8 +95,9 @@ UTC timestamp.
   `desktopOnlyKeys`.
 - `RecordDesktopConnection(server, deviceID string) error`: under
   `settingsMu`, sets `server` and `deviceId` only when the file holds no
-  `apiKey` or holds one for the same server; leaves the file untouched when
-  nothing changes. It never writes a key.
+  `apiKey` (a stored key keeps the device it was paired as); leaves the file
+  untouched when nothing changes. It never writes a key. Desktop passes the
+  device of the credential it starts the agent on.
 - `agent.go`: after resolving the server and the token, when
   `SECTILE_PAIRED_DEVICE_ID` is set, calls `RecordDesktopConnection` and logs a
   failure without stopping. `SECTILE_PAIRED_AT` is parsed into

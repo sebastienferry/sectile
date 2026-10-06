@@ -94,8 +94,9 @@ func WriteConnection(connection Connection) error {
 // RecordDesktopConnection stores the server and the device of the pairing
 // Sectile Desktop started the agent with, never its key, so that
 // `sectile-agent pair` replaces that device's key rather than registering a
-// second device (#746). A key stored for another server keeps its server, and
-// a file that already says the same is not rewritten.
+// second device (#746). A file that holds a key is left alone: its server and
+// device are that key's, whichever pairing Desktop started on. A file that
+// already says the same is not rewritten.
 func RecordDesktopConnection(server, deviceID string) error {
 	server = strings.TrimRight(strings.TrimSpace(server), "/")
 	deviceID = strings.TrimSpace(deviceID)
@@ -108,7 +109,7 @@ func RecordDesktopConnection(server, deviceID string) error {
 	if err != nil && !errors.Is(err, ErrNoStoredConnection) {
 		return err
 	}
-	if stored.APIKey != "" && stored.Server != "" && stored.Server != server {
+	if stored.APIKey != "" {
 		return nil
 	}
 	if stored.Server == server && stored.DeviceID == deviceID {

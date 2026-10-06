@@ -114,9 +114,9 @@ Desktop opens as it was.
   one it started with only under the rule of FR5, compared with the date of
   the key Desktop handed it.
 - FR7 A Desktop pairing replaces the device `settings.json` names when Desktop
-  has none of its own for that server; the agent Desktop starts records the
-  server and the device of Desktop's pairing in `settings.json`, never the
-  key.
+  has none of its own for that server; when `settings.json` holds no key, the
+  agent Desktop starts records there the server and the device of the pairing
+  it was started on, never the key.
 - FR8 The Desktop data directory carry-over (app rename) carries Desktop's own
   file too.
 - FR9 Log lines and error messages keep the language of their neighbours.

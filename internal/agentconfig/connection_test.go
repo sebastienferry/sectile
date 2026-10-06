@@ -131,20 +131,25 @@ func TestRecordDesktopConnectionStoresServerAndDeviceOnly(t *testing.T) {
 	}
 }
 
-func TestRecordDesktopConnectionKeepsAKeyForAnotherServer(t *testing.T) {
-	const stored = `{"server":"https://other.example.test","apiKey":"cli","deviceId":"dev_cli"}`
-	path := writeSettingsFile(t, stored)
-
-	if err := RecordDesktopConnection("https://sectile.example.test", "dev_desktop"); err != nil {
-		t.Fatal(err)
-	}
-	if raw, _ := os.ReadFile(path); string(raw) != stored {
-		t.Fatalf("file rewritten: %s", raw)
+// A stored key keeps the server and device it was paired as, so the next
+// `sectile-agent pair` replaces that key's device, not Desktop's.
+func TestRecordDesktopConnectionLeavesAStoredKeyWithItsDevice(t *testing.T) {
+	for _, stored := range []string{
+		`{"server":"https://other.example.test","apiKey":"cli","deviceId":"dev_cli"}`,
+		`{"server":"https://sectile.example.test","apiKey":"cli","deviceId":"dev_cli"}`,
+	} {
+		path := writeSettingsFile(t, stored)
+		if err := RecordDesktopConnection("https://sectile.example.test", "dev_desktop"); err != nil {
+			t.Fatal(err)
+		}
+		if raw, _ := os.ReadFile(path); string(raw) != stored {
+			t.Fatalf("file rewritten: %s", raw)
+		}
 	}
 }
 
 func TestRecordDesktopConnectionLeavesAnUpToDateFileAlone(t *testing.T) {
-	const stored = `{"server":"https://sectile.example.test","apiKey":"cli","deviceId":"dev_1"}`
+	const stored = `{"server":"https://sectile.example.test","deviceId":"dev_1"}`
 	path := writeSettingsFile(t, stored)
 
 	if err := RecordDesktopConnection("https://sectile.example.test", "dev_1"); err != nil {

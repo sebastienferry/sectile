@@ -758,9 +758,9 @@ otherwise, so a single-use pairing code is never lost. Each pairing records
 `pairedAt`; Desktop starts on the key `sectile-agent pair` stored in
 `settings.json` only when it was paired later for the same server. Desktop
 starts the agent with `TOKEN`, `SECTILE_PAIRED_AT` and
-`SECTILE_PAIRED_DEVICE_ID`; the agent records that server and device in
-`settings.json`, never the key, and takes a stored key as newer only when it
-was paired later. The standalone agent does not reuse a key Desktop stored. Existing
+`SECTILE_PAIRED_DEVICE_ID`; when `settings.json` holds no key, the agent
+records that server and device there, never the key, and it takes a stored key
+as newer only when it was paired later. The standalone agent does not reuse a key Desktop stored. Existing
 agents launched outside the desktop do not expose their server credentials to
 this panel.
 

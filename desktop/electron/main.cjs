@@ -7,7 +7,6 @@ const {exchangePairingCode,resolveConnectCredential,pairingNeeded}=require('./pa
 const {browserSignIn}=require('./browser-sign-in.cjs')
 const credentials=require('./credential-store.cjs')
 const storeKey=(saved,token)=>credentials.storeKey(saved,token,safeStorage)
-const storedKey=saved=>credentials.storedKey(saved,safeStorage)
 const {carryOverDataDirectory}=require('./datadir.cjs')
 const {readAgentLog}=require('./agent-log.cjs')
 const {fileSha256,agentOutdated}=require('./agent-identity.cjs')
@@ -138,11 +137,13 @@ function currentCredential(){
 }
 // The renderer reads the connection facts only: the execution sections of the
 // same file belong to the agent and are read through /desktop/workstation.
+// settingsView shows the pairing the agent is started on, whichever file holds it.
+function settingsView(){
+ const current=currentCredential()
+ return connectionView({...settingsStore.readDesktop(),server:current.record.server,deviceId:current.record.deviceId},current.token())
+}
 ipcMain.handle('settings',()=>{
- try{
-  const current=currentCredential()
-  return connectionView({...settingsStore.readDesktop(),server:current.record.server,deviceId:current.record.deviceId},current.token())
- }catch{return {}}
+ try{return settingsView()}catch{return {}}
 })
 // Whether this workstation holds a usable key, and for which server: the key itself never crosses to the renderer here.
 ipcMain.handle('credential-state',()=>{try{const current=currentCredential();return {state:current.state,server:current.record.server||''}}catch{return {state:'unreadable',server:''}}})
@@ -150,8 +151,8 @@ ipcMain.handle('credential-state',()=>{try{const current=currentCredential();ret
 // is dropped, since the agent is the only writer of the execution sections
 // (#305) and of settings.json (#746).
 ipcMain.handle('save-settings',async(_,updates)=>{
- const saved=settingsStore.updateDesktop(current=>Object.assign(current,connectionUpdates(updates)))
- return connectionView(saved,storedKey(saved))
+ settingsStore.updateDesktop(saved=>Object.assign(saved,connectionUpdates(updates)))
+ return settingsView()
 })
 // The appearance is applied here rather than in the renderer: themeSource
 // moves prefers-color-scheme and the native widgets together, and the window
@@ -266,7 +267,7 @@ async function startAgent(settings){
  let launched={}
  try{launched=currentCredential().record}catch{}
  const pairedAt=launched.pairedAt||''
- const pairedDevice=credential.deviceId||storedDeviceId(settings.server)
+ const pairedDevice=launched.deviceId||''
  const output=fs.openSync(path.join(app.getPath('userData'),'agent.log'),'a',0o600)
  const info=infoPath()
  if(fs.existsSync(info))fs.unlinkSync(info)
