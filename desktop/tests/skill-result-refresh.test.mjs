@@ -34,3 +34,16 @@ test('right after a change, the result is read at every poll until it settles', 
   assert.equal(skillResultDue(run('completed'), skillResultStamp(run('completed'), SETTLE_MS, again), SETTLE_MS + 2000), false)
   assert.equal(skillResultStamp(run('failed'), 5000, again).changedAt, 5000)
 })
+
+test('a live run whose skill ended is read at every poll for the next skill', async () => {
+  const { skillEnded } = await import('../src/skill-result-refresh.mjs')
+  const ended = { ...skillResultStamp(run('running'), 0, undefined, true), changedAt: -SETTLE_MS }
+  assert.equal(skillResultDue(run('running'), ended, 2000), true)
+  const exited = { ...skillResultStamp(run('completed'), 0, undefined, true), changedAt: -SETTLE_MS }
+  assert.equal(skillResultDue(run('completed'), exited, 2000), false)
+  assert.equal(skillEnded({ activity: { status: 'completed' } }), true)
+  // The next skill of the console is followed at every poll too, its wait included.
+  assert.equal(skillEnded({ activity: { status: 'completed' }, successor: { status: 'running' } }), true)
+  assert.equal(skillEnded({ activity: { status: 'running' } }), false)
+  assert.equal(skillEnded(null), false)
+})

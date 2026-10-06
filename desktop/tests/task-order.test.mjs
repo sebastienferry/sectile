@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { followedExecution } from '../src/task-order.mjs'
+import { followedExecution, orderedTaskGroups } from '../src/task-order.mjs'
 
 const run=(id,taskId,status,hour,extra={})=>({id,taskId,projectId:'project',status,createdAt:`2026-09-29T${hour}:00:00Z`,...extra})
 const keyOf=run=>JSON.stringify([run.projectId,run.kind==='console'?run.id:run.taskId])
@@ -38,4 +38,19 @@ test('ranks several new executions like the row does',()=>{
  const next=[shown,run('queued','1','queued','12'),run('running','1','running','10'),run('done','1','completed','11')]
  assert.equal(follow([shown],next,'a'),'running')
  assert.equal(follow([shown],[shown,run('b','1','queued','10'),run('c','1','queued','11')],'a'),'c')
+})
+
+test('a row leads with its running console but speaks for its newest skill',()=>{
+ const console_=run('old','1','running','09',{skill:'clarify'}),next=run('new','1','queued','10',{skill:'specify'})
+ const [group]=orderedTaskGroups([[console_,next]])
+ assert.equal(group.run.id,'old')
+ assert.equal(group.skillRun.id,'new')
+ // A discussion runs no skill, so the badge does not follow it.
+ const [discussed]=orderedTaskGroups([[console_,run('talk','1','running','11',{skill:'discuss'})]])
+ assert.equal(discussed.skillRun.id,'old')
+ // With nothing but a discussion, the badge stays on the leading run.
+ const [alone]=orderedTaskGroups([[run('talk','1','running','11',{skill:'discuss'})]])
+ assert.equal(alone.skillRun.id,'talk')
+ // A single execution speaks for itself.
+ assert.equal(orderedTaskGroups([[console_]])[0].skillRun.id,'old')
 })

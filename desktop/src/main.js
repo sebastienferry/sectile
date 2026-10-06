@@ -2,7 +2,7 @@ import { pullRequestPresentation, renderPullRequestIndicator, repositoryPullRequ
 import { installTooltips } from './tooltips.js'
 import {mcpSettings} from './mcp-settings.mjs'
 import { mcpProviders } from '../../shared/mcpConfig.mjs'
-import { skillResultDue, skillResultStamp } from './skill-result-refresh.mjs'
+import { skillEnded, skillResultDue, skillResultStamp } from './skill-result-refresh.mjs'
 import { newTaskShortcutAction, newTaskShortcutLabel } from './new-task-shortcut.mjs'
 import { paletteMatches } from './command-palette.mjs'
 import { defaultActionShortcut, defaultActionTarget, defaultActionLabel } from './dialog-default.mjs'
@@ -398,7 +398,7 @@ async function refreshSkillResult(id=selected){
   // run; a run the latest poll still lists as live is the anomaly worth noting.
   if(result===null&&runs.includes(run)&&!['completed','failed','canceled'].includes(run.status))console.warn('The local agent reports no run '+run.id+' while the desktop still lists it as '+run.status)
   skillResults.set(run.id,result)
-  skillResultReads.set(run.id,skillResultStamp(run,Date.now(),skillResultReads.get(run.id)))
+  skillResultReads.set(run.id,skillResultStamp(run,Date.now(),skillResultReads.get(run.id),skillEnded(result)))
  }catch{skillResults.delete(run.id)}
  finally{loadingSkillResults.delete(run.id);renderHeader();renderTaskSkillStatuses()}
 }
@@ -665,7 +665,7 @@ function render(options){
   }else if(!collapsedProjects.has(project.id)){
    if(!children.length){const empty=document.createElement('p');empty.className='hint';empty.textContent='No local tasks';group.append(empty)}
    const stageOf=stageGroupedProjects.has(project.id)?run=>taskStages.get(run.taskId):undefined
-   for(const {executions,run} of orderedTaskGroups(taskGroups.values(),{stageOf})){
+   for(const {executions,run,skillRun} of orderedTaskGroups(taskGroups.values(),{stageOf})){
     const isSelected=executions.some(item=>item.id===selected)
     const row=document.createElement('div');row.className='local-task '+(isSelected?'selected':'')
     const button=document.createElement('button');button.className='run '+(isSelected?'selected':'')
@@ -673,7 +673,8 @@ function render(options){
     const context=document.createElement('button');context.textContent=run.taskKey||run.taskId;context.className='task-number';context.title='Open task in Sectile';context.setAttribute('aria-label','Open '+(run.taskKey||run.taskId)+' in Sectile');context.disabled=macroRun(run);context.onclick=()=>api.openTask(run.taskId).catch(error)
     const stage=taskStages.get(run.taskId)
     if(stage){context.dataset.stage=stage;context.title+=' · Stage: '+stage}
-    const status=document.createElement('span');status.className='status task-skill-status';status.dataset.runId=run.id
+    // The skill badge speaks for the task's newest skill (#586); the rest of the row for its leading run.
+    const status=document.createElement('span');status.className='status task-skill-status';status.dataset.runId=skillRun.id
     const state=document.createElement('span');state.className='run-state';state.dataset.runId=run.id
     const stateLabel=renderRunState(state,run)
     // data-status stays the status the server reported: the UI tests select on it.
