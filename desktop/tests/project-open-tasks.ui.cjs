@@ -20,7 +20,8 @@ test('the tickets pane lists, sorts and launches a project\'s open tasks',async(
   res.setHeader('Content-Type','application/json')
   if(offline){res.writeHead(503).end('{}');return}
   const url=new URL(req.url,'http://localhost'),project=url.searchParams.get('projectId')
-  if(url.pathname==='/desktop/status'){res.end(JSON.stringify({connected:true,server:'http://example.test'}));return}
+  if(url.pathname==='/desktop/status'){res.end(JSON.stringify({connected:true,server:'http://example.test',capabilities:['archive-workspace']}));return}
+  if(url.pathname==='/desktop/tasks/archive-workspace'&&req.method==='POST'){req.resume();res.end(JSON.stringify({archivable:true,repositories:[{repository:'repo',outcome:'removed'}]}));return}
   if(url.pathname==='/desktop/projects'){res.end(JSON.stringify(['A','B'].map(name=>({id:'project-'+name.toLowerCase(),name:'Project '+name,path:'/tmp/'+name}))));return}
   if(url.pathname==='/desktop/runs'){res.end(JSON.stringify(runs));return}
   if(url.pathname==='/desktop/project'){res.end(JSON.stringify({configured,server:{defaultSkillMode:'interactive',skills:[{id:'clarify'},{id:'pickup',mode:'interactive'},{id:'specify'}]}}));return}
@@ -163,7 +164,7 @@ test('the tickets pane lists, sorts and launches a project\'s open tasks',async(
   const more=page.getByRole('button',{name:'More actions for #1',exact:true})
   await more.click()
   await expect(more).toHaveAttribute('aria-expanded','true')
-  assert.deepEqual(await page.getByRole('menuitem').allTextContents(),['Pickup (full chain)','clarify','specify','Discussion (no skill)','Discussion in native terminal','Custom instructions…'])
+  assert.deepEqual(await page.getByRole('menuitem').allTextContents(),['Pickup (full chain)','clarify','specify','Discussion (no skill)','Discussion in native terminal','Custom instructions…','Launch…'])
   await page.getByRole('menuitem',{name:'Pickup (full chain)',exact:true}).click()
   await expect.poll(()=>launches.length).toBe(2)
   assert.deepEqual(launches.at(-1),{project:'project-b',taskID:'b1',skillID:'pickup',prompt:'',mode:'autonomous'})
@@ -210,7 +211,7 @@ test('the tickets pane lists, sorts and launches a project\'s open tasks',async(
   await expect(more).toBeFocused()
   assert.deepEqual(await keys(),['#1'])
   // An archived execution is hidden here as it is in the sidebar.
-  await page.getByRole('button',{name:'Archive #1',exact:true}).click()
+  await page.getByRole('button',{name:'Archive #1 and remove its worktree',exact:true}).click()
   await expect(state).toBeEmpty()
   // Selecting an execution leaves the pane instead of changing it behind a hidden view.
   runs=[{...runs[0],status:'running'}]

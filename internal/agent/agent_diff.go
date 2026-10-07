@@ -31,16 +31,32 @@ func (d *agentDaemon) desktopGitDiff(w http.ResponseWriter, r *http.Request) {
 	}
 	id := r.URL.Query().Get("id")
 	var entry desktopRun
-	var root string
-	if !d.queue.read(id, func(run *controlledRun) { entry, root = run.desktop, run.root }) {
+	var root, folder string
+	primary, listed := true, true
+	if !d.queue.read(id, func(run *controlledRun) {
+		entry, root = run.desktop, run.root
+		folder, primary, listed = runFolderPath(run, r.URL.Query().Get("folder"))
+	}) {
 		fail(404, "run_not_found", "This execution is no longer available.")
 		return
 	}
-	if entry.Directory == "" || entry.Branch == "" || root == "" {
-		fail(409, "checkout_unavailable", "This execution has no recorded checkout. Launch a new execution with the updated agent.")
+	if !listed {
+		fail(404, "folder_not_found", "This folder is no longer one of this execution's folders.")
 		return
 	}
-	result, err := runner.InspectWorktree(r.Context(), entry.Directory, entry.Branch, root)
+	var result *runner.WorktreeDiff
+	var err error
+	if primary {
+		if entry.Directory == "" || entry.Branch == "" || root == "" {
+			fail(409, "checkout_unavailable", "This execution has no recorded checkout. Launch a new execution with the updated agent.")
+			return
+		}
+		result, err = runner.InspectWorktree(r.Context(), entry.Directory, entry.Branch, root)
+	} else {
+		// Another folder of the run (#784) has no recorded branch: it is
+		// read on the branch it is on, within its own repository.
+		result, err = runner.InspectFolder(r.Context(), folder)
+	}
 	if err != nil {
 		var detail *runner.DiffError
 		if !errors.As(err, &detail) {

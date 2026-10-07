@@ -97,7 +97,7 @@ func (d *agentDaemon) runConversationShell(run *controlledRun, toolID, directory
 
 // withShellContext hands Claude the commands run since the last message, as
 // Claude Code does, and forgets them. The queue lock is held.
-func withShellContext(c *claudeConversation, message string) string {
+func withShellContext(c *providerConversation, message string) string {
 	if c.shellContext == "" {
 		return message
 	}
@@ -127,6 +127,10 @@ const conversationMCPTimeout = time.Minute
 // shows what it printed. Claude is not told: it is for the owner. The queue
 // lock is held.
 func (d *agentDaemon) startConversationMCPLocked(run *controlledRun) {
+	if run.desktop.Provider == "codex" {
+		d.checkCodexMCPLocked(run, true)
+		return
+	}
 	conversationWrite(run.trace, "notice", "Checking MCP server health…", "")
 	env := map[string]string{"SECTILE_PROJECT_ID": run.desktop.ProjectID}
 	for key, value := range run.conversation.env {
@@ -221,6 +225,10 @@ func (d *agentDaemon) checkSectileMCP(directory string, env map[string]string) c
 // Sectile's MCP server here. Each turn's init frame refreshes it. The queue
 // lock is held.
 func (d *agentDaemon) checkSectileMCPLocked(run *controlledRun) {
+	if run.desktop.Provider == "codex" {
+		d.checkCodexMCPLocked(run, false)
+		return
+	}
 	c := run.conversation
 	if c.checkingMCP || run.desktop.Directory == "" {
 		return

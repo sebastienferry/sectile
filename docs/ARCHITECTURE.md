@@ -296,15 +296,18 @@ restores eligibility for local execution.
 
 ## MCP and authentication
 
-The server's Streamable HTTP `/mcp` service exposes seventeen typed tools:
+The server's Streamable HTTP `/mcp` service exposes twenty typed tools:
 `list_projects`, `get_task`, `list_tasks`, `get_project_context`, `create_task`,
 `update_task`, `add_comment`, `transition_stage`, `start_run`, `finish_run`,
 `report_waiting`, `prepare_macro_worktree`, `prepare_repository_worktree`,
 `prepare_task_spec_worktree`, `record_pull_request`, `get_macro` and
-`update_macro_todos`. `prepare_task_spec_worktree` answers where a task's
+`update_macro_todos`, plus `list_macros`, `create_macro` and `update_macro`.
+The macro resource tools share metadata validation and tracker orchestration
+with the HTTP editor; see the [resource contract](contracts/server-agent-v1.md#macro-resources).
+`prepare_task_spec_worktree` answers where a task's
 clarification report and specification are written on the caller's
 workstation: its Issue specifications folder, else the task's worktree
-(ADR 0051). The last two read a
+(ADR 0051). `get_macro` and `update_macro_todos` read a
 macro with its ordered todos and save a full ordered list, which schedules the
 one-way copy of the todos on the tracker (ADR 0046). `record_pull_request`
 records a pull request outside a stage transition, one per repository the task

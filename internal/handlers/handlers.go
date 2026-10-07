@@ -807,7 +807,7 @@ func isMacroSegment(segment string) bool {
 }
 
 func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
-	rawPath := strings.TrimPrefix(r.URL.Path, "/api/projects/")
+	rawPath := strings.TrimPrefix(r.URL.EscapedPath(), "/api/projects/")
 	rawPath = strings.Trim(rawPath, "/")
 	if rawPath == "" {
 		writeError(w, http.StatusBadRequest, "ID du projet obligatoire")
@@ -1516,6 +1516,24 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 
 		switch r.Method {
 		case http.MethodGet:
+			if len(parts) > 3 {
+				writeError(w, http.StatusNotFound, "Ressource macro introuvable")
+				return
+			}
+			if len(parts) == 3 {
+				key, err := url.PathUnescape(parts[2])
+				if err != nil {
+					writeError(w, http.StatusBadRequest, "Clé de macro invalide")
+					return
+				}
+				macro, err := h.db.GetMacro(id, key)
+				if err != nil {
+					writeError(w, http.StatusNotFound, err.Error())
+					return
+				}
+				writeJSON(w, http.StatusOK, map[string]any{"macro": macro})
+				return
+			}
 			macros, err := h.db.GetProjectMacros(id)
 			if err != nil {
 				writeError(w, http.StatusInternalServerError, err.Error())
@@ -1543,26 +1561,6 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 				writeError(w, http.StatusBadRequest, "Invalid macro payload: "+err.Error())
 				return
 			}
-			// The epic axes are checked before anything is saved: a refused quarter
-			// must not leave the rest of the edit half applied.
-			if req.Priority != nil {
-				if _, err := db.NormalizeEpicPriority(*req.Priority); err != nil {
-					writeError(w, http.StatusBadRequest, err.Error())
-					return
-				}
-			}
-			if req.Quarter != nil {
-				if _, err := db.NormalizeQuarter(*req.Quarter); err != nil {
-					writeError(w, http.StatusBadRequest, err.Error())
-					return
-				}
-			}
-			if req.Readiness != nil {
-				if _, err := db.NormalizeReadiness(*req.Readiness); err != nil {
-					writeError(w, http.StatusBadRequest, err.Error())
-					return
-				}
-			}
 			key := req.Key
 			if len(parts) >= 3 && parts[2] != "" {
 				if decoded, err := url.PathUnescape(parts[2]); err == nil {
@@ -1573,42 +1571,14 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 			if req.Bulk {
 				editCtx = db.WithBulkMacroEdit(editCtx)
 			}
-			saved, err := h.db.UpdateMacro(editCtx, id, key, req.Title, req.Horizon, req.Description, req.FramingComment, req.Todos, req.Closed)
+			saved, labelNote, err := h.db.SaveMacroEdit(editCtx, id, key, db.MacroMetadata{
+				Title: req.Title, Horizon: req.Horizon, Description: req.Description,
+				FramingComment: req.FramingComment, Closed: req.Closed,
+				Priority: req.Priority, Quarter: req.Quarter, Readiness: req.Readiness,
+			}, req.Todos)
 			if err != nil {
 				writeTrackerError(w, http.StatusBadRequest, err)
 				return
-			}
-			labelNote := ""
-			if req.Horizon != nil && h.db.MacroIsForeign(id, key) {
-				// The horizon of a roadmap project's epic stays in Sectile
-				// (#632): a queued write could only fail.
-				labelNote = "conservé dans Sectile, non écrit sur le tracker"
-			} else if req.Horizon != nil {
-				labelNote = "label roadmap en file d'attente"
-				if _, err := h.db.EnqueueTrackerOp(h.actingContext(r), db.TrackerOp{
-					Kind:      db.TrackerOpEpicHorizon,
-					ProjectID: id,
-					TaskKey:   key,
-					EpicKey:   key,
-					Horizon:   saved.Horizon,
-				}); err != nil {
-					labelNote = "label roadmap non mis en file : " + err.Error()
-					log.Printf("[macros] label roadmap non mis en file pour %s: %v", key, err)
-				}
-			}
-			if req.Priority != nil || req.Quarter != nil || req.Readiness != nil {
-				axes, err := h.db.SaveMacroAxes(id, key, req.Priority, req.Quarter, req.Readiness)
-				if err != nil {
-					writeError(w, http.StatusBadRequest, err.Error())
-					return
-				}
-				h.db.FillMacroFlags(id, axes, req.Bulk)
-				saved = axes
-				labelNote = h.enqueueMacroAxes(r, id, key, saved, req.Priority != nil, req.Quarter != nil, req.Readiness != nil)
-			} else if saved != nil {
-				// The client replaces its copy of the macro with this one, so it
-				// carries the computed flag whatever field the request changed.
-				h.db.FillMacroFlags(id, saved, false)
 			}
 			writeJSON(w, http.StatusOK, map[string]interface{}{"macro": saved, "epic": saved, "labelNote": labelNote})
 			return

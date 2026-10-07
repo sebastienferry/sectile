@@ -11,6 +11,7 @@ import (
 
 	"tasks/internal/agentconfig"
 	"tasks/internal/models"
+	"tasks/internal/skills"
 )
 
 // projectSettingsInput is what the desktop project dialog saves. A field left
@@ -260,6 +261,7 @@ func withoutExecution(c agentconfig.Config) agentconfig.Config {
 // workstationView is what the desktop's workstation screen reads.
 type workstationView struct {
 	GlobalConfiguration bool                 `json:"globalConfiguration"`
+	SkillCommands       []map[string]string  `json:"skillCommands"`
 	Defaults            agentconfig.Defaults `json:"defaults"`
 	Effective           workstationEffective `json:"effective"`
 	ProviderModels      map[string][]string  `json:"providerModels"`
@@ -307,6 +309,7 @@ func (d *agentDaemon) desktopWorkstation(w http.ResponseWriter, r *http.Request)
 			http.Error(w, err.Error(), 400)
 			return
 		}
+		preserveModels := input.AIProviderModels == nil
 		input = normalizeDefaults(input)
 		// A desktop that predates the engine catalogue still sends the engine
 		// fields: refused with a message saying why, never silently dropped.
@@ -316,6 +319,10 @@ func (d *agentDaemon) desktopWorkstation(w http.ResponseWriter, r *http.Request)
 		}
 		d.prepareMu.Lock()
 		_, err := agentconfig.UpdateSettings(d.localSettingsRoot(), func(settings *agentconfig.Settings) error {
+			// Provider model controls save separately from execution defaults.
+			if preserveModels {
+				input.AIProviderModels = settings.Defaults.AIProviderModels
+			}
 			if input.SkillCommands == nil {
 				input.SkillCommands = settings.Defaults.SkillCommands
 			} else {
@@ -330,6 +337,7 @@ func (d *agentDaemon) desktopWorkstation(w http.ResponseWriter, r *http.Request)
 			// The console view has its own endpoint: this form never carries it.
 			input.ConsoleView = settings.Defaults.ConsoleView
 			input.ConversationMode = settings.Defaults.ConversationMode
+			input.CodexApprovalsReviewer = settings.Defaults.CodexApprovalsReviewer
 			// So do the Sandbox values (#730).
 			input.ClaudeSandbox = settings.Defaults.ClaudeSandbox
 			input.ClaudeSandboxProjects = settings.Defaults.ClaudeSandboxProjects
@@ -369,8 +377,13 @@ func (d *agentDaemon) workstationViewOf(settings agentconfig.Settings) workstati
 	if terminal == "" {
 		terminal = d.resolveTerminalForProject(context.Background(), "", "")
 	}
+	commandMapping := make([]map[string]string, 0, len(skills.StageSkills))
+	for _, skill := range skills.StageSkills {
+		commandMapping = append(commandMapping, map[string]string{"id": skill.ID, "name": skill.Name, "command": skill.Command})
+	}
 	return workstationView{
 		GlobalConfiguration: true,
+		SkillCommands:       commandMapping,
 		Defaults:            settings.Defaults,
 		Effective: workstationEffective{
 			DefaultEngine: summaryOf(settings.DefaultEngine()),

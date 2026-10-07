@@ -16,7 +16,31 @@ test fixtures or internal plumbing.
 ### Added
 
 - **Publish the framing of every Jira epic in one click.** The Roadmap of a Jira project shows a **framings to publish** button next to **labels to push** when some epics' framing comment is missing or out of date, typically epics framed before the copy existed. It queues one activity, under your own Jira account, that writes them one after another; the toast says how many were queued and how many epics were skipped because their framing is empty. An epic whose write fails shows **Publishing failed** on its framing line, with its own **Publish again**. (#691)
-- **Choose the permission mode new Desktop Claude conversations start in.** **Settings → Appearance** has a new **Conversation permission mode**, right under **Claude consoles**: Ask before edits, Accept edits (still the default), Auto mode or Plan mode. It applies to the first message of every new conversation, so a skill such as clarify or a project prompt launched in the conversation view, which starts on its own command before you could pick a mode, now runs in the mode you chose, and so does the first message of a Claude chat. The composer starts on it and still changes the mode from the next message. The setting is used only with **Claude consoles** set to **Conversation**. Upgrade the agent along with the desktop.
+
+- **Launch a task on the engine of your choice from Desktop.** The execution toolbar's Relaunch button is now **Launch**, and every ticket row's **…** menu offers **Launch…** to open the same dialog, even on a task with no execution yet. The dialog adds an **AI engine** select that starts on the task's engine; picking another one switches the task to it, as the Engine column does. (#786)
+
+- **Manage macros from your coding agent.** Agents can list project macros, create them and edit their metadata while preserving story-linked todos; integrations can read a single macro through HTTP. Reported tracker failures retain the saved local macro in the response. Upgrade the server and agent together. (#782)
+
+- **Configure MCP under Deployment.** Desktop moves MCP configuration out of Execution defaults and places it alongside skill installation in Deployment.
+
+- **Map workflow steps to custom commands.** Execution defaults shows each step alongside its standard command and an optional replacement, instead of an editable list of skill IDs.
+
+- **Initialize projects with the default AI engine.** Desktop removes the separate Initialization provider setting; initialization without an explicit provider follows the workstation default engine, including on workstations with an older saved initialization choice. Upgrade the local agent together with Desktop.
+
+- **Automatic assistant setup without an extra setting.** Desktop removes Extra setup providers from workstation and project settings; providers configured in AI engines are prepared automatically.
+
+- **Simpler workstation connection settings.** Agent connection shows the sign-in and pairing code fields directly, without the Pair again disclosure.
+
+- **Configure offered models alongside AI engines.** Desktop groups the Antigravity, Claude and Codex model lists under AI engines → Models offered, with separate save controls.
+
+- **Recognize provider settings by their logos.** Desktop uses the Claude and OpenAI brand marks for Claude and Codex settings.
+
+- **Find and resize Desktop settings.** A search field finds settings across the loaded categories. Profile and appearance preferences share the **General** category, and settings fill the available content width as the window resizes.
+
+- **Choose who reviews Codex conversation approvals.** Desktop **Codex settings** offers **Ask me** and **Approve on my behalf**; automatic review keeps the sandbox active and applies from the next message. The Claude **Conversation permission mode** setting now lives in **Claude settings**.
+
+- **Use Codex in the Desktop conversation view.** The **AI consoles** appearance setting now opens Codex interactive ticket launches and project prompts as conversations, with streamed replies, tool cards, approvals, questions, model and effort selection, and interruption. Codex keeps its session between messages and can resume after its process exits unexpectedly. Upgrade the agent along with Desktop.
+- **Choose the permission mode new Desktop Claude conversations start in.** **Settings → Appearance** has a new **Conversation permission mode**, right under **Claude consoles**: Ask before edits, Accept edits (still the default), Auto mode or Plan mode. It applies to the first message of every new conversation, so a skill such as clarify or a project prompt launched in the conversation view, which starts on its own command before you could pick a mode, now runs in the mode you chose. The composer starts on it and still changes the mode from the next message. The setting is used only with **Claude consoles** set to **Conversation**. Upgrade the agent along with the desktop.
 - **Run a Desktop Claude conversation in auto mode.** The conversation composer's permission mode now offers **Auto mode**, next to Ask before edits, Accept edits and Plan mode: Claude Code's classifier approves the actions your rules do not cover, as in a terminal session in auto mode, so a conversation stops asking for each `glab`, `gh` or other command outside the sandbox. An action the classifier refuses still waits for your approval. Accept edits stays the default. Upgrade the agent along with the desktop.
 - **Copy the path of any folder of a Desktop execution.** When an execution works in several folders, a chevron now follows its path below the title: it lists the primary worktree, the worktrees of the other repositories it changes, the read-only context repositories, the attached folders and the specifications worktree, each with its role, and choosing one copies its path. Folders prepared or attached while the execution runs join the list, and a restored execution keeps it. Clicking the path still copies the path itself. Upgrade the agent along with the desktop. (#762)
 - **Run git over SSH, gh and glab outside Claude Code's sandbox.** The Desktop **Claude settings**, at workstation and project level, have a new **Commands outside the sandbox** list, next to the allowed network domains: Claude Code runs the commands it lists outside its sandbox, where SSH keys and the system certificates work, while every other command stays sandboxed. Write an entry as `glab *` to match the command with its arguments. A listed command still follows the allow and deny rules, so it asks unless an allow rule covers it. The new opt-in preset **Outside the sandbox (git, gh, glab)** lists `git fetch`, `pull`, `push`, `clone` and `ls-remote`, `gh` and `glab`. The list does not apply on Windows. Upgrade the agent along with the desktop. (#764)
@@ -78,7 +102,10 @@ test fixtures or internal plumbing.
 
 ### Changed
 
-- Desktop Relaunch and its skill selector are available at every task execution stage, including active executions and conversations. The experimental Claude chat (test) toolbar button has been removed.
+- **Inspect any folder of an execution in Desktop.** The folder list after an execution's path now selects a folder instead of copying it: the path, **Open in editor** and **Changes** follow the selected folder, so the changes of another repository, a context checkout or the specifications worktree can be read without leaving Desktop. Upgrade the local agent together with Desktop. (#784)
+
+- **The Claude logo in Desktop takes Claude's orange.** The logo of the **Claude settings** category, at workstation and project level, and the one next to **Conversation permission mode** are now drawn in Claude's orange instead of the text colour, idle, hovered or selected. (#778)
+- Desktop Relaunch and its skill selector are available at every task execution stage, including active executions and conversations.
 
 - **AI refine launches the refine-macro skill on your local agent.** In a macro's **Framing** panel, **AI refine** now starts the interactive refine-macro skill, as **Realign the spec** starts realign-macro: the run shows on the button with a stop button, the button says why it cannot launch without a connected agent, and while one of the two skills runs on a macro the other is unavailable. The TODOs the skill saves appear in the panel once its run ends. (#672)
 - **Archiving a task in Sectile Desktop removes its worktree.** **Archive** on a ticket task now removes its worktrees from the workstation first: the code worktree, the one of each other repository the task changed, and its specifications worktree. A worktree with uncommitted or untracked changes is never deleted: the archive is refused and says which repository to commit or discard in, and so it is when the local agent is stopped or a repository is not found here. The task's local branch goes too once every pull request of the task is merged and the branch holds nothing unpushed; otherwise it stays. A worktree shared with other tickets of a batch, free consoles and macro runs are left as they are. Upgrade the agent along with the server and the desktop. (#755)
@@ -131,6 +158,7 @@ test fixtures or internal plumbing.
 
 ### Removed
 
+- **The Desktop execution toolbar no longer starts an independent chat.** The experimental **Claude chat (test)** button, labelled **Codex chat (test)** on a Codex execution, is gone, so a second agent is no longer started in a directory where a terminal session may still be working. Interactive ticket launches and project prompts still open in the conversation view when **AI consoles** is set to **Conversation**. (#785)
 - **The line-by-line TODO preview of a macro's framing.** **AI refine** no longer splits the framing text into prefixed lines in a preview window; the refine-macro skill does that work, and stories are created from the macro's TODOs with **Create the stories**. (#672)
 - **Gemini CLI, Cursor CLI and Mistral Vibe CLI are no longer AI engines.** Sectile runs Antigravity, Claude Code, Codex or a custom command; the desktop settings, `sectile-agent init --provider` and the MCP setup no longer offer the other three. On its first start after the upgrade, the local agent removes a workstation's engines, model lists and MCP choices for them, keeping a backup of the settings file beside it; the projects and tasks that used such an engine run their default engine. The Cursor editor ("Open in editor") is unaffected. (#614)
 

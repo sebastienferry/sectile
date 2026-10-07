@@ -1,19 +1,19 @@
 # Sectile Desktop
 
-Local task execution consoles, with an experimental Claude Code conversation view.
+Local task execution consoles, with an experimental Claude Code and Codex conversation view.
 
-## Experimental Claude conversation
+## Experimental conversations
 
-Turn it on with **Settings → Appearance → Claude consoles → Conversation**.
-A **Project prompt** with Claude then opens in this view instead of a terminal.
+Turn it on with **Settings → General → AI consoles → Conversation**.
+A **Project prompt** with Claude or Codex then opens in this view instead of a terminal.
 A task's interactive launches open there too, a skill such as clarify starting
 on its own command and **Discussion (no skill)** waiting for your first message,
 in the task's worktree and with the task's environment, when the project's
-engine is a Claude one. The setting is handed to the local agent, so a launch
+engine is Claude or Codex. The setting is handed to the local agent, so a launch
 started from the web app, or a chain the server continues, opens there as well,
 even with Desktop closed. An autonomous launch keeps its read-only trace; a
 launch template is not run there, only its model is kept, and the conversation
-says so. Another engine keeps the terminal. While Claude answers, a message you
+says so. Another engine keeps the terminal. While the assistant answers, a message you
 send joins the answer in progress, as in Claude Code; one sent as the answer
 ends starts the next. **Stop answer**, or Esc in the message box, stops that
 answer and keeps the conversation open; the next message resumes the session. **Terminal** opens
@@ -49,11 +49,11 @@ The composer picks the model (the conversation's own, then the Claude models of
 Settings), the permission mode (**Ask before edits**, **Accept edits**, the
 default, **Auto mode** or **Plan mode**, as Claude Code's mode switch) and the effort; each
 applies from the next message.
-The mode a new conversation starts in is set right under the view choice, in
-**Settings → Appearance → Conversation permission mode** (Accept edits unless
+The mode a new Claude conversation starts in is set in
+**Settings → Claude settings → Conversation permission mode** (Accept edits unless
 you change it). It applies to the first message of every new conversation: the
 command of a skill or a project prompt launched in the conversation view, which
-runs before you could pick anything, and the first message of a Claude chat.
+runs before you could pick anything.
 The composer starts on it and still changes the mode from the next message. The
 setting is enabled only while **Claude consoles** is **Conversation**, and is
 handed to the local agent, which keeps it for launches the web app starts; an
@@ -69,6 +69,39 @@ the conversation, the conversation is marked waiting in the sidebar and Desktop
 notifies you, as it does for a terminal; your answer, or your next message,
 ends the wait. **Stop**
 closes the conversation. Stored history is read-only after an agent restart.
+### Codex conversations
+
+Codex must already be installed and signed in. The app-server integration was
+verified with Codex CLI 0.157.1. Opening the view initializes a dedicated
+`codex app-server` process and discovers its models, reasoning efforts, skills
+and MCP servers without invoking a model. The same process and thread serve
+successive messages. A failed startup or incompatible protocol is reported in
+the transcript; the terminal control remains available.
+
+The composer offers **Read only**, **Workspace edits** (the default), and
+**Plan mode**. Workspace edits permits writes in the conversation directory and
+the project's attached folders; read-only and plan use a read-only sandbox.
+Network access requires approval. Model and effort options come from Codex's
+catalog; catalog membership does not guarantee account access. Type `$` to
+complete an installed skill. A skill launch sends its explicit native skill
+input with the path Codex discovered. Custom skill prompts keep their supplied
+file and instructions.
+
+Commands, file changes and permission requests ask in their cards. **Allow for
+this conversation** grants session access, without writing Claude permission
+rules or permanently changing Codex policy. Questions use Codex's question ids
+when answered. `/mcp` reads the running app-server's MCP status, and `!` shell
+commands work as in the Claude view. Claude-specific commands such as `/usage`
+and `/context` are not emulated for Codex.
+
+A message sent while Codex answers steers the active turn. If Codex rejects it
+because that turn has ended, it starts the next one. An ambiguous transport
+failure is reported without automatically replaying the message. Stopping an
+answer retains the thread; stopping the execution terminates the process.
+After a process crash, the next message resumes the thread. After an agent
+restart, stored history remains read-only, as with Claude. Unsupported
+app-server requests receive an explicit error and a transcript notice.
+
 See [prototype notes](../docs/experiments/desktop-conversation.md).
 
 ## Install a release
@@ -154,7 +187,7 @@ project scope. Subsequent launches reconnect to the application's existing agent
 
 ### MCP connections
 
-Open **Settings → Execution defaults**, pick the provider in **MCP configuration**, then use it.
+Open **Settings → Deployment**, pick the provider in **MCP configuration**, then use it.
 Choose **Remote HTTP** (default), **Local HTTP proxy**, or **STDIO**. Remote
 HTTP uses the pairing key without requiring a running agent. Local HTTP calls
 the running no-auth proxy directly. STDIO starts a bridge to the remote server
@@ -209,11 +242,11 @@ If a terminal supervisor receives a hangup or termination signal, it stops and
 waits for its child process before reporting the execution outcome. A transient
 failure to deliver that report is retried.
 Reopening restores the connection. **Cmd+,** on macOS or **Ctrl+,** on Windows/Linux
-opens Configuration at User profile, even from an input or terminal. Pressing
+opens Configuration at General, even from an input or terminal. Pressing
 the shortcut within Configuration preserves the category and unsaved edits.
 
 The gear at the bottom of the project sidebar
-opens **Settings**, the workstation-wide panel: **User profile** (opened first), **Appearance**, **Agent connection**, **Execution defaults**, **AI engines**, **Deployment**,
+opens **Settings**, the workstation-wide panel: **General** (profile and appearance, opened first), **Agent connection**, **Execution defaults**, **AI engines**, **Deployment**,
 **Agent logs** and **Changelog** (installed versions and release notes, pinned
 to the bottom of the sidebar). The larger settings dialog adapts to the window. Stop and restart sit in that same footer, and
 the connection state leads it: a green dot reading **Connected**, an orange one
@@ -463,11 +496,11 @@ added to this workstation. Local worktree preferences are stored per project in
 `~/.config/sectile/settings.json`. The remote URL, the project's repositories,
 SDD selection and skill content remain server-owned and read-only. Explicit deployment buttons install
 the server skills or initialize its SDD framework in the mapped directory.
-**Settings → User profile** states what this workstation knows about the
+**Settings → General** states what this workstation knows about the
 account: the paired server and the workstation identifier. Display name,
 password and API keys stay server-owned;
 **Open the web interface** goes there.
-**Settings → Appearance** chooses the desktop's theme: **System** (the
+**Settings → General** chooses the desktop's theme: **System** (the
 default) follows the computer's light or dark appearance, **Dark** and
 **Light** force one. The choice applies at once to the whole window, the
 console included, and is kept as `appearance` in the workstation
@@ -514,12 +547,15 @@ first start of the upgraded agent, which kept a copy of the previous file
 beside it.
 
 **Settings → Execution defaults** edits the workstation level,
-including **Initialization provider** and **Skill command names**, which apply
-to all projects. Initialization without an explicit provider uses the saved
-initialization provider; Deployment explicitly selects an engine for global setup.
+including **Skill command names**, which apply to all projects. The command mapping
+shows each workflow step, its standard command and an optional custom command.
+Leaving a custom command empty uses the standard one. Initialization
+without an explicit provider uses the **Default AI engine** from **AI engines**;
+Deployment explicitly selects an engine for global setup.
 Existing project command names remain active until workstation command settings
 are saved; saving replaces those project overrides with the global commands.
 These controls require the updated local agent and are disabled on older agents.
+Providers configured in **AI engines** receive skills and MCP setup automatically.
 Other workstation defaults are
 applied to every project without a value of its own. The project settings edit one project:
 each field says whether it is set for the project or inherited, shows the
@@ -653,8 +689,8 @@ arguments with, for example, `make start ARGS="--url http://localhost:8090"`; pr
 authentication through `TOKEN`.
 
 Workstation settings open from the gear at the bottom of the project sidebar and
-use the same side navigation: **User profile**, **Agent connection**, **Execution defaults**, **AI engines**, **Deployment**, **Agent logs** and
-**Changelog**, with **User profile** first. **Agent connection** reports the local
+use the same side navigation: **General**, **Agent connection**, **Execution defaults**, **AI engines**, **Deployment**, **Agent logs** and
+**Changelog**, with **General** first. **Agent connection** reports the local
 agent with Start, Stop, and Restart controls, the server link (green when connected, orange otherwise), and the connect form itself: the same form the
 connection screen shows, borrowed while the category is open and returned when
 the panel closes. **Sign in with your browser** pairs the workstation through
@@ -662,8 +698,8 @@ the web sign-in, with no code to copy; without a browser on that machine, paste
 a code from **Pair a workstation** in the web interface instead. There is no API
 key field. The key a pairing leaves behind is what restarts a stopped agent:
 each time it opens, the desktop starts the agent with it, and when it cannot,
-the connection screen says why and opens **Pair again**, which offers the
-browser sign-in and the pairing code. Pairing again revokes the workstation's
+the connection screen says why and shows the browser sign-in and pairing code
+fields directly. Agent connection settings also show these fields directly. Pairing again revokes the workstation's
 previous key. A running agent owns the link, so **Connect** stays disabled
 until the agent is stopped, and the panel says so.
 
@@ -672,7 +708,7 @@ one project section is expanded at a time; global settings remain visible.
 Project configuration lists its categories in a side navigation, one panel at a
 time: **General** (Git remote, SDD framework, default engine, removal from the desktop),
 **Folders** (local repositories and specification folders), **Execution**
-(worktrees, parallel executions, terminal emulator, extra setup providers),
+(worktrees, parallel executions, terminal emulator),
 with the project's default engine picked from the workstation catalogue or
 inherited from its default. **General** opens
 first. Use **Choose folder…** to select a repository through the native directory
@@ -712,9 +748,10 @@ actions. The **Engine** button shows the letters of the provider the task's
 next run uses; its tooltip names the engine, its provider and its model, and
 says when it is the project default engine, and it is highlighted when it is
 not. Activating it (click, Enter or Space) moves the task to the next engine of
-the catalogue, the last one wrapping to the first. The choice stays with the
+the catalogue, the last one wrapping to the first. The Launch dialog sets the
+same choice. The choice stays with the
 task on this workstation, for every launch of it, from the desktop or the web,
-until the next click; a run already going keeps its engine. A one-off launch
+until it is changed again; a run already going keeps its engine. A one-off launch
 model applies only on the project default engine. The column is hidden with an
 agent that does not keep engines.
 Activate a row's key to open that task in Sectile, the same gesture the sidebar
@@ -730,8 +767,15 @@ ordering lasts for the window session and resets when the pane is reopened.
 Each row ends with **Run: <next step>**, which launches the task's next
 workflow step with the project's configured execution mode, and a **…** menu
 offering **Pickup (full chain)**, the other server skills, **Discussion (no
-skill)** and **Custom instructions…**. The last one opens an inline form under
-the row with the instructions text, the one-off execution mode and **Launch**.
+skill)**, **Custom instructions…** and **Launch…**. **Custom instructions…**
+opens an inline form under the row with the instructions text, the one-off
+execution mode and **Launch**. **Launch…** opens the Launch dialog on the
+task's next workflow skill, else on **Discussion (no skill)**: it picks the
+skill, the instructions, the execution mode and the **AI engine**, which
+starts on the task's engine. Another engine is stored as the task's engine, as
+the **Engine** button does, before the launch; if it cannot be stored, nothing
+is launched and the dialog says why. The engine select is hidden with an agent
+that does not keep engines.
 A row whose task has a local execution shows the shared run-state glyph;
 while that execution is queued, preparing or running, **Run** is disabled and
 the menu stays available. Submission uses the server's existing run-skill
@@ -822,7 +866,17 @@ An execution that works in several folders shows a chevron after its path. It
 opens the list of those folders: the primary worktree first, then the worktrees
 of the other repositories it changes, the read-only context repositories, the
 attached folders and the specifications worktree, each with its role and path.
-Choosing one copies its path, confirmed by the same **Copied**. The list is the
+Choosing one selects it: the path then shows that folder, a click on it copies
+that folder's path, **Open in <editor>** opens it, and **Changes** inspects it.
+The selected folder is checked in the list. The primary worktree is selected
+by default; the choice is kept per execution until Desktop restarts, and goes
+back to the primary worktree when its folder leaves the list. A folder other
+than the primary worktree is compared with its own default branch on the
+branch it is on, so a context checkout shows its local changes; a folder that
+is not a Git repository stays selectable and **Changes** says why it cannot be
+read. With an agent that predates the selection, choosing a folder copies its
+path instead, and the editor and **Changes** keep using the primary worktree.
+The list is the
 one the local agent gave the engine at launch, plus the worktrees prepared and
 the folders attached while the execution runs; a folder with no path on this
 workstation is not listed. An execution with a single folder, and every
@@ -830,12 +884,12 @@ execution of an agent that does not send the list, shows the path alone.
 
 When an editor is chosen in **Settings → Execution defaults**, a code icon
 follows the path: **Open in <editor>** opens the execution's checkout in that
-editor. The desktop only names the execution; the local agent looks up its
-folder and refuses, with its reason, when the folder is gone or no editor is
+editor, or the folder selected after the path. The desktop only names the
+execution and that folder; the local agent looks up its folders and refuses, with its reason, when the folder is gone or no editor is
 set. Without a chosen editor, or with an agent that predates the button, the
 path stands alone.
 
-The controls whose action does not depend on the workflow stage (relaunch, log
+The controls whose action does not depend on the workflow stage (**Launch**, log
 export, the **Console** / **Changes** switch, and the linked pull request) are
 icons, with their wording kept as tooltip and accessible name; the pull request
 keeps its number. **Next: <skill>**, **Skip to Handoff**, **Retry** and **Launch
@@ -901,3 +955,24 @@ In a project’s or workstation’s **Claude settings**, select **Autonomy in sa
 Apply the toolchain presets for required cache paths and network domains, then save. The next conversation message or launch reads the updated settings. An incompatible command fails instead of asking to escape the sandbox. File, web and MCP tools use their own permission rules.
 
 **Always allow** keeps tool rules and approved additional folders in this project’s workstation settings, across conversation turns and worktrees. Review the proposed access in the approval card before accepting; the card also shows Claude’s decision reason when provided. Remove folder access in **Approved folders**. Project overrides take precedence over workstation scalar values; directory lists combine.
+
+### Conversation approval settings
+
+**Settings → Codex settings → Approval reviewer** selects **Ask me** (the default) or
+**Approve on my behalf**. The agent stores this workstation setting and applies it
+to native Codex threads and the next message of existing conversations. Automatic
+review can approve or deny eligible requests and does not disable the sandbox.
+The user’s native Codex configuration is left untouched.
+
+Claude’s initial **Conversation permission mode** is in **Settings → Claude settings**.
+
+### Finding settings
+
+**General** combines user profile information and appearance preferences.
+**Search settings** finds matching fields and descriptions across loaded workstation
+or project categories; clearing the search returns to the selected category.
+Settings use the available width and resize with the application window.
+
+### Provider model lists
+
+Configure the models offered at launch under **Settings → AI engines → Models offered**, grouped by Antigravity, Claude and Codex. Each provider has its own **Models offered** field and **Save models** button. Reset restores the shipped list; saving an empty custom list offers no models. Execution defaults save separately and preserve these choices. Upgrade the local agent together with Desktop.

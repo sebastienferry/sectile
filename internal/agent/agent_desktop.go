@@ -179,7 +179,7 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 		// contractError separates a server that is merely unreachable from one
 		// that cannot be talked to at all. Without it the desktop reports both
 		// as a disconnection and the user has no reason to look at the build.
-		capabilities := []string{"git-diff", markdownDocumentsCapability, markdownImagesCapability, "create-task", "remove-project", "free-console", "transition-stage", "repositories", attachedFoldersCapability, "git-init", taskEnginesCapability, openEditorCapability, "claude-conversation", conversationControlsCapability, conversationQueueCapability, runFoldersCapability, runFoldersTerminalsCapability, consoleViewCapability, conversationModeCapability, projectTerminalCapability, archiveWorkspaceCapability}
+		capabilities := []string{"git-diff", markdownDocumentsCapability, markdownImagesCapability, "create-task", "remove-project", "free-console", "transition-stage", "repositories", attachedFoldersCapability, "git-init", taskEnginesCapability, openEditorCapability, "claude-conversation", "codex-conversation", codexSettingsCapability, conversationControlsCapability, conversationQueueCapability, runFoldersCapability, runFoldersTerminalsCapability, folderSelectionCapability, consoleViewCapability, conversationModeCapability, projectTerminalCapability, archiveWorkspaceCapability}
 		if d.store != nil {
 			capabilities = append(capabilities, runStoreCapability)
 		}
@@ -258,6 +258,10 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	if r.URL.Path == "/desktop/console-view" {
 		d.desktopConsoleView(w, r)
+		return
+	}
+	if r.URL.Path == "/desktop/codex-settings" {
+		d.desktopCodexSettings(w, r)
 		return
 	}
 	if r.URL.Path == "/desktop/conversation-mode" {
@@ -357,7 +361,7 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path == "/desktop/stop" && r.Method == http.MethodPost {
 		run.canceled = true
 		if run.conversation != nil {
-			if !run.conversation.busy {
+			if !run.conversation.busy && run.conversation.codex == nil {
 				run.desktop.Status = conversationStoppedStatus(run)
 				run.once.Do(func() { close(run.exited) })
 				run.trace.close()
@@ -929,7 +933,7 @@ func (d *agentDaemon) desktopProject(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, err.Error(), 500)
 				return
 			}
-			provider = settings.Defaults.InitializationProvider
+			provider = settings.DefaultEngine().Provider
 			if provider == "" {
 				provider = agentconfig.DefaultProvider
 			}

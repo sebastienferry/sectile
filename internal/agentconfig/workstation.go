@@ -74,6 +74,8 @@ type Defaults struct {
 	// setting; the agent validates it, and empty, or anything it does not
 	// accept, means "acceptEdits".
 	ConversationMode string `json:"conversationMode,omitempty"`
+	// CodexApprovalsReviewer routes conversation approvals to the user or native automatic review.
+	CodexApprovalsReviewer string `json:"codexApprovalsReviewer,omitempty"`
 	// ClaudeSandbox is the Sandbox values every covered project applies
 	// (#730), under its own values. Nil states nothing.
 	ClaudeSandbox *ClaudeSandbox `json:"claudeSandbox,omitempty"`

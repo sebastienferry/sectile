@@ -968,6 +968,15 @@ run ID, 404 for an unknown run, 409 when the run has no folder or no editor is
 set (it never falls back to `code`), 410 when the folder no longer exists, and
 500 with the launch error.
 
+`GET /desktop/status` advertises `folder-selection` when the agent serves
+another folder of a run than its directory (#784). `POST /desktop/open-editor`
+and `GET /desktop/git-diff` then take an optional folder (`{runId, folder}`,
+`?id=<runID>&folder=<path>`). No folder, or the run's directory, means the
+run's checkout, as before. Any other folder must be one of the run's `folders`,
+compared as cleaned paths, and the agent uses the path the run lists; an
+unlisted folder answers 404 (`folder_not_found` on `git-diff`) and starts
+nothing.
+
 `GET /desktop/status` advertises `project-terminal` when the agent opens a
 terminal on a project's local repository (#761). `POST
 /desktop/project-terminal` with `{projectId}` takes the folder from the
@@ -1265,6 +1274,14 @@ identity and its repository root under the run lock, then inspects outside that 
 An existing checkout must match the recorded directory, repository common Git
 directory, and branch. Inspection never prepares or creates a worktree.
 
+With `folder-selection`, `folder=<path>` names another folder of the run
+(#784), resolved as for `open-editor`. Such a folder has no recorded branch: it
+is inspected on the branch it is on, within its own repository, against its own
+default branch with the same baseline rules. It answers 409 with
+`folder_unavailable` when it is missing, `not_a_repository`,
+`not_repository_root` when it is inside a repository without being its root,
+and `detached_head` when it is on no branch.
+
 Success returns `runId`, `taskId`, `projectId`, `directory`, `branch`, `baseRef`,
 `baseCommit`, `mergeBase`, `headCommit`, and UTC `generatedAt`; `isClean`, `complete`,
 `countsPartial`, `filesChanged`, `additions`, `deletions`; and `warnings` plus `files`.
@@ -1322,6 +1339,51 @@ paths, and concurrent changes are 409; unusable metadata limits are 413; timeout
 are 504; other Git/read failures are 500. Unsupported methods are 405 with `Allow: GET`.
 Messages explain recovery without returning subprocess output or source contents.
 
+## Macro resources
+
+Macro identity is the pair `projectId` and `macroKey`; keys are not globally
+unique. These interfaces include ordered todos, computed write flags,
+`todosMirror` and `framingMirror` in each macro.
+
+| Interface | Input | Result |
+| --- | --- | --- |
+| MCP `list_macros` | Required `projectId` | `{"macros":[...]}`, including closed macros |
+| MCP `get_macro` | Required `projectId`, `macroKey` | `{"macro":...}` |
+| MCP `create_macro` | Required `projectId`, nonblank `title`; optional `horizon` | `{"macro":...}` |
+| MCP `update_macro` | Required `projectId`, `macroKey`; at least one metadata field | `{"macro":..., "labelNote":...}`; note omitted when no labels were submitted |
+| HTTP `GET /api/projects/{id}/macros/{key}` | URL-encode each identity segment | `{"macro":...}`; 404 for unknown project or macro |
+
+A known empty project's MCP list is an empty array; an unknown or omitted
+project fails. The HTTP collection remains a bare array, the `epics` alias
+remains supported, and existing subactions retain their routes. Unknown
+suffixes do not fall back to collection reads.
+
+Creation defaults to horizon `now`; supported horizons are `now`, `next`,
+`later` and `hidden` (`future` normalizes to `later`).
+Editable metadata is `title`, `description`, `framingComment`, `horizon`,
+`closed`, `priority`, `quarter` and `readiness`.
+Priority accepts P0–P3, quarter accepts normalized year/quarter forms such as
+`2026-Q4`, and readiness accepts `idea`, `shaping` or `ready`.
+Omitted fields are preserved, empty strings clear optional fields, and
+`closed:false` reopens. A blank title or invalid value refuses the request
+before writes. MCP updates require an existing macro and cannot replace todos;
+use the protected `update_macro_todos` operation. The HTTP editor retains
+its existing upsert and todo-editing behavior.
+
+Writes require the authenticated MCP caller; no input may choose the actor.
+Existing tracker capabilities, credentials and roadmap restrictions apply.
+This does not add Jira epic creation. Queued tracker writes are described by
+`labelNote` and copy status, not reported as already completed. Local projects
+retain their local behavior.
+
+When the underlying write saves locally and reports a tracker refusal, the MCP
+result has `isError:true` and structured content
+`{"macro":..., "localSaved":true, "trackerError":"..."}`.
+Clients must inspect structured content even for error results and retain that
+identity instead of blindly retrying creation. This guarantee covers failures
+reported by existing operations; it does not add rollback or normalize every
+tracker failure. Queue notes report enqueue outcomes independently.
+
 ## MCP naming contract
 
 HTTP and stdio initialize with server name `sectile`; managed native registrations
@@ -1330,11 +1392,12 @@ use the same name. The catalog is exactly `get_task`, `transition_stage`,
 `finish_run`, `create_task`, `update_task`, `report_waiting`,
 `prepare_macro_worktree`, `prepare_repository_worktree`,
 `prepare_task_spec_worktree`, `record_pull_request`, `get_macro` and
-`update_macro_todos`. The stdio bridge refuses any other catalog, so a server
-and an agent from before `prepare_task_spec_worktree` (#736) must be upgraded
+`update_macro_todos`, `list_macros`, `create_macro` and `update_macro`.
+The stdio bridge refuses any other catalog, so a server
+and an agent from before macro resource tools (#781) must be upgraded
 together. The
 former `sectile_` names are unsupported on both transports.
-Tool schemas, return values, run ownership and managed-run validation are unchanged.
+Existing tool schemas, return values, run ownership and managed-run validation are unchanged.
 
 Agent launch prompts, desktop exit reporting and built-in policy text use the
 canonical names. User-owned stored instructions remain untouched. Upgrade server

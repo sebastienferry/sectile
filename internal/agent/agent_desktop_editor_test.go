@@ -104,6 +104,42 @@ func TestDesktopOpenEditorRefusals(t *testing.T) {
 	}
 }
 
+// The desktop may open another folder of the run (#784), only one the run
+// lists; no folder, or the run's directory, opens the run's worktree.
+func TestDesktopOpenEditorOpensASelectedFolder(t *testing.T) {
+	d, worktree, launched := openEditorDaemon(t, "zed")
+	context := t.TempDir()
+	d.queue.runs["running"].desktop.Folders = []runFolder{{Path: worktree, Role: "primary"}, {Path: context, Role: "context"}, {Path: filepath.Join(context, "gone"), Role: "local"}}
+	for _, folder := range []string{"", worktree, context} {
+		body, _ := json.Marshal(map[string]string{"runId": "running", "folder": folder})
+		if w := openEditorRequest(d, http.MethodPost, string(body)); w.Code != http.StatusOK {
+			t.Fatalf("%q: got %d %s", folder, w.Code, w.Body)
+		}
+	}
+	want := []string{"zed " + worktree, "zed " + worktree, "zed " + context}
+	if !slices.Equal(*launched, want) {
+		t.Fatalf("launched %v, want %v", *launched, want)
+	}
+	*launched = nil
+	for _, tc := range []struct {
+		folder  string
+		code    int
+		message string
+	}{
+		{"/etc", http.StatusNotFound, "This folder is no longer one of this execution's folders"},
+		{filepath.Join(context, "gone"), http.StatusGone, "The folder no longer exists: " + filepath.Join(context, "gone")},
+	} {
+		body, _ := json.Marshal(map[string]string{"runId": "running", "folder": tc.folder})
+		w := openEditorRequest(d, http.MethodPost, string(body))
+		if w.Code != tc.code || strings.TrimSpace(w.Body.String()) != tc.message {
+			t.Errorf("%q: got %d %q", tc.folder, w.Code, w.Body.String())
+		}
+	}
+	if len(*launched) != 0 {
+		t.Fatalf("a refusal launched %v", *launched)
+	}
+}
+
 // With no editor chosen the route refuses instead of falling back to `code`,
 // as the server's open_editor operation does.
 func TestDesktopOpenEditorNeedsAConfiguredEditor(t *testing.T) {
@@ -138,7 +174,7 @@ func TestDesktopStatusAnnouncesOpenEditorAndMarkdown(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &status); err != nil {
 		t.Fatal(err)
 	}
-	for _, capability := range []string{openEditorCapability, markdownDocumentsCapability, markdownImagesCapability} {
+	for _, capability := range []string{openEditorCapability, markdownDocumentsCapability, markdownImagesCapability, folderSelectionCapability} {
 		if !slices.Contains(status.Capabilities, capability) {
 			t.Fatalf("capabilities %v lack %s", status.Capabilities, capability)
 		}

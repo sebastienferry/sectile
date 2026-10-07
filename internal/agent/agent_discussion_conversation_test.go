@@ -38,7 +38,7 @@ func TestConversationDiscussionEngine(t *testing.T) {
 	}{
 		{agentconfig.Config{AIProvider: "claude"}, true},
 		{agentconfig.Config{AIProvider: " Claude "}, true},
-		{agentconfig.Config{AIProvider: "codex"}, false},
+		{agentconfig.Config{AIProvider: "codex"}, true},
 		{agentconfig.Config{}, false},
 		{agentconfig.Config{AIProvider: "claude", AICommandTemplate: "claude --model {model} '{prompt}'"}, true},
 	} {
