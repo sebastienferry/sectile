@@ -1,11 +1,13 @@
 import { markdownModel, renderMarkdown, resolveImageTarget } from './markdownView.mjs'
+import { ipcMessage } from './execution-fields.mjs'
 
 // A Markdown file is offered a rendered view of its content (#575).
 const isMarkdown=file=>file.kind==='text'&&/\.(md|markdown)$/i.test(file.path)
 
-// Results belong only to the selected execution and latest explicit request.
+// Results belong only to the selected execution, its selected folder (#784)
+// and the latest explicit request.
 export function createGitDiff({api,container,terminal,panel,divider,consoleButton,changesButton,onConsole}){
- let runID=null,generation=0,active=false,consoleVisible=true,result=null,selection=null
+ let runID=null,folder=null,generation=0,active=false,consoleVisible=true,result=null,selection=null
  // A Markdown file opens rendered; the raw diff is chosen per execution and
  // forgotten when another execution is selected.
  let rendered=true
@@ -58,20 +60,29 @@ export function createGitDiff({api,container,terminal,panel,divider,consoleButto
  }
  async function refresh(){
   if(!active||!runID)return
-  const request=++generation,id=runID
+  const request=++generation,id=runID,chosen=folder
   find('.diff-status').textContent='Loading changes…';find('.diff-error').hidden=true
   container.setAttribute('aria-busy','true')
   if(result)find('.diff-status').textContent='Loading changes… Previous result is stale.'
   try{
    if(!api.gitDiff)throw Error('Update and restart Desktop to inspect changes.')
-   const data=await api.gitDiff(id)
-   if(request!==generation||id!==runID||!active)return
+   // The run's own checkout is asked for without a folder, as any agent serves it.
+   const data=chosen?await api.gitDiff(id,chosen):await api.gitDiff(id)
+   if(request!==generation||id!==runID||chosen!==folder||!active)return
    if(data.runId!==id)throw Error('The agent returned another execution. Refresh to retry.')
    result=data;render();find('.diff-status').textContent='Changes loaded.'
   }catch(err){
-   if(request!==generation||id!==runID||!active)return
-   clear();find('.diff-error').textContent=err.message||String(err);find('.diff-error').hidden=false;find('.diff-status').textContent='Changes unavailable. Refresh to retry.'
+   if(request!==generation||id!==runID||chosen!==folder||!active)return
+   clear();find('.diff-error').textContent=ipcMessage(err);find('.diff-error').hidden=false;find('.diff-status').textContent='Changes unavailable. Refresh to retry.'
   }finally{if(request===generation)container.setAttribute('aria-busy','false')}
+ }
+ // Another folder of the same execution (#784): its own result, read at once
+ // when the view is open; null is the execution's own checkout.
+ function setFolder(chosen){
+  chosen=chosen||null
+  if(chosen===folder)return
+  folder=chosen;generation++;selection=null;clear();find('.diff-error').hidden=true;find('.diff-status').textContent='';container.setAttribute('aria-busy','false')
+  if(active&&runID)refresh()
  }
  function renderViews(focusConsole=false){
   terminal.hidden=!consoleVisible;container.hidden=!active;divider.hidden=!(consoleVisible&&active)
@@ -102,7 +113,7 @@ export function createGitDiff({api,container,terminal,panel,divider,consoleButto
  return {
   get active(){return active},
   get consoleVisible(){return consoleVisible},
-  select(id){if(id===runID)return;runID=id;generation++;selection=null;rendered=true;clear();find('.diff-error').hidden=true;find('.diff-status').textContent='';consoleButton.disabled=!id;changesButton.disabled=!id;if(active){if(id)refresh();else{active=false;consoleVisible=true;renderViews()}}},
+  select(id,chosen=null){if(id===runID){setFolder(chosen);return}runID=id;folder=chosen||null;generation++;selection=null;rendered=true;clear();find('.diff-error').hidden=true;find('.diff-status').textContent='';consoleButton.disabled=!id;changesButton.disabled=!id;if(active){if(id)refresh();else{active=false;consoleVisible=true;renderViews()}}},
   disconnect(){generation++;clear();container.setAttribute('aria-busy','false');find('.diff-status').textContent='Changes unavailable. Reconnect and refresh.';if(active){find('.diff-error').textContent='Local agent disconnected. Reconnect and refresh.';find('.diff-error').hidden=false}}
  }
 }

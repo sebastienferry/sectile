@@ -30,7 +30,7 @@ import { consoleNotice, needsConsoleNotice, readOnlyConsole } from './run-consol
 import { previewLines } from './command-preview.mjs'
 import { sandboxSettings, whitelistEditor } from './sandbox-settings.mjs'
 import { EDITORS, editorChoice, editorLabel } from './editors.mjs'
-import { folderRoleLabel, menuFolders } from './folder-menu.mjs'
+import { chosenFolder, folderRoleLabel, menuFolders } from './folder-menu.mjs'
 import { PROVIDERS, DEFAULT_PROVIDER, projectFields, ownEntries, compact, parseModelList, sourceHint, describe, ipcMessage, agentUnreachable, validSkillCommand, workstationPayload } from './execution-fields.mjs'
 import { runEngine } from './run-engine.mjs'
 import { nextEngine, taskEngine, engineMark, engineTooltip, moveEngine, removalImpact, removalMessage } from './engines.mjs'
@@ -173,9 +173,10 @@ let selectedProject=null
 let ticketsOpen=false,agentConnected=false
 let updateSettingsConnection=null
 let opened=false,selected=null,runs=[],last='',stopping=false,restarting=false,projects=[],projectsLoaded=false
-// Whether the local agent attaches a folder from a run (#676), read with the
-// editor setting from its status.
-let runFoldersAvailable=false,runFoldersTerminalsAvailable=false,conversationControlsAvailable=false,conversationQueueAvailable=false,providerModels={}
+// Whether the local agent attaches a folder from a run (#676), and serves
+// another folder of a run than its directory (#784), read with the editor
+// setting from its status.
+let folderSelectionAvailable=false,runFoldersAvailable=false,runFoldersTerminalsAvailable=false,conversationControlsAvailable=false,conversationQueueAvailable=false,providerModels={}
 const conversation=createConversationView({api,container:document.querySelector('#terminal'),onError:error,canAddFolder:()=>runFoldersAvailable,canControl:()=>conversationControlsAvailable,canQueue:()=>conversationQueueAvailable,models:provider=>providerModels[provider]||[]})
 const conversationButton=document.createElement('button')
 conversationButton.type='button';conversationButton.textContent='Claude chat (test)';conversationButton.hidden=true
@@ -331,12 +332,12 @@ function select(run,background=false,options){
  if(!background)closeTickets(false)
  selectedProject=run.projectId
  selected=run.id
- changes.select(selected)
+ changes.select(selected,currentFolder(run)?.path)
  conversation.select(run)
 
  refreshSkillResult()
  refreshNextStep()
- showDirectory(run.directory)
+ showDirectory(currentFolder(run)?.path||run.directory)
  document.querySelector('#stop').disabled=!activeRun(run)
  terminal.reset()
  if(run.conversation){
@@ -485,13 +486,14 @@ async function loadEditorSetting(){
   openEditorAvailable=!!status.capabilities?.includes('open-editor')
   projectTerminalAvailable=!!status.capabilities?.includes('project-terminal')
   runFoldersAvailable=!!status.capabilities?.includes('run-folders')
+  folderSelectionAvailable=!!status.capabilities?.includes('folder-selection')
   runFoldersTerminalsAvailable=!!status.capabilities?.includes('run-folders-terminals')
   conversationControlsAvailable=!!status.capabilities?.includes('conversation-controls')
   conversationQueueAvailable=!!status.capabilities?.includes('conversation-queue')
   configuredEditor=String(view?.defaults?.editorCommand||'').trim()
   if(view)providerModels=view.defaults?.aiProviderModels||{}
   if(view)renderCustomSkillSignal(view.customSkillsUsed)
- }catch{openEditorAvailable=false;projectTerminalAvailable=false;runFoldersAvailable=false;runFoldersTerminalsAvailable=false;conversationControlsAvailable=false;conversationQueueAvailable=false;configuredEditor=''}
+ }catch{openEditorAvailable=false;projectTerminalAvailable=false;runFoldersAvailable=false;folderSelectionAvailable=false;runFoldersTerminalsAvailable=false;conversationControlsAvailable=false;conversationQueueAvailable=false;configuredEditor=''}
  renderOpenEditor();render({deferrable:true})
 }
 // A project's custom skill ran instead of the installed one (#267): a passive
@@ -508,7 +510,7 @@ async function loadCustomSkillSignal(){
 document.querySelector('#open-editor').onclick=async()=>{
  if(!selected||openingEditor)return
  openingEditor=true;renderOpenEditor()
- try{await api.openEditor(selected);document.querySelector('#error').textContent=''}
+ try{await api.openEditor(selected,currentFolder()?.path);document.querySelector('#error').textContent=''}
  catch(err){error(Error(ipcMessage(err).trim()))}
  finally{openingEditor=false;renderOpenEditor()}
 }
@@ -528,11 +530,25 @@ async function copyPath(path){
 document.querySelector('#worktree').onclick=()=>copyPath(document.querySelector('#directory').textContent)
 // An execution may work in several folders: other repositories' worktrees,
 // read-only context checkouts, attached folders, its specifications worktree
-// (#762). A chevron after the path lists them, each item copying its own path.
+// (#762). A chevron after the path lists them. Choosing one selects it (#784):
+// the path, its copy, the editor and Changes then speak of that folder. An
+// agent that cannot serve another folder keeps the items copying their path.
 // The menu is built when it opens, so a folder added during the run shows at
 // the next opening and never moves under the pointer.
 const foldersButton=document.querySelector('#worktree-folders'),foldersMenu=document.querySelector('#worktree-folders-menu')
 let foldersRun=null,foldersDismiss=null
+// The folder chosen per execution, forgotten when Desktop restarts.
+const folderSelections=new Map()
+// The folder the toolbar speaks of: the one chosen from the menu, or null for
+// the run's own directory.
+function currentFolder(run=runs.find(item=>item.id===selected)){
+ return folderSelectionAvailable&&run?chosenFolder(run,folderSelections.get(run.id)):null
+}
+function selectFolder(run,folder){
+ if(chosenFolder(run,folder.path))folderSelections.set(run.id,folder.path)
+ else folderSelections.delete(run.id)
+ if(run.id===selected)showDirectory(currentFolder(run)?.path||run.directory)
+}
 function closeFoldersMenu(focusOpener=false){
  if(foldersMenu.hidden)return
  foldersMenu.hidden=true;foldersButton.setAttribute('aria-expanded','false')
@@ -540,24 +556,40 @@ function closeFoldersMenu(focusOpener=false){
  if(focusOpener)foldersButton.focus()
 }
 function renderFolders(){
- const run=document.querySelector('#directory').textContent?runs.find(item=>item.id===selected):null
+ const label=document.querySelector('#directory')
+ const run=label.textContent?runs.find(item=>item.id===selected):null
  const folders=menuFolders(run)
  // A menu left open belongs to the execution it was opened for.
  if(!folders.length||run.id!==foldersRun)closeFoldersMenu()
  foldersButton.hidden=!folders.length
+ if(!run)return
+ // A chosen folder that left the list gives the toolbar back to the run's
+ // directory, Changes included.
+ const folder=currentFolder(run)
+ if(!folder)folderSelections.delete(run.id)
+ const path=folder?.path||run.directory
+ if(path&&label.textContent!==path){clearCopiedNotice();label.textContent=path;renderOpenEditor()}
+ changes.select(selected,folder?.path)
 }
 function openFoldersMenu(){
  const run=runs.find(item=>item.id===selected),folders=menuFolders(run)
  if(!folders.length)return
  foldersRun=run.id
+ const selecting=folderSelectionAvailable,current=currentFolder(run)?.path||folders[0].path
  foldersMenu.replaceChildren(...folders.map(folder=>{
-  const item=document.createElement('button');item.type='button';item.setAttribute('role','menuitem')
+  const item=document.createElement('button');item.type='button';item.setAttribute('role',selecting?'menuitemradio':'menuitem')
   const name=document.createElement('span');name.className='folder-name';name.textContent=folder.name||folder.path
   const role=document.createElement('span');role.className='folder-role';role.textContent=folderRoleLabel(folder)
   const path=document.createElement('span');path.className='folder-path';path.textContent=folder.path
-  item.append(name,role,path);item.title='Copy '+folder.path
+  item.append(name,role,path)
   item.setAttribute('aria-label',(folder.name||folder.path)+', '+folderRoleLabel(folder)+', '+folder.path)
-  item.onclick=()=>{closeFoldersMenu(true);copyPath(folder.path)}
+  if(selecting){
+   item.title='Show '+folder.path;item.setAttribute('aria-checked',String(folder.path===current))
+   item.onclick=()=>{closeFoldersMenu(true);selectFolder(run,folder)}
+  }else{
+   item.title='Copy '+folder.path
+   item.onclick=()=>{closeFoldersMenu(true);copyPath(folder.path)}
+  }
   return item
  }))
  foldersMenu.hidden=false;foldersButton.setAttribute('aria-expanded','true')
@@ -567,7 +599,8 @@ function openFoldersMenu(){
  foldersMenu.style.top=Math.max(4,Math.min(box.bottom+2,innerHeight-height-4))+'px'
  foldersDismiss=event=>{if(event.type==='blur'||!foldersMenu.contains(event.target)&&!foldersButton.contains(event.target))closeFoldersMenu()}
  document.addEventListener('pointerdown',foldersDismiss,true);window.addEventListener('blur',foldersDismiss)
- foldersMenu.querySelector('[role=menuitem]')?.focus()
+ const first=foldersMenu.querySelector('[aria-checked=true]')||foldersMenu.querySelector('[role^=menuitem]')
+ first?.focus()
 }
 foldersButton.onclick=()=>{foldersMenu.hidden?openFoldersMenu():closeFoldersMenu()}
 foldersButton.onkeydown=foldersMenu.onkeydown=event=>{
@@ -575,7 +608,7 @@ foldersButton.onkeydown=foldersMenu.onkeydown=event=>{
  if(event.target===foldersButton&&event.key==='ArrowDown'&&foldersMenu.hidden){event.preventDefault();openFoldersMenu();return}
  if(foldersMenu.hidden)return
  if(event.key==='Tab'){closeFoldersMenu();return}
- const items=[...foldersMenu.querySelectorAll('[role=menuitem]')],at=items.indexOf(document.activeElement)
+ const items=[...foldersMenu.querySelectorAll('[role^=menuitem]')],at=items.indexOf(document.activeElement)
  const next={ArrowDown:at+1,ArrowUp:at-1,Home:0,End:items.length-1}[event.key]
  if(next===undefined)return
  event.preventDefault()
@@ -696,7 +729,7 @@ function renderHeader(){
 function render(options){
  if(options?.deferrable&&sidebarBusy()){pendingRender=true;renderHeader();renderTaskRowStates();renderTicketRows();return}
  pendingRender=false
- changes.select(selected)
+ changes.select(selected,currentFolder()?.path)
  renderHeader()
  const list=document.querySelector('#runs'),editing=list.querySelector('.task-rename')
  if(renaming&&editing)renaming.selection=[editing.selectionStart,editing.selectionEnd]

@@ -98,6 +98,8 @@ test fixtures or internal plumbing.
 
 ### Changed
 
+- **Inspect any folder of an execution in Desktop.** The folder list after an execution's path now selects a folder instead of copying it: the path, **Open in editor** and **Changes** follow the selected folder, so the changes of another repository, a context checkout or the specifications worktree can be read without leaving Desktop. Upgrade the local agent together with Desktop. (#784)
+
 - **The Claude logo in Desktop takes Claude's orange.** The logo of the **Claude settings** category, at workstation and project level, and the one next to **Conversation permission mode** are now drawn in Claude's orange instead of the text colour, idle, hovered or selected. (#778)
 - Desktop Relaunch and its skill selector are available at every task execution stage, including active executions and conversations. The experimental Claude chat (test) toolbar button has been removed.
 

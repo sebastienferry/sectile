@@ -15,8 +15,9 @@ import (
 // connected to an agent without it hides the button.
 const openEditorCapability = "open-editor"
 
-// desktopOpenEditor opens a run's directory in the workstation editor. The
-// desktop names the run, never the path: the directory comes from the run
+// desktopOpenEditor opens a run's directory, or the folder of the run the
+// desktop selected (#784), in the workstation editor. The desktop names the
+// run and at most one of its listed folders: the path comes from the run
 // registry, so the renderer cannot point the editor at an arbitrary folder.
 // Unlike the server's open_editor operation, it never falls back to `code`:
 // the desktop only offers it once an editor is chosen.
@@ -26,7 +27,8 @@ func (d *agentDaemon) desktopOpenEditor(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	var input struct {
-		RunID string `json:"runId"`
+		RunID  string `json:"runId"`
+		Folder string `json:"folder"`
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8192)).Decode(&input); err != nil || strings.TrimSpace(input.RunID) == "" {
 		http.Error(w, "Run ID required", http.StatusBadRequest)
@@ -35,13 +37,18 @@ func (d *agentDaemon) desktopOpenEditor(w http.ResponseWriter, r *http.Request) 
 
 	d.queue.mu.Lock()
 	run := d.queue.runs[input.RunID]
-	directory := ""
+	directory, primary, listed := "", true, true
 	if run != nil {
-		directory = strings.TrimSpace(run.desktop.Directory)
+		directory, primary, listed = runFolderPath(run, input.Folder)
+		directory = strings.TrimSpace(directory)
 	}
 	d.queue.mu.Unlock()
 	if run == nil {
 		http.Error(w, "Run not found", http.StatusNotFound)
+		return
+	}
+	if !listed {
+		http.Error(w, "This folder is no longer one of this execution's folders", http.StatusNotFound)
 		return
 	}
 	if directory == "" {
@@ -62,6 +69,10 @@ func (d *agentDaemon) desktopOpenEditor(w http.ResponseWriter, r *http.Request) 
 	// An exited run may outlive its worktree, removed at handoff: say so
 	// rather than start an editor on nothing.
 	if info, err := os.Stat(directory); err != nil || !info.IsDir() {
+		if !primary {
+			http.Error(w, "The folder no longer exists: "+directory, http.StatusGone)
+			return
+		}
 		http.Error(w, "The worktree no longer exists: "+directory, http.StatusGone)
 		return
 	}

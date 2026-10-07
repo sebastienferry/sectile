@@ -354,6 +354,36 @@ func InspectWorktree(ctx context.Context, directory, branch, repository string) 
 	}
 	return nil, diffError("checkout_changed", "The checkout changed during inspection. Refresh when edits settle.")
 }
+
+// InspectFolder inspects a folder of a run other than its checkout (#784): a
+// context checkout, another repository's worktree, an attached folder. It has
+// no recorded branch or repository, so it is compared with its own default
+// branch, on the branch it is on and within its own repository.
+func InspectFolder(ctx context.Context, directory string) (*WorktreeDiff, error) {
+	if info, e := os.Stat(directory); e != nil || !info.IsDir() {
+		return nil, diffError("folder_unavailable", "This folder no longer exists.")
+	}
+	checkCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	g := diffGit{ctx: checkCtx, dir: directory}
+	top, e := g.text("rev-parse", "--show-toplevel")
+	if checkCtx.Err() != nil {
+		return nil, diffError("timeout", "Inspection timed out or was canceled. Refresh to retry.")
+	}
+	if e != nil || top == "" {
+		return nil, diffError("not_a_repository", "This folder is not a Git repository.")
+	}
+	actual, ae := canonical(directory)
+	resolved, re := canonical(top)
+	if ae != nil || re != nil || actual != resolved {
+		return nil, diffError("not_repository_root", "This folder is inside a Git repository but is not its root.")
+	}
+	branch, e := g.text("symbolic-ref", "--quiet", "--short", "HEAD")
+	if e != nil || branch == "" {
+		return nil, diffError("detached_head", "This folder is not on a branch.")
+	}
+	return InspectWorktree(ctx, directory, branch, directory)
+}
 func inspectWorktree(g diffGit, branch, repository string) (*WorktreeDiff, error) {
 	if e := g.identity(branch, repository); e != nil {
 		return nil, e
