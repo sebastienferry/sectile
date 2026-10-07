@@ -15,6 +15,8 @@ test fixtures or internal plumbing.
 
 ### Added
 
+- **Manage macros from your coding agent.** Agents can list project macros, create them and edit their metadata while preserving story-linked todos; integrations can read a single macro through HTTP. Reported tracker failures retain the saved local macro in the response. Upgrade the server and agent together. (#782)
+
 - **Configure MCP under Deployment.** Desktop moves MCP configuration out of Execution defaults and places it alongside skill installation in Deployment.
 
 - **Map workflow steps to custom commands.** Execution defaults shows each step alongside its standard command and an optional replacement, instead of an editable list of skill IDs.
