@@ -15,6 +15,8 @@ test fixtures or internal plumbing.
 
 ### Added
 
+- **Simpler workstation connection settings.** Agent connection shows the sign-in and pairing code fields directly, without the Pair again disclosure.
+
 - **Configure offered models in each provider’s settings.** Desktop moves the model lists from Execution defaults to Antigravity settings, Claude settings and Codex settings, with separate save controls.
 
 - **Recognize provider settings by their logos.** Desktop uses the Claude and OpenAI brand marks for Claude and Codex settings.

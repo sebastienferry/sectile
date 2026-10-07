@@ -38,6 +38,8 @@ test('changelog settings report both versions and the release notes',async()=>{
   await page.screenshot({path:path.join(root,'settings-profile.png')})
   console.log('Settings screenshot: '+path.join(root,'settings-profile.png'))
   await page.getByRole('tab',{name:'Agent connection',exact:true}).click()
+  await expect(page.locator('#pair-again summary')).toHaveCount(0)
+  await expect(page.getByLabel('Pairing code',{exact:true})).toBeVisible()
   const actions=page.locator('.settings-agent-actions')
   const start=actions.getByRole('button',{name:'Start agent',exact:true})
   const stop=actions.getByRole('button',{name:'Stop agent',exact:true})

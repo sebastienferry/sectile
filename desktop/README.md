@@ -696,8 +696,8 @@ the web sign-in, with no code to copy; without a browser on that machine, paste
 a code from **Pair a workstation** in the web interface instead. There is no API
 key field. The key a pairing leaves behind is what restarts a stopped agent:
 each time it opens, the desktop starts the agent with it, and when it cannot,
-the connection screen says why and opens **Pair again**, which offers the
-browser sign-in and the pairing code. Pairing again revokes the workstation's
+the connection screen says why and shows the browser sign-in and pairing code
+fields directly. Agent connection settings also show these fields directly. Pairing again revokes the workstation's
 previous key. A running agent owns the link, so **Connect** stays disabled
 until the agent is stopped, and the panel says so.
 

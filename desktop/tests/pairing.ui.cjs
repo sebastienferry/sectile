@@ -154,14 +154,14 @@ test('a stored key starts the agent at launch without asking for a pairing code'
      setup:Boolean(setup)&&!setup.hidden,
      workspace:Boolean(document.querySelector('#workspace'))&&!document.querySelector('#workspace').hidden,
      codeVisible:Boolean(code)&&code.checkVisibility(),
-     pairOpen:Boolean(document.querySelector('#pair-again')?.open),
+     pairOpen:!document.querySelector('#pair-again')?.hidden,
      disabled:Boolean(button?.disabled),
      text:button?.textContent||''
     }
    })
    if(seen.setup){
     assert.equal(seen.codeVisible,false,'the pairing code was asked for while the stored key started the agent')
-    assert.equal(seen.pairOpen,false,'Pair again was opened while the stored key started the agent')
+    assert.equal(seen.pairOpen,false,'Pairing fields were shown while the stored key started the agent')
     assert.equal(seen.disabled,true,'the start control was clickable while the stored key started the agent')
     starting||=seen.text==='Starting…'
    }
