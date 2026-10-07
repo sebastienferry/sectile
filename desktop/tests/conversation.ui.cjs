@@ -52,7 +52,7 @@ test('Claude chat renders structured output safely and sends messages without a 
   await expect.poll(()=>attachments).toBeGreaterThan(0)
   const before=attachments
   // The conversation view is opt-in: the terminal is the default.
-  await expect(page.getByRole('button',{name:'Claude chat (test)',exact:true})).toHaveCount(0)
+  await expect(page.getByRole('button',{name:/chat \(test\)/})).toHaveCount(0)
   await page.locator('#settings').click()
   await page.getByRole('tab',{name:'General',exact:true}).first().click()
   const views=page.getByRole('group',{name:'AI consoles'})
@@ -61,6 +61,10 @@ test('Claude chat renders structured output safely and sends messages without a 
   await expect(views.getByRole('button',{name:'Conversation',exact:true})).toHaveAttribute('aria-pressed','true')
   assert.equal(JSON.parse(fs.readFileSync(path.join(root,'desktop.json'),'utf8')).consoleView,'conversation')
   await page.keyboard.press('Escape')
+  // The toolbar starts no independent chat from a terminal execution (#785),
+  // though this one has a directory and the conversation view is on.
+  await expect(page.locator('.run[data-run-id=source]')).toHaveClass(/selected/)
+  await expect(page.getByRole('button',{name:/chat \(test\)/})).toHaveCount(0)
   await page.locator('.run[data-run-id=chat]').click()
   await expect(page.locator('.conversation')).toBeVisible()
   await page.locator('#rerun').click()

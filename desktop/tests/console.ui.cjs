@@ -60,7 +60,7 @@ test('desktop console reconnects, accepts input and stops the owned run',async()
   let page=await application.firstWindow()
   await page.getByText('#48 · Server specification task · specify',{exact:true}).waitFor()
   await page.locator('.xterm-screen').waitFor()
-  await expect(page.getByRole('button',{name:'Claude chat (test)',exact:true})).toHaveCount(0)
+  await expect(page.getByRole('button',{name:/chat \(test\)/})).toHaveCount(0)
   for(const status of ['queued','preparing','running']){
    runStatus=status
    await page.locator('.run[data-status='+status+']').waitFor()
