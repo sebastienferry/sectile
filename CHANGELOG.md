@@ -98,6 +98,7 @@ test fixtures or internal plumbing.
 
 ### Changed
 
+- **The Claude logo in Desktop takes Claude's orange.** The logo of the **Claude settings** category, at workstation and project level, and the one next to **Conversation permission mode** are now drawn in Claude's orange instead of the text colour, idle, hovered or selected. (#778)
 - Desktop Relaunch and its skill selector are available at every task execution stage, including active executions and conversations. The experimental Claude chat (test) toolbar button has been removed.
 
 - **AI refine launches the refine-macro skill on your local agent.** In a macro's **Framing** panel, **AI refine** now starts the interactive refine-macro skill, as **Realign the spec** starts realign-macro: the run shows on the button with a stop button, the button says why it cannot launch without a connected agent, and while one of the two skills runs on a macro the other is unavailable. The TODOs the skill saves appear in the panel once its run ends. (#672)

@@ -381,3 +381,36 @@ test('sandbox autonomy saves explicit policy and keeps existing rules and folder
   await expect(page.getByRole('combobox',{name:'Unsandboxed retries',exact:true})).toHaveValue('false')
  })
 })
+
+// Every Claude settings tab draws the Claude mark in Claude's orange (#778),
+// idle or selected, in the project settings and the workstation settings.
+test('the Claude settings tabs draw the Claude mark in Claude’s orange',async()=>{
+ await withDesktop(PROJECT,async({page,open,close,openWorkstation})=>{
+  const orange='rgb(217, 119, 87)'
+  const marks=async()=>{
+   const tabs=page.getByRole('tab',{name:'Claude settings',exact:true})
+   const count=await tabs.count()
+   assert.ok(count>=1)
+   for(let index=0;index<count;index++){
+    const icon=tabs.nth(index).locator('svg')
+    await expect(icon).toHaveCount(1)
+    await expect(icon).toHaveClass('claude-mark')
+    await expect(icon).not.toHaveAttribute('stroke')
+    await expect(icon).toHaveCSS('color',orange)
+   }
+   return count
+  }
+  await open()
+  await expect(page.locator('#project-tab-Sandbox')).toHaveAttribute('aria-selected','true')
+  // The General group's tab and the project's, the selected one included.
+  assert.ok(await marks()>=2)
+  await close()
+  await openWorkstation()
+  await expect(page.locator('#settings-tab-Sandbox')).toHaveAttribute('aria-selected','true')
+  await marks()
+  // The other categories keep their outline, in the tab colour.
+  await expect(page.locator('#settings-tab-Logs svg')).toHaveAttribute('stroke','currentColor')
+  // The mark next to Conversation permission mode, in the same panel, takes the same orange.
+  await expect(page.locator('#settings-panel-Sandbox .setting-name svg.claude-mark')).toHaveCSS('color',orange)
+ })
+})
