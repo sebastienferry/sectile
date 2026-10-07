@@ -499,7 +499,7 @@ admin always does.
 | :--- | :--- | :--- | :--- |
 | `GET` | `/api/trackers` | (none) | The trackers to pick from: `[{id, name, provider, site, scope, identity, trackerColumns?, stageColumns?}]`, with, read only and for a tracker a project selects (any tracker for an admin), the columns a project maps its stages onto and the tracker's own mapping; the rest of the board mirror is left out. |
 | `POST` | `/api/trackers/{id}/sync` | (none) | Queues a synchronisation of the tracker: `202 {queued, activity}`. |
-| `GET` | `/api/trackers/{id}/backlog` | (none) | The tracker's tickets that no project shows. Empty while a project without label selects the tracker. |
+| `GET` | `/api/trackers/{id}/backlog` | (none) | The tracker's open tickets that no project shows: a ticket whose workflow stage is finished, by its workflow label or by its tracker status through the tracker's own stage mapping, is left out. Empty while a project without label selects the tracker. |
 | `POST` | `/api/trackers/{id}/backlog/{taskId}/project` | `{projectId}` | Gives the ticket the project's label: the ticket joins the project at once, and the label write on the tracker is queued with the caller's own credential. `200 {task, activity}`; `404` when the ticket is not one of the tracker's; `409` when the project does not select the tracker or has no label. |
 
 `404` on an unknown tracker, `403` for a member when no project selects it.

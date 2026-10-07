@@ -49,9 +49,33 @@ func (d *DB) backlogScopeUnsafe(trackerID string) (string, []interface{}) {
 	return "(" + cond + ")", args
 }
 
-// GetTrackerBacklog lists a tracker's tickets that no project shows (#741).
+// GetTrackerBacklog lists a tracker's open tickets that no project shows
+// (#741): a ticket whose workflow stage is finished (StageOfTask) is left out.
+// A ticket of no project reads its stage through the tracker's own mapping,
+// read once for the whole list.
 func (d *DB) GetTrackerBacklog(trackerID string) ([]models.Task, error) {
-	return d.GetTasksInScope(TaskScope{BacklogOf: trackerID}, "", "", "", "", "", "", "", "", nil, nil, false)
+	tasks, err := d.GetTasksInScope(TaskScope{BacklogOf: trackerID}, "", "", "", "", "", "", "", "", nil, nil, false)
+	if err != nil || len(tasks) == 0 {
+		return tasks, err
+	}
+	var trk *models.Tracker
+	read := false
+	stageTracker := func() *models.Tracker {
+		if !read {
+			read = true
+			if t, err := trackerByIDOn(d.conn, trackerID); err == nil && t != nil {
+				trk = d.withStageMappingUnsafe(t, "", nil)
+			}
+		}
+		return trk
+	}
+	open := tasks[:0]
+	for i := range tasks {
+		if stageOfTaskOn(&tasks[i], stageTracker) != "finished" {
+			open = append(open, tasks[i])
+		}
+	}
+	return open, nil
 }
 
 // TrackerHasProjects says whether at least one project selects the tracker:

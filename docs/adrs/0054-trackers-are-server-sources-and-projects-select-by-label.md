@@ -61,8 +61,10 @@ subset of its trackers' tickets that carries its label.
   is how every existing project migrates. The same rule exists in SQL, for the
   listings, and in Go, for the run's project, the agent configuration and each
   ticket's `projectIds`; a test keeps the two equal.
-- **A ticket in no project waits in its tracker's backlog.** A member can give
-  it a project's label from there. The label is added locally at once, so the
+- **A ticket in no project waits in its tracker's backlog.** The backlog lists
+  the open ones: a ticket whose workflow stage is finished, read through the
+  tracker's own stage mapping, is left out. A member can give it a project's
+  label from there. The label is added locally at once, so the
   ticket joins the project immediately, and written back on the tracker through
   the existing label write, with the member's own credential.
 - **Creation goes to a tracker of the project.** A new ticket goes to the

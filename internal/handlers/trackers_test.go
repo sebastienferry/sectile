@@ -175,6 +175,40 @@ func TestAMemberWithoutAProjectOnTheTrackerCannotReadItsBacklog(t *testing.T) {
 	}
 }
 
+// The backlog route lists a tracker's open tickets of no project: a finished
+// one stays out (#741).
+func TestTheBacklogRouteListsTheOpenTicketsOnly(t *testing.T) {
+	h, database, cleanup := setupTestHandler(t)
+	defer cleanup()
+	server := trackerServer(t, h)
+	_, alice := account(t, database, "alice@example.com")
+	lone, err := database.CreateTrackerAs("admin", models.Tracker{Provider: "jira", Site: "https://acme.atlassian.net", Scope: "LONE"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.CreateProject(models.CreateProjectRequest{Name: "Lone", Label: "lone", Trackers: []models.ProjectTracker{{TrackerID: lone.ID}}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.ImportOrUpdateTasks(lone.ID, []models.Task{
+		{Key: "LONE-1", Title: "Open", Status: models.StatusToClarify, Priority: models.PriorityMedium, TrackerStatus: "To Do", Source: "jira"},
+		{Key: "LONE-2", Title: "Done", Status: models.StatusFinished, Priority: models.PriorityMedium, TrackerStatus: "Done", Source: "jira"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	status, body := call(t, server, alice, http.MethodGet, TrackersPath+"/"+lone.ID+"/backlog", "")
+	if status != http.StatusOK {
+		t.Fatalf("backlog: %d %s", status, body)
+	}
+	var listed []models.Task
+	if err := json.Unmarshal([]byte(body), &listed); err != nil {
+		t.Fatal(err)
+	}
+	if len(listed) != 1 || listed[0].Key != "LONE-1" {
+		t.Fatalf("backlog = %s, want the open ticket only", body)
+	}
+}
+
 // boardFake stands in for a tracker that has boards, for the configuration
 // routes an admin uses on a tracker.
 type boardFake struct {

@@ -6,8 +6,9 @@ import { addBacklogTaskToProject, fetchTrackerBacklog, labellingProjects, tracke
 import type { Task } from '../types'
 
 /**
- * A tracker's tickets that no project shows (#741): those carrying none of
- * the labels of the projects selecting the tracker. "Ajouter au projet…" gives
+ * A tracker's open tickets that no project shows (#741): those carrying none
+ * of the labels of the projects selecting the tracker, the finished ones left
+ * out by the server. "Ajouter au projet…" gives
  * a ticket a project's label, locally at once and on the tracker through the
  * person's own credential, and the ticket joins the project.
  */

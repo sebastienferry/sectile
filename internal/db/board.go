@@ -602,6 +602,13 @@ func InternalStatusForStage(stage string) (models.Status, bool) {
 // StageOfTask returns a task's workflow stage: explicit workflow label first,
 // then the board column mapping, then fallback to internal status.
 func (d *DB) StageOfTask(task *models.Task) string {
+	return stageOfTaskOn(task, func() *models.Tracker { return d.stageTrackerOfTaskUnsafe(task, "") })
+}
+
+// stageOfTaskOn is StageOfTask with the tracker carrying the stage mapping
+// that applies given by stageTracker, which is only called when no workflow
+// label decides: a listing of one tracker's tickets reads that tracker once.
+func stageOfTaskOn(task *models.Task, stageTracker func() *models.Tracker) string {
 	if task == nil {
 		return ""
 	}
@@ -623,8 +630,7 @@ func (d *DB) StageOfTask(task *models.Task) string {
 
 	// 2. The board column of the ticket's tracker when no label says, through
 	// the stage mapping that applies to the ticket (#741).
-	trk := d.stageTrackerOfTaskUnsafe(task, "")
-	if stage := StageForTrackerStatus(trk, task.TrackerStatus); stage != "" {
+	if stage := StageForTrackerStatus(stageTracker(), task.TrackerStatus); stage != "" {
 		return stage
 	}
 

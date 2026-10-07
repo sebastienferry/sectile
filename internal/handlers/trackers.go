@@ -39,7 +39,7 @@ type trackerSummary struct {
 //
 //	GET  /api/trackers                                   the trackers to pick from, with their columns
 //	POST /api/trackers/{id}/sync                         a synchronisation of the tracker
-//	GET  /api/trackers/{id}/backlog                      its tickets in no project
+//	GET  /api/trackers/{id}/backlog                      its open tickets in no project
 //	POST /api/trackers/{id}/backlog/{taskId}/project     {projectId}: label one into a project
 //
 // A member reaches a tracker's routes when a project selects it, as every

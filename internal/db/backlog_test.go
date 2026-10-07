@@ -103,6 +103,43 @@ func TestABacklogListsTheTicketsOfNoProject(t *testing.T) {
 	}
 }
 
+// The backlog lists the open tickets only: a finished one, by its workflow
+// label or by its tracker status, stays out. A ticket of no project reads its
+// stage through the tracker's own mapping, never a project's.
+func TestABacklogLeavesTheFinishedTicketsOut(t *testing.T) {
+	d := testDB(t)
+	delivery := spaceProject(t, d, "Delivery", "delivery")
+	trackerID := delivery.DefaultTrackerID
+	if _, err := d.UpdateTrackerMirror(trackerID, func(trk *models.Tracker) {
+		trk.TrackerColumns = []models.TrackerColumn{{Name: "Doing", Statuses: []string{"In Progress"}}, {Name: "Review", Statuses: []string{"In Review"}}, {Name: "Shipped", Statuses: []string{"Released"}}}
+		trk.StageColumns = map[string][]string{"implemented": {"Doing"}, "finished": {"Shipped"}}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// Delivery's own mapping finishes Review: it does not apply out of the project.
+	if err := setOwnMapping(d, delivery.ID, trackerID, map[string][]string{"finished": {"Review"}}); err != nil {
+		t.Fatal(err)
+	}
+	ticket := func(key, trackerStatus string, labels ...string) models.Task {
+		return models.Task{Key: key, Title: key, Status: models.StatusToClarify, Priority: models.PriorityMedium, Labels: labels,
+			TrackerStatus: trackerStatus, Source: "jira", CreatedAt: time.Now(), UpdatedAt: time.Now()}
+	}
+	if err := d.ImportOrUpdateTasks(trackerID, []models.Task{
+		ticket("GODE-1", "In Progress"),
+		ticket("GODE-2", "In Review", "ops"),
+		ticket("GODE-3", "Released"),
+		ticket("GODE-4", "Done"),
+		ticket("GODE-5", "In Progress", "#finished"),
+		ticket("GODE-6", "In Progress", "delivery"),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := strings.Join(backlogKeys(t, d, trackerID), ","); got != "GODE-1,GODE-2" {
+		t.Fatalf("backlog = %s, want the open tickets of no project only", got)
+	}
+}
+
 func TestAnUnlabelledProjectLeavesItsTrackerBacklogEmpty(t *testing.T) {
 	d := testDB(t)
 	delivery := spaceProject(t, d, "Delivery", "delivery-admin")
