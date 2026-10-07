@@ -3,12 +3,11 @@ const assert=require('node:assert/strict')
 const {_electron:electron,expect}=require('@playwright/test')
 const http=require('node:http'),fs=require('node:fs'),os=require('node:os'),path=require('node:path')
 
-// The permission mode new Claude conversations start in sits under Claude
-// consoles. Desktop keeps it in its own file and hands it to an agent that
+// The permission mode new Claude conversations start in is in Claude settings. Desktop keeps it in its own file and hands it to an agent that
 // announces it, on connection and on each change; the setting is disabled in
 // the terminal view and for an agent that predates it. A new conversation's
 // composer starts on the mode the agent reports.
-test('the conversation permission mode is chosen under AI consoles and handed to the agent',async()=>{
+test('the conversation permission mode is chosen in Claude settings and handed to the agent',async()=>{
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'sectile-conversation-mode-ui-'))
  fs.writeFileSync(path.join(root,'desktop.json'),JSON.stringify({consoleView:'conversation',conversationMode:'auto'}))
  const chat={id:'chat',projectId:'project',kind:'console',provider:'claude',conversation:true,headless:true,status:'running',directory:'/tmp/project'}
@@ -49,13 +48,13 @@ test('the conversation permission mode is chosen under AI consoles and handed to
 
   const openAppearance=async()=>{
    await page.locator('#settings').click()
-   await page.getByRole('tab',{name:'Appearance',exact:true}).click()
+   await page.getByRole('tab',{name:'Claude settings',exact:true}).first().click()
   }
   await openAppearance()
   const select=page.getByRole('combobox',{name:'Conversation permission mode'})
   const row=page.locator('.setting-row').filter({has:select})
-  // It sits right under AI consoles, carries the Claude mark, and offers the composer's modes.
-  await expect(page.locator('.setting-row').filter({has:page.getByRole('group',{name:'AI consoles'})}).locator('xpath=following-sibling::section[1]')).toContainText('Conversation permission mode')
+  // It sits right in Claude settings, carries the Claude mark, and offers the composer's modes.
+  await expect(page.getByRole('tabpanel',{name:'Claude settings',exact:true}).first()).toContainText('Conversation permission mode')
   await expect(row.locator('svg.claude-mark path')).toHaveCount(1)
   await expect(select).toHaveValue('auto')
   await expect(select).toBeEnabled()
@@ -73,11 +72,16 @@ test('the conversation permission mode is chosen under AI consoles and handed to
   await expect(page.locator('[data-tone="error"]')).toHaveCount(0)
   refuse=false
   // The terminal view opens no conversation: the setting is disabled and says why.
+  await page.getByRole('tab',{name:'Appearance',exact:true}).click()
+  await expect(page.getByRole('tabpanel',{name:'Appearance',exact:true})).not.toContainText('Conversation permission mode')
   const views=page.getByRole('group',{name:'AI consoles'})
   await views.getByRole('button',{name:'Terminal',exact:true}).click()
+  await page.getByRole('tab',{name:'Claude settings',exact:true}).first().click()
   await expect(select).toBeDisabled()
-  await expect(row).toContainText('choose Conversation above')
+  await expect(row).toContainText('choose Conversation in Appearance')
+  await page.getByRole('tab',{name:'Appearance',exact:true}).click()
   await views.getByRole('button',{name:'Conversation',exact:true}).click()
+  await page.getByRole('tab',{name:'Claude settings',exact:true}).first().click()
   await expect(select).toBeEnabled()
   await page.keyboard.press('Escape')
 

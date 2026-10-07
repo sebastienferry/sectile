@@ -1779,6 +1779,7 @@ const SETTINGS_CATEGORIES=[
  {id:'AgentCli',label:'Execution defaults',icon:'<rect x="3" y="4" width="18" height="16" rx="2"/><path d="m7 9 3 3-3 3M12 15h5"/>'},
  {id:'Engines',label:'AI engines',icon:'<rect x="4" y="8" width="16" height="11" rx="3"/><path d="M12 4v4M9 13h.01M15 13h.01"/>'},
  {id:'Sandbox',label:'Claude settings',icon:'<path d="M12 3 5 6v5c0 4.4 3 8.3 7 9.5 4-1.2 7-5.1 7-9.5V6Z"/><path d="m9 12 2 2 4-4"/>'},
+ {id:'Codex',label:'Codex settings',icon:'<path d="M12 3 5 6v5c0 4.4 3 8.3 7 9.5 4-1.2 7-5.1 7-9.5V6Z"/>'},
  {id:'Deployment',label:'Deployment',icon:'<path d="M12 20V7m0 0 4 4m-4-4-4 4"/><path d="M5 4h14"/>'},
  {id:'Logs',label:'Agent logs',icon:'<path d="M14 3H7a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V7Z"/><path d="M14 3v4h4"/><path d="M9 13h6M9 17h6"/>'},
  {id:'Changelog',label:'Changelog',icon:'<circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 8h.01"/>'}
@@ -2045,8 +2046,8 @@ function openSettings(initial='Profile',project){
  const view=settingRow('AI consoles',null,viewGroup)
  view.hint.textContent='Conversation opens Claude and Codex interactive launches in a structured view (experimental). Other engines keep the terminal.'
  panels.Appearance.append(view.section)
- // The permission mode new conversations start in sits under the view that
- // opens them: it only means something in the conversation view, and only to
+ // Claude settings holds the initial conversation permission mode. It applies
+ // only in the conversation view, and only to
  // an agent that applies it, so it is disabled otherwise and says why.
  const modeSelect=document.createElement('select');modeSelect.setAttribute('aria-label','Conversation permission mode')
  for(const choice of CONVERSATION_MODE_CHOICES){const option=document.createElement('option');option.value=choice.value;option.textContent=choice.label;modeSelect.append(option)}
@@ -2057,11 +2058,11 @@ function openSettings(initial='Profile',project){
  const showConversationMode=()=>{
   modeSelect.disabled=!conversationModeSupported||consoleView!=='conversation'
   conversationMode.hint.textContent=!conversationModeSupported?'Update and restart the local agent to choose the mode new conversations start in.'
-   :consoleView!=='conversation'?'Applies to Claude conversations: choose Conversation above to use it.'
+   :consoleView!=='conversation'?'Applies to Claude conversations: choose Conversation in Appearance to use it.'
    :'What Claude may do without asking in the first message of every new conversation, including the skills and prompts you launch in it. The composer changes it from the next message.'
  }
  modeSelect.onchange=()=>api.setConversationMode(modeSelect.value).then(value=>{modeSelect.value=value}).catch(error)
- panels.Appearance.append(conversationMode.section)
+ panels.Sandbox.prepend(conversationMode.section)
  showConversationMode()
  api.conversationMode().then(value=>{if(configurationActive()&&generation===configurationGeneration)modeSelect.value=value}).catch(()=>{})
  api.status().then(status=>{
@@ -2079,6 +2080,20 @@ function openSettings(initial='Profile',project){
  engines.section.querySelector('h3').remove()
  panels.Engines.append(engines.section)
  engines.load().catch(()=>{})
+ const codexReviewer=document.createElement('select');codexReviewer.setAttribute('aria-label','Approval reviewer')
+ for(const [value,label] of [['user','Ask me'],['auto_review','Approve on my behalf']]){const option=document.createElement('option');option.value=value;option.textContent=label;codexReviewer.append(option)}
+ const codexRow=settingRow('Approval reviewer',null,codexReviewer)
+ codexRow.hint.textContent='Applies to Codex conversations from the next message. Automatic review may approve or deny eligible requests; the sandbox stays active.'
+ let savedCodexReviewer='user'
+ const codexNotice=document.createElement('p');codexNotice.setAttribute('role','status');codexReviewer.disabled=true
+ panels.Codex.append(codexRow.section,codexNotice)
+ api.codexSettings().then(value=>{if(configurationActive()&&generation===configurationGeneration){savedCodexReviewer=value.approvalsReviewer;codexReviewer.value=savedCodexReviewer;codexReviewer.disabled=false}}).catch(()=>{if(panels.Codex.isConnected)codexNotice.textContent='Start or update the local agent to edit Codex settings.'})
+ codexReviewer.onchange=async()=>{
+  codexReviewer.disabled=true;codexNotice.textContent='Saving…';codexNotice.dataset.tone=''
+  try{const value=await api.saveCodexSettings({approvalsReviewer:codexReviewer.value});savedCodexReviewer=value.approvalsReviewer;codexReviewer.value=savedCodexReviewer;codexNotice.textContent='Codex settings saved'}
+  catch(err){codexReviewer.value=savedCodexReviewer;codexNotice.textContent='Not saved: '+ipcMessage(err);codexNotice.dataset.tone='error'}
+  finally{codexReviewer.disabled=false}
+ }
  const workstationSandbox=workstationSandboxPanel(panels.Sandbox)
  workstationSandbox.load().catch(()=>{})
  const mcpPanel=mcpSettings(api,execution.providerSelect)

@@ -366,9 +366,10 @@ func codexSkillInput(message string, skills map[string]string) []map[string]stri
 }
 
 func (d *agentDaemon) initializeCodexConversation(run *controlledRun, state *codexConversation) error {
+	reviewer := d.workstationCodexReviewer()
 	d.queue.mu.Lock()
 	c := run.conversation
-	params := map[string]any{"cwd": run.desktop.Directory, "approvalPolicy": "on-request", "sandbox": "workspace-write"}
+	params := map[string]any{"cwd": run.desktop.Directory, "approvalPolicy": "on-request", "sandbox": "workspace-write", "approvalsReviewer": reviewer}
 	if run.desktop.Model != "" {
 		params["model"] = run.desktop.Model
 	}
@@ -402,6 +403,7 @@ func (d *agentDaemon) initializeCodexConversation(run *controlledRun, state *cod
 }
 
 func (d *agentDaemon) startCodexTurn(run *controlledRun, state *codexConversation, message string) error {
+	reviewer := d.workstationCodexReviewer()
 	folders, _, err := d.conversationFolders(run.desktop.ProjectID, run.desktop.Directory)
 	if err != nil {
 		conversationWrite(run.trace, "notice", "Attached folders could not be read for this message", err.Error())
@@ -431,7 +433,7 @@ func (d *agentDaemon) startCodexTurn(run *controlledRun, state *codexConversatio
 	if effort != "" {
 		wireEffort = effort
 	}
-	params := map[string]any{"threadId": c.session, "input": codexSkillInput(message, state.skills), "cwd": run.desktop.Directory, "approvalPolicy": "on-request", "sandboxPolicy": sandbox, "model": run.desktop.Model, "effort": wireEffort}
+	params := map[string]any{"threadId": c.session, "input": codexSkillInput(message, state.skills), "cwd": run.desktop.Directory, "approvalPolicy": "on-request", "sandboxPolicy": sandbox, "approvalsReviewer": reviewer, "model": run.desktop.Model, "effort": wireEffort}
 	collaboration := "default"
 	if mode == "plan" {
 		collaboration = "plan"

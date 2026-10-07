@@ -164,3 +164,8 @@ Desktop lists your configured projects and local executions. Use **Open tasks** 
 Select an execution to see its console, status, and recorded skill result. **Changes** shows the current local worktree diff, and **Rendered** shows a selected Markdown file as a formatted document, with the images it references from the repository (PNG, JPEG, GIF, WebP, SVG); an image that cannot be shown keeps its alt text and says why on hover; **Console** returns to output. A project queue shows running and waiting executions. The toolbar can stop or relaunch an execution, and **Next: Clarify**, **Next: Specify**, **Next: Implement**, or **Next: Adjust** advances one verified step. **Awaiting human merge** means the pull request is ready for its owner to review. Closing Desktop leaves the local agent and its running work active; reopen Desktop to reconnect.
 
 See the [Desktop guide](../desktop/README.md#use) for installation, settings, console behavior, and recovery details.
+
+Codex conversations use **Settings → Codex settings → Approval reviewer** to
+choose **Ask me** or **Approve on my behalf**, applying from the next message
+with the sandbox still active. Claude’s initial **Conversation permission mode**
+is configured in **Settings → Claude settings**.

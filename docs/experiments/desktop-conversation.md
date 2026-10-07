@@ -51,8 +51,8 @@ The composer's permission mode is Claude Code's: **Ask before edits**,
 **Accept edits** (the default), **Auto mode** or **Plan mode**, from the next
 message; there is no bypass. In **Auto mode** Claude Code's classifier approves
 what the rules do not cover, and an action it refuses still waits for the owner.
-A new conversation starts in the workstation's **Settings → Appearance →
-Conversation permission mode**, right under **Claude consoles** and enabled only
+A new conversation starts in the workstation's **Settings → Claude settings →
+Conversation permission mode**, enabled only
 in the conversation view (Accept edits when unset). It is the mode of the first
 turn, which matters most for a skill or a project prompt launched in the
 conversation view: its command is that turn and runs at once, before the owner
@@ -173,3 +173,7 @@ was checked against Codex CLI 0.157.1; see
 
 See [ADR 0042](../adrs/0042-experimental-claude-conversations-use-process-pipes.md)
 for the prototype's original scope and process ownership.
+
+Codex approval review is selected in **Settings → Codex settings**: **Ask me**
+or **Approve on my behalf**. It applies to the next message, preserves sandbox
+limits, and does not change the native user configuration.

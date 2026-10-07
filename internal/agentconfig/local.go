@@ -130,7 +130,8 @@ func overlay(base, top Settings) Settings {
 		InstalledSkillSource: top.Defaults.InstalledSkillSource,
 		ConsoleView:          firstSet(top.Defaults.ConsoleView, base.Defaults.ConsoleView),
 		// Nor the conversation permission mode, which came after them.
-		ConversationMode: top.Defaults.ConversationMode,
+		ConversationMode:       top.Defaults.ConversationMode,
+		CodexApprovalsReviewer: top.Defaults.CodexApprovalsReviewer,
 		// No legacy layout knows the Sandbox values (#700, #730) either.
 		ClaudeSandbox:         firstSandbox(top.Defaults.ClaudeSandbox, base.Defaults.ClaudeSandbox),
 		ClaudeSandboxProjects: firstList(top.Defaults.ClaudeSandboxProjects, base.Defaults.ClaudeSandboxProjects),

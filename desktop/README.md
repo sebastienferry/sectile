@@ -50,8 +50,8 @@ The composer picks the model (the conversation's own, then the Claude models of
 Settings), the permission mode (**Ask before edits**, **Accept edits**, the
 default, **Auto mode** or **Plan mode**, as Claude Code's mode switch) and the effort; each
 applies from the next message.
-The mode a new conversation starts in is set right under the view choice, in
-**Settings → Appearance → Conversation permission mode** (Accept edits unless
+The mode a new Claude conversation starts in is set in
+**Settings → Claude settings → Conversation permission mode** (Accept edits unless
 you change it). It applies to the first message of every new conversation: the
 command of a skill or a project prompt launched in the conversation view, which
 runs before you could pick anything, and the first message of a Claude chat.
@@ -935,3 +935,13 @@ In a project’s or workstation’s **Claude settings**, select **Autonomy in sa
 Apply the toolchain presets for required cache paths and network domains, then save. The next conversation message or launch reads the updated settings. An incompatible command fails instead of asking to escape the sandbox. File, web and MCP tools use their own permission rules.
 
 **Always allow** keeps tool rules and approved additional folders in this project’s workstation settings, across conversation turns and worktrees. Review the proposed access in the approval card before accepting; the card also shows Claude’s decision reason when provided. Remove folder access in **Approved folders**. Project overrides take precedence over workstation scalar values; directory lists combine.
+
+### Conversation approval settings
+
+**Settings → Codex settings → Approval reviewer** selects **Ask me** (the default) or
+**Approve on my behalf**. The agent stores this workstation setting and applies it
+to native Codex threads and the next message of existing conversations. Automatic
+review can approve or deny eligible requests and does not disable the sandbox.
+The user’s native Codex configuration is left untouched.
+
+Claude’s initial **Conversation permission mode** is in **Settings → Claude settings**.
