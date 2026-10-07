@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
-import { Inbox, RefreshCw } from 'lucide-react'
+import { ExternalLink, Inbox, RefreshCw } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { format } from '../lib/i18n'
 import { addBacklogTaskToProject, fetchTrackerBacklog, labellingProjects, trackerDisplayName } from '../lib/trackers'
@@ -107,7 +107,22 @@ export const TrackerBacklogView: React.FC = () => {
         <ul className="divide-y divide-[var(--border-color)] rounded-xl border border-[var(--border-color)] bg-[var(--bg-secondary)]">
           {tasks.map(task => (
             <li key={task.id} className="flex flex-wrap items-center gap-3 px-3 py-2" data-backlog-task={task.id}>
-              <span className="font-mono text-[11px] text-[var(--text-muted)] shrink-0">{task.key}</span>
+              {/* The key opens the ticket on its tracker, as on a board card. */}
+              {task.externalUrl ? (
+                <a
+                  href={task.externalUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  onClick={e => e.stopPropagation()}
+                  className="inline-flex items-center gap-0.5 font-mono text-[11px] font-bold text-[var(--accent-color)] hover:underline shrink-0"
+                  title={format(t.shell.card.openExternal, { key: task.key })}
+                >
+                  <span>{task.key}</span>
+                  <ExternalLink size={9} className="opacity-70" />
+                </a>
+              ) : (
+                <span className="font-mono text-[11px] font-bold text-[var(--accent-color)] shrink-0">{task.key}</span>
+              )}
               <span className="flex-1 min-w-0 truncate font-medium text-[var(--text-primary)]">{task.title}</span>
               {task.labels.length > 0 && (
                 <span className="flex flex-wrap gap-1">

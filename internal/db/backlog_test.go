@@ -140,6 +140,48 @@ func TestABacklogLeavesTheFinishedTicketsOut(t *testing.T) {
 	}
 }
 
+// A backlog ticket carries the link to its ticket on the tracker, built from
+// the tracker's own site or repository when the import recorded none, so the
+// view can open it.
+func TestABacklogTicketLinksToItsTracker(t *testing.T) {
+	for _, tc := range []struct {
+		provider, site, scope, key, want string
+	}{
+		{"jira", "https://acme.atlassian.net", "GODE", "GODE-7", "https://acme.atlassian.net/browse/GODE-7"},
+		{"github", "", "acme/sectile", "#7", "https://github.com/acme/sectile/issues/7"},
+	} {
+		t.Run(tc.provider, func(t *testing.T) {
+			d := testDB(t)
+			trk, err := d.CreateTrackerAs("admin", models.Tracker{Provider: tc.provider, Site: tc.site, Scope: tc.scope})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := d.CreateProject(models.CreateProjectRequest{Name: "Delivery", Label: "delivery-admin", Trackers: []models.ProjectTracker{{TrackerID: trk.ID}}}); err != nil {
+				t.Fatal(err)
+			}
+			if err := d.ImportOrUpdateTasks(trk.ID, []models.Task{{
+				ID:        "7",
+				Key:       tc.key,
+				Title:     "Backlog",
+				Status:    models.StatusToClarify,
+				Priority:  models.PriorityMedium,
+				Source:    tc.provider,
+				CreatedAt: time.Now(),
+				UpdatedAt: time.Now(),
+			}}); err != nil {
+				t.Fatal(err)
+			}
+			backlog, err := d.GetTrackerBacklog(trk.ID)
+			if err != nil || len(backlog) != 1 {
+				t.Fatalf("backlog = %d tickets (%v)", len(backlog), err)
+			}
+			if got := backlog[0].ExternalURL; got == nil || *got != tc.want {
+				t.Fatalf("backlog ticket link = %v, want %s", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestAnUnlabelledProjectLeavesItsTrackerBacklogEmpty(t *testing.T) {
 	d := testDB(t)
 	delivery := spaceProject(t, d, "Delivery", "delivery-admin")

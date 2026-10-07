@@ -5,7 +5,7 @@
 //
 // What it guards: the sidebar has one "Hors projet" entry per tracker a
 // visible project selects; an entry lists the tracker's tickets no project
-// shows; "Ajouter au projet…" offers only the labelled projects of that
+// shows, each key opening its ticket on the tracker; "Ajouter au projet…" offers only the labelled projects of that
 // tracker, sends the choice and the ticket leaves the list; a tracker whose
 // projects carry no label says so instead of offering a project.
 import { createServer } from 'vite';
@@ -58,7 +58,7 @@ window.fake = {
   labelled: [],
   backlogReads: [],
   projects: [project('da', 'Delivery admin', 'delivery-admin', ['gode']), project('ba', 'Bidder admin', 'bidder', ['gode']), project('ops', 'Ops', '', ['be'])],
-  backlog: { gode: [ticket('t9', 'GODE-9', 'Orphan ticket', ['bug']), ticket('t10', 'GODE-10', 'Another orphan', [])], be: [{ ...ticket('t20', 'BE-20', 'Unreachable', []), trackerId: 'be' }] },
+  backlog: { gode: [{ ...ticket('t9', 'GODE-9', 'Orphan ticket', ['bug']), externalUrl: 'https://acme.atlassian.net/browse/GODE-9' }, ticket('t10', 'GODE-10', 'Another orphan', [])], be: [{ ...ticket('t20', 'BE-20', 'Unreachable', []), trackerId: 'be' }] },
 };
 window.fetch = async (input, init = {}) => {
   const url = new URL(typeof input === 'string' ? input : input.url, location.origin);
@@ -148,6 +148,15 @@ try {
   assert.equal(await view.locator('[data-backlog-task]').count(), 2);
   // React's development mode may run the effect twice: every read is GODE's.
   assert.deepEqual([...new Set(await page.evaluate(() => window.fake.backlogReads))], ['gode']);
+
+  // A ticket's key opens it on its tracker, in a new tab; a ticket without a
+  // link shows its key as plain text.
+  const link = view.locator('[data-backlog-task="t9"] a[href]');
+  assert.equal(await link.getAttribute('href'), 'https://acme.atlassian.net/browse/GODE-9');
+  assert.equal(await link.getAttribute('target'), '_blank');
+  assert.equal(await link.getAttribute('rel'), 'noreferrer');
+  assert.equal(await link.getAttribute('title'), 'Ouvrir GODE-9 sur le tracker externe');
+  assert.equal(await view.locator('[data-backlog-task="t10"] a[href]').count(), 0);
 
   // Only the labelled projects selecting the tracker are offered.
   const select = view.getByLabel('Ajouter au projet… GODE-9');
