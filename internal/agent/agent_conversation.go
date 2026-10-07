@@ -19,12 +19,16 @@ import (
 	"github.com/google/uuid"
 )
 
-// Experimental conversations are local free consoles. Each turn runs Claude
-// over pipes and resumes its own session; no shell or PTY interprets the prompt.
+// Conversations share their transcript and controls. Claude resumes one
+// process per turn; Codex keeps an app-server process for the conversation.
+// Neither launches a shell or a PTY to interpret the prompt.
 // The queue lock guards session and busy, including admission of the next turn.
-type claudeConversation struct {
-	session string
-	busy    bool
+type providerConversation struct {
+	codex       *codexConversation
+	codexProbed bool
+	models      []conversationModelOption
+	session     string
+	busy        bool
 	// effort is the level the last turn ran with; empty leaves the CLI default.
 	effort string
 	// mode is the permission mode turns run in, one of conversationModes;
@@ -133,7 +137,7 @@ type conversationStream struct {
 }
 
 // streamPartial applies one streamed event of the main thread to the draft.
-func streamPartial(c *claudeConversation, event conversationStream) {
+func streamPartial(c *providerConversation, event conversationStream) {
 	switch event.Type {
 	case "content_block_start", "content_block_stop", "message_stop":
 		c.partial = ""
@@ -250,10 +254,10 @@ func (d *agentDaemon) desktopConversation(w http.ResponseWriter, r *http.Request
 			return
 		}
 		model := ""
-		if source.desktop.Provider == "claude" {
+		if source.desktop.Provider == "claude" || source.desktop.Provider == "codex" {
 			model = source.desktop.Model
 		}
-		run, err := d.newConversationLocked(source.desktop.ProjectID, source.desktop.Directory, model, defaultMode, "This conversation is independent of the selected execution and uses the same directory.")
+		run, err := d.newConversationLocked(source.desktop.ProjectID, source.desktop.Directory, model, defaultMode, "This conversation is independent of the selected execution and uses the same directory.", source.desktop.Provider)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusConflict)
 			return
@@ -271,18 +275,23 @@ func (d *agentDaemon) desktopConversation(w http.ResponseWriter, r *http.Request
 	}
 	if r.Method == http.MethodGet {
 		lines, version := run.trace.snapshot()
-		response := map[string]any{"id": id, "version": version, "busy": false, "readOnly": run.restored || run.canceled || run.conversation == nil}
+		response := map[string]any{"provider": run.desktop.Provider, "id": id, "version": version, "busy": false, "readOnly": run.restored || run.canceled || run.conversation == nil}
 		// Desktop polls a conversation several times a second and sends the
 		// version it already shows: the events go only when they changed.
 		if since := r.URL.Query().Get("since"); since == "" || since != strconv.FormatUint(version, 10) {
 			response["events"] = lines
 		}
 		if c := run.conversation; c != nil {
-			response["busy"], response["effort"], response["model"], response["mode"] = c.busy, c.effort, run.desktop.Model, conversationMode(c.mode)
+			response["busy"], response["effort"], response["model"], response["mode"] = c.busy, c.effort, run.desktop.Model, providerConversationMode(run.desktop.Provider, c.mode)
+			response["models"] = c.models
 			response["approvals"] = append([]conversationApproval{}, c.approvals...)
 			response["commands"] = c.commands
 			response["sectileMcp"] = c.sectileMCP
-			if !run.restored && !run.canceled {
+			if run.desktop.Provider == "codex" && !run.restored && !run.canceled && !c.codexProbed {
+				c.codexProbed = true
+				go d.codexConversationTurn(run, "")
+			}
+			if !run.restored && !run.canceled && run.desktop.Provider != "codex" {
 				if c.commands == nil {
 					d.loadConversationCommandsLocked(run)
 				}
@@ -327,10 +336,13 @@ func (d *agentDaemon) desktopConversation(w http.ResponseWriter, r *http.Request
 	}
 	if input.Interrupt {
 		if run.conversation == nil || !run.conversation.busy {
-			http.Error(w, "Claude Code is not answering", http.StatusConflict)
+			http.Error(w, "The assistant is not answering", http.StatusConflict)
 			return
 		}
 		run.conversation.interrupted = true
+		if run.desktop.Provider == "codex" {
+			run.conversation.next = nil
+		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusAccepted)
 		_ = json.NewEncoder(w).Encode(map[string]bool{"accepted": true})
@@ -340,20 +352,20 @@ func (d *agentDaemon) desktopConversation(w http.ResponseWriter, r *http.Request
 		http.Error(w, "Message required", http.StatusBadRequest)
 		return
 	}
-	if input.Effort != "" && !conversationEfforts[input.Effort] {
+	if run.conversation == nil || run.restored || run.canceled || d.queue.shuttingDown {
+		http.Error(w, "Conversation is unavailable", http.StatusConflict)
+		return
+	}
+	if input.Effort != "" && !providerConversationEfforts(run, input.Model)[input.Effort] {
 		http.Error(w, "Unknown effort level", http.StatusBadRequest)
 		return
 	}
-	if input.Mode != "" && !conversationModes[input.Mode] {
+	if input.Mode != "" && !providerConversationModes(run.desktop.Provider)[input.Mode] {
 		http.Error(w, "Unknown permission mode", http.StatusBadRequest)
 		return
 	}
 	if err := agentconfig.ValidModel(input.Model); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	if run.conversation == nil || run.restored || run.canceled || d.queue.shuttingDown {
-		http.Error(w, "Conversation is unavailable", http.StatusConflict)
 		return
 	}
 	if model := strings.TrimSpace(input.Model); model != "" {
@@ -390,12 +402,15 @@ func (d *agentDaemon) desktopConversation(w http.ResponseWriter, r *http.Request
 	if input.Mode != "" {
 		run.conversation.mode = input.Mode
 	}
+	if run.desktop.Provider == "codex" {
+		run.conversation.effort = input.Effort
+	}
 	// A message sent while Claude works joins the turn, as in Claude Code;
 	// one sent as the turn closes starts the next turn.
 	if run.conversation.busy {
 		conversationWrite(run.trace, "user", input.Message, "")
 		message := withShellContext(run.conversation, input.Message)
-		queued := run.conversation.input == nil || run.conversation.input.send(conversationUserMessage(message)) != nil
+		queued := run.desktop.Provider == "codex" || run.conversation.input == nil || run.conversation.input.send(conversationUserMessage(message)) != nil
 		if queued {
 			run.conversation.next = append(run.conversation.next, message)
 		} else {
@@ -409,22 +424,30 @@ func (d *agentDaemon) desktopConversation(w http.ResponseWriter, r *http.Request
 	run.conversation.busy = true
 	run.conversation.effort = input.Effort
 	conversationWrite(run.trace, "user", input.Message, "")
-	go d.conversationTurn(run, withShellContext(run.conversation, input.Message))
+	message := withShellContext(run.conversation, input.Message)
+	if run.desktop.Provider == "codex" {
+		// Admission records the message under the queue lock, before another
+		// HTTP request can enqueue one behind it during process startup.
+		run.conversation.next = append(run.conversation.next, message)
+		go d.codexConversationTurn(run, "")
+	} else {
+		go d.conversationTurn(run, message)
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
 	_ = json.NewEncoder(w).Encode(map[string]bool{"accepted": true})
 }
 
 // newConversationLocked admits a conversation in directory. It needs no run
-// slot: no process exists until a message arrives. mode is the permission mode
-// its first turn runs in. The queue lock is held.
-func (d *agentDaemon) newConversationLocked(projectID, directory, model, mode, origin string) (*controlledRun, error) {
+// slot: Claude starts with the first message, Codex when the view opens. mode
+// is the initial Claude permission mode. The queue lock is held.
+func (d *agentDaemon) newConversationLocked(projectID, directory, model, mode, origin string, provider ...string) (*controlledRun, error) {
 	run, err := d.enqueueRunLocked("", agentconfig.Dispatch{RunID: uuid.NewString()}, projectID, directory, 1, false)
 	if err != nil {
 		return nil, err
 	}
 	run.desktop.Kind = consoleRunKind
-	startConversationLocked(run, model, mode, origin)
+	startConversationLocked(run, model, mode, origin, provider...)
 	return run, nil
 }
 
@@ -432,14 +455,23 @@ func (d *agentDaemon) newConversationLocked(projectID, directory, model, mode, o
 // for its first message. mode is the permission mode that message runs in,
 // the workstation default; anything conversationModes
 // does not hold becomes acceptEdits. The queue lock is held.
-func startConversationLocked(run *controlledRun, model, mode, origin string) {
+func startConversationLocked(run *controlledRun, model, mode, origin string, provider ...string) {
 	run.desktop.Provider = "claude"
+	if len(provider) > 0 && provider[0] == "codex" {
+		run.desktop.Provider = "codex"
+	}
 	run.desktop.Model = model
 	run.desktop.Conversation, run.desktop.Headless = true, true
 	run.desktop.Status = "running"
 	run.desktop.StartedAt = time.Now().UTC()
 	run.trace = newRunTrace()
-	run.conversation = &claudeConversation{mode: conversationMode(mode)}
+	run.conversation = &providerConversation{mode: conversationMode(mode)}
+	if run.desktop.Provider == "codex" {
+		run.conversation.mode = "workspace-write"
+		run.conversation.commands = []conversationSlash{}
+		conversationWrite(run.trace, "notice", "Codex conversation · experimental", "Codex uses its sandbox and asks for approval when needed. "+origin)
+		return
+	}
 	conversationWrite(run.trace, "notice", "Claude Code conversation · experimental", "Sectile's tools are accepted; what your rules and the chosen mode do not allow asks for your approval. "+origin)
 }
 
@@ -537,6 +569,10 @@ const conversationFoldersTimeout = 10 * time.Second
 const conversationInterruptGrace = 5 * time.Second
 
 func (d *agentDaemon) conversationTurn(run *controlledRun, prompt string) {
+	if run.desktop.Provider == "codex" {
+		d.codexConversationTurn(run, prompt)
+		return
+	}
 	d.queue.mu.Lock()
 	projectID, directory := run.desktop.ProjectID, run.desktop.Directory
 	d.queue.mu.Unlock()
@@ -823,7 +859,7 @@ func (d *agentDaemon) stopConversations() {
 			continue
 		}
 		run.canceled = true
-		if !run.conversation.busy {
+		if !run.conversation.busy && run.conversation.codex == nil {
 			run.desktop.Status = "canceled"
 			run.once.Do(func() { close(run.exited) })
 			run.trace.close()

@@ -106,6 +106,11 @@ function baseCard(event, root) {
       const hunks = [editHunk(args.old_string, args.new_string)]
       return { name, target: path, note: counts(hunks) + (args.replace_all ? ' · every occurrence' : ''), open: false, body: bounded(hunks) }
     }
+    case 'Codex file changes': {
+      const changes=Array.isArray(args.changes)?args.changes:[]
+      const hunks=changes.map(change=>[{sign:' ',text:shortPath(change?.path,root)},...lines(change?.diff).map(line=>({sign:line.startsWith('+')?'+':line.startsWith('-')?'-':' ',text:line.replace(/^[+-]/,'')}))])
+      return {name,target:changes.map(change=>shortPath(change?.path,root)).join(' · '),note:counts(hunks),open:false,body:bounded(hunks)}
+    }
     case 'MultiEdit': {
       const edits = Array.isArray(args.edits) ? args.edits.filter(edit => edit && typeof edit === 'object') : []
       const hunks = edits.map(edit => editHunk(edit.old_string, edit.new_string))

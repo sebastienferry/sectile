@@ -98,17 +98,27 @@ Once the workstation is paired, Desktop starts the local agent with the saved ke
 ## Configure the project in Desktop
 
 1. Select **Add project** from Desktop's project sidebar, or use the project configuration view for one already shown. Choose the local Git checkout with **Choose folder…**.
-2. Open the project's **General** category to inspect its Git remote, SDD framework, and default coding engine. In **Folders**, map local repositories and, when needed, a Macro or an Issue specifications folder (where macro skills and issue skills keep their specifications) or attached folders. These paths stay on your workstation. Every execution of the project is given these folders, ticket discussions and Claude conversations included. A folder can also be attached without leaving a Claude conversation, a running ticket discussion or a running **Project prompt** console, also once moved to the native terminal, from its **Add folder…** action: Claude Code sees it at once in a discussion or a console, and from the next message in a conversation. Turn on **Any repository** to let the project's tickets change a repository it does not list: the agent uses the checkout the session names, or clones the repository into the **Clones folder** (by default next to the local repository), and remembers it on this workstation. With this option on and the specifications kept away from the code repository (dropped, or in an Issue specifications folder of their own), a ticket gets no worktree in the code repository until it needs one, so a change made only in another repository needs no pull request in the code repository. In a ticket's details, **Repository** › **Other repository…** pins it to a repository typed by hand.
+2. Open the project's **General** category to inspect its Git remote, SDD framework, and default coding engine. In **Folders**, map local repositories and, when needed, a Macro or an Issue specifications folder (where macro skills and issue skills keep their specifications) or attached folders. These paths stay on your workstation. Every execution of the project is given these folders, ticket discussions and Claude or Codex conversations included. A folder can also be attached without leaving a conversation, a running ticket discussion or a running **Project prompt** console, also once moved to the native terminal, from its **Add folder…** action: Claude Code sees it at once in a discussion or a console, and from the next message in a conversation. Turn on **Any repository** to let the project's tickets change a repository it does not list: the agent uses the checkout the session names, or clones the repository into the **Clones folder** (by default next to the local repository), and remembers it on this workstation. With this option on and the specifications kept away from the code repository (dropped, or in an Issue specifications folder of their own), a ticket gets no worktree in the code repository until it needs one, so a change made only in another repository needs no pull request in the code repository. In a ticket's details, **Repository** › **Other repository…** pins it to a repository typed by hand.
 3. In **Execution**, choose whether tasks use worktrees, how many executions can run, and the terminal behavior. Use workstation **Execution defaults** for settings shared by projects; project overrides can inherit those defaults.
 4. Select **Save local configuration**. In **Settings → Deployment**, install the project's skills and initialize its chosen SDD framework when those tools are not yet present. In **AI engines**, choose or configure the CLI you intend to run. The CLI must also be installed and signed in on the workstation.
 
 The [Desktop guide](../desktop/README.md#user-configuration-and-commands) covers the full set of controls. The browser owns shared project and tracker settings; Desktop owns this workstation's paths, engine commands, and execution preferences.
 
+## Use the Desktop conversation view
+
+Choose **Settings → General → AI consoles → Conversation** to open Claude
+or Codex interactive ticket launches and project prompts in a chat view. The
+provider CLI must already be installed and signed in. Replies stream, tools
+appear as cards, and approvals or questions wait for your answer in those
+cards. **Stop answer** keeps the session open; **Stop execution** ends it.
+Codex provides its own models, efforts and sandbox modes, and installed skills
+complete with `$`. See the [Desktop conversation guide](../desktop/README.md#experimental-conversations).
+
 ## Use a prompt in Claude Code
 
 You can run a workflow skill in an existing Claude Code session rather than launching it from a ticket:
 
-1. Configure Claude Code's Sectile MCP connection in Desktop under **Settings → Execution defaults → MCP configuration**. Choose the transport appropriate to your setup, select **Update provider configuration**, and restart Claude Code. If Claude Code's `sectile` entry uses a key this workstation does not use, for example one Sectile did not write or one left from an earlier pairing in a project's settings, this section flags it and offers **Repair**, which writes the current key and removes the outdated project entries. Desktop can also deploy the server's skills under **Settings → Deployment**. See [MCP connections](../desktop/README.md#mcp-connections).
+1. Configure Claude Code's Sectile MCP connection in Desktop under **Settings → Deployment → MCP configuration**. Choose the transport appropriate to your setup, select **Update provider configuration**, and restart Claude Code. If Claude Code's `sectile` entry uses a key this workstation does not use, for example one Sectile did not write or one left from an earlier pairing in a project's settings, this section flags it and offers **Repair**, which writes the current key and removes the outdated project entries. Desktop can also deploy the server's skills under **Settings → Deployment**. See [MCP connections](../desktop/README.md#mcp-connections).
 2. Open Claude Code in the ticket's repository on the paired workstation. Open the ticket in the web interface and use **Copy** for the next workflow skill or **Copy** for `/pickup-issue`; on the board, the copy button of a full card copies the next workflow skill's prompt in one click. Paste the complete copied prompt into Claude Code. It includes the task's full ID and instructions to read Sectile MCP context and report the run.
 3. Follow the conversation and task activity. Answer a clarification question if the skill asks one. For a single step, launch the next stage after Sectile records the prior stage. For the pickup prompt, the skill continues through the stages it can complete and stops before merge.
 
@@ -154,3 +164,16 @@ Desktop lists your configured projects and local executions. Use **Open tasks** 
 Select an execution to see its console, status, and recorded skill result. **Changes** shows the current local worktree diff, and **Rendered** shows a selected Markdown file as a formatted document, with the images it references from the repository (PNG, JPEG, GIF, WebP, SVG); an image that cannot be shown keeps its alt text and says why on hover; **Console** returns to output. A project queue shows running and waiting executions. The toolbar can stop or relaunch an execution, and **Next: Clarify**, **Next: Specify**, **Next: Implement**, or **Next: Adjust** advances one verified step. **Awaiting human merge** means the pull request is ready for its owner to review. Closing Desktop leaves the local agent and its running work active; reopen Desktop to reconnect.
 
 See the [Desktop guide](../desktop/README.md#use) for installation, settings, console behavior, and recovery details.
+
+Codex conversations use **Settings → Codex settings → Approval reviewer** to
+choose **Ask me** or **Approve on my behalf**, applying from the next message
+with the sandbox still active. Claude’s initial **Conversation permission mode**
+is configured in **Settings → Claude settings**.
+
+Desktop **General** settings combine user profile information and appearance.
+Use **Search settings** to find fields across the loaded settings categories.
+The settings content fills the available width and adapts to window resizing.
+
+### Provider model lists
+
+Configure the models offered at launch under **Settings → AI engines → Models offered**, grouped by Antigravity, Claude and Codex. Each provider has its own **Models offered** field and **Save models** button. Reset restores the shipped list; saving an empty custom list offers no models. Execution defaults save separately and preserve these choices. Upgrade the local agent together with Desktop.

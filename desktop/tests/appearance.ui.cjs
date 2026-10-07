@@ -55,7 +55,7 @@ test('the appearance setting switches the whole window live and is kept',async()
   // No stored choice: the app follows the system.
   assert.equal((await windowState(app)).source,'system')
   await page.locator('#settings').click()
-  await page.getByRole('tab',{name:'Appearance',exact:true}).click()
+  await page.getByRole('tab',{name:'General',exact:true}).first().click()
   const group=page.getByRole('group',{name:'Appearance'})
   const button=name=>group.getByRole('button',{name,exact:true})
   await expect(group.getByRole('button')).toHaveText(['System','Dark','Light'])
@@ -96,7 +96,7 @@ test('the appearance setting switches the whole window live and is kept',async()
   assert.deepEqual(await windowState(app),{source:'light',background:'#f5f6f8'})
   await expect.poll(()=>bodyBackground(page)).toBe(LIGHT_BG)
   await page.locator('#settings').click()
-  await page.getByRole('tab',{name:'Appearance',exact:true}).click()
+  await page.getByRole('tab',{name:'General',exact:true}).first().click()
   await expect(page.getByRole('group',{name:'Appearance'}).getByRole('button',{name:'Light',exact:true})).toHaveAttribute('aria-pressed','true')
  }finally{
   await app?.close()
@@ -117,7 +117,7 @@ test('the light console darkens pale text until it reads, the dark one leaves it
   // the console.
   const appearance=async name=>{
    await page.locator('#settings').click()
-   await page.getByRole('tab',{name:'Appearance',exact:true}).click()
+   await page.getByRole('tab',{name:'General',exact:true}).first().click()
    const button=page.getByRole('group',{name:'Appearance'}).getByRole('button',{name,exact:true})
    await button.click();await expect(button).toHaveAttribute('aria-pressed','true')
    await page.getByRole('button',{name:'Back',exact:true}).click()

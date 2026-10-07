@@ -30,9 +30,8 @@ export function createConversationView({api,container,onError,canAddFolder=()=>f
  panel.innerHTML='<div class="conversation-events" role="log" aria-label="Conversation messages"></div><form class="conversation-composer"><label class="visually-hidden" for="conversation-message">Message Claude Code</label><ul class="conversation-commands" id="conversation-commands" role="listbox" aria-label="Slash commands" hidden></ul><textarea id="conversation-message" rows="2" maxlength="60000" placeholder="Ask a question or describe a change…" role="combobox" aria-autocomplete="list" aria-controls="conversation-commands" aria-expanded="false" required></textarea><div class="conversation-toolbar"><label class="conversation-chip conversation-model" title="Model for the next message"><select aria-label="Model"></select></label><label class="conversation-chip conversation-effort" title="Reasoning effort for the next message"><svg viewBox="0 0 20 14" width="18" height="13" aria-hidden="true"><rect x="0" y="10" width="3" height="4" rx="1"/><rect x="4" y="8" width="3" height="6" rx="1"/><rect x="8" y="6" width="3" height="8" rx="1"/><rect x="12" y="3" width="3" height="11" rx="1"/><rect x="16" y="0" width="3" height="14" rx="1"/></svg><select aria-label="Effort"><option value="">Default effort</option><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="xhigh">Extra high</option><option value="max">Max</option></select></label><label class="conversation-chip conversation-mode" title="What Claude may do without asking, from the next message. Sectile’s tools are always allowed."><select aria-label="Permission mode"><option value="default">Ask before edits</option><option value="acceptEdits">Accept edits</option><option value="auto">Auto mode</option><option value="plan">Plan mode</option></select></label><button type="button" class="conversation-chip conversation-add-folder" aria-label="Add folder…" title="Attach a folder of this workstation to the project; Claude sees it from the next message" hidden><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2z"/><path d="M12 11v6M9 14h6"/></svg><span>Add folder…</span></button><button type="button" class="conversation-chip conversation-terminal" aria-label="Open a terminal" title="Open a terminal in this conversation’s directory" hidden><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m7.5 10 2.5 2.5-2.5 2.5"/><path d="M13 15h4"/></svg><span>Terminal</span></button><button type="button" class="conversation-chip conversation-mcp" hidden><span class="conversation-mcp-dot" aria-hidden="true"></span><span>Sectile MCP</span></button><span class="conversation-status" role="status"></span><span class="conversation-context" role="img" hidden><svg viewBox="0 0 36 36" aria-hidden="true"><circle cx="18" cy="18" r="15"/><circle class="conversation-context-used" cx="18" cy="18" r="15" pathLength="100" stroke-dasharray="0 100" transform="rotate(-90 18 18)"/></svg><span></span></span><button type="button" class="conversation-interrupt" aria-label="Stop answer" title="Stop this answer (Esc); the conversation stays open" hidden><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor"/></svg></button><button type="submit" class="conversation-send" aria-label="Send" title="Send (Enter) · New line (Shift+Enter)"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button></div></form>'
  container.append(panel)
  const events=panel.querySelector('.conversation-events'),form=panel.querySelector('form'),input=panel.querySelector('textarea'),send=panel.querySelector('.conversation-send'),addFolder=panel.querySelector('.conversation-add-folder'),openTerminal=panel.querySelector('.conversation-terminal'),mcp=panel.querySelector('.conversation-mcp'),interrupt=panel.querySelector('.conversation-interrupt'),status=panel.querySelector('.conversation-status'),model=panel.querySelector('.conversation-model select'),mode=panel.querySelector('.conversation-mode select'),effort=panel.querySelector('.conversation-effort select'),effortBars=panel.querySelectorAll('.conversation-effort rect'),ring=panel.querySelector('.conversation-context')
- const levels=['','low','medium','high','xhigh','max']
  // One lit bar per level; the default effort lights none, since the CLI decides it.
- const showEffort=()=>effortBars.forEach((bar,i)=>bar.classList.toggle('lit',i<levels.indexOf(effort.value)))
+ const showEffort=()=>effortBars.forEach((bar,i)=>bar.classList.toggle('lit',i<({minimal:1,low:1,medium:2,high:3,xhigh:4,max:5,ultra:5}[effort.value]||0)))
  effort.addEventListener('change',showEffort)
  function showContext(context){
   ring.hidden=!context?.window
@@ -58,17 +57,17 @@ export function createConversationView({api,container,onError,canAddFolder=()=>f
   if(current){input.setAttribute('aria-activedescendant',current.id);current.scrollIntoView({block:'nearest'})}
  }
  function updateCompletion(){
-  const token=/^\/(\S*)/.exec(input.value)
+  const token=/^([/$])(\S*)/.exec(input.value)
   if(!token||input.selectionStart>token[0].length||!commands.length){closeCompletion();return}
-  const query=token[1].toLowerCase()
-  const starts=commands.filter(command=>command.name.toLowerCase().startsWith(query))
-  const inside=commands.filter(command=>!command.name.toLowerCase().startsWith(query)&&command.name.toLowerCase().includes(query))
+  const query=token[2].toLowerCase(),eligible=commands.filter(command=>token[1]==='$'?command.name.startsWith('$'):!command.name.startsWith('$'))
+  const starts=eligible.filter(command=>command.name.replace(/^\$/,'').toLowerCase().startsWith(query))
+  const inside=eligible.filter(command=>!command.name.replace(/^\$/,'').toLowerCase().startsWith(query)&&command.name.toLowerCase().includes(query))
   matches=[...starts,...inside].slice(0,8)
   if(!matches.length){closeCompletion();return}
   active=Math.min(active,matches.length-1)
   completion.replaceChildren(...matches.map((command,index)=>{
    const item=document.createElement('li');item.id='conversation-command-'+index;item.setAttribute('role','option')
-   const name=document.createElement('strong');name.textContent='/'+command.name;item.append(name)
+   const name=document.createElement('strong');name.textContent=command.name.startsWith('$')?command.name:'/'+command.name;item.append(name)
    if(command.argumentHint){const hint=document.createElement('span');hint.className='conversation-command-hint';hint.textContent=command.argumentHint;item.append(hint)}
    if(command.description){const text=document.createElement('small');text.textContent=command.description;item.append(text)}
    item.addEventListener('mousedown',event=>{event.preventDefault();acceptCompletion(index)})
@@ -78,13 +77,14 @@ export function createConversationView({api,container,onError,canAddFolder=()=>f
  }
  function acceptCompletion(index){
   const command=matches[index];if(!command)return
-  const rest=input.value.replace(/^\/\S*\s?/,'')
-  input.value='/'+command.name+' '+rest
-  const caret=command.name.length+2;input.setSelectionRange(caret,caret)
+  const rest=input.value.replace(/^[/$]\S*\s?/,'')
+  const name=command.name.startsWith('$')?command.name:'/'+command.name
+  input.value=name+' '+rest
+  const caret=name.length+1;input.setSelectionRange(caret,caret)
   closeCompletion();grow();input.focus()
  }
  // A message starting with ! runs in the shell, as Claude Code's bash mode.
- const showShellMode=()=>{const shell=input.value.startsWith('!');form.classList.toggle('conversation-shell-mode',shell);input.setAttribute('aria-description',shell?'Runs in the shell of this directory; Claude sees it with your next message':'')}
+ const showShellMode=()=>{const shell=input.value.startsWith('!');form.classList.toggle('conversation-shell-mode',shell);input.setAttribute('aria-description',shell?'Runs in the shell of this directory; '+providerLabel()+' sees it with your next message':'')}
  input.addEventListener('input',()=>{active=0;updateCompletion();showShellMode()})
  input.addEventListener('click',updateCompletion)
  input.addEventListener('blur',closeCompletion)
@@ -97,7 +97,21 @@ export function createConversationView({api,container,onError,canAddFolder=()=>f
   if(event.key==='Enter'&&!event.shiftKey&&!event.isComposing){event.preventDefault();form.requestSubmit()}
   if(event.key==='Escape'&&!interrupt.hidden&&!interrupt.disabled){event.preventDefault();interrupt.click()}
  })
- let selected=null,directory='',busy=false,generation=0,timer=null,version=null,pending=false,available=false,effortLoaded=false,readOnly=true,attaching=false
+ let provider='claude',catalog=[],selected=null,directory='',busy=false,generation=0,timer=null,version=null,pending=false,available=false,effortLoaded=false,readOnly=true,attaching=false
+ const providerLabel=()=>provider==='codex'?'Codex':'Claude Code'
+ function configureProvider(){
+  panel.setAttribute('aria-label',providerLabel()+' conversation')
+  panel.querySelector('label[for="conversation-message"]').textContent='Message '+providerLabel()
+  mode.replaceChildren(...(provider==='codex'?[['read-only','Read only'],['workspace-write','Workspace edits'],['plan','Plan mode']]:[['default','Ask before edits'],['acceptEdits','Accept edits'],['auto','Auto mode'],['plan','Plan mode']]).map(([value,label])=>{const option=document.createElement('option');option.value=value;option.textContent=label;return option}))
+  mode.parentElement.title=provider==='codex'?'Codex sandbox and collaboration mode for the next message. Network access requires approval.':'What Claude may do without asking, from the next message. Sectile’s tools are always allowed.'
+  addFolder.title='Attach a folder of this workstation to the project; '+providerLabel()+' sees it from the next message'
+ }
+ function fillEfforts(current){
+  const supported=provider==='codex'?(catalog.find(item=>item.model===model.value)?.efforts||['low','medium','high','xhigh']):['low','medium','high','xhigh','max']
+  effort.replaceChildren(...['',...supported].map(value=>{const option=document.createElement('option');option.value=value;option.textContent=value?value.charAt(0).toUpperCase()+value.slice(1):'Default effort';return option}))
+  effort.value=supported.includes(current)?current:'';showEffort()
+ }
+ model.addEventListener('change',()=>fillEfforts(effort.value))
  // The outcome of an added folder stays in the status for a while, over polling.
  let notice='',noticeUntil=0
  // kind is working, asking or idle; the stylesheet draws the indicator from it.
@@ -113,7 +127,7 @@ export function createConversationView({api,container,onError,canAddFolder=()=>f
   if(!busy)interrupt.disabled=false
  }
  // Whether Claude reaches Sectile's MCP server here, which every skill needs.
- const MCP_LABELS={connected:'connected',['needs-auth']:'needs authentication',failed:'not reachable',pending:'connecting',missing:'not registered in Claude Code',unknown:'state unknown'}
+ const MCP_LABELS={connected:'connected',['needs-auth']:'needs authentication',failed:'not reachable',pending:'connecting',missing:'not registered',unknown:'state unknown'}
  function showMcp(state){
   mcp.hidden=state===undefined||readOnly
   if(mcp.hidden)return
@@ -135,7 +149,7 @@ export function createConversationView({api,container,onError,canAddFolder=()=>f
   // The agent's effort, model and mode are adopted once per selection so
   // polling never undoes a pick.
   if(!effortLoaded){
-   effortLoaded=true;effort.value=levels.includes(data.effort)?data.effort:'';showEffort()
+   effortLoaded=true;fillEfforts(data.effort)
    if(typeof data.model==='string')fillModels(data.model)
    if([...mode.options].some(option=>option.value===data.mode))mode.value=data.mode
   }
@@ -143,9 +157,9 @@ export function createConversationView({api,container,onError,canAddFolder=()=>f
   showContext(data.context)
   if(Date.now()<noticeUntil)showStatus(notice)
   else if(data.readOnly)showStatus('Read-only history')
-  else if(data.approvals?.some(item=>item.tool==='AskUserQuestion'))showStatus('Claude is asking you a question','asking')
+  else if(data.approvals?.some(item=>item.tool==='AskUserQuestion'))showStatus((provider==='codex'?'Codex':'Claude')+' is asking you a question','asking')
   else if(data.approvals?.length)showStatus('Waiting for your approval','asking')
-  else if(data.busy)showStatus('Claude Code is working…','working')
+  else if(data.busy)showStatus(providerLabel()+' is working…','working')
   else showStatus('Ready')
  }
  // Claude may be working: the folder is attached at once and given from the
@@ -208,7 +222,7 @@ export function createConversationView({api,container,onError,canAddFolder=()=>f
     events.append(node);continue
    }
    const node=document.createElement('article');node.className='conversation-event conversation-'+event.kind
-   const label=document.createElement('strong');label.className='conversation-speaker';label.textContent=event.kind==='user'?'You':event.kind==='assistant'||event.kind==='command_output'?'Claude Code':event.kind==='error'?'Error':event.kind==='thinking'?'Thinking':'Status';node.append(label)
+   const label=document.createElement('strong');label.className='conversation-speaker';label.textContent=event.kind==='user'?'You':event.kind==='assistant'||event.kind==='command_output'?providerLabel():event.kind==='error'?'Error':event.kind==='thinking'?'Thinking':'Status';node.append(label)
    const body=document.createElement('div')
    if(event.kind==='command_output'){body.className='conversation-command-output';body.append(...commandOutputLines(event.text||''))}
    else if(markdownKinds.has(event.kind)){body.className='conversation-markdown';body.append(renderMarkdown(markdownModel(event.text||''),{openLink:url=>api.openLink(url)}))}
@@ -242,13 +256,14 @@ export function createConversationView({api,container,onError,canAddFolder=()=>f
    const question=document.createElement('span');question.className='tool-approval-question';question.textContent='Allow '+name+(item.description?': '+item.description:'')+'?'
    bar.append(question)
    if(item.reason){const reason=document.createElement('p');reason.textContent=item.reason;bar.append(reason)}
+   if(item.access){const access=document.createElement('pre');access.textContent=JSON.stringify(item.access,null,2);bar.append(access)}
    if(Array.isArray(item.suggestions)&&item.suggestions.length){
     const details=document.createElement('details'),summary=document.createElement('summary'),proposal=document.createElement('pre')
     summary.textContent='Always allow: proposed access for this project'
     proposal.textContent=JSON.stringify(item.suggestions.map(update=>({...update,destination:(update?.type==='addRules'&&update.behavior==='allow')||update?.type==='addDirectories'?'project (this workstation)':'session'})),null,2)
     details.append(summary,proposal);bar.append(details)
    }
-   const choices=[['allow','Allow'],...(Array.isArray(item.suggestions)&&item.suggestions.length?[['always','Always allow']]:[]),['deny','Deny']]
+   const choices=Array.isArray(item.choices)?item.choices.map(choice=>[choice.decision,choice.label]):[['allow','Allow'],...(Array.isArray(item.suggestions)&&item.suggestions.length?[['always','Always allow']]:[]),['deny','Deny']]
    for(const [decision,label] of choices){
     const button=document.createElement('button');button.type='button';button.textContent=label;button.className='tool-approval-'+decision
     button.onclick=async()=>{
@@ -267,7 +282,7 @@ export function createConversationView({api,container,onError,canAddFolder=()=>f
  // the question allows it, or an answer of one's own. Skip denies the call.
  function questionForm(item){
   const form=document.createElement('form');form.className='tool-approval tool-question';form.dataset.approvalId=item.id
-  form.setAttribute('aria-label','Claude’s question')
+  form.setAttribute('aria-label',(provider==='codex'?'Codex':'Claude')+'’s question')
   const questions=(Array.isArray(item.input?.questions)?item.input.questions:[]).filter(question=>question&&typeof question.question==='string')
   const fields=questions.map((question,index)=>{
    const set=document.createElement('fieldset');set.className='tool-question-set'
@@ -283,7 +298,7 @@ export function createConversationView({api,container,onError,canAddFolder=()=>f
     if(typeof option.description==='string'&&option.description){const hint=document.createElement('small');hint.textContent=option.description;label.append(hint)}
     set.append(label)
    }
-   const other=document.createElement('input');other.type='text';other.className='tool-question-other';other.placeholder='Other answer';other.setAttribute('aria-label','Other answer to: '+question.question)
+   const other=document.createElement('input');other.type=question.isSecret?'password':'text';other.className='tool-question-other';other.placeholder='Other answer';other.setAttribute('aria-label','Other answer to: '+question.question)
    other.addEventListener('input',()=>{if(other.value&&!question.multiSelect)for(const box of set.querySelectorAll('input[type=radio]'))box.checked=false})
    set.append(other)
    return {question,set,other}
@@ -323,7 +338,7 @@ export function createConversationView({api,container,onError,canAddFolder=()=>f
   if(!partialNode?.isConnected){
    partialNode=document.createElement('article');partialNode.className='conversation-event conversation-assistant conversation-partial'
    partialNode.setAttribute('aria-busy','true')
-   const label=document.createElement('strong');label.className='conversation-speaker';label.textContent='Claude Code'
+   const label=document.createElement('strong');label.className='conversation-speaker';label.textContent=providerLabel()
    const body=document.createElement('div');body.className='conversation-markdown'
    partialNode.append(label,body);events.append(partialNode)
   }
@@ -336,6 +351,7 @@ export function createConversationView({api,container,onError,canAddFolder=()=>f
    const data=await api.conversation(id,version??undefined)
    if(token!==generation||id!==selected)return
    if(data.id!==id)throw Error('The agent returned another conversation.')
+   if(Array.isArray(data.models)&&JSON.stringify(catalog)!==JSON.stringify(data.models)){catalog=data.models;fillModels(model.value);fillEfforts(effort.value)}
    if(Array.isArray(data.commands))commands=data.commands.filter(command=>command&&typeof command.name==='string')
    draw(data);drawPartial(data.busy?data.partial||'':'');drawApprovals(Array.isArray(data.approvals)?data.approvals:[]);controls(data);busy=!!data.busy
   }catch(err){
@@ -347,7 +363,7 @@ export function createConversationView({api,container,onError,canAddFolder=()=>f
  function fillModels(current){
   const chosen=String(current||'').trim()
   model.replaceChildren()
-  const values=[chosen,...models().map(value=>String(value).trim())].filter((value,i,all)=>all.indexOf(value)===i)
+  const values=[chosen,...catalog.map(item=>item.model),...models(provider).map(value=>String(value).trim())].filter((value,i,all)=>all.indexOf(value)===i)
   if(!chosen)values.shift()
   if(!chosen){const option=document.createElement('option');option.value='';option.textContent='CLI default';model.append(option)}
   for(const value of values){if(!value)continue;const option=document.createElement('option');option.value=value;option.textContent=value;model.append(option)}
@@ -362,13 +378,13 @@ export function createConversationView({api,container,onError,canAddFolder=()=>f
    await api.conversationMessage(id,message,effort.value,model.value,mode.value)
    if(token!==generation)return
    const shell=message.trimStart().startsWith('!'),local=message.trim()==='/mcp'
-   input.value='';grow();showShellMode();available=shell||local||canQueue();showStatus(shell?'Running in the shell…':local?'Checking MCP servers…':'Claude Code is working…','working')
+   input.value='';grow();showShellMode();available=shell||local||canQueue();showStatus(shell?'Running in the shell…':local?'Checking MCP servers…':providerLabel()+' is working…','working')
   }catch(err){if(token===generation)onError(err)}
   finally{if(token===generation){pending=false;send.disabled=!available}}
  })
  return {select(run){
-  generation++;clearTimeout(timer);selected=run?.conversation?run.id:null;directory=run?.directory||'';busy=false;commands=[];closeCompletion();openTerminal.hidden=true;mcp.hidden=true;interrupt.hidden=true;send.hidden=false;partialNode=null;partialText='';version=null;pending=false;available=false;effortLoaded=false;readOnly=true;attaching=false;notice='';noticeUntil=0;showAddFolder()
-  events.replaceChildren();effort.value='';effort.disabled=true;showEffort();showContext(null);input.value='';grow();fillModels(run?.model);mode.value='acceptEdits';model.disabled=mode.disabled=true;input.disabled=true;send.disabled=true
+  generation++;clearTimeout(timer);provider=run?.provider==='codex'?'codex':'claude';catalog=[];configureProvider();selected=run?.conversation?run.id:null;directory=run?.directory||'';busy=false;commands=[];closeCompletion();openTerminal.hidden=true;mcp.hidden=true;interrupt.hidden=true;send.hidden=false;partialNode=null;partialText='';version=null;pending=false;available=false;effortLoaded=false;readOnly=true;attaching=false;notice='';noticeUntil=0;showAddFolder()
+  events.replaceChildren();effort.value='';effort.disabled=true;showEffort();showContext(null);input.value='';grow();fillModels(run?.model);fillEfforts('');mode.value=provider==='codex'?'workspace-write':'acceptEdits';model.disabled=mode.disabled=true;input.disabled=true;send.disabled=true
   panel.hidden=!selected;container.classList.toggle('conversation-active',!!selected)
   if(selected){showStatus('Loading conversation…','working');poll(generation,selected)}
  },get active(){return !!selected}}

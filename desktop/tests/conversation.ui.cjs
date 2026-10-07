@@ -54,8 +54,8 @@ test('Claude chat renders structured output safely and sends messages without a 
   // The conversation view is opt-in: the terminal is the default.
   await expect(page.getByRole('button',{name:'Claude chat (test)',exact:true})).toHaveCount(0)
   await page.locator('#settings').click()
-  await page.getByRole('tab',{name:'Appearance',exact:true}).click()
-  const views=page.getByRole('group',{name:'Claude consoles'})
+  await page.getByRole('tab',{name:'General',exact:true}).first().click()
+  const views=page.getByRole('group',{name:'AI consoles'})
   await expect(views.getByRole('button',{name:'Terminal',exact:true})).toHaveAttribute('aria-pressed','true')
   await views.getByRole('button',{name:'Conversation',exact:true}).click()
   await expect(views.getByRole('button',{name:'Conversation',exact:true})).toHaveAttribute('aria-pressed','true')

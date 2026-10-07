@@ -64,16 +64,23 @@ func conversationControl(subtype string) map[string]any {
 
 // conversationApproval is a tool call waiting for the owner's decision.
 type conversationApproval struct {
-	ID          string          `json:"id"`
-	ToolUseID   string          `json:"toolUseId,omitempty"`
-	Tool        string          `json:"tool"`
-	Description string          `json:"description,omitempty"`
-	Input       json.RawMessage `json:"input,omitempty"`
+	Access          json.RawMessage   `json:"access,omitempty"`
+	WireDecisions   map[string]string `json:"-"`
+	QuestionSecrets map[string]bool   `json:"-"`
+	ID              string            `json:"id"`
+	ToolUseID       string            `json:"toolUseId,omitempty"`
+	Tool            string            `json:"tool"`
+	Description     string            `json:"description,omitempty"`
+	Input           json.RawMessage   `json:"input,omitempty"`
 	// Suggestions are the updates Claude proposes for "always allow". They
 	// are handed back for the running conversation only, and their allow
 	// rules are added to the project's (#700).
-	Suggestions json.RawMessage `json:"suggestions,omitempty"`
-	Reason      string          `json:"reason,omitempty"`
+	Suggestions json.RawMessage              `json:"suggestions,omitempty"`
+	Reason      string                       `json:"reason,omitempty"`
+	Choices     []conversationDecisionOption `json:"choices,omitempty"`
+	Method      string                       `json:"-"`
+	RequestID   json.RawMessage              `json:"-"`
+	QuestionIDs map[string]string            `json:"-"`
 }
 
 // conversationControlRequest is the part of Claude's control requests the
@@ -209,6 +216,9 @@ func controlError(requestID, message string) map[string]any {
 // in the trace. The queue lock is held.
 func (d *agentDaemon) decideApprovalLocked(run *controlledRun, id, decision string, answers map[string]string) error {
 	c := run.conversation
+	if run.desktop.Provider == "codex" {
+		return d.decideCodexApprovalLocked(run, id, decision, answers)
+	}
 	for i, approval := range c.approvals {
 		if approval.ID != id {
 			continue
