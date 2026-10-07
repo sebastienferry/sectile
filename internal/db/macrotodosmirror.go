@@ -572,6 +572,16 @@ func (d *DB) PushFramingCopies(ctx context.Context, projectID string, keys []str
 	return done, failures, refused, refusals
 }
 
+// lockMacroCopy serializes the writes of one copied part of one macro on this
+// server. It is never taken while d.mu is held: the tracker call it covers can
+// be slow.
+func (d *DB) lockMacroCopy(part macroCopyPart, projectID, key string) func() {
+	value, _ := d.macroCopyLocks.LoadOrStore(part.name+"\x00"+projectID+"\x00"+key, &sync.Mutex{})
+	lock := value.(*sync.Mutex)
+	lock.Lock()
+	return lock.Unlock
+}
+
 // todosMirrorTimer is the pending copy of one macro on this instance, with the
 // person whose last save scheduled it.
 type todosMirrorTimer struct {
@@ -700,6 +710,10 @@ func (d *DB) pushMacroCopy(ctx context.Context, part macroCopyPart, projectID, k
 	if kind == "" {
 		return "", fmt.Errorf(part.kept, key, reason)
 	}
+	// Two writes of the same copy never overlap on this server: the second
+	// reads the comment the first created, instead of creating another one
+	// (a bulk republish asked twice, #691).
+	defer d.lockMacroCopy(part, projectID, key)()
 	meta, err := d.readMacroRow(projectID, key)
 	if err != nil {
 		return "", err

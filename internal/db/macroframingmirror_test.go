@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 	"unicode/utf8"
@@ -510,5 +511,30 @@ func TestBulkFramingCreatesNoCommentForAnEmptyFraming(t *testing.T) {
 	}
 	if n := len(fake.written()); n != 0 {
 		t.Fatalf("no comment for an empty framing, got %d writes", n)
+	}
+}
+
+func TestBulkFramingAskedTwiceCreatesOneComment(t *testing.T) {
+	database, proj, fake := pendingFramingProject(t)
+	gate := make(chan struct{})
+	fake.mu.Lock()
+	fake.gate = gate
+	fake.mu.Unlock()
+	var wg sync.WaitGroup
+	for range 2 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			steps := []string{}
+			database.PushFramingCopies(as("ada"), proj.ID, []string{"PE-1"}, &steps)
+		}()
+	}
+	// Both batches are under way before the first write answers.
+	time.Sleep(100 * time.Millisecond)
+	close(gate)
+	wg.Wait()
+	writes := fake.written()
+	if len(writes) != 1 || writes[0].CommentID != "" {
+		t.Fatalf("one comment created for PE-1, got %d writes: %+v", len(writes), writes)
 	}
 }

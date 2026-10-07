@@ -1772,9 +1772,15 @@ export const RoadmapView: React.FC = () => {
               disabled={isPublishingFramings}
               onClick={async () => {
                 setIsPublishingFramings(true)
-                await publishPendingFramings(currentProject.id)
-                const pending = await pendingFramingCopies(currentProject.id)
-                setPendingFramings(pending.length)
+                // The copies are written by the queued activity, not yet: read
+                // now, the list would be unchanged and invite a second batch.
+                // It is read again when the activity ends.
+                if (await publishPendingFramings(currentProject.id)) {
+                  setPendingFramings(0)
+                } else {
+                  const pending = await pendingFramingCopies(currentProject.id)
+                  setPendingFramings(pending.length)
+                }
                 setIsPublishingFramings(false)
               }}
               className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-semibold cursor-pointer border disabled:opacity-60"
