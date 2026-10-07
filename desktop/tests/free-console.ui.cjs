@@ -66,7 +66,7 @@ test('free consoles launch without prompts, reconnect and stop independently',as
   await page.waitForFunction(()=>document.querySelector('#run-state').textContent.includes('Cancelled'))
   await page.waitForFunction(()=>document.querySelector('#skill-result').hidden)
   assert.ok(attachments>before);assert.equal(runs[0].status,'canceled');assert.equal(runs[1].status,'running')
-  await page.getByRole('button',{name:'Relaunch',exact:true}).click()
+  await page.getByRole('button',{name:'Launch',exact:true}).click()
   await page.waitForFunction(()=>document.querySelector('[aria-label="Console agent"]').value==='e-codex')
   await page.getByRole('button',{name:'Open console',exact:true}).click()
   await page.waitForFunction(()=>document.querySelectorAll('.local-task').length===3)

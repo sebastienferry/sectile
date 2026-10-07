@@ -22,6 +22,15 @@ export function taskEngine(view,taskId){
  return byId(view?.tasks?.[taskId])||byId(view?.projectDefault)||list[0]||null
 }
 
+// launchEngineChange is the engine the Launch dialog stores for a task before
+// launching it (#786): none when the choice is the engine the task already
+// runs, or no catalogue engine.
+export function launchEngineChange(view,taskId,chosenId){
+ const list=view?.catalogue||[]
+ if(!list.some(engine=>engine.id===chosenId))return null
+ return chosenId===taskEngine(view,taskId)?.id?null:chosenId
+}
+
 // The letters drawn in a provider's icon. No third-party logo is used.
 const MARKS={claude:'Cl',codex:'Cx',agy:'Ag',custom:'{}'}
 export function engineMark(provider){

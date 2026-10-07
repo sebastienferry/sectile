@@ -258,7 +258,7 @@ is watching.
 | Web task card `...` menu | *Advance interactively* / *Advance autonomously*, next to the plain *Advance*, in both board display modes |
 | Web task detail modal | A **Mode** selector next to the additional-instructions field |
 | Desktop **Launch** dialog | An **Execution mode** selector per task |
-| Desktop **Relaunch** dialog | An **Execution mode** selector |
+| Desktop toolbar and ticket row **Launch** dialog | An **Execution mode** selector |
 | Desktop next-step button | None: one click, on the resolved mode |
 
 A control left on its default sends no override at all, so the precedence

@@ -3,12 +3,12 @@ const assert=require('node:assert/strict')
 const {_electron:electron,expect}=require('@playwright/test')
 const http=require('node:http'),fs=require('node:fs'),os=require('node:os'),path=require('node:path')
 
-// The tickets pane's custom-instructions form and the relaunch dialog carry a
+// The tickets pane's custom-instructions form and the Launch dialog carry a
 // one-off execution mode; the row's Run button and the footer next-step button
 // do not. What matters on the wire is that an untouched control sends no
 // override at all, so a launch nobody made a choice for behaves exactly as it
 // did before the setting existed.
-test('the custom-instructions form and the relaunch dialog carry a one-off execution mode',async()=>{
+test('the custom-instructions form and the Launch dialog carry a one-off execution mode',async()=>{
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'sectile-skill-mode-'))
  const launches=[]
  const runs=[{
@@ -76,14 +76,14 @@ test('the custom-instructions form and the relaunch dialog carry a one-off execu
   await expect.poll(()=>launches.length).toBe(3)
   assert.deepEqual(launches[2],{project:'project-a',taskID:'task-a',skillID:'custom',prompt:'Do it headless',mode:'autonomous'})
 
-  // The relaunch dialog offers the same choice, on the same per-launch terms.
+  // The Launch dialog offers the same choice, on the same per-launch terms.
   await page.getByRole('button',{name:'Close tickets',exact:true}).click()
   await page.getByText('#7',{exact:false}).first().click()
-  await page.getByRole('button',{name:'Relaunch',exact:true}).first().click()
-  const relaunchMode=page.getByRole('combobox',{name:'Relaunch execution mode',exact:true})
-  await expect(relaunchMode).toHaveValue('')
-  await relaunchMode.selectOption('interactive')
-  await page.getByRole('button',{name:'Launch new execution',exact:true}).click()
+  await page.getByRole('button',{name:'Launch',exact:true}).first().click()
+  const launchMode=page.getByRole('combobox',{name:'Launch execution mode',exact:true})
+  await expect(launchMode).toHaveValue('')
+  await launchMode.selectOption('interactive')
+  await page.locator('#project-dialog').getByRole('button',{name:'Launch',exact:true}).click()
   await expect.poll(()=>launches.length).toBe(4)
   assert.equal(launches[3].mode,'interactive')
  }finally{
