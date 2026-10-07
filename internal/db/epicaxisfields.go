@@ -309,7 +309,11 @@ func (d *DB) pushEpicAxisField(ctx context.Context, projectID string, macroKey s
 	if err != nil || proj == nil || proj.IssueTracker != "jira" {
 		return "", nil
 	}
-	field := proj.EpicAxisFields.Field(axis)
+	// The field is written on the epic's own tracker, as its label is, and
+	// the project's mapping only applies to its default tracker (#741).
+	key := strings.TrimSpace(macroKey)
+	trk := d.epicTrackerUnsafe(proj, key)
+	field := d.epicAxisFieldsForUnsafe(proj, trk).Field(axis)
 	if field == nil {
 		return "", nil
 	}
@@ -317,12 +321,10 @@ func (d *DB) pushEpicAxisField(ctx context.Context, projectID string, macroKey s
 	if err != nil {
 		return "", err
 	}
-	trk := d.trackerOfProjectUnsafe(proj)
 	manager, ok := ts.(tracker.EpicAxisFieldManager)
 	if !ok {
 		return "", nil
 	}
-	key := strings.TrimSpace(macroKey)
 	name := field.Name
 	if name == "" {
 		name = field.ID
