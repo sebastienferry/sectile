@@ -15,6 +15,8 @@ test fixtures or internal plumbing.
 
 ### Added
 
+- **Configure MCP under Deployment.** Desktop moves MCP configuration out of Execution defaults and places it alongside skill installation in Deployment.
+
 - **Map workflow steps to custom commands.** Execution defaults shows each step alongside its standard command and an optional replacement, instead of an editable list of skill IDs.
 
 - **Initialize projects with the default AI engine.** Desktop removes the separate Initialization provider setting; initialization without an explicit provider follows the workstation default engine, including on workstations with an older saved initialization choice. Upgrade the local agent together with Desktop.

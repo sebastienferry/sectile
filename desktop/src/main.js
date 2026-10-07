@@ -324,7 +324,7 @@ function ready(){
  if(!document.querySelector('#connection a'))connectionStatus({text:'Local agent connected'})
  if(!opened){terminal.open(document.querySelector('#terminal'));opened=true;resize()}
  // A Claude Code entry with a key this workstation does not use is reported once per launch (#716).
- if(!claudeChecked){claudeChecked=true;api.mcpConfig('claude').then(info=>{if(info?.needsRepair)error("Claude Code's sectile MCP entry uses a key this workstation does not use. Open Settings → Execution defaults → MCP configuration to repair it.")}).catch(()=>{claudeChecked=false})}
+ if(!claudeChecked){claudeChecked=true;api.mcpConfig('claude').then(info=>{if(info?.needsRepair)error("Claude Code's sectile MCP entry uses a key this workstation does not use. Open Settings → Deployment → MCP configuration to repair it.")}).catch(()=>{claudeChecked=false})}
 }
 function select(run,background=false,options){
  if(hiddenProject(run.projectId))return
@@ -1565,7 +1565,7 @@ function executionDefaultsPanel(panel,modelPanels){
  const stated={}
  const changed=()=>{notice.textContent='';notice.dataset.tone=''}
 
- // The MCP configuration below is per provider: this picks which one.
+ // Deployment configures MCP per provider: this selects its target CLI.
  const providerSelect=document.createElement('select');providerSelect.className='provider-select';providerSelect.setAttribute('aria-label','MCP provider')
  providerOptions(providerSelect)
 
@@ -1877,7 +1877,7 @@ function workstationSandboxPanel(panel){
  }
  return {load}
 }
-function deploymentPanel(panel){
+function deploymentPanel(panel,mcpSection){
  const globalTitle=document.createElement('h3');globalTitle.textContent='Global AI engine setup'
  const globalHint=document.createElement('p');globalHint.textContent='Install Sectile’s skills and register its MCP server in your user configuration for the selected engine’s provider, each on its own. Engines sharing a provider share this installation. This setup is optional: for Claude, installing the sectile plugin does both, and a dispatch never installs anything.'
  const engine=document.createElement('select');engine.setAttribute('aria-label','Setup AI engine')
@@ -1939,6 +1939,7 @@ function deploymentPanel(panel){
   }catch(err){if(panel.isConnected)mcpResult.textContent='Registration failed: '+ipcMessage(err)}
   finally{enable()}
  }
+ if(mcpSection)panel.append(mcpSection)
  const localTitle=document.createElement('h3');localTitle.textContent='Local project SDD setup'
  const localHint=document.createElement('p');localHint.textContent='Install the project’s SDD framework in its local repository. This does not install global engine skills or MCP.'
  panel.append(localTitle,localHint)
@@ -2071,7 +2072,7 @@ function openSettings(initial='Profile',project){
  api.appearance().then(value=>{if(configurationActive()&&generation===configurationGeneration)markAppearance(value)}).catch(()=>{})
 
  // Execution defaults: the workstation level of every execution setting,
- // owned by the local agent. The MCP connection choice follows its provider.
+ // owned by the local agent. Deployment contains the MCP configuration.
  const engines=enginesSection()
  engines.section.querySelector('h3').remove()
  panels.Engines.append(engines.section)
@@ -2098,8 +2099,7 @@ function openSettings(initial='Profile',project){
  workstationSandbox.load().catch(()=>{})
  const mcpPanel=mcpSettings(api,execution.providerSelect)
  mcpPanel.section.insertBefore(settingRow('Provider',null,execution.providerSelect).section,mcpPanel.section.children[1])
- panels.AgentCli.append(mcpPanel.section)
- deploymentPanel(panels.Deployment)
+ deploymentPanel(panels.Deployment,mcpPanel.section)
 
  const agentState=readOnlyRow('Local agent','The agent process this desktop talks to.')
  const agentActions=document.createElement('span');agentActions.className='settings-agent-actions'

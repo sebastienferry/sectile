@@ -188,7 +188,7 @@ project scope. Subsequent launches reconnect to the application's existing agent
 
 ### MCP connections
 
-Open **Settings → Execution defaults**, pick the provider in **MCP configuration**, then use it.
+Open **Settings → Deployment**, pick the provider in **MCP configuration**, then use it.
 Choose **Remote HTTP** (default), **Local HTTP proxy**, or **STDIO**. Remote
 HTTP uses the pairing key without requiring a running agent. Local HTTP calls
 the running no-auth proxy directly. STDIO starts a bridge to the remote server
