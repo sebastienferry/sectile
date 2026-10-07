@@ -462,13 +462,24 @@ ipcMain.handle('launch-console',(_,projectId,provider,engineId,view)=>api('/desk
 ipcMain.handle('launch-server-task',(_,id,taskID,skillID,prompt,mode,force,view)=>api('/desktop/tasks?projectId='+encodeURIComponent(id),'POST',Object.assign({taskID,skillID,prompt},mode?{mode}:null,force?{force:true}:null,view==='conversation'?{view}:null)))
 ipcMain.handle('launch-native-discussion',async(_,{projectId,taskId,terminal}={})=>api('/desktop/tasks/terminal-external','POST',{projectId,taskId,skillId:'discuss',terminal}))
 ipcMain.handle('detach-to-native-terminal',async(_,{runId,terminal}={})=>api('/desktop/terminal/detach','POST',{runId,terminal}))
-// Opening a worktree in the editor (#535) names the run, never a path: the
-// agent resolves the folder itself. An older agent has no such route.
-ipcMain.handle('open-editor',async(_,runId)=>{
+// A folder selected among a run's folders (#784) is sent as the run lists it;
+// the agent accepts it only when the run does list it. None means the run's
+// own checkout, which every agent serves.
+function selectedFolder(folder,status){
+ if(folder===undefined||folder===null||folder==='')return null
+ if(typeof folder!=='string'||folder.length>4096)throw Error('Select a folder of this execution.')
+ if(!status.capabilities?.includes('folder-selection'))throw Error('Update and restart the local agent to use another folder of this execution.')
+ return folder
+}
+// Opening a worktree in the editor (#535) names the run, and at most one of
+// its listed folders (#784): the agent resolves the path itself. An older
+// agent has no such route.
+ipcMain.handle('open-editor',async(_,runId,folder)=>{
  if(typeof runId!=='string'||!runId)throw Error('Run ID required')
  const status=await api('/desktop/status')
  if(!status.capabilities?.includes('open-editor'))throw Error('Update and restart the local agent to open the editor.')
- return api('/desktop/open-editor','POST',{runId})
+ const chosen=selectedFolder(folder,status)
+ return api('/desktop/open-editor','POST',chosen?{runId,folder:chosen}:{runId})
 })
 ipcMain.handle('open-board',async()=>{
  const status=await api('/desktop/status')
@@ -569,13 +580,14 @@ ipcMain.handle('git-init',async(_,folder)=>{
  return api('/desktop/git-init','POST',{path:folder})
 })
 ipcMain.handle('clear-history',()=>api('/desktop/history','DELETE'))
-ipcMain.handle('git-diff',async(_,id)=>{
+ipcMain.handle('git-diff',async(_,id,folder)=>{
  if(typeof id!=='string'||!id||id.length>512)throw Error('Select an execution to inspect changes.')
  const status=await api('/desktop/status')
  if(!status.capabilities?.includes('git-diff'))throw Error('Update and restart the local agent to inspect changes.')
+ const chosen=selectedFolder(folder,status)
  // markdownDocuments tells the renderer whether this agent sends Markdown contents (#575),
  // markdownImages whether it sends the repository images they reference (#683).
- try{return {...await api('/desktop/git-diff?id='+encodeURIComponent(id)),markdownDocuments:!!status.capabilities.includes('markdown-documents'),markdownImages:!!status.capabilities.includes('markdown-images')}}
+ try{return {...await api('/desktop/git-diff?id='+encodeURIComponent(id)+(chosen?'&folder='+encodeURIComponent(chosen):'')),markdownDocuments:!!status.capabilities.includes('markdown-documents'),markdownImages:!!status.capabilities.includes('markdown-images')}}
  catch(err){
   let detail
   try{detail=JSON.parse(err.body||err.message)}catch{throw err}

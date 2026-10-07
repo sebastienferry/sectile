@@ -3,6 +3,7 @@ package runner
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -771,5 +772,60 @@ func TestWorktreeDiffMarkdownImagePaths(t *testing.T) {
 	}
 	if string(r.Images["new:a*.png"].Data) != pngTest+"glob" || string(r.Images["new:new/shot.png"].Data) != pngTest+"new" {
 		t.Fatalf("images: %+v", r.Images)
+	}
+}
+
+// A folder of a run other than its checkout is compared with its own default
+// branch, on the branch it is on (#784).
+func TestInspectFolderOwnBranchAndRepository(t *testing.T) {
+	dir := diffFixture(t)
+	diffGitTest(t, dir, "checkout", "main")
+	writeDiffTest(t, dir, "file.txt", "local edit\n")
+	r, e := InspectFolder(context.Background(), dir)
+	if e != nil {
+		t.Fatal(e)
+	}
+	if r.Branch != "main" || r.FilesChanged != 1 || r.Files[0].Path != "file.txt" {
+		t.Fatalf("context checkout: %+v", r)
+	}
+	diffGitTest(t, dir, "checkout", "--", "file.txt")
+	wt := filepath.Join(t.TempDir(), "other")
+	diffGitTest(t, dir, "worktree", "add", "-b", "feat/other", wt)
+	writeDiffTest(t, wt, "added.txt", "new\n")
+	r, e = InspectFolder(context.Background(), wt)
+	if e != nil {
+		t.Fatal(e)
+	}
+	if r.Branch != "feat/other" || r.FilesChanged != 1 || r.Directory != wt {
+		t.Fatalf("linked worktree: %+v", r)
+	}
+}
+
+func TestInspectFolderRefusals(t *testing.T) {
+	code := func(dir string) string {
+		t.Helper()
+		_, e := InspectFolder(context.Background(), dir)
+		var de *DiffError
+		if !errors.As(e, &de) {
+			t.Fatalf("%s: %v", dir, e)
+		}
+		return de.Code
+	}
+	if c := code(filepath.Join(t.TempDir(), "gone")); c != "folder_unavailable" {
+		t.Fatalf("missing folder: %s", c)
+	}
+	if c := code(t.TempDir()); c != "not_a_repository" {
+		t.Fatalf("plain folder: %s", c)
+	}
+	dir := diffFixture(t)
+	if e := os.Mkdir(filepath.Join(dir, "sub"), 0755); e != nil {
+		t.Fatal(e)
+	}
+	if c := code(filepath.Join(dir, "sub")); c != "not_repository_root" {
+		t.Fatalf("sub-folder: %s", c)
+	}
+	diffGitTest(t, dir, "checkout", "--detach")
+	if c := code(dir); c != "detached_head" {
+		t.Fatalf("detached HEAD: %s", c)
 	}
 }

@@ -866,7 +866,17 @@ An execution that works in several folders shows a chevron after its path. It
 opens the list of those folders: the primary worktree first, then the worktrees
 of the other repositories it changes, the read-only context repositories, the
 attached folders and the specifications worktree, each with its role and path.
-Choosing one copies its path, confirmed by the same **Copied**. The list is the
+Choosing one selects it: the path then shows that folder, a click on it copies
+that folder's path, **Open in <editor>** opens it, and **Changes** inspects it.
+The selected folder is checked in the list. The primary worktree is selected
+by default; the choice is kept per execution until Desktop restarts, and goes
+back to the primary worktree when its folder leaves the list. A folder other
+than the primary worktree is compared with its own default branch on the
+branch it is on, so a context checkout shows its local changes; a folder that
+is not a Git repository stays selectable and **Changes** says why it cannot be
+read. With an agent that predates the selection, choosing a folder copies its
+path instead, and the editor and **Changes** keep using the primary worktree.
+The list is the
 one the local agent gave the engine at launch, plus the worktrees prepared and
 the folders attached while the execution runs; a folder with no path on this
 workstation is not listed. An execution with a single folder, and every
@@ -874,8 +884,8 @@ execution of an agent that does not send the list, shows the path alone.
 
 When an editor is chosen in **Settings → Execution defaults**, a code icon
 follows the path: **Open in <editor>** opens the execution's checkout in that
-editor. The desktop only names the execution; the local agent looks up its
-folder and refuses, with its reason, when the folder is gone or no editor is
+editor, or the folder selected after the path. The desktop only names the
+execution and that folder; the local agent looks up its folders and refuses, with its reason, when the folder is gone or no editor is
 set. Without a chosen editor, or with an agent that predates the button, the
 path stands alone.
 
