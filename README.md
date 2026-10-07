@@ -215,9 +215,8 @@ configuration, read the [Desktop guide](./desktop/README.md).
 
 Desktop also offers an experimental conversation view for Claude Code and
 Codex, turned on by **Settings → General → AI consoles → Conversation**.
-Interactive ticket launches and project prompts open there; **Claude chat (test)**
-or **Codex chat (test)** starts an independent session in the selected execution's
-directory. Codex uses its installed CLI and existing sign-in. See the
+Interactive ticket launches and project prompts open there. Codex uses its
+installed CLI and existing sign-in. See the
 [prototype notes](./docs/experiments/desktop-conversation.md) for its limits.
 
 ## Testing

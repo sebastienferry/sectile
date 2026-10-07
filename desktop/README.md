@@ -5,8 +5,7 @@ Local task execution consoles, with an experimental Claude Code and Codex conver
 ## Experimental conversations
 
 Turn it on with **Settings → General → AI consoles → Conversation**.
-A **Project prompt** with Claude or Codex then opens in this view instead of a terminal,
-and **Claude chat (test)** or **Codex chat (test)** appears for an execution with a local directory.
+A **Project prompt** with Claude or Codex then opens in this view instead of a terminal.
 A task's interactive launches open there too, a skill such as clarify starting
 on its own command and **Discussion (no skill)** waiting for your first message,
 in the task's worktree and with the task's environment, when the project's
@@ -54,7 +53,7 @@ The mode a new Claude conversation starts in is set in
 **Settings → Claude settings → Conversation permission mode** (Accept edits unless
 you change it). It applies to the first message of every new conversation: the
 command of a skill or a project prompt launched in the conversation view, which
-runs before you could pick anything, and the first message of a Claude chat.
+runs before you could pick anything.
 The composer starts on it and still changes the mode from the next message. The
 setting is enabled only while **Claude consoles** is **Conversation**, and is
 handed to the local agent, which keeps it for launches the web app starts; an
