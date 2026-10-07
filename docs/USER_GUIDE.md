@@ -106,7 +106,7 @@ The [Desktop guide](../desktop/README.md#user-configuration-and-commands) covers
 
 ## Use the Desktop conversation view
 
-Choose **Settings → Appearance → AI consoles → Conversation** to open Claude
+Choose **Settings → General → AI consoles → Conversation** to open Claude
 or Codex interactive ticket launches and project prompts in a chat view. The
 provider CLI must already be installed and signed in. Replies stream, tools
 appear as cards, and approvals or questions wait for your answer in those
@@ -169,3 +169,7 @@ Codex conversations use **Settings → Codex settings → Approval reviewer** to
 choose **Ask me** or **Approve on my behalf**, applying from the next message
 with the sandbox still active. Claude’s initial **Conversation permission mode**
 is configured in **Settings → Claude settings**.
+
+Desktop **General** settings combine user profile information and appearance.
+Use **Search settings** to find fields across the loaded settings categories.
+The settings content fills the available width and adapts to window resizing.

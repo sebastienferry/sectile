@@ -72,14 +72,14 @@ test('the conversation permission mode is chosen in Claude settings and handed t
   await expect(page.locator('[data-tone="error"]')).toHaveCount(0)
   refuse=false
   // The terminal view opens no conversation: the setting is disabled and says why.
-  await page.getByRole('tab',{name:'Appearance',exact:true}).click()
-  await expect(page.getByRole('tabpanel',{name:'Appearance',exact:true})).not.toContainText('Conversation permission mode')
+  await page.getByRole('tab',{name:'General',exact:true}).first().click()
+  await expect(page.getByRole('tabpanel',{name:'General',exact:true}).first()).not.toContainText('Conversation permission mode')
   const views=page.getByRole('group',{name:'AI consoles'})
   await views.getByRole('button',{name:'Terminal',exact:true}).click()
   await page.getByRole('tab',{name:'Claude settings',exact:true}).first().click()
   await expect(select).toBeDisabled()
-  await expect(row).toContainText('choose Conversation in Appearance')
-  await page.getByRole('tab',{name:'Appearance',exact:true}).click()
+  await expect(row).toContainText('choose Conversation in General')
+  await page.getByRole('tab',{name:'General',exact:true}).first().click()
   await views.getByRole('button',{name:'Conversation',exact:true}).click()
   await page.getByRole('tab',{name:'Claude settings',exact:true}).first().click()
   await expect(select).toBeEnabled()

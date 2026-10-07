@@ -1,3 +1,4 @@
+import { installSettingsSearch } from './settings-search.mjs'
 import { pullRequestPresentation, renderPullRequestIndicator, repositoryPullRequests } from './pullRequests.mjs'
 import { installTooltips } from './tooltips.js'
 import {mcpSettings} from './mcp-settings.mjs'
@@ -1117,6 +1118,7 @@ function showDialog(title){
 // the page shell alone owns entering, leaving and restoring the workspace.
 function showConfiguration(title){
  if(configurationPage){
+  configurationPage.searchCleanup?.()
   configurationGeneration++
   updateSettingsConnection=null
   returnConnectForm()
@@ -1147,7 +1149,7 @@ function showConfiguration(title){
 function closeConfiguration(){
  if(!configurationPage)return
  configurationGeneration++
- const page=configurationPage;configurationPage=null
+ const page=configurationPage;page.searchCleanup?.();configurationPage=null
  updateSettingsConnection=null
  returnConnectForm()
  dialog.append(dialogBody,dialogFooter)
@@ -1773,8 +1775,7 @@ function executionDefaultsPanel(panel){
 // a project's: one dialog, a category per surface. The header carried three
 // unrelated controls for these; the sidebar now carries one.
 const SETTINGS_CATEGORIES=[
- {id:'Profile',label:'User profile',icon:'<circle cx="12" cy="8" r="4"/><path d="M4 21v-2a8 8 0 0 1 16 0v2"/>'},
- {id:'Appearance',label:'Appearance',icon:'<circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 0 0 18Z" fill="currentColor"/>'},
+ {id:'Profile',label:'General',icon:'<circle cx="12" cy="8" r="4"/><path d="M4 21v-2a8 8 0 0 1 16 0v2"/>'},
  {id:'Connection',label:'Agent connection',icon:'<path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="3"/><circle cx="15" cy="17" r="3"/>'},
  {id:'AgentCli',label:'Execution defaults',icon:'<rect x="3" y="4" width="18" height="16" rx="2"/><path d="m7 9 3 3-3 3M12 15h5"/>'},
  {id:'Engines',label:'AI engines',icon:'<rect x="4" y="8" width="16" height="11" rx="3"/><path d="M12 4v4M9 13h.01M15 13h.01"/>'},
@@ -1971,6 +1972,7 @@ function deploymentPanel(panel){
  panel.append(actions,notice,results)
 }
 function openSettings(initial='Profile',project){
+ if(initial==='Appearance')initial='Profile'
  showConfiguration('Configuration')
  const generation=configurationGeneration
  const layout=document.createElement('div');layout.className='settings-layout workstation-settings'
@@ -2034,7 +2036,7 @@ function openSettings(initial='Profile',project){
  }
  const appearance=settingRow('Theme',null,appearanceGroup)
  appearance.hint.textContent='System follows the appearance of this computer. The web interface keeps its own theme.'
- panels.Appearance.append(appearance.section)
+ panels.Profile.append(appearance.section)
  const viewGroup=document.createElement('div');viewGroup.className='segmented'
  viewGroup.setAttribute('role','group');viewGroup.setAttribute('aria-label','AI consoles')
  const markView=value=>{for(const button of viewGroup.children)button.setAttribute('aria-pressed',String(button.dataset.value===value))}
@@ -2045,7 +2047,7 @@ function openSettings(initial='Profile',project){
  }
  const view=settingRow('AI consoles',null,viewGroup)
  view.hint.textContent='Conversation opens Claude and Codex interactive launches in a structured view (experimental). Other engines keep the terminal.'
- panels.Appearance.append(view.section)
+ panels.Profile.append(view.section)
  // Claude settings holds the initial conversation permission mode. It applies
  // only in the conversation view, and only to
  // an agent that applies it, so it is disabled otherwise and says why.
@@ -2058,7 +2060,7 @@ function openSettings(initial='Profile',project){
  const showConversationMode=()=>{
   modeSelect.disabled=!conversationModeSupported||consoleView!=='conversation'
   conversationMode.hint.textContent=!conversationModeSupported?'Update and restart the local agent to choose the mode new conversations start in.'
-   :consoleView!=='conversation'?'Applies to Claude conversations: choose Conversation in Appearance to use it.'
+   :consoleView!=='conversation'?'Applies to Claude conversations: choose Conversation in General to use it.'
    :'What Claude may do without asking in the first message of every new conversation, including the skills and prompts you launch in it. The composer changes it from the next message.'
  }
  modeSelect.onchange=()=>api.setConversationMode(modeSelect.value).then(value=>{modeSelect.value=value}).catch(error)
@@ -2162,6 +2164,7 @@ function openSettings(initial='Profile',project){
 
  selectCategory(SETTINGS_CATEGORIES.some(category=>category.id===initial)?initial:'Profile')
  configurationNavigation(tabs)
+ configurationPage.searchCleanup=installSettingsSearch({tabs,content,panels,categories:SETTINGS_CATEGORIES,selectCategory})
  // The connection facts come from two sources the agent answers separately, and
  // a stopped agent still has a paired server to report: the stored settings fill
  // the panel first, the live status refines it when the agent answers.
@@ -2426,6 +2429,7 @@ async function openProject(id,initial='Remove'){
   }
   selectCategory(PROJECT_SETTINGS_CATEGORIES.some(category=>category.id===initial)?initial:'Remove')
   configurationNavigation(tabs,id)
+  configurationPage.searchCleanup=installSettingsSearch({tabs,content,panels,categories:PROJECT_SETTINGS_CATEGORIES,selectCategory})
   const path=document.createElement('input');path.value=info.path||'';path.required=true;path.placeholder='/path/to/repository';path.setAttribute('aria-label','Local repository')
   const browse=document.createElement('button');browse.type='button';browse.textContent='Choose folder…'
   browse.onclick=async()=>{try{const selected=await api.chooseRepository();if(selected){path.value=selected;pathOffer.examine()}}catch(err){error(err)}}

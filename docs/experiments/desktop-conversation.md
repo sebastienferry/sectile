@@ -1,7 +1,7 @@
 # Desktop conversations
 
 Desktop has a conversation view for Claude and Codex, off by default. **Settings →
-Appearance → AI consoles** switches between **Terminal** (the PTY,
+General → AI consoles** switches between **Terminal** (the PTY,
 unchanged) and **Conversation**, a workstation setting kept in the desktop's
 `settings.json` as `consoleView`.
 

@@ -30,9 +30,9 @@ test('changelog settings report both versions and the release notes',async()=>{
   const page=await app.firstWindow();page.setDefaultTimeout(7000)
 
   await page.locator('#settings').click()
-  await expect(page.getByRole('tab',{name:'User profile',exact:true})).toHaveAttribute('aria-selected','true')
-  await expect(page.getByRole('tab')).toHaveText(['User profile','Appearance','Agent connection','Execution defaults','AI engines','Claude settings','Deployment','Agent logs','Changelog'])
-  await expect(page.locator('#settings-panel-Profile .setting-name')).toHaveText(['Sectile server','Workstation','Profile and API keys'])
+  await expect(page.getByRole('tab',{name:'General',exact:true}).first()).toHaveAttribute('aria-selected','true')
+  await expect(page.getByRole('tab')).toHaveText(['General','Agent connection','Execution defaults','AI engines','Claude settings','Codex settings','Deployment','Agent logs','Changelog'])
+  await expect(page.locator('#settings-panel-Profile .setting-name')).toHaveText(['Sectile server','Workstation','Profile and API keys','Theme','AI consoles'])
   const bounds=await page.locator('.configuration-page').boundingBox()
   assert.ok(bounds.width>840,'Workstation settings use the full workspace')
   await page.screenshot({path:path.join(root,'settings-profile.png')})

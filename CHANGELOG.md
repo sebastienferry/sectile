@@ -15,6 +15,8 @@ test fixtures or internal plumbing.
 
 ### Added
 
+- **Find and resize Desktop settings.** A search field finds settings across the loaded categories. Profile and appearance preferences share the **General** category, and settings fill the available content width as the window resizes.
+
 - **Choose who reviews Codex conversation approvals.** Desktop **Codex settings** offers **Ask me** and **Approve on my behalf**; automatic review keeps the sandbox active and applies from the next message. The Claude **Conversation permission mode** setting now lives in **Claude settings**.
 
 - **Use Codex in the Desktop conversation view.** The **AI consoles** appearance setting now opens Codex interactive ticket launches and project prompts as conversations, with streamed replies, tool cards, approvals, questions, model and effort selection, and interruption. Codex keeps its session between messages and can resume after its process exits unexpectedly. Upgrade the agent along with Desktop.

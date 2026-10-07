@@ -128,7 +128,7 @@ test('desktop console reconnects, accepts input and stops the owned run',async()
   assert.equal(await parallel.inputValue(),'3')
   // Parallelism inherits the workstation default, which a reset brings back.
   assert.equal(await page.getByRole('button',{name:'Reset parallel executions to workstation default',exact:true}).count(),1)
-  await page.getByRole('tab',{name:'General',exact:true}).click()
+  await page.locator('#project-tab-Remove').click()
   // The project picks a default engine from the workstation catalogue (#510);
   // the engine itself, templates included, is edited in Settings.
   const engine=page.getByRole('combobox',{name:'Default engine',exact:true})
@@ -161,11 +161,11 @@ test('desktop console reconnects, accepts input and stops the owned run',async()
   assert.equal(await page.locator('.sidebar-scroll').isVisible(),true)
   assert.equal(await page.locator('.connection-label').isVisible(),true)
   await page.locator('#settings').click()
-  await page.getByRole('heading',{name:'User profile',exact:true}).waitFor()
-  // User profile opens first; release notes remain available in Changelog.
-  await expect(page.getByRole('tab',{name:'User profile',exact:true})).toHaveAttribute('aria-selected','true')
+  await page.locator('.configuration-panel-title').filter({hasText:'General'}).waitFor()
+  // General opens first; release notes remain available in Changelog.
+  await expect(page.getByRole('tab',{name:'General',exact:true}).first()).toHaveAttribute('aria-selected','true')
   await expect(page.locator('.settings-versions .version-value')).toHaveCount(2)
-  await page.getByRole('tab',{name:'User profile',exact:true}).click()
+  await page.getByRole('tab',{name:'General',exact:true}).first().click()
   await page.getByRole('button',{name:'Open the web interface',exact:true}).waitFor()
   await page.getByRole('button',{name:'Back',exact:true}).click()
   await page.waitForTimeout(300)

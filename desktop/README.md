@@ -4,7 +4,7 @@ Local task execution consoles, with an experimental Claude Code and Codex conver
 
 ## Experimental conversations
 
-Turn it on with **Settings → Appearance → AI consoles → Conversation**.
+Turn it on with **Settings → General → AI consoles → Conversation**.
 A **Project prompt** with Claude or Codex then opens in this view instead of a terminal,
 and **Claude chat (test)** or **Codex chat (test)** appears for an execution with a local directory.
 A task's interactive launches open there too, a skill such as clarify starting
@@ -243,11 +243,11 @@ If a terminal supervisor receives a hangup or termination signal, it stops and
 waits for its child process before reporting the execution outcome. A transient
 failure to deliver that report is retried.
 Reopening restores the connection. **Cmd+,** on macOS or **Ctrl+,** on Windows/Linux
-opens Configuration at User profile, even from an input or terminal. Pressing
+opens Configuration at General, even from an input or terminal. Pressing
 the shortcut within Configuration preserves the category and unsaved edits.
 
 The gear at the bottom of the project sidebar
-opens **Settings**, the workstation-wide panel: **User profile** (opened first), **Appearance**, **Agent connection**, **Execution defaults**, **AI engines**, **Deployment**,
+opens **Settings**, the workstation-wide panel: **General** (profile and appearance, opened first), **Agent connection**, **Execution defaults**, **AI engines**, **Deployment**,
 **Agent logs** and **Changelog** (installed versions and release notes, pinned
 to the bottom of the sidebar). The larger settings dialog adapts to the window. Stop and restart sit in that same footer, and
 the connection state leads it: a green dot reading **Connected**, an orange one
@@ -497,11 +497,11 @@ added to this workstation. Local worktree preferences are stored per project in
 `~/.config/sectile/settings.json`. The remote URL, the project's repositories,
 SDD selection and skill content remain server-owned and read-only. Explicit deployment buttons install
 the server skills or initialize its SDD framework in the mapped directory.
-**Settings → User profile** states what this workstation knows about the
+**Settings → General** states what this workstation knows about the
 account: the paired server and the workstation identifier. Display name,
 password and API keys stay server-owned;
 **Open the web interface** goes there.
-**Settings → Appearance** chooses the desktop's theme: **System** (the
+**Settings → General** chooses the desktop's theme: **System** (the
 default) follows the computer's light or dark appearance, **Dark** and
 **Light** force one. The choice applies at once to the whole window, the
 console included, and is kept as `appearance` in the workstation
@@ -687,8 +687,8 @@ arguments with, for example, `make start ARGS="--url http://localhost:8090"`; pr
 authentication through `TOKEN`.
 
 Workstation settings open from the gear at the bottom of the project sidebar and
-use the same side navigation: **User profile**, **Agent connection**, **Execution defaults**, **AI engines**, **Deployment**, **Agent logs** and
-**Changelog**, with **User profile** first. **Agent connection** reports the local
+use the same side navigation: **General**, **Agent connection**, **Execution defaults**, **AI engines**, **Deployment**, **Agent logs** and
+**Changelog**, with **General** first. **Agent connection** reports the local
 agent with Start, Stop, and Restart controls, the server link (green when connected, orange otherwise), and the connect form itself: the same form the
 connection screen shows, borrowed while the category is open and returned when
 the panel closes. **Sign in with your browser** pairs the workstation through
@@ -945,3 +945,10 @@ review can approve or deny eligible requests and does not disable the sandbox.
 The user’s native Codex configuration is left untouched.
 
 Claude’s initial **Conversation permission mode** is in **Settings → Claude settings**.
+
+### Finding settings
+
+**General** combines user profile information and appearance preferences.
+**Search settings** finds matching fields and descriptions across loaded workstation
+or project categories; clearing the search returns to the selected category.
+Settings use the available width and resize with the application window.
