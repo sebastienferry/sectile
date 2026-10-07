@@ -1557,7 +1557,7 @@ function enginesSection(){
 // setting, read from and written through the local agent (#305). The agent is
 // the only writer of these sections, so without it the panel says the settings
 // are unavailable rather than writing the file itself.
-function executionDefaultsPanel(panel){
+function executionDefaultsPanel(panel,modelPanels){
  const unavailable=document.createElement('p');unavailable.className='execution-unavailable';unavailable.setAttribute('role','status');unavailable.hidden=true
  const body=document.createElement('div');body.className='execution-defaults';body.hidden=true
  let view=null
@@ -1571,9 +1571,11 @@ function executionDefaultsPanel(panel){
 
  // The models a launch may pick, per provider. A provider without a list of
  // its own offers the one Sectile ships; editing it creates the list.
- const listsBox=document.createElement('div');listsBox.className='provider-model-lists'
  const listInputs={}
- const listsRow=settingRow('Models offered per provider',{stacked:true},listsBox)
+ const modelHosts={}
+ for(const [id,target] of Object.entries(modelPanels)){
+  const host=document.createElement('div');host.className='provider-model-lists';target.append(host);modelHosts[id]=host
+ }
 
  const terminal=terminalPicker(()=>{changed();render()})
  const terminalRow=settingRow('Terminal emulator',{resetLabel:'Reset terminal emulator to default',onReset:()=>{terminal.set('');render()}},terminal.select,terminal.custom)
@@ -1664,7 +1666,7 @@ function executionDefaultsPanel(panel){
  const save=document.createElement('button');save.type='button';save.className='dialog-action primary';save.textContent='Save execution defaults'
  const actions=document.createElement('div');actions.className='deployment-actions';actions.style.marginTop='16px'
  actions.append(save,notice)
- body.append(listsRow.section,terminalRow.section,editorRow.section,worktreeRow.section,parallelRow.section,setupRow.section,initializationRow.section,commandsRow.section,customRow.section,sourceRow.section,actions)
+ body.append(terminalRow.section,editorRow.section,worktreeRow.section,parallelRow.section,setupRow.section,initializationRow.section,commandsRow.section,customRow.section,sourceRow.section,actions)
 
  function hint(row,set,defaultText,setText){row.hint.textContent=set?(setText||'Workstation default'):'Default · '+defaultText}
  function render(){
@@ -1713,31 +1715,46 @@ function executionDefaultsPanel(panel){
   renderCustomSkillsUsed(Array.isArray(view.customSkillsUsed)?view.customSkillsUsed:[])
   renderCustomSkillSignal(view.customSkillsUsed)
   renderSetupChoices(view.setupProviders?.length?view.setupProviders:SETUP_PROVIDERS)
-  listsBox.replaceChildren()
+  for(const host of Object.values(modelHosts))host.replaceChildren()
   for(const key of Object.keys(listInputs))delete listInputs[key]
-  const providers=[...new Set([...Object.keys(view.providerModels||{}),...Object.keys(defaults.aiProviderModels||{})])].sort()
+  const providers=[...new Set([...Object.keys(modelPanels),...Object.keys(view.providerModels||{}),...Object.keys(defaults.aiProviderModels||{})])].sort()
   for(const id of providers){
+   if(!modelHosts[id])continue
    const input=document.createElement('input');input.type='text';input.className='model-input';input.setAttribute('aria-label','Models offered for '+id)
    const own=defaults.aiProviderModels&&Object.prototype.hasOwnProperty.call(defaults.aiProviderModels,id)
    stated['models:'+id]=!!own
    input.value=own?(defaults.aiProviderModels[id]||[]).join(', '):''
    input.oninput=()=>{stated['models:'+id]=true;changed();render()}
-   const row=settingRow(id,{resetLabel:'Reset '+id+' models to the shipped list',onReset:()=>{stated['models:'+id]=false;render()}},input)
-   listInputs[id]={input,row};listsBox.append(row.section)
+   const row=settingRow('Models offered',{resetLabel:'Reset '+id+' models to the shipped list',onReset:()=>{stated['models:'+id]=false;render()}},input)
+   listInputs[id]={input,row}
+   const modelNotice=document.createElement('p');modelNotice.setAttribute('role','status')
+   const modelSave=document.createElement('button');modelSave.type='button';modelSave.className='dialog-action primary';modelSave.textContent='Save models'
+   modelSave.onclick=async()=>{
+    const models=parseModelList(input.value),custom=stated['models:'+id]
+    if(custom&&models.some(model=>!validateModel(model))){modelNotice.textContent='Invalid model in the list of '+id;return}
+    modelSave.disabled=true;modelNotice.textContent='Saving…'
+    try{
+     const latest=await api.workstationSettings()
+     const defaults={...latest.defaults,aiProviderModels:{...latest.defaults?.aiProviderModels}}
+     if(custom)defaults.aiProviderModels[id]=models
+     else delete defaults.aiProviderModels[id]
+     await api.saveWorkstationSettings(defaults)
+     view.defaults.aiProviderModels=defaults.aiProviderModels
+     modelNotice.textContent='Models saved'
+    }catch(err){modelNotice.textContent='Not saved: '+ipcMessage(err)}
+    finally{modelSave.disabled=false}
+   }
+   modelHosts[id].append(row.section,modelSave,modelNotice)
   }
   render()
  }
  function state(){
-  const lists={}
-  for(const [id,entry] of Object.entries(listInputs))if(stated['models:'+id])lists[id]=parseModelList(entry.input.value)
   return {
-   terminal:terminal.get(),editorCommand:editor.get(),useWorktrees,parallelism,setupProviders,aiProviderModels:lists,customSkillsWin,installedSkillSource,...(view.globalConfiguration?{skillCommands:compact(globalCommands.get()),initializationProvider:initializationProvider.value}:{})
+   terminal:terminal.get(),editorCommand:editor.get(),useWorktrees,parallelism,setupProviders,customSkillsWin,installedSkillSource,...(view.globalConfiguration?{skillCommands:compact(globalCommands.get()),initializationProvider:initializationProvider.value}:{})
   }
  }
  save.onclick=async()=>{
   if(globalCommands.invalid()){notice.textContent='A skill command name is a single word, optionally led by / and by a plugin name such as sectile:.';notice.dataset.tone='error';return}
-  const invalidList=Object.entries(listInputs).find(([id,entry])=>stated['models:'+id]&&parseModelList(entry.input.value).some(model=>!validateModel(model)))
-  if(invalidList){notice.textContent='Invalid model in the list of '+invalidList[0];notice.dataset.tone='error';return}
   save.disabled=true;notice.textContent='Saving…';notice.dataset.tone=''
   try{
    const current=state(),saved=JSON.stringify(current)
@@ -1780,6 +1797,7 @@ const SETTINGS_CATEGORIES=[
  {id:'Connection',label:'Agent connection',icon:'<path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="3"/><circle cx="15" cy="17" r="3"/>'},
  {id:'AgentCli',label:'Execution defaults',icon:'<rect x="3" y="4" width="18" height="16" rx="2"/><path d="m7 9 3 3-3 3M12 15h5"/>'},
  {id:'Engines',label:'AI engines',icon:'<rect x="4" y="8" width="16" height="11" rx="3"/><path d="M12 4v4M9 13h.01M15 13h.01"/>'},
+ {id:'Antigravity',label:'Antigravity settings',icon:'<path d="m3 20 9-16 9 16M7 14h10"/>'},
  {id:'Sandbox',label:'Claude settings',icon:'<path fill="currentColor" stroke="none" fill-rule="evenodd" d="'+CLAUDE_MARK_PATH+'"/>'},
  {id:'Codex',label:'Codex settings',icon:'<path fill="currentColor" stroke="none" fill-rule="evenodd" d="'+OPENAI_MARK_PATH+'"/>'},
  {id:'Deployment',label:'Deployment',icon:'<path d="M12 20V7m0 0 4 4m-4-4-4 4"/><path d="M5 4h14"/>'},
@@ -2078,7 +2096,7 @@ function openSettings(initial='Profile',project){
 
  // Execution defaults: the workstation level of every execution setting,
  // owned by the local agent. The MCP connection choice follows its provider.
- const execution=executionDefaultsPanel(panels.AgentCli)
+ const execution=executionDefaultsPanel(panels.AgentCli,{agy:panels.Antigravity,claude:panels.Sandbox,codex:panels.Codex})
  const engines=enginesSection()
  engines.section.querySelector('h3').remove()
  panels.Engines.append(engines.section)

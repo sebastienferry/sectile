@@ -173,3 +173,7 @@ is configured in **Settings → Claude settings**.
 Desktop **General** settings combine user profile information and appearance.
 Use **Search settings** to find fields across the loaded settings categories.
 The settings content fills the available width and adapts to window resizing.
+
+### Provider model lists
+
+Configure the models offered at launch under **Settings → Antigravity settings**, **Claude settings**, or **Codex settings**. Each provider has its own **Models offered** field and **Save models** button. Reset restores the shipped list; saving an empty custom list offers no models. Execution defaults save separately and preserve these choices. Upgrade the local agent together with Desktop.

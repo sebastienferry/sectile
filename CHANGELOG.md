@@ -15,6 +15,8 @@ test fixtures or internal plumbing.
 
 ### Added
 
+- **Configure offered models in each provider’s settings.** Desktop moves the model lists from Execution defaults to Antigravity settings, Claude settings and Codex settings, with separate save controls.
+
 - **Recognize provider settings by their logos.** Desktop uses the Claude and OpenAI brand marks for Claude and Codex settings.
 
 - **Find and resize Desktop settings.** A search field finds settings across the loaded categories. Profile and appearance preferences share the **General** category, and settings fill the available content width as the window resizes.

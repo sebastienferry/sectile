@@ -237,6 +237,10 @@ func TestDesktopWorkstationValidatesAndRoundTrips(t *testing.T) {
 	if w := put(map[string]any{"aiSkillModels": map[string]string{"clarify": ""}, "aiProviderModels": map[string][]string{"claude": {}}, "useWorktrees": false, "setupProviders": []string{}, "editorCommand": " zed "}); w.Code != http.StatusNoContent {
 		t.Fatal(w.Code, w.Body.String())
 	}
+	// Saving execution defaults without a model list preserves provider choices.
+	if w := put(map[string]any{"useWorktrees": false, "setupProviders": []string{}, "editorCommand": "zed"}); w.Code != http.StatusNoContent {
+		t.Fatal(w.Code, w.Body.String())
+	}
 	r := httptest.NewRequest(http.MethodGet, "/desktop/workstation", nil)
 	r.Header.Set("Authorization", "Bearer private")
 	w := httptest.NewRecorder()

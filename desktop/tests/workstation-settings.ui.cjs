@@ -27,7 +27,7 @@ function fakeAgent({capabilities=['task-engines'],customSkillsUsed=[],defaults={
    const input=await body(req)
    if(state.refuse){res.writeHead(400,{'Content-Type':'text/plain'}).end(state.refuse);return}
    // The skill settings read back as saved, so a reset is seen to reset.
-   state.puts.push(input);state.skillSettings={customSkillsWin:input.customSkillsWin,installedSkillSource:input.installedSkillSource}
+   state.puts.push(input);state.skillSettings={customSkillsWin:input.customSkillsWin,installedSkillSource:input.installedSkillSource,aiProviderModels:input.aiProviderModels}
    res.writeHead(204).end();return
   }
   // A held read answers only once the test releases it, so the panel can be
@@ -83,7 +83,7 @@ test('execution defaults are read from and saved through the agent, which may re
   const initialization=panel.getByRole('combobox',{name:'Initialization provider',exact:true})
   assert.deepEqual(await initialization.locator('option').evaluateAll(options=>options.map(option=>option.value)),['agy','claude','codex'])
   for(const retired of ['gemini','cursor','vibe'])await expect(panel.getByRole('textbox',{name:'Models offered for '+retired,exact:true})).toHaveCount(0)
-  await panel.getByRole('textbox',{name:'Models offered for codex',exact:true}).fill('gpt-5, o4-mini')
+  await expect(panel.getByRole('textbox',{name:'Models offered for codex',exact:true})).toHaveCount(0)
   await panel.getByRole('combobox',{name:'Initialization provider',exact:true}).selectOption('codex')
   await panel.getByRole('button',{name:'Save execution defaults'}).click()
   await expect(panel.locator('.workstation-notice')).toContainText('Execution defaults saved')
@@ -92,7 +92,7 @@ test('execution defaults are read from and saved through the agent, which may re
   assert.deepEqual(state.puts[0].skillCommands,{})
   assert.equal(state.puts[0].aiProvider,undefined)
   assert.equal(state.puts[0].aiModel,undefined)
-  assert.deepEqual(state.puts[0].aiProviderModels,{codex:['gpt-5','o4-mini']})
+  assert.equal(state.puts[0].aiProviderModels,undefined)
   assert.equal(state.puts[0].setupProviders,null)
   assert.equal(state.puts[0].editorCommand,'zed')
 
@@ -358,4 +358,31 @@ test('an agent without an engine catalogue is asked to update',async()=>{
   server.close()
   fs.rmSync(root,{recursive:true,force:true})
  }
+})
+
+
+test('provider settings save and reset model lists independently',async()=>{
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'sectile-provider-models-'))
+ const {state,server}=fakeAgent({defaults:{aiProviderModels:{claude:['claude-opus-5']}}})
+ await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve))
+ let app
+ try{
+  const opened=await openExecutionDefaults(server,root);app=opened.app
+  const {page}=opened
+  for(const [id,label] of [['agy','Antigravity settings'],['claude','Claude settings'],['codex','Codex settings']]){
+   await page.getByRole('tab',{name:label,exact:true}).click()
+   await expect(page.getByRole('textbox',{name:'Models offered for '+id,exact:true})).toBeVisible()
+  }
+  const panel=page.locator('#settings-panel-Codex')
+  await panel.getByRole('textbox',{name:'Models offered for codex',exact:true}).fill('gpt-5, o4-mini')
+  await panel.getByRole('button',{name:'Save models',exact:true}).click()
+  await expect(panel.getByRole('status').filter({hasText:'Models saved'})).toBeVisible()
+  assert.deepEqual(state.puts.at(-1).aiProviderModels,{claude:['claude-opus-5'],codex:['gpt-5','o4-mini']})
+  assert.equal(state.puts.at(-1).editorCommand,'zed')
+  await panel.getByRole('button',{name:'Reset codex models to the shipped list',exact:true}).click()
+  await expect(panel.getByRole('textbox',{name:'Models offered for codex',exact:true})).toHaveValue('gpt-5')
+  await panel.getByRole('button',{name:'Save models',exact:true}).click()
+  await expect(panel.getByRole('status').filter({hasText:'Models saved'})).toBeVisible()
+  assert.deepEqual(state.puts.at(-1).aiProviderModels,{claude:['claude-opus-5']})
+ }finally{if(app)await app.close();await new Promise(resolve=>server.close(resolve));fs.rmSync(root,{recursive:true,force:true})}
 })

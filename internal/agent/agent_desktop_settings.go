@@ -307,6 +307,7 @@ func (d *agentDaemon) desktopWorkstation(w http.ResponseWriter, r *http.Request)
 			http.Error(w, err.Error(), 400)
 			return
 		}
+		preserveModels := input.AIProviderModels == nil
 		input = normalizeDefaults(input)
 		// A desktop that predates the engine catalogue still sends the engine
 		// fields: refused with a message saying why, never silently dropped.
@@ -316,6 +317,10 @@ func (d *agentDaemon) desktopWorkstation(w http.ResponseWriter, r *http.Request)
 		}
 		d.prepareMu.Lock()
 		_, err := agentconfig.UpdateSettings(d.localSettingsRoot(), func(settings *agentconfig.Settings) error {
+			// Provider model controls save separately from execution defaults.
+			if preserveModels {
+				input.AIProviderModels = settings.Defaults.AIProviderModels
+			}
 			if input.SkillCommands == nil {
 				input.SkillCommands = settings.Defaults.SkillCommands
 			} else {

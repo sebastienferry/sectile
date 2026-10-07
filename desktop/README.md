@@ -952,3 +952,7 @@ Claude’s initial **Conversation permission mode** is in **Settings → Claude 
 **Search settings** finds matching fields and descriptions across loaded workstation
 or project categories; clearing the search returns to the selected category.
 Settings use the available width and resize with the application window.
+
+### Provider model lists
+
+Configure the models offered at launch under **Settings → Antigravity settings**, **Claude settings**, or **Codex settings**. Each provider has its own **Models offered** field and **Save models** button. Reset restores the shipped list; saving an empty custom list offers no models. Execution defaults save separately and preserve these choices. Upgrade the local agent together with Desktop.
