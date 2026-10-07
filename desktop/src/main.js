@@ -33,7 +33,7 @@ import { EDITORS, editorChoice, editorLabel } from './editors.mjs'
 import { folderRoleLabel, menuFolders } from './folder-menu.mjs'
 import { PROVIDERS, DEFAULT_PROVIDER, projectFields, ownEntries, compact, parseModelList, sourceHint, describe, ipcMessage, agentUnreachable, validSkillCommand, workstationPayload } from './execution-fields.mjs'
 import { runEngine } from './run-engine.mjs'
-import { nextEngine, taskEngine, engineMark, engineTooltip, moveEngine, removalImpact, removalMessage } from './engines.mjs'
+import { nextEngine, taskEngine, launchEngineChange, engineMark, engineTooltip, moveEngine, removalImpact, removalMessage } from './engines.mjs'
 import { pollAction, startEnabled } from './agent-poll.mjs'
 import { runFolderOutcome, offersRunFolder } from './run-folders.mjs'
 import { offerFor, initializedNotice } from './git-init.mjs'
@@ -60,7 +60,7 @@ document.querySelector('#app').innerHTML=`
 <form id="start"><label>Sectile server<input name="server" type="url" value="http://localhost:8090" required></label>
 <div id="pair-again"><button id="browser-sign-in" type="button">Sign in with your browser</button><label>Pairing code<input name="code" type="text" autocomplete="off" spellcheck="false" placeholder="Paste the code from the web interface"></label></div>
 <p class="start-reason" role="alert" hidden></p><button type="submit">Connect</button></form></section>
-<main id="workspace" hidden><aside><div class="sidebar-scroll"><div class="section">PROJECTS <button id="add-project" title="Add a remote project">+</button></div><div id="runs"></div><button id="clear-history" class="icon-button" type="button" aria-label="Clear finished consoles" title="Clear finished consoles" disabled></button></div><footer class="sidebar-footer"><span id="connection" data-state="off">Connecting…</span><nav aria-label="Local agent controls"><button id="shutdown" class="icon-button" aria-label="Stop agent" title="Stop agent" hidden></button><button id="restart" class="icon-button" aria-label="Restart agent" title="Restart agent" hidden></button></nav><button id="settings" class="icon-button" type="button" aria-label="Settings" title="Settings"></button></footer></aside><div id="sidebar-resizer" role="separator" aria-label="Resize sidebar" aria-orientation="vertical" tabindex="0"></div><article><div id="toolbar"><div class="toolbar-row toolbar-primary"><div class="terminal-title-line"><strong id="title">Select an execution</strong><span id="native-terminal-badge" class="native-terminal-badge" hidden></span></div><div class="toolbar-meta"><select id="execution-history" aria-label="Execution history" hidden></select><span id="next-step-label" class="step-badge" aria-hidden="true" hidden></span></div></div><div class="toolbar-row toolbar-secondary"><div class="worktree-line"><button id="worktree" class="worktree" type="button" title="Copy this path" hidden><svg class="worktree-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2z"/></svg><span id="directory"></span></button><button id="worktree-folders" class="icon-button worktree-folders" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="worktree-folders-menu" aria-label="Folders of this execution" title="Folders of this execution" hidden><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button><button id="open-editor" class="icon-button" type="button" hidden></button><span id="worktree-copied" class="worktree-copied" role="status"></span><div id="worktree-folders-menu" class="folder-menu" role="menu" aria-label="Folders of this execution" hidden></div></div><div class="toolbar-actions"><div class="execution-views" role="group" aria-label="Execution view"><button id="view-console" class="icon-button" type="button" aria-label="Console" title="Console" aria-pressed="true" disabled></button><button id="view-changes" class="icon-button" type="button" aria-label="Changes" title="Changes" aria-pressed="false" disabled></button></div><button id="selected-pr" class="icon-button" type="button" hidden></button><span id="selected-pr-others" hidden></span><button id="detach-terminal" class="icon-button" type="button" aria-label="Detach to native terminal" title="Detach to native terminal" hidden></button><button id="rerun" class="icon-button" type="button" aria-label="Relaunch" title="Relaunch" hidden></button><button id="save-log" class="icon-button" type="button" aria-label="Export log" title="Export log"></button><button id="stop" class="icon-button" type="button" aria-label="Stop execution" title="Stop execution" disabled></button><button id="next-step" class="icon-button" type="button" hidden disabled></button><button id="pickup-chain" class="icon-button" type="button" aria-label="Pickup (full chain)" title="Pickup (full chain)" hidden disabled></button><button id="mark-reviewed" type="button" class="secondary" title="The pull request needs no more changes: skip Adjust, move the task to reviewed, and hand off once it is merged" hidden>Skip to Handoff</button><button id="retry-next-step" type="button" title="Retry reading the task workflow" hidden>Retry</button><button id="force-next-step" type="button" class="secondary" title="Launch although a run is already active on this task" hidden>Launch anyway</button></div></div></div><div id="execution-content"><div id="terminal"></div><div id="execution-divider" role="separator" aria-label="Resize execution views" aria-orientation="vertical" aria-valuemin="25" aria-valuemax="75" aria-valuenow="50" tabindex="0" hidden></div><section id="changes" aria-label="Worktree changes" hidden></section></div><footer id="task-status"><div class="execution-status"><span id="run-state" class="run-state selected-run-state" hidden></span><span id="skill-result" role="status" hidden></span></div><span id="next-step-status" role="status" aria-live="polite">Select a task to see its next step</span></footer></article><section id="tickets-pane" aria-label="Tickets" hidden></section></main>
+<main id="workspace" hidden><aside><div class="sidebar-scroll"><div class="section">PROJECTS <button id="add-project" title="Add a remote project">+</button></div><div id="runs"></div><button id="clear-history" class="icon-button" type="button" aria-label="Clear finished consoles" title="Clear finished consoles" disabled></button></div><footer class="sidebar-footer"><span id="connection" data-state="off">Connecting…</span><nav aria-label="Local agent controls"><button id="shutdown" class="icon-button" aria-label="Stop agent" title="Stop agent" hidden></button><button id="restart" class="icon-button" aria-label="Restart agent" title="Restart agent" hidden></button></nav><button id="settings" class="icon-button" type="button" aria-label="Settings" title="Settings"></button></footer></aside><div id="sidebar-resizer" role="separator" aria-label="Resize sidebar" aria-orientation="vertical" tabindex="0"></div><article><div id="toolbar"><div class="toolbar-row toolbar-primary"><div class="terminal-title-line"><strong id="title">Select an execution</strong><span id="native-terminal-badge" class="native-terminal-badge" hidden></span></div><div class="toolbar-meta"><select id="execution-history" aria-label="Execution history" hidden></select><span id="next-step-label" class="step-badge" aria-hidden="true" hidden></span></div></div><div class="toolbar-row toolbar-secondary"><div class="worktree-line"><button id="worktree" class="worktree" type="button" title="Copy this path" hidden><svg class="worktree-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2z"/></svg><span id="directory"></span></button><button id="worktree-folders" class="icon-button worktree-folders" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="worktree-folders-menu" aria-label="Folders of this execution" title="Folders of this execution" hidden><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button><button id="open-editor" class="icon-button" type="button" hidden></button><span id="worktree-copied" class="worktree-copied" role="status"></span><div id="worktree-folders-menu" class="folder-menu" role="menu" aria-label="Folders of this execution" hidden></div></div><div class="toolbar-actions"><div class="execution-views" role="group" aria-label="Execution view"><button id="view-console" class="icon-button" type="button" aria-label="Console" title="Console" aria-pressed="true" disabled></button><button id="view-changes" class="icon-button" type="button" aria-label="Changes" title="Changes" aria-pressed="false" disabled></button></div><button id="selected-pr" class="icon-button" type="button" hidden></button><span id="selected-pr-others" hidden></span><button id="detach-terminal" class="icon-button" type="button" aria-label="Detach to native terminal" title="Detach to native terminal" hidden></button><button id="rerun" class="icon-button" type="button" aria-label="Launch" title="Launch" hidden></button><button id="save-log" class="icon-button" type="button" aria-label="Export log" title="Export log"></button><button id="stop" class="icon-button" type="button" aria-label="Stop execution" title="Stop execution" disabled></button><button id="next-step" class="icon-button" type="button" hidden disabled></button><button id="pickup-chain" class="icon-button" type="button" aria-label="Pickup (full chain)" title="Pickup (full chain)" hidden disabled></button><button id="mark-reviewed" type="button" class="secondary" title="The pull request needs no more changes: skip Adjust, move the task to reviewed, and hand off once it is merged" hidden>Skip to Handoff</button><button id="retry-next-step" type="button" title="Retry reading the task workflow" hidden>Retry</button><button id="force-next-step" type="button" class="secondary" title="Launch although a run is already active on this task" hidden>Launch anyway</button></div></div></div><div id="execution-content"><div id="terminal"></div><div id="execution-divider" role="separator" aria-label="Resize execution views" aria-orientation="vertical" aria-valuemin="25" aria-valuemax="75" aria-valuenow="50" tabindex="0" hidden></div><section id="changes" aria-label="Worktree changes" hidden></section></div><footer id="task-status"><div class="execution-status"><span id="run-state" class="run-state selected-run-state" hidden></span><span id="skill-result" role="status" hidden></span></div><span id="next-step-status" role="status" aria-live="polite">Select a task to see its next step</span></footer></article><section id="tickets-pane" aria-label="Tickets" hidden></section></main>
 <dialog id="project-dialog"><button id="close-dialog" class="icon-button" type="button" aria-label="Close" title="Close"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button><div id="dialog-body"></div><div class="dialog-footer" hidden></div></dialog><div id="error" role="alert"></div>`
 installTooltips()
 // The console shows a prompt the user configured elsewhere - oh-my-posh, starship, powerlevel10k -
@@ -3008,7 +3008,7 @@ function ticketRow(view,task){
  if(taskStage(task)==='implemented'){
   items.push({label:'Skip to Handoff…',transition:'reviewed'})
  }
- items.push({label:'Discussion (no skill)',skillId:'discuss'},{label:'Discussion in native terminal',nativeTerminal:true},{label:'Custom instructions…',compose:true})
+ items.push({label:'Discussion (no skill)',skillId:'discuss'},{label:'Discussion in native terminal',nativeTerminal:true},{label:'Custom instructions…',compose:true},{label:'Launch…',dialog:true})
  for(const item of items){
   const button=document.createElement('button');button.type='button';button.setAttribute('role','menuitem');button.textContent=item.label;button.disabled=!view.info.configured
   if(item.skillId)button.dataset.skillId=item.skillId
@@ -3016,7 +3016,7 @@ function ticketRow(view,task){
    entry.declareReviewed=button
    button.onclick=()=>{closeMenu();confirmDeclareReviewed(view.projectID,task)}
   }else{
-   button.onclick=()=>{closeMenu();if(item.compose)openCompose(view,entry);else if(item.nativeTerminal)submitNativeDiscussion(view,entry).catch(()=>{});else submitTicketLaunch(view,entry,item.skillId,'',item.skillId==='pickup'?'autonomous':'').catch(()=>{})}
+   button.onclick=()=>{closeMenu();if(item.dialog)openTicketLaunchDialog(view,task);else if(item.compose)openCompose(view,entry);else if(item.nativeTerminal)submitNativeDiscussion(view,entry).catch(()=>{});else submitTicketLaunch(view,entry,item.skillId,'',item.skillId==='pickup'?'autonomous':'').catch(()=>{})}
   }
   menu.append(button)
  }
@@ -3150,6 +3150,12 @@ function openCompose(view,entry,initial=null,focusPrompt=true){
  }
  if(focusPrompt)prompt.focus()
 }
+// A row's "Launch…" opens the Launch dialog on the task's next workflow step,
+// or on a discussion when the workflow offers none.
+function openTicketLaunchDialog(view,task){
+ const step=nextTaskStep(task,view.info)
+ openLaunchDialog({projectID:view.projectID,taskId:task.id,taskKey:task.key,skill:step.skillId||'discuss',prompt:''})
+}
 async function submitTicketLaunch(view,entry,skillId,prompt,mode){
  const key=entry.task.key||entry.task.id
  view.submitting.add(entry.task.id);updateTicketRow(view,entry)
@@ -3175,41 +3181,75 @@ async function submitNativeDiscussion(view,entry){
  finally{view.submitting.delete(entry.task.id);if(view.rows.get(entry.task.id)===entry)updateTicketRow(view,entry)}
 }
 
-document.querySelector('#rerun').onclick=async()=>{
+document.querySelector('#rerun').onclick=()=>{
  const run=runs.find(item=>item.id===selected)
  if(!run||macroRun(run))return
  if(freeConsole(run)){openAgentConsole(run.projectId,run.engineId||run.provider);return}
- showDialog('Relaunch '+(run.taskKey||run.taskId))
+ openLaunchDialog({projectID:run.projectId,taskId:run.taskId,taskKey:run.taskKey,skill:run.skill,prompt:run.prompt})
+}
+// The Launch dialog (#786) starts a new execution of a task with a chosen
+// skill, instructions, mode and engine. The toolbar opens it on the selected
+// execution, a ticket row on its next workflow step. The engine sticks to the
+// task, as the Engine column's choice does: it is stored before the launch,
+// and a refusal launches nothing.
+async function openLaunchDialog({projectID,taskId,taskKey,skill:initialSkill,prompt:initialPrompt}){
+ showDialog('Launch '+(taskKey||taskId))
  try{
-  const info=await api.project(run.projectId)
+  const info=await api.project(projectID)
+  let engines=null
+  if(await taskEnginesAvailable()){try{engines=await api.taskEngines(projectID)}catch{}}
   const form=document.createElement('form')
   const skillLabel=document.createElement('label');skillLabel.textContent='Skill'
-  const skill=document.createElement('select');skill.setAttribute('aria-label','Relaunch skill')
+  const skill=document.createElement('select');skill.setAttribute('aria-label','Launch skill')
   for(const item of info.server.skills||[]){
    const option=document.createElement('option');option.value=item.id;option.textContent=item.command||item.id;skill.append(option)
   }
   const discuss=document.createElement('option');discuss.value='discuss';discuss.textContent='Discussion (no skill)';skill.append(discuss)
   const custom=document.createElement('option');custom.value='custom';custom.textContent='Custom instructions';skill.append(custom)
-  skill.value=run.skill
+  skill.value=initialSkill
   if(!skill.value){
    const missing=document.createElement('option');missing.value='';missing.textContent='Select a skill (previous skill unavailable)';missing.disabled=true;skill.prepend(missing);skill.value=''
   }
   skill.required=true;skillLabel.append(skill)
   const promptLabel=document.createElement('label');promptLabel.textContent='Instructions'
-  const prompt=document.createElement('textarea');prompt.className='cli-command';prompt.setAttribute('aria-label','Relaunch instructions');prompt.value=run.prompt||''
+  const prompt=document.createElement('textarea');prompt.className='cli-command';prompt.setAttribute('aria-label','Launch instructions');prompt.value=initialPrompt||''
   promptLabel.append(prompt)
   const modeLabel=document.createElement('label');modeLabel.textContent='Execution mode'
-  const mode=modeSelect(document,'Relaunch execution mode');modeLabel.append(mode)
-  const submit=document.createElement('button');submit.textContent='Launch new execution';submit.disabled=!info.configured
+  const mode=modeSelect(document,'Launch execution mode');modeLabel.append(mode)
+  const fields=[skillLabel,promptLabel,modeLabel]
+  let engine=null
+  if(engines?.catalogue?.length){
+   const engineLabel=document.createElement('label');engineLabel.textContent='AI engine'
+   engine=document.createElement('select');engine.setAttribute('aria-label','Launch AI engine')
+   for(const item of engines.catalogue){
+    const option=document.createElement('option');option.value=item.id
+    option.textContent=engineTooltip(item,item.id===engines.projectDefault);engine.append(option)
+   }
+   engine.value=taskEngine(engines,taskId)?.id||''
+   engineLabel.append(engine);fields.push(engineLabel)
+  }
+  const submit=document.createElement('button');submit.textContent='Launch';submit.disabled=!info.configured
   const notice=document.createElement('p');notice.setAttribute('role','status')
-  if(!info.configured)notice.textContent='Configure a local repository before relaunching.'
-  form.append(skillLabel,promptLabel,modeLabel,submit,notice);dialogBody.append(form)
+  if(!info.configured)notice.textContent='Configure a local repository before launching.'
+  form.append(...fields,submit,notice);dialogBody.append(form)
   form.onsubmit=async event=>{
    event.preventDefault()
    if(skill.value==='custom'&&!prompt.value.trim()){notice.textContent='Enter custom instructions.';prompt.focus();return}
    submit.disabled=true
+   const change=engine?launchEngineChange(engines,taskId,engine.value):null
+   if(change){
+    try{
+     const stored=await api.setTaskEngine(projectID,taskId,change)
+     // A launch refused next is retried against what is now stored.
+     if(stored)engines=stored
+     if(ticketsView?.projectID===projectID&&ticketsView.engines&&stored){
+      ticketsView.engines.tasks=stored.tasks||{}
+      for(const row of ticketsView.rows.values())renderEngineToggle(ticketsView,row)
+     }
+    }catch(err){notice.textContent='Could not switch the engine: '+ipcMessage(err);submit.disabled=false;return}
+   }
    try{
-    await api.launchServerTask(run.projectId,run.taskId,skill.value,prompt.value,launchModeOverride(mode.value),false,consoleView)
+    await api.launchServerTask(projectID,taskId,skill.value,prompt.value,launchModeOverride(mode.value),false,consoleView)
     dialog.close();await refresh()
    }catch(err){notice.textContent=err.message;submit.disabled=false}
   }

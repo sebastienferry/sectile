@@ -748,9 +748,10 @@ actions. The **Engine** button shows the letters of the provider the task's
 next run uses; its tooltip names the engine, its provider and its model, and
 says when it is the project default engine, and it is highlighted when it is
 not. Activating it (click, Enter or Space) moves the task to the next engine of
-the catalogue, the last one wrapping to the first. The choice stays with the
+the catalogue, the last one wrapping to the first. The Launch dialog sets the
+same choice. The choice stays with the
 task on this workstation, for every launch of it, from the desktop or the web,
-until the next click; a run already going keeps its engine. A one-off launch
+until it is changed again; a run already going keeps its engine. A one-off launch
 model applies only on the project default engine. The column is hidden with an
 agent that does not keep engines.
 Activate a row's key to open that task in Sectile, the same gesture the sidebar
@@ -766,8 +767,15 @@ ordering lasts for the window session and resets when the pane is reopened.
 Each row ends with **Run: <next step>**, which launches the task's next
 workflow step with the project's configured execution mode, and a **…** menu
 offering **Pickup (full chain)**, the other server skills, **Discussion (no
-skill)** and **Custom instructions…**. The last one opens an inline form under
-the row with the instructions text, the one-off execution mode and **Launch**.
+skill)**, **Custom instructions…** and **Launch…**. **Custom instructions…**
+opens an inline form under the row with the instructions text, the one-off
+execution mode and **Launch**. **Launch…** opens the Launch dialog on the
+task's next workflow skill, else on **Discussion (no skill)**: it picks the
+skill, the instructions, the execution mode and the **AI engine**, which
+starts on the task's engine. Another engine is stored as the task's engine, as
+the **Engine** button does, before the launch; if it cannot be stored, nothing
+is launched and the dialog says why. The engine select is hidden with an agent
+that does not keep engines.
 A row whose task has a local execution shows the shared run-state glyph;
 while that execution is queued, preparing or running, **Run** is disabled and
 the menu stays available. Submission uses the server's existing run-skill
@@ -871,7 +879,7 @@ folder and refuses, with its reason, when the folder is gone or no editor is
 set. Without a chosen editor, or with an agent that predates the button, the
 path stands alone.
 
-The controls whose action does not depend on the workflow stage (relaunch, log
+The controls whose action does not depend on the workflow stage (**Launch**, log
 export, the **Console** / **Changes** switch, and the linked pull request) are
 icons, with their wording kept as tooltip and accessible name; the pull request
 keeps its number. **Next: <skill>**, **Skip to Handoff**, **Retry** and **Launch

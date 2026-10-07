@@ -61,7 +61,7 @@ test('the discussion header carries identity and controls while the footer carri
 
   // The utility controls are icons, and keep their wording for hover and
   // assistive technology. The workflow action keeps its label.
-  for(const [selector,name] of [['#save-log','Export log'],['#rerun','Relaunch'],['#view-console','Console'],['#view-changes','Changes'],['#selected-pr','Open PR #82 — State unknown']]){
+  for(const [selector,name] of [['#save-log','Export log'],['#rerun','Launch'],['#view-console','Console'],['#view-changes','Changes'],['#selected-pr','Open PR #82 — State unknown']]){
    const control=page.locator(selector)
    await expect(control).toHaveAttribute('title',/.+/)
    assert.equal(await control.getAttribute('aria-label'),name)

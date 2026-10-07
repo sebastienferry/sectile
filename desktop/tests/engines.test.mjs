@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { nextEngine, taskEngine, engineMark, engineTooltip, moveEngine, removalImpact, removalMessage } from '../src/engines.mjs'
+import { nextEngine, taskEngine, launchEngineChange, engineMark, engineTooltip, moveEngine, removalImpact, removalMessage } from '../src/engines.mjs'
 
 const catalogue = [
   { id: 'e-opus', name: 'Claude Opus', provider: 'claude', model: 'claude-opus-5' },
@@ -47,4 +47,18 @@ test('engines move within the catalogue and a removal says what it affects', () 
   assert.deepEqual(impact, { projects: ['Sectile'], tasks: 3 })
   assert.equal(removalMessage('Codex', impact), 'Remove Codex? project Sectile will use the workstation default engine; 3 tasks will use their project default engine.')
   assert.equal(removalMessage('Codex', { projects: [], tasks: 0 }), 'Remove Codex? No project or task uses it.')
+})
+
+test('the Launch dialog stores an engine only when the task would run another one', () => {
+  const view = { catalogue, projectDefault: 'e-opus', tasks: { switched: 'e-codex' } }
+  // The engine the task already runs is not stored again.
+  assert.equal(launchEngineChange(view, 'plain', 'e-opus'), null)
+  assert.equal(launchEngineChange(view, 'switched', 'e-codex'), null)
+  // Another engine is stored, the project default one clearing a switch.
+  assert.equal(launchEngineChange(view, 'plain', 'e-agy'), 'e-agy')
+  assert.equal(launchEngineChange(view, 'switched', 'e-opus'), 'e-opus')
+  // A choice outside the catalogue stores nothing.
+  assert.equal(launchEngineChange(view, 'plain', 'e-gone'), null)
+  assert.equal(launchEngineChange(view, 'plain', ''), null)
+  assert.equal(launchEngineChange(null, 'plain', 'e-opus'), null)
 })
