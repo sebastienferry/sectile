@@ -15,6 +15,8 @@ test fixtures or internal plumbing.
 
 ### Added
 
+- **Recognize provider settings by their logos.** Desktop uses the Claude and OpenAI brand marks for Claude and Codex settings.
+
 - **Find and resize Desktop settings.** A search field finds settings across the loaded categories. Profile and appearance preferences share the **General** category, and settings fill the available content width as the window resizes.
 
 - **Choose who reviews Codex conversation approvals.** Desktop **Codex settings** offers **Ask me** and **Approve on my behalf**; automatic review keeps the sandbox active and applies from the next message. The Claude **Conversation permission mode** setting now lives in **Claude settings**.
