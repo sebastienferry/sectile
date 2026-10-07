@@ -22,14 +22,16 @@ type candidateTracker struct {
 	reads []string
 }
 
-func (c *candidateTracker) EpicAxisFieldCandidates(ctx context.Context, project *models.Project, epicKey string) ([]models.EpicFieldCandidate, error) {
+func (c *candidateTracker) EpicAxisFieldCandidates(ctx context.Context, trk *models.Tracker, epicKey string) ([]models.EpicFieldCandidate, error) {
 	c.reads = append(c.reads, epicKey)
 	return []models.EpicFieldCandidate{{ID: "cf-epic-rank", Name: "Epic rank", Kind: models.EpicFieldSelect, Options: []models.EpicFieldOption{{ID: "o1", Value: "P1"}}}}, nil
 }
 
-func (c *candidateTracker) SetEpicAxisField(ctx context.Context, project *models.Project, epicKey string, field models.EpicAxisField, optionPath string) error {
+func (c *candidateTracker) SetEpicAxisField(ctx context.Context, trk *models.Tracker, epicKey string, field models.EpicAxisField, optionPath string) error {
 	return nil
 }
+
+var _ tracker.EpicAxisFieldManager = (*candidateTracker)(nil)
 
 // TestEpicAxisFieldsOverHTTP covers what the Roadmap tab relies on: the
 // candidates answer "no epic" before any epic exists, then the fields of an

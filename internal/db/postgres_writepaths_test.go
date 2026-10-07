@@ -140,8 +140,17 @@ func TestPostgresTaskListAndPin(t *testing.T) {
 
 func seedProjectAndUser(t *testing.T, d *DB) {
 	t.Helper()
-	if _, err := d.conn.Exec(`INSERT INTO projects (id, name, slug) VALUES ('p1', 'P', 'p')`); err != nil {
+	if _, err := d.conn.Exec(`INSERT INTO projects (id, name, slug, default_tracker_id) VALUES ('p1', 'P', 'p', 'tr1')`); err != nil {
 		t.Fatalf("seeding a project: %v", err)
+	}
+	// A project shows the tickets of the trackers it selects (#741): p1 selects
+	// a local board of its own.
+	if _, err := d.conn.Exec(`INSERT INTO trackers (id, name, provider, scope, identity, created_at, updated_at)
+		VALUES ('tr1', 'P', 'local', 'p1', 'local||p1', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`); err != nil {
+		t.Fatalf("seeding a tracker: %v", err)
+	}
+	if _, err := d.conn.Exec(`INSERT INTO project_trackers (project_id, tracker_id, position) VALUES ('p1', 'tr1', 0)`); err != nil {
+		t.Fatalf("linking the project to its tracker: %v", err)
 	}
 	if _, err := d.conn.Exec(`INSERT INTO users (id, subject, email, display_name) VALUES ('u1', 's1', 'u@example.com', 'U')`); err != nil {
 		t.Fatalf("seeding a user: %v", err)
