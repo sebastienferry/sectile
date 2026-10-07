@@ -690,38 +690,53 @@ func (d *DB) SetTasksSprint(ctx context.Context, projectID string, taskIDs []str
 	sprintID = strings.TrimSpace(sprintID)
 	sprintName = strings.TrimSpace(sprintName)
 
-	// Le nom peut manquer quand l'appelant n'a que l'identifiant : le board du
-	// projet le porte, puisque la synchro en importe la liste.
-	if sprintID != "" && sprintName == "" {
+	// A sprint is one of the board of the project's default tracker, the only
+	// one whose sprints the project mirrors (#741). The name may be missing
+	// when the caller only has the id: that board carries it, since the sync
+	// imports its list.
+	var sprintTracker *models.Tracker
+	if sprintID != "" {
 		if proj, _ := d.GetProjectByID(projectID); proj != nil {
-			for _, sp := range proj.Sprints {
-				if sp.ID == sprintID {
-					sprintName = sp.Name
-					break
+			if sprintName == "" {
+				for _, sp := range proj.Sprints {
+					if sp.ID == sprintID {
+						sprintName = sp.Name
+						break
+					}
 				}
 			}
+			sprintTracker = d.trackerOfProjectUnsafe(proj)
 		}
 	}
 
-	firstKey := ""
-	resolved := make([]string, 0, len(taskIDs))
-	now := time.Now()
+	tasks := make([]*models.Task, 0, len(taskIDs))
 	for _, id := range taskIDs {
 		task, err := d.GetTaskByID(id)
 		if err != nil || task == nil {
 			continue
 		}
-		if firstKey == "" {
-			firstKey = task.Key
+		// A ticket of another tracker cannot join that sprint: the whole batch
+		// is refused before anything is written, locally or on a tracker.
+		if sprintTracker != nil && sprintTracker.ID != "" {
+			if trk := d.trackerOfTaskUnsafe(task); trk != nil && trk.ID != "" && trk.ID != sprintTracker.ID {
+				return nil, fmt.Errorf("%s n'est pas sur le tracker dont le projet tient les sprints : aucun ticket déplacé", task.Key)
+			}
 		}
+		tasks = append(tasks, task)
+	}
+	if len(tasks) == 0 {
+		return nil, fmt.Errorf("aucun ticket trouvé")
+	}
+
+	firstKey := tasks[0].Key
+	resolved := make([]string, 0, len(tasks))
+	now := time.Now()
+	for _, task := range tasks {
 		resolved = append(resolved, task.ID)
 
 		d.mu.Lock()
 		_, _ = d.conn.Exec("UPDATE tasks SET sprint = ?, updated_at = ? WHERE id = ?", sprintName, now, task.ID)
 		d.mu.Unlock()
-	}
-	if len(resolved) == 0 {
-		return nil, fmt.Errorf("aucun ticket trouvé")
 	}
 
 	singleID := ""

@@ -636,34 +636,42 @@ func (d *DB) runSetSprintOp(ctx context.Context, op TrackerOp, steps *[]string) 
 		return "", fmt.Errorf("aucun ticket sélectionné")
 	}
 
-	var writer tracker.Writer
-	keys := make([]string, 0, len(ids))
+	// The tickets of a batch may sit on several trackers of the project: each
+	// tracker gets one call with its own keys, its own writer and itself in
+	// the context, or the keys of one would go to the site of another (#741).
+	type sprintGroup struct {
+		trk    *models.Tracker
+		writer tracker.Writer
+		keys   []string
+	}
+	var groups []*sprintGroup
+	byTracker := map[string]*sprintGroup{}
 	for _, id := range ids {
 		task, err := d.GetTaskByID(id)
 		if err != nil || task == nil {
 			*steps = append(*steps, fmt.Sprintf("❌ %s : ticket introuvable", id))
 			continue
 		}
-		if writer == nil {
-			writer, err = d.writerForTask(task)
+		trk := d.trackerOfTaskUnsafe(task)
+		groupID := ""
+		if trk != nil {
+			groupID = trk.ID
+		}
+		group := byTracker[groupID]
+		if group == nil {
+			writer, err := d.TrackerRegistry().ForTask(task, trk)
 			if err != nil {
 				*steps = append(*steps, fmt.Sprintf("ℹ️ %s : %v, sprint gardé en local", task.Key, err))
 				continue
 			}
-			if !writer.Supports(tracker.CapSprint) {
-				return "", tracker.Unsupported(writer.Name(), tracker.CapSprint)
-			}
+			group = &sprintGroup{trk: trk, writer: writer}
+			byTracker[groupID] = group
+			groups = append(groups, group)
 		}
-		keys = append(keys, task.Key)
+		group.keys = append(group.keys, task.Key)
 	}
-	if len(keys) == 0 || writer == nil {
+	if len(groups) == 0 {
 		return "", fmt.Errorf("aucun ticket à déplacer sur un tracker qui gère les sprints")
-	}
-
-	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
-	defer cancel()
-	if err := writer.SetSprint(ctx, op.SprintID, keys); err != nil {
-		return "", err
 	}
 
 	target := strings.TrimSpace(op.SprintName)
@@ -672,8 +680,49 @@ func (d *DB) runSetSprintOp(ctx context.Context, op TrackerOp, steps *[]string) 
 	} else if target == "" {
 		target = op.SprintID
 	}
-	*steps = append(*steps, fmt.Sprintf("✅ %s ➔ %s", strings.Join(keys, ", "), target))
-	return fmt.Sprintf("%d ticket(s) déplacé(s) vers %s", len(keys), target), nil
+
+	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
+	defer cancel()
+	moved := 0
+	var failures []string
+	var refused, unsupported, lastErr error
+	refusals := 0
+	for _, group := range groups {
+		keys := strings.Join(group.keys, ", ")
+		if !group.writer.Supports(tracker.CapSprint) {
+			unsupported = tracker.Unsupported(group.writer.Name(), tracker.CapSprint)
+			*steps = append(*steps, fmt.Sprintf("ℹ️ %s : %v, sprint gardé en local", keys, unsupported))
+			continue
+		}
+		if err := group.writer.SetSprint(tracker.WithTracker(ctx, group.trk), op.SprintID, group.keys); err != nil {
+			if isTrackerWriteRefusal(err) {
+				refused = err
+				refusals++
+			}
+			lastErr = err
+			failures = append(failures, fmt.Sprintf("%s: %v", keys, err))
+			*steps = append(*steps, fmt.Sprintf("❌ %s : %v", keys, err))
+			continue
+		}
+		*steps = append(*steps, fmt.Sprintf("✅ %s ➔ %s", keys, target))
+		moved += len(group.keys)
+	}
+	if moved == 0 && len(failures) == 0 {
+		return "", unsupported
+	}
+	// A batch on one tracker fails with that tracker's own error, as before.
+	if moved == 0 && len(failures) == 1 {
+		return "", lastErr
+	}
+
+	output := fmt.Sprintf("%d ticket(s) déplacé(s) vers %s", moved, target)
+	if len(failures) > 0 {
+		output += fmt.Sprintf(", %d échec(s) : %s", len(failures), strings.Join(failures, " | "))
+		if moved == 0 {
+			return output, refusalOrFailures("aucun ticket déplacé", failures, refused, refusals)
+		}
+	}
+	return output, nil
 }
 
 func (d *DB) runSetTeamOp(ctx context.Context, op TrackerOp, steps *[]string) (string, error) {
@@ -709,7 +758,10 @@ func (d *DB) runSetTeamOp(ctx context.Context, op TrackerOp, steps *[]string) (s
 			failures = append(failures, fmt.Sprintf("%s: ticket introuvable", id))
 			continue
 		}
-		writer, err := d.writerForTask(task)
+		// Each ticket is written on its own tracker, named in the context: a
+		// batch may span several trackers of the project (#741).
+		trk := d.trackerOfTaskUnsafe(task)
+		writer, err := d.TrackerRegistry().ForTask(task, trk)
 		if err != nil {
 			*steps = append(*steps, fmt.Sprintf("ℹ️ %s : %v, équipe gardée en local", task.Key, err))
 			continue
@@ -717,7 +769,7 @@ func (d *DB) runSetTeamOp(ctx context.Context, op TrackerOp, steps *[]string) (s
 		if !writer.Supports(tracker.CapTeam) {
 			return "", tracker.Unsupported(writer.Name(), tracker.CapTeam)
 		}
-		if err := writer.SetTeam(ctx, task.Key, op.TeamID); err != nil {
+		if err := writer.SetTeam(tracker.WithTracker(ctx, trk), task.Key, op.TeamID); err != nil {
 			if isTrackerWriteRefusal(err) {
 				refused = err
 				refusals++
