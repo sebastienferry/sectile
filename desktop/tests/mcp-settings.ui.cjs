@@ -15,7 +15,7 @@ test('MCP settings explain both transports and apply the selected provider and t
    return
   }
   if(req.url==='/desktop/status'){res.end(JSON.stringify({connected:true,server:'https://sectile.example.test'}));return}
-  // The execution defaults panel hosts the provider the MCP section follows (#305).
+  // Workstation defaults supply the initial provider for MCP deployment.
   if(req.url==='/desktop/workstation'){res.end(JSON.stringify({defaults:{},effective:{aiProvider:'agy',useWorktrees:true,parallelism:1,aiProviderModels:{}},providerModels:{},setupProviders:['claude','codex','agy'],seeded:{}}));return}
   if(['/desktop/runs','/desktop/projects'].includes(req.url)){res.end('[]');return}
   if(req.url==='/desktop/version'){res.end('{"version":"test"}');return}
@@ -29,8 +29,9 @@ test('MCP settings explain both transports and apply the selected provider and t
   app=await electron.launch({args:[path.resolve(__dirname,'..')],env})
   const page=await app.firstWindow();page.setDefaultTimeout(10000)
   await page.locator('#settings').click()
-  await page.getByRole('tab',{name:'Execution defaults',exact:true}).click()
-  const section=page.locator('.mcp-settings')
+  await page.getByRole('tab',{name:'Deployment',exact:true}).click()
+  await expect(page.locator('#settings-panel-AgentCli .mcp-settings')).toHaveCount(0)
+  const section=page.locator('#settings-panel-Deployment .mcp-settings')
   const snippet=section.locator('.mcp-snippet pre'),command=section.locator('.mcp-command')
   await expect(section.getByRole('button',{name:'Remote HTTP (default)',exact:true})).toHaveAttribute('aria-pressed','true')
   await expect(snippet.first()).toContainText('serverUrl')
@@ -113,9 +114,9 @@ test('MCP settings offer to repair an outdated Claude Code entry',async()=>{
   app=await electron.launch({args:[path.resolve(__dirname,'..')],env})
   const page=await app.firstWindow();page.setDefaultTimeout(10000)
   // The launch reports the outdated entry once, before anybody opens the settings.
-  await expect(page.locator('#error')).toContainText('Open Settings → Execution defaults → MCP configuration to repair it.')
+  await expect(page.locator('#error')).toContainText('Open Settings → Deployment → MCP configuration to repair it.')
   await page.locator('#settings').click()
-  await page.getByRole('tab',{name:'Execution defaults',exact:true}).click()
+  await page.getByRole('tab',{name:'Deployment',exact:true}).click()
   const section=page.locator('.mcp-settings'),row=section.locator('.mcp-repair')
   await expect(section.getByRole('button',{name:'Remote HTTP (default)',exact:true})).toHaveAttribute('aria-pressed','true')
   // The row is for Claude Code only.

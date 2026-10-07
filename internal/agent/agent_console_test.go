@@ -268,8 +268,8 @@ func TestConsoleAdmissionUsesLocalMappingAndQueue(t *testing.T) {
 			t.Fatalf("queue cancellation: %d", rec.Code)
 		}
 	}
-	// The conversation view applies to Claude only; another engine keeps its PTY.
-	for provider, conversation := range map[string]bool{"claude": true, "codex": false} {
+	// The conversation view applies to both Claude and Codex.
+	for provider, conversation := range map[string]bool{"claude": true, "codex": true} {
 		rec := disconnectRequest(d, "POST", "/desktop/consoles", `{"projectId":"p","provider":"`+provider+`","view":"conversation"}`)
 		var entry desktopRun
 		if rec.Code != 202 || json.Unmarshal(rec.Body.Bytes(), &entry) != nil {

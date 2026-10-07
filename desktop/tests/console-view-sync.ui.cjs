@@ -38,8 +38,8 @@ test('Claude consoles is handed over to an agent that keeps it',async()=>{
   // The connection hands the saved setting over.
   await expect.poll(()=>sent[0]).toBe('conversation')
   await page.locator('#settings').click()
-  await page.getByRole('tab',{name:'Appearance',exact:true}).click()
-  const views=page.getByRole('group',{name:'Claude consoles'})
+  await page.getByRole('tab',{name:'General',exact:true}).first().click()
+  const views=page.getByRole('group',{name:'AI consoles'})
   const choose=async name=>{
    await views.getByRole('button',{name,exact:true}).click()
    await expect(views.getByRole('button',{name,exact:true})).toHaveAttribute('aria-pressed','true')

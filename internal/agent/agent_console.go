@@ -90,12 +90,12 @@ func (d *agentDaemon) desktopConsole(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	// A Claude engine with a launch template still converses: the template is
+	// A supported engine with a launch template still converses: the template is
 	// not run, only its model is kept, and the first notice says so.
-	if input.View == "conversation" && provider == "claude" {
+	if input.View == "conversation" && (provider == "claude" || provider == "codex") {
 		mode := d.workstationConversationMode()
 		d.queue.mu.Lock()
-		run, err := d.newConversationLocked(input.ProjectID, root, conversationModel(config), mode, conversationOrigin(config, "It runs in this project's local repository."))
+		run, err := d.newConversationLocked(input.ProjectID, root, conversationModel(config), mode, conversationOrigin(config, "It runs in this project's local repository."), provider)
 		if err != nil {
 			d.queue.mu.Unlock()
 			http.Error(w, err.Error(), http.StatusConflict)
