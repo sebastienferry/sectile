@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 	"unicode/utf8"
@@ -332,5 +333,208 @@ func TestFramingMirrorOnAGithubMilestone(t *testing.T) {
 	}
 	if refusal := database.FramingMirrorRefusal(proj.ID, "M-3"); !strings.Contains(refusal, "ne prend pas de commentaire") {
 		t.Errorf("refusal %q", refusal)
+	}
+}
+
+// pendingFramingProject is a Jira project holding one epic of each state a
+// bulk republish tells apart (#691).
+func pendingFramingProject(t *testing.T) (*DB, *models.Project, *markedTracker) {
+	t.Helper()
+	database, proj, fake := jiraMirrorProject(t)
+	// PE-1 and PE-3 were framed before the copy existed; PE-2 was copied and
+	// left alone; PE-4 was copied then edited; PE-5 holds no framing.
+	for key, text := range map[string]string{"PE-1": "One", "PE-2": "Two", "PE-3": "Three", "PE-4": "Four", "DS-4": "Foreign", "M-2": "Local"} {
+		if _, err := database.SaveMacroMeta(proj.ID, key, nil, nil, framingOf(text), nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	list := todosOf("a")
+	if _, err := database.SaveMacroMeta(proj.ID, "PE-5", nil, nil, nil, &list); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"PE-2", "PE-4"} {
+		if _, err := database.PushMacroFramingMirror(as("ada"), proj.ID, key, false); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := database.SaveMacroMeta(proj.ID, "PE-4", nil, nil, framingOf("Four, again"), nil); err != nil {
+		t.Fatal(err)
+	}
+	fake.mu.Lock()
+	fake.writes, fake.actors = nil, nil
+	fake.mu.Unlock()
+	return database, proj, fake
+}
+
+func pendingKeys(macros []models.MacroMeta) string {
+	keys := make([]string, 0, len(macros))
+	for _, m := range macros {
+		keys = append(keys, m.Key)
+	}
+	return strings.Join(keys, ",")
+}
+
+func TestPendingFramingCopiesListsTheLateCopiedEpics(t *testing.T) {
+	database, proj, _ := pendingFramingProject(t)
+	pending, skipped, err := database.PendingFramingCopies(proj.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := pendingKeys(pending); got != "PE-1,PE-3,PE-4" {
+		t.Errorf("pending %s, want the two never copied and the one edited since", got)
+	}
+	if skipped != 1 {
+		t.Errorf("skipped %d, want PE-5 alone", skipped)
+	}
+	if pending[0].Title != "" || pending[0].FramingComment != "One" {
+		t.Errorf("listed macro %+v", pending[0])
+	}
+}
+
+func TestPendingFramingCopiesIsEmptyOutsideJira(t *testing.T) {
+	database := mirrorDB(t)
+	for _, tracker := range []string{"github", "gitlab", "local"} {
+		proj, err := database.CreateProject(models.CreateProjectRequest{Name: tracker, Slug: tracker, IssueTracker: tracker, GithubRepo: "acme/app"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := database.SaveMacroMeta(proj.ID, "M-1", nil, nil, framingOf("Why"), nil); err != nil {
+			t.Fatal(err)
+		}
+		pending, skipped, err := database.PendingFramingCopies(proj.ID)
+		if err != nil || len(pending) != 0 || skipped != 0 {
+			t.Errorf("%s: pending %v skipped %d err %v", tracker, pendingKeys(pending), skipped, err)
+		}
+	}
+	if _, _, err := database.PendingFramingCopies("nope"); err == nil {
+		t.Error("an unknown project is refused")
+	}
+}
+
+func bulkFramingActivity(t *testing.T, database *DB, proj *models.Project, keys ...string) *models.TaskActivity {
+	t.Helper()
+	act, err := database.EnqueueTrackerOp(as("ada"), TrackerOp{Kind: TrackerOpEpicFramingBulk, ProjectID: proj.ID, EpicKeys: keys})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if act.Action != "Cadrages de roadmap ➔ tracker" || act.UserID != "ada" || !strings.Contains(strings.Join(act.Steps, "\n"), "Cible : "+strings.Join(keys, ", ")) {
+		t.Fatalf("queued activity %+v", act)
+	}
+	var got *models.TaskActivity
+	waitFor(t, "the bulk activity", func() bool {
+		got, _ = database.GetActivityByID(act.ID)
+		return got != nil && (got.Status == string(models.ActivityStatusCompleted) || got.Status == string(models.ActivityStatusFailed))
+	})
+	return got
+}
+
+func TestBulkFramingWritesEveryPendingEpicInTurn(t *testing.T) {
+	database, proj, fake := pendingFramingProject(t)
+	pending, _, _ := database.PendingFramingCopies(proj.ID)
+	// PE-2 was copied since the listing: written again it would be a no-op.
+	act := bulkFramingActivity(t, database, proj, append([]string{"PE-2"}, keysOf(pending)...)...)
+	if act.Status != string(models.ActivityStatusCompleted) || act.Output != "4 cadrage(s) recopié(s)" {
+		t.Fatalf("activity %s %q", act.Status, act.Output)
+	}
+	writes := fake.written()
+	if len(writes) != 3 {
+		t.Fatalf("three writes, got %d", len(writes))
+	}
+	for i, key := range []string{"PE-1", "PE-3", "PE-4"} {
+		if writes[i].Key != key || writes[i].Marker != framingMirrorMarker || fake.actors[i] != "ada" {
+			t.Errorf("write %d: %s %s by %q", i, writes[i].Key, writes[i].Marker, fake.actors[i])
+		}
+	}
+	steps := strings.Join(act.Steps, "\n")
+	for _, want := range []string{"✅ cadrage de PE-2 déjà à jour", "✅ cadrage recopié en commentaire sur PE-1", "✅ cadrage recopié en commentaire sur PE-4"} {
+		if !strings.Contains(steps, want) {
+			t.Errorf("steps miss %q:\n%s", want, steps)
+		}
+	}
+	if pending, _, _ := database.PendingFramingCopies(proj.ID); len(pending) != 0 {
+		t.Errorf("still pending after the batch: %s", pendingKeys(pending))
+	}
+}
+
+func keysOf(macros []models.MacroMeta) []string {
+	return strings.Split(pendingKeys(macros), ",")
+}
+
+func TestBulkFramingReportsEachFailureOnItsEpic(t *testing.T) {
+	database, proj, fake := pendingFramingProject(t)
+	fake.failures = []error{&trackerapi.HTTPError{Status: http.StatusBadRequest}}
+	// DS-4 is another Jira project's epic: it fails with its reason
+	// and is never written.
+	act := bulkFramingActivity(t, database, proj, "PE-1", "DS-4", "PE-3")
+	if act.Status != string(models.ActivityStatusCompleted) {
+		t.Fatalf("a batch with one success completes, got %s", act.Status)
+	}
+	if !strings.HasPrefix(act.Output, "1 cadrage(s) recopié(s), 2 échec(s) : PE-1 : ") || !strings.Contains(act.Output, "DS-4 : le cadrage de DS-4 reste dans Sectile") {
+		t.Errorf("output %q", act.Output)
+	}
+	if !strings.Contains(strings.Join(act.Steps, "\n"), "❌ PE-1 : ") {
+		t.Errorf("the failure is a step:\n%s", strings.Join(act.Steps, "\n"))
+	}
+	if n := len(fake.written()); n != 2 {
+		t.Errorf("PE-1 and PE-3 are tried, DS-4 never: %d writes", n)
+	}
+	macro, err := database.GetMacro(proj.ID, "PE-1")
+	if err != nil || macro.FramingMirror == nil || macro.FramingMirror.UpToDate || !strings.Contains(macro.FramingMirror.Error, "HTTP 400") {
+		t.Fatalf("the failure is kept on the epic: %+v %v", macro.FramingMirror, err)
+	}
+}
+
+func TestBulkFramingFailsWhenNothingWentThrough(t *testing.T) {
+	database, proj, fake := pendingFramingProject(t)
+	refusal := &trackerapi.MissingPersonalCredentialError{Tracker: "jira"}
+	fake.failures = []error{refusal, refusal, refusal}
+	act := bulkFramingActivity(t, database, proj, "PE-1", "PE-3", "PE-4")
+	if act.Status != string(models.ActivityStatusFailed) || !strings.Contains(act.Error, "aucun cadrage recopié") {
+		t.Fatalf("activity %s %q", act.Status, act.Error)
+	}
+	if act.CredentialMissing != "jira" {
+		t.Errorf("a batch refused for want of a token names it, got %q", act.CredentialMissing)
+	}
+	for _, key := range []string{"PE-1", "PE-3", "PE-4"} {
+		macro, _ := database.GetMacro(proj.ID, key)
+		if macro.FramingMirror.CredentialMissing != "jira" {
+			t.Errorf("%s: %+v", key, macro.FramingMirror)
+		}
+	}
+}
+
+func TestBulkFramingCreatesNoCommentForAnEmptyFraming(t *testing.T) {
+	database, proj, fake := pendingFramingProject(t)
+	act := bulkFramingActivity(t, database, proj, "PE-5")
+	if act.Status != string(models.ActivityStatusCompleted) || !strings.Contains(strings.Join(act.Steps, "\n"), "aucun cadrage à recopier sur PE-5") {
+		t.Fatalf("activity %s %v", act.Status, act.Steps)
+	}
+	if n := len(fake.written()); n != 0 {
+		t.Fatalf("no comment for an empty framing, got %d writes", n)
+	}
+}
+
+func TestBulkFramingAskedTwiceCreatesOneComment(t *testing.T) {
+	database, proj, fake := pendingFramingProject(t)
+	gate := make(chan struct{})
+	fake.mu.Lock()
+	fake.gate = gate
+	fake.mu.Unlock()
+	var wg sync.WaitGroup
+	for range 2 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			steps := []string{}
+			database.PushFramingCopies(as("ada"), proj.ID, []string{"PE-1"}, &steps)
+		}()
+	}
+	// Both batches are under way before the first write answers.
+	time.Sleep(100 * time.Millisecond)
+	close(gate)
+	wg.Wait()
+	writes := fake.written()
+	if len(writes) != 1 || writes[0].CommentID != "" {
+		t.Fatalf("one comment created for PE-1, got %d writes: %+v", len(writes), writes)
 	}
 }

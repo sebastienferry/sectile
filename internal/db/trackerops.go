@@ -53,6 +53,9 @@ const (
 	// TrackerOpEpicFraming copies the framing of one Jira epic on the comment
 	// Sectile owns for it (#636).
 	TrackerOpEpicFraming TrackerOpKind = "epic_framing"
+	// TrackerOpEpicFramingBulk copies the framing of several Jira epics, one
+	// after another, for the roadmap's republish of pending copies (#691).
+	TrackerOpEpicFramingBulk TrackerOpKind = "epic_framing_bulk"
 	// TrackerOpTransition moves a work item to a status named as the tracker
 	// spells it, which is what dropping a card in a board column does.
 	TrackerOpTransition TrackerOpKind = "transition"
@@ -84,6 +87,9 @@ type TrackerOp struct {
 	EpicKey      string
 	NewEpicTitle string
 	Fields       map[string]string
+	// EpicKeys are the epics of an epic_framing_bulk, listed when it was
+	// asked for.
+	EpicKeys []string
 	// Horizon is the roadmap horizon of an epic_horizon.
 	Horizon string
 	// Priority is the epic priority of an epic_priority, "p0" to "p3", "" to clear.
@@ -278,6 +284,10 @@ func buildTrackerOpJob(op TrackerOp) (*models.TaskActivity, SkillJob, error) {
 		action = fmt.Sprintf("Cadrage de %s ➔ tracker", op.EpicKey)
 		summary = fmt.Sprintf("Recopie du cadrage de %s en file d'attente", op.EpicKey)
 		steps = append(steps, fmt.Sprintf("Cible : %s", op.EpicKey))
+	case TrackerOpEpicFramingBulk:
+		action = "Cadrages de roadmap ➔ tracker"
+		summary = fmt.Sprintf("Recopie de %d cadrage(s) en file d'attente", len(op.EpicKeys))
+		steps = append(steps, "Cible : "+strings.Join(op.EpicKeys, ", "))
 	case TrackerOpTransition:
 		action = fmt.Sprintf("Transition de %s ➔ %s", op.TaskKey, op.TargetStatus)
 		summary = fmt.Sprintf("Transition de %s vers « %s » en file d'attente", op.TaskKey, op.TargetStatus)
@@ -415,6 +425,8 @@ func (d *DB) processTrackerOpJob(ctx context.Context, job SkillJob) {
 		output, err = d.runEpicTodosOp(ctx, op, &steps)
 	case TrackerOpEpicFraming:
 		output, err = d.runEpicFramingOp(ctx, op, &steps)
+	case TrackerOpEpicFramingBulk:
+		output, err = d.runEpicFramingBulkOp(ctx, op, &steps)
 	case TrackerOpTransition:
 		output, err = d.runTransitionOp(ctx, op, &steps)
 	case TrackerOpStage:
@@ -957,6 +969,21 @@ func (d *DB) runEpicFramingOp(ctx context.Context, op TrackerOp, steps *[]string
 	}
 	*steps = append(*steps, "✅ "+note)
 	return note, nil
+}
+
+// runEpicFramingBulkOp writes the framing copy of every epic of the batch. It
+// fails only when no epic was left up to date, naming the missing personal
+// token when that is all that went wrong (#645).
+func (d *DB) runEpicFramingBulkOp(ctx context.Context, op TrackerOp, steps *[]string) (string, error) {
+	done, failures, refused, refusals := d.PushFramingCopies(ctx, op.ProjectID, op.EpicKeys, steps)
+	output := fmt.Sprintf("%d cadrage(s) recopié(s)", done)
+	if len(failures) > 0 {
+		output += fmt.Sprintf(", %d échec(s) : %s", len(failures), strings.Join(failures, " | "))
+		if done == 0 {
+			return output, refusalOrFailures("aucun cadrage recopié", failures, refused, refusals)
+		}
+	}
+	return output, nil
 }
 
 // readinessDisplay names the readiness levels in the activity texts, as the

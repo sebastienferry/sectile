@@ -253,6 +253,8 @@ export const RoadmapView: React.FC = () => {
     migrateMacro,
     pendingHorizonPushes,
     pushPendingHorizons,
+    pendingFramingCopies,
+    publishPendingFramings,
     importMacroHorizons,
     isLoading,
     setActiveView,
@@ -378,6 +380,10 @@ export const RoadmapView: React.FC = () => {
   const [pendingPushes, setPendingPushes] = useState(0)
   const [isPushing, setIsPushing] = useState(false)
   const [isImporting, setIsImporting] = useState(false)
+  // The Jira epics whose framing comment copy is missing or late (#691), read
+  // on the same moves as the labels.
+  const [pendingFramings, setPendingFramings] = useState(0)
+  const [isPublishingFramings, setIsPublishingFramings] = useState(false)
 
   const [showMigrateModal, setShowMigrateModal] = useState(false)
   const [migrateTargetProjectId, setMigrateTargetProjectId] = useState('')
@@ -664,14 +670,23 @@ export const RoadmapView: React.FC = () => {
     readPendingPushes.current = pendingHorizonPushes
   })
 
+  const readPendingFramings = useRef(pendingFramingCopies)
+  useEffect(() => {
+    readPendingFramings.current = pendingFramingCopies
+  })
+
   useEffect(() => {
     if (!currentProject?.id) {
       setPendingPushes(0)
+      setPendingFramings(0)
       return
     }
     let alive = true
     readPendingPushes.current(currentProject.id).then(list => {
       if (alive) setPendingPushes(list.length)
+    })
+    readPendingFramings.current(currentProject.id).then(list => {
+      if (alive) setPendingFramings(list.length)
     })
     return () => {
       alive = false
@@ -1743,6 +1758,41 @@ export const RoadmapView: React.FC = () => {
             >
               {isPushing ? <Loader2 size={12} className="animate-spin" /> : <Tag size={12} />}
               {plural(language, pendingPushes, strings.pendingPushes)}
+            </button>
+          )}
+
+          {/*
+            Same for the framing copies of the Jira epics (#691): an epic framed
+            before the copy existed waits until somebody republishes it, and
+            this publishes all of them in one queued activity.
+          */}
+          {pendingFramings > 0 && currentProject && (
+            <button
+              type="button"
+              disabled={isPublishingFramings}
+              onClick={async () => {
+                setIsPublishingFramings(true)
+                // The copies are written by the queued activity, not yet: read
+                // now, the list would be unchanged and invite a second batch.
+                // It is read again when the activity ends.
+                if (await publishPendingFramings(currentProject.id)) {
+                  setPendingFramings(0)
+                } else {
+                  const pending = await pendingFramingCopies(currentProject.id)
+                  setPendingFramings(pending.length)
+                }
+                setIsPublishingFramings(false)
+              }}
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-semibold cursor-pointer border disabled:opacity-60"
+              style={{
+                background: 'rgb(var(--status-warn-rgb) / 0.14)',
+                borderColor: 'rgb(var(--status-warn-rgb) / 0.4)',
+                color: 'var(--status-warn)',
+              }}
+              title={plural(language, pendingFramings, strings.pendingFramingsTitle)}
+            >
+              {isPublishingFramings ? <Loader2 size={12} className="animate-spin" /> : <MessageSquare size={12} />}
+              {plural(language, pendingFramings, strings.pendingFramings)}
             </button>
           )}
 

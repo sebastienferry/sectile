@@ -236,6 +236,17 @@ An empty framing never creates the comment, and rewrites an existing one to say
 there is none. Every macro the API returns carries `framingMirror`, shaped as
 `todosMirror`, whose `kind` is `jira_comment` or empty.
 
+`GET /api/projects/{id}/macros/framing-mirror` lists the macros whose framing
+copy is missing or late, from local state only (#691), and `POST` on the same
+path republishes them all: it queues one `epic_framing_bulk` activity, signed
+by the caller, that writes them one after another without forcing a body
+already written, and answers `202` with `{queued, skipped, activity}`.
+`skipped` counts the copied epics whose framing is empty and was never
+copied, for which no comment is created. With nothing pending it answers
+`200` with `queued: 0` and no activity. Each failure is stored on its macro's
+`framingMirror` and listed in the activity, which fails only when no epic was
+written.
+
 A project's `epicAxisPrefixes` (`{priority, quarter, readiness}`, #635) names
 the label prefixes its epics carry each axis under; an empty field is the
 default `priority:`, `quarter:` or `readiness:`. The import, the pushes, the

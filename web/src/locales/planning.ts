@@ -111,6 +111,11 @@ const fr = {
       other: "{count} macros dont un label d'horizon, de priorité, de trimestre ou de readiness n'est pas encore posé sur le tracker",
     },
     pendingPushes: { one: '{count} label à pousser', other: '{count} labels à pousser' },
+    pendingFramingsTitle: {
+      one: "{count} épic Jira dont la copie du cadrage en commentaire manque ou n'est plus à jour",
+      other: "{count} épics Jira dont la copie du cadrage en commentaire manque ou n'est plus à jour",
+    },
+    pendingFramings: { one: '{count} cadrage à publier', other: '{count} cadrages à publier' },
     importTitle: 'Relire les labels roadmap:, priority:, quarter: et readiness: portés par les épics du tracker et en tirer les valeurs locales',
     importLabels: 'Relire les labels',
     activeFilterTitle: "Filtre actif : {label}. Cliquer pour l'enlever.",
@@ -622,6 +627,11 @@ const en: PlanningStrings = {
       other: '{count} macros whose horizon, priority, quarter or readiness label is not on the tracker yet',
     },
     pendingPushes: { one: '{count} label to push', other: '{count} labels to push' },
+    pendingFramingsTitle: {
+      one: '{count} Jira epic whose framing is not published as a comment yet, or no longer up to date',
+      other: '{count} Jira epics whose framing is not published as a comment yet, or no longer up to date',
+    },
+    pendingFramings: { one: '{count} framing to publish', other: '{count} framings to publish' },
     importTitle: 'Read the roadmap:, priority:, quarter: and readiness: labels carried by the tracker epics again and derive the local values from them',
     importLabels: 'Read labels again',
     activeFilterTitle: 'Active filter: {label}. Click to remove it.',

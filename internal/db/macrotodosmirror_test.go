@@ -29,6 +29,8 @@ type markedTracker struct {
 	// failures are returned by the next writes, one each, before they succeed.
 	failures []error
 	created  int
+	// gate, when set, holds every write until it is closed.
+	gate chan struct{}
 }
 
 func newMarkedTracker() *markedTracker {
@@ -39,6 +41,12 @@ func newMarkedTracker() *markedTracker {
 }
 
 func (f *markedTracker) UpsertMarkedComment(ctx context.Context, req tracker.UpsertMarkedCommentRequest) (string, error) {
+	f.mu.Lock()
+	gate := f.gate
+	f.mu.Unlock()
+	if gate != nil {
+		<-gate
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.writes = append(f.writes, req)

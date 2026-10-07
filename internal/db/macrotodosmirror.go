@@ -482,6 +482,106 @@ func (d *DB) macroCopyRefusal(part macroCopyPart, projectID, key string) string 
 	return ""
 }
 
+// PendingFramingCopies lists the macros of a project whose framing copy is not
+// up to date, the ones a bulk republish writes (#691), and counts the copied
+// macros it skips because their framing is empty and was never copied. Only
+// local state is read: whether a copy is late is a comparison of hashes.
+func (d *DB) PendingFramingCopies(projectID string) ([]models.MacroMeta, int, error) {
+	return d.pendingMacroCopies(framingCopy, projectID)
+}
+
+func (d *DB) pendingMacroCopies(part macroCopyPart, projectID string) ([]models.MacroMeta, int, error) {
+	projectID = strings.TrimSpace(projectID)
+	proj, err := d.GetProjectByID(projectID)
+	if err != nil || proj == nil {
+		return nil, 0, fmt.Errorf("projet non trouvé")
+	}
+	type row struct {
+		meta  models.MacroMeta
+		state todosMirrorState
+	}
+	d.mu.RLock()
+	rows, err := d.conn.Query(`SELECT key, title, framing_comment, todos, `+part.columns()+`
+		FROM macros WHERE project_id = ? ORDER BY key ASC`, projectID)
+	if err != nil {
+		d.mu.RUnlock()
+		return nil, 0, err
+	}
+	read := []row{}
+	for rows.Next() {
+		var r row
+		var todosJSON string
+		var at sql.NullTime
+		if err := rows.Scan(&r.meta.Key, &r.meta.Title, &r.meta.FramingComment, &todosJSON,
+			&r.state.ref, &r.state.hash, &r.state.err, &r.state.credential, &at); err != nil {
+			continue
+		}
+		r.meta.ProjectID = projectID
+		r.meta.Todos = parseMacroTodos(todosJSON)
+		read = append(read, r)
+	}
+	err = rows.Err()
+	rows.Close()
+	d.mu.RUnlock()
+	if err != nil {
+		return nil, 0, err
+	}
+
+	// The scope is resolved with the result set closed: it reads the project
+	// and the tracker registry.
+	scope := d.todosMirrorScope(proj, nil)
+	pending := []models.MacroMeta{}
+	skipped := 0
+	for _, r := range read {
+		kind, _ := scope.eligibilityOf(part, r.meta.Key)
+		if kind == "" {
+			continue
+		}
+		if part.empty(&r.meta) && r.state.hash == "" && r.state.ref == "" {
+			skipped++
+			continue
+		}
+		if !macroCopyStatus(part, &r.meta, kind, "", r.state).UpToDate {
+			pending = append(pending, r.meta)
+		}
+	}
+	return pending, skipped, nil
+}
+
+// PushFramingCopies writes the framing copy of each listed macro in turn, as
+// the bulk republish asks (#691). Each write is the one a framing save
+// queues, without force: a copy written since the listing is left alone.
+// One failure does not stop the others; it is stored on its macro, as any
+// failed copy is, and named in the steps. done counts the macros left up to
+// date, written or already current.
+func (d *DB) PushFramingCopies(ctx context.Context, projectID string, keys []string, steps *[]string) (done int, failures []string, refused error, refusals int) {
+	for _, key := range keys {
+		note, err := d.pushMacroCopy(ctx, framingCopy, projectID, key, false)
+		if err != nil {
+			if isTrackerWriteRefusal(err) {
+				refused = err
+				refusals++
+			}
+			failures = append(failures, fmt.Sprintf("%s : %v", key, err))
+			*steps = append(*steps, fmt.Sprintf("❌ %s : %v", key, err))
+			continue
+		}
+		done++
+		*steps = append(*steps, "✅ "+note)
+	}
+	return done, failures, refused, refusals
+}
+
+// lockMacroCopy serializes the writes of one copied part of one macro on this
+// server. It is never taken while d.mu is held: the tracker call it covers can
+// be slow.
+func (d *DB) lockMacroCopy(part macroCopyPart, projectID, key string) func() {
+	value, _ := d.macroCopyLocks.LoadOrStore(part.name+"\x00"+projectID+"\x00"+key, &sync.Mutex{})
+	lock := value.(*sync.Mutex)
+	lock.Lock()
+	return lock.Unlock
+}
+
 // todosMirrorTimer is the pending copy of one macro on this instance, with the
 // person whose last save scheduled it.
 type todosMirrorTimer struct {
@@ -610,6 +710,10 @@ func (d *DB) pushMacroCopy(ctx context.Context, part macroCopyPart, projectID, k
 	if kind == "" {
 		return "", fmt.Errorf(part.kept, key, reason)
 	}
+	// Two writes of the same copy never overlap on this server: the second
+	// reads the comment the first created, instead of creating another one
+	// (a bulk republish asked twice, #691).
+	defer d.lockMacroCopy(part, projectID, key)()
 	meta, err := d.readMacroRow(projectID, key)
 	if err != nil {
 		return "", err
