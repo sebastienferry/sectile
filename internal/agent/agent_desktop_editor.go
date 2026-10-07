@@ -69,11 +69,11 @@ func (d *agentDaemon) desktopOpenEditor(w http.ResponseWriter, r *http.Request) 
 	// An exited run may outlive its worktree, removed at handoff: say so
 	// rather than start an editor on nothing.
 	if info, err := os.Stat(directory); err != nil || !info.IsDir() {
+		what := "worktree"
 		if !primary {
-			http.Error(w, "The folder no longer exists: "+directory, http.StatusGone)
-			return
+			what = "folder"
 		}
-		http.Error(w, "The worktree no longer exists: "+directory, http.StatusGone)
+		http.Error(w, "The "+what+" no longer exists: "+directory, http.StatusGone)
 		return
 	}
 

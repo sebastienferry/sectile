@@ -471,8 +471,9 @@ function selectedFolder(folder,status){
  if(!status.capabilities?.includes('folder-selection'))throw Error('Update and restart the local agent to use another folder of this execution.')
  return folder
 }
-// Opening a worktree in the editor (#535) names the run, never a path: the
-// agent resolves the folder itself. An older agent has no such route.
+// Opening a worktree in the editor (#535) names the run, and at most one of
+// its listed folders (#784): the agent resolves the path itself. An older
+// agent has no such route.
 ipcMain.handle('open-editor',async(_,runId,folder)=>{
  if(typeof runId!=='string'||!runId)throw Error('Run ID required')
  const status=await api('/desktop/status')
