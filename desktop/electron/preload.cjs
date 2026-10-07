@@ -27,6 +27,8 @@ contextBridge.exposeInMainWorld('localAgent',{
  status:()=>ipcRenderer.invoke('status'),
  workstationSettings:()=>ipcRenderer.invoke('workstation-settings'),
  saveWorkstationSettings:defaults=>ipcRenderer.invoke('save-workstation-settings',defaults),
+ codexSettings:()=>ipcRenderer.invoke('codex-settings'),
+ saveCodexSettings:values=>ipcRenderer.invoke('save-codex-settings',values),
  workstationSandbox:()=>ipcRenderer.invoke('workstation-sandbox'),
  saveWorkstationSandbox:values=>ipcRenderer.invoke('save-workstation-sandbox',values),
  promoteSandboxRule:(projectId,rule)=>ipcRenderer.invoke('promote-sandbox-rule',projectId,rule),

@@ -1309,8 +1309,8 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 
 	// An interactive launch Desktop asked to see as a conversation, or any
 	// interactive launch when the workstation console view is the conversation
-	// (#711), runs Claude over pipes in the task's worktree, one turn per
-	// message, with the same environment the terminal would have carried. A
+	// (#711), runs the provider over pipes in the task's worktree, with the
+	// same environment the terminal would have carried. A
 	// discussion waits for the first message; a skill sends its command as that
 	// message at once, in the workstation default permission mode. The run
 	// holds its slot until it is stopped. The mark is taken first, so that it
@@ -1328,12 +1328,15 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 				return
 			}
 			first, extraDirs = prompt, extraConversationDirs(contexts[0].AddDirs, launch.AddDirs)
+			if liveProvider(config) == "codex" && strings.HasPrefix(first, "/") {
+				first = "$" + strings.TrimPrefix(first, "/")
+			}
 			if skillModel, modelErr := LaunchModel(config, payload.SkillID, payload.Model); modelErr == nil && strings.TrimSpace(skillModel) != "" {
 				model = skillModel
 			}
 			origin = "It runs the " + payload.SkillID + " skill in this task's worktree. Stop it once the skill is done."
 		}
-		d.startLaunchConversation(run, desktopRun{ID: payload.RunID, TaskID: taskRef, TaskKey: payload.TaskKey, ProjectID: config.ProjectID, Skill: payload.SkillID, Directory: workDir, Folders: runFolders(workDir, folders), Branch: branch}, model, conversationOrigin(config, origin), first, envVars, extraDirs)
+		d.startLaunchConversation(run, desktopRun{ID: payload.RunID, TaskID: taskRef, TaskKey: payload.TaskKey, ProjectID: config.ProjectID, Skill: payload.SkillID, Directory: workDir, Folders: runFolders(workDir, folders), Branch: branch}, model, conversationOrigin(config, origin), first, envVars, extraDirs, liveProvider(config))
 		launched = true
 		d.recordCustomSkillUse(config, choice, payload.RunID)
 		d.sendStatus(conn, msg.MsgID, msg.TaskID, "completed", "Execution opened as a conversation")
@@ -1384,20 +1387,27 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 // prompt it was queued with. A skill's command, first, is sent at once as the
 // first message; a discussion ("" first) waits for the owner's. Either way the
 // first turn runs in the workstation default permission mode.
-func (d *agentDaemon) startLaunchConversation(run *controlledRun, entry desktopRun, model, origin, first string, env map[string]string, extraDirs []string) {
+func (d *agentDaemon) startLaunchConversation(run *controlledRun, entry desktopRun, model, origin, first string, env map[string]string, extraDirs []string, provider ...string) {
 	mode := d.workstationConversationMode()
 	d.queue.mu.Lock()
 	entry.CreatedAt, entry.Prompt = run.desktop.CreatedAt, run.desktop.Prompt
 	run.desktop = entry
-	startConversationLocked(run, model, mode, origin)
+	startConversationLocked(run, model, mode, origin, provider...)
 	run.conversation.env, run.conversation.extraDirs = env, extraDirs
 	if first != "" {
 		run.conversation.busy = true
 		conversationWrite(run.trace, "user", first, "")
+		if run.desktop.Provider == "codex" {
+			run.conversation.next = append(run.conversation.next, first)
+		}
 	}
 	d.queue.mu.Unlock()
 	if first != "" {
-		go d.conversationTurn(run, first)
+		if run.desktop.Provider == "codex" {
+			go d.codexConversationTurn(run, "")
+		} else {
+			go d.conversationTurn(run, first)
+		}
 	}
 }
 

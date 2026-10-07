@@ -82,8 +82,8 @@ func TestOpensConversation(t *testing.T) {
 		{"autonomous, marked", true, "clarify", true, conversation, claude, false},
 		{"open_terminal, conversation view", false, "open_terminal", false, conversation, claude, false},
 		{"open_terminal, marked", false, "open_terminal", true, terminal, claude, false},
-		{"codex, conversation view", false, "clarify", false, conversation, codex, false},
-		{"codex, marked", false, "clarify", true, conversation, codex, false},
+		{"codex, conversation view", false, "clarify", false, conversation, codex, true},
+		{"codex, marked", false, "clarify", true, conversation, codex, true},
 	} {
 		if got := opensConversation(tc.autonomous, tc.action, tc.marked, tc.view, tc.config); got != tc.want {
 			t.Errorf("%s: opensConversation = %v, want %v", tc.name, got, tc.want)

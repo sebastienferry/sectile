@@ -90,6 +90,11 @@ the agent configuration.
 
 ### Install Sectile in your coding CLI
 
+MCP clients can list, read, create and edit macro metadata within an explicit
+project. See the [macro resource contract](docs/contracts/server-agent-v1.md#macro-resources)
+for inputs, HTTP reads and partial-success results. Upgrade the server and
+agent together for the expanded tool catalog.
+
 The agent runs the workflow skills it finds installed; it never installs them
 by itself. There are two ways to install them, with the Sectile MCP server:
 
@@ -208,9 +213,11 @@ agent-owned console, project settings, MCP connections, and a read-only view
 of uncommitted worktree changes. For release installation and desktop-specific
 configuration, read the [Desktop guide](./desktop/README.md).
 
-The test branch also offers a Claude Code conversation view without a PTY,
-turned on by **Settings → Appearance → Claude consoles → Conversation**: Claude
-project prompts and interactive task launches then open in it. See the
+Desktop also offers an experimental conversation view for Claude Code and
+Codex, turned on by **Settings → General → AI consoles → Conversation**.
+Interactive ticket launches and project prompts open there; **Claude chat (test)**
+or **Codex chat (test)** starts an independent session in the selected execution's
+directory. Codex uses its installed CLI and existing sign-in. See the
 [prototype notes](./docs/experiments/desktop-conversation.md) for its limits.
 
 ## Testing

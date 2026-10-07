@@ -1,7 +1,7 @@
-# Claude Code Desktop conversation
+# Desktop conversations
 
-Desktop has a conversation view for Claude, off by default. **Settings →
-Appearance → Claude consoles** switches between **Terminal** (the PTY,
+Desktop has a conversation view for Claude and Codex, off by default. **Settings →
+General → AI consoles** switches between **Terminal** (the PTY,
 unchanged) and **Conversation**, a workstation setting kept in the desktop's
 `settings.json` as `consoleView`.
 
@@ -16,11 +16,13 @@ In Conversation mode:
   runs with the skill's model; a discussion waits for the first message. Both
   run in the task's worktree with the `SECTILE_TASK_*` environment the
   terminal would have had;
-- a **Project prompt**, in the project's local repository.
+- a **Project prompt**, in the project's local repository;
+- **Claude chat (test)** or **Codex chat (test)** in the execution toolbar, an independent conversation
+  in the selected execution's directory.
 
-The engine must be a Claude one. A Claude engine with a launch template
+The engine must be Claude or Codex. A supported engine with a launch template
 converses with the template's model and leaves the template's other options
-aside; the first notice says so. Codex and other engines keep the terminal, as
+aside; the first notice says so. Other engines keep the terminal, as
 do autonomous launches, which keep their read-only trace, and launches from the
 web interface. An agent older than this view ignores the request and opens the
 terminal. The server never sees the view: Desktop passes it to the agent with
@@ -49,8 +51,8 @@ The composer's permission mode is Claude Code's: **Ask before edits**,
 **Accept edits** (the default), **Auto mode** or **Plan mode**, from the next
 message; there is no bypass. In **Auto mode** Claude Code's classifier approves
 what the rules do not cover, and an action it refuses still waits for the owner.
-A new conversation starts in the workstation's **Settings → Appearance →
-Conversation permission mode**, right under **Claude consoles** and enabled only
+A new conversation starts in the workstation's **Settings → Claude settings →
+Conversation permission mode**, enabled only
 in the conversation view (Accept edits when unset). It is the mode of the first
 turn, which matters most for a skill or a project prompt launched in the
 conversation view: its command is that turn and runs at once, before the owner
@@ -119,7 +121,7 @@ used. **Add folder…** attaches a folder to the project, and Claude is given it
 from the next message. A message joining an answer in progress keeps that
 turn's effort and folders.
 
-## How it runs
+## How Claude runs
 
 Each message starts `claude -p --input-format stream-json --output-format
 stream-json --verbose --include-partial-messages --permission-mode <mode>
@@ -137,10 +139,41 @@ events; a reply in progress is never stored. After an agent restart the
 transcript is read-only, and a new conversation starts a new Claude session.
 Stop idle conversations before restarting the agent.
 
+## How Codex runs
+
+Codex uses one `codex app-server --listen stdio://` process per conversation.
+The agent sends `initialize` and `initialized`, creates a thread, discovers
+models with `model/list`, skills with `skills/list`, and MCP state with
+`mcpServerStatus/list`. Opening the view starts this process without inference.
+Each message uses `turn/start`; an active turn receives `turn/steer` with its
+expected turn id, and interruption uses `turn/interrupt`. Models, effort,
+collaboration mode and sandbox policy are resolved for each new turn.
+
+The same event contract drives Desktop for both providers: text deltas become
+the draft, completed items become messages or tool cards, and requests become
+pending approvals. Command and file-change decisions retain Codex's wire ids
+and session scope; questions translate the shared form's answers to native
+question ids. An unknown request is answered with an error immediately.
+
+A confirmed turn-boundary rejection queues a steering message for the next
+turn. Transport errors do not replay it automatically. A process failure keeps
+the thread id for `thread/resume` on the next message; stopping the execution
+waits for process exit. Agent-restart restoration remains read-only.
+
+The composer uses Codex's models and supported efforts, and completes native
+skills with `$`. Its permission modes are Read only, Workspace edits and Plan
+mode. No Claude permission rule or hook is installed for Codex. The integration
+was checked against Codex CLI 0.157.1; see
+[ADR 0054](../adrs/0054-codex-conversations-use-app-server.md).
+
 ## Remaining work
 
 - Restore a live conversation after an agent restart.
-- Support providers other than Claude through a shared event contract.
+- Support additional providers through the shared event contract.
 
 See [ADR 0042](../adrs/0042-experimental-claude-conversations-use-process-pipes.md)
 for the prototype's original scope and process ownership.
+
+Codex approval review is selected in **Settings → Codex settings**: **Ask me**
+or **Approve on my behalf**. It applies to the next message, preserves sandbox
+limits, and does not change the native user configuration.

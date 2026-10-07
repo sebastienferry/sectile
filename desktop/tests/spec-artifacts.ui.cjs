@@ -83,8 +83,8 @@ test('project settings override whether specification artefacts are dropped',asy
    await expect(refresh).toHaveCount(1)
    await expect(configuration.getByRole('button',{name:'Save local configuration',exact:true})).toHaveCount(1)
   }
-  await configuration.getByRole('tab',{name:'User profile',exact:true}).click()
-  await expect(title).toHaveText('User profile')
+  await configuration.getByRole('tab',{name:'General',exact:true}).first().click()
+  await expect(title).toHaveText('General')
   const globalTitleBounds=await title.boundingBox()
   assert.equal(globalTitleBounds.y,titleBounds.y)
   assert.equal(globalTitleBounds.height,titleBounds.height)

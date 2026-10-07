@@ -410,8 +410,7 @@ test('the Claude settings tabs draw the Claude mark in Claude’s orange',async(
   await marks()
   // The other categories keep their outline, in the tab colour.
   await expect(page.locator('#settings-tab-Logs svg')).toHaveAttribute('stroke','currentColor')
-  // The mark next to Conversation permission mode takes the same orange.
-  await page.locator('#settings-tab-Appearance').click()
-  await expect(page.locator('.setting-name svg.claude-mark')).toHaveCSS('color',orange)
+  // The mark next to Conversation permission mode, in the same panel, takes the same orange.
+  await expect(page.locator('#settings-panel-Sandbox .setting-name svg.claude-mark')).toHaveCSS('color',orange)
  })
 })

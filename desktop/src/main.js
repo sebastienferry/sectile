@@ -1,3 +1,5 @@
+import { skillCommandMapping } from './skill-command-mapping.mjs'
+import { installSettingsSearch } from './settings-search.mjs'
 import { pullRequestPresentation, renderPullRequestIndicator, repositoryPullRequests } from './pullRequests.mjs'
 import { installTooltips } from './tooltips.js'
 import {mcpSettings} from './mcp-settings.mjs'
@@ -29,7 +31,7 @@ import { previewLines } from './command-preview.mjs'
 import { sandboxSettings, whitelistEditor } from './sandbox-settings.mjs'
 import { EDITORS, editorChoice, editorLabel } from './editors.mjs'
 import { folderRoleLabel, menuFolders } from './folder-menu.mjs'
-import { PROVIDERS, DEFAULT_PROVIDER, SETUP_PROVIDERS, projectFields, ownEntries, compact, parseModelList, sourceHint, describe, ipcMessage, agentUnreachable, validSkillCommand, workstationPayload } from './execution-fields.mjs'
+import { PROVIDERS, DEFAULT_PROVIDER, projectFields, ownEntries, compact, parseModelList, sourceHint, describe, ipcMessage, agentUnreachable, validSkillCommand, workstationPayload } from './execution-fields.mjs'
 import { runEngine } from './run-engine.mjs'
 import { nextEngine, taskEngine, engineMark, engineTooltip, moveEngine, removalImpact, removalMessage } from './engines.mjs'
 import { pollAction, startEnabled } from './agent-poll.mjs'
@@ -44,6 +46,7 @@ import changelogSource from '../../CHANGELOG.md?raw'
 import { parseChangelog, releaseNotesFor } from './changelog.mjs'
 import { APPEARANCE_CHOICES, CONSOLE_VIEW_CHOICES, CONVERSATION_MODE_CHOICES, terminalOptions } from './appearance.mjs'
 import { claudeMark, settingsCategoryIcon } from './claude-mark.mjs'
+import { OPENAI_MARK_PATH } from './openai-mark.mjs'
 const api=window.localAgent
 // Concurrent execution workers ceiling per project, aligned with agentconfig.MaxParallelism.
 // Parallelism is a workstation setting: the server neither stores nor supplies it.
@@ -55,7 +58,7 @@ document.querySelector('#app').innerHTML=`
 <header><div><button id="toggle-sidebar" aria-expanded="true"></button><strong id="app-title">Sectile Desktop</strong><small>Execution consoles</small></div><button id="command-palette" title="Commands (⌘K / Ctrl+K)">⌘K</button></header>
 <section id="setup" hidden><div class="setup-toolbar"><button id="setup-logs" type="button" title="View local-agent diagnostics">Agent logs</button></div><div id="agent-offline" role="status" hidden><strong>Local agent is stopped</strong><p>Start the agent to run tasks and access your local consoles.</p></div><h1>Connect to Sectile</h1><p id="setup-intro">In the Sectile web interface, under your profile, choose <strong>Pair a workstation</strong> and paste the code here. A code is single use and expires within ten minutes; this machine keeps the credential it receives, so the code is never needed again.</p>
 <form id="start"><label>Sectile server<input name="server" type="url" value="http://localhost:8090" required></label>
-<details id="pair-again"><summary>Pair again</summary><button id="browser-sign-in" type="button">Sign in with your browser</button><label>Pairing code<input name="code" type="text" autocomplete="off" spellcheck="false" placeholder="Paste the code from the web interface"></label></details>
+<div id="pair-again"><button id="browser-sign-in" type="button">Sign in with your browser</button><label>Pairing code<input name="code" type="text" autocomplete="off" spellcheck="false" placeholder="Paste the code from the web interface"></label></div>
 <p class="start-reason" role="alert" hidden></p><button type="submit">Connect</button></form></section>
 <main id="workspace" hidden><aside><div class="sidebar-scroll"><div class="section">PROJECTS <button id="add-project" title="Add a remote project">+</button></div><div id="runs"></div><button id="clear-history" class="icon-button" type="button" aria-label="Clear finished consoles" title="Clear finished consoles" disabled></button></div><footer class="sidebar-footer"><span id="connection" data-state="off">Connecting…</span><nav aria-label="Local agent controls"><button id="shutdown" class="icon-button" aria-label="Stop agent" title="Stop agent" hidden></button><button id="restart" class="icon-button" aria-label="Restart agent" title="Restart agent" hidden></button></nav><button id="settings" class="icon-button" type="button" aria-label="Settings" title="Settings"></button></footer></aside><div id="sidebar-resizer" role="separator" aria-label="Resize sidebar" aria-orientation="vertical" tabindex="0"></div><article><div id="toolbar"><div class="toolbar-row toolbar-primary"><div class="terminal-title-line"><strong id="title">Select an execution</strong><span id="native-terminal-badge" class="native-terminal-badge" hidden></span></div><div class="toolbar-meta"><select id="execution-history" aria-label="Execution history" hidden></select><span id="next-step-label" class="step-badge" aria-hidden="true" hidden></span></div></div><div class="toolbar-row toolbar-secondary"><div class="worktree-line"><button id="worktree" class="worktree" type="button" title="Copy this path" hidden><svg class="worktree-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2z"/></svg><span id="directory"></span></button><button id="worktree-folders" class="icon-button worktree-folders" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="worktree-folders-menu" aria-label="Folders of this execution" title="Folders of this execution" hidden><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button><button id="open-editor" class="icon-button" type="button" hidden></button><span id="worktree-copied" class="worktree-copied" role="status"></span><div id="worktree-folders-menu" class="folder-menu" role="menu" aria-label="Folders of this execution" hidden></div></div><div class="toolbar-actions"><div class="execution-views" role="group" aria-label="Execution view"><button id="view-console" class="icon-button" type="button" aria-label="Console" title="Console" aria-pressed="true" disabled></button><button id="view-changes" class="icon-button" type="button" aria-label="Changes" title="Changes" aria-pressed="false" disabled></button></div><button id="selected-pr" class="icon-button" type="button" hidden></button><span id="selected-pr-others" hidden></span><button id="detach-terminal" class="icon-button" type="button" aria-label="Detach to native terminal" title="Detach to native terminal" hidden></button><button id="rerun" class="icon-button" type="button" aria-label="Relaunch" title="Relaunch" hidden></button><button id="save-log" class="icon-button" type="button" aria-label="Export log" title="Export log"></button><button id="stop" class="icon-button" type="button" aria-label="Stop execution" title="Stop execution" disabled></button><button id="next-step" class="icon-button" type="button" hidden disabled></button><button id="pickup-chain" class="icon-button" type="button" aria-label="Pickup (full chain)" title="Pickup (full chain)" hidden disabled></button><button id="mark-reviewed" type="button" class="secondary" title="The pull request needs no more changes: skip Adjust, move the task to reviewed, and hand off once it is merged" hidden>Skip to Handoff</button><button id="retry-next-step" type="button" title="Retry reading the task workflow" hidden>Retry</button><button id="force-next-step" type="button" class="secondary" title="Launch although a run is already active on this task" hidden>Launch anyway</button></div></div></div><div id="execution-content"><div id="terminal"></div><div id="execution-divider" role="separator" aria-label="Resize execution views" aria-orientation="vertical" aria-valuemin="25" aria-valuemax="75" aria-valuenow="50" tabindex="0" hidden></div><section id="changes" aria-label="Worktree changes" hidden></section></div><footer id="task-status"><div class="execution-status"><span id="run-state" class="run-state selected-run-state" hidden></span><span id="skill-result" role="status" hidden></span></div><span id="next-step-status" role="status" aria-live="polite">Select a task to see its next step</span></footer></article><section id="tickets-pane" aria-label="Tickets" hidden></section></main>
 <dialog id="project-dialog"><button id="close-dialog" class="icon-button" type="button" aria-label="Close" title="Close"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button><div id="dialog-body"></div><div class="dialog-footer" hidden></div></dialog><div id="error" role="alert"></div>`
@@ -103,7 +106,7 @@ let localTasks={}
 try{localTasks=JSON.parse(localStorage.getItem('localTasks')||'{}')}catch{}
 const freeConsole=run=>run?.kind==='console'
 // Task runs show the skill and engine; project prompts show their engine name.
-const runLabel=run=>run.conversation&&run.taskId?run.skill+' · Conversation (test)':run.conversation?'Claude Code · Conversation (test)':freeConsole(run)?(run.engineName||run.provider||'AI')+' · Project prompt':(runEngine(run)?run.skill+' · '+runEngine(run):run.skill)
+const runLabel=run=>run.conversation&&run.taskId?run.skill+' · Conversation (test)':run.conversation?(run.provider==='codex'?'Codex':'Claude Code')+' · Conversation (test)':freeConsole(run)?(run.engineName||run.provider||'AI')+' · Project prompt':(runEngine(run)?run.skill+' · '+runEngine(run):run.skill)
 // A macro skill run has no task: its executions group under the macro.
 const macroRun=run=>!!run?.macroKey
 // Archiving a ticket task removes its worktrees first (#755); a free console or a macro run has none.
@@ -172,11 +175,22 @@ let updateSettingsConnection=null
 let opened=false,selected=null,runs=[],last='',stopping=false,restarting=false,projects=[],projectsLoaded=false
 // Whether the local agent attaches a folder from a run (#676), read with the
 // editor setting from its status.
-let runFoldersAvailable=false,runFoldersTerminalsAvailable=false,conversationControlsAvailable=false,conversationQueueAvailable=false,claudeModels=[]
-const conversation=createConversationView({api,container:document.querySelector('#terminal'),onError:error,canAddFolder:()=>runFoldersAvailable,canControl:()=>conversationControlsAvailable,canQueue:()=>conversationQueueAvailable,models:()=>claudeModels})
+let runFoldersAvailable=false,runFoldersTerminalsAvailable=false,conversationControlsAvailable=false,conversationQueueAvailable=false,providerModels={}
+const conversation=createConversationView({api,container:document.querySelector('#terminal'),onError:error,canAddFolder:()=>runFoldersAvailable,canControl:()=>conversationControlsAvailable,canQueue:()=>conversationQueueAvailable,models:provider=>providerModels[provider]||[]})
+const conversationButton=document.createElement('button')
+conversationButton.type='button';conversationButton.textContent='Claude chat (test)';conversationButton.hidden=true
 // The conversation view is opt-in from Appearance; the terminal stays the default.
 let consoleView='terminal'
 api.consoleView().then(value=>{consoleView=value;render()}).catch(()=>{})
+conversationButton.title='Start an independent conversation in this execution’s directory'
+document.querySelector('#save-log').before(conversationButton)
+conversationButton.onclick=async()=>{
+ conversationButton.disabled=true
+ try{
+  const run=await api.createConversation(selected)
+  runs.push(run);select(run)
+ }catch(err){error(err)}finally{conversationButton.disabled=false}
+}
 // "Add folder…" on a running ticket discussion or free console, in Sectile or
 // detached to the native terminal (#676, #689): the folder joins the project,
 // and the agent types /add-dir into a Claude Code session.
@@ -279,9 +293,8 @@ function updateStartControl(){
  button.textContent=startPending?'Starting…':stored?'Start local agent':'Connect'
  renderStartForm(stored);renderSettingsAgent()
 }
-let lastStored
 function renderStartForm(stored){
- const pair=connectForm.querySelector('#pair-again');pair.querySelector('summary').hidden=!stored;if(stored!==lastStored){pair.open=!stored;lastStored=stored}
+ const pair=connectForm.querySelector('#pair-again');pair.hidden=stored&&!connectForm.closest('#settings-panel-Connection')
  document.querySelector('#setup-intro').textContent=stored?'This workstation is paired. Start the local agent to run tasks and reconnect your AI engines.':'Sign in with your browser, or, in the Sectile web interface, under your profile, choose Pair a workstation and paste the code here. A code is single use and expires within ten minutes.'
  // A refusal stays said while a sign-in after it waits or fails: the two are shown together, the refusal first (#717).
  setStartReason([pairingReason,startReason].filter(Boolean).join(' '))
@@ -311,7 +324,7 @@ function ready(){
  if(!document.querySelector('#connection a'))connectionStatus({text:'Local agent connected'})
  if(!opened){terminal.open(document.querySelector('#terminal'));opened=true;resize()}
  // A Claude Code entry with a key this workstation does not use is reported once per launch (#716).
- if(!claudeChecked){claudeChecked=true;api.mcpConfig('claude').then(info=>{if(info?.needsRepair)error("Claude Code's sectile MCP entry uses a key this workstation does not use. Open Settings → Execution defaults → MCP configuration to repair it.")}).catch(()=>{claudeChecked=false})}
+ if(!claudeChecked){claudeChecked=true;api.mcpConfig('claude').then(info=>{if(info?.needsRepair)error("Claude Code's sectile MCP entry uses a key this workstation does not use. Open Settings → Deployment → MCP configuration to repair it.")}).catch(()=>{claudeChecked=false})}
 }
 function select(run,background=false,options){
  if(hiddenProject(run.projectId))return
@@ -476,7 +489,7 @@ async function loadEditorSetting(){
   conversationControlsAvailable=!!status.capabilities?.includes('conversation-controls')
   conversationQueueAvailable=!!status.capabilities?.includes('conversation-queue')
   configuredEditor=String(view?.defaults?.editorCommand||'').trim()
-  if(view)claudeModels=Array.isArray(view.defaults?.aiProviderModels?.claude)?view.defaults.aiProviderModels.claude:[]
+  if(view)providerModels=view.defaults?.aiProviderModels||{}
   if(view)renderCustomSkillSignal(view.customSkillsUsed)
  }catch{openEditorAvailable=false;projectTerminalAvailable=false;runFoldersAvailable=false;runFoldersTerminalsAvailable=false;conversationControlsAvailable=false;conversationQueueAvailable=false;configuredEditor=''}
  renderOpenEditor();render({deferrable:true})
@@ -803,6 +816,8 @@ function render(options){
  renderTaskSkillStatuses()
  document.querySelector('#clear-history').disabled=!runs.some(run=>['completed','failed','canceled'].includes(run.status))
  const current=runs.find(run=>run.id===selected)
+ conversationButton.textContent=current?.provider==='codex'?'Codex chat (test)':'Claude chat (test)'
+ conversationButton.hidden=consoleView!=='conversation'||!current?.directory||!!current.conversation||!agentConnected
  addFolderButton.hidden=!agentConnected||!!current?.conversation||!offersRunFolder(current,runFoldersAvailable,runFoldersTerminalsAvailable)
  // The outcome belongs to the run it was given for.
  if(addFolderRun!==selected){addFolderRun=null;addFolderStatus.textContent=''}
@@ -900,10 +915,10 @@ async function refresh(){
 }
 async function startLocalAgent(form){
  if(startPending)return
- startPending=true;startReason=credential.state==='present'&&!form.querySelector('#pair-again').open?'Starting the local agent with the saved key…':'';updateStartControl()
+ startPending=true;startReason=credential.state==='present'&&form.querySelector('#pair-again').hidden?'Starting the local agent with the saved key…':'';updateStartControl()
  try{
   // A closed disclosure still contributes its inputs to FormData: its code is dropped explicitly.
-  const values=Object.fromEntries(new FormData(form));if(!form.querySelector('#pair-again').open)values.code=''
+  const values=Object.fromEntries(new FormData(form));if(form.querySelector('#pair-again').hidden)values.code=''
   const result=await api.start(values)
   if(result?.needsPairing){pairingReason=result.needsPairing;startReason='';return}
   form.elements.code.value='';pairingReason='';startReason='';credential=await api.credentialState();document.querySelector('#error').textContent='';ready();await refresh()
@@ -1067,7 +1082,7 @@ document.querySelector('#clear-history').onclick=async()=>{
 const dialog=document.querySelector('#project-dialog'),dialogBody=document.querySelector('#dialog-body')
 const dialogFooter=document.querySelector('.dialog-footer')
 let configurationPage=null,configurationGeneration=0,configurationHidden=null,expandedConfigurationProject=null
-function returnConnectForm(){if(connectForm.parentElement!==document.querySelector('#setup'))document.querySelector('#setup').append(connectForm)}
+function returnConnectForm(){if(connectForm.parentElement!==document.querySelector('#setup'))document.querySelector('#setup').append(connectForm);renderStartForm(credential.state==='present'&&!pairingReason)}
 document.querySelector('#close-dialog').onclick=()=>dialog.close()
 // The footer carries only the actions a dialog puts there, so it stays out of
 // the way until one does: a bar whose single button repeated the cross is one
@@ -1104,6 +1119,7 @@ function showDialog(title){
 // the page shell alone owns entering, leaving and restoring the workspace.
 function showConfiguration(title){
  if(configurationPage){
+  configurationPage.searchCleanup?.()
   configurationGeneration++
   updateSettingsConnection=null
   returnConnectForm()
@@ -1134,7 +1150,7 @@ function showConfiguration(title){
 function closeConfiguration(){
  if(!configurationPage)return
  configurationGeneration++
- const page=configurationPage;configurationPage=null
+ const page=configurationPage;page.searchCleanup?.();configurationPage=null
  updateSettingsConnection=null
  returnConnectForm()
  dialog.append(dialogBody,dialogFooter)
@@ -1541,7 +1557,7 @@ function enginesSection(){
 // setting, read from and written through the local agent (#305). The agent is
 // the only writer of these sections, so without it the panel says the settings
 // are unavailable rather than writing the file itself.
-function executionDefaultsPanel(panel){
+function executionDefaultsPanel(panel,modelPanels){
  const unavailable=document.createElement('p');unavailable.className='execution-unavailable';unavailable.setAttribute('role','status');unavailable.hidden=true
  const body=document.createElement('div');body.className='execution-defaults';body.hidden=true
  let view=null
@@ -1549,15 +1565,19 @@ function executionDefaultsPanel(panel){
  const stated={}
  const changed=()=>{notice.textContent='';notice.dataset.tone=''}
 
- // The MCP configuration below is per provider: this picks which one.
+ // Deployment configures MCP per provider: this selects its target CLI.
  const providerSelect=document.createElement('select');providerSelect.className='provider-select';providerSelect.setAttribute('aria-label','MCP provider')
  providerOptions(providerSelect)
 
  // The models a launch may pick, per provider. A provider without a list of
  // its own offers the one Sectile ships; editing it creates the list.
- const listsBox=document.createElement('div');listsBox.className='provider-model-lists'
  const listInputs={}
- const listsRow=settingRow('Models offered per provider',{stacked:true},listsBox)
+ const modelHosts={}
+ for(const [id,target] of Object.entries(modelPanels)){
+  const host=document.createElement('div');host.className='provider-model-lists';host.dataset.provider=id
+  const title=document.createElement('h3');title.textContent=({agy:'Antigravity',claude:'Claude',codex:'Codex'})[id]
+  target.append(title,host);modelHosts[id]=host
+ }
 
  const terminal=terminalPicker(()=>{changed();render()})
  const terminalRow=settingRow('Terminal emulator',{resetLabel:'Reset terminal emulator to default',onReset:()=>{terminal.set('');render()}},terminal.select,terminal.custom)
@@ -1584,16 +1604,7 @@ function executionDefaultsPanel(panel){
  const parallelRow=settingRow('Parallel executions',{resetLabel:'Reset parallel executions to default',onReset:()=>{parallelism=0;render()}},parallelInput,parallelReadout)
 
  let setupProviders=null
- const setupBox=document.createElement('div');setupBox.className='setup-providers'
- const setupChecks={}
- const setupRow=settingRow('Extra setup providers',{resetLabel:'Reset setup providers to default',onReset:()=>{setupProviders=null;render()}},setupBox)
- const initializationProvider=document.createElement('select');initializationProvider.setAttribute('aria-label','Initialization provider')
- for(const provider of SETUP_PROVIDERS.slice().sort()){
-  const option=document.createElement('option');option.value=provider;option.textContent=provider;initializationProvider.append(option)
- }
- const initializationRow=settingRow('Initialization provider',{},initializationProvider)
- initializationRow.hint.textContent='Provider used when initializing any project on this workstation.'
- const globalCommands=entryList({keyLabel:'Skill',valueLabel:'Command for skill',addLabel:'Add a skill command',validate:validSkillCommand,onChange:changed,placeholder:()=> 'Standard command'})
+ const globalCommands=skillCommandMapping({validate:validSkillCommand,onChange:changed})
  const commandsRow=settingRow('Skill command names',{stacked:true,resetLabel:'Reset skill command names to the standard ones',onReset:()=>{globalCommands.set({});changed()}},globalCommands.box)
  commandsRow.hint.textContent='Commands used for all projects on this workstation. Empty entries run the standard command.'
  // Which skill a dispatch runs (#267): a project's edited skill, or the one
@@ -1634,21 +1645,11 @@ function executionDefaultsPanel(panel){
   }
   customUsed.hidden=!list.length
  }
- function renderSetupChoices(choices){
-  setupBox.replaceChildren()
-  for(const id of choices){
-   const label=document.createElement('label');label.className='checkbox-label'
-   const box=document.createElement('input');box.type='checkbox';box.setAttribute('aria-label','Set up '+id)
-   box.onchange=()=>{setupProviders=Object.entries(setupChecks).filter(([,input])=>input.checked).map(([key])=>key);changed();render()}
-   setupChecks[id]=box;label.append(box,document.createTextNode(' '+id));setupBox.append(label)
-  }
- }
-
  const notice=document.createElement('p');notice.setAttribute('role','status');notice.className='workstation-notice'
  const save=document.createElement('button');save.type='button';save.className='dialog-action primary';save.textContent='Save execution defaults'
  const actions=document.createElement('div');actions.className='deployment-actions';actions.style.marginTop='16px'
  actions.append(save,notice)
- body.append(listsRow.section,terminalRow.section,editorRow.section,worktreeRow.section,parallelRow.section,setupRow.section,initializationRow.section,commandsRow.section,customRow.section,sourceRow.section,actions)
+ body.append(terminalRow.section,editorRow.section,worktreeRow.section,parallelRow.section,commandsRow.section,customRow.section,sourceRow.section,actions)
 
  function hint(row,set,defaultText,setText){row.hint.textContent=set?(setText||'Workstation default'):'Default · '+defaultText}
  function render(){
@@ -1665,8 +1666,6 @@ function executionDefaultsPanel(panel){
   parallelInput.value=String(limit)
   parallelReadout.textContent=limit+(limit===1?' execution':' executions')
   hint(parallelRow,parallelism!==0,DEFAULT_PARALLELISM+' executions')
-  for(const [id,box] of Object.entries(setupChecks))box.checked=!!setupProviders?.includes(id)
-  setupRow.hint.textContent=setupProviders===null?'Default · None beyond the provider':setupProviders.length?'Workstation default':'Workstation default · None'
   const customWins=customSkillsWin??true
   customButtons.forEach((button,i)=>button.setAttribute('aria-pressed',String(customWins===(i===0))))
   hint(customRow,customSkillsWin!==null,'Yes')
@@ -1676,12 +1675,9 @@ function executionDefaultsPanel(panel){
 
  function fill(){
   const defaults=view.defaults||{}
-  initializationProvider.value=defaults.initializationProvider||DEFAULT_PROVIDER
-  globalCommands.set(defaults.skillCommands||{})
+  globalCommands.set(defaults.skillCommands||{},view.skillCommands||[])
   const globalAvailable=view.globalConfiguration===true
-  initializationProvider.disabled=!globalAvailable
   for(const input of commandsRow.section.querySelectorAll('input,button,select'))input.disabled=!globalAvailable
-  initializationRow.hint.textContent=globalAvailable?'Provider used when initializing any project on this workstation.':'Update and restart the local agent to edit global initialization settings.'
   commandsRow.hint.textContent=globalAvailable?'Commands used for all projects on this workstation. Empty entries run the standard command.':'Update and restart the local agent to edit global skill command names.'
   // An agent that predates #510 names its provider directly.
   const provider=view.effective?.defaultEngine?.provider||view.effective?.aiProvider||DEFAULT_PROVIDER
@@ -1696,32 +1692,46 @@ function executionDefaultsPanel(panel){
   installedSkillSource=defaults.installedSkillSource||''
   renderCustomSkillsUsed(Array.isArray(view.customSkillsUsed)?view.customSkillsUsed:[])
   renderCustomSkillSignal(view.customSkillsUsed)
-  renderSetupChoices(view.setupProviders?.length?view.setupProviders:SETUP_PROVIDERS)
-  listsBox.replaceChildren()
+  for(const host of Object.values(modelHosts))host.replaceChildren()
   for(const key of Object.keys(listInputs))delete listInputs[key]
-  const providers=[...new Set([...Object.keys(view.providerModels||{}),...Object.keys(defaults.aiProviderModels||{})])].sort()
+  const providers=[...new Set([...Object.keys(modelPanels),...Object.keys(view.providerModels||{}),...Object.keys(defaults.aiProviderModels||{})])].sort()
   for(const id of providers){
+   if(!modelHosts[id])continue
    const input=document.createElement('input');input.type='text';input.className='model-input';input.setAttribute('aria-label','Models offered for '+id)
    const own=defaults.aiProviderModels&&Object.prototype.hasOwnProperty.call(defaults.aiProviderModels,id)
    stated['models:'+id]=!!own
    input.value=own?(defaults.aiProviderModels[id]||[]).join(', '):''
    input.oninput=()=>{stated['models:'+id]=true;changed();render()}
-   const row=settingRow(id,{resetLabel:'Reset '+id+' models to the shipped list',onReset:()=>{stated['models:'+id]=false;render()}},input)
-   listInputs[id]={input,row};listsBox.append(row.section)
+   const row=settingRow('Models offered',{resetLabel:'Reset '+id+' models to the shipped list',onReset:()=>{stated['models:'+id]=false;render()}},input)
+   listInputs[id]={input,row}
+   const modelNotice=document.createElement('p');modelNotice.setAttribute('role','status')
+   const modelSave=document.createElement('button');modelSave.type='button';modelSave.className='dialog-action primary';modelSave.textContent='Save models'
+   modelSave.onclick=async()=>{
+    const models=parseModelList(input.value),custom=stated['models:'+id]
+    if(custom&&models.some(model=>!validateModel(model))){modelNotice.textContent='Invalid model in the list of '+id;return}
+    modelSave.disabled=true;modelNotice.textContent='Saving…'
+    try{
+     const latest=await api.workstationSettings()
+     const defaults={...latest.defaults,aiProviderModels:{...latest.defaults?.aiProviderModels}}
+     if(custom)defaults.aiProviderModels[id]=models
+     else delete defaults.aiProviderModels[id]
+     await api.saveWorkstationSettings(defaults)
+     view.defaults.aiProviderModels=defaults.aiProviderModels
+     modelNotice.textContent='Models saved'
+    }catch(err){modelNotice.textContent='Not saved: '+ipcMessage(err)}
+    finally{modelSave.disabled=false}
+   }
+   modelHosts[id].append(row.section,modelSave,modelNotice)
   }
   render()
  }
  function state(){
-  const lists={}
-  for(const [id,entry] of Object.entries(listInputs))if(stated['models:'+id])lists[id]=parseModelList(entry.input.value)
   return {
-   terminal:terminal.get(),editorCommand:editor.get(),useWorktrees,parallelism,setupProviders,aiProviderModels:lists,customSkillsWin,installedSkillSource,...(view.globalConfiguration?{skillCommands:compact(globalCommands.get()),initializationProvider:initializationProvider.value}:{})
+   terminal:terminal.get(),editorCommand:editor.get(),useWorktrees,parallelism,setupProviders,customSkillsWin,installedSkillSource,...(view.globalConfiguration?{skillCommands:compact(globalCommands.get())}:{})
   }
  }
  save.onclick=async()=>{
   if(globalCommands.invalid()){notice.textContent='A skill command name is a single word, optionally led by / and by a plugin name such as sectile:.';notice.dataset.tone='error';return}
-  const invalidList=Object.entries(listInputs).find(([id,entry])=>stated['models:'+id]&&parseModelList(entry.input.value).some(model=>!validateModel(model)))
-  if(invalidList){notice.textContent='Invalid model in the list of '+invalidList[0];notice.dataset.tone='error';return}
   save.disabled=true;notice.textContent='Saving…';notice.dataset.tone=''
   try{
    const current=state(),saved=JSON.stringify(current)
@@ -1760,12 +1770,12 @@ function executionDefaultsPanel(panel){
 // a project's: one dialog, a category per surface. The header carried three
 // unrelated controls for these; the sidebar now carries one.
 const SETTINGS_CATEGORIES=[
- {id:'Profile',label:'User profile',icon:'<circle cx="12" cy="8" r="4"/><path d="M4 21v-2a8 8 0 0 1 16 0v2"/>'},
- {id:'Appearance',label:'Appearance',icon:'<circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 0 0 18Z" fill="currentColor"/>'},
+ {id:'Profile',label:'General',icon:'<circle cx="12" cy="8" r="4"/><path d="M4 21v-2a8 8 0 0 1 16 0v2"/>'},
  {id:'Connection',label:'Agent connection',icon:'<path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="3"/><circle cx="15" cy="17" r="3"/>'},
  {id:'AgentCli',label:'Execution defaults',icon:'<rect x="3" y="4" width="18" height="16" rx="2"/><path d="m7 9 3 3-3 3M12 15h5"/>'},
  {id:'Engines',label:'AI engines',icon:'<rect x="4" y="8" width="16" height="11" rx="3"/><path d="M12 4v4M9 13h.01M15 13h.01"/>'},
  {id:'Sandbox',label:'Claude settings',mark:'claude'},
+ {id:'Codex',label:'Codex settings',icon:'<path fill="currentColor" stroke="none" fill-rule="evenodd" d="'+OPENAI_MARK_PATH+'"/>'},
  {id:'Deployment',label:'Deployment',icon:'<path d="M12 20V7m0 0 4 4m-4-4-4 4"/><path d="M5 4h14"/>'},
  {id:'Logs',label:'Agent logs',icon:'<path d="M14 3H7a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V7Z"/><path d="M14 3v4h4"/><path d="M9 13h6M9 17h6"/>'},
  {id:'Changelog',label:'Changelog',icon:'<circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 8h.01"/>'}
@@ -1867,7 +1877,7 @@ function workstationSandboxPanel(panel){
  }
  return {load}
 }
-function deploymentPanel(panel){
+function deploymentPanel(panel,mcpSection){
  const globalTitle=document.createElement('h3');globalTitle.textContent='Global AI engine setup'
  const globalHint=document.createElement('p');globalHint.textContent='Install Sectile’s skills and register its MCP server in your user configuration for the selected engine’s provider, each on its own. Engines sharing a provider share this installation. This setup is optional: for Claude, installing the sectile plugin does both, and a dispatch never installs anything.'
  const engine=document.createElement('select');engine.setAttribute('aria-label','Setup AI engine')
@@ -1929,6 +1939,7 @@ function deploymentPanel(panel){
   }catch(err){if(panel.isConnected)mcpResult.textContent='Registration failed: '+ipcMessage(err)}
   finally{enable()}
  }
+ if(mcpSection)panel.append(mcpSection)
  const localTitle=document.createElement('h3');localTitle.textContent='Local project SDD setup'
  const localHint=document.createElement('p');localHint.textContent='Install the project’s SDD framework in its local repository. This does not install global engine skills or MCP.'
  panel.append(localTitle,localHint)
@@ -1957,6 +1968,7 @@ function deploymentPanel(panel){
  panel.append(actions,notice,results)
 }
 function openSettings(initial='Profile',project){
+ if(initial==='Appearance')initial='Profile'
  showConfiguration('Configuration')
  const generation=configurationGeneration
  const layout=document.createElement('div');layout.className='settings-layout workstation-settings'
@@ -2020,20 +2032,20 @@ function openSettings(initial='Profile',project){
  }
  const appearance=settingRow('Theme',null,appearanceGroup)
  appearance.hint.textContent='System follows the appearance of this computer. The web interface keeps its own theme.'
- panels.Appearance.append(appearance.section)
+ panels.Profile.append(appearance.section)
  const viewGroup=document.createElement('div');viewGroup.className='segmented'
- viewGroup.setAttribute('role','group');viewGroup.setAttribute('aria-label','Claude consoles')
+ viewGroup.setAttribute('role','group');viewGroup.setAttribute('aria-label','AI consoles')
  const markView=value=>{for(const button of viewGroup.children)button.setAttribute('aria-pressed',String(button.dataset.value===value))}
  for(const choice of CONSOLE_VIEW_CHOICES){
   const button=document.createElement('button');button.type='button';button.textContent=choice.label;button.dataset.value=choice.value
   button.onclick=()=>api.setConsoleView(choice.value).then(value=>{consoleView=value;markView(value);showConversationMode();render()}).catch(error)
   viewGroup.append(button)
  }
- const view=settingRow('Claude consoles',null,viewGroup)
- view.hint.textContent='Conversation opens Claude project prompts in a structured view instead of a terminal (experimental). Other engines and custom launch commands keep the terminal.'
- panels.Appearance.append(view.section)
- // The permission mode new conversations start in sits under the view that
- // opens them: it only means something in the conversation view, and only to
+ const view=settingRow('AI consoles',null,viewGroup)
+ view.hint.textContent='Conversation opens Claude and Codex interactive launches in a structured view (experimental). Other engines keep the terminal.'
+ panels.Profile.append(view.section)
+ // Claude settings holds the initial conversation permission mode. It applies
+ // only in the conversation view, and only to
  // an agent that applies it, so it is disabled otherwise and says why.
  const modeSelect=document.createElement('select');modeSelect.setAttribute('aria-label','Conversation permission mode')
  for(const choice of CONVERSATION_MODE_CHOICES){const option=document.createElement('option');option.value=choice.value;option.textContent=choice.label;modeSelect.append(option)}
@@ -2044,11 +2056,11 @@ function openSettings(initial='Profile',project){
  const showConversationMode=()=>{
   modeSelect.disabled=!conversationModeSupported||consoleView!=='conversation'
   conversationMode.hint.textContent=!conversationModeSupported?'Update and restart the local agent to choose the mode new conversations start in.'
-   :consoleView!=='conversation'?'Applies to Claude conversations: choose Conversation above to use it.'
+   :consoleView!=='conversation'?'Applies to Claude conversations: choose Conversation in General to use it.'
    :'What Claude may do without asking in the first message of every new conversation, including the skills and prompts you launch in it. The composer changes it from the next message.'
  }
  modeSelect.onchange=()=>api.setConversationMode(modeSelect.value).then(value=>{modeSelect.value=value}).catch(error)
- panels.Appearance.append(conversationMode.section)
+ panels.Sandbox.prepend(conversationMode.section)
  showConversationMode()
  api.conversationMode().then(value=>{if(configurationActive()&&generation===configurationGeneration)modeSelect.value=value}).catch(()=>{})
  api.status().then(status=>{
@@ -2060,18 +2072,34 @@ function openSettings(initial='Profile',project){
  api.appearance().then(value=>{if(configurationActive()&&generation===configurationGeneration)markAppearance(value)}).catch(()=>{})
 
  // Execution defaults: the workstation level of every execution setting,
- // owned by the local agent. The MCP connection choice follows its provider.
- const execution=executionDefaultsPanel(panels.AgentCli)
+ // owned by the local agent. Deployment contains the MCP configuration.
  const engines=enginesSection()
  engines.section.querySelector('h3').remove()
  panels.Engines.append(engines.section)
+ const offeredModels=document.createElement('section')
+ const modelsTitle=document.createElement('h2');modelsTitle.textContent='Models offered'
+ offeredModels.append(modelsTitle);panels.Engines.append(offeredModels)
+ const execution=executionDefaultsPanel(panels.AgentCli,{agy:offeredModels,claude:offeredModels,codex:offeredModels})
  engines.load().catch(()=>{})
+ const codexReviewer=document.createElement('select');codexReviewer.setAttribute('aria-label','Approval reviewer')
+ for(const [value,label] of [['user','Ask me'],['auto_review','Approve on my behalf']]){const option=document.createElement('option');option.value=value;option.textContent=label;codexReviewer.append(option)}
+ const codexRow=settingRow('Approval reviewer',null,codexReviewer)
+ codexRow.hint.textContent='Applies to Codex conversations from the next message. Automatic review may approve or deny eligible requests; the sandbox stays active.'
+ let savedCodexReviewer='user'
+ const codexNotice=document.createElement('p');codexNotice.setAttribute('role','status');codexReviewer.disabled=true
+ panels.Codex.append(codexRow.section,codexNotice)
+ api.codexSettings().then(value=>{if(configurationActive()&&generation===configurationGeneration){savedCodexReviewer=value.approvalsReviewer;codexReviewer.value=savedCodexReviewer;codexReviewer.disabled=false}}).catch(()=>{if(panels.Codex.isConnected)codexNotice.textContent='Start or update the local agent to edit Codex settings.'})
+ codexReviewer.onchange=async()=>{
+  codexReviewer.disabled=true;codexNotice.textContent='Saving…';codexNotice.dataset.tone=''
+  try{const value=await api.saveCodexSettings({approvalsReviewer:codexReviewer.value});savedCodexReviewer=value.approvalsReviewer;codexReviewer.value=savedCodexReviewer;codexNotice.textContent='Codex settings saved'}
+  catch(err){codexReviewer.value=savedCodexReviewer;codexNotice.textContent='Not saved: '+ipcMessage(err);codexNotice.dataset.tone='error'}
+  finally{codexReviewer.disabled=false}
+ }
  const workstationSandbox=workstationSandboxPanel(panels.Sandbox)
  workstationSandbox.load().catch(()=>{})
  const mcpPanel=mcpSettings(api,execution.providerSelect)
  mcpPanel.section.insertBefore(settingRow('Provider',null,execution.providerSelect).section,mcpPanel.section.children[1])
- panels.AgentCli.append(mcpPanel.section)
- deploymentPanel(panels.Deployment)
+ deploymentPanel(panels.Deployment,mcpPanel.section)
 
  const agentState=readOnlyRow('Local agent','The agent process this desktop talks to.')
  const agentActions=document.createElement('span');agentActions.className='settings-agent-actions'
@@ -2134,6 +2162,7 @@ function openSettings(initial='Profile',project){
 
  selectCategory(SETTINGS_CATEGORIES.some(category=>category.id===initial)?initial:'Profile')
  configurationNavigation(tabs)
+ configurationPage.searchCleanup=installSettingsSearch({tabs,content,panels,categories:SETTINGS_CATEGORIES,selectCategory})
  // The connection facts come from two sources the agent answers separately, and
  // a stopped agent still has a paired server to report: the stored settings fill
  // the panel first, the live status refines it when the agent answers.
@@ -2149,6 +2178,7 @@ function openSettings(initial='Profile',project){
   pairing.hint.textContent=stored.token
    ?'This workstation is paired. Pasting a new code re-pairs it.'
    :'Sign in with your browser, or, in the web interface, under your profile, choose Pair a workstation and paste the code here.'
+  renderStartForm(credential.state==='present'&&!pairingReason)
   pairingNote.textContent=agentConnected?'Stop the local agent before connecting it to another server.':''
   // The agent answers for the execution defaults; a start or a stop from the
   // connection panel reloads them, so the panel follows the agent's state.
@@ -2168,6 +2198,7 @@ function openSettings(initial='Profile',project){
   renderAgentActions()
   link.control.dataset.state=agentConnected&&status.connected?'on':'off'
   link.value.textContent=!agentConnected?'Unreachable':status.connected?'Connected':status.contractError?'Server incompatible':'Server disconnected'
+  renderStartForm(credential.state==='present'&&!pairingReason)
   pairingNote.textContent=agentConnected?'Stop the local agent before connecting it to another server.':''
  }
  fill()
@@ -2398,6 +2429,7 @@ async function openProject(id,initial='Remove'){
   }
   selectCategory(PROJECT_SETTINGS_CATEGORIES.some(category=>category.id===initial)?initial:'Remove')
   configurationNavigation(tabs,id)
+  configurationPage.searchCleanup=installSettingsSearch({tabs,content,panels,categories:PROJECT_SETTINGS_CATEGORIES,selectCategory})
   const path=document.createElement('input');path.value=info.path||'';path.required=true;path.placeholder='/path/to/repository';path.setAttribute('aria-label','Local repository')
   const browse=document.createElement('button');browse.type='button';browse.textContent='Choose folder…'
   browse.onclick=async()=>{try{const selected=await api.chooseRepository();if(selected){path.value=selected;pathOffer.examine()}}catch(err){error(err)}}
@@ -2625,21 +2657,7 @@ async function openProject(id,initial='Remove'){
   // The providers set up beside the one that runs, when a project is
   // initialized. An empty list is the statement "none".
   let setupProviders=Array.isArray(fields.setupProviders.value)?[...fields.setupProviders.value]:[],inheritSetupProviders=inherits('setupProviders')
-  const setupBox=document.createElement('div');setupBox.className='setup-providers'
-  const setupChecks={}
-  for(const provider of wsView?.setupProviders?.length?wsView.setupProviders:SETUP_PROVIDERS){
-   const label=document.createElement('label');label.className='checkbox-label'
-   const box=document.createElement('input');box.type='checkbox';box.setAttribute('aria-label','Set up '+provider)
-   box.onchange=()=>{setupProviders=Object.entries(setupChecks).filter(([,input])=>input.checked).map(([key])=>key);inheritSetupProviders=false;updateSetup()}
-   setupChecks[provider]=box;label.append(box,document.createTextNode(' '+provider));setupBox.append(label)
-  }
-  const resetSetup=()=>{setupProviders=[...(fields.setupProviders.inherited||[])];inheritSetupProviders=true;updateSetup()}
-  const setupRow=settingRow('Extra setup providers',{resetLabel:'Reset setup providers to workstation default',onReset:resetSetup},setupBox)
-  function updateSetup(){
-   for(const [provider,box] of Object.entries(setupChecks))box.checked=setupProviders.includes(provider)
-   setupRow.hint.textContent=hintFor('setupProviders',inheritSetupProviders,'None')
-  }
-  updateSetup()
+  const resetSetup=()=>{setupProviders=[...(fields.setupProviders.inherited||[])];inheritSetupProviders=true}
 
   // The project default engine (#510): an engine of the workstation catalogue,
   // or the workstation default engine. Engines themselves are edited in
@@ -2699,12 +2717,12 @@ async function openProject(id,initial='Remove'){
    if(inheritSetupProviders)resetSetup()
    if(inheritTerminal)resetTerminal()
    fillEngines()
-   update();updateSetup();updateEngine();updateTerminal()
+   update();updateEngine();updateTerminal()
   }
 
   const notice=document.createElement('p');notice.setAttribute('role','status')
   panels.General.append(repository.section,macroSpec.row.section,issueSpec.row.section,repositoriesRow.section,foldersRow.section,anyRepositoryRow.section)
-  panels.Execution.append(controls.worktrees.section,controls.specArtifacts.section,controls.parallel.section,terminalRow.section,setupRow.section)
+  panels.Execution.append(controls.worktrees.section,controls.specArtifacts.section,controls.parallel.section,terminalRow.section)
   // What the project's Claude Code sessions are allowed (#700). An agent that
   // predates it sends no values, and the save sends none back.
   // The workstation values it inherits come with it (#730); an agent that
@@ -3150,7 +3168,7 @@ async function submitTicketLaunch(view,entry,skillId,prompt,mode){
  view.submitting.add(entry.task.id);updateTicketRow(view,entry)
  view.status.textContent='Submitting execution for '+key+'…'
  try{
-  // An interactive launch follows the Claude consoles preference; the agent
+  // An interactive launch follows the AI consoles preference; the agent
   // falls back to the terminal for an engine that cannot hold a conversation.
   await api.launchServerTask(view.projectID,entry.task.id,skillId,prompt,mode,false,consoleView)
   view.status.textContent='Execution submitted for '+key

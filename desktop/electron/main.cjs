@@ -422,6 +422,8 @@ ipcMain.handle('save-workstation-settings',(_,defaults)=>{
  return api('/desktop/workstation','PUT',defaults)
 })
 // The workstation Sandbox values and their project whitelist (#730).
+ipcMain.handle('codex-settings',()=>api('/desktop/codex-settings'))
+ipcMain.handle('save-codex-settings',(_,values)=>api('/desktop/codex-settings','PUT',values))
 ipcMain.handle('workstation-sandbox',()=>api('/desktop/workstation/sandbox'))
 ipcMain.handle('save-workstation-sandbox',(_,values)=>{
  if(!values||typeof values!=='object'||Array.isArray(values))throw Error('Invalid Sandbox settings')
@@ -583,7 +585,8 @@ ipcMain.handle('git-diff',async(_,id)=>{
 ipcMain.handle('runs',()=>api('/desktop/runs'))
 ipcMain.handle('create-conversation',async(_,sourceRunId)=>{
  const status=await api('/desktop/status')
- if(!status.capabilities?.includes('claude-conversation'))throw Error('Update and restart the local agent to try Claude conversations.')
+ const source=(await api('/desktop/runs')).find(run=>run.id===sourceRunId)
+ if(!status.capabilities?.includes(source?.provider==='codex'?'codex-conversation':'claude-conversation'))throw Error('Update and restart the local agent to try conversations with this engine.')
  return api('/desktop/conversation','POST',{sourceRunId})
 })
 // since is the version the window already shows: an unchanged history is not sent again.

@@ -271,6 +271,7 @@ func NewServerWithCallers(database *db.DB, sessions *SessionRegistry, resolve Ca
 		options.GetSessionID = sessionIDFor(database.InstanceID())
 	}
 	s := mcp.NewServer(&mcp.Implementation{Name: "sectile", Version: "1.0.0"}, options)
+	addMacroResourceTools(s, database, resolve)
 	// Any message proves the client is alive, whichever tool or protocol method
 	// it invoked, so activity is observed in the one place they all pass
 	// through rather than tool by tool.
