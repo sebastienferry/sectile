@@ -933,7 +933,7 @@ func (d *agentDaemon) desktopProject(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, err.Error(), 500)
 				return
 			}
-			provider = settings.Defaults.InitializationProvider
+			provider = settings.DefaultEngine().Provider
 			if provider == "" {
 				provider = agentconfig.DefaultProvider
 			}

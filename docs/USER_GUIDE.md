@@ -176,4 +176,4 @@ The settings content fills the available width and adapts to window resizing.
 
 ### Provider model lists
 
-Configure the models offered at launch under **Settings → Antigravity settings**, **Claude settings**, or **Codex settings**. Each provider has its own **Models offered** field and **Save models** button. Reset restores the shipped list; saving an empty custom list offers no models. Execution defaults save separately and preserve these choices. Upgrade the local agent together with Desktop.
+Configure the models offered at launch under **Settings → AI engines → Models offered**, grouped by Antigravity, Claude and Codex. Each provider has its own **Models offered** field and **Save models** button. Reset restores the shipped list; saving an empty custom list offers no models. Execution defaults save separately and preserve these choices. Upgrade the local agent together with Desktop.

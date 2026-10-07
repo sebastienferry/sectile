@@ -548,12 +548,15 @@ first start of the upgraded agent, which kept a copy of the previous file
 beside it.
 
 **Settings → Execution defaults** edits the workstation level,
-including **Initialization provider** and **Skill command names**, which apply
-to all projects. Initialization without an explicit provider uses the saved
-initialization provider; Deployment explicitly selects an engine for global setup.
+including **Skill command names**, which apply to all projects. The command mapping
+shows each workflow step, its standard command and an optional custom command.
+Leaving a custom command empty uses the standard one. Initialization
+without an explicit provider uses the **Default AI engine** from **AI engines**;
+Deployment explicitly selects an engine for global setup.
 Existing project command names remain active until workstation command settings
 are saved; saving replaces those project overrides with the global commands.
 These controls require the updated local agent and are disabled on older agents.
+Providers configured in **AI engines** receive skills and MCP setup automatically.
 Other workstation defaults are
 applied to every project without a value of its own. The project settings edit one project:
 each field says whether it is set for the project or inherited, shows the
@@ -706,7 +709,7 @@ one project section is expanded at a time; global settings remain visible.
 Project configuration lists its categories in a side navigation, one panel at a
 time: **General** (Git remote, SDD framework, default engine, removal from the desktop),
 **Folders** (local repositories and specification folders), **Execution**
-(worktrees, parallel executions, terminal emulator, extra setup providers),
+(worktrees, parallel executions, terminal emulator),
 with the project's default engine picked from the workstation catalogue or
 inherited from its default. **General** opens
 first. Use **Choose folder…** to select a repository through the native directory
@@ -955,4 +958,4 @@ Settings use the available width and resize with the application window.
 
 ### Provider model lists
 
-Configure the models offered at launch under **Settings → Antigravity settings**, **Claude settings**, or **Codex settings**. Each provider has its own **Models offered** field and **Save models** button. Reset restores the shipped list; saving an empty custom list offers no models. Execution defaults save separately and preserve these choices. Upgrade the local agent together with Desktop.
+Configure the models offered at launch under **Settings → AI engines → Models offered**, grouped by Antigravity, Claude and Codex. Each provider has its own **Models offered** field and **Save models** button. Reset restores the shipped list; saving an empty custom list offers no models. Execution defaults save separately and preserve these choices. Upgrade the local agent together with Desktop.

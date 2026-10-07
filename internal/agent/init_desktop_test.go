@@ -22,7 +22,7 @@ func TestDesktopInitialization(t *testing.T) {
 		{"success and retry", "claude", "", 200, "success", "success"},
 		{"retired provider", "cursor", "", 400, "", ""},
 		{"invalid provider", "custom", "", 400, "", ""},
-		{"workstation provider", "", "", 200, "success", "success"},
+		{"default engine overrides legacy initialization provider", "", "", 200, "success", "success"},
 		{"busy", "claude", "busy", 409, "", ""},
 		{"unmapped", "claude", "unmapped", 400, "", ""},
 		{"MCP failure", "claude", "mcp", 200, "failed", "not_run"},
@@ -38,7 +38,11 @@ func TestDesktopInitialization(t *testing.T) {
 			server := initMockServer(t, "project", skills)
 			d := &agentDaemon{repoRoot: root, link: serverLink{serverURL: server.URL, token: "test-token", projectID: "project"}, loopback: loopbackServer{desktopToken: "private"}}
 			if tc.provider == "" {
-				_, err := agentconfig.UpdateSettings(d.localSettingsRoot(), func(s *agentconfig.Settings) error { s.Defaults.InitializationProvider = "claude"; return nil })
+				_, err := agentconfig.UpdateSettings(d.localSettingsRoot(), func(s *agentconfig.Settings) error {
+					s.Defaults.InitializationProvider = "codex"
+					s.Engines = agentconfig.Engines{Catalogue: []agentconfig.Engine{{ID: "default-claude", Name: "Claude", Provider: "claude"}}, Default: "default-claude"}
+					return nil
+				})
 				if err != nil {
 					t.Fatal(err)
 				}

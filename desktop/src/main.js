@@ -1,3 +1,4 @@
+import { skillCommandMapping } from './skill-command-mapping.mjs'
 import { installSettingsSearch } from './settings-search.mjs'
 import { pullRequestPresentation, renderPullRequestIndicator, repositoryPullRequests } from './pullRequests.mjs'
 import { installTooltips } from './tooltips.js'
@@ -30,7 +31,7 @@ import { previewLines } from './command-preview.mjs'
 import { sandboxSettings, whitelistEditor } from './sandbox-settings.mjs'
 import { EDITORS, editorChoice, editorLabel } from './editors.mjs'
 import { folderRoleLabel, menuFolders } from './folder-menu.mjs'
-import { PROVIDERS, DEFAULT_PROVIDER, SETUP_PROVIDERS, projectFields, ownEntries, compact, parseModelList, sourceHint, describe, ipcMessage, agentUnreachable, validSkillCommand, workstationPayload } from './execution-fields.mjs'
+import { PROVIDERS, DEFAULT_PROVIDER, projectFields, ownEntries, compact, parseModelList, sourceHint, describe, ipcMessage, agentUnreachable, validSkillCommand, workstationPayload } from './execution-fields.mjs'
 import { runEngine } from './run-engine.mjs'
 import { nextEngine, taskEngine, engineMark, engineTooltip, moveEngine, removalImpact, removalMessage } from './engines.mjs'
 import { pollAction, startEnabled } from './agent-poll.mjs'
@@ -1573,7 +1574,9 @@ function executionDefaultsPanel(panel,modelPanels){
  const listInputs={}
  const modelHosts={}
  for(const [id,target] of Object.entries(modelPanels)){
-  const host=document.createElement('div');host.className='provider-model-lists';target.append(host);modelHosts[id]=host
+  const host=document.createElement('div');host.className='provider-model-lists';host.dataset.provider=id
+  const title=document.createElement('h3');title.textContent=({agy:'Antigravity',claude:'Claude',codex:'Codex'})[id]
+  target.append(title,host);modelHosts[id]=host
  }
 
  const terminal=terminalPicker(()=>{changed();render()})
@@ -1601,16 +1604,7 @@ function executionDefaultsPanel(panel,modelPanels){
  const parallelRow=settingRow('Parallel executions',{resetLabel:'Reset parallel executions to default',onReset:()=>{parallelism=0;render()}},parallelInput,parallelReadout)
 
  let setupProviders=null
- const setupBox=document.createElement('div');setupBox.className='setup-providers'
- const setupChecks={}
- const setupRow=settingRow('Extra setup providers',{resetLabel:'Reset setup providers to default',onReset:()=>{setupProviders=null;render()}},setupBox)
- const initializationProvider=document.createElement('select');initializationProvider.setAttribute('aria-label','Initialization provider')
- for(const provider of SETUP_PROVIDERS.slice().sort()){
-  const option=document.createElement('option');option.value=provider;option.textContent=provider;initializationProvider.append(option)
- }
- const initializationRow=settingRow('Initialization provider',{},initializationProvider)
- initializationRow.hint.textContent='Provider used when initializing any project on this workstation.'
- const globalCommands=entryList({keyLabel:'Skill',valueLabel:'Command for skill',addLabel:'Add a skill command',validate:validSkillCommand,onChange:changed,placeholder:()=> 'Standard command'})
+ const globalCommands=skillCommandMapping({validate:validSkillCommand,onChange:changed})
  const commandsRow=settingRow('Skill command names',{stacked:true,resetLabel:'Reset skill command names to the standard ones',onReset:()=>{globalCommands.set({});changed()}},globalCommands.box)
  commandsRow.hint.textContent='Commands used for all projects on this workstation. Empty entries run the standard command.'
  // Which skill a dispatch runs (#267): a project's edited skill, or the one
@@ -1651,21 +1645,11 @@ function executionDefaultsPanel(panel,modelPanels){
   }
   customUsed.hidden=!list.length
  }
- function renderSetupChoices(choices){
-  setupBox.replaceChildren()
-  for(const id of choices){
-   const label=document.createElement('label');label.className='checkbox-label'
-   const box=document.createElement('input');box.type='checkbox';box.setAttribute('aria-label','Set up '+id)
-   box.onchange=()=>{setupProviders=Object.entries(setupChecks).filter(([,input])=>input.checked).map(([key])=>key);changed();render()}
-   setupChecks[id]=box;label.append(box,document.createTextNode(' '+id));setupBox.append(label)
-  }
- }
-
  const notice=document.createElement('p');notice.setAttribute('role','status');notice.className='workstation-notice'
  const save=document.createElement('button');save.type='button';save.className='dialog-action primary';save.textContent='Save execution defaults'
  const actions=document.createElement('div');actions.className='deployment-actions';actions.style.marginTop='16px'
  actions.append(save,notice)
- body.append(terminalRow.section,editorRow.section,worktreeRow.section,parallelRow.section,setupRow.section,initializationRow.section,commandsRow.section,customRow.section,sourceRow.section,actions)
+ body.append(terminalRow.section,editorRow.section,worktreeRow.section,parallelRow.section,commandsRow.section,customRow.section,sourceRow.section,actions)
 
  function hint(row,set,defaultText,setText){row.hint.textContent=set?(setText||'Workstation default'):'Default · '+defaultText}
  function render(){
@@ -1682,8 +1666,6 @@ function executionDefaultsPanel(panel,modelPanels){
   parallelInput.value=String(limit)
   parallelReadout.textContent=limit+(limit===1?' execution':' executions')
   hint(parallelRow,parallelism!==0,DEFAULT_PARALLELISM+' executions')
-  for(const [id,box] of Object.entries(setupChecks))box.checked=!!setupProviders?.includes(id)
-  setupRow.hint.textContent=setupProviders===null?'Default · None beyond the provider':setupProviders.length?'Workstation default':'Workstation default · None'
   const customWins=customSkillsWin??true
   customButtons.forEach((button,i)=>button.setAttribute('aria-pressed',String(customWins===(i===0))))
   hint(customRow,customSkillsWin!==null,'Yes')
@@ -1693,12 +1675,9 @@ function executionDefaultsPanel(panel,modelPanels){
 
  function fill(){
   const defaults=view.defaults||{}
-  initializationProvider.value=defaults.initializationProvider||DEFAULT_PROVIDER
-  globalCommands.set(defaults.skillCommands||{})
+  globalCommands.set(defaults.skillCommands||{},view.skillCommands||[])
   const globalAvailable=view.globalConfiguration===true
-  initializationProvider.disabled=!globalAvailable
   for(const input of commandsRow.section.querySelectorAll('input,button,select'))input.disabled=!globalAvailable
-  initializationRow.hint.textContent=globalAvailable?'Provider used when initializing any project on this workstation.':'Update and restart the local agent to edit global initialization settings.'
   commandsRow.hint.textContent=globalAvailable?'Commands used for all projects on this workstation. Empty entries run the standard command.':'Update and restart the local agent to edit global skill command names.'
   // An agent that predates #510 names its provider directly.
   const provider=view.effective?.defaultEngine?.provider||view.effective?.aiProvider||DEFAULT_PROVIDER
@@ -1713,7 +1692,6 @@ function executionDefaultsPanel(panel,modelPanels){
   installedSkillSource=defaults.installedSkillSource||''
   renderCustomSkillsUsed(Array.isArray(view.customSkillsUsed)?view.customSkillsUsed:[])
   renderCustomSkillSignal(view.customSkillsUsed)
-  renderSetupChoices(view.setupProviders?.length?view.setupProviders:SETUP_PROVIDERS)
   for(const host of Object.values(modelHosts))host.replaceChildren()
   for(const key of Object.keys(listInputs))delete listInputs[key]
   const providers=[...new Set([...Object.keys(modelPanels),...Object.keys(view.providerModels||{}),...Object.keys(defaults.aiProviderModels||{})])].sort()
@@ -1749,7 +1727,7 @@ function executionDefaultsPanel(panel,modelPanels){
  }
  function state(){
   return {
-   terminal:terminal.get(),editorCommand:editor.get(),useWorktrees,parallelism,setupProviders,customSkillsWin,installedSkillSource,...(view.globalConfiguration?{skillCommands:compact(globalCommands.get()),initializationProvider:initializationProvider.value}:{})
+   terminal:terminal.get(),editorCommand:editor.get(),useWorktrees,parallelism,setupProviders,customSkillsWin,installedSkillSource,...(view.globalConfiguration?{skillCommands:compact(globalCommands.get())}:{})
   }
  }
  save.onclick=async()=>{
@@ -1796,7 +1774,6 @@ const SETTINGS_CATEGORIES=[
  {id:'Connection',label:'Agent connection',icon:'<path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="3"/><circle cx="15" cy="17" r="3"/>'},
  {id:'AgentCli',label:'Execution defaults',icon:'<rect x="3" y="4" width="18" height="16" rx="2"/><path d="m7 9 3 3-3 3M12 15h5"/>'},
  {id:'Engines',label:'AI engines',icon:'<rect x="4" y="8" width="16" height="11" rx="3"/><path d="M12 4v4M9 13h.01M15 13h.01"/>'},
- {id:'Antigravity',label:'Antigravity settings',icon:'<path d="m3 20 9-16 9 16M7 14h10"/>'},
  {id:'Sandbox',label:'Claude settings',icon:'<path fill="currentColor" stroke="none" fill-rule="evenodd" d="'+CLAUDE_MARK_PATH+'"/>'},
  {id:'Codex',label:'Codex settings',icon:'<path fill="currentColor" stroke="none" fill-rule="evenodd" d="'+OPENAI_MARK_PATH+'"/>'},
  {id:'Deployment',label:'Deployment',icon:'<path d="M12 20V7m0 0 4 4m-4-4-4 4"/><path d="M5 4h14"/>'},
@@ -2095,10 +2072,13 @@ function openSettings(initial='Profile',project){
 
  // Execution defaults: the workstation level of every execution setting,
  // owned by the local agent. The MCP connection choice follows its provider.
- const execution=executionDefaultsPanel(panels.AgentCli,{agy:panels.Antigravity,claude:panels.Sandbox,codex:panels.Codex})
  const engines=enginesSection()
  engines.section.querySelector('h3').remove()
  panels.Engines.append(engines.section)
+ const offeredModels=document.createElement('section')
+ const modelsTitle=document.createElement('h2');modelsTitle.textContent='Models offered'
+ offeredModels.append(modelsTitle);panels.Engines.append(offeredModels)
+ const execution=executionDefaultsPanel(panels.AgentCli,{agy:offeredModels,claude:offeredModels,codex:offeredModels})
  engines.load().catch(()=>{})
  const codexReviewer=document.createElement('select');codexReviewer.setAttribute('aria-label','Approval reviewer')
  for(const [value,label] of [['user','Ask me'],['auto_review','Approve on my behalf']]){const option=document.createElement('option');option.value=value;option.textContent=label;codexReviewer.append(option)}
@@ -2677,21 +2657,7 @@ async function openProject(id,initial='Remove'){
   // The providers set up beside the one that runs, when a project is
   // initialized. An empty list is the statement "none".
   let setupProviders=Array.isArray(fields.setupProviders.value)?[...fields.setupProviders.value]:[],inheritSetupProviders=inherits('setupProviders')
-  const setupBox=document.createElement('div');setupBox.className='setup-providers'
-  const setupChecks={}
-  for(const provider of wsView?.setupProviders?.length?wsView.setupProviders:SETUP_PROVIDERS){
-   const label=document.createElement('label');label.className='checkbox-label'
-   const box=document.createElement('input');box.type='checkbox';box.setAttribute('aria-label','Set up '+provider)
-   box.onchange=()=>{setupProviders=Object.entries(setupChecks).filter(([,input])=>input.checked).map(([key])=>key);inheritSetupProviders=false;updateSetup()}
-   setupChecks[provider]=box;label.append(box,document.createTextNode(' '+provider));setupBox.append(label)
-  }
-  const resetSetup=()=>{setupProviders=[...(fields.setupProviders.inherited||[])];inheritSetupProviders=true;updateSetup()}
-  const setupRow=settingRow('Extra setup providers',{resetLabel:'Reset setup providers to workstation default',onReset:resetSetup},setupBox)
-  function updateSetup(){
-   for(const [provider,box] of Object.entries(setupChecks))box.checked=setupProviders.includes(provider)
-   setupRow.hint.textContent=hintFor('setupProviders',inheritSetupProviders,'None')
-  }
-  updateSetup()
+  const resetSetup=()=>{setupProviders=[...(fields.setupProviders.inherited||[])];inheritSetupProviders=true}
 
   // The project default engine (#510): an engine of the workstation catalogue,
   // or the workstation default engine. Engines themselves are edited in
@@ -2751,12 +2717,12 @@ async function openProject(id,initial='Remove'){
    if(inheritSetupProviders)resetSetup()
    if(inheritTerminal)resetTerminal()
    fillEngines()
-   update();updateSetup();updateEngine();updateTerminal()
+   update();updateEngine();updateTerminal()
   }
 
   const notice=document.createElement('p');notice.setAttribute('role','status')
   panels.General.append(repository.section,macroSpec.row.section,issueSpec.row.section,repositoriesRow.section,foldersRow.section,anyRepositoryRow.section)
-  panels.Execution.append(controls.worktrees.section,controls.specArtifacts.section,controls.parallel.section,terminalRow.section,setupRow.section)
+  panels.Execution.append(controls.worktrees.section,controls.specArtifacts.section,controls.parallel.section,terminalRow.section)
   // What the project's Claude Code sessions are allowed (#700). An agent that
   // predates it sends no values, and the save sends none back.
   // The workstation values it inherits come with it (#730); an agent that

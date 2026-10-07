@@ -11,6 +11,7 @@ import (
 
 	"tasks/internal/agentconfig"
 	"tasks/internal/models"
+	"tasks/internal/skills"
 )
 
 // projectSettingsInput is what the desktop project dialog saves. A field left
@@ -260,6 +261,7 @@ func withoutExecution(c agentconfig.Config) agentconfig.Config {
 // workstationView is what the desktop's workstation screen reads.
 type workstationView struct {
 	GlobalConfiguration bool                 `json:"globalConfiguration"`
+	SkillCommands       []map[string]string  `json:"skillCommands"`
 	Defaults            agentconfig.Defaults `json:"defaults"`
 	Effective           workstationEffective `json:"effective"`
 	ProviderModels      map[string][]string  `json:"providerModels"`
@@ -375,8 +377,13 @@ func (d *agentDaemon) workstationViewOf(settings agentconfig.Settings) workstati
 	if terminal == "" {
 		terminal = d.resolveTerminalForProject(context.Background(), "", "")
 	}
+	commandMapping := make([]map[string]string, 0, len(skills.StageSkills))
+	for _, skill := range skills.StageSkills {
+		commandMapping = append(commandMapping, map[string]string{"id": skill.ID, "name": skill.Name, "command": skill.Command})
+	}
 	return workstationView{
 		GlobalConfiguration: true,
+		SkillCommands:       commandMapping,
 		Defaults:            settings.Defaults,
 		Effective: workstationEffective{
 			DefaultEngine: summaryOf(settings.DefaultEngine()),

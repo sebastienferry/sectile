@@ -684,3 +684,11 @@ dialog.quick-add-dialog{width:min(640px,92vw)}
 .settings-search-heading{margin:24px 0 12px;font-size:14px;color:var(--text-strong)}
 .settings-search-heading[hidden],.setting-row[hidden]{display:none}
 @media(max-width:720px){#workspace .configuration-body .dialog-footer{left:0}.configuration-body .settings-content{padding:16px!important}.setting-row{flex-wrap:wrap}.setting-control{max-width:100%}.settings-search{flex-basis:100%}.configuration-body .settings-content select,.configuration-body .settings-content .model-input,.configuration-body .settings-content .custom-terminal-input{max-width:100%}}
+
+.skill-command-mapping{width:100%;overflow-x:auto}
+.skill-command-mapping table{width:100%;border-collapse:collapse;text-align:left}
+.skill-command-mapping th,.skill-command-mapping td{padding:10px 12px;border-bottom:1px solid var(--border)}
+.skill-command-mapping thead th{color:var(--text-muted);font-size:12px;font-weight:500}
+.skill-command-mapping tbody th{font-weight:500}
+.skill-command-mapping code{white-space:nowrap;color:var(--text-muted)}
+.skill-command-mapping input{min-width:160px;margin:0}

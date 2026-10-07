@@ -15,6 +15,7 @@ function fakeAgent({capabilities=['task-engines'],customSkillsUsed=[],defaults={
  }}
  const view=()=>({
   globalConfiguration:true,
+  skillCommands:[{id:"clarify",name:"Clarify",command:"/clarify-issue"},{id:"implement",name:"Implement",command:"/implement-issue"}],
   defaults:{editorCommand:'zed',setupProviders:null,...defaults,...state.skillSettings},
   effective:{defaultEngine:{id:'e-opus',name:'Claude Opus',provider:'claude',model:'claude-opus-5'},editorCommand:'zed',useWorktrees:true,parallelism:1,aiProviderModels:{}},
   providerModels:{claude:['claude-opus-5','claude-sonnet-5'],codex:['gpt-5']},setupProviders:['claude','codex','agy'],seeded:{},
@@ -27,7 +28,7 @@ function fakeAgent({capabilities=['task-engines'],customSkillsUsed=[],defaults={
    const input=await body(req)
    if(state.refuse){res.writeHead(400,{'Content-Type':'text/plain'}).end(state.refuse);return}
    // The skill settings read back as saved, so a reset is seen to reset.
-   state.puts.push(input);state.skillSettings={customSkillsWin:input.customSkillsWin,installedSkillSource:input.installedSkillSource,aiProviderModels:input.aiProviderModels}
+   state.puts.push(input);state.skillSettings={customSkillsWin:input.customSkillsWin,installedSkillSource:input.installedSkillSource,aiProviderModels:input.aiProviderModels,skillCommands:input.skillCommands}
    res.writeHead(204).end();return
   }
   // A held read answers only once the test releases it, so the panel can be
@@ -79,16 +80,14 @@ test('execution defaults are read from and saved through the agent, which may re
   // The editor is a picker (#535): a stored preset loads as that preset.
   await expect(panel.getByRole('combobox',{name:'Editor',exact:true})).toHaveValue('zed')
   await expect(panel.getByRole('textbox',{name:'Custom editor command',exact:true})).toBeHidden()
-  // The initialization select offers the supported providers only (#614).
-  const initialization=panel.getByRole('combobox',{name:'Initialization provider',exact:true})
-  assert.deepEqual(await initialization.locator('option').evaluateAll(options=>options.map(option=>option.value)),['agy','claude','codex'])
+  await expect(panel.getByRole('combobox',{name:'Initialization provider',exact:true})).toHaveCount(0)
+  await expect(panel.getByText('Extra setup providers',{exact:true})).toHaveCount(0)
   for(const retired of ['gemini','cursor','vibe'])await expect(panel.getByRole('textbox',{name:'Models offered for '+retired,exact:true})).toHaveCount(0)
   await expect(panel.getByRole('textbox',{name:'Models offered for codex',exact:true})).toHaveCount(0)
-  await panel.getByRole('combobox',{name:'Initialization provider',exact:true}).selectOption('codex')
   await panel.getByRole('button',{name:'Save execution defaults'}).click()
   await expect(panel.locator('.workstation-notice')).toContainText('Execution defaults saved')
   assert.equal(state.puts.length,1)
-  assert.equal(state.puts[0].initializationProvider,'codex')
+  assert.equal(state.puts[0].initializationProvider,undefined)
   assert.deepEqual(state.puts[0].skillCommands,{})
   assert.equal(state.puts[0].aiProvider,undefined)
   assert.equal(state.puts[0].aiModel,undefined)
@@ -369,11 +368,11 @@ test('provider settings save and reset model lists independently',async()=>{
  try{
   const opened=await openExecutionDefaults(server,root);app=opened.app
   const {page}=opened
-  for(const [id,label] of [['agy','Antigravity settings'],['claude','Claude settings'],['codex','Codex settings']]){
-   await page.getByRole('tab',{name:label,exact:true}).click()
+  await page.getByRole('tab',{name:'AI engines',exact:true}).click()
+  for(const id of ['agy','claude','codex']){
    await expect(page.getByRole('textbox',{name:'Models offered for '+id,exact:true})).toBeVisible()
   }
-  const panel=page.locator('#settings-panel-Codex')
+  const panel=page.locator('#settings-panel-Engines .provider-model-lists[data-provider=codex]')
   await panel.getByRole('textbox',{name:'Models offered for codex',exact:true}).fill('gpt-5, o4-mini')
   await panel.getByRole('button',{name:'Save models',exact:true}).click()
   await expect(panel.getByRole('status').filter({hasText:'Models saved'})).toBeVisible()
@@ -384,5 +383,33 @@ test('provider settings save and reset model lists independently',async()=>{
   await panel.getByRole('button',{name:'Save models',exact:true}).click()
   await expect(panel.getByRole('status').filter({hasText:'Models saved'})).toBeVisible()
   assert.deepEqual(state.puts.at(-1).aiProviderModels,{claude:['claude-opus-5']})
+ }finally{if(app)await app.close();await new Promise(resolve=>server.close(resolve));fs.rmSync(root,{recursive:true,force:true})}
+})
+
+
+test('skill commands map named steps to standard and custom commands',async()=>{
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'sectile-command-mapping-'))
+ const {state,server}=fakeAgent({defaults:{skillCommands:{implement:'/custom-implement'}}})
+ await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve))
+ let app
+ try{
+  const opened=await openExecutionDefaults(server,root);app=opened.app
+  const {panel}=opened
+  const mapping=panel.getByRole('table',{name:'Skill command mapping'})
+  await expect(mapping.getByRole('columnheader')).toHaveText(['Step','Standard command','Custom command'])
+  await expect(mapping.getByRole('row').filter({hasText:'Implement'})).toContainText('/implement-issue')
+  const input=mapping.getByRole('textbox',{name:'Command for skill implement',exact:true})
+  await expect(input).toHaveValue('/custom-implement')
+  await input.fill('/my-implement')
+  await panel.getByRole('button',{name:'Save execution defaults'}).click()
+  await expect(panel.locator('.workstation-notice')).toContainText('Execution defaults saved')
+  assert.deepEqual(state.puts.at(-1).skillCommands,{implement:'/my-implement'})
+  await expect(input).toHaveValue('/my-implement')
+  await opened.page.screenshot({path:'/private/tmp/sectile-command-mapping.png'})
+  await panel.getByRole('button',{name:'Reset skill command names to the standard ones'}).click()
+  await expect(input).toHaveValue('')
+  await panel.getByRole('button',{name:'Save execution defaults'}).click()
+  await expect(panel.locator('.workstation-notice')).toContainText('Execution defaults saved')
+  assert.deepEqual(state.puts.at(-1).skillCommands,{})
  }finally{if(app)await app.close();await new Promise(resolve=>server.close(resolve));fs.rmSync(root,{recursive:true,force:true})}
 })

@@ -249,6 +249,9 @@ func TestDesktopWorkstationValidatesAndRoundTrips(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &view); err != nil {
 		t.Fatal(err)
 	}
+	if len(view.SkillCommands) == 0 || view.SkillCommands[0]["id"] != "clarify" || view.SkillCommands[0]["command"] != "/clarify-issue" {
+		t.Fatalf("workflow command mapping: %+v", view.SkillCommands)
+	}
 	if view.Defaults.StatesEngine() || view.Defaults.EditorCommand != "zed" || view.Effective.DefaultEngine.Provider != agentconfig.DefaultProvider {
 		t.Fatalf("defaults: %+v %+v", view.Defaults, view.Effective)
 	}

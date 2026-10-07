@@ -15,9 +15,15 @@ test fixtures or internal plumbing.
 
 ### Added
 
+- **Map workflow steps to custom commands.** Execution defaults shows each step alongside its standard command and an optional replacement, instead of an editable list of skill IDs.
+
+- **Initialize projects with the default AI engine.** Desktop removes the separate Initialization provider setting; initialization without an explicit provider follows the workstation default engine, including on workstations with an older saved initialization choice. Upgrade the local agent together with Desktop.
+
+- **Automatic assistant setup without an extra setting.** Desktop removes Extra setup providers from workstation and project settings; providers configured in AI engines are prepared automatically.
+
 - **Simpler workstation connection settings.** Agent connection shows the sign-in and pairing code fields directly, without the Pair again disclosure.
 
-- **Configure offered models in each provider’s settings.** Desktop moves the model lists from Execution defaults to Antigravity settings, Claude settings and Codex settings, with separate save controls.
+- **Configure offered models alongside AI engines.** Desktop groups the Antigravity, Claude and Codex model lists under AI engines → Models offered, with separate save controls.
 
 - **Recognize provider settings by their logos.** Desktop uses the Claude and OpenAI brand marks for Claude and Codex settings.
 
