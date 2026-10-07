@@ -968,6 +968,15 @@ run ID, 404 for an unknown run, 409 when the run has no folder or no editor is
 set (it never falls back to `code`), 410 when the folder no longer exists, and
 500 with the launch error.
 
+`GET /desktop/status` advertises `folder-selection` when the agent serves
+another folder of a run than its directory (#784). `POST /desktop/open-editor`
+and `GET /desktop/git-diff` then take an optional folder (`{runId, folder}`,
+`?id=<runID>&folder=<path>`). No folder, or the run's directory, means the
+run's checkout, as before. Any other folder must be one of the run's `folders`,
+compared as cleaned paths, and the agent uses the path the run lists; an
+unlisted folder answers 404 (`folder_not_found` on `git-diff`) and starts
+nothing.
+
 `GET /desktop/status` advertises `project-terminal` when the agent opens a
 terminal on a project's local repository (#761). `POST
 /desktop/project-terminal` with `{projectId}` takes the folder from the
@@ -1264,6 +1273,14 @@ Run metadata includes the verified assigned `branch`. The handler copies executi
 identity and its repository root under the run lock, then inspects outside that lock.
 An existing checkout must match the recorded directory, repository common Git
 directory, and branch. Inspection never prepares or creates a worktree.
+
+With `folder-selection`, `folder=<path>` names another folder of the run
+(#784), resolved as for `open-editor`. Such a folder has no recorded branch: it
+is inspected on the branch it is on, within its own repository, against its own
+default branch with the same baseline rules. It answers 409 with
+`folder_unavailable` when it is missing, `not_a_repository`,
+`not_repository_root` when it is inside a repository without being its root,
+and `detached_head` when it is on no branch.
 
 Success returns `runId`, `taskId`, `projectId`, `directory`, `branch`, `baseRef`,
 `baseCommit`, `mergeBase`, `headCommit`, and UTC `generatedAt`; `isClean`, `complete`,

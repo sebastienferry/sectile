@@ -64,6 +64,28 @@ func runFolders(directory string, entries []models.FolderMapEntry) []runFolder {
 	return folders
 }
 
+// folderSelectionCapability tells the desktop that /desktop/git-diff and
+// /desktop/open-editor accept one of the run's folders (#784).
+const folderSelectionCapability = "folder-selection"
+
+// runFolderPath resolves the folder the desktop selected for a run (#784): an
+// empty folder, or the run's own directory, is its checkout; any other must be
+// one the run lists, and the listed path is the one returned, so the renderer
+// never points the agent at a folder of its own choosing. The caller holds the
+// queue lock.
+func runFolderPath(run *controlledRun, folder string) (path string, primary, ok bool) {
+	folder = strings.TrimSpace(folder)
+	if folder == "" || (run.desktop.Directory != "" && filepath.Clean(folder) == filepath.Clean(run.desktop.Directory)) {
+		return run.desktop.Directory, true, true
+	}
+	for _, listed := range run.desktop.Folders {
+		if listed.Path != "" && filepath.Clean(listed.Path) == filepath.Clean(folder) {
+			return listed.Path, false, true
+		}
+	}
+	return "", false, false
+}
+
 // addFolder appends folder unless its path is empty or already listed.
 func addFolder(folders []runFolder, folder runFolder) []runFolder {
 	if folder.Path == "" {

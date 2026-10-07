@@ -15,3 +15,13 @@ export function claudeMark(document){
  svg.append(path)
  return svg
 }
+
+// settingsCategoryIcon draws the icon of a settings category tab: the Claude
+// mark for a category naming it, a stroked outline of its own icon otherwise.
+// The mark is a filled shape, so the outline's stroke would blur it.
+export function settingsCategoryIcon(document,category){
+ if(category.mark==='claude')return claudeMark(document)
+ const template=document.createElement('template')
+ template.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">'+category.icon+'</svg>'
+ return template.content.firstChild
+}

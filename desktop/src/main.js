@@ -30,10 +30,10 @@ import { consoleNotice, needsConsoleNotice, readOnlyConsole } from './run-consol
 import { previewLines } from './command-preview.mjs'
 import { sandboxSettings, whitelistEditor } from './sandbox-settings.mjs'
 import { EDITORS, editorChoice, editorLabel } from './editors.mjs'
-import { folderRoleLabel, menuFolders } from './folder-menu.mjs'
+import { chosenFolder, folderRoleLabel, menuFolders } from './folder-menu.mjs'
 import { PROVIDERS, DEFAULT_PROVIDER, projectFields, ownEntries, compact, parseModelList, sourceHint, describe, ipcMessage, agentUnreachable, validSkillCommand, workstationPayload } from './execution-fields.mjs'
 import { runEngine } from './run-engine.mjs'
-import { nextEngine, taskEngine, engineMark, engineTooltip, moveEngine, removalImpact, removalMessage } from './engines.mjs'
+import { nextEngine, taskEngine, launchEngineChange, engineMark, engineTooltip, moveEngine, removalImpact, removalMessage } from './engines.mjs'
 import { pollAction, startEnabled } from './agent-poll.mjs'
 import { runFolderOutcome, offersRunFolder } from './run-folders.mjs'
 import { offerFor, initializedNotice } from './git-init.mjs'
@@ -45,7 +45,7 @@ import { archiveLabel, archiveRefusal, archiveFailure } from './archive-workspac
 import changelogSource from '../../CHANGELOG.md?raw'
 import { parseChangelog, releaseNotesFor } from './changelog.mjs'
 import { APPEARANCE_CHOICES, CONSOLE_VIEW_CHOICES, CONVERSATION_MODE_CHOICES, terminalOptions } from './appearance.mjs'
-import { claudeMark, CLAUDE_MARK_PATH } from './claude-mark.mjs'
+import { claudeMark, settingsCategoryIcon } from './claude-mark.mjs'
 import { OPENAI_MARK_PATH } from './openai-mark.mjs'
 const api=window.localAgent
 // Concurrent execution workers ceiling per project, aligned with agentconfig.MaxParallelism.
@@ -60,7 +60,7 @@ document.querySelector('#app').innerHTML=`
 <form id="start"><label>Sectile server<input name="server" type="url" value="http://localhost:8090" required></label>
 <div id="pair-again"><button id="browser-sign-in" type="button">Sign in with your browser</button><label>Pairing code<input name="code" type="text" autocomplete="off" spellcheck="false" placeholder="Paste the code from the web interface"></label></div>
 <p class="start-reason" role="alert" hidden></p><button type="submit">Connect</button></form></section>
-<main id="workspace" hidden><aside><div class="sidebar-scroll"><div class="section">PROJECTS <button id="add-project" title="Add a remote project">+</button></div><div id="runs"></div><button id="clear-history" class="icon-button" type="button" aria-label="Clear finished consoles" title="Clear finished consoles" disabled></button></div><footer class="sidebar-footer"><span id="connection" data-state="off">Connecting…</span><nav aria-label="Local agent controls"><button id="shutdown" class="icon-button" aria-label="Stop agent" title="Stop agent" hidden></button><button id="restart" class="icon-button" aria-label="Restart agent" title="Restart agent" hidden></button></nav><button id="settings" class="icon-button" type="button" aria-label="Settings" title="Settings"></button></footer></aside><div id="sidebar-resizer" role="separator" aria-label="Resize sidebar" aria-orientation="vertical" tabindex="0"></div><article><div id="toolbar"><div class="toolbar-row toolbar-primary"><div class="terminal-title-line"><strong id="title">Select an execution</strong><span id="native-terminal-badge" class="native-terminal-badge" hidden></span></div><div class="toolbar-meta"><select id="execution-history" aria-label="Execution history" hidden></select><span id="next-step-label" class="step-badge" aria-hidden="true" hidden></span></div></div><div class="toolbar-row toolbar-secondary"><div class="worktree-line"><button id="worktree" class="worktree" type="button" title="Copy this path" hidden><svg class="worktree-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2z"/></svg><span id="directory"></span></button><button id="worktree-folders" class="icon-button worktree-folders" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="worktree-folders-menu" aria-label="Folders of this execution" title="Folders of this execution" hidden><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button><button id="open-editor" class="icon-button" type="button" hidden></button><span id="worktree-copied" class="worktree-copied" role="status"></span><div id="worktree-folders-menu" class="folder-menu" role="menu" aria-label="Folders of this execution" hidden></div></div><div class="toolbar-actions"><div class="execution-views" role="group" aria-label="Execution view"><button id="view-console" class="icon-button" type="button" aria-label="Console" title="Console" aria-pressed="true" disabled></button><button id="view-changes" class="icon-button" type="button" aria-label="Changes" title="Changes" aria-pressed="false" disabled></button></div><button id="selected-pr" class="icon-button" type="button" hidden></button><span id="selected-pr-others" hidden></span><button id="detach-terminal" class="icon-button" type="button" aria-label="Detach to native terminal" title="Detach to native terminal" hidden></button><button id="rerun" class="icon-button" type="button" aria-label="Relaunch" title="Relaunch" hidden></button><button id="save-log" class="icon-button" type="button" aria-label="Export log" title="Export log"></button><button id="stop" class="icon-button" type="button" aria-label="Stop execution" title="Stop execution" disabled></button><button id="next-step" class="icon-button" type="button" hidden disabled></button><button id="pickup-chain" class="icon-button" type="button" aria-label="Pickup (full chain)" title="Pickup (full chain)" hidden disabled></button><button id="mark-reviewed" type="button" class="secondary" title="The pull request needs no more changes: skip Adjust, move the task to reviewed, and hand off once it is merged" hidden>Skip to Handoff</button><button id="retry-next-step" type="button" title="Retry reading the task workflow" hidden>Retry</button><button id="force-next-step" type="button" class="secondary" title="Launch although a run is already active on this task" hidden>Launch anyway</button></div></div></div><div id="execution-content"><div id="terminal"></div><div id="execution-divider" role="separator" aria-label="Resize execution views" aria-orientation="vertical" aria-valuemin="25" aria-valuemax="75" aria-valuenow="50" tabindex="0" hidden></div><section id="changes" aria-label="Worktree changes" hidden></section></div><footer id="task-status"><div class="execution-status"><span id="run-state" class="run-state selected-run-state" hidden></span><span id="skill-result" role="status" hidden></span></div><span id="next-step-status" role="status" aria-live="polite">Select a task to see its next step</span></footer></article><section id="tickets-pane" aria-label="Tickets" hidden></section></main>
+<main id="workspace" hidden><aside><div class="sidebar-scroll"><div class="section">PROJECTS <button id="add-project" title="Add a remote project">+</button></div><div id="runs"></div><button id="clear-history" class="icon-button" type="button" aria-label="Clear finished consoles" title="Clear finished consoles" disabled></button></div><footer class="sidebar-footer"><span id="connection" data-state="off">Connecting…</span><nav aria-label="Local agent controls"><button id="shutdown" class="icon-button" aria-label="Stop agent" title="Stop agent" hidden></button><button id="restart" class="icon-button" aria-label="Restart agent" title="Restart agent" hidden></button></nav><button id="settings" class="icon-button" type="button" aria-label="Settings" title="Settings"></button></footer></aside><div id="sidebar-resizer" role="separator" aria-label="Resize sidebar" aria-orientation="vertical" tabindex="0"></div><article><div id="toolbar"><div class="toolbar-row toolbar-primary"><div class="terminal-title-line"><strong id="title">Select an execution</strong><span id="native-terminal-badge" class="native-terminal-badge" hidden></span></div><div class="toolbar-meta"><select id="execution-history" aria-label="Execution history" hidden></select><span id="next-step-label" class="step-badge" aria-hidden="true" hidden></span></div></div><div class="toolbar-row toolbar-secondary"><div class="worktree-line"><button id="worktree" class="worktree" type="button" title="Copy this path" hidden><svg class="worktree-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2z"/></svg><span id="directory"></span></button><button id="worktree-folders" class="icon-button worktree-folders" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="worktree-folders-menu" aria-label="Folders of this execution" title="Folders of this execution" hidden><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button><button id="open-editor" class="icon-button" type="button" hidden></button><span id="worktree-copied" class="worktree-copied" role="status"></span><div id="worktree-folders-menu" class="folder-menu" role="menu" aria-label="Folders of this execution" hidden></div></div><div class="toolbar-actions"><div class="execution-views" role="group" aria-label="Execution view"><button id="view-console" class="icon-button" type="button" aria-label="Console" title="Console" aria-pressed="true" disabled></button><button id="view-changes" class="icon-button" type="button" aria-label="Changes" title="Changes" aria-pressed="false" disabled></button></div><button id="selected-pr" class="icon-button" type="button" hidden></button><span id="selected-pr-others" hidden></span><button id="detach-terminal" class="icon-button" type="button" aria-label="Detach to native terminal" title="Detach to native terminal" hidden></button><button id="rerun" class="icon-button" type="button" aria-label="Launch" title="Launch" hidden></button><button id="save-log" class="icon-button" type="button" aria-label="Export log" title="Export log"></button><button id="stop" class="icon-button" type="button" aria-label="Stop execution" title="Stop execution" disabled></button><button id="next-step" class="icon-button" type="button" hidden disabled></button><button id="pickup-chain" class="icon-button" type="button" aria-label="Pickup (full chain)" title="Pickup (full chain)" hidden disabled></button><button id="mark-reviewed" type="button" class="secondary" title="The pull request needs no more changes: skip Adjust, move the task to reviewed, and hand off once it is merged" hidden>Skip to Handoff</button><button id="retry-next-step" type="button" title="Retry reading the task workflow" hidden>Retry</button><button id="force-next-step" type="button" class="secondary" title="Launch although a run is already active on this task" hidden>Launch anyway</button></div></div></div><div id="execution-content"><div id="terminal"></div><div id="execution-divider" role="separator" aria-label="Resize execution views" aria-orientation="vertical" aria-valuemin="25" aria-valuemax="75" aria-valuenow="50" tabindex="0" hidden></div><section id="changes" aria-label="Worktree changes" hidden></section></div><footer id="task-status"><div class="execution-status"><span id="run-state" class="run-state selected-run-state" hidden></span><span id="skill-result" role="status" hidden></span></div><span id="next-step-status" role="status" aria-live="polite">Select a task to see its next step</span></footer></article><section id="tickets-pane" aria-label="Tickets" hidden></section></main>
 <dialog id="project-dialog"><button id="close-dialog" class="icon-button" type="button" aria-label="Close" title="Close"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button><div id="dialog-body"></div><div class="dialog-footer" hidden></div></dialog><div id="error" role="alert"></div>`
 installTooltips()
 // The console shows a prompt the user configured elsewhere - oh-my-posh, starship, powerlevel10k -
@@ -173,24 +173,14 @@ let selectedProject=null
 let ticketsOpen=false,agentConnected=false
 let updateSettingsConnection=null
 let opened=false,selected=null,runs=[],last='',stopping=false,restarting=false,projects=[],projectsLoaded=false
-// Whether the local agent attaches a folder from a run (#676), read with the
-// editor setting from its status.
-let runFoldersAvailable=false,runFoldersTerminalsAvailable=false,conversationControlsAvailable=false,conversationQueueAvailable=false,providerModels={}
+// Whether the local agent attaches a folder from a run (#676), and serves
+// another folder of a run than its directory (#784), read with the editor
+// setting from its status.
+let folderSelectionAvailable=false,runFoldersAvailable=false,runFoldersTerminalsAvailable=false,conversationControlsAvailable=false,conversationQueueAvailable=false,providerModels={}
 const conversation=createConversationView({api,container:document.querySelector('#terminal'),onError:error,canAddFolder:()=>runFoldersAvailable,canControl:()=>conversationControlsAvailable,canQueue:()=>conversationQueueAvailable,models:provider=>providerModels[provider]||[]})
-const conversationButton=document.createElement('button')
-conversationButton.type='button';conversationButton.textContent='Claude chat (test)';conversationButton.hidden=true
 // The conversation view is opt-in from Appearance; the terminal stays the default.
 let consoleView='terminal'
 api.consoleView().then(value=>{consoleView=value;render()}).catch(()=>{})
-conversationButton.title='Start an independent conversation in this execution’s directory'
-document.querySelector('#save-log').before(conversationButton)
-conversationButton.onclick=async()=>{
- conversationButton.disabled=true
- try{
-  const run=await api.createConversation(selected)
-  runs.push(run);select(run)
- }catch(err){error(err)}finally{conversationButton.disabled=false}
-}
 // "Add folder…" on a running ticket discussion or free console, in Sectile or
 // detached to the native terminal (#676, #689): the folder joins the project,
 // and the agent types /add-dir into a Claude Code session.
@@ -331,12 +321,12 @@ function select(run,background=false,options){
  if(!background)closeTickets(false)
  selectedProject=run.projectId
  selected=run.id
- changes.select(selected)
+ changes.select(selected,currentFolder(run)?.path)
  conversation.select(run)
 
  refreshSkillResult()
  refreshNextStep()
- showDirectory(run.directory)
+ showDirectory(currentFolder(run)?.path||run.directory)
  document.querySelector('#stop').disabled=!activeRun(run)
  terminal.reset()
  if(run.conversation){
@@ -485,13 +475,14 @@ async function loadEditorSetting(){
   openEditorAvailable=!!status.capabilities?.includes('open-editor')
   projectTerminalAvailable=!!status.capabilities?.includes('project-terminal')
   runFoldersAvailable=!!status.capabilities?.includes('run-folders')
+  folderSelectionAvailable=!!status.capabilities?.includes('folder-selection')
   runFoldersTerminalsAvailable=!!status.capabilities?.includes('run-folders-terminals')
   conversationControlsAvailable=!!status.capabilities?.includes('conversation-controls')
   conversationQueueAvailable=!!status.capabilities?.includes('conversation-queue')
   configuredEditor=String(view?.defaults?.editorCommand||'').trim()
   if(view)providerModels=view.defaults?.aiProviderModels||{}
   if(view)renderCustomSkillSignal(view.customSkillsUsed)
- }catch{openEditorAvailable=false;projectTerminalAvailable=false;runFoldersAvailable=false;runFoldersTerminalsAvailable=false;conversationControlsAvailable=false;conversationQueueAvailable=false;configuredEditor=''}
+ }catch{openEditorAvailable=false;projectTerminalAvailable=false;runFoldersAvailable=false;folderSelectionAvailable=false;runFoldersTerminalsAvailable=false;conversationControlsAvailable=false;conversationQueueAvailable=false;configuredEditor=''}
  renderOpenEditor();render({deferrable:true})
 }
 // A project's custom skill ran instead of the installed one (#267): a passive
@@ -508,7 +499,7 @@ async function loadCustomSkillSignal(){
 document.querySelector('#open-editor').onclick=async()=>{
  if(!selected||openingEditor)return
  openingEditor=true;renderOpenEditor()
- try{await api.openEditor(selected);document.querySelector('#error').textContent=''}
+ try{await api.openEditor(selected,currentFolder()?.path);document.querySelector('#error').textContent=''}
  catch(err){error(Error(ipcMessage(err).trim()))}
  finally{openingEditor=false;renderOpenEditor()}
 }
@@ -528,11 +519,25 @@ async function copyPath(path){
 document.querySelector('#worktree').onclick=()=>copyPath(document.querySelector('#directory').textContent)
 // An execution may work in several folders: other repositories' worktrees,
 // read-only context checkouts, attached folders, its specifications worktree
-// (#762). A chevron after the path lists them, each item copying its own path.
+// (#762). A chevron after the path lists them. Choosing one selects it (#784):
+// the path, its copy, the editor and Changes then speak of that folder. An
+// agent that cannot serve another folder keeps the items copying their path.
 // The menu is built when it opens, so a folder added during the run shows at
 // the next opening and never moves under the pointer.
 const foldersButton=document.querySelector('#worktree-folders'),foldersMenu=document.querySelector('#worktree-folders-menu')
 let foldersRun=null,foldersDismiss=null
+// The folder chosen per execution, forgotten when Desktop restarts.
+const folderSelections=new Map()
+// The folder the toolbar speaks of: the one chosen from the menu, or null for
+// the run's own directory.
+function currentFolder(run=runs.find(item=>item.id===selected)){
+ return folderSelectionAvailable&&run?chosenFolder(run,folderSelections.get(run.id)):null
+}
+function selectFolder(run,folder){
+ if(chosenFolder(run,folder.path))folderSelections.set(run.id,folder.path)
+ else folderSelections.delete(run.id)
+ if(run.id===selected)showDirectory(currentFolder(run)?.path||run.directory)
+}
 function closeFoldersMenu(focusOpener=false){
  if(foldersMenu.hidden)return
  foldersMenu.hidden=true;foldersButton.setAttribute('aria-expanded','false')
@@ -540,24 +545,40 @@ function closeFoldersMenu(focusOpener=false){
  if(focusOpener)foldersButton.focus()
 }
 function renderFolders(){
- const run=document.querySelector('#directory').textContent?runs.find(item=>item.id===selected):null
+ const label=document.querySelector('#directory')
+ const run=label.textContent?runs.find(item=>item.id===selected):null
  const folders=menuFolders(run)
  // A menu left open belongs to the execution it was opened for.
  if(!folders.length||run.id!==foldersRun)closeFoldersMenu()
  foldersButton.hidden=!folders.length
+ if(!run)return
+ // A chosen folder that left the list gives the toolbar back to the run's
+ // directory, Changes included.
+ const folder=currentFolder(run)
+ if(!folder)folderSelections.delete(run.id)
+ const path=folder?.path||run.directory
+ if(path&&label.textContent!==path){clearCopiedNotice();label.textContent=path;renderOpenEditor()}
+ changes.select(selected,folder?.path)
 }
 function openFoldersMenu(){
  const run=runs.find(item=>item.id===selected),folders=menuFolders(run)
  if(!folders.length)return
  foldersRun=run.id
+ const selecting=folderSelectionAvailable,current=currentFolder(run)?.path||folders[0].path
  foldersMenu.replaceChildren(...folders.map(folder=>{
-  const item=document.createElement('button');item.type='button';item.setAttribute('role','menuitem')
+  const item=document.createElement('button');item.type='button';item.setAttribute('role',selecting?'menuitemradio':'menuitem')
   const name=document.createElement('span');name.className='folder-name';name.textContent=folder.name||folder.path
   const role=document.createElement('span');role.className='folder-role';role.textContent=folderRoleLabel(folder)
   const path=document.createElement('span');path.className='folder-path';path.textContent=folder.path
-  item.append(name,role,path);item.title='Copy '+folder.path
+  item.append(name,role,path)
   item.setAttribute('aria-label',(folder.name||folder.path)+', '+folderRoleLabel(folder)+', '+folder.path)
-  item.onclick=()=>{closeFoldersMenu(true);copyPath(folder.path)}
+  if(selecting){
+   item.title='Show '+folder.path;item.setAttribute('aria-checked',String(folder.path===current))
+   item.onclick=()=>{closeFoldersMenu(true);selectFolder(run,folder)}
+  }else{
+   item.title='Copy '+folder.path
+   item.onclick=()=>{closeFoldersMenu(true);copyPath(folder.path)}
+  }
   return item
  }))
  foldersMenu.hidden=false;foldersButton.setAttribute('aria-expanded','true')
@@ -567,7 +588,8 @@ function openFoldersMenu(){
  foldersMenu.style.top=Math.max(4,Math.min(box.bottom+2,innerHeight-height-4))+'px'
  foldersDismiss=event=>{if(event.type==='blur'||!foldersMenu.contains(event.target)&&!foldersButton.contains(event.target))closeFoldersMenu()}
  document.addEventListener('pointerdown',foldersDismiss,true);window.addEventListener('blur',foldersDismiss)
- foldersMenu.querySelector('[role=menuitem]')?.focus()
+ const first=foldersMenu.querySelector('[aria-checked=true]')||foldersMenu.querySelector('[role^=menuitem]')
+ first?.focus()
 }
 foldersButton.onclick=()=>{foldersMenu.hidden?openFoldersMenu():closeFoldersMenu()}
 foldersButton.onkeydown=foldersMenu.onkeydown=event=>{
@@ -575,7 +597,7 @@ foldersButton.onkeydown=foldersMenu.onkeydown=event=>{
  if(event.target===foldersButton&&event.key==='ArrowDown'&&foldersMenu.hidden){event.preventDefault();openFoldersMenu();return}
  if(foldersMenu.hidden)return
  if(event.key==='Tab'){closeFoldersMenu();return}
- const items=[...foldersMenu.querySelectorAll('[role=menuitem]')],at=items.indexOf(document.activeElement)
+ const items=[...foldersMenu.querySelectorAll('[role^=menuitem]')],at=items.indexOf(document.activeElement)
  const next={ArrowDown:at+1,ArrowUp:at-1,Home:0,End:items.length-1}[event.key]
  if(next===undefined)return
  event.preventDefault()
@@ -696,7 +718,7 @@ function renderHeader(){
 function render(options){
  if(options?.deferrable&&sidebarBusy()){pendingRender=true;renderHeader();renderTaskRowStates();renderTicketRows();return}
  pendingRender=false
- changes.select(selected)
+ changes.select(selected,currentFolder()?.path)
  renderHeader()
  const list=document.querySelector('#runs'),editing=list.querySelector('.task-rename')
  if(renaming&&editing)renaming.selection=[editing.selectionStart,editing.selectionEnd]
@@ -816,8 +838,6 @@ function render(options){
  renderTaskSkillStatuses()
  document.querySelector('#clear-history').disabled=!runs.some(run=>['completed','failed','canceled'].includes(run.status))
  const current=runs.find(run=>run.id===selected)
- conversationButton.textContent=current?.provider==='codex'?'Codex chat (test)':'Claude chat (test)'
- conversationButton.hidden=consoleView!=='conversation'||!current?.directory||!!current.conversation||!agentConnected
  addFolderButton.hidden=!agentConnected||!!current?.conversation||!offersRunFolder(current,runFoldersAvailable,runFoldersTerminalsAvailable)
  // The outcome belongs to the run it was given for.
  if(addFolderRun!==selected){addFolderRun=null;addFolderStatus.textContent=''}
@@ -1774,7 +1794,7 @@ const SETTINGS_CATEGORIES=[
  {id:'Connection',label:'Agent connection',icon:'<path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="3"/><circle cx="15" cy="17" r="3"/>'},
  {id:'AgentCli',label:'Execution defaults',icon:'<rect x="3" y="4" width="18" height="16" rx="2"/><path d="m7 9 3 3-3 3M12 15h5"/>'},
  {id:'Engines',label:'AI engines',icon:'<rect x="4" y="8" width="16" height="11" rx="3"/><path d="M12 4v4M9 13h.01M15 13h.01"/>'},
- {id:'Sandbox',label:'Claude settings',icon:'<path fill="currentColor" stroke="none" fill-rule="evenodd" d="'+CLAUDE_MARK_PATH+'"/>'},
+ {id:'Sandbox',label:'Claude settings',mark:'claude'},
  {id:'Codex',label:'Codex settings',icon:'<path fill="currentColor" stroke="none" fill-rule="evenodd" d="'+OPENAI_MARK_PATH+'"/>'},
  {id:'Deployment',label:'Deployment',icon:'<path d="M12 20V7m0 0 4 4m-4-4-4 4"/><path d="M5 4h14"/>'},
  {id:'Logs',label:'Agent logs',icon:'<path d="M14 3H7a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V7Z"/><path d="M14 3v4h4"/><path d="M9 13h6M9 17h6"/>'},
@@ -1784,7 +1804,7 @@ const PROJECT_SETTINGS_CATEGORIES=[
  {id:'Remove',label:'General',saves:true,icon:'<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7h.01"/>'},
  {id:'General',label:'Folders',saves:true,icon:'<path d="M4 7a2 2 0 0 1 2-2h3l2 2.5h7a2 2 0 0 1 2 2V18a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2Z"/>'},
  {id:'Execution',label:'Execution',saves:true,icon:'<path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="2.4"/><circle cx="15" cy="17" r="2.4"/>'},
- {id:'Sandbox',label:'Claude settings',saves:true,icon:'<path fill="currentColor" stroke="none" fill-rule="evenodd" d="'+CLAUDE_MARK_PATH+'"/>'}
+ {id:'Sandbox',label:'Claude settings',saves:true,mark:'claude'}
 ]
 function configurationNavigation(tabs,projectId){
  if(projectId)expandedConfigurationProject=projectId
@@ -1810,7 +1830,7 @@ function configurationNavigation(tabs,projectId){
    let tab=active?current.get(category.id):null
    if(!tab){
     tab=document.createElement('button');tab.type='button';tab.setAttribute('role','tab');tab.setAttribute('aria-selected','false');tab.title=category.label
-    tab.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">'+category.icon+'</svg>'
+    tab.append(settingsCategoryIcon(document,category))
     const text=document.createElement('span');text.className='settings-nav-label';text.textContent=category.label;tab.append(text)
     tab.onclick=()=>navigate(category.id)
    }
@@ -1982,7 +2002,7 @@ function openSettings(initial='Profile',project){
  const panels={}
  for(const category of SETTINGS_CATEGORIES){
   const tab=document.createElement('button');tab.type='button';tab.setAttribute('role','tab');tab.dataset.category=category.id;tab.title=category.label
-  tab.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">'+category.icon+'</svg>'
+  tab.append(settingsCategoryIcon(document,category))
   const text=document.createElement('span');text.className='settings-nav-label';text.textContent=category.label;tab.append(text)
   tab.id='settings-tab-'+category.id;tab.setAttribute('aria-controls','settings-panel-'+category.id)
   const panel=document.createElement('section');panel.id='settings-panel-'+category.id
@@ -1995,7 +2015,7 @@ function openSettings(initial='Profile',project){
   tabs.append(projectLabel)
   for(const category of PROJECT_SETTINGS_CATEGORIES){
    const tab=document.createElement('button');tab.type='button';tab.setAttribute('role','tab');tab.title=category.label
-   tab.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">'+category.icon+'</svg>'
+   tab.append(settingsCategoryIcon(document,category))
    const text=document.createElement('span');text.className='settings-nav-label';text.textContent=category.label;tab.append(text)
    tab.onclick=()=>openProject(project.id,category.id)
    tabs.append(tab)
@@ -2387,7 +2407,7 @@ async function openProject(id,initial='Remove'){
   tabs.append(generalLabel)
   for(const category of SETTINGS_CATEGORIES){
    const tab=document.createElement('button');tab.type='button';tab.setAttribute('role','tab');tab.title=category.label
-   tab.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">'+category.icon+'</svg>'
+   tab.append(settingsCategoryIcon(document,category))
    const text=document.createElement('span');text.className='settings-nav-label';text.textContent=category.label;tab.append(text)
    tab.onclick=()=>openSettings(category.id,{id,name:config.projectName})
    tabs.append(tab)
@@ -2414,7 +2434,7 @@ async function openProject(id,initial='Remove'){
   }
   for(const category of PROJECT_SETTINGS_CATEGORIES){
    const tab=document.createElement('button');tab.type='button';tab.setAttribute('role','tab');tab.dataset.category=category.id;tab.title=category.label
-   tab.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">'+category.icon+'</svg>'
+   tab.append(settingsCategoryIcon(document,category))
    const text=document.createElement('span');text.className='settings-nav-label';text.textContent=category.label;tab.append(text)
    tab.id='project-tab-'+category.id;tab.setAttribute('aria-controls','project-panel-'+category.id)
    const panel=document.createElement('section');panel.id='project-panel-'+category.id
@@ -3021,7 +3041,7 @@ function ticketRow(view,task){
  if(taskStage(task)==='implemented'){
   items.push({label:'Skip to Handoff…',transition:'reviewed'})
  }
- items.push({label:'Discussion (no skill)',skillId:'discuss'},{label:'Discussion in native terminal',nativeTerminal:true},{label:'Custom instructions…',compose:true})
+ items.push({label:'Discussion (no skill)',skillId:'discuss'},{label:'Discussion in native terminal',nativeTerminal:true},{label:'Custom instructions…',compose:true},{label:'Launch…',dialog:true})
  for(const item of items){
   const button=document.createElement('button');button.type='button';button.setAttribute('role','menuitem');button.textContent=item.label;button.disabled=!view.info.configured
   if(item.skillId)button.dataset.skillId=item.skillId
@@ -3029,7 +3049,7 @@ function ticketRow(view,task){
    entry.declareReviewed=button
    button.onclick=()=>{closeMenu();confirmDeclareReviewed(view.projectID,task)}
   }else{
-   button.onclick=()=>{closeMenu();if(item.compose)openCompose(view,entry);else if(item.nativeTerminal)submitNativeDiscussion(view,entry).catch(()=>{});else submitTicketLaunch(view,entry,item.skillId,'',item.skillId==='pickup'?'autonomous':'').catch(()=>{})}
+   button.onclick=()=>{closeMenu();if(item.dialog)openTicketLaunchDialog(view,task);else if(item.compose)openCompose(view,entry);else if(item.nativeTerminal)submitNativeDiscussion(view,entry).catch(()=>{});else submitTicketLaunch(view,entry,item.skillId,'',item.skillId==='pickup'?'autonomous':'').catch(()=>{})}
   }
   menu.append(button)
  }
@@ -3163,6 +3183,12 @@ function openCompose(view,entry,initial=null,focusPrompt=true){
  }
  if(focusPrompt)prompt.focus()
 }
+// A row's "Launch…" opens the Launch dialog on the task's next workflow step,
+// or on a discussion when the workflow offers none.
+function openTicketLaunchDialog(view,task){
+ const step=nextTaskStep(task,view.info)
+ openLaunchDialog({projectID:view.projectID,taskId:task.id,taskKey:task.key,skill:step.skillId||'discuss',prompt:''})
+}
 async function submitTicketLaunch(view,entry,skillId,prompt,mode){
  const key=entry.task.key||entry.task.id
  view.submitting.add(entry.task.id);updateTicketRow(view,entry)
@@ -3188,41 +3214,75 @@ async function submitNativeDiscussion(view,entry){
  finally{view.submitting.delete(entry.task.id);if(view.rows.get(entry.task.id)===entry)updateTicketRow(view,entry)}
 }
 
-document.querySelector('#rerun').onclick=async()=>{
+document.querySelector('#rerun').onclick=()=>{
  const run=runs.find(item=>item.id===selected)
  if(!run||macroRun(run))return
  if(freeConsole(run)){openAgentConsole(run.projectId,run.engineId||run.provider);return}
- showDialog('Relaunch '+(run.taskKey||run.taskId))
+ openLaunchDialog({projectID:run.projectId,taskId:run.taskId,taskKey:run.taskKey,skill:run.skill,prompt:run.prompt})
+}
+// The Launch dialog (#786) starts a new execution of a task with a chosen
+// skill, instructions, mode and engine. The toolbar opens it on the selected
+// execution, a ticket row on its next workflow step. The engine sticks to the
+// task, as the Engine column's choice does: it is stored before the launch,
+// and a refusal launches nothing.
+async function openLaunchDialog({projectID,taskId,taskKey,skill:initialSkill,prompt:initialPrompt}){
+ showDialog('Launch '+(taskKey||taskId))
  try{
-  const info=await api.project(run.projectId)
+  const info=await api.project(projectID)
+  let engines=null
+  if(await taskEnginesAvailable()){try{engines=await api.taskEngines(projectID)}catch{}}
   const form=document.createElement('form')
   const skillLabel=document.createElement('label');skillLabel.textContent='Skill'
-  const skill=document.createElement('select');skill.setAttribute('aria-label','Relaunch skill')
+  const skill=document.createElement('select');skill.setAttribute('aria-label','Launch skill')
   for(const item of info.server.skills||[]){
    const option=document.createElement('option');option.value=item.id;option.textContent=item.command||item.id;skill.append(option)
   }
   const discuss=document.createElement('option');discuss.value='discuss';discuss.textContent='Discussion (no skill)';skill.append(discuss)
   const custom=document.createElement('option');custom.value='custom';custom.textContent='Custom instructions';skill.append(custom)
-  skill.value=run.skill
+  skill.value=initialSkill
   if(!skill.value){
    const missing=document.createElement('option');missing.value='';missing.textContent='Select a skill (previous skill unavailable)';missing.disabled=true;skill.prepend(missing);skill.value=''
   }
   skill.required=true;skillLabel.append(skill)
   const promptLabel=document.createElement('label');promptLabel.textContent='Instructions'
-  const prompt=document.createElement('textarea');prompt.className='cli-command';prompt.setAttribute('aria-label','Relaunch instructions');prompt.value=run.prompt||''
+  const prompt=document.createElement('textarea');prompt.className='cli-command';prompt.setAttribute('aria-label','Launch instructions');prompt.value=initialPrompt||''
   promptLabel.append(prompt)
   const modeLabel=document.createElement('label');modeLabel.textContent='Execution mode'
-  const mode=modeSelect(document,'Relaunch execution mode');modeLabel.append(mode)
-  const submit=document.createElement('button');submit.textContent='Launch new execution';submit.disabled=!info.configured
+  const mode=modeSelect(document,'Launch execution mode');modeLabel.append(mode)
+  const fields=[skillLabel,promptLabel,modeLabel]
+  let engine=null
+  if(engines?.catalogue?.length){
+   const engineLabel=document.createElement('label');engineLabel.textContent='AI engine'
+   engine=document.createElement('select');engine.setAttribute('aria-label','Launch AI engine')
+   for(const item of engines.catalogue){
+    const option=document.createElement('option');option.value=item.id
+    option.textContent=engineTooltip(item,item.id===engines.projectDefault);engine.append(option)
+   }
+   engine.value=taskEngine(engines,taskId)?.id||''
+   engineLabel.append(engine);fields.push(engineLabel)
+  }
+  const submit=document.createElement('button');submit.textContent='Launch';submit.disabled=!info.configured
   const notice=document.createElement('p');notice.setAttribute('role','status')
-  if(!info.configured)notice.textContent='Configure a local repository before relaunching.'
-  form.append(skillLabel,promptLabel,modeLabel,submit,notice);dialogBody.append(form)
+  if(!info.configured)notice.textContent='Configure a local repository before launching.'
+  form.append(...fields,submit,notice);dialogBody.append(form)
   form.onsubmit=async event=>{
    event.preventDefault()
    if(skill.value==='custom'&&!prompt.value.trim()){notice.textContent='Enter custom instructions.';prompt.focus();return}
    submit.disabled=true
+   const change=engine?launchEngineChange(engines,taskId,engine.value):null
+   if(change){
+    try{
+     const stored=await api.setTaskEngine(projectID,taskId,change)
+     // A launch refused next is retried against what is now stored.
+     if(stored)engines=stored
+     if(ticketsView?.projectID===projectID&&ticketsView.engines&&stored){
+      ticketsView.engines.tasks=stored.tasks||{}
+      for(const row of ticketsView.rows.values())renderEngineToggle(ticketsView,row)
+     }
+    }catch(err){notice.textContent='Could not switch the engine: '+ipcMessage(err);submit.disabled=false;return}
+   }
    try{
-    await api.launchServerTask(run.projectId,run.taskId,skill.value,prompt.value,launchModeOverride(mode.value),false,consoleView)
+    await api.launchServerTask(projectID,taskId,skill.value,prompt.value,launchModeOverride(mode.value),false,consoleView)
     dialog.close();await refresh()
    }catch(err){notice.textContent=err.message;submit.disabled=false}
   }
