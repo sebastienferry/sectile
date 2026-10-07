@@ -42,14 +42,13 @@ export function sameStageMapping(a: StageMapping | null | undefined, b: StageMap
 }
 
 /**
- * Puts a column on a stage, or takes it off. The first edit of a mapping the
- * project inherits starts from the tracker's.
+ * The project's own mapping after an edit in the stage editor, which starts
+ * from the mapping shown, the tracker's while the project inherits it. A
+ * mapping left with no column reads the tracker's, as the server does.
  */
-export function toggleStageColumn(current: StageMapping | null, inherited: StageMapping | undefined, stage: string, column: string): StageMapping {
-  const base = cleanStageMapping(current ?? inherited)
-  const columns = base[stage] || []
-  const next = columns.includes(column) ? columns.filter(name => name !== column) : [...columns, column]
-  return { ...base, [stage]: next }
+export function editedStageMapping(mapping: StageMapping): StageMapping | null {
+  const cleaned = cleanStageMapping(mapping)
+  return Object.keys(cleaned).length > 0 ? cleaned : null
 }
 
 /**

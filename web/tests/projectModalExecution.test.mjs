@@ -58,6 +58,13 @@ test('the project payload carries its trackers, label and own stage mappings, ne
   for (const key of LEGACY_TRACKER_KEYS) {
     assert.doesNotMatch(payload[0], new RegExp(`\\b${key}\\b`), `the project payload carries ${key}`)
   }
-  assert.doesNotMatch(modal, /BoardColumnsEditor/, 'the column mapping editor left the project settings')
+  // The project maps its stages in the admin's board editor, in its stages
+  // mode: the board, the columns and their statuses stay the tracker's.
+  const editors = modal.match(/<BoardColumnsEditor[\s\S]*?\n\s*\/>/g) || []
+  assert.ok(editors.length > 0, 'the project settings map the stages in the board editor')
+  for (const editor of editors) {
+    assert.match(editor, /mode="stages"/, 'the board editor of the project settings only moves the stages')
+    assert.doesNotMatch(editor, /onColumnsChange|onTrackerChange/, 'the project settings change no tracker column')
+  }
   assert.doesNotMatch(sync, /updateProject\(/, 'the sync view no longer rewrites the project tracker')
 })

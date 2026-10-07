@@ -25,6 +25,7 @@ import {
   Inbox,
   Map,
   Clock,
+  RotateCcw,
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { useBackdropDismiss } from '../hooks/useBackdropDismiss'
@@ -61,10 +62,10 @@ import { DEFAULT_EPIC_AXIS_PREFIXES, cleanEpicAxisPrefix, epicAxisPrefixProblem,
 import { declaredRepositories, droppedRepositoryPaths, duplicateRepository, repositoryIdentity } from '../lib/repositories'
 import { BRANCH_NAME_PRESETS, BRANCH_NAME_SAMPLE, checkBranchNameFormat } from '../lib/branchNameFormat'
 import { DEFAULT_FULL_CHAIN_STOP_STAGE } from '../lib/workflow'
-import { ownStageMappings, stageMappingPayload, type OwnStageMappings } from '../lib/stageMapping'
+import { cleanStageMapping, editedStageMapping, ownStageMappings, stageMappingPayload, type OwnStageMappings } from '../lib/stageMapping'
 import PriorityMappingTable from './PriorityMappingTable'
 import EpicAxisFieldsEditor from './EpicAxisFieldsEditor'
-import { StageColumnsEditor } from './StageColumnsEditor'
+import { BoardColumnsEditor } from './BoardColumnsEditor'
 
 type ProjectTab = 'general' | 'tracker' | 'workflow' | 'skills'
 
@@ -1328,16 +1329,44 @@ export const ProjectModal: React.FC = () => {
                         const ref = editingProject.trackers?.find(item => item.trackerId === id)
                         const summary = trackerSummaries.find(item => item.id === id)
                         const option = trackerChoices.find(item => item.id === id)
+                        const own = stageMappings[id] ?? null
+                        const isOwn = own !== null
                         return (
-                          <StageColumnsEditor
-                            key={id}
-                            trackerId={id}
-                            trackerName={option ? trackerChoiceLabel(option) : id}
-                            columns={ref?.trackerColumns || summary?.trackerColumns || []}
-                            inherited={ref?.trackerStageColumns || summary?.stageColumns}
-                            own={stageMappings[id] ?? null}
-                            onChange={own => setStageMappings(prev => ({ ...prev, [id]: own }))}
-                          />
+                          // The admin's board editor, where only the stages move (#741).
+                          <div key={id} className="p-3 rounded-xl bg-[var(--bg-tertiary)]/50 border border-[var(--border-color)]" data-stage-mapping={id}>
+                            <BoardColumnsEditor
+                              mode="stages"
+                              tracker={{ id }}
+                              columns={ref?.trackerColumns || summary?.trackerColumns || []}
+                              stageColumns={cleanStageMapping(own ?? ref?.trackerStageColumns ?? summary?.stageColumns)}
+                              onStageColumnsChange={mapping => setStageMappings(prev => ({ ...prev, [id]: editedStageMapping(mapping) }))}
+                              title={option ? trackerChoiceLabel(option) : id}
+                              headerActions={
+                                <div className="flex items-center gap-2">
+                                  <span
+                                    className={`text-[9px] px-1.5 py-0.5 rounded border ${
+                                      isOwn
+                                        ? 'bg-[var(--accent-light)] border-[var(--accent-color)] text-[var(--accent-color)]'
+                                        : 'bg-[var(--bg-primary)] border-[var(--border-color)] text-[var(--text-muted)]'
+                                    }`}
+                                    data-stage-mapping-origin={isOwn ? 'project' : 'tracker'}
+                                  >
+                                    {isOwn ? ps.tracker.stageMappingOwn : ps.tracker.stageMappingInherited}
+                                  </span>
+                                  {isOwn && (
+                                    <button
+                                      type="button"
+                                      onClick={() => setStageMappings(prev => ({ ...prev, [id]: null }))}
+                                      className="inline-flex items-center gap-1 text-[10px] text-[var(--text-muted)] hover:text-[var(--text-primary)] cursor-pointer"
+                                    >
+                                      <RotateCcw size={11} />
+                                      {ps.tracker.stageMappingReset}
+                                    </button>
+                                  )}
+                                </div>
+                              }
+                            />
+                          </div>
                         )
                       })}
                     </div>

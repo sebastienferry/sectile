@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { ownStageMappings, projectForTracker, stageMappingPayload, toggleStageColumn, trackerBoard } from '../src/lib/stageMapping.ts'
+import { editedStageMapping, ownStageMappings, projectForTracker, stageMappingPayload, trackerBoard } from '../src/lib/stageMapping.ts'
 import { resolveTaskStage } from '../src/lib/workflow.ts'
 
 // A project maps the workflow stages onto each of its trackers' columns its
@@ -25,9 +25,9 @@ test('a saved project holds its own mappings, the inherited ones as null', () =>
   assert.deepEqual(ownStageMappings(project.trackers), { gode: { implemented: ['Review'] }, be: null })
 })
 
-test('the first edit of an inherited mapping starts from the tracker', () => {
-  assert.deepEqual(toggleStageColumn(null, { implemented: ['Doing'] }, 'reviewed', 'Review'), { implemented: ['Doing'], reviewed: ['Review'] })
-  assert.deepEqual(toggleStageColumn({ implemented: ['Doing'] }, undefined, 'implemented', 'Doing'), { implemented: [] })
+test('an edited mapping keeps its stages with columns, and reads the tracker once none is left', () => {
+  assert.deepEqual(editedStageMapping({ implemented: ['Doing'], reviewed: ['Review'], new: [] }), { implemented: ['Doing'], reviewed: ['Review'] })
+  assert.equal(editedStageMapping({ implemented: [] }), null)
 })
 
 test('a save sends the changed mappings only, a reset as an empty one', () => {
