@@ -1151,6 +1151,9 @@ func (d *DB) CreateStoryUnderEpic(ctx context.Context, projectID string, epicKey
 // client refuses it for want of their credential, the macro is recorded locally
 // as on any failed creation, and the refusal is returned with it (#482).
 func (d *DB) CreateMacro(ctx context.Context, projectID string, title string, horizon string, fields map[string]string) (*models.MacroMeta, error) {
+	if err := (MacroMetadata{Title: &title, Horizon: &horizon}).validate(); err != nil {
+		return nil, err
+	}
 	projectID = strings.TrimSpace(projectID)
 	title = strings.TrimSpace(title)
 	if projectID == "" || title == "" {
@@ -1190,6 +1193,7 @@ func (d *DB) CreateMacro(ctx context.Context, projectID string, title string, ho
 		h = HorizonNow
 	}
 	created, err := d.saveMacroMetaFull(projectID, key, &h, nil, nil, nil, &title, &status, &closed, nil)
+	d.FillMacroFlags(projectID, created, false)
 	if err == nil && refused != nil {
 		return created, fmt.Errorf("milestone GitHub non créé, macro %s gardée en local : %w", key, refused)
 	}

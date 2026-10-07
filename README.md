@@ -90,6 +90,11 @@ the agent configuration.
 
 ### Install Sectile in your coding CLI
 
+MCP clients can list, read, create and edit macro metadata within an explicit
+project. See the [macro resource contract](docs/contracts/server-agent-v1.md#macro-resources)
+for inputs, HTTP reads and partial-success results. Upgrade the server and
+agent together for the expanded tool catalog.
+
 The agent runs the workflow skills it finds installed; it never installs them
 by itself. There are two ways to install them, with the Sectile MCP server:
 
