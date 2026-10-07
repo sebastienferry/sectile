@@ -29,6 +29,22 @@ export function repositoryPullRequests(task) {
  for(const link of links)current.set(repositoryOf(link)||primary,link)
  return [...current].map(([repository,link])=>({...link,repository}))
 }
+// The last segment of a repository identity, enough to tell two of a task's
+// repositories apart in the toolbar.
+export function repositoryName(repository) {return String(repository||'').split('/').pop()||'PR / MR'}
+export function prLabel(value) {
+ try{
+  const url=new URL(value)
+  const match=url.pathname.match(/\/(pull|merge_requests)\/(\d+)/)
+  return match?(match[1]==='merge_requests'?'MR !':'PR #')+match[2]:'PR / MR'
+ }catch{return 'PR / MR'}
+}
+// The entries of the toolbar's pull request menu: every repository's current
+// pull request, primary first. Empty below two, where the button suffices.
+export function pullRequestMenuEntries(links) {
+ if(!links||links.length<2)return []
+ return links.map(link=>({url:link.url,repository:link.repository,name:repositoryName(link.repository),label:prLabel(link.url),link}))
+}
 const paths={
  open:'<circle cx="6" cy="5" r="3"/><circle cx="6" cy="19" r="3"/><circle cx="18" cy="19" r="3"/><path d="M6 8v8M18 16V9a4 4 0 0 0-4-4h-2m3-3-3 3 3 3"/>',
  merged:'<circle cx="6" cy="5" r="3"/><circle cx="18" cy="19" r="3"/><path d="M6 8v2a9 9 0 0 0 9 9M18 16V3m-3 3 3-3 3 3"/>',

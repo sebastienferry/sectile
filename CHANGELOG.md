@@ -100,6 +100,7 @@ test fixtures or internal plumbing.
 
 ### Changed
 
+- **One pull request control for a task that changed several repositories.** Instead of one button per repository, the Desktop execution toolbar shows the primary repository's pull request followed by a **+N** chevron. It opens a menu listing every repository's pull request, primary first, each with its state icon, its repository name and its number; choosing one opens it. A task with a single pull request keeps its button alone. (#791)
 - **Inspect any folder of an execution in Desktop.** The folder list after an execution's path now selects a folder instead of copying it: the path, **Open in editor** and **Changes** follow the selected folder, so the changes of another repository, a context checkout or the specifications worktree can be read without leaving Desktop. Upgrade the local agent together with Desktop. (#784)
 
 - **The Claude logo in Desktop takes Claude's orange.** The logo of the **Claude settings** category, at workstation and project level, and the one next to **Conversation permission mode** are now drawn in Claude's orange instead of the text colour, idle, hovered or selected. (#778)

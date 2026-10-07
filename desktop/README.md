@@ -839,6 +839,9 @@ macro runs and other tasks' rows never take the console over.
 Linked pull requests appear as an icon on the same task row, after the title and
 status. Hover for the URL or activate the icon to open the PR externally without
 changing the selected console. Long titles truncate to keep controls inline.
+When a task has pull requests in several repositories, the toolbar of the
+selected task shows the primary one's button followed by a **+N** chevron, whose
+menu lists every repository's pull request with its state, each opening it.
 Projects can be collapsed;
 their **+** button opens the task launcher. A task row carries an archive button
 and a pencil that turns its title into a field for a local rename: Enter or
