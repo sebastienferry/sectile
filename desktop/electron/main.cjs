@@ -583,12 +583,6 @@ ipcMain.handle('git-diff',async(_,id)=>{
  }
 })
 ipcMain.handle('runs',()=>api('/desktop/runs'))
-ipcMain.handle('create-conversation',async(_,sourceRunId)=>{
- const status=await api('/desktop/status')
- const source=(await api('/desktop/runs')).find(run=>run.id===sourceRunId)
- if(!status.capabilities?.includes(source?.provider==='codex'?'codex-conversation':'claude-conversation'))throw Error('Update and restart the local agent to try conversations with this engine.')
- return api('/desktop/conversation','POST',{sourceRunId})
-})
 // since is the version the window already shows: an unchanged history is not sent again.
 ipcMain.handle('conversation',(_,id,since)=>api('/desktop/conversation?id='+encodeURIComponent(id)+(Number.isSafeInteger(since)?'&since='+since:'')))
 ipcMain.handle('conversation-interrupt',(_,id)=>api('/desktop/conversation?id='+encodeURIComponent(id),'POST',{interrupt:true}))

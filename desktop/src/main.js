@@ -177,20 +177,9 @@ let opened=false,selected=null,runs=[],last='',stopping=false,restarting=false,p
 // editor setting from its status.
 let runFoldersAvailable=false,runFoldersTerminalsAvailable=false,conversationControlsAvailable=false,conversationQueueAvailable=false,providerModels={}
 const conversation=createConversationView({api,container:document.querySelector('#terminal'),onError:error,canAddFolder:()=>runFoldersAvailable,canControl:()=>conversationControlsAvailable,canQueue:()=>conversationQueueAvailable,models:provider=>providerModels[provider]||[]})
-const conversationButton=document.createElement('button')
-conversationButton.type='button';conversationButton.textContent='Claude chat (test)';conversationButton.hidden=true
 // The conversation view is opt-in from Appearance; the terminal stays the default.
 let consoleView='terminal'
 api.consoleView().then(value=>{consoleView=value;render()}).catch(()=>{})
-conversationButton.title='Start an independent conversation in this execution’s directory'
-document.querySelector('#save-log').before(conversationButton)
-conversationButton.onclick=async()=>{
- conversationButton.disabled=true
- try{
-  const run=await api.createConversation(selected)
-  runs.push(run);select(run)
- }catch(err){error(err)}finally{conversationButton.disabled=false}
-}
 // "Add folder…" on a running ticket discussion or free console, in Sectile or
 // detached to the native terminal (#676, #689): the folder joins the project,
 // and the agent types /add-dir into a Claude Code session.
@@ -816,8 +805,6 @@ function render(options){
  renderTaskSkillStatuses()
  document.querySelector('#clear-history').disabled=!runs.some(run=>['completed','failed','canceled'].includes(run.status))
  const current=runs.find(run=>run.id===selected)
- conversationButton.textContent=current?.provider==='codex'?'Codex chat (test)':'Claude chat (test)'
- conversationButton.hidden=consoleView!=='conversation'||!current?.directory||!!current.conversation||!agentConnected
  addFolderButton.hidden=!agentConnected||!!current?.conversation||!offersRunFolder(current,runFoldersAvailable,runFoldersTerminalsAvailable)
  // The outcome belongs to the run it was given for.
  if(addFolderRun!==selected){addFolderRun=null;addFolderStatus.textContent=''}
