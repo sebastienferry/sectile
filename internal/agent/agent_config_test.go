@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -479,6 +480,37 @@ func TestConfigFetchIsFreshAndReportsServerError(t *testing.T) {
 	_, err = d.fetchConfig(context.Background(), "wrong-id", "")
 	if err == nil || !strings.Contains(err.Error(), "project not found: wrong-id") {
 		t.Fatalf("missing API diagnostic: %v", err)
+	}
+}
+
+// A ticket of several projects runs for the project its launch chose (#741):
+// the configuration is asked for that project and that ticket together.
+func TestTheAgentFetchesTheConfigOfTheDispatchedProject(t *testing.T) {
+	var query url.Values
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		query = r.URL.Query()
+		projectID := query.Get("projectId")
+		if projectID == "" {
+			projectID = "delivery"
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(agentconfig.Config{SchemaVersion: agentconfig.Version, ProjectID: projectID, AIProvider: "codex"})
+	}))
+	defer server.Close()
+	d := &agentDaemon{link: serverLink{serverURL: server.URL, token: "token"}}
+
+	config, err := d.fetchConfig(context.Background(), "bidder", "GODE-12")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if query.Get("projectId") != "bidder" || query.Get("taskKey") != "GODE-12" || config.ProjectID != "bidder" {
+		t.Fatalf("asked %v, got the configuration of %q", query, config.ProjectID)
+	}
+	if _, err := d.fetchConfig(context.Background(), "", "GODE-12"); err != nil {
+		t.Fatal(err)
+	}
+	if query.Has("projectId") {
+		t.Fatalf("a task alone must not name a project: %v", query)
 	}
 }
 

@@ -1046,7 +1046,10 @@ func (d *agentDaemon) desktopTasks(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "This task is finished. Reopen it on the server before launching an execution.", 409)
 		return
 	}
-	if task.ProjectID != projectID {
+	// A ticket may belong to several projects (#741): the run works for the
+	// one the launch is made from, whose local checkout it runs in, and the
+	// ticket must be one of its tickets.
+	if !taskInProject(task, projectID) {
 		http.Error(w, "Task does not belong to project", 400)
 		return
 	}
@@ -1065,7 +1068,9 @@ func (d *agentDaemon) desktopTasks(w http.ResponseWriter, r *http.Request) {
 	if input.View == "conversation" {
 		d.conversationViews.mark(task.ID)
 	}
-	body := mustJSON(map[string]any{"skillId": input.SkillID, "prompt": input.Prompt, "mode": input.Mode, "force": input.Force})
+	// The project travels with the launch: the server records it on the run
+	// and refuses a ticket of several projects launched without one (#741).
+	body := mustJSON(map[string]any{"skillId": input.SkillID, "prompt": input.Prompt, "mode": input.Mode, "force": input.Force, "projectId": projectID})
 	req, err := http.NewRequestWithContext(r.Context(), http.MethodPost, d.link.serverURL+"/api/tasks/"+url.PathEscape(task.ID)+"/run-skill", strings.NewReader(body))
 	if err != nil {
 		http.Error(w, err.Error(), 500)
@@ -1092,6 +1097,9 @@ func (d *agentDaemon) desktopCreateTask(w http.ResponseWriter, r *http.Request) 
 		ProjectID   string
 		Title       string
 		Description string
+		// TrackerID names one of the project's trackers for the ticket (#741).
+		// Empty, the server takes the project's default tracker.
+		TrackerID string
 	}
 	if json.NewDecoder(http.MaxBytesReader(w, r.Body, 65536)).Decode(&input) != nil || input.ProjectID == "" || strings.TrimSpace(input.Title) == "" {
 		http.Error(w, "Project and title required", 400)
@@ -1101,7 +1109,13 @@ func (d *agentDaemon) desktopCreateTask(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, err.Error(), 400)
 		return
 	}
-	body := mustJSON(models.CreateTaskRequest{ProjectID: input.ProjectID, Title: strings.TrimSpace(input.Title), Description: input.Description, RequireRemoteCreation: true})
+	body := mustJSON(models.CreateTaskRequest{
+		ProjectID:             input.ProjectID,
+		TrackerID:             strings.TrimSpace(input.TrackerID),
+		Title:                 strings.TrimSpace(input.Title),
+		Description:           input.Description,
+		RequireRemoteCreation: true,
+	})
 	req, err := http.NewRequestWithContext(r.Context(), http.MethodPost, d.link.serverURL+"/api/tasks", strings.NewReader(body))
 	if err != nil {
 		http.Error(w, err.Error(), 500)
@@ -1184,6 +1198,20 @@ func launchableSkill(config agentconfig.Config, skillID, prompt string) bool {
 	return false
 }
 
+// taskInProject says whether the ticket is one of the project's: one of the
+// projects it belongs to (#741), or the project it was listed for.
+func taskInProject(task models.Task, projectID string) bool {
+	if task.ProjectID == projectID {
+		return true
+	}
+	for _, id := range task.ProjectIDs {
+		if id == projectID {
+			return true
+		}
+	}
+	return false
+}
+
 func desktopTaskFinished(task models.Task) bool {
 	if task.Status == models.StatusFinished || task.Status == models.StatusDone {
 		return true
@@ -1237,7 +1265,7 @@ func (d *agentDaemon) desktopRunResult(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 502)
 		return
 	}
-	if task.ID != taskID || task.ProjectID != projectID {
+	if task.ID != taskID || !taskInProject(task, projectID) {
 		http.Error(w, "Task does not match execution", 409)
 		return
 	}
@@ -1418,7 +1446,7 @@ func (d *agentDaemon) desktopTasksTerminalExternal(w http.ResponseWriter, r *htt
 		http.Error(w, "This task is finished. Reopen it on the server before launching an execution.", http.StatusConflict)
 		return
 	}
-	if task.ProjectID != input.ProjectID {
+	if !taskInProject(task, input.ProjectID) {
 		http.Error(w, "Task does not belong to project", http.StatusBadRequest)
 		return
 	}

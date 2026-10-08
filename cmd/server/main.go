@@ -330,6 +330,12 @@ func main() {
 	// The server credential of each tracker provider, an admin's to set.
 	mux.HandleFunc(handlers.ServerTrackerCredentialsPath, h.HandleServerTrackerCredentials)
 	mux.HandleFunc(handlers.ServerTrackerCredentialsPath+"/", h.HandleServerTrackerCredentials)
+	// Trackers are configured by an admin, picked and synchronised by members
+	// (#741).
+	mux.HandleFunc(handlers.AdminTrackersPath, h.HandleAdminTrackers)
+	mux.HandleFunc(handlers.AdminTrackersPath+"/", h.HandleAdminTrackers)
+	mux.HandleFunc(handlers.TrackersPath, h.HandleTrackers)
+	mux.HandleFunc(handlers.TrackersPath+"/", h.HandleTrackers)
 	mux.HandleFunc(handlers.JiraOAuthAppPath, h.HandleJiraOAuthApp)
 
 	// Prometheus metrics. Outside /api/, so the session guard leaves them

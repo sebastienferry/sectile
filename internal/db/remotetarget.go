@@ -21,17 +21,19 @@ import (
 // parent Jira refuses does not lose a story that exists by then: the notice
 // says so and the key is kept.
 func (d *DB) createStoryInRoadmapProject(ctx context.Context, proj *models.Project, key string, macroKey string, title string) (*models.Task, string, error) {
-	view := roadmapProjectView(proj, key)
-	ts, err := d.TrackerForProject(view)
+	// The roadmap project is read through the project's own tracker, its key
+	// alone changing: same site, same credentials (#741).
+	view := roadmapTrackerView(d.trackerOfProjectUnsafe(proj), key)
+	ts, err := d.TrackerFor(view)
 	if err != nil {
 		return nil, "", err
 	}
 	if !ts.Supports(tracker.CapCreate) {
 		return nil, "", tracker.Unsupported(ts.Name(), tracker.CapCreate)
 	}
-	ctx = tracker.WithProject(ctx, proj.ID)
+	ctx = tracker.WithTracker(ctx, view)
 	created, err := ts.CreateIssue(ctx, tracker.CreateIssueRequest{
-		Project:  view,
+		Tracker:  view,
 		Title:    strings.TrimSpace(title),
 		Priority: models.PriorityMedium,
 	})
@@ -39,7 +41,7 @@ func (d *DB) createStoryInRoadmapProject(ctx context.Context, proj *models.Proje
 		return nil, "", err
 	}
 	if created == nil || strings.TrimSpace(created.Key) == "" {
-		return nil, "", fmt.Errorf("Jira n'a pas confirmé la story créée dans %s", view.JiraProject)
+		return nil, "", fmt.Errorf("Jira n'a pas confirmé la story créée dans %s", view.Scope)
 	}
 	// A task nobody imported has no local identity: the empty id is what tells
 	// the caller not to open it.
@@ -53,7 +55,7 @@ func (d *DB) createStoryInRoadmapProject(ctx context.Context, proj *models.Proje
 	notice := ""
 	if macroKey = strings.TrimSpace(macroKey); macroKey != "" {
 		if err := ts.SetParent(ctx, created.Key, macroKey); err != nil {
-			notice = fmt.Sprintf("épic %s non posé comme parent de %s sur Jira : %v ; la story reste dans le projet %s", macroKey, created.Key, err, view.JiraProject)
+			notice = fmt.Sprintf("épic %s non posé comme parent de %s sur Jira : %v ; la story reste dans le projet %s", macroKey, created.Key, err, view.Scope)
 		}
 	}
 	return created, notice, nil

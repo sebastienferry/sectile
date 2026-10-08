@@ -72,8 +72,12 @@ func (d *DB) branchSharedWithAnotherTask(projectID, taskID, branch string) (bool
 	}
 	d.mu.RLock()
 	defer d.mu.RUnlock()
+	// A ticket records its tracker rather than the project, so the project's
+	// rows are its trackers' tickets (#741).
+	scope, args := d.projectRowsScopeUnsafe(projectID)
+	args = append(args, branch, taskID)
 	var count int
-	if err := d.conn.QueryRow("SELECT COUNT(*) FROM tasks WHERE project_id = ? AND branch_name = ? AND id <> ?", projectID, branch, taskID).Scan(&count); err != nil {
+	if err := d.conn.QueryRow("SELECT COUNT(*) FROM tasks WHERE "+scope+" AND branch_name = ? AND id <> ?", args...).Scan(&count); err != nil {
 		return false, err
 	}
 	return count > 0, nil

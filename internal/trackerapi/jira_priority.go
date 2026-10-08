@@ -399,30 +399,21 @@ func (c *Client) priorityFieldFor(ctx context.Context, screen jiraScreenPrioriti
 	return c.jiraPriorityValue(ctx, p), true, nil
 }
 
-// priorityMappingOf is the mapping a write on the project goes through, empty
-// for a project that has none yet.
-func priorityMappingOf(p *models.Project) models.PriorityMapping {
-	if p == nil {
-		return models.PriorityMapping{}
-	}
-	return p.PriorityMapping
-}
-
-// PriorityScheme lists the project's priority options for its mapping (#679):
-// the creation screen of its first imported work item type, which carries the
-// project's own scheme, else the site's list. fresh reads both again rather
-// than from the caches a write uses.
-func (j *JiraAdapter) PriorityScheme(ctx context.Context, project *models.Project, fresh bool) ([]models.PriorityOption, error) {
-	projectKey, err := j.projectKey(project)
+// PriorityScheme lists the tracker's priority options for a project's mapping
+// (#679): the creation screen of its first imported work item type, which
+// carries the Jira project's own scheme, else the site's list. fresh reads
+// both again rather than from the caches a write uses.
+func (j *JiraAdapter) PriorityScheme(ctx context.Context, trk *models.Tracker, fresh bool) ([]models.PriorityOption, error) {
+	projectKey, err := j.projectKey(trk)
 	if err != nil {
 		return nil, err
 	}
-	c, err := j.forProject(ctx, project)
+	c, err := j.forProject(ctx, trk)
 	if err != nil {
 		return nil, err
 	}
 	issueType := "Task"
-	if types := models.NormalizeIssueTypes(project.IssueTypes); len(types) > 0 {
+	if types := models.NormalizeIssueTypes(trk.IssueTypes); len(types) > 0 {
 		issueType = types[0]
 	}
 	var scheme jiraPriorityScheme

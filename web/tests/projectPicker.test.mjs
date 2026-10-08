@@ -12,6 +12,7 @@ import {
   projectRepositories,
   repositoryLabel,
   trackerLabel,
+  projectTrackerKinds,
 } from '../src/lib/projectPicker.ts'
 
 const project = (id, fields = {}) => ({
@@ -182,4 +183,26 @@ test('projectLocation shows the field that matched, highlighted', () => {
   assert.deepEqual(projectLocation(site, matchProject(site, 'ww')), { tracker: 'GitHub', key: '', location: 'www', matched: 'location' }, 'a slug match shows the slug')
   assert.deepEqual(projectLocation(site, matchProject(site, 'market')), { tracker: 'GitHub', key: '', location: 'marketing/site', matched: 'location' })
   assert.deepEqual(projectLocation(site, null), { tracker: 'GitHub', key: '', location: 'marketing/site', matched: null })
+})
+
+test('a project of several trackers is found under each of them, and by each Jira key', () => {
+  // A project selects trackers (#741): its legacy fields name its default
+  // tracker only, the others come from the trackers' identities.
+  const delivery = project('Delivery', {
+    issueTracker: 'jira',
+    jiraProject: 'GODE',
+    trackers: [
+      { trackerId: 'gode', identity: 'jira|acme.atlassian.net|GODE' },
+      { trackerId: 'be', identity: 'jira|acme.atlassian.net|BE' },
+      { trackerId: 'app', identity: 'github|api.github.com|acme/app' },
+    ],
+  })
+  const notes = project('Notes', { issueTracker: 'local', trackers: [{ trackerId: 'loc', identity: 'local||notes' }] })
+  assert.deepEqual(projectTrackerKinds(delivery), ['jira', 'github'])
+  assert.deepEqual(projectTrackerKinds(notes), ['local'])
+  assert.deepEqual(projectTrackerKinds(project('Old', { issueTracker: 'gitlab' })), ['gitlab'])
+  assert.deepEqual(names(overviewProjects([delivery, notes], [], '', 'github', 'en')), ['Delivery'])
+  assert.deepEqual(names(overviewProjects([delivery, notes], [], '', 'jira', 'en')), ['Delivery'])
+  assert.deepEqual(matchProject(delivery, 'be'), { field: 'tracker', text: 'BE' })
+  assert.deepEqual(matchProject(delivery, 'github'), { field: 'tracker', text: 'GitHub' })
 })

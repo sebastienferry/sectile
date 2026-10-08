@@ -54,7 +54,7 @@ func seedViewFixture(t *testing.T, database *DB) viewFixture {
 		imported[i].Status = models.StatusToClarify
 		imported[i].Priority = models.PriorityMedium
 	}
-	if err := database.ImportOrUpdateTasks(imported); err != nil {
+	if err := database.ImportOrUpdateTasks("", imported); err != nil {
 		t.Fatalf("ImportOrUpdateTasks: %v", err)
 	}
 	return f
@@ -282,7 +282,7 @@ func TestBoardViewSelectionFollowsLabelChanges(t *testing.T) {
 	f := newViewFixture(t)
 	view := f.create(t, "u1", "Platform", []string{f.alpha, f.beta}, []string{"platform"})
 
-	if err := f.db.ImportOrUpdateTasks([]models.Task{{
+	if err := f.db.ImportOrUpdateTasks("", []models.Task{{
 		ProjectID: f.beta, Key: "#6", Title: "beta unlabelled", Labels: []string{"Platform"},
 		Status: models.StatusToClarify, Priority: models.PriorityMedium,
 	}}); err != nil {
@@ -350,7 +350,7 @@ func TestDeletingAProjectRemovesItFromViews(t *testing.T) {
 // substring label filter combines with the view's whole-label rule.
 func TestBoardViewKeepsTheBoardRules(t *testing.T) {
 	f := newViewFixture(t)
-	if err := f.db.ImportOrUpdateTasks([]models.Task{{
+	if err := f.db.ImportOrUpdateTasks("", []models.Task{{
 		ProjectID: f.alpha, Key: "#99", Title: "platform epic", Labels: []string{"platform"}, IssueType: "Epic",
 		Status: models.StatusToClarify, Priority: models.PriorityMedium,
 	}}); err != nil {

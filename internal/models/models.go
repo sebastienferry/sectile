@@ -102,6 +102,13 @@ type TaskActivity struct {
 	// project activity with no task; the field is read by the macro run
 	// queries only and is empty everywhere else.
 	MacroKey string `json:"macroKey,omitempty"`
+	// RunProjectID is the project a task run works for (#741). A ticket may
+	// belong to several projects, and a task run cannot store one in ProjectID,
+	// which a task activity leaves empty. Empty on every other row.
+	RunProjectID string `json:"runProjectId,omitempty"`
+	// TrackerID names the tracker a synchronisation read. Empty on every other
+	// row.
+	TrackerID string `json:"trackerId,omitempty"`
 }
 
 type ActivityStats struct {
@@ -192,7 +199,10 @@ type Project struct {
 	// Sprints mirrors the board's sprints with their state, refreshed by the sync.
 	Sprints []TrackerSprint `json:"sprints,omitempty"`
 	// StageColumns assigns each agentic workflow stage to one or several of those
-	// columns, which is what decides the skill proposed on a card.
+	// columns, which is what decides the skill proposed on a card. Read, it is
+	// the mapping that applies to the default tracker's tickets in this
+	// project: the project's own, else the tracker's (#741). Each tracker's is
+	// in Trackers.
 	StageColumns map[string][]string `json:"stageColumns,omitempty"`
 	GitRemoteUrl string              `json:"gitRemoteUrl"` // e.g. "git@github.com:owner/repo.git"
 	GithubRepo   string              `json:"githubRepo"`   // e.g. "owner/repo"
@@ -232,6 +242,16 @@ type Project struct {
 	TaskCount               int       `json:"taskCount"`
 	CreatedAt               time.Time `json:"createdAt"`
 	UpdatedAt               time.Time `json:"updatedAt"`
+	// Trackers are the trackers the project selects its tickets from, in
+	// order (#741). Until the tracker settings move to their own screen, the
+	// tracker fields above are read through from DefaultTrackerID.
+	Trackers []ProjectTracker `json:"trackers"`
+	// Label, when set, narrows the project to the tickets carrying it. Empty
+	// shows every ticket of its trackers.
+	Label string `json:"label"`
+	// DefaultTrackerID is where a new ticket goes, the first tracker when
+	// empty.
+	DefaultTrackerID string `json:"defaultTrackerId"`
 }
 
 // TrackerColumn is one column of the tracker's own board, with the tracker
@@ -530,6 +550,21 @@ type CreateProjectRequest struct {
 	SpecFramework       string           `json:"specFramework,omitempty"`
 	AutoSyncEnabled     *bool            `json:"autoSyncEnabled,omitempty"`
 	AutoSyncIntervalMin *int             `json:"autoSyncIntervalMin,omitempty"`
+	// Trackers are the trackers the project selects its tickets from, by id or
+	// identity, in order (#741). Empty selects the single tracker the fields
+	// above name, which the API requires to be recorded already.
+	Trackers []ProjectTracker `json:"trackers,omitempty"`
+	// Label narrows the project to the tickets carrying it. Empty shows every
+	// ticket of its trackers.
+	Label string `json:"label,omitempty"`
+	// DefaultTrackerID is where the project's new tickets go, the first
+	// tracker when empty or not one of them.
+	DefaultTrackerID string `json:"defaultTrackerId,omitempty"`
+	// JoinTrackerOnly is set by the server, never read from a payload, on every
+	// project write from the API (ADR 0054, D11): the project's tracker fields
+	// may then only join a tracker already recorded, never create (not even a
+	// local board) or rename one.
+	JoinTrackerOnly bool `json:"-"`
 }
 
 type UpdateProjectRequest struct {
@@ -569,7 +604,25 @@ type UpdateProjectRequest struct {
 	SpecFramework       *string              `json:"specFramework,omitempty"`
 	AutoSyncEnabled     *bool                `json:"autoSyncEnabled,omitempty"`
 	AutoSyncIntervalMin *int                 `json:"autoSyncIntervalMin,omitempty"`
+	// Trackers, Label and DefaultTrackerID: see CreateProjectRequest (#741).
+	Trackers         *[]ProjectTracker `json:"trackers,omitempty"`
+	Label            *string           `json:"label,omitempty"`
+	DefaultTrackerID *string           `json:"defaultTrackerId,omitempty"`
+	// TrackerStageColumns sets the project's own stage→columns mapping for the
+	// trackers it selects, by tracker id (#741): an empty mapping goes back to
+	// the tracker's, a tracker left out keeps what it had, and an unknown
+	// stage, a column the tracker does not have or a tracker the project does
+	// not select is ErrInvalidStageColumns. StageColumns, the form an older
+	// client sends, sets the default tracker's leniently: the stages and
+	// columns the tracker lacks are dropped, and a mapping then empty, or equal
+	// to the tracker's, keeps the tracker's. Neither writes the tracker's own.
+	TrackerStageColumns *StageMappings `json:"trackerStageColumns,omitempty"`
+	// JoinTrackerOnly: see CreateProjectRequest.
+	JoinTrackerOnly bool `json:"-"`
 }
+
+// StageMappings is a stage→columns mapping per tracker, by tracker id (#741).
+type StageMappings map[string]map[string][]string
 
 // NormalizeAutoSyncIntervalMin clamps the project background sync interval between 1 and 30 minutes (default 5).
 func NormalizeAutoSyncIntervalMin(min int) int {
@@ -889,8 +942,22 @@ type WorktreeInfo struct {
 }
 
 type Task struct {
-	ID             string   `json:"id"`
-	ProjectID      string   `json:"projectId"`
+	ID string `json:"id"`
+	// ProjectID is computed, never read from the tasks table (#741): the
+	// project a listing is scoped to, else the first project the ticket
+	// belongs to, empty for a ticket in no project.
+	ProjectID string `json:"projectId"`
+	// ProjectIDs are the projects the ticket belongs to: those selecting its
+	// tracker whose label it carries, or which have no label.
+	ProjectIDs []string `json:"projectIds"`
+	// ContextProjectID is the project the ticket was read for, when one was:
+	// the project a listing is scoped to, or the one its run works for. Unlike
+	// ProjectID it stays empty for a ticket that merely belongs to several
+	// projects. Never sent: it decides whose stage mapping applies (#741).
+	ContextProjectID string `json:"-"`
+	// TrackerID is the tracker the ticket belongs to (#741): one issue per
+	// remote ticket, whatever projects show it.
+	TrackerID      string   `json:"trackerId"`
 	Key            string   `json:"key"`
 	Title          string   `json:"title"`
 	Description    string   `json:"description"`
@@ -1170,6 +1237,9 @@ type CreateTaskRequest struct {
 	ParentKey             string   `json:"parentKey,omitempty"`
 	ParentTitle           string   `json:"parentTitle,omitempty"`
 	ParentType            string   `json:"parentType,omitempty"`
+	// TrackerID names the tracker of the project the ticket is created on, by
+	// id or identity (#741). Empty means the project's default tracker.
+	TrackerID string `json:"trackerId,omitempty"`
 }
 
 type CloneTaskRequest struct {
@@ -1213,6 +1283,10 @@ type UpdateTaskRequest struct {
 	Source        *string            `json:"source,omitempty"`
 	ExternalURL   *string            `json:"externalUrl,omitempty"`
 	IssueType     *string            `json:"issueType,omitempty"`
+	// StageProjectID is the project a stage or tracker status change is made
+	// from, such as the board's (#741): its stage mapping applies when it
+	// selects the ticket's tracker. Unlike ProjectID it moves nothing.
+	StageProjectID *string `json:"stageProjectId,omitempty"`
 }
 
 type Skill struct {
@@ -1246,6 +1320,9 @@ type RunSkillRequest struct {
 	// the task the launch is made on. Only pickup_issues takes them. Empty for
 	// any other launch.
 	BatchTaskIDs []string `json:"batchTaskIds,omitempty"`
+	// ProjectID is the project the run works for (#741), the one of the board
+	// it was started from. A ticket of several projects needs it.
+	ProjectID string `json:"projectId,omitempty"`
 }
 
 // Batch member states (#522). The lead starts processing, the others waiting;

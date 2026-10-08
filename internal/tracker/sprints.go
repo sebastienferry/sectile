@@ -7,9 +7,9 @@ import (
 	"tasks/internal/models"
 )
 
-// SprintCreateRequest is one sprint to create on a project's board.
+// SprintCreateRequest is one sprint to create on a tracker's board.
 type SprintCreateRequest struct {
-	Project *models.Project
+	Tracker *models.Tracker
 	BoardID string
 	Name    string
 	Start   time.Time
@@ -25,8 +25,8 @@ type SprintCreateRequest struct {
 // before a work item can be moved into it.
 type SprintManager interface {
 	CreateSprint(ctx context.Context, req SprintCreateRequest) (models.TrackerSprint, error)
-	UpdateSprint(ctx context.Context, project *models.Project, sprintID string, patch models.SprintPatch) (models.TrackerSprint, error)
+	UpdateSprint(ctx context.Context, t *models.Tracker, sprintID string, patch models.SprintPatch) (models.TrackerSprint, error)
 	// DeleteSprint deletes a sprint; one the tracker no longer knows counts as
 	// deleted.
-	DeleteSprint(ctx context.Context, project *models.Project, sprintID string) error
+	DeleteSprint(ctx context.Context, t *models.Tracker, sprintID string) error
 }

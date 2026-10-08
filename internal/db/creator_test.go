@@ -76,7 +76,7 @@ func TestTaskCreatorPersistence(t *testing.T) {
 		Status:        models.StatusToClarify,
 		Priority:      models.PriorityMedium,
 	}
-	if err := d.ImportOrUpdateTasks([]models.Task{syncTask}); err != nil {
+	if err := d.ImportOrUpdateTasks("", []models.Task{syncTask}); err != nil {
 		t.Fatalf("ImportOrUpdateTasks: %v", err)
 	}
 
@@ -101,7 +101,7 @@ func TestTaskCreatorPersistence(t *testing.T) {
 		Status:        models.StatusClarified,
 		Priority:      models.PriorityHigh,
 	}
-	if err := d.ImportOrUpdateTasks([]models.Task{syncTaskUpdate}); err != nil {
+	if err := d.ImportOrUpdateTasks("", []models.Task{syncTaskUpdate}); err != nil {
 		t.Fatalf("ImportOrUpdateTasks update: %v", err)
 	}
 

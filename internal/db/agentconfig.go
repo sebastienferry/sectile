@@ -10,19 +10,30 @@ import (
 
 // AgentConfig exposes the project's method, never server paths, tracker
 // credentials or execution settings.
+//
+// For a task (#741), the project is one the ticket belongs to: the one named,
+// which the ticket must be in; else its only project, else the project of its
+// open run; a ticket of several projects otherwise returns an
+// *ErrRunProjectAmbiguous naming them. The tracker fields describe the
+// ticket's own tracker.
 func (d *DB) AgentConfig(projectID, taskKey string, framework ...string) (*agentconfig.Config, error) {
+	var taskTracker *models.Tracker
 	if taskKey != "" {
-		task, err := d.GetTaskByID(taskKey)
+		task, err := d.GetTaskByIDIn(projectID, taskKey)
 		if err != nil {
 			return nil, err
 		}
 		if task == nil {
 			return nil, fmt.Errorf("task not found: %s", taskKey)
 		}
-		if projectID != "" && projectID != task.ProjectID {
-			return nil, fmt.Errorf("task does not belong to project %s", projectID)
+		chosen, err := d.agentConfigProject(task, projectID)
+		if err != nil {
+			return nil, err
 		}
-		projectID = task.ProjectID
+		projectID = chosen
+		d.mu.RLock()
+		taskTracker = d.trackerOfTaskUnsafe(task)
+		d.mu.RUnlock()
 	}
 	if projectID == "" {
 		return nil, fmt.Errorf("projectId or taskKey is required")
@@ -50,6 +61,17 @@ func (d *DB) AgentConfig(projectID, taskKey string, framework ...string) (*agent
 	}
 	for _, repository := range p.Repositories {
 		c.Repositories = append(c.Repositories, repository.URL)
+	}
+	c.Label = p.Label
+	if trackers, err := d.ProjectTrackers(p.ID); err == nil {
+		for _, t := range trackers {
+			c.Trackers = append(c.Trackers, trackerRef(t))
+		}
+	}
+	if taskTracker != nil && taskTracker.ID != "" {
+		ref := trackerRef(taskTracker)
+		c.Tracker = &ref
+		applyTrackerFields(c, taskTracker)
 	}
 	if c.GithubRepo == "" {
 		c.GithubRepo = s.GithubRepo
@@ -95,6 +117,60 @@ func (d *DB) AgentConfig(projectID, taskKey string, framework ...string) (*agent
 		return nil, err
 	}
 	return c, nil
+}
+
+// agentConfigProject chooses the project a task's configuration is read for:
+// see AgentConfig.
+func (d *DB) agentConfigProject(task *models.Task, requested string) (string, error) {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	members, err := d.memberProjectsUnsafe(task)
+	if err != nil {
+		return "", err
+	}
+	if requested = strings.TrimSpace(requested); requested != "" {
+		for _, p := range members {
+			if p.ID == requested || (p.Slug != "" && p.Slug == requested) {
+				return p.ID, nil
+			}
+		}
+		return "", fmt.Errorf("task does not belong to project %s", requested)
+	}
+	switch len(members) {
+	case 0:
+		return "", fmt.Errorf("task %s belongs to no project", task.Key)
+	case 1:
+		return members[0].ID, nil
+	}
+	if run := d.runProjectOfTaskUnsafe(task.ID); run != "" {
+		for _, p := range members {
+			if p.ID == run {
+				return run, nil
+			}
+		}
+	}
+	return d.resolveRunProjectUnsafe(task, "", false)
+}
+
+// trackerRef names a tracker in the agent configuration.
+func trackerRef(t *models.Tracker) agentconfig.TrackerRef {
+	return agentconfig.TrackerRef{ID: t.ID, Name: t.Name, Provider: t.Provider, Site: t.Site, Scope: t.Scope, Identity: t.Identity}
+}
+
+// applyTrackerFields describes a task's tracker in the configuration's tracker
+// fields, which the skill fragments read: the provider, and the Jira key, the
+// GitHub repository and the site of that tracker.
+func applyTrackerFields(c *agentconfig.Config, t *models.Tracker) {
+	if t.Provider == "local" {
+		return
+	}
+	c.IssueTracker = t.Provider
+	switch t.Provider {
+	case "jira":
+		c.JiraProject, c.TrackerURL = t.Scope, t.Site
+	case "github":
+		c.GithubRepo = t.Scope
+	}
 }
 
 // LegacyProjectExecution is the execution composition AgentConfig served

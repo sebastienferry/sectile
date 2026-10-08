@@ -58,7 +58,7 @@ func (d *DB) pullRequestDiscoverer(ts tracker.TicketingSystem) func(context.Cont
 		return nil
 	}
 	return func(ctx context.Context, proj *models.Project, key string) ([]models.TaskPullRequest, error) {
-		return finder.IssuePullRequests(ctx, tracker.IssuePullRequestsRequest{Project: proj, Key: key})
+		return finder.IssuePullRequests(ctx, tracker.IssuePullRequestsRequest{Tracker: d.trackerOfProjectUnsafe(proj), Key: key})
 	}
 }
 

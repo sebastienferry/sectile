@@ -52,6 +52,10 @@ type RunLaunch struct {
 	// Force marks a run started with "Launch anyway", next to another active
 	// run on the task. It is recorded as concurrent, out of the one-run rule.
 	Force bool
+	// ProjectID is the project the run works for (#741), recorded on it. Empty
+	// lets ResolveRunProject choose, which refuses a ticket of several
+	// projects.
+	ProjectID string
 }
 
 // StartRemoteRun creates an independent execution record with no owner. It
@@ -64,6 +68,13 @@ func (d *DB) StartRemoteRun(taskKey, skill, runID string) (*models.TaskActivity,
 // user the MCP client's key resolves to becomes the owner of the run.
 func (d *DB) StartRemoteRunBy(userID, taskKey, skill, runID string) (*models.TaskActivity, error) {
 	return d.startRemoteRun(taskKey, skill, runID, false, RunLaunch{UserID: userID})
+}
+
+// StartRemoteRunFor is StartRemoteRunBy for the project the run works for
+// (#741). Empty lets ResolveRunProject choose: a ticket of several projects is
+// refused with the candidates, so the calling agent asks its user.
+func (d *DB) StartRemoteRunFor(userID, taskKey, skill, runID, projectID string) (*models.TaskActivity, error) {
+	return d.startRemoteRun(taskKey, skill, runID, false, RunLaunch{UserID: userID, ProjectID: projectID})
 }
 func (d *DB) StartAgentRemoteRun(taskKey, skill string) (*models.TaskActivity, error) {
 	return d.startRemoteRun(taskKey, skill, "", true, RunLaunch{})
@@ -105,11 +116,15 @@ func (d *DB) startRemoteRun(taskKey, skill, runID string, agentOwned bool, launc
 	if strings.TrimSpace(skill) == "" {
 		return nil, fmt.Errorf("skill is required")
 	}
+	runProject, err := d.ResolveRunProject(task, launch.ProjectID, models.NormalizeSkillMode(launch.Mode) == models.SkillModeAutonomous)
+	if err != nil {
+		return nil, err
+	}
 	now := time.Now()
 	// No project_id: the activity is attached to the task, and the task is what
 	// carries the project. Writing both would be two sources of truth for one
 	// attachment, and the schema refuses it outright.
-	activity := &models.TaskActivity{ID: uuid.NewString(), TaskID: task.ID,
+	activity := &models.TaskActivity{ID: uuid.NewString(), TaskID: task.ID, RunProjectID: runProject,
 		SkillID: "remote_run", SkillName: skill, Action: RunActionClient,
 		Status: "running", Summary: "Execution reported by a local agent or native client",
 		CreatedAt: now, StartedAt: &now, Steps: []string{}, UserID: strings.TrimSpace(launch.UserID),
@@ -445,10 +460,16 @@ func (d *DB) SyncRemoteRunStatusFor(ownerID, activityID, taskID, projectID, task
 		// refusing it would only lose track of it, so it is concurrent, out of
 		// the one-run rule. Another instance inserting the same report first is
 		// not an error.
-		_, err = d.conn.Exec(`INSERT INTO task_activities (id, task_id, skill_id, skill_name, action, status, summary, output, steps, prompt, started_at, completed_at, error, created_at, user_id, concurrent)
-			VALUES (?, ?, 'remote_run', ?, ?, ?, ?, '', '[]', '', ?, NULL, '', ?, ?, 1)
+		// The project the agent reports the run for is recorded on it (#741).
+		var runProject any
+		if projectID = strings.TrimSpace(projectID); projectID != "" {
+			runProject = projectID
+		}
+		_, err = d.conn.Exec(`INSERT INTO task_activities (id, task_id, run_project_id, skill_id, skill_name, action, status, summary, output, steps, prompt, started_at, completed_at, error,
+			created_at, user_id, concurrent)
+			VALUES (?, ?, ?, 'remote_run', ?, ?, ?, ?, '', '[]', '', ?, NULL, '', ?, ?, 1)
 			ON CONFLICT (id) DO NOTHING`,
-			activityID, realTaskID, skillName, action, status, summary, sAt, now, ownerID)
+			activityID, realTaskID, runProject, skillName, action, status, summary, sAt, now, ownerID)
 		if err != nil {
 			d.mu.Unlock()
 			return nil, err

@@ -106,7 +106,7 @@ func (d *DB) handBackRun(taskID, runID, status string) {
 		d.noteRun(runID, fmt.Sprintf("the full chain stops: no step follows stage %q", stage))
 		return
 	}
-	if _, _, err := d.enqueueChainStep(task.ID, step.SkillID, out.ChainStop); err != nil {
+	if _, _, err := d.enqueueChainStep(task.ID, step.SkillID, out.ChainStop, d.runProjectOf(runID)); err != nil {
 		log.Printf("[chain] %s: could not enqueue %s from stage %s: %v", task.Key, step.SkillID, stage, err)
 		d.noteRun(runID, "the full chain could not continue: "+err.Error())
 	}
@@ -115,8 +115,16 @@ func (d *DB) handBackRun(taskID, runID, status string) {
 // enqueueChainStep runs the next step of a chain the way the first one was
 // started: headless, whatever mode a single launch of that skill would resolve
 // to, and still carrying the stage the chain stops at.
-func (d *DB) enqueueChainStep(taskID, skillID, stopStage string) (*models.Task, *models.TaskActivity, error) {
+// It works for the project of the step before it (#741).
+func (d *DB) enqueueChainStep(taskID, skillID, stopStage, projectID string) (*models.Task, *models.TaskActivity, error) {
 	// A chained step carries no model override: the chain is launched once and
 	// each step resolves the configured model, as it resolves its own stage.
-	return d.enqueueSkillOnTask(taskID, skillID, "", true, models.SkillModeAutonomous, "", stopStage)
+	return d.enqueueSkillOnTask(taskID, projectID, skillID, "", true, models.SkillModeAutonomous, "", stopStage)
+}
+
+// runProjectOf is the project a run recorded working for, empty for none.
+func (d *DB) runProjectOf(runID string) string {
+	var projectID string
+	_ = d.conn.QueryRow("SELECT COALESCE(run_project_id, '') FROM task_activities WHERE id = ?", runID).Scan(&projectID)
+	return projectID
 }

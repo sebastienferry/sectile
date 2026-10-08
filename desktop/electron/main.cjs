@@ -12,6 +12,7 @@ const {readAgentLog}=require('./agent-log.cjs')
 const {fileSha256,agentOutdated}=require('./agent-identity.cjs')
 const {normalizeAppearance,windowColors,normalizeConsoleView,normalizeConversationMode}=require('./appearance.cjs')
 const {connectionUpdates,connectionView}=require('./connection-settings.cjs')
+const {launchRequest}=require('./run-project.cjs')
 const {settingsFiles,effectiveCredential,pairedDeviceId}=require('./settings-file.cjs')
 if(process.env.SECTILE_DESKTOP_DATA_DIR)app.setPath('userData',process.env.SECTILE_DESKTOP_DATA_DIR)
 // The app kept its data under the previous package name; carry it over once.
@@ -459,7 +460,11 @@ ipcMain.handle('server-tasks',(_,id,q,launchable)=>api('/desktop/tasks?projectId
 ipcMain.handle('launch-console',(_,projectId,provider,engineId,view)=>api('/desktop/consoles','POST',Object.assign(engineId?{projectId,engineId}:{projectId,provider},view==='conversation'?{view}:null)))
 // An absent mode means "no override": nothing is sent, so a launch with no
 // explicit choice puts exactly the payload on the wire that it always did.
-ipcMain.handle('launch-server-task',(_,id,taskID,skillID,prompt,mode,force,view)=>api('/desktop/tasks?projectId='+encodeURIComponent(id),'POST',Object.assign({taskID,skillID,prompt},mode?{mode}:null,force?{force:true}:null,view==='conversation'?{view}:null)))
+// The project of the launch is the run's (#741): the agent forwards it.
+ipcMain.handle('launch-server-task',(_,id,taskID,skillID,prompt,mode,force,view)=>{
+ const request=launchRequest(id,taskID,skillID,prompt,mode,force,view)
+ return api(request.route,'POST',request.body)
+})
 ipcMain.handle('launch-native-discussion',async(_,{projectId,taskId,terminal}={})=>api('/desktop/tasks/terminal-external','POST',{projectId,taskId,skillId:'discuss',terminal}))
 ipcMain.handle('detach-to-native-terminal',async(_,{runId,terminal}={})=>api('/desktop/terminal/detach','POST',{runId,terminal}))
 // A folder selected among a run's folders (#784) is sent as the run lists it;

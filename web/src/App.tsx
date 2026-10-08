@@ -20,6 +20,8 @@ import { TaskDetailModal } from './components/TaskDetailModal'
 import { CommandPalette } from './components/CommandPalette'
 import { ProfileModal } from './components/ProfileModal'
 import { AdminView } from './components/AdminView'
+import { TrackerBacklogView } from './components/TrackerBacklogView'
+import { RunProjectPicker } from './components/RunProjectPicker'
 import { ProjectModal } from './components/ProjectModal'
 import { ProjectOverviewModal } from './components/ProjectOverviewModal'
 import { BoardViewModal } from './components/BoardViewModal'
@@ -112,6 +114,8 @@ const MainContent: React.FC = () => {
               <SkillsView />
             ) : activeView === 'admin' ? (
               <AdminView />
+            ) : activeView === 'tracker-backlog' ? (
+              <TrackerBacklogView />
             ) : (
               <ActivitiesView />
             )}
@@ -135,6 +139,7 @@ const MainContent: React.FC = () => {
       <ProjectModal />
       <ProjectOverviewModal />
       <BoardViewModal />
+      <RunProjectPicker />
 
 
       <CommandPalette />

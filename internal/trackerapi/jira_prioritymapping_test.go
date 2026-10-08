@@ -27,17 +27,16 @@ func jiraSiteWithNumberedScheme(t *testing.T) *jiraSite {
 	return site
 }
 
-// mappedProject is the test project with P1 confirmed urgent, P3 set by hand
-// to medium, and P2 and P4 still guesses.
-func mappedProject() *models.Project {
-	p := jiraProject()
-	p.PriorityMapping = models.PriorityMapping{Options: []models.PriorityMappingOption{
+// mappedMapping is the test project's mapping, which a write carries beside
+// its tracker (#741): P1 confirmed urgent, P3 set by hand to medium, and P2
+// and P4 still guesses.
+func mappedMapping() models.PriorityMapping {
+	return models.PriorityMapping{Options: []models.PriorityMappingOption{
 		{ID: "20", Name: "P1", Level: models.PriorityUrgent, Manual: true},
 		{ID: "21", Name: "P2", Level: models.PriorityHigh, Guessed: true},
 		{ID: "22", Name: "P3", Level: models.PriorityMedium, Manual: true},
 		{ID: "23", Name: "P4", Level: models.PriorityLow, Guessed: true},
 	}}
-	return p
 }
 
 func TestJiraClassifiesKnownSchemesAsSureAndNumberedOnesAsGuessed(t *testing.T) {
@@ -68,7 +67,7 @@ func TestJiraClassifiesKnownSchemesAsSureAndNumberedOnesAsGuessed(t *testing.T) 
 
 func TestJiraPrioritySchemeReadsTheProjectsCreationScreen(t *testing.T) {
 	site := jiraSiteWithNumberedScheme(t)
-	got, err := site.adapter().PriorityScheme(unattended(), jiraProject(), false)
+	got, err := site.adapter().PriorityScheme(unattended(), jiraTracker(), false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,10 +76,10 @@ func TestJiraPrioritySchemeReadsTheProjectsCreationScreen(t *testing.T) {
 		t.Fatalf("scheme = %+v", got)
 	}
 	// A second read comes from the cache; a fresh one asks the site again.
-	if _, err := site.adapter().PriorityScheme(unattended(), jiraProject(), false); err != nil {
+	if _, err := site.adapter().PriorityScheme(unattended(), jiraTracker(), false); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := site.adapter().PriorityScheme(unattended(), jiraProject(), true); err != nil {
+	if _, err := site.adapter().PriorityScheme(unattended(), jiraTracker(), true); err != nil {
 		t.Fatal(err)
 	}
 	if calls := site.calls("GET", "/rest/api/3/issue/createmeta/PE/issuetypes/3"); len(calls) != 2 {
@@ -91,7 +90,7 @@ func TestJiraPrioritySchemeReadsTheProjectsCreationScreen(t *testing.T) {
 func TestJiraPrioritySchemeFallsBackOnTheSiteList(t *testing.T) {
 	site := jiraSiteWithNumberedScheme(t)
 	site.reply("GET", "/rest/api/3/issue/createmeta/PE/issuetypes/3", `{"total":1,"fields":[{"fieldId":"summary","name":"Summary"}]}`)
-	got, err := site.adapter().PriorityScheme(unattended(), jiraProject(), true)
+	got, err := site.adapter().PriorityScheme(unattended(), jiraTracker(), true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,11 +108,11 @@ func TestJiraWritesTheMappedOption(t *testing.T) {
 	})
 	// Medium is set by hand on P3, where the rank alone would also say P3;
 	// moving it to P2 by hand shows the mapping decides, not the rank.
-	project := mappedProject()
-	project.PriorityMapping.Options[1] = models.PriorityMappingOption{ID: "21", Name: "P2", Level: models.PriorityMedium, Manual: true}
-	project.PriorityMapping.Preferred = map[models.Priority]string{models.PriorityMedium: "21"}
+	mapping := mappedMapping()
+	mapping.Options[1] = models.PriorityMappingOption{ID: "21", Name: "P2", Level: models.PriorityMedium, Manual: true}
+	mapping.Preferred = map[models.Priority]string{models.PriorityMedium: "21"}
 	medium := models.PriorityMedium
-	if err := site.adapter().UpdateIssue(unattended(), tracker.UpdateIssueRequest{Project: project, Key: "PE-7", Priority: &medium}); err != nil {
+	if err := site.adapter().UpdateIssue(unattended(), tracker.UpdateIssueRequest{Tracker: jiraTracker(), PriorityMapping: mapping, Key: "PE-7", Priority: &medium}); err != nil {
 		t.Fatal(err)
 	}
 	if got := updated["fields"].(map[string]any)["priority"]; !sameJSON(got, map[string]any{"id": "21"}) {
@@ -126,7 +125,7 @@ func TestJiraWritesTheMappedOption(t *testing.T) {
 func TestJiraRefusesToUpdateAGuessedPriority(t *testing.T) {
 	site := jiraSiteWithNumberedScheme(t)
 	high := models.PriorityHigh
-	err := site.adapter().UpdateIssue(unattended(), tracker.UpdateIssueRequest{Project: mappedProject(), Key: "PE-7", Priority: &high})
+	err := site.adapter().UpdateIssue(unattended(), tracker.UpdateIssueRequest{Tracker: jiraTracker(), PriorityMapping: mappedMapping(), Key: "PE-7", Priority: &high})
 	var guessed *models.GuessedPriorityError
 	if !errors.As(err, &guessed) {
 		t.Fatalf("err = %v, want a guessed priority refusal", err)
@@ -148,7 +147,7 @@ func TestJiraCreatesWithoutAGuessedPriority(t *testing.T) {
 		_ = json.NewDecoder(r.Body).Decode(&created)
 		fmt.Fprint(w, `{"id":"1","key":"PE-42"}`)
 	})
-	task, err := site.adapter().CreateIssue(unattended(), tracker.CreateIssueRequest{Project: mappedProject(), Title: "New", Priority: models.PriorityHigh})
+	task, err := site.adapter().CreateIssue(unattended(), tracker.CreateIssueRequest{Tracker: jiraTracker(), PriorityMapping: mappedMapping(), Title: "New", Priority: models.PriorityHigh})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -172,7 +171,7 @@ func TestJiraCreatesWithASurePriority(t *testing.T) {
 		_ = json.NewDecoder(r.Body).Decode(&created)
 		fmt.Fprint(w, `{"id":"1","key":"PE-42"}`)
 	})
-	task, err := site.adapter().CreateIssue(unattended(), tracker.CreateIssueRequest{Project: mappedProject(), Title: "New", Priority: models.PriorityUrgent})
+	task, err := site.adapter().CreateIssue(unattended(), tracker.CreateIssueRequest{Tracker: jiraTracker(), PriorityMapping: mappedMapping(), Title: "New", Priority: models.PriorityUrgent})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -191,7 +190,7 @@ func TestJiraDoesNotPutAGuessedPriorityOnAfterCreation(t *testing.T) {
 	site.reply("GET", "/rest/api/3/issue/createmeta/PE/issuetypes/3", `{"total":1,"fields":[{"fieldId":"summary","name":"Summary","required":true}]}`)
 	site.reply("GET", "/rest/api/3/issue/PE-42/editmeta", `{"fields":{"priority":{"allowedValues":`+numberedSchemeJSON+`}}}`)
 	site.reply("POST", "/rest/api/3/issue", `{"id":"1","key":"PE-42"}`)
-	task, err := site.adapter().CreateIssue(unattended(), tracker.CreateIssueRequest{Project: mappedProject(), Title: "New", Priority: models.PriorityLow})
+	task, err := site.adapter().CreateIssue(unattended(), tracker.CreateIssueRequest{Tracker: jiraTracker(), PriorityMapping: mappedMapping(), Title: "New", Priority: models.PriorityLow})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -212,7 +211,7 @@ func TestJiraWithoutMappingStillWritesByRank(t *testing.T) {
 		w.WriteHeader(http.StatusNoContent)
 	})
 	high := models.PriorityHigh
-	if err := site.adapter().UpdateIssue(unattended(), tracker.UpdateIssueRequest{Project: jiraProject(), Key: "PE-7", Priority: &high}); err != nil {
+	if err := site.adapter().UpdateIssue(unattended(), tracker.UpdateIssueRequest{Tracker: jiraTracker(), Key: "PE-7", Priority: &high}); err != nil {
 		t.Fatal(err)
 	}
 	if got := updated["fields"].(map[string]any)["priority"]; !sameJSON(got, map[string]any{"id": "21"}) {

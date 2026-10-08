@@ -13,13 +13,13 @@ const TRACKERS = ['github', 'gitlab', 'jira']
 test('the tabs are translated and French keeps its wording', () => {
   assert.deepEqual(fr.tabs, {
     general: 'Général',
-    tracker: 'Tracker',
+    tracker: 'Trackers et label',
     workflow: 'Agentic workflow',
     skills: 'Compétences IA & SDD',
   })
   assert.deepEqual(en.tabs, {
     general: 'General',
-    tracker: 'Tracker',
+    tracker: 'Trackers & label',
     workflow: 'Agentic workflow',
     skills: 'Skills & SDD',
   })

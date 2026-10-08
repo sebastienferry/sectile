@@ -211,7 +211,8 @@ func (d *DB) LegacyRepoPaths(projectID string) (*models.LegacyRepoPaths, error) 
 	for _, path := range project.RepoPaths {
 		add(path, "")
 	}
-	rows, err := d.conn.Query("SELECT id, repo_path FROM tasks WHERE project_id = ? AND repo_path <> '' ORDER BY id", project.ID)
+	scope, scopeArgs := d.projectRowsScopeUnsafe(project.ID)
+	rows, err := d.conn.Query("SELECT id, repo_path FROM tasks WHERE "+scope+" AND repo_path <> '' ORDER BY id", scopeArgs...)
 	if err != nil {
 		return nil, err
 	}
@@ -257,6 +258,7 @@ func (d *DB) ApplyRepositoryConversion(userID, projectID string, report models.R
 		report.Dropped = []models.DroppedRepoPath{}
 	}
 	payload, _ := json.Marshal(report)
+	scope, scopeArgs := d.projectRowsScopeUnsafe(project.ID)
 	err = d.conn.WithTx(func(tx *sqlTx) error {
 		result, err := tx.Exec("UPDATE projects SET repositories = ?, repositories_migration = ?, repo_paths = '[]', updated_at = ? WHERE id = ? AND repositories_migration = ''",
 			encodeRepositoryURLs(codeRemote, urls), string(payload), time.Now(), project.ID)
@@ -269,15 +271,15 @@ func (d *DB) ApplyRepositoryConversion(userID, projectID string, report models.R
 		for _, converted := range report.Converted {
 			identity := models.RepositoryIdentity(converted.URL)
 			for _, taskID := range converted.TaskIDs {
-				if _, err := tx.Exec("UPDATE tasks SET repository = ? WHERE id = ? AND project_id = ?", identity, taskID, project.ID); err != nil {
+				if _, err := tx.Exec("UPDATE tasks SET repository = ? WHERE id = ? AND "+scope, append([]any{identity, taskID}, scopeArgs...)...); err != nil {
 					return err
 				}
 			}
 		}
-		_, err = tx.Exec("UPDATE tasks SET repo_path = '' WHERE project_id = ?", project.ID)
+		_, err = tx.Exec("UPDATE tasks SET repo_path = '' WHERE "+scope, scopeArgs...)
 		return err
 	})
-	d.projectURLs.clear()
+	d.trackerCache.clear()
 	d.mu.Unlock()
 	if err != nil {
 		return nil, err
@@ -338,7 +340,9 @@ func (d *DB) PrepareRepositoryWorktree(ctx context.Context, userID, taskKey, rep
 	if task == nil {
 		return nil, fmt.Errorf("task not found")
 	}
-	project, err := d.GetProjectByID(task.ProjectID)
+	// The repositories are those of the project the session's run works for
+	// (#741), which a ticket of several projects cannot be read from.
+	project, err := d.GetProjectByID(d.RunProjectOfTask(task))
 	if err != nil {
 		return nil, err
 	}

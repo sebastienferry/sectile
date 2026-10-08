@@ -43,24 +43,17 @@ func NewJiraAdapter(client *Client) *JiraAdapter {
 	}
 }
 
-// forProject is the client carrying the credentials of one call: the project's,
+// forProject is the client carrying the credentials of one call: the tracker's,
 // or the acting user's own when the context names one and they stored a token.
 // A Jira write is attributed to the account its token belongs to, which is why
-// this is resolved per call rather than once per project.
-func (j *JiraAdapter) forProject(ctx context.Context, p *models.Project) (*Client, error) {
-	projectID := ""
-	if p != nil {
-		projectID = p.ID
-	}
+// this is resolved per call rather than once per tracker.
+func (j *JiraAdapter) forProject(ctx context.Context, t *models.Tracker) (*Client, error) {
 	// Half the write side takes a key and nothing else, so those calls pass no
-	// project and read it from the context instead. Resolving with no project at
-	// all ignored the project's own site: the sync reached one instance and
-	// every sprint move, team write and assignment reached another.
-	if projectID == "" {
-		projectID = tracker.Project(ctx)
-	}
+	// tracker and read it from the context instead. Resolving with no tracker
+	// at all ignored its own site: the sync reached one instance and every
+	// sprint move, team write and assignment reached another.
 	user := tracker.ActingUser(ctx)
-	client, personal, err := j.client.ForActingUser(user, "jira", projectID)
+	client, personal, err := j.client.ForActingUser(user, "jira", trackerIDOf(trackerOf(ctx, t)))
 	if err != nil {
 		return nil, err
 	}
@@ -77,27 +70,21 @@ func (j *JiraAdapter) forProject(ctx context.Context, p *models.Project) (*Clien
 // forWrite is the client of one write: the acting person's own credential, the
 // server's for unattended work, and a refusal for a context naming neither
 // (ForWrite). Reads keep forProject.
-func (j *JiraAdapter) forWrite(ctx context.Context, p *models.Project) (*Client, error) {
-	projectID := ""
-	if p != nil {
-		projectID = p.ID
-	}
-	if projectID == "" {
-		projectID = tracker.Project(ctx)
-	}
-	return j.client.ForWrite(ctx, "jira", projectID)
+func (j *JiraAdapter) forWrite(ctx context.Context, t *models.Tracker) (*Client, error) {
+	return j.client.ForWrite(ctx, "jira", trackerIDOf(trackerOf(ctx, t)))
 }
 
-func (j *JiraAdapter) projectKey(p *models.Project) (string, error) {
-	key := jiraProjectKey(p)
+// projectKey is the Jira space a tracker names: its scope (#741).
+func (j *JiraAdapter) projectKey(t *models.Tracker) (string, error) {
+	key := jiraTrackerKey(t)
 	if key == "" {
-		return "", fmt.Errorf("configure the Jira project key on the project")
+		return "", fmt.Errorf("configure the Jira project key on the tracker")
 	}
 	return key, nil
 }
 
-// FormatTaskID gives a work item its local identity: jira-<projectID>-<KEY>.
-func (j *JiraAdapter) FormatTaskID(projectID string, key string, rawID string) string {
+// FormatTaskID gives a work item its local identity: jira-<trackerID>-<KEY>.
+func (j *JiraAdapter) FormatTaskID(trackerID string, key string, rawID string) string {
 	clean, err := cleanJiraKey(key)
 	if err != nil && rawID != "" {
 		clean, err = cleanJiraKey(rawID)
@@ -105,8 +92,8 @@ func (j *JiraAdapter) FormatTaskID(projectID string, key string, rawID string) s
 	if err != nil {
 		clean = strings.ToUpper(strings.TrimSpace(key))
 	}
-	if projectID != "" && projectID != "default" {
-		return fmt.Sprintf("jira-%s-%s", projectID, clean)
+	if trackerID != "" {
+		return fmt.Sprintf("jira-%s-%s", trackerID, clean)
 	}
 	return "jira-" + clean
 }
@@ -179,15 +166,15 @@ func (j *JiraAdapter) searchWith(ctx context.Context, c *Client, jql string, ext
 }
 
 func (j *JiraAdapter) SyncIssues(ctx context.Context, req tracker.SyncRequest) ([]models.Task, error) {
-	key, err := j.projectKey(req.Project)
+	key, err := j.projectKey(req.Tracker)
 	if err != nil {
 		return nil, err
 	}
 	var types []string
-	if req.Project != nil {
-		types = models.NormalizeIssueTypes(req.Project.IssueTypes)
+	if req.Tracker != nil {
+		types = models.NormalizeIssueTypes(req.Tracker.IssueTypes)
 	}
-	c, err := j.forProject(ctx, req.Project)
+	c, err := j.forProject(ctx, req.Tracker)
 	if err != nil {
 		return nil, err
 	}
@@ -202,7 +189,7 @@ func (j *JiraAdapter) GetIssue(ctx context.Context, req tracker.GetIssueRequest)
 	if err != nil {
 		return nil, err
 	}
-	c, err := j.forProject(ctx, req.Project)
+	c, err := j.forProject(ctx, req.Tracker)
 	if err != nil {
 		return nil, err
 	}
@@ -224,7 +211,7 @@ func (j *JiraAdapter) GetIssue(ctx context.Context, req tracker.GetIssueRequest)
 }
 
 func (j *JiraAdapter) CreateIssue(ctx context.Context, req tracker.CreateIssueRequest) (*models.Task, error) {
-	projectKey, err := j.projectKey(req.Project)
+	projectKey, err := j.projectKey(req.Tracker)
 	if err != nil {
 		return nil, err
 	}
@@ -233,8 +220,8 @@ func (j *JiraAdapter) CreateIssue(ctx context.Context, req tracker.CreateIssueRe
 		return nil, fmt.Errorf("issue title is required")
 	}
 	issueType := strings.TrimSpace(req.IssueType)
-	if issueType == "" && req.Project != nil {
-		if types := models.NormalizeIssueTypes(req.Project.IssueTypes); len(types) > 0 {
+	if issueType == "" && req.Tracker != nil {
+		if types := models.NormalizeIssueTypes(req.Tracker.IssueTypes); len(types) > 0 {
 			issueType = types[0]
 		}
 	}
@@ -262,7 +249,7 @@ func (j *JiraAdapter) CreateIssue(ctx context.Context, req tracker.CreateIssueRe
 	// from the site itself, and is only asked for when there is something to
 	// ask about.
 	if len(req.Fields) > 0 {
-		options, err := j.optionFields(ctx, req.Project, issueType)
+		options, err := j.optionFields(ctx, req.Tracker, issueType)
 		if err != nil {
 			return nil, err
 		}
@@ -278,7 +265,7 @@ func (j *JiraAdapter) CreateIssue(ctx context.Context, req tracker.CreateIssueRe
 			}
 		}
 	}
-	c, err := j.forWrite(ctx, req.Project)
+	c, err := j.forWrite(ctx, req.Tracker)
 	if err != nil {
 		return nil, err
 	}
@@ -292,7 +279,7 @@ func (j *JiraAdapter) CreateIssue(ctx context.Context, req tracker.CreateIssueRe
 	priorityCarried, priorityNotice := false, ""
 	if req.Priority != "" {
 		screen, readable := c.jiraCreatePriorities(ctx, projectKey, issueType)
-		value, ok, guessed := c.priorityFieldFor(ctx, screen, readable, priorityMappingOf(req.Project), req.Priority, projectKey+"/"+issueType)
+		value, ok, guessed := c.priorityFieldFor(ctx, screen, readable, req.PriorityMapping, req.Priority, projectKey+"/"+issueType)
 		if ok {
 			fields["priority"] = value
 			priorityCarried = true
@@ -310,7 +297,7 @@ func (j *JiraAdapter) CreateIssue(ctx context.Context, req tracker.CreateIssueRe
 		// creation that succeeds costs no extra request.
 		var httpErr *HTTPError
 		if errors.As(err, &httpErr) && httpErr.Status == http.StatusBadRequest {
-			if missing := j.missingRequiredFields(ctx, req.Project, issueType, fields); missing != "" {
+			if missing := j.missingRequiredFields(ctx, req.Tracker, issueType, fields); missing != "" {
 				return nil, fmt.Errorf("%w; fields this project requires on creation for %s: %s", err, issueType, missing)
 			}
 		}
@@ -325,9 +312,9 @@ func (j *JiraAdapter) CreateIssue(ctx context.Context, req tracker.CreateIssueRe
 		}
 	}
 	if req.Priority != "" && !priorityCarried && priorityNotice == "" {
-		priorityNotice = j.setPriorityAfterCreate(ctx, c, req.Project, created.Key, req.Priority)
+		priorityNotice = j.setPriorityAfterCreate(ctx, c, req.PriorityMapping, created.Key, req.Priority)
 	}
-	task, err := j.GetIssue(ctx, tracker.GetIssueRequest{Project: req.Project, Key: created.Key})
+	task, err := j.GetIssue(ctx, tracker.GetIssueRequest{Tracker: req.Tracker, Key: created.Key})
 	if err != nil {
 		// The work item exists: answer with what is known rather than failing
 		// a creation the site confirmed.
@@ -357,9 +344,9 @@ func createdWithoutPriority(err error) string {
 //
 // It answers the creation notice when the project's mapping only guessed the
 // level (#679), and "" otherwise.
-func (j *JiraAdapter) setPriorityAfterCreate(ctx context.Context, c *Client, project *models.Project, key string, p models.Priority) string {
+func (j *JiraAdapter) setPriorityAfterCreate(ctx context.Context, c *Client, mapping models.PriorityMapping, key string, p models.Priority) string {
 	screen, readable := c.jiraEditPriorities(ctx, key)
-	value, ok, guessed := c.priorityFieldFor(ctx, screen, readable, priorityMappingOf(project), p, key)
+	value, ok, guessed := c.priorityFieldFor(ctx, screen, readable, mapping, p, key)
 	if guessed != nil {
 		return createdWithoutPriority(guessed)
 	}
@@ -397,7 +384,7 @@ func (j *JiraAdapter) UpdateIssue(ctx context.Context, req tracker.UpdateIssueRe
 	if err != nil {
 		return err
 	}
-	c, err := j.forWrite(ctx, req.Project)
+	c, err := j.forWrite(ctx, req.Tracker)
 	if err != nil {
 		return err
 	}
@@ -411,7 +398,7 @@ func (j *JiraAdapter) UpdateIssue(ctx context.Context, req tracker.UpdateIssueRe
 	}
 	if req.Priority != nil && *req.Priority != "" {
 		screen, readable := c.jiraEditPriorities(ctx, key)
-		value, ok, err := c.priorityFieldFor(ctx, screen, readable, priorityMappingOf(req.Project), *req.Priority, key)
+		value, ok, err := c.priorityFieldFor(ctx, screen, readable, req.PriorityMapping, *req.Priority, key)
 		if err != nil {
 			// The mapping changed since the local write was accepted (#679):
 			// sending a guess is what it exists to prevent.
@@ -490,7 +477,7 @@ func (j *JiraAdapter) DeleteIssue(ctx context.Context, req tracker.DeleteIssueRe
 	}
 	// A Jira deletion is destructive and irreversible; closing is what the
 	// board means by removing a card, whether or not CloseOnly is set.
-	c, err := j.forWrite(ctx, req.Project)
+	c, err := j.forWrite(ctx, req.Tracker)
 	if err != nil {
 		return err
 	}
@@ -621,7 +608,7 @@ func (j *JiraAdapter) AddComment(ctx context.Context, req tracker.AddCommentRequ
 	if err != nil {
 		return err
 	}
-	c, err := j.forWrite(ctx, req.Project)
+	c, err := j.forWrite(ctx, req.Tracker)
 	if err != nil {
 		return err
 	}
@@ -643,7 +630,7 @@ func (j *JiraAdapter) UpsertMarkedComment(ctx context.Context, req tracker.Upser
 	if err != nil {
 		return "", err
 	}
-	c, err := j.forWrite(ctx, req.Project)
+	c, err := j.forWrite(ctx, req.Tracker)
 	if err != nil {
 		return "", err
 	}
@@ -736,7 +723,7 @@ func (j *JiraAdapter) GetComments(ctx context.Context, req tracker.GetCommentsRe
 	if err != nil {
 		return nil, err
 	}
-	c, err := j.forProject(ctx, req.Project)
+	c, err := j.forProject(ctx, req.Tracker)
 	if err != nil {
 		return nil, err
 	}
@@ -916,7 +903,7 @@ func (j *JiraAdapter) SearchAssignable(ctx context.Context, key string, query st
 // Read side.
 
 func (j *JiraAdapter) ListBoards(ctx context.Context, req tracker.BoardsRequest) ([]models.TrackerBoard, error) {
-	key, err := j.projectKey(req.Project)
+	key, err := j.projectKey(req.Tracker)
 	if err != nil {
 		return nil, err
 	}
@@ -928,7 +915,7 @@ func (j *JiraAdapter) ListBoards(ctx context.Context, req tracker.BoardsRequest)
 	// project with no board at all, and its column detection failing with
 	// "no board on project <KEY>".
 	query.Set("type", "scrum,kanban,simple")
-	c, err := j.forProject(ctx, req.Project)
+	c, err := j.forProject(ctx, req.Tracker)
 	if err != nil {
 		return nil, err
 	}
@@ -953,15 +940,15 @@ func (j *JiraAdapter) ListBoards(ctx context.Context, req tracker.BoardsRequest)
 
 func (j *JiraAdapter) ListSprints(ctx context.Context, req tracker.BoardRequest) ([]models.TrackerSprint, error) {
 	boardID := strings.TrimSpace(req.BoardID)
-	if boardID == "" && req.Project != nil {
-		boardID = strings.TrimSpace(req.Project.BoardID)
+	if boardID == "" && req.Tracker != nil {
+		boardID = strings.TrimSpace(req.Tracker.BoardID)
 	}
 	if boardID == "" {
 		return nil, fmt.Errorf("select a board on the project first")
 	}
 	query := url.Values{}
 	query.Set("state", "active,future,closed")
-	c, err := j.forProject(ctx, req.Project)
+	c, err := j.forProject(ctx, req.Tracker)
 	if err != nil {
 		return nil, err
 	}
@@ -1004,13 +991,13 @@ func (c *Client) statusNamesByID(ctx context.Context) (map[string]string, error)
 
 func (j *JiraAdapter) ListBoardColumns(ctx context.Context, req tracker.BoardRequest) ([]models.TrackerColumn, error) {
 	boardID := strings.TrimSpace(req.BoardID)
-	if boardID == "" && req.Project != nil {
-		boardID = strings.TrimSpace(req.Project.BoardID)
+	if boardID == "" && req.Tracker != nil {
+		boardID = strings.TrimSpace(req.Tracker.BoardID)
 	}
 	if boardID == "" {
 		return nil, fmt.Errorf("select a board on the project first")
 	}
-	c, err := j.forProject(ctx, req.Project)
+	c, err := j.forProject(ctx, req.Tracker)
 	if err != nil {
 		return nil, err
 	}
@@ -1052,7 +1039,7 @@ func (j *JiraAdapter) ListBoardColumns(ctx context.Context, req tracker.BoardReq
 }
 
 func (j *JiraAdapter) ListStatuses(ctx context.Context, req tracker.ProjectRequest) ([]tracker.TrackerStatus, error) {
-	key, err := j.projectKey(req.Project)
+	key, err := j.projectKey(req.Tracker)
 	if err != nil {
 		return nil, err
 	}
@@ -1065,7 +1052,7 @@ func (j *JiraAdapter) ListStatuses(ctx context.Context, req tracker.ProjectReque
 			} `json:"statusCategory"`
 		} `json:"statuses"`
 	}
-	c, err := j.forProject(ctx, req.Project)
+	c, err := j.forProject(ctx, req.Tracker)
 	if err != nil {
 		return nil, err
 	}
@@ -1109,11 +1096,11 @@ func (c *Client) jiraIssueTypes(ctx context.Context, projectKey string) ([]jiraI
 }
 
 func (j *JiraAdapter) ListIssueTypes(ctx context.Context, req tracker.ProjectRequest) ([]string, error) {
-	key, err := j.projectKey(req.Project)
+	key, err := j.projectKey(req.Tracker)
 	if err != nil {
 		return nil, err
 	}
-	c, err := j.forProject(ctx, req.Project)
+	c, err := j.forProject(ctx, req.Tracker)
 	if err != nil {
 		return nil, err
 	}
@@ -1136,19 +1123,19 @@ func (j *JiraAdapter) ListIssueTypes(ctx context.Context, req tracker.ProjectReq
 }
 
 func (j *JiraAdapter) ListEpics(ctx context.Context, req tracker.ProjectRequest) ([]models.Task, error) {
-	key, err := j.projectKey(req.Project)
+	key, err := j.projectKey(req.Tracker)
 	if err != nil {
 		return nil, err
 	}
-	c, err := j.forProject(ctx, req.Project)
+	c, err := j.forProject(ctx, req.Tracker)
 	if err != nil {
 		return nil, err
 	}
-	return j.searchWith(ctx, c, jiraJQL(key, nil, "issuetype = Epic"), epicAxisFieldIDs(req.Project))
+	return j.searchWith(ctx, c, jiraJQL(key, nil, "issuetype = Epic"), req.EpicAxisFields.IDs())
 }
 
 func (j *JiraAdapter) SearchTeams(ctx context.Context, req tracker.TeamSearchRequest) ([]models.TrackerTeam, error) {
-	c, err := j.forProject(ctx, req.Project)
+	c, err := j.forProject(ctx, req.Tracker)
 	if err != nil {
 		return nil, err
 	}
@@ -1156,7 +1143,7 @@ func (j *JiraAdapter) SearchTeams(ctx context.Context, req tracker.TeamSearchReq
 }
 
 func (j *JiraAdapter) TeamMembers(ctx context.Context, req tracker.TeamRequest) ([]models.TeamMember, error) {
-	c, err := j.forProject(ctx, req.Project)
+	c, err := j.forProject(ctx, req.Tracker)
 	if err != nil {
 		return nil, err
 	}
@@ -1166,8 +1153,8 @@ func (j *JiraAdapter) TeamMembers(ctx context.Context, req tracker.TeamRequest) 
 // optionFields tells which of the mandatory fields of one issue type are chosen
 // from a list the site enumerates, and therefore take an option id rather than
 // the value itself.
-func (j *JiraAdapter) optionFields(ctx context.Context, project *models.Project, issueType string) (map[string]bool, error) {
-	required, err := j.RequiredCreateFields(ctx, tracker.CreateMetaRequest{Project: project, IssueType: issueType})
+func (j *JiraAdapter) optionFields(ctx context.Context, t *models.Tracker, issueType string) (map[string]bool, error) {
+	required, err := j.RequiredCreateFields(ctx, tracker.CreateMetaRequest{Tracker: t, IssueType: issueType})
 	if err != nil {
 		return nil, err
 	}
@@ -1186,8 +1173,8 @@ func (j *JiraAdapter) optionFields(ctx context.Context, project *models.Project,
 // or a priority the adapter sent are not missing, whatever Jira refused over.
 // It answers an empty string when the screen cannot be read: the refusal it
 // completes is then returned as Jira wrote it.
-func (j *JiraAdapter) missingRequiredFields(ctx context.Context, project *models.Project, issueType string, sent map[string]any) string {
-	required, err := j.RequiredCreateFields(ctx, tracker.CreateMetaRequest{Project: project, IssueType: issueType})
+func (j *JiraAdapter) missingRequiredFields(ctx context.Context, t *models.Tracker, issueType string, sent map[string]any) string {
+	required, err := j.RequiredCreateFields(ctx, tracker.CreateMetaRequest{Tracker: t, IssueType: issueType})
 	if err != nil {
 		return ""
 	}
@@ -1206,11 +1193,11 @@ func (j *JiraAdapter) missingRequiredFields(ctx context.Context, project *models
 // values when the site enumerates them. Fields with a default are left out:
 // Jira fills them itself.
 func (j *JiraAdapter) RequiredCreateFields(ctx context.Context, req tracker.CreateMetaRequest) ([]tracker.RequiredField, error) {
-	key, err := j.projectKey(req.Project)
+	key, err := j.projectKey(req.Tracker)
 	if err != nil {
 		return nil, err
 	}
-	c, err := j.forProject(ctx, req.Project)
+	c, err := j.forProject(ctx, req.Tracker)
 	if err != nil {
 		return nil, err
 	}

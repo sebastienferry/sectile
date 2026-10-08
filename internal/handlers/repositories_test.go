@@ -68,9 +68,13 @@ func TestProjectIgnoresTheRemovedMonoRepoKey(t *testing.T) {
 	}
 	defer database.Close()
 	h := NewHandler(database)
+	tracker, err := database.CreateTrackerAs("", models.Tracker{Provider: "github", Scope: "acme/legacy"})
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	rec := httptest.NewRecorder()
-	h.HandleProjects(rec, httptest.NewRequest(http.MethodPost, "/api/projects", strings.NewReader(`{"name":"Legacy client","monoRepo":false}`)))
+	h.HandleProjects(rec, httptest.NewRequest(http.MethodPost, "/api/projects", strings.NewReader(`{"name":"Legacy client","monoRepo":false,"trackers":[{"trackerId":"`+tracker.ID+`"}]}`)))
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create with monoRepo: %d %s", rec.Code, rec.Body.String())
 	}
@@ -88,7 +92,9 @@ func TestProjectIgnoresTheRemovedMonoRepoKey(t *testing.T) {
 		t.Errorf("update with monoRepo: %d %s", rec.Code, rec.Body.String())
 	}
 
-	task, err := database.CreateTask(models.CreateTaskRequest{ProjectID: created.ID, Title: "parked"})
+	// The run is parked on the default project's local board: the created
+	// project's tracker is a GitHub repository nobody reaches here.
+	task, err := database.CreateTask(models.CreateTaskRequest{ProjectID: "default", Title: "parked"})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -87,14 +87,14 @@ func seedsOf(id string, project, deployment serverRow) (SeedDefaults, SeedProjec
 	composed := oldServerConfig(id, project, deployment)
 	worktrees := project.useWorktrees
 	return SeedDefaults{
-			AIProvider: deployment.provider, AICommandTemplate: deployment.command, AICommandTemplateAutonomous: deployment.autonomous,
-			AIModel: deployment.model, AISkillModels: deployment.skillModels, Terminal: deployment.terminal,
-		}, SeedProject{
-			ProjectID: id, AIProvider: composed.AIProvider, AICommandTemplate: composed.AICommandTemplate,
-			AICommandTemplateAutonomous: composed.AICommandTemplateAutonomous, AIModel: composed.AIModel,
-			AISkillModels: composed.AISkillModels, Terminal: project.terminal, UseWorktrees: &worktrees,
-			SetupProviders: project.setupProviders, SkillCommands: project.skillCommands,
-		}
+		AIProvider: deployment.provider, AICommandTemplate: deployment.command, AICommandTemplateAutonomous: deployment.autonomous,
+		AIModel: deployment.model, AISkillModels: deployment.skillModels, Terminal: deployment.terminal,
+	}, SeedProject{
+		ProjectID: id, AIProvider: composed.AIProvider, AICommandTemplate: composed.AICommandTemplate,
+		AICommandTemplateAutonomous: composed.AICommandTemplateAutonomous, AIModel: composed.AIModel,
+		AISkillModels: composed.AISkillModels, Terminal: project.terminal, UseWorktrees: &worktrees,
+		SetupProviders: project.setupProviders, SkillCommands: project.skillCommands,
+	}
 }
 
 func TestSeedReproducesThePreUpgradeResolution(t *testing.T) {

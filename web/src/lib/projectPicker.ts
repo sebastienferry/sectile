@@ -29,6 +29,32 @@ export function trackerLabel(tracker: IssueTracker | undefined): string {
 }
 
 /**
+ * The kinds of the trackers a project selects (#741), read from their
+ * identities ("jira|site|KEY"), its default tracker first. A project saved
+ * before trackers names its own.
+ */
+export function projectTrackerKinds(project: Pick<Project, 'issueTracker' | 'trackers'>): IssueTracker[] {
+  const kinds: IssueTracker[] = []
+  for (const ref of project.trackers ?? []) {
+    const kind = (ref.identity || '').split('|')[0] as IssueTracker
+    if (kind in TRACKER_LABELS && !kinds.includes(kind)) kinds.push(kind)
+  }
+  const own = project.issueTracker || 'local'
+  if (!kinds.includes(own)) kinds.unshift(own)
+  return kinds
+}
+
+/** The Jira keys of the spaces a project selects, its own first. */
+function projectJiraKeys(project: Pick<Project, 'jiraProject' | 'trackers'>): string[] {
+  const keys = project.jiraProject ? [project.jiraProject] : []
+  for (const ref of project.trackers ?? []) {
+    const [kind, , key] = (ref.identity || '').split('|')
+    if (kind === 'jira' && key && !keys.some(k => k.toUpperCase() === key.toUpperCase())) keys.push(key)
+  }
+  return keys
+}
+
+/**
  * Shortens a remote to its path, `owner/name`, keeping the case it was typed
  * in. A value that is already a path (`githubRepo`, `gitlabProject`) is kept.
  */
@@ -81,9 +107,10 @@ export function matchProject(project: Project, query: string): ProjectMatch | nu
   if (contains(project.description)) return { field: 'description', text: project.description }
   const repository = projectRepositories(project).find(contains)
   if (repository) return { field: 'repository', text: repository }
-  const tracker = trackerLabel(project.issueTracker)
-  if (contains(tracker)) return { field: 'tracker', text: tracker }
-  if (contains(project.jiraProject)) return { field: 'tracker', text: project.jiraProject || '' }
+  const tracker = projectTrackerKinds(project).map(trackerLabel).find(contains)
+  if (tracker) return { field: 'tracker', text: tracker }
+  const key = projectJiraKeys(project).find(contains)
+  if (key) return { field: 'tracker', text: key }
   return null
 }
 
@@ -201,7 +228,7 @@ export function overviewProjects(
   locale: string,
 ): Project[] {
   return orderProjects(projects, history, locale)
-    .filter(p => tracker === 'all' || (p.issueTracker || 'local') === tracker)
+    .filter(p => tracker === 'all' || projectTrackerKinds(p).includes(tracker))
     .filter(p => matchProject(p, query) !== null)
 }
 

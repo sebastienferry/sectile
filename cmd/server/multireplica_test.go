@@ -65,7 +65,7 @@ func TestPostgresMultiReplicaHarness(t *testing.T) {
 	lb := newBalancer(t, a, b)
 
 	client := signIn(t, a)
-	project := createProject(t, client, a)
+	project := harnessProject
 
 	agent := startScriptedAgent(t, lb)
 	agent.waitConnections(t, 1)
@@ -482,19 +482,11 @@ func signIn(t *testing.T, r *replica) *http.Client {
 	return client
 }
 
-func createProject(t *testing.T, client *http.Client, r *replica) string {
-	t.Helper()
-	var project struct {
-		ID string `json:"id"`
-	}
-	postJSON(t, client, r.url+"/api/projects", map[string]any{
-		"name": fmt.Sprintf("Harness %d", time.Now().UnixNano()), "repoPath": "/not-mounted", "issueTracker": "local", "useWorktrees": false,
-	}, &project)
-	if project.ID == "" {
-		t.Fatal("the project has no id")
-	}
-	return project.ID
-}
+// harnessProject is the project the harness works in: the default one, on
+// its local board. A project created through the API must select a tracker
+// an admin recorded (#741), and a remote one would send the harness's tasks
+// to a tracker nobody reaches here.
+const harnessProject = "default"
 
 func createTask(t *testing.T, client *http.Client, r *replica, project, title string) string {
 	t.Helper()

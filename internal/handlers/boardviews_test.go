@@ -37,7 +37,7 @@ func TestBoardViewRoutes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := database.ImportOrUpdateTasks([]models.Task{
+	if err := database.ImportOrUpdateTasks("", []models.Task{
 		{ProjectID: alpha.ID, Key: "#1", Title: "in view", Labels: []string{"Platform"}, Status: models.StatusToClarify, Priority: models.PriorityMedium},
 		{ProjectID: alpha.ID, Key: "#2", Title: "other label", Labels: []string{"platform-x"}, Status: models.StatusToClarify, Priority: models.PriorityMedium},
 		{ProjectID: beta.ID, Key: "#3", Title: "other project", Labels: []string{"platform"}, Status: models.StatusToClarify, Priority: models.PriorityMedium},

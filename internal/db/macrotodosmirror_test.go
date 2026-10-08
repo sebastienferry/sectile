@@ -60,7 +60,7 @@ func (f *markedTracker) CreateIssue(ctx context.Context, req tracker.CreateIssue
 	defer f.mu.Unlock()
 	f.created++
 	key := fmt.Sprintf("PE-%d", 99+f.created)
-	return &models.Task{ProjectID: req.Project.ID, Key: key, Title: req.Title, ParentKey: req.ParentKey}, nil
+	return &models.Task{ProjectID: req.Tracker.ID, Key: key, Title: req.Title, ParentKey: req.ParentKey}, nil
 }
 
 func (f *markedTracker) written() []tracker.UpsertMarkedCommentRequest {

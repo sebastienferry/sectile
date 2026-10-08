@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"tasks/internal/agentprotocol"
 	"tasks/internal/models"
-	"tasks/internal/tracker"
 	"time"
 )
 
@@ -110,12 +109,4 @@ func (d *DB) EnsureTaskGitBranch(repoPath string, task *models.Task) (string, er
 
 func (d *DB) AgentOperation(op agentprotocol.Operation, result any) error {
 	return d.callAgent(op, result)
-}
-
-// TrackerGraphQL runs one GitHub GraphQL query. It names no project on purpose:
-// the caller is reading metadata for a project that does not exist yet. The
-// context's acting user is therefore the only credential it can carry beyond
-// the server's own, so it is read rather than dropped.
-func (d *DB) TrackerGraphQL(ctx context.Context, query string) ([]byte, error) {
-	return d.trackerAs(tracker.ActingUser(ctx), "github", "").GithubGraphQL(query)
 }

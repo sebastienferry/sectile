@@ -33,13 +33,13 @@ type TicketingSystem interface {
 	GetComments(ctx context.Context, req GetCommentsRequest) ([]models.TaskComment, error)
 
 	// FormatTaskID computes the canonical local database ID for a task belonging to this ticketing system.
-	// projectID is the Sectile/Sectile project ID.
+	// trackerID is the Sectile tracker the task belongs to (#741).
 	// key is the tracker-specific issue key (e.g. "#42" or "ENG-123").
 	// rawID is the identifier returned by the tracker (or empty if not yet known).
-	FormatTaskID(projectID string, key string, rawID string) string
+	FormatTaskID(trackerID string, key string, rawID string) string
 
-	// The read side: what a project is made of, for the trackers that expose
-	// it. The server asks the resolved tracker and never names one; a tracker
+	// The read side: what a tracker's project is made of, for the trackers
+	// that expose it. The server asks the resolved tracker and never names one; a tracker
 	// without the notion answers ErrUnsupported through the base, so the
 	// interface shows a limit rather than a failure.
 
@@ -92,11 +92,11 @@ type MarkedCommentWriter interface {
 type EpicAxisFieldManager interface {
 	// EpicAxisFieldCandidates lists the closed-list custom fields of one
 	// epic's edit screen, single and cascading selects, with their options.
-	EpicAxisFieldCandidates(ctx context.Context, project *models.Project, epicKey string) ([]models.EpicFieldCandidate, error)
+	EpicAxisFieldCandidates(ctx context.Context, trk *models.Tracker, epicKey string) ([]models.EpicFieldCandidate, error)
 	// SetEpicAxisField writes one option of a mapped field on an epic: an
 	// option id for a select, "parentId/childId" for a cascade. An empty
 	// path clears the field.
-	SetEpicAxisField(ctx context.Context, project *models.Project, epicKey string, field models.EpicAxisField, optionPath string) error
+	SetEpicAxisField(ctx context.Context, trk *models.Tracker, epicKey string, field models.EpicAxisField, optionPath string) error
 }
 
 // PrioritySchemeReader is implemented by an adapter whose tracker has a
@@ -104,9 +104,9 @@ type EpicAxisFieldManager interface {
 // optional interfaces, every call site type-asserts it: a tracker without one
 // has no mapping to discover.
 type PrioritySchemeReader interface {
-	// PriorityScheme lists the project's priority options, most urgent first.
+	// PriorityScheme lists the tracker's priority options, most urgent first.
 	// fresh skips any cache, for a person who just changed the scheme.
-	PriorityScheme(ctx context.Context, project *models.Project, fresh bool) ([]models.PriorityOption, error)
+	PriorityScheme(ctx context.Context, trk *models.Tracker, fresh bool) ([]models.PriorityOption, error)
 	// ClassifyPriority reads an option the way a write without a mapping
 	// would: its level, and whether its name alone says so (false is a guess
 	// from its rank among n options).
@@ -115,7 +115,7 @@ type PrioritySchemeReader interface {
 
 // UpsertMarkedCommentRequest names the comment Sectile owns on one issue.
 type UpsertMarkedCommentRequest struct {
-	Project *models.Project
+	Tracker *models.Tracker
 	Key     string
 	// CommentID is the id remembered from the last write, "" when none.
 	CommentID string
@@ -129,13 +129,13 @@ type UpsertMarkedCommentRequest struct {
 
 // IssuePullRequestsRequest names the work item whose pull requests are read.
 type IssuePullRequestsRequest struct {
-	Project *models.Project
+	Tracker *models.Tracker
 	Key     string
 }
 
 // CreateIssueRequest holds the parameters needed to create an issue.
 type CreateIssueRequest struct {
-	Project     *models.Project
+	Tracker     *models.Tracker
 	Title       string
 	Description string
 	Priority    models.Priority
@@ -149,17 +149,21 @@ type CreateIssueRequest struct {
 	// Fields carries the values of the fields a site makes mandatory on
 	// creation, keyed by field id, as RequiredCreateFields names them.
 	Fields map[string]string
+	// PriorityMapping is the mapping of the project the ticket is created
+	// for (#679), empty when it has none: the mapping stays on the project
+	// while the write goes to its tracker (#741).
+	PriorityMapping models.PriorityMapping
 }
 
 // GetIssueRequest identifies an issue to fetch.
 type GetIssueRequest struct {
-	Project *models.Project
+	Tracker *models.Tracker
 	Key     string
 }
 
 // UpdateIssueRequest holds the fields to update on an existing issue.
 type UpdateIssueRequest struct {
-	Project       *models.Project
+	Tracker       *models.Tracker
 	Task          *models.Task
 	Key           string
 	Title         *string
@@ -170,18 +174,21 @@ type UpdateIssueRequest struct {
 	Labels        []string
 	RemovedLabels []string
 	Assignee      *string
+	// PriorityMapping is the mapping of the project a priority change is
+	// made for (#679), empty when it has none or no priority is sent.
+	PriorityMapping models.PriorityMapping
 }
 
 // DeleteIssueRequest identifies an issue to delete or close.
 type DeleteIssueRequest struct {
-	Project   *models.Project
+	Tracker   *models.Tracker
 	Key       string
 	CloseOnly bool
 }
 
 // SyncRequest specifies what to synchronize.
 type SyncRequest struct {
-	Project  *models.Project
+	Tracker  *models.Tracker
 	Team     string
 	Repo     string
 	RepoPath string
@@ -199,62 +206,68 @@ type SyncRequest struct {
 
 // AddCommentRequest holds comment body and issue key.
 type AddCommentRequest struct {
-	Project *models.Project
+	Tracker *models.Tracker
 	Key     string
 	Body    string
 }
 
 // GetCommentsRequest identifies the issue whose comments should be retrieved.
 type GetCommentsRequest struct {
-	Project *models.Project
+	Tracker *models.Tracker
 	Key     string
 }
 
 // TransitionRequest describes a status transition.
 type TransitionRequest struct {
-	Project      *models.Project
+	Tracker      *models.Tracker
 	Key          string
 	TargetStatus string
 }
 
 // AssignRequest describes an assignment change.
 type AssignRequest struct {
-	Project   *models.Project
+	Tracker   *models.Tracker
 	Key       string
 	AccountID string
 }
 
-// ProjectRequest names the project a read-side question is about.
+// ProjectRequest names the tracker a read-side question is about: its
+// project, repository or space.
 type ProjectRequest struct {
-	Project *models.Project
+	Tracker *models.Tracker
+	// EpicAxisFields are the custom fields the project the question is asked
+	// for maps its epic priority and quarter to (#680), asked besides an
+	// epic's own: they stay on the project while the read goes to its
+	// tracker (#741). Empty for a project that maps none.
+	EpicAxisFields models.EpicAxisFields
 }
 
-// BoardsRequest asks for the boards of a project.
+// BoardsRequest asks for the boards of a tracker.
 type BoardsRequest struct {
-	Project *models.Project
+	Tracker *models.Tracker
 }
 
-// BoardRequest asks about one board of a project.
+// BoardRequest asks about one board of a tracker.
 type BoardRequest struct {
-	Project *models.Project
+	Tracker *models.Tracker
 	BoardID string
 }
 
 // TeamSearchRequest looks teams up by name.
 type TeamSearchRequest struct {
-	Project *models.Project
+	Tracker *models.Tracker
 	Query   string
 }
 
 // TeamRequest names one team.
 type TeamRequest struct {
-	Project *models.Project
+	Tracker *models.Tracker
 	TeamID  string
 }
 
 // CreateMetaRequest asks what a creation of the given issue type requires.
 type CreateMetaRequest struct {
-	Project   *models.Project
+	Tracker   *models.Tracker
 	IssueType string
 }
 
@@ -352,7 +365,7 @@ func (b *BaseTicketingSystem) SearchAssignable(ctx context.Context, key string, 
 	return nil, Unsupported(b.TrackerName, CapAssign)
 }
 
-func (b *BaseTicketingSystem) FormatTaskID(projectID string, key string, rawID string) string {
+func (b *BaseTicketingSystem) FormatTaskID(trackerID string, key string, rawID string) string {
 	if rawID != "" {
 		return rawID
 	}

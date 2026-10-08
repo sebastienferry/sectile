@@ -8,6 +8,7 @@ import { formatTime } from '../lib/i18n'
 import { UsersPanel } from './UsersPanel'
 import { ServerTrackerCredentialsPanel } from './ServerTrackerCredentialsPanel'
 import { JiraOAuthAppPanel } from './JiraOAuthAppPanel'
+import { TrackersPanel } from './admin/TrackersPanel'
 
 interface StatCardProps {
   icon: React.ReactNode
@@ -30,8 +31,9 @@ function StatCard({ icon, label, value, detail }: StatCardProps) {
 }
 
 /**
- * The admin page: what the board is doing right now, the roster, then the
- * credentials the server reaches its trackers with. It
+ * The admin page: what the board is doing right now, the roster, the trackers
+ * projects select their tickets from (#741), then the credentials the server
+ * reaches its trackers with. It
  * replaced a modal that only held the roster, because watching the board is
  * something one keeps open, not something one opens and closes.
  *
@@ -116,6 +118,7 @@ export const AdminView: React.FC = () => {
           <UsersPanel currentUserId={currentUser.userId} embedded reloadKey={revision} onChange={refresh} />
         </section>
 
+        <TrackersPanel />
         <ServerTrackerCredentialsPanel />
         <JiraOAuthAppPanel />
       </div>

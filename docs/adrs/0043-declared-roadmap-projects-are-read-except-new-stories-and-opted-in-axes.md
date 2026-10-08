@@ -3,6 +3,8 @@
 - Status: Accepted
 - Date: 2026-09-30
 - Issue: [#632](https://github.com/sebastienferry/sectile/issues/632)
+- Amended by [ADR 0054](0054-trackers-are-server-sources-and-projects-select-by-label.md):
+  see the amendment below.
 
 ## Context
 
@@ -55,3 +57,20 @@ project nobody can read does not stop the others.
   the roadmap's own reading; the panel says they stay in Sectile.
 - The read-only statement of #426 no longer holds as written; this record
   replaces it.
+
+## Amendment (2026-10-05, #741)
+
+[ADR 0054](0054-trackers-are-server-sources-and-projects-select-by-label.md)
+lets a project select its tickets from several trackers, two Jira spaces among
+them. That overlaps with what a declared roadmap project offers: both bring a
+second Jira project into one Sectile project. They stay separate mechanisms.
+
+- A tracker the project selects is a full source: its tickets and epics are
+  synchronised, belong to the project through its label, and are written to as
+  the project's own.
+- A declared roadmap project keeps every rule above: only its epics are read,
+  for the roadmap, and nothing of it is changed except new stories and the
+  opted-in axes. The setting stays on the project, and is offered when one of
+  the project's trackers is a Jira space.
+- Reconciling the two, for instance by turning roadmap projects into trackers,
+  is out of scope of #741.

@@ -83,7 +83,7 @@ func boardListLabels(boards []gitlabBoard) map[string]bool {
 }
 
 func (g *GitlabAdapter) ListBoards(ctx context.Context, req tracker.BoardsRequest) ([]models.TrackerBoard, error) {
-	c, projectPath, err := g.forProject(ctx, req.Project)
+	c, projectPath, err := g.forProject(ctx, req.Tracker)
 	if err != nil {
 		return nil, err
 	}
@@ -105,7 +105,7 @@ func (g *GitlabAdapter) ListBoards(ctx context.Context, req tracker.BoardsReques
 // ListBoardColumns returns Open, the board's label lists in order, then
 // Closed. The board is the one asked for, else the project's, else its first.
 func (g *GitlabAdapter) ListBoardColumns(ctx context.Context, req tracker.BoardRequest) ([]models.TrackerColumn, error) {
-	c, projectPath, err := g.forProject(ctx, req.Project)
+	c, projectPath, err := g.forProject(ctx, req.Tracker)
 	if err != nil {
 		return nil, err
 	}
@@ -114,8 +114,8 @@ func (g *GitlabAdapter) ListBoardColumns(ctx context.Context, req tracker.BoardR
 		return nil, err
 	}
 	boardID := strings.TrimSpace(req.BoardID)
-	if boardID == "" && req.Project != nil {
-		boardID = strings.TrimSpace(req.Project.BoardID)
+	if boardID == "" && req.Tracker != nil {
+		boardID = strings.TrimSpace(req.Tracker.BoardID)
 	}
 	var board *gitlabBoard
 	for i := range boards {
@@ -141,7 +141,7 @@ func (g *GitlabAdapter) ListBoardColumns(ctx context.Context, req tracker.BoardR
 // ListStatuses is opened, every list label of the project's boards, and
 // closed, which is everything a card's column can be read from.
 func (g *GitlabAdapter) ListStatuses(ctx context.Context, req tracker.ProjectRequest) ([]tracker.TrackerStatus, error) {
-	c, projectPath, err := g.forProject(ctx, req.Project)
+	c, projectPath, err := g.forProject(ctx, req.Tracker)
 	if err != nil {
 		return nil, err
 	}

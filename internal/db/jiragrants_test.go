@@ -83,7 +83,7 @@ func (f *grantFixture) jira(t *testing.T) *trackerapi.JiraAdapter {
 }
 
 func (f *grantFixture) as(user string) context.Context {
-	return tracker.WithProject(tracker.WithActingUser(context.Background(), user), f.project.ID)
+	return tracker.WithTracker(tracker.WithActingUser(context.Background(), user), f.d.ProjectDefaultTracker(f.project.ID))
 }
 
 // expire makes the stored access token of user expire now.
@@ -141,7 +141,7 @@ func TestAConnectedPersonWritesUnderTheirOwnAccount(t *testing.T) {
 	if err := jira.Transition(ctx, "PE-7", "Done"); err != nil {
 		t.Fatalf("transition: %v", err)
 	}
-	if err := jira.AddComment(ctx, tracker.AddCommentRequest{Project: f.project, Key: "PE-7", Body: "Hello"}); err != nil {
+	if err := jira.AddComment(ctx, tracker.AddCommentRequest{Tracker: f.d.ProjectDefaultTracker(f.project.ID), Key: "PE-7", Body: "Hello"}); err != nil {
 		t.Fatalf("comment: %v", err)
 	}
 	if err := jira.Assign(ctx, "PE-7", "acc-ada"); err != nil {
@@ -162,7 +162,7 @@ func TestAConnectedPersonWritesUnderTheirOwnAccount(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := jira.AddComment(tracker.WithActingUser(context.Background(), "usr_ada"), tracker.AddCommentRequest{Project: beta, Key: "BE-1", Body: "Hi"}); err != nil {
+	if err := jira.AddComment(tracker.WithActingUser(context.Background(), "usr_ada"), tracker.AddCommentRequest{Tracker: f.d.ProjectDefaultTracker(beta.ID), Key: "BE-1", Body: "Hi"}); err != nil {
 		t.Fatal(err)
 	}
 	if last := f.fake.Writes()[3]; last.CloudID != "c-beta" || last.Account != "Ada" {
@@ -286,7 +286,7 @@ func TestARevokedGrantDisconnectsAndRefusesTheWrite(t *testing.T) {
 	f.fake.Revoke("Ada")
 	f.expire(t, f.d, "usr_ada")
 
-	err := f.jira(t).AddComment(f.as("usr_ada"), tracker.AddCommentRequest{Project: f.project, Key: "PE-7", Body: "Hello"})
+	err := f.jira(t).AddComment(f.as("usr_ada"), tracker.AddCommentRequest{Tracker: f.d.ProjectDefaultTracker(f.project.ID), Key: "PE-7", Body: "Hello"})
 	var missing *trackerapi.MissingPersonalCredentialError
 	if !errors.As(err, &missing) || missing.Reason != trackerapi.ReasonDisconnected || missing.Tracker != "jira" {
 		t.Fatalf("a revoked grant: %v", err)
@@ -312,7 +312,7 @@ func TestARevokedGrantDisconnectsAndRefusesTheWrite(t *testing.T) {
 
 	// US3.3: reconnecting repairs it.
 	f.connect(t, f.d, "usr_ada", "Ada2", "c-acme")
-	if err := f.jira(t).AddComment(f.as("usr_ada"), tracker.AddCommentRequest{Project: f.project, Key: "PE-7", Body: "Back"}); err != nil {
+	if err := f.jira(t).AddComment(f.as("usr_ada"), tracker.AddCommentRequest{Tracker: f.d.ProjectDefaultTracker(f.project.ID), Key: "PE-7", Body: "Back"}); err != nil {
 		t.Fatalf("after reconnecting: %v", err)
 	}
 }
@@ -344,7 +344,7 @@ func TestAProjectOnASiteTheGrantLacksIsRefused(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = f.jira(t).AddComment(tracker.WithActingUser(context.Background(), "usr_ada"), tracker.AddCommentRequest{Project: other, Key: "GA-1", Body: "x"})
+	err = f.jira(t).AddComment(tracker.WithActingUser(context.Background(), "usr_ada"), tracker.AddCommentRequest{Tracker: f.d.ProjectDefaultTracker(other.ID), Key: "GA-1", Body: "x"})
 	var missing *trackerapi.MissingPersonalCredentialError
 	if !errors.As(err, &missing) || missing.Reason != trackerapi.ReasonSiteNotGranted || missing.Site != "https://gamma.atlassian.net" {
 		t.Fatalf("a site the grant lacks: %v", err)
@@ -684,7 +684,7 @@ func TestPostgresJiraGrant(t *testing.T) {
 		}
 	}
 
-	if err := f.jira(t).AddComment(f.as("usr_ada"), tracker.AddCommentRequest{Project: f.project, Key: "PE-7", Body: "Hello"}); err != nil {
+	if err := f.jira(t).AddComment(f.as("usr_ada"), tracker.AddCommentRequest{Tracker: f.d.ProjectDefaultTracker(f.project.ID), Key: "PE-7", Body: "Hello"}); err != nil {
 		t.Fatalf("a write: %v", err)
 	}
 	fake.Revoke("Ada")

@@ -426,3 +426,30 @@ func TestStagePRLookupUsesTheCallersOwnToken(t *testing.T) {
 		t.Fatalf("a caller without a credential falls back: %q", got.GithubToken)
 	}
 }
+
+// A tracker names its own site, which every call about it reaches; the token
+// stays the server credential of its provider, whatever the tracker (#741).
+func TestCredentialsTakeTheSiteFromTheTrackerAndTheTokenFromTheServer(t *testing.T) {
+	database := testDB(t)
+	database.trackers.JiraURL = "https://env.atlassian.net"
+	if err := database.SaveServerTrackerCredential("jira", "bot@acme.test", "server-token", "Bot", "usr_admin"); err != nil {
+		t.Fatal(err)
+	}
+	acme, err := database.CreateTrackerAs("usr_admin", models.Tracker{Provider: "jira", Site: "https://acme.atlassian.net", Scope: "GODE"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := database.CreateTrackerAs("usr_admin", models.Tracker{Provider: "jira", Site: "https://other.atlassian.net", Scope: "GODE"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for trk, site := range map[*models.Tracker]string{acme: "https://acme.atlassian.net", other: "https://other.atlassian.net"} {
+		got := database.trackers.For(trk.ID)
+		if got.JiraURL != site || got.JiraToken != "server-token" || got.JiraEmail != "bot@acme.test" {
+			t.Fatalf("tracker %s: site %q token %q email %q", trk.Site, got.JiraURL, got.JiraToken, got.JiraEmail)
+		}
+	}
+	if got := database.trackers.For(""); got.JiraURL != "https://env.atlassian.net" || got.JiraToken != "server-token" {
+		t.Fatalf("no tracker keeps the deployment's site: %q %q", got.JiraURL, got.JiraToken)
+	}
+}

@@ -56,12 +56,12 @@ func epicFieldOptions(in []jiraFieldOption) []models.EpicFieldOption {
 
 // EpicAxisFieldCandidates lists the single and cascading select custom
 // fields of one epic's edit screen, by name.
-func (j *JiraAdapter) EpicAxisFieldCandidates(ctx context.Context, project *models.Project, epicKey string) ([]models.EpicFieldCandidate, error) {
+func (j *JiraAdapter) EpicAxisFieldCandidates(ctx context.Context, trk *models.Tracker, epicKey string) ([]models.EpicFieldCandidate, error) {
 	key, err := cleanJiraKey(epicKey)
 	if err != nil {
 		return nil, err
 	}
-	c, err := j.forProject(ctx, project)
+	c, err := j.forProject(ctx, trk)
 	if err != nil {
 		return nil, err
 	}
@@ -96,7 +96,7 @@ func (j *JiraAdapter) EpicAxisFieldCandidates(ctx context.Context, project *mode
 
 // SetEpicAxisField writes one option of a mapped field on an epic, or clears
 // the field for an empty path. Only that field travels.
-func (j *JiraAdapter) SetEpicAxisField(ctx context.Context, project *models.Project, epicKey string, field models.EpicAxisField, optionPath string) error {
+func (j *JiraAdapter) SetEpicAxisField(ctx context.Context, trk *models.Tracker, epicKey string, field models.EpicAxisField, optionPath string) error {
 	key, err := cleanJiraKey(epicKey)
 	if err != nil {
 		return err
@@ -108,7 +108,7 @@ func (j *JiraAdapter) SetEpicAxisField(ctx context.Context, project *models.Proj
 	if err != nil {
 		return err
 	}
-	c, err := j.forWrite(ctx, project)
+	c, err := j.forWrite(ctx, trk)
 	if err != nil {
 		return err
 	}
@@ -131,16 +131,6 @@ func jiraAxisFieldValue(kind, path string) (any, error) {
 		return nil, fmt.Errorf("option %q of a cascading field is not \"parent/child\"", path)
 	}
 	return map[string]any{"id": parent, "child": map[string]string{"id": child}}, nil
-}
-
-// epicAxisFieldIDs lists the fields an epic search asks besides its own, the
-// project's mapped axis fields; none for a project that maps none, whose
-// search therefore stays as it was.
-func epicAxisFieldIDs(project *models.Project) []string {
-	if project == nil {
-		return nil
-	}
-	return project.EpicAxisFields.IDs()
 }
 
 // decodeEpicAxisFieldValues reads the option each asked field carries on a
