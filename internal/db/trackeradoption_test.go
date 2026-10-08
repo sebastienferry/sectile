@@ -485,8 +485,8 @@ func TestAdoptionGivesALocalTicketThatSharesARemoteKeyAKeyOfItsOwn(t *testing.T)
 	for query, want := range map[string]int{
 		"SELECT COUNT(*) FROM task_activities WHERE id = 'local-run' AND task_id = 'local-a'":      1,
 		"SELECT COUNT(*) FROM task_activities WHERE id = 'remote-run' AND task_id = 'jira-b-PE-1'": 1,
-		"SELECT COUNT(*) FROM task_aliases":                                          0,
-		"SELECT COUNT(*) FROM tasks WHERE id = 'local-a' AND tracker_id IS NOT NULL": 1,
+		"SELECT COUNT(*) FROM task_aliases":                                                        0,
+		"SELECT COUNT(*) FROM tasks WHERE id = 'local-a' AND tracker_id IS NOT NULL":               1,
 	} {
 		var got int
 		if err := d.conn.QueryRow(query).Scan(&got); err != nil {
