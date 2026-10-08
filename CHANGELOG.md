@@ -13,6 +13,10 @@ test fixtures or internal plumbing.
 
 ## [Unreleased]
 
+### Changed
+
+- **Shorter worktree folders for Jira and macro keys.** New worktrees for keys such as `AUC-1234` or `M-7` are named `auc-1234` and `m-7` instead of carrying a long hash; existing worktrees stay where they are. (#798)
+
 ## [0.4.0] - 2026-10-08
 
 ### Added
@@ -106,8 +110,6 @@ test fixtures or internal plumbing.
 - **Sign in a workstation through the browser.** Sectile Desktop's connection screen has a **Sign in with your browser** button, and `sectile-agent pair` no longer needs `--code`: both open the browser, where you sign in to Sectile (or return at once when already signed in), and the workstation gets its key without a pairing code to copy. `--no-browser` prints the address instead of opening it; a pairing code from the web profile remains the way in on a machine without a browser. Upgrade the server, the agent and the desktop together. (#717)
 
 ### Changed
-
-- **Shorter worktree folders for Jira and macro keys.** New worktrees for keys such as `AUC-1234` or `M-7` are named `auc-1234` and `m-7` instead of carrying a long hash; existing worktrees stay where they are. (#798)
 
 - **Inspect any folder of an execution in Desktop.** The folder list after an execution's path now selects a folder instead of copying it: the path, **Open in editor** and **Changes** follow the selected folder, so the changes of another repository, a context checkout or the specifications worktree can be read without leaving Desktop. Upgrade the local agent together with Desktop. (#784)
 

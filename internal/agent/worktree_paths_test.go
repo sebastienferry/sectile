@@ -58,25 +58,21 @@ func TestSafeWorktreeNames(t *testing.T) {
 
 func TestSafeWorktreeShortNames(t *testing.T) {
 	short := map[string]string{
-		"AUC-1234":                           "auc-1234",
-		"M-7":                                "m-7",
-		"PE-12":                              "pe-12",
-		"abc":                                "abc",
-		strings.Repeat("a", 60) + "-1":       strings.Repeat("a", 60) + "-1",
-		strings.Repeat("A", 120):             strings.Repeat("a", 120),
-		"-" + strings.Repeat("A", 120) + "-": strings.Repeat("a", 120),
-		"KEY-1":                              "key-1",
-		"a--b":                               "a--b",
-		"-a":                                 "a",
-		"a-":                                 "a",
-		"-AUC-1-":                            "auc-1",
+		"AUC-1234":                     "auc-1234",
+		"M-7":                          "m-7",
+		"PE-12":                        "pe-12",
+		"abc":                          "abc",
+		strings.Repeat("a", 60) + "-1": strings.Repeat("a", 60) + "-1",
+		strings.Repeat("A", 120):       strings.Repeat("a", 120),
+		"KEY-1":                        "key-1",
+		"a--b":                         "a--b",
 	}
 	for key, want := range short {
 		if got := mustWorktreeName(t, key); got != want {
 			t.Fatalf("%q gives %q, want %q", key, got, want)
 		}
 	}
-	hashed := []string{strings.Repeat("A", 121), "-", "---", "ISSUE-12", "issue-289", "Issue-7", "-issue-7", "CON", "nul", "COM1", "lpt9", "-CON", "A_B", "A.B", "\u212A-1"}
+	hashed := []string{strings.Repeat("A", 121), "-", "---", "ISSUE-12", "issue-289", "Issue-7", "-issue-7", "-a", "a-", "-AUC-1-", "-" + strings.Repeat("A", 120) + "-", "CON", "nul", "COM1", "lpt9", "-CON", "A_B", "A.B", "\u212A-1"}
 	for _, key := range hashed {
 		if got := mustWorktreeName(t, key); !strings.HasPrefix(got, "key-") || len(got) > worktreeNameLimit {
 			t.Fatalf("%q gives %q, want a hashed name", key, got)
@@ -91,10 +87,13 @@ func TestSafeWorktreeShortNames(t *testing.T) {
 	if mustWorktreeName(t, "#289") != "issue-289" {
 		t.Fatal("numeric mapping")
 	}
-	for _, key := range []string{"AUC-1", "auc-1", "-AUC-1-"} {
+	for _, key := range []string{"AUC-1", "auc-1"} {
 		if got := mustWorktreeName(t, key); got != "auc-1" {
 			t.Fatalf("%q gives %q, want the shared name auc-1", key, got)
 		}
+	}
+	if edged := mustWorktreeName(t, "-AUC-1-"); edged == "auc-1" || !strings.HasPrefix(edged, "key-") {
+		t.Fatalf("-AUC-1- gives %q, which must be hashed and differ from auc-1", edged)
 	}
 }
 

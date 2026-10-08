@@ -13,24 +13,23 @@ import (
 
 const worktreeNameLimit = 120
 
-// shortWorktreeName returns the lower-cased key, without leading or trailing
-// dashes, when the key holds only ASCII letters, digits and dashes. The bytes
-// are checked before lower-casing so that Unicode case folding (for example
-// the Kelvin sign) cannot map a key onto an ASCII one. It reports false when
-// the short form is empty, too long, enters the issue- namespace or is a
-// Windows reserved device name.
+// shortWorktreeName returns the lower-cased key when the key holds only ASCII
+// letters, digits and dashes. The bytes are checked before lower-casing so that
+// Unicode case folding (for example the Kelvin sign) cannot map a key onto an
+// ASCII one. It reports false when the key is empty, too long, starts or ends
+// with a dash, enters the issue- namespace or is a Windows reserved device name,
+// so that the short name is only given when no character is dropped.
 func shortWorktreeName(key string) (string, bool) {
-	trimmed := strings.Trim(key, "-")
-	if trimmed == "" || len(trimmed) > worktreeNameLimit {
+	if key == "" || len(key) > worktreeNameLimit || key[0] == '-' || key[len(key)-1] == '-' {
 		return "", false
 	}
-	for i := 0; i < len(trimmed); i++ {
-		c := trimmed[i]
+	for i := 0; i < len(key); i++ {
+		c := key[i]
 		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '-') {
 			return "", false
 		}
 	}
-	name := strings.ToLower(trimmed)
+	name := strings.ToLower(key)
 	if strings.HasPrefix(name, "issue-") || windowsReservedName(name) {
 		return "", false
 	}
@@ -48,7 +47,7 @@ func windowsReservedName(name string) bool {
 
 // safeWorktreeName names a worktree folder under .tasks/worktrees/ in one of three forms:
 // canonical numeric GitHub keys give issue-<n>; keys made only of ASCII letters, digits and dashes
-// give the lower-cased key without edge dashes (AUC-1234 -> auc-1234) unless shortWorktreeName refuses it;
+// give the lower-cased key (AUC-1234 -> auc-1234) unless shortWorktreeName refuses it, as it does for keys starting or ending with a dash;
 // every other key gives key-<slug>-<sha256>, keeping identity in the digest of the original key.
 func safeWorktreeName(key string) (string, error) {
 	if key == "" || key == "." || key == ".." || strings.ContainsAny(key, "/\\") {

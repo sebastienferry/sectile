@@ -256,9 +256,9 @@ inventory before creating a checkout. This preserves arbitrary, legacy (includin
 New primary and secondary task worktrees and macro specification worktrees use
 filesystem-safe names under `.tasks/worktrees/`: canonical numeric GitHub keys
 use `issue-289`; keys made only of ASCII letters, digits and dashes use the
-lower-cased key without leading or trailing dashes (`AUC-1234` → `auc-1234`)
-unless it would be empty, start with `issue-`, be a Windows reserved name or
-exceed 120 bytes; other keys use a bounded ASCII slug and the full SHA-256
+lower-cased key (`AUC-1234` → `auc-1234`) unless it would be empty, start or
+end with a dash, start with `issue-`, be a Windows reserved name or exceed 120
+bytes; other keys use a bounded ASCII slug and the full SHA-256
 digest of the original key. Existing hashed folders are kept and still found
 through their branch. Names are independent of tracker identity and branch names.
 Occupied task destinations use safe siblings; macro preparation refuses nonempty
