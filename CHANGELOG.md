@@ -15,6 +15,8 @@ test fixtures or internal plumbing.
 
 ### Added
 
+- **Install Sectile Desktop with Homebrew.** On macOS, `brew install --cask sebastienferry/sectile/sectile` installs the app with its agent, ready to open, and `brew upgrade --cask sectile` keeps it current: no more manual download, checksum check or `xattr` command.
+
 - **Launch a task on the engine of your choice from Desktop.** The execution toolbar's Relaunch button is now **Launch**, and every ticket row's **…** menu offers **Launch…** to open the same dialog, even on a task with no execution yet. The dialog adds an **AI engine** select that starts on the task's engine; picking another one switches the task to it, as the Engine column does. (#786)
 
 - **Manage macros from your coding agent.** Agents can list project macros, create them and edit their metadata while preserving story-linked todos; integrations can read a single macro through HTTP. Reported tracker failures retain the saved local macro in the response. Upgrade the server and agent together. (#782)
