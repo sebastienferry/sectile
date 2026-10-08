@@ -302,8 +302,12 @@ specifications worktree exists. An agent that predates the action answers
 `unknown local operation "task_spec_worktree"`.
 
 New task and macro directory names use `issue-<number>` for canonical numeric
-GitHub keys and `key-<slug>-<sha256>` otherwise (at most 120 ASCII bytes).
-The digest uses the original key, preserving case and normalization distinctions.
+GitHub keys, the lower-cased key for keys made only of ASCII letters, digits
+and dashes (`AUC-1234` → `auc-1234`, except empty keys, keys starting or ending
+with a dash, names starting with `issue-`, Windows reserved names and names over
+120 bytes), and `key-<slug>-<sha256>` otherwise (at most 120 ASCII bytes).
+The digest uses the original key, preserving case and normalization distinctions;
+variants of such a key that differ only by case share one name.
 Branch lookup takes precedence over predicted names for workspace information,
 launches, editor/diff operations and cleanup. Legacy checkouts remain in place;
 occupied task destinations use bounded safe siblings, while macros retain their

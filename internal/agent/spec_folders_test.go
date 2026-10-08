@@ -110,6 +110,21 @@ func TestTaskSpecWorktreeInADistinctIssueFolder(t *testing.T) {
 	}
 }
 
+// A Jira key gets its short lower-cased folder in a distinct Issue folder (#798).
+func TestTaskSpecWorktreeUsesTheShortJiraFolder(t *testing.T) {
+	ctx := context.Background()
+	code := t.TempDir()
+	specs, _ := specRepoWithRemote(t)
+
+	got, err := ensureTaskSpecWorktree(ctx, specs, code, filepath.Join(code, "wt"), "feat/AUC-1234", "AUC-1234", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.Worktree || !samePath(t, got.Path, filepath.Join(specs, ".tasks", "worktrees", "auc-1234")) {
+		t.Fatalf("workspace = %+v", got)
+	}
+}
+
 func TestTaskSpecWorktreeEdgeCases(t *testing.T) {
 	ctx := context.Background()
 	code := t.TempDir()

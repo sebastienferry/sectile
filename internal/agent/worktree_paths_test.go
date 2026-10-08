@@ -2,7 +2,9 @@ package agent
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -51,6 +53,47 @@ func TestSafeWorktreeNames(t *testing.T) {
 		if _, err := localTaskPath(context.Background(), t.TempDir(), models.Task{Key: key}, ""); err == nil {
 			t.Fatalf("lookup accepted %q", key)
 		}
+	}
+}
+
+func TestSafeWorktreeShortNames(t *testing.T) {
+	short := map[string]string{
+		"AUC-1234":                     "auc-1234",
+		"M-7":                          "m-7",
+		"PE-12":                        "pe-12",
+		"abc":                          "abc",
+		strings.Repeat("a", 60) + "-1": strings.Repeat("a", 60) + "-1",
+		strings.Repeat("A", 120):       strings.Repeat("a", 120),
+		"KEY-1":                        "key-1",
+		"a--b":                         "a--b",
+	}
+	for key, want := range short {
+		if got := mustWorktreeName(t, key); got != want {
+			t.Fatalf("%q gives %q, want %q", key, got, want)
+		}
+	}
+	hashed := []string{strings.Repeat("A", 121), "-", "---", "ISSUE-12", "issue-289", "Issue-7", "-issue-7", "-a", "a-", "-AUC-1-", "-" + strings.Repeat("A", 120) + "-", "CON", "nul", "COM1", "lpt9", "-CON", "A_B", "A.B", "\u212A-1"}
+	for _, key := range hashed {
+		if got := mustWorktreeName(t, key); !strings.HasPrefix(got, "key-") || len(got) > worktreeNameLimit {
+			t.Fatalf("%q gives %q, want a hashed name", key, got)
+		}
+	}
+	if kelvin := mustWorktreeName(t, "\u212A-1"); kelvin == mustWorktreeName(t, "k-1") || !strings.HasPrefix(kelvin, "key-") {
+		t.Fatalf("the Kelvin sign key gives %q, which must differ from k-1 and be hashed", kelvin)
+	}
+	if mustWorktreeName(t, "k-1") != "k-1" {
+		t.Fatal("k-1 must keep its short name")
+	}
+	if mustWorktreeName(t, "#289") != "issue-289" {
+		t.Fatal("numeric mapping")
+	}
+	for _, key := range []string{"AUC-1", "auc-1"} {
+		if got := mustWorktreeName(t, key); got != "auc-1" {
+			t.Fatalf("%q gives %q, want the shared name auc-1", key, got)
+		}
+	}
+	if edged := mustWorktreeName(t, "-AUC-1-"); edged == "auc-1" || !strings.HasPrefix(edged, "key-") {
+		t.Fatalf("-AUC-1- gives %q, which must be hashed and differ from auc-1", edged)
 	}
 }
 
@@ -254,9 +297,34 @@ func TestWorktreeIsCreatedOnTheFormattedBranch(t *testing.T) {
 	if current := strings.TrimSpace(gitTest(t, path, "branch", "--show-current")); current != "AUC-1234" {
 		t.Fatalf("the worktree is on %q, want AUC-1234", current)
 	}
+	if filepath.Base(path) != "auc-1234" {
+		t.Fatalf("the worktree folder is %q, want auc-1234", filepath.Base(path))
+	}
 	got, err := localTaskPath(context.Background(), root, task, "{key}")
 	if err != nil || !sameDirectory(got, path) {
 		t.Fatalf("formatted lookup %s %v", got, err)
+	}
+}
+
+func TestExistingHashedWorktreeIsStillReused(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	gitTest(t, root, "init", "-q", "-b", "main")
+	gitTest(t, root, "commit", "-q", "--allow-empty", "-m", "initial")
+	branch := "AUC-1234"
+	task := models.Task{Key: "AUC-1234", BranchName: &branch}
+	legacy := filepath.Join(root, ".tasks", "worktrees", fmt.Sprintf("key-auc-1234-%x", sha256.Sum256([]byte("AUC-1234"))))
+	gitTest(t, root, "worktree", "add", "-b", branch, legacy)
+	got, err := localTaskPath(ctx, root, task, "")
+	if err != nil || !sameDirectory(got, legacy) {
+		t.Fatalf("lookup %s %v", got, err)
+	}
+	path, _, err := ensureLocalWorktree(ctx, root, task, true, "")
+	if err != nil || !sameDirectory(path, legacy) {
+		t.Fatalf("reuse %s %v", path, err)
+	}
+	if _, err := os.Lstat(filepath.Join(root, ".tasks", "worktrees", "auc-1234")); !os.IsNotExist(err) {
+		t.Fatalf("a short folder was created next to the legacy one: %v", err)
 	}
 }
 

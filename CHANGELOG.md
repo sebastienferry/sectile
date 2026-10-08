@@ -13,6 +13,10 @@ test fixtures or internal plumbing.
 
 ## [Unreleased]
 
+### Changed
+
+- **Shorter worktree folders for Jira and macro keys.** New worktrees for keys such as `AUC-1234` or `M-7` are named `auc-1234` and `m-7` instead of carrying a long hash; existing worktrees stay where they are. (#798)
+
 ## [0.4.0] - 2026-10-08
 
 ### Added
