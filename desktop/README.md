@@ -106,7 +106,22 @@ See [prototype notes](../docs/experiments/desktop-conversation.md).
 
 ## Install a release
 
-Every release `vX.Y.Z` publishes a Sectile Desktop archive per platform. Each
+On macOS 13 (Ventura) or later, install and upgrade Sectile Desktop with
+[Homebrew](https://brew.sh):
+
+```sh
+brew install --cask sebastienferry/sectile/sectile
+brew upgrade --cask sectile
+```
+
+The cask comes from the tap
+[`sebastienferry/homebrew-sectile`](https://github.com/sebastienferry/homebrew-sectile),
+which follows the GitHub Releases within six hours of a tag. It checks the
+archive against the release's `SHA256SUMS` and removes the quarantine mark
+itself, so the steps below are not needed. See
+[ADR 0055](../docs/adrs/0055-sectile-desktop-is-installed-from-a-homebrew-tap.md).
+
+To install by hand, or on Linux or Windows: every release `vX.Y.Z` publishes a Sectile Desktop archive per platform. Each
 one holds the app and the Sectile agent built for the same platform, so nothing
 else needs installing: no Node, no Go, no clone of this repository.
 
