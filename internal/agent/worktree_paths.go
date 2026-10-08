@@ -13,7 +13,43 @@ import (
 
 const worktreeNameLimit = 120
 
-// safeWorktreeName keeps identity in the digest, independent of normalization.
+// shortWorktreeName returns the lower-cased key, without leading or trailing
+// dashes, when the key holds only ASCII letters, digits and dashes. The bytes
+// are checked before lower-casing so that Unicode case folding (for example
+// the Kelvin sign) cannot map a key onto an ASCII one. It reports false when
+// the short form is empty, too long, enters the issue- namespace or is a
+// Windows reserved device name.
+func shortWorktreeName(key string) (string, bool) {
+	trimmed := strings.Trim(key, "-")
+	if trimmed == "" || len(trimmed) > worktreeNameLimit {
+		return "", false
+	}
+	for i := 0; i < len(trimmed); i++ {
+		c := trimmed[i]
+		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '-') {
+			return "", false
+		}
+	}
+	name := strings.ToLower(trimmed)
+	if strings.HasPrefix(name, "issue-") || windowsReservedName(name) {
+		return "", false
+	}
+	return name, true
+}
+
+// windowsReservedName reports the device names Windows refuses as folder names.
+func windowsReservedName(name string) bool {
+	switch name {
+	case "con", "prn", "aux", "nul":
+		return true
+	}
+	return len(name) == 4 && (strings.HasPrefix(name, "com") || strings.HasPrefix(name, "lpt")) && name[3] >= '1' && name[3] <= '9'
+}
+
+// safeWorktreeName names a worktree folder under .tasks/worktrees/ in one of three forms:
+// canonical numeric GitHub keys give issue-<n>; keys made only of ASCII letters, digits and dashes
+// give the lower-cased key without edge dashes (AUC-1234 -> auc-1234) unless shortWorktreeName refuses it;
+// every other key gives key-<slug>-<sha256>, keeping identity in the digest of the original key.
 func safeWorktreeName(key string) (string, error) {
 	if key == "" || key == "." || key == ".." || strings.ContainsAny(key, "/\\") {
 		return "", fmt.Errorf("invalid task key for worktree")
@@ -26,6 +62,9 @@ func safeWorktreeName(key string) (string, error) {
 		if numeric && len(key)+5 <= worktreeNameLimit {
 			return "issue-" + key[1:], nil
 		}
+	}
+	if name, ok := shortWorktreeName(key); ok {
+		return name, nil
 	}
 	var slug strings.Builder
 	separator := false

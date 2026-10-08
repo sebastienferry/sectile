@@ -57,6 +57,9 @@ func TestMacroWorktreeStartsFromTheFetchedDefaultBranch(t *testing.T) {
 	if !samePath(t, ws.Path, filepath.Join(clone, ".tasks", "worktrees", mustWorktreeName(t, "m-7"))) {
 		t.Fatalf("unexpected generated worktree path %s", ws.Path)
 	}
+	if filepath.Base(ws.Path) != "m-7" {
+		t.Fatalf("the macro folder is %q, want m-7", filepath.Base(ws.Path))
+	}
 	if head := gitTest(t, ws.Path, "rev-parse", "HEAD"); head != upstream {
 		t.Fatalf("the branch must start from the fetched origin/main %s, got %s", upstream, head)
 	}
