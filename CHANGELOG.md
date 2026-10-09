@@ -13,6 +13,10 @@ test fixtures or internal plumbing.
 
 ## [Unreleased]
 
+### Added
+
+- **Create and edit a task in a Desktop page.** Cmd+N (Ctrl+N), **New task** in the palette and **Edit task** in a ticket's menu or a task execution's toolbar open one page with the title, the assignee (searched in Jira and GitLab), the ordered pull request links and a formatted Markdown description with a block menu, a formatting toolbar and a raw **Markdown** view. Only changed fields are saved, and leaving with unsaved changes asks first. It replaces the quick add dialog. (#805)
+
 ### Changed
 
 - **Shorter worktree folders for Jira and macro keys.** New worktrees for keys such as `AUC-1234` or `M-7` are named `auc-1234` and `m-7` instead of carrying a long hash; existing worktrees stay where they are. (#798)

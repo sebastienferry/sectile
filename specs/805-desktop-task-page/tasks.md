@@ -5,12 +5,12 @@ with the step they cover. `desktop/src/main.js` is edited in small hunks.
 
 ## 1. Editor spike and gate
 
-- [ ] T1.1 Add `@milkdown/kit` to `desktop/package.json` (lockfile updated),
+- [x] T1.1 Add `@milkdown/kit` to `desktop/package.json` (lockfile updated),
       record `du -k desktop/dist/assets` of a `npx vite build` before and after.
-- [ ] T1.2 Write `desktop/src/markdown-editor.mjs` with the API of the plan:
+- [x] T1.2 Write `desktop/src/markdown-editor.mjs` with the API of the plan:
       baseline comparison, source mode, original text kept while unchanged,
       link click handling, image placeholder, paste sanitizing, keymap.
-- [ ] T1.3 Add the slash menu, inline toolbar and block handle views, and the
+- [x] T1.3 Add the slash menu, inline toolbar and block handle views, and the
       `.md-editor` styles (light and dark).
 - Tests (`desktop/tests/markdown-editor.ui.cjs`, fixtures in
   `desktop/tests/fixtures/markdown/`: a GitHub issue body, a Jira-converted
@@ -33,7 +33,7 @@ with the step they cover. `desktop/src/main.js` is edited in small hunks.
 
 ## 2. Pure form rules
 
-- [ ] T2.1 Write `desktop/src/task-form.mjs` (validation, link set
+- [x] T2.1 Write `desktop/src/task-form.mjs` (validation, link set
       operations, `taskChanges`, `assigneeLookup`, `initialProject`,
       `leaveMessage`).
 - Tests (`desktop/tests/task-form.test.mjs`): each refusal of US5.2; add,
@@ -46,9 +46,12 @@ with the step they cover. `desktop/src/main.js` is edited in small hunks.
 
 ## 3. Agent routes
 
-- [ ] T3.1 Add `taskPageCapability` (`task-page`) to `/desktop/status`.
-- [ ] T3.2 Add `trackers` to the `/desktop/projects` entries.
-- [ ] T3.3 Add `GET` and `PUT /desktop/tasks/detail` and
+- [x] T3.1 Add `taskPageCapability` (`task-page`) to `/desktop/status`.
+- [x] T3.2 ~~Add `trackers` to the `/desktop/projects` entries.~~ Not needed:
+      `GET /desktop/project?id=` already answers the project configuration,
+      whose `server.trackers` the page reads when a project is chosen, so the
+      projects list keeps one server call instead of one per project.
+- [x] T3.3 Add `GET` and `PUT /desktop/tasks/detail` and
       `GET /desktop/tasks/assignable`, with the project check, the field
       whitelist and the pull request URL validation.
 - Tests (Go, next to the `desktopCreateTask` tests, with a fake server):
@@ -57,26 +60,26 @@ with the step they cover. `desktop/src/main.js` is edited in small hunks.
   relays the server status; invalid or credentialed PR URL refused with nothing
   forwarded; unknown keys dropped; assignable relayed with `q`; the server
   answer's `prUrl` is the last link (FR6, FR7).
-- [ ] T3.4 Document the routes in `docs/contracts/server-agent-v1.md`.
+- [x] T3.4 Document the routes in `docs/contracts/server-agent-v1.md`.
 
 ## 4. Desktop IPC
 
-- [ ] T4.1 `preload.cjs` and `main.cjs`: `task`, `updateTask`, `assignable`
+- [x] T4.1 `preload.cjs` and `main.cjs`: `task`, `updateTask`, `assignable`
       IPC gated on `task-page` with the US7.1 message; `createTask` passes
       `trackerID`.
-- [ ] T4.2 `will-prevent-unload` handler with the native confirmation.
-- [ ] T4.3 `desktop/tests/fake-agent.cjs`: the capability (switchable off),
+- [x] T4.2 `will-prevent-unload` handler with the native confirmation.
+- [x] T4.3 `desktop/tests/fake-agent.cjs`: the capability (switchable off),
       trackers on projects, the three routes, a recorded request log, and
       injectable failures for create and update.
 
 ## 5. Task page
 
-- [ ] T5.1 Write `desktop/src/task-page.mjs`: creation and edition modes, the
+- [x] T5.1 Write `desktop/src/task-page.mjs`: creation and edition modes, the
       fields of US1.2 and US2.3, the assignee picker and free text (US4), the
       pull request list (US5), the unsaved mark (US6.1), the save sequences
       and their messages (US1.5-US1.8, US2.5-US2.7), the post-creation strip
       (US1.6), loading and retry (US2.4), the outdated-agent behaviour (US7).
-- [ ] T5.2 `main.js`: mount the page in the workspace, `confirmLeave()` on
+- [x] T5.2 `main.js`: mount the page in the workspace, `confirmLeave()` on
       every navigation of US6.2, `beforeunload`, entry points (Cmd+N, palette,
       project create button, Tickets row **Edit task**, run header **Edit
       task**); remove `quickAdd` and the `.quick-add*` styles.
@@ -99,15 +102,15 @@ with the step they cover. `desktop/src/main.js` is edited in small hunks.
     no question without changes (AC11);
   - agent without `task-page`: outdated message on edit, basic creation works
     (AC12).
-- [ ] T5.3 Move the existing UI tests that drove the quick add dialog
+- [x] T5.3 Move the existing UI tests that drove the quick add dialog
       (`grep -l "quick-add\|New task" desktop/tests/*.ui.cjs`) to the page.
 
 ## 6. Documentation and checks
 
-- [ ] T6.1 `docs/USER_GUIDE.md`: replace **Quick add task** with the task page
+- [x] T6.1 `docs/USER_GUIDE.md`: replace **Quick add task** with the task page
       (create, edit, Markdown toggle, unsaved changes).
-- [ ] T6.2 `CHANGELOG.md`, under `## [Unreleased]` / `### Added`: one line for
+- [x] T6.2 `CHANGELOG.md`, under `## [Unreleased]` / `### Added`: one line for
       the Desktop task page (create and edit, rich description, assignee, pull
       requests) with the pull request number.
-- [ ] T6.3 Run `go test ./internal/agent/...`, `cd desktop && npm test`,
+- [x] T6.3 Run `go test ./internal/agent/...`, `cd desktop && npm test`,
       `npx vite build`, then `npm run test:ui` (unsandboxed, serially).

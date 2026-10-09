@@ -913,17 +913,43 @@ icons, with their wording kept as tooltip and accessible name; the pull request
 keeps its number. **Next: <skill>**, **Skip to Handoff**, **Retry** and **Launch
 anyway** stay labelled, because their meaning depends on the stage.
 
-### Desktop Quick add
+### Task page
 
-Press **Cmd+N** (macOS) or **Ctrl+N** to open **New task** directly; a focused
-terminal keeps Ctrl+N. It opens on the selected project, else on the one last
-used, else asks for one. Enter a title, and an optional Markdown description;
-Enter in the title or Cmd+Enter (Ctrl+Enter) in the description creates it.
-The server creates the task using its project tracker configuration.
-GitHub and Jira creation must succeed remotely; errors do not silently create
-a local fallback. Local projects remain local. Creation does not start an
-execution: the success screen offers **Clarify now**, **Launch task** for any
-other launch, and **Add another** in the same project.
+One page creates a task and edits it, in the workspace where the console is.
+Press **Cmd+N** (macOS) or **Ctrl+N**, pick **New task** in the command palette,
+or **Create a task** from a project's **New task…** menu to create one; a
+focused terminal keeps Ctrl+N. The page starts on the project it was opened
+from, else the selected one, else the one last used, else asks for one. A
+project with several trackers shows a **Tracker** select. Enter a title, an
+assignee, pull request links and a description, then press **Create task** or
+Cmd+Enter (Ctrl+Enter). The server creates the task using its project tracker
+configuration: GitHub and Jira creation must succeed remotely, and errors do
+not silently create a local fallback. Creation does not start an execution:
+the page becomes the created task's, and offers **Clarify now**, **Launch
+task** for any other launch, **Add another** in the same project, and **Done**.
+
+**Edit task** in a Tickets row's **…** menu, or in the toolbar of a task's
+execution, opens the same page on that task, read fresh from the server.
+**Save** sends only the fields you changed. On Jira and GitLab the assignee is
+searched in the tracker (the ticket's team first); on GitHub it is a login. A
+Jira or GitLab assignee is set once the task exists. **Pull requests** lists the
+task's links in order, the last being its **Current** one; links can be added,
+moved and removed.
+
+The description is edited as formatted text and stored as Markdown: Markdown
+shortcuts (`# `, `- `, `[ ] `, `**bold**`…) format as you type, `/` at the
+start of an empty line opens a block menu, a selection shows a formatting
+toolbar (Cmd+B, Cmd+I, Cmd+Shift+X, Cmd+E, Cmd+K), and a block's handle drags
+it or adds one below. **Markdown** shows the raw source; content the formatted
+view cannot represent, such as raw HTML or footnotes, is kept as written. A
+description you did not touch is never sent, even when the editor would write
+it differently. Links open with Cmd+click (Ctrl+click); remote images are not
+loaded and show as a placeholder.
+
+The page marks unsaved changes with `•`, and leaving it, or closing the
+window, asks before discarding them. An agent older than the page cannot edit
+a task: the page says so, and creation falls back to a title, a project and a
+description.
 
 Press **Cmd+K** (macOS) or **Ctrl+K** to open the command palette. One list
 searches the desktop's actions (**New task**, **Tasks list**, **Add project**,
