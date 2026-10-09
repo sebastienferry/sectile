@@ -13,6 +13,8 @@ test fixtures or internal plumbing.
 
 ## [Unreleased]
 
+## [0.4.5] - 2026-10-09
+
 ### Added
 
 - **Install Sectile Desktop on Windows with Scoop.** `scoop bucket add sectile https://github.com/sebastienferry/scoop-sectile`, then `scoop install sectile/sectile`, installs the app with its agent in your profile, without administrator rights, with a Start menu shortcut; `scoop update sectile` keeps it current.
@@ -786,7 +788,8 @@ release mechanism that will keep the following entries short.
   A run canceled because its client disconnected can still be finished by the
   agent that owns it, so the chain carries on. (#315)
 
-[Unreleased]: https://github.com/sebastienferry/sectile/compare/v0.4.1...HEAD
+[Unreleased]: https://github.com/sebastienferry/sectile/compare/v0.4.5...HEAD
+[0.4.5]: https://github.com/sebastienferry/sectile/compare/v0.4.1...v0.4.5
 [0.4.1]: https://github.com/sebastienferry/sectile/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/sebastienferry/sectile/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/sebastienferry/sectile/compare/v0.2.0...v0.3.0
