@@ -337,6 +337,8 @@ func main() {
 	mux.HandleFunc(handlers.TrackersPath, h.HandleTrackers)
 	mux.HandleFunc(handlers.TrackersPath+"/", h.HandleTrackers)
 	mux.HandleFunc(handlers.JiraOAuthAppPath, h.HandleJiraOAuthApp)
+	mux.HandleFunc(handlers.GithubOAuthAppPath, h.HandleGithubOAuthApp)
+	mux.HandleFunc(handlers.GitlabOAuthAppPath, h.HandleGitlabOAuthApp)
 
 	// Prometheus metrics. Outside /api/, so the session guard leaves them
 	// public; registered before the interface's catch-all.

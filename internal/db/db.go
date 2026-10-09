@@ -22,6 +22,7 @@ import (
 	"tasks/internal/agentconfig"
 	"tasks/internal/agentprotocol"
 	"tasks/internal/atlassian"
+	"tasks/internal/forgeoauth"
 	"tasks/internal/models"
 	"tasks/internal/secrets"
 	"tasks/internal/skills"
@@ -144,6 +145,11 @@ type DB struct {
 	// the Jira grants (#654). Zero means Atlassian's own; tests set a fake.
 	atlassian     atlassian.Endpoints
 	atlassianHTTP *http.Client
+	// forge and forgeHTTP reach GitHub's and GitLab's OAuth endpoints for the
+	// forge grants (#804). A tracker missing from forge means the provider's
+	// own; tests set a fake.
+	forge     map[string]forgeoauth.Provider
+	forgeHTTP *http.Client
 	// prEvidenceLookup stands in for the forge answer on every route. It gets
 	// the repository asked (the foreign identity for a pull request in another
 	// repository), the branch and the prUrl the caller gave.
