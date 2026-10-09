@@ -3363,6 +3363,9 @@ function renderBoard(view){
   empty.textContent=view.query?'No tasks match “'+view.query+'”.':'This project has no tasks.'
   list.append(empty)
  }
+ // An agent without the stage move leaves the cards in place; say why rather
+ // than let a drag silently fail to start.
+ if(!view.canMove&&view.tasks.length){const hint=document.createElement('p');hint.className='board-hint';hint.textContent='Moving cards between stages needs a newer local agent. Restart the agent from Settings to update it.';list.append(hint)}
  const grid=document.createElement('div');grid.className='board';grid.dataset.display=view.options.cardDisplay
  for(const {stage,tasks} of boardColumns(view.tasks,view.board)){
   if(stage==='finished'&&view.options.hideFinished){grid.append(collapsedFinished(view,tasks.length));continue}
@@ -3425,9 +3428,10 @@ function boardCard(view,task){
  more.setAttribute('aria-haspopup','menu');more.setAttribute('aria-expanded','false');more.setAttribute('aria-label','More actions for '+key)
  const menu=document.createElement('div');menu.className='ticket-menu';menu.setAttribute('role','menu');menu.setAttribute('aria-label','Actions for '+key);menu.hidden=true
  actions.append(more,menu)
- line.append(keyLabel,title,state,actions)
- card.append(line)
- if(full)card.append(boardCardDetails(task))
+ // A condensed card holds on one line; a full one gives the title a line of
+ // its own, so a long title wraps across the card's width.
+ if(full){line.append(keyLabel,state,actions);card.append(line,title,boardCardDetails(task))}
+ else{line.append(keyLabel,title,state,actions);card.append(line)}
  const entry={task,row:card,state,run,more,menu,actions}
  taskActionsMenu(view,entry)
  if(view.canMove){

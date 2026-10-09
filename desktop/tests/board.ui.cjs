@@ -170,6 +170,10 @@ test('cards are condensed by default, full on demand, and the choice is remember
  const second=card('#2')
  await expect(second.locator('.board-card-title')).toHaveAttribute('title','Urgent new task with a rather long title that does not fit')
  await expect(second.locator('.board-card-details')).toHaveCount(0)
+ // A card keeps its own height: the workspace's article rule must not stretch
+ // it to fill the column.
+ const heights=await page.locator('.board-card').evaluateAll(cards=>cards.map(card=>card.getBoundingClientRect().height))
+ assert.ok(Math.max(...heights)<60,'condensed cards stretched: '+heights.join(', '))
  await full.click()
  await expect(full).toHaveAttribute('aria-checked','true')
  const details=card('#2').locator('.board-card-details')
@@ -177,6 +181,9 @@ test('cards are condensed by default, full on demand, and the choice is remember
  await expect(details.locator('.board-card-priority')).toHaveText('urgent')
  assert.deepEqual(await details.locator('.board-card-label').allTextContents(),['bug'])
  await expect(details.locator('.board-card-assignee')).toHaveText('Ada')
+ // A full card gives the title a line of its own, below the key.
+ const [keyBox,titleBox]=await Promise.all([card('#2').locator('.board-card-key').boundingBox(),card('#2').locator('.board-card-title').boundingBox()])
+ assert.ok(titleBox.y>=keyBox.y+keyBox.height-1,'title beside the key in a full card')
  await expect(card('#4').locator('.pr-indicator')).toHaveCount(1)
  await page.reload()
  await openBoard()
@@ -282,6 +289,7 @@ test('an agent without the stage move leaves cards in place',async t=>{
  await openBoard()
  await expect(card('#1')).toBeVisible()
  await expect(page.locator('.board-card[draggable=true]')).toHaveCount(0)
+ await expect(page.locator('.board-hint')).toHaveText('Moving cards between stages needs a newer local agent. Restart the agent from Settings to update it.')
  await expect(card('#1')).not.toHaveAttribute('draggable','true')
 })
 
