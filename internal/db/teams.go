@@ -144,7 +144,7 @@ func (d *DB) RefreshProjectTeamMembers(ctx context.Context, projectID string, ta
 		return "aucune équipe portée par les tickets, rien à rafraîchir", nil
 	}
 
-	ts, proj, err := d.trackerReaderFor(projectID)
+	ts, trk, err := d.trackerReaderFor(projectID)
 	if err != nil {
 		return "", err
 	}
@@ -159,7 +159,7 @@ func (d *DB) RefreshProjectTeamMembers(ctx context.Context, projectID string, ta
 	refreshed := 0
 	var failures []string
 	for _, team := range teams {
-		members, err := ts.TeamMembers(ctx, tracker.TeamRequest{Project: proj, TeamID: team.ID})
+		members, err := ts.TeamMembers(ctx, tracker.TeamRequest{Tracker: trk, TeamID: team.ID})
 		if err != nil {
 			// The team stays, its members unknown: a sync never fails on this.
 			failures = append(failures, fmt.Sprintf("%s: %v", team.Name, err))
@@ -200,7 +200,7 @@ func (d *DB) RefreshTeamMembersNowAs(ctx context.Context, projectID string, team
 		return nil, fmt.Errorf("identifiant d'équipe manquant")
 	}
 
-	ts, proj, err := d.trackerReaderFor(projectID)
+	ts, trk, err := d.trackerReaderFor(projectID)
 	if err != nil {
 		return nil, err
 	}
@@ -217,7 +217,7 @@ func (d *DB) RefreshTeamMembersNowAs(ctx context.Context, projectID string, team
 	ctx, cancel := context.WithTimeout(ctx, teamsAPITimeout)
 	defer cancel()
 
-	members, err := ts.TeamMembers(ctx, tracker.TeamRequest{Project: proj, TeamID: teamID})
+	members, err := ts.TeamMembers(ctx, tracker.TeamRequest{Tracker: trk, TeamID: teamID})
 	if err != nil {
 		return nil, err
 	}
@@ -261,8 +261,9 @@ func (d *DB) ListProjectTeams(projectID string, withMembers bool) ([]models.Trac
 		WHERE TRIM(t.team) != ''`
 	args := []interface{}{}
 	if projectID != "" && projectID != "all" {
-		query += " AND (t.project_id = ? OR t.project_id = (SELECT slug FROM projects WHERE id = ?) OR t.project_id = (SELECT id FROM projects WHERE slug = ?))"
-		args = append(args, projectID, projectID, projectID)
+		cond, condArgs := d.membershipScopeOnUnsafe([]string{projectID}, "t.")
+		query += " AND " + cond
+		args = append(args, condArgs...)
 	}
 	query += " GROUP BY t.team ORDER BY task_count DESC"
 
@@ -555,9 +556,9 @@ func (d *DB) SearchAssignableUsersAs(ctx context.Context, taskIDOrKey string, qu
 	if err != nil || ts == nil || !ts.Supports(tracker.CapAssign) {
 		return []models.TeamMember{}, nil
 	}
-	// The call takes a key and nothing else: the project travels in the
+	// The call takes a key and nothing else: the tracker travels in the
 	// context, or GitLab would search the members of the default project.
-	ctx, cancel := context.WithTimeout(tracker.WithProject(ctx, task.ProjectID), teamsAPITimeout)
+	ctx, cancel := context.WithTimeout(tracker.WithTracker(ctx, d.trackerOfTaskUnsafe(task)), teamsAPITimeout)
 	defer cancel()
 	people, err := ts.SearchAssignable(ctx, task.Key, query, 20)
 	if err != nil {
@@ -583,7 +584,7 @@ func (d *DB) SearchTrackerTeams(projectID string, query string) ([]models.Tracke
 // SearchTrackerTeamsAs runs on behalf of whoever asked, so a personal tracker
 // credential can be resolved for the call.
 func (d *DB) SearchTrackerTeamsAs(ctx context.Context, projectID string, query string) ([]models.TrackerTeam, error) {
-	ts, proj, err := d.trackerReaderFor(projectID)
+	ts, trk, err := d.trackerReaderFor(projectID)
 	if err != nil {
 		return nil, err
 	}
@@ -594,7 +595,7 @@ func (d *DB) SearchTrackerTeamsAs(ctx context.Context, projectID string, query s
 	// shadowing it here sent the search out under the server's credential.
 	ctx, cancel := context.WithTimeout(ctx, teamsAPITimeout)
 	defer cancel()
-	return ts.SearchTeams(ctx, tracker.TeamSearchRequest{Project: proj, Query: query})
+	return ts.SearchTeams(ctx, tracker.TeamSearchRequest{Tracker: trk, Query: query})
 }
 
 // SetTasksTeam records the team locally on a batch of work items and queues the
@@ -689,38 +690,53 @@ func (d *DB) SetTasksSprint(ctx context.Context, projectID string, taskIDs []str
 	sprintID = strings.TrimSpace(sprintID)
 	sprintName = strings.TrimSpace(sprintName)
 
-	// Le nom peut manquer quand l'appelant n'a que l'identifiant : le board du
-	// projet le porte, puisque la synchro en importe la liste.
-	if sprintID != "" && sprintName == "" {
+	// A sprint is one of the board of the project's default tracker, the only
+	// one whose sprints the project mirrors (#741). The name may be missing
+	// when the caller only has the id: that board carries it, since the sync
+	// imports its list.
+	var sprintTracker *models.Tracker
+	if sprintID != "" {
 		if proj, _ := d.GetProjectByID(projectID); proj != nil {
-			for _, sp := range proj.Sprints {
-				if sp.ID == sprintID {
-					sprintName = sp.Name
-					break
+			if sprintName == "" {
+				for _, sp := range proj.Sprints {
+					if sp.ID == sprintID {
+						sprintName = sp.Name
+						break
+					}
 				}
 			}
+			sprintTracker = d.trackerOfProjectUnsafe(proj)
 		}
 	}
 
-	firstKey := ""
-	resolved := make([]string, 0, len(taskIDs))
-	now := time.Now()
+	tasks := make([]*models.Task, 0, len(taskIDs))
 	for _, id := range taskIDs {
 		task, err := d.GetTaskByID(id)
 		if err != nil || task == nil {
 			continue
 		}
-		if firstKey == "" {
-			firstKey = task.Key
+		// A ticket of another tracker cannot join that sprint: the whole batch
+		// is refused before anything is written, locally or on a tracker.
+		if sprintTracker != nil && sprintTracker.ID != "" {
+			if trk := d.trackerOfTaskUnsafe(task); trk != nil && trk.ID != "" && trk.ID != sprintTracker.ID {
+				return nil, fmt.Errorf("%s n'est pas sur le tracker dont le projet tient les sprints : aucun ticket déplacé", task.Key)
+			}
 		}
+		tasks = append(tasks, task)
+	}
+	if len(tasks) == 0 {
+		return nil, fmt.Errorf("aucun ticket trouvé")
+	}
+
+	firstKey := tasks[0].Key
+	resolved := make([]string, 0, len(tasks))
+	now := time.Now()
+	for _, task := range tasks {
 		resolved = append(resolved, task.ID)
 
 		d.mu.Lock()
 		_, _ = d.conn.Exec("UPDATE tasks SET sprint = ?, updated_at = ? WHERE id = ?", sprintName, now, task.ID)
 		d.mu.Unlock()
-	}
-	if len(resolved) == 0 {
-		return nil, fmt.Errorf("aucun ticket trouvé")
 	}
 
 	singleID := ""

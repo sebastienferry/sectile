@@ -16,7 +16,6 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
-	"tasks/internal/tracker"
 	"tasks/internal/trackerapi"
 	"time"
 
@@ -342,11 +341,33 @@ func describeActiveRun(a *models.TaskActivity) string {
 	return fmt.Sprintf("A run of %s started at %s is still active on this task.", name, started)
 }
 
+// writeRunProjectRefusal answers a launch whose project could not be chosen
+// (#741), and says whether it did. A ticket of several projects launched
+// interactively without one is a 409 listing the candidates, so the web asks
+// which one and retries (Desktop always names one); launched unattended, it is refused with the
+// same list. A ticket in no project, or a project it is not in, is a 400.
+func writeRunProjectRefusal(w http.ResponseWriter, err error) bool {
+	var ambiguous *db.ErrRunProjectAmbiguous
+	switch {
+	case errors.As(err, &ambiguous):
+		status := http.StatusConflict
+		if ambiguous.Unattended {
+			status = http.StatusBadRequest
+		}
+		writeJSON(w, status, map[string]any{"error": ambiguous.Error(), "candidates": ambiguous.Candidates, "unattended": ambiguous.Unattended})
+		return true
+	case errors.Is(err, db.ErrTaskInNoProject), errors.Is(err, db.ErrRunProjectNotMember):
+		writeError(w, http.StatusBadRequest, err.Error())
+		return true
+	}
+	return false
+}
+
 // batchLaunchMembers checks the tickets of a batch launch and returns their ids
 // in launch order, or why the launch is invalid. A batch is pickup_issues on at
 // least two distinct tickets of one project, the first being task. "Launch
 // anyway" does not apply: it would put a busy ticket in the batch.
-func (h *Handler) batchLaunchMembers(task *models.Task, req models.RunSkillRequest) ([]string, string) {
+func (h *Handler) batchLaunchMembers(task *models.Task, req models.RunSkillRequest, projectID string) ([]string, string) {
 	if req.SkillID != "pickup_issues" {
 		return nil, "Only pickup_issues launches a batch."
 	}
@@ -360,13 +381,22 @@ func (h *Handler) batchLaunchMembers(task *models.Task, req models.RunSkillReque
 	seen := map[string]bool{}
 	for i, ref := range req.BatchTaskIDs {
 		member, err := h.db.GetTaskByID(strings.TrimSpace(ref))
+		if errors.Is(err, db.ErrTaskKeyAmbiguous) {
+			return nil, fmt.Sprintf("Batch ticket %s: %v", ref, err)
+		}
 		if err != nil || member == nil {
 			return nil, fmt.Sprintf("Batch ticket %s not found.", ref)
 		}
 		if i == 0 && member.ID != task.ID {
 			return nil, "A batch must start with the ticket it is launched on."
 		}
-		if member.ProjectID != task.ProjectID {
+		// Every ticket of the batch belongs to the project the batch runs for
+		// (#741).
+		inProject := false
+		for _, id := range member.ProjectIDs {
+			inProject = inProject || id == projectID
+		}
+		if !inProject {
 			return nil, fmt.Sprintf("%s belongs to another project than %s.", member.Key, task.Key)
 		}
 		if seen[member.ID] {
@@ -401,6 +431,17 @@ func busyBody(message string, active *models.TaskActivity, batch *models.TaskBat
 		body["batchLeadKey"] = batch.LeadKey
 	}
 	return body
+}
+
+// writeTaskKeyAmbiguous answers a ticket lookup refused for a key two trackers
+// carry (#741) with a 409: the caller names the ticket by its id instead, which
+// a 404 or a 500 would not tell it. Any other error is left to the handler.
+func writeTaskKeyAmbiguous(w http.ResponseWriter, err error) bool {
+	if !errors.Is(err, db.ErrTaskKeyAmbiguous) {
+		return false
+	}
+	writeError(w, http.StatusConflict, err.Error())
+	return true
 }
 
 // writeTaskBusy answers a launch the database refused because the task already
@@ -775,9 +816,21 @@ func (h *Handler) HandleProjects(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		// A project is created on trackers an admin recorded (#741): one it
+		// selects, or one its legacy tracker fields name. Creating a project
+		// never creates a tracker, not even a local board.
+		if !createNamesTracker(req) {
+			writeError(w, http.StatusBadRequest, "Choisissez au moins un tracker pour le projet : un admin les enregistre dans Administration → Trackers")
+			return
+		}
+
 		// The creator owns the project: the background synchronisation has no
 		// acting user of its own and reads under that account.
 		userID := h.webSessionUser(r)
+		if !h.principalFor(userID).IsAdmin() {
+			memberProjectCreate(&req)
+		}
+		req.JoinTrackerOnly = true
 		project, err := h.db.CreateProjectAs(userID, req)
 		if err != nil {
 			writeError(w, repositoryErrorStatus(err), err.Error())
@@ -818,154 +871,6 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 	id, err := url.PathUnescape(parts[0])
 	if err != nil {
 		id = parts[0]
-	}
-
-	// Sub-action: /api/projects/detected-statuses: live status detection for draft project
-	if id == "detected-statuses" && r.Method == http.MethodGet {
-		trackerName := r.URL.Query().Get("tracker")
-		repo := r.URL.Query().Get("repo")
-		repoPath := r.URL.Query().Get("repoPath")
-		projID := r.URL.Query().Get("projectId")
-
-		var statuses []string
-		// columns is filled only for a saved project on a tracker with boards:
-		// there, detection mirrors the board instead of inventing one column per
-		// status. detectErr travels with the payload so a failed read is shown
-		// rather than read as "no column".
-		var columns []models.TrackerColumn
-		detectErr := ""
-		if projID != "" {
-			var statusErr error
-			statuses, statusErr = h.db.GetProjectTrackerStatuses(h.actingContext(r), projID)
-			if statusErr != nil {
-				detectErr = statusErr.Error()
-			}
-			cols, err := h.db.DetectProjectBoardColumns(h.actingContext(r), projID)
-			switch {
-			case tracker.IsUnsupported(err):
-				// A tracker without boards keeps the historical payload.
-			case err != nil:
-				if detectErr == "" {
-					detectErr = err.Error()
-				}
-			default:
-				columns = cols
-				// The palette must hold everything the board groups, even a
-				// status the project status list did not return.
-				seen := map[string]bool{}
-				for _, st := range statuses {
-					seen[strings.ToLower(st)] = true
-				}
-				for _, col := range cols {
-					for _, st := range col.Statuses {
-						if key := strings.ToLower(strings.TrimSpace(st)); key != "" && !seen[key] {
-							seen[key] = true
-							statuses = append(statuses, st)
-						}
-					}
-				}
-			}
-		} else {
-			dummyProj := &models.Project{
-				IssueTracker: trackerName,
-				GithubRepo:   repo,
-				RepoPath:     repoPath,
-			}
-			// Temporary DB query for draft project
-			_ = dummyProj
-			// Query tracker HTTP metadata for a draft project
-			seen := map[string]bool{}
-			if trackerName == "github" {
-				rRepo := models.CleanGithubRepo(repo)
-				if rRepo != "" {
-
-					parts := strings.Split(rRepo, "/")
-					if len(parts) == 2 {
-						gqlQuery, _ := trackerapi.GithubStatusQuery(rRepo)
-
-						if output, err := h.db.TrackerGraphQL(h.actingContext(r), gqlQuery); err == nil {
-							var gqlRes struct {
-								Data struct {
-									Repository struct {
-										ProjectsV2 struct {
-											Nodes []struct {
-												Fields struct {
-													Nodes []struct {
-														Name    string `json:"name"`
-														Options []struct {
-															Name string `json:"name"`
-														} `json:"options"`
-													} `json:"nodes"`
-												} `json:"fields"`
-											} `json:"nodes"`
-										} `json:"projectsV2"`
-									} `json:"repository"`
-									User struct {
-										ProjectsV2 struct {
-											Nodes []struct {
-												Fields struct {
-													Nodes []struct {
-														Name    string `json:"name"`
-														Options []struct {
-															Name string `json:"name"`
-														} `json:"options"`
-													} `json:"nodes"`
-												} `json:"fields"`
-											} `json:"nodes"`
-										} `json:"projectsV2"`
-									} `json:"user"`
-								} `json:"data"`
-							}
-							if json.Unmarshal(output, &gqlRes) == nil {
-								allProjects := append(gqlRes.Data.Repository.ProjectsV2.Nodes, gqlRes.Data.User.ProjectsV2.Nodes...)
-								for _, pNode := range allProjects {
-									for _, fNode := range pNode.Fields.Nodes {
-										if strings.EqualFold(fNode.Name, "Status") || strings.EqualFold(fNode.Name, "Statut") || len(fNode.Options) > 0 {
-											for _, opt := range fNode.Options {
-												name := strings.TrimSpace(opt.Name)
-												if name != "" && !seen[strings.ToLower(name)] {
-													seen[strings.ToLower(name)] = true
-													statuses = append(statuses, name)
-												}
-											}
-										}
-									}
-								}
-							}
-						}
-					}
-				}
-				if len(statuses) == 0 {
-					for _, s := range []string{"open", "closed"} {
-						if !seen[s] {
-							seen[s] = true
-							statuses = append(statuses, s)
-						}
-					}
-				}
-			}
-		}
-
-		type StatusItem struct {
-			ID   string `json:"id"`
-			Name string `json:"name"`
-		}
-		var result []StatusItem
-		for idx, s := range statuses {
-			result = append(result, StatusItem{
-				ID:   fmt.Sprintf("st-%d", idx),
-				Name: s,
-			})
-		}
-		payload := map[string]interface{}{"statuses": result}
-		if columns != nil {
-			payload["columns"] = columns
-		}
-		if detectErr != "" {
-			payload["error"] = detectErr
-		}
-		writeJSON(w, http.StatusOK, payload)
-		return
 	}
 
 	// Sub-action: /api/projects/{id}/epics/create: create an epic, the container
@@ -1063,18 +968,6 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 	// a report left by a workstation that went away is not what would run.
 	if len(parts) >= 2 && parts[1] == "engine" && r.Method == http.MethodGet {
 		writeJSON(w, http.StatusOK, h.projectEngine(h.webSessionUser(r), id))
-		return
-	}
-
-	// Sub-action: /api/projects/{id}/issue-types: the work item types the
-	// project's tracker exposes, for the picker in the project settings.
-	if len(parts) >= 2 && parts[1] == "issue-types" && r.Method == http.MethodGet {
-		types, err := h.db.ListProjectIssueTypesAs(h.actingContext(r), id)
-		if err != nil {
-			writeError(w, http.StatusBadRequest, err.Error())
-			return
-		}
-		writeJSON(w, http.StatusOK, types)
 		return
 	}
 
@@ -1560,33 +1453,6 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Sub-action: /api/projects/{id}/boards: the tracker's boards, for the picker
-	if len(parts) >= 2 && parts[1] == "boards" && r.Method == http.MethodGet {
-		boards, err := h.db.ListProjectTrackerBoardsAs(h.actingContext(r), id)
-		if err != nil {
-			writeError(w, http.StatusBadRequest, err.Error())
-			return
-		}
-		writeJSON(w, http.StatusOK, boards)
-		return
-	}
-
-	// Sub-action: /api/projects/{id}/board-columns: import the columns of a
-	// tracker board as a starting point for the project's own columns
-	if len(parts) >= 2 && parts[1] == "board-columns" && r.Method == http.MethodPost {
-		var req struct {
-			BoardID string `json:"boardId"`
-		}
-		_ = json.NewDecoder(r.Body).Decode(&req)
-		proj, err := h.db.ImportProjectBoardColumns(h.actingContext(r), id, req.BoardID)
-		if err != nil {
-			writeError(w, http.StatusBadRequest, err.Error())
-			return
-		}
-		writeJSON(w, http.StatusOK, proj)
-		return
-	}
-
 	// Sub-action: /api/projects/{id}/priority-mapping/refresh: read the
 	// tracker's priority scheme again and fold it into the project's mapping
 	// (#679), for a person who just changed it.
@@ -1614,18 +1480,6 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeJSON(w, http.StatusOK, discovery)
-		return
-	}
-
-	// Sub-action: /api/projects/{id}/tracker-statuses: the statuses actually
-	// seen on this project's tickets, to assign them to columns
-	if len(parts) >= 2 && parts[1] == "tracker-statuses" && r.Method == http.MethodGet {
-		statuses, err := h.db.GetProjectTrackerStatuses(h.actingContext(r), id)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-		writeJSON(w, http.StatusOK, statuses)
 		return
 	}
 
@@ -1872,7 +1726,14 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 		}
 		// Saving an ownerless project adopts the person saving it, so its
 		// background synchronisation stops running as the server.
-		project, err := h.db.UpdateProjectAs(h.webSessionUser(r), id, req)
+		userID := h.webSessionUser(r)
+		if !h.principalFor(userID).IsAdmin() {
+			memberProjectUpdate(&req)
+		}
+		// Saving a project never creates nor renames a tracker (#741), an
+		// admin's save included: trackers are recorded in Administration.
+		req.JoinTrackerOnly = true
+		project, err := h.db.UpdateProjectAs(userID, id, req)
 		if err != nil {
 			writeError(w, repositoryErrorStatus(err), err.Error())
 			return
@@ -1909,6 +1770,9 @@ func (h *Handler) HandleTasks(w http.ResponseWriter, r *http.Request) {
 			Comment string `json:"comment"`
 			PrURL   string `json:"prUrl"`
 			Branch  string `json:"branch"`
+			// ProjectID is the project the move is made from, whose stage
+			// mapping applies (#741).
+			ProjectID string `json:"projectId"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			writeError(w, http.StatusBadRequest, "Invalid payload: "+err.Error())
@@ -1940,7 +1804,7 @@ func (h *Handler) HandleTasks(w http.ResponseWriter, r *http.Request) {
 		if note == "" {
 			note = req.Comment
 		}
-		task, act, err := h.db.TransitionTaskStageBy(h.webSessionUser(r), targetID, stage, note, req.PrURL, req.Branch)
+		task, act, err := h.db.TransitionTaskStageIn(h.webSessionUser(r), req.ProjectID, targetID, stage, note, req.PrURL, req.Branch)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
@@ -2104,6 +1968,10 @@ func (h *Handler) HandleTasks(w http.ResponseWriter, r *http.Request) {
 		// it to their own account, and refuses it when they stored no
 		// credential of their own (#482).
 		task, err := h.db.CreateTaskAs(h.actingContext(r), req)
+		if errors.Is(err, db.ErrTrackerNotInProject) {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
 		if err != nil {
 			writeTrackerError(w, http.StatusInternalServerError, err)
 			return
@@ -2224,7 +2092,8 @@ func (h *Handler) HandleAutoSyncStatus(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
 		return
 	}
-	writeJSON(w, http.StatusOK, h.db.AutoSyncStatus())
+	// The pacing is per tracker (#741); a project asks for its own trackers.
+	writeJSON(w, http.StatusOK, h.db.AutoSyncStatusFor(r.URL.Query().Get("projectId")))
 }
 
 // HandleTaskFacets serves the distinct sprint and team values present on the
@@ -2535,9 +2404,22 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		task, err := h.db.GetTaskByID(id)
+		task, err := h.db.GetTaskByIDIn(req.ProjectID, id)
+		if writeTaskKeyAmbiguous(w, err) {
+			return
+		}
 		if err != nil || task == nil {
 			writeError(w, http.StatusNotFound, "Task not found")
+			return
+		}
+
+		// The run works for one project (#741): the board's, else the
+		// ticket's only one. A ticket of several projects launched without
+		// one is asked about when the launch is interactive, refused when it is
+		// unattended (autonomous, a batch). Nothing is recorded before.
+		unattended := models.NormalizeSkillMode(req.Mode) == models.SkillModeAutonomous || len(req.BatchTaskIDs) > 0
+		projectID, err := h.db.ResolveRunProject(task, req.ProjectID, unattended)
+		if writeRunProjectRefusal(w, err) {
 			return
 		}
 
@@ -2546,7 +2428,7 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 		var batchIDs []string
 		if len(req.BatchTaskIDs) > 0 {
 			var reason string
-			if batchIDs, reason = h.batchLaunchMembers(task, req); reason != "" {
+			if batchIDs, reason = h.batchLaunchMembers(task, req, projectID); reason != "" {
 				writeError(w, http.StatusBadRequest, reason)
 				return
 			}
@@ -2600,10 +2482,6 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		projectID := "default"
-		if task.ProjectID != "" {
-			projectID = task.ProjectID
-		}
 		userID := h.webSessionUser(r)
 		ac := h.agentDispatcher.waitForRoute(r.Context(), userID, projectID, defaultAgentReconnectGrace)
 
@@ -2624,7 +2502,14 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 			// "Launch anyway" records a concurrent run, which the database lets
 			// sit next to the active one; with nothing active it is an ordinary
 			// launch.
-			remoteRun, runErr := h.db.StartAgentRun(task.ID, req.SkillID, db.RunLaunch{Mode: mode, Provider: provider, Model: model, UserID: userID, Force: req.Force && active != nil})
+			remoteRun, runErr := h.db.StartAgentRun(task.ID, req.SkillID, db.RunLaunch{
+				Mode:      mode,
+				Provider:  provider,
+				Model:     model,
+				UserID:    userID,
+				Force:     req.Force && active != nil,
+				ProjectID: projectID,
+			})
 			if writeTaskBusy(w, runErr) {
 				return
 			}
@@ -2791,6 +2676,9 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 	// Sub-action: /api/tasks/{id}/checkout-branch
 	if subAction == "checkout-branch" && (r.Method == http.MethodPost || r.Method == http.MethodPut) {
 		task, err := h.db.GetTaskByID(id)
+		if writeTaskKeyAmbiguous(w, err) {
+			return
+		}
 		if err != nil || task == nil {
 			writeError(w, http.StatusNotFound, "Tâche non trouvée")
 			return
@@ -2859,7 +2747,11 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "skillId manquant")
 			return
 		}
-		if task, err := h.db.GetTaskByID(id); err == nil && task != nil {
+		task, err := h.db.GetTaskByID(id)
+		if writeTaskKeyAmbiguous(w, err) {
+			return
+		}
+		if err == nil && task != nil {
 			userID := h.webSessionUser(r)
 			if ac := h.agentDispatcher.Route(userID, task.ProjectID); ac != nil {
 				err := h.agentDispatcher.Dispatch(userID, task.ProjectID, "dispatch_step", task.ID, map[string]string{
@@ -2936,6 +2828,9 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 				targetID = r.URL.Query().Get("key")
 			}
 			task, err := h.db.GetTaskByID(targetID)
+			if writeTaskKeyAmbiguous(w, err) {
+				return
+			}
 			if err != nil || task == nil {
 				writeError(w, http.StatusNotFound, "Tâche non trouvée")
 				return
@@ -2962,6 +2857,9 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 			Comment string `json:"comment"`
 			PrURL   string `json:"prUrl"`
 			Branch  string `json:"branch"`
+			// ProjectID is the project the move is made from, whose stage
+			// mapping applies (#741).
+			ProjectID string `json:"projectId"`
 		}
 		_ = json.NewDecoder(r.Body).Decode(&req)
 		targetID := id
@@ -3005,7 +2903,7 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 		if note == "" {
 			note = req.Comment
 		}
-		task, act, err := h.db.TransitionTaskStageBy(h.webSessionUser(r), targetID, stage, note, req.PrURL, req.Branch)
+		task, act, err := h.db.TransitionTaskStageIn(h.webSessionUser(r), req.ProjectID, targetID, stage, note, req.PrURL, req.Branch)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
@@ -3028,6 +2926,8 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 			// Model is the one-off model picked for this launch, empty when the
 			// user kept the configured one.
 			Model string `json:"model"`
+			// ProjectID is the project the step works for (#741), the board's.
+			ProjectID string `json:"projectId"`
 		}
 		_ = json.NewDecoder(r.Body).Decode(&req)
 		if !models.ValidSkillMode(req.Mode) {
@@ -3040,14 +2940,17 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 		}
 
 		task, err := h.db.GetTaskByID(id)
+		if writeTaskKeyAmbiguous(w, err) {
+			return
+		}
 		if err != nil || task == nil {
 			writeError(w, http.StatusNotFound, "Tâche non trouvée")
 			return
 		}
 
 		if req.Auto {
-			_, act, err := h.db.EnqueueFullChainRun(task.ID)
-			if writeTaskBusy(w, err) {
+			_, act, err := h.db.EnqueueFullChainRunFor(task.ID, req.ProjectID)
+			if writeTaskBusy(w, err) || writeRunProjectRefusal(w, err) {
 				return
 			}
 			if err != nil {
@@ -3064,8 +2967,8 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, fmt.Sprintf("aucun pas suivant depuis l'étape %s", stage))
 			return
 		}
-		_, act, err := h.db.EnqueueSkillOnTaskWithOverrides(task.ID, step.SkillID, "", req.Mode, req.Model)
-		if writeTaskBusy(w, err) {
+		_, act, err := h.db.EnqueueSkillOnTaskFor(task.ID, req.ProjectID, step.SkillID, "", req.Mode, req.Model)
+		if writeTaskBusy(w, err) || writeRunProjectRefusal(w, err) {
 			return
 		}
 		if err != nil {
@@ -3198,12 +3101,15 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 	if subAction == "tracker-status" && (r.Method == http.MethodPost || r.Method == http.MethodPut) {
 		var req struct {
 			Status string `json:"status"`
+			// ProjectID is the board's project, whose stage mapping
+			// applies (#741).
+			ProjectID string `json:"projectId"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			writeError(w, http.StatusBadRequest, "Invalid payload: "+err.Error())
 			return
 		}
-		task, activity, err := h.db.MoveTaskToTrackerStatus(h.actingContext(r), id, req.Status)
+		task, activity, err := h.db.MoveTaskToTrackerStatusIn(h.actingContext(r), id, req.Status, req.ProjectID)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
@@ -3224,6 +3130,9 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 			return
 		} else if r.Method == http.MethodDelete {
 			task, err := h.db.GetTaskByID(id)
+			if writeTaskKeyAmbiguous(w, err) {
+				return
+			}
 			if err != nil || task == nil {
 				writeError(w, http.StatusNotFound, "Tâche non trouvée")
 				return
@@ -3314,6 +3223,9 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
 		task, err := h.db.GetTaskByID(id)
+		if writeTaskKeyAmbiguous(w, err) {
+			return
+		}
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -3575,8 +3487,21 @@ func (h *Handler) HandleActivityDetail(w http.ResponseWriter, r *http.Request) {
 
 	// Sub-action: /api/activities/{id}/retry
 	if len(parts) >= 2 && parts[1] == "retry" && r.Method == http.MethodPost {
-		act, err := h.db.RetryActivity(id)
-		if writeTaskBusy(w, err) {
+		// An activity recorded before #741 names no project: on a ticket of
+		// several, its retry is refused with the candidates, as a launch is,
+		// and the retry naming one of them in the body's optional projectId
+		// (the run endpoint's field) goes through.
+		var req struct {
+			ProjectID string `json:"projectId"`
+		}
+		if r.Body != nil {
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
+				writeError(w, http.StatusBadRequest, "Body must be {\"projectId\": string} or empty")
+				return
+			}
+		}
+		act, err := h.db.RetryActivity(id, req.ProjectID)
+		if writeTaskBusy(w, err) || writeRunProjectRefusal(w, err) {
 			return
 		}
 		if err != nil {
@@ -4144,6 +4069,9 @@ func (h *Handler) HandleOpenEditor(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.TaskID != "" {
 		task, err := h.db.GetTaskByID(req.TaskID)
+		if writeTaskKeyAmbiguous(w, err) {
+			return
+		}
 		if err != nil || task == nil {
 			writeError(w, http.StatusNotFound, "Task not found")
 			return
@@ -4191,6 +4119,9 @@ func (h *Handler) LaunchTaskExternalTerminal(taskID, command, skillID string) (m
 
 func (h *Handler) launchTaskExternalTerminal(ctx context.Context, userID, taskID, command, skillID string) (map[string]interface{}, error) {
 	task, err := h.db.GetTaskByID(taskID)
+	if errors.Is(err, db.ErrTaskKeyAmbiguous) {
+		return nil, err
+	}
 	if err != nil || task == nil {
 		return nil, fmt.Errorf("task not found: %s", taskID)
 	}
@@ -4323,8 +4254,9 @@ func (h *Handler) HandleEventsSSE(w http.ResponseWriter, r *http.Request) {
 }
 
 // repositoryErrorStatus answers 400 for a refused repository declaration or
-// pin (#456), or another refused project setting, 422 for a refused priority,
-// and 500 for anything else.
+// pin (#456), another refused project setting, or a tracker selection naming
+// an unknown tracker or another project's local board (#741), 422 for a
+// refused priority (#679), and 500 for anything else.
 func repositoryErrorStatus(err error) int {
 	// A priority the project's mapping only guessed (#679) is a refusal the
 	// person can act on in the Tracker tab, not a malformed request.
@@ -4334,6 +4266,12 @@ func repositoryErrorStatus(err error) int {
 	}
 	if errors.Is(err, db.ErrDuplicateRepository) || errors.Is(err, db.ErrRepositoryNotInProject) || errors.Is(err, db.ErrInvalidSpecArtifacts) || errors.Is(err, db.ErrInvalidBranchNameFormat) || errors.Is(err, db.ErrInvalidEpicAxisPrefix) || errors.Is(err, db.ErrInvalidPriorityMapping) || errors.Is(err, db.ErrInvalidEpicAxisFields) {
 		return http.StatusBadRequest
+	}
+	if errors.Is(err, db.ErrUnknownTracker) || errors.Is(err, db.ErrForeignLocalTracker) || errors.Is(err, db.ErrInvalidProjectLabel) || errors.Is(err, db.ErrInvalidStageColumns) {
+		return http.StatusBadRequest
+	}
+	if errors.Is(err, db.ErrTaskKeyAmbiguous) {
+		return http.StatusConflict
 	}
 	return http.StatusInternalServerError
 }

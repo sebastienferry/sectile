@@ -780,14 +780,13 @@ func TestMembersConfigureTheTrackerOnTheSharedRow(t *testing.T) {
 
 	current, _ := database.GetSettings()
 	current.IssueTracker = "jira"
-	current.JiraUrl = "https://acme.atlassian.net"
 	current.JiraProject = "PE"
 	payload, _ := json.Marshal(current)
 	if status, body := call(t, server, bob, http.MethodPost, "/api/settings", string(payload)); status != http.StatusOK {
 		t.Fatalf("member configuring the tracker: %d %s", status, body)
 	}
 	saved, _ := database.GetSettings()
-	if saved.IssueTracker != "jira" || saved.JiraUrl != "https://acme.atlassian.net" || saved.JiraProject != "PE" {
+	if saved.IssueTracker != "jira" || saved.JiraProject != "PE" {
 		t.Fatalf("the tracker did not reach the shared row: %+v", saved)
 	}
 
@@ -797,5 +796,52 @@ func TestMembersConfigureTheTrackerOnTheSharedRow(t *testing.T) {
 	payload, _ = json.Marshal(current)
 	if status, body := call(t, server, bob, http.MethodPost, "/api/settings", string(payload)); status != http.StatusForbidden || !strings.Contains(body, "promptClarify") {
 		t.Fatalf("member changing a prompt: %d %s", status, body)
+	}
+}
+
+// The deployment's tracker sites are an admin's (#741, ADR 0054): a tracker
+// recorded without a site of its own reaches the one they name, with the
+// server credential, so a member changing one is refused by name and the row
+// keeps it, while a member's post leaving them as stored still passes.
+func TestOnlyAnAdminSetsTheDeploymentTrackerSites(t *testing.T) {
+	h, database, cleanup := setupTestHandler(t)
+	defer cleanup()
+	server := guardedServer(t, h)
+	_, alice := account(t, database, "alice@example.com")
+	_, bob := account(t, database, "bob@example.com")
+
+	sites := map[string]func(*models.Settings) *string{
+		"jiraUrl":      func(s *models.Settings) *string { return &s.JiraUrl },
+		"githubApiUrl": func(s *models.Settings) *string { return &s.GithubApiUrl },
+		"gitlabUrl":    func(s *models.Settings) *string { return &s.GitlabUrl },
+	}
+	for key, field := range sites {
+		current, _ := database.GetSettings()
+		*field(current) = "https://evil.example.com"
+		payload, _ := json.Marshal(current)
+		if status, body := call(t, server, bob, http.MethodPost, "/api/settings", string(payload)); status != http.StatusForbidden || !strings.Contains(body, key) {
+			t.Fatalf("member changing %s: %d %s", key, status, body)
+		}
+		if saved, _ := database.GetSettings(); *field(saved) == "https://evil.example.com" {
+			t.Fatalf("a member's %s reached the shared row", key)
+		}
+
+		current, _ = database.GetSettings()
+		*field(current) = "https://tracker.example.com"
+		payload, _ = json.Marshal(current)
+		if status, body := call(t, server, alice, http.MethodPost, "/api/settings", string(payload)); status != http.StatusOK {
+			t.Fatalf("admin changing %s: %d %s", key, status, body)
+		}
+		if saved, _ := database.GetSettings(); *field(saved) != "https://tracker.example.com" {
+			t.Fatalf("the admin's %s did not reach the shared row: %q", key, *field(saved))
+		}
+	}
+
+	// A member's whole-row post that leaves the sites as stored still passes.
+	current, _ := database.GetSettings()
+	current.JiraProject = "OPS"
+	payload, _ := json.Marshal(current)
+	if status, body := call(t, server, bob, http.MethodPost, "/api/settings", string(payload)); status != http.StatusOK {
+		t.Fatalf("member saving the row with the sites unchanged: %d %s", status, body)
 	}
 }

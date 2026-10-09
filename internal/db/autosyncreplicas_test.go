@@ -38,9 +38,9 @@ func twoInstances(t *testing.T, fake *fakeTracker) (*DB, *DB, *models.Project) {
 	return first, second, project
 }
 
-// Two instances running their pass on the same due project queue one
-// synchronisation between them, not one each.
-func TestTwoInstancesQueueOneSynchronisationPerDueProject(t *testing.T) {
+// Two instances running their pass on the same due tracker queue one
+// synchronisation between them, not one each (#741).
+func TestTwoInstancesQueueOneSynchronisationPerDueTracker(t *testing.T) {
 	fake := newFakeTracker()
 	first, second, _ := twoInstances(t, fake)
 
@@ -54,7 +54,7 @@ func TestTwoInstancesQueueOneSynchronisationPerDueProject(t *testing.T) {
 	syncs := fake.syncs
 	fake.mu.Unlock()
 	if syncs != 1 {
-		t.Fatalf("two instances synchronised the project %d times, want once", syncs)
+		t.Fatalf("two instances synchronised the tracker %d times, want once", syncs)
 	}
 	if status := second.AutoSyncStatus(); status.Passes != 2 || status.LastRunAt == "" {
 		t.Errorf("the status counts both passes wherever it is read: %+v", status)
@@ -68,8 +68,9 @@ func TestAClaimIsRefusedWithinTheIntervalAndGrantedAfter(t *testing.T) {
 	first, second, project := twoInstances(t, newFakeTracker())
 	interval := 5 * time.Minute
 	start := time.Now().UTC()
+	trackerID := defaultTrackerID(t, first, project.ID)
 
-	pacing, claimed, err := first.claimAutoSyncPass(project.ID, interval, start)
+	pacing, claimed, err := first.claimAutoSyncPass(trackerID, interval, start)
 	if err != nil || !claimed {
 		t.Fatalf("the first claim of a project never read must succeed: %v %v", claimed, err)
 	}
@@ -77,11 +78,11 @@ func TestAClaimIsRefusedWithinTheIntervalAndGrantedAfter(t *testing.T) {
 		t.Fatalf("a project never read has no pacing: %+v", pacing)
 	}
 
-	if _, claimed, err := second.claimAutoSyncPass(project.ID, interval, start.Add(time.Minute)); err != nil || claimed {
+	if _, claimed, err := second.claimAutoSyncPass(trackerID, interval, start.Add(time.Minute)); err != nil || claimed {
 		t.Fatalf("a claim within the interval must be refused: %v %v", claimed, err)
 	}
 
-	pacing, claimed, err = second.claimAutoSyncPass(project.ID, interval, start.Add(6*time.Minute))
+	pacing, claimed, err = second.claimAutoSyncPass(trackerID, interval, start.Add(6*time.Minute))
 	if err != nil || !claimed {
 		t.Fatalf("a claim after the interval must succeed: %v %v", claimed, err)
 	}
@@ -110,14 +111,15 @@ func TestABackoffEnteredByOneInstanceHoldsForAll(t *testing.T) {
 func TestAFullReadDatedByOneInstanceNarrowsTheOthersNextWindow(t *testing.T) {
 	first, second, project := twoInstances(t, newFakeTracker())
 
-	first.recordAutoSyncPass(project.ID, 0, 3, false, "")
+	trackerID := defaultTrackerID(t, first, project.ID)
+	first.recordAutoSyncPass(trackerID, 0, 3, false, "")
 	if _, dated := autoSyncLastFull(t, second, project.ID); !dated {
 		t.Fatal("the full read is not dated for the other instance")
 	}
 	setAutoSyncLastPass(t, first, project.ID, time.Now().UTC().Add(-10*time.Minute))
 
 	now := time.Now().UTC()
-	pacing, claimed, err := second.claimAutoSyncPass(project.ID, 5*time.Minute, now)
+	pacing, claimed, err := second.claimAutoSyncPass(trackerID, 5*time.Minute, now)
 	if err != nil || !claimed {
 		t.Fatalf("claiming: %v %v", claimed, err)
 	}

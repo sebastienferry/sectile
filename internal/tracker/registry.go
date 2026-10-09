@@ -36,8 +36,10 @@ func (r *Registry) Get(name string) (TicketingSystem, bool) {
 	return ts, ok
 }
 
-// ForProject returns the TicketingSystem configured for a given project.
-// If the project specifies no tracker or "local", the local adapter is returned if registered.
+// ForProject returns the TicketingSystem configured for a given project: that
+// of its default tracker, whose provider the project's tracker fields read
+// through (#741). If the project specifies no tracker or "local", the local
+// adapter is returned if registered.
 func (r *Registry) ForProject(proj *models.Project) (TicketingSystem, error) {
 	if proj == nil {
 		if local, ok := r.Get("local"); ok {
@@ -63,11 +65,28 @@ func (r *Registry) ForProject(proj *models.Project) (TicketingSystem, error) {
 	return ts, nil
 }
 
+// ForTracker returns the TicketingSystem of a tracker's provider (#741). No
+// tracker at all is the local board.
+func (r *Registry) ForTracker(t *models.Tracker) (TicketingSystem, error) {
+	name := "local"
+	if t != nil && strings.TrimSpace(t.Provider) != "" {
+		name = strings.ToLower(strings.TrimSpace(t.Provider))
+	}
+	ts, ok := r.Get(name)
+	if !ok {
+		if t == nil {
+			return nil, fmt.Errorf("tracker manquant")
+		}
+		return nil, fmt.Errorf("aucun tracker distant configuré pour le type %q", name)
+	}
+	return ts, nil
+}
+
 // ForTask resolves the TicketingSystem for a given task, checking the task's
-// source first and falling back to its project configuration.
-func (r *Registry) ForTask(task *models.Task, proj *models.Project) (TicketingSystem, error) {
+// source first and falling back to the tracker it belongs to.
+func (r *Registry) ForTask(task *models.Task, t *models.Tracker) (TicketingSystem, error) {
 	if task == nil {
-		return r.ForProject(proj)
+		return r.ForTracker(t)
 	}
 
 	source := strings.ToLower(strings.TrimSpace(task.Source))
@@ -85,5 +104,5 @@ func (r *Registry) ForTask(task *models.Task, proj *models.Project) (TicketingSy
 		}
 	}
 
-	return r.ForProject(proj)
+	return r.ForTracker(t)
 }

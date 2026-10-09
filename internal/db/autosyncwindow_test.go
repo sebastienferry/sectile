@@ -13,9 +13,9 @@ import (
 // The loop used to queue one job per unfinished work item, every few minutes,
 // for ever: four hundred cards meant four hundred reads a pass, four hundred
 // activity rows, and a tracker asked four hundred times what one search
-// answers. A pass now files one synchronisation per project, and the tracker
-// decides what has moved.
-func TestABackgroundPassQueuesOneSynchronisationPerProjectNotOnePerTicket(t *testing.T) {
+// answers. A pass now files one synchronisation per tracker (#741), and the
+// tracker decides what has moved.
+func TestABackgroundPassQueuesOneSynchronisationPerTrackerNotOnePerTicket(t *testing.T) {
 	fake := newFakeTracker()
 	database, project := autoSyncTestDB(t, fake)
 
@@ -26,7 +26,7 @@ func TestABackgroundPassQueuesOneSynchronisationPerProjectNotOnePerTicket(t *tes
 	settings, _ := database.GetSettings()
 	database.runAutoSyncPass(settings)
 
-	activities, err := database.GetProjectActivities(project.ID)
+	activities, err := database.activitiesAttachedTo("tracker_id", defaultTrackerID(t, database, project.ID))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -37,7 +37,7 @@ func TestABackgroundPassQueuesOneSynchronisationPerProjectNotOnePerTicket(t *tes
 		}
 	}
 	if queued != 1 {
-		t.Fatalf("a pass files one synchronisation for the project, got %d", queued)
+		t.Fatalf("a pass files one synchronisation for the tracker, got %d", queued)
 	}
 }
 
@@ -135,21 +135,21 @@ func autoSyncTestDB(t *testing.T, fake *fakeTracker) (*DB, *models.Project) {
 	return database, project
 }
 
-// setAutoSyncLastPass dates a project's previous pass, as another pass or
-// another instance would have.
+// setAutoSyncLastPass dates the previous pass of a project's tracker, as
+// another pass or another instance would have (#741).
 func setAutoSyncLastPass(t *testing.T, database *DB, projectID string, at time.Time) {
 	t.Helper()
-	if _, err := database.conn.Exec(`INSERT INTO auto_sync_projects (project_id, last_pass_at) VALUES (?, ?)
-		ON CONFLICT (project_id) DO UPDATE SET last_pass_at = excluded.last_pass_at`, projectID, at); err != nil {
+	if _, err := database.conn.Exec(`INSERT INTO auto_sync_trackers (tracker_id, last_pass_at) VALUES (?, ?)
+		ON CONFLICT (tracker_id) DO UPDATE SET last_pass_at = excluded.last_pass_at`, defaultTrackerID(t, database, projectID), at); err != nil {
 		t.Fatalf("dating the previous pass: %v", err)
 	}
 }
 
-// autoSyncLastFull is when a project was last read in full, if ever.
+// autoSyncLastFull is when a project's tracker was last read in full, if ever.
 func autoSyncLastFull(t *testing.T, database *DB, projectID string) (time.Time, bool) {
 	t.Helper()
 	var at sql.NullTime
-	err := database.conn.QueryRow(`SELECT last_full_sync_at FROM auto_sync_projects WHERE project_id = ?`, projectID).Scan(&at)
+	err := database.conn.QueryRow(`SELECT last_full_sync_at FROM auto_sync_trackers WHERE tracker_id = ?`, defaultTrackerID(t, database, projectID)).Scan(&at)
 	if err == sql.ErrNoRows {
 		return time.Time{}, false
 	}
@@ -181,16 +181,18 @@ func seedTrackerTask(t *testing.T, database *DB, projectID, key, trackerStatus s
 	return task.ID
 }
 
-// syncActivities answers what the loop left on a project's feed, once the
-// worker has finished with it: a background pass that had nothing to report
-// deletes its own row, so what is left can only be read after the job ran.
-// wantOne keeps waiting until there is one, for the cases that expect a row to
-// survive.
+// syncActivities answers what the loop left on the feed of a project's
+// tracker, once the worker has finished with it: a background pass that had
+// nothing to report deletes its own row, so what is left can only be read
+// after the job ran. wantOne keeps waiting until there is one, for the cases
+// that expect a row to survive. A background pass is the tracker's, not the
+// project's (#741).
 func syncActivities(t *testing.T, database *DB, projectID string, wantOne bool) []models.TaskActivity {
 	t.Helper()
 	var last []models.TaskActivity
+	trackerID := defaultTrackerID(t, database, projectID)
 	for i := 0; i < 100; i++ {
-		activities, err := database.GetProjectActivities(projectID)
+		activities, err := database.activitiesAttachedTo("tracker_id", trackerID)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -242,5 +244,31 @@ func TestAFullPassThatFailedIsNotDated(t *testing.T) {
 	database.runAutoSyncPass(settings)
 	if window, ran := fake.syncedWithin(t); !ran || window != 0 {
 		t.Fatalf("the loop must keep asking for the whole project, got %d", window)
+	}
+}
+
+// Two projects selecting one tracker are one source to read: the loop files
+// one synchronisation for it, not one per project (#741).
+func TestTwoProjectsOnOneTrackerQueueOneSynchronisation(t *testing.T) {
+	fake := newFakeTracker()
+	database, project := autoSyncTestDB(t, fake)
+	enabled := true
+	second, err := database.CreateProject(models.CreateProjectRequest{Name: "Bidder", IssueTracker: "jira", JiraProject: "PE", AutoSyncEnabled: &enabled})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if defaultTrackerID(t, database, second.ID) != defaultTrackerID(t, database, project.ID) {
+		t.Fatal("the two projects do not share their tracker")
+	}
+
+	settings, _ := database.GetSettings()
+	database.runAutoSyncPass(settings)
+	database.jobs.drain(5 * time.Second)
+
+	fake.mu.Lock()
+	syncs := fake.syncs
+	fake.mu.Unlock()
+	if syncs != 1 {
+		t.Fatalf("the shared tracker was read %d times, want once", syncs)
 	}
 }

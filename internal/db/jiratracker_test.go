@@ -59,6 +59,10 @@ type fakeTracker struct {
 	sprintedAs       string
 	sprintedOn       string
 	comments         []models.TaskComment
+	// updatedOn and commentedOn record the tracker a write named, in its
+	// request and in its context (#741).
+	updatedOn, updatedCtxOn     string
+	commentedOn, commentedCtxOn string
 }
 
 func newFakeTracker() *fakeTracker {
@@ -86,8 +90,8 @@ func (f *fakeTracker) called(call string) bool {
 	return false
 }
 
-func (f *fakeTracker) FormatTaskID(projectID, key, rawID string) string {
-	return fmt.Sprintf("jira-%s-%s", projectID, strings.ToUpper(key))
+func (f *fakeTracker) FormatTaskID(trackerID, key, rawID string) string {
+	return fmt.Sprintf("jira-%s-%s", trackerID, strings.ToUpper(key))
 }
 
 func (f *fakeTracker) SyncIssues(ctx context.Context, req tracker.SyncRequest) ([]models.Task, error) {
@@ -148,6 +152,12 @@ func (f *fakeTracker) UpdateIssue(ctx context.Context, req tracker.UpdateIssueRe
 	defer f.mu.Unlock()
 	f.calls = append(f.calls, "update")
 	f.updatedAs = tracker.ActingUser(ctx)
+	if req.Tracker != nil {
+		f.updatedOn = req.Tracker.ID
+	}
+	if t := tracker.Tracker(ctx); t != nil {
+		f.updatedCtxOn = t.ID
+	}
 	return nil
 }
 
@@ -168,14 +178,16 @@ func (f *fakeTracker) updatedBy(t *testing.T) string {
 }
 
 // SetSprint is one of the fine-grained writes: it takes work item keys and
-// nothing else, so it can only learn who asked and which project from the
-// context the queue gives it.
+// nothing else, so it can only learn who asked and which tracker from the
+// context the queue gives it (#741).
 func (f *fakeTracker) SetSprint(ctx context.Context, sprintID string, keys []string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls = append(f.calls, "sprint")
 	f.sprintedAs = tracker.ActingUser(ctx)
-	f.sprintedOn = tracker.Project(ctx)
+	if t := tracker.Tracker(ctx); t != nil {
+		f.sprintedOn = t.ID
+	}
 	return nil
 }
 
@@ -196,6 +208,12 @@ func (f *fakeTracker) sprintedBy(t *testing.T) (string, string) {
 func (f *fakeTracker) AddComment(ctx context.Context, req tracker.AddCommentRequest) error {
 	f.record("comment")
 	f.commentedAs = tracker.ActingUser(ctx)
+	if req.Tracker != nil {
+		f.commentedOn = req.Tracker.ID
+	}
+	if t := tracker.Tracker(ctx); t != nil {
+		f.commentedCtxOn = t.ID
+	}
 	f.comments = append(f.comments, models.TaskComment{ID: "c1", Author: "Ada", Body: req.Body, Source: "jira"})
 	return nil
 }
@@ -340,7 +358,7 @@ func TestSyncOnATrackerWithBoardsImportsRefreshesTeamsAndColumns(t *testing.T) {
 	}
 
 	// The work item takes the identity its tracker gives it.
-	task, err := database.GetTaskByID("jira-" + project.ID + "-PE-1")
+	task, err := database.GetTaskByID("jira-" + defaultTrackerID(t, database, project.ID) + "-PE-1")
 	if err != nil || task == nil {
 		t.Fatalf("imported task not found under its canonical id: %v", err)
 	}
@@ -362,6 +380,11 @@ func TestSyncOnATrackerWithBoardsImportsRefreshesTeamsAndColumns(t *testing.T) {
 	}
 	if len(refreshed.Sprints) != 1 || refreshed.Sprints[0].State != "active" {
 		t.Fatalf("sprints not imported: %+v", refreshed.Sprints)
+	}
+	// The mirror is the tracker's: the project only reads it through (#741).
+	trk, err := database.GetTrackerByID(defaultTrackerID(t, database, project.ID))
+	if err != nil || trk == nil || len(trk.TrackerColumns) != 2 || len(trk.Sprints) != 1 || trk.BoardID != "5" {
+		t.Fatalf("the board mirror must land on the tracker: %+v %v", trk, err)
 	}
 }
 
@@ -387,7 +410,7 @@ func TestSyncSurvivesAnUnreadableTeam(t *testing.T) {
 	if result.Status != "completed" {
 		t.Fatalf("an unreadable team must not fail the sync: %#v", result)
 	}
-	if _, err := database.GetTaskByID("jira-" + project.ID + "-PE-2"); err != nil {
+	if _, err := database.GetTaskByID("jira-" + defaultTrackerID(t, database, project.ID) + "-PE-2"); err != nil {
 		t.Fatalf("the work item must be imported anyway: %v", err)
 	}
 	steps := strings.Join(result.Steps, " | ")
@@ -401,11 +424,11 @@ func TestProjectStructureRoutesThroughTheResolvedTracker(t *testing.T) {
 	fake.boards = []models.TrackerBoard{{ID: "5", Name: "PE board", Type: "scrum"}}
 	database, project := jiraTestDB(t, fake)
 
-	boards, err := database.ListProjectTrackerBoards(project.ID)
+	boards, err := database.ListTrackerBoardsAs(context.Background(), project.DefaultTrackerID)
 	if err != nil || len(boards) != 1 || boards[0].ID != "5" {
 		t.Fatalf("boards: %v %+v", err, boards)
 	}
-	types, err := database.ListProjectIssueTypes(project.ID)
+	types, err := database.ListTrackerIssueTypesAs(context.Background(), project.DefaultTrackerID)
 	if err != nil || len(types) != 2 {
 		t.Fatalf("issue types: %v %v", err, types)
 	}
@@ -427,9 +450,15 @@ func TestATrackerWithoutBoardsAnswersAnUnsupportedCapability(t *testing.T) {
 		t.Fatal(err)
 	}
 	for name, call := range map[string]func() error{
-		"boards": func() error { _, err := database.ListProjectTrackerBoards(project.ID); return err },
-		"types":  func() error { _, err := database.ListProjectIssueTypes(project.ID); return err },
-		"teams":  func() error { _, err := database.SearchTrackerTeams(project.ID, "x"); return err },
+		"boards": func() error {
+			_, err := database.ListTrackerBoardsAs(context.Background(), project.DefaultTrackerID)
+			return err
+		},
+		"types": func() error {
+			_, err := database.ListTrackerIssueTypesAs(context.Background(), project.DefaultTrackerID)
+			return err
+		},
+		"teams": func() error { _, err := database.SearchTrackerTeams(project.ID, "x"); return err },
 		"members": func() error {
 			_, err := database.RefreshTeamMembersNow(project.ID, "team-1")
 			return err
@@ -455,16 +484,16 @@ func TestADirectReadCarriesTheActingUser(t *testing.T) {
 	fake.boards = []models.TrackerBoard{{ID: "5", Name: "PE board", Type: "scrum"}}
 	database, project := jiraTestDB(t, fake)
 
-	if _, err := database.ListProjectTrackerBoardsAs(tracker.WithActingUser(context.Background(), "u-ada"), project.ID); err != nil {
+	if _, err := database.ListTrackerBoardsAs(tracker.WithActingUser(context.Background(), "u-ada"), project.DefaultTrackerID); err != nil {
 		t.Fatal(err)
 	}
 	if fake.readAs != "u-ada" {
 		t.Fatalf("the read must run as the person who asked, got %q", fake.readAs)
 	}
 
-	// The plain name stays available for callers with nobody to name.
+	// A caller with nobody to name reads as nobody.
 	fake.readAs = "sentinel"
-	if _, err := database.ListProjectTrackerBoards(project.ID); err != nil {
+	if _, err := database.ListTrackerBoardsAs(context.Background(), project.DefaultTrackerID); err != nil {
 		t.Fatal(err)
 	}
 	if fake.readAs != "" {
@@ -486,7 +515,7 @@ func TestACommentIsPostedUnderItsAuthorsCredential(t *testing.T) {
 	settings, _ := database.GetSettings()
 	database.processSyncJob(context.Background(), SkillJob{SkillID: "sync_jira", ActivityID: activity.ID, ProjectID: project.ID}, settings)
 
-	taskID := "jira-" + project.ID + "-PE-1"
+	taskID := "jira-" + defaultTrackerID(t, database, project.ID) + "-PE-1"
 	comments, err := database.PostTaskCommentBy(Actor{ID: "u-ada", Name: "Ada"}, taskID, "Written by Ada")
 	if err != nil {
 		t.Fatal(err)
@@ -514,7 +543,7 @@ func TestAQueuedFieldUpdateCarriesItsActor(t *testing.T) {
 	settings, _ := database.GetSettings()
 	database.processSyncJob(context.Background(), SkillJob{SkillID: "sync_jira", ActivityID: activity.ID, ProjectID: project.ID}, settings)
 
-	taskID := "jira-" + project.ID + "-PE-1"
+	taskID := "jira-" + defaultTrackerID(t, database, project.ID) + "-PE-1"
 	title := "Edited by Ada"
 	if _, err := database.UpdateTaskBy(Actor{ID: "u-ada", Name: "Ada"}, taskID, models.UpdateTaskRequest{Title: &title}); err != nil {
 		t.Fatal(err)
@@ -544,7 +573,7 @@ func TestAQueuedSprintMoveCarriesItsAuthorAndItsProject(t *testing.T) {
 	settings, _ := database.GetSettings()
 	database.processSyncJob(context.Background(), SkillJob{SkillID: "sync_jira", ActivityID: activity.ID, ProjectID: project.ID}, settings)
 
-	taskID := "jira-" + project.ID + "-PE-1"
+	taskID := "jira-" + defaultTrackerID(t, database, project.ID) + "-PE-1"
 	ctx := tracker.WithActingUser(context.Background(), "u-ada")
 	if _, err := database.SetTasksSprint(ctx, project.ID, []string{taskID}, "42", "Sprint 42"); err != nil {
 		t.Fatal(err)
@@ -553,8 +582,8 @@ func TestAQueuedSprintMoveCarriesItsAuthorAndItsProject(t *testing.T) {
 	if who != "u-ada" {
 		t.Fatalf("the queued sprint move must run as its author, got %q", who)
 	}
-	if where != project.ID {
-		t.Fatalf("the queued sprint move must name its project, got %q", where)
+	if want := defaultTrackerID(t, database, project.ID); where != want {
+		t.Fatalf("the queued sprint move must name its tracker %q, got %q", want, where)
 	}
 }
 

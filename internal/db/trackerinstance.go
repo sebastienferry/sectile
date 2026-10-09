@@ -25,19 +25,9 @@ func trackerKindOf(p *models.Project) string {
 	return kind
 }
 
-// trackerAddress reduces a tracker URL to what tells two sites apart: no
-// scheme, no trailing slash, the host lower-cased.
-func trackerAddress(raw string) string {
-	address := strings.TrimSpace(raw)
-	if i := strings.Index(address, "://"); i >= 0 {
-		address = address[i+3:]
-	}
-	address = strings.TrimRight(address, "/")
-	if host, path, found := strings.Cut(address, "/"); found {
-		return strings.ToLower(host) + "/" + path
-	}
-	return strings.ToLower(address)
-}
+// trackerAddress reduces a tracker URL to what tells two sites apart, as
+// models.TrackerAddress does for a tracker identity.
+func trackerAddress(raw string) string { return models.TrackerAddress(raw) }
 
 // sameTrackerInstance reports whether a story created in target can take a
 // macro of macroProject as its parent, and, when it cannot, the reason in the

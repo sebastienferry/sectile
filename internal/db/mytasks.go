@@ -151,12 +151,12 @@ func (d *DB) TaskSourcesInScope(scope TaskScope) ([]string, error) {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 
-	projectCond, projectArgs, labelCond, labelArgs, err := d.taskScopeUnsafe(scope)
+	taskCond, taskArgs, _, _, labelCond, labelArgs, err := d.taskScopeUnsafe(scope)
 	if err != nil {
 		return nil, err
 	}
 	query := "SELECT DISTINCT COALESCE(NULLIF(source, ''), 'local') FROM tasks"
-	scopeCond, scopeArgs := joinScope(projectCond, projectArgs, labelCond, labelArgs)
+	scopeCond, scopeArgs := joinScope(taskCond, taskArgs, labelCond, labelArgs)
 	if scopeCond != "" {
 		query += " WHERE " + scopeCond
 	}

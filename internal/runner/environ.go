@@ -2,6 +2,7 @@ package runner
 
 import (
 	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 )
@@ -69,4 +70,28 @@ func hidden(name string) bool {
 		}
 	}
 	return false
+}
+
+// ExtendProcessPath puts the discovered tool directories ahead of the agent's
+// own PATH, once, at start. An app opened from the Finder or the Dock inherits
+// launchd's PATH, /usr/bin:/bin:/usr/sbin:/sbin, and exec.Command resolves a
+// bare name such as "claude" against the agent's PATH, not against the Env it
+// hands the child: without this, a CLI installed in ~/.local/bin or Homebrew
+// is "not found" even though PathEnviron would have given the child the right
+// PATH. Each directory is kept once, in its first position.
+func ExtendProcessPath() {
+	seen := map[string]bool{}
+	var kept []string
+	for _, dir := range filepath.SplitList(prefixedPath()) {
+		key := dir
+		if runtime.GOOS == "windows" {
+			key = strings.ToLower(dir)
+		}
+		if dir == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		kept = append(kept, dir)
+	}
+	_ = os.Setenv("PATH", strings.Join(kept, string(os.PathListSeparator)))
 }

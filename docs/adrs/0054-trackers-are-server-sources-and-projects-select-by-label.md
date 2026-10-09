@@ -1,0 +1,266 @@
+# ADR 0054: Trackers are server sources and projects select their tickets by label
+
+- Status: Accepted
+- Date: 2026-10-05
+- Issue: [#741](https://github.com/sebastienferry/sectile/issues/741)
+
+Amends [ADR 0018](0018-the-admin-owns-the-roster-not-the-board.md),
+[ADR 0025](0025-saved-board-views-are-personal-overlays.md) and
+[ADR 0043](0043-declared-roadmap-projects-are-read-except-new-stories-and-opted-in-axes.md).
+
+## Context
+
+A Sectile project was a tracker scope. It named one Jira space, one GitHub
+repository or one GitLab project, kept a mirror of that tracker's board (the
+board, its columns, the status-to-stage mapping, the sprints and the issue
+types imported) and owned every ticket imported from it. A ticket's local
+identity included its project.
+
+Two projects pointing at the same Jira space therefore each imported their own
+copy of every ticket. The copies drifted apart: each had its own stage, its own
+pull requests and its own activity history, and moving one on the board left
+the other where it was. ADR 0025 recorded the consequence on saved views ("a
+remote story synchronised by two projects of a view shows twice") and left the
+fix to "how projects share a tracker scope". The work the owner wanted to model
+does not fit one tracker per project either: the delivery-admin application's
+tickets come from the GODE and BE Jira spaces, and the bidderAdmin
+application's from GODE alone.
+
+## Decision
+
+**A project is a board, and a tracker is a server-side source.** A
+project keeps its repositories, rules and skills. A tracker is one Jira space,
+one GitHub repository, one GitLab project, or the local board of one project.
+It is synchronised in full, whatever projects exist, and a project shows the
+subset of its trackers' tickets that carries its label.
+
+- **A tracker is a record of its own.** The `trackers` table holds the
+  provider, the site (empty when the tracker uses the deployment's own), the
+  scope (a Jira key, a GitHub `owner/repo`, a GitLab path, or the project id of
+  a local board) and an `identity` derived from the three, unique, on the
+  pattern of the repository identity of
+  [ADR 0028](0028-repositories-are-keyed-by-remote.md). GODE and BE are two
+  trackers even on one Jira site. The tracker also holds the board mirror a
+  project held before (board, columns, status-to-stage mapping, sprints, issue
+  types) and the background synchronisation settings. The tracker's
+  status-to-stage mapping is the default: each project selecting the tracker
+  may map the stages onto its columns its own way (D11).
+- **A project selects N trackers and one optional label.** `project_trackers`
+  links them in order. The project's `defaultTrackerId` is where its new
+  tickets go: the first tracker unless it names another, and the first
+  remaining one when its default is unlinked. A local tracker belongs to its
+  own project and is never accepted from another.
+- **One local issue per remote ticket, owned by its tracker.** A ticket carries
+  `tracker_id`, and `(tracker_id, key)` is unique. A ticket carrying two
+  project labels shows in both projects with one stage, one set of pull
+  requests and one activity history.
+- **Membership is computed, never stored.** A ticket belongs to a project when
+  the project selects its tracker and either has no label or the ticket carries
+  that label, compared whole and regardless of ASCII case with the predicate of
+  ADR 0025. A project with no label shows every ticket of its trackers, which
+  is how every existing project migrates. The same rule exists in SQL, for the
+  listings, and in Go, for the run's project, the agent configuration and each
+  ticket's `projectIds`; a test keeps the two equal.
+- **A ticket in no project waits in its tracker's backlog.** The backlog lists
+  the open ones: a ticket whose workflow stage is finished, read through the
+  tracker's own stage mapping, is left out. A member can give it a project's
+  label from there. The label is added locally at once, so the
+  ticket joins the project immediately, and written back on the tracker through
+  the existing label write, with the member's own credential.
+- **Creation goes to a tracker of the project.** A new ticket goes to the
+  project's default tracker, or to another of its trackers the web form or MCP
+  `create_task` names. The project label is added next to `#new`.
+- **Jira epics are tracker records too.** An epic shows in a project when it
+  carries the project label or when one of its children belongs to the project.
+  The local `M-<n>` macros of GitHub and GitLab projects stay owned by their
+  project.
+- **A run works for one project, recorded on the run.** A run started from a
+  project board, or given a `projectId`, works for that project, which must be
+  one of the ticket's. A ticket in one project needs no choice. A ticket in
+  several projects launched without one is asked about when the launch is
+  interactive, and refused, its candidate projects listed, when it is
+  unattended. A ticket in no project cannot be run until it is labelled into
+  one. The chosen project is stored in `task_activities.run_project_id`, and
+  every operation made from inside the run, the agent configuration and the
+  repository worktrees follow it.
+- **The synchronisation runs per tracker.** The background loop, its pacing
+  (`auto_sync_trackers`) and the manual passes work on trackers. A pass asked
+  for a project queues one pass per tracker of the project.
+- **`tasks.project_id` stays, unused (D1).** Its inline `UNIQUE(project_id,
+  key)` constraint cannot be dropped without a SQLite table rebuild. Ticket and
+  epic rows written since this decision carry the sentinel
+  `tracker:<tracker id>`, which keeps that constraint safe for two GitHub
+  trackers of one project that both have `#12`. Nothing reads the column to
+  decide which project a ticket belongs to; `Task.projectId` in the API is
+  computed. A "home project" was rejected: it would be a second source of truth,
+  and no project is the principled home when two unlabelled projects share a
+  tracker.
+- **No task id is rewritten (D3).** Existing rows keep their ids and gain
+  `tracker_id`; new imports format ids with the tracker id. When the migration
+  merges two copies of a ticket, the merged-away id is kept in `task_aliases`,
+  so a link or an agent holding it still resolves. A key that two
+  trackers carry is an error rather than the first match.
+- **Adoption is an idempotent step at start.** Migration 49 only adds the
+  tables and columns. `adoptTrackers()` then runs under the migration lock: it
+  creates one tracker per identity the projects name (the first project of an
+  identity giving its board mirror, auto-sync on if any project had it, with
+  the smaller interval), gives every local project its own local tracker, tags
+  every ticket, merges the duplicate tickets of a shared tracker (the most
+  advanced stage survives, pull request links, labels and changed repositories
+  are united, activities, comments, pins and batch members move to the
+  survivor) and creates the unique index `ux_tasks_tracker_key`.
+  `adoptTrackerEpics()` merges the duplicate rows of a Jira epic (the most
+  recently updated wins and keeps the other's todos when it has none) and
+  creates `ux_macros_tracker_key`. Both do nothing once done.
+- **Tracker configuration is an admin's (D11).** The trackers, their source,
+  board, columns, default status-to-stage mapping, issue types and background
+  synchronisation are configured from Administration (`/api/admin/trackers`).
+  A member chooses a project's trackers, its default tracker and its label,
+  reads a tracker's backlog and asks for a synchronisation (`/api/trackers`).
+- **The stage mapping is per project and tracker.** On the owner's decision, a
+  project maps the workflow stages onto the columns of each tracker it
+  selects its own way (`project_trackers.stage_columns`, migration 50), from
+  the **Trackers & label** tab of its settings, a member as well as an admin
+  (`trackerStageColumns` on the project save). An empty mapping reads the
+  tracker's, which stays the default an admin sets in Administration; nothing
+  was copied at the upgrade, so every project keeps reading its trackers'
+  mappings until it sets its own. The columns, the statuses they group and the
+  board stay the tracker's: a project only says which column each stage sits
+  in, and a board import or an admin's edit that drops a column drops it from
+  every project's mapping too. Which mapping applies to a ticket, for its
+  stage on import and for the status a stage move writes back: (1) the project
+  in context, when it selects the ticket's tracker (the board's project, the
+  run's `run_project_id`, the project an API request names); (2) else the
+  single project the ticket belongs to; (3) else the tracker's own. A ticket
+  of two projects may therefore resolve to two stages, which the owner chose
+  knowingly over a single shared mapping.
+
+## Consequences
+
+- **Admin-only tracker configuration is enforced on the server.** It reverses
+  ADR 0018, which made "configuring the tracker [a project] reads from" a
+  member's, and the comment `adminOnlyRoute` carried: the admin tracker routes
+  are in the admin-only table, and a member's project creation or update that
+  still carries `boardId`, `trackerColumns`, `issueTypes`, `autoSyncEnabled`
+  or `autoSyncIntervalMin` is saved without them rather than refused, so an
+  older client keeps saving the rest. An admin's still writes them through to
+  the project's default tracker. `stageColumns` is the exception, a member's
+  as an admin's: it writes the project's own mapping for its default tracker,
+  never the tracker's, dropping the stages and columns the tracker lacks. The sprints are the
+  exception: they stay a member's, through the sprint routes and the project
+  save, because planning sprints is board work. The deployment's tracker
+  settings keys of ADR 0018 (`trackerSettingsKeys`) lose their sites, as the
+  next bullet but one says.
+- **A member can only join an existing tracker through a project's legacy
+  fields.** A member's project save naming `issueTracker` and `jiraProject`,
+  `githubRepo` or `gitlabProject` links the tracker already recorded with that
+  identity, without touching its board mirror; one naming a source nobody
+  recorded is refused as an unknown tracker (400). The site fields
+  (`trackerUrl`, `githubApiUrl`, `gitlabUrl`) are dropped from a member's
+  save, since the server sends its credentials there, so a member joins by
+  these fields a tracker on the deployment's site only, and any other through
+  `trackers`. Creating a tracker, renaming one in place or setting its site
+  is an admin's (D11), from Administration → Trackers only.
+- **A project is created on a recorded tracker, and no project write creates
+  one.** A tester found that a project created without a tracker got a local
+  board, or a GitHub tracker named after its GitLab remote, that no screen
+  could then change. A creation from the API must name a recorded tracker, in
+  `trackers` or through the legacy fields above, which only find one by
+  identity; one naming neither, or only its own local board, is refused (400).
+  The same join-only rule now holds for an admin's project create and save:
+  neither finds-or-creates a tracker nor renames one in place any more. A save
+  that names no provider nor scope keeps the project's trackers, whatever the
+  project's stored fields say, and only writes the board mirror it carries
+  through to the default tracker. The code remote no longer fills
+  `githubRepo`: it named a GitHub repository for any remote, a GitLab one
+  included. Projects created before keep their local board, and the default
+  project and the upgrade still give one; Sectile's internal callers (the
+  default project, the adoption at upgrade) keep the store's find-or-create.
+  A deployment whose only tickets are local boards can therefore create no new
+  project until an admin records a tracker.
+- **The deployment's tracker sites are an admin's.** `jiraUrl`,
+  `githubApiUrl` and `gitlabUrl` on the settings row are where the server
+  sends a provider's server credential for any tracker recorded without a
+  site of its own, so they leave ADR 0018's `trackerSettingsKeys`. A
+  member's `/api/settings` save that changes one is refused with the
+  admin-only 403 naming it, like any other deployment key; one that leaves
+  them as stored still passes, since the interface posts the whole row. The
+  rest of those keys (`issueTracker`, `jiraProject`, `githubRepo`,
+  `gitlabProject`) stay a member's. No web screen lets a member edit the
+  three sites, so nothing is hidden.
+- **A tracker holding tickets keeps its source.** Its provider, site and
+  scope no longer change once it holds tickets or epics (409): they were read
+  from that source. An empty tracker may change them, and like a tracker
+  renamed in place its next background pass reads the new source whole.
+- **Members keep a status-to-stage mapping editor** in a project's settings,
+  now per tracker the project selects, showing whether the project follows the
+  tracker's mapping or has its own, with a reset to the tracker's. The
+  tracker's own mapping, the default, is an admin's, in Administration →
+  Trackers.
+- **`tasks.project_id` is unused** and holds the `tracker:<id>` sentinel on new
+  rows. **The old tracker columns of `projects` are kept** (issue tracker, Jira
+  project, GitHub repository, GitLab project, board, columns, mapping, sprints,
+  issue types, auto-sync): adoption reads them and a rollback needs them. A
+  later migration drops them; until then a project's loaded tracker fields are
+  read through from its default tracker.
+- **A run on a ticket of several projects needs a project.** An interactive
+  launch without one answers `409 {error, candidates, unattended: false}`, and
+  the web asks which project and retries with it. Desktop never meets it: every
+  Desktop launch is made from a project, whose local checkout it runs in, and
+  the agent forwards that project. An unattended launch
+  is refused with `400 {error, candidates, unattended: true}`. A launch is
+  unattended when it explicitly asks for `mode: "autonomous"`, launches a batch
+  (`batchTaskIds`), or runs the full chain (`advance` with `auto`); a project
+  whose default mode is autonomous does not make a launch without a mode
+  unattended, so it gets the interactive `409`. MCP `start_run` refuses the
+  same cases in English with the candidate projects, so the calling agent asks
+  its user. The agent sends the dispatched project with its configuration
+  request, so the agent should be upgraded with the server.
+- **The Jira priority mapping of #679 stays on the project.** It is a
+  tracker-shaped setting, but it moves with nothing in this change: it is
+  stored in `projects.priority_mapping`, edited from the project's **Trackers
+  & label** tab by its members, and read from the Jira space of the project's
+  default tracker. A write carries it beside the tracker
+  (`CreateIssueRequest` / `UpdateIssueRequest.PriorityMapping`) only when the
+  ticket's tracker is that default tracker; a ticket of another of the
+  project's trackers writes its priority as before #679. Two projects sharing
+  one Jira tracker each keep their own mapping, and a ticket of both is
+  checked against the project its computed `projectId` names. A tracker sync that describes the tracker
+  refreshes the mapping of every linked project whose default tracker it is.
+  Moving the mapping to the tracker, an admin's like its board, is a
+  follow-up.
+- **The epic axis fields of #680 stay on the project too.** They are stored
+  in `projects.epic_axis_fields` and discovered on an epic of the project's
+  default tracker. An epic read asks them beside the tracker
+  (`ProjectRequest.EpicAxisFields`) only when it reads that default tracker,
+  and a field write goes to it; the epics of another of the project's
+  trackers keep their axes as labels only, as before #680.
+- **ADR 0043 roadmap projects overlap with multi-tracker projects.** A Jira
+  project's declared roadmap projects stay a read-only source of epics, as
+  ADR 0043 describes, beside the trackers the project now selects its tickets
+  from. Reconciling the two is out of scope.
+- **The board's label filter keeps substring matching.** The `label` filter of
+  the task list is folded for ASCII case with its wildcards escaped, but still
+  matches a part of a label, as the board always did; only membership and saved
+  views compare whole labels.
+- **The upgrade needs a stop-then-start deploy, not a rolling one.** Migration
+  49 and the adoption steps run at server start, under the migration lock.
+  During a rolling deploy on PostgreSQL, an old replica keeps synchronising per
+  project, writes tickets without a tracker and can re-create a duplicate the
+  new replica merged; the adoption only runs at start, so those rows would wait
+  for the next restart. Stop every server instance before starting the new
+  version (Kubernetes `Recreate`, or scale to zero then up). A SQLite install
+  runs one process and is unaffected.
+- **A rollback works for the schema, not for the data model.** Nothing is
+  dropped, so the previous binary starts. It imports a separate copy of each
+  ticket of a shared tracker for every project again, which brings the
+  duplicates back, and it reads each project's board mirror from the project's
+  own columns, which this version no longer writes: a project shows the board,
+  columns and mapping it had at the upgrade until it is saved again.
+- **Deleting a project leaves the tickets of its shared trackers in place**,
+  shown by the other projects that select them, else in the backlog. Only the
+  tickets of its own local tracker move to the default project, as before.
+- **Accepted adoption losses.** When two projects shared a tracker with
+  different board mirrors, the project created first wins, and adoption logs
+  each conflict. When two copies of a ticket are merged, the survivor's title
+  and description are kept and a field only the merged-away copy held is lost.

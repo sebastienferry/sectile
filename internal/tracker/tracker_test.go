@@ -128,14 +128,43 @@ func TestRegistryRegistrationAndResolution(t *testing.T) {
 	if _, err := reg.ForProject(projUnknown); err == nil {
 		t.Error("ForProject should fail for unregistered tracker")
 	}
+
+	// ForTracker resolution, by the tracker's provider (#741)
+	if ts, err := reg.ForTracker(&models.Tracker{ID: "t1", Provider: "GitHub", Scope: "o/r"}); err != nil || ts.Name() != "github" {
+		t.Errorf("ForTracker github failed: %v, %v", ts, err)
+	}
+	if ts, err := reg.ForTracker(nil); err != nil || ts.Name() != "local" {
+		t.Errorf("ForTracker without a tracker is the local board: %v, %v", ts, err)
+	}
+	if _, err := reg.ForTracker(&models.Tracker{ID: "t2", Provider: "unknown_tracker"}); err == nil {
+		t.Error("ForTracker should fail for unregistered tracker")
+	}
+	if ts, err := reg.ForTask(&models.Task{Key: "PE-1"}, &models.Tracker{ID: "t1", Provider: "github"}); err != nil || ts.Name() != "github" {
+		t.Errorf("ForTask falls back to the task's tracker: %v, %v", ts, err)
+	}
+}
+
+// The tracker a key-only write concerns travels in the context, whole: an
+// adapter needs its scope, not only its id (#741).
+func TestTheTrackerTravelsInTheContext(t *testing.T) {
+	if Tracker(context.Background()) != nil {
+		t.Fatal("a bare context names no tracker")
+	}
+	if WithTracker(context.Background(), &models.Tracker{}) != context.Background() {
+		t.Fatal("a tracker without an id is not recorded")
+	}
+	marked := WithTracker(context.Background(), &models.Tracker{ID: "t1", Provider: "github", Scope: "o/r"})
+	if got := Tracker(marked); got == nil || got.ID != "t1" || got.Scope != "o/r" {
+		t.Fatalf("Tracker = %+v", got)
+	}
 }
 
 func TestBaseTicketingSystemFormatTaskID(t *testing.T) {
 	base := &BaseTicketingSystem{TrackerName: "dummy"}
-	if id := base.FormatTaskID("proj", "KEY-1", "custom-raw-id"); id != "custom-raw-id" {
+	if id := base.FormatTaskID("tracker", "KEY-1", "custom-raw-id"); id != "custom-raw-id" {
 		t.Errorf("expected custom-raw-id, got %s", id)
 	}
-	if id := base.FormatTaskID("proj", "KEY-1", ""); id != "KEY-1" {
+	if id := base.FormatTaskID("tracker", "KEY-1", ""); id != "KEY-1" {
 		t.Errorf("expected KEY-1, got %s", id)
 	}
 }

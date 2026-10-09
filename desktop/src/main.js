@@ -25,6 +25,7 @@ import '@xterm/xterm/css/xterm.css'
 import './style.css'
 import { STAGES, taskStage, nextTaskStep, skillLabel } from './workflow.mjs'
 import { launchModeOverride, modeSelect } from './skill-mode.mjs'
+import { launchModeFor, relaunchProject, launchErrorText, NO_RUN_PROJECT } from './run-project.mjs'
 import { orderedTasks, nextSort, DEFAULT_SORT, SORTABLE_FIELDS } from './task-list-order.mjs'
 import { consoleNotice, needsConsoleNotice, readOnlyConsole } from './run-console.mjs'
 import { previewLines } from './command-preview.mjs'
@@ -319,7 +320,9 @@ function ready(){
 function select(run,background=false,options){
  if(hiddenProject(run.projectId))return
  if(!background)closeTickets(false)
- selectedProject=run.projectId
+ // A run recorded before #741 names no project: the board the user is on
+ // stays the one its relaunch falls back to.
+ if(run.projectId)selectedProject=run.projectId
  selected=run.id
  changes.select(selected,currentFolder(run)?.path)
  conversation.select(run)
@@ -3082,7 +3085,13 @@ function ticketRow(view,task){
    entry.declareReviewed=button
    button.onclick=()=>{closeMenu();confirmDeclareReviewed(view.projectID,task)}
   }else{
-   button.onclick=()=>{closeMenu();if(item.dialog)openTicketLaunchDialog(view,task);else if(item.compose)openCompose(view,entry);else if(item.nativeTerminal)submitNativeDiscussion(view,entry).catch(()=>{});else submitTicketLaunch(view,entry,item.skillId,'',item.skillId==='pickup'?'autonomous':'').catch(()=>{})}
+   button.onclick=()=>{
+    closeMenu()
+    if(item.dialog)openTicketLaunchDialog(view,task)
+    else if(item.compose)openCompose(view,entry)
+    else if(item.nativeTerminal)submitNativeDiscussion(view,entry).catch(()=>{})
+    else submitTicketLaunch(view,entry,item.skillId,'',launchModeFor(item.skillId==='pickup'?'pickup':'','')).catch(()=>{})
+   }
   }
   menu.append(button)
  }
@@ -3212,7 +3221,7 @@ function openCompose(view,entry,initial=null,focusPrompt=true){
   if(!prompt.value.trim()){notice.textContent='Enter custom instructions.';prompt.focus();return}
   launch.disabled=true;notice.textContent='Submitting execution…'
   try{await submitTicketLaunch(view,entry,'custom',prompt.value,launchModeOverride(mode.value));closeCompose(view);entry.more.focus()}
-  catch(err){notice.textContent=err.message;launch.disabled=false}
+  catch(err){notice.textContent=launchErrorText(err);launch.disabled=false}
  }
  if(focusPrompt)prompt.focus()
 }
@@ -3222,6 +3231,9 @@ function openTicketLaunchDialog(view,task){
  const step=nextTaskStep(task,view.info)
  openLaunchDialog({projectID:view.projectID,taskId:task.id,taskKey:task.key,skill:step.skillId||'discuss',prompt:''})
 }
+// The project of the board the user is on: the open tickets pane's, else the
+// last project selected. A run recorded without a project relaunches for it.
+function boardProject(){return ticketsView?.projectID||selectedProject||''}
 async function submitTicketLaunch(view,entry,skillId,prompt,mode){
  const key=entry.task.key||entry.task.id
  view.submitting.add(entry.task.id);updateTicketRow(view,entry)
@@ -3232,7 +3244,7 @@ async function submitTicketLaunch(view,entry,skillId,prompt,mode){
   await api.launchServerTask(view.projectID,entry.task.id,skillId,prompt,mode,false,consoleView)
   view.status.textContent='Execution submitted for '+key
   await refresh()
- }catch(err){view.status.textContent='Could not launch '+key+': '+err.message;throw err}
+ }catch(err){view.status.textContent='Could not launch '+key+': '+launchErrorText(err);throw err}
  finally{view.submitting.delete(entry.task.id);if(view.rows.get(entry.task.id)===entry)updateTicketRow(view,entry)}
 }
 async function submitNativeDiscussion(view,entry){
@@ -3243,7 +3255,7 @@ async function submitNativeDiscussion(view,entry){
   await api.launchNativeDiscussion(view.projectID,entry.task.id)
   view.status.textContent='Native terminal launched for '+key
   await refresh()
- }catch(err){view.status.textContent='Could not launch native terminal for '+key+': '+err.message;throw err}
+ }catch(err){view.status.textContent='Could not launch native terminal for '+key+': '+launchErrorText(err);throw err}
  finally{view.submitting.delete(entry.task.id);if(view.rows.get(entry.task.id)===entry)updateTicketRow(view,entry)}
 }
 
@@ -3251,7 +3263,11 @@ document.querySelector('#rerun').onclick=()=>{
  const run=runs.find(item=>item.id===selected)
  if(!run||macroRun(run))return
  if(freeConsole(run)){openAgentConsole(run.projectId,run.engineId||run.provider);return}
- openLaunchDialog({projectID:run.projectId,taskId:run.taskId,taskKey:run.taskKey,skill:run.skill,prompt:run.prompt})
+ // A run recorded before #741 names no project: it relaunches for the board
+ // the user is on.
+ const projectId=relaunchProject(run,boardProject())
+ if(!projectId){showDialog('Launch '+(run.taskKey||run.taskId));paragraph(NO_RUN_PROJECT);return}
+ openLaunchDialog({projectID:projectId,taskId:run.taskId,taskKey:run.taskKey,skill:run.skill,prompt:run.prompt})
 }
 // The Launch dialog (#786) starts a new execution of a task with a chosen
 // skill, instructions, mode and engine. The toolbar opens it on the selected
@@ -3317,7 +3333,7 @@ async function openLaunchDialog({projectID,taskId,taskKey,skill:initialSkill,pro
    try{
     await api.launchServerTask(projectID,taskId,skill.value,prompt.value,launchModeOverride(mode.value),false,consoleView)
     dialog.close();await refresh()
-   }catch(err){notice.textContent=err.message;submit.disabled=false}
+   }catch(err){notice.textContent=launchErrorText(err);submit.disabled=false}
   }
  }catch(err){paragraph(err.message)}
 }
@@ -3589,7 +3605,7 @@ async function quickAdd(projectID){
   clarify.onclick=async()=>{
    clarify.disabled=true;status.textContent='Launching clarify…'
    try{await api.launchServerTask(projectId,task.id,'clarify','','',false,consoleView);dialog.close();await refresh()}
-   catch(err){status.textContent=err.message;clarify.disabled=false}
+   catch(err){status.textContent=launchErrorText(err);clarify.disabled=false}
   }
   const launch=document.createElement('button');launch.type='button';launch.className='secondary';launch.textContent='Launch task'
   launch.onclick=()=>{dialog.close();openTickets(projectId,task.key||task.title)}
@@ -3649,7 +3665,10 @@ function renderNextStep(){
 new ResizeObserver(resize).observe(document.querySelector('#task-status'))
 new ResizeObserver(resize).observe(document.querySelector('#toolbar'))
 async function readNextStep(run){
- const [tasks,project]=await Promise.all([api.serverTasks(run.projectId,run.taskKey||run.taskId),api.project(run.projectId)])
+ // A run recorded without a project reads its next step in the board's.
+ const projectId=relaunchProject(run,boardProject())
+ if(!projectId)throw Error(NO_RUN_PROJECT)
+ const [tasks,project]=await Promise.all([api.serverTasks(projectId,run.taskKey||run.taskId),api.project(projectId)])
  const task=tasks.find(task=>task.id===run.taskId)
  if(!task)throw Error('Task workflow unavailable. Refresh to try again.')
  return {key:taskKey(run),task,project,step:nextTaskStep(task,project)}
@@ -3689,7 +3708,7 @@ async function launchTaskWork(kind,force){
   if(abandoned){await refresh();return}
   const launchSkill=kind==='pickup'?'pickup':fresh.step.skillId
   submittingSteps.set(key,launchSkill)
-  await api.launchServerTask(run.projectId,run.taskId,launchSkill,'',kind==='pickup'?'autonomous':undefined,force,consoleView)
+  await api.launchServerTask(relaunchProject(run,boardProject()),run.taskId,launchSkill,'',launchModeFor(kind,undefined),force,consoleView)
   submittedSteps.set(key,{skillId:launchSkill,kind,runIds:latestRuns.filter(item=>taskKey(item)===key).map(item=>item.id)})
   await refresh()
   if(taskKey(currentTaskRun()||{})===key){
@@ -3699,7 +3718,7 @@ async function launchTaskWork(kind,force){
  }catch(err){
   const refusal=refusedActiveRun(err.message)
   if(refusal){nextStepErrors.set(key,refusal.error||'A run is already active on this task.');forceableLaunches.set(key,kind)}
-  else nextStepErrors.set(key,(kind==='pickup'?'Could not launch full chain: ':'Could not launch next step: ')+err.message)
+  else nextStepErrors.set(key,(kind==='pickup'?'Could not launch full chain: ':'Could not launch next step: ')+launchErrorText(err))
  }finally{submittingSteps.delete(key);renderNextStep()}
 }
 document.querySelector('#next-step').onclick=()=>launchTaskWork('next',false)

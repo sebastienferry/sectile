@@ -26,7 +26,7 @@ test('the models offered come from the workstation report', () => {
 })
 
 test('the launch request carries the model, and an untouched choice sends none', () => {
-  assert.match(context, /opts\?: \{ withComments\?: boolean; mode\?: SkillMode; model\?: string \}/)
+  assert.match(context, /opts\?: \{ withComments\?: boolean; mode\?: SkillMode; model\?: string; projectId\?: string \}/)
   // An empty value must not be sent: it would outrank the workstation override.
   assert.match(context, /model: opts\?\.model\?\.trim\(\) \|\| undefined/)
   // The card path goes through advanceTask, which now forwards the model.

@@ -48,6 +48,7 @@ import { reportedModel, reportedPickerModels, shortModelLabel } from '../lib/aiM
 import { loadLaunchModel, saveLaunchModel } from '../lib/launchModel'
 import { anchoredMenuPosition, moveMenuFocus, type AnchoredMenuPosition } from '../lib/anchoredMenu'
 import { isSelectionClick } from '../lib/boardSelection'
+import { cardProjects } from '../lib/boardViews'
 
 interface TaskCardProps {
   task: Task
@@ -88,6 +89,8 @@ export const TaskCard: React.FC<TaskCardProps> = ({
     deleteTask,
     projects,
     selectedViewId,
+    selectedProjectId,
+    currentBoardView,
     settings,
     parentFilter,
     setParentFilter,
@@ -152,20 +155,28 @@ export const TaskCard: React.FC<TaskCardProps> = ({
   }
 
   const taskProject = projects.find(p => p.id === task.projectId)
-  // A saved view spans projects, and one remote story synchronised by two of
-  // them shows as two cards: the project name is what tells them apart (#387).
-  // tasks.project_id may hold the project's slug rather than its id.
-  const badgeProject = selectedViewId
-    ? taskProject || projects.find(p => p.slug === task.projectId)
-    : undefined
-  const projectBadge = badgeProject ? (
-    <span
-      data-card-project={badgeProject.id}
-      title={badgeProject.name}
-      className="shrink-0 max-w-[8rem] truncate px-1.5 py-px rounded text-[9px] font-semibold text-sky-300 bg-sky-400/10 border border-sky-400/30"
-    >
-      {badgeProject.name}
-    </span>
+  // A board spanning projects, "All projects" or a saved view (#387), names
+  // the projects of each card: a ticket of two projects is one card (#741),
+  // and its chips are what tell its projects apart.
+  const chipProjects = cardProjects(
+    task,
+    projects,
+    selectedProjectId ?? '',
+    selectedViewId ? (currentBoardView ?? { projectIds: projects.map(p => p.id) }) : null,
+  )
+  const projectBadge = chipProjects.length > 0 ? (
+    <>
+      {chipProjects.map(project => (
+        <span
+          key={project.id}
+          data-card-project={project.id}
+          title={project.name}
+          className="shrink-0 max-w-[8rem] truncate px-1.5 py-px rounded text-[9px] font-semibold text-sky-300 bg-sky-400/10 border border-sky-400/30"
+        >
+          {project.name}
+        </span>
+      ))}
+    </>
   ) : null
   const targetGithubRepo = (taskProject?.githubRepo || settings.githubRepo || '').replace(/^https?:\/\/github\.com\//, '').replace(/\.git$/, '')
   const externalUrl = task.externalUrl || (

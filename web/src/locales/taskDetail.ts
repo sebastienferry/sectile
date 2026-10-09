@@ -62,6 +62,9 @@ const fr = {
     stage: 'Étape agentique',
     stageTitle: 'Label du workflow agentique. Le statut suit selon le mapping du projet.',
     project: 'Projet',
+    projectFromLabels:
+      "Les projets d'un ticket de tracker suivent son tracker et ses labels : il rejoint un projet par son label, depuis l'entrée « Hors projet » de son tracker.",
+    noProject: 'Hors projet',
     favorites: 'Favoris',
     otherProjects: 'Autres projets',
     repository: 'Dépôt',
@@ -300,6 +303,9 @@ const en: TaskDetailStrings = {
     stage: 'Agentic stage',
     stageTitle: 'Agentic workflow label. The status follows the project mapping.',
     project: 'Project',
+    projectFromLabels:
+      "A tracker ticket's projects follow from its tracker and its labels: it joins a project through its label, from its tracker's \"Not in a project\" entry.",
+    noProject: 'Not in a project',
     favorites: 'Favorites',
     otherProjects: 'Other projects',
     repository: 'Repository',

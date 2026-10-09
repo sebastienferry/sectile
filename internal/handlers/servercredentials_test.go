@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"tasks/internal/models"
+	"tasks/internal/trackerapi"
 )
 
 // fakeGithub answers GET /user for one good token, which is all a check asks.
@@ -184,5 +185,46 @@ func TestAMemberCannotWriteTheServerCredentialThroughTheSettingsOrTheSetup(t *te
 	}
 	if !settings.GithubTokenSet || settings.GithubRepo != "acme/app" || strings.Contains(body, "good-token") {
 		t.Fatalf("a member reads whether it is configured, never the value: %s", body)
+	}
+}
+
+// A deployment naming no Jira site still takes its server Jira credential
+// (#741): each Jira tracker carries its own site, and the credential is
+// checked on a recorded one, one Atlassian token being valid on every site of
+// the account. With no site anywhere, the save says what to record first.
+func TestTheServerJiraCredentialIsCheckedOnARecordedTrackersSite(t *testing.T) {
+	t.Setenv(trackerapi.JiraURLVar, "")
+	instance := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		email, token, ok := r.BasicAuth()
+		if r.URL.Path != "/rest/api/3/myself" || !ok || email != "bot@acme.com" || token != "good-jira" {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]string{"accountId": "42", "displayName": "Acme bot"})
+	}))
+	t.Cleanup(instance.Close)
+	h, database, cleanup := setupTestHandler(t)
+	defer cleanup()
+	server := credentialServer(t, h)
+	_, alice := account(t, database, "alice@example.com")
+	credential := `{"email":"bot@acme.com","token":"good-jira"}`
+
+	status, body := call(t, server, alice, http.MethodPut, ServerTrackerCredentialsPath+"/jira", credential)
+	if status != http.StatusBadRequest || !strings.Contains(body, "aucun site Jira") {
+		t.Fatalf("a save with no Jira site anywhere: %d %s", status, body)
+	}
+
+	if _, err := database.CreateTrackerAs("", models.Tracker{Provider: "jira", Site: instance.URL, Scope: "PE"}); err != nil {
+		t.Fatal(err)
+	}
+	if status, body := call(t, server, alice, http.MethodPut, ServerTrackerCredentialsPath+"/jira", `{"email":"bot@acme.com","token":"wrong"}`); status != http.StatusBadRequest {
+		t.Fatalf("a refused Jira credential must not be saved: %d %s", status, body)
+	}
+	status, body = call(t, server, alice, http.MethodPut, ServerTrackerCredentialsPath+"/jira", credential)
+	if status != http.StatusOK || !strings.Contains(body, `"account":"Acme bot"`) || !strings.Contains(body, `"source":"database"`) {
+		t.Fatalf("save checked on the tracker's site: %d %s", status, body)
+	}
+	if status, body := call(t, server, alice, http.MethodPost, ServerTrackerCredentialsPath+"/jira/check", `{}`); status != http.StatusOK || !strings.Contains(body, "Acme bot") {
+		t.Fatalf("check of the stored Jira credential: %d %s", status, body)
 	}
 }

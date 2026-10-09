@@ -20,55 +20,35 @@ import (
 
 const boardAPITimeout = 60 * time.Second
 
-// trackerReaderFor resolves a project and the tracker that answers for it. The
-// caller then asks the tracker whether it has the notion at hand, so a project
-// on a tracker without boards gets a limit named, not a failure.
-func (d *DB) trackerReaderFor(projectID string) (tracker.TicketingSystem, *models.Project, error) {
+// trackerReaderFor resolves a project's default tracker and the ticketing
+// system that answers for it (#741). The caller then asks the tracker whether
+// it has the notion at hand, so a project on a tracker without boards gets a
+// limit named, not a failure.
+func (d *DB) trackerReaderFor(projectID string) (tracker.TicketingSystem, *models.Tracker, error) {
 	proj, err := d.GetProjectByID(projectID)
 	if err != nil || proj == nil {
 		return nil, nil, fmt.Errorf("project not found")
 	}
-	ts, err := d.TrackerForProject(proj)
+	trk := d.trackerOfProjectUnsafe(proj)
+	return d.trackerReaderOf(trk)
+}
+
+// trackerReaderByID is the ticketing system of the tracker with that id.
+func (d *DB) trackerReaderByID(trackerID string) (tracker.TicketingSystem, *models.Tracker, error) {
+	trk, err := d.GetTrackerByID(trackerID)
 	if err != nil {
-		return nil, proj, err
+		return nil, nil, err
 	}
-	return ts, proj, nil
-}
-
-// ListProjectTrackerBoards returns the tracker boards attached to a project.
-// ListProjectTrackerBoards runs with no acting user, which is what an unattended caller
-// does: a tracker whose credential is personal then uses the server one.
-func (d *DB) ListProjectTrackerBoards(projectID string) ([]models.TrackerBoard, error) {
-	return d.ListProjectTrackerBoardsAs(context.Background(), projectID)
-}
-
-// ListProjectTrackerBoardsAs runs on behalf of whoever asked, so a personal tracker
-// credential can be resolved for the call.
-func (d *DB) ListProjectTrackerBoardsAs(ctx context.Context, projectID string) ([]models.TrackerBoard, error) {
-	ts, proj, err := d.trackerReaderFor(projectID)
-	if err != nil {
-		return nil, err
+	if trk == nil {
+		return nil, nil, fmt.Errorf("tracker non trouvé")
 	}
-	if !ts.Supports(tracker.CapBoard) {
-		return nil, tracker.Unsupported(ts.Name(), tracker.CapBoard)
-	}
-	ctx, cancel := context.WithTimeout(ctx, boardAPITimeout)
-	defer cancel()
-	return ts.ListBoards(ctx, tracker.BoardsRequest{Project: proj})
+	return d.trackerReaderOf(trk)
 }
 
-// ListProjectIssueTypes returns the work item types the project's tracker
-// exposes, for the settings that pick which ones are imported.
-// ListProjectIssueTypes runs with no acting user, which is what an unattended caller
-// does: a tracker whose credential is personal then uses the server one.
-func (d *DB) ListProjectIssueTypes(projectID string) ([]string, error) {
-	return d.ListProjectIssueTypesAs(context.Background(), projectID)
-}
-
-// ListProjectIssueTypesAs runs on behalf of whoever asked, so a personal tracker
-// credential can be resolved for the call.
-func (d *DB) ListProjectIssueTypesAs(ctx context.Context, projectID string) ([]string, error) {
-	ts, proj, err := d.trackerReaderFor(projectID)
+// ListTrackerBoardsAs returns a tracker's boards, for an admin configuring it
+// (#741).
+func (d *DB) ListTrackerBoardsAs(ctx context.Context, trackerID string) ([]models.TrackerBoard, error) {
+	ts, trk, err := d.trackerReaderByID(trackerID)
 	if err != nil {
 		return nil, err
 	}
@@ -77,67 +57,70 @@ func (d *DB) ListProjectIssueTypesAs(ctx context.Context, projectID string) ([]s
 	}
 	ctx, cancel := context.WithTimeout(ctx, boardAPITimeout)
 	defer cancel()
-	return ts.ListIssueTypes(ctx, tracker.ProjectRequest{Project: proj})
+	return ts.ListBoards(ctx, tracker.BoardsRequest{Tracker: trk})
 }
 
-// ImportProjectBoardColumns retains a board for the project then refreshes from
-// it. The "Detect" button and the sync must give the same result, so both go
-// through the same merge: it preserves the statuses assigned by hand and the
-// hidden columns, and brings the sprints back with their state.
-func (d *DB) ImportProjectBoardColumns(ctx context.Context, projectID string, boardID string) (*models.Project, error) {
-	proj, err := d.GetProjectByID(projectID)
-	if err != nil || proj == nil {
-		return nil, fmt.Errorf("project not found")
+// ListTrackerIssueTypesAs returns the work item types a tracker exposes.
+func (d *DB) ListTrackerIssueTypesAs(ctx context.Context, trackerID string) ([]string, error) {
+	ts, trk, err := d.trackerReaderByID(trackerID)
+	if err != nil {
+		return nil, err
 	}
+	if !ts.Supports(tracker.CapBoard) {
+		return nil, tracker.Unsupported(ts.Name(), tracker.CapBoard)
+	}
+	ctx, cancel := context.WithTimeout(ctx, boardAPITimeout)
+	defer cancel()
+	return ts.ListIssueTypes(ctx, tracker.ProjectRequest{Tracker: trk})
+}
 
-	boardID = strings.TrimSpace(boardID)
-	if boardID == "" {
-		boardID = proj.BoardID
+// ImportTrackerBoardColumns retains a board for a tracker, then refreshes its
+// columns from it, as ImportProjectBoardColumns does for a project's default
+// tracker.
+func (d *DB) ImportTrackerBoardColumns(ctx context.Context, trackerID, boardID string) (*models.Tracker, error) {
+	trk, err := d.GetTrackerByID(trackerID)
+	if err != nil {
+		return nil, err
+	}
+	if trk == nil {
+		return nil, fmt.Errorf("tracker non trouvé")
+	}
+	if boardID = strings.TrimSpace(boardID); boardID == "" {
+		boardID = trk.BoardID
 	}
 	if boardID == "" {
 		return nil, fmt.Errorf("no board selected")
 	}
-
-	if boardID != proj.BoardID {
-		if _, err := d.UpdateProject(proj.ID, models.UpdateProjectRequest{BoardID: &boardID}); err != nil {
+	if boardID != trk.BoardID {
+		if _, err := d.UpdateTrackerMirror(trk.ID, func(t *models.Tracker) { t.BoardID = boardID }); err != nil {
 			return nil, err
 		}
 	}
-
-	if _, err := d.SyncProjectBoardColumns(ctx, proj.ID); err != nil {
+	if _, err := d.SyncTrackerBoardColumns(ctx, trk.ID); err != nil {
 		return nil, err
 	}
-	return d.GetProjectByID(proj.ID)
+	return d.GetTrackerByID(trk.ID)
 }
 
-// GetProjectTrackerStatuses lists the statuses the assignment UI can offer for a
-// project. The dispatch is on the tracker rather than on its name: GitHub
-// answers with its ProjectsV2 single-select options, any other tracker that has
-// boards answers with its own project-scoped status list, and a tracker with
-// neither notion answers nothing rather than failing.
-func (d *DB) GetProjectTrackerStatuses(ctx context.Context, projectID string) ([]string, error) {
-	proj, err := d.GetProjectByID(projectID)
-	if err != nil || proj == nil {
-		return nil, fmt.Errorf("project not found")
-	}
-
-	if proj.IssueTracker == "github" {
-		return d.githubProjectStatuses(ctx, proj), nil
-	}
-
-	ts, err := d.TrackerForProject(proj)
+// GetTrackerStatusesAs lists the statuses a tracker's workflows expose, to
+// assign them to its columns. The dispatch is on the tracker: GitHub answers
+// with the ProjectsV2 single-select options of its repository, any other
+// tracker that has boards with its own status list, and a tracker with neither
+// notion answers nothing rather than failing (#741).
+func (d *DB) GetTrackerStatusesAs(ctx context.Context, trackerID string) ([]string, error) {
+	ts, trk, err := d.trackerReaderByID(trackerID)
 	if err != nil {
 		return nil, err
+	}
+	if trk.Provider == "github" {
+		return githubRepoStatuses(d.trackerClientAs(tracker.ActingUser(ctx), "github", trk.ID), trk.Scope), nil
 	}
 	if !ts.Supports(tracker.CapBoard) {
 		return []string{}, nil
 	}
-
-	statusCtx, cancel := context.WithTimeout(ctx, boardAPITimeout)
+	ctx, cancel := context.WithTimeout(ctx, boardAPITimeout)
 	defer cancel()
-	// The failure is propagated rather than folded into an empty palette: an
-	// empty list and an unreachable tracker are not the same thing to read.
-	statuses, err := ts.ListStatuses(statusCtx, tracker.ProjectRequest{Project: proj})
+	statuses, err := ts.ListStatuses(ctx, tracker.ProjectRequest{Tracker: trk})
 	if err != nil {
 		return nil, err
 	}
@@ -154,21 +137,42 @@ func (d *DB) GetProjectTrackerStatuses(ctx context.Context, projectID string) ([
 	return out, nil
 }
 
-// githubProjectStatuses reads the ProjectsV2 single-select options of a GitHub
-// project, falling back to the two states an issue always has. It is the
-// historical body of GetProjectTrackerStatuses, unchanged.
-func (d *DB) githubProjectStatuses(ctx context.Context, proj *models.Project) []string {
+// trackerReaderOf is the ticketing system of one tracker.
+func (d *DB) trackerReaderOf(trk *models.Tracker) (tracker.TicketingSystem, *models.Tracker, error) {
+	ts, err := d.TrackerFor(trk)
+	if err != nil {
+		return nil, trk, err
+	}
+	return ts, trk, nil
+}
+
+// trackerClientAs is trackerAs for a call addressed to a tracker rather than
+// to a project: the acting person's credential where they stored one, the
+// tracker's otherwise (#741). Reads only.
+func (d *DB) trackerClientAs(userID, trackerName, trackerID string) *trackerapi.Client {
+	client, _, err := d.trackers.ForActingUser(userID, trackerName, trackerID)
+	if err != nil || client == nil {
+		return d.trackers.For(trackerID)
+	}
+	return client
+}
+
+// githubRepoStatuses reads the ProjectsV2 single-select options of a GitHub
+// repository, falling back to the two states an issue always has. It is the
+// historical body of the project status list, read for a GitHub tracker since
+// the board is configured on the tracker (#741).
+func githubRepoStatuses(client *trackerapi.Client, githubRepo string) []string {
 	seen := map[string]bool{}
 	out := []string{}
 
-	repo := models.CleanGithubRepo(proj.GithubRepo)
-	if repo != "" {
+	repo := models.CleanGithubRepo(githubRepo)
+	if repo != "" && client != nil {
 
 		parts := strings.Split(repo, "/")
 		if len(parts) == 2 {
 			gqlQuery, _ := trackerapi.GithubStatusQuery(repo)
 
-			if output, err := d.trackerAs(tracker.ActingUser(ctx), "github", proj.ID).GithubGraphQL(gqlQuery); err == nil {
+			if output, err := client.GithubGraphQL(gqlQuery); err == nil {
 				var gqlRes struct {
 					Data struct {
 						Repository struct {
@@ -240,6 +244,13 @@ func (d *DB) githubProjectStatuses(ctx context.Context, proj *models.Project) []
 // readable instead of being lost in an expired request. The returned task is the
 // local state, the returned activity is the transition to follow.
 func (d *DB) MoveTaskToTrackerStatus(ctx context.Context, taskIDOrKey string, statusName string) (*models.Task, *models.TaskActivity, error) {
+	return d.MoveTaskToTrackerStatusIn(ctx, taskIDOrKey, statusName, "")
+}
+
+// MoveTaskToTrackerStatusIn is MoveTaskToTrackerStatus made from a project's
+// board: the stage the status gives is read through that project's stage
+// mapping when it selects the ticket's tracker (#741, stagemapping.go).
+func (d *DB) MoveTaskToTrackerStatusIn(ctx context.Context, taskIDOrKey string, statusName string, projectID string) (*models.Task, *models.TaskActivity, error) {
 	statusName = strings.TrimSpace(statusName)
 	if statusName == "" {
 		return nil, nil, fmt.Errorf("statut cible manquant")
@@ -249,14 +260,14 @@ func (d *DB) MoveTaskToTrackerStatus(ctx context.Context, taskIDOrKey string, st
 	if err != nil || task == nil {
 		return nil, nil, fmt.Errorf("tâche non trouvée")
 	}
-
-	proj, _ := d.GetProjectByID(task.ProjectID)
-
-	// Determine workflow stage for this status/column
-	targetStage := ""
-	if proj != nil {
-		targetStage = StageForTrackerStatus(proj, statusName)
+	if projectID = strings.TrimSpace(projectID); projectID != "" {
+		task.ContextProjectID = projectID
 	}
+
+	// Determine workflow stage for this status/column, through the stage
+	// mapping that applies to the ticket (#741, stagemapping.go).
+	trk := d.stageTrackerOfTaskUnsafe(task, "")
+	targetStage := StageForTrackerStatus(trk, statusName)
 	if targetStage == "" {
 		targetStage = GetStageLabelForStatus(models.Status(statusName))
 	}
@@ -307,15 +318,15 @@ func (d *DB) MoveTaskToTrackerStatus(ctx context.Context, taskIDOrKey string, st
 	return updated, activity, nil
 }
 
-// resolveBoardID names the board that drives a project: the one it recorded, or
+// resolveBoardID names the board that drives a tracker: the one it recorded, or
 // its first scrum board, which is the one carrying columns worth mirroring, or
-// failing that its first board at all. A project with no board is an error, not
+// failing that its first board at all. A tracker with no board is an error, not
 // an empty column list.
-func resolveBoardID(ctx context.Context, ts tracker.TicketingSystem, proj *models.Project) (string, error) {
-	if boardID := strings.TrimSpace(proj.BoardID); boardID != "" {
+func resolveBoardID(ctx context.Context, ts tracker.TicketingSystem, trk *models.Tracker) (string, error) {
+	if boardID := strings.TrimSpace(trk.BoardID); boardID != "" {
 		return boardID, nil
 	}
-	boards, err := ts.ListBoards(ctx, tracker.BoardsRequest{Project: proj})
+	boards, err := ts.ListBoards(ctx, tracker.BoardsRequest{Tracker: trk})
 	if err != nil {
 		return "", err
 	}
@@ -327,52 +338,41 @@ func resolveBoardID(ctx context.Context, ts tracker.TicketingSystem, proj *model
 	if len(boards) > 0 {
 		return boards[0].ID, nil
 	}
-	return "", fmt.Errorf("no board on project %s", proj.Name)
+	return "", fmt.Errorf("no board on project %s", trk.Name)
 }
 
-// DetectProjectBoardColumns reads the columns of the board that drives a project
-// without writing anything: it is what the "Detect" button mirrors into the
-// editor, where the user still decides whether to save them.
-func (d *DB) DetectProjectBoardColumns(ctx context.Context, projectID string) ([]models.TrackerColumn, error) {
-	ts, proj, err := d.trackerReaderFor(projectID)
+// SyncProjectBoardColumns refreshes the columns of a project's default tracker
+// (#741). See SyncTrackerBoardColumns.
+func (d *DB) SyncProjectBoardColumns(ctx context.Context, projectID string) (string, error) {
+	_, trk, err := d.trackerReaderFor(projectID)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
-	if !ts.Supports(tracker.CapBoard) {
-		return nil, tracker.Unsupported(ts.Name(), tracker.CapBoard)
+	if trk == nil || trk.ID == "" {
+		return "", fmt.Errorf("project has no tracker")
 	}
-
-	ctx, cancel := context.WithTimeout(ctx, boardAPITimeout)
-	defer cancel()
-
-	boardID, err := resolveBoardID(ctx, ts, proj)
-	if err != nil {
-		return nil, err
-	}
-	columns, err := ts.ListBoardColumns(ctx, tracker.BoardRequest{Project: proj, BoardID: boardID})
-	if err != nil {
-		return nil, err
-	}
-	// A board that groups nothing is a failure to report, not an empty mirror:
-	// the caller would otherwise fall back to one column per status and quietly
-	// replace the columns the user already has.
-	if len(columns) == 0 {
-		return nil, fmt.Errorf("board %s exposes no column", boardID)
-	}
-	return columns, nil
+	return d.SyncTrackerBoardColumns(ctx, trk.ID)
 }
 
-// SyncProjectBoardColumns refreshes a project's columns from its tracker board,
+// SyncTrackerBoardColumns refreshes a tracker's columns from its board,
 // merging rather than overwriting: the column list and their order come from the
 // tracker, while the statuses a user assigned by hand to a column of the same
 // name are kept — as long as the tracker does not claim them elsewhere. A status
 // the tracker maps nowhere, such as a workflow status absent from the board,
-// therefore stays where the user put it.
+// therefore stays where the user put it. The mirror lands on the tracker row,
+// which every project selecting the tracker reads (#741).
 //
 // Called at the end of a sync on a tracker with boards, so the board follows
 // the tracker without a manual import.
-func (d *DB) SyncProjectBoardColumns(ctx context.Context, projectID string) (string, error) {
-	ts, proj, err := d.trackerReaderFor(projectID)
+func (d *DB) SyncTrackerBoardColumns(ctx context.Context, trackerID string) (string, error) {
+	trk, err := d.GetTrackerByID(trackerID)
+	if err != nil {
+		return "", err
+	}
+	if trk == nil {
+		return "", fmt.Errorf("tracker not found")
+	}
+	ts, err := d.TrackerFor(trk)
 	if err != nil {
 		return "", err
 	}
@@ -383,12 +383,12 @@ func (d *DB) SyncProjectBoardColumns(ctx context.Context, projectID string) (str
 	ctx, cancel := context.WithTimeout(ctx, boardAPITimeout)
 	defer cancel()
 
-	boardID, err := resolveBoardID(ctx, ts, proj)
+	boardID, err := resolveBoardID(ctx, ts, trk)
 	if err != nil {
 		return "", err
 	}
 
-	remote, err := ts.ListBoardColumns(ctx, tracker.BoardRequest{Project: proj, BoardID: boardID})
+	remote, err := ts.ListBoardColumns(ctx, tracker.BoardRequest{Tracker: trk, BoardID: boardID})
 	if err != nil {
 		return "", err
 	}
@@ -405,7 +405,7 @@ func (d *DB) SyncProjectBoardColumns(ctx context.Context, projectID string) (str
 	// Hiding a column is the user's display choice: it survives a re-read of
 	// the board, which only knows names, order and statuses.
 	previousHidden := map[string]bool{}
-	for _, col := range proj.TrackerColumns {
+	for _, col := range trk.TrackerColumns {
 		previousByName[strings.ToLower(col.Name)] = col.Statuses
 		previousHidden[strings.ToLower(col.Name)] = col.Hidden
 	}
@@ -434,7 +434,7 @@ func (d *DB) SyncProjectBoardColumns(ctx context.Context, projectID string) (str
 	for _, col := range remote {
 		remoteNames[strings.ToLower(col.Name)] = true
 	}
-	for _, col := range proj.TrackerColumns {
+	for _, col := range trk.TrackerColumns {
 		if remoteNames[strings.ToLower(col.Name)] {
 			continue
 		}
@@ -456,7 +456,7 @@ func (d *DB) SyncProjectBoardColumns(ctx context.Context, projectID string) (str
 		names[col.Name] = true
 	}
 	stages := map[string][]string{}
-	for stage, cols := range proj.StageColumns {
+	for stage, cols := range trk.StageColumns {
 		kept := []string{}
 		for _, c := range cols {
 			if names[c] {
@@ -470,21 +470,18 @@ func (d *DB) SyncProjectBoardColumns(ctx context.Context, projectID string) (str
 
 	// The sprints follow at the same time: their state is what separates NOW
 	// (active sprint) from NEXT (future sprint) in the roadmap.
-	sprints := proj.Sprints
+	sprints := trk.Sprints
 	sprintErr := tracker.Unsupported(ts.Name(), tracker.CapSprint)
 	if ts.Supports(tracker.CapSprint) {
 		var remoteSprints []models.TrackerSprint
-		remoteSprints, sprintErr = ts.ListSprints(ctx, tracker.BoardRequest{Project: proj, BoardID: boardID})
+		remoteSprints, sprintErr = ts.ListSprints(ctx, tracker.BoardRequest{Tracker: trk, BoardID: boardID})
 		if sprintErr == nil {
 			sprints = remoteSprints
 		}
 	}
 
-	if _, err := d.UpdateProject(proj.ID, models.UpdateProjectRequest{
-		BoardID:        &boardID,
-		TrackerColumns: &merged,
-		StageColumns:   &stages,
-		Sprints:        &sprints,
+	if _, err := d.UpdateTrackerMirror(trk.ID, func(t *models.Tracker) {
+		t.BoardID, t.TrackerColumns, t.StageColumns, t.Sprints = boardID, merged, stages, sprints
 	}); err != nil {
 		return "", err
 	}
@@ -518,18 +515,20 @@ var stageToInternalStatus = map[string]models.Status{
 var workflowStageOrder = []string{"new", "clarified", "specified", "implemented", "reviewed", "finished"}
 
 // StageForTrackerStatus returns the workflow stage a tracker status belongs to,
-// through the column that groups it. Empty when the project has no mapping for
-// it, in which case the caller keeps whatever it had.
-func StageForTrackerStatus(proj *models.Project, trackerStatus string) string {
+// through the column that groups it on the tracker's board (#741). Empty when
+// the tracker has no mapping for it, in which case the caller keeps whatever
+// it had. trk carries the stage mapping that applies (withStageMappingUnsafe):
+// a project's own or the tracker's.
+func StageForTrackerStatus(trk *models.Tracker, trackerStatus string) string {
 	trackerStatus = strings.ToLower(strings.TrimSpace(trackerStatus))
-	if proj == nil || trackerStatus == "" {
+	if trk == nil || trackerStatus == "" {
 		return ""
 	}
 	if trackerStatus == "done" || trackerStatus == "closed" || trackerStatus == "finished" {
 		return "finished"
 	}
 	column := ""
-	for _, col := range proj.TrackerColumns {
+	for _, col := range trk.TrackerColumns {
 		if strings.ToLower(col.Name) == trackerStatus {
 			column = col.Name
 			break
@@ -560,7 +559,7 @@ func StageForTrackerStatus(proj *models.Project, trackerStatus string) string {
 	// Plusieurs étapes sur une colonne : la moins avancée, celle qui reste à
 	// faire, comme côté interface.
 	for _, stage := range workflowStageOrder {
-		for _, name := range proj.StageColumns[stage] {
+		for _, name := range trk.StageColumns[stage] {
 			if strings.EqualFold(name, column) || strings.EqualFold(name, trackerStatus) {
 				return stage
 			}
@@ -570,14 +569,16 @@ func StageForTrackerStatus(proj *models.Project, trackerStatus string) string {
 }
 
 // TrackerStatusForStage returns the tracker status a workflow stage lands on:
-// the first status of the first column that stage is assigned to.
-func TrackerStatusForStage(proj *models.Project, stage string) string {
+// the first status of the first column that stage is assigned to on the
+// tracker's board (#741), by the stage mapping trk carries, as for
+// StageForTrackerStatus.
+func TrackerStatusForStage(trk *models.Tracker, stage string) string {
 	stage = strings.ToLower(strings.TrimPrefix(strings.TrimSpace(stage), "#"))
-	if proj == nil || stage == "" {
+	if trk == nil || stage == "" {
 		return ""
 	}
-	for _, columnName := range proj.StageColumns[stage] {
-		for _, col := range proj.TrackerColumns {
+	for _, columnName := range trk.StageColumns[stage] {
+		for _, col := range trk.TrackerColumns {
 			if col.Name == columnName && len(col.Statuses) > 0 {
 				return col.Statuses[0]
 			}
@@ -601,6 +602,13 @@ func InternalStatusForStage(stage string) (models.Status, bool) {
 // StageOfTask returns a task's workflow stage: explicit workflow label first,
 // then the board column mapping, then fallback to internal status.
 func (d *DB) StageOfTask(task *models.Task) string {
+	return stageOfTaskOn(task, func() *models.Tracker { return d.stageTrackerOfTaskUnsafe(task, "") })
+}
+
+// stageOfTaskOn is StageOfTask with the tracker carrying the stage mapping
+// that applies given by stageTracker, which is only called when no workflow
+// label decides: a listing of one tracker's tickets reads that tracker once.
+func stageOfTaskOn(task *models.Task, stageTracker func() *models.Tracker) string {
 	if task == nil {
 		return ""
 	}
@@ -620,13 +628,10 @@ func (d *DB) StageOfTask(task *models.Task) string {
 		}
 	}
 
-	// 2. Colonne du board configurée pour le projet si pas de label explicite
-	if task.ProjectID != "" {
-		if proj, _ := d.GetProjectByID(task.ProjectID); proj != nil {
-			if stage := StageForTrackerStatus(proj, task.TrackerStatus); stage != "" {
-				return stage
-			}
-		}
+	// 2. The board column of the ticket's tracker when no label says, through
+	// the stage mapping that applies to the ticket (#741).
+	if stage := StageForTrackerStatus(stageTracker(), task.TrackerStatus); stage != "" {
+		return stage
 	}
 
 	// 3. Repli sur le statut interne, comme le fait l'interface. Sans lui, un

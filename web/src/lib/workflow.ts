@@ -1,5 +1,6 @@
 import type { Project, Status, Task, WorkflowStage } from '../types'
 import { shell } from '../locales/shell.ts'
+import { trackerBoard } from './stageMapping.ts'
 
 /**
  * Étape du workflow agentique d'une tâche, et skill qui en découle.
@@ -51,11 +52,15 @@ export const stageFromLabels = (task: Task): WorkflowStage => {
   return 'new'
 }
 
-/** Colonne du board contenant la tâche, d'après son statut de tracker. */
+/**
+ * Colonne du board contenant la tâche, d'après son statut de tracker : une
+ * colonne du tracker du ticket, tel que le projet le lit (#741).
+ */
 export const columnOfTask = (task: Task, project?: Project | null): string | null => {
   const status = (task.trackerStatus || '').toLowerCase()
-  if (!status || !project?.trackerColumns?.length) return null
-  const column = project.trackerColumns.find(col =>
+  const { trackerColumns } = trackerBoard(project, task.trackerId)
+  if (!status || !trackerColumns.length) return null
+  const column = trackerColumns.find(col =>
     col.name.toLowerCase() === status ||
     (col.statuses && col.statuses.some(st => st.toLowerCase() === status))
   )
@@ -65,12 +70,14 @@ export const columnOfTask = (task: Task, project?: Project | null): string | nul
 /**
  * Étape affectée à la colonne de la tâche. Quand une colonne en porte
  * plusieurs, la moins avancée gagne : c'est l'étape encore à faire dans cette
- * colonne, donc celle qui doit être proposée.
+ * colonne, donc celle qui doit être proposée. La correspondance est celle qui
+ * s'applique au tracker du ticket dans le projet : la sienne, sinon celle du
+ * tracker (#741).
  */
 export const stageFromColumn = (task: Task, project?: Project | null): WorkflowStage | null => {
   const column = columnOfTask(task, project)
   if (!column) return null
-  const mapping = project?.stageColumns || {}
+  const mapping = trackerBoard(project, task.trackerId).stageColumns
   for (const stage of WORKFLOW_ORDER) {
     if ((mapping[stage] || []).includes(column)) return stage
   }

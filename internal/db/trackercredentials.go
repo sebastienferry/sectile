@@ -12,23 +12,26 @@ import (
 	"time"
 )
 
-// trackerCredentials resolves one project's connection parameters. The URLs and
-// the GitLab project come from the project override first, then the user
+// trackerCredentials resolves one tracker's connection parameters (#741). The
+// URLs and the GitLab project come from the tracker first, then the user
 // configuration; the caller (trackerapi.Client) keeps its environment-derived
-// value for every field left empty here.
+// value for every field left empty here. A reference built by
+// projectCredentialRef resolves a project's default tracker, then the forge
+// URLs of the project's repositories.
 //
 // The credentials come from the stored server credential of each provider and
-// from nowhere else (#464): a project has none of its own, and the settings row
-// no longer holds any. A stored credential wins as a whole, the Jira e-mail
-// with its token, so it is never completed with half of the environment's
-// pair. Nothing stored leaves the fields empty and the environment answers. A
-// stored credential the key does not open is flagged, so the call fails
-// instead of reaching the tracker under the environment's account.
+// from nowhere else (#464): a tracker has none of its own, and the settings
+// row no longer holds any. A stored credential wins as a whole, the Jira
+// e-mail with its token, so it is never completed with half of the
+// environment's pair. Nothing stored leaves the fields empty and the
+// environment answers. A stored credential the key does not open is flagged,
+// so the call fails instead of reaching the tracker under the environment's
+// account.
 //
 // It reads through the unsafe getters on purpose: it is called from the tracker
 // client, itself called from code paths that already hold d.mu, and a plain
 // SELECT needs no lock of its own.
-func (d *DB) trackerCredentials(projectID string) trackerapi.Credentials {
+func (d *DB) trackerCredentials(trackerID string) trackerapi.Credentials {
 	var cred trackerapi.Credentials
 	if settings, err := d.getSettingsUnsafe(); err == nil && settings != nil {
 		cred = trackerapi.Credentials{
@@ -53,22 +56,58 @@ func (d *DB) trackerCredentials(projectID string) trackerapi.Credentials {
 			cred.JiraEmail, cred.JiraToken, cred.JiraUnreadable = email, token, unreadable
 		}
 	}
-	if strings.TrimSpace(projectID) == "" {
-		return cred
+	ref := strings.TrimSpace(trackerID)
+	var proj *models.Project
+	if projectID, ok := strings.CutPrefix(ref, projectCredentialPrefix); ok {
+		// A call addressed to a project: its default tracker, then the
+		// project's own repository forges below.
+		if proj, _ = d.getProjectByIDUnsafe(projectID); proj != nil {
+			ref = proj.DefaultTrackerID
+		} else {
+			ref = ""
+		}
 	}
-	proj, err := d.getProjectByIDUnsafe(projectID)
-	if err != nil || proj == nil {
-		return cred
+	if t := d.trackerByIDUnsafe(ref); t != nil {
+		applyTrackerSite(&cred, t)
 	}
-	overrideWith(&cred.GithubURL, proj.GithubApiUrl)
-	overrideWith(&cred.GitlabURL, proj.GitlabUrl)
-	overrideWith(&cred.GitlabProject, proj.GitlabProject)
-	// A project overrides the Jira site only: one Atlassian API token is valid
-	// on every site of the account, so the server credential serves them all.
-	if strings.EqualFold(strings.TrimSpace(proj.IssueTracker), "jira") {
-		overrideWith(&cred.JiraURL, proj.TrackerUrl)
+	// The GitHub or GitLab instance a project's repositories live on is the
+	// project's, whatever tracker it reads its tickets from: a Jira project
+	// whose code is on GitHub Enterprise reads its pull requests there.
+	if proj != nil {
+		overrideWith(&cred.GithubURL, proj.GithubApiUrl)
+		overrideWith(&cred.GitlabURL, proj.GitlabUrl)
 	}
 	return cred
+}
+
+// projectCredentialPrefix marks a credential reference that names a project
+// rather than a tracker: see projectCredentialRef.
+const projectCredentialPrefix = "project:"
+
+// projectCredentialRef is what a client call addressed to a project resolves
+// its credentials through: the project's default tracker, plus the forge
+// URLs of the project's own repositories, which the pull request and
+// repository calls need and a Jira tracker does not carry (#741).
+func projectCredentialRef(projectID string) string {
+	if strings.TrimSpace(projectID) == "" {
+		return ""
+	}
+	return projectCredentialPrefix + strings.TrimSpace(projectID)
+}
+
+// applyTrackerSite applies a tracker's own site to the credentials of its
+// provider only. One Atlassian API token is valid on every site of the
+// account, so the server credential serves them all.
+func applyTrackerSite(cred *trackerapi.Credentials, t *models.Tracker) {
+	switch t.Provider {
+	case "github":
+		overrideWith(&cred.GithubURL, t.Site)
+	case "gitlab":
+		overrideWith(&cred.GitlabURL, t.Site)
+		overrideWith(&cred.GitlabProject, t.Scope)
+	case "jira":
+		overrideWith(&cred.JiraURL, t.Site)
+	}
 }
 
 func overrideWith(target *string, override string) {
@@ -77,14 +116,29 @@ func overrideWith(target *string, override string) {
 	}
 }
 
-// tracker returns the tracker client carrying the credentials of one project.
-func (d *DB) tracker(projectID string) *trackerapi.Client { return d.trackers.For(projectID) }
+// projectTrackerID is the tracker a call addressed to a project resolves its
+// credentials through: the project's default tracker (#741), "" for none.
+func (d *DB) projectTrackerID(projectID string) string {
+	if strings.TrimSpace(projectID) == "" {
+		return ""
+	}
+	if t, err := d.defaultTrackerOfUnsafe(projectID); err == nil && t != nil {
+		return t.ID
+	}
+	return ""
+}
+
+// tracker returns the tracker client carrying the credentials of one
+// project: its default tracker's, and its repositories' forge URLs.
+func (d *DB) tracker(projectID string) *trackerapi.Client {
+	return d.trackers.For(projectCredentialRef(projectID))
+}
 
 // trackerForWrite is the client of a write made directly on the tracker client,
 // such as a GitHub milestone: the acting person's own credential, the server's
 // for unattended work, and a refusal otherwise (trackerapi.ForWrite, #482).
 func (d *DB) trackerForWrite(ctx context.Context, trackerName, projectID string) (*trackerapi.Client, error) {
-	return d.trackers.ForWrite(ctx, trackerName, projectID)
+	return d.trackers.ForWrite(ctx, trackerName, projectCredentialRef(projectID))
 }
 
 // trackerAs is tracker with the credentials of the person who asked for the
@@ -92,12 +146,13 @@ func (d *DB) trackerForWrite(ctx context.Context, trackerName, projectID string)
 // to the project credential when theirs cannot be resolved, which a read may do
 // and a write may not. Writes use trackerForWrite.
 func (d *DB) trackerAs(userID, trackerName, projectID string) *trackerapi.Client {
-	client, _, err := d.trackers.ForActingUser(userID, trackerName, projectID)
+	ref := projectCredentialRef(projectID)
+	client, _, err := d.trackers.ForActingUser(userID, trackerName, ref)
 	if err != nil || client == nil {
 		// A credential that cannot be resolved is not a reason to drop the
 		// request: the project's own is still there, and the call will say for
 		// itself whether it is accepted.
-		return d.trackers.For(projectID)
+		return d.trackers.For(ref)
 	}
 	return client
 }
@@ -318,6 +373,11 @@ func (d *DB) SaveTrackerCredentials(tracker, apiURL, project string) (*models.Se
 // environment; an empty URL, the deployment's instance. Unlike CheckTrackerCredentials it never falls back to the
 // caller's personal token: an admin checking the server's access must not be
 // told "connected as" themselves.
+//
+// A deployment naming no Jira site checks the Jira credential on the site of a
+// recorded Jira tracker (#741): each one carries its own site then, and one
+// Atlassian API token is valid on every site of the account, as
+// applyTrackerSite relies on.
 func (d *DB) CheckServerTrackerCredentials(ctx context.Context, trackerName, apiURL, email, token string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, credentialCheckTimeout)
 	defer cancel()
@@ -349,8 +409,28 @@ func (d *DB) checkServerTrackerCredentials(ctx context.Context, trackerName, api
 		if token == "" {
 			email, token = client.JiraEmail, client.JiraToken
 		}
-		return client.CheckJira(ctx, firstNonEmpty(apiURL, client.JiraURL), email, token)
+		site := firstNonEmpty(apiURL, client.JiraURL, d.recordedJiraSite())
+		if site == "" {
+			return "", ErrNoJiraSiteToCheck
+		}
+		return client.CheckJira(ctx, site, email, token)
 	}
+}
+
+// ErrNoJiraSiteToCheck refuses a Jira credential check with no site to send it
+// to: the deployment names none and no Jira tracker is recorded with its own.
+var ErrNoJiraSiteToCheck = errors.New("aucun site Jira où vérifier l'accès : enregistrez d'abord un tracker Jira avec son site dans Administration → Trackers, ou configurez l'URL Jira du déploiement")
+
+// recordedJiraSite is the site of the oldest Jira tracker recorded with one,
+// "" when there is none.
+func (d *DB) recordedJiraSite() string {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	var site string
+	if err := d.conn.QueryRow(`SELECT site FROM trackers WHERE provider = 'jira' AND site <> '' ORDER BY created_at, id LIMIT 1`).Scan(&site); err != nil {
+		return ""
+	}
+	return strings.TrimSpace(site)
 }
 
 func firstNonEmpty(values ...string) string {

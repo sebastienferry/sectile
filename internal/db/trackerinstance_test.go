@@ -34,8 +34,8 @@ func (s *storyTracker) CreateIssue(ctx context.Context, req tracker.CreateIssueR
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.next++
-	s.created = append(s.created, req.Project.JiraProject)
-	key := fmt.Sprintf("%s-%d", req.Project.JiraProject, s.next)
+	s.created = append(s.created, req.Tracker.Scope)
+	key := fmt.Sprintf("%s-%d", req.Tracker.Scope, s.next)
 	return &models.Task{ID: key, Key: key, Title: req.Title, Source: "jira"}, nil
 }
 

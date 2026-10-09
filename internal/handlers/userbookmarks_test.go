@@ -138,11 +138,16 @@ func TestUserBookmarksCRUDAndToggle(t *testing.T) {
 }
 
 func TestProjectCreationAutoBookmark(t *testing.T) {
-	h, _, user1Cookie, user2Cookie := bookmarksTestHandler(t)
+	h, database, user1Cookie, user2Cookie := bookmarksTestHandler(t)
+	tracker, err := database.CreateTrackerAs("", models.Tracker{Provider: "github", Scope: "acme/created"})
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	reqBody, _ := json.Marshal(models.CreateProjectRequest{
-		Name: "Created Project",
-		Slug: "created-proj",
+		Name:     "Created Project",
+		Slug:     "created-proj",
+		Trackers: []models.ProjectTracker{{TrackerID: tracker.ID}},
 	})
 	w := httptest.NewRecorder()
 	h.HandleProjects(w, signedRequest(user1Cookie, http.MethodPost, "/api/projects", bytes.NewReader(reqBody)))

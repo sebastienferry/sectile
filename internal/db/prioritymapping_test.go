@@ -22,7 +22,7 @@ type schemeTracker struct {
 	reads     []bool // the fresh flag of every read
 }
 
-func (s *schemeTracker) PriorityScheme(ctx context.Context, project *models.Project, fresh bool) ([]models.PriorityOption, error) {
+func (s *schemeTracker) PriorityScheme(ctx context.Context, trk *models.Tracker, fresh bool) ([]models.PriorityOption, error) {
 	s.schemeMu.Lock()
 	defer s.schemeMu.Unlock()
 	s.reads = append(s.reads, fresh)
@@ -152,11 +152,16 @@ func TestRefreshPriorityMappingSkipsATrackerWithoutScheme(t *testing.T) {
 // not on an incremental background poll.
 func TestSyncRefreshesThePriorityMappingOnAFullSyncOnly(t *testing.T) {
 	database, fake, project := priorityMappingDB(t, numberedScheme)
-	steps := database.afterTrackerSync(context.Background(), project, fake, nil, SyncOptions{Background: true, WindowMin: 10})
+	// The sync runs per tracker (#741) and refreshes the mapping of the
+	// projects whose default tracker it is.
+	proj := reloadProject(t, database, project.ID)
+	trk := database.trackerOfProjectUnsafe(proj)
+	projects := []*models.Project{proj}
+	steps := database.afterTrackerSync(context.Background(), trk, projects, fake, nil, SyncOptions{Background: true, WindowMin: 10})
 	if fake.readCount() != 0 {
 		t.Fatalf("a background poll read the scheme: %v", steps)
 	}
-	steps = database.afterTrackerSync(context.Background(), project, fake, nil, SyncOptions{})
+	steps = database.afterTrackerSync(context.Background(), trk, projects, fake, nil, SyncOptions{})
 	if fake.readCount() != 1 || fake.reads[0] {
 		t.Fatalf("reads = %v, want one cached read", fake.reads)
 	}

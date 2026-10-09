@@ -16,6 +16,8 @@ import (
 	"context"
 	"fmt"
 	"strings"
+
+	"tasks/internal/models"
 )
 
 // Capability is one operation a tracker may or may not support.
@@ -246,27 +248,28 @@ func Unattended(ctx context.Context) bool {
 	return marked
 }
 
-// The project travels the same way, and for the same reason: half of the write
+// The tracker travels the same way, and for the same reason: half of the write
 // side of TicketingSystem takes a work item key and nothing else, so an adapter
-// asked to move a card to a sprint has no way to learn which project it belongs
-// to. Without it, a project overriding its tracker site had its reads on one
-// instance and its writes on another.
+// asked to move a card to a sprint has no way to learn which tracker it belongs
+// to. Without it, a tracker overriding its site had its reads on one instance
+// and its writes on another, and a GitHub label write named no repository at
+// all (#741).
 
-type projectKey struct{}
+type trackerKey struct{}
 
-// WithProject marks the context with the project the operation concerns.
-func WithProject(ctx context.Context, projectID string) context.Context {
-	if strings.TrimSpace(projectID) == "" {
+// WithTracker marks the context with the tracker the operation concerns.
+func WithTracker(ctx context.Context, t *models.Tracker) context.Context {
+	if t == nil || strings.TrimSpace(t.ID) == "" {
 		return ctx
 	}
-	return context.WithValue(ctx, projectKey{}, strings.TrimSpace(projectID))
+	return context.WithValue(ctx, trackerKey{}, t)
 }
 
-// Project reports which project the operation concerns, or an empty string.
-func Project(ctx context.Context) string {
+// Tracker reports which tracker the operation concerns, or nil.
+func Tracker(ctx context.Context) *models.Tracker {
 	if ctx == nil {
-		return ""
+		return nil
 	}
-	id, _ := ctx.Value(projectKey{}).(string)
-	return id
+	t, _ := ctx.Value(trackerKey{}).(*models.Tracker)
+	return t
 }

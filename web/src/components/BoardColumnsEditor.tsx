@@ -2,19 +2,28 @@ import React, { useEffect, useMemo, useState } from 'react'
 import { Plus, X, ArrowUp, ArrowDown, RefreshCw, Kanban, Tag, GitPullRequest, Eye, EyeOff } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { format, plural } from '../lib/i18n'
-import type { Project, TrackerBoard, TrackerColumn, WorkflowStage } from '../types'
+import type { Tracker, TrackerBoard, TrackerColumn, WorkflowStage } from '../types'
 import {
-  mergeDetectedColumns,
   pruneStageColumns,
   recordedBoardId,
   shouldImportBoard,
   suggestedBoardId,
-  type DetectedColumn,
 } from '../lib/boardColumns'
+import { fetchTrackerBoards, fetchTrackerDetectedStatuses, fetchTrackerStatuses, importTrackerBoard } from '../lib/trackers'
 
 /**
  * Éditeur des colonnes du board : des colonnes, les statuts du tracker qu'on y dépose,
  * et les étapes du workflow agentique déposées de la même façon.
+ *
+ * It edits a tracker's board mirror (#741): the columns and their default
+ * mapping onto the stages are the tracker's, shared by every project selecting
+ * it, and only an admin sets them, in Administration (mode 'tracker').
+ *
+ * A project may map the stages onto those columns its own way, from its
+ * settings, which then applies to the tracker's tickets in that project: the
+ * same editor in mode 'stages', for a member as for an admin. There only the
+ * workflow stages move; the board, the columns and their statuses are shown
+ * read only, and no admin route is called (a member would be refused).
  */
 
 const WORKFLOW_STAGES: { id: WorkflowStage; label: string }[] = [
@@ -30,13 +39,21 @@ const DRAG_STATUS = 'application/x-sectile-status'
 const DRAG_STAGE = 'application/x-sectile-stage'
 
 interface Props {
-  project: Project | null
+  /** The tracker whose board mirror is edited. */
+  tracker: Pick<Tracker, 'id' | 'boardId'>
   columns: TrackerColumn[]
-  onColumnsChange: (columns: TrackerColumn[]) => void
+  /** Required in mode 'tracker'; mode 'stages' never changes the columns. */
+  onColumnsChange?: (columns: TrackerColumn[]) => void
   stageColumns: Record<string, string[]>
   onStageColumnsChange: (mapping: Record<string, string[]>) => void
-  issueTracker?: string
-  githubRepo?: string
+  /** A board import rewrote the tracker on the server. */
+  onTrackerChange?: (tracker: Tracker) => void
+  /** 'tracker' (default): an admin edits the whole board mirror. 'stages': only the stage mapping moves. */
+  mode?: 'tracker' | 'stages'
+  /** Mode 'stages': the heading, in place of the board columns title. */
+  title?: React.ReactNode
+  /** Mode 'stages': shown in place of the detection button. */
+  headerActions?: React.ReactNode
 }
 
 type DragPayload =
@@ -45,16 +62,22 @@ type DragPayload =
   | null
 
 export const BoardColumnsEditor: React.FC<Props> = ({
-  project,
+  tracker,
   columns,
   onColumnsChange,
   stageColumns,
   onStageColumnsChange,
-  issueTracker,
-  githubRepo,
+  onTrackerChange,
+  mode = 'tracker',
+  title,
+  headerActions,
 }) => {
-  const { fetchProjectTrackerStatuses, listProjectBoards, importProjectBoardColumns, addToast, t, settings } = useApp()
+  const { addToast, t, settings } = useApp()
   const cs = t.projectSettings.columns
+  const trackerId = tracker.id
+  // A project's stage mapping: the tracker's board is read only, and its
+  // statuses and boards come from admin routes, so none is fetched.
+  const stagesOnly = mode === 'stages'
 
   const [statuses, setStatuses] = useState<string[]>([])
   const [newColumnName, setNewColumnName] = useState('')
@@ -62,56 +85,73 @@ export const BoardColumnsEditor: React.FC<Props> = ({
   const [dropTarget, setDropTarget] = useState<string | null>(null)
   const [boards, setBoards] = useState<TrackerBoard[]>([])
   const [boardId, setBoardId] = useState('')
-  // The board the server holds for the project: the modal's project is a snapshot
-  // that an import does not refresh, so the editor follows it on its own.
+  // The board the server holds for the tracker: the tracker passed in is a
+  // snapshot that an import does not refresh, so the editor follows it on its own.
   const [recordedBoard, setRecordedBoard] = useState('')
   const [isImporting, setIsImporting] = useState(false)
 
-  useEffect(() => {
-    if (project?.id) {
-      fetchProjectTrackerStatuses(project.id).then(setStatuses)
-    } else {
-      handleDetect()
+  const loadStatuses = async (id: string) => {
+    try {
+      setStatuses(await fetchTrackerStatuses(id))
+    } catch {
+      setStatuses([])
     }
-  }, [project?.id])
+  }
+
+  useEffect(() => {
+    if (stagesOnly) return
+    void loadStatuses(trackerId)
+  }, [trackerId, stagesOnly])
 
   // Les boards du tracker : un tracker sans la notion répond une erreur, la
   // liste reste vide et le sélecteur ne s'affiche pas.
   useEffect(() => {
-    if (!project?.id) {
-      setBoards([])
-      return
-    }
+    if (stagesOnly) return
     let cancelled = false
-    listProjectBoards(project.id).then(found => {
+    fetchTrackerBoards(trackerId).then(found => {
       if (cancelled) return
-      const recorded = recordedBoardId(found, project.boardId)
+      const recorded = recordedBoardId(found, tracker.boardId)
       setBoards(found)
       setRecordedBoard(recorded)
       setBoardId(recorded)
+    }).catch(() => {
+      if (!cancelled) setBoards([])
     })
     return () => { cancelled = true }
-  }, [project?.id])
+  }, [trackerId, stagesOnly])
 
-  // Choosing a board records it on the project and brings its columns back: the
-  // server runs the same import as "Détecter". The suggested board counts as a
-  // choice while no board is recorded.
+  // Importing a board records it on the tracker and brings its columns back,
+  // merged on the server with the statuses assigned by hand: the board picker,
+  // "Détecter" and the sync give the same result.
+  const importBoard = async (nextBoardId: string) => {
+    if (stagesOnly) return
+    const updated = await importTrackerBoard(trackerId, nextBoardId)
+    const recorded = updated.boardId || nextBoardId
+    setRecordedBoard(recorded)
+    setBoardId(recorded)
+    const merged = updated.trackerColumns || []
+    onColumnsChange?.(merged)
+    onStageColumnsChange(updated.stageColumns || {})
+    onTrackerChange?.(updated)
+    await loadStatuses(trackerId)
+    addToast({
+      type: 'success',
+      title: cs.toasts.columnsImported,
+      description: plural(settings.language, merged.length, cs.toasts.columnsImportedDescription),
+    })
+  }
+
+  // Choosing a board records it on the tracker. The suggested board counts as
+  // a choice while no board is recorded.
   const handleBoardChange = async (nextBoardId: string) => {
-    if (!project?.id || !shouldImportBoard(nextBoardId, recordedBoard)) return
+    if (!shouldImportBoard(nextBoardId, recordedBoard)) return
     setBoardId(nextBoardId)
     setIsImporting(true)
     try {
-      const updated = await importProjectBoardColumns(project.id, nextBoardId)
-      if (!updated) {
-        setBoardId(recordedBoard)
-        return
-      }
-      const recorded = updated.boardId || nextBoardId
-      setRecordedBoard(recorded)
-      setBoardId(recorded)
-      onColumnsChange(updated.trackerColumns || [])
-      onStageColumnsChange(updated.stageColumns || {})
-      setStatuses(await fetchProjectTrackerStatuses(project.id))
+      await importBoard(nextBoardId)
+    } catch (err: any) {
+      setBoardId(recordedBoard)
+      addToast({ type: 'error', title: cs.toasts.detectionFailed, description: err?.message || '' })
     } finally {
       setIsImporting(false)
     }
@@ -128,66 +168,18 @@ export const BoardColumnsEditor: React.FC<Props> = ({
   const [isDetecting, setIsDetecting] = useState(false)
 
   const handleDetect = async () => {
+    if (stagesOnly) return
     setIsDetecting(true)
     try {
-      const params = new URLSearchParams()
-      if (project?.id) params.append('projectId', project.id)
-      if (issueTracker) params.append('tracker', issueTracker)
-      if (githubRepo) params.append('repo', githubRepo)
-
-      let detectedList: string[] = []
-      let detectedColumns: DetectedColumn[] = []
-      let detectionError = ''
-      const res = await fetch(`/api/projects/detected-statuses?${params.toString()}`)
-      if (res.ok) {
-        const data: {
-          statuses: { name: string }[]
-          columns?: DetectedColumn[]
-          error?: string
-        } = await res.json()
-        if (data.statuses) {
-          detectedList = data.statuses.map(s => s.name)
-        }
-        detectedColumns = data.columns || []
-        detectionError = data.error || ''
-      } else {
-        const errData = await res.json().catch(() => ({}))
-        detectionError = errData.error || format(cs.toasts.detectionRefused, { status: res.status })
-      }
-
       // Un tracker à board décrit ses colonnes : on les reprend telles quelles,
       // dans son ordre, plutôt que d'inventer une colonne par statut.
-      if (detectedColumns.length > 0) {
-        setStatuses(detectedList)
-        // Les colonnes sont arrivées, la palette pas forcément : l'échec partiel
-        // se dit, il explique un statut manquant à la main.
-        if (detectionError) {
-          addToast({
-            type: 'error',
-            title: cs.toasts.incompleteStatuses,
-            description: detectionError,
-          })
-        }
-        const merged = mergeDetectedColumns(columns, detectedColumns)
-        onColumnsChange(merged)
-        onStageColumnsChange(pruneStageColumns(stageColumns, merged))
-        addToast({
-          type: 'success',
-          title: cs.toasts.columnsImported,
-          description: plural(settings.language, merged.length, cs.toasts.columnsImportedDescription),
-        })
+      const board = recordedBoard || suggestedBoard
+      if (board) {
+        await importBoard(board)
         return
       }
 
-      if (detectionError) {
-        addToast({
-          type: 'error',
-          title: cs.toasts.detectionFailed,
-          description: detectionError,
-        })
-        return
-      }
-
+      const detectedList = (await fetchTrackerDetectedStatuses(trackerId)).map(s => s.name).filter(Boolean)
       if (detectedList.length > 0) {
         setStatuses(detectedList)
 
@@ -206,7 +198,8 @@ export const BoardColumnsEditor: React.FC<Props> = ({
           }
         }
 
-        onColumnsChange(newCols)
+        onColumnsChange?.(newCols)
+        onStageColumnsChange(pruneStageColumns(stageColumns, newCols))
 
         addToast({
           type: 'success',
@@ -256,9 +249,9 @@ export const BoardColumnsEditor: React.FC<Props> = ({
     const status = e.dataTransfer.getData(DRAG_STATUS)
     const stage = e.dataTransfer.getData(DRAG_STAGE) as WorkflowStage
 
-    if (status) {
+    if (status && !stagesOnly) {
       // Exclusif : le statut quitte sa colonne précédente.
-      onColumnsChange(
+      onColumnsChange?.(
         columns.map(col => ({
           ...col,
           statuses:
@@ -279,8 +272,8 @@ export const BoardColumnsEditor: React.FC<Props> = ({
   const dropOnPool = (e: React.DragEvent) => {
     e.preventDefault()
     const status = e.dataTransfer.getData(DRAG_STATUS)
-    if (status) {
-      onColumnsChange(
+    if (status && !stagesOnly) {
+      onColumnsChange?.(
         columns.map(col => ({
           ...col,
           statuses: col.statuses.filter(st => st.toLowerCase() !== status.toLowerCase()),
@@ -291,7 +284,7 @@ export const BoardColumnsEditor: React.FC<Props> = ({
   }
 
   const removeStatus = (columnName: string, status: string) => {
-    onColumnsChange(
+    onColumnsChange?.(
       columns.map(col =>
         col.name === columnName
           ? { ...col, statuses: col.statuses.filter(st => st !== status) }
@@ -312,14 +305,14 @@ export const BoardColumnsEditor: React.FC<Props> = ({
       setNewColumnName('')
       return
     }
-    onColumnsChange([...columns, { name, statuses: [] }])
+    onColumnsChange?.([...columns, { name, statuses: [] }])
     setNewColumnName('')
   }
 
   const removeColumn = (index: number) => {
     const removed = columns[index]
     const updated = columns.filter((_, idx) => idx !== index)
-    onColumnsChange(updated)
+    onColumnsChange?.(updated)
     if (removed) {
       const cleaned: Record<string, string[]> = {}
       Object.entries(stageColumns).forEach(([stage, cols]) => {
@@ -336,12 +329,12 @@ export const BoardColumnsEditor: React.FC<Props> = ({
     const next = [...columns]
     const [moved] = next.splice(index, 1)
     next.splice(target, 0, moved)
-    onColumnsChange(next)
+    onColumnsChange?.(next)
   }
 
   const renameColumn = (index: number, name: string) => {
     const previous = columns[index].name
-    onColumnsChange(columns.map((col, idx) => (idx === index ? { ...col, name } : col)))
+    onColumnsChange?.(columns.map((col, idx) => (idx === index ? { ...col, name } : col)))
     const renamed: Record<string, string[]> = {}
     Object.entries(stageColumns).forEach(([stage, cols]) => {
       renamed[stage] = (cols || []).map(c => (c === previous ? name : c))
@@ -360,8 +353,9 @@ export const BoardColumnsEditor: React.FC<Props> = ({
     <div className="space-y-3">
       <div className="flex items-center justify-between gap-2">
         <label className="text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
-          {cs.title}
+          {stagesOnly ? title : cs.title}
         </label>
+        {stagesOnly ? headerActions : (
         <button
           type="button"
           disabled={isDetecting}
@@ -372,9 +366,10 @@ export const BoardColumnsEditor: React.FC<Props> = ({
           <RefreshCw size={10} className={isDetecting ? 'animate-spin text-[var(--accent-color)]' : 'text-cyan-400'} />
           <span>{isDetecting ? cs.detecting : cs.detect}</span>
         </button>
+        )}
       </div>
 
-      {boards.length > 0 && (
+      {!stagesOnly && boards.length > 0 && (
         <div className="flex items-center gap-2">
           <label className="text-[10px] uppercase tracking-wider text-[var(--text-muted)] shrink-0">
             {cs.boardLabel}
@@ -400,9 +395,11 @@ export const BoardColumnsEditor: React.FC<Props> = ({
         </div>
       )}
 
+      {!stagesOnly && (
       <p className="text-[10px] text-[var(--text-muted)] -mt-1">
         {cs.help}
       </p>
+      )}
 
       {/* Réservoirs de pastilles à glisser */}
       <div
@@ -415,6 +412,7 @@ export const BoardColumnsEditor: React.FC<Props> = ({
             : 'border-[var(--border-color)] bg-[var(--bg-tertiary)]/40'
         }`}
       >
+        {!stagesOnly && (
         <div className="flex items-center gap-1.5 flex-wrap">
           <span className="inline-flex items-center gap-1 text-[9px] uppercase tracking-wider text-[var(--text-muted)] mr-1">
             <GitPullRequest size={10} /> {cs.freeStatuses}
@@ -438,8 +436,9 @@ export const BoardColumnsEditor: React.FC<Props> = ({
             ))
           )}
         </div>
+        )}
 
-        <div className="flex items-center gap-1.5 flex-wrap pt-1.5 border-t border-[var(--border-color)]/50">
+        <div className={`flex items-center gap-1.5 flex-wrap ${stagesOnly ? '' : 'pt-1.5 border-t border-[var(--border-color)]/50'}`}>
           <span className="inline-flex items-center gap-1 text-[9px] uppercase tracking-wider text-[var(--text-muted)] mr-1">
             <Tag size={10} /> {cs.agenticWorkflow}
           </span>
@@ -460,7 +459,7 @@ export const BoardColumnsEditor: React.FC<Props> = ({
 
       {columns.length === 0 ? (
         <p className="text-[10px] text-[var(--text-muted)]">
-          {cs.noColumns}
+          {stagesOnly ? t.projectSettings.tracker.stageMappingNoColumns : cs.noColumns}
         </p>
       ) : (
         <div className="space-y-2">
@@ -482,6 +481,12 @@ export const BoardColumnsEditor: React.FC<Props> = ({
               >
                 <div className="flex items-center gap-1.5">
                   <Kanban size={13} className="text-[var(--accent-color)] shrink-0" />
+                  {stagesOnly ? (
+                    <span className="flex-1 px-2 py-1 text-xs font-bold rounded-lg bg-[var(--bg-primary)] border border-[var(--border-color)] text-[var(--text-primary)] truncate">
+                      {col.name}
+                    </span>
+                  ) : (
+                  <>
                   <input
                     type="text"
                     value={col.name}
@@ -499,7 +504,7 @@ export const BoardColumnsEditor: React.FC<Props> = ({
                   <button
                     type="button"
                     onClick={() =>
-                      onColumnsChange(
+                      onColumnsChange?.(
                         columns.map((c, idx) => (idx === index ? { ...c, hidden: !c.hidden } : c))
                       )
                     }
@@ -515,8 +520,22 @@ export const BoardColumnsEditor: React.FC<Props> = ({
                     className="p-1 rounded text-[var(--text-muted)] hover:text-rose-400 cursor-pointer" title={cs.deleteColumn} aria-label={cs.deleteColumn}>
                     <X size={12} />
                   </button>
+                  </>
+                  )}
                 </div>
 
+                {stagesOnly ? (col.statuses.length > 0 && (
+                <div className="flex flex-wrap items-center gap-1 min-h-[22px]">
+                  {col.statuses.map(st => (
+                    <span
+                      key={st}
+                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono border select-none bg-[var(--accent-light)] accent-text border-[var(--accent-color)]/30"
+                    >
+                      {st}
+                    </span>
+                  ))}
+                </div>
+                )) : (
                 <div className="flex flex-wrap items-center gap-1 min-h-[22px]">
                   {col.statuses.length === 0 && (
                     <span className="text-[10px] text-[var(--text-muted)] italic">
@@ -539,6 +558,7 @@ export const BoardColumnsEditor: React.FC<Props> = ({
                     </span>
                   ))}
                 </div>
+                )}
 
                 <div className="flex flex-wrap items-center gap-1 pt-1.5 border-t border-[var(--border-color)]/50 min-h-[22px]">
                   <span className="text-[9px] uppercase tracking-wider text-[var(--text-muted)] mr-1">{cs.workflow}</span>
@@ -568,12 +588,13 @@ export const BoardColumnsEditor: React.FC<Props> = ({
         </div>
       )}
 
-      {dragging?.kind === 'status' && (
+      {!stagesOnly && dragging?.kind === 'status' && (
         <p className="text-[10px] text-[var(--text-muted)]">
           {format(cs.dropHint, { status: dragging.value })}
         </p>
       )}
 
+      {!stagesOnly && (
       <div className="flex items-center gap-2">
         <input
           type="text"
@@ -598,6 +619,7 @@ export const BoardColumnsEditor: React.FC<Props> = ({
           <span>{cs.addColumn}</span>
         </button>
       </div>
+      )}
     </div>
   )
 }

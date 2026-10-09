@@ -131,7 +131,7 @@ func TestMyTasksFilterAndIdentities(t *testing.T) {
 	for i := range tasks {
 		tasks[i].Status, tasks[i].Priority = models.StatusToClarify, models.PriorityMedium
 	}
-	if err := database.ImportOrUpdateTasks(tasks); err != nil {
+	if err := database.ImportOrUpdateTasks("", tasks); err != nil {
 		t.Fatal(err)
 	}
 	if err := database.SetUserTrackerCredential(userID, "github", tracker.URL, "", "ghp-ada", ""); err != nil {

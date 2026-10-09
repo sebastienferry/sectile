@@ -108,8 +108,8 @@ func (s *jiraSite) calls(method, path string) []recordedRequest {
 	return out
 }
 
-func jiraProject() *models.Project {
-	return &models.Project{ID: "p1", Slug: "pe", IssueTracker: "jira", JiraProject: "PE"}
+func jiraTracker() *models.Tracker {
+	return &models.Tracker{ID: "p1", Provider: "jira", Scope: "PE"}
 }
 
 func TestJiraAdapterSatisfiesTheAbstraction(t *testing.T) {
@@ -123,8 +123,8 @@ func TestJiraAdapterSatisfiesTheAbstraction(t *testing.T) {
 	if resolved, err := reg.ForTask(&models.Task{Source: "jira", Key: "PE-7"}, nil); err != nil || resolved.Name() != "jira" {
 		t.Fatalf("a jira-sourced task must resolve to the jira adapter: %v %v", resolved, err)
 	}
-	if resolved, err := reg.ForProject(jiraProject()); err != nil || resolved.Name() != "jira" {
-		t.Fatalf("a jira project must resolve to the jira adapter: %v %v", resolved, err)
+	if resolved, err := reg.ForTracker(jiraTracker()); err != nil || resolved.Name() != "jira" {
+		t.Fatalf("a jira tracker must resolve to the jira adapter: %v %v", resolved, err)
 	}
 	// GitHub gained nothing it does not have.
 	gh, _ := reg.Get("github")
@@ -152,7 +152,7 @@ func TestJiraRefusesToWorkWithoutCredentials(t *testing.T) {
 	site := newJiraSite(t)
 	c := site.client()
 	c.JiraToken = ""
-	_, err := NewJiraAdapter(c).GetIssue(unattended(), tracker.GetIssueRequest{Project: jiraProject(), Key: "PE-1"})
+	_, err := NewJiraAdapter(c).GetIssue(unattended(), tracker.GetIssueRequest{Tracker: jiraTracker(), Key: "PE-1"})
 	// The caller wraps it, so the guidance has to be contained rather than equal.
 	want := c.missingCredential("Jira").Error()
 	if err == nil || !strings.Contains(err.Error(), want) {
@@ -192,9 +192,9 @@ func TestJiraSyncPaginatesAndMapsWorkItems(t *testing.T) {
 			{"key":"PE-2","fields":{"summary":"No label","status":{"name":"To Do","statusCategory":{"key":"new"}},"priority":{"name":"Low"},"labels":[]}}
 		],"nextPageToken":"page2","isLast":false}`)
 	})
-	proj := jiraProject()
+	proj := jiraTracker()
 	proj.IssueTypes = []string{"Story", "Bug"}
-	tasks, err := site.adapter().SyncIssues(unattended(), tracker.SyncRequest{Project: proj})
+	tasks, err := site.adapter().SyncIssues(unattended(), tracker.SyncRequest{Tracker: proj})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -223,7 +223,7 @@ func TestJiraSyncPaginatesAndMapsWorkItems(t *testing.T) {
 func TestJiraSyncWorksOnASiteWithoutSprintAndTeamFields(t *testing.T) {
 	site := newJiraSite(t)
 	site.reply("GET", "/rest/api/3/search/jql", `{"issues":[{"key":"PE-1","fields":{"summary":"Only","status":{"name":"To Do","statusCategory":{"key":"new"}}}}],"isLast":true}`)
-	tasks, err := site.adapter().SyncIssues(unattended(), tracker.SyncRequest{Project: jiraProject()})
+	tasks, err := site.adapter().SyncIssues(unattended(), tracker.SyncRequest{Tracker: jiraTracker()})
 	if err != nil || len(tasks) != 1 || tasks[0].Sprint != "" || tasks[0].Team != "" {
 		t.Fatalf("sync without custom fields: %v %+v", err, tasks)
 	}
@@ -253,9 +253,9 @@ func TestJiraCreateUsesTheTypeFallbackAndQuotesRefusals(t *testing.T) {
 	site.reply("GET", "/rest/api/3/issue/createmeta/PE/issuetypes/10001", mandatory)
 	site.reply("GET", "/rest/api/3/issue/createmeta/PE/issuetypes/10002", mandatory)
 
-	proj := jiraProject()
+	proj := jiraTracker()
 	proj.IssueTypes = []string{"Story"}
-	_, err := site.adapter().CreateIssue(unattended(), tracker.CreateIssueRequest{Project: proj, Title: "New", Description: "# Heading\n\nBody", ParentKey: "pe-10"})
+	_, err := site.adapter().CreateIssue(unattended(), tracker.CreateIssueRequest{Tracker: proj, Title: "New", Description: "# Heading\n\nBody", ParentKey: "pe-10"})
 	if err == nil || !strings.Contains(err.Error(), "Epic Type") {
 		t.Fatalf("the site's refusal must be quoted: %v", err)
 	}
@@ -277,12 +277,12 @@ func TestJiraCreateUsesTheTypeFallbackAndQuotesRefusals(t *testing.T) {
 	}
 
 	// A field the request gave is not listed as missing.
-	_, err = site.adapter().CreateIssue(unattended(), tracker.CreateIssueRequest{Project: proj, Title: "New", Fields: map[string]string{"customfield_10050": "R&D"}})
+	_, err = site.adapter().CreateIssue(unattended(), tracker.CreateIssueRequest{Tracker: proj, Title: "New", Fields: map[string]string{"customfield_10050": "R&D"}})
 	if err == nil || !strings.Contains(err.Error(), "for Story: Epic Type (customfield_10011)") || strings.Contains(err.Error(), "Cost centre") {
 		t.Fatalf("only the fields left out are listed: %v", err)
 	}
 
-	task, err := site.adapter().CreateIssue(unattended(), tracker.CreateIssueRequest{Project: proj, Title: "New", Fields: map[string]string{"customfield_10011": "10200", "customfield_10050": "R&D"}})
+	task, err := site.adapter().CreateIssue(unattended(), tracker.CreateIssueRequest{Tracker: proj, Title: "New", Fields: map[string]string{"customfield_10011": "10200", "customfield_10050": "R&D"}})
 	if err != nil || task.Key != "PE-42" || task.Source != "jira" || task.Status != models.StatusToClarify {
 		t.Fatalf("created task: %+v %v", task, err)
 	}
@@ -298,7 +298,7 @@ func TestJiraCreateUsesTheTypeFallbackAndQuotesRefusals(t *testing.T) {
 
 	// No configured type and no request type: Task.
 	proj.IssueTypes = nil
-	_, _ = site.adapter().CreateIssue(unattended(), tracker.CreateIssueRequest{Project: proj, Title: "Bare", Fields: map[string]string{"customfield_10011": "10200"}})
+	_, _ = site.adapter().CreateIssue(unattended(), tracker.CreateIssueRequest{Tracker: proj, Title: "Bare", Fields: map[string]string{"customfield_10011": "10200"}})
 	if created["fields"].(map[string]any)["issuetype"].(map[string]any)["name"] != "Task" {
 		t.Fatalf("type fallback: %#v", created["fields"])
 	}
@@ -314,7 +314,7 @@ func TestJiraCreateRefusalStaysAsIsWhenTheScreenCannotBeRead(t *testing.T) {
 		w.WriteHeader(http.StatusInternalServerError)
 	})
 
-	_, err := site.adapter().CreateIssue(unattended(), tracker.CreateIssueRequest{Project: jiraProject(), Title: "New"})
+	_, err := site.adapter().CreateIssue(unattended(), tracker.CreateIssueRequest{Tracker: jiraTracker(), Title: "New"})
 	if err == nil || !strings.Contains(err.Error(), "customfield_10011: Epic Type is required.") {
 		t.Fatalf("Jira's refusal must be returned: %v", err)
 	}
@@ -338,7 +338,7 @@ func TestJiraCreateRefusalDoesNotListFieldsTheBodyCarried(t *testing.T) {
 		{"fieldId":"customfield_10050","name":"Cost centre","required":true}
 	]}`)
 
-	_, err := site.adapter().CreateIssue(unattended(), tracker.CreateIssueRequest{Project: jiraProject(), Title: "New", Description: "Body", Labels: []string{"ops"}, ParentKey: "PE-999"})
+	_, err := site.adapter().CreateIssue(unattended(), tracker.CreateIssueRequest{Tracker: jiraTracker(), Title: "New", Description: "Body", Labels: []string{"ops"}, ParentKey: "PE-999"})
 	if err == nil || !strings.Contains(err.Error(), "does not exist") {
 		t.Fatalf("Jira's refusal must be quoted: %v", err)
 	}
@@ -352,7 +352,7 @@ func TestJiraCreateThatSucceedsReadsNoCreationScreen(t *testing.T) {
 	site.reply("POST", "/rest/api/3/issue", `{"id":"1","key":"PE-42"}`)
 	site.reply("GET", "/rest/api/3/issue/PE-42", `{"key":"PE-42","fields":{"summary":"New","status":{"name":"To Do","statusCategory":{"key":"new"}}}}`)
 
-	task, err := site.adapter().CreateIssue(unattended(), tracker.CreateIssueRequest{Project: jiraProject(), Title: "New"})
+	task, err := site.adapter().CreateIssue(unattended(), tracker.CreateIssueRequest{Tracker: jiraTracker(), Title: "New"})
 	if err != nil || task.Key != "PE-42" {
 		t.Fatalf("created task: %+v %v", task, err)
 	}
@@ -372,7 +372,7 @@ func TestJiraUpdateMovesLabelsWithoutTouchingTheStatus(t *testing.T) {
 	})
 	status := models.StatusToImplement
 	err := site.adapter().UpdateIssue(unattended(), tracker.UpdateIssueRequest{
-		Project: jiraProject(), Key: "PE-7", Status: &status,
+		Tracker: jiraTracker(), Key: "PE-7", Status: &status,
 		Labels: []string{"specified", "keep"}, RemovedLabels: []string{"clarified"},
 	})
 	if err != nil {
@@ -406,7 +406,7 @@ func TestJiraFinishingRunsTheDoneTransition(t *testing.T) {
 	site.on("PUT", "/rest/api/3/issue/PE-7", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusNoContent) })
 
 	finished := models.StatusFinished
-	if err := site.adapter().UpdateIssue(unattended(), tracker.UpdateIssueRequest{Project: jiraProject(), Key: "PE-7", Status: &finished, Labels: []string{"finished"}}); err != nil {
+	if err := site.adapter().UpdateIssue(unattended(), tracker.UpdateIssueRequest{Tracker: jiraTracker(), Key: "PE-7", Status: &finished, Labels: []string{"finished"}}); err != nil {
 		t.Fatal(err)
 	}
 	if posted["transition"].(map[string]any)["id"] != "31" {
@@ -414,7 +414,7 @@ func TestJiraFinishingRunsTheDoneTransition(t *testing.T) {
 	}
 
 	posted = nil
-	if err := site.adapter().DeleteIssue(unattended(), tracker.DeleteIssueRequest{Project: jiraProject(), Key: "PE-7", CloseOnly: true}); err != nil {
+	if err := site.adapter().DeleteIssue(unattended(), tracker.DeleteIssueRequest{Tracker: jiraTracker(), Key: "PE-7", CloseOnly: true}); err != nil {
 		t.Fatal(err)
 	}
 	if posted["transition"].(map[string]any)["id"] != "31" {
@@ -435,7 +435,7 @@ func TestJiraFinishingWithoutADoneTransitionFails(t *testing.T) {
 	site := newJiraSite(t)
 	site.reply("GET", "/rest/api/3/issue/PE-8/transitions", `{"transitions":[{"id":"21","name":"Start","to":{"name":"In Progress","statusCategory":{"key":"indeterminate"}}}]}`)
 	site.reply("GET", "/rest/api/3/issue/PE-8", `{"key":"PE-8","fields":{"status":{"name":"To Do","statusCategory":{"key":"new"}}}}`)
-	err := site.adapter().DeleteIssue(unattended(), tracker.DeleteIssueRequest{Project: jiraProject(), Key: "PE-8"})
+	err := site.adapter().DeleteIssue(unattended(), tracker.DeleteIssueRequest{Tracker: jiraTracker(), Key: "PE-8"})
 	if err == nil || !strings.Contains(err.Error(), "PE-8") || !strings.Contains(err.Error(), "In Progress") {
 		t.Fatalf("the refusal must name the work item and the available transitions: %v", err)
 	}
@@ -455,14 +455,14 @@ func TestJiraCommentsRoundTripThroughADF(t *testing.T) {
 		"body":{"type":"doc","version":1,"content":[{"type":"heading","attrs":{"level":2},"content":[{"type":"text","text":"Report"}]},{"type":"bulletList","content":[{"type":"listItem","content":[{"type":"paragraph","content":[{"type":"text","text":"one"}]}]}]}]}}]}`)
 
 	j := site.adapter()
-	if err := j.AddComment(unattended(), tracker.AddCommentRequest{Project: jiraProject(), Key: "PE-1", Body: "## Report\n\n- one"}); err != nil {
+	if err := j.AddComment(unattended(), tracker.AddCommentRequest{Tracker: jiraTracker(), Key: "PE-1", Body: "## Report\n\n- one"}); err != nil {
 		t.Fatal(err)
 	}
 	body := posted["body"].(map[string]any)
 	if body["type"] != "doc" {
 		t.Fatalf("comment body must be ADF: %#v", body)
 	}
-	comments, err := j.GetComments(unattended(), tracker.GetCommentsRequest{Project: jiraProject(), Key: "PE-1"})
+	comments, err := j.GetComments(unattended(), tracker.GetCommentsRequest{Tracker: jiraTracker(), Key: "PE-1"})
 	if err != nil || len(comments) != 1 {
 		t.Fatalf("comments: %v %+v", err, comments)
 	}
@@ -541,11 +541,11 @@ func TestJiraTeamsSearchMembersAndWrite(t *testing.T) {
 	})
 
 	j := site.adapter()
-	teams, err := j.SearchTeams(unattended(), tracker.TeamSearchRequest{Project: jiraProject(), Query: "plat"})
+	teams, err := j.SearchTeams(unattended(), tracker.TeamSearchRequest{Tracker: jiraTracker(), Query: "plat"})
 	if err != nil || len(teams) != 1 || teams[0].ID != "team-1" || teams[0].Name != "Platform" {
 		t.Fatalf("teams: %v %+v", err, teams)
 	}
-	members, err := j.TeamMembers(unattended(), tracker.TeamRequest{Project: jiraProject(), TeamID: "team-1"})
+	members, err := j.TeamMembers(unattended(), tracker.TeamRequest{Tracker: jiraTracker(), TeamID: "team-1"})
 	if err != nil || len(members) != 1 || members[0].AccountID != "acc-1" || members[0].DisplayName != "Ada" || members[0].TeamID != "team-1" || members[0].AvatarURL != "https://a/48" {
 		t.Fatalf("members (invited and app accounts dropped): %v %+v", err, members)
 	}
@@ -585,33 +585,33 @@ func TestJiraReadSideBoardsColumnsSprintsStatusesTypes(t *testing.T) {
 
 	j := site.adapter()
 	ctx := unattended()
-	proj := jiraProject()
-	boards, err := j.ListBoards(ctx, tracker.BoardsRequest{Project: proj})
+	proj := jiraTracker()
+	boards, err := j.ListBoards(ctx, tracker.BoardsRequest{Tracker: proj})
 	if err != nil || len(boards) != 1 || boards[0].ID != "5" || boards[0].Type != "scrum" {
 		t.Fatalf("boards: %v %+v", err, boards)
 	}
-	columns, err := j.ListBoardColumns(ctx, tracker.BoardRequest{Project: proj, BoardID: "5"})
+	columns, err := j.ListBoardColumns(ctx, tracker.BoardRequest{Tracker: proj, BoardID: "5"})
 	if err != nil || len(columns) != 2 || columns[1].Name != "Done" || len(columns[1].Statuses) != 2 || columns[1].Statuses[1] != "Closed" {
 		t.Fatalf("columns (empty one dropped, ids resolved): %v %+v", err, columns)
 	}
 	proj.BoardID = "5"
-	sprints, err := j.ListSprints(ctx, tracker.BoardRequest{Project: proj})
+	sprints, err := j.ListSprints(ctx, tracker.BoardRequest{Tracker: proj})
 	if err != nil || len(sprints) != 1 || sprints[0].ID != "9" || sprints[0].State != "active" {
 		t.Fatalf("sprints: %v %+v", err, sprints)
 	}
-	statuses, err := j.ListStatuses(ctx, tracker.ProjectRequest{Project: proj})
+	statuses, err := j.ListStatuses(ctx, tracker.ProjectRequest{Tracker: proj})
 	if err != nil || len(statuses) != 2 || statuses[1].Category != "done" {
 		t.Fatalf("statuses (deduplicated): %v %+v", err, statuses)
 	}
-	types, err := j.ListIssueTypes(ctx, tracker.ProjectRequest{Project: proj})
+	types, err := j.ListIssueTypes(ctx, tracker.ProjectRequest{Tracker: proj})
 	if err != nil || strings.Join(types, ",") != "Epic,Story" {
 		t.Fatalf("issue types (sub-tasks out, sorted): %v %v", err, types)
 	}
-	required, err := j.RequiredCreateFields(ctx, tracker.CreateMetaRequest{Project: proj, IssueType: "Epic"})
+	required, err := j.RequiredCreateFields(ctx, tracker.CreateMetaRequest{Tracker: proj, IssueType: "Epic"})
 	if err != nil || len(required) != 1 || required[0].Name != "Epic Type" || len(required[0].Options) != 2 || required[0].Options[1].Value != "Tech" {
 		t.Fatalf("required fields: %v %+v", err, required)
 	}
-	epics, err := j.ListEpics(ctx, tracker.ProjectRequest{Project: proj})
+	epics, err := j.ListEpics(ctx, tracker.ProjectRequest{Tracker: proj})
 	if err != nil || len(epics) != 1 || epics[0].Key != "PE-10" {
 		t.Fatalf("epics: %v %+v", err, epics)
 	}
@@ -665,13 +665,13 @@ func TestJiraRateLimitAndCredentialRefusalsAreReadable(t *testing.T) {
 	site.on("GET", "/rest/api/3/issue/PE-1", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusTooManyRequests)
 	})
-	_, err := site.adapter().GetIssue(unattended(), tracker.GetIssueRequest{Project: jiraProject(), Key: "PE-1"})
+	_, err := site.adapter().GetIssue(unattended(), tracker.GetIssueRequest{Tracker: jiraTracker(), Key: "PE-1"})
 	if !IsRateLimited(err) {
 		t.Fatalf("429 must be recognised as a rate limit: %v", err)
 	}
 	c := site.client()
 	c.JiraToken = "wrong"
-	_, err = NewJiraAdapter(c).GetIssue(unattended(), tracker.GetIssueRequest{Project: jiraProject(), Key: "PE-1"})
+	_, err = NewJiraAdapter(c).GetIssue(unattended(), tracker.GetIssueRequest{Tracker: jiraTracker(), Key: "PE-1"})
 	// The refusal says what to check and never echoes the credential itself.
 	if err == nil || !strings.Contains(err.Error(), "e-mail et jeton") || strings.Contains(err.Error(), "wrong") {
 		t.Fatalf("a 401 must name what to check without echoing the credential: %v", err)
@@ -781,20 +781,20 @@ func TestTheActingUsersOwnTokenIsWhatReachesJira(t *testing.T) {
 		return "", "", "", nil
 	})
 	adapter := NewJiraAdapter(c)
-	project := jiraProject()
+	project := jiraTracker()
 
 	// Nobody acting: the server credential, as every queued job will use.
-	if _, err := adapter.SyncIssues(unattended(), tracker.SyncRequest{Project: project}); err != nil {
+	if _, err := adapter.SyncIssues(unattended(), tracker.SyncRequest{Tracker: project}); err != nil {
 		t.Fatal(err)
 	}
 	// Somebody acting, with a token of their own.
 	ctx := tracker.WithActingUser(unattended(), "ada")
-	if _, err := adapter.SyncIssues(ctx, tracker.SyncRequest{Project: project}); err != nil {
+	if _, err := adapter.SyncIssues(ctx, tracker.SyncRequest{Tracker: project}); err != nil {
 		t.Fatal(err)
 	}
 	// Somebody acting, with no token of their own: refused rather than written
 	// under the server account, which would put a name on it nobody chose.
-	if _, err := adapter.SyncIssues(tracker.WithActingUser(unattended(), "someone-else"), tracker.SyncRequest{Project: project}); err == nil || !strings.Contains(err.Error(), "personal Jira token") {
+	if _, err := adapter.SyncIssues(tracker.WithActingUser(unattended(), "someone-else"), tracker.SyncRequest{Tracker: project}); err == nil || !strings.Contains(err.Error(), "personal Jira token") {
 		t.Fatalf("a named user without a token must be refused: %v", err)
 	}
 
@@ -807,7 +807,7 @@ func TestTheActingUsersOwnTokenIsWhatReachesJira(t *testing.T) {
 	// A sealed credential its owner has not unlocked fails loudly. Falling back
 	// to the service account would write under a name nobody chose.
 	before := len(seen)
-	_, err := adapter.SyncIssues(tracker.WithActingUser(unattended(), "locked"), tracker.SyncRequest{Project: project})
+	_, err := adapter.SyncIssues(tracker.WithActingUser(unattended(), "locked"), tracker.SyncRequest{Tracker: project})
 	if err == nil || !strings.Contains(err.Error(), "sealed") {
 		t.Fatalf("a locked credential must stop the call: %v", err)
 	}
@@ -828,8 +828,8 @@ func TestJiraListBoardsKeepsTheSimpleBoardOfATeamManagedProject(t *testing.T) {
 
 	j := site.adapter()
 	ctx := unattended()
-	proj := jiraProject()
-	boards, err := j.ListBoards(ctx, tracker.BoardsRequest{Project: proj})
+	proj := jiraTracker()
+	boards, err := j.ListBoards(ctx, tracker.BoardsRequest{Tracker: proj})
 	if err != nil || len(boards) != 1 || boards[0].ID != "549" || boards[0].Type != "simple" {
 		t.Fatalf("a simple board is a board: %v %+v", err, boards)
 	}
@@ -837,7 +837,7 @@ func TestJiraListBoardsKeepsTheSimpleBoardOfATeamManagedProject(t *testing.T) {
 	if len(calls) != 1 || !strings.Contains(calls[0].Query, "type=scrum%2Ckanban%2Csimple") {
 		t.Fatalf("the board filter must ask for the three kinds carrying columns: %+v", calls)
 	}
-	columns, err := j.ListBoardColumns(ctx, tracker.BoardRequest{Project: proj, BoardID: "549"})
+	columns, err := j.ListBoardColumns(ctx, tracker.BoardRequest{Tracker: proj, BoardID: "549"})
 	if err != nil || len(columns) != 2 || columns[0].Name != "To Do" || columns[1].Statuses[0] != "Done" {
 		t.Fatalf("columns of a simple board: %v %+v", err, columns)
 	}
@@ -863,7 +863,7 @@ func TestJiraSyncBoundsAnIncrementalPassOnTheUpdateDate(t *testing.T) {
 		}
 		fmt.Fprint(w, `{"issues":[{"key":"PE-1","fields":{"summary":"Moved","status":{"name":"To Do","statusCategory":{"key":"new"}}}}],"isLast":true}`)
 	})
-	tasks, err := site.adapter().SyncIssues(unattended(), tracker.SyncRequest{Project: jiraProject(), UpdatedWithinMin: 18})
+	tasks, err := site.adapter().SyncIssues(unattended(), tracker.SyncRequest{Tracker: jiraTracker(), UpdatedWithinMin: 18})
 	if err != nil || len(tasks) != 1 {
 		t.Fatalf("incremental sync: %v %+v", err, tasks)
 	}
@@ -879,7 +879,7 @@ func TestJiraSyncWithoutAWindowAsksForTheWholeProject(t *testing.T) {
 		}
 		fmt.Fprint(w, `{"issues":[],"isLast":true}`)
 	})
-	if _, err := site.adapter().SyncIssues(unattended(), tracker.SyncRequest{Project: jiraProject()}); err != nil {
+	if _, err := site.adapter().SyncIssues(unattended(), tracker.SyncRequest{Tracker: jiraTracker()}); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -933,7 +933,7 @@ func TestJiraSyncMapsCreatorAndReporterFallback(t *testing.T) {
 		],
 		"isLast": true
 	}`)
-	tasks, err := site.adapter().SyncIssues(unattended(), tracker.SyncRequest{Project: jiraProject()})
+	tasks, err := site.adapter().SyncIssues(unattended(), tracker.SyncRequest{Tracker: jiraTracker()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -960,5 +960,23 @@ func TestJiraSyncMapsCreatorAndReporterFallback(t *testing.T) {
 	}
 	if tasks[2].CreatorAvatar != "https://jira.example.com/avatar/alan.png" {
 		t.Errorf("task[2].CreatorAvatar = %q, want %q", tasks[2].CreatorAvatar, "https://jira.example.com/avatar/alan.png")
+	}
+}
+
+// A tracker is synchronised in full whatever projects select it: the query
+// names its space and its issue types, and nothing a project would add (#741).
+func TestJiraSyncReadsTheWholeSpaceOfTheTracker(t *testing.T) {
+	site := newJiraSite(t)
+	var jql string
+	site.on("GET", "/rest/api/3/search/jql", func(w http.ResponseWriter, r *http.Request) {
+		jql = r.URL.Query().Get("jql")
+		fmt.Fprint(w, `{"issues":[],"isLast":true}`)
+	})
+	gode := &models.Tracker{ID: "t-gode", Provider: "jira", Scope: "GODE", IssueTypes: []string{"Story"}}
+	if _, err := site.adapter().SyncIssues(unattended(), tracker.SyncRequest{Tracker: gode}); err != nil {
+		t.Fatal(err)
+	}
+	if want := `project = "GODE" AND issuetype IN ("Story") ORDER BY updated DESC`; jql != want {
+		t.Fatalf("jql = %q, want %q", jql, want)
 	}
 }

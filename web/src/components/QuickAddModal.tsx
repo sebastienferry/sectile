@@ -13,7 +13,15 @@ import { MarkdownEditor } from './Markdown'
 import { sprintLookup } from '../lib/lookups'
 import { useBackdropDismiss } from '../hooks/useBackdropDismiss'
 import { initialLabelsForView } from '../lib/boardViews'
-import { initialQuickAddMacro, quickAddMacroOptions, QUICK_ADD_FOLLOW_UPS, type QuickAddFollowUp } from '../lib/quickAdd'
+import {
+  initialQuickAddMacro,
+  initialQuickAddTracker,
+  quickAddMacroOptions,
+  quickAddTrackers,
+  QUICK_ADD_FOLLOW_UPS,
+  type QuickAddFollowUp,
+} from '../lib/quickAdd'
+import { TRACKER_PROVIDER_NAMES } from '../lib/trackers'
 
 export const QuickAddModal: React.FC = () => {
   const {
@@ -29,6 +37,7 @@ export const QuickAddModal: React.FC = () => {
     fetchProjectMacros,
     setSelectedTask,
     runSkill,
+    trackers: trackerSummaries = [],
     t,
   } = useApp()
 
@@ -39,6 +48,9 @@ export const QuickAddModal: React.FC = () => {
   const fallbackProjectId = selectedProjectId !== 'all' ? selectedProjectId : (projects[0]?.id || 'default')
   const [taskProjectId, setTaskProjectId] = useState<string>(fallbackProjectId)
   const [macroKey, setMacroKey] = useState('')
+  // The tracker the ticket goes to, among the project's (#741); the default
+  // tracker unless the person picks another.
+  const [trackerId, setTrackerId] = useState('')
   const [macroOptions, setMacroOptions] = useState<MacroMeta[]>([])
   const [macrosLoading, setMacrosLoading] = useState(false)
   const [followUp, setFollowUp] = useState<QuickAddFollowUp>('none')
@@ -130,6 +142,12 @@ export const QuickAddModal: React.FC = () => {
     // board filter only matters on opening: neither may trigger a reload.
   }, [isQuickAddOpen, taskProjectId])
 
+  // A project's trackers are its own: the choice starts over with the project.
+  useEffect(() => {
+    if (!isQuickAddOpen) return
+    setTrackerId(initialQuickAddTracker(projects.find(p => p.id === taskProjectId)))
+  }, [isQuickAddOpen, taskProjectId, projects])
+
   const handleClose = useCallback(() => setIsQuickAddOpen(false), [setIsQuickAddOpen])
   const backdrop = useBackdropDismiss(handleClose)
 
@@ -148,6 +166,7 @@ export const QuickAddModal: React.FC = () => {
   const viewProjects = currentBoardView
     ? projects.filter(p => currentBoardView.projectIds.includes(p.id))
     : null
+  const trackerChoices = quickAddTrackers(projects.find(p => p.id === taskProjectId), trackerSummaries)
 
   if (!isQuickAddOpen) return null
 
@@ -173,6 +192,9 @@ export const QuickAddModal: React.FC = () => {
       labels,
       sprint: sprint.trim() || undefined,
       projectId: taskProjectId,
+      // Only a project of several trackers asks; the server otherwise takes
+      // the project's default tracker.
+      trackerId: trackerChoices.length > 1 ? trackerId || undefined : undefined,
       macroKey: macroKey || undefined,
     })
     setIsSubmitting(false)
@@ -353,6 +375,27 @@ export const QuickAddModal: React.FC = () => {
                         </option>
                       ))
                     })()}
+                  </select>
+                </div>
+              )}
+
+              {/* Tracker: only a project selecting several trackers asks (#741) */}
+              {trackerChoices.length > 1 && (
+                <div>
+                  <label htmlFor="quick-add-tracker" className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
+                    {t.quickAdd.trackerChoice}
+                  </label>
+                  <select
+                    id="quick-add-tracker"
+                    value={trackerId}
+                    onChange={e => setTrackerId(e.target.value)}
+                    className="w-full px-3 py-2 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)] font-medium"
+                  >
+                    {trackerChoices.map(choice => (
+                      <option key={choice.id} value={choice.id}>
+                        {(TRACKER_PROVIDER_NAMES[choice.provider as keyof typeof TRACKER_PROVIDER_NAMES] || choice.provider)} · {choice.name || t.projectSettings.tracker.localBoard}
+                      </option>
+                    ))}
                   </select>
                 </div>
               )}

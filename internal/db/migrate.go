@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 
 	"tasks/internal/secrets"
@@ -23,12 +24,17 @@ import (
 // the source, and they unlock again on the destination.
 // jira_oauth_flows too: a pending consent lasts ten minutes and belongs to a
 // web session of the source.
+// auto_sync_trackers too, like auto_sync_projects: the background loop's own
+// record of its passes, which it rebuilds.
 var migrationTables = []string{
 	"settings",
 	"users",
 	"user_settings",
 	"projects",
+	"trackers",
+	"project_trackers",
 	"tasks",
+	"task_aliases",
 	"task_activities",
 	"deleted_remote_runs",
 	"batch_members",
@@ -48,6 +54,9 @@ var migrationTables = []string{
 	"login_flows",
 	"web_sessions",
 }
+
+// seededTables are the tables a first start fills on its own.
+var seededTables = []string{"project_trackers", "trackers", "projects", "settings"}
 
 // TableCount is how many rows one table contributed to a migration.
 type TableCount struct {
@@ -96,14 +105,15 @@ func ensureDestinationEmpty(dst *DB) error {
 		if err := dst.conn.QueryRow("SELECT COUNT(*) FROM " + table).Scan(&n); err != nil {
 			return fmt.Errorf("reading %s in the destination: %w", table, err)
 		}
-		// settings and projects are seeded on first start, so their presence is
-		// not evidence of a database in use; anything else is.
-		if n > 0 && table != "settings" && table != "projects" {
+		// settings and projects are seeded on first start, with the tracker of
+		// the default project (#741), so their presence is not evidence of a
+		// database in use; anything else is.
+		if n > 0 && !slices.Contains(seededTables, table) {
 			return fmt.Errorf("the destination database is not empty: %s already holds %d row(s)", table, n)
 		}
 	}
 	// The seeded rows still have to go, or the copy collides with them.
-	for _, table := range []string{"projects", "settings"} {
+	for _, table := range seededTables {
 		if _, err := dst.conn.Exec("DELETE FROM " + table); err != nil {
 			return fmt.Errorf("clearing the seeded %s: %w", table, err)
 		}

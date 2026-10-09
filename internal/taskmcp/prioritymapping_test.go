@@ -17,7 +17,7 @@ type guessingTracker struct {
 	tracker.BaseTicketingSystem
 }
 
-func (guessingTracker) PriorityScheme(ctx context.Context, project *models.Project, fresh bool) ([]models.PriorityOption, error) {
+func (guessingTracker) PriorityScheme(ctx context.Context, trk *models.Tracker, fresh bool) ([]models.PriorityOption, error) {
 	return []models.PriorityOption{{ID: "1", Name: "P1"}, {ID: "2", Name: "P2"}, {ID: "3", Name: "P3"}, {ID: "4", Name: "P4"}}, nil
 }
 

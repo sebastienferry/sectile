@@ -188,3 +188,44 @@ func TestAProjectRefreshSkipsMergedLinks(t *testing.T) {
 		t.Fatalf("open link not refreshed: %+v", got.PrLinks)
 	}
 }
+
+// The GitHub instance a project's repositories live on is the project's, not
+// its tracker's: a Jira project whose code is on GitHub Enterprise still
+// refreshes its pull requests there (#741).
+func TestAJiraProjectRefreshesItsPullRequestsOnItsGithubEnterprise(t *testing.T) {
+	d := testDB(t)
+	calls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if r.URL.Path != "/graphql" {
+			t.Errorf("unexpected request: %s", r.URL)
+		}
+		fmt.Fprint(w, `{"data":{"p0":{"pullRequest":{"state":"MERGED","mergeable":"UNKNOWN"}}}}`)
+	}))
+	defer server.Close()
+	d.trackers.HTTP = server.Client()
+	d.trackers.GithubToken = "test"
+	p, err := d.CreateProject(models.CreateProjectRequest{Name: "Delivery", IssueTracker: "jira", JiraProject: "GODE", GithubApiUrl: server.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if trk := d.ProjectDefaultTracker(p.ID); trk == nil || trk.Provider != "jira" {
+		t.Fatalf("the project reads its tickets from Jira: %+v", trk)
+	}
+	task, err := d.CreateTask(models.CreateTaskRequest{ProjectID: p.ID, Title: "story", Source: "local"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	link := models.TaskPullRequest{URL: server.URL + "/acme/app/pull/1", Branch: "GODE-1"}
+	d.conn.Exec("UPDATE tasks SET pr_links = ?, pr_url = ? WHERE id = ?", encodePullRequestLinks([]models.TaskPullRequest{link}), link.URL, task.ID)
+
+	if got := d.tracker(p.ID).GithubURL; got != server.URL {
+		t.Fatalf("the project's GitHub client reaches %q, want %q", got, server.URL)
+	}
+	if warnings := d.refreshProjectPullRequestStates(context.Background(), p.ID); len(warnings) != 0 || calls != 1 {
+		t.Fatalf("calls=%d warnings=%v", calls, warnings)
+	}
+	if got, _ := d.GetTaskByID(task.ID); got == nil || len(got.PrLinks) != 1 || got.PrLinks[0].State != "merged" {
+		t.Fatalf("the pull request was not refreshed on GitHub Enterprise: %+v", got)
+	}
+}

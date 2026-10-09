@@ -53,23 +53,17 @@ func NewGitlabAdapter(client *Client) *GitlabAdapter {
 	}
 }
 
-func contextProjectID(ctx context.Context, p *models.Project) string {
-	if p != nil && p.ID != "" {
-		return p.ID
-	}
-	return tracker.Project(ctx)
-}
-
 // forProject is the client of one read, as on GitHub: the acting person's own
 // token where they stored one, the server credential otherwise, including for
 // the synchronisation, which names nobody (#464). A sealed token nobody
-// unlocked refuses the read.
-func (g *GitlabAdapter) forProject(ctx context.Context, p *models.Project) (*Client, string, error) {
-	client, _, err := g.client.ForActingUser(tracker.ActingUser(ctx), "gitlab", contextProjectID(ctx, p))
+// unlocked refuses the read. The project path is the tracker's scope (#741).
+func (g *GitlabAdapter) forProject(ctx context.Context, t *models.Tracker) (*Client, string, error) {
+	t = trackerOf(ctx, t)
+	client, _, err := g.client.ForActingUser(tracker.ActingUser(ctx), "gitlab", trackerIDOf(t))
 	if err != nil {
 		return nil, "", err
 	}
-	projectPath, err := client.gitlabProjectPath()
+	projectPath, err := client.gitlabProjectPath(gitlabScopeOf(t))
 	if err != nil {
 		return nil, "", err
 	}
@@ -79,22 +73,31 @@ func (g *GitlabAdapter) forProject(ctx context.Context, p *models.Project) (*Cli
 // forWrite is the client of one write: GitLab attributes an issue, a note or a
 // label change to the account behind the token, so a person writes with their
 // own token or not at all, and unattended work with the server's (#482).
-func (g *GitlabAdapter) forWrite(ctx context.Context, p *models.Project) (*Client, string, error) {
-	client, err := g.client.ForWrite(ctx, "gitlab", contextProjectID(ctx, p))
+func (g *GitlabAdapter) forWrite(ctx context.Context, t *models.Tracker) (*Client, string, error) {
+	t = trackerOf(ctx, t)
+	client, err := g.client.ForWrite(ctx, "gitlab", trackerIDOf(t))
 	if err != nil {
 		return nil, "", err
 	}
-	projectPath, err := client.gitlabProjectPath()
+	projectPath, err := client.gitlabProjectPath(gitlabScopeOf(t))
 	if err != nil {
 		return nil, "", err
 	}
 	return client, projectPath, nil
 }
 
-// FormatTaskID gives a work item its local identity: gl-<projectID>-<iid>. A
-// GitLab project is one Sectile project, so two of them never share an id,
-// and the gl- prefix keeps them apart from GitHub's gh- ones.
-func (g *GitlabAdapter) FormatTaskID(projectID string, key string, rawID string) string {
+// gitlabScopeOf is the project path a GitLab tracker names, "" for any other.
+func gitlabScopeOf(t *models.Tracker) string {
+	if t == nil || !strings.EqualFold(strings.TrimSpace(t.Provider), "gitlab") {
+		return ""
+	}
+	return t.Scope
+}
+
+// FormatTaskID gives a work item its local identity: gl-<trackerID>-<iid>. A
+// GitLab project is one tracker, so two of them never share an id, and the
+// gl- prefix keeps them apart from GitHub's gh- ones.
+func (g *GitlabAdapter) FormatTaskID(trackerID string, key string, rawID string) string {
 	iid, err := gitlabIssueIID(key)
 	if err != nil && rawID != "" {
 		iid, err = gitlabIssueIID(rawID)
@@ -103,8 +106,8 @@ func (g *GitlabAdapter) FormatTaskID(projectID string, key string, rawID string)
 	if err == nil {
 		num = strconv.Itoa(iid)
 	}
-	if projectID != "" && projectID != "default" {
-		return fmt.Sprintf("gl-%s-%s", projectID, num)
+	if trackerID != "" && trackerID != "default" {
+		return fmt.Sprintf("gl-%s-%s", trackerID, num)
 	}
 	return "gl-" + num
 }
@@ -116,7 +119,7 @@ func gitlabIssuePath(projectPath string, iid int) string {
 // Issues.
 
 func (g *GitlabAdapter) SyncIssues(ctx context.Context, req tracker.SyncRequest) ([]models.Task, error) {
-	c, projectPath, err := g.forProject(ctx, req.Project)
+	c, projectPath, err := g.forProject(ctx, req.Tracker)
 	if err != nil {
 		return nil, err
 	}
@@ -168,7 +171,7 @@ func (g *GitlabAdapter) GetIssue(ctx context.Context, req tracker.GetIssueReques
 	if err != nil {
 		return nil, err
 	}
-	c, projectPath, err := g.forProject(ctx, req.Project)
+	c, projectPath, err := g.forProject(ctx, req.Tracker)
 	if err != nil {
 		return nil, err
 	}
@@ -187,7 +190,7 @@ func (g *GitlabAdapter) CreateIssue(ctx context.Context, req tracker.CreateIssue
 	if title == "" {
 		return nil, fmt.Errorf("le titre du ticket est obligatoire")
 	}
-	c, projectPath, err := g.forWrite(ctx, req.Project)
+	c, projectPath, err := g.forWrite(ctx, req.Tracker)
 	if err != nil {
 		return nil, err
 	}
@@ -328,7 +331,7 @@ func (g *GitlabAdapter) UpdateIssue(ctx context.Context, req tracker.UpdateIssue
 	if err != nil {
 		return err
 	}
-	c, projectPath, err := g.forWrite(ctx, req.Project)
+	c, projectPath, err := g.forWrite(ctx, req.Tracker)
 	if err != nil {
 		return err
 	}
@@ -418,7 +421,7 @@ func (g *GitlabAdapter) DeleteIssue(ctx context.Context, req tracker.DeleteIssue
 	if err != nil {
 		return err
 	}
-	c, projectPath, err := g.forWrite(ctx, req.Project)
+	c, projectPath, err := g.forWrite(ctx, req.Tracker)
 	if err != nil {
 		return err
 	}
@@ -446,7 +449,7 @@ func (g *GitlabAdapter) AddComment(ctx context.Context, req tracker.AddCommentRe
 	if err != nil {
 		return err
 	}
-	c, projectPath, err := g.forWrite(ctx, req.Project)
+	c, projectPath, err := g.forWrite(ctx, req.Tracker)
 	if err != nil {
 		return err
 	}
@@ -460,7 +463,7 @@ func (g *GitlabAdapter) GetComments(ctx context.Context, req tracker.GetComments
 	if err != nil {
 		return nil, err
 	}
-	c, projectPath, err := g.forProject(ctx, req.Project)
+	c, projectPath, err := g.forProject(ctx, req.Tracker)
 	if err != nil {
 		return nil, err
 	}
@@ -667,7 +670,7 @@ func (g *GitlabAdapter) SetTeam(ctx context.Context, key string, teamID string) 
 }
 
 func (g *GitlabAdapter) SearchTeams(ctx context.Context, req tracker.TeamSearchRequest) ([]models.TrackerTeam, error) {
-	c, projectPath, err := g.forProject(ctx, req.Project)
+	c, projectPath, err := g.forProject(ctx, req.Tracker)
 	if err != nil {
 		return nil, err
 	}
@@ -700,7 +703,7 @@ func (g *GitlabAdapter) SearchTeams(ctx context.Context, req tracker.TeamSearchR
 
 // TeamMembers answers the project's members: a label carries no people.
 func (g *GitlabAdapter) TeamMembers(ctx context.Context, req tracker.TeamRequest) ([]models.TeamMember, error) {
-	c, projectPath, err := g.forProject(ctx, req.Project)
+	c, projectPath, err := g.forProject(ctx, req.Tracker)
 	if err != nil {
 		return nil, err
 	}
@@ -737,7 +740,7 @@ func (g *GitlabAdapter) IssuePullRequests(ctx context.Context, req tracker.Issue
 	if err != nil {
 		return nil, err
 	}
-	c, projectPath, err := g.forProject(ctx, req.Project)
+	c, projectPath, err := g.forProject(ctx, req.Tracker)
 	if err != nil {
 		return nil, err
 	}

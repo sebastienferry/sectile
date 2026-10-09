@@ -182,6 +182,7 @@ func TestBranchNameFormatMigration(t *testing.T) {
 	if _, err := d.conn.Exec("DELETE FROM schema_migrations WHERE version >= 33"); err != nil {
 		t.Fatal(err)
 	}
+	undoTrackerMigration(d)
 	d.Close()
 	d, err = NewDB(path)
 	if err != nil {

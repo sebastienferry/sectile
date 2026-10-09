@@ -1205,3 +1205,112 @@ func TestDesktopProjectSpecificationsFolder(t *testing.T) {
 		t.Fatalf("a cleared override inherits the checkout again: %v", got)
 	}
 }
+
+// The board a launch is made from names the project the run works for
+// (#741): the agent forwards it to the server, and a ticket of several
+// projects is one of the project's tickets when that project is one of them.
+func TestDesktopLaunchForwardsTheProjectOfTheBoard(t *testing.T) {
+	testhome.Temp(t)
+	root := checkoutOf(t, "git@github.com:o/a.git")
+	if err := agentconfig.WriteSettings(agentconfig.Settings{
+		ProjectSettings: map[string]agentconfig.ProjectSettings{"p": {Path: root}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var forwarded []map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasPrefix(r.URL.Path, "/api/v1/agent/config"):
+			_ = json.NewEncoder(w).Encode(agentconfig.Config{SchemaVersion: agentconfig.Version, ProjectID: r.URL.Query().Get("projectId"), GitRemoteURL: "git@github.com:o/a.git"})
+		case r.URL.Path == "/api/tasks/task-1" && r.Method == http.MethodGet:
+			// Listed for its first project, the ticket belongs to two.
+			_ = json.NewEncoder(w).Encode(models.Task{ID: "task-1", Key: "GODE-1", ProjectID: "other", ProjectIDs: []string{"other", "p"}, Status: "in_progress"})
+		case r.URL.Path == "/api/tasks/task-2" && r.Method == http.MethodGet:
+			_ = json.NewEncoder(w).Encode(models.Task{ID: "task-2", Key: "GODE-2", ProjectID: "other", ProjectIDs: []string{"other"}, Status: "in_progress"})
+		case strings.HasSuffix(r.URL.Path, "/run-skill") && r.Method == http.MethodPost:
+			var body map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			forwarded = append(forwarded, body)
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"activity":{"id":"a1"}}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	d := &agentDaemon{
+		repoRoot: root,
+		loopback: loopbackServer{desktopToken: "private"},
+		link:     serverLink{serverURL: srv.URL, projectID: "p"},
+	}
+	launch := func(input map[string]any) *httptest.ResponseRecorder {
+		raw, _ := json.Marshal(input)
+		req := httptest.NewRequest(http.MethodPost, "/desktop/tasks?projectId=p", bytes.NewReader(raw))
+		req.Header.Set("Authorization", "Bearer private")
+		w := httptest.NewRecorder()
+		d.desktopHandler(w, req)
+		return w
+	}
+
+	if w := launch(map[string]any{"taskID": "task-1", "skillID": "custom", "prompt": "go"}); w.Code != http.StatusOK {
+		t.Fatalf("a ticket of the board's project is launchable: %d %s", w.Code, w.Body.String())
+	}
+	if len(forwarded) != 1 || forwarded[0]["projectId"] != "p" {
+		t.Fatalf("the launch must name the project of the board: %+v", forwarded)
+	}
+	// A ticket the project does not show is refused before the server.
+	if w := launch(map[string]any{"taskID": "task-2", "skillID": "custom", "prompt": "go"}); w.Code != http.StatusBadRequest {
+		t.Fatalf("a ticket of another project must be refused: %d %s", w.Code, w.Body.String())
+	}
+	if len(forwarded) != 1 {
+		t.Fatalf("a refused launch reached the server: %+v", forwarded)
+	}
+}
+
+// A ticket created from the desktop may name one of its project's trackers
+// (#741); the agent forwards it with the creation.
+func TestDesktopCreateTaskForwardsTheTracker(t *testing.T) {
+	testhome.Temp(t)
+	var created models.CreateTaskRequest
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasPrefix(r.URL.Path, "/api/v1/agent/config"):
+			_ = json.NewEncoder(w).Encode(agentconfig.Config{SchemaVersion: agentconfig.Version, ProjectID: "p"})
+		case r.URL.Path == "/api/tasks" && r.Method == http.MethodPost:
+			_ = json.NewDecoder(r.Body).Decode(&created)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusCreated)
+			_, _ = w.Write([]byte(`{"id":"t1","key":"BE-1"}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	d := &agentDaemon{
+		repoRoot: t.TempDir(),
+		loopback: loopbackServer{desktopToken: "private"},
+		link:     serverLink{serverURL: srv.URL},
+	}
+	raw, _ := json.Marshal(map[string]string{"projectId": "p", "title": " New ticket ", "trackerId": "be"})
+	req := httptest.NewRequest(http.MethodPost, "/desktop/create-task", bytes.NewReader(raw))
+	req.Header.Set("Authorization", "Bearer private")
+	w := httptest.NewRecorder()
+	d.desktopHandler(w, req)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("creation: %d %s", w.Code, w.Body.String())
+	}
+	if created.ProjectID != "p" || created.TrackerID != "be" || created.Title != "New ticket" || !created.RequireRemoteCreation {
+		t.Fatalf("the creation must carry the project and the tracker: %+v", created)
+	}
+
+	// Without a tracker, the server takes the project's default one.
+	created = models.CreateTaskRequest{}
+	raw, _ = json.Marshal(map[string]string{"projectId": "p", "title": "Another"})
+	req = httptest.NewRequest(http.MethodPost, "/desktop/create-task", bytes.NewReader(raw))
+	req.Header.Set("Authorization", "Bearer private")
+	w = httptest.NewRecorder()
+	d.desktopHandler(w, req)
+	if w.Code != http.StatusCreated || created.TrackerID != "" {
+		t.Fatalf("a creation without a tracker names none: %d %+v", w.Code, created)
+	}
+}
