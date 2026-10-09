@@ -36,7 +36,10 @@ func (h *Handler) connectForge(tracker string) func(http.ResponseWriter, *http.R
 		authorizeURL, err := h.db.ForgeOAuthAuthorizeURL(tracker, userID, cookie.Value)
 		switch {
 		case errors.Is(err, db.ErrForgeOAuthNotConfigured):
-			writeJSON(w, http.StatusConflict, map[string]string{"code": tracker + "_oauth_not_configured", "error": "La connexion " + name + " n'est pas configurée sur ce serveur : enregistrez un jeton personnel."})
+			writeJSON(
+				w,
+				http.StatusConflict,
+				map[string]string{"code": tracker + "_oauth_not_configured", "error": "La connexion " + name + " n'est pas configurée sur ce serveur : enregistrez un jeton personnel."})
 			return
 		case err != nil:
 			writeError(w, http.StatusInternalServerError, err.Error())
