@@ -50,6 +50,7 @@ contextBridge.exposeInMainWorld('localAgent',{
  updateTask:(projectId,taskId,changes)=>ipcRenderer.invoke('update-task',{projectId,taskId,changes}),
  assignable:(projectId,taskId,query)=>ipcRenderer.invoke('assignable',{projectId,taskId,query}),
  transitionStage:(projectId,taskId,stage,note)=>ipcRenderer.invoke('transition-stage',{projectId,taskId,stage,note}),
+ moveTaskStage:(projectId,taskId,move)=>ipcRenderer.invoke('move-task-stage',{projectId,taskId,move}),
  project:id=>ipcRenderer.invoke('project',id),
  deployProject:(id,action,provider)=>ipcRenderer.invoke('deploy-project',id,action,provider),
  projects:()=>ipcRenderer.invoke('projects'),

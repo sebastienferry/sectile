@@ -302,6 +302,25 @@ test('the task page creates and edits a task',async()=>{
   await expect(page.locator('.ticket-row[data-task-id="t2"] .ticket-title')).toHaveText('Raw source task, renamed')
   await page.getByRole('button',{name:'Close tickets',exact:true}).click()
 
+  // Edit task from a board card (#806 shares the card menu): opening the board
+  // over unsaved edits asks first, and Done goes back to the board.
+  await page.getByRole('button',{name:'Actions for Project A',exact:true}).click();await page.getByRole('menuitem',{name:'Open board',exact:true}).click()
+  await page.getByRole('button',{name:'More actions for #42',exact:true}).click()
+  await page.getByRole('menuitem',{name:'Edit task',exact:true}).click()
+  await expect(heading).toHaveText('#42')
+  await expect(page.locator('#tickets-pane')).toBeHidden()
+  await titleField.fill('Edited from the board')
+  await page.getByRole('button',{name:'Actions for Project A',exact:true}).click();await page.getByRole('menuitem',{name:'Open board',exact:true}).click()
+  await page.getByRole('button',{name:'Keep editing',exact:true}).click()
+  await expect(pane).toBeVisible()
+  await expect(page.locator('#tickets-pane')).toBeHidden()
+  await expect(titleField).toHaveValue('Edited from the board')
+  await page.getByRole('button',{name:'Close',exact:true}).click()
+  await page.getByRole('button',{name:'Discard',exact:true}).click()
+  await expect(pane).toBeHidden()
+  await expect(page.locator('#tickets-pane .board-area')).toBeVisible()
+  await page.getByRole('button',{name:'Close board',exact:true}).click()
+
   // An agent without the task page: edition says it is outdated, a plain
   // creation still works (AC12).
   state.taskPage=false

@@ -1,3 +1,5 @@
+import { explicitStage, stageFromColumn } from '../../shared/workflowStage.mjs'
+
 // The workflow stages in their order, shared by every list that sorts on them.
 export const STAGES=['new','clarified','specified','implemented','reviewed','finished']
 const skills={new:['clarify','Clarify'],clarified:['specify','Specify'],specified:['implement','Implement'],implemented:implementedStep,reviewed:['handoff','Handoff']}
@@ -21,10 +23,17 @@ export function skillLabel(skillId){
  return skillLabels[id]||(id?id[0].toUpperCase()+id.slice(1):'')
 }
 
-export function taskStage(task){
- const labels=(task.labels||[]).map(label=>label.trim().replace(/^#+/,'').toLowerCase())
- if(['finished','done'].includes(task.status)||labels.some(label=>['finished','closed','done'].includes(label)))return 'finished'
- for(const stage of [...STAGES].reverse())if(labels.includes(stage))return stage
+// The stage of a task: a finished status, then an explicit workflow label, then
+// the stage the project maps the task's tracker column to when `board` carries
+// the mapping (/desktop/project's board field), then the status. With a board it
+// answers as the web board does, so the board, the tickets list and the
+// sidebar's grouping agree (#806).
+export function taskStage(task,board){
+ if(['finished','done'].includes(task.status))return 'finished'
+ const labelled=explicitStage({...task,labels:(task.labels||[]).map(label=>String(label).trim())})
+ if(labelled)return labelled
+ const mapped=board&&stageFromColumn(task,board)
+ if(mapped)return mapped
  return ({to_clarify:'new',backlog:'new',untouched:'new',to_specify:'clarified',to_implement:'specified',in_progress:'specified',to_test:'implemented',to_validate:'implemented',to_close:'reviewed'})[task.status]||task.status||'Unknown'
 }
 

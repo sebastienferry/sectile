@@ -544,6 +544,12 @@ ipcMain.handle('transition-stage',async(_,{projectId,taskId,stage,note})=>{
  }
  return api('/desktop/tasks/transition?projectId='+encodeURIComponent(projectId),'POST',{taskId,stage,note})
 })
+// A board move (#806): the renderer computes the labels, status and tracker
+// status with the web's rules, and the agent forwards only those.
+ipcMain.handle('move-task-stage',async(_,{projectId,taskId,move}={})=>{
+ if(!projectId||!taskId||!move)throw Error('Project, task, and move required')
+ return api('/desktop/tasks/stage-move?projectId='+encodeURIComponent(projectId),'POST',{taskId,labels:move.labels,status:move.status,trackerStatus:move.trackerStatus||''})
+})
 ipcMain.handle('archive-workspace',async(_,{projectId,taskId}={})=>{
  if(!projectId||!taskId)throw Error('Project and task required')
  const status=await api('/desktop/status')

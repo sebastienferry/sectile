@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { ACCENT_COLORS } from '../src/lib/accents.ts'
 import { epicColor, epicColorHex, epicColorsEnabled, fnv1a } from '../src/lib/epicColor.ts'
+import { EPIC_PALETTE, epicColorHex as sharedEpicColorHex } from '../../shared/epicColor.mjs'
 
 test('a task without a parent gets no colour', () => {
   assert.equal(epicColor(undefined), null)
@@ -56,4 +57,10 @@ test('a task without a project reads the setting of the project on screen', () =
   assert.equal(epicColorsEnabled(projects, undefined, null), false)
   // A task that names its project is read against it, not against the fallback.
   assert.equal(epicColorsEnabled(projects, 'other', projects[0]), false)
+})
+
+test('the shared palette is the accent palette, so both clients paint a macro alike', () => {
+  assert.deepEqual(ACCENT_COLORS.map(c => c.hex), EPIC_PALETTE)
+  assert.equal(sharedEpicColorHex('#12'), epicColorHex('#12'))
+  assert.equal(sharedEpicColorHex('#12'), '#8b5cf6')
 })

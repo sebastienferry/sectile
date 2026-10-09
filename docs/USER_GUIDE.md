@@ -174,6 +174,17 @@ Desktop **General** settings combine user profile information and appearance.
 Use **Search settings** to find fields across the loaded settings categories.
 The settings content fills the available width and adapts to window resizing.
 
+### See a project's board
+
+Use **Open board** on a project, or **Project board** in the command palette, to see the project's tasks in six workflow columns: **New**, **Clarified**, **Specified**, **Implemented**, **Reviewed** and **Finished**, finished tasks included. A task whose status is finished sits in **Finished**. Any other task sits in the column the web board shows it in: its workflow label first, then the stage the project maps its tracker column to, then its status. The board replaces the tickets list while it is open; **Close board** or Escape returns to the previous view. The search field narrows the board to the tasks whose title or key matches.
+
+- **Finished column.** It starts collapsed into a narrow strip showing its count. Click the strip to expand it and **Hide finished** to collapse it again.
+- **Card display.** **Condensed** shows the key, the title, the latest execution's state and the actions menu on one line. **Full** adds the macro, the priority, the labels, the pull request and the assignee.
+- Both choices are remembered on this workstation for every project, and do not change the web board.
+- When the project enables macro colours, a card whose task has a macro carries that macro's colour on its left edge, the same colour as on the web board.
+- A card's **…** menu offers the same actions as a row of the tickets list. Selecting its title opens the task in Sectile and launches nothing.
+- **Move a task between stages.** Drag a card onto another column, or onto the collapsed Finished strip. The task takes that column's workflow label and status, and its tracker status follows the project's stage mapping, exactly as a move on the web board does. Any stage is accepted, backwards included; no skill is launched and no stage report is recorded. If the server refuses the move, the card stays where it was and the board shows why. Moving needs a local agent recent enough to support it; with an older agent the cards cannot be dragged.
+
 ### Provider model lists
 
 Configure the models offered at launch under **Settings → AI engines → Models offered**, grouped by Antigravity, Claude and Codex. Each provider has its own **Models offered** field and **Save models** button. Reset restores the shipped list; saving an empty custom list offers no models. Execution defaults save separately and preserve these choices. Upgrade the local agent together with Desktop.

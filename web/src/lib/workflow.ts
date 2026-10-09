@@ -1,6 +1,12 @@
 import type { Project, Status, Task, WorkflowStage } from '../types'
 import { shell } from '../locales/shell.ts'
-import { trackerBoard } from './stageMapping.ts'
+import {
+  INTERNAL_STATUS_BY_STAGE as SHARED_INTERNAL_STATUS_BY_STAGE,
+  WORKFLOW_STAGES,
+  columnOfTask as sharedColumnOfTask,
+  explicitStage,
+  stageFromColumn as sharedStageFromColumn,
+} from '../../../shared/workflowStage.mjs'
 
 /**
  * Étape du workflow agentique d'une tâche, et skill qui en découle.
@@ -12,14 +18,7 @@ import { trackerBoard } from './stageMapping.ts'
  * n'avoir jamais été posé.
  */
 
-export const WORKFLOW_ORDER: WorkflowStage[] = [
-  'new',
-  'clarified',
-  'specified',
-  'implemented',
-  'reviewed',
-  'finished',
-]
+export const WORKFLOW_ORDER: WorkflowStage[] = WORKFLOW_STAGES
 
 /** Étape déduite des labels, puis du statut interne en repli. */
 export const stageFromLabels = (task: Task): WorkflowStage => {
@@ -53,56 +52,36 @@ export const stageFromLabels = (task: Task): WorkflowStage => {
 }
 
 /**
- * Colonne du board contenant la tâche, d'après son statut de tracker : une
- * colonne du tracker du ticket, tel que le projet le lit (#741).
+ * The board column holding the task, from its tracker status: a column of the
+ * ticket's tracker, as the project reads it (#741). Shared with the desktop
+ * board (#806).
  */
-export const columnOfTask = (task: Task, project?: Project | null): string | null => {
-  const status = (task.trackerStatus || '').toLowerCase()
-  const { trackerColumns } = trackerBoard(project, task.trackerId)
-  if (!status || !trackerColumns.length) return null
-  const column = trackerColumns.find(col =>
-    col.name.toLowerCase() === status ||
-    (col.statuses && col.statuses.some(st => st.toLowerCase() === status))
-  )
-  return column?.name || null
-}
+export const columnOfTask = (task: Task, project?: Project | null): string | null =>
+  sharedColumnOfTask(task, project)
 
 /**
- * Étape affectée à la colonne de la tâche. Quand une colonne en porte
- * plusieurs, la moins avancée gagne : c'est l'étape encore à faire dans cette
- * colonne, donc celle qui doit être proposée. La correspondance est celle qui
- * s'applique au tracker du ticket dans le projet : la sienne, sinon celle du
- * tracker (#741).
+ * The stage mapped to the task's column. When a column carries several, the
+ * least advanced wins: it is the stage still to do in that column, so the one
+ * to offer. The mapping is the one that applies to the ticket's tracker in the
+ * project: its own, else the tracker's (#741).
  */
-export const stageFromColumn = (task: Task, project?: Project | null): WorkflowStage | null => {
-  const column = columnOfTask(task, project)
-  if (!column) return null
-  const mapping = trackerBoard(project, task.trackerId).stageColumns
-  for (const stage of WORKFLOW_ORDER) {
-    if ((mapping[stage] || []).includes(column)) return stage
-  }
-  return null
-}
+export const stageFromColumn = (task: Task, project?: Project | null): WorkflowStage | null =>
+  sharedStageFromColumn(task, project)
 
 /**
- * Étape retenue : les labels de workflow d'abord quand un label explicite est présent,
- * puis la colonne du board quand le projet est configuré, puis le statut/mots-clés en repli.
+ * The stage a task is shown at: an explicit workflow label first, then the
+ * board column when the project maps one, then the keyword and status fallback.
  */
 export const resolveTaskStage = (task: Task, project?: Project | null): WorkflowStage => {
-  // 1. Les labels de workflow explicites ont priorité absolue dans la vue agentique
-  const labels = (task.labels || []).map(l => l.toLowerCase().replace(/^#+/, ''))
-  if (labels.includes('finished') || labels.includes('closed') || labels.includes('done')) return 'finished'
-  if (labels.includes('reviewed')) return 'reviewed'
-  if (labels.includes('implemented')) return 'implemented'
-  if (labels.includes('specified')) return 'specified'
-  if (labels.includes('clarified')) return 'clarified'
-  if (labels.includes('new') || labels.includes('untouched')) return 'new'
+  // 1. Explicit workflow labels win outright in the agentic view.
+  const labelStage = explicitStage(task)
+  if (labelStage) return labelStage
 
-  // 2. Colonne du board configurée pour le projet si pas de label explicite
+  // 2. The board column the project maps, without an explicit label.
   const colStage = stageFromColumn(task, project)
   if (colStage) return colStage
 
-  // 3. Repli sur les mots-clés de labels et le statut
+  // 3. Fall back on label keywords and the status.
   return stageFromLabels(task)
 }
 
@@ -148,18 +127,11 @@ const NON_TASK_SKILLS = new Set(['refine_macro', 'realign_macro', 'pickup_issues
 export const isTaskScopedSkill = (skillId: string): boolean => !NON_TASK_SKILLS.has(skillId)
 
 /**
- * Étape du workflow et statut interne se répondent un pour un : c'est le même
- * découpage, nommé par le label côté tracker et par le statut côté application.
- * Le serveur tient la même table (internal/db/board.go).
+ * Workflow stage and internal status match one to one: the same split, named by
+ * the label on the tracker side and by the status on the application side. The
+ * server holds the same table (internal/db/board.go).
  */
-export const INTERNAL_STATUS_BY_STAGE: Record<WorkflowStage, Status> = {
-  new: 'to_clarify',
-  clarified: 'clarified',
-  specified: 'to_implement',
-  implemented: 'to_test',
-  reviewed: 'to_close',
-  finished: 'finished',
-}
+export const INTERNAL_STATUS_BY_STAGE = SHARED_INTERNAL_STATUS_BY_STAGE as Record<WorkflowStage, Status>
 
 /** Étape correspondant à un statut interne, alias historiques compris. */
 export const stageForInternalStatus = (status: Status): WorkflowStage => {
