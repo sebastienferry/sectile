@@ -5,11 +5,14 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/http/httputil"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"tasks/internal/agentconfig"
 	"tasks/internal/agentprotocol"
@@ -373,6 +376,80 @@ func TestRefreshSkillsIgnoresADisconnectedProject(t *testing.T) {
 	}
 	if content := codexClarify(t, home); content != before {
 		t.Fatalf("the copy changed:\n%s", content)
+	}
+}
+
+// Two saves of a project close together: the refresh that fetched the
+// project before the second save holds the direct copy lock from that fetch,
+// so the refresh sent for the second save cannot fetch, nor write, before it,
+// and the copy written last carries the second save.
+func TestRefreshSkillsWritesTheLaterSaveLast(t *testing.T) {
+	home, _, projects, d := refreshFixture(t, true)
+	projects.override("alpha", "clarify", "## Steps\nFirst save.")
+	target, err := url.Parse(d.link.serverURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	proxy := httputil.NewSingleHostReverseProxy(target)
+	var mu sync.Mutex
+	alphaFetches := 0
+	fetched, release := make(chan struct{}), make(chan struct{})
+	gate := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/agent/config" || r.URL.Query().Get("projectId") != "alpha" {
+			proxy.ServeHTTP(w, r)
+			return
+		}
+		mu.Lock()
+		alphaFetches++
+		first := alphaFetches == 1
+		mu.Unlock()
+		// The first fetch reads the server before the second save, then is
+		// held until the test releases it.
+		rec := httptest.NewRecorder()
+		proxy.ServeHTTP(rec, r)
+		if first {
+			close(fetched)
+			<-release
+		}
+		for key, values := range rec.Header() {
+			w.Header()[key] = values
+		}
+		w.WriteHeader(rec.Code)
+		_, _ = w.Write(rec.Body.Bytes())
+	}))
+	t.Cleanup(gate.Close)
+	d.link.serverURL = gate.URL
+
+	refresh := func(done chan<- error) {
+		_, err := d.executeOperation(context.Background(), agentprotocol.Operation{ProjectID: "alpha", Action: "refresh_skills"})
+		done <- err
+	}
+	first, second := make(chan error, 1), make(chan error, 1)
+	go refresh(first)
+	<-fetched
+	projects.override("alpha", "clarify", "## Steps\nSecond save.")
+	go refresh(second)
+	select {
+	case err := <-second:
+		close(release)
+		t.Fatalf("the second refresh finished while the first held its fetch: %v", err)
+	case <-time.After(200 * time.Millisecond):
+	}
+	mu.Lock()
+	started := alphaFetches
+	mu.Unlock()
+	close(release)
+	if err := <-first; err != nil {
+		t.Fatal(err)
+	}
+	if err := <-second; err != nil {
+		t.Fatal(err)
+	}
+	if started != 1 {
+		t.Fatalf("%d fetches of alpha started while the first refresh held its fetch, want 1", started)
+	}
+	if content := codexClarify(t, home); !strings.Contains(content, "Second save.") {
+		t.Fatalf("the copy written last lacks the second save:\n%s", content)
 	}
 }
 

@@ -126,6 +126,13 @@ func (d *agentDaemon) executeOperation(ctx context.Context, op agentprotocol.Ope
 	if !slices.Contains(agentprotocol.Operations, op.Action) {
 		return nil, errors.New(agentprotocol.UnknownOperationReply(op.Action))
 	}
+	// The direct copies compose the project's own work from the configuration
+	// fetched here, so their lock is taken before that fetch: a copy composed
+	// from an older fetch is then never written last (#732).
+	if op.Action == "refresh_skills" || op.Action == "sync_config" {
+		d.directCopyMu.Lock()
+		defer d.directCopyMu.Unlock()
+	}
 	config, err := d.fetchConfig(ctx, op.ProjectID, op.TaskID, op.Framework)
 	if err != nil {
 		return nil, err
@@ -218,9 +225,8 @@ func (d *agentDaemon) executeOperation(ctx context.Context, op agentprotocol.Ope
 		// (#732). Only they are taken from the helper: it resolves the engine
 		// again, which would undo the provider this operation asks for. A
 		// project that cannot be read is left out with a warning: its variant
-		// drops out of the shared copies until the next refresh.
-		d.directCopyMu.Lock()
-		defer d.directCopyMu.Unlock()
+		// drops out of the shared copies until the next refresh. The caller
+		// holds directCopyMu since the fetch of the project's configuration.
 		direct, warnings, err := d.directSetupConfig(ctx, fetched)
 		if err != nil {
 			return nil, err
@@ -503,6 +509,9 @@ func editorFor(settings agentconfig.Settings, sent string) string {
 // written once the checkout is known: the project's own, every worktree of it
 // included, when the workstation maps it, else the workstation's settings
 // folder, where the backups of the copies edited by hand then go.
+//
+// The caller holds directCopyMu since it fetched config, so a copy composed
+// from an older fetch is never written last.
 func (d *agentDaemon) refreshSkills(ctx context.Context, config agentconfig.Config) (any, error) {
 	providers, err := agentconfig.ManagedProviders()
 	if err != nil {
@@ -522,8 +531,6 @@ func (d *agentDaemon) refreshSkills(ctx context.Context, config agentconfig.Conf
 	}
 	// As for sync_config, a project that cannot be read is left out with a
 	// warning.
-	d.directCopyMu.Lock()
-	defer d.directCopyMu.Unlock()
 	direct, warnings, err := d.directSetupConfig(ctx, config)
 	if err != nil {
 		return nil, err
