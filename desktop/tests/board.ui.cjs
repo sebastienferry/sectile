@@ -213,7 +213,7 @@ test('a card offers the tickets row actions, and its title launches nothing',asy
  const {page,app,state,openBoard,card}=await boardApp(t,{board:mapped,tasks:sample()})
  await openBoard()
  await card('#1').getByRole('button',{name:'More actions for #1',exact:true}).click()
- assert.deepEqual(await page.getByRole('menuitem').allTextContents(),['Pickup (full chain)','clarify','specify','Discussion (no skill)','Discussion in native terminal','Custom instructions…','Launch…'])
+ assert.deepEqual(await page.getByRole('menuitem').allTextContents(),['Pickup (full chain)','clarify','specify','Discussion (no skill)','Discussion in native terminal','Custom instructions…','Launch…','Edit task'])
  await page.getByRole('menuitem',{name:'clarify',exact:true}).click()
  await expect.poll(()=>state.launches.length).toBe(1)
  assert.deepEqual(state.launches[0],{project:'project-a',taskID:'a1',skillID:'clarify',prompt:''})

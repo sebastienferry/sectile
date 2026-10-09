@@ -480,6 +480,23 @@ rather than comparing a single owning project; a launch from a project sends
 its `projectId` to `run-skill`, and `/desktop/create-task` forwards an optional
 `trackerId`, one of the project's trackers, to the task creation.
 
+The Desktop task page (#805), announced by the `task-page` capability of
+`/desktop/status`, uses three routes. Each takes `projectId` and `taskId` in the
+query, refuses with 400 a task that is not one of the project's, and relays the
+server's status and body, written with the paired token:
+
+- `GET /desktop/tasks/detail` answers the server's task (`GET /api/tasks/<id>`).
+- `PUT /desktop/tasks/detail` forwards `title`, `description`, `assignee`,
+  `assigneeAccountId`, `assigneeAvatar` and `prLinks` to `PUT /api/tasks/<id>`;
+  every key is optional, an absent one is unchanged, any other key is dropped.
+  A blank title, a pull request link that is not an absolute `http` or `https`
+  URL, or one carrying credentials, is refused with 400
+  (`Invalid pull request link: <url>`) and nothing is forwarded. `prLinks`
+  replaces the whole set, and the server sets `prUrl` to its last link. The
+  body is limited to 128 KiB.
+- `GET /desktop/tasks/assignable` relays `GET /api/tasks/<id>/assignable` with
+  its `q`.
+
 Terminal settings continue to come from the server. `--terminal` is optional
 and serves only as an explicit local override.
 

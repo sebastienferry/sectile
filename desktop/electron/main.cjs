@@ -36,7 +36,7 @@ function validConnection(value){
 }
 async function api(route,method='GET',body){
  if(!connection)throw Error('Connect to the local agent first')
- const response=await fetch(connection.url+route,{method,headers:{Authorization:'Bearer '+connection.token,'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined,signal:AbortSignal.timeout(route==="/desktop/create-task"?120000:route==="/desktop/run-folder"?45000:route.startsWith("/desktop/tasks")&&method==="POST"?60000:route.startsWith("/desktop/project?")&&method==="POST"?420000:15000),redirect:'error'})
+ const response=await fetch(connection.url+route,{method,headers:{Authorization:'Bearer '+connection.token,'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined,signal:AbortSignal.timeout(route==="/desktop/create-task"?120000:route==="/desktop/run-folder"?45000:route.startsWith("/desktop/tasks")&&(method==="POST"||method==="PUT")?60000:route.startsWith("/desktop/project?")&&method==="POST"?420000:15000),redirect:'error'})
  if(!response.ok){
   const detail=await response.text().catch(()=>'')
   // Display plain API errors; preserve structured refusals for callers that read their fields.
@@ -520,6 +520,22 @@ ipcMain.handle('create-task',async(_,input)=>{
  if(!status.capabilities?.includes('create-task'))throw Error('The running local agent is outdated. Stop it, then start the rebuilt agent before creating a task. Closing the desktop alone does not restart the agent.')
  return api('/desktop/create-task','POST',input)
 })
+// The task page (#805) reads, edits and searches assignees through the agent,
+// which checks the task belongs to the project and writes with the paired key.
+const TASK_PAGE_OUTDATED='The running local agent is outdated. Stop it, then start the rebuilt agent before editing a task. Closing the desktop alone does not restart the agent.'
+async function taskPageRoute(route,method,body){
+ const status=await api('/desktop/status')
+ if(!status.capabilities?.includes('task-page'))throw Error(TASK_PAGE_OUTDATED)
+ return api(route,method,body)
+}
+const taskQuery=(projectId,taskId)=>{
+ if(typeof projectId!=='string'||!projectId||typeof taskId!=='string'||!taskId)throw Error('Project and task required')
+ return '?projectId='+encodeURIComponent(projectId)+'&taskId='+encodeURIComponent(taskId)
+}
+ipcMain.handle('task-page-available',async()=>!!(await api('/desktop/status')).capabilities?.includes('task-page'))
+ipcMain.handle('task',(_,{projectId,taskId}={})=>taskPageRoute('/desktop/tasks/detail'+taskQuery(projectId,taskId)))
+ipcMain.handle('update-task',(_,{projectId,taskId,changes}={})=>taskPageRoute('/desktop/tasks/detail'+taskQuery(projectId,taskId),'PUT',changes&&typeof changes==='object'?changes:{}))
+ipcMain.handle('assignable',(_,{projectId,taskId,query}={})=>taskPageRoute('/desktop/tasks/assignable'+taskQuery(projectId,taskId)+'&q='+encodeURIComponent(typeof query==='string'?query:'')))
 ipcMain.handle('transition-stage',async(_,{projectId,taskId,stage,note})=>{
  if(!projectId||!taskId||!stage)throw Error('Project, task, and stage required')
  const status=await api('/desktop/status')
@@ -653,6 +669,13 @@ function openWindow(){
  window.webContents.setWindowOpenHandler(()=>({action:'deny'}))
  window.webContents.on('will-navigate',event=>event.preventDefault())
  window.loadFile(path.join(__dirname,'../dist/index.html'))
+ // The task page holds unsaved edits (#805): the renderer refuses the unload,
+ // and the window asks before it closes. Without edits nothing is refused, so
+ // quitting for an update or a restart is never held up.
+ window.webContents.on('will-prevent-unload',event=>{
+  const choice=dialog.showMessageBoxSync(window,{type:'question',buttons:['Keep editing','Discard'],defaultId:0,cancelId:0,message:'Discard unsaved changes?',detail:'The task page has changes that are not saved.'})
+  if(choice===1)event.preventDefault()
+ })
  window.on('closed',()=>{window=null;if(socket){socket.close();socket=null}})
 }
 if(!app.requestSingleInstanceLock())app.quit()

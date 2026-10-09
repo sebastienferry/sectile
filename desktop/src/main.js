@@ -7,7 +7,9 @@ import { mcpProviders } from '../../shared/mcpConfig.mjs'
 import { skillEnded, skillResultDue, skillResultStamp } from './skill-result-refresh.mjs'
 import { newTaskShortcutAction, newTaskShortcutLabel } from './new-task-shortcut.mjs'
 import { paletteMatches } from './command-palette.mjs'
-import { defaultActionShortcut, defaultActionTarget, defaultActionLabel } from './dialog-default.mjs'
+import { defaultActionShortcut, defaultActionTarget } from './dialog-default.mjs'
+import { openTaskPage } from './task-page.mjs'
+import { initialProject, leaveMessage } from './task-form.mjs'
 import { logText } from './log-text.mjs'
 import { createGitDiff } from './gitDiff.js'
 import { createConversationView } from './conversation.js'
@@ -63,7 +65,7 @@ document.querySelector('#app').innerHTML=`
 <form id="start"><label>Sectile server<input name="server" type="url" value="http://localhost:8090" required></label>
 <div id="pair-again"><button id="browser-sign-in" type="button">Sign in with your browser</button><label>Pairing code<input name="code" type="text" autocomplete="off" spellcheck="false" placeholder="Paste the code from the web interface"></label></div>
 <p class="start-reason" role="alert" hidden></p><button type="submit">Connect</button></form></section>
-<main id="workspace" hidden><aside><div class="sidebar-scroll"><div class="section">PROJECTS <button id="add-project" title="Add a remote project">+</button></div><div id="runs"></div><button id="clear-history" class="icon-button" type="button" aria-label="Clear finished consoles" title="Clear finished consoles" disabled></button></div><footer class="sidebar-footer"><span id="connection" data-state="off">Connecting…</span><nav aria-label="Local agent controls"><button id="shutdown" class="icon-button" aria-label="Stop agent" title="Stop agent" hidden></button><button id="restart" class="icon-button" aria-label="Restart agent" title="Restart agent" hidden></button></nav><button id="settings" class="icon-button" type="button" aria-label="Settings" title="Settings"></button></footer></aside><div id="sidebar-resizer" role="separator" aria-label="Resize sidebar" aria-orientation="vertical" tabindex="0"></div><article><div id="toolbar"><div class="toolbar-row toolbar-primary"><div class="terminal-title-line"><strong id="title">Select an execution</strong><span id="native-terminal-badge" class="native-terminal-badge" hidden></span></div><div class="toolbar-meta"><select id="execution-history" aria-label="Execution history" hidden></select><span id="next-step-label" class="step-badge" aria-hidden="true" hidden></span></div></div><div class="toolbar-row toolbar-secondary"><div class="worktree-line"><button id="worktree" class="worktree" type="button" title="Copy this path" hidden><svg class="worktree-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2z"/></svg><span id="directory"></span></button><button id="worktree-folders" class="icon-button worktree-folders" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="worktree-folders-menu" aria-label="Folders of this execution" title="Folders of this execution" hidden><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button><button id="open-editor" class="icon-button" type="button" hidden></button><span id="worktree-copied" class="worktree-copied" role="status"></span><div id="worktree-folders-menu" class="folder-menu" role="menu" aria-label="Folders of this execution" hidden></div></div><div class="toolbar-actions"><div class="execution-views" role="group" aria-label="Execution view"><button id="view-console" class="icon-button" type="button" aria-label="Console" title="Console" aria-pressed="true" disabled></button><button id="view-changes" class="icon-button" type="button" aria-label="Changes" title="Changes" aria-pressed="false" disabled></button></div><button id="selected-pr" class="icon-button" type="button" hidden></button><button id="selected-pr-more" class="icon-button selected-pr-more" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="selected-pr-menu" aria-label="Pull requests of this task" title="Pull requests of this task" hidden><span class="pr-count"></span><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button><div id="selected-pr-menu" class="folder-menu pr-menu" role="menu" aria-label="Pull requests of this task" hidden></div><button id="detach-terminal" class="icon-button" type="button" aria-label="Detach to native terminal" title="Detach to native terminal" hidden></button><button id="rerun" class="icon-button" type="button" aria-label="Launch" title="Launch" hidden></button><button id="save-log" class="icon-button" type="button" aria-label="Export log" title="Export log"></button><button id="stop" class="icon-button" type="button" aria-label="Stop execution" title="Stop execution" disabled></button><button id="next-step" class="icon-button" type="button" hidden disabled></button><button id="pickup-chain" class="icon-button" type="button" aria-label="Pickup (full chain)" title="Pickup (full chain)" hidden disabled></button><button id="mark-reviewed" type="button" class="secondary" title="The pull request needs no more changes: skip Adjust, move the task to reviewed, and hand off once it is merged" hidden>Skip to Handoff</button><button id="retry-next-step" type="button" title="Retry reading the task workflow" hidden>Retry</button><button id="force-next-step" type="button" class="secondary" title="Launch although a run is already active on this task" hidden>Launch anyway</button></div></div></div><div id="execution-content"><div id="terminal"></div><div id="execution-divider" role="separator" aria-label="Resize execution views" aria-orientation="vertical" aria-valuemin="25" aria-valuemax="75" aria-valuenow="50" tabindex="0" hidden></div><section id="changes" aria-label="Worktree changes" hidden></section></div><footer id="task-status"><div class="execution-status"><span id="run-state" class="run-state selected-run-state" hidden></span><span id="skill-result" role="status" hidden></span></div><span id="next-step-status" role="status" aria-live="polite">Select a task to see its next step</span></footer></article><section id="tickets-pane" aria-label="Tickets" hidden></section></main>
+<main id="workspace" hidden><aside><div class="sidebar-scroll"><div class="section">PROJECTS <button id="add-project" title="Add a remote project">+</button></div><div id="runs"></div><button id="clear-history" class="icon-button" type="button" aria-label="Clear finished consoles" title="Clear finished consoles" disabled></button></div><footer class="sidebar-footer"><span id="connection" data-state="off">Connecting…</span><nav aria-label="Local agent controls"><button id="shutdown" class="icon-button" aria-label="Stop agent" title="Stop agent" hidden></button><button id="restart" class="icon-button" aria-label="Restart agent" title="Restart agent" hidden></button></nav><button id="settings" class="icon-button" type="button" aria-label="Settings" title="Settings"></button></footer></aside><div id="sidebar-resizer" role="separator" aria-label="Resize sidebar" aria-orientation="vertical" tabindex="0"></div><article><div id="toolbar"><div class="toolbar-row toolbar-primary"><div class="terminal-title-line"><strong id="title">Select an execution</strong><span id="native-terminal-badge" class="native-terminal-badge" hidden></span></div><div class="toolbar-meta"><select id="execution-history" aria-label="Execution history" hidden></select><span id="next-step-label" class="step-badge" aria-hidden="true" hidden></span></div></div><div class="toolbar-row toolbar-secondary"><div class="worktree-line"><button id="worktree" class="worktree" type="button" title="Copy this path" hidden><svg class="worktree-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2z"/></svg><span id="directory"></span></button><button id="worktree-folders" class="icon-button worktree-folders" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="worktree-folders-menu" aria-label="Folders of this execution" title="Folders of this execution" hidden><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button><button id="open-editor" class="icon-button" type="button" hidden></button><span id="worktree-copied" class="worktree-copied" role="status"></span><div id="worktree-folders-menu" class="folder-menu" role="menu" aria-label="Folders of this execution" hidden></div></div><div class="toolbar-actions"><div class="execution-views" role="group" aria-label="Execution view"><button id="view-console" class="icon-button" type="button" aria-label="Console" title="Console" aria-pressed="true" disabled></button><button id="view-changes" class="icon-button" type="button" aria-label="Changes" title="Changes" aria-pressed="false" disabled></button></div><button id="selected-pr" class="icon-button" type="button" hidden></button><button id="selected-pr-more" class="icon-button selected-pr-more" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="selected-pr-menu" aria-label="Pull requests of this task" title="Pull requests of this task" hidden><span class="pr-count"></span><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button><div id="selected-pr-menu" class="folder-menu pr-menu" role="menu" aria-label="Pull requests of this task" hidden></div><button id="detach-terminal" class="icon-button" type="button" aria-label="Detach to native terminal" title="Detach to native terminal" hidden></button><button id="edit-task" class="icon-button" type="button" aria-label="Edit task" title="Edit task" hidden></button><button id="rerun" class="icon-button" type="button" aria-label="Launch" title="Launch" hidden></button><button id="save-log" class="icon-button" type="button" aria-label="Export log" title="Export log"></button><button id="stop" class="icon-button" type="button" aria-label="Stop execution" title="Stop execution" disabled></button><button id="next-step" class="icon-button" type="button" hidden disabled></button><button id="pickup-chain" class="icon-button" type="button" aria-label="Pickup (full chain)" title="Pickup (full chain)" hidden disabled></button><button id="mark-reviewed" type="button" class="secondary" title="The pull request needs no more changes: skip Adjust, move the task to reviewed, and hand off once it is merged" hidden>Skip to Handoff</button><button id="retry-next-step" type="button" title="Retry reading the task workflow" hidden>Retry</button><button id="force-next-step" type="button" class="secondary" title="Launch although a run is already active on this task" hidden>Launch anyway</button></div></div></div><div id="execution-content"><div id="terminal"></div><div id="execution-divider" role="separator" aria-label="Resize execution views" aria-orientation="vertical" aria-valuemin="25" aria-valuemax="75" aria-valuenow="50" tabindex="0" hidden></div><section id="changes" aria-label="Worktree changes" hidden></section></div><footer id="task-status"><div class="execution-status"><span id="run-state" class="run-state selected-run-state" hidden></span><span id="skill-result" role="status" hidden></span></div><span id="next-step-status" role="status" aria-live="polite">Select a task to see its next step</span></footer></article><section id="tickets-pane" aria-label="Tickets" hidden></section><section id="task-page-pane" hidden></section></main>
 <dialog id="project-dialog"><button id="close-dialog" class="icon-button" type="button" aria-label="Close" title="Close"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button><div id="dialog-body"></div><div class="dialog-footer" hidden></div></dialog><div id="error" role="alert"></div>`
 installTooltips()
 // The console shows a prompt the user configured elsewhere - oh-my-posh, starship, powerlevel10k -
@@ -325,6 +327,9 @@ function ready(){
 }
 function select(run,background=false,options){
  if(hiddenProject(run.projectId))return
+ // A run the user picks leaves the task page, once its edits are dealt with;
+ // one that starts in the background stays under it.
+ if(!background&&taskPage){confirmLeave().then(ok=>{if(ok)select(run,background,options)});return}
  if(!background)closeTickets(false)
  // A run recorded before #741 names no project: the board the user is on
  // stays the one its relaunch falls back to.
@@ -347,7 +352,7 @@ function select(run,background=false,options){
   terminal.writeln(consoleNotice(run))
   render(options);return
  }
- api.attach(run.id).then(()=>{setTimeout(resize,150);if(changes.consoleVisible&&!ticketsOpen&&!readOnlyConsole(run))terminal.focus()}).catch(error)
+ api.attach(run.id).then(()=>{setTimeout(resize,150);if(changes.consoleVisible&&!ticketsOpen&&!taskPage&&!readOnlyConsole(run))terminal.focus()}).catch(error)
  render(options)
 }
 // The state the user reads, drawn from the shared definition so the row, the
@@ -913,6 +918,8 @@ function render(options){
  if(!entries.length||current?.id!==prMenuRun)prMenu.close()
  // A macro run is relaunched from the macro panel: it has no task to relaunch here.
  document.querySelector('#rerun').hidden=!current||macroRun(current)
+ // A server task is edited in the task page (#805); a project prompt or a macro run has none.
+ document.querySelector('#edit-task').hidden=!current||freeConsole(current)||macroRun(current)||!current.taskId||!current.projectId
  document.querySelector('#stop').disabled=stopping||!current||!activeRun(current)
  const detachBtn=document.querySelector('#detach-terminal')
  if(detachBtn){
@@ -1168,7 +1175,7 @@ dialog.addEventListener('close',()=>{
 function showDialog(title){
  closeConfiguration()
  updateSettingsConnection=null
- dialog.classList.remove('workstation-settings','palette-dialog','quick-add-dialog')
+ dialog.classList.remove('workstation-settings','palette-dialog')
  returnConnectForm()
  // The footer is shared by every dialog, so a control one of them added there
  // must go before the next one opens.
@@ -2030,7 +2037,8 @@ function deploymentPanel(panel,mcpSection){
  actions.append(framework)
  panel.append(actions,notice,results)
 }
-function openSettings(initial='Profile',project){
+async function openSettings(initial='Profile',project){
+ if(taskPage&&!await confirmLeave())return
  if(initial==='Appearance')initial='Profile'
  showConfiguration('Configuration')
  const generation=configurationGeneration
@@ -2876,6 +2884,7 @@ const iconPaths={
  'detach-terminal':'<path d="M17 13.5V18a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h4.5"/><path d="m7.5 11.5 2 2-2 2"/><path d="M15 4h5v5"/><path d="m13.5 10.5 6.5-6.5"/>',
  'view-console':'<rect x="3" y="4" width="18" height="16" rx="2"/><path d="m7.5 10 2.5 2.5-2.5 2.5"/><path d="M13 15h4"/>',
  'view-changes':'<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M12 11v5"/><path d="M9.5 13.5h5"/><path d="M9.5 18.5h5"/>',
+ 'edit-task':'<path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16z"/><path d="m13.5 6.5 4 4"/>',
  rerun:'<path d="M3.5 12a8.5 8.5 0 0 1 14.4-6.1L20.5 8"/><path d="M20.5 3.5V8h-4.5"/><path d="m10 9.4 5 2.9-5 2.9Z"/>',
  'save-log':'<path d="M12 3v11"/><path d="m7.5 10 4.5 4 4.5-4"/><path d="M5 20h14"/>',
  stop:'<circle cx="12" cy="12" r="9"/><path d="m8.2 12.4 2.6 2.6 5-5.4"/>',
@@ -2897,8 +2906,8 @@ function newProjectTask(projectID){
  showDialog('New task')
  const existing=document.createElement('button');existing.className='discovered-project';existing.textContent='Run an existing ticket'
  existing.onclick=()=>openTickets(projectID)
- const create=document.createElement('button');create.className='discovered-project';create.textContent='Quick add task'
- create.onclick=()=>quickAdd(projectID)
+ const create=document.createElement('button');create.className='discovered-project';create.textContent='Create a task'
+ create.onclick=()=>showTaskPage({mode:'create',projectId:projectID})
  dialogBody.append(existing,create);existing.focus()
 }
 
@@ -2923,6 +2932,7 @@ function closeTickets(restoreFocus=true){
  if(reachable(target))target.focus()
 }
 async function openTickets(projectID,initialQuery=''){
+ if(taskPage&&!await confirmLeave())return
  selectedProject=projectID
  if(!agentConnected){showDialog('Tickets');paragraph('Connect to the local agent to browse this project\u2019s tickets.');return}
  const opener=document.activeElement
@@ -3115,11 +3125,15 @@ function taskActionsMenu(view,entry){
  if(taskStage(task,view.info.board)==='implemented'){
   items.push({label:'Skip to Handoff…',transition:'reviewed'})
  }
- items.push({label:'Discussion (no skill)',skillId:'discuss'},{label:'Discussion in native terminal',nativeTerminal:true},{label:'Custom instructions…',compose:true},{label:'Launch…',dialog:true})
+ items.push({label:'Discussion (no skill)',skillId:'discuss'},{label:'Discussion in native terminal',nativeTerminal:true},{label:'Custom instructions…',compose:true},{label:'Launch…',dialog:true},{label:'Edit task',edit:true})
  for(const item of items){
   const button=document.createElement('button');button.type='button';button.setAttribute('role','menuitem');button.textContent=item.label;button.disabled=!view.info.configured
   if(item.skillId)button.dataset.skillId=item.skillId
-  if(item.transition==='reviewed'){
+  if(item.edit){
+   // Editing needs no local repository, unlike a launch.
+   button.disabled=false
+   button.onclick=()=>{closeMenu();showTaskPage({mode:'edit',projectId:view.projectID,taskId:task.id})}
+  }else if(item.transition==='reviewed'){
    entry.declareReviewed=button
    button.onclick=()=>{closeMenu();confirmDeclareReviewed(view.projectID,task)}
   }else{
@@ -3284,6 +3298,7 @@ async function submitNativeDiscussion(view,entry){
 // the same entry, the same actions menu and the same launch paths.
 const STAGE_NAMES={new:'New',clarified:'Clarified',specified:'Specified',implemented:'Implemented',reviewed:'Reviewed',finished:'Finished'}
 async function openBoard(projectID,initialQuery=''){
+ if(taskPage&&!await confirmLeave())return
  selectedProject=projectID
  if(!agentConnected){showDialog('Board');paragraph('Connect to the local agent to see this project’s board.');return}
  const opener=document.activeElement
@@ -3693,7 +3708,7 @@ document.querySelector('#toggle-sidebar').innerHTML='<svg viewBox="0 0 24 24" wi
 function paletteEntries(){
  const mac=isMacPlatform(navigator)
  const entries=[
-  {group:'action',label:'New task',detail:'Create a task in a project',hint:newTaskShortcutLabel(mac),run:()=>quickAdd()},
+  {group:'action',label:'New task',detail:'Create a task in a project',hint:newTaskShortcutLabel(mac),run:()=>showTaskPage({mode:'create'})},
   {group:'action',label:'Tasks list',detail:'Browse the open tasks of a project',run:()=>openTicketsFromPalette()},
   {group:'action',label:'Add project',detail:'Connect a project of the server to this workstation',run:()=>openAddProject()},
   {group:'action',label:'Project board',detail:'See a project\u2019s tasks by workflow stage',run:()=>openBoardFromPalette()},
@@ -3781,8 +3796,10 @@ window.addEventListener('keydown',event=>{
  event.preventDefault();event.stopPropagation()
  if(action==='open')openSettings('Profile')
 },true)
+// The task description editor keeps Cmd/Ctrl+K and Cmd/Ctrl+B, its link and bold keys (#805).
+const inDescriptionEditor=()=>!!document.activeElement?.closest?.('.md-editor')
 window.addEventListener('keydown',event=>{
- if((event.metaKey||event.ctrlKey)&&event.key.toLowerCase()==='k'){event.preventDefault();event.stopPropagation();openCommandPalette()}
+ if((event.metaKey||event.ctrlKey)&&event.key.toLowerCase()==='k'&&!inDescriptionEditor()){event.preventDefault();event.stopPropagation();openCommandPalette()}
 },true)
 // Cmd+Enter / Ctrl+Enter activates the default button of the open dialog or
 // settings page: the submit of the form being typed in, else a marked button.
@@ -3794,85 +3811,89 @@ window.addEventListener('keydown',event=>{
  event.preventDefault();event.stopPropagation()
  if(target.form)target.form.requestSubmit(target.button);else target.button.click()
 },true)
-// Cmd+N / Ctrl+N opens the new task dialog; a focused terminal keeps Ctrl+N.
+// Cmd+N / Ctrl+N opens the task page on a new task; a focused terminal keeps Ctrl+N.
 window.addEventListener('keydown',event=>{
  const action=newTaskShortcutAction({key:event.key,metaKey:event.metaKey,ctrlKey:event.ctrlKey,shiftKey:event.shiftKey,altKey:event.altKey,repeat:event.repeat,defaultPrevented:event.defaultPrevented,mac:isMacPlatform(navigator),inTerminal:!!document.activeElement?.closest?.('.xterm'),modalOpen:dialog.open})
- if(action==='open'&&agentConnected){event.preventDefault();event.stopPropagation();quickAdd()}
+ if(action==='open'&&agentConnected){event.preventDefault();event.stopPropagation();showTaskPage({mode:'create'})}
 },true)
 // Cmd+B / Ctrl+B toggles the projects sidebar (#474). In the capture phase, so
 // that on macOS Cmd+B never reaches the terminal; an ignored key is left
 // untouched, which is how Ctrl+B still reaches a focused terminal elsewhere.
 window.addEventListener('keydown',event=>{
  const action=sidebarShortcutAction({key:event.key,metaKey:event.metaKey,ctrlKey:event.ctrlKey,shiftKey:event.shiftKey,altKey:event.altKey,repeat:event.repeat,defaultPrevented:event.defaultPrevented,mac:isMacPlatform(navigator),inTerminal:!!document.activeElement?.closest?.('.xterm'),modalOpen:dialog.open})
- if(action==='toggle'){event.preventDefault();event.stopPropagation();toggleSidebar()}
+ if(action==='toggle'&&!inDescriptionEditor()){event.preventDefault();event.stopPropagation();toggleSidebar()}
 },true)
-// The project quick add opens on: the selected one, else the one last used.
+// The task page (#805) takes the workspace the way the tickets pane does, and
+// gives it back as it found it. A creation starts on the project it was
+// opened from, else the selected one, else the one last used; the storage key
+// predates the page, so the last project survives the upgrade.
 const QUICK_ADD_PROJECT='quickAddProject'
-async function quickAdd(projectID){
- showDialog('New task');dialog.classList.add('quick-add-dialog')
- try{await loadProjects()}catch(err){paragraph(err.message);return}
- let remembered='';try{remembered=localStorage.getItem(QUICK_ADD_PROJECT)||''}catch{}
- const known=projects.filter(addedProject)
- const choice=[projectID,selectedProject,remembered].find(id=>id&&known.some(project=>project.id===id))||(known.length===1?known[0].id:'')
- const mac=isMacPlatform(navigator)
- const form=document.createElement('form');form.className='quick-add'
- const field=(text,control,hint)=>{
-  const label=document.createElement('label');label.className='quick-add-field'
-  const name=document.createElement('span');name.className='quick-add-name';name.textContent=text;label.append(name)
-  if(hint){const small=document.createElement('small');small.textContent=hint;name.append(small)}
-  label.append(control);return label
- }
- const project=document.createElement('select')
- if(!choice){const none=document.createElement('option');none.value='';none.textContent='Select a project';project.append(none)}
- for(const item of known){const option=document.createElement('option');option.value=item.id;option.textContent=item.name;project.append(option)}
- project.value=choice;project.required=true
- const title=document.createElement('input');title.placeholder='What needs doing?';title.required=true;title.maxLength=500
- const description=document.createElement('textarea');description.rows=4;description.placeholder='Context, acceptance criteria, links…'
- const grow=()=>{description.style.height='auto';description.style.height=Math.min(description.scrollHeight,320)+'px'}
- description.addEventListener('input',grow)
- const notice=document.createElement('p');notice.className='quick-add-notice';notice.setAttribute('role','status')
- const actions=document.createElement('div');actions.className='quick-add-actions'
- const keys=document.createElement('span');keys.className='quick-add-keys';keys.textContent=defaultActionLabel(mac)+' to create'
- const cancel=document.createElement('button');cancel.type='button';cancel.className='secondary';cancel.textContent='Cancel';cancel.onclick=()=>dialog.close()
- const submit=document.createElement('button');submit.type='submit';submit.textContent='Create task'
- actions.append(keys,cancel,submit)
- form.append(field('Project',project),field('Title',title),field('Description',description,'Optional, Markdown'),notice,actions)
- dialogBody.append(form);(choice?title:project).focus()
- form.onsubmit=async event=>{
-  event.preventDefault();if(!title.value.trim()||!project.value)return
-  submit.disabled=cancel.disabled=true
-  notice.textContent='Creating the task on the server and its tracker…'
-  try{
-   const task=await api.createTask({projectID:project.value,title:title.value.trim(),description:description.value})
-   selectedProject=project.value
-   try{localStorage.setItem(QUICK_ADD_PROJECT,project.value)}catch{}
-   created(task,project.value)
-  }catch(err){notice.textContent=err.message;submit.disabled=cancel.disabled=false}
- }
- // What follows a creation: clarify it at once, pick another launch, or add
- // the next one in the same project.
- function created(task,projectId){
-  form.replaceChildren()
-  const done=document.createElement('p');done.className='quick-add-created'
-  done.textContent='Created '+(task.key||task.id)+' · '+task.title
-  const next=document.createElement('div');next.className='quick-add-actions'
-  const status=document.createElement('p');status.className='quick-add-notice';status.setAttribute('role','status')
-  const clarify=document.createElement('button');clarify.type='button';clarify.textContent='Clarify now';clarify.dataset.defaultAction=''
-  clarify.onclick=async()=>{
-   clarify.disabled=true;status.textContent='Launching clarify…'
-   try{await api.launchServerTask(projectId,task.id,'clarify','','',false,consoleView);dialog.close();await refresh()}
-   catch(err){status.textContent=launchErrorText(err);clarify.disabled=false}
-  }
-  const launch=document.createElement('button');launch.type='button';launch.className='secondary';launch.textContent='Launch task'
-  launch.onclick=()=>{dialog.close();openTickets(projectId,task.key||task.title)}
-  const another=document.createElement('button');another.type='button';another.className='secondary';another.textContent='Add another'
-  another.onclick=()=>quickAdd(projectId)
-  const close=document.createElement('button');close.type='button';close.className='secondary';close.textContent='Done'
-  close.onclick=()=>dialog.close()
-  next.append(another,launch,close,clarify)
-  form.append(done,status,next);clarify.focus()
- }
+const taskPagePane=document.querySelector('#task-page-pane')
+let taskPage=null,taskPageReturn=null
+function closeTaskPage(){
+ if(!taskPage)return
+ taskPage.destroy();taskPage=null;taskPageReturn=null
+ taskPagePane.hidden=true;taskPagePane.replaceChildren()
+ document.querySelector('#workspace article').hidden=false
+ resize()
 }
+// confirmLeave resolves true once the page may be left, having closed it:
+// nothing was unsaved, or the user chose to discard it.
+async function confirmLeave(){
+ if(!taskPage)return true
+ if(taskPage.dirty()&&!await confirmDiscard(taskPage.key()))return false
+ closeTaskPage();return true
+}
+function confirmDiscard(key){
+ return new Promise(resolve=>{
+  showDialog(leaveMessage(key))
+  paragraph('Your changes to this task are not saved.')
+  const actions=document.createElement('div');actions.className='dialog-actions'
+  const discard=document.createElement('button');discard.type='button';discard.className='secondary';discard.textContent='Discard'
+  const keep=document.createElement('button');keep.type='button';keep.textContent='Keep editing'
+  let answered=false
+  const finish=value=>{if(answered)return;answered=true;dialog.removeEventListener('close',dismissed);if(dialog.open)dialog.close();resolve(value)}
+  const dismissed=()=>finish(false)
+  dialog.addEventListener('close',dismissed)
+  discard.onclick=()=>finish(true);keep.onclick=()=>finish(false)
+  actions.append(discard,keep);dialogBody.append(actions);keep.focus()
+ })
+}
+async function showTaskPage({mode,projectId='',taskId=''}){
+ if(!agentConnected){showDialog(mode==='create'?'New task':'Edit task');paragraph('Connect to the local agent to '+(mode==='create'?'create':'edit')+' a task.');return}
+ // Done goes back to the tickets list or the board the page was opened over.
+ const back=taskPage?taskPageReturn:ticketsOpen&&ticketsView?{tickets:ticketsView.projectID,board:ticketsView.kind==='board'}:null
+ if(!await confirmLeave())return
+ if(dialog.open)dialog.close()
+ closeConfiguration()
+ try{await loadProjects()}catch(err){showDialog(mode==='create'?'New task':'Edit task');paragraph(err.message);return}
+ const known=projects.filter(addedProject)
+ let remembered='';try{remembered=localStorage.getItem(QUICK_ADD_PROJECT)||''}catch{}
+ const chosen=mode==='create'?initialProject({openedFrom:projectId,selected:selectedProject,remembered,known}):projectId
+ closeTickets(false)
+ taskPageReturn=back
+ taskPagePane.hidden=false;document.querySelector('#workspace article').hidden=true
+ document.querySelector('#workspace').hidden=false;document.querySelector('#setup').hidden=true
+ taskPage=openTaskPage(taskPagePane,{mode,projectId:chosen,taskId,deps:{
+  api,mac:isMacPlatform(navigator),projects:known.map(project=>({id:project.id,name:project.name})),
+  rememberProject:id=>{selectedProject=id;try{localStorage.setItem(QUICK_ADD_PROJECT,id)}catch{}},
+  launchClarify:async(id,task)=>{
+   await api.launchServerTask(id,task.id,'clarify','','',false,consoleView).catch(err=>{throw Error(launchErrorText(err))})
+   if(await confirmLeave())await refresh()
+  },
+  openTickets:(id,query)=>openTickets(id,query),
+  addAnother:id=>showTaskPage({mode:'create',projectId:id}),
+  done:async()=>{const previous=taskPageReturn;if(await confirmLeave()&&previous?.tickets)(previous.board?openBoard:openTickets)(previous.tickets)},
+  saved:(id,task)=>{if(task?.id&&task.title){taskTitles.set(task.id,task.title);render()}},
+ }})
+}
+document.querySelector('#edit-task').onclick=()=>{
+ const run=runs.find(item=>item.id===selected)
+ if(run&&!freeConsole(run)&&!macroRun(run)&&run.taskId)showTaskPage({mode:'edit',projectId:run.projectId,taskId:run.taskId})
+}
+// Closing or reloading the window with unsaved edits asks first (#805): the
+// main process turns the refused unload into its own confirmation.
+window.addEventListener('beforeunload',event=>{if(taskPage?.dirty()){event.preventDefault();event.returnValue=''}})
 
 function isFinishedTask(task){
  return ['finished','done'].includes(task.status)||(task.labels||[]).some(label=>label.trim().replace(/^#/,'').toLowerCase()==='finished')

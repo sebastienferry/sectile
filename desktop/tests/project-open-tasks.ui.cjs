@@ -164,7 +164,7 @@ test('the tickets pane lists, sorts and launches a project\'s open tasks',async(
   const more=page.getByRole('button',{name:'More actions for #1',exact:true})
   await more.click()
   await expect(more).toHaveAttribute('aria-expanded','true')
-  assert.deepEqual(await page.getByRole('menuitem').allTextContents(),['Pickup (full chain)','clarify','specify','Discussion (no skill)','Discussion in native terminal','Custom instructions…','Launch…'])
+  assert.deepEqual(await page.getByRole('menuitem').allTextContents(),['Pickup (full chain)','clarify','specify','Discussion (no skill)','Discussion in native terminal','Custom instructions…','Launch…','Edit task'])
   await page.getByRole('menuitem',{name:'Pickup (full chain)',exact:true}).click()
   await expect.poll(()=>launches.length).toBe(2)
   assert.deepEqual(launches.at(-1),{project:'project-b',taskID:'b1',skillID:'pickup',prompt:'',mode:'autonomous'})
@@ -233,8 +233,9 @@ test('the tickets pane lists, sorts and launches a project\'s open tasks',async(
   for(const button of await page.locator('.ticket-run').all())assert.equal(await button.isDisabled(),true)
   const disabledMenu=page.getByRole('button',{name:'More actions for #1',exact:true})
   await disabledMenu.click()
-  for(const item of await page.getByRole('menuitem').all())assert.equal(await item.isDisabled(),true)
-  // Every item is disabled, so focus stays on the opener: Escape must still
+  // Every launch is disabled; editing the task needs no local repository (#805).
+  for(const item of await page.getByRole('menuitem').all())assert.equal(await item.isDisabled(),await item.textContent()!=='Edit task')
+  // Escape must still
   // dismiss the menu and leave the pane open, and an outside press must too.
   await page.keyboard.press('Escape')
   await expect(page.getByRole('menu')).toBeHidden();await expect(pane).toBeVisible()
