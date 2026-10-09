@@ -851,6 +851,10 @@ func dispatchPrompt(config agentconfig.Config, taskKey, skillID, action, prompt 
 	}
 	skillCmd := ""
 	overridden := false
+	// matched is the configured skill the dispatch names, by its ID, its
+	// directory or its action: the stage contracts are looked up by it rather
+	// than by the name the dispatch used.
+	matched := ""
 	for _, skill := range config.Skills {
 		if skillID == skill.ID || skillID == skill.Directory || action == skill.ID {
 			if skill.RequiresReconciliation {
@@ -861,7 +865,7 @@ func dispatchPrompt(config agentconfig.Config, taskKey, skillID, action, prompt 
 			if stage, ok := skills.StageSkillByID(skill.ID); ok && stage.HandTransition {
 				return "", nil, fmt.Errorf("%s records a stage by hand and is never launched as a run", stage.Command)
 			}
-			skillCmd, overridden = skill.Command, skill.CommandOverridden
+			skillCmd, overridden, matched = skill.Command, skill.CommandOverridden, skill.ID
 			break
 		}
 	}
@@ -895,13 +899,13 @@ func dispatchPrompt(config agentconfig.Config, taskKey, skillID, action, prompt 
 	// A foreign command (skillCommands) replaces the whole skill: the prompt
 	// carries the Sectile stage contract, so the card still advances (#732).
 	if overridden && (choice == nil || choice.Kind == skillKindCommand) {
-		if stage, ok := skills.StageSkillByID(models.NormalizeSkillID(skillID)); ok {
+		if stage, ok := skills.StageSkillByID(models.NormalizeSkillID(matched)); ok {
 			if c := skills.StageLaunchContract(stage); c != "" {
 				promptArg += "\n\n" + c
 			}
 		}
 	}
-	if skillID == "adjust" {
+	if matched == "adjust" {
 		promptArg += "\n\n" + runner.AdjustmentContract
 	}
 	return promptArg, contexts, nil
