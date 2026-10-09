@@ -29,7 +29,9 @@ var activeRunStatuses = []string{
 //
 // Migration 9 carries its own frozen copy of this list, as a migration must.
 // A skill added to the catalog needs a later migration that recreates the index
-// with it; TestActiveRunSkillsCoverTheCatalog fails until then.
+// with it; TestActiveRunSkillsCoverTheCatalog fails until then. A hand
+// transition (/transition, #732) is the exception: it records a stage without
+// ever starting a run, so it needs no place here and no index migration.
 var activeRunSkillIDs = []string{
 	"remote_run", "clarify", "specify", "implement", "adjust", "handoff",
 	"create_pr", "pickup", "rewrite_story", "refine_macro", "pickup_issues",

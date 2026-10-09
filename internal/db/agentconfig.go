@@ -111,7 +111,7 @@ func (d *DB) AgentConfig(projectID, taskKey string, framework ...string) (*agent
 		// and the project's own edit reaches its run another way.
 		c.Skills = append(c.Skills, agentconfig.Skill{RequiresReconciliation: skill.ID == "adjust" && reconcile, ID: skill.ID, Directory: stage.DirName, Command: stage.Command, Content: skill.Content, CommandContent: content,
 			DirectContent: skills.RenderDirectSkillContent(stage), DirectCommandContent: skills.RenderDirectSkillCommand(stage),
-			Custom: isCustomSkill(overrides, skill.ID, builtIn[skill.ID])})
+			Custom: isCustomSkill(overrides, skill.ID, builtIn[skill.ID]), OverrideKind: skill.OverrideKind, WorkContent: skill.WorkContent})
 	}
 	if err := c.Validate(); err != nil {
 		return nil, err
@@ -257,11 +257,13 @@ func (d *DB) AgentProjects() (*agentconfig.Projects, error) {
 // isCustomSkill says a project edited a skill, the way the skills editor's
 // badge does: stored content that differs from the built-in one. A row holding
 // only a mode, or the built-in content an adjust reset stores, is not custom,
-// and neither is the pull-request policy every project gets appended.
+// and neither is the pull-request policy every project gets appended. A
+// work-only override is custom (#732), and so is pickup when a stage it
+// inlines carries one.
 func isCustomSkill(overrides map[string]projectSkillOverride, skillID, builtIn string) bool {
 	ov, ok := resolvedSkillOverride(overrides, skillID)
-	if !ok || strings.TrimSpace(ov.content) == "" {
-		return false
+	if !ok || strings.TrimSpace(ov.content) == "" || ov.kind == models.SkillOverrideWork {
+		return composesWork(projectWorkOverrides(overrides), skillID)
 	}
 	return strings.TrimSpace(ov.content) != strings.TrimSpace(builtIn)
 }

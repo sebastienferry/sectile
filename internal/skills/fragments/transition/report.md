@@ -1,0 +1,2 @@
+- The task key and the stage recorded, with the evidence sent.
+- Or why nothing was recorded: a missing argument, an unmet exit condition, the user declining, or the server's refusal with its message.

@@ -34,7 +34,18 @@ func TestGeneratedSkillContracts(t *testing.T) {
 						t.Fatal("missing description")
 					}
 				}
-				if stage.FromStage == "" || stage.Scope == "macro" {
+				if stage.HandTransition {
+					// A hand transition calls transition_stage itself but is no
+					// run: it carries neither the run lifecycle nor a session title (#732).
+					if !strings.Contains(content, "transition_stage") {
+						t.Fatal("hand transition does not call transition_stage")
+					}
+					for _, forbidden := range []string{"Remote execution indicator", "Before doing work, call start_run", "## Session title"} {
+						if strings.Contains(content, forbidden) {
+							t.Fatalf("hand transition carries the run contract %q", forbidden)
+						}
+					}
+				} else if stage.FromStage == "" || stage.Scope == "macro" {
 					if strings.Contains(content, "transition_stage") {
 						t.Fatal("non-workflow skill received a task transition")
 					}
@@ -46,6 +57,15 @@ func TestGeneratedSkillContracts(t *testing.T) {
 				}
 				if stage.FromStage != "" && stage.Scope != "macro" && (strings.Contains(content, "sectile stage") || strings.Contains(content, "curl --")) {
 					t.Fatal("workflow skill must use native MCP tools")
+				}
+				if stage.FromStage != "" && stage.Scope != "macro" && !strings.Contains(content, "only when the exit condition is met: ") {
+					t.Fatal("workflow skill does not state its exit condition in the transition contract")
+				}
+				// The managed-run result-file contract is retired (#732).
+				for _, retired := range []string{"result-file contract", "Managed Sectile run", "standalone only", "managed or standalone"} {
+					if strings.Contains(content, retired) {
+						t.Fatalf("skill still carries the retired wording %q", retired)
+					}
 				}
 				if stage.ID == "clarify" {
 					for _, required := range []string{
@@ -84,6 +104,10 @@ func TestGeneratedSkillContracts(t *testing.T) {
 func TestGeneratedSkillsRenameTheSessionAfterTheWorkItem(t *testing.T) {
 	for _, framework := range []string{"openspec", "speckit"} {
 		for _, stage := range skills.StageSkills {
+			if stage.HandTransition {
+				// A hand transition is no run: it names no session (#732).
+				continue
+			}
 			t.Run(framework+"/"+stage.ID, func(t *testing.T) {
 				item := "ticket"
 				if stage.Scope == "macro" {
@@ -371,8 +395,59 @@ func TestGoldenSkillParity(t *testing.T) {
 	}
 }
 
+// /transition lists the exit condition of every stage, read from the same
+// fragments as the stage skills, so that the two cannot drift (#732).
+func TestTransitionSkillListsEveryStageExit(t *testing.T) {
+	transition, ok := skills.StageSkillByID("transition")
+	if !ok || !transition.HandTransition {
+		t.Fatal("the catalogue has no hand transition skill")
+	}
+	documents := map[string]string{
+		"skill":   skills.RenderSkillContent(transition, "speckit"),
+		"command": skills.RenderSkillCommand(transition, "speckit"),
+		"direct":  skills.RenderDirectSkillContent(transition),
+		"generic": skills.RenderGenericSkillContent(transition),
+	}
+	evidence, err := os.ReadFile(filepath.Join("fragments", "contracts", "stage-evidence.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, content := range documents {
+		if !strings.Contains(content, strings.TrimSpace(string(evidence))) {
+			t.Errorf("%s: missing the stage evidence contract", name)
+		}
+		listed := 0
+		for _, stage := range skills.StageSkills {
+			if stage.ID == "pickup" || stage.ID == "pickup_issues" {
+				if strings.Contains(content, ", "+stage.Title+"): ") {
+					t.Errorf("%s: the exit table lists %s, which runs the other stages", name, stage.ID)
+				}
+				continue
+			}
+			if stage.FromStage == "" || stage.Scope == "macro" {
+				continue
+			}
+			exit := "this step is complete."
+			if data, err := os.ReadFile(filepath.Join("fragments", stage.ID, "exit.md")); err == nil && strings.TrimSpace(string(data)) != "" {
+				exit = strings.TrimSpace(string(data))
+			}
+			line := "- `" + stage.ToStage + "` (from `" + stage.FromStage + "`, " + stage.Title + "): " + exit
+			if !strings.Contains(content, line) {
+				t.Errorf("%s: missing the exit line %q", name, line)
+			}
+			listed++
+		}
+		if listed == 0 || strings.Contains(content, "(from `macro`") {
+			t.Errorf("%s: the exit table lists %d stages or a macro skill", name, listed)
+		}
+	}
+	if !strings.Contains(documents["command"], "argument-hint: <TICKET-KEY> <stage>\n") {
+		t.Errorf("the command does not carry its argument hint:\n%s", documents["command"])
+	}
+}
+
 func TestSkillFragmentsIntegrity(t *testing.T) {
-	requiredContracts := []string{"task-access.md", "session-title.md", "transition.md", "pickup-header.md"}
+	requiredContracts := []string{"task-access.md", "session-title.md", "transition.md", "stage-evidence.md", "pickup-header.md"}
 	for _, c := range requiredContracts {
 		path := filepath.Join("fragments", "contracts", c)
 		data, err := os.ReadFile(path)
@@ -454,10 +529,23 @@ func TestClarificationPublicationContract(t *testing.T) {
 		for _, id := range []string{"clarify", "pickup", "pickup_issues"} {
 			stage, _ := skills.StageSkillByID(id)
 			content := skills.RenderSkillContent(stage, framework)
-			for _, requirement := range []string{"Every round, interactive or unattended", "Round N uses only its newly appended section", "no separate", "Managed runs call no comment or stage tool", "30,000 characters", "last numbered part", "pushStageCommits", "Never force", "Report a refused push and continue"} {
+			for _, requirement := range []string{
+				"Every round, interactive or unattended",
+				"Round N uses only its newly appended section",
+				"no separate",
+				"30,000 characters",
+				"last numbered part",
+				"pushStageCommits",
+				"Never force",
+				"Report a refused push and continue",
+			} {
 				if !strings.Contains(content, requirement) {
 					t.Errorf("%s/%s missing publication rule %q", framework, id, requirement)
 				}
+			}
+			// The managed-run result contract is retired (#732): every run publishes through the MCP tools.
+			if strings.Contains(content, "Managed runs") {
+				t.Errorf("%s/%s still carries the retired managed-run wording", framework, id)
 			}
 		}
 		stage, _ := skills.StageSkillByID("specify")

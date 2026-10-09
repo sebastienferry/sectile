@@ -742,6 +742,16 @@ var migrations = []migration{
 			"ALTER TABLE project_trackers ADD COLUMN stage_columns TEXT NOT NULL DEFAULT '{}';",
 		},
 	},
+	{
+		// What a project's skill override replaces (#732): '' is the whole
+		// skill, which every row written before keeps meaning, and 'work' is
+		// the work sections only, around the Sectile contracts.
+		version: 51,
+		name:    "project_skills.override_kind",
+		statements: []string{
+			"ALTER TABLE project_skills ADD COLUMN override_kind TEXT NOT NULL DEFAULT '';",
+		},
+	},
 }
 
 // migrateSchema brings the database to the schema this binary expects, and is

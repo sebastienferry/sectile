@@ -19,6 +19,7 @@ import (
 	"tasks/internal/agentconfig"
 	"tasks/internal/models"
 	"tasks/internal/runner"
+	"tasks/internal/skills"
 )
 
 // contractPrefix is the path every versioned agent route shares. A server that
@@ -843,13 +844,28 @@ func dispatchPrompt(config agentconfig.Config, taskKey, skillID, action, prompt 
 		}
 		return "Sectile task: " + taskKey + "\n\n" + prompt, contexts, nil
 	}
+	// A hand transition is in the configuration for its direct copy, but it
+	// records a stage without running one: it is never launched (#732).
+	if stage, ok := skills.StageSkillByID(skillID); ok && stage.HandTransition {
+		return "", nil, fmt.Errorf("%s records a stage by hand and is never launched as a run", stage.Command)
+	}
 	skillCmd := ""
+	overridden := false
+	// matched is the configured skill the dispatch names, by its ID, its
+	// directory or its action: the stage contracts are looked up by it rather
+	// than by the name the dispatch used.
+	matched := ""
 	for _, skill := range config.Skills {
 		if skillID == skill.ID || skillID == skill.Directory || action == skill.ID {
 			if skill.RequiresReconciliation {
 				return "", nil, fmt.Errorf("legacy customization requires reconciliation in Skills before adjustment")
 			}
-			skillCmd = skill.Command
+			// The dispatch may name the hand transition through its action
+			// rather than its skill: it is refused whichever matched (#732).
+			if stage, ok := skills.StageSkillByID(skill.ID); ok && stage.HandTransition {
+				return "", nil, fmt.Errorf("%s records a stage by hand and is never launched as a run", stage.Command)
+			}
+			skillCmd, overridden, matched = skill.Command, skill.CommandOverridden, skill.ID
 			break
 		}
 	}
@@ -880,7 +896,16 @@ func dispatchPrompt(config agentconfig.Config, taskKey, skillID, action, prompt 
 	} else if strings.TrimSpace(prompt) != "" {
 		promptArg += "\n\n" + prompt
 	}
-	if skillID == "adjust" {
+	// A foreign command (skillCommands) replaces the whole skill: the prompt
+	// carries the Sectile stage contract, so the card still advances (#732).
+	if overridden && (choice == nil || choice.Kind == skillKindCommand) {
+		if stage, ok := skills.StageSkillByID(models.NormalizeSkillID(matched)); ok {
+			if c := skills.StageLaunchContract(stage); c != "" {
+				promptArg += "\n\n" + c
+			}
+		}
+	}
+	if matched == "adjust" {
 		promptArg += "\n\n" + runner.AdjustmentContract
 	}
 	return promptArg, contexts, nil

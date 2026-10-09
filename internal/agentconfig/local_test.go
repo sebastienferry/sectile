@@ -1,9 +1,11 @@
 package agentconfig
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
+	"tasks/internal/models"
 	"tasks/internal/testhome"
 	"testing"
 )
@@ -153,7 +155,7 @@ func TestAdjustmentScaffoldPreservesLegacyEdits(t *testing.T) {
 	if string(raw) != "personal legacy edits" {
 		t.Fatal("legacy edits overwritten")
 	}
-	c = Resolve(c, Settings{Skills: map[string]string{"review": "old review"}})
+	c = Resolve(c, Settings{Skills: map[string]SkillOverride{"review": {Content: "old review"}}})
 	if !c.Skills[0].RequiresReconciliation {
 		t.Fatal("legacy local override not flagged")
 	}
@@ -199,7 +201,7 @@ func TestScaffoldInstallsSeparatePRSkills(t *testing.T) {
 			t.Fatalf("%s: %s %v", skill.ID, raw, err)
 		}
 	}
-	got := Resolve(c, Settings{Skills: map[string]string{"create_pr": "Custom creation"}})
+	got := Resolve(c, Settings{Skills: map[string]SkillOverride{"create_pr": {Content: "Custom creation"}}})
 	if got.Skills[0].RequiresReconciliation || got.Skills[0].Content != c.Skills[0].Content {
 		t.Fatal("creation override changed Adjust")
 	}
@@ -224,6 +226,17 @@ func TestScaffoldInstallsTheGenericSkill(t *testing.T) {
 	if got := skillBody(c.Skills[0], loc); got != "generic steps" {
 		t.Fatalf("a CLI that does not substitute arguments gets %q", got)
 	}
+	// /transition is installed like any stage skill, never launched (#732).
+	c.Skills = append(c.Skills, Skill{ID: "transition", Directory: "transition", Command: "/transition",
+		Content: "transition steps", CommandContent: "transition command", DirectContent: "generic transition", DirectCommandContent: "generic transition command"})
+	if _, err := Scaffold(root, c); err != nil {
+		t.Fatal(err)
+	}
+	raw, err = os.ReadFile(installed(t, home, "claude", "transition/SKILL.md"))
+	if err != nil || string(raw) != "generic transition command" {
+		t.Fatalf("installed transition %q, %v", raw, err)
+	}
+	c.Skills = c.Skills[:1]
 
 	c.Skills[0].DirectContent, c.Skills[0].DirectCommandContent = "", ""
 	if _, err := Scaffold(root, c); err != nil {
@@ -232,5 +245,60 @@ func TestScaffoldInstallsTheGenericSkill(t *testing.T) {
 	raw, _ = os.ReadFile(installed(t, home, "claude", "specify-issue/SKILL.md"))
 	if string(raw) != "Spec Kit command" {
 		t.Fatalf("a server without generic content installs %q", raw)
+	}
+}
+
+// The providers with a direct setup are read from the manifest (#732): none
+// without one, and a provider whose only entry is a compatibility alias does
+// not count.
+func TestManagedProvidersReadsTheManifest(t *testing.T) {
+	root, home := t.TempDir(), t.TempDir()
+	testhome.Set(t, home)
+	if providers, err := ManagedProviders(); err != nil || len(providers) != 0 {
+		t.Fatalf("without a manifest: %v, %v", providers, err)
+	}
+	c := Config{SchemaVersion: Version, AIProvider: "claude", Skills: []Skill{{ID: "adjust", Directory: "adjust-issue", Content: "adjust"}}}
+	if _, err := Scaffold(root, c); err != nil {
+		t.Fatal(err)
+	}
+	manifestPath, err := ManifestPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest := map[string]string{}
+	if err := json.Unmarshal(raw, &manifest); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := manifest[filepath.Join(".claude/skills", "create-pr", "SKILL.md")]; !ok {
+		t.Fatalf("the scaffold installed no alias to check against: %v", manifest)
+	}
+	manifest[filepath.Join(".agents/skills", "create-pr", "SKILL.md")] = "alias"
+	if raw, err = json.Marshal(manifest); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(manifestPath, raw, 0600); err != nil {
+		t.Fatal(err)
+	}
+	providers, err := ManagedProviders()
+	if err != nil || len(providers) != 1 || providers[0] != "claude" {
+		t.Fatalf("providers = %v, %v; want [claude]", providers, err)
+	}
+}
+
+// The overlay merges skill overrides key by key: one the top level states with
+// content wins, kind and all; a blank one keeps the base's (#732).
+func TestOverlayMergesSkillOverrides(t *testing.T) {
+	base := Settings{Skills: map[string]SkillOverride{"clarify": {Content: "legacy"}, "implement": {Content: "legacy"}, "specify": {Content: "legacy"}}}
+	top := Settings{Skills: map[string]SkillOverride{
+		"clarify":   {Kind: models.SkillOverrideWork, Content: "## Steps\nAsk."},
+		"implement": {Kind: models.SkillOverrideWork, Content: " "},
+	}}
+	got := overlay(base, top).Skills
+	if got["clarify"] != top.Skills["clarify"] || got["implement"] != base.Skills["implement"] || got["specify"] != base.Skills["specify"] {
+		t.Fatalf("overlay: %+v", got)
 	}
 }

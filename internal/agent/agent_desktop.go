@@ -22,6 +22,7 @@ import (
 	"tasks/internal/agenthttp"
 	"tasks/internal/models"
 	"tasks/internal/runner"
+	"tasks/internal/skills"
 	"tasks/internal/version"
 	"time"
 )
@@ -942,6 +943,15 @@ func (d *agentDaemon) desktopProject(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
+		// The workstation settings and every known project's work-only
+		// overrides reach the direct copies (#732); a project that cannot be
+		// read is left out, and the result's message says so.
+		var warnings []string
+		config, warnings, err = d.directSetupConfig(r.Context(), config)
+		if err != nil {
+			http.Error(w, err.Error(), 502)
+			return
+		}
 		// Attempt failures are structured so the UI preserves partial success.
 		// provider-skills installs the skills alone, the MCP being registered
 		// from the MCP connection settings.
@@ -951,15 +961,22 @@ func (d *agentDaemon) desktopProject(w http.ResponseWriter, r *http.Request) {
 		} else {
 			result, _ = d.initializeProvider(root, config, provider)
 		}
+		result.Message += directSetupWarnings(warnings)
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(result)
 	case "skills":
+		var warnings []string
+		config, warnings, err = d.directSetupConfig(r.Context(), config)
+		if err != nil {
+			http.Error(w, err.Error(), 502)
+			return
+		}
 		_, err = agentconfig.Scaffold(root, config)
 		if err != nil {
 			http.Error(w, err.Error(), 500)
 			return
 		}
-		_ = json.NewEncoder(w).Encode(map[string]string{"message": "Server skills deployed"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"message": "Server skills deployed" + directSetupWarnings(warnings)})
 	case "framework":
 		if config.SpecFramework != "openspec" && config.SpecFramework != "speckit" {
 			http.Error(w, "No supported SDD framework configured", 400)
@@ -1189,6 +1206,10 @@ func launchableSkill(config agentconfig.Config, skillID, prompt string) bool {
 	}
 	if skillID == "custom" {
 		return strings.TrimSpace(prompt) != ""
+	}
+	// A hand transition records a stage without running one (#732).
+	if stage, ok := skills.StageSkillByID(skillID); ok && stage.HandTransition {
+		return false
 	}
 	for _, skill := range config.Skills {
 		if skill.ID == skillID {

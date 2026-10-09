@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"tasks/internal/agentconfig"
+	"tasks/internal/models"
 	"tasks/internal/testhome"
 )
 
@@ -41,6 +42,8 @@ func TestDesktopInitialization(t *testing.T) {
 				_, err := agentconfig.UpdateSettings(d.localSettingsRoot(), func(s *agentconfig.Settings) error {
 					s.Defaults.InitializationProvider = "codex"
 					s.Engines = agentconfig.Engines{Catalogue: []agentconfig.Engine{{ID: "default-claude", Name: "Claude", Provider: "claude"}}, Default: "default-claude"}
+					// A workstation work-only override reaches the direct copy (#732).
+					s.Skills = map[string]agentconfig.SkillOverride{"implement": {Kind: models.SkillOverrideWork, Content: "## Steps\nWorkstation steps."}}
 					return nil
 				})
 				if err != nil {
@@ -92,7 +95,11 @@ func TestDesktopInitialization(t *testing.T) {
 				}
 				if tc.skills == "success" {
 					content, err := os.ReadFile(filepath.Join(home, ".claude", "skills", "code-issue", "SKILL.md"))
-					if err != nil || !strings.Contains(string(content), skills[0].Content) {
+					want := skills[0].Content
+					if tc.provider == "" {
+						want = "Workstation steps."
+					}
+					if err != nil || !strings.Contains(string(content), want) {
 						t.Fatalf("skill content: %s, %v", content, err)
 					}
 				}

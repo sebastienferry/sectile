@@ -24,6 +24,7 @@ import (
 	"tasks/internal/auth"
 	"tasks/internal/db"
 	"tasks/internal/models"
+	"tasks/internal/skills"
 	"tasks/internal/taskmcp"
 
 	"github.com/google/uuid"
@@ -1529,16 +1530,21 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 		case r.Method == http.MethodPut && skillID != "":
 			var payload struct {
 				Content string `json:"content"`
+				// OverrideKind is what the content replaces (#732). Absent, a
+				// new override defaults and an existing one keeps its kind.
+				OverrideKind *models.SkillOverrideKind `json:"overrideKind"`
 			}
 			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 				writeError(w, http.StatusBadRequest, "Invalid payload: "+err.Error())
 				return
 			}
-			entry, err := h.db.SaveProjectSkillContent(id, skillID, payload.Content)
+			entry, err := h.db.SaveProjectSkillContent(id, skillID, payload.Content, payload.OverrideKind)
 			if err != nil {
 				writeError(w, http.StatusBadRequest, err.Error())
 				return
 			}
+			// The direct copies a workstation manages follow the change (#732).
+			h.refreshSkillCopies(id)
 			writeJSON(w, http.StatusOK, entry)
 			return
 
@@ -1548,6 +1554,7 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 				writeError(w, http.StatusBadRequest, err.Error())
 				return
 			}
+			h.refreshSkillCopies(id)
 			writeJSON(w, http.StatusOK, entry)
 			return
 
@@ -1583,6 +1590,7 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 				writeError(w, http.StatusBadRequest, err.Error())
 				return
 			}
+			h.refreshSkillCopies(id)
 			writeJSON(w, http.StatusOK, entry)
 			return
 		}
@@ -2376,6 +2384,12 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 		}
 		if req.SkillID == "" {
 			writeError(w, http.StatusBadRequest, "Skill ID is required")
+			return
+		}
+		// A hand transition records a stage without running one: it is refused
+		// before any run is recorded (#732).
+		if stage, ok := skills.StageSkillByID(req.SkillID); ok && stage.HandTransition {
+			writeError(w, http.StatusBadRequest, stage.Command+" records a stage by hand and is never launched as a run")
 			return
 		}
 		// An absent mode means "no override", which is not the same as

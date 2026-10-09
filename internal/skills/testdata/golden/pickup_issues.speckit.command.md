@@ -10,7 +10,7 @@ Stage: new -> reviewed.
 - Use the local Sectile agent's exposed task-management interface first for ticket reads, updates, comments, creation, and workflow results. Discover its actual tools or documented commands from the session/project context; do not invent an endpoint or launch another agent daemon as a substitute.
 - Resolve the project against its repository, then verify the task's full ID and external URL. A bare key such as #47 can match another project's ticket. Use the full task ID for mutations and an explicit project ID for creation.
 - If the local agent interface is unavailable or fails after a bounded attempt, use http://localhost:8090 as a temporary fallback. Record the missing capability or error, check for an existing bug in the same project, and register or update that bug when authorized. If reporting is unavailable or not authorized, preserve the report locally and state what remains pending. Do not bypass Sectile by writing directly to its database or remote tracker.
-- For a managed run, submit only through its supplied result contract and let Sectile validate and synchronize the result. An active run without a usable completion contract is a reportable integration failure. Preserve the artifacts and report the blocked transition; do not cancel the activity, forge launch/completion status, or use another endpoint to evade result validation.
+- A run Sectile launched reports through `start_run`/`finish_run`, and records its stage when its skill moves one, like any other run; never forge launch or completion status or use another endpoint to evade validation.
 - This routing does not authorize mutations excluded by the skill or user request. Verify each mutation's response and report partial success explicitly.
 
 ## Session title
@@ -25,7 +25,7 @@ Stage: new -> reviewed.
 - If no renaming capability is available, or a rename is refused or left unapproved, keep the current title and continue silently. It never blocks, delays or replaces the work of the skill. A host that cannot rename, such as a Sectile Desktop console, shows the same state from the Sectile calls themselves.
 
 ## Launched by Sectile
-A run is launched by Sectile when the invocation supplies a launch runId or a result-file contract, or when the environment carries `SECTILE_RUN_ID` (read it with a plain shell command such as `printenv SECTILE_RUN_ID`). Sectile Desktop then already shows the ticket, the pull request, the next step and its own notifications, so the items marked "not when launched by Sectile" below are skipped: they would only repeat what Desktop shows.
+A run is launched by Sectile when the invocation supplies a launch runId, or when the environment carries `SECTILE_RUN_ID` (read it with a plain shell command such as `printenv SECTILE_RUN_ID`). Sectile Desktop then already shows the ticket, the pull request, the next step and its own notifications, so the items marked "not when launched by Sectile" below are skipped: they would only repeat what Desktop shows.
 
 ## Session links
 Not when launched by Sectile.
@@ -110,10 +110,7 @@ Stop before merge. Stage-local boundaries apply while that stage is active; afte
    e. Commit updates with docs(spec): clarify #<n> (round N), unless the file is ignored by Git (step 6).
    f. Publish the round as described below. If follow-up product questions remain,
       ask them and stop without transitioning.
-4. Exit condition:
-   Rounds continue until the owner confirms that the clarification is satisfactory (or zero open
-   product questions remain in unattended pickup). Never transition new → clarified while product
-   questions remain open.
+4. Exit condition: the Sectile contract below states it; rounds continue until it is met.
 5. Persist the settled scope, decisions, and assumptions in the report before concluding.
 6. Dropped artefacts: `<n>` is the task key without its leading `#` (`487` for `#487`). Before
    committing, run `git check-ignore -q docs/clarifications/<n>.md`. When it succeeds, the project
@@ -141,27 +138,24 @@ Stop before merge. Stage-local boundaries apply while that stage is active; afte
   Retain the Markdown file as the chronological history, even when it stays local.
   Include the report path, commit/local status, settled decisions, open questions
   and publication failures in that section; a path or summary alone is insufficient.
-- Standalone intermediate rounds with open questions use `add_comment`. The final
+- Intermediate rounds with open questions use `add_comment`. The final
   round uses its full section as the `transition_stage` note, with no separate
   `add_comment` for the same content. Verify each response before claiming publication.
-- Managed runs call no comment or stage tool: put the full round section in the
-  supplied result note and let Sectile publish it through its completion contract.
 - If a section exceeds the tracker comment limit (GitHub 65,536 characters; Jira
   about 32,767), split at Markdown paragraph boundaries into numbered parts, reserving
   space for the server header and part numbering. Use at most 30,000 characters per
   part for either tracker, and split an oversized paragraph without dropping text.
-  Standalone intermediate parts use `add_comment` in order. For a final round, post
+  Intermediate parts use `add_comment` in order. For a final round, post
   all preceding parts with `add_comment` and use only the last numbered part as the
-  transition note, so each part appears once. Managed runs keep the complete section
-  in the result note and report any completion-contract size limitation rather than
-  bypassing the contract.
+  transition note, so each part appears once.
 
 
-- Do not transition new → clarified while any product question or decision remains open.
 - Do not invent answers to essential product questions in unattended runs; record them and ask.
 - Do not write production code or start the technical specification at this stage.
 - Do not discard previous round sections when writing Round N; append each round chronologically.
 - Do not switch branches or create a new branch: reuse the assigned work branch.
+
+Exit condition before recording clarified: the owner confirms the clarification is satisfactory (or zero product questions remain open in unattended pickup). Never transition new → clarified while any product question or decision remains open.
 
 Report and persist before continuing:
 - The report path: docs/clarifications/<n>.md, and whether it is committed or local to the worktree (ignored by Git).
@@ -221,6 +215,8 @@ Report and persist before continuing:
 - Do not describe implementation inside the behaviour file.
 - Do not start implementing, even the easy part.
 
+Exit condition before recording specified: this step is complete.
+
 Report and persist before continuing:
 - The files written, with their paths, and whether they are committed or local to the worktree (ignored by Git).
 - The work branch.
@@ -263,6 +259,8 @@ Report and persist before continuing:
 - Preserve the work branch, completed checklist items and remaining next action so
   a retry can resume instead of starting over.
 
+Exit condition before recording implemented: this step is complete.
+
 Report and persist before continuing:
 - What changed, file by file, and why.
 - The real output of build, linters and tests, remaining failures included.
@@ -302,7 +300,8 @@ Report and persist before continuing:
 
 - Do not merge, do not approve, do not close the ticket. That is the user's call.
 - Do not create a PR. Do not mark a PR ready on a red build. Report the failure instead.
-- Do not complete adjustment on a branch known to be behind the remote default branch.
+
+Exit condition before recording reviewed: the pull request is verified and the branch is not behind the remote default branch.
 
 Report and persist before continuing:
 - What the review found, and which findings you fixed.
@@ -319,15 +318,14 @@ Report and persist before continuing:
 - Summary of processed tickets and test results.
 
 ## Execution and ticket state
-- **Managed Sectile run**: When the invocation supplies a result-file contract, follow it. Sectile validates the result and owns transitions and tracker reports. Do not also call stage/postback APIs or edit tracker labels.
-- **Remote execution indicator (standalone only)**: Before doing work, call start_run with the full task primary key and skill name. If SECTILE_RUN_ID or a launch runId is supplied, reuse it. Keep the returned activity ID as runId. Nested skills reuse the outer run; only the owner finishes it. Call finish_run with taskKey, runId, status (completed, failed or canceled), and a note when the entire invocation ends, including errors or stopping for user input. Intermediate stage transitions do not finish an enclosing pickup run. For a batch, reuse the launch runId for every ticket: call start_run with that ticket's full key and the runId when you begin working on it, and call finish_run once, on the first ticket, when the whole batch ends. Never start a run merely to read a task.
-- **Waiting for the user (standalone only)**: Right before asking the user a question you cannot continue without, call report_waiting with taskKey, runId and waiting true, so the board and the owner's desktop show the run as waiting. Your next Sectile call ends the wait; call report_waiting with waiting false if you resume without one. A headless run is left unmarked, which the result says.
-- **Standalone invocation**: Read live context with `get_task` and `get_project_context`. After verifying each completed step, invoke `transition_stage` with the task key, completed stage, structured report note and actual branch. Check the tool result for errors before continuing.
-Record clarified, specified and implemented after each corresponding step. After PR verification, record reviewed with the PR URL. At implemented and reviewed, give the PR of every other repository the task changed in `prUrls`. For a batch, use the same actual branch and combined PR URL for every completed ticket; never mark unfinished work reviewed.
+- **Remote execution indicator**: Before doing work, call start_run with the full task primary key and skill name. If SECTILE_RUN_ID or a launch runId is supplied, reuse it. Keep the returned activity ID as runId. Nested skills reuse the outer run; only the owner finishes it. Call finish_run with taskKey, runId, status (completed, failed or canceled), and a note when the entire invocation ends, including errors or stopping for user input. Intermediate stage transitions do not finish an enclosing pickup run. For a batch, reuse the launch runId for every ticket: call start_run with that ticket's full key and the runId when you begin working on it, and call finish_run once, on the first ticket, when the whole batch ends. Never start a run merely to read a task.
+- **Waiting for the user**: Right before asking the user a question you cannot continue without, call report_waiting with taskKey, runId and waiting true, so the board and the owner's desktop show the run as waiting. Your next Sectile call ends the wait; call report_waiting with waiting false if you resume without one. A headless run is left unmarked, which the result says.
+- **Stage transition**: Read live context with `get_task` and `get_project_context`. After verifying each completed step, invoke `transition_stage` with the task key, completed stage, structured report note and actual branch. Check the tool result for errors before continuing.
+Record clarified, specified and implemented after each corresponding step. After PR verification, record reviewed with the PR URL. At implemented and reviewed, give the PR of every other repository the task changed in `prUrls`. For a batch, use the same actual branch and combined PR URL for every completed ticket; never mark unfinished work reviewed. Record reviewed only when the exit condition is met: the test suite passes. Do not push or open a PR while it is failing.
+Reuse the assigned worktree and actual branch. Never merge or delete remote objects. Keep work available for review and retry until confirmed handoff.
 A task holds an ordered set of pull requests, one or more per repository it changed, `prUrl` being its primary repository's current one. A pull request on a branch the task already used in that repository is a legitimate follow-up and is appended, even when the recorded one is merged; a pull request on an unrelated branch is refused, and its links are corrected from the task detail view rather than by forging evidence. A pull request opened outside a transition is recorded with `record_pull_request`, once per repository.
 A task whose work changed no repository (a configuration made through an API, a review, a follow-up) has no pull request to give: pass `noRepositoryChange: true` to `transition_stage` instead of `prUrl`, and say in the note what was done instead. The server refuses the statement when the task records a pull request on its branch or a repository prepared with `prepare_repository_worktree`; then give those pull requests.
-Use `add_comment` for an authorized ticket discussion update. Managed runs must not also invoke transition/comment tools for reports owned by Sectile. If MCP is unavailable, preserve work and report the pending transition; do not silently write to a different server or database.
-Reuse the assigned worktree and actual branch. Never merge or delete remote objects. Keep work available for review and retry until confirmed handoff.
+Use `add_comment` for an authorized ticket discussion update. If MCP is unavailable, preserve work and report the pending transition; do not silently write to a different server or database.
 
 ## Ticket
 $ARGUMENTS

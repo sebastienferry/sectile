@@ -1,6 +1,8 @@
 // Package agentconfig defines the versioned, secret-free execution contract.
 package agentconfig
 
+import "tasks/internal/models"
+
 const Version = 1
 
 type Skill struct {
@@ -21,6 +23,11 @@ type Skill struct {
 	// override) rather than the built-in skill. A server that predates it sends
 	// nothing, which reads as the built-in skill, so the installed one runs.
 	Custom bool `json:"custom,omitempty"`
+	// OverrideKind and WorkContent describe a project's work-only override (#732); a server that predates them sends nothing, a full replacement.
+	OverrideKind models.SkillOverrideKind `json:"overrideKind,omitempty"`
+	WorkContent  string                   `json:"workContent,omitempty"`
+	// WorkstationWork is this workstation's work-only override, set by Resolve. Not part of the contract.
+	WorkstationWork string `json:"-"`
 	// CommandOverridden says Command is the project section's explicit
 	// SkillCommands entry rather than the catalogue's. Not part of the contract.
 	CommandOverridden bool `json:"-"`

@@ -35,9 +35,10 @@ type Settings struct {
 	Repositories         map[string]string        `json:"repositories,omitempty"`
 	DisconnectedProjects map[string]bool          `json:"disconnectedProjects,omitempty"`
 	MCPConnections       map[string]MCPConnection `json:"mcpConnections,omitempty"`
-	// Skills overrides a skill's content, by skill ID.
-	Skills map[string]string `json:"skills,omitempty"`
-	Seeded Seeded            `json:"seeded"`
+	// Skills overrides a skill, by skill ID: its whole content, or only its
+	// work sections (#732).
+	Skills map[string]SkillOverride `json:"skills,omitempty"`
+	Seeded Seeded                   `json:"seeded"`
 	// Engines is the engine catalogue and the choices pointing into it (#510).
 	Engines Engines `json:"engines"`
 }
@@ -162,7 +163,7 @@ func overlay(base, top Settings) Settings {
 		})
 	}
 	out.Repositories = mergeStrings(base.Repositories, top.Repositories)
-	out.Skills = mergeStrings(base.Skills, top.Skills)
+	out.Skills = mergeSkillOverrides(base.Skills, top.Skills)
 	return out
 }
 
@@ -236,6 +237,24 @@ func mergeStrings(base, top map[string]string) map[string]string {
 	return out
 }
 
+// mergeSkillOverrides merges skill overrides as mergeStrings merges strings:
+// an override top states with content wins, kind and all.
+func mergeSkillOverrides(base, top map[string]SkillOverride) map[string]SkillOverride {
+	if len(base) == 0 && len(top) == 0 {
+		return nil
+	}
+	out := make(map[string]SkillOverride, len(base)+len(top))
+	for key, value := range base {
+		out[key] = value
+	}
+	for key, value := range top {
+		if strings.TrimSpace(value.Content) != "" || out[key].Content == "" {
+			out[key] = value
+		}
+	}
+	return out
+}
+
 // readLegacyRepositoryFile reads a checkout's .taskflow/agent.json, the path
 // that preceded ~/.config/sectile/settings.json. It is read only, as a
 // fallback, and never written.
@@ -252,10 +271,13 @@ func readLegacyRepositoryFile(root string) (Settings, error) {
 		return Settings{}, err
 	}
 	var current struct {
-		Skills       map[string]string `json:"skills"`
-		Repositories map[string]string `json:"repositories"`
+		Skills       map[string]SkillOverride `json:"skills"`
+		Repositories map[string]string        `json:"repositories"`
 	}
 	if err := json.Unmarshal(raw, &current); err != nil {
+		return Settings{}, err
+	}
+	if err := dropNullSkillOverrides(raw, current.Skills); err != nil {
 		return Settings{}, err
 	}
 	s := legacy.fold()
@@ -296,6 +318,48 @@ func ManifestPath() (string, error) {
 		return "", err
 	}
 	return filepath.Join(filepath.Dir(settings), "agent-manifest.json"), nil
+}
+
+// skillAliasDirs are the compatibility forwards Scaffold installs next to the
+// skills (create-pr for adjust-issue, code-issue for implement-issue). They
+// alone do not say a provider has a direct setup.
+var skillAliasDirs = map[string]bool{"create-pr": true, "code-issue": true}
+
+// ManagedProviders are the skill providers this workstation already has a
+// direct setup for: those with a managed <SkillDir>/<dir>/SKILL.md in the
+// manifest (#732). A missing manifest means none. A refresh of the direct
+// copies rewrites these and never installs a provider the user did not set up.
+func ManagedProviders() ([]string, error) {
+	manifestPath, err := ManifestPath()
+	if err != nil {
+		return nil, err
+	}
+	raw, err := os.ReadFile(manifestPath)
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	manifest := map[string]string{}
+	if err := json.Unmarshal(raw, &manifest); err != nil {
+		return nil, err
+	}
+	var providers []string
+	for _, provider := range SkillProviders {
+		loc, err := ResolveLocations(provider)
+		if err != nil {
+			return nil, err
+		}
+		for p := range manifest {
+			parts := strings.Split(filepath.ToSlash(p), "/")
+			if managedPath(p, loc) && !skillAliasDirs[parts[len(parts)-2]] {
+				providers = append(providers, provider)
+				break
+			}
+		}
+	}
+	return providers, nil
 }
 
 // Scaffold installs the fresh server-owned skill set into the user configuration

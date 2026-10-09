@@ -1,6 +1,7 @@
 package agentconfig
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -9,7 +10,70 @@ import (
 	"path/filepath"
 	"strconv"
 	"sync"
+	"tasks/internal/models"
 )
+
+// SkillOverride is this workstation's override of one skill, under "skills" in
+// settings.json. A plain string replaces the whole skill, as before #732; an
+// object {"kind":"work","content":"..."} replaces only the work sections it
+// states, and Sectile keeps the contracts (#732).
+type SkillOverride struct {
+	Kind    models.SkillOverrideKind
+	Content string
+}
+
+// UnmarshalJSON reads a JSON string as a full replacement and an object as
+// {"kind","content"}. The kind is not checked here, so a typo never stops the
+// settings from being read: ValidateSkillOverride refuses it.
+func (o *SkillOverride) UnmarshalJSON(raw []byte) error {
+	var content string
+	if err := json.Unmarshal(raw, &content); err == nil {
+		*o = SkillOverride{Content: content}
+		return nil
+	}
+	var object struct {
+		Kind    models.SkillOverrideKind `json:"kind"`
+		Content string                   `json:"content"`
+	}
+	if err := json.Unmarshal(raw, &object); err != nil {
+		return err
+	}
+	*o = SkillOverride{Kind: object.Kind, Content: object.Content}
+	return nil
+}
+
+// dropNullSkillOverrides removes the skills raw states as null. UnmarshalJSON
+// reads a null as an empty full replacement, which would blank the skill: such
+// an entry is absent instead (#732).
+func dropNullSkillOverrides(raw []byte, overrides map[string]SkillOverride) error {
+	if len(overrides) == 0 {
+		return nil
+	}
+	var fields struct {
+		Skills map[string]json.RawMessage `json:"skills"`
+	}
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		return err
+	}
+	for id, value := range fields.Skills {
+		if string(bytes.TrimSpace(value)) == "null" {
+			delete(overrides, id)
+		}
+	}
+	return nil
+}
+
+// MarshalJSON writes a full replacement back as a plain string, the shape every
+// agent reads, and any other kind as an object.
+func (o SkillOverride) MarshalJSON() ([]byte, error) {
+	if o.Kind == models.SkillOverrideFull {
+		return json.Marshal(o.Content)
+	}
+	return json.Marshal(struct {
+		Kind    models.SkillOverrideKind `json:"kind"`
+		Content string                   `json:"content"`
+	}{o.Kind, o.Content})
+}
 
 // SettingsPath is shared by the standalone agent and its optional companion.
 func SettingsPath() (string, error) {
@@ -109,6 +173,9 @@ func readFolded(legacyRoot string) (Settings, error) {
 	}
 	var settings Settings
 	if err = json.Unmarshal(raw, &settings); err != nil {
+		return settings, err
+	}
+	if err = dropNullSkillOverrides(raw, settings.Skills); err != nil {
 		return settings, err
 	}
 	// Legacy keys are folded whatever the layout: an agent that predates #305

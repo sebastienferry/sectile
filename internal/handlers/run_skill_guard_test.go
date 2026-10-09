@@ -40,6 +40,24 @@ func activityCount(t *testing.T, database *db.DB, taskID string) int {
 	return len(activities)
 }
 
+// A hand transition records a stage without running one: its launch is a
+// client mistake, refused before anything is recorded (#732).
+func TestLaunchOfAHandTransitionIsRefused(t *testing.T) {
+	h, database, cleanup := setupTestHandler(t)
+	defer cleanup()
+	server := runSkillServer(t, h)
+	_, alice := account(t, database, "alice@example.com")
+
+	task := guardTask(t, database, "Hand transition")
+	status, body := call(t, server, alice, http.MethodPost, "/api/tasks/"+task.ID+"/run-skill", `{"skillId":"transition"}`)
+	if status != http.StatusBadRequest || !strings.Contains(body, "never launched as a run") {
+		t.Fatalf("a hand transition launch: %d %s", status, body)
+	}
+	if n := activityCount(t, database, task.ID); n != 0 {
+		t.Fatalf("the refusal recorded %d activities", n)
+	}
+}
+
 // A task already carrying a run is busy, whatever declared that run: the whole
 // point of the guard is to see the runs a Claude Code session declares over
 // MCP, which the desktop's own queue cannot.

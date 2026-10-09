@@ -167,7 +167,7 @@ func TestAgentConfigMarksCustomSkills(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := database.SaveProjectSkillContent(project.ID, "clarify", "---\nname: clarify-issue\n---\nProject clarification."); err != nil {
+	if _, err := database.SaveProjectSkillContent(project.ID, "clarify", "---\nname: clarify-issue\n---\nProject clarification.", fullOverride()); err != nil {
 		t.Fatal(err)
 	}
 	if err := database.SetProjectSkillMode(project.ID, "specify", models.SkillModeInteractive); err != nil {
@@ -215,7 +215,7 @@ func TestAgentConfigDirectContentIsProjectNeutral(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := database.SaveProjectSkillContent(openspec.ID, "specify", "---\nname: specify-issue\n---\nProject specification."); err != nil {
+	if _, err := database.SaveProjectSkillContent(openspec.ID, "specify", "---\nname: specify-issue\n---\nProject specification.", fullOverride()); err != nil {
 		t.Fatal(err)
 	}
 	direct := map[string]map[string]agentconfig.Skill{}
@@ -247,5 +247,47 @@ func TestAgentConfigDirectContentIsProjectNeutral(t *testing.T) {
 	}
 	if direct[openspec.ID]["specify"].Content == direct[openspec.ID]["specify"].DirectContent || !strings.Contains(direct[openspec.ID]["specify"].Content, "Project specification.") {
 		t.Fatal("the project's own content must still reach its runs")
+	}
+}
+
+// A work-only override travels with its own sections, so an agent can layer its
+// workstation's on top; pickup, which inlines the stage, is composed and custom.
+func TestAgentConfigSendsWorkContent(t *testing.T) {
+	database, err := testsqlite.New(t, filepath.Join(t.TempDir(), "tasks.db"), NewDB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	project, err := database.CreateProject(models.CreateProjectRequest{Name: "Work"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.SaveProjectSkillContent(project.ID, "implement", "## Report\nProject report.", nil); err != nil {
+		t.Fatal(err)
+	}
+	config, err := database.AgentConfig(project.ID, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sent := map[string]agentconfig.Skill{}
+	for _, skill := range config.Skills {
+		sent[skill.ID] = skill
+	}
+	implement := sent["implement"]
+	if !implement.Custom || implement.OverrideKind != models.SkillOverrideWork || implement.WorkContent != "## Report\nProject report." {
+		t.Fatalf("implement: custom %v, kind %q, work %q", implement.Custom, implement.OverrideKind, implement.WorkContent)
+	}
+	if !strings.Contains(implement.Content, "Project report.") || !strings.Contains(implement.Content, "transition_stage") {
+		t.Fatal("the content an older agent runs is not the composite")
+	}
+	if pickup := sent["pickup"]; !pickup.Custom || pickup.OverrideKind != models.SkillOverrideWork || !strings.Contains(pickup.Content, "Project report.") {
+		t.Fatalf("pickup: custom %v, kind %q", pickup.Custom, pickup.OverrideKind)
+	}
+	if specify := sent["specify"]; specify.Custom || specify.OverrideKind != models.SkillOverrideFull {
+		t.Fatalf("specify: custom %v, kind %q", specify.Custom, specify.OverrideKind)
+	}
+	raw, _ := json.Marshal(config)
+	if strings.Count(string(raw), `"overrideKind":"work"`) != 3 || strings.Count(string(raw), `"workContent"`) != 1 {
+		t.Fatalf("the work fields must be sent for the composed skills only: %s", raw)
 	}
 }

@@ -4483,6 +4483,11 @@ func NormalizeUIScale(scale int) int {
 func (d *DB) GetAvailableSkills() []models.Skill {
 	out := make([]models.Skill, 0, len(skills.StageSkills))
 	for _, s := range skills.StageSkills {
+		// A hand transition records a stage without running one: it is
+		// never offered or dispatched as a run (#732).
+		if s.HandTransition {
+			continue
+		}
 		name := s.Name
 		in, _ := InternalStatusForStage(s.FromStage)
 		outStatus, _ := InternalStatusForStage(s.ToStage)

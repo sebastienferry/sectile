@@ -15,6 +15,7 @@ import (
 	"tasks/internal/agentconfig"
 	"tasks/internal/models"
 	"tasks/internal/runner"
+	"tasks/internal/skills"
 	"tasks/internal/testhome"
 )
 
@@ -377,6 +378,24 @@ func TestCustomSkillsAreHandedToTheirRuns(t *testing.T) {
 		t.Fatalf("ending one run removed another run's skill: %v", err)
 	}
 	close(second.done)
+
+	// A work-only override is composed for its run, the Sectile contracts
+	// kept, rather than handed over as the server's content (#732).
+	work := agentconfig.Config{ProjectID: "p3", AIProvider: "custom", AICommandTemplate: "claude {addDirs} {prompt}", Skills: []agentconfig.Skill{{
+		ID: "implement", Directory: "code-issue", Command: "/code-issue", Content: "server composite", Custom: true,
+		OverrideKind: models.SkillOverrideWork, WorkContent: "## Steps\nProject steps.",
+	}}}
+	done := make(chan struct{})
+	defer close(done)
+	choice, err := d.prepareSkill(work, "implement", "implement", "", "run-3", done, t.TempDir())
+	if err != nil || choice == nil || choice.Kind != skillKindCustom {
+		t.Fatalf("work override: %+v %v", choice, err)
+	}
+	raw, err := os.ReadFile(choice.File)
+	if err != nil || strings.Contains(string(raw), "server composite") || !strings.Contains(string(raw), "Project steps.") ||
+		!strings.Contains(string(raw), "transition_stage") || !strings.Contains(string(raw), "start_run") {
+		t.Fatalf("work override run file: %s %v", raw, err)
+	}
 }
 
 // A dispatch that runs an installed skill writes nothing at all (FR4, US2).
@@ -568,5 +587,70 @@ func TestPluginEnablementFollowsClaudeScopes(t *testing.T) {
 				t.Fatalf("plugin enabled = %v, want %v", got, tc.enabled)
 			}
 		})
+	}
+}
+
+// A run's work-only override layers section by section: the project's
+// sections win, this workstation's fill the ones the project left built-in,
+// and the Sectile contracts stay (#732).
+func TestRunSkillLayersProjectOverWorkstation(t *testing.T) {
+	stage, _ := skills.StageSkillByID("clarify")
+	config := agentconfig.Config{ProjectID: "p", SpecFramework: "", PRCreationStage: models.PRCreationClarified, Skills: []agentconfig.Skill{{
+		ID: "clarify", Directory: "clarify-issue", Content: "server composite", Custom: true, OverrideKind: models.SkillOverrideWork,
+		WorkContent:     "## Goal\nProject goal.\n\n## Steps\nProject steps.",
+		WorkstationWork: "## Steps\nWorkstation steps.\n\n## Report\nWorkstation report.",
+	}}}
+	got := runSkillContent(config, config.Skills[0])
+	want := skills.RenderComposedSkillContent(stage, "", skills.SkillOverrides{"clarify": {Goal: "Project goal.", Steps: "Project steps.", Report: "Workstation report."}}) +
+		skills.ProjectSkillPolicy("clarify", models.PRCreationClarified)
+	if got != want {
+		t.Fatalf("layered composite:\n%s\nwant:\n%s", got, want)
+	}
+	if strings.Contains(got, "Workstation steps.") || !strings.Contains(got, "transition_stage") || !strings.Contains(got, "start_run") {
+		t.Fatalf("a workstation section beat the project's, or a contract was lost:\n%s", got)
+	}
+
+	// The project alone composes what the server composed.
+	project := config
+	project.Skills = []agentconfig.Skill{config.Skills[0]}
+	project.Skills[0].WorkstationWork = ""
+	server := skills.RenderComposedSkillContent(stage, "", skills.SkillOverrides{"clarify": {Goal: "Project goal.", Steps: "Project steps."}}) +
+		skills.ProjectSkillPolicy("clarify", models.PRCreationClarified)
+	if got := runSkillContent(project, project.Skills[0]); got != server {
+		t.Fatalf("the project's work alone is not the server's composite:\n%s", got)
+	}
+
+	// A full replacement runs as it stands.
+	full := agentconfig.Skill{ID: "clarify", Content: "whole", Custom: true}
+	if got := runSkillContent(agentconfig.Config{Skills: []agentconfig.Skill{full}}, full); got != "whole" {
+		t.Fatalf("a full replacement was recomposed: %q", got)
+	}
+}
+
+// Pickup inlines the work of an overridden stage, here this workstation's
+// clarify Steps, while a full replacement of pickup itself still wins (#732).
+func TestPickupRunInlinesOverriddenStage(t *testing.T) {
+	server := agentconfig.Config{ProjectID: "p", Skills: []agentconfig.Skill{
+		{ID: "pickup", Directory: "pickup-issue", Content: "server pickup"},
+		{ID: "clarify", Directory: "clarify-issue", Content: "server clarify"},
+	}}
+	resolved := agentconfig.Resolve(server, agentconfig.Settings{Skills: map[string]agentconfig.SkillOverride{
+		"clarify": {Kind: models.SkillOverrideWork, Content: "## Steps\nWorkstation clarify steps."},
+	}})
+	pickup := resolved.Skills[0]
+	if !pickup.Custom {
+		t.Fatalf("pickup does not run its composite: %+v", pickup)
+	}
+	got := runSkillContent(resolved, pickup)
+	if got == "server pickup" || !strings.Contains(got, "Workstation clarify steps.") || !strings.Contains(got, "transition_stage") {
+		t.Fatalf("pickup does not inline the overridden stage:\n%s", got)
+	}
+
+	whole := agentconfig.Resolve(server, agentconfig.Settings{Skills: map[string]agentconfig.SkillOverride{
+		"pickup":  {Content: "local pickup"},
+		"clarify": {Kind: models.SkillOverrideWork, Content: "## Steps\nWorkstation clarify steps."},
+	}})
+	if got := runSkillContent(whole, whole.Skills[0]); got != "local pickup" {
+		t.Fatalf("a workstation full pickup was recomposed: %q", got)
 	}
 }

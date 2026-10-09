@@ -9,8 +9,9 @@ import {
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { format, formatDateTime, plural } from '../lib/i18n'
+import { kindStartContent } from '../lib/skillEditorKind'
 import type { SkillsEditorStrings } from '../locales/skillsEditor'
-import type { SkillEditorEntry, SkillMode } from '../types'
+import type { SkillEditorEntry, SkillMode, SkillOverrideKind } from '../types'
 
 /**
  * The three values of the per-skill setting. "Project default" is the third
@@ -25,6 +26,17 @@ const skillModeOptions = (modes: SkillsEditorStrings['modes']): { value: SkillMo
 ]
 
 /**
+ * What the editor starts from for an entry (#732): a stored override keeps its
+ * content and kind; a new override of an overridable skill starts work only,
+ * from the built-in work sections; any other skill starts from its full content.
+ */
+const editorBaseline = (entry: SkillEditorEntry): { kind: SkillOverrideKind; content: string } => {
+  if (entry.isCustom) return { kind: entry.overrideKind || '', content: entry.content }
+  if (entry.overridable) return { kind: 'work', content: entry.defaultWorkContent ?? '' }
+  return { kind: '', content: entry.content }
+}
+
+/**
  * Éditeur des skills du workflow agentique.
  *
  * Les cinq pas du workflow ont une skill et une seule, et c'est le même contenu
@@ -34,13 +46,25 @@ const skillModeOptions = (modes: SkillsEditorStrings['modes']): { value: SkillMo
  */
 export const SkillsView: React.FC = () => {
   const { t, settings, currentProject, fetchSkillEditor, saveSkillContent, resetSkillContent, saveSkillMode } = useApp()
-  const { modes, list, indicators, editor } = t.skillsEditor
+  const { modes, list, indicators, editor, overrideKinds, overrideKind } = t.skillsEditor
+  // A kind this client does not know shows as stored rather than breaking the list.
+  const overrideKindLabel = (value: SkillOverrideKind | undefined): string => {
+    const key = value || ''
+    return (overrideKinds as Record<string, string>)[key] ?? key
+  }
 
   const [entries, setEntries] = useState<SkillEditorEntry[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [selectedId, setSelectedId] = useState<string>('')
   const [draft, setDraft] = useState('')
+  const [kind, setKind] = useState<SkillOverrideKind>('')
   const [busy, setBusy] = useState<string | null>(null)
+
+  const startFrom = (entry: SkillEditorEntry) => {
+    const baseline = editorBaseline(entry)
+    setDraft(baseline.content)
+    setKind(baseline.kind)
+  }
 
   const load = async () => {
     setIsLoading(true)
@@ -49,7 +73,7 @@ export const SkillsView: React.FC = () => {
     setIsLoading(false)
     if (list.length && !list.some(e => e.id === selectedId)) {
       setSelectedId(list[0].id)
-      setDraft(list[0].content)
+      startFrom(list[0])
     }
   }
 
@@ -62,15 +86,38 @@ export const SkillsView: React.FC = () => {
 
   const select = (entry: SkillEditorEntry) => {
     setSelectedId(entry.id)
-    setDraft(entry.content)
+    startFrom(entry)
   }
 
-  const isDirty = Boolean(selected && (draft !== selected.content || selected.requiresReconciliation))
+  const baseline = selected ? editorBaseline(selected) : null
+  const isDirty = Boolean(selected && baseline && (draft !== baseline.content || kind !== baseline.kind || selected.requiresReconciliation))
+  // A full replacement of a skill with no override, still holding the built-in
+  // skill, would store a row equal to the built-in: there is nothing to save.
+  const unchangedFull = Boolean(selected && !selected.isCustom && !selected.requiresReconciliation && kind === '' && draft === selected.defaultContent)
+  const canSave = isDirty && !unchangedFull
 
   const applyEntry = (entry: SkillEditorEntry | null) => {
     if (!entry) return
     setEntries(prev => prev.map(e => (e.id === entry.id ? entry : e)))
-    setDraft(entry.content)
+    startFrom(entry)
+  }
+
+  /**
+   * Switching the kind swaps the editor's content for the matching starting
+   * point (kindStartContent): the stored override of that kind when there is
+   * one, else the built-in work sections for work only, or the complete
+   * built-in skill for a full replacement. Content the user would lose is
+   * confirmed first: a draft still holding the other kind's built-in content
+   * loses nothing.
+   */
+  const switchKind = (entry: SkillEditorEntry, next: SkillOverrideKind) => {
+    if (next === kind) return
+    const content = kindStartContent(entry, next)
+    const untouched = next === 'work' ? entry.defaultContent : entry.defaultWorkContent
+    const question = next === 'work' ? overrideKind.confirmWork : overrideKind.confirmFull
+    if (draft !== content && draft !== untouched && !window.confirm(question)) return
+    setDraft(content)
+    setKind(next)
   }
 
   const run = async (action: string, fn: () => Promise<SkillEditorEntry | null>) => {
@@ -133,9 +180,9 @@ export const SkillsView: React.FC = () => {
                     {entry.isCustom && (
                       <span
                         className={`${entry.scope === 'macro' ? '' : 'ml-auto'} text-[8px] font-bold px-1 rounded text-[var(--accent-color)] bg-[var(--accent-light)] border border-[var(--accent-color)]/30 shrink-0`}
-                        title={indicators.customTitle}
+                        title={`${indicators.customTitle} · ${overrideKindLabel(entry.overrideKind)}`}
                       >
-                        {indicators.custom}
+                        {indicators.custom} · {overrideKindLabel(entry.overrideKind).toUpperCase()}
                       </span>
                     )}
                   </div>
@@ -200,9 +247,27 @@ export const SkillsView: React.FC = () => {
                 )}
                 <h3 className="text-[13px] font-bold text-[var(--text-primary)] truncate">{selected.name}</h3>
                 <p className="text-[10px] text-[var(--text-muted)] truncate">{selected.description}</p>
+                {kind === 'work' && <p className="text-[10px] text-[var(--text-secondary)]">{overrideKind.contractsHint}</p>}
               </div>
 
               <div className="ml-auto flex items-center gap-1.5">
+                <label className="flex items-center gap-1 text-[10px] text-[var(--text-secondary)]">
+                  <span>{overrideKind.label}</span>
+                  <select
+                    value={kind}
+                    disabled={busy !== null || !selected.overridable}
+                    onChange={e => switchKind(selected, e.target.value as SkillOverrideKind)}
+                    className="px-1.5 py-1 rounded-lg text-[10px] bg-[var(--bg-tertiary)] text-[var(--text-primary)] border border-[var(--border-color)] disabled:opacity-40 cursor-pointer"
+                    title={selected.overridable ? overrideKind.selectTitle : overrideKind.fullOnlyTitle}
+                  >
+                    {(['work', ''] as SkillOverrideKind[]).map(value => (
+                      <option key={value} value={value}>
+                        {overrideKinds[value]}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
                 <label className="flex items-center gap-1 text-[10px] text-[var(--text-secondary)]">
                   <span>{modes.label}</span>
                   <select
@@ -234,13 +299,13 @@ export const SkillsView: React.FC = () => {
                 )}
                 <button
                   type="button"
-                  onClick={() => run('save', () => saveSkillContent(selected.id, draft))}
-                  disabled={busy !== null || !isDirty}
+                  onClick={() => run('save', () => saveSkillContent(selected.id, draft, kind))}
+                  disabled={busy !== null || !canSave}
                   className="flex items-center gap-1 px-3 py-1.5 rounded-xl text-[11px] font-bold text-white accent-bg hover:opacity-90 disabled:opacity-40 cursor-pointer"
-                  title={editor.saveTitle}
+                  title={unchangedFull ? editor.unchangedFullTitle : editor.saveTitle}
                 >
                   {busy === 'save' ? <Loader2 size={11} className="animate-spin" /> : <Save size={11} />}
-                  <span>{isDirty ? editor.save : editor.upToDate}</span>
+                  <span>{canSave ? editor.save : editor.upToDate}</span>
                 </button>
               </div>
             </div>
@@ -254,6 +319,14 @@ export const SkillsView: React.FC = () => {
               spellCheck={false}
               className="flex-1 min-h-0 w-full px-4 py-3 font-mono text-[11.5px] leading-relaxed bg-[var(--bg-primary)] text-[var(--text-primary)] border-0 focus:outline-none resize-none"
             />
+
+            {/* The built-in reference matches the kind being edited. */}
+            <details className="px-4 py-1.5 border-t border-[var(--border-color)] text-[10px] text-[var(--text-muted)]">
+              <summary className="cursor-pointer">{editor.reference}</summary>
+              <pre className="mt-1 max-h-48 overflow-y-auto whitespace-pre-wrap font-mono text-[10.5px] text-[var(--text-secondary)]">
+                {kind === 'work' ? selected.defaultWorkContent ?? '' : selected.defaultContent}
+              </pre>
+            </details>
 
             <div className="px-4 py-1.5 border-t border-[var(--border-color)] flex items-center gap-3 text-[9px] font-mono text-[var(--text-muted)] flex-wrap">
               <span>{plural(settings.language, draft.split('\n').length, editor.lines)}</span>

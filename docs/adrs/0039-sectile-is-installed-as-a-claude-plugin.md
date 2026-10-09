@@ -135,6 +135,33 @@ longer stops the others. This is still a write the user asked for once, not a
 reconciliation: an entry Sectile did not write is reported, and rewritten only
 by the **Repair** action of the MCP settings (ADR 0023, amendment of #716).
 
+## Third amendment (2026-10-05, #732): the direct copy carries per-project work overrides
+
+ADR 0056 lets a project or a workstation override only the work sections of a
+stage skill. The direct copy stays one file per skill shared by every project,
+but it is no longer always the built-in skill: when a project the workstation
+knows, or the workstation itself, has a work-only override of a skill, each
+overridden section is rendered as one
+`### When get_project_context reports projectId "<id>"` subsection per
+overriding project, then `### Otherwise` with the workstation's section or the
+built-in one. The skill picks its subsection from `get_project_context` at run
+time, as it already picks its framework variant, so one copy stays right for
+every project and the collision this decision removed does not come back. A
+project's full replacement still never reaches the copy, and the copy comes
+back to the built-in skill once the overrides are removed.
+
+A save, reset or import in the skills editor now reaches a workstation, but
+only through the new `refresh_skills` operation: the agent rewrites the direct
+copies of the providers whose copies `agent-manifest.json` already manages,
+backing up hand edits, and does nothing on a workstation without a direct
+setup. This is an event from the change, not the reconciliation rejected
+above: nothing compares versions or checksums, nothing is installed, no MCP
+registration is written, and a workstation that missed the event catches up at
+its next `sectile-agent init`, **Initialize** or `sync_config`. The consequence
+"a save no longer reaches any workstation until the next dispatch" now holds
+for the plugin and for workstations without a direct setup only. The plugin
+skill (`/sectile:<dir>`) is still never rewritten.
+
 ## Alternatives rejected
 
 - **Keep writing at dispatch, and skip it when the plugin is present.** Still
