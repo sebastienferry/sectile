@@ -441,8 +441,8 @@ The roster, the admin side of the interface. Everything else on the board,
 projects included, is a member's to use. What is an admin's is the roster:
 who exists, what role they hold, and whether their account still opens, the
 admin page's summary of what the board is doing, and the deployment's tracker
-access: the server credential of each provider, the Jira OAuth app (2.3.1) and
-the trackers themselves (2.3.0.3).
+access: the server credential of each provider, the Jira, GitHub and GitLab
+OAuth apps (2.3.1) and the trackers themselves (2.3.0.3).
 
 | Method | Path | Body | Description |
 | :--- | :--- | :--- | :--- |
@@ -533,13 +533,15 @@ session, never from the payload, and no answer ever carries a token.
 
 | Method | Path | Body | Description |
 | :--- | :--- | :--- | :--- |
-| `GET` | `/api/me/tracker-credentials` | (none) | What this person stored: tracker, site, e-mail, `account`, sealed, unlocked, `kind`. `account` is who the tracker confirmed the credential belongs to (a GitHub or GitLab login, a Jira display name), absent until it is confirmed. `kind` is `api_token`, or `oauth` for a Jira grant, which also carries `disconnected` and `grantedSites` and is never sealed. The answer adds `jiraOAuth: {configured, sites}`: whether people can connect Jira, and the configured Jira sites (the deployment's and every Jira project's) a grant must cover. |
+| `GET` | `/api/me/tracker-credentials` | (none) | What this person stored: tracker, site, e-mail, `account`, sealed, unlocked, `kind`. `account` is who the tracker confirmed the credential belongs to (a GitHub or GitLab login, a Jira display name), absent until it is confirmed. `kind` is `api_token`, or `oauth` for a Jira, GitHub or GitLab grant, which also carries `disconnected` and is never sealed; a Jira grant also carries `grantedSites`. The answer adds `jiraOAuth: {configured, sites}`: whether people can connect Jira, and the configured Jira sites (the deployment's and every Jira project's) a grant must cover. It also adds `githubOAuth: {configured}` and `gitlabOAuth: {configured}`: whether people can connect that forge, which needs its OAuth app configured and at least one tracker of the deployment on github.com or gitlab.com. |
 | `PUT` | `/api/me/tracker-credentials` | `{tracker, siteUrl, email, token, passphrase}` | Stores or replaces one. A passphrase seals it. An empty `token` keeps the stored one, so the site, the e-mail and the sealing can change on their own; a sealed credential must be unlocked for that. Saving forgets the confirmed account, then asks the tracker for it again; a failed answer still saves the credential, with no account. |
 | `DELETE` | `/api/me/tracker-credentials?tracker=` | (none) | Forgets one. `404` when there is none to forget. |
 | `POST` | `/api/me/tracker-credentials/unlock` | `{tracker, passphrase}` | Supplies the sealing passphrase for this server's lifetime. `409` when the credential is not sealed. |
 | `POST` | `/api/me/tracker-credentials/lock` | `{tracker}` | Forgets the derived key. |
 | `POST` | `/api/me/tracker-credentials/jira/connect` | (none) | Starts a Jira consent (#654): `{authorizeUrl}`, Atlassian's consent screen, where the web sends the browser. Only a web session may start one, an agent key is refused `403`; `409 {code: "jira_oauth_not_configured"}` without an OAuth app. |
 | `GET` | `/auth/jira/callback` | (query `state`, `code` or `error`) | Where Atlassian sends the browser back. Public like the rest of `/auth/`, it reads the web session itself and always redirects to `/?trackerCredentials=jira&jiraOAuth=<outcome>`, the outcome being `connected`, `cancelled`, `invalid` (missing, used, expired, or another session's or person's `state`), `no_site` (the grant covers no configured Jira site) or `unreachable`. Only `connected` stores anything. |
+| `POST` | `/api/me/tracker-credentials/{github,gitlab}/connect` | (none) | Starts a GitHub or GitLab consent (#804): `{authorizeUrl}`, the forge's consent screen. Only a web session may start one, an agent key is refused `403`; `409 {code: "github_oauth_not_configured"}` (or `gitlab_oauth_not_configured`) without that forge's OAuth app. |
+| `GET` | `/auth/{github,gitlab}/callback` | (query `state`, `code` or `error`) | Where the forge sends the browser back. Public like the rest of `/auth/`, it reads the web session itself and always redirects to `/?trackerCredentials=<tracker>&oauth=<outcome>`, the outcome being `connected`, `cancelled`, `invalid` (missing, used, expired, or another session's, person's or tracker's `state`) or `unreachable`. Only `connected` stores anything. |
 | `GET` | `/api/me/assignee-identities?projectId=\|viewId=` | (none) | Who My Tasks takes the caller to be: `{signedIn, fallback, trackers}`. `fallback` is the account's name and e-mail (the local profile's when signed out); `trackers` lists each non-local tracker of the tickets in scope as `{tracker, identity?, known}`. Same scope rules as `/api/tasks`, `404` on a view that is not the caller's. Answers signed-out callers too, and never reaches a tracker. |
 
 **My Tasks (#468).** A ticket is the caller's when its assignee equals, trimmed
@@ -573,6 +575,26 @@ the missing-credential error until the person connects again. The pending
 consents live in `jira_oauth_flows`, the state and the web session hashed,
 consumed by one statement.
 
+**GitHub and GitLab grants (#804, ADR 0056).** A row of `kind = 'oauth'` for
+`github` or `gitlab` holds, sealed under the server key with `kind` added to its
+additional authenticated data, the JSON
+`{accessToken, refreshToken?, expiresAt, scope?}`. `site_url` and `email` are
+empty and `account` is the `login` (GitHub) or `username` (GitLab) that
+`GET /user` answered through the grant. The consent asks for `repo read:project`
+on GitHub and `api` on GitLab. A grant serves only a tracker whose API host is
+`api.github.com` or `gitlab.com`: a GitHub Enterprise or self-hosted GitLab
+tracker fails with the missing-credential error ("site not granted") and never
+falls back to the server credential. A GitHub OAuth App token has no expiry
+(a zero `expiresAt`) and is sent as stored; a GitLab token is refreshed within a
+minute of its expiry, claimed by the same compare-and-set on `version` as a
+Jira grant. A GitLab refresh answered `invalid_grant`, and a GitHub `401` on a
+call made through the grant, set `disconnected_at` (the `401` only for the
+`version` the call read). Deleting the row, or replacing the grant with a pasted
+token, revokes it at the provider afterwards, best effort: a failed revocation
+is only logged. The pending consents share `jira_oauth_flows`, whose `tracker`
+column (migration 51, default `jira`) lets only the callback of the tracker that
+started a flow consume its state.
+
 **Jira OAuth app (admin).** `GET`, `PUT {clientId, clientSecret?, redirectUrl}`
 and `DELETE` on `/api/admin/jira-oauth` answer
 `{configured, clientId, secretSet, redirectUrl, source, unreadable?, updatedAt?}`,
@@ -581,6 +603,13 @@ an empty one keeps the saved secret, and the first save needs it. `redirectUrl`
 must be absolute HTTPS, or HTTP on `localhost`. Stored in `tracker_oauth_apps`,
 the secret sealed under the server key with a binding of its own; a saved app
 wins over `SECTILE_JIRA_OAUTH_*` as a whole.
+
+**GitHub and GitLab OAuth apps (admin).** `/api/admin/github-oauth` and
+`/api/admin/gitlab-oauth` take the same `GET`, `PUT` and `DELETE`, answer the
+same shape and apply the same rules, each on its own `tracker_oauth_apps` row.
+A saved app wins over `SECTILE_GITHUB_OAUTH_*` or `SECTILE_GITLAB_OAUTH_*` as a
+whole. The callbacks to register are `/auth/github/callback` and
+`/auth/gitlab/callback` on the server's public URL.
 
 ### 2.4 Tracker Synchronization API
 

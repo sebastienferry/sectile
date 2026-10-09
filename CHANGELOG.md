@@ -13,6 +13,10 @@ test fixtures or internal plumbing.
 
 ## [Unreleased]
 
+### Added
+
+- **Connect GitHub and GitLab from your profile.** Profile → Tracker credentials offers **Connect GitHub** and **Connect GitLab** once an admin has registered the app in Administration: one consent screen, and your writes on github.com and gitlab.com are made under your own account, with no token to create, paste or unseal. Disconnecting also revokes the access on the forge; GitHub Enterprise and self-hosted GitLab keep the personal token, still available behind **Use a token instead**. (#804)
+
 ### Changed
 
 - **Shorter worktree folders for Jira and macro keys.** New worktrees for keys such as `AUC-1234` or `M-7` are named `auc-1234` and `m-7` instead of carrying a long hash; existing worktrees stay where they are. (#798)
