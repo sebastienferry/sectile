@@ -16,6 +16,7 @@ test fixtures or internal plumbing.
 ### Changed
 
 - **Shorter worktree folders for Jira and macro keys.** New worktrees for keys such as `AUC-1234` or `M-7` are named `auc-1234` and `m-7` instead of carrying a long hash; existing worktrees stay where they are. (#798)
+- **One pull request control for a task that changed several repositories.** Instead of one button per repository, the Desktop execution toolbar shows the primary repository's pull request followed by a **+N** chevron. It opens a menu listing every repository's pull request, primary first, each with its state icon, its repository name and its number; choosing one opens it. A task with a single pull request keeps its button alone. (#791)
 
 ## [0.4.1] - 2026-10-09
 
