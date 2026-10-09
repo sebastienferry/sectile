@@ -16,12 +16,16 @@ function checkout(name) {
   return { base, dir, testUrl }
 }
 
+// browserRoot() returns forward slashes, which Vite's module ids need, while join() uses
+// backslashes on Windows: the expected root is converted, never the actual one.
+const slashes = path => path.replace(/\\/g, '/')
+
 test('a path without # is served as it is', t => {
   const { base, dir, testUrl } = checkout('387')
   t.after(() => rmSync(base, { recursive: true, force: true }))
   const exits = []
   const { root, preserveSymlinks } = browserRoot(testUrl, { env: {}, onExit: callback => exits.push(callback), relaunch: () => assert.fail('no relaunch') })
-  assert.equal(root, join(dir, 'web'))
+  assert.equal(root, slashes(join(dir, 'web')))
   assert.equal(preserveSymlinks, false)
   assert.equal(exits.length, 0, 'nothing to clean up')
 })
@@ -47,7 +51,7 @@ test('a path with # relaunches the test through a link to the same checkout', t 
 
   // What the relaunched process gets back from the same call.
   const { root, preserveSymlinks } = browserRoot(pathToFileURL(script).href, { env, onExit: () => assert.fail('no cleanup in the child'), relaunch: () => assert.fail('no second relaunch') })
-  assert.equal(root, web)
+  assert.equal(root, slashes(web))
   assert.equal(preserveSymlinks, true, 'Vite keeps the link instead of resolving it back to the # path')
 
   assert.equal(exits.length, 1)
