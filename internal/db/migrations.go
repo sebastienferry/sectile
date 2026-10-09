@@ -791,6 +791,19 @@ var migrations = []migration{
 		"ALTER TABLE task_activities ADD COLUMN dispatch_state TEXT NOT NULL DEFAULT '';",
 		"ALTER TABLE task_activities ADD COLUMN remote_run_id TEXT NOT NULL DEFAULT '';",
 	}},
+	{
+		// The pending consents of every forge (#804): GitHub and GitLab
+		// connect the way Jira does, so the table now holds their flows too,
+		// each tagged with the tracker that started it, and a state is
+		// consumed only by that tracker's callback. Every existing row is a
+		// Jira one. The table keeps its name: renaming it across both
+		// dialects buys nothing.
+		version: 55,
+		name:    "jira_oauth_flows.tracker",
+		statements: []string{
+			"ALTER TABLE jira_oauth_flows ADD COLUMN tracker TEXT NOT NULL DEFAULT 'jira';",
+		},
+	},
 }
 
 // migrateSchema brings the database to the schema this binary expects, and is
