@@ -176,7 +176,7 @@ The settings content fills the available width and adapts to window resizing.
 
 ### See a project's board
 
-Use **Open board** on a project, or **Project board** in the command palette, to see the project's tasks in six workflow columns: **New**, **Clarified**, **Specified**, **Implemented**, **Reviewed** and **Finished**, finished tasks included. A task sits in the column the web board shows it in: its workflow label first, then the stage the project maps its tracker column to, then its status. The board replaces the tickets list while it is open; **Close board** or Escape returns to the previous view. The search field narrows the board to the tasks whose title or key matches.
+Use **Open board** on a project, or **Project board** in the command palette, to see the project's tasks in six workflow columns: **New**, **Clarified**, **Specified**, **Implemented**, **Reviewed** and **Finished**, finished tasks included. A task whose status is finished sits in **Finished**. Any other task sits in the column the web board shows it in: its workflow label first, then the stage the project maps its tracker column to, then its status. The board replaces the tickets list while it is open; **Close board** or Escape returns to the previous view. The search field narrows the board to the tasks whose title or key matches.
 
 - **Finished column.** It starts collapsed into a narrow strip showing its count. Click the strip to expand it and **Hide finished** to collapse it again.
 - **Card display.** **Condensed** shows the key, the title, the latest execution's state and the actions menu on one line. **Full** adds the macro, the priority, the labels, the pull request and the assignee.

@@ -783,9 +783,10 @@ ordering lasts for the window session and resets when the pane is reopened.
 shows the project's tasks in the six workflow columns (New, Clarified,
 Specified, Implemented, Reviewed, Finished), finished tasks included, in the
 same slot as the Tickets pane: opening one closes the other, and **Close board**
-or Escape returns as **Close tickets** does. A task is placed as the web board
-places it: an explicit workflow label, then the stage the project maps its
-tracker column to (the agent's `/desktop/project` answers that mapping as
+or Escape returns as **Close tickets** does. A task with a finished or done
+status sits in Finished, as the Tickets pane already treats it; any other task
+is placed as the web board places it: an explicit workflow label, then the
+stage the project maps its tracker column to (the agent's `/desktop/project` answers that mapping as
 `board`), then its status; an agent without it places tasks from labels and
 status alone. Within a column cards follow the Tickets pane's default order.
 The Finished column starts collapsed into a strip that keeps its count, and
