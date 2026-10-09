@@ -346,26 +346,77 @@ func renderDirectComposed(s StageSkill, workstation SkillOverrides, projects []P
 // workstation's section, else the built-in one with every framework variant.
 // Projects that override the section get a subsection each at level, the
 // fallback moving one level down under "Otherwise".
+//
+// An override is written for a section under its "##" heading: inlined deeper,
+// its own headings move down as many levels, so they stay below the subsection
+// that holds it. The built-in fragments are written for where they go.
 func directSection(id, fragment, level string, workstation SkillOverrides, projects []ProjectOverrides) string {
-	fallback := func(level string) string {
+	fallback := func(level string, by int) string {
 		if text := strings.Trim(workstation[id].section(fragment), "\n"); strings.TrimSpace(text) != "" {
-			return text
+			return nestHeadings(text, by)
 		}
 		return genericSkillFragment(id, fragment, level)
 	}
+	// A variant, and the fallback under "Otherwise", sit under a heading at
+	// level; without variants the fallback sits one level higher.
 	var variants []string
 	for _, project := range projects {
 		if text := strings.Trim(project.Skills[id].section(fragment), "\n"); strings.TrimSpace(text) != "" {
-			variants = append(variants, fmt.Sprintf("%s When get_project_context reports projectId %q\n%s", level, project.ProjectID, text))
+			variants = append(variants, fmt.Sprintf("%s When get_project_context reports projectId %q\n%s", level, project.ProjectID, nestHeadings(text, len(level)-2)))
 		}
 	}
 	if len(variants) == 0 {
-		return fallback(level)
+		return fallback(level, len(level)-3)
 	}
-	if otherwise := strings.TrimRight(fallback(level+"#"), "\n"); strings.TrimSpace(otherwise) != "" {
+	if otherwise := strings.TrimRight(fallback(level+"#", len(level)-2), "\n"); strings.TrimSpace(otherwise) != "" {
 		variants = append(variants, fmt.Sprintf("%s Otherwise\n%s", level, otherwise))
 	}
 	return "Read projectId from get_project_context and follow the subsection that matches it.\n\n" + strings.Join(variants, "\n\n")
+}
+
+// nestHeadings moves every ATX heading of text, indented by at most three
+// spaces, down by levels, capped at "######". Fenced code is left untouched.
+func nestHeadings(text string, by int) string {
+	if by <= 0 {
+		return text
+	}
+	lines := strings.Split(text, "\n")
+	fence := ""
+	for i, line := range lines {
+		if marker, rest := fenceMarker(line); marker != "" {
+			if fence == "" {
+				fence = marker
+			} else if marker[0] == fence[0] && len(marker) >= len(fence) && strings.TrimSpace(rest) == "" {
+				fence = ""
+			}
+			continue
+		}
+		if fence != "" {
+			continue
+		}
+		trimmed := strings.TrimLeft(line, " ")
+		indent := len(line) - len(trimmed)
+		n := 0
+		for n < len(trimmed) && trimmed[n] == '#' {
+			n++
+		}
+		if indent > 3 || n == 0 || n > 6 || (n < len(trimmed) && !strings.ContainsRune(" \t\r", rune(trimmed[n]))) {
+			continue
+		}
+		lines[i] = line[:indent] + strings.Repeat("#", min(n+by, 6)) + trimmed[n:]
+	}
+	return strings.Join(lines, "\n")
+}
+
+// nested is w with nestHeadings applied to every section.
+func (w WorkSections) nested(by int) WorkSections {
+	return WorkSections{
+		Goal:      nestHeadings(w.Goal, by),
+		ReadFirst: nestHeadings(w.ReadFirst, by),
+		Steps:     nestHeadings(w.Steps, by),
+		Guard:     nestHeadings(w.Guard, by),
+		Report:    nestHeadings(w.Report, by),
+	}
 }
 
 func sortedProjects(projects []ProjectOverrides) []ProjectOverrides {

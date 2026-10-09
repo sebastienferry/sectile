@@ -504,8 +504,9 @@ func handTransitionSteps(s StageSkill) string {
 
 // Pickup embeds the maintained stage bodies, so batch and single-ticket runs
 // cannot silently omit a validation rule added to a standalone step. Each
-// stage's work comes from its override when it has one (#732); its exit
-// condition always comes from the catalogue.
+// stage's work comes from its override when it has one (#732), its headings one
+// level down since it sits under the stage's "###"; its exit condition always
+// comes from the catalogue.
 func renderPickupSteps(specFramework string, batch bool, overrides SkillOverrides) string {
 	var b strings.Builder
 	tmpl := readContractFragment("pickup-header")
@@ -516,7 +517,7 @@ func renderPickupSteps(specFramework string, batch bool, overrides SkillOverride
 
 	for _, id := range pickupStages {
 		step, _ := StageSkillByID(id)
-		work := overrides[id].Over(BuiltinWorkSections(step, specFramework))
+		work := overrides[id].nested(1).Over(BuiltinWorkSections(step, specFramework))
 		fmt.Fprintf(
 			&b,
 			"\n### %s\n%s\n\n%s\n\n%s\n\nExit condition before recording %s: %s\n\nReport and persist before continuing:\n%s\n",

@@ -90,12 +90,16 @@ func TestPickupInlinesOverriddenStageWork(t *testing.T) {
 	specify := skills.BuiltinWorkSections(stageSkill(t, "specify"), "openspec")
 	for _, id := range []string{"pickup", "pickup_issues"} {
 		overrides := skills.SkillOverrides{
-			"specify": {Steps: "1. Write the specification the team's way."},
-			id:        {Report: "- The pull request, nothing else.", Steps: "ignored: pickup steps are its stages"},
+			"specify":   {Steps: "1. Write the specification the team's way."},
+			"implement": {Steps: "### Sub\n```\n### not a heading\n```"},
+			id:          {Report: "- The pull request, nothing else.", Steps: "ignored: pickup steps are its stages"},
 		}
 		content := skills.RenderComposedSkillContent(stageSkill(t, id), "openspec", overrides)
 		for _, required := range []string{
 			"1. Write the specification the team's way.",
+			// Inlined under the stage's "###", the override's headings move one
+			// level down; the fenced line keeps its text.
+			"\n#### Sub\n```\n### not a heading\n```",
 			"- The pull request, nothing else.",
 			"Exit condition before recording clarified: " + exitFragment(t, "clarify"),
 			"Exit condition before recording specified: this step is complete.",
@@ -225,6 +229,27 @@ func TestDirectSkillCarriesProjectVariants(t *testing.T) {
 	} {
 		if !strings.Contains(pickup, required) {
 			t.Errorf("direct pickup is missing %q", required)
+		}
+	}
+
+	// An override's own headings move below the subsection that holds it, as
+	// many levels as it is inlined deeper; a fenced line keeps its text.
+	nested := "### Sub\n```\n### not a heading\n```"
+	work := skills.SkillOverrides{"clarify": {Steps: nested}, "specify": {Steps: nested}}
+	inProject := []skills.ProjectOverrides{{ProjectID: "alpha", Skills: work}}
+	pickupStage, fenced := stageSkill(t, "pickup"), "\n```\n### not a heading\n```"
+	for _, c := range []struct {
+		name, content, want string
+	}{
+		{"clarify, workstation only", skills.RenderDirectComposedSkillContent(clarify, work, nil), "## Steps\n### Sub" + fenced},
+		{"clarify, project variant", skills.RenderDirectComposedSkillContent(clarify, nil, inProject), "### When get_project_context reports projectId \"alpha\"\n#### Sub" + fenced},
+		{"clarify, otherwise", skills.RenderDirectComposedSkillContent(clarify, work, inProject), "### Otherwise\n#### Sub" + fenced},
+		{"pickup, workstation only", skills.RenderDirectComposedSkillContent(pickupStage, work, nil), "\n#### Sub" + fenced},
+		{"pickup, project variant", skills.RenderDirectComposedSkillContent(pickupStage, nil, inProject), "#### When get_project_context reports projectId \"alpha\"\n##### Sub" + fenced},
+		{"pickup, otherwise", skills.RenderDirectComposedSkillContent(pickupStage, work, inProject), "#### Otherwise\n##### Sub" + fenced},
+	} {
+		if !strings.Contains(c.content, c.want) {
+			t.Errorf("%s: missing %q:\n%s", c.name, c.want, c.content)
 		}
 	}
 }
