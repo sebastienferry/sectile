@@ -179,7 +179,7 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 		// contractError separates a server that is merely unreachable from one
 		// that cannot be talked to at all. Without it the desktop reports both
 		// as a disconnection and the user has no reason to look at the build.
-		capabilities := []string{"git-diff", markdownDocumentsCapability, markdownImagesCapability, "create-task", "remove-project", "free-console", "transition-stage", "repositories", attachedFoldersCapability, "git-init", taskEnginesCapability, openEditorCapability, "claude-conversation", "codex-conversation", codexSettingsCapability, conversationControlsCapability, conversationQueueCapability, runFoldersCapability, runFoldersTerminalsCapability, folderSelectionCapability, consoleViewCapability, conversationModeCapability, projectTerminalCapability, archiveWorkspaceCapability}
+		capabilities := []string{"git-diff", markdownDocumentsCapability, markdownImagesCapability, "create-task", "remove-project", "free-console", "transition-stage", "repositories", attachedFoldersCapability, "git-init", taskEnginesCapability, openEditorCapability, "claude-conversation", "codex-conversation", codexSettingsCapability, conversationControlsCapability, conversationQueueCapability, runFoldersCapability, runFoldersTerminalsCapability, folderSelectionCapability, consoleViewCapability, conversationModeCapability, projectTerminalCapability, archiveWorkspaceCapability, stageMoveCapability}
 		if d.store != nil {
 			capabilities = append(capabilities, runStoreCapability)
 		}
@@ -226,6 +226,10 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	if r.URL.Path == "/desktop/run-result" && r.Method == http.MethodGet {
 		d.desktopRunResult(w, r)
+		return
+	}
+	if r.URL.Path == "/desktop/tasks/stage-move" {
+		d.desktopTaskStageMove(w, r)
 		return
 	}
 	if r.URL.Path == "/desktop/tasks/transition" {
@@ -866,7 +870,7 @@ func (d *agentDaemon) desktopProject(w http.ResponseWriter, r *http.Request) {
 		fields := executionFields(config, overrides)
 		sandboxCovered, sandboxGlobal := projectSandboxInheritance(overrides, id)
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{
+		payload := map[string]any{
 			"server":                      withoutExecution(config),
 			"path":                        root,
 			"specPath":                    section.MacroSpecPath,
@@ -900,7 +904,13 @@ func (d *agentDaemon) desktopProject(w http.ResponseWriter, r *http.Request) {
 			"claudeSettingsPath": claudeSettingsPathOf(id),
 			"fields":             fields,
 			"skills":             skillNames(config),
-		})
+		}
+		// The board's display data (#806). A project the server cannot answer
+		// for leaves the field out, and the desktop board reads it as unmapped.
+		if board, err := d.projectBoard(r.Context(), id); err == nil {
+			payload["board"] = board
+		}
+		_ = json.NewEncoder(w).Encode(payload)
 		return
 	}
 	if mappingErr != nil {
@@ -1165,6 +1175,129 @@ func (d *agentDaemon) desktopTaskTransition(w http.ResponseWriter, r *http.Reque
 		"note":  input.Note,
 	})
 	req, err := http.NewRequestWithContext(r.Context(), http.MethodPost, d.link.serverURL+"/api/tasks/"+url.PathEscape(input.TaskID)+"/stage", strings.NewReader(body))
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+	response, err := agenthttp.Client(d.link.token).Do(req)
+	if err != nil {
+		http.Error(w, err.Error(), 502)
+		return
+	}
+	defer response.Body.Close()
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, _ = io.Copy(w, io.LimitReader(response.Body, 1<<20))
+}
+
+// stageMoveCapability tells the desktop it can move a task between workflow
+// stages from its board (#806). An older agent does not list it, and the
+// board's cards are not draggable then.
+const stageMoveCapability = "stage-move"
+
+// desktopBoardTracker is the column data of one tracker a project selects.
+type desktopBoardTracker struct {
+	TrackerID      string                 `json:"trackerId"`
+	TrackerColumns []models.TrackerColumn `json:"trackerColumns"`
+	StageColumns   map[string][]string    `json:"stageColumns"`
+}
+
+// desktopBoard is what the desktop board needs of a project to place tasks in
+// the stage columns the web board shows them in, and to paint their macro.
+type desktopBoard struct {
+	EpicColors     bool                   `json:"epicColors"`
+	TrackerColumns []models.TrackerColumn `json:"trackerColumns"`
+	StageColumns   map[string][]string    `json:"stageColumns"`
+	Trackers       []desktopBoardTracker  `json:"trackers"`
+}
+
+// projectBoard reads the board data of a project from the server.
+func (d *agentDaemon) projectBoard(ctx context.Context, projectID string) (desktopBoard, error) {
+	var project models.Project
+	if err := d.readAPI(ctx, "/api/projects/"+url.PathEscape(projectID), &project); err != nil {
+		return desktopBoard{}, err
+	}
+	board := desktopBoard{
+		EpicColors:     project.EpicColors,
+		TrackerColumns: nonNilColumns(project.TrackerColumns),
+		StageColumns:   nonNilMapping(project.StageColumns),
+		Trackers:       []desktopBoardTracker{},
+	}
+	for _, tracker := range project.Trackers {
+		board.Trackers = append(board.Trackers, desktopBoardTracker{
+			TrackerID:      tracker.TrackerID,
+			TrackerColumns: nonNilColumns(tracker.TrackerColumns),
+			StageColumns:   nonNilMapping(tracker.StageColumns),
+		})
+	}
+	return board, nil
+}
+
+func nonNilColumns(columns []models.TrackerColumn) []models.TrackerColumn {
+	if columns == nil {
+		return []models.TrackerColumn{}
+	}
+	return columns
+}
+
+func nonNilMapping(mapping map[string][]string) map[string][]string {
+	if mapping == nil {
+		return map[string][]string{}
+	}
+	return mapping
+}
+
+// internalStatuses are the statuses a workflow stage maps to, the only ones a
+// stage move may write (internal/db/board.go holds the same table).
+var internalStatuses = map[string]bool{
+	"to_clarify": true, "clarified": true, "to_implement": true,
+	"to_test": true, "to_close": true, "finished": true,
+}
+
+// desktopTaskStageMove applies the move of a task to another workflow stage
+// that the desktop board computed, as the web board does with the same rules
+// (shared/workflowStage.mjs): the labels, the internal status and the tracker
+// status, made from the board's project. Unlike a transition it records no
+// stage report and demands no evidence, and it launches nothing (#806). Only
+// those fields reach the server, so the route cannot edit anything else.
+func (d *agentDaemon) desktopTaskStageMove(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", 405)
+		return
+	}
+	var input struct {
+		TaskID        string   `json:"taskId"`
+		Labels        []string `json:"labels"`
+		Status        string   `json:"status"`
+		TrackerStatus string   `json:"trackerStatus"`
+	}
+	if json.NewDecoder(http.MaxBytesReader(w, r.Body, 65536)).Decode(&input) != nil {
+		http.Error(w, "Invalid request body", 400)
+		return
+	}
+	projectID := r.URL.Query().Get("projectId")
+	if projectID == "" || strings.TrimSpace(input.TaskID) == "" {
+		http.Error(w, "Project and task required", 400)
+		return
+	}
+	if !internalStatuses[input.Status] {
+		http.Error(w, "Unknown workflow status", 400)
+		return
+	}
+	if _, err := d.fetchConfig(r.Context(), projectID, ""); err != nil {
+		http.Error(w, err.Error(), 400)
+		return
+	}
+	labels := input.Labels
+	if labels == nil {
+		labels = []string{}
+	}
+	update := map[string]any{"labels": labels, "status": input.Status, "stageProjectId": projectID}
+	if strings.TrimSpace(input.TrackerStatus) != "" {
+		update["trackerStatus"] = input.TrackerStatus
+	}
+	req, err := http.NewRequestWithContext(r.Context(), http.MethodPut, d.link.serverURL+"/api/tasks/"+url.PathEscape(input.TaskID), strings.NewReader(mustJSON(update)))
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
