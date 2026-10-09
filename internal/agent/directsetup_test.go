@@ -336,6 +336,46 @@ func assertWarnsAbout(t *testing.T, value map[string]any, project string) {
 	}
 }
 
+// An agent serving every project refreshes the user-level copies of a project
+// it has no local mapping for.
+func TestRefreshSkillsWithoutAProjectMapping(t *testing.T) {
+	home, _, projects, d := refreshFixture(t, true)
+	d.link.projectID = "all"
+	if _, _, err := d.localProjectRoot(context.Background(), projects.config("alpha")); err == nil {
+		t.Fatal("the fixture maps alpha")
+	}
+	projects.override("alpha", "clarify", "## Steps\nAlpha steps.")
+	if value := refreshSkills(t, d); value["written"] == 0 {
+		t.Fatalf("nothing written: %v", value)
+	}
+	if content := codexClarify(t, home); !strings.Contains(content, "Alpha steps.") {
+		t.Fatalf("the copy was not refreshed:\n%s", content)
+	}
+}
+
+// An agent serving every project leaves its copies as they are when a project
+// it disconnected changes: that project has no variant in them.
+func TestRefreshSkillsIgnoresADisconnectedProject(t *testing.T) {
+	home, _, projects, d := refreshFixture(t, true)
+	d.link.projectID = "all"
+	settings, err := agentconfig.ReadSettings(d.localSettingsRoot())
+	if err != nil {
+		t.Fatal(err)
+	}
+	settings.DisconnectedProjects = map[string]bool{"alpha": true}
+	if err := agentconfig.WriteSettings(settings); err != nil {
+		t.Fatal(err)
+	}
+	before := codexClarify(t, home)
+	projects.override("alpha", "clarify", "## Steps\nAlpha steps.")
+	if value := refreshSkills(t, d); value["written"] != 0 {
+		t.Fatalf("written = %v", value["written"])
+	}
+	if content := codexClarify(t, home); content != before {
+		t.Fatalf("the copy changed:\n%s", content)
+	}
+}
+
 // Once the override is gone, the next refresh puts the built-in copy back.
 func TestRefreshSkillsRestoresTheBuiltIn(t *testing.T) {
 	home, _, projects, d := refreshFixture(t, true)

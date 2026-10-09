@@ -133,6 +133,12 @@ func (d *agentDaemon) executeOperation(ctx context.Context, op agentprotocol.Ope
 	if config.ProjectID != op.ProjectID {
 		return nil, fmt.Errorf("project mismatch")
 	}
+	// The direct copies are user-level: refreshing them needs no checkout of
+	// the project, so an agent serving every project refreshes a project it
+	// has no mapping for.
+	if op.Action == "refresh_skills" {
+		return d.refreshSkills(ctx, config)
+	}
 	root, overrides, err := d.localProjectRoot(ctx, config, op.Action == "init_git")
 	if err != nil {
 		return nil, err
@@ -258,43 +264,6 @@ func (d *agentDaemon) executeOperation(ctx context.Context, op agentprotocol.Ope
 			written = len(config.Skills)
 		}
 		return directCopiesWritten(written, warnings), nil
-	case "refresh_skills":
-		// After a skill override changed on the server (#732): rewrite the
-		// direct copies of the providers this workstation already set up, and
-		// nothing else. No MCP bootstrap, no other provider, and a workstation
-		// without a direct setup is left untouched.
-		providers, err := agentconfig.ManagedProviders()
-		if err != nil {
-			return nil, err
-		}
-		if len(providers) == 0 {
-			return map[string]any{"written": 0}, nil
-		}
-		// As for sync_config, a project that cannot be read is left out with
-		// a warning.
-		direct, warnings, err := d.directSetupConfig(ctx, fetched)
-		if err != nil {
-			return nil, err
-		}
-		config = withDirectContent(config, direct)
-		d.prepareMu.Lock()
-		defer d.prepareMu.Unlock()
-		if err := ctx.Err(); err != nil {
-			return nil, err
-		}
-		paths, err := localWorktreePaths(ctx, root)
-		if err != nil {
-			return nil, err
-		}
-		// Each checkout keeps the backups of the copies edited by hand.
-		for _, path := range paths {
-			for _, provider := range providers {
-				if _, err := agentconfig.ScaffoldProvider(path, config, provider); err != nil {
-					return nil, err
-				}
-			}
-		}
-		return directCopiesWritten(len(config.Skills), warnings), nil
 	case "skill_files", "read_skill":
 		files, err := localSkillFiles(config)
 		if err != nil {
@@ -521,4 +490,61 @@ func editorFor(settings agentconfig.Settings, sent string) string {
 		return sent
 	}
 	return agentconfig.DefaultEditor
+}
+
+// refreshSkills answers refresh_skills, sent after a skill override changed on
+// the server (#732): it rewrites the direct copies of the providers this
+// workstation already set up, and nothing else. No MCP bootstrap, no other
+// provider, and a workstation without a direct setup is left untouched.
+//
+// config is the server's configuration, not yet resolved. The copies are
+// written once the checkout is known: the project's own, every worktree of it
+// included, when the workstation maps it, else the workstation's settings
+// folder, where the backups of the copies edited by hand then go.
+func (d *agentDaemon) refreshSkills(ctx context.Context, config agentconfig.Config) (any, error) {
+	providers, err := agentconfig.ManagedProviders()
+	if err != nil {
+		return nil, err
+	}
+	if len(providers) == 0 {
+		return directCopiesWritten(0, nil), nil
+	}
+	// A project this workstation disconnected has no variant in its copies:
+	// its change leaves them as they are.
+	settings, err := agentconfig.ReadSettings(d.localSettingsRoot())
+	if err != nil {
+		return nil, err
+	}
+	if settings.DisconnectedProjects[config.ProjectID] {
+		return directCopiesWritten(0, nil), nil
+	}
+	// As for sync_config, a project that cannot be read is left out with a
+	// warning.
+	direct, warnings, err := d.directSetupConfig(ctx, config)
+	if err != nil {
+		return nil, err
+	}
+	root, _, err := d.localProjectRoot(ctx, config)
+	if err != nil {
+		root = d.localSettingsRoot()
+	}
+	d.prepareMu.Lock()
+	defer d.prepareMu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	paths, err := localWorktreePaths(ctx, root)
+	if err != nil {
+		// A settings folder outside any Git repository has no worktree.
+		paths = []string{root}
+	}
+	// Each checkout keeps the backups of the copies edited by hand.
+	for _, path := range paths {
+		for _, provider := range providers {
+			if _, err := agentconfig.ScaffoldProvider(path, direct, provider); err != nil {
+				return nil, err
+			}
+		}
+	}
+	return directCopiesWritten(len(direct.Skills), warnings), nil
 }
