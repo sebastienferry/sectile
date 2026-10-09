@@ -271,3 +271,4 @@ renaming the local name only); `markdownView.mjs` and the Changes panel.
   edition page the creation turns into. Searching before creation needs a new
   project-scoped lookup on the server and in the Jira and GitLab adapters; it is
   left to the owner to ask for it as a follow-up. It blocks nothing here.
+  Accepted by the owner on 2026-10-09.
