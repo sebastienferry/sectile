@@ -168,7 +168,7 @@ must run the project's checks before submitting a transition.
 ### Customizing a stage skill
 
 Every task-scope stage skill is made of Sectile contracts and work sections
-(#732, ADR 0052). Sectile owns the frontmatter, task access, the session title
+(#732, ADR 0056). Sectile owns the frontmatter, task access, the session title
 and status, the run lifecycle and waiting, `transition_stage` with its
 evidence and pull-request recording, the pull-request policy and the stage's
 exit condition. The work sections are `## Goal`, `## Read first`, `## Steps`,
