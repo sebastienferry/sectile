@@ -797,12 +797,16 @@ func TestForeignCommandCarriesTheStageContract(t *testing.T) {
 		"command choice": {{Skill: &skillChoice{Kind: skillKindCommand, Command: "plan-jira", Directory: "clarify-issue"}}},
 		"no choice":      nil,
 	} {
-		prompt, _, err := dispatchPrompt(c, "T-1", "clarify", "clarify", "", contexts)
-		if err != nil || !strings.HasPrefix(prompt, "/plan-jira T-1") || !strings.Contains(prompt, contract) || !strings.Contains(prompt, "transition_stage") {
-			t.Fatalf("%s: %s %v", name, prompt, err)
-		}
-		if !strings.Contains(prompt, "## Specifications workspace") {
-			t.Fatalf("%s: the prompt does not say where the issue artefacts go: %s", name, prompt)
+		// The dispatch names the skill by its ID, by its directory, or only
+		// through its action: the contract is the matched skill's each time.
+		for _, named := range []struct{ skillID, action string }{{"clarify", "clarify"}, {"clarify-issue", "clarify"}, {"plan-jira", "clarify"}} {
+			prompt, _, err := dispatchPrompt(c, "T-1", named.skillID, named.action, "", contexts)
+			if err != nil || !strings.HasPrefix(prompt, "/plan-jira T-1") || !strings.Contains(prompt, contract) || !strings.Contains(prompt, "transition_stage") {
+				t.Fatalf("%s, %s: %s %v", name, named.skillID, prompt, err)
+			}
+			if !strings.Contains(prompt, "## Specifications workspace") {
+				t.Fatalf("%s, %s: the prompt does not say where the issue artefacts go: %s", name, named.skillID, prompt)
+			}
 		}
 	}
 }
@@ -828,11 +832,15 @@ func TestCatalogueCommandAddsNoStageContract(t *testing.T) {
 // adjustment contract, and the runId line stays the launch's own (#732).
 func TestForeignAdjustCommandKeepsOneAdjustmentContract(t *testing.T) {
 	c := agentconfig.Config{Skills: []agentconfig.Skill{{ID: "adjust", Directory: "adjust-issue", Command: "/fix-review", CommandOverridden: true}}}
-	prompt, _, err := dispatchPrompt(c, "T-1", "adjust", "adjust", "Remote execution runId: run-1", []agentCommandContext{{Skill: &skillChoice{Kind: skillKindCommand, Command: "fix-review"}}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Count(prompt, runner.AdjustmentContract) != 1 || strings.Count(prompt, "Sectile stage contract") != 1 || strings.Count(prompt, "Remote execution runId") != 1 {
-		t.Fatalf("contracts: %s", prompt)
+	// The dispatch may name the skill by its directory: the contracts are the
+	// matched skill's all the same.
+	for _, skillID := range []string{"adjust", "adjust-issue"} {
+		prompt, _, err := dispatchPrompt(c, "T-1", skillID, "adjust", "Remote execution runId: run-1", []agentCommandContext{{Skill: &skillChoice{Kind: skillKindCommand, Command: "fix-review"}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Count(prompt, runner.AdjustmentContract) != 1 || strings.Count(prompt, "Sectile stage contract") != 1 || strings.Count(prompt, "Remote execution runId") != 1 {
+			t.Fatalf("%s contracts: %s", skillID, prompt)
+		}
 	}
 }
