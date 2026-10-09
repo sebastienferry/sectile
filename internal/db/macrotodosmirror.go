@@ -501,9 +501,12 @@ func (d *DB) pendingMacroCopies(part macroCopyPart, projectID string) ([]models.
 		meta  models.MacroMeta
 		state todosMirrorState
 	}
+	// The project's own macros and the epics of its trackers it shows (#741):
+	// a Jira epic is one row of its tracker, not of the project.
 	d.mu.RLock()
+	macroScope, macroArgs := d.macroScopeUnsafe([]string{projectID})
 	rows, err := d.conn.Query(`SELECT key, title, framing_comment, todos, `+part.columns()+`
-		FROM macros WHERE project_id = ? ORDER BY key ASC`, projectID)
+		FROM macros WHERE `+macroScope+` ORDER BY key ASC`, macroArgs...)
 	if err != nil {
 		d.mu.RUnlock()
 		return nil, 0, err
