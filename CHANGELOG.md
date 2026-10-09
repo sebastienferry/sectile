@@ -13,6 +13,10 @@ test fixtures or internal plumbing.
 
 ## [Unreleased]
 
+### Added
+
+- **A project board in Sectile Desktop.** **Open board** on a project, or **Project board** in the command palette, shows the project's tasks in the six workflow columns, with the Finished column collapsed and condensed cards by default, macro colours when the project enables them, and each card's actions menu. Drag a card onto another column to move the task to that stage, as on the web board; nothing is launched. (#806)
+
 ### Changed
 
 - **Shorter worktree folders for Jira and macro keys.** New worktrees for keys such as `AUC-1234` or `M-7` are named `auc-1234` and `m-7` instead of carrying a long hash; existing worktrees stay where they are. (#798)
