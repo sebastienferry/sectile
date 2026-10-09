@@ -309,6 +309,8 @@ func main() {
 	mux.HandleFunc("/auth/login", h.HandleLogin)
 	mux.HandleFunc("/auth/callback", h.HandleAuthCallback)
 	mux.HandleFunc(handlers.JiraOAuthCallbackPath, h.HandleJiraOAuthCallback)
+	mux.HandleFunc(handlers.GithubOAuthCallbackPath, h.HandleGithubOAuthCallback)
+	mux.HandleFunc(handlers.GitlabOAuthCallbackPath, h.HandleGitlabOAuthCallback)
 	mux.HandleFunc("/auth/logout", h.HandleLogout)
 	// Local sign-in exists only without a provider: an e-mail, no password, the
 	// temporary mode of a team that has not connected its identity provider yet.
