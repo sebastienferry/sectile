@@ -106,8 +106,9 @@ The question was clarified over three rounds in `docs/clarifications/732.md`.
   workstation's section or the built-in one, whose framework variants move
   one level down. Pickup's inlined sections sit one level deeper still. A
   section nobody overrides is rendered as before. The projects are those the
-  server lists, minus the ones the workstation disconnected; if one project's
-  configuration cannot be fetched, nothing is rewritten. `sectile-agent init`,
+  server lists, minus the ones the workstation disconnected; a project whose
+  configuration cannot be fetched is skipped with a warning, so its variant
+  drops out of the shared copy until the next refresh. `sectile-agent init`,
   the desktop's **Initialize** and skill installs, `sync_config` and
   `refresh_skills` all write through this step, which also applies the
   workstation's settings that the initialization used to skip.

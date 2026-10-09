@@ -75,11 +75,11 @@ func workstationWork(config agentconfig.Config) skills.SkillOverrides {
 //
 // Only unreadable workstation settings are an error. A project list or another
 // project's configuration that cannot be read leaves that project's variants
-// out and returns a warning naming it. The caller decides: init and the Desktop
-// setup write the copies and surface the warnings, as they did before work
-// overrides existed, while sync_config and refresh_skills refuse, leaving the
-// copies already there rather than writing one that silently lacks a project's
-// variant.
+// out and returns a warning naming it. Every caller writes the copies and
+// surfaces the warnings: init and the Desktop setup in their message,
+// sync_config and refresh_skills in their result. A skipped project's variant
+// drops out of the shared copies until the next refresh, rather than one
+// unreadable project blocking the refresh of every other.
 func (d *agentDaemon) directSetupConfig(ctx context.Context, config agentconfig.Config) (agentconfig.Config, []string, error) {
 	settings, err := agentconfig.ReadSettings(d.localSettingsRoot())
 	if err != nil {
@@ -127,6 +127,17 @@ func (d *agentDaemon) directSetupConfig(ctx context.Context, config agentconfig.
 		resolved.Skills[i].DirectCommandContent = skills.RenderDirectComposedSkillCommand(stage, workstation, projects)
 	}
 	return resolved, warnings, nil
+}
+
+// directCopiesWritten is the result of sync_config and refresh_skills: how many
+// skills were written and, when some projects were skipped, the warnings
+// naming them.
+func directCopiesWritten(written int, warnings []string) map[string]any {
+	out := map[string]any{"written": written}
+	if len(warnings) > 0 {
+		out["warnings"] = warnings
+	}
+	return out
 }
 
 // directSetupWarnings are the warnings of a lenient direct setup, one line

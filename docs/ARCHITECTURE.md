@@ -288,7 +288,8 @@ to its launch prompt instead. The direct setup (`sectile-agent init`, the
 desktop's **Initialize**, `sync_config`) writes one copy per skill for every
 project of the workstation, with a subsection per project that overrides a
 section, chosen from the `projectId` `get_project_context` reports; it fetches
-every known project's configuration and writes nothing if one fetch fails.
+every known project's configuration and skips, with a warning, a project
+whose fetch fails: its variant drops out of the copy until the next refresh.
 After a skill save, reset or import, the server sends `refresh_skills`,
 best-effort, to the connected agents serving the project, which rewrite only
 the direct copies `agent-manifest.json` already manages and register nothing.
