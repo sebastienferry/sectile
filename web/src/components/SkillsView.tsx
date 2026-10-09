@@ -9,6 +9,7 @@ import {
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { format, formatDateTime, plural } from '../lib/i18n'
+import { kindStartContent } from '../lib/skillEditorKind'
 import type { SkillsEditorStrings } from '../locales/skillsEditor'
 import type { SkillEditorEntry, SkillMode, SkillOverrideKind } from '../types'
 
@@ -103,21 +104,19 @@ export const SkillsView: React.FC = () => {
 
   /**
    * Switching the kind swaps the editor's content for the matching starting
-   * point: the built-in work sections for work only; for a full replacement, the
-   * stored full content when there is one, else the complete built-in skill.
-   * Content the user would lose is confirmed first.
+   * point (kindStartContent): the stored override of that kind when there is
+   * one, else the built-in work sections for work only, or the complete
+   * built-in skill for a full replacement. Content the user would lose is
+   * confirmed first: a draft still holding the other kind's built-in content
+   * loses nothing.
    */
   const switchKind = (entry: SkillEditorEntry, next: SkillOverrideKind) => {
     if (next === kind) return
-    if (next === 'work') {
-      const content = entry.defaultWorkContent ?? ''
-      if (draft !== content && draft !== entry.defaultContent && !window.confirm(overrideKind.confirmWork)) return
-      setDraft(content)
-    } else {
-      const content = entry.isCustom && (entry.overrideKind || '') === '' ? entry.content : entry.defaultContent
-      if (draft !== content && draft !== entry.defaultWorkContent && !window.confirm(overrideKind.confirmFull)) return
-      setDraft(content)
-    }
+    const content = kindStartContent(entry, next)
+    const untouched = next === 'work' ? entry.defaultContent : entry.defaultWorkContent
+    const question = next === 'work' ? overrideKind.confirmWork : overrideKind.confirmFull
+    if (draft !== content && draft !== untouched && !window.confirm(question)) return
+    setDraft(content)
     setKind(next)
   }
 
