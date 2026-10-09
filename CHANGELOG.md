@@ -13,6 +13,12 @@ test fixtures or internal plumbing.
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-10-09
+
+### Fixed
+
+- **Sectile Desktop opened from the Finder or the Dock finds Claude Code and Codex again.** Such an app gets macOS's minimal PATH, so a conversation or a Codex session failed with `exec: "claude": executable file not found in $PATH` when the CLI lived in `~/.local/bin` or Homebrew. The local agent now looks there first, as its other launches already did. Upgrade the agent with Desktop. (#800)
+
 ## [0.4.0] - 2026-10-08
 
 ### Added
@@ -764,7 +770,8 @@ release mechanism that will keep the following entries short.
   A run canceled because its client disconnected can still be finished by the
   agent that owns it, so the chain carries on. (#315)
 
-[Unreleased]: https://github.com/sebastienferry/sectile/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/sebastienferry/sectile/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/sebastienferry/sectile/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/sebastienferry/sectile/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/sebastienferry/sectile/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/sebastienferry/sectile/compare/v0.1.0...v0.2.0
