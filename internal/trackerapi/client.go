@@ -237,7 +237,11 @@ func (e *MissingPersonalCredentialError) Error() string {
 	switch e.Reason {
 	case ReasonSiteNotGranted:
 		if e.Tracker != "jira" {
-			return fmt.Sprintf("the %s connection of this user only covers %s, not %s: add a personal token for that site in Profile → Tracker credentials (\"Use a token instead\"), or the work would be attributed to the server account", providerName(e.Tracker), forgeConnectionHost(e.Tracker), e.Site)
+			return fmt.Sprintf(
+				"the %s connection of this user only covers %s, not %s: add a personal token for that site in Profile → Tracker credentials (\"Use a token instead\"), or the work would be attributed to the server account",
+				providerName(e.Tracker),
+				forgeConnectionHost(e.Tracker),
+				e.Site)
 		}
 		return fmt.Sprintf("no personal %s grant covers %s for this user: reconnect %s in Profile → Tracker credentials and pick that site on the Atlassian consent screen, or the work would be attributed to the server account", providerName(e.Tracker), e.Site, providerName(e.Tracker))
 	case ReasonDisconnected:
