@@ -3407,7 +3407,8 @@ function boardCard(view,task){
  const card=document.createElement('article');card.className='board-card';card.dataset.taskId=task.id;card.dataset.display=view.options.cardDisplay
  card.setAttribute('aria-label',key+(task.title?' '+task.title:''))
  const color=cardEpicColor(task,view.board)
- if(color){card.classList.add('has-epic');card.style.setProperty('--epic-color',color)}
+ // The colour is data, not a theme token: it is the macro's, in both themes.
+ if(color){card.classList.add('has-epic');card.style.borderLeftColor=color}
  const line=document.createElement('div');line.className='board-card-line'
  const keyLabel=document.createElement('span');keyLabel.className='board-card-key';keyLabel.textContent=key
  // The title opens the task in Sectile, as a tickets row's key does: selecting

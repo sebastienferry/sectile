@@ -407,7 +407,7 @@ aside{flex-shrink:0}.sidebar-hidden #sidebar-resizer{display:none}#sidebar-resiz
 .drop-target{outline-color:var(--accent)}
 .board-card{position:relative;background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:6px 8px;font-size:13px;cursor:default}
 .board-card[draggable=true]{cursor:grab}.board-card.dragging{opacity:.5}.board-card[aria-busy=true]{opacity:.6;cursor:progress}
-.board-card.has-epic{border-left:4px solid var(--epic-color)}
+.board-card.has-epic{border-left-width:4px;border-left-style:solid}
 .board-card-line{display:flex;align-items:center;gap:6px;min-width:0}
 .board-card-key{color:var(--text-secondary);white-space:nowrap;font-variant-numeric:tabular-nums}
 .board-card-title{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:left;border:0;background:none;padding:0;font:inherit;color:var(--text);cursor:pointer}
