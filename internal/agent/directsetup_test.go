@@ -295,19 +295,44 @@ func TestRefreshSkillsBacksUpAHandEdit(t *testing.T) {
 	}
 }
 
-// A refresh that cannot read a project fails and leaves the copy already there,
-// rather than writing one that silently lacks the project's variant.
-func TestRefreshSkillsKeepsTheCopiesWhenAProjectFails(t *testing.T) {
+// A refresh that cannot read a project still writes the copies with the other
+// projects' variants, and names the skipped one in its warnings: one unreadable
+// project does not keep every other project's variant stale.
+func TestRefreshSkillsWarnsAndWritesWhenAProjectFails(t *testing.T) {
 	home, _, projects, d := refreshFixture(t, true)
-	before := codexClarify(t, home)
 	projects.override("alpha", "clarify", "## Steps\nAlpha steps.")
 	projects.failing["beta"] = true
-	_, err := d.executeOperation(context.Background(), agentprotocol.Operation{ProjectID: "alpha", Action: "refresh_skills"})
-	if err == nil || !strings.Contains(err.Error(), `"beta"`) {
-		t.Fatalf("err = %v, want the unreadable beta", err)
+	value := refreshSkills(t, d)
+	assertWarnsAbout(t, value, "beta")
+	if content := codexClarify(t, home); !strings.Contains(content, "Alpha steps.") {
+		t.Fatalf("the copy lacks alpha's variant:\n%s", content)
 	}
-	if content := codexClarify(t, home); content != before {
-		t.Fatalf("the copy changed:\n%s", content)
+}
+
+// sync_config, like refresh_skills, writes the copies without the unreadable
+// project and names it in its warnings.
+func TestSyncConfigWarnsAndWritesWhenAProjectFails(t *testing.T) {
+	home, _, projects, d := refreshFixture(t, true)
+	projects.override("alpha", "clarify", "## Steps\nAlpha steps.")
+	projects.failing["beta"] = true
+	value, err := d.executeOperation(context.Background(), agentprotocol.Operation{ProjectID: "alpha", Action: "sync_config", Provider: "codex"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertWarnsAbout(t, value.(map[string]any), "beta")
+	if content := codexClarify(t, home); !strings.Contains(content, "Alpha steps.") {
+		t.Fatalf("the copy lacks alpha's variant:\n%s", content)
+	}
+}
+
+func assertWarnsAbout(t *testing.T, value map[string]any, project string) {
+	t.Helper()
+	warnings, _ := value["warnings"].([]string)
+	if len(warnings) != 1 || !strings.Contains(warnings[0], `"`+project+`"`) {
+		t.Fatalf("warnings = %v, want one naming %s", value["warnings"], project)
+	}
+	if value["written"] == 0 {
+		t.Fatalf("nothing written: %v", value)
 	}
 }
 

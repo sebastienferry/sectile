@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"log"
 	"sync"
@@ -52,9 +53,23 @@ func (h *Handler) refreshSkillCopies(projectID string) {
 			wg.Add(1)
 			go func(t target) {
 				defer wg.Done()
-				_, err := h.agentDispatcher.CallOperation(ctx, agentprotocol.Operation{UserID: t.userID, ProjectID: projectID, Action: "refresh_skills"})
-				if err != nil && !errors.Is(err, ErrNoAgentConnected) && !errors.Is(err, agentprotocol.ErrUnsupportedOperation) {
-					log.Printf("[SkillRefresh] project=%s device=%s: %v", projectID, t.deviceID, err)
+				raw, err := h.agentDispatcher.CallOperation(ctx, agentprotocol.Operation{UserID: t.userID, ProjectID: projectID, Action: "refresh_skills"})
+				if err != nil {
+					if !errors.Is(err, ErrNoAgentConnected) && !errors.Is(err, agentprotocol.ErrUnsupportedOperation) {
+						log.Printf("[SkillRefresh] project=%s device=%s: %v", projectID, t.deviceID, err)
+					}
+					return
+				}
+				// The agent skips a project it cannot read and names it in
+				// its warnings: that project's variant is missing from the
+				// copies until the next refresh.
+				var result struct {
+					Warnings []string `json:"warnings"`
+				}
+				if json.Unmarshal(raw, &result) == nil {
+					for _, warning := range result.Warnings {
+						log.Printf("[SkillRefresh] project=%s user=%s device=%s: warning: %s", projectID, t.userID, t.deviceID, warning)
+					}
 				}
 			}(t)
 		}

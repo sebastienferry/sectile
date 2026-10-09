@@ -211,14 +211,11 @@ func (d *agentDaemon) executeOperation(ctx context.Context, op agentprotocol.Ope
 		// The direct copies carry every known project's work-only overrides
 		// (#732). Only they are taken from the helper: it resolves the engine
 		// again, which would undo the provider this operation asks for. A
-		// project that cannot be read refuses the sync: the copies stay as
-		// they are rather than silently losing its variants.
+		// project that cannot be read is left out with a warning: its variant
+		// drops out of the shared copies until the next refresh.
 		direct, warnings, err := d.directSetupConfig(ctx, fetched)
 		if err != nil {
 			return nil, err
-		}
-		if len(warnings) > 0 {
-			return nil, errors.New(strings.Join(warnings, "; "))
 		}
 		config = withDirectContent(config, direct)
 		if op.Framework != "" {
@@ -260,7 +257,7 @@ func (d *agentDaemon) executeOperation(ctx context.Context, op agentprotocol.Ope
 		if loc.InstallsSkills() {
 			written = len(config.Skills)
 		}
-		return map[string]any{"written": written}, nil
+		return directCopiesWritten(written, warnings), nil
 	case "refresh_skills":
 		// After a skill override changed on the server (#732): rewrite the
 		// direct copies of the providers this workstation already set up, and
@@ -273,14 +270,11 @@ func (d *agentDaemon) executeOperation(ctx context.Context, op agentprotocol.Ope
 		if len(providers) == 0 {
 			return map[string]any{"written": 0}, nil
 		}
-		// As for sync_config, a project that cannot be read leaves the
-		// copies untouched.
+		// As for sync_config, a project that cannot be read is left out with
+		// a warning.
 		direct, warnings, err := d.directSetupConfig(ctx, fetched)
 		if err != nil {
 			return nil, err
-		}
-		if len(warnings) > 0 {
-			return nil, errors.New(strings.Join(warnings, "; "))
 		}
 		config = withDirectContent(config, direct)
 		d.prepareMu.Lock()
@@ -300,7 +294,7 @@ func (d *agentDaemon) executeOperation(ctx context.Context, op agentprotocol.Ope
 				}
 			}
 		}
-		return map[string]any{"written": len(config.Skills)}, nil
+		return directCopiesWritten(len(config.Skills), warnings), nil
 	case "skill_files", "read_skill":
 		files, err := localSkillFiles(config)
 		if err != nil {
