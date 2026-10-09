@@ -13,6 +13,7 @@ import {
 import { useApp } from '../context/AppContext'
 import { useCurrentUser } from '../hooks/useCurrentUser'
 import { personalTrackers, credentialState, sealableCredentials, type TrackerKind } from '../lib/trackers'
+import { isOAuthTracker, oauthFor, oauthStrings } from '../lib/trackerOAuth'
 import { TrackerCredentialForm } from './TrackerCredentialForm'
 
 /**
@@ -33,7 +34,7 @@ export const TrackerCredentialsTab: React.FC<{
     lockAllUserCredentials,
     saveUserCredential,
     addToast,
-    jiraOAuth,
+    trackerOAuth,
     t,
   } = useApp()
 
@@ -59,8 +60,8 @@ export const TrackerCredentialsTab: React.FC<{
     void refreshUserCredentials()
   }, [refreshUserCredentials])
 
-  // The passphrase only ever applies to API tokens: a Jira grant is never
-  // sealed (#654).
+  // The passphrase only ever applies to tokens: an OAuth grant is never
+  // sealed (#654, #804).
   const sealable = sealableCredentials(userCredentials)
   const anySealed = sealable.some(c => c.sealed)
   const anyLocked = sealable.some(c => c.sealed && !c.unlocked)
@@ -349,6 +350,7 @@ export const TrackerCredentialsTab: React.FC<{
       <div className="space-y-2">
         {personalTrackers(t).map(kind => {
           const mine = userCredentials.find(c => c.tracker === kind.id)
+          const oauthStatus = isOAuthTracker(kind.id) ? oauthStrings(t, kind.id) : t.trackerCredentials.oauth
           const isOpen = open === kind.id
           const locked = Boolean(mine?.sealed && !mine.unlocked)
           return (
@@ -381,10 +383,10 @@ export const TrackerCredentialsTab: React.FC<{
                 <span className="text-[10px] text-[var(--text-muted)] truncate flex-1 text-right">
                   {mine?.kind === 'oauth'
                     ? mine.disconnected
-                      ? t.trackerCredentials.oauth.stateDisconnected
-                      : mine.account || t.trackerCredentials.oauth.stateConnected
-                    : !mine && kind.id === 'jira' && jiraOAuth.configured
-                      ? t.trackerCredentials.oauth.stateNotConnected
+                      ? oauthStatus.stateDisconnected
+                      : mine.account || oauthStatus.stateConnected
+                    : !mine && oauthFor(trackerOAuth, kind.id)?.configured
+                      ? oauthStatus.stateNotConnected
                       : mine?.email || credentialState(mine, t)}
                 </span>
               </button>

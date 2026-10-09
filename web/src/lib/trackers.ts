@@ -225,12 +225,31 @@ export interface StoredUserCredential {
   sealed: boolean
   unlocked: boolean
   updatedAt?: string
-  /** `oauth` is a Jira grant from Atlassian's consent screen (#654), never sealed. */
+  /**
+   * `oauth` is a grant from the provider's consent screen, never sealed: Jira
+   * through Atlassian (#654), GitHub or GitLab through their OAuth app (#804).
+   */
   kind?: 'api_token' | 'oauth'
-  /** A grant Atlassian refused to renew: only reconnecting repairs it. */
+  /** A grant the provider refused to renew or revoked: only reconnecting repairs it. */
   disconnected?: boolean
-  /** The Jira sites a grant covers. */
+  /** The Jira sites a grant covers. Jira only: a forge grant covers github.com or gitlab.com. */
   grantedSites?: string[]
+}
+
+/** The trackers a person can connect through an OAuth consent rather than a pasted token. */
+export type OAuthTracker = 'jira' | 'github' | 'gitlab'
+
+/** Whether a forge's OAuth app is configured, as the credentials list answers it (#804). */
+export interface ForgeOAuthAvailability {
+  configured: boolean
+}
+
+/** What `GET /api/me/tracker-credentials` answers, beyond the credentials themselves. */
+export interface UserCredentialsAnswer {
+  credentials?: StoredUserCredential[]
+  jiraOAuth?: { configured: boolean; sites: string[] }
+  githubOAuth?: ForgeOAuthAvailability
+  gitlabOAuth?: ForgeOAuthAvailability
 }
 
 /**
