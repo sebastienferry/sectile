@@ -17,6 +17,10 @@ test fixtures or internal plumbing.
 
 - **Shorter worktree folders for Jira and macro keys.** New worktrees for keys such as `AUC-1234` or `M-7` are named `auc-1234` and `m-7` instead of carrying a long hash; existing worktrees stay where they are. (#798)
 
+### Fixed
+
+- **Sectile Desktop opened from the Finder or the Dock finds Claude Code and Codex again.** Such an app gets macOS's minimal PATH, so a conversation or a Codex session failed with `exec: "claude": executable file not found in $PATH` when the CLI lived in `~/.local/bin` or Homebrew. The local agent now looks there first, as its other launches already did. Upgrade the agent with Desktop. (#800)
+
 ## [0.4.0] - 2026-10-08
 
 ### Added
