@@ -1,4 +1,4 @@
-# ADR 0052: Sectile owns the skill contracts, and overrides replace the work
+# ADR 0056: Sectile owns the skill contracts, and overrides replace the work
 
 - Status: Accepted
 - Date: 2026-10-05

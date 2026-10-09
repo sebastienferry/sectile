@@ -137,7 +137,7 @@ by the **Repair** action of the MCP settings (ADR 0023, amendment of #716).
 
 ## Third amendment (2026-10-05, #732): the direct copy carries per-project work overrides
 
-ADR 0052 lets a project or a workstation override only the work sections of a
+ADR 0056 lets a project or a workstation override only the work sections of a
 stage skill. The direct copy stays one file per skill shared by every project,
 but it is no longer always the built-in skill: when a project the workstation
 knows, or the workstation itself, has a work-only override of a skill, each
