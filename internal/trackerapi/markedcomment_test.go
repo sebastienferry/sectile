@@ -16,7 +16,7 @@ import (
 
 func markedRequest(id string) tracker.UpsertMarkedCommentRequest {
 	return tracker.UpsertMarkedCommentRequest{
-		Project:   jiraProject(),
+		Tracker:   jiraTracker(),
 		Key:       "PE-7",
 		CommentID: id,
 		Marker:    "sectile.macroTodos",

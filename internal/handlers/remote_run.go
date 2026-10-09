@@ -38,6 +38,9 @@ func (h *Handler) handleCancelRemoteRun(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 	task, err := h.db.GetTaskByID(taskID)
+	if writeTaskKeyAmbiguous(w, err) {
+		return
+	}
 	if err != nil || task == nil {
 		writeError(w, 404, "Task not found")
 		return

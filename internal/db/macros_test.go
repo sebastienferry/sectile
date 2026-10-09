@@ -4,6 +4,7 @@ import (
 	"context"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"tasks/internal/models"
 	"tasks/internal/testsqlite"
@@ -326,5 +327,157 @@ func TestCreateStoryFromMacroTodoReturnsTheTask(t *testing.T) {
 	}
 	if meta == nil || len(meta.Todos) != 1 || meta.Todos[0].StoryKey != task.Key {
 		t.Errorf("the todo line should carry the story key %q, got %+v", task.Key, meta)
+	}
+}
+
+// A ticket imported since the adoption (#741) names its tracker rather than a
+// project; renaming its macro still renames its parent. A Jira epic is shared
+// by every project selecting its tracker, so the tickets of each follow.
+func TestRenamingAMacroRenamesTheParentOfItsTrackerTickets(t *testing.T) {
+	d := testDB(t)
+	delivery := spaceProject(t, d, "Delivery", "delivery-admin")
+	bidder := spaceProject(t, d, "Bidder", "bidder")
+	if delivery.DefaultTrackerID != bidder.DefaultTrackerID {
+		t.Fatalf("the two projects select trackers %s and %s, want GODE's alone", delivery.DefaultTrackerID, bidder.DefaultTrackerID)
+	}
+	notes, err := d.CreateProject(models.CreateProjectRequest{Name: "Notes"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ticket := func(key string, labels []string) models.Task {
+		return models.Task{Key: key, Title: key, Status: models.StatusToClarify, Priority: models.PriorityMedium, Labels: labels, Source: "jira",
+			ParentKey: "GODE-100", ParentTitle: "Old epic", CreatedAt: time.Now(), UpdatedAt: time.Now()}
+	}
+	if err := d.ImportOrUpdateTasks(delivery.DefaultTrackerID, []models.Task{ticket("GODE-1", []string{"delivery-admin"}), ticket("GODE-2", []string{"bidder"})}); err != nil {
+		t.Fatal(err)
+	}
+	local := ticket("N-1", []string{})
+	local.Source, local.ParentKey, local.ParentTitle = "local", "M-1", "Old local"
+	if err := d.ImportOrUpdateTasks(notes.DefaultTrackerID, []models.Task{local}); err != nil {
+		t.Fatal(err)
+	}
+	var trackerRows int
+	_ = d.conn.QueryRow(`SELECT COUNT(*) FROM tasks WHERE project_id = ?`, trackerSentinel(delivery.DefaultTrackerID)).Scan(&trackerRows)
+	if trackerRows != 2 {
+		t.Fatalf("%d tickets name GODE's tracker, want both imported ones", trackerRows)
+	}
+
+	renamed := "New epic"
+	if _, err := d.UpdateMacro(context.Background(), delivery.ID, "GODE-100", &renamed, nil, nil, nil, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	renamedLocal := "New local"
+	if _, err := d.UpdateMacro(context.Background(), notes.ID, "M-1", &renamedLocal, nil, nil, nil, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	for key, want := range map[string]string{"GODE-1": "New epic", "GODE-2": "New epic", "N-1": "New local"} {
+		var parentTitle string
+		if err := d.conn.QueryRow(`SELECT parent_title FROM tasks WHERE key = ?`, key).Scan(&parentTitle); err != nil {
+			t.Fatal(err)
+		}
+		if parentTitle != want {
+			t.Fatalf("%s has parent title %q after the rename, want %q", key, parentTitle, want)
+		}
+	}
+}
+
+// Two projects showing every ticket of one Jira space each define a local M-3
+// (#741). A ticket of the space under M-3 names no one of the two macros for
+// sure: renaming Alpha's M-3 leaves its parent title alone, while Alpha's own
+// local ticket under M-3 follows, and so does a shared ticket under a key only
+// Alpha defines.
+func TestRenamingALocalMacroLeavesTheTicketsAnotherProjectsMacroOfThatKeyMayHold(t *testing.T) {
+	d := testDB(t)
+	alpha := spaceProject(t, d, "Alpha", "")
+	beta := spaceProject(t, d, "Beta", "")
+	if alpha.DefaultTrackerID != beta.DefaultTrackerID {
+		t.Fatalf("the two projects select trackers %s and %s, want GODE's alone", alpha.DefaultTrackerID, beta.DefaultTrackerID)
+	}
+	ticket := func(key, parent, title string) models.Task {
+		return models.Task{Key: key, Title: key, Status: models.StatusToClarify, Priority: models.PriorityMedium, Source: "jira",
+			ParentKey: parent, ParentTitle: title, CreatedAt: time.Now(), UpdatedAt: time.Now()}
+	}
+	if err := d.ImportOrUpdateTasks(alpha.DefaultTrackerID, []models.Task{ticket("GODE-1", "M-3", "Beta's M-3"), ticket("GODE-2", "M-4", "Alpha's M-4")}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.conn.Exec(`INSERT INTO tasks (id, project_id, key, title, status, priority, labels, source, parent_key, parent_title, created_at, updated_at)
+		VALUES ('alpha-local', ?, 'L-1', 'Local', 'to_clarify', 'medium', '[]', 'local', 'M-3', 'Alpha''s M-3', ?, ?)`, alpha.ID, time.Now(), time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	horizon := "now"
+	for _, p := range []*models.Project{alpha, beta} {
+		if _, err := d.SaveMacroMeta(p.ID, "M-3", &horizon, nil, nil, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := d.SaveMacroMeta(alpha.ID, "M-4", &horizon, nil, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, key := range []string{"M-3", "M-4"} {
+		renamed := "Alpha's renamed " + key
+		if _, err := d.UpdateMacro(context.Background(), alpha.ID, key, &renamed, nil, nil, nil, nil, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for key, want := range map[string]string{"GODE-1": "Beta's M-3", "L-1": "Alpha's renamed M-3", "GODE-2": "Alpha's renamed M-4"} {
+		var parentTitle string
+		if err := d.conn.QueryRow(`SELECT parent_title FROM tasks WHERE key = ?`, key).Scan(&parentTitle); err != nil {
+			t.Fatal(err)
+		}
+		if parentTitle != want {
+			t.Errorf("%s has parent title %q after renaming Alpha's macros, want %q", key, parentTitle, want)
+		}
+	}
+
+	// Deleting Alpha's M-3 detaches the tickets the rename reached, alone.
+	if err := d.DeleteMacro(context.Background(), alpha.ID, "M-3"); err != nil {
+		t.Fatal(err)
+	}
+	for key, want := range map[string]string{"GODE-1": "M-3", "L-1": ""} {
+		var parentKey string
+		if err := d.conn.QueryRow(`SELECT parent_key FROM tasks WHERE key = ?`, key).Scan(&parentKey); err != nil {
+			t.Fatal(err)
+		}
+		if parentKey != want {
+			t.Errorf("%s has parent %q after deleting Alpha's M-3, want %q", key, parentKey, want)
+		}
+	}
+}
+
+// A macro row stored under its project's slug is the project's own (#741):
+// renaming it still renames the parent of the tickets the project shows,
+// rather than leaving them out as if another project held a macro of that key.
+func TestRenamingAMacroStoredUnderItsProjectSlugRenamesTheParentOfItsTickets(t *testing.T) {
+	d := testDB(t)
+	alpha, err := d.CreateProject(models.CreateProjectRequest{Name: "Alpha", Slug: "alpha", IssueTracker: "jira", JiraProject: "GODE"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if alpha.Slug == "" || alpha.Slug == alpha.ID {
+		t.Fatalf("the project needs a slug apart from its id: %+v", alpha)
+	}
+	if err := d.ImportOrUpdateTasks(alpha.DefaultTrackerID, []models.Task{{Key: "GODE-1", Title: "GODE-1", Status: models.StatusToClarify, Priority: models.PriorityMedium,
+		Source: "jira", ParentKey: "M-5", ParentTitle: "Old", CreatedAt: time.Now(), UpdatedAt: time.Now()}}); err != nil {
+		t.Fatal(err)
+	}
+	horizon := "now"
+	if _, err := d.SaveMacroMeta(alpha.ID, "M-5", &horizon, nil, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.conn.Exec(`UPDATE macros SET project_id = ? WHERE project_id = ? AND key = 'M-5'`, alpha.Slug, alpha.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	renamed := "New"
+	if _, err := d.UpdateMacro(context.Background(), alpha.ID, "M-5", &renamed, nil, nil, nil, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	var parentTitle string
+	if err := d.conn.QueryRow(`SELECT parent_title FROM tasks WHERE key = 'GODE-1'`).Scan(&parentTitle); err != nil {
+		t.Fatal(err)
+	}
+	if parentTitle != "New" {
+		t.Fatalf("GODE-1 has parent title %q after renaming its project's M-5, want %q", parentTitle, "New")
 	}
 }

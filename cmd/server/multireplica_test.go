@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -52,8 +53,10 @@ func TestPostgresMultiReplicaHarness(t *testing.T) {
 	if dsn == "" {
 		t.Skip("set SECTILE_TEST_POSTGRES_DSN to run the multi-replica harness")
 	}
+	emptyDatabase(t, dsn)
 	// The replicas would refuse a non-UTF8 database and never become ready:
-	// opening it here says why instead (#693).
+	// opening it here says why instead (#693). It also creates the schema
+	// before the replicas start, so they do not race to build it.
 	if store, err := db.Open(db.Config{Driver: db.DriverPostgres, DSN: dsn}); err != nil {
 		t.Fatalf("SECTILE_TEST_POSTGRES_DSN cannot be used: %v", err)
 	} else {
@@ -65,7 +68,7 @@ func TestPostgresMultiReplicaHarness(t *testing.T) {
 	lb := newBalancer(t, a, b)
 
 	client := signIn(t, a)
-	project := createProject(t, client, a)
+	project := harnessProject
 
 	agent := startScriptedAgent(t, lb)
 	agent.waitConnections(t, 1)
@@ -482,18 +485,29 @@ func signIn(t *testing.T, r *replica) *http.Client {
 	return client
 }
 
-func createProject(t *testing.T, client *http.Client, r *replica) string {
+// harnessProject is the project the harness works in: the default one, on
+// its local board. A project created through the API must select a tracker
+// an admin recorded (#741), and a remote one would send the harness's tasks
+// to a tracker nobody reaches here.
+const harnessProject = "default"
+
+// emptyDatabase lets the replicas seed harnessProject. A server seeds the
+// default project only while it creates the schema, and the test:postgres job
+// runs the store's tests on the same database just before, which leave a
+// schema and projects of their own behind. Dropping the schema makes the next
+// open build and seed it as on a first deployment.
+func emptyDatabase(t *testing.T, dsn string) {
 	t.Helper()
-	var project struct {
-		ID string `json:"id"`
+	conn, err := sql.Open("pgx", dsn)
+	if err != nil {
+		t.Fatalf("opening the database to empty it: %v", err)
 	}
-	postJSON(t, client, r.url+"/api/projects", map[string]any{
-		"name": fmt.Sprintf("Harness %d", time.Now().UnixNano()), "repoPath": "/not-mounted", "issueTracker": "local", "useWorktrees": false,
-	}, &project)
-	if project.ID == "" {
-		t.Fatal("the project has no id")
+	defer conn.Close()
+	for _, statement := range []string{"DROP SCHEMA public CASCADE", "CREATE SCHEMA public"} {
+		if _, err := conn.Exec(statement); err != nil {
+			t.Fatalf("emptying the database: %s: %v", statement, err)
+		}
 	}
-	return project.ID
 }
 
 func createTask(t *testing.T, client *http.Client, r *replica, project, title string) string {

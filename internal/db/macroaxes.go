@@ -470,13 +470,15 @@ func (d *DB) SaveMacroAxes(projectID string, key string, priority *string, quart
 
 	d.mu.Lock()
 	d.ensureMacrosTable()
+	// A Jira epic of the project's trackers is its tracker's record (#741).
+	rowProject, rowTracker := d.macroRowUnsafe(projectID, key)
 	tx, err := d.conn.Begin()
 	if err != nil {
 		d.mu.Unlock()
 		return nil, err
 	}
 	defer func() { _ = tx.Rollback() }()
-	if _, err := tx.Exec("INSERT INTO macros (project_id, key) VALUES (?, ?) ON CONFLICT (project_id, key) DO NOTHING", projectID, key); err != nil {
+	if _, err := tx.Exec("INSERT INTO macros (project_id, key, tracker_id) VALUES (?, ?, ?) ON CONFLICT (project_id, key) DO NOTHING", rowProject, key, rowTracker); err != nil {
 		d.mu.Unlock()
 		return nil, err
 	}
@@ -488,7 +490,19 @@ func (d *DB) SaveMacroAxes(projectID string, key string, priority *string, quart
 	// labels until the next reload.
 	if err := tx.QueryRow(`
 		SELECT horizon, description, framing_comment, todos, title, status, closed, priority, quarter, readiness, labels FROM macros WHERE project_id = ? AND key = ?`+d.forUpdate(),
-		projectID, key).Scan(&current.Horizon, &current.Description, &current.FramingComment, &todosJSON, &current.Title, &current.Status, &closedInt, &current.Priority, &current.Quarter, &current.Readiness, &labelsJSON); err != nil {
+		rowProject, key).Scan(
+		&current.Horizon,
+		&current.Description,
+		&current.FramingComment,
+		&todosJSON,
+		&current.Title,
+		&current.Status,
+		&closedInt,
+		&current.Priority,
+		&current.Quarter,
+		&current.Readiness,
+		&labelsJSON,
+	); err != nil {
 		d.mu.Unlock()
 		return nil, err
 	}
@@ -506,7 +520,7 @@ func (d *DB) SaveMacroAxes(projectID string, key string, priority *string, quart
 	}
 	current.UpdatedAt = time.Now()
 	_, execErr := tx.Exec("UPDATE macros SET priority = ?, quarter = ?, readiness = ?, updated_at = ? WHERE project_id = ? AND key = ?",
-		current.Priority, current.Quarter, current.Readiness, current.UpdatedAt, projectID, key)
+		current.Priority, current.Quarter, current.Readiness, current.UpdatedAt, rowProject, key)
 	if execErr == nil {
 		execErr = tx.Commit()
 	}
@@ -597,7 +611,7 @@ func (d *DB) PushMacroQuarterLabel(ctx context.Context, projectID string, macroK
 		return fail(err)
 	}
 	readCtx, cancel := context.WithTimeout(ctx, macroWriteTimeout)
-	epic, err := ts.GetIssue(readCtx, tracker.GetIssueRequest{Project: proj, Key: key})
+	epic, err := ts.GetIssue(readCtx, tracker.GetIssueRequest{Tracker: d.epicTrackerUnsafe(proj, key), Key: key})
 	cancel()
 	if err != nil {
 		return fail(err)

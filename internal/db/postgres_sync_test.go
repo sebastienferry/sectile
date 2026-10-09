@@ -17,6 +17,9 @@ func TestPostgresImportOrUpdateTasks(t *testing.T) {
 	if _, err := d.conn.Exec(`INSERT INTO projects (id, name, slug, github_repo) VALUES ('p1','P','p','owner/repo')`); err != nil {
 		t.Fatalf("seeding a project: %v", err)
 	}
+	// A project written by hand names no tracker until the adoption gives it
+	// its own (#741).
+	adopt(t, d)
 
 	now := time.Now().UTC()
 	extURL := "https://github.com/owner/repo/issues/1"
@@ -42,7 +45,7 @@ func TestPostgresImportOrUpdateTasks(t *testing.T) {
 		},
 	}
 
-	if err := d.ImportOrUpdateTasks(tasks); err != nil {
+	if err := d.ImportOrUpdateTasks("", tasks); err != nil {
 		t.Fatalf("ImportOrUpdateTasks (insert): %v", err)
 	}
 	got, err := d.GetTasks("", "", "", "", "p1", "", "", "", "", nil, nil, false)
@@ -57,7 +60,7 @@ func TestPostgresImportOrUpdateTasks(t *testing.T) {
 	// carries the CASE WHEN ? != '' expressions.
 	tasks[0].Title = "Imported and renamed"
 	tasks[0].Status = "clarified"
-	if err := d.ImportOrUpdateTasks(tasks); err != nil {
+	if err := d.ImportOrUpdateTasks("", tasks); err != nil {
 		t.Fatalf("ImportOrUpdateTasks (update): %v", err)
 	}
 	if got, err = d.GetTasks("", "", "", "", "p1", "", "", "", "", nil, nil, false); err != nil {

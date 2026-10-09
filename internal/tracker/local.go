@@ -79,7 +79,7 @@ func (l *LocalAdapter) UpdateLabels(ctx context.Context, key string, add []strin
 	return nil
 }
 
-func (l *LocalAdapter) FormatTaskID(projectID string, key string, rawID string) string {
+func (l *LocalAdapter) FormatTaskID(trackerID string, key string, rawID string) string {
 	if rawID != "" {
 		return rawID
 	}

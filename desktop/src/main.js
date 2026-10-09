@@ -1,6 +1,6 @@
 import { skillCommandMapping } from './skill-command-mapping.mjs'
 import { installSettingsSearch } from './settings-search.mjs'
-import { pullRequestPresentation, renderPullRequestIndicator, repositoryPullRequests } from './pullRequests.mjs'
+import { prLabel, pullRequestMenuEntries, pullRequestPresentation, renderPullRequestIndicator, repositoryPullRequests } from './pullRequests.mjs'
 import { installTooltips } from './tooltips.js'
 import {mcpSettings} from './mcp-settings.mjs'
 import { mcpProviders } from '../../shared/mcpConfig.mjs'
@@ -25,7 +25,10 @@ import '@xterm/xterm/css/xterm.css'
 import './style.css'
 import { STAGES, taskStage, nextTaskStep, skillLabel } from './workflow.mjs'
 import { launchModeOverride, modeSelect } from './skill-mode.mjs'
+import { launchModeFor, relaunchProject, launchErrorText, NO_RUN_PROJECT } from './run-project.mjs'
 import { orderedTasks, nextSort, DEFAULT_SORT, SORTABLE_FIELDS } from './task-list-order.mjs'
+import { EMPTY_BOARD, boardOptions, saveBoardOption, boardColumns, boardCardLabels, cardEpicColor } from './board.mjs'
+import { stageMove, trackerBoard } from '../../shared/workflowStage.mjs'
 import { consoleNotice, needsConsoleNotice, readOnlyConsole } from './run-console.mjs'
 import { previewLines } from './command-preview.mjs'
 import { sandboxSettings, whitelistEditor } from './sandbox-settings.mjs'
@@ -60,7 +63,7 @@ document.querySelector('#app').innerHTML=`
 <form id="start"><label>Sectile server<input name="server" type="url" value="http://localhost:8090" required></label>
 <div id="pair-again"><button id="browser-sign-in" type="button">Sign in with your browser</button><label>Pairing code<input name="code" type="text" autocomplete="off" spellcheck="false" placeholder="Paste the code from the web interface"></label></div>
 <p class="start-reason" role="alert" hidden></p><button type="submit">Connect</button></form></section>
-<main id="workspace" hidden><aside><div class="sidebar-scroll"><div class="section">PROJECTS <button id="add-project" title="Add a remote project">+</button></div><div id="runs"></div><button id="clear-history" class="icon-button" type="button" aria-label="Clear finished consoles" title="Clear finished consoles" disabled></button></div><footer class="sidebar-footer"><span id="connection" data-state="off">Connecting…</span><nav aria-label="Local agent controls"><button id="shutdown" class="icon-button" aria-label="Stop agent" title="Stop agent" hidden></button><button id="restart" class="icon-button" aria-label="Restart agent" title="Restart agent" hidden></button></nav><button id="settings" class="icon-button" type="button" aria-label="Settings" title="Settings"></button></footer></aside><div id="sidebar-resizer" role="separator" aria-label="Resize sidebar" aria-orientation="vertical" tabindex="0"></div><article><div id="toolbar"><div class="toolbar-row toolbar-primary"><div class="terminal-title-line"><strong id="title">Select an execution</strong><span id="native-terminal-badge" class="native-terminal-badge" hidden></span></div><div class="toolbar-meta"><select id="execution-history" aria-label="Execution history" hidden></select><span id="next-step-label" class="step-badge" aria-hidden="true" hidden></span></div></div><div class="toolbar-row toolbar-secondary"><div class="worktree-line"><button id="worktree" class="worktree" type="button" title="Copy this path" hidden><svg class="worktree-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2z"/></svg><span id="directory"></span></button><button id="worktree-folders" class="icon-button worktree-folders" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="worktree-folders-menu" aria-label="Folders of this execution" title="Folders of this execution" hidden><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button><button id="open-editor" class="icon-button" type="button" hidden></button><span id="worktree-copied" class="worktree-copied" role="status"></span><div id="worktree-folders-menu" class="folder-menu" role="menu" aria-label="Folders of this execution" hidden></div></div><div class="toolbar-actions"><div class="execution-views" role="group" aria-label="Execution view"><button id="view-console" class="icon-button" type="button" aria-label="Console" title="Console" aria-pressed="true" disabled></button><button id="view-changes" class="icon-button" type="button" aria-label="Changes" title="Changes" aria-pressed="false" disabled></button></div><button id="selected-pr" class="icon-button" type="button" hidden></button><span id="selected-pr-others" hidden></span><button id="detach-terminal" class="icon-button" type="button" aria-label="Detach to native terminal" title="Detach to native terminal" hidden></button><button id="rerun" class="icon-button" type="button" aria-label="Launch" title="Launch" hidden></button><button id="save-log" class="icon-button" type="button" aria-label="Export log" title="Export log"></button><button id="stop" class="icon-button" type="button" aria-label="Stop execution" title="Stop execution" disabled></button><button id="next-step" class="icon-button" type="button" hidden disabled></button><button id="pickup-chain" class="icon-button" type="button" aria-label="Pickup (full chain)" title="Pickup (full chain)" hidden disabled></button><button id="mark-reviewed" type="button" class="secondary" title="The pull request needs no more changes: skip Adjust, move the task to reviewed, and hand off once it is merged" hidden>Skip to Handoff</button><button id="retry-next-step" type="button" title="Retry reading the task workflow" hidden>Retry</button><button id="force-next-step" type="button" class="secondary" title="Launch although a run is already active on this task" hidden>Launch anyway</button></div></div></div><div id="execution-content"><div id="terminal"></div><div id="execution-divider" role="separator" aria-label="Resize execution views" aria-orientation="vertical" aria-valuemin="25" aria-valuemax="75" aria-valuenow="50" tabindex="0" hidden></div><section id="changes" aria-label="Worktree changes" hidden></section></div><footer id="task-status"><div class="execution-status"><span id="run-state" class="run-state selected-run-state" hidden></span><span id="skill-result" role="status" hidden></span></div><span id="next-step-status" role="status" aria-live="polite">Select a task to see its next step</span></footer></article><section id="tickets-pane" aria-label="Tickets" hidden></section></main>
+<main id="workspace" hidden><aside><div class="sidebar-scroll"><div class="section">PROJECTS <button id="add-project" title="Add a remote project">+</button></div><div id="runs"></div><button id="clear-history" class="icon-button" type="button" aria-label="Clear finished consoles" title="Clear finished consoles" disabled></button></div><footer class="sidebar-footer"><span id="connection" data-state="off">Connecting…</span><nav aria-label="Local agent controls"><button id="shutdown" class="icon-button" aria-label="Stop agent" title="Stop agent" hidden></button><button id="restart" class="icon-button" aria-label="Restart agent" title="Restart agent" hidden></button></nav><button id="settings" class="icon-button" type="button" aria-label="Settings" title="Settings"></button></footer></aside><div id="sidebar-resizer" role="separator" aria-label="Resize sidebar" aria-orientation="vertical" tabindex="0"></div><article><div id="toolbar"><div class="toolbar-row toolbar-primary"><div class="terminal-title-line"><strong id="title">Select an execution</strong><span id="native-terminal-badge" class="native-terminal-badge" hidden></span></div><div class="toolbar-meta"><select id="execution-history" aria-label="Execution history" hidden></select><span id="next-step-label" class="step-badge" aria-hidden="true" hidden></span></div></div><div class="toolbar-row toolbar-secondary"><div class="worktree-line"><button id="worktree" class="worktree" type="button" title="Copy this path" hidden><svg class="worktree-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2z"/></svg><span id="directory"></span></button><button id="worktree-folders" class="icon-button worktree-folders" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="worktree-folders-menu" aria-label="Folders of this execution" title="Folders of this execution" hidden><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button><button id="open-editor" class="icon-button" type="button" hidden></button><span id="worktree-copied" class="worktree-copied" role="status"></span><div id="worktree-folders-menu" class="folder-menu" role="menu" aria-label="Folders of this execution" hidden></div></div><div class="toolbar-actions"><div class="execution-views" role="group" aria-label="Execution view"><button id="view-console" class="icon-button" type="button" aria-label="Console" title="Console" aria-pressed="true" disabled></button><button id="view-changes" class="icon-button" type="button" aria-label="Changes" title="Changes" aria-pressed="false" disabled></button></div><button id="selected-pr" class="icon-button" type="button" hidden></button><button id="selected-pr-more" class="icon-button selected-pr-more" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="selected-pr-menu" aria-label="Pull requests of this task" title="Pull requests of this task" hidden><span class="pr-count"></span><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button><div id="selected-pr-menu" class="folder-menu pr-menu" role="menu" aria-label="Pull requests of this task" hidden></div><button id="detach-terminal" class="icon-button" type="button" aria-label="Detach to native terminal" title="Detach to native terminal" hidden></button><button id="rerun" class="icon-button" type="button" aria-label="Launch" title="Launch" hidden></button><button id="save-log" class="icon-button" type="button" aria-label="Export log" title="Export log"></button><button id="stop" class="icon-button" type="button" aria-label="Stop execution" title="Stop execution" disabled></button><button id="next-step" class="icon-button" type="button" hidden disabled></button><button id="pickup-chain" class="icon-button" type="button" aria-label="Pickup (full chain)" title="Pickup (full chain)" hidden disabled></button><button id="mark-reviewed" type="button" class="secondary" title="The pull request needs no more changes: skip Adjust, move the task to reviewed, and hand off once it is merged" hidden>Skip to Handoff</button><button id="retry-next-step" type="button" title="Retry reading the task workflow" hidden>Retry</button><button id="force-next-step" type="button" class="secondary" title="Launch although a run is already active on this task" hidden>Launch anyway</button></div></div></div><div id="execution-content"><div id="terminal"></div><div id="execution-divider" role="separator" aria-label="Resize execution views" aria-orientation="vertical" aria-valuemin="25" aria-valuemax="75" aria-valuenow="50" tabindex="0" hidden></div><section id="changes" aria-label="Worktree changes" hidden></section></div><footer id="task-status"><div class="execution-status"><span id="run-state" class="run-state selected-run-state" hidden></span><span id="skill-result" role="status" hidden></span></div><span id="next-step-status" role="status" aria-live="polite">Select a task to see its next step</span></footer></article><section id="tickets-pane" aria-label="Tickets" hidden></section></main>
 <dialog id="project-dialog"><button id="close-dialog" class="icon-button" type="button" aria-label="Close" title="Close"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button><div id="dialog-body"></div><div class="dialog-footer" hidden></div></dialog><div id="error" role="alert"></div>`
 installTooltips()
 // The console shows a prompt the user configured elsewhere - oh-my-posh, starship, powerlevel10k -
@@ -98,6 +101,10 @@ function refusedActiveRun(message){
 const taskTitles=new Map()
 // The workflow stage of each listed task, read with its title; absent when unknown.
 const taskStages=new Map()
+// The board data of a project (/desktop/project's board field), kept from the
+// last tickets list or board that read it, so the sidebar's grouping by stage
+// places a task where they do (#806).
+const projectBoards=new Map()
 const skillResults=new Map(),loadingSkillResults=new Set()
 // When each run's skill result was last read, and in what state the run was.
 const skillResultReads=new Map()
@@ -319,7 +326,9 @@ function ready(){
 function select(run,background=false,options){
  if(hiddenProject(run.projectId))return
  if(!background)closeTickets(false)
- selectedProject=run.projectId
+ // A run recorded before #741 names no project: the board the user is on
+ // stays the one its relaunch falls back to.
+ if(run.projectId)selectedProject=run.projectId
  selected=run.id
  changes.select(selected,currentFolder(run)?.path)
  conversation.select(run)
@@ -524,8 +533,8 @@ document.querySelector('#worktree').onclick=()=>copyPath(document.querySelector(
 // agent that cannot serve another folder keeps the items copying their path.
 // The menu is built when it opens, so a folder added during the run shows at
 // the next opening and never moves under the pointer.
-const foldersButton=document.querySelector('#worktree-folders'),foldersMenu=document.querySelector('#worktree-folders-menu')
-let foldersRun=null,foldersDismiss=null
+const foldersButton=document.querySelector('#worktree-folders')
+let foldersRun=null
 // The folder chosen per execution, forgotten when Desktop restarts.
 const folderSelections=new Map()
 // The folder the toolbar speaks of: the one chosen from the menu, or null for
@@ -538,18 +547,12 @@ function selectFolder(run,folder){
  else folderSelections.delete(run.id)
  if(run.id===selected)showDirectory(currentFolder(run)?.path||run.directory)
 }
-function closeFoldersMenu(focusOpener=false){
- if(foldersMenu.hidden)return
- foldersMenu.hidden=true;foldersButton.setAttribute('aria-expanded','false')
- if(foldersDismiss){document.removeEventListener('pointerdown',foldersDismiss,true);window.removeEventListener('blur',foldersDismiss);foldersDismiss=null}
- if(focusOpener)foldersButton.focus()
-}
 function renderFolders(){
  const label=document.querySelector('#directory')
  const run=label.textContent?runs.find(item=>item.id===selected):null
  const folders=menuFolders(run)
  // A menu left open belongs to the execution it was opened for.
- if(!folders.length||run.id!==foldersRun)closeFoldersMenu()
+ if(!folders.length||run.id!==foldersRun)foldersMenu.close()
  foldersButton.hidden=!folders.length
  if(!run)return
  // A chosen folder that left the list gives the toolbar back to the run's
@@ -560,12 +563,52 @@ function renderFolders(){
  if(path&&label.textContent!==path){clearCopiedNotice();label.textContent=path;renderOpenEditor()}
  changes.select(selected,folder?.path)
 }
-function openFoldersMenu(){
+// A chevron that opens a menu of buttons built at opening, fixed below it.
+// items() returns the menu items, or none to stay closed. The menu closes on
+// Escape, Tab, a press outside it or the window losing focus, and its items
+// are walked with the arrow keys, Home and End.
+function toolbarMenu(button,menu,items){
+ let dismiss=null
+ function close(focusOpener=false){
+  if(menu.hidden)return
+  menu.hidden=true;button.setAttribute('aria-expanded','false')
+  if(dismiss){document.removeEventListener('pointerdown',dismiss,true);window.removeEventListener('blur',dismiss);dismiss=null}
+  if(focusOpener)button.focus()
+ }
+ function open(){
+  const list=items()
+  if(!list.length)return
+  menu.replaceChildren(...list)
+  menu.hidden=false;button.setAttribute('aria-expanded','true')
+  // Fixed to the viewport and kept inside it, below the chevron.
+  const box=button.getBoundingClientRect(),{width,height}=menu.getBoundingClientRect()
+  menu.style.left=Math.max(4,Math.min(box.left,innerWidth-width-4))+'px'
+  menu.style.top=Math.max(4,Math.min(box.bottom+2,innerHeight-height-4))+'px'
+  dismiss=event=>{if(event.type==='blur'||!menu.contains(event.target)&&!button.contains(event.target))close()}
+  document.addEventListener('pointerdown',dismiss,true);window.addEventListener('blur',dismiss)
+  const first=menu.querySelector('[aria-checked=true]')||menu.querySelector('[role^=menuitem]')
+  first?.focus()
+ }
+ button.onclick=()=>{menu.hidden?open():close()}
+ button.onkeydown=menu.onkeydown=event=>{
+  if(event.key==='Escape'&&!menu.hidden){event.preventDefault();event.stopPropagation();close(true);return}
+  if(event.target===button&&event.key==='ArrowDown'&&menu.hidden){event.preventDefault();open();return}
+  if(menu.hidden)return
+  if(event.key==='Tab'){close();return}
+  const entries=[...menu.querySelectorAll('[role^=menuitem]')],at=entries.indexOf(document.activeElement)
+  const next={ArrowDown:at+1,ArrowUp:at-1,Home:0,End:entries.length-1}[event.key]
+  if(next===undefined)return
+  event.preventDefault()
+  entries[(next+entries.length)%entries.length]?.focus()
+ }
+ return {open,close}
+}
+const foldersMenu=toolbarMenu(foldersButton,document.querySelector('#worktree-folders-menu'),()=>{
  const run=runs.find(item=>item.id===selected),folders=menuFolders(run)
- if(!folders.length)return
+ if(!folders.length)return []
  foldersRun=run.id
  const selecting=folderSelectionAvailable,current=currentFolder(run)?.path||folders[0].path
- foldersMenu.replaceChildren(...folders.map(folder=>{
+ return folders.map(folder=>{
   const item=document.createElement('button');item.type='button';item.setAttribute('role',selecting?'menuitemradio':'menuitem')
   const name=document.createElement('span');name.className='folder-name';name.textContent=folder.name||folder.path
   const role=document.createElement('span');role.className='folder-role';role.textContent=folderRoleLabel(folder)
@@ -574,35 +617,38 @@ function openFoldersMenu(){
   item.setAttribute('aria-label',(folder.name||folder.path)+', '+folderRoleLabel(folder)+', '+folder.path)
   if(selecting){
    item.title='Show '+folder.path;item.setAttribute('aria-checked',String(folder.path===current))
-   item.onclick=()=>{closeFoldersMenu(true);selectFolder(run,folder)}
+   item.onclick=()=>{foldersMenu.close(true);selectFolder(run,folder)}
   }else{
    item.title='Copy '+folder.path
-   item.onclick=()=>{closeFoldersMenu(true);copyPath(folder.path)}
+   item.onclick=()=>{foldersMenu.close(true);copyPath(folder.path)}
   }
   return item
- }))
- foldersMenu.hidden=false;foldersButton.setAttribute('aria-expanded','true')
- // Fixed to the viewport and kept inside it, below the chevron.
- const box=foldersButton.getBoundingClientRect(),{width,height}=foldersMenu.getBoundingClientRect()
- foldersMenu.style.left=Math.max(4,Math.min(box.left,innerWidth-width-4))+'px'
- foldersMenu.style.top=Math.max(4,Math.min(box.bottom+2,innerHeight-height-4))+'px'
- foldersDismiss=event=>{if(event.type==='blur'||!foldersMenu.contains(event.target)&&!foldersButton.contains(event.target))closeFoldersMenu()}
- document.addEventListener('pointerdown',foldersDismiss,true);window.addEventListener('blur',foldersDismiss)
- const first=foldersMenu.querySelector('[aria-checked=true]')||foldersMenu.querySelector('[role^=menuitem]')
- first?.focus()
-}
-foldersButton.onclick=()=>{foldersMenu.hidden?openFoldersMenu():closeFoldersMenu()}
-foldersButton.onkeydown=foldersMenu.onkeydown=event=>{
- if(event.key==='Escape'&&!foldersMenu.hidden){event.preventDefault();event.stopPropagation();closeFoldersMenu(true);return}
- if(event.target===foldersButton&&event.key==='ArrowDown'&&foldersMenu.hidden){event.preventDefault();openFoldersMenu();return}
- if(foldersMenu.hidden)return
- if(event.key==='Tab'){closeFoldersMenu();return}
- const items=[...foldersMenu.querySelectorAll('[role^=menuitem]')],at=items.indexOf(document.activeElement)
- const next={ArrowDown:at+1,ArrowUp:at-1,Home:0,End:items.length-1}[event.key]
- if(next===undefined)return
- event.preventDefault()
- items[(next+items.length)%items.length]?.focus()
-}
+ })
+})
+// The pull requests of a task that changed several repositories, one entry
+// per repository, the primary one first. Like the folders menu, it is built
+// when it opens, so a pull request added or a state refreshed meanwhile shows
+// at the next opening and never moves under the pointer.
+const prMoreButton=document.querySelector('#selected-pr-more')
+let prMenuRun=null
+const prMenu=toolbarMenu(prMoreButton,document.querySelector('#selected-pr-menu'),()=>{
+ const run=runs.find(item=>item.id===selected)
+ const entries=pullRequestMenuEntries((run&&pullRequests.get(run.taskId))||[])
+ if(!entries.length)return []
+ prMenuRun=run.id
+ return entries.map(entry=>{
+  const item=document.createElement('button');item.type='button';item.setAttribute('role','menuitem')
+  const icon=document.createElement('span');icon.className='pr-menu-icon'
+  renderPullRequestIndicator(icon,entry.link,entry.label+' in '+entry.repository)
+  // The entry speaks for its icon: same tooltip and name as the button it replaces.
+  item.title=icon.title;item.setAttribute('aria-label',icon.getAttribute('aria-label'))
+  icon.removeAttribute('title');icon.removeAttribute('aria-label');icon.setAttribute('aria-hidden','true')
+  const text=document.createElement('span');text.className='pr-label';text.textContent=entry.name+' '+entry.label
+  item.append(icon,text)
+  item.onclick=()=>{prMenu.close(true);api.openPR(entry.url).catch(error)}
+  return item
+ })
+})
 // The state before the title is the one the sidebar row and the notification
 // already show, drawn from the shared definition, with its label spelled out:
 // the header has the room the row does not.
@@ -667,6 +713,7 @@ function projectMenu(project,waitingCount=0){
  const queued=queueProjects.has(project.id)
  const items=[
   {label:'Open tasks',run:()=>openTickets(project.id)},
+  {label:'Open board',run:()=>openBoard(project.id)},
   {label:(queued?'Show tasks':'Show execution queue')+(waitingCount?' · '+waitingCount+' waiting':''),run:()=>toggleQueue(project.id)},
   {label:'Group by stage',checked:stageGroupedProjects.has(project.id),run:()=>toggleStageGrouping(project.id)},
   {label:'New task…',run:()=>newProjectTask(project.id)},
@@ -848,8 +895,8 @@ function render(options){
  history.replaceChildren();history.hidden=executions.length<2
  for(const [i,run] of executions.entries()){const option=document.createElement('option');option.value=run.id;option.textContent=(i+1)+' · '+run.skill+' · '+run.status;history.append(option)}
  history.value=selected||'';history.onchange=()=>{const run=runs.find(run=>run.id===history.value);if(run)select(run)}
- const selectedPR=document.querySelector('#selected-pr'),selectedOthers=document.querySelector('#selected-pr-others')
- const [link,...others]=(current&&pullRequests.get(current.taskId))||[]
+ const selectedPR=document.querySelector('#selected-pr')
+ const links=(current&&pullRequests.get(current.taskId))||[],[link]=links
  selectedPR.hidden=!link
  if(link){
   const label=prLabel(link.url)
@@ -857,17 +904,13 @@ function render(options){
   const text=document.createElement('span');text.className='pr-label';text.textContent=label;selectedPR.append(text)
   selectedPR.onclick=()=>api.openPR(link.url).catch(error)
  }
- // The other repositories the task changed, each with its own pull request,
- // after the primary repository's.
- selectedOthers.replaceChildren(...others.map(other=>{
-  const button=document.createElement('button');button.type='button';button.className='icon-button selected-pr-other'
-  const label=prLabel(other.url)
-  renderPullRequestIndicator(button,other,label+' in '+other.repository)
-  const text=document.createElement('span');text.className='pr-label';text.textContent=repositoryName(other.repository)+' '+label;button.append(text)
-  button.onclick=()=>api.openPR(other.url).catch(error)
-  return button
- }))
- selectedOthers.hidden=!others.length
+ // A task that changed several repositories lists their pull requests in a
+ // menu after the primary one's button (#791).
+ const entries=pullRequestMenuEntries(links)
+ prMoreButton.hidden=!entries.length
+ prMoreButton.querySelector('.pr-count').textContent='+'+(entries.length-1)
+ // A menu left open belongs to the execution it was opened for.
+ if(!entries.length||current?.id!==prMenuRun)prMenu.close()
  // A macro run is relaunched from the macro panel: it has no task to relaunch here.
  document.querySelector('#rerun').hidden=!current||macroRun(current)
  document.querySelector('#stop').disabled=stopping||!current||!activeRun(current)
@@ -2884,6 +2927,7 @@ async function openTickets(projectID,initialQuery=''){
  if(!agentConnected){showDialog('Tickets');paragraph('Connect to the local agent to browse this project\u2019s tickets.');return}
  const opener=document.activeElement
  if(dialog.open)dialog.close()
+ ticketsView?.closeOpenMenu?.()
  const project=projects.find(item=>item.id===projectID)
  const view={projectID,projectName:project?.name||projectID,sort:{...DEFAULT_SORT},tasks:[],info:null,query:'',rows:new Map(),submitting:new Set(),compose:null,generation:0,opener:opener&&opener!==document.body?opener:null}
  ticketsOpen=true;ticketsView=view;ticketsPane.hidden=false;ticketsPane.replaceChildren()
@@ -2912,6 +2956,7 @@ async function openTickets(projectID,initialQuery=''){
    const [tasks,info,taskEngines]=await Promise.all([api.serverTasks(projectID,searchText,true),api.project(projectID),engines])
    if(!isCurrent())return
    view.tasks=tasks.filter(task=>!isFinishedTask(task));view.info=info;view.query=searchText;view.engines=taskEngines
+   if(info.board)projectBoards.set(projectID,info.board)
    renderTicketsTable(view)
   }catch(err){if(isCurrent()){const message=document.createElement('p');message.setAttribute('role','alert');message.textContent='Could not load open tasks: '+err.message+'. Use Search to retry.';list.replaceChildren(message)}}
   finally{if(isCurrent())list.setAttribute('aria-busy','false')}
@@ -2988,6 +3033,35 @@ function ticketRow(view,task){
  more.setAttribute('aria-haspopup','menu');more.setAttribute('aria-expanded','false');more.setAttribute('aria-label','More actions for '+key)
  const menu=document.createElement('div');menu.className='ticket-menu';menu.setAttribute('role','menu');menu.setAttribute('aria-label','Actions for '+key);menu.hidden=true
  const entry={task,row,state,run,more,menu,actions}
+ taskActionsMenu(view,entry)
+ run.onclick=()=>{if(run.dataset.skillId)submitTicketLaunch(view,entry,run.dataset.skillId,'','').catch(()=>{})}
+ actions.append(run,more,menu)
+ const stageCell=cell('ticket-stage',taskStage(task,view.info.board));if(task.trackerStatus)stageCell.title='Tracker status: '+task.trackerStatus
+ // The key opens the task in Sectile, the same gesture the sidebar task number
+ // offers, so the identity means the same thing on both surfaces.
+ const keyCell=cell('ticket-key')
+ const keyLink=document.createElement('button');keyLink.type='button';keyLink.className='task-number';keyLink.textContent=key
+ keyLink.title='Open task in Sectile';keyLink.setAttribute('aria-label','Open '+key+' in Sectile')
+ keyLink.onclick=()=>api.openTask(task.id).catch(error)
+ keyCell.append(keyLink)
+ row.append(stateCell,keyCell,titleCell,stageCell,priorityCell)
+ if(view.engines){
+  const engineCell=cell('ticket-engine')
+  const toggle=document.createElement('button');toggle.type='button';toggle.className='engine-toggle'
+  toggle.onclick=()=>switchTaskEngine(view,entry)
+  entry.engine=toggle;engineCell.append(toggle);row.append(engineCell)
+  renderEngineToggle(view,entry)
+ }
+ row.append(prCell,actions)
+ view.rows.set(task.id,entry)
+ updateTicketRow(view,entry)
+ return row
+}
+// The actions menu of a task: a tickets row's and a board card's (#806), so
+// both offer the same entries with the same handlers. It works on the row's
+// entry: its task, its menu opener and the menu itself.
+function taskActionsMenu(view,entry){
+ const {task,more,menu}=entry
  // The menu is a popup, so it must swallow the gestures that dismiss a popup.
  // Focus can sit on the opener rather than inside the menu - a mouse click on a
  // project with no launchable skill leaves it there - and the menu's own
@@ -3038,7 +3112,7 @@ function ticketRow(view,task){
  const items=[]
  if(skills.some(item=>item.id==='pickup'))items.push({label:'Pickup (full chain)',skillId:'pickup'})
  for(const item of skills)if(item.id!=='pickup')items.push({label:item.command||item.id,skillId:item.id})
- if(taskStage(task)==='implemented'){
+ if(taskStage(task,view.info.board)==='implemented'){
   items.push({label:'Skip to Handoff…',transition:'reviewed'})
  }
  items.push({label:'Discussion (no skill)',skillId:'discuss'},{label:'Discussion in native terminal',nativeTerminal:true},{label:'Custom instructions…',compose:true},{label:'Launch…',dialog:true})
@@ -3049,7 +3123,13 @@ function ticketRow(view,task){
    entry.declareReviewed=button
    button.onclick=()=>{closeMenu();confirmDeclareReviewed(view.projectID,task)}
   }else{
-   button.onclick=()=>{closeMenu();if(item.dialog)openTicketLaunchDialog(view,task);else if(item.compose)openCompose(view,entry);else if(item.nativeTerminal)submitNativeDiscussion(view,entry).catch(()=>{});else submitTicketLaunch(view,entry,item.skillId,'',item.skillId==='pickup'?'autonomous':'').catch(()=>{})}
+   button.onclick=()=>{
+    closeMenu()
+    if(item.dialog)openTicketLaunchDialog(view,task)
+    else if(item.compose)openCompose(view,entry)
+    else if(item.nativeTerminal)submitNativeDiscussion(view,entry).catch(()=>{})
+    else submitTicketLaunch(view,entry,item.skillId,'',launchModeFor(item.skillId==='pickup'?'pickup':'','')).catch(()=>{})
+   }
   }
   menu.append(button)
  }
@@ -3060,28 +3140,6 @@ function ticketRow(view,task){
   else if(event.key==='ArrowUp'){event.preventDefault();options[(index-1+options.length)%options.length]?.focus()}
  }
  menu.addEventListener('focusout',event=>{if(!menu.contains(event.relatedTarget)&&event.relatedTarget!==more)closeMenu()})
- run.onclick=()=>{if(run.dataset.skillId)submitTicketLaunch(view,entry,run.dataset.skillId,'','').catch(()=>{})}
- actions.append(run,more,menu)
- const stageCell=cell('ticket-stage',taskStage(task));if(task.trackerStatus)stageCell.title='Tracker status: '+task.trackerStatus
- // The key opens the task in Sectile, the same gesture the sidebar task number
- // offers, so the identity means the same thing on both surfaces.
- const keyCell=cell('ticket-key')
- const keyLink=document.createElement('button');keyLink.type='button';keyLink.className='task-number';keyLink.textContent=key
- keyLink.title='Open task in Sectile';keyLink.setAttribute('aria-label','Open '+key+' in Sectile')
- keyLink.onclick=()=>api.openTask(task.id).catch(error)
- keyCell.append(keyLink)
- row.append(stateCell,keyCell,titleCell,stageCell,priorityCell)
- if(view.engines){
-  const engineCell=cell('ticket-engine')
-  const toggle=document.createElement('button');toggle.type='button';toggle.className='engine-toggle'
-  toggle.onclick=()=>switchTaskEngine(view,entry)
-  entry.engine=toggle;engineCell.append(toggle);row.append(engineCell)
-  renderEngineToggle(view,entry)
- }
- row.append(prCell,actions)
- view.rows.set(task.id,entry)
- updateTicketRow(view,entry)
- return row
 }
 // The engine icon of a row: the monogram of its task engine, a tooltip naming
 // it, and a highlight when the task left its project default engine (#510).
@@ -3157,8 +3215,10 @@ function closeCompose(view){
 function openCompose(view,entry,initial=null,focusPrompt=true){
  closeCompose(view)
  const key=entry.task.key||entry.task.id
- const row=document.createElement('tr');row.className='ticket-compose'
- const cell=document.createElement('td');cell.colSpan=ticketColumns(view).length
+ // A board card has no table around it, so its form is a plain block (#806).
+ const board=view.kind==='board'
+ const row=document.createElement(board?'div':'tr');row.className=board?'ticket-compose board-compose':'ticket-compose'
+ const cell=document.createElement(board?'div':'td');if(!board)cell.colSpan=ticketColumns(view).length
  const prompt=document.createElement('textarea');prompt.placeholder='What should the agent do?';prompt.setAttribute('aria-label','Custom instructions')
  const mode=modeSelect(document,'Execution mode for '+key)
  const launch=document.createElement('button');launch.type='button';launch.textContent='Launch';launch.disabled=!view.info.configured
@@ -3179,7 +3239,7 @@ function openCompose(view,entry,initial=null,focusPrompt=true){
   if(!prompt.value.trim()){notice.textContent='Enter custom instructions.';prompt.focus();return}
   launch.disabled=true;notice.textContent='Submitting execution…'
   try{await submitTicketLaunch(view,entry,'custom',prompt.value,launchModeOverride(mode.value));closeCompose(view);entry.more.focus()}
-  catch(err){notice.textContent=err.message;launch.disabled=false}
+  catch(err){notice.textContent=launchErrorText(err);launch.disabled=false}
  }
  if(focusPrompt)prompt.focus()
 }
@@ -3189,6 +3249,9 @@ function openTicketLaunchDialog(view,task){
  const step=nextTaskStep(task,view.info)
  openLaunchDialog({projectID:view.projectID,taskId:task.id,taskKey:task.key,skill:step.skillId||'discuss',prompt:''})
 }
+// The project of the board the user is on: the open tickets pane's, else the
+// last project selected. A run recorded without a project relaunches for it.
+function boardProject(){return ticketsView?.projectID||selectedProject||''}
 async function submitTicketLaunch(view,entry,skillId,prompt,mode){
  const key=entry.task.key||entry.task.id
  view.submitting.add(entry.task.id);updateTicketRow(view,entry)
@@ -3199,7 +3262,7 @@ async function submitTicketLaunch(view,entry,skillId,prompt,mode){
   await api.launchServerTask(view.projectID,entry.task.id,skillId,prompt,mode,false,consoleView)
   view.status.textContent='Execution submitted for '+key
   await refresh()
- }catch(err){view.status.textContent='Could not launch '+key+': '+err.message;throw err}
+ }catch(err){view.status.textContent='Could not launch '+key+': '+launchErrorText(err);throw err}
  finally{view.submitting.delete(entry.task.id);if(view.rows.get(entry.task.id)===entry)updateTicketRow(view,entry)}
 }
 async function submitNativeDiscussion(view,entry){
@@ -3210,15 +3273,252 @@ async function submitNativeDiscussion(view,entry){
   await api.launchNativeDiscussion(view.projectID,entry.task.id)
   view.status.textContent='Native terminal launched for '+key
   await refresh()
- }catch(err){view.status.textContent='Could not launch native terminal for '+key+': '+err.message;throw err}
+ }catch(err){view.status.textContent='Could not launch native terminal for '+key+': '+launchErrorText(err);throw err}
  finally{view.submitting.delete(entry.task.id);if(view.rows.get(entry.task.id)===entry)updateTicketRow(view,entry)}
+}
+
+// The project board (#806): one project's tasks in the six workflow columns,
+// as the web board shows them. It takes the tickets pane's slot, so one full
+// page shows at a time and closing it restores the workspace and the focus as
+// closing the tickets list does. Its cards are tickets rows in another shape:
+// the same entry, the same actions menu and the same launch paths.
+const STAGE_NAMES={new:'New',clarified:'Clarified',specified:'Specified',implemented:'Implemented',reviewed:'Reviewed',finished:'Finished'}
+async function openBoard(projectID,initialQuery=''){
+ selectedProject=projectID
+ if(!agentConnected){showDialog('Board');paragraph('Connect to the local agent to see this project’s board.');return}
+ const opener=document.activeElement
+ if(dialog.open)dialog.close()
+ ticketsView?.closeOpenMenu?.()
+ const project=projects.find(item=>item.id===projectID)
+ const view={kind:'board',projectID,projectName:project?.name||projectID,tasks:[],info:null,board:EMPTY_BOARD,canMove:false,options:boardOptions(localStorage),query:'',rows:new Map(),submitting:new Set(),moving:new Set(),dragging:null,compose:null,engines:null,generation:0,opener:opener&&opener!==document.body?opener:null}
+ ticketsOpen=true;ticketsView=view;ticketsPane.hidden=false;ticketsPane.replaceChildren()
+ document.querySelector('#workspace article').hidden=true
+ document.querySelector('#workspace').hidden=false;document.querySelector('#setup').hidden=true
+ const heading=document.createElement('h2');heading.textContent='Board · '+view.projectName
+ const display=boardDisplayToggle(view)
+ const close=document.createElement('button');close.type='button';close.textContent='Close board';close.onclick=()=>closeTickets()
+ const toolbar=document.createElement('div');toolbar.className='tickets-toolbar board-toolbar';toolbar.append(heading,display,close)
+ const search=document.createElement('form'),query=document.createElement('input'),submit=document.createElement('button')
+ query.placeholder='Search by title or task key';query.setAttribute('aria-label','Search server tasks');submit.textContent='Search'
+ query.value=initialQuery
+ search.append(query,submit)
+ const status=document.createElement('p');status.className='tickets-status';status.setAttribute('role','status')
+ const list=document.createElement('div');list.className='board-area'
+ view.status=status;view.list=list
+ ticketsPane.append(toolbar,search,status,list)
+ query.focus()
+ async function load(){
+  const current=++view.generation,searchText=query.value.trim()
+  const isCurrent=()=>current===view.generation&&ticketsView===view&&ticketsOpen
+  list.textContent='Loading the board…';list.setAttribute('aria-busy','true');view.rows.clear();view.compose=null;status.textContent=''
+  try{
+   // Finished tasks included: the board has a column for them. An agent
+   // without the stage-move capability leaves the cards where they are.
+   const canMove=api.status().then(agent=>!!agent.capabilities?.includes('stage-move')).catch(()=>false)
+   const [tasks,info,movable]=await Promise.all([api.serverTasks(projectID,searchText,false),api.project(projectID),canMove])
+   if(!isCurrent())return
+   view.tasks=tasks;view.info=info;view.board=info.board||EMPTY_BOARD;view.canMove=movable;view.query=searchText
+   if(info.board)projectBoards.set(projectID,info.board)
+   renderBoard(view)
+  }catch(err){if(isCurrent()){const message=document.createElement('p');message.setAttribute('role','alert');message.textContent='Could not load the board: '+startFailure(err)+'. Use Search to retry.';list.replaceChildren(message)}}
+  finally{if(isCurrent())list.setAttribute('aria-busy','false')}
+ }
+ view.load=load
+ search.onsubmit=event=>{event.preventDefault();load()}
+ await load()
+}
+// Condensed or full cards, remembered on this workstation for every project.
+function boardDisplayToggle(view){
+ const group=document.createElement('div');group.className='board-display';group.setAttribute('role','radiogroup');group.setAttribute('aria-label','Card display')
+ const buttons=[['condensed','Condensed'],['full','Full']].map(([value,label])=>{
+  const button=document.createElement('button');button.type='button';button.setAttribute('role','radio');button.textContent=label;button.dataset.display=value
+  button.onclick=()=>choose(value)
+  return button
+ })
+ const sync=()=>{for(const button of buttons){const on=button.dataset.display===view.options.cardDisplay;button.setAttribute('aria-checked',String(on));button.tabIndex=on?0:-1}}
+ function choose(value,focus=false){
+  if(view.options.cardDisplay!==value){view.options.cardDisplay=value;saveBoardOption(localStorage,'cardDisplay',value);if(view.info)renderBoard(view)}
+  sync()
+  if(focus)buttons.find(button=>button.dataset.display===value)?.focus()
+ }
+ // A radio group moves with the arrow keys, as the platform's own does.
+ group.onkeydown=event=>{
+  if(!['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(event.key))return
+  event.preventDefault()
+  choose(view.options.cardDisplay==='full'?'condensed':'full',true)
+ }
+ sync();group.append(...buttons)
+ return group
+}
+function renderBoard(view){
+ const {list}=view
+ view.closeOpenMenu?.()
+ // Instructions being typed are the user's work, not render state, so they
+ // survive the rebuild, as they do in the tickets list.
+ const pending=view.compose?{...view.compose}:null
+ list.replaceChildren();view.rows.clear();view.compose=null
+ if(!view.info.configured){const notice=document.createElement('p');notice.textContent='Configure a local repository before launching tasks.';list.append(notice)}
+ if(!view.tasks.length){
+  const empty=document.createElement('p');empty.className='board-empty'
+  empty.textContent=view.query?'No tasks match “'+view.query+'”.':'This project has no tasks.'
+  list.append(empty)
+ }
+ // An agent without the stage move leaves the cards in place; say why rather
+ // than let a drag silently fail to start.
+ if(!view.canMove&&view.tasks.length){const hint=document.createElement('p');hint.className='board-hint';hint.textContent='Moving cards between stages needs a newer local agent. Restart the agent from Settings to update it.';list.append(hint)}
+ const grid=document.createElement('div');grid.className='board';grid.dataset.display=view.options.cardDisplay
+ for(const {stage,tasks} of boardColumns(view.tasks,view.board)){
+  if(stage==='finished'&&view.options.hideFinished){grid.append(collapsedFinished(view,tasks.length));continue}
+  const column=document.createElement('section');column.className='board-column';column.dataset.stage=stage
+  column.setAttribute('aria-label',STAGE_NAMES[stage]+' column, '+tasks.length+(tasks.length===1?' task':' tasks'))
+  const header=document.createElement('header');header.className='board-column-header'
+  const name=document.createElement('h3');name.textContent=STAGE_NAMES[stage]
+  const count=document.createElement('span');count.className='board-count';count.textContent=String(tasks.length);count.setAttribute('aria-hidden','true')
+  header.append(name,count)
+  if(stage==='finished'){
+   const hide=document.createElement('button');hide.type='button';hide.className='board-hide-finished';hide.textContent='Hide finished'
+   hide.onclick=()=>{setFinishedHidden(view,true);list.querySelector('.board-collapsed')?.focus()}
+   header.append(hide)
+  }
+  const body=document.createElement('div');body.className='board-column-body'
+  for(const task of tasks)body.append(boardCard(view,task))
+  column.append(header,body)
+  if(view.canMove)acceptBoardDrop(view,column,stage)
+  grid.append(column)
+ }
+ list.append(grid)
+ if(pending&&view.rows.has(pending.taskId))openCompose(view,view.rows.get(pending.taskId),pending,false)
+}
+function setFinishedHidden(view,hidden){
+ view.options.hideFinished=hidden;saveBoardOption(localStorage,'hideFinished',hidden)
+ renderBoard(view)
+}
+// The finished column, collapsed: a narrow strip with its name and count. It
+// expands on a click and still takes a dropped card, staying collapsed.
+function collapsedFinished(view,count){
+ const strip=document.createElement('button');strip.type='button';strip.className='board-collapsed';strip.dataset.stage='finished'
+ strip.setAttribute('aria-label','Show finished tasks ('+count+')')
+ const name=document.createElement('span');name.className='board-collapsed-name';name.textContent=STAGE_NAMES.finished
+ const number=document.createElement('span');number.className='board-count';number.textContent=String(count)
+ strip.append(name,number)
+ strip.onclick=()=>{setFinishedHidden(view,false);view.list.querySelector('.board-hide-finished')?.focus()}
+ if(view.canMove)acceptBoardDrop(view,strip,'finished')
+ return strip
+}
+function boardCard(view,task){
+ const key=task.key||task.id,full=view.options.cardDisplay==='full'
+ const card=document.createElement('article');card.className='board-card';card.dataset.taskId=task.id;card.dataset.display=view.options.cardDisplay
+ card.setAttribute('aria-label',key+(task.title?' '+task.title:''))
+ const color=cardEpicColor(task,view.board)
+ // The colour is data, not a theme token: it is the macro's, in both themes.
+ if(color){card.classList.add('has-epic');card.style.borderLeftColor=color}
+ const line=document.createElement('div');line.className='board-card-line'
+ const keyLabel=document.createElement('span');keyLabel.className='board-card-key';keyLabel.textContent=key
+ // The title opens the task in Sectile, as a tickets row's key does: selecting
+ // a card never launches anything.
+ const title=document.createElement('button');title.type='button';title.className='board-card-title';title.textContent=task.title||key
+ title.title=task.title||'';title.setAttribute('aria-label','Open '+key+' in Sectile')
+ title.onclick=()=>api.openTask(task.id).catch(error)
+ const state=document.createElement('span');state.className='run-state'
+ const actions=document.createElement('div');actions.className='board-card-actions'
+ // The next step is in the menu; the run button only carries the state the
+ // shared row code keeps, and is not shown on a card.
+ const run=document.createElement('button');run.type='button';run.className='ticket-run'
+ const more=document.createElement('button');more.type='button';more.className='ticket-more';more.textContent='…'
+ more.setAttribute('aria-haspopup','menu');more.setAttribute('aria-expanded','false');more.setAttribute('aria-label','More actions for '+key)
+ const menu=document.createElement('div');menu.className='ticket-menu';menu.setAttribute('role','menu');menu.setAttribute('aria-label','Actions for '+key);menu.hidden=true
+ actions.append(more,menu)
+ // A condensed card holds on one line; a full one gives the title a line of
+ // its own, so a long title wraps across the card's width.
+ if(full){line.append(keyLabel,state,actions);card.append(line,title,boardCardDetails(task))}
+ else{line.append(keyLabel,title,state,actions);card.append(line)}
+ const entry={task,row:card,state,run,more,menu,actions}
+ taskActionsMenu(view,entry)
+ if(view.canMove){
+  const busy=view.moving.has(task.id)
+  card.draggable=!busy
+  if(busy)card.setAttribute('aria-busy','true')
+  card.ondragstart=event=>{
+   if(view.moving.has(task.id)){event.preventDefault();return}
+   view.dragging=task.id;card.classList.add('dragging')
+   event.dataTransfer.effectAllowed='move';event.dataTransfer.setData('text/plain',task.id)
+  }
+  card.ondragend=()=>{view.dragging=null;card.classList.remove('dragging');for(const target of view.list.querySelectorAll('.drop-target'))target.classList.remove('drop-target')}
+ }
+ view.rows.set(task.id,entry)
+ updateTicketRow(view,entry)
+ return card
+}
+// What a full card adds: the macro, the priority, the labels other than the
+// workflow ones, the pull request and the assignee.
+function boardCardDetails(task){
+ const details=document.createElement('div');details.className='board-card-details'
+ const key=task.key||task.id
+ if(task.parentKey){const parent=document.createElement('span');parent.className='board-card-parent';parent.textContent=task.parentKey;parent.title='Macro '+task.parentKey;details.append(parent)}
+ if(task.priority){
+  const priority=document.createElement('span');priority.className='board-card-priority'
+  const dot=document.createElement('span');dot.className='priority-dot';dot.dataset.priority=String(task.priority).toLowerCase();dot.setAttribute('aria-hidden','true')
+  priority.append(dot,document.createTextNode(task.priority));details.append(priority)
+ }
+ for(const label of boardCardLabels(task)){const chip=document.createElement('span');chip.className='board-card-label';chip.textContent=label;details.append(chip)}
+ if(task.prUrl&&/^https?:\/\//i.test(task.prUrl)){
+  const pr=document.createElement('button');pr.type='button';pr.className='pr-indicator'
+  const [link,...others]=repositoryPullRequests(task);renderPullRequestIndicator(pr,link,prLabel(link.url)+' for '+key)
+  pr.onclick=()=>api.openPR(link.url).catch(error);details.append(pr)
+  if(others.length)details.append(otherPullRequestsBadge(others))
+ }
+ if(task.assignee){const assignee=document.createElement('span');assignee.className='board-card-assignee';assignee.textContent=task.assignee;assignee.title='Assignee';details.append(assignee)}
+ return details
+}
+function acceptBoardDrop(view,target,stage){
+ target.ondragover=event=>{
+  if(!view.dragging)return
+  event.preventDefault();event.dataTransfer.dropEffect='move';target.classList.add('drop-target')
+ }
+ target.ondragleave=event=>{if(!target.contains(event.relatedTarget))target.classList.remove('drop-target')}
+ target.ondrop=event=>{
+  event.preventDefault();target.classList.remove('drop-target')
+  const taskId=view.dragging||event.dataTransfer.getData('text/plain')
+  view.dragging=null
+  if(taskId)moveBoardCard(view,taskId,stage).catch(()=>{})
+ }
+}
+// A drop moves the task to the column's stage as the web board does: its
+// workflow label, internal status and tracker status, computed by the shared
+// rules from the stage mapping of the ticket's tracker. It records no stage
+// report and launches no skill. A refused move leaves the card where it was.
+async function moveBoardCard(view,taskId,stage){
+ const task=view.tasks.find(item=>item.id===taskId)
+ if(!task||view.moving.has(taskId)||taskStage(task,view.board)===stage)return
+ const key=task.key||task.id,name=STAGE_NAMES[stage]
+ const move=stageMove(task,stage,{...view.board,...trackerBoard(view.board,task.trackerId)})
+ view.moving.add(taskId)
+ const card=view.rows.get(taskId)?.row
+ if(card){card.draggable=false;card.setAttribute('aria-busy','true')}
+ view.status.textContent='Moving '+key+' to '+name+'…'
+ try{
+  await api.moveTaskStage(view.projectID,taskId,move)
+  view.moving.delete(taskId)
+  if(ticketsView!==view)return
+  await view.load()
+  if(ticketsView===view)view.status.textContent=key+' moved to '+name
+ }catch(err){
+  view.moving.delete(taskId)
+  if(ticketsView!==view)return
+  renderBoard(view)
+  view.status.textContent='Could not move '+key+' to '+name+': '+startFailure(err)
+ }
 }
 
 document.querySelector('#rerun').onclick=()=>{
  const run=runs.find(item=>item.id===selected)
  if(!run||macroRun(run))return
  if(freeConsole(run)){openAgentConsole(run.projectId,run.engineId||run.provider);return}
- openLaunchDialog({projectID:run.projectId,taskId:run.taskId,taskKey:run.taskKey,skill:run.skill,prompt:run.prompt})
+ // A run recorded before #741 names no project: it relaunches for the board
+ // the user is on.
+ const projectId=relaunchProject(run,boardProject())
+ if(!projectId){showDialog('Launch '+(run.taskKey||run.taskId));paragraph(NO_RUN_PROJECT);return}
+ openLaunchDialog({projectID:projectId,taskId:run.taskId,taskKey:run.taskKey,skill:run.skill,prompt:run.prompt})
 }
 // The Launch dialog (#786) starts a new execution of a task with a chosen
 // skill, instructions, mode and engine. The toolbar opens it on the selected
@@ -3284,27 +3584,17 @@ async function openLaunchDialog({projectID,taskId,taskKey,skill:initialSkill,pro
    try{
     await api.launchServerTask(projectID,taskId,skill.value,prompt.value,launchModeOverride(mode.value),false,consoleView)
     dialog.close();await refresh()
-   }catch(err){notice.textContent=err.message;submit.disabled=false}
+   }catch(err){notice.textContent=launchErrorText(err);submit.disabled=false}
   }
  }catch(err){paragraph(err.message)}
 }
 
-// The last segment of a repository identity, enough to tell two of a task's
-// repositories apart in the toolbar.
-function repositoryName(repository){return String(repository||'').split('/').pop()||'PR / MR'}
 // A task's other repositories are counted where a single indicator fits: the
 // toolbar of the selected task lists them.
 function otherPullRequestsBadge(others){
  const badge=document.createElement('span');badge.className='pr-others';badge.textContent='+'+others.length
  badge.title=others.map(other=>other.repository+': '+prLabel(other.url)+' ('+pullRequestPresentation(other).label+')').join('\n')
  return badge
-}
-function prLabel(value){
- try{
-  const url=new URL(value)
-  const match=url.pathname.match(/\/(pull|merge_requests)\/(\d+)/)
-  return match?(match[1]==='merge_requests'?'MR !':'PR #')+match[2]:'PR / MR'
- }catch{return 'PR / MR'}
 }
 async function refreshPRs(executions){
  executions=executions.filter(run=>!freeConsole(run))
@@ -3318,7 +3608,7 @@ async function refreshPRs(executions){
      const task=tasks.find(task=>task.id===run.taskId)
      if(task?.title?.trim())taskTitles.set(run.taskId,task.title.trim())
      else taskTitles.delete(run.taskId)
-     const stage=task&&taskStage(task)
+     const stage=task&&taskStage(task,projectBoards.get(projectID))
      if(STAGES.includes(stage))taskStages.set(run.taskId,stage)
      else taskStages.delete(run.taskId)
      if(task?.prUrl&&/^https?:\/\//i.test(task.prUrl))pullRequests.set(run.taskId,repositoryPullRequests(task))
@@ -3406,6 +3696,7 @@ function paletteEntries(){
   {group:'action',label:'New task',detail:'Create a task in a project',hint:newTaskShortcutLabel(mac),run:()=>quickAdd()},
   {group:'action',label:'Tasks list',detail:'Browse the open tasks of a project',run:()=>openTicketsFromPalette()},
   {group:'action',label:'Add project',detail:'Connect a project of the server to this workstation',run:()=>openAddProject()},
+  {group:'action',label:'Project board',detail:'See a project\u2019s tasks by workflow stage',run:()=>openBoardFromPalette()},
   {group:'action',label:(document.querySelector('#workspace').classList.contains('sidebar-hidden')?'Show':'Hide')+' the sidebar',hint:sidebarShortcutLabel(mac),run:()=>{dialog.close();toggleSidebar()}},
   {group:'action',label:'Settings',hint:configShortcutLabel(mac),run:()=>{dialog.close();openSettings('Profile')}},
   {group:'action',label:'Open the web interface',run:()=>{dialog.close();api.openBoard().catch(error)}},
@@ -3424,19 +3715,23 @@ function paletteEntries(){
 // The tickets list needs a project. The selected one answers that, and a single
 // configured project answers it too; otherwise the palette asks rather than
 // guessing which project the user meant.
-async function openTicketsFromPalette(){
+const openTicketsFromPalette=()=>openProjectPageFromPalette('Tasks list','Choose the project whose tasks you want to browse.',openTickets)
+const openBoardFromPalette=()=>openProjectPageFromPalette('Project board','Choose the project whose board you want to see.',openBoard)
+// A palette action on a project's page: the selected project's, or the only
+// project's, and otherwise the user picks one.
+async function openProjectPageFromPalette(title,prompt,open){
  if(!projects.length){
-  try{await loadProjects()}catch(err){showDialog('Tasks list');paragraph(err.message);return}
+  try{await loadProjects()}catch(err){showDialog(title);paragraph(err.message);return}
  }
  const known=projects.filter(project=>!hiddenProject(project.id))
  const chosen=known.find(project=>project.id===selectedProject)||(known.length===1?known[0]:null)
- if(chosen){dialog.close();openTickets(chosen.id);return}
- showDialog('Tasks list')
+ if(chosen){dialog.close();open(chosen.id);return}
+ showDialog(title)
  if(!known.length){paragraph('Add a project before browsing its tasks.');return}
- paragraph('Choose the project whose tasks you want to browse.')
+ paragraph(prompt)
  for(const project of known){
   const button=document.createElement('button');button.className='discovered-project';button.textContent=project.name
-  button.onclick=()=>openTickets(project.id)
+  button.onclick=()=>open(project.id)
   dialogBody.append(button)
  }
  dialogBody.querySelector('.discovered-project')?.focus()
@@ -3566,7 +3861,7 @@ async function quickAdd(projectID){
   clarify.onclick=async()=>{
    clarify.disabled=true;status.textContent='Launching clarify…'
    try{await api.launchServerTask(projectId,task.id,'clarify','','',false,consoleView);dialog.close();await refresh()}
-   catch(err){status.textContent=err.message;clarify.disabled=false}
+   catch(err){status.textContent=launchErrorText(err);clarify.disabled=false}
   }
   const launch=document.createElement('button');launch.type='button';launch.className='secondary';launch.textContent='Launch task'
   launch.onclick=()=>{dialog.close();openTickets(projectId,task.key||task.title)}
@@ -3626,7 +3921,10 @@ function renderNextStep(){
 new ResizeObserver(resize).observe(document.querySelector('#task-status'))
 new ResizeObserver(resize).observe(document.querySelector('#toolbar'))
 async function readNextStep(run){
- const [tasks,project]=await Promise.all([api.serverTasks(run.projectId,run.taskKey||run.taskId),api.project(run.projectId)])
+ // A run recorded without a project reads its next step in the board's.
+ const projectId=relaunchProject(run,boardProject())
+ if(!projectId)throw Error(NO_RUN_PROJECT)
+ const [tasks,project]=await Promise.all([api.serverTasks(projectId,run.taskKey||run.taskId),api.project(projectId)])
  const task=tasks.find(task=>task.id===run.taskId)
  if(!task)throw Error('Task workflow unavailable. Refresh to try again.')
  return {key:taskKey(run),task,project,step:nextTaskStep(task,project)}
@@ -3666,7 +3964,7 @@ async function launchTaskWork(kind,force){
   if(abandoned){await refresh();return}
   const launchSkill=kind==='pickup'?'pickup':fresh.step.skillId
   submittingSteps.set(key,launchSkill)
-  await api.launchServerTask(run.projectId,run.taskId,launchSkill,'',kind==='pickup'?'autonomous':undefined,force,consoleView)
+  await api.launchServerTask(relaunchProject(run,boardProject()),run.taskId,launchSkill,'',launchModeFor(kind,undefined),force,consoleView)
   submittedSteps.set(key,{skillId:launchSkill,kind,runIds:latestRuns.filter(item=>taskKey(item)===key).map(item=>item.id)})
   await refresh()
   if(taskKey(currentTaskRun()||{})===key){
@@ -3676,7 +3974,7 @@ async function launchTaskWork(kind,force){
  }catch(err){
   const refusal=refusedActiveRun(err.message)
   if(refusal){nextStepErrors.set(key,refusal.error||'A run is already active on this task.');forceableLaunches.set(key,kind)}
-  else nextStepErrors.set(key,(kind==='pickup'?'Could not launch full chain: ':'Could not launch next step: ')+err.message)
+  else nextStepErrors.set(key,(kind==='pickup'?'Could not launch full chain: ':'Could not launch next step: ')+launchErrorText(err))
  }finally{submittingSteps.delete(key);renderNextStep()}
 }
 document.querySelector('#next-step').onclick=()=>launchTaskWork('next',false)

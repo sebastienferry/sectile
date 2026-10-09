@@ -471,12 +471,13 @@ type macroStory struct {
 // verrait que la moitié serait pire que pas de reprise du tout.
 func (d *DB) macroStories(projectID string, macroKey string, macroTitle string) ([]macroStory, error) {
 	d.mu.RLock()
+	member, memberArgs := d.membershipScopeUnsafe([]string{projectID})
 	rows, err := d.conn.Query(`
 		SELECT key, title
 		FROM tasks
-		WHERE project_id = ? AND (parent_key = ? OR parent_title = ?)
+		WHERE `+member+` AND (parent_key = ? OR parent_title = ?)
 		ORDER BY key ASC
-	`, projectID, macroKey, macroTitle)
+	`, append(memberArgs, macroKey, macroTitle)...)
 	d.mu.RUnlock()
 	if err != nil {
 		return nil, err

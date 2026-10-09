@@ -59,7 +59,7 @@ func seedMyTasksFixture(t *testing.T, database *DB) myTasksFixture {
 			imported[i].Priority = models.PriorityMedium
 		}
 	}
-	if err := database.ImportOrUpdateTasks(imported); err != nil {
+	if err := database.ImportOrUpdateTasks("", imported); err != nil {
 		t.Fatalf("ImportOrUpdateTasks: %v", err)
 	}
 	f.me = MyTasks{

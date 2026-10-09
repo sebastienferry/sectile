@@ -73,6 +73,9 @@ const (
 type TrackerOp struct {
 	Kind      TrackerOpKind
 	ProjectID string
+	// TrackerID is the tracker the write goes to (#741). Empty, it is the
+	// tracker of TaskID, else the project's default one.
+	TrackerID string
 	// TaskID / TaskKey identify the single work item of an assign or set_parent.
 	TaskID  string
 	TaskKey string
@@ -239,6 +242,12 @@ func buildTrackerOpJob(op TrackerOp) (*models.TaskActivity, SkillJob, error) {
 		action = fmt.Sprintf("Découpe d'épic : %d ticket(s) ➔ %s", len(op.TaskIDs), target)
 		summary = fmt.Sprintf("Déplacement de %d ticket(s) vers %s en file d'attente", len(op.TaskIDs), target)
 		steps = append(steps, fmt.Sprintf("Cible : %s", target), fmt.Sprintf("%d ticket(s) à déplacer", len(op.TaskIDs)))
+	case TrackerOpTaskLabels:
+		action = fmt.Sprintf("Labels de %s", op.TaskKey)
+		summary = fmt.Sprintf("Labels de %s en file d'attente", op.TaskKey)
+		for _, label := range op.Labels {
+			steps = append(steps, "+ "+label)
+		}
 	case TrackerOpEpicLabels:
 		action = fmt.Sprintf("Labels de %s", op.EpicKey)
 		summary = fmt.Sprintf("Labels de %s en file d'attente", op.EpicKey)
@@ -394,9 +403,9 @@ func (d *DB) processTrackerOpJob(ctx context.Context, job SkillJob) {
 	if op.Unattended {
 		ctx = tracker.WithUnattended(ctx)
 	}
-	// And the project it concerns: a project may override the tracker site, and
-	// a write resolved without it goes to the instance of another project.
-	ctx = tracker.WithProject(ctx, op.ProjectID)
+	// And the tracker it concerns: a tracker may override its site, and a
+	// write resolved without it goes to the instance of another tracker (#741).
+	ctx = tracker.WithTracker(ctx, d.trackerOfOp(op))
 	steps := []string{}
 
 	var output string
@@ -411,6 +420,8 @@ func (d *DB) processTrackerOpJob(ctx context.Context, job SkillJob) {
 		output, err = d.runMoveToEpicOp(ctx, op, &steps)
 	case TrackerOpEpicHorizon:
 		output, err = d.runEpicHorizonOp(ctx, op, &steps)
+	case TrackerOpTaskLabels:
+		output, err = d.runTaskLabelsOp(ctx, op, &steps)
 	case TrackerOpEpicLabels:
 		output, err = d.runEpicLabelsOp(ctx, op, &steps)
 	case TrackerOpPushHorizons:
@@ -440,6 +451,12 @@ func (d *DB) processTrackerOpJob(ctx context.Context, job SkillJob) {
 	}
 
 	d.finishTrackerOp(job.ActivityID, steps, output, err)
+	if err != nil && op.Kind == TrackerOpTaskLabels {
+		// The labels were written locally ahead of the tracker: a refused
+		// write takes them back, before the post-back below re-reads the
+		// ticket and tells the boards.
+		d.revertFailedTaskLabelsOp(ctx, job.ActivityID, op)
+	}
 
 	// Wire worker execution results to trigger local post-back handler
 	now := time.Now()
@@ -631,34 +648,42 @@ func (d *DB) runSetSprintOp(ctx context.Context, op TrackerOp, steps *[]string) 
 		return "", fmt.Errorf("aucun ticket sélectionné")
 	}
 
-	var writer tracker.Writer
-	keys := make([]string, 0, len(ids))
+	// The tickets of a batch may sit on several trackers of the project: each
+	// tracker gets one call with its own keys, its own writer and itself in
+	// the context, or the keys of one would go to the site of another (#741).
+	type sprintGroup struct {
+		trk    *models.Tracker
+		writer tracker.Writer
+		keys   []string
+	}
+	var groups []*sprintGroup
+	byTracker := map[string]*sprintGroup{}
 	for _, id := range ids {
 		task, err := d.GetTaskByID(id)
 		if err != nil || task == nil {
 			*steps = append(*steps, fmt.Sprintf("❌ %s : ticket introuvable", id))
 			continue
 		}
-		if writer == nil {
-			writer, err = d.writerForTask(task)
+		trk := d.trackerOfTaskUnsafe(task)
+		groupID := ""
+		if trk != nil {
+			groupID = trk.ID
+		}
+		group := byTracker[groupID]
+		if group == nil {
+			writer, err := d.TrackerRegistry().ForTask(task, trk)
 			if err != nil {
 				*steps = append(*steps, fmt.Sprintf("ℹ️ %s : %v, sprint gardé en local", task.Key, err))
 				continue
 			}
-			if !writer.Supports(tracker.CapSprint) {
-				return "", tracker.Unsupported(writer.Name(), tracker.CapSprint)
-			}
+			group = &sprintGroup{trk: trk, writer: writer}
+			byTracker[groupID] = group
+			groups = append(groups, group)
 		}
-		keys = append(keys, task.Key)
+		group.keys = append(group.keys, task.Key)
 	}
-	if len(keys) == 0 || writer == nil {
+	if len(groups) == 0 {
 		return "", fmt.Errorf("aucun ticket à déplacer sur un tracker qui gère les sprints")
-	}
-
-	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
-	defer cancel()
-	if err := writer.SetSprint(ctx, op.SprintID, keys); err != nil {
-		return "", err
 	}
 
 	target := strings.TrimSpace(op.SprintName)
@@ -667,8 +692,49 @@ func (d *DB) runSetSprintOp(ctx context.Context, op TrackerOp, steps *[]string) 
 	} else if target == "" {
 		target = op.SprintID
 	}
-	*steps = append(*steps, fmt.Sprintf("✅ %s ➔ %s", strings.Join(keys, ", "), target))
-	return fmt.Sprintf("%d ticket(s) déplacé(s) vers %s", len(keys), target), nil
+
+	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
+	defer cancel()
+	moved := 0
+	var failures []string
+	var refused, unsupported, lastErr error
+	refusals := 0
+	for _, group := range groups {
+		keys := strings.Join(group.keys, ", ")
+		if !group.writer.Supports(tracker.CapSprint) {
+			unsupported = tracker.Unsupported(group.writer.Name(), tracker.CapSprint)
+			*steps = append(*steps, fmt.Sprintf("ℹ️ %s : %v, sprint gardé en local", keys, unsupported))
+			continue
+		}
+		if err := group.writer.SetSprint(tracker.WithTracker(ctx, group.trk), op.SprintID, group.keys); err != nil {
+			if isTrackerWriteRefusal(err) {
+				refused = err
+				refusals++
+			}
+			lastErr = err
+			failures = append(failures, fmt.Sprintf("%s: %v", keys, err))
+			*steps = append(*steps, fmt.Sprintf("❌ %s : %v", keys, err))
+			continue
+		}
+		*steps = append(*steps, fmt.Sprintf("✅ %s ➔ %s", keys, target))
+		moved += len(group.keys)
+	}
+	if moved == 0 && len(failures) == 0 {
+		return "", unsupported
+	}
+	// A batch on one tracker fails with that tracker's own error, as before.
+	if moved == 0 && len(failures) == 1 {
+		return "", lastErr
+	}
+
+	output := fmt.Sprintf("%d ticket(s) déplacé(s) vers %s", moved, target)
+	if len(failures) > 0 {
+		output += fmt.Sprintf(", %d échec(s) : %s", len(failures), strings.Join(failures, " | "))
+		if moved == 0 {
+			return output, refusalOrFailures("aucun ticket déplacé", failures, refused, refusals)
+		}
+	}
+	return output, nil
 }
 
 func (d *DB) runSetTeamOp(ctx context.Context, op TrackerOp, steps *[]string) (string, error) {
@@ -704,7 +770,10 @@ func (d *DB) runSetTeamOp(ctx context.Context, op TrackerOp, steps *[]string) (s
 			failures = append(failures, fmt.Sprintf("%s: ticket introuvable", id))
 			continue
 		}
-		writer, err := d.writerForTask(task)
+		// Each ticket is written on its own tracker, named in the context: a
+		// batch may span several trackers of the project (#741).
+		trk := d.trackerOfTaskUnsafe(task)
+		writer, err := d.TrackerRegistry().ForTask(task, trk)
 		if err != nil {
 			*steps = append(*steps, fmt.Sprintf("ℹ️ %s : %v, équipe gardée en local", task.Key, err))
 			continue
@@ -712,7 +781,7 @@ func (d *DB) runSetTeamOp(ctx context.Context, op TrackerOp, steps *[]string) (s
 		if !writer.Supports(tracker.CapTeam) {
 			return "", tracker.Unsupported(writer.Name(), tracker.CapTeam)
 		}
-		if err := writer.SetTeam(ctx, task.Key, op.TeamID); err != nil {
+		if err := writer.SetTeam(tracker.WithTracker(ctx, trk), task.Key, op.TeamID); err != nil {
 			if isTrackerWriteRefusal(err) {
 				refused = err
 				refusals++
@@ -754,16 +823,10 @@ func (d *DB) runTransitionOp(ctx context.Context, op TrackerOp, steps *[]string)
 			cleanStatus := strings.TrimSpace(op.TargetStatus)
 			cleanStatusLower := strings.ToLower(cleanStatus)
 
-			var projObj *models.Project
-			if proj, _ := d.GetProjectByID(task.ProjectID); proj != nil {
-				projObj = proj
-			}
+			trk := d.stageTrackerOfTaskUnsafe(task, "")
 
 			// Resolve stage and internal status
-			resolvedStage := ""
-			if projObj != nil {
-				resolvedStage = StageForTrackerStatus(projObj, cleanStatus)
-			}
+			resolvedStage := StageForTrackerStatus(trk, cleanStatus)
 
 			var statusVal models.Status = models.StatusToClarify
 			if cleanStatusLower == "closed" || cleanStatusLower == "done" || cleanStatusLower == "terminé" || cleanStatusLower == "finished" {
@@ -797,7 +860,7 @@ func (d *DB) runTransitionOp(ctx context.Context, op TrackerOp, steps *[]string)
 
 			if ts.Supports(tracker.CapUpdate) {
 				if err := ts.UpdateIssue(ctx, tracker.UpdateIssueRequest{
-					Project:       projObj,
+					Tracker:       trk,
 					Task:          task,
 					Key:           task.Key,
 					Status:        &statusVal,
@@ -879,9 +942,8 @@ func (d *DB) runStageOp(ctx context.Context, op TrackerOp, steps *[]string) (str
 			statusVal = models.StatusFinished
 		}
 		if ts.Supports(tracker.CapUpdate) {
-			proj, _ := d.GetProjectByID(task.ProjectID)
 			if err := ts.UpdateIssue(ctx, tracker.UpdateIssueRequest{
-				Project:       proj,
+				Tracker:       d.trackerOfTaskUnsafe(task),
 				Task:          task,
 				Key:           task.Key,
 				Status:        &statusVal,
@@ -1059,4 +1121,27 @@ func (d *DB) finishTrackerOp(activityID string, steps []string, output string, o
 		`, status, summary, output, string(stepsJSON), errText, trackerapi.MissingCredentialTracker(opErr), time.Now(), activityID)
 		return err
 	})
+}
+
+// trackerOfOp is the tracker a queued write goes to: the one it names, else
+// that of its task, else the default tracker of its project (#741).
+func (d *DB) trackerOfOp(op TrackerOp) *models.Tracker {
+	if op.TrackerID != "" {
+		if t, err := trackerByIDOn(d.conn, op.TrackerID); err == nil && t != nil {
+			return t
+		}
+	}
+	if op.TaskID != "" {
+		if task, _ := d.getTaskByIDUnsafe(op.TaskID); task != nil {
+			if t := d.trackerOfTaskUnsafe(task); t != nil {
+				return t
+			}
+		}
+	}
+	if op.ProjectID != "" {
+		if t, _ := d.defaultTrackerOfUnsafe(op.ProjectID); t != nil {
+			return t
+		}
+	}
+	return nil
 }

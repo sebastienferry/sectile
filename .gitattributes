@@ -1,0 +1,7 @@
+# Go sources, the files Go tests compare byte for byte and the scripts make
+# runs keep LF on every checkout, so gofmt and the frozen snapshots agree on
+# Windows whatever core.autocrlf says.
+*.go           text eol=lf
+**/testdata/** text eol=lf
+*.sh           text eol=lf
+Makefile       text eol=lf

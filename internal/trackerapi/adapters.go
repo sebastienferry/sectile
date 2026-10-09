@@ -51,7 +51,7 @@ func NewGithubAdapter(client *Client) *GithubAdapter {
 // answer it; Jira and the local board do not declare the capability and do not
 // implement the interface.
 func (g *GithubAdapter) IssuePullRequests(ctx context.Context, req tracker.IssuePullRequestsRequest) ([]models.TaskPullRequest, error) {
-	repo := resolveGithubRepo(req.Project)
+	repo := resolveGithubRepo(req.Tracker)
 	if repo == "" {
 		return nil, fmt.Errorf("configure an explicit GitHub owner/repository")
 	}
@@ -59,7 +59,7 @@ func (g *GithubAdapter) IssuePullRequests(ctx context.Context, req tracker.Issue
 	if err != nil {
 		return nil, err
 	}
-	client, err := g.forProject(ctx, req.Project)
+	client, err := g.forProject(ctx, req.Tracker)
 	if err != nil {
 		return nil, err
 	}
@@ -75,7 +75,7 @@ func (g *GithubAdapter) IssuePullRequests(ctx context.Context, req tracker.Issue
 }
 
 // forProject is the client of one read: the same one when nothing is stored,
-// one carrying the project's own connection parameters otherwise, and the
+// one carrying the tracker's own connection parameters otherwise, and the
 // acting person's own token where they stored one. A read nobody asked for, the
 // synchronisation, carries no acting person and gets the server credential
 // (#464).
@@ -88,17 +88,10 @@ func (g *GithubAdapter) IssuePullRequests(ctx context.Context, req tracker.Issue
 // A person who stored no GitHub token at all keeps the server token for reads
 // only: a read attributes nothing, and refusing it would blank their screens.
 // Writes go through forWrite, which has no such fallback (#482, ADR 0029). The
-// project, too, is read from the context when the request carries none, for the
+// tracker, too, is read from the context when the request carries none, for the
 // calls that take a key and nothing else.
-func (g *GithubAdapter) forProject(ctx context.Context, p *models.Project) (*Client, error) {
-	projectID := ""
-	if p != nil {
-		projectID = p.ID
-	}
-	if projectID == "" {
-		projectID = tracker.Project(ctx)
-	}
-	client, _, err := g.client.ForActingUser(tracker.ActingUser(ctx), "github", projectID)
+func (g *GithubAdapter) forProject(ctx context.Context, t *models.Tracker) (*Client, error) {
+	client, _, err := g.client.ForActingUser(tracker.ActingUser(ctx), "github", trackerIDOf(trackerOf(ctx, t)))
 	if err != nil {
 		return nil, err
 	}
@@ -109,38 +102,41 @@ func (g *GithubAdapter) forProject(ctx context.Context, p *models.Project) (*Cli
 // server's for unattended work, and a refusal otherwise (ForWrite). GitHub
 // attributes an issue, a comment or a label change to the account behind the
 // token, so a person without a token of their own writes nothing.
-func (g *GithubAdapter) forWrite(ctx context.Context, p *models.Project) (*Client, error) {
-	projectID := ""
-	if p != nil {
-		projectID = p.ID
-	}
-	if projectID == "" {
-		projectID = tracker.Project(ctx)
-	}
-	return g.client.ForWrite(ctx, "github", projectID)
+func (g *GithubAdapter) forWrite(ctx context.Context, t *models.Tracker) (*Client, error) {
+	return g.client.ForWrite(ctx, "github", trackerIDOf(trackerOf(ctx, t)))
 }
 
-func resolveGithubRepo(p *models.Project) string {
-	if p == nil {
-		return ""
+// trackerOf is the tracker a call concerns: the request's, else the one the
+// context carries for the calls that take a key and nothing else (#741).
+func trackerOf(ctx context.Context, t *models.Tracker) *models.Tracker {
+	if t != nil {
+		return t
 	}
-	return CleanGithubRepo(p.GithubRepo)
+	return tracker.Tracker(ctx)
 }
 
-func resolveRepoPath(p *models.Project) string {
-	if p == nil {
+func trackerIDOf(t *models.Tracker) string {
+	if t == nil {
 		return ""
 	}
-	return p.RepoPath
+	return t.ID
+}
+
+// resolveGithubRepo is the repository a GitHub tracker names: its scope.
+func resolveGithubRepo(t *models.Tracker) string {
+	if t == nil {
+		return ""
+	}
+	return CleanGithubRepo(t.Scope)
 }
 
 func (g *GithubAdapter) CreateIssue(ctx context.Context, req tracker.CreateIssueRequest) (*models.Task, error) {
-	repo := resolveGithubRepo(req.Project)
+	repo := resolveGithubRepo(req.Tracker)
 	if repo == "" {
 		return nil, fmt.Errorf("configure an explicit GitHub owner/repository")
 	}
-	repoPath := resolveRepoPath(req.Project)
-	client, err := g.forWrite(ctx, req.Project)
+	repoPath := ""
+	client, err := g.forWrite(ctx, req.Tracker)
 	if err != nil {
 		return nil, err
 	}
@@ -148,16 +144,16 @@ func (g *GithubAdapter) CreateIssue(ctx context.Context, req tracker.CreateIssue
 }
 
 func (g *GithubAdapter) GetIssue(ctx context.Context, req tracker.GetIssueRequest) (*models.Task, error) {
-	repo := resolveGithubRepo(req.Project)
+	repo := resolveGithubRepo(req.Tracker)
 	if repo == "" {
 		return nil, fmt.Errorf("configure an explicit GitHub owner/repository")
 	}
-	repoPath := resolveRepoPath(req.Project)
+	repoPath := ""
 	num, err := cleanGithubIssueNum(req.Key)
 	if err != nil {
 		return nil, err
 	}
-	client, err := g.forProject(ctx, req.Project)
+	client, err := g.forProject(ctx, req.Tracker)
 	if err != nil {
 		return nil, err
 	}
@@ -165,8 +161,8 @@ func (g *GithubAdapter) GetIssue(ctx context.Context, req tracker.GetIssueReques
 }
 
 func (g *GithubAdapter) UpdateIssue(ctx context.Context, req tracker.UpdateIssueRequest) error {
-	repo := resolveGithubRepo(req.Project)
-	repoPath := resolveRepoPath(req.Project)
+	repo := resolveGithubRepo(req.Tracker)
+	repoPath := ""
 	key := req.Key
 	if key == "" && req.Task != nil {
 		key = req.Task.Key
@@ -174,7 +170,7 @@ func (g *GithubAdapter) UpdateIssue(ctx context.Context, req tracker.UpdateIssue
 	if key == "" {
 		return fmt.Errorf("issue key is required")
 	}
-	client, err := g.forWrite(ctx, req.Project)
+	client, err := g.forWrite(ctx, req.Tracker)
 	if err != nil {
 		return err
 	}
@@ -182,12 +178,12 @@ func (g *GithubAdapter) UpdateIssue(ctx context.Context, req tracker.UpdateIssue
 }
 
 func (g *GithubAdapter) DeleteIssue(ctx context.Context, req tracker.DeleteIssueRequest) error {
-	repo := resolveGithubRepo(req.Project)
-	repoPath := resolveRepoPath(req.Project)
+	repo := resolveGithubRepo(req.Tracker)
+	repoPath := ""
 	if req.Key == "" {
 		return fmt.Errorf("issue key is required")
 	}
-	client, err := g.forWrite(ctx, req.Project)
+	client, err := g.forWrite(ctx, req.Tracker)
 	if err != nil {
 		return err
 	}
@@ -196,14 +192,11 @@ func (g *GithubAdapter) DeleteIssue(ctx context.Context, req tracker.DeleteIssue
 
 func (g *GithubAdapter) SyncIssues(ctx context.Context, req tracker.SyncRequest) ([]models.Task, error) {
 	repo := req.Repo
-	if repo == "" && req.Project != nil {
-		repo = req.Project.GithubRepo
+	if repo == "" {
+		repo = resolveGithubRepo(req.Tracker)
 	}
 	repoPath := req.RepoPath
-	if repoPath == "" && req.Project != nil {
-		repoPath = req.Project.RepoPath
-	}
-	client, err := g.forProject(ctx, req.Project)
+	client, err := g.forProject(ctx, req.Tracker)
 	if err != nil {
 		return nil, err
 	}
@@ -211,9 +204,9 @@ func (g *GithubAdapter) SyncIssues(ctx context.Context, req tracker.SyncRequest)
 }
 
 func (g *GithubAdapter) AddComment(ctx context.Context, req tracker.AddCommentRequest) error {
-	repo := resolveGithubRepo(req.Project)
-	repoPath := resolveRepoPath(req.Project)
-	client, err := g.forWrite(ctx, req.Project)
+	repo := resolveGithubRepo(req.Tracker)
+	repoPath := ""
+	client, err := g.forWrite(ctx, req.Tracker)
 	if err != nil {
 		return err
 	}
@@ -221,24 +214,30 @@ func (g *GithubAdapter) AddComment(ctx context.Context, req tracker.AddCommentRe
 }
 
 func (g *GithubAdapter) GetComments(ctx context.Context, req tracker.GetCommentsRequest) ([]models.TaskComment, error) {
-	repo := resolveGithubRepo(req.Project)
-	repoPath := resolveRepoPath(req.Project)
-	client, err := g.forProject(ctx, req.Project)
+	repo := resolveGithubRepo(req.Tracker)
+	repoPath := ""
+	client, err := g.forProject(ctx, req.Tracker)
 	if err != nil {
 		return nil, err
 	}
 	return client.GetGithubIssueComments(repo, repoPath, req.Key)
 }
 
+// UpdateLabels writes on the repository of the tracker the context carries.
+// It named no repository at all before the tracker travelled (#741).
 func (g *GithubAdapter) UpdateLabels(ctx context.Context, key string, add []string, remove []string) error {
 	client, err := g.forWrite(ctx, nil)
 	if err != nil {
 		return err
 	}
-	return client.UpdateGithubIssue("", "", key, nil, nil, nil, add, remove)
+	repo := resolveGithubRepo(tracker.Tracker(ctx))
+	if repo == "" {
+		return fmt.Errorf("configure an explicit GitHub owner/repository")
+	}
+	return client.UpdateGithubIssue(repo, "", key, nil, nil, nil, add, remove)
 }
 
-func (g *GithubAdapter) FormatTaskID(projectID string, key string, rawID string) string {
+func (g *GithubAdapter) FormatTaskID(trackerID string, key string, rawID string) string {
 	cleanNum := strings.TrimPrefix(key, "#")
 	cleanNum = strings.TrimPrefix(cleanNum, "GH-#")
 	cleanNum = strings.TrimPrefix(cleanNum, "gh-")
@@ -247,8 +246,8 @@ func (g *GithubAdapter) FormatTaskID(projectID string, key string, rawID string)
 		cleanNum = parts[len(parts)-1]
 		cleanNum = strings.TrimPrefix(cleanNum, "#")
 	}
-	if projectID != "" && projectID != "default" {
-		return fmt.Sprintf("gh-%s-%s", projectID, cleanNum)
+	if trackerID != "" && trackerID != "default" {
+		return fmt.Sprintf("gh-%s-%s", trackerID, cleanNum)
 	}
 	return fmt.Sprintf("gh-%s", cleanNum)
 }

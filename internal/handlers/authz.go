@@ -128,20 +128,70 @@ func (h *Handler) requireOwnerOrAdmin(w http.ResponseWriter, r *http.Request, ow
 
 // adminOnlyRoute names the interface mutations reserved to admins. It is the
 // table the guard enforces and the test reads; a mutation that needs the
-// request body to decide, settings and dispatch, is checked in its handler.
+// request body to decide, settings, dispatch and a project's tracker fields, is
+// checked in its handler.
 //
-// Only the accounts themselves are on it. The board is a shared workspace: a
-// member creates, renames and deletes a project and configures the tracker it
-// reads from, because a board where only an admin can open a project is a board
-// that waits on one person. What stays an admin's is the roster, who exists,
-// what role they hold, and whether their account still opens, the admin page
-// that watches over it, and the server credentials the deployment reaches its
-// trackers with (#464).
+// The board is a shared workspace: a member creates, renames and deletes a
+// project and chooses which trackers it selects its tickets from and with
+// which label, because a board where only an admin can open a project is a
+// board that waits on one person. What stays an admin's is the roster, who
+// exists, what role they hold, and whether their account still opens, the
+// admin page that watches over it, the server credentials the deployment
+// reaches its trackers with (#464), and the trackers themselves (#741): their
+// source, board, columns, default stage-to-columns mapping, issue types and
+// background sync are shared by every project selecting them, so a member no
+// longer configures them from a project (ADR 0054, D11). How a project maps the
+// workflow stages onto a tracker's columns is the project's own, and a
+// member's to set from its settings.
 func adminOnlyRoute(_ string, path string) bool {
 	return path == "/api/users" || strings.HasPrefix(path, "/api/users/") ||
 		path == AdminStatsPath ||
 		path == ServerTrackerCredentialsPath || strings.HasPrefix(path, ServerTrackerCredentialsPath+"/") ||
+		path == AdminTrackersPath || strings.HasPrefix(path, AdminTrackersPath+"/") ||
 		path == JiraOAuthAppPath
+}
+
+// memberProjectCreate and memberProjectUpdate drop the tracker configuration a
+// member's project write still carries (#741, ADR 0054, D11). Since #741 the
+// project's board, columns, issue types and background sync are its default
+// tracker's, shared by every project selecting it, so they are an admin's to
+// change, from Administration. An older client still sends them with the rest
+// of the project: they are ignored rather than refused, so its save keeps
+// working. The site a tracker reaches is dropped too: the server sends its
+// credentials there. The tracker the project names may only be one already
+// recorded (JoinTrackerOnly, set on every project write from the API, an
+// admin's included): trackers are recorded in Administration. Its label, its
+// default tracker, its sprints and its own stage-to-columns mapping per tracker
+// (stageColumns, trackerStageColumns) stay a member's: they write the
+// project's mapping, never the tracker's.
+func memberProjectCreate(req *models.CreateProjectRequest) {
+	req.BoardID, req.IssueTypes = "", nil
+	req.AutoSyncEnabled, req.AutoSyncIntervalMin = nil, nil
+	req.TrackerUrl, req.GithubApiUrl, req.GitlabUrl = "", "", ""
+	req.JoinTrackerOnly = true
+}
+
+func memberProjectUpdate(req *models.UpdateProjectRequest) {
+	req.BoardID, req.TrackerColumns, req.IssueTypes = nil, nil, nil
+	req.AutoSyncEnabled, req.AutoSyncIntervalMin = nil, nil
+	req.TrackerUrl, req.GithubApiUrl, req.GitlabUrl = nil, nil, nil
+	req.JoinTrackerOnly = true
+}
+
+// createNamesTracker says whether a project creation names a tracker (#741):
+// one it selects, or a remote source its legacy tracker fields name, by the
+// rule the store reads them with (an explicit provider, else GitHub when a
+// repository is named). The local board is not one: it would be created with
+// the project, and a creation never creates a tracker.
+func createNamesTracker(req models.CreateProjectRequest) bool {
+	if len(req.Trackers) > 0 {
+		return true
+	}
+	kind := strings.ToLower(strings.TrimSpace(req.IssueTracker))
+	if kind == "" || kind == "local" {
+		return strings.TrimSpace(req.GithubRepo) != ""
+	}
+	return true
 }
 
 // personalSettingsKeys is the routing table between the two settings stores
@@ -170,19 +220,25 @@ var executionSettingsKeys = []string{
 // would only make the board unusable in a different place. They stay in the
 // shared row: there is one tracker per deployment, not one per person.
 //
-// The credential is not among them. The server credential of a provider is an
+// The sites are not among them (#741, ADR 0054): jiraUrl, githubApiUrl
+// and gitlabUrl are where the server sends a provider's server credential for
+// any tracker recorded without a site of its own, so changing them is an
+// admin's. A member's whole-row post that leaves them as stored still passes;
+// one that changes them is refused by name, like any other admin-only key.
+//
+// The credential is not among them either. The server credential of a provider is an
 // admin's, set from Administration (#464), and a personal one is another
 // mechanism (ADR 0014); UpdateSettings writes neither, whoever sends them. The
 // Set / FromEnv flags are projections the API answers rather than values
 // anyone writes, and are listed so a whole-row post carrying them is not read
 // as an offence.
 var trackerSettingsKeys = map[string]bool{
-	"issueTracker": true,
-	"githubRepo":   true, "githubApiUrl": true,
+	"issueTracker":   true,
+	"githubRepo":     true,
 	"githubTokenSet": true, "githubTokenFromEnv": true,
-	"gitlabUrl": true, "gitlabProject": true,
+	"gitlabProject":  true,
 	"gitlabTokenSet": true, "gitlabTokenFromEnv": true,
-	"jiraUrl": true, "jiraProject": true,
+	"jiraProject":     true,
 	"jiraApiTokenSet": true, "jiraApiTokenFromEnv": true,
 }
 

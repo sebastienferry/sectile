@@ -46,6 +46,31 @@ func CheckPriorityWritable(proj *models.Project, level models.Priority) error {
 	return &models.GuessedPriorityError{Level: level, Writable: proj.PriorityMapping.WritableLevels()}
 }
 
+// mappingProjectUnsafe is proj when its priority mapping governs a write on a
+// ticket of trk, nil otherwise. The mapping stays on the project (#741) and
+// was read from the project's default tracker, so a ticket of another of its
+// trackers, another Jira space, writes its priority as it did before #679.
+func (d *DB) mappingProjectUnsafe(proj *models.Project, trk *models.Tracker) *models.Project {
+	if proj == nil {
+		return nil
+	}
+	if trk != nil {
+		if def := d.trackerOfProjectUnsafe(proj); def == nil || def.ID != trk.ID {
+			return nil
+		}
+	}
+	return proj
+}
+
+// priorityMappingForUnsafe is the mapping a priority sent to trk for proj goes
+// through (#679), empty when the project has none that applies.
+func (d *DB) priorityMappingForUnsafe(proj *models.Project, trk *models.Tracker) models.PriorityMapping {
+	if p := d.mappingProjectUnsafe(proj, trk); hasPriorityMapping(p) {
+		return p.PriorityMapping
+	}
+	return models.PriorityMapping{}
+}
+
 // editPriorityMapping applies a person's edit of the mapping to the stored
 // one. Only the levels and the preferred options come from the edit: the
 // options themselves, their names and their order are the tracker's, and an
@@ -100,18 +125,33 @@ func editPriorityMapping(stored, sent models.PriorityMapping) (models.PriorityMa
 // changes. It answers a one-line summary, and "" for a tracker that has no
 // priority scheme to map. fresh skips the adapter's caches, for a refresh a
 // person asked for.
+//
+// The mapping stays on the project while tickets come from trackers (#741):
+// the scheme is read from the project's default tracker, the one its
+// IssueTracker reads through.
 func (d *DB) RefreshPriorityMapping(ctx context.Context, projectID string, fresh bool) (string, error) {
-	ts, proj, err := d.trackerReaderFor(projectID)
+	proj, err := d.GetProjectByID(projectID)
+	if err != nil {
+		return "", err
+	}
+	if proj == nil {
+		return "", fmt.Errorf("project not found")
+	}
+	trk := d.trackerOfProjectUnsafe(proj)
+	if trk == nil || trk.Provider != "jira" {
+		return "", nil
+	}
+	ts, _, err := d.trackerReaderOf(trk)
 	if err != nil {
 		return "", err
 	}
 	reader, ok := ts.(tracker.PrioritySchemeReader)
-	if !ok || proj.IssueTracker != "jira" {
+	if !ok {
 		return "", nil
 	}
 	ctx, cancel := context.WithTimeout(ctx, priorityMappingTimeout)
 	defer cancel()
-	scheme, err := reader.PriorityScheme(ctx, proj, fresh)
+	scheme, err := reader.PriorityScheme(tracker.WithTracker(ctx, trk), trk, fresh)
 	if err != nil {
 		return "", err
 	}

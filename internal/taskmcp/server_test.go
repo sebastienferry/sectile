@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"tasks/internal/agentprotocol"
 	"tasks/internal/db"
 	"tasks/internal/models"
 	"tasks/internal/testsqlite"
@@ -45,6 +46,13 @@ func call(t *testing.T, database *db.DB, name string, args map[string]any) (map[
 // a request that names nobody.
 func callAs(t *testing.T, database *db.DB, caller *Caller, name string, args map[string]any) (map[string]any, error) {
 	t.Helper()
+	return callAsInRun(t, database, caller, "", name, args)
+}
+
+// callAsInRun is callAs for an agent working inside a run: a non-empty runID is
+// sent in the run header, so the call works in the run's project.
+func callAsInRun(t *testing.T, database *db.DB, caller *Caller, runID, name string, args map[string]any) (map[string]any, error) {
+	t.Helper()
 	ctx := context.Background()
 	resolve := func(http.Header) (Caller, bool) {
 		if caller == nil {
@@ -57,7 +65,11 @@ func callAs(t *testing.T, database *db.DB, caller *Caller, name string, args map
 		&mcp.StreamableHTTPOptions{JSONResponse: true},
 	))
 	defer srv.Close()
-	session, err := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "1"}, nil).Connect(ctx, &mcp.StreamableClientTransport{Endpoint: srv.URL}, nil)
+	transport := &mcp.StreamableClientTransport{Endpoint: srv.URL}
+	if runID != "" {
+		transport.HTTPClient = &http.Client{Transport: runHeader{runID: runID}}
+	}
+	session, err := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "1"}, nil).Connect(ctx, transport, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,6 +86,15 @@ func callAs(t *testing.T, database *db.DB, caller *Caller, name string, args map
 		t.Fatal(err)
 	}
 	return out, nil
+}
+
+// runHeader sends every request of a client in the run runID names.
+type runHeader struct{ runID string }
+
+func (h runHeader) RoundTrip(req *http.Request) (*http.Response, error) {
+	req = req.Clone(req.Context())
+	req.Header.Set(agentprotocol.RunIDHeader, h.runID)
+	return http.DefaultTransport.RoundTrip(req)
 }
 
 func mustJSON(t *testing.T, value any) []byte {

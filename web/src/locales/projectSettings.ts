@@ -21,7 +21,7 @@ const fr = {
   },
   tabs: {
     general: 'Général',
-    tracker: 'Tracker',
+    tracker: 'Trackers et label',
     workflow: 'Agentic workflow',
     skills: 'Compétences IA & SDD',
   },
@@ -63,6 +63,37 @@ const fr = {
       "Une barre et une pastille de la couleur de l'épic sur les cartes du Board, du Backlog, de la Timeline et sur les macros du Roadmap",
   },
   tracker: {
+    trackersTitle: 'Trackers',
+    trackersHelp:
+      "Les trackers dont le projet montre les tickets, dans l'ordre. Un admin les enregistre dans l'Administration.",
+    noTracker: "Choisissez au moins un tracker : le projet montre les tickets des trackers qu'il sélectionne.",
+    noRecordedTracker:
+      "Aucun tracker n'est enregistré : un admin doit en ajouter un dans Administration → Trackers avant qu'un projet puisse être créé.",
+    addTracker: 'Ajouter un tracker…',
+    localBoard: 'Tableau local Sectile',
+    defaultBadge: 'par défaut',
+    defaultTrackerLabel: 'Tracker par défaut',
+    defaultTrackerHelp:
+      'Les nouveaux tickets du projet y sont créés. Sans choix, ou si ce tracker est retiré, le défaut est le premier tracker.',
+    labelLabel: 'Label du projet',
+    labelPlaceholder: 'Ex : delivery-admin',
+    labelHint: 'sans label : tous les tickets des trackers',
+    labelHelp:
+      "Avec un label, le projet ne montre que les tickets de ses trackers qui le portent. Un ticket sans label de projet attend dans l'entrée « Hors projet » de son tracker.",
+    adminOnlyBoard:
+      "Les colonnes du board, la correspondance par défaut des étapes, les types importés et la synchronisation en arrière-plan se règlent par tracker, dans l'Administration.",
+    stageMappingTitle: 'Étapes → colonnes',
+    stageMappingHelp:
+      "Les colonnes du board où se trouve chaque étape du workflow, pour les tickets de ce tracker dans ce projet. Sans réglage propre, le projet suit celui du tracker, défini dans l'Administration. Un ticket de plusieurs projets suit celui du projet d'où on le déplace.",
+    stageMappingInherited: 'Hérité du tracker',
+    stageMappingOwn: 'Propre à ce projet',
+    stageMappingReset: 'Revenir à celui du tracker',
+    stageMappingNoColumns:
+      "Ce tracker n'a pas encore de colonnes : un admin les importe depuis son board, dans l'Administration.",
+    stageMappingAfterCreate: 'La correspondance des étapes se règle une fois le projet créé.',
+    forgesTitle: 'Forges des dépôts',
+    forgesHelp:
+      "L'instance GitHub ou GitLab où vivent les dépôts du projet et leurs pull requests. Vide : celle de la configuration.",
     typeLabel: "Type de Tracker d'Issues",
     githubRepoLabel: 'Dépôt GitHub (owner/repo)',
     githubRepoPlaceholder: 'owner/nom-du-repo',
@@ -321,7 +352,7 @@ const en: ProjectSettingsStrings = {
   },
   tabs: {
     general: 'General',
-    tracker: 'Tracker',
+    tracker: 'Trackers & label',
     workflow: 'Agentic workflow',
     skills: 'Skills & SDD',
   },
@@ -363,6 +394,33 @@ const en: ProjectSettingsStrings = {
       "A bar and a dot in the epic's color on the cards of the Board, the Backlog, the Timeline and on the Roadmap macros",
   },
   tracker: {
+    trackersTitle: 'Trackers',
+    trackersHelp: 'The trackers whose tickets the project shows, in order. An admin records them in the Administration page.',
+    noTracker: 'Pick at least one tracker: the project shows the tickets of the trackers it selects.',
+    noRecordedTracker: 'No tracker is recorded: an admin must add one in Administration → Trackers before a project can be created.',
+    addTracker: 'Add a tracker…',
+    localBoard: 'Local Sectile board',
+    defaultBadge: 'default',
+    defaultTrackerLabel: 'Default tracker',
+    defaultTrackerHelp:
+      "The project's new tickets are created there. With no choice, or once that tracker is removed, the default is the first tracker.",
+    labelLabel: 'Project label',
+    labelPlaceholder: 'E.g. delivery-admin',
+    labelHint: 'no label: every ticket of the trackers',
+    labelHelp:
+      "With a label, the project only shows the tickets of its trackers that carry it. A ticket without a project label waits in its tracker's \"Not in a project\" entry.",
+    adminOnlyBoard:
+      'The board columns, the default mapping of the stages, the imported issue types and the background sync are set per tracker, in the Administration page.',
+    stageMappingTitle: 'Stages → columns',
+    stageMappingHelp:
+      "The board columns each workflow stage sits in, for this tracker's tickets in this project. Without a mapping of its own, the project follows the tracker's, set in the Administration page. A ticket of several projects follows the one of the project it is moved from.",
+    stageMappingInherited: 'Inherited from the tracker',
+    stageMappingOwn: 'Set for this project',
+    stageMappingReset: "Use the tracker's",
+    stageMappingNoColumns: 'This tracker has no columns yet: an admin imports them from its board, in the Administration page.',
+    stageMappingAfterCreate: 'The stage mapping is set once the project is created.',
+    forgesTitle: 'Repository forges',
+    forgesHelp: "The GitHub or GitLab instance the project's repositories and their pull requests live on. Empty: the configured one.",
     typeLabel: 'Issue tracker type',
     githubRepoLabel: 'GitHub repository (owner/repo)',
     githubRepoPlaceholder: 'owner/repo-name',

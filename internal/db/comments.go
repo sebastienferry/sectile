@@ -64,14 +64,11 @@ func (d *DB) GetTaskCommentsAs(ctx context.Context, taskIDOrKey string) ([]model
 		return nil, fmt.Errorf("tâche non trouvée")
 	}
 
-	var proj *models.Project
-	if task.ProjectID != "" {
-		proj, _ = d.GetProjectByID(task.ProjectID)
-	}
+	trk := d.trackerOfTaskUnsafe(task)
 	ts, tsErr := d.TrackerForTask(task)
 	if tsErr == nil && ts != nil && ts.Name() != "local" && ts.Supports(tracker.CapComment) {
 		comments, err := ts.GetComments(ctx, tracker.GetCommentsRequest{
-			Project: proj,
+			Tracker: trk,
 			Key:     task.Key,
 		})
 		if err == nil {

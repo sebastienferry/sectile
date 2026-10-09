@@ -16,7 +16,7 @@ const project = await readFile(new URL('../src/components/ProjectModal.tsx', imp
 test('the launch request carries the one-off mode override', () => {
   assert.match(context, /mode: opts\?\.mode/)
   // The launch model rides beside the mode on the same options object (#203).
-  assert.match(context, /runSkill: \(taskId: string, skillId: string, prompt\?: string, opts\?: \{ withComments\?: boolean; mode\?: SkillMode; model\?: string \}\)/)
+  assert.match(context, /runSkill: \(taskId: string, skillId: string, prompt\?: string, opts\?: \{ withComments\?: boolean; mode\?: SkillMode; model\?: string; projectId\?: string \}\)/)
 })
 
 test('a full chain run forces the autonomous mode instead of resolving it', () => {

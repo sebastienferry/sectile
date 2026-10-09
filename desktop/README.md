@@ -106,7 +106,22 @@ See [prototype notes](../docs/experiments/desktop-conversation.md).
 
 ## Install a release
 
-Every release `vX.Y.Z` publishes a Sectile Desktop archive per platform. Each
+On macOS 13 (Ventura) or later, install and upgrade Sectile Desktop with
+[Homebrew](https://brew.sh):
+
+```sh
+brew install --cask sebastienferry/sectile/sectile
+brew upgrade --cask sectile
+```
+
+The cask comes from the tap
+[`sebastienferry/homebrew-sectile`](https://github.com/sebastienferry/homebrew-sectile),
+which follows the GitHub Releases within six hours of a tag. It checks the
+archive against the release's `SHA256SUMS` and removes the quarantine mark
+itself, so the steps below are not needed. See
+[ADR 0055](../docs/adrs/0055-sectile-desktop-is-installed-from-a-homebrew-tap.md).
+
+To install by hand, or on Linux or Windows: every release `vX.Y.Z` publishes a Sectile Desktop archive per platform. Each
 one holds the app and the Sectile agent built for the same platform, so nothing
 else needs installing: no Node, no Go, no clone of this repository.
 
@@ -764,6 +779,28 @@ that column; the first activation sorts ascending (Priority: descending) and a
 second one reverses it. Identity ascending remains the final tie-break. The
 ordering lasts for the window session and resets when the pane is reopened.
 
+**Open board** in a project's menu, or **Project board** in the command palette,
+shows the project's tasks in the six workflow columns (New, Clarified,
+Specified, Implemented, Reviewed, Finished), finished tasks included, in the
+same slot as the Tickets pane: opening one closes the other, and **Close board**
+or Escape returns as **Close tickets** does. A task with a finished or done
+status sits in Finished, as the Tickets pane already treats it; any other task
+is placed as the web board places it: an explicit workflow label, then the
+stage the project maps its tracker column to (the agent's `/desktop/project` answers that mapping as
+`board`), then its status; an agent without it places tasks from labels and
+status alone. Within a column cards follow the Tickets pane's default order.
+The Finished column starts collapsed into a strip that keeps its count, and
+cards start **Condensed** (key, title, run state, actions menu); **Full** adds
+the macro, priority, labels, pull request and assignee. Both choices are kept
+in this workstation's storage for every project. A card carries its macro's
+colour when the project enables macro colours, and the same actions menu as a
+Tickets row. With an agent that lists the `stage-move` capability, dragging a
+card onto another column, or onto the Finished strip, moves the task: its
+workflow label, status and tracker status change as a move on the web board
+changes them, through `POST /desktop/tasks/stage-move`; nothing is launched and
+no stage report is recorded. A refused move leaves the card in place and shows
+the server's message.
+
 Each row ends with **Run: <next step>**, which launches the task's next
 workflow step with the project's configured execution mode, and a **…** menu
 offering **Pickup (full chain)**, the other server skills, **Discussion (no
@@ -839,6 +876,9 @@ macro runs and other tasks' rows never take the console over.
 Linked pull requests appear as an icon on the same task row, after the title and
 status. Hover for the URL or activate the icon to open the PR externally without
 changing the selected console. Long titles truncate to keep controls inline.
+When a task has pull requests in several repositories, the toolbar of the
+selected task shows the primary one's button followed by a **+N** chevron, whose
+menu lists every repository's pull request with its state, each opening it.
 Projects can be collapsed;
 their **+** button opens the task launcher. A task row carries an archive button
 and a pencil that turns its title into a field for a local rename: Enter or
@@ -909,6 +949,7 @@ other launch, and **Add another** in the same project.
 
 Press **Cmd+K** (macOS) or **Ctrl+K** to open the command palette. One list
 searches the desktop's actions (**New task**, **Tasks list**, **Add project**,
+**Project board**,
 the sidebar, Settings, the web interface, each with its shortcut), the projects
 added to this
 workstation, to open their tasks, and the executions the sidebar shows, by task

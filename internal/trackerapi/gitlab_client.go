@@ -39,10 +39,13 @@ func (c *Client) gitlabConfigured() error {
 	return nil
 }
 
-// gitlabProjectPath is the project the client addresses: the project's own
-// setting, else the default of the settings, both already resolved by For.
-func (c *Client) gitlabProjectPath() (string, error) {
-	p := strings.Trim(strings.TrimSpace(c.GitlabProject), "/")
+// gitlabProjectPath is the project the client addresses: the tracker's scope
+// (#741), else the default of the settings or the environment, resolved by For.
+func (c *Client) gitlabProjectPath(scope string) (string, error) {
+	p := strings.Trim(strings.TrimSpace(scope), "/")
+	if p == "" {
+		p = strings.Trim(strings.TrimSpace(c.GitlabProject), "/")
+	}
 	if p == "" {
 		return "", fmt.Errorf("configurez le projet GitLab (groupe/projet) du projet Sectile")
 	}

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { initialQuickAddMacro, quickAddMacroOptions } from '../src/lib/quickAdd.ts'
+import { initialQuickAddMacro, initialQuickAddTracker, quickAddMacroOptions, quickAddTrackers } from '../src/lib/quickAdd.ts'
 
 const macro = (key, title, closed = false) => ({ projectId: 'p', key, title, closed, horizon: '', description: '', todos: [], updatedAt: '' })
 
@@ -29,4 +29,25 @@ test('any other filter selects none', () => {
   assert.equal(initialQuickAddMacro('none', options), '')
   // A macro of another project, or a closed one, is not among the options.
   assert.equal(initialQuickAddMacro('M-9', options), '')
+})
+
+test('a new ticket goes to the default tracker of the project, among its trackers (#741)', () => {
+  const project = {
+    trackers: [
+      { trackerId: 'gode', identity: 'jira|acme.atlassian.net|GODE' },
+      { trackerId: 'be', identity: 'jira|acme.atlassian.net|BE' },
+    ],
+    defaultTrackerId: 'be',
+  }
+  const summaries = [{ id: 'gode', name: 'GODE', provider: 'jira', site: '', scope: 'GODE', identity: 'jira|acme.atlassian.net|GODE' }]
+  assert.deepEqual(quickAddTrackers(project, summaries), [
+    { id: 'gode', name: 'GODE', provider: 'jira' },
+    // A tracker the member list does not name keeps its identity as a name.
+    { id: 'be', name: 'jira|acme.atlassian.net|BE', provider: 'jira' },
+  ])
+  assert.equal(initialQuickAddTracker(project), 'be')
+  // A default no longer selected falls back to the first tracker.
+  assert.equal(initialQuickAddTracker({ ...project, defaultTrackerId: 'gone' }), 'gode')
+  assert.equal(initialQuickAddTracker(undefined), '')
+  assert.deepEqual(quickAddTrackers({ trackers: [{ trackerId: 'loc', identity: 'local||p1' }] }, []), [{ id: 'loc', name: '', provider: 'local' }])
 })

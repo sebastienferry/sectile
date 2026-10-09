@@ -35,6 +35,22 @@ func (c *recordingCloser) recorded() []string {
 	return append([]string(nil), c.calls...)
 }
 
+// A session's runs are listed newest first, the same way at every call: the
+// project of a call naming none is the one of its latest run (#741).
+func TestAdoptedRunsAreListedNewestFirst(t *testing.T) {
+	registry := NewSessionRegistry(&recordingCloser{})
+	t.Cleanup(registry.Stop)
+	registry.open("session-1", nil)
+	for _, run := range []string{"run-1", "run-2", "run-3", "run-4"} {
+		registry.Adopt("session-1", run, "TASK-1", "implement")
+	}
+	for i := 0; i < 20; i++ {
+		if got := strings.Join(registry.AdoptedRuns("session-1"), ","); got != "run-4,run-3,run-2,run-1" {
+			t.Fatalf("adopted runs = %s, want run-4,run-3,run-2,run-1", got)
+		}
+	}
+}
+
 func TestSessionClosesAdoptedRuns(t *testing.T) {
 	closer := &recordingCloser{}
 	registry := NewSessionRegistry(closer)

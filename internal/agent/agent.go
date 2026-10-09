@@ -1092,7 +1092,10 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 		d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", "A run ID is required for supervised execution")
 		return
 	}
-	queueConfig, err := d.fetchConfig(ctx, "", taskRef)
+	// The configuration is the dispatched project's: the server refuses it
+	// when the ticket does not belong to that project (#741), so a ticket of
+	// several projects runs with the one its launch chose.
+	queueConfig, err := d.fetchConfig(ctx, payload.ProjectID, taskRef)
 	if err != nil {
 		d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", err.Error())
 		return

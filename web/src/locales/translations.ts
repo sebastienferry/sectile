@@ -49,6 +49,28 @@ export interface TranslationSchema {
     launching: string
     failed: string
   }
+  /** The choice of the project a run works for, on a ticket of several (#741). */
+  runProjectPicker: {
+    title: string
+    description: string
+    cancel: string
+  }
+  /** A tracker's tickets in no project, and labelling one into a project (#741). */
+  trackerBacklog: {
+    navTitle: string
+    navHint: string
+    title: string
+    subtitle: string
+    loading: string
+    empty: string
+    loadFailed: string
+    refresh: string
+    addToProject: string
+    added: string
+    addFailed: string
+    noLabelledProject: string
+    unknownTracker: string
+  }
   app: {
     title: string
     tagline: string
@@ -265,6 +287,8 @@ export interface TranslationSchema {
     tracker: string
     /** Shown in "Jira (…)" when the project has no Jira key. */
     trackerNotConfigured: string
+    /** The select of the tracker a ticket of a multi-tracker project goes to (#741). */
+    trackerChoice: string
     /** Shown in "GitLab (…)" when the project names no GitLab project. */
     trackerDefaultProject: string
     issueType: string
@@ -848,6 +872,50 @@ export interface TranslationSchema {
       saveNeedsCheck: string
       loadFailed: string
     }
+    /** The admin Trackers screen (#741): the trackers projects select their tickets from. */
+    trackers: {
+      title: string
+      intro: string
+      loadFailed: string
+      empty: string
+      newTracker: string
+      provider: string
+      chooseProvider: string
+      name: string
+      namePlaceholder: string
+      site: string
+      sitePlaceholder: string
+      scope: string
+      scopePlaceholders: { jira: string; github: string; gitlab: string }
+      sourceLocked: string
+      problems: { provider: string; scope: string; githubScope: string; jiraSite: string }
+      /** The site placeholder of a Jira tracker when the deployment names no Jira site. */
+      siteRequiredPlaceholder: string
+      create: string
+      created: string
+      save: string
+      saved: string
+      cancel: string
+      edit: string
+      close: string
+      delete: string
+      confirmDelete: string
+      deleted: string
+      deleteRefused: string
+      sync: string
+      syncQueued: string
+      /** What a tracker row says of the synchronisation it queued, until it ends. */
+      syncRunning: string
+      syncSucceeded: string
+      syncFailed: string
+      syncCanceled: string
+      syncLost: string
+      syncHelp: string
+      usedBy: string
+      unused: string
+      board: string
+      issueTypesUnavailable: string
+    }
   }
   boardViews: {
     newView: string
@@ -948,6 +1016,26 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
       launch: "Lancer le lot",
       launching: "Lancement…",
       failed: "Le lancement a échoué. Votre ordre et le nom du worktree sont conservés ; vous pouvez réessayer.",
+    },
+    runProjectPicker: {
+      title: 'Pour quel projet ?',
+      description: '{key} appartient à plusieurs projets : choisissez celui pour lequel le lancer. Son dépôt et ses règles seront ceux de ce projet.',
+      cancel: 'Annuler',
+    },
+    trackerBacklog: {
+      navTitle: 'Hors projet',
+      navHint: "Tickets ouverts de {tracker} qu'aucun projet ne montre",
+      title: 'Hors projet · {tracker}',
+      subtitle: "Les tickets ouverts de ce tracker qu'aucun projet ne montre, les terminés exclus. Ajoutez-leur le label d'un projet pour qu'ils le rejoignent.",
+      loading: 'Lecture des tickets…',
+      empty: 'Tous les tickets ouverts de ce tracker sont dans un projet.',
+      loadFailed: 'Tickets indisponibles',
+      refresh: 'Actualiser',
+      addToProject: 'Ajouter au projet…',
+      added: '{key} ajouté à {project}',
+      addFailed: "Impossible d'ajouter {key} au projet",
+      noLabelledProject: "Aucun projet de ce tracker n'a de label : un projet sans label montre déjà tous ses tickets.",
+      unknownTracker: 'Tracker inconnu',
     },
     app: {
       title: 'Sectile',
@@ -1157,6 +1245,7 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
       project: 'Projet *',
       tracker: 'Tracker :',
       trackerNotConfigured: 'projet non configuré',
+      trackerChoice: 'Tracker du ticket',
       trackerDefaultProject: 'projet par défaut',
       issueType: 'Type de ticket',
       issueTypeDefault: 'Défaut',
@@ -1737,6 +1826,52 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
         saveNeedsCheck: 'Vérifiez le jeton avant de l\'enregistrer',
         loadFailed: 'Accès serveur indisponibles',
       },
+      trackers: {
+        title: 'Trackers',
+        intro: 'Un tracker est un espace Jira, un dépôt GitHub ou un projet GitLab, synchronisé en entier quels que soient les projets. Les projets en sélectionnent un ou plusieurs et retiennent leurs tickets par label. Ses colonnes et leur correspondance avec les étapes valent pour tous les projets qui le sélectionnent : seul un admin les règle.',
+        loadFailed: 'Trackers indisponibles',
+        empty: 'Aucun tracker enregistré.',
+        newTracker: 'Nouveau tracker',
+        provider: 'Fournisseur',
+        chooseProvider: 'Choisir…',
+        name: 'Nom',
+        namePlaceholder: 'Par défaut, son espace ou son dépôt',
+        site: 'Site',
+        sitePlaceholder: 'Celui du déploiement',
+        scope: 'Espace, dépôt ou projet',
+        scopePlaceholders: { jira: 'Clé Jira, ex. GODE', github: 'owner/repo', gitlab: 'groupe/projet' },
+        sourceLocked: 'Ce tracker a déjà des tickets : son fournisseur, son site et son périmètre ne changent plus.',
+        problems: {
+          provider: 'Choisissez le fournisseur du tracker.',
+          scope: "Nommez l'espace Jira, le dépôt GitHub ou le projet GitLab.",
+          githubScope: 'Un dépôt GitHub se nomme owner/repo.',
+          jiraSite: "Indiquez le site Jira (https://votre-site.atlassian.net) : aucune URL Jira n'est configurée pour le déploiement.",
+        },
+        siteRequiredPlaceholder: 'https://votre-site.atlassian.net (obligatoire)',
+        create: 'Créer',
+        created: 'Tracker {name} créé',
+        save: 'Enregistrer',
+        saved: 'Tracker {name} enregistré',
+        cancel: 'Annuler',
+        edit: 'Configurer',
+        close: 'Fermer',
+        delete: 'Supprimer',
+        confirmDelete: 'Supprimer le tracker {name} ?',
+        deleted: 'Tracker {name} supprimé',
+        deleteRefused: 'Suppression refusée : {error}',
+        sync: 'Synchroniser',
+        syncQueued: 'Synchronisation de {name} en file',
+        syncRunning: 'Synchronisation en cours…',
+        syncSucceeded: 'Synchronisation terminée : {summary}',
+        syncFailed: 'Échec de la synchronisation : {reason}',
+        syncCanceled: 'Synchronisation annulée',
+        syncLost: "Suivi de la synchronisation interrompu : consultez l'activité",
+        syncHelp: "Met en file des synchronisations de ce tracker, quels que soient les projets qui le sélectionnent.",
+        usedBy: 'Projets : {projects}',
+        unused: 'Aucun projet ne le sélectionne',
+        board: 'Board et colonnes',
+        issueTypesUnavailable: "Types indisponibles : le tracker n'a pas répondu.",
+      },
     },
     boardViews: {
       newView: 'Nouvelle vue',
@@ -1834,6 +1969,26 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
       launch: "Launch batch",
       launching: "Launching…",
       failed: "Launch failed. Your order and worktree name are preserved; you can retry.",
+    },
+    runProjectPicker: {
+      title: 'For which project?',
+      description: '{key} belongs to several projects: choose the one to launch it for. Its repository and rules will be that project\'s.',
+      cancel: 'Cancel',
+    },
+    trackerBacklog: {
+      navTitle: 'Not in a project',
+      navHint: 'Open {tracker} tickets no project shows',
+      title: 'Not in a project · {tracker}',
+      subtitle: "The open tickets of this tracker no project shows, finished ones left out. Give them a project's label for them to join it.",
+      loading: 'Reading the tickets…',
+      empty: 'Every open ticket of this tracker is in a project.',
+      loadFailed: 'Tickets unavailable',
+      refresh: 'Refresh',
+      addToProject: 'Add to project…',
+      added: '{key} added to {project}',
+      addFailed: 'Could not add {key} to the project',
+      noLabelledProject: 'No project of this tracker has a label: a project without a label already shows all its tickets.',
+      unknownTracker: 'Unknown tracker',
     },
     app: {
       title: 'Sectile',
@@ -2043,6 +2198,7 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
       project: 'Project *',
       tracker: 'Tracker:',
       trackerNotConfigured: 'project not configured',
+      trackerChoice: 'Ticket tracker',
       trackerDefaultProject: 'default project',
       issueType: 'Ticket type',
       issueTypeDefault: 'Default',
@@ -2622,6 +2778,52 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
         cleared: '{tracker} server credential cleared',
         saveNeedsCheck: 'Check the token before saving it',
         loadFailed: 'Server credentials unavailable',
+      },
+      trackers: {
+        title: 'Trackers',
+        intro: 'A tracker is one Jira space, one GitHub repository or one GitLab project, synchronised in full whatever projects exist. Projects select one or several of them and keep their tickets by label. Its columns and their mapping onto the stages apply to every project selecting it: only an admin sets them.',
+        loadFailed: 'Trackers unavailable',
+        empty: 'No tracker recorded.',
+        newTracker: 'New tracker',
+        provider: 'Provider',
+        chooseProvider: 'Choose…',
+        name: 'Name',
+        namePlaceholder: 'Its space or repository by default',
+        site: 'Site',
+        sitePlaceholder: "The deployment's",
+        scope: 'Space, repository or project',
+        scopePlaceholders: { jira: 'Jira key, e.g. GODE', github: 'owner/repo', gitlab: 'group/project' },
+        sourceLocked: 'This tracker already holds tickets: its provider, site and scope no longer change.',
+        problems: {
+          provider: "Choose the tracker's provider.",
+          scope: 'Name the Jira space, the GitHub repository or the GitLab project.',
+          githubScope: 'A GitHub repository is named owner/repo.',
+          jiraSite: 'Enter the Jira site (https://your-site.atlassian.net): no Jira URL is configured for the deployment.',
+        },
+        siteRequiredPlaceholder: 'https://your-site.atlassian.net (required)',
+        create: 'Create',
+        created: 'Tracker {name} created',
+        save: 'Save',
+        saved: 'Tracker {name} saved',
+        cancel: 'Cancel',
+        edit: 'Configure',
+        close: 'Close',
+        delete: 'Delete',
+        confirmDelete: 'Delete the tracker {name}?',
+        deleted: 'Tracker {name} deleted',
+        deleteRefused: 'Deletion refused: {error}',
+        sync: 'Synchronise',
+        syncQueued: 'Synchronisation of {name} queued',
+        syncRunning: 'Synchronising…',
+        syncSucceeded: 'Synchronisation finished: {summary}',
+        syncFailed: 'Synchronisation failed: {reason}',
+        syncCanceled: 'Synchronisation canceled',
+        syncLost: 'Lost track of the synchronisation: see the activity',
+        syncHelp: 'Queues synchronisations of this tracker, whatever projects select it.',
+        usedBy: 'Projects: {projects}',
+        unused: 'No project selects it',
+        board: 'Board and columns',
+        issueTypesUnavailable: 'Types unavailable: the tracker did not answer.',
       },
     },
     boardViews: {

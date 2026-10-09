@@ -37,6 +37,10 @@ func seedBatch(t *testing.T, d *DB) *models.TaskActivity {
 			t.Fatalf("seeding task %s: %v", id, err)
 		}
 	}
+	// The tickets belong to p1 through its tracker (#741).
+	if err := d.adoptTrackers(); err != nil {
+		t.Fatal(err)
+	}
 	run, err := d.StartAgentRun("t1", "pickup_issues", RunLaunch{UserID: "u1"})
 	if err != nil {
 		t.Fatalf("starting the batch run: %v", err)

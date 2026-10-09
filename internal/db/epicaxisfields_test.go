@@ -31,12 +31,12 @@ type fieldWrite struct {
 	key, field, path string
 }
 
-func (f *fieldTracker) EpicAxisFieldCandidates(ctx context.Context, project *models.Project, epicKey string) ([]models.EpicFieldCandidate, error) {
+func (f *fieldTracker) EpicAxisFieldCandidates(ctx context.Context, trk *models.Tracker, epicKey string) ([]models.EpicFieldCandidate, error) {
 	f.candidateReads++
 	return f.candidates, nil
 }
 
-func (f *fieldTracker) SetEpicAxisField(ctx context.Context, project *models.Project, epicKey string, field models.EpicAxisField, optionPath string) error {
+func (f *fieldTracker) SetEpicAxisField(ctx context.Context, trk *models.Tracker, epicKey string, field models.EpicAxisField, optionPath string) error {
 	f.fieldWrites = append(f.fieldWrites, fieldWrite{epicKey, field.ID, optionPath})
 	if f.failFieldWrites {
 		return errors.New("option refused")
@@ -301,6 +301,38 @@ func TestPushWithoutAFieldMakesNoFieldRequest(t *testing.T) {
 	}
 	if fake.candidateReads != 0 || len(fake.fieldWrites) != 0 {
 		t.Fatalf("a project with no field touched fields: %d reads, %+v", fake.candidateReads, fake.fieldWrites)
+	}
+}
+
+// TestPushWritesNoFieldOnAnEpicOfAnotherTracker holds the rule the read side
+// keeps (#741): the project's fields were discovered on its default tracker,
+// so an epic of another of its trackers gets its label, on its own tracker,
+// and no field write.
+func TestPushWritesNoFieldOnAnEpicOfAnotherTracker(t *testing.T) {
+	database, proj, fake := fieldProject(t, nil)
+	ops := jiraSpace(t, database, "OPS")
+	trackers := append(slices.Clone(proj.Trackers), models.ProjectTracker{TrackerID: ops.ID})
+	proj, err := database.UpdateProject(proj.ID, models.UpdateProjectRequest{Trackers: &trackers})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := database.PushMacroPriorityLabel(t.Context(), proj.ID, "OPS-7", "p1"); err != nil {
+		t.Fatal(err)
+	}
+	if len(fake.writes) != 1 || fake.writes[0].Tracker == nil || fake.writes[0].Tracker.ID != ops.ID {
+		t.Fatalf("the label should have been written on OPS: %+v", fake.writes)
+	}
+	if len(fake.fieldWrites) != 0 || fake.candidateReads != 0 {
+		t.Fatalf("an epic of another tracker touched the fields: %d reads, %+v", fake.candidateReads, fake.fieldWrites)
+	}
+
+	// An epic of the default tracker still gets its field.
+	if _, err := database.PushMacroPriorityLabel(t.Context(), proj.ID, "PE-1", "p1"); err != nil {
+		t.Fatal(err)
+	}
+	if want := []fieldWrite{{"PE-1", "cf-epic-priority", "o1"}}; !reflect.DeepEqual(fake.fieldWrites, want) {
+		t.Fatalf("field writes = %+v", fake.fieldWrites)
 	}
 }
 

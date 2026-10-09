@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -68,11 +69,11 @@ func TestGithubAdapterCreateAndSync(t *testing.T) {
 	})
 
 	adapter := NewGithubAdapter(c)
-	proj := &models.Project{IssueTracker: "github", GithubRepo: "org/repo"}
+	proj := &models.Tracker{Provider: "github", Scope: "org/repo"}
 
 	// Create
 	task, err := adapter.CreateIssue(unattended(), tracker.CreateIssueRequest{
-		Project:     proj,
+		Tracker:     proj,
 		Title:       "New Feature",
 		Description: "Description",
 	})
@@ -85,7 +86,7 @@ func TestGithubAdapterCreateAndSync(t *testing.T) {
 
 	// Sync
 	tasks, err := adapter.SyncIssues(context.Background(), tracker.SyncRequest{
-		Project: proj,
+		Tracker: proj,
 	})
 	if err != nil {
 		t.Fatalf("SyncIssues failed: %v", err)
@@ -152,10 +153,10 @@ func TestGithubWritesUseTheActingPersonsToken(t *testing.T) {
 		return "", "", "", nil
 	})
 	adapter := NewGithubAdapter(client)
-	project := &models.Project{ID: "p1", GithubRepo: "acme/app"}
+	project := &models.Tracker{ID: "p1", Provider: "github", Scope: "acme/app"}
 
 	if _, err := adapter.CreateIssue(tracker.WithActingUser(context.Background(), "u-ada"),
-		tracker.CreateIssueRequest{Project: project, Title: "T"}); err != nil {
+		tracker.CreateIssueRequest{Tracker: project, Title: "T"}); err != nil {
 		t.Fatal(err)
 	}
 	if len(seen) == 0 || !strings.Contains(seen[0], "ada-token") {
@@ -164,7 +165,7 @@ func TestGithubWritesUseTheActingPersonsToken(t *testing.T) {
 
 	// Work nobody asked for, and says so, keeps the server's token.
 	seen = nil
-	if _, err := adapter.CreateIssue(unattended(), tracker.CreateIssueRequest{Project: project, Title: "T"}); err != nil {
+	if _, err := adapter.CreateIssue(unattended(), tracker.CreateIssueRequest{Tracker: project, Title: "T"}); err != nil {
 		t.Fatal(err)
 	}
 	if len(seen) == 0 || !strings.Contains(seen[0], "server-token") {
@@ -194,37 +195,37 @@ func TestGithubRefusesALockedPersonalToken(t *testing.T) {
 		return "", "", "", locked
 	})
 	adapter := NewGithubAdapter(client)
-	project := &models.Project{ID: "p1", GithubRepo: "acme/app"}
-	ctx := tracker.WithProject(tracker.WithActingUser(context.Background(), "u-ada"), project.ID)
+	project := &models.Tracker{ID: "p1", Provider: "github", Scope: "acme/app"}
+	ctx := tracker.WithTracker(tracker.WithActingUser(context.Background(), "u-ada"), project)
 
 	calls := map[string]func() error{
 		"IssuePullRequests": func() error {
-			_, err := adapter.IssuePullRequests(ctx, tracker.IssuePullRequestsRequest{Project: project, Key: "#7"})
+			_, err := adapter.IssuePullRequests(ctx, tracker.IssuePullRequestsRequest{Tracker: project, Key: "#7"})
 			return err
 		},
 		"CreateIssue": func() error {
-			_, err := adapter.CreateIssue(ctx, tracker.CreateIssueRequest{Project: project, Title: "T"})
+			_, err := adapter.CreateIssue(ctx, tracker.CreateIssueRequest{Tracker: project, Title: "T"})
 			return err
 		},
 		"GetIssue": func() error {
-			_, err := adapter.GetIssue(ctx, tracker.GetIssueRequest{Project: project, Key: "#7"})
+			_, err := adapter.GetIssue(ctx, tracker.GetIssueRequest{Tracker: project, Key: "#7"})
 			return err
 		},
 		"UpdateIssue": func() error {
-			return adapter.UpdateIssue(ctx, tracker.UpdateIssueRequest{Project: project, Key: "#7"})
+			return adapter.UpdateIssue(ctx, tracker.UpdateIssueRequest{Tracker: project, Key: "#7"})
 		},
 		"DeleteIssue": func() error {
-			return adapter.DeleteIssue(ctx, tracker.DeleteIssueRequest{Project: project, Key: "#7"})
+			return adapter.DeleteIssue(ctx, tracker.DeleteIssueRequest{Tracker: project, Key: "#7"})
 		},
 		"SyncIssues": func() error {
-			_, err := adapter.SyncIssues(ctx, tracker.SyncRequest{Project: project})
+			_, err := adapter.SyncIssues(ctx, tracker.SyncRequest{Tracker: project})
 			return err
 		},
 		"AddComment": func() error {
-			return adapter.AddComment(ctx, tracker.AddCommentRequest{Project: project, Key: "#7", Body: "b"})
+			return adapter.AddComment(ctx, tracker.AddCommentRequest{Tracker: project, Key: "#7", Body: "b"})
 		},
 		"GetComments": func() error {
-			_, err := adapter.GetComments(ctx, tracker.GetCommentsRequest{Project: project, Key: "#7"})
+			_, err := adapter.GetComments(ctx, tracker.GetCommentsRequest{Tracker: project, Key: "#7"})
 			return err
 		},
 		"UpdateLabels": func() error {
@@ -257,8 +258,8 @@ func TestGithubWithoutAPersonalTokenKeepsTheProjectToken(t *testing.T) {
 	client.HTTP = site.Client()
 	client.GithubURL = site.URL
 	client.GithubToken = "server-token"
-	client.Resolve = func(projectID string) Credentials {
-		if projectID == "p-own" {
+	client.Resolve = func(trackerID string) Credentials {
+		if trackerID == "p-own" {
 			return Credentials{GithubToken: "project-token"}
 		}
 		return Credentials{}
@@ -271,11 +272,43 @@ func TestGithubWithoutAPersonalTokenKeepsTheProjectToken(t *testing.T) {
 
 	for project, want := range map[string]string{"p-own": "project-token", "p-shared": "server-token"} {
 		seen = nil
-		if _, err := adapter.GetIssue(ctx, tracker.GetIssueRequest{Project: &models.Project{ID: project, GithubRepo: "acme/app"}, Key: "#7"}); err != nil {
+		if _, err := adapter.GetIssue(ctx, tracker.GetIssueRequest{Tracker: &models.Tracker{ID: project, Provider: "github", Scope: "acme/app"}, Key: "#7"}); err != nil {
 			t.Fatalf("%s: %v", project, err)
 		}
 		if len(seen) == 0 || !strings.Contains(seen[0], want) {
 			t.Fatalf("%s: a person without a GitHub token keeps %s, got %v", project, want, seen)
 		}
+	}
+}
+
+// A label write takes a key and nothing else, so the repository comes from the
+// tracker the context carries. It named none before, and every label added
+// from Sectile on a GitHub ticket failed (#741).
+func TestGithubUpdateLabelsWritesOnTheTrackersRepository(t *testing.T) {
+	var patched string
+	c := fixture(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == "GET" && r.URL.Path == "/repos/acme/app/issues/7":
+			fmt.Fprint(w, `{"number":7,"title":"T","state":"open","labels":[{"name":"bug"}]}`)
+		case r.Method == "PATCH" && r.URL.Path == "/repos/acme/app/issues/7":
+			body, _ := io.ReadAll(r.Body)
+			patched = string(body)
+			fmt.Fprint(w, `{}`)
+		default:
+			t.Errorf("unexpected request %s %s", r.Method, r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+		}
+	})
+	adapter := NewGithubAdapter(c)
+	ctx := tracker.WithTracker(unattended(), &models.Tracker{ID: "t-gh", Provider: "github", Scope: "acme/app"})
+	if err := adapter.UpdateLabels(ctx, "#7", []string{"delivery-admin"}, nil); err != nil {
+		t.Fatalf("UpdateLabels: %v", err)
+	}
+	if !strings.Contains(patched, `"delivery-admin"`) || !strings.Contains(patched, `"bug"`) {
+		t.Fatalf("the label was not written on the tracker's repository: %q", patched)
+	}
+	if err := adapter.UpdateLabels(unattended(), "#7", []string{"x"}, nil); err == nil {
+		t.Fatal("a label write with no tracker names no repository and must be refused")
 	}
 }

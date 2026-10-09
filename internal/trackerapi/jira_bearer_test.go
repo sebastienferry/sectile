@@ -79,17 +79,17 @@ func TestAGrantGoesThroughTheGatewayAndKeepsTheSite(t *testing.T) {
 		return PersonalCredential{}, nil
 	}
 	adapter := NewJiraAdapter(c)
-	project := jiraProject()
+	project := jiraTracker()
 	ctx := tracker.WithActingUser(context.Background(), "ada")
 
-	task, err := adapter.GetIssue(ctx, tracker.GetIssueRequest{Project: project, Key: "PE-7"})
+	task, err := adapter.GetIssue(ctx, tracker.GetIssueRequest{Tracker: project, Key: "PE-7"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if task.ExternalURL == nil || !strings.HasPrefix(*task.ExternalURL, site+"/browse/PE-7") {
 		t.Errorf("the link must keep the site: %v", task.ExternalURL)
 	}
-	if err := adapter.AddComment(ctx, tracker.AddCommentRequest{Project: project, Key: "PE-7", Body: "Hello"}); err != nil {
+	if err := adapter.AddComment(ctx, tracker.AddCommentRequest{Tracker: project, Key: "PE-7", Body: "Hello"}); err != nil {
 		t.Fatal(err)
 	}
 	for _, request := range g.seen() {
@@ -121,7 +121,7 @@ func TestARefusedGrantSaysToReconnect(t *testing.T) {
 		return PersonalCredential{APIBase: g.server.URL + "/ex/jira/c-acme", Bearer: "revoked"}, nil
 	}
 	err := NewJiraAdapter(c).AddComment(tracker.WithActingUser(context.Background(), "ada"),
-		tracker.AddCommentRequest{Project: jiraProject(), Key: "PE-7", Body: "Hello"})
+		tracker.AddCommentRequest{Tracker: jiraTracker(), Key: "PE-7", Body: "Hello"})
 	if err == nil || !strings.Contains(err.Error(), "Reconnectez Jira") || strings.Contains(err.Error(), "id.atlassian.com") {
 		t.Fatalf("a refused grant: %v", err)
 	}
@@ -139,7 +139,7 @@ func TestAnUnusableGrantRefusesTheWrite(t *testing.T) {
 		}
 		before := len(g.seen())
 		err := NewJiraAdapter(c).AddComment(tracker.WithActingUser(context.Background(), "ada"),
-			tracker.AddCommentRequest{Project: &models.Project{ID: "p1", IssueTracker: "jira", JiraProject: "PE"}, Key: "PE-7", Body: "Hello"})
+			tracker.AddCommentRequest{Tracker: &models.Tracker{ID: "p1", Provider: "jira", Scope: "PE"}, Key: "PE-7", Body: "Hello"})
 		if MissingCredentialTracker(err) != "jira" {
 			t.Fatalf("%s: not the missing-credential error: %v", reason, err)
 		}

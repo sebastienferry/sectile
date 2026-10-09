@@ -47,6 +47,13 @@ CREATE TABLE IF NOT EXISTS projects (
     full_chain_stop_stage TEXT NOT NULL DEFAULT 'reviewed', -- 'implemented' | 'reviewed'
     push_stage_commits INTEGER NOT NULL DEFAULT 0, -- boolean pushStageCommits in project/config/context JSON
     branch_name_format TEXT NOT NULL DEFAULT '', -- branchNameFormat in project/config/context JSON; empty = feat/{key_lower}
+    -- Since #741 (migration 49, ADR 0054) the tracker columns above (issue_tracker,
+    -- jira_project, github_repo, gitlab_project, board_id, tracker_columns,
+    -- stage_columns, sprints, issue_types, auto_sync_*) are no longer the source:
+    -- a project is read with its default tracker's values, and the columns are
+    -- kept for the adoption step and a rollback until a later migration drops them.
+    label TEXT NOT NULL DEFAULT '',               -- narrows the project to the tickets carrying it; empty = every ticket of its trackers
+    default_tracker_id TEXT NOT NULL DEFAULT '',  -- where new tickets go; empty or unlinked = the first tracker
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
@@ -54,7 +61,8 @@ CREATE TABLE IF NOT EXISTS projects (
 -- Tasks Table
 CREATE TABLE IF NOT EXISTS tasks (
     id TEXT PRIMARY KEY,
-    project_id TEXT NOT NULL DEFAULT 'default',
+    project_id TEXT NOT NULL DEFAULT 'default',  -- unread since #741: rows written since carry the sentinel 'tracker:<tracker id>'
+    tracker_id TEXT NULL,                       -- the tracker the ticket belongs to (migration 49); unique with key (ux_tasks_tracker_key)
     key TEXT NOT NULL UNIQUE,
     title TEXT NOT NULL,
     description TEXT DEFAULT '',
@@ -100,6 +108,8 @@ CREATE TABLE IF NOT EXISTS task_activities (
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     started_at DATETIME,
     completed_at DATETIME,
+    run_project_id TEXT NULL,  -- the project a task run works for (#741); empty on other rows
+    tracker_id TEXT NULL,      -- the tracker a synchronisation read (#741); empty on other rows
     FOREIGN KEY(task_id) REFERENCES tasks(id) ON DELETE CASCADE
 );
 
@@ -146,6 +156,58 @@ CREATE TABLE IF NOT EXISTS board_views (
     updated_at DATETIME NOT NULL
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_board_views_user_name ON board_views (user_id, name_key);
+
+-- Trackers (migration 49, #741, ADR 0054): one server-side source of tickets,
+-- a Jira space, a GitHub repository, a GitLab project, or the local board of
+-- one project. It holds the board mirror and the background sync settings.
+CREATE TABLE IF NOT EXISTS trackers (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL DEFAULT '',
+    provider TEXT NOT NULL,                  -- 'jira' | 'github' | 'gitlab' | 'local'
+    site TEXT NOT NULL DEFAULT '',           -- the tracker's own site, empty = the deployment's
+    scope TEXT NOT NULL DEFAULT '',          -- Jira key, GitHub owner/repo, GitLab path, or the project id of a local board
+    identity TEXT NOT NULL UNIQUE,           -- derived from provider, resolved site and scope
+    board_id TEXT NOT NULL DEFAULT '',
+    tracker_columns TEXT NOT NULL DEFAULT '[]',
+    stage_columns TEXT NOT NULL DEFAULT '{}', -- the default status-to-stage mapping, an admin's
+    sprints TEXT NOT NULL DEFAULT '[]',
+    issue_types TEXT NOT NULL DEFAULT '[]',
+    auto_sync_enabled INTEGER NOT NULL DEFAULT 0,
+    auto_sync_interval_min INTEGER NOT NULL DEFAULT 5,
+    created_at TIMESTAMP NOT NULL,
+    updated_at TIMESTAMP NOT NULL
+);
+
+-- The trackers a project selects its tickets from, in order.
+CREATE TABLE IF NOT EXISTS project_trackers (
+    project_id TEXT NOT NULL,
+    tracker_id TEXT NOT NULL,
+    position INTEGER NOT NULL DEFAULT 0,
+    -- The project's own stage -> columns mapping for the tracker (migration 50);
+    -- '{}' reads the tracker's stage_columns.
+    stage_columns TEXT NOT NULL DEFAULT '{}',
+    PRIMARY KEY (project_id, tracker_id)
+);
+CREATE INDEX IF NOT EXISTS idx_project_trackers_tracker ON project_trackers (tracker_id);
+
+-- The id of a ticket merged away by the adoption step, and the ticket it now is.
+CREATE TABLE IF NOT EXISTS task_aliases (
+    old_id TEXT PRIMARY KEY,
+    task_id TEXT NOT NULL
+);
+
+-- The background sync pacing, per tracker (the per-project auto_sync_projects is no longer read).
+CREATE TABLE IF NOT EXISTS auto_sync_trackers (
+    tracker_id TEXT PRIMARY KEY,
+    last_pass_at DATETIME,
+    last_full_sync_at DATETIME
+);
+
+-- macros gains tracker_id TEXT NULL: a Jira epic is a record of its tracker.
+
+-- Created at start by the idempotent adoption steps, after the duplicates are merged:
+-- CREATE UNIQUE INDEX ux_tasks_tracker_key ON tasks (tracker_id, key);
+-- CREATE UNIQUE INDEX ux_macros_tracker_key ON macros (tracker_id, key) WHERE tracker_id IS NOT NULL;
 ```
 
 ---
@@ -156,19 +218,29 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_board_views_user_name ON board_views (user
 
 | Method | Path | Description |
 | :--- | :--- | :--- |
-| `GET` | `/api/tasks` | Returns array of all tasks. Filters: `projectId`, `q`, `status`, `priority`, `label`, `sprint`, `team`, `assignee` (`__unassigned__` for the work items nobody owns), `mine=1` (My Tasks: the tickets assigned to the caller, resolved on the server per tracker, see 2.3.1; combines with every other filter), `pinned=1`, `viewId` (one of the caller's saved views, see 2.3.0.2: it replaces `projectId`, and the other filters narrow it; `404` when the view is not the caller's). |
+| `GET` | `/api/tasks` | Returns array of all tasks. Filters: `projectId` (the project's members, see below), `q`, `status`, `priority`, `label`, `sprint`, `team`, `assignee` (`__unassigned__` for the work items nobody owns), `mine=1` (My Tasks: the tickets assigned to the caller, resolved on the server per tracker, see 2.3.1; combines with every other filter), `pinned=1`, `viewId` (one of the caller's saved views, see 2.3.0.2: it replaces `projectId`, and the other filters narrow it; `404` when the view is not the caller's). |
 | `GET` | `/api/tasks/facets` | Filter values and counts of the board. Scope: `projectId`, or `viewId` as above. |
-| `POST` | `/api/tasks` | Creates a new task bound strictly to `projectId`. |
-| `GET` | `/api/tasks/{id}` | Fetches task detail with its activities. |
+| `POST` | `/api/tasks` | Creates a new task bound strictly to `projectId`, on one of the project's trackers: `trackerId` (id or identity), else the project's default tracker. The labels get `#new` and, when the project has one, the project label. A `trackerId` that is not one of the project's answers `400`. |
+| `GET` | `/api/tasks/{id}` | Fetches task detail with its activities. `{id}` may be the id of a ticket merged away at the upgrade to #741, resolved through `task_aliases`, or a key; a key that tickets of two trackers carry is refused rather than resolved to the first. |
 | `PUT` | `/api/tasks/{id}` | Updates task fields (status, title, description, priority, etc.). |
 | `DELETE` | `/api/tasks/{id}` | Deletes task and prunes associated Git worktree. |
 | `POST` | `/api/tasks/{id}/skills/{skillId}` | Enqueues or immediately executes an AI skill on the task. |
-| `POST` | `/api/tasks/{id}/run-skill` | Runs a skill on the task. Body `{skillId, prompt?, withComments?, mode?, force?, batchTaskIds?}`. `mode` is the one-off execution mode override, `interactive` or `autonomous`; absent means no override, which is not the same as interactive. Any other value is rejected with `400`. A task already carrying an active run answers `409` with `{error, activeRunId}` and records nothing; `force` waives that refusal and only that one, for the active run's owner or an admin, and answers `403` for anyone else. A ticket of a running batch is busy the same way, and its `409` adds `batchLeadKey`. `batchTaskIds` launches a batch: `pickup_issues` only, at least two distinct tickets of the task's project, the first being the task itself, without `force`, else `400`; a ticket already busy refuses the whole batch with `409`. The members are recorded on the batch run and exposed as `batch` on each task while it runs (ADR 0034). |
-| `POST` | `/api/tasks/{id}/advance` | Advances one workflow step, or the full chain with `{"auto": true}`. Body also accepts `mode`, the one-off override for the single step; a full chain run ignores it and is always autonomous. |
+| `POST` | `/api/tasks/{id}/run-skill` | Runs a skill on the task. Body `{skillId, prompt?, withComments?, mode?, force?, batchTaskIds?, projectId?}`. `projectId` is the project the run works for, the board's it was launched from; it must be one of the ticket's projects (`400` otherwise), it is recorded on the run (`runProjectId`) and the run's configuration, repositories and operations are that project's. Without it, a ticket of one project runs for that project; a ticket of several answers `409 {error, candidates: [{id, name}], unattended: false}` when the launch is interactive, so the caller asks which project and retries with it, and `400` with the same body and `unattended: true` when it is unattended (`mode: "autonomous"` or `batchTaskIds`; the project's default mode does not count); a ticket of no project answers `400` and has to be given a project's label first. Nothing is recorded before that choice. `mode` is the one-off execution mode override, `interactive` or `autonomous`; absent means no override, which is not the same as interactive. Any other value is rejected with `400`. A task already carrying an active run answers `409` with `{error, activeRunId}` and records nothing; `force` waives that refusal and only that one, for the active run's owner or an admin, and answers `403` for anyone else. A ticket of a running batch is busy the same way, and its `409` adds `batchLeadKey`. `batchTaskIds` launches a batch: `pickup_issues` only, at least two distinct tickets of the task's project, the first being the task itself, without `force`, else `400`; a ticket already busy refuses the whole batch with `409`. The members are recorded on the batch run and exposed as `batch` on each task while it runs (ADR 0034). |
+| `POST` | `/api/tasks/{id}/advance` | Advances one workflow step, or the full chain with `{"auto": true}`. Body also accepts `mode`, the one-off override for the single step; a full chain run ignores it and is always autonomous. Body also accepts `projectId`, with the same rules and refusals as `run-skill`; a full chain is unattended. |
 | `POST` | `/api/tasks/{id}/advance/confirm` | Closes an interactive step. A step the worker already transitioned is accepted as a no-op. |
 | `POST` | `/api/tasks/{id}/comment` | Publishes a comment to the GitHub issue tracker. |
 | `POST` | `/api/tasks/{id}/epic` | Queues the attachment to an epic (`202`, returns the activity to follow). |
 | `GET` | `/api/tasks/{id}/diff` | Computes and returns the Git diff of the task branch vs `main`. |
+
+**Tickets belong to trackers, and to projects by membership (#741, ADR 0054).**
+There is one local issue per remote ticket, owned by its tracker, whatever projects show it.
+A task carries `trackerId`, and `projectIds`, the projects it belongs to: those
+selecting its tracker that have no label, or whose label it carries, compared
+whole and regardless of ASCII case. `projectId` is computed: the project a
+listing is scoped to, else the first of `projectIds`, empty for a ticket in no
+project. A listing with `projectId` returns the project's members; without it,
+the members of the caller's bookmarked projects, each ticket once. The `label`
+filter still matches a part of a label, folded for ASCII case.
 
 ### 2.1.1 Teams API
 
@@ -277,7 +349,7 @@ nothing; a creation goes out without that priority and its answer carries a
 | :--- | :--- | :--- |
 | `GET` | `/api/activities` | Lists recent activities (supports `?taskId=...&status=...`). |
 | `GET` | `/api/activities/stats` | Returns aggregate counts (`total`, `queued`, `running`, `completed`, `failed`). |
-| `POST` | `/api/activities/{id}/retry` | Re-enqueues a failed activity. |
+| `POST` | `/api/activities/{id}/retry` | Re-enqueues a failed activity, for the project it ran for. Optional body `{projectId?}` names that project instead, with the same rules and refusals as `run-skill`: an activity that names no project, on a ticket of several, answers `409 {error, candidates, unattended: false}` until it is retried with one of them. |
 | `POST` | `/api/activities/{id}/cancel` | Cancels a running or queued activity. |
 | `DELETE` | `/api/activities/{id}` | Deletes an activity entry. |
 | `DELETE` | `/api/activities` | Clears all completed and canceled activities. |
@@ -286,10 +358,11 @@ nothing; a creation goes out without that priority and its answer carries a
 
 | Method | Path | Description |
 | :--- | :--- | :--- |
-| `GET` | `/api/projects` | Lists all projects with their task counters. |
+| `GET` | `/api/projects` | Lists all projects with their task counters, counted over their members. |
 | `POST` | `/api/projects` | Creates a new workspace project. |
-| `PUT` | `/api/projects/{id}` | Updates project configuration, tracker binding, and paths. |
-| `DELETE` | `/api/projects/{id}` | Deletes project and its associated tasks. |
+| `PUT` | `/api/projects/{id}` | Updates project configuration, tracker selection and label, and paths. |
+| `DELETE` | `/api/projects/{id}` | Deletes the project. The tickets of its own local tracker move to the default project; the tickets of the trackers it shared stay, shown by the other projects selecting them, else in their tracker's backlog. |
+| `POST`, `PATCH`, `DELETE` | `/api/projects/{id}/sprints[/{sprintId}]?trackerId=` | Creates, changes or deletes a sprint on one of the project's trackers, named by id or identity (`400` for another), its default tracker without `trackerId`. |
 | `POST` | `/api/projects/{id}/skills/install` | Installs default skills into `.gemini/` and `.agents/`. |
 | `GET` | `/api/projects/{id}/skills-status` | Reports which workflow skills are scaffolded, per worktree. |
 | `POST` | `/api/projects/{id}/install-skills` | Scaffolds the workflow skills into the repo and all its worktrees. |
@@ -297,6 +370,57 @@ nothing; a creation goes out without that priority and its answer carries a
 | `PUT` | `/api/projects/{id}/skill-editor/{skillId}/mode` | Pins the skill's execution mode for this project. Body `{mode}`: `interactive`, `autonomous`, or empty to clear it and fall back to the project default. |
 | `GET` | `/api/projects/{id}/spec-framework-status` | Per-framework SDD status for this project (see 2.5). |
 | `POST` | `/api/projects/{id}/install-spec-framework` | Installs a SDD toolchain for this project (see 2.5). |
+
+**What a project selects (#741, ADR 0054).** A project carries `trackers`, the
+ordered list of `{trackerId, identity}` it selects its tickets from, `label`,
+which narrows it to the tickets carrying it (empty shows every ticket of its
+trackers), and `defaultTrackerId`, where its new tickets go. The creation and
+the update accept the three: a tracker is named by id or identity (`400` for
+one nobody recorded), duplicates are dropped, the list order is kept, and a
+default that is not one of the trackers falls back to the first. The local
+board of another project is refused with `400`. A creation must name a
+recorded tracker: in `trackers`, or through its legacy tracker fields
+(`issueTracker`, `jiraProject`, `githubRepo`, `gitlabProject`, …), which only
+find a tracker by identity (`400` "tracker inconnu" when none matches). A
+creation naming neither, or only the local board, is refused with `400`: no
+project write from the API creates a tracker, not even a local board. An update
+without `trackers` keeps the project's trackers; one whose legacy fields name a
+provider or a scope joins the recorded tracker of that identity, and is refused
+with `400` when there is none. The site fields alone (`trackerUrl`,
+`githubApiUrl`, `gitlabUrl`) never move a project to another tracker, and the
+code remote (`gitRemoteUrl`) names no tracker: no GitHub repository is derived
+from it.
+
+The tracker fields a project still returns (`issueTracker`, `boardId`,
+`trackerColumns`, `sprints`, `issueTypes`, `autoSync*`, …) are read from its
+default tracker; `stageColumns` is the mapping that applies to that tracker's
+tickets in the project, the project's own else the tracker's. Each entry of
+`trackers` also returns, read only, the tracker's `trackerColumns`, its own
+mapping `trackerStageColumns`, the mapping that applies in the project
+`stageColumns`, and `ownStageColumns` when that one is the project's. A tracker
+is configured by an admin (2.3.0.3): a member's creation or update carrying
+`boardId`, `trackerColumns`, `issueTypes`, `autoSyncEnabled` or
+`autoSyncIntervalMin` is saved without them, and answers as if they were not
+sent. An admin's still writes them to the project's default tracker. `sprints`
+stays a member's.
+
+The stage mapping is the project's own, per tracker (#741, ADR 0054), and a
+member's to write as an admin's. An update may carry `trackerStageColumns:
+{trackerId: {stage: [column]}}`: each tracker named gets that mapping, an empty
+one going back to the tracker's, a tracker left out keeping its own. A stage
+outside the six workflow stages, a column the tracker does not have or a
+tracker the project does not select is refused with `400`. The legacy
+`stageColumns` sets the default tracker's, leniently: the stages and columns the
+tracker lacks are dropped, and a mapping then empty or equal to the tracker's
+keeps the tracker's. Neither ever changes the tracker's own mapping.
+
+Which mapping a ticket's stage follows is ADR 0054's rule: the project in
+context when it selects the ticket's tracker, else the ticket's single project,
+else the tracker's. A stage or column move names its context:
+`POST /api/tasks/{id}/stage` and `POST /api/tasks/{id}/tracker-status` take an
+optional `projectId`, and `PUT /api/tasks/{id}` an optional `stageProjectId`,
+which, unlike `projectId`, moves nothing. The web sends the board's project when
+the ticket belongs to it.
 
 ### 2.3.0 Current Account API
 
@@ -324,10 +448,12 @@ erased at the next visit. Every read of a user resolves
 
 ### 2.3.0.1 Accounts API
 
-The one part of the interface reserved to admins. Everything else on the board,
-projects included, is a member's to use; what stays here is the roster: who
-exists, what role they hold, and whether their account still opens, and the
-admin page's summary of what the board is doing.
+The roster, the admin side of the interface. Everything else on the board,
+projects included, is a member's to use. What is an admin's is the roster:
+who exists, what role they hold, and whether their account still opens, the
+admin page's summary of what the board is doing, and the deployment's tracker
+access: the server credential of each provider, the Jira OAuth app (2.3.1) and
+the trackers themselves (2.3.0.3).
 
 | Method | Path | Body | Description |
 | :--- | :--- | :--- | :--- |
@@ -360,6 +486,55 @@ its projects. Another account's view answers exactly as a missing one.
 
 Deleting a project removes it from every view that selected it; a view left
 without project is kept and selects nothing until it is edited.
+
+A view's projects select by membership (#741): a ticket sits in one of them
+when the project selects its tracker and has no label or the ticket carries it.
+The view's scope is the union of its projects' memberships, each ticket once,
+and the view's own labels narrow it further.
+
+### 2.3.0.3 Trackers API
+
+A tracker is one server-side source of tickets (#741, ADR 0054): a Jira space,
+a GitHub repository, a GitLab project, or the local board of one project. It is
+synchronised in full whatever projects exist, holds the board mirror (board,
+columns, default status-to-stage mapping, sprints, issue types) and the
+background sync settings, and projects select their tickets from it (2.3). A
+project may map the stages onto the tracker's columns its own way (2.3). A
+local board is its project's own: no route below lists it.
+
+**Member routes.** Any signed-in account. A member reaches a tracker's routes
+when at least one project selects it (every member sees every project); an
+admin always does.
+
+| Method | Path | Body | Description |
+| :--- | :--- | :--- | :--- |
+| `GET` | `/api/trackers` | (none) | The trackers to pick from: `[{id, name, provider, site, scope, identity, trackerColumns?, stageColumns?}]`, with, read only and for a tracker a project selects (any tracker for an admin), the columns a project maps its stages onto and the tracker's own mapping; the rest of the board mirror is left out. |
+| `POST` | `/api/trackers/{id}/sync` | (none) | Queues a synchronisation of the tracker: `202 {queued, activity}`. |
+| `GET` | `/api/trackers/{id}/backlog` | (none) | The tracker's open tickets that no project shows: a ticket whose workflow stage is finished, by its workflow label or by its tracker status through the tracker's own stage mapping, is left out. Empty while a project without label selects the tracker. |
+| `POST` | `/api/trackers/{id}/backlog/{taskId}/project` | `{projectId}` | Gives the ticket the project's label: the ticket joins the project at once, and the label write on the tracker is queued with the caller's own credential. `200 {task, activity}`; `404` when the ticket is not one of the tracker's; `409` when the project does not select the tracker or has no label. |
+
+`404` on an unknown tracker, `403` for a member when no project selects it.
+
+**Admin routes.** In the admin-only table: `401` without a session, `403` for a
+member.
+
+| Method | Path | Body | Description |
+| :--- | :--- | :--- | :--- |
+| `GET` | `/api/admin/trackers` | (none) | Every tracker, local boards excepted, with its board mirror and auto-sync settings. |
+| `POST` | `/api/admin/trackers` | `{name, provider, site, scope, boardId?, trackerColumns?, stageColumns?, sprints?, issueTypes?, autoSyncEnabled?, autoSyncIntervalMin?}` | Records a tracker (`201`). The identity is derived from the provider, the site and the scope; `400` when a tracker of that identity exists or the payload is invalid. |
+| `GET` | `/api/admin/trackers/{id}` | (none) | One tracker, or `404`. |
+| `PUT` | `/api/admin/trackers/{id}` | the whole tracker | Rewrites it; the identity is recomputed. |
+| `DELETE` | `/api/admin/trackers/{id}` | (none) | Deletes a tracker; `409` while a project selects it or tickets belong to it. |
+| `GET` | `/api/admin/trackers/{id}/boards` | (none) | The tracker's boards. |
+| `POST` | `/api/admin/trackers/{id}/board-columns` | `{boardId}` | Imports a board's columns onto the tracker and answers the tracker. |
+| `GET` | `/api/admin/trackers/{id}/tracker-statuses` | (none) | The tracker's workflow statuses; for a GitHub tracker, the status options of its Projects (v2) board, else open and closed. |
+| `GET` | `/api/admin/trackers/{id}/issue-types` | (none) | The tracker's work item types. |
+| `GET` | `/api/admin/trackers/{id}/detected-statuses` | (none) | The statuses seen on the tracker's tickets. |
+
+These routes replace the project ones that configured a project's tracker:
+`/api/projects/{id}/boards`, `/api/projects/{id}/board-columns`,
+`/api/projects/{id}/tracker-statuses`, `/api/projects/{id}/issue-types` and
+`/api/projects/detected-statuses` are gone.
 
 ### 2.3.1 Personal Tracker Credentials API
 
@@ -422,13 +597,26 @@ wins over `SECTILE_JIRA_OAUTH_*` as a whole.
 
 | Method | Path | Body | Description |
 | :--- | :--- | :--- | :--- |
-| `POST` | `/api/sync/all` | (none) | Queues a sync of every configured project across all trackers. |
+| `POST` | `/api/sync/all` | (none) | Queues a sync of every tracker, local boards excepted. |
 | `POST` | `/api/sync/github` | `{repo, projectId}` | Queues a GitHub repository sync. |
 | `POST` | `/api/sync/jira` | `{projectKey, projectId}` | Queues a Jira project sync. |
 | `POST` | `/api/sync/gitlab` | `{projectId}` | Queues a GitLab project sync. |
+| `POST` | `/api/trackers/{id}/sync` | (none) | Queues a sync of one tracker (2.3.0.3): `202 {queued, activity}`. |
+| `GET` | `/api/sync/auto?projectId=` | (none) | The background loop's state, `{enabled, intervalSec, running, lastRunAt?, lastError?, lastImported, passes, imported, backoffUntil?, trackers}`, where `trackers` is the pacing of each tracker the loop reads, or of the project's trackers with `projectId`: `[{trackerId, name, provider, enabled, intervalMin, lastPassAt?, lastFullSyncAt?}]`. |
 
-All of them return `{message, activity}`; the work runs on the background job queue
-and its progress is readable through the Activities API.
+The `POST /api/sync/*` routes return `{message, activity}`; the work runs on the
+background job queue and its progress is readable through the Activities API.
+
+**Synchronisation is per tracker (#741, ADR 0054).** A tracker is read in full,
+whatever projects select it, and each ticket is written once, on its tracker.
+A pass asked for a project (`projectId` on `github`, `jira` or `gitlab`) queues
+one pass per tracker of the project and answers the first; the activity of each
+names its tracker (`trackerId`) and stays attached to the project. The
+background loop reads every tracker whose `autoSyncEnabled` is on, at its own
+`autoSyncIntervalMin`, and keeps its pacing in `auto_sync_trackers`, so several
+server instances still queue one pass per due tracker. The status-to-stage
+mapping a sync applies to a ticket is that of the single project the ticket
+belongs to, else the tracker's (ADR 0054).
 
 ### 2.5 Spec-Driven Design Toolchain API
 

@@ -42,3 +42,20 @@ test('each repository the task changed shows its current pull request, the prima
  assert.deepEqual(repositoryPullRequests({}),[])
  assert.equal(pullRequestPresentation(task.prLinks[1]).label,'State unknown: no GitLab token')
 })
+test('the pull request menu lists every repository, primary first, only from two',async()=>{
+ const {pullRequestMenuEntries,prLabel,repositoryName}=await import('../src/pullRequests.mjs')
+ const app={url:'https://github.com/o/app/pull/79',repository:'github.com/o/app',state:'open'}
+ const deploy={url:'https://gitlab.com/g/deploy/-/merge_requests/7',repository:'gitlab.com/g/deploy',missingToken:'gitlab'}
+ assert.deepEqual(pullRequestMenuEntries([]),[])
+ assert.deepEqual(pullRequestMenuEntries(undefined),[])
+ assert.deepEqual(pullRequestMenuEntries([app]),[])
+ assert.deepEqual(pullRequestMenuEntries([app,deploy]),[
+  {url:app.url,repository:'github.com/o/app',name:'app',label:'PR #79',link:app},
+  {url:deploy.url,repository:'gitlab.com/g/deploy',name:'deploy',label:'MR !7',link:deploy},
+ ])
+ const [,odd]=pullRequestMenuEntries([app,{url:'https://example.org/somewhere',repository:''}])
+ assert.equal(odd.label,'PR / MR')
+ assert.equal(odd.name,'PR / MR')
+ assert.equal(prLabel('not a url'),'PR / MR')
+ assert.equal(repositoryName(undefined),'PR / MR')
+})

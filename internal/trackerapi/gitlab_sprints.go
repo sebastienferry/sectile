@@ -223,7 +223,7 @@ const gitlabIterationFields = `id title state startDate dueDate iterationCadence
 // included, then the group's iterations when the instance has them. GitLab
 // sprints are not per board, so the board is ignored.
 func (g *GitlabAdapter) ListSprints(ctx context.Context, req tracker.BoardRequest) ([]models.TrackerSprint, error) {
-	c, projectPath, err := g.forProject(ctx, req.Project)
+	c, projectPath, err := g.forProject(ctx, req.Tracker)
 	if err != nil {
 		return nil, err
 	}
@@ -411,7 +411,7 @@ func (g *GitlabAdapter) CreateSprint(ctx context.Context, req tracker.SprintCrea
 	if createKind(req) != gitlabMilestoneKind {
 		return models.TrackerSprint{}, iterationsUnsupported()
 	}
-	c, projectPath, err := g.forWrite(ctx, req.Project)
+	c, projectPath, err := g.forWrite(ctx, req.Tracker)
 	if err != nil {
 		return models.TrackerSprint{}, err
 	}
@@ -439,7 +439,7 @@ func automaticIterationRefusal(n *gitlabIterationNode) error {
 // UpdateSprint renames, re-dates, closes or reopens a milestone, or renames
 // and re-dates an iteration of a manual cadence. GitLab derives an
 // iteration's state from its dates, so an iteration is never closed by hand.
-func (g *GitlabAdapter) UpdateSprint(ctx context.Context, project *models.Project, sprintID string, patch models.SprintPatch) (models.TrackerSprint, error) {
+func (g *GitlabAdapter) UpdateSprint(ctx context.Context, t *models.Tracker, sprintID string, patch models.SprintPatch) (models.TrackerSprint, error) {
 	id, err := parseGitlabSprintID(sprintID)
 	if err != nil {
 		return models.TrackerSprint{}, err
@@ -486,7 +486,7 @@ func (g *GitlabAdapter) UpdateSprint(ctx context.Context, project *models.Projec
 	if len(body) == 0 {
 		return models.TrackerSprint{}, fmt.Errorf("rien à modifier sur ce sprint")
 	}
-	c, projectPath, err := g.forWrite(ctx, project)
+	c, projectPath, err := g.forWrite(ctx, t)
 	if err != nil {
 		return models.TrackerSprint{}, err
 	}
@@ -533,12 +533,12 @@ func (g *GitlabAdapter) UpdateSprint(ctx context.Context, project *models.Projec
 
 // DeleteSprint deletes a milestone or an iteration of a manual cadence. One
 // GitLab no longer knows counts as deleted.
-func (g *GitlabAdapter) DeleteSprint(ctx context.Context, project *models.Project, sprintID string) error {
+func (g *GitlabAdapter) DeleteSprint(ctx context.Context, t *models.Tracker, sprintID string) error {
 	id, err := parseGitlabSprintID(sprintID)
 	if err != nil {
 		return err
 	}
-	c, projectPath, err := g.forWrite(ctx, project)
+	c, projectPath, err := g.forWrite(ctx, t)
 	if err != nil {
 		return err
 	}
