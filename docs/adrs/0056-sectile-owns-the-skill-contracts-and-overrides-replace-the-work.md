@@ -164,11 +164,11 @@ The question was clarified over three rounds in `docs/clarifications/732.md`.
   rare.
 - Known limits of `refresh_skills`. It rewrites the direct copies even while
   a run is active on the workstation, unlike the desktop's **Initialize**,
-  which refuses with 409 until the executions stop. `directSetupConfig`
-  fetches the projects' configurations before `prepareMu` is taken, so two
-  quick saves can be written out of order; `sync_config` has the same shape,
-  and the next save or refresh corrects it. The server's fan-out
-  (`internal/handlers/skill_refresh.go`) sends one operation per user, routed
+  which refuses with 409 until the executions stop. `refresh_skills` and
+  `sync_config` hold a lock of their own from the fetch of the projects'
+  configurations to the write, so two quick saves are written in order;
+  `prepareMu`, which runs wait on, is taken for the write only. The server's
+  fan-out (`internal/handlers/skill_refresh.go`) sends one operation per user, routed
   by user and project, so a second workstation of the same user, connected
   under another key, is refreshed only at its next `sectile-agent init`,
   **Initialize** or `sync_config`.

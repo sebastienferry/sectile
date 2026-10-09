@@ -78,9 +78,15 @@ type agentDaemon struct {
 	link serverLink
 	// terminal is which native terminal consoles open in, and the PTY manager
 	// that runs them.
-	terminal         terminalChoice
-	repoRoot         string
-	prepareMu        sync.Mutex
+	terminal  terminalChoice
+	repoRoot  string
+	prepareMu sync.Mutex
+	// directCopyMu serializes sync_config and refresh_skills from the fetch
+	// of the projects' configurations to the write of the direct copies, so
+	// a copy composed from an older fetch is never written last. It is taken
+	// before prepareMu, never while holding it, and keeps the slow fetch out
+	// of prepareMu, which every run waits on.
+	directCopyMu     sync.Mutex
 	done             chan struct{}
 	contract         contractState
 	launchTerminalFn func(terminalApp, sessionID string) error

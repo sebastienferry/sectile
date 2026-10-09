@@ -219,6 +219,8 @@ func (d *agentDaemon) executeOperation(ctx context.Context, op agentprotocol.Ope
 		// again, which would undo the provider this operation asks for. A
 		// project that cannot be read is left out with a warning: its variant
 		// drops out of the shared copies until the next refresh.
+		d.directCopyMu.Lock()
+		defer d.directCopyMu.Unlock()
 		direct, warnings, err := d.directSetupConfig(ctx, fetched)
 		if err != nil {
 			return nil, err
@@ -520,6 +522,8 @@ func (d *agentDaemon) refreshSkills(ctx context.Context, config agentconfig.Conf
 	}
 	// As for sync_config, a project that cannot be read is left out with a
 	// warning.
+	d.directCopyMu.Lock()
+	defer d.directCopyMu.Unlock()
 	direct, warnings, err := d.directSetupConfig(ctx, config)
 	if err != nil {
 		return nil, err
