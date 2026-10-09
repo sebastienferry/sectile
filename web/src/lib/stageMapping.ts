@@ -1,4 +1,5 @@
 import type { Project, ProjectTrackerRef, TrackerColumn } from '../types'
+import { trackerBoard as sharedTrackerBoard } from '../../../shared/workflowStage.mjs'
 
 /**
  * The stage→columns mapping of a project, per tracker it selects (#741). A
@@ -82,9 +83,7 @@ export function trackerBoard(
   project: Project | null | undefined,
   trackerId: string | undefined
 ): { trackerColumns: TrackerColumn[]; stageColumns: StageMapping } {
-  const ref = trackerId ? project?.trackers?.find(item => item.trackerId === trackerId) : undefined
-  if (ref) return { trackerColumns: ref.trackerColumns || [], stageColumns: ref.stageColumns || {} }
-  return { trackerColumns: project?.trackerColumns || [], stageColumns: project?.stageColumns || {} }
+  return sharedTrackerBoard(project, trackerId) as { trackerColumns: TrackerColumn[]; stageColumns: StageMapping }
 }
 
 /** The project as a ticket of the tracker reads it: its columns and mapping are that tracker's. */
