@@ -202,9 +202,9 @@ the guard (`## Do not`, or `## Recovery and blockers` for implement) and
   and an `Otherwise` subsection with the workstation's or the built-in
   section. A save, reset or import in the Skills view asks the connected
   agents serving the project to rewrite, with the `refresh_skills` operation,
-  the direct copies they already manage; a workstation that is offline, has
-  no direct setup or has no local mapping for that project catches up at its
-  next `sectile-agent init`, **Initialize** or `sync_config`. The plugin skill
+  the direct copies they already manage, even without a local mapping for
+  that project; a workstation that is offline or has no direct setup catches
+  up at its next `sectile-agent init`, **Initialize** or `sync_config`. The plugin skill
   is never rewritten.
 - **`/transition <taskKey> <stage>`.** Records a stage by hand: it reads the
   task, gathers the stage's evidence (note, actual branch, `prUrl`/`prUrls` or

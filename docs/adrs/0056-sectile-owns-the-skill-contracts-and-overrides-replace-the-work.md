@@ -154,10 +154,11 @@ The question was clarified over three rounds in `docs/clarifications/732.md`.
 - A project's full replacement does not reach the direct copy: invoked by
   hand, the skill runs its "Otherwise" content, as before. A workstation's
   full replacement never touches the direct copy either.
-- `refresh_skills` reaches only connected agents. A workstation offline at
-  the save, or one with no local mapping for that project (the operation then
-  fails for it), catches up at its next `sectile-agent init`, **Initialize**
-  or `sync_config`; a hand edit of `settings.json` has no event either and
+- `refresh_skills` reaches only connected agents. It needs no local mapping
+  of the project, since the direct copies are user-level: a workstation
+  without a checkout of it refreshes them from its settings folder. A
+  workstation offline at the save catches up at its next
+  `sectile-agent init`, **Initialize** or `sync_config`; a hand edit of `settings.json` has no event either and
   takes effect at those points. Each refresh fetches the configuration of
   every project the workstation knows, which is affordable since saves are
   rare.
