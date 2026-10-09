@@ -15,6 +15,7 @@ test fixtures or internal plumbing.
 
 ### Added
 
+- **Install Sectile Desktop on Windows with Scoop.** `scoop bucket add sectile https://github.com/sebastienferry/scoop-sectile`, then `scoop install sectile/sectile`, installs the app with its agent in your profile, without administrator rights, with a Start menu shortcut; `scoop update sectile` keeps it current.
 - **Create and edit a task in a Desktop page.** Cmd+N (Ctrl+N), **New task** in the palette and **Edit task** in a ticket's menu or a task execution's toolbar open one page with the title, the assignee (searched in Jira and GitLab), the ordered pull request links and a formatted Markdown description with a block menu, a formatting toolbar and a raw **Markdown** view. Only changed fields are saved, and leaving with unsaved changes asks first. It replaces the quick add dialog. (#805)
 - **A project board in Sectile Desktop.** **Open board** on a project, or **Project board** in the command palette, shows the project's tasks in the six workflow columns, with the Finished column collapsed and condensed cards by default, macro colours when the project enables them, and each card's actions menu. Drag a card onto another column to move the task to that stage, as on the web board; nothing is launched. (#806)
 
