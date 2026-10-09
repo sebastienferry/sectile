@@ -6,13 +6,14 @@ Sectile brings tracker tickets, coding agents, local worktrees, and pull request
 
 1. [Connect to the web interface](#connect-to-the-web-interface)
 2. [Set up a personal Jira token](#set-up-a-personal-jira-token)
-3. [Use an existing project](#use-an-existing-project)
-4. [Add a new project](#add-a-new-project)
-5. [Pair and set up your workstation](#pair-and-set-up-your-workstation)
-6. [Configure the project in Desktop](#configure-the-project-in-desktop)
-7. [Use a prompt in Claude Code](#use-a-prompt-in-claude-code)
-8. [Run the full workflow autonomously](#run-the-full-workflow-autonomously)
-9. [Follow work in Desktop](#follow-work-in-desktop)
+3. [Connect GitHub and GitLab](#connect-github-and-gitlab)
+4. [Use an existing project](#use-an-existing-project)
+5. [Add a new project](#add-a-new-project)
+6. [Pair and set up your workstation](#pair-and-set-up-your-workstation)
+7. [Configure the project in Desktop](#configure-the-project-in-desktop)
+8. [Use a prompt in Claude Code](#use-a-prompt-in-claude-code)
+9. [Run the full workflow autonomously](#run-the-full-workflow-autonomously)
+10. [Follow work in Desktop](#follow-work-in-desktop)
 
 ## Connect to the web interface
 
@@ -55,6 +56,52 @@ A sealed and locked personal token cannot authorize your task writes. A Jira con
 4. In Sectile, open **Administration → Jira connection (Atlassian OAuth)** and save the client ID, the secret and the same callback URL, or set `SECTILE_JIRA_OAUTH_CLIENT_ID`, `SECTILE_JIRA_OAUTH_CLIENT_SECRET` and `SECTILE_JIRA_OAUTH_REDIRECT_URL` on the server. A configuration saved on the page wins over the environment. The secret is never shown again.
 
 Clearing the configuration brings back the API token form; existing connections stay stored but can no longer renew.
+
+## Connect GitHub and GitLab
+
+A GitHub or GitLab project also needs your own access for actions attributed to you, set in the same **Profile → Tracker credentials** (*Profil → Identifiants Trackers*) area. When your administrator configured the connection, you connect your account with one consent screen instead of creating and pasting a personal token.
+
+### Connect GitHub
+
+When the GitHub connection is configured and one of the deployment's trackers is on github.com, the **GitHub** entry offers **Connect GitHub** (*Connecter GitHub*):
+
+1. Select **Connect GitHub**. Your browser goes to GitHub's authorisation screen, which lists what Sectile asks to do: access to your repositories (`repo`) and read access to your projects (`read:project`).
+2. Authorise the app. You land back on **Profile → Tracker credentials**, which shows **Connected to GitHub as** (*Connecté à GitHub en tant que*) your GitHub login.
+
+The connection does not expire: your queued writes and agent stage reports go out under your account while you are away, with no passphrase to unlock. Connecting replaces a GitHub token you had stored.
+
+If your organisation restricts OAuth app access and has not approved Sectile, its private repositories stay invisible to your connection: ask an organisation owner to approve the app. If you revoke Sectile in your GitHub settings, the next write is refused, the entry says the connection was lost and offers **Reconnect GitHub** (*Reconnecter GitHub*). **Disconnect** (*Déconnecter*) forgets the connection in Sectile and also revokes it on GitHub.
+
+### Connect GitLab
+
+When the GitLab connection is configured and one of the deployment's trackers is on gitlab.com, the **GitLab** entry offers **Connect GitLab** (*Connecter GitLab*):
+
+1. Select **Connect GitLab**. Your browser goes to gitlab.com's authorisation screen, which asks for the `api` scope.
+2. Authorise the application. You land back on **Profile → Tracker credentials**, which shows **Connected to GitLab as** (*Connecté à GitLab en tant que*) your GitLab username.
+
+Sectile renews the connection in the background, so your writes keep going out under your account while you are away. Connecting replaces a GitLab token you had stored. If you revoke the application on gitlab.com, the next renewal fails and the entry says the connection was lost and offers **Reconnect GitLab** (*Reconnecter GitLab*); your GitLab writes are refused until you reconnect. **Disconnect** forgets the connection in Sectile and also revokes it on gitlab.com.
+
+### Use a token instead
+
+The connections cover github.com and gitlab.com only. For GitHub Enterprise or a self-hosted GitLab instance, or whenever you prefer a token, select **Use a token instead** (*Utiliser un jeton à la place*), then enter the site URL and a personal access token, select **Verify** (*Vérifier*) and **Save** (*Enregistrer*). Saving a token replaces the connection and revokes it on the forge. Since Sectile keeps one credential per forge, connecting GitLab also replaces the token a self-hosted GitLab tracker needs: its writes are then refused with a hint to use a token for that site, until you switch back.
+
+### Configure the GitHub and GitLab connections (administrators)
+
+The examples below use `https://sectile.internal.eqtv.dev` as the server's public URL; use your own.
+
+**GitHub.**
+
+1. Under the GitHub organisation that owns the repositories, open **Settings → Developer settings → OAuth Apps** and register a new **OAuth App** (not a GitHub App). Set its authorization callback URL to `https://sectile.internal.eqtv.dev/auth/github/callback`. Sectile asks for the scopes `repo` and `read:project` at consent time; an OAuth App declares none in advance.
+2. Generate a client secret.
+3. Each organisation that enforces OAuth app access restrictions must approve the app under **Organisation settings → Third-party access**, or its private repositories stay invisible to every connection.
+4. In Sectile, open **Administration → GitHub connection (OAuth App)** and save the client ID, the secret and the same callback URL, or set `SECTILE_GITHUB_OAUTH_CLIENT_ID`, `SECTILE_GITHUB_OAUTH_CLIENT_SECRET` and `SECTILE_GITHUB_OAUTH_REDIRECT_URL` on the server.
+
+**GitLab.**
+
+1. On gitlab.com, under a group's **Settings → Applications** (or **Preferences → Applications** for one owned by a user), add a confidential application with the redirect URI `https://sectile.internal.eqtv.dev/auth/gitlab/callback` and the scope `api` only.
+2. In Sectile, open **Administration → GitLab connection (gitlab.com OAuth)** and save the application ID, the secret and the same callback URL, or set `SECTILE_GITLAB_OAUTH_CLIENT_ID`, `SECTILE_GITLAB_OAUTH_CLIENT_SECRET` and `SECTILE_GITLAB_OAUTH_REDIRECT_URL` on the server.
+
+A configuration saved on the page wins over the environment, and the secret is never shown again. **Connect** is offered only while the app is configured and at least one tracker uses github.com or gitlab.com. Clearing a configuration brings back the token form; existing GitLab connections stay stored but can no longer renew.
 
 ## Use an existing project
 
